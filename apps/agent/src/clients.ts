@@ -17,13 +17,16 @@
  */
 
 import type { GatewayAttachment } from "./attachments";
-import { readSettings, type Settings } from "./texStyle";
+import { type Settings } from "./texStyle";
+import { linkedFrom, type LinkedSession } from "./gatewaySession";
+export { openGatewaySession, type TextsBinding } from "./gatewaySession";
 import type { Reaction, Tapback } from "./reactions";
 import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import { readChoices, type Choice } from "./pickCard";
 import { readOffers, type Offer } from "./dataCards";
-import { readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
+import { MAX_HEARD, refusalOf } from "./agentRefusal";
+import { readHub, readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
 import type { TexEvent } from "./events";
 
 /** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
@@ -178,8 +181,7 @@ export async function shareLinqContactCard(fetcher: Fetch, apiKey: string, chatI
 
 /** `timeZone` is the person's own (their reminders run in it), when the control plane sent one. */
 /** `settings`: how their own Tex talks to them (`texStyle.ts`): their instructions and progress updates, only what is set. */
-export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string; settings?: Settings } | { status: "unlinked" };
-
+export type SessionAnswer = LinkedSession | { status: "unlinked" };
 export async function openSession(
   fetcher: Fetch,
   origin: string,
@@ -191,11 +193,8 @@ export async function openSession(
   });
   if (status !== 200) throw new ServiceError("control_plane", status);
   const body = record(json);
-  if (body.status === "linked" && typeof body.accessToken === "string" && body.accessToken) {
-    const zone = typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {};
-    const settings = readSettings(body);
-    return { status: "linked", accessToken: body.accessToken, ...zone, ...(Object.keys(settings).length > 0 ? { settings } : {}) };
-  }
+  const linked = linkedFrom(body);
+  if (linked !== null) return linked;
   if (body.status === "unlinked") return { status: "unlinked" };
   throw new ServiceError("control_plane", status);
 }
@@ -235,7 +234,8 @@ export type AgentAnswer =
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string }
+  /** `heard`, `sent`: what the person said aloud this turn, and the gateway's line naming the files they sent: jobs it starts, changes or restarts get them beside their typed words (`jobs.ts` `jobQuestion`). */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -244,8 +244,8 @@ export type AgentAnswer =
   | { kind: "not_started" }
   /** The gateway's 503 for a workspace with no bucket it can reach: a new one still starting, or a broken binding. */
   | { kind: "no_storage" }
-  /** `timedOut`: a streamed turn that ran past its time, not one that failed. */
-  | { kind: "unavailable"; timedOut?: true };
+  /** `timedOut`: a streamed turn that ran past its time, not one that failed; `refused`: turned down before anything ran (`agentRefusal.ts`). */
+  | { kind: "unavailable"; timedOut?: true; refused?: string };
 
 /**
  * Ask the gateway's `/agent` route. `conversation` names the thread the
@@ -295,6 +295,7 @@ export async function askAgent(
     told = [],
     settings = {},
     arrivedAt,
+    worker,
     warm, beside,
     recent,
   }: {
@@ -320,6 +321,8 @@ export async function askAgent(
     settings?: Settings;
     /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
     arrivedAt?: number;
+    /** The Worker's own wait before this ask: the session lookup and the work after it (`apps/mcp/src/agent/turnTiming.js`). */
+    worker?: { sessionMs: number; beforeAskMs: number };
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
     warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
     recent?: readonly TexEvent[]; // the outbox: what the gateway has not taken yet, added to the ledger's day (`warmCopy.js` `mergeEvents`)
@@ -345,6 +348,7 @@ export async function askAgent(
     ...(told.length > 0 ? { told } : {}),
     ...settings,
     ...(arrivedAt !== undefined ? { arrivedAt } : {}),
+    ...(worker ? { worker } : {}),
     ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),
   };
@@ -390,7 +394,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       text: body.answer.trim(),
       pictures,
       ...(readChoices(body.choices).length > 0 ? { choices: readChoices(body.choices) } : {}),
-      ...(readOffers(body.offers).length > 0 ? { offers: readOffers(body.offers) } : {}),
+      ...(readOffers(body.offers).length > 0 ? { offers: readOffers(body.offers), ...(readHub(body.hub) !== null ? { hub: readHub(body.hub)! } : {}) } : {}), // `hub`: the chat's Tex page the view points to (`jobs.ts` `readHub`)
       ...(verbatim.length > 0 ? { verbatim } : {}), ...(body.quiet === true ? { quiet: true as const } : {}),
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),
@@ -401,6 +405,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
+      ...(typeof body.heard === "string" && body.heard.trim() ? { heard: body.heard.trim().slice(0, MAX_HEARD) } : {}), ...(typeof body.sent === "string" && body.sent.trim() ? { sent: body.sent.trim().slice(0, MAX_HEARD) } : {}),
     };
   }
   if (status === 409) return { kind: "no_model" };
@@ -409,6 +414,8 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
   // a platform 503 (a Worker over its limits) can come after tools ran.
   if (status === 503 && body.error === "model_unavailable") return { kind: "not_started" };
   if (status === 503 && body.error === "storage_unavailable") return { kind: "no_storage" };
+  const refused = refusalOf(status, body);
+  if (refused !== null) return { kind: "unavailable", refused };
   return { kind: "unavailable" };
 }
 

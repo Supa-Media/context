@@ -1,6 +1,7 @@
 /**
- * `/tex/<handle>`: the person's own look at, and hands on, the browser Tex
- * drives for them. The page Tex texts when they have to sign in somewhere.
+ * `/tex/@<handle>` (and `/tex/group/<words>`): the person's own look at, and
+ * hands on, the browser Tex drives for them. The page Tex texts when they have
+ * to sign in somewhere.
  *
  * `apps/mcp/src/http/texComputer.js` is the server half of this contract. The
  * gateway decides whose browser it is from the console grant, never from the
@@ -26,8 +27,30 @@ export const IDLE_POLL_MS = 5_000;
 /** The most one Send inserts. The screenshot Worker refuses more. */
 export const MAX_TYPED = 1_000;
 
+/** `/tex/@<handle>`: the person's own Tex page, as Tex texts it (the owner, 2026-11-03). */
 export function texHref(handle: string): string {
-  return `${TEX_ROUTE}/${encodeURIComponent(handle)}`;
+  return `${TEX_ROUTE}/@${encodeURIComponent(handle)}`;
+}
+
+/** The three to five words that name a group chat's home (`tex/groups/<words>`, `apps/convex/functions/lib/textGroupHome.ts`). */
+const GROUP_WORDS = /^[a-z]+(?:-[a-z]+){1,4}$/;
+
+/** `/tex/group/<words>`: a group chat's Tex page, addressed by its home's words. */
+export function texGroupHref(words: string): string {
+  return `${TEX_ROUTE}/group/${encodeURIComponent(words)}`;
+}
+
+/** A group's words from an address, or null for anything that is not three to five lower-case words. */
+export function normalizeGroupWords(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const words = raw.trim().toLowerCase();
+  return GROUP_WORDS.test(words) ? words : null;
+}
+
+/** A group chat's words, from its home folder as the gateway names it (`tex/groups/<words>`), or null. */
+export function groupWordsOf(folder: string | null | undefined): string | null {
+  const match = typeof folder === "string" ? /^tex\/groups\/([^/]+)$/.exec(folder) : null;
+  return match ? normalizeGroupWords(match[1]) : null;
 }
 
 /** `@Seyi` and `seyi` are one handle; anything outside the namespace is none. */
@@ -63,6 +86,27 @@ export type TexPageView =
   | { kind: "notYours"; own: string | null }
   | { kind: "ready"; handle: string; workspaceId: string };
 
+/**
+ * `/tex/group/<words>`: which page to draw, before anything is asked of the
+ * gateway. There is no handle in the address, so it is always the signed-in
+ * person's own page; whether the group is one of theirs is the gateway's call
+ * (`apps/mcp/src/http/texPage/page.js`), answered off their live grant.
+ */
+export function resolveTexGroupPage(inputs: {
+  words: string | null;
+  auth: { isLoading: boolean; isAuthenticated: boolean };
+  workspaces: readonly WorkspaceRow[] | undefined;
+}): TexPageView {
+  const words = normalizeGroupWords(inputs.words);
+  if (inputs.auth.isLoading) return { kind: "wait" };
+  if (words === null) return { kind: "notFound" };
+  if (!inputs.auth.isAuthenticated) return { kind: "signIn", href: loginHref(texGroupHref(words)) };
+  if (inputs.workspaces === undefined) return { kind: "wait" };
+  const own = ownWorkspace(inputs.workspaces);
+  if (own === null) return { kind: "notYours", own: null };
+  return { kind: "ready", handle: own.handle, workspaceId: own.workspaceId };
+}
+
 /** Which page to draw, before anything is asked of the gateway. */
 export function resolveTexPage(inputs: {
   handle: string | null;
@@ -78,6 +122,24 @@ export function resolveTexPage(inputs: {
   const own = ownWorkspace(inputs.workspaces);
   if (own === null || own.handle !== handle) return { kind: "notYours", own: own?.handle ?? null };
   return { kind: "ready", handle, workspaceId: own.workspaceId };
+}
+
+/**
+ * Where bare `/tex?…` goes: the signed-in person's own `/tex/<handle>?…`. A
+ * link made before anyone is known (a runner's pairing link, say) cannot name
+ * the handle, so the app fills it in. Signed out, it signs in and comes back
+ * here; with no personal workspace of their own, nowhere (`null`).
+ */
+export function ownTexHref(
+  inputs: { auth: { isLoading: boolean; isAuthenticated: boolean }; workspaces: readonly WorkspaceRow[] | undefined },
+  query: string,
+): { kind: "wait" } | { kind: "go"; href: string | null } {
+  const suffix = query ? `?${query}` : "";
+  if (inputs.auth.isLoading) return { kind: "wait" };
+  if (!inputs.auth.isAuthenticated) return { kind: "go", href: loginHref(`${TEX_ROUTE}${suffix}`) };
+  if (inputs.workspaces === undefined) return { kind: "wait" };
+  const own = ownWorkspace(inputs.workspaces);
+  return { kind: "go", href: own ? `${texHref(own.handle)}${suffix}` : null };
 }
 
 /** The gateway route for one of the three things this page does. */

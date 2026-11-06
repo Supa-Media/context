@@ -18,6 +18,8 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { runScopedRoutine, textPhone, type RoutineDeps, type RoutineScope } from "./routines";
 import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./texPage";
+import { readMailDelivery } from "./jobMail";
+import { inboxByName } from "./objectPlace";
 
 /** A person's owner is their personal workspace's id, as the gateway names its Tex store. */
 const PERSON_OWNER = /^person:([A-Za-z0-9_-]{1,128})$/;
@@ -58,6 +60,21 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
     if (inbox === null) return { taken: false };
     const response = await inbox.fetch("https://inbox/page-steer", { method: "POST", body: JSON.stringify(steer) });
     if (!response.ok) throw new Error("the chat's inbox did not answer");
+    return { taken: ((await response.json()) as { taken?: unknown }).taken === true };
+  }
+
+  /**
+   * Note mail for one job, the moment it was sent (`jobMail.ts`,
+   * `apps/mcp/src/mail/deliver.js`): handed to the job's own object, which
+   * steers it into the part running now. `taken` is false once the job has
+   * ended; the line is in the note either way.
+   */
+  async mailDeliver(call: unknown): Promise<{ taken: boolean }> {
+    const delivery = readMailDelivery(call);
+    if (delivery === null) throw new TypeError("a delivery names a job, its mailbox and one mail line");
+    const job = inboxByName(this.env.SENDER_INBOX, `job:${delivery.jobId}`);
+    const response = await job.fetch("https://inbox/job-mail", { method: "POST", body: JSON.stringify(delivery) });
+    if (!response.ok) return { taken: false };
     return { taken: ((await response.json()) as { taken?: unknown }).taken === true };
   }
 

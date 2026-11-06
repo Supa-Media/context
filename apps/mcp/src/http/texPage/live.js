@@ -3,8 +3,9 @@
  * socket (decided by the owner, 2026-11-02). It authorizes like `/tex/page`
  * (`page.js`): the console's own client, the page's own handle, a chat the
  * person is in now, and a key they are not in is refused exactly as one that
- * names nothing. The token is offered as a subprotocol beside
- * `context.tex-page`, so it never sits in a URL, and never echoed back.
+ * names nothing. It opens on a one-use ticket offered as a subprotocol beside
+ * `context.tex-page` (`live/ticket.js`), so no token is on the socket, and the
+ * ticket is never echoed back.
  *
  * Then the upgrade goes to the chat's own Tex object (`texStore/pageLive.js`),
  * on a request built from nothing but the viewer this route decided: their
@@ -35,7 +36,7 @@ export async function handleTexPageLive(request, env, { slug, pathToken, origin 
   const controlPlane = deps.controlPlane ?? createControlPlane(env);
   let session;
   try {
-    session = await resolvePresentedSession(request, { pathToken, path: TEX_PAGE_SOCKET_PATH, slug, controlPlane });
+    session = await resolvePresentedSession(request, { pathToken, path: TEX_PAGE_SOCKET_PATH, slug, controlPlane, env });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403 ? forbiddenResponse(origin, null, error) : unauthorizedResponse(origin, slug, error);

@@ -8,14 +8,14 @@
  *
  * Sabotage (temporary local edits, reverted):
  *  - computer.js reading every page with no race: "one slow page" waits for it and reads it;
- *  - texTurn toolTimeouts without open_page: "the route gives open_page its own limit" fails.
+ *  - texEntryPoint toolTimeouts without open_page: "the route gives open_page its own limit" fails.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { OPEN_PAGE_TIMEOUT_MS, OPEN_PAGE_TOOL, PAGE_OPEN_MS, webSession } from "../src/agent/computer.js";
-import { texTurnSource } from "./texTurnSource.mjs";
+import { texEntryPointSource } from "./texEntryPointSource.mjs";
 
 const FAST = "https://fast.example.com/";
 const SLOW = "https://slow.example.com/private-path";
@@ -56,5 +56,5 @@ test("one slow page comes back as could not be opened while the others return, l
 test("the tool's limit covers a call's pages and the one guessed after them, and the route gives open_page its own limit", () => {
   assert.equal(PAGE_OPEN_MS, 60_000);
   assert.ok(OPEN_PAGE_TIMEOUT_MS >= 2 * PAGE_OPEN_MS);
-  assert.match(texTurnSource(), /toolTimeouts: \{ open_page: OPEN_PAGE_TIMEOUT_MS,/);
+  assert.match(texEntryPointSource(), /toolTimeouts: \{ open_page: OPEN_PAGE_TIMEOUT_MS,/);
 });

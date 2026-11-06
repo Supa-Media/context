@@ -23,3 +23,5 @@ export async function gatewayAgentIdentityHandler(ctx: ActionCtx, body: Record<s
   });
   return json({ identity });
 }
+
+export { gatewayTextsOpenedHandler } from "./textsOpened";

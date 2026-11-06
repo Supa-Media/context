@@ -33,7 +33,7 @@ import { TexPageBody, type Place } from "../features/tex/page/TexPageBody";
 import { fixtureNow, fixtureSource } from "../features/tex/page/texPageFixture";
 import { entryLine, readLedgerPage, readLedgerSees } from "../features/tex/page/texPageLedger";
 import { gatewaySource, type TexPageSource } from "../features/tex/page/texPageSource";
-import { LATEST, type LedgerQuery } from "../features/tex/page/texPageTypes";
+import { LATEST, type LedgerEntry, type LedgerQuery } from "../features/tex/page/texPageTypes";
 import { useTexPage } from "../features/tex/page/useTexPage";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -87,12 +87,12 @@ async function type(id: string, value: string) {
   await tick();
 }
 
-const SHOWN_KINDS = ["text", "tool", "note", "advisor", "mail_check", "job"];
+const SHOWN_KINDS = ["text", "tool", "judge", "note", "advisor", "mail_check", "job"];
 
 describe("the chat's history file", () => {
-  test("is one tap from Behind the scenes, one line a message, the turn in the order it happened", async () => {
+  test("is one tap from the hub's history, one line a message, the turn in the order it happened", async () => {
     await render(fixtureSource());
-    await press("tex-behind-history");
+    await press("tex-history-open-full");
     expect(byTestId("tex-history")).not.toBeNull();
     expect(byTestId("tex-history-day-2026-11-02")?.textContent).toContain("Today");
     const line = (id: string) => byTestId(`tex-history-entry-${id}`)?.textContent ?? "";
@@ -114,6 +114,46 @@ describe("the chat's history file", () => {
     expect(JSON.parse(raw)).toMatchObject({ kind: "tool", name: "calendar_events", args: { day: "today" } });
   });
 
+  test("reads as the history file does: live, the filters above its own scroller, newest at the bottom", async () => {
+    // Dev, 2026-11-05: "this page doesn't update in realtime, also it should start at the bottom and then scroll up
+    // to see history like the history ledger page, filters still visible".
+    const source = fixtureSource();
+    let patch: (() => void) | null = null;
+    let extra: LedgerEntry[] = [];
+    const live: TexPageSource = {
+      ...source,
+      ledger: async (chat, q) => {
+        const r = await source.ledger(chat, q);
+        return r.kind === "ok" && q.before === LATEST ? { ...r, value: { ...r.value, entries: [...extra, ...r.value.entries] } } : r;
+      },
+      live: (chat, onPatch, onLive) => {
+        patch = () => onPatch({ t: "patch", section: "earlier" } as never);
+        return source.live(chat, onPatch, onLive);
+      },
+    };
+    await render(live, { chat: "me", view: "history" });
+    const scroll = byTestId("history-file-scroll")!;
+    const head = byTestId("history-file-head")!;
+    // The filters stay where they are as the lines move: above the scroller, never in it, and the page itself holds still.
+    expect(scroll.contains(head)).toBe(false);
+    expect(head.querySelector('[data-testid="tex-history-show-texts"]')).not.toBeNull();
+    expect(head.textContent).toContain("History");
+    expect(byTestId("tex-page")!.contains(scroll)).toBe(true);
+    // The newest line is the last one.
+    const lines = () => [...scroll.querySelectorAll('[data-testid^="tex-history-entry-"]')].map((e) => e.getAttribute("data-testid"));
+    expect(lines().indexOf("tex-history-entry-me-e1")).toBeLessThan(lines().indexOf("tex-history-entry-me-e6"));
+    // A judge's verdict written while the page is open arrives without a reload, at the bottom.
+    extra = [{ v: 1, seq: 99, id: "me-e99", at: Date.parse("2026-11-02T14:30:00Z"), kind: "text", from: { kind: "tex" }, turn: "t99", text: "A new answer, just now.", delivered: true } as LedgerEntry];
+    expect(patch).not.toBeNull();
+    act(() => patch!());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 600));
+    });
+    await tick();
+    expect(text()).toContain("A new answer, just now.");
+    expect(lines().at(-1)).toBe("tex-history-entry-me-e99");
+  });
+
   test("the day and what is shown are asked of the gateway", async () => {
     const source = fixtureSource();
     const asked: LedgerQuery[] = [];
@@ -130,7 +170,7 @@ describe("the chat's history file", () => {
     await press("tex-history-show-thinking");
     expect(text()).toContain("advisor thinking · They want cost first. The blog is old.");
     expect(byTestId("tex-history-job-steps-maritime")?.textContent).toContain("Read their docs, then compare pricing.");
-    expect(asked.at(-1)!.kinds).toEqual(["text", "tool", "thinking", "said", "note", "advisor", "mail_check", "job"]);
+    expect(asked.at(-1)!.kinds).toEqual(["text", "tool", "judge", "thinking", "said", "note", "advisor", "mail_check", "job"]);
     expect(asked.at(-1)!.jobs).toBeUndefined();
     // Folded away on a tap.
     await press("tex-history-entry-job:2026-11-02:maritime");
@@ -150,9 +190,9 @@ describe("the chat's history file", () => {
     await press("tex-history-day-choice");
     await press("tex-history-day-choice-option-all");
     expect(asked.at(-1)).toEqual({ kinds: SHOWN_KINDS, before: LATEST });
-    // Every day, the newest first, each in the order it happened.
+    // Every day, read as a chat: the oldest at the top, each in the order it happened, the newest at the bottom.
     expect(byTestId("tex-history-day-2026-11-02")).not.toBeNull();
-    expect(text().indexOf("Standup at 10")).toBeLessThan(text().indexOf("Your water bill"));
+    expect(text().indexOf("Your water bill")).toBeLessThan(text().indexOf("Standup at 10"));
     await press("tex-history-day-choice");
     await press("tex-history-day-choice-option-pick");
     const before = asked.length;
@@ -211,7 +251,7 @@ describe("the chat's history file", () => {
     expect(byTestId("tex-sees-page")).not.toBeNull();
     expect(text()).toContain("Shown tool results");
     expect(byTestId("tex-sees-setting-toolResults")?.textContent).toContain("No");
-    expect(byTestId("tex-sees-setting-heldBack")?.textContent).toContain("Yes");
+    expect(byTestId("tex-sees-setting-heldBack")).toBeNull();
     expect(byTestId("tex-sees-text")?.textContent).toContain("(used: calendar_events, read_note)");
   });
 

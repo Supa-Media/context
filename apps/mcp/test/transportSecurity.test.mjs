@@ -402,13 +402,13 @@ export async function runTransportSecurityChecks() {
 
   // Coverage of the transport's other spellings and its neighbour.
   check(
-    "the token-in-path transport form is guarded too",
+    "the retired token-in-path form is refused outright, from any origin",
     (
       await transportRequest("https://evil.example", {
         token: null,
         path: `/t/${accessTokenFor("priv-token")}/mcp`,
       })
-    ).status === 403
+    ).status === 410
   );
   check(
     "the capture endpoint is guarded too",

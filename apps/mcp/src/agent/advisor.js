@@ -23,7 +23,7 @@
  * decline an ask the everyday model can handle, in one line, and the
  * everyday model answers itself.
  *
- * Its spend is metered under its own model (`texTurn.js` `meter`), never
+ * Its spend is metered under its own model (`texEntryPoint.js` `meter`), never
  * folded into the turn's. A turn may ask at most `MAX_ASKS` times (Dev2,
  * 2026-10-31: 10, and the everyday model is never told there is a limit).
  */
@@ -60,6 +60,22 @@ export const ADVISOR_PROMPT =
   "promise work nobody will do are what to catch. Be specific and short, a few hundred words at most. Never invent a fact that isn't in the transcript; " +
   "say what Tex must look up instead.";
 
+/**
+ * A job's turn runs on the everyday model from its first round (Dev2, 2026-11-05: "for the Tex minions knock them down to
+ * Haiku, and also make sure that they have access to the advisor, whenever they need it"). Opus planning every job's first
+ * rounds, and taking back every round after a failed call, was most of Tex's Opus spend. So the job is told where the
+ * judgment now comes from: the advisor, asked when the job needs it. Never the limit on asks.
+ */
+export const JOB_ADVISOR_LINE =
+  "\n\nYou run this job on a fast model. Your advisor (send with action advisor) is a stronger model that sees the whole job so far: " +
+  "ask it before your first step when the job has several steps or needs judgment, when a step fails and the next way isn't clear, " +
+  "and before you report the job finished.";
+
+/** The line for a job's turn when its advisor is offered, else "". */
+export function jobAdvisorLine(job, offered) {
+  return job !== null && job !== undefined && offered === true ? JOB_ADVISOR_LINE : "";
+}
+
 const clip = (value, max) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 
 /** The tags the brief quotes in (`advisorBrief`); a quoted word that is one of them would end the quote. */
@@ -78,7 +94,7 @@ const quoted = (value) => BRIEF_TAGS.reduce((text, tag) => withoutTag(tag, text)
  * @param {Array<{role: string, text: string}>} options.history the earlier texts the turn shows, read only when no live turn is passed
  * @param {string} options.question the person's text, likewise
  * @param {Function} options.request `(params) => answer`, `requestBuiltin` bound to the turn's provider
- * @param {Function} [options.meter] `(usage, failed, model, whole)`, `texTurn.js`'s
+ * @param {Function} [options.meter] `(usage, failed, model, whole)`, `texEntryPoint.js`'s
  * @returns {Array<{tool: object, call: Function}>}
  */
 export function advisorTools({ model, effort, history, question, request, meter = async () => {} }) {

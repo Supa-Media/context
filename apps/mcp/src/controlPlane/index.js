@@ -27,6 +27,7 @@ import { createTranscriptionMethods } from "./transcription.js";
 import { createTexCommandMethods } from "./texCommands.js";
 import { createTexPageMethods } from "./texPage.js";
 import { createTexChatHomeMethods } from "./texChatHome.js";
+import { createTexMachineMethods } from "./texMachines.js";
 
 export { ControlPlaneError, sha256Hex, isLoopbackHost };
 
@@ -70,5 +71,6 @@ export function createControlPlane(env, options = {}) {
     ...createTexCommandMethods({ post }),
     ...createTexPageMethods({ post }),
     ...createTexChatHomeMethods({ post }),
+    ...createTexMachineMethods({ post }),
   };
 }

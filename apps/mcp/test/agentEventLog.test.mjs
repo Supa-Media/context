@@ -36,26 +36,15 @@
  * 17. `renderEvents` tagging every uncovered message, however old (drop the
  *     `newestAnswered` check) → "an ask older than what Tex has since answered
  *     is history, not answered" (run 2026-11-03).
- * 16. `showsTainted` reading records one after another (a `for` over
- *     `cleanTurn`) → "turn records are read side by side, and an unproven
- *     one is logged by count" (run 2026-10-27). Dropping the log line → the
- *     same test. Counting a `clean: false` record as unproven → the same
- *     test (run 2026-10-27).
+ * 16, 18. Retired 2026-11-05 with turn records (turn-trust.md).
  * 17. `pruneTurns` deleting by age 24h, or with no age check, or with no
  *     bound → "old turn records, running and cancel marks are pruned,
- *     bounded, never a young one" (each run 2026-10-27); `recordTurn` not
- *     calling `pruneTurns` → the same test.
- * 19. `pruneTurns` deleting an old `clean: false` record (drop the
- *     `clean[i] === true` filter) → "old turn records, running and cancel
- *     marks are pruned, …" (run 2026-10-27: the reused id then recorded clean).
+ *     bounded, never a young one" (each run 2026-10-27); `recordedTurn` not
+ *     calling `pruneTurns` → "a turn writes no turn record, and prunes old
+ *     marks on every exit".
  * 20. `speaker` rendering a person's name bare (no "@") or unnamed as "Them"
  *     → "every person renders as @name, so no look-alike reads as Tex or
  *     Context" (run 2026-10-27).
- * 18. `recordTurn` not re-reading after its `clean: true` (drop the re-read)
- *     → "a store that ignores onlyIf keeps a concurrent false" (run
- *     2026-10-27). Ceiling: a false that lands between the first read and
- *     the clean put, on a store that ignores `onlyIf`, is overwritten before
- *     the re-read and not seen; only conditional writes close that window.
  */
 
 import assert from "node:assert/strict";
@@ -63,7 +52,7 @@ import { test } from "node:test";
 
 import { appendEvents, checkEvent, EventRefusal, logPrefix, MAX_EVENT_TEXT, MAX_EVENTS_PER_CALL, readEvents } from "../src/agent/log.js";
 import { renderEvents } from "../src/agent/logRender.js";
-import { LOG_PREFACE, loggedTurn, pruneTurns, recordTurn, TURNS_PREFIX } from "../src/agent/loggedTurn.js";
+import { LOG_PREFACE, loggedTurn, pruneTurns, recordedTurn, TURNS_PREFIX } from "../src/agent/loggedTurn.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "../src/agent/steer.js";
 import { TOLD } from "../src/agent/conversation.js";
 
@@ -345,66 +334,22 @@ test("the Worker cannot say an event is clean", () => {
   assert.equal(refusedField(() => checkEvent(event({ from: { kind: "tex" }, tainted: false }), { chat: CHAT, now: NOW })), "event");
 });
 
-async function shownTainted(answerFields, setup = async () => {}) {
+// Trust is the turn's own (the owner, 2026-11-05; docs/decisions/texting-assistant/turn-trust.md): an earlier answer from a turn
+// that read from outside is shown as it was said, and never marks the turn shown it, whatever its record says.
+test("an earlier answer from a tainted turn is shown, and never marks the turn shown it", async () => {
   const store = memoryStore();
   const old = event({ text: "read that page" });
-  const answer = event({ at: NOW + 1, from: { kind: "tex" }, text: "It says...", covers: [old.id], ...answerFields });
+  const answer = event({ at: NOW + 1, from: { kind: "tex" }, text: "It says the shop opens at nine.", turn: "turn-tainted-01", covers: [old.id] });
   const fresh = event({ at: NOW + 2, text: "and then?" });
   await appendEvents(store, CHAT, [old, answer, fresh], { now: NOW });
-  await setup(store);
-  return (await loggedTurn(store, { chat: CHAT, covers: [fresh.id] })).tainted;
-}
-
-test("a turn shown an answer from a tainted turn is tainted", async () => {
-  assert.equal(await shownTainted({ turn: "turn-tainted-01" }, (store) => recordTurn(store, "turn-tainted-01", false)), true);
-});
-
-test("a Tex event is trusted only by its turn's clean record", async () => {
-  assert.equal(await shownTainted({}), true, "no turn");
-  assert.equal(await shownTainted({ turn: "turn-unknown-01" }), true, "no record");
-  assert.equal(await shownTainted({ turn: "turn-garbled-1" }, (store) => store.put(".context/agent/turns/turn-garbled-1.json", "not json")), true, "unreadable");
-  assert.equal(await shownTainted({ turn: "turn-other-001" }, (store) => recordTurn(store, "turn-clean-001", true)), true, "another turn's record");
-  assert.equal(await shownTainted({ turn: "turn-clean-001" }, (store) => recordTurn(store, "turn-clean-001", true)), false, "clean");
-});
-
-test("turn records are read side by side, and an unproven one is logged by count", async () => {
-  const store = memoryStore();
-  const old = event({ text: "read that page" });
-  const one = event({ at: NOW + 1, from: { kind: "tex" }, text: "a", turn: "turn-par-0001" });
-  const two = event({ at: NOW + 2, from: { kind: "tex" }, text: "b", turn: "turn-par-0002" });
-  const fresh = event({ at: NOW + 3, text: "and then?" });
-  await appendEvents(store, CHAT, [old, one, two, fresh], { now: NOW });
-  await recordTurn(store, "turn-par-0001", true);
+  await store.put(`${TURNS_PREFIX}turn-tainted-01.json`, JSON.stringify({ clean: false })); // a record left from before 2026-11-05
+  const reads = [];
   const get = store.get;
-  let open = 0;
-  let most = 0;
-  store.get = async (key) => {
-    if (!key.startsWith(TURNS_PREFIX)) return get(key);
-    open += 1;
-    most = Math.max(most, open);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    open -= 1;
-    return get(key);
-  };
-  const lines = [];
-  const log = console.log;
-  console.log = (line) => lines.push(line);
-  try {
-    assert.equal((await loggedTurn(store, { chat: CHAT, covers: [fresh.id] }, { workspace: "ws_1" })).tainted, true);
-  } finally {
-    console.log = log;
-  }
-  assert.equal(most, 2, "both read at once");
-  assert.deepEqual(lines.map((line) => JSON.parse(line)), [{ event: "tex_turn_unproven", workspace: "ws_1", count: 1 }]);
-  await recordTurn(store, "turn-par-0002", false);
-  lines.length = 0;
-  console.log = (line) => lines.push(line);
-  try {
-    assert.equal((await loggedTurn(store, { chat: CHAT, covers: [fresh.id] }, { workspace: "ws_1" })).tainted, true);
-  } finally {
-    console.log = log;
-  }
-  assert.deepEqual(lines, [], "a record saying not clean is a verdict, not a failure to prove");
+  store.get = async (key) => (reads.push(key), get(key));
+  const turn = await loggedTurn(store, { chat: CHAT, covers: [fresh.id] });
+  assert.equal(turn.tainted, undefined, "the turn carries no mark from what it is shown");
+  assert.ok(turn.history[0].text.includes("It says the shop opens at nine."), "the answer is shown in its words");
+  assert.equal(reads.filter((key) => key.startsWith(TURNS_PREFIX)).length, 0, "no turn record is read to decide it");
 });
 
 function datedStore(now) {
@@ -440,28 +385,28 @@ test("old turn records, running and cancel marks are pruned, bounded, never a yo
   await store.put(`${RUNNING_PREFIX}turn-run-00002.json`, "{}", { age: 1 * HOUR });
   await pruneTurns(store, NOW);
   assert.equal(store.deleted.length, 100, "at most 100 per call");
+  assert.ok(!store.data.has(`${RUNNING_PREFIX}turn-run-00001.json`) && !store.data.has(`${CANCEL_PREFIX}turn-can-00001.json`), "marks go first");
   assert.ok(store.data.has(`${TURNS_PREFIX}turn-young-0001.json`));
   assert.ok(store.data.has(`${RUNNING_PREFIX}turn-run-00002.json`));
   await pruneTurns(store, NOW);
-  assert.deepEqual([...store.data.keys()].sort(), [`${RUNNING_PREFIX}turn-run-00002.json`, `${TURNS_PREFIX}turn-dirty-0001.json`, `${TURNS_PREFIX}turn-young-0001.json`], "an old clean: false record is kept");
-  await recordTurn(store, "turn-dirty-0001", true, { now: NOW });
-  assert.deepEqual(JSON.parse(store.data.get(`${TURNS_PREFIX}turn-dirty-0001.json`).body), { clean: false }, "so a reused id never records clean over it");
-  await store.put(`${CANCEL_PREFIX}turn-can-00002.json`, "{}", { age: 49 * HOUR });
-  await recordTurn(store, "turn-new-00001", false, { now: NOW });
-  assert.equal(store.data.has(`${CANCEL_PREFIX}turn-can-00002.json`), false, "recordTurn prunes as it records");
+  // Nothing reads a turn record since 2026-11-05 (turn-trust.md), so an old clean: false one goes too.
+  assert.deepEqual([...store.data.keys()].sort(), [`${RUNNING_PREFIX}turn-run-00002.json`, `${TURNS_PREFIX}turn-young-0001.json`]);
 });
 
-test("a store that ignores onlyIf keeps a concurrent false", async () => {
-  const store = memoryStore();
-  const key = `${TURNS_PREFIX}turn-race-0001.json`;
-  const put = store.put;
-  const puts = [];
-  store.put = async (k, body) => {
-    puts.push(body);
-    await put(k, body); // onlyIf ignored
-    if (JSON.parse(body).clean === true) await put(k, JSON.stringify({ clean: false })); // a tainted exit lands just after
-  };
-  await recordTurn(store, "turn-race-0001", true);
-  assert.deepEqual(JSON.parse(store.data.get(key)), { clean: false });
-  assert.deepEqual(puts.map((body) => JSON.parse(body).clean), [true, false], "re-read, and false rewritten");
+test("a turn writes no turn record, and prunes old marks on every exit", async () => {
+  const HOUR = 3_600_000;
+  const store = datedStore(NOW);
+  const realNow = Date.now;
+  Date.now = () => NOW;
+  try {
+    await store.put(`${CANCEL_PREFIX}turn-can-00002.json`, "{}", { age: 49 * HOUR });
+    assert.equal(await recordedTurn(store, async (outcome) => ((outcome.turn = "turn-new-00001"), (outcome.clean = true), "answered")), "answered");
+    assert.equal(store.data.has(`${CANCEL_PREFIX}turn-can-00002.json`), false, "pruned as it ends");
+    await store.put(`${CANCEL_PREFIX}turn-can-00003.json`, "{}", { age: 49 * HOUR });
+    await assert.rejects(recordedTurn(store, async (outcome) => ((outcome.turn = "turn-new-00002"), Promise.reject(new Error("boom")))), /boom/);
+    assert.equal(store.data.has(`${CANCEL_PREFIX}turn-can-00003.json`), false, "and when it throws");
+    assert.equal([...store.data.keys()].filter((key) => key.startsWith(TURNS_PREFIX)).length, 0, "no turn record is written");
+  } finally {
+    Date.now = realNow;
+  }
 });

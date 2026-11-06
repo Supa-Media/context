@@ -20,6 +20,7 @@ import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
 import { electronPermissionBroker } from "./permissions.ts";
 import { createLocalAgent } from "./localAgent.ts";
+import { createAppMachineRunner } from "./machine.ts";
 import { transcribeChunk } from "./transcribe.ts";
 import { ImessageSyncService } from "./imessage.ts";
 import { MessagesBackupService, backupBridgeStatus, machineLabel } from "./messagesBackup.ts";
@@ -33,7 +34,7 @@ export async function createServices(
   ctx: MainContext,
   prepared: PreparedLaunch,
 ): Promise<Omit<MainServices, "store" | "tokens" | "connection" | "tray">> {
-  const { store, tokens, connection, claudeBinary } = prepared;
+  const { store, connection, claudeBinary } = prepared;
 
   // Late-bound: these live in other modules and are read from `ctx` at call time.
   const push: MainActions["push"] = () => ctx.push();
@@ -44,7 +45,8 @@ export async function createServices(
     scratchRoot: app.getPath("userData"),
     claudePath: () => claudeBinary,
     endpoint: () => ctx.settings.gatewayEndpoint,
-    token: () => tokens.read(),
+    // The connection's access token, refreshed when due: the keychain holds the whole JSON record, never a bearer.
+    token: () => connection.token(),
   });
   const imessage = new ImessageSyncService({
     store,
@@ -192,5 +194,12 @@ export async function createServices(
     },
   });
 
-  return { localAgent, imessage, messagesBackup, panel, notepad, capture, controller, updater, loop };
+  // Let Tex use this Mac: started now if the person turned it on before, and told to the console as it changes.
+  const machine = await createAppMachineRunner({
+    consoleToken: () => connection.token(),
+    endpoint: () => ctx.settings.gatewayEndpoint,
+    onChange: (status) => ctx.consoleBridge?.emitMachine(status),
+  });
+  if (ctx.settings.machineEnabled) void machine.setEnabled(true);
+  return { localAgent, imessage, messagesBackup, machine, panel, notepad, capture, controller, updater, loop };
 }

@@ -1,6 +1,6 @@
 /**
- * Where a folder dragged in the sidebar tree lands: above a row, below it, or
- * into it, and what that does.
+ * Where a row dragged in the sidebar tree lands: above a row, below it, or
+ * into a folder, and what that does.
  *
  * Folders have had an order of their own since 2026-10-18 (`nodes.order`,
  * `functions/folderOrder.ts`; `docs/decisions/app-and-console/folder-jobs.md`),
@@ -8,7 +8,11 @@
  * there instead of only washing the folder a drop goes into. Three outcomes:
  *
  *  - **between two siblings**: a reorder of that level, sent whole to
- *    `folderOrder.set`, the way Move up and Move down already do;
+ *    `folderOrder.set`, the way Move up and Move down already do. Since
+ *    2026-11-04 a note is dragged the same way, and a drop between rows puts
+ *    a level that was sorted by name or date in custom order, everything
+ *    where it was drawn apart from the row dropped
+ *    (`docs/decisions/app-and-console/folder-sort.md`, `levelOrder.ts`);
  *  - **between rows of another level**: a move into that level, then the
  *    same order with the folder at the place it was dropped;
  *  - **onto the middle of a folder**: into it, the nest that was always there
@@ -22,7 +26,9 @@
  * console can already see is wrong.
  */
 
-import { siblingFolders, type JobListings } from "./jobIcons/folderJobs";
+import type { ListingSort } from "@context/shared/src/listingSort.cjs";
+import type { JobListings } from "./jobIcons/folderJobs";
+import { drawnLevel, droppedLevel } from "./levelOrder";
 import { describeMoveProblem, moveTargetFor, parentPath } from "./paths";
 import { namesIn } from "./tree";
 import type { FolderListing } from "./types";
@@ -37,10 +43,11 @@ export const DROP_EDGE = 0.25;
  * (`0` the top edge, `1` the bottom).
  *
  * `orderable` is whether the drag can be put in order at all: exactly one
- * folder. Notes and several rows at once only ever drop into a folder, as
- * before. Below an **open** folder is where its first child is drawn, so the
- * bottom edge there nests rather than drawing a line that would sit between
- * the folder and its own contents.
+ * row. Several rows at once only ever drop into a folder, as before. Below an
+ * **open** folder is where its first child is drawn, so the bottom edge there
+ * nests rather than drawing a line that would sit between the folder and its
+ * own contents. A note has no inside: its top half drops above it, its bottom
+ * half below.
  */
 export function dropZoneAt(
   fraction: number | undefined,
@@ -48,6 +55,7 @@ export function dropZoneAt(
   orderable: boolean,
 ): DropZone {
   if (!orderable || fraction === undefined || Number.isNaN(fraction)) return "into";
+  if (row.kind !== "folder") return fraction < 0.5 ? "above" : "below";
   if (fraction < DROP_EDGE) return "above";
   if (fraction > 1 - DROP_EDGE) return row.kind === "folder" && row.expanded ? "into" : "below";
   return "into";
@@ -56,9 +64,9 @@ export function dropZoneAt(
 export type TreeDropPlan =
   /** Into the folder: the existing drop, judged by `dnd.ts`'s `canDrop`. */
   | { kind: "nest"; folder: string }
-  /** The folders of `parent` in this order, sent to `folderOrder.set`. */
+  /** Every row of `parent` in this order, sent to `folderOrder.set`. */
   | { kind: "reorder"; parent: string; folders: string[] }
-  /** Move `from` into `parent`, then that level in this order (the moved folder at its new path). */
+  /** Move `from` into `parent`, then that level in this order (the moved row at its new path). */
   | { kind: "place"; from: string; parent: string; folders: string[] }
   | { kind: "refuse"; reason: string }
   /** Dropped where it already is: nothing to do, and nothing to say. */
@@ -66,12 +74,12 @@ export type TreeDropPlan =
 
 export interface TreeDropInput {
   paths: readonly string[];
-  /** The folder row the pointer is over. */
+  /** The row the pointer is over: a folder, or a note to drop beside. */
   target: string;
   zone: DropZone;
   listings: JobListings & Readonly<Record<string, FolderListing | undefined>>;
-  /** Z to A: the tree draws each level's folders backwards (`orderedEntries`). */
-  descending: boolean;
+  /** The workspace's own Sort setting, for a level whose listing carries none (`listingOrder.ts`). */
+  workspaceSort: ListingSort | null;
   /** ⌥ held: a copy, which only ever goes into a folder and leaves the original in its place. */
   copying?: boolean;
 }
@@ -89,11 +97,14 @@ function within(path: string, folder: string): boolean {
 
 export function planTreeDrop(input: TreeDropInput): TreeDropPlan {
   const { paths, target, listings } = input;
-  const single = paths.length === 1 && isFolder(listings, paths[0]!) ? paths[0]! : null;
   const copying = input.copying === true;
-  const zone = single === null || copying ? "into" : input.zone;
+  const single = paths.length === 1 && !copying ? paths[0]! : null;
+  const onNote = !isFolder(listings, target);
+  const zone = single === null ? "into" : input.zone;
 
   if (zone === "into") {
+    // A note has no inside: dropped on one, nothing happens.
+    if (onNote) return { kind: "none" };
     if (paths.some((path) => isFolder(listings, path) && within(target, path))) {
       return { kind: "refuse", reason: target === paths[0] && paths.length === 1 ? "That is the folder you are moving." : INSIDE_ITSELF };
     }
@@ -102,25 +113,20 @@ export function planTreeDrop(input: TreeDropInput): TreeDropPlan {
 
   const from = single!;
   if (from === target) return { kind: "none" };
-  if (within(target, from)) return { kind: "refuse", reason: INSIDE_ITSELF };
-  const siblings = siblingFolders(listings, target);
-  if (siblings === null) return { kind: "none" };
+  if (isFolder(listings, from) && within(target, from)) return { kind: "refuse", reason: INSIDE_ITSELF };
   const parent = parentPath(target);
-  const drawn = input.descending ? [...siblings].reverse() : siblings;
-  const serverOrder = (order: string[]) => (input.descending ? order.reverse() : order);
+  const level = drawnLevel(listings, parent, input.workspaceSort);
+  if (level === null || !level.paths.includes(target)) return { kind: "none" };
+  const side = zone === "below" ? "below" : "above";
 
   if (parent === parentPath(from)) {
-    const without = drawn.filter((path) => path !== from);
-    const at = without.indexOf(target) + (zone === "below" ? 1 : 0);
-    const next = [...without.slice(0, at), from, ...without.slice(at)];
-    if (next.every((path, index) => path === drawn[index])) return { kind: "none" };
-    return { kind: "reorder", parent, folders: serverOrder(next) };
+    const next = droppedLevel(level, from, target, side);
+    return next === null ? { kind: "none" } : { kind: "reorder", parent, folders: next };
   }
 
   const problem = describeMoveProblem(from, parent, new Set(namesIn(listings, parent)));
   if (problem !== null) return { kind: "refuse", reason: problem };
   const moved = moveTargetFor(from, parent);
-  const at = drawn.indexOf(target) + (zone === "below" ? 1 : 0);
-  const next = [...drawn.slice(0, at), moved, ...drawn.slice(at)];
-  return { kind: "place", from, parent, folders: serverOrder(next) };
+  const at = level.paths.indexOf(target) + (side === "below" ? 1 : 0);
+  return { kind: "place", from, parent, folders: [...level.paths.slice(0, at), moved, ...level.paths.slice(at)] };
 }

@@ -146,7 +146,7 @@ it reaches a reply.
 
 The gateway's side (the hop from the Worker to the object, which inside-object
 time does not include) is now timed on every texted turn: the Tex entry point
-(`agent/texEntryPoint.js`, dataset `tex_entry`) writes `store:get:object` and
+(`agent/texTiming.js`, dataset `tex_entry`) writes `store:get:object` and
 `store:get:bucket` per call, from the same Worker in the same turn. Query:
 
 ```sql

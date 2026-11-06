@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COPY, linkCode, replyTo, type Message, type ReplyDeps } from "./reply";
+import { COPY, linkCode, replyTo, triedAgain, type Message, type ReplyDeps } from "./reply";
 import type { Fetch } from "./clients";
 import { SETUP_COPY } from "./setup";
 
@@ -211,7 +211,7 @@ describe("replyTo", () => {
         "/agent-texts/session": () => [200, { status: "linked", accessToken: "grant-for-this-person" }],
         "/agent": (body, auth) => {
           expect(auth).toBe("Bearer grant-for-this-person");
-          expect(body).toEqual({ question: "what's on my list?", conversation: "texts" });
+          expect(body).toEqual({ question: "what's on my list?", conversation: "texts", worker: { sessionMs: expect.any(Number), beforeAskMs: expect.any(Number) } }); // the Worker's own wait, numbers only (Dev, 2026-11-04)
           return [200, { answer: "Three things." }];
         },
       }),
@@ -321,7 +321,7 @@ describe("replyTo", () => {
       deps({
         "/agent-texts/session": () => [200, { status: "linked", accessToken: "t", timeZone: "America/Chicago" }],
         "/agent": (body) => {
-          expect(body).toEqual({ question: "remind me to sleep in 2 minutes", conversation: "texts", timeZone: "America/Chicago" });
+          expect(body).toEqual({ question: "remind me to sleep in 2 minutes", conversation: "texts", timeZone: "America/Chicago", worker: { sessionMs: expect.any(Number), beforeAskMs: expect.any(Number) } });
           return [200, { answer: "Set for 11:37 pm." }];
         },
       }),
@@ -378,5 +378,15 @@ describe("replyTo", () => {
         }),
       ),
     ).toEqual([COPY.unavailable]);
+  });
+});
+
+describe("which unanswered 1:1 turns are tried again (`triedAgain`)", () => {
+  it("tries again a turn that never started or failed, never a refusal or a turn that ran out of time", () => {
+    expect(triedAgain({ kind: "not_started" })).toBe(true);
+    expect(triedAgain({ kind: "unavailable" })).toBe(true);
+    expect(triedAgain({ kind: "unavailable", refused: "400 bad_request" })).toBe(false);
+    expect(triedAgain({ kind: "unavailable", timedOut: true })).toBe(false);
+    expect(triedAgain({ kind: "no_storage" })).toBe(false);
   });
 });

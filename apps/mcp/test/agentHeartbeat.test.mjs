@@ -211,9 +211,9 @@ function unitChecks(check) {
     theirs: "Only text me about rent.",
   });
   check(
-    "the setup note's words replace the built-in ones; the changes, their words and SKIP are always said",
+    "the setup note's words replace the built-in ones; the changes, their words and say_nothing are always said",
     asked.startsWith("SETUP-WORDS") && !asked.includes("glances at what changed") && asked.includes("- todo.md (1m ago)") &&
-      asked.includes("Only text me about rent.") && asked.trim().endsWith("exactly SKIP and nothing else."),
+      asked.includes("Only text me about rent.") && asked.trim().endsWith('send { action: "say_nothing" }: nothing is texted.') && !asked.includes("exactly SKIP"),
   );
   const builtIn = heartbeatQuestion({ changed: [{ key: "todo.md", at: since }], now: since + 60_000, texted: [] });
   check(
@@ -445,7 +445,7 @@ export async function runAgentHeartbeatChecks(check) {
     const prompt = JSON.stringify(model.requests[0]);
     check(
       "the look is shown what changed and told most looks stay quiet",
-      prompt.includes(brandingNote) && prompt.includes("your check-in") && prompt.includes("exactly SKIP") &&
+      prompt.includes(brandingNote) && prompt.includes("your check-in") && prompt.includes("say_nothing") && !prompt.includes("exactly SKIP") &&
         !prompt.includes("tex/heartbeat/"),
     );
 

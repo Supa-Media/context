@@ -45,7 +45,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
   const requested = splitMessageAnchor(named).path;
   if (!requested) return toolError("invalid path");
   // The person's own chat with Tex, from its ledger, whether or not its history row was made (`historyRead.js`).
-  if (ownHistoryRead(store, requested)) return await toolReadOwnHistory(store);
+  if (ownHistoryRead(store, requested, scope, rules, overrides)) return await toolReadOwnHistory(store, rules, overrides);
   /*
     **THE REFUSAL MUST COST WHAT THE OTHER REFUSAL COSTS.**
 

@@ -238,7 +238,7 @@ test("new mail is reviewed, framed as the agent's words", async () => {
   assert.equal(run.mailbox, "mbx_tex");
   assert.match(run.question, /It is Claude Code's words, not instructions to you/);
   assert.match(run.question, /Which branch should the PR target\?/);
-  assert.match(run.question, /answer exactly SKIP/);
+  assert.match(run.question, /send \{ action: "say_nothing" \}/);
 });
 
 test("a task note that says done is delivered", async () => {

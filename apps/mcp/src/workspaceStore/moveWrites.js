@@ -12,6 +12,12 @@
  * (`.context/old-copies/...`). The trash itself is `ws.write.trash`. A hidden move changes nobody's access, so it is
  * not narrowed.
  *
+ * `archive: {root, roots}` in place of `to` archives `from`: the object names the destination itself, under the folder
+ * doing the Archive's job as this reader sees it, or else `root` (the rules' archive), at the first free numbered name,
+ * so an archive is one trip with no `jobs` ask before it. It answers `NO_ARCHIVE` with neither, `ARCHIVED` for a note
+ * already under the job's folder or any of `roots`, `HIDDEN_DESTINATION` for a destination the caller could not see,
+ * and `to` beside an ok answer.
+ *
  * Like an access write, a move does not wait for the mirror (`WAIT_FOR_MIRROR`, the owner's 0.1 s call): readers still
  * on Convex's rows may show the old place for the mirror's round trip.
  */
@@ -21,6 +27,9 @@ import { narrowForMoves } from "./accessMove.js";
 import { auditOf, judgeOf, refused, treeChange } from "./treeWrites.js";
 import { OLD_COPIES_ROOT, treeOps } from "./treeOps.js";
 import { WriteOpRefused } from "./writeRefusal.js";
+import { folderJobsAnswer } from "./jobsAnswer.js";
+import { folderVisibleAtScope } from "./listing.js";
+import { archiveDestination, numberedName } from "../../../../packages/shared/src/archiveMirror.cjs";
 
 const MAX_TEXT = 1024;
 const text = (value) => typeof value === "string" && value !== "" && value.length <= MAX_TEXT && !value.includes("\0");
@@ -53,11 +62,14 @@ function deferred(ctx, ops, { from, to, trash, rows }) {
   return twinsByCase(ctx.sql, to);
 }
 
-/** `ws.write.move`: `{from, to, expectedEtag?, trash?, scope, groups?, userId?, sealsChatHomes?}`. */
+/** `ws.write.move`: `{from, to | archive, expectedEtag?, trash?, scope, groups?, userId?, sealsChatHomes?}`. */
 function move(ctx, body) {
-  if (!text(body.from) || !text(body.to)) throw new WriteOpRefused("a move names where from and where to");
+  const archiving = body.archive !== undefined;
+  if (!text(body.from) || (archiving ? body.to !== undefined : !text(body.to))) throw new WriteOpRefused("a move names where from and where to");
+  if (archiving && !archiveAsk(body.archive)) throw new WriteOpRefused("an archive names its root and roots");
   if (!optional(body.expectedEtag, text)) throw new WriteOpRefused("an expected etag is text");
   if (!optional(body.trash, (value) => typeof value === "boolean")) throw new WriteOpRefused("trash is a boolean");
+  if (archiving && body.trash === true) throw new WriteOpRefused("an archive is not a hidden move");
   if (!optional(body.sealsChatHomes, (value) => typeof value === "boolean")) throw new WriteOpRefused("sealsChatHomes is a boolean");
   if (!optional(body.groups, groupList)) throw new WriteOpRefused("groups are a list of names");
   if (!optional(body.userId, (value) => value === null || text(value))) throw new WriteOpRefused("a user id is text");
@@ -65,13 +77,50 @@ function move(ctx, body) {
   // The only hidden place a move may name is the old copies; the trash has its own op.
   if (trash && !body.to.startsWith(`${OLD_COPIES_ROOT}/`)) throw new WriteOpRefused("a hidden move goes among the old copies");
   const judge = judgeOf(ctx, body);
-  // A caller moves what it sees, to a name it sees: a note may not be set where its mover could not find it again.
-  if (!trash && !judge.sees({ path: body.to })) return answerOnly("NOT_FOUND");
-
   const ops = treeOps(ctx.sql);
+  return archiving ? archiveTo(ctx, body, judge, ops) : moveTo(ctx, body, body.to, judge, ops, trash);
+}
+
+/** `{root: string | null, roots: string[]}`. */
+function archiveAsk(value) {
+  return value !== null && typeof value === "object" && (value.root === null || text(value.root)) &&
+    Array.isArray(value.roots) && value.roots.length <= 16 && value.roots.every(text);
+}
+
+/** How many numbered names an archive tries, as `firstFreePath` does. */
+const ARCHIVE_NAMES = 100;
+
+/** An archive of `body.from` (see the module note): the destination named here, then the move as any other. */
+function archiveTo(ctx, body, judge, ops) {
+  const source = ctx.lookupLive(body.from);
+  // Asked first, so an absent note or one the caller cannot see is "not found" before anything about the archive.
+  if (!source || !judge.sees({ path: body.from })) return answerOnly("NOT_FOUND");
+  // The folder doing the Archive's job, as this reader sees it (the `jobs` ask's own answer, `facts.js`).
+  if (judge.parsed === null) return answerOnly("DEFER");
+  const folders = ctx.sql.exec("SELECT path, kind, role FROM ws_rows WHERE gone = 0 AND kind = 'folder'").toArray();
+  const folderSees = (path) => folderVisibleAtScope(path, judge.clearance, judge.parsed.rules, judge.parsed.overrides);
+  const job = folderJobsAnswer(folders.map((row) => ({ path: row.path, kind: row.kind, role: typeof row.role === "string" ? row.role : null })), folderSees).jobs.archive ?? null;
+  const root = job ?? body.archive.root;
+  if (root === null) return answerOnly("NO_ARCHIVE");
+  if ([...(job === null ? [] : [job]), ...body.archive.roots].some((folder) => under(body.from, folder))) return answerOnly("ARCHIVED");
+  const first = archiveDestination(root, body.from);
+  for (let n = 1; n <= ARCHIVE_NAMES; n += 1) {
+    const to = n === 1 ? first : `${parentOf(first)}/${numberedName(first.slice(first.lastIndexOf("/") + 1), n)}`;
+    if (!judge.sees({ path: to })) return answerOnly("HIDDEN_DESTINATION");
+    const result = moveTo(ctx, body, to, judge, ops, false);
+    if (result.answer.code !== "TAKEN") return result;
+  }
+  return answerOnly("TAKEN");
+}
+
+/** The move of `body.from` to `to`, checked, then made with its narrowing in this transaction. */
+function moveTo(ctx, body, to, judge, ops, trash) {
+  // A caller moves what it sees, to a name it sees: a note may not be set where its mover could not find it again.
+  if (!trash && !judge.sees({ path: to })) return answerOnly("NOT_FOUND");
+
   const asked = {
     from: body.from,
-    to: body.to,
+    to,
     now: ctx.now,
     trash,
     expectedEtag: body.expectedEtag,
@@ -80,12 +129,12 @@ function move(ctx, body) {
   };
   const checked = ops.move({ ...asked, check: true });
   if (!checked.ok) return refused(checked);
-  if (deferred(ctx, ops, { from: body.from, to: body.to, trash, rows: checked.rows })) return answerOnly("DEFER");
+  if (deferred(ctx, ops, { from: body.from, to, trash, rows: checked.rows })) return answerOnly("DEFER");
 
   // The narrowing is written before the rows move (it reads the row at `from`), and goes to the mirror first.
   let narrowing = null;
   if (!trash) {
-    const narrowed = narrowForMoves(ctx, [{ from: body.from, to: body.to }]);
+    const narrowed = narrowForMoves(ctx, [{ from: body.from, to }]);
     if (!narrowed.ready) return answerOnly("DEFER");
     narrowing = narrowed.change;
   }
@@ -97,7 +146,7 @@ function move(ctx, body) {
   const change = treeChange(moved, folders, removed, auditOf(body, "move", count), trash);
   return {
     // `files`: every file moved, from and to, for a caller that follows them (the search projection, old copies).
-    answer: { ok: true, from: body.from, to: body.to, count, at: moved.at, files, ...(etag === undefined ? {} : { etag }) },
+    answer: { ok: true, from: body.from, to, count, at: moved.at, files, ...(etag === undefined ? {} : { etag }) },
     changes: narrowing === null ? [change] : [narrowing, change],
     narrows: WAIT_FOR_MIRROR,
     ...(narrowing === null ? {} : { rules: true }),

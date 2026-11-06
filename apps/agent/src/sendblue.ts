@@ -32,8 +32,13 @@ export const SENDBLUE_API = "https://api.sendblue.com";
 /** Tex's iMessage Name & Photo: the name and the card's photo (`apps/mobile/public/texts-card.png`), its address versioned so a new photo is fetched anew. */
 export const PROFILE_NAME = "Tex";
 export const PROFILE_PHOTO_URL = `https://context.lc/texts-card.png?v=${CARD_VERSION}`;
-/** The most of a replied-to message quoted to Tex. */
-export const MAX_QUOTED_TEXT = 500;
+/**
+ * The most of a replied-to or tapped message quoted to Tex. Enough for a whole
+ * email draft, which goes as one text (`format.ts`), so a 👍 on it holds every
+ * word the send gate checks (`apps/mcp/src/tools/likedPreview.js`); it was 500
+ * until 2026-11-05.
+ */
+export const MAX_QUOTED_TEXT = 3000;
 
 export type SendblueKeys = { keyId: string; secret: string };
 

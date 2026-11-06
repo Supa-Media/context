@@ -42,13 +42,14 @@ import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./no
 import { isMove, MOVE_TIMED_OUT, MOVE_TIMEOUTS } from "./slowMoves.js";
 import { addModelUsage, failedCall, modelForRound, thinkRoundsFor, whyFailed } from "./modelPlan.js";
 import { PROGRESS_TOOL } from "./progress.js";
+import { turnLedger } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
-import { recheckNote } from "./recheck.js";
+import { sayNothingLocal, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -123,14 +124,10 @@ const TOOL_TIMED_OUT =
   "That call took too long and was stopped. Don't retry it. Answer with what you already have, " +
   "and say plainly what you could not check.";
 
-/** Before a text that came in while the reply above was written: that reply has not gone out. */
-export const LATE_TEXT = "(Your reply above has NOT been sent. They texted more while you wrote it, below. Write one reply that answers all of it.)";
-
 /** What the model reads for a call asked for after `TURN_TOOL_BUDGET_MS`. */
 const OUT_OF_TIME =
   "Out of time: no more tool calls this turn. Answer now with what you already have, " +
   "and say plainly what you could not check.";
-
 
 export class AgentRefusal extends Error {
   constructor(code, message) {
@@ -234,12 +231,12 @@ export async function openProvider(controlPlane, session, requested, env = {}, {
  *   the production setup's prompt from `@context-lc` (`production.js`), or
  *   null for the built-in words
  * @param {string} [options.builtinModelOverride] the built-in model to run
- *   instead of `builtinModel(env)`; `texTurn.js` checks it can be called
+ *   instead of `builtinModel(env)`; `texEntryPoint.js` checks it can be called
  * @param {number} [options.maxRounds] the most model rounds this turn may take,
  *   clamped to 1..MAX_ROUNDS
  * @param {{decide: Function|null, think: string, routeAt?: number, thinkRounds?: number, jobsOnly?: boolean}} [options.router] the setup's
  *   model router (`router.js`): the decision engine that picks a tier for this
- *   text, and the model a `think` text runs on; `texTurn.js` checks it can be called.
+ *   text, and the model a `think` text runs on; `texEntryPoint.js` checks it can be called.
  *   With `thinkRounds`, a `think` text plans on `think` and drives on `main` (`modelPlan.js`);
  *   `jobsOnly` (a planner, no router) plans a `planned` turn and leaves every other on `main`
  * @param {() => number} [options.clock] milliseconds, for `timing`
@@ -284,12 +281,13 @@ export async function runTurn(options) {
     progress = null,
     toolTimeouts = {},
     grants = null,
-    local = [],
+    local: localTools = [],
     aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
     voice = null, // `tex/voice.md`'s text on a texted turn (`personVoice.js`); null says nothing about it.
-    answerCheck = null, // reads a final answer, once, and may send one more round (`claimCheck.js`)
+    answerCheck = null, // reads a final answer and the turn's messages, and may send one more round (`claimCheck.js`, `replyJudge.js`)
     endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
+    sayNothing = false, // offers `say_nothing`: a call ends the turn with nothing texted (`sayNothing.js`)
     roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
@@ -303,7 +301,9 @@ export async function runTurn(options) {
     // Never throws back into the turn, and asks the model for its thinking in words.
     observe = null,
   } = options;
+  const held = turnLedger({ tools: options.tools, ranHere: (name) => webNames.has(name) || localCalls.has(name) }); // the turn as its ledger keeps it (`sendBack.js`)
   const tell = (event) => {
+    held.keep(event);
     if (typeof observe !== "function") return;
     try {
       observe(event);
@@ -320,13 +320,14 @@ export async function runTurn(options) {
     it works. Dispatched here, like the web tools, never to the MCP: it reaches
     only the person who asked, on the channel their answer goes to anyway.
   */
+  const [local, settles] = sayNothing ? [[...localTools, sayNothingLocal], withSayNothing(endsTurn)] : [localTools, endsTurn]; // silence ends the turn like a started job (`sayNothing.js`)
   const tools = [
     ...(options.tools ?? []),
     ...(web?.tools ?? []),
     ...local.map((entry) => entry.tool),
     ...(progress ? [progress.tool] : []),
   ];
-  // Tools answered here rather than by the MCP (`texTurn.js`'s earlier texts).
+  // Tools answered here rather than by the MCP (`texEntryPoint.js`'s earlier texts).
   const localCalls = new Map(local.map((entry) => [entry.tool.name, entry.call]));
   /*
     THE SIX (`sixTools.js`): the model is shown orient, search, fetch, write,
@@ -491,7 +492,7 @@ export async function runTurn(options) {
         continue;
       }
       // A failed turn is the one most worth seeing in the log, so the trace
-      // so far travels with the error to `texTurn.js`.
+      // so far travels with the error to `texEntryPoint.js`.
       if (error instanceof ProviderError) {
         const ms = clock() - asked;
         error.model = model;
@@ -541,16 +542,17 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
-      const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text)) ?? null : null;
+      const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text, { messages, mark: (entry) => trace.push({ ...entry, kind: "judge", at: clock() - began }), tell })) ?? null : null;
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
       if (late !== null) {
-        messages.push({ role: "assistant", text: answer.text }, { role: "user", text: `${LATE_TEXT}\n\n${late}` });
+        messages.push({ role: "user", text: held.lateText(answer.text, late) }); // the draft quoted as NOT sent, never put in as said
+        if (answerCheck) tell({ kind: "judge", by: "late", draft: answer.text, went: false, reason: "a text came in while it was written, so it was written again with it" }); // a passed draft held after all: the history says so
         tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
         continue;
       }
       if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: { system: systemText(prompt.system), messages } }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
-      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheckNote(recheck) });
+      messages.push({ role: "user", text: held.sendBack(recheck, answer.text) }); // the draft quoted as NOT sent, never put in as said (`sendBack.js`)
       continue;
     }
 
@@ -565,6 +567,7 @@ export async function runTurn(options) {
       ...(Array.isArray(answer.content) ? { content: answer.content } : {}),
     });
 
+    const settling = []; // calls this round that settle the turn, read once the whole round has run: one round may start several jobs
     for (const made of answer.toolCalls) {
       // One of the six, as the granted tool that carries it; an older name as itself.
       const resolved = six.resolve(made.name, made.args);
@@ -593,6 +596,12 @@ export async function runTurn(options) {
         });
         escalate = true;
         tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
+        continue;
+      }
+      const repeated = held.refusal(call.name, call.args); // a write already made, asked again after a send-back
+      if (repeated !== null) {
+        messages.push({ role: "tool", id: call.id, name: made.name, text: repeated, isError: true });
+        tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "already done this turn" });
         continue;
       }
       if (clock() - began >= toolBudgetMs) {
@@ -642,7 +651,7 @@ export async function runTurn(options) {
       const toolMs = clock() - called;
       timing.toolMs += toolMs;
       // A call the egress gate held for the person's yes is not a failure: it
-      // runs when they give it (`texTurn.js`), and a log that called it failed
+      // runs when they give it (`texEntryPoint.js`), and a log that called it failed
       // would read as a broken tool.
       trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
@@ -660,8 +669,12 @@ export async function runTurn(options) {
         // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
         isError: failedCall(result),
       });
-      // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
-      const settled = typeof endsTurn === "function" && result?.isError !== true ? endsTurn(call.name, call.args) : null;
+      if (typeof settles === "function" && result?.isError !== true) settling.push(call);
+    }
+    // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
+    // Read after the round, not at its first start: a call after it in the same round (a second part) still runs (2026-11-04).
+    for (const call of settling) {
+      const settled = settles(call.name, call.args);
       if (typeof settled === "string" && settled !== "") {
         return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: { system: systemText(prompt.system), messages } };
       }

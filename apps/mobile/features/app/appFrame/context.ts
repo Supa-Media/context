@@ -51,6 +51,14 @@ export interface FrameApi {
   /** Medium and wide: drag the right panel's edge. */
   setAsideWidth: (width: number) => void;
   /**
+   * A page that wants the right panel as a column beside it at medium too,
+   * never an overlay with a scrim: the live map, while it is open. Set true
+   * on mount and false on unmount.
+   */
+  setAsideBeside: (beside: boolean) => void;
+  /** Fold the open right panel to its slim strip of tabs, or unfold it (`FrameState.asideFolded`). */
+  setAsideFolded: (folded: boolean) => void;
+  /**
    * ⌘\, and the pill on the focus edge.
    *
    * Folds both panels away for the length of a read and restores them exactly
@@ -225,6 +233,8 @@ export function useFrame(): FrameApi {
       setExplorerFolded: noop,
       toggleAside: noop,
       setAsideWidth: noop,
+      setAsideBeside: noop,
+      setAsideFolded: noop,
       toggleFocus: noop,
       setExplorerPeeking: noop,
       closeDrawer: noop,

@@ -1,6 +1,6 @@
 /**
  * What the turn log (`apps/convex/functions/agentTurns.ts`) keeps of a turn's
- * trace, from `texTurn.js`.
+ * trace, from `texEntryPoint.js`.
  */
 
 /** The router's confidence as the turn log takes it: 0 to 1, or nothing. A number Clef got wrong never costs the turn its log. */
@@ -21,6 +21,8 @@ export function wireTraceEntry(entry) {
   const base = { kind: entry.kind, ok: entry.ok !== false, ms: entry.ms ?? 0 };
   if (entry.kind === "tool") return { ...base, tool: entry.tool, ...(entry.held ? { held: true } : {}) };
   if (entry.kind === "router") return { ...base, tier: entry.tier, model: entry.model, ...confidenceOf(entry) };
+  // The reply judge's verdict (`replyJudge.js`): never the words it read.
+  if (entry.kind === "judge") return { ...base, verdict: typeof entry.verdict === "string" ? entry.verdict : null, acted: entry.acted === true, ...confidenceOf(entry) };
   if (entry.kind === "fallback") return { ...base, model: entry.model, ...(typeof entry.status === "number" ? { status: entry.status } : {}) };
   return {
     ...base,

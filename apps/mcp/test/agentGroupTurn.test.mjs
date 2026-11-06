@@ -454,3 +454,30 @@ test("a card sent in a group is kept in the chat's memory with what it showed", 
   const memory = [...world.team.keys()].filter((key) => key.includes("groups")).map((key) => bodyAt(world.team, key) ?? "").join("\n");
   assert.match(memory, /Sent a picture with this answer: 1\. Budget picks — 1\. The Eleanor \(Bowling bar\)/);
 });
+
+test("\"what are you working on\" points at the signed-in Tex page: the person's own, never a group's without a home (the owner, 2026-11-03)", async () => {
+  world.env.APP_ORIGIN = "https://app.example";
+  try {
+    world.model.install([{ text: "On it, I'll text you when it's done.\n[card threads]" }]);
+    const own = await ask(TOKEN_TEXTS, { question: "research venues", conversation: "texts" });
+    assert.equal(own.status, 200);
+    assert.deepEqual(own.body.offers, ["threads"]);
+    assert.equal(own.body.hub, "https://app.example/tex/@ada");
+    // And the turn was told its page and what is on it, so it can offer the right place when asked (the owner, 2026-11-04).
+    const told = JSON.stringify(world.model.requests.at(-1).system);
+    assert.match(told, /Their Tex page is https:\/\/app\.example\/tex\/@ada/);
+    assert.match(told, /https:\/\/app\.example\/tex\/@ada\/connect/);
+    // A chat with no home has no page of its own to point at: the Worker keeps its own view.
+    world.model.install([{ text: "On it.\n[card threads]" }]);
+    const group = await ask(TOKEN_GROUP, { question: "Tex research venues", group: chat() });
+    assert.equal(group.status, 200);
+    assert.deepEqual(group.body.offers, ["threads"]);
+    assert.equal(group.body.hub, undefined);
+    assert.doesNotMatch(JSON.stringify(world.model.requests.at(-1).system), /Tex page is/, "no page, nothing told");
+    // No offer, no hub.
+    world.model.install([{ text: "Hi." }]);
+    assert.equal((await ask(TOKEN_TEXTS, { question: "hi", conversation: "texts" })).body.hub, undefined);
+  } finally {
+    delete world.env.APP_ORIGIN;
+  }
+});

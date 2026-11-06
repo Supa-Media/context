@@ -1,19 +1,21 @@
-import { useRef, useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { useState, type ReactNode } from "react";
+import { StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Icon } from "../../../../design/components/Icon";
 import { Menu } from "../../../../design/components/Menu";
 import { Text } from "../../../../design/components/Text";
-import { fonts, pointerType, radii, space } from "../../../../design/tokens";
+import { space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MenuItem } from "../../menuItem";
 import type { FolderListSource } from "../../listBlock/model";
 import { OwnerFace, PriorityGlyph, StatusDot } from "../../folderPage/Glyphs";
+import { toneColor, type StatusTone } from "../../folderPage/StatusPill";
 import { OwnerPicker } from "../../folderPage/OwnerPicker";
 import { groupOfStatus, statusMenu, type StatusList } from "../../folderPage/statuses";
 import { ESTIMATES, ESTIMATE_HINTS, priorityWord } from "../../folderPage/taskProps";
 import { DuePanel, TagPanel } from "../../folderPage/tasks/QuickAddParts";
 import { DUE_PRESET_LABELS, PRIORITIES, duePreset, type DuePreset } from "../../folderPage/tasks/taskWords";
+import { PROPERTY_CHIP_STYLE, PropertyChip, type Anchor } from "./PropertyChip";
 import {
   CHIP_NAMES,
   chipWrite,
@@ -29,7 +31,6 @@ import { useStatusList } from "./useStatusList";
 /** The whole note changed by `change`; why not, or null once it is in the draft. */
 export type ChipEdit = (change: (current: string) => { text: string } | { error: string }) => string | null;
 
-type Anchor = { x: number; y: number };
 type Open =
   | { kind: "menu"; items: MenuItem<string>[]; title: string; anchor: Anchor | undefined }
   | { kind: "owner"; anchor: Anchor | null }
@@ -94,6 +95,7 @@ export function PropertyChips({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const statuses = useStatusList(path, source);
+  const look = PROPERTY_CHIP_STYLE;
   const [open, setOpen] = useState<Open | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const chips = noteChips(text, now);
@@ -150,38 +152,45 @@ export function PropertyChips({
   const more = folded ? [...chips.unset, ...chips.more] : chips.more;
 
   if (chips.set.length === 0 && (!writable || !offered)) return null;
+  const plus = <Icon name="plus" size={12} color={colors.chromeMuted} />;
 
   return (
     <View style={styles.wrap} testID="note-chips">
       <View style={styles.row}>
         {chips.set.map((chip) => (
-          <Chip
+          <PropertyChip
             key={chip.key}
-            solid
-            tags={chip.key === "tags"}
+            style={look}
+            set
+            status={chip.key === "status"}
+            markColor={chip.key === "status" ? toneColor(colors, statusTone(chip, statuses)) : colors.text}
             label={chip.label}
-            lead={leadFor(chip.key, chip, statuses, colors)}
+            lead={look === "marker" && chip.key === "status" ? null : leadFor(chip.key, chip, statuses, colors)}
             accessibilityLabel={writable ? `Change ${CHIP_NAMES[chip.key].toLowerCase()}, ${chip.label}` : `${CHIP_NAMES[chip.key]}, ${chip.label}`}
             onPress={writable ? (anchor) => choose(chip.key, anchor) : undefined}
             testID={`note-chip-${chip.key}`}
           />
         ))}
         {unset.map((key) => (
-          <Chip
+          <PropertyChip
             key={key}
+            style={look}
+            markColor={colors.chromeMuted}
             label={CHIP_NAMES[key]}
             hidden={!showUnset}
-            lead={leadFor(key, null, statuses, colors)}
+            lead={look === "loop" ? leadFor(key, null, statuses, colors) : plus}
             accessibilityLabel={`Add ${CHIP_NAMES[key].toLowerCase()}`}
             onPress={(anchor) => choose(key, anchor)}
             testID={`note-chip-add-${key}`}
           />
         ))}
         {writable && offered && (more.length > 0 || onOther !== undefined) ? (
-          <Chip
+          <PropertyChip
+            style={look}
+            markColor={colors.chromeMuted}
             label={folded ? "Add property" : "More"}
             hidden={!showUnset}
-            lead={<Icon name="plus" size={12} color={colors.chromeMuted} />}
+            lead={plus}
             accessibilityLabel={folded ? "Add a property" : "More properties"}
             onPress={(anchor) => setOpen({ kind: "menu", items: moreItems(more), title: "Add property", anchor })}
             testID="note-chip-more"
@@ -285,107 +294,27 @@ export function valueItems(key: ChipKey, set: readonly SetChip[], statuses: Stat
 function leadFor(key: ChipKey, chip: SetChip | null, statuses: StatusList, colors: Colors): ReactNode {
   switch (key) {
     case "status":
-      return <StatusDot tone={chip === null ? "not-started" : (groupOfStatus(chip.raw, statuses) ?? "unplaced")} />;
+      return <StatusDot tone={chip === null ? "not-started" : statusTone(chip, statuses)} />;
     case "owner":
       return <OwnerFace face={chip === null ? { kind: "nobody" } : { kind: "person", name: chip.raw }} size={14} />;
     case "priority":
       return <PriorityGlyph priority={chip === null ? null : (Number(chip.raw.slice(1)) as 0 | 1 | 2 | 3)} />;
     case "due":
-      return <Icon name="calendar" size={12} color={chip === null ? colors.chromeMuted : colors.accentText} />;
+      return <Icon name="calendar" size={12} color={chip === null ? colors.chromeMuted : colors.text2} />;
     case "estimate":
-      return <Icon name="sliders" size={12} color={chip === null ? colors.chromeMuted : colors.accentText} />;
+      return <Icon name="sliders" size={12} color={chip === null ? colors.chromeMuted : colors.text2} />;
     case "tags":
       return null;
   }
 }
 
-function Chip({
-  label,
-  lead,
-  solid = false,
-  tags = false,
-  hidden = false,
-  accessibilityLabel,
-  onPress,
-  testID,
-}: {
-  label: string;
-  lead: ReactNode;
-  solid?: boolean;
-  tags?: boolean;
-  hidden?: boolean;
-  accessibilityLabel: string;
-  /** Undefined for a value somebody may only read. */
-  onPress?: (anchor: Anchor | undefined) => void;
-  testID: string;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const node = useRef<View>(null);
-  const [hovered, setHovered] = useState(false);
-  const look = [styles.chip, solid ? (tags ? styles.tags : styles.solid) : styles.faint, hovered && (solid ? styles.solidHover : styles.faintHover), hidden && styles.hidden];
-  const words = (
-    <Text numberOfLines={1} style={[styles.label, solid ? (tags ? styles.tagsText : styles.solidText) : styles.faintText, hovered && !solid && styles.faintTextHover]}>
-      {isolateForDisplay(label)}
-    </Text>
-  );
-  if (onPress === undefined) {
-    return (
-      <View style={look} accessibilityLabel={accessibilityLabel} testID={testID}>
-        {lead}
-        {words}
-      </View>
-    );
-  }
-  return (
-    <View ref={node} collapsable={false}>
-      <Pressable
-        onPress={() => {
-          const measure = node.current?.measureInWindow;
-          if (measure === undefined) onPress(undefined);
-          else node.current!.measureInWindow((x, y, _width, height) => onPress({ x, y: y + height + 4 }));
-        }}
-        onHoverIn={() => setHovered(true)}
-        onHoverOut={() => setHovered(false)}
-        role="button"
-        aria-haspopup="menu"
-        accessibilityLabel={accessibilityLabel}
-        // Out of the tab order and the pointer's way while it is not shown.
-        disabled={hidden}
-        style={look}
-        testID={testID}
-      >
-        {lead}
-        {words}
-      </Pressable>
-    </View>
-  );
+function statusTone(chip: SetChip, statuses: StatusList): StatusTone {
+  return groupOfStatus(chip.raw, statuses) ?? "unplaced";
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     wrap: { gap: space.x2 },
-    row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, minHeight: 26 },
-    chip: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      height: 26,
-      maxWidth: 280,
-      paddingHorizontal: 10,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      cursor: "pointer" as never,
-    },
-    solid: { backgroundColor: colors.accentDim, borderColor: "transparent" },
-    solidHover: { borderColor: colors.accent },
-    tags: { backgroundColor: colors.chipFill, borderColor: "transparent" },
-    faint: { borderColor: colors.lineStrong, borderStyle: "dashed", backgroundColor: "transparent" },
-    faintHover: { borderStyle: "solid", backgroundColor: colors.surface3 },
-    hidden: { opacity: 0 },
-    label: { fontFamily: fonts.body, fontSize: pointerType.ui, lineHeight: 18, flexShrink: 1 },
-    solidText: { color: colors.accentText, fontWeight: "600" },
-    tagsText: { color: colors.muted },
-    faintText: { color: colors.chromeMuted },
-    faintTextHover: { color: colors.text },
+    row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, minHeight: 26 },
     problem: { color: colors.critText },
   });

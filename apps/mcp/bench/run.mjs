@@ -34,7 +34,9 @@ import { judgeCommand } from "./judge.mjs";
 import { scoreCommand } from "./score.mjs";
 import { summaryCommand } from "./summary.mjs";
 import { calibrateCommand } from "./calibrate.mjs";
+import { gatesCommand } from "./gates.mjs";
 import { searchCommand } from "./search.mjs";
+import { benchLedger, ledgerFileName, ledgerNote, ledgersFolderFor } from "./modelLog.mjs";
 import { checkCommand } from "./check.mjs";
 import { connectCommand, publishCommand, publishSetup, pullCommand, signIn, signInCommand } from "./context.mjs";
 import { improveCommand } from "./improve.mjs";
@@ -162,19 +164,39 @@ async function benchPicture(name) {
 }
 
 /** One conversation: the person's opening text, then as many turns as they take. */
-export async function converse(world, question, person, mode = null) {
+/**
+ * A test's `computer: Studio Mac (claude, codex) 3 slots`: the one computer its
+ * person has paired, as `{ name, tools, slots }`, or null with none named.
+ */
+export function readComputer(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const m = String(value).trim().match(/^(.+?) \(((?:claude|codex)(?:, (?:claude|codex))?)\)(?: (\d) slots?)?$/);
+  if (!m) throw new Error(`computer: "${value}" is not "<name> (claude, codex) <n> slots"`);
+  return { name: m[1], tools: m[2].split(", "), slots: m[3] ? Number(m[3]) : 1 };
+}
+
+/** The jobs a case's chat has running before it starts: the same for every setup, so each has the same free slots. */
+export function benchRunning(count) {
+  return Array.from({ length: Math.max(0, Math.min(6, count)) }, (_, i) => ({ id: `bench-running-${i + 1}`, title: `Earlier job ${i + 1}`, state: "running", startedAt: Date.now() - 10 * 60_000, status: "working" }));
+}
+
+export async function converse(world, question, person, mode = null, background = false) {
   if (mode === "housekeeping") return await keepHouse(world, question);
   const conversation = [];
-  const totals = { ms: 0, personMs: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
+  // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count already (`benchRunning`).
+  const running = background ? benchRunning(question.running ?? 0) : null;
+  const totals = { ms: 0, personMs: 0, tools: [], jobs: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
   let message = question.personStarts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
     const pictures = texts === 0 && question.sendsPicture ? [await benchPicture(question.sendsPicture)] : [];
     conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n[Sent a picture: ${question.sendsPicture}]` : message });
     const seen = world.browser().length;
-    const turn = await world.text(message, pictures);
+    const turn = await world.text(message, pictures, { running });
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
+    totals.traces.push(turn.trace ?? []);
+    totals.jobs.push(...(turn.jobs ?? []));
     for (const key of Object.keys(totals.usage)) totals.usage[key] += turn.usage[key];
     // What each model spent and how many rounds it ran (`src/agent/modelPlan.js`): priced model by model.
     for (const [model, spent] of Object.entries(turn.usageByModel ?? {})) {
@@ -313,6 +335,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
     delete models.searchKey;
   }
   models.skills = skills;
+  // The computer every case's person has paired, the same for every setup (`computer:` in the test, `world.mjs`).
+  models.computer = readComputer(test.front.computer);
   const person = { fake: options.fake === true, send, model: test.front.played_by };
 
   // Warm by default (decided 2026-10-08): every workspace indexed once, every
@@ -338,14 +362,18 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
       const wallStarted = realNow();
       let world = await createWorld(bench, as, worldSetup, worldModels, today, prepared);
       try {
-        let result = await converse(world, question, person, test.front.mode ?? null);
+        let result = await converse(world, question, person, test.front.mode ?? null, test.front.background === "on");
         let reran = null;
         if (result.error && !options.fake) {
           reran = result.error;
           world.close();
           world = await createWorld(bench, as, worldSetup, worldModels, today, prepared);
-          result = await converse(world, question, person, test.front.mode ?? null);
+          result = await converse(world, question, person, test.front.mode ?? null, test.front.background === "on");
         }
+        const { traces = [], ...answered } = result;
+        // Everything the conversation did, for its ledger file (`modelLog.mjs`); `run` writes it beside the result.
+        const ledger = benchLedger({ setup: setup.name, question: question.n, run: n, as, questionText: question.text, conversation: answered.conversation, turns: traces, chat: await world.chatLedger?.().catch(() => []) ?? [], calls: world.modelCalls?.() ?? [] });
+        result = answered;
         records.push({
           ...(reran === null ? {} : { reran }),
           setup: setup.name,
@@ -367,6 +395,7 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
           // Wall time for the whole conversation, worlds and the played person
           // included, so a run can say where its hours went.
           wallMs: realNow() - wallStarted,
+          ledger,
         });
       } finally {
         world.close();
@@ -441,6 +470,18 @@ export function parallelFor(options, jobCount) {
   return options.fake ? 1 : Math.max(1, Math.min(6, jobCount));
 }
 
+/** Each record's ledger into `<result> ledgers/`, taken off the record so the result note stays the size it was. */
+async function writeLedgers(out, records) {
+  const folder = ledgersFolderFor(out);
+  const round = basename(out, ".md");
+  for (const record of records) {
+    if (!record.ledger) continue;
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, ledgerFileName(record.ledger)), ledgerNote(record.ledger, { round }));
+    delete record.ledger;
+  }
+}
+
 async function run(options) {
   const loaded = await loadRun(options);
   const { dir, fluffOn, fluffNotes, testName, test, setups, jobs } = loaded;
@@ -471,6 +512,7 @@ async function run(options) {
     keyFile: basename(keyOut),
   };
   await mkdir(join(out, ".."), { recursive: true });
+  await writeLedgers(out, records);
   await writeFile(out, resultMarkdown(result));
   await writeFile(keyOut, keyMarkdown(result));
   process.stderr.write(`wrote ${out}\nwrote ${keyOut}\n`);
@@ -482,6 +524,7 @@ const USAGE = [
   "       pnpm ai score <result file> --dir <benchmarks folder>",
   "       pnpm ai summary <result file>",
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
+  "       pnpm ai gates [--gate a,b] [--model clef-flash|clef] [--concurrency <n>] [--fake]   score each reply gate on its labelled set",
   "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai check <dream|heartbeat|meeting-summaries|meeting-transcription|connected-ais> [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai connect [--endpoint <url>]           once, by a person: the runner's grant on Context",
@@ -501,6 +544,7 @@ const COMMANDS = new Map([
   ["score", scoreCommand],
   ["summary", summaryCommand],
   ["calibrate", calibrateCommand],
+  ["gates", gatesCommand],
   ["search", searchCommand],
   ["check", checkCommand],
   ["connect", connectCommand],

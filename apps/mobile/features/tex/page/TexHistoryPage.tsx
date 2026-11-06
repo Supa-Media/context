@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { ListBox, ListRow, SubPage, T } from "./TexPageParts";
+import { ListBox, ListRow, SubPage, T, useWide } from "./TexPageParts";
 import { SETTING_LABEL, settingValue } from "./texPageLedger";
-import { TexHistoryLines } from "../history/TexHistoryLines";
+import { HistoryFileLines } from "../history/HistoryFileLines";
 import type { ViewProps } from "./TexPageBody";
 import type { Read } from "./texPageSource";
 import type { LedgerSees } from "./texPageTypes";
@@ -14,15 +14,29 @@ import type { LedgerSees } from "./texPageTypes";
  * of its own, "What Tex sees", the chat as the next
  * texted turn is shown it with the settings that shaped it (decided by the
  * owner, 2026-11-02; `docs/decisions/texting-assistant/chat-ledger.md`).
- * Newest day first. Both are read from the gateway each time; nothing here keeps
- * a copy.
+ * Both are read from the gateway each time; nothing here keeps a copy.
+ *
+ * History reads as a chat does, as the history file does (Dev, 2026-11-05:
+ * "this page doesn't update in realtime, also it should start at the bottom
+ * and then scroll up to see history like the history ledger page, filters
+ * still visible"): live, oldest at the top, opened on the newest line, the
+ * title and filters held above its own scroller (`HistoryFileLines`), so the
+ * page around it does not scroll (`TexPageBody`).
  */
 
-export function HistoryPage({ source, chat, group }: ViewProps) {
+const NO_PAD = { top: 0, bottom: 0, side: 0 };
+
+export function HistoryPage({ source, chat, group, history }: ViewProps) {
+  const wide = useWide();
+  const head = (
+    <T size={wide ? 22 : 20} serif line={1.25} numberOfLines={1}>
+      {group ? `History · ${group}` : "History"}
+    </T>
+  );
   return (
-    <SubPage title={group ? `History · ${group}` : "History"} testID="tex-history">
-      <TexHistoryLines source={source} chat={chat} group={group !== null} />
-    </SubPage>
+    <View style={{ flex: 1, minHeight: 0 }} testID="tex-history">
+      <HistoryFileLines source={source} chat={chat} group={group !== null} head={head} pad={NO_PAD} phone={!wide} look="page" testID="tex-history-lines" {...(history ? { initial: history } : {})} />
+    </View>
   );
 }
 

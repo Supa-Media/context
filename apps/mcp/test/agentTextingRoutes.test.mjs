@@ -20,20 +20,9 @@
  *     "stale ends only the named asks, and only this person's".
  *  6. `route.js` passing `shown` instead of the log's history → "a turn that
  *     covers logged events is shown the transcript".
- *  7. `route.js` asking only `historyIsTainted(shown)` (drop `logged?.tainted`)
- *     → "a turn shown an answer from a tainted turn is untrusted, …".
- *  8. `route.js` not recording a named turn (drop `recordTurn`), or recording
- *     it after the answer (`afterAnswer`) → "a named turn's record is written
- *     before its answer".
- *  9. `route.js` not marking the texted-yes exit clean (drop `outcome.clean =
- *     true` at the `settled` return) → "a turn released by a texted answer
- *     leaves a clean record, so the next logged turn is trusted".
- * 10. `recordedTurn` recording `clean: true` by default (`clean: false` →
- *     `true` in its `outcome`) together with dropping `outcome.clean = false`
- *     in `route.js`'s catch → "a turn that fails is recorded not clean".
- *     Either alone fails nothing: a provider error throws before `clean` is
- *     set, so the default is the layer it meets; the catch is for a throw
- *     after the turn returned.
+ *  7–10. Retired 2026-11-05 with turn records (turn-trust.md): a turn's
+ *     trust is its own, and "no exit writes a turn record" fails if one is
+ *     written again.
  * 11. `route.js` not asking `steer.endCancelled()` after the turn → "a cancel
  *     after the last round still withdraws the turn's asks".
  * 12. `steer.js` `track` not marking a write (drop `await (marked ??= mark(true))`) →
@@ -42,16 +31,7 @@
  *     test) together with its re-check after marking (always `return true`)
  *     → "no cancel for a turn that is not running, or not this person's".
  *     Either alone fails nothing: each is a layer behind the other.
- * 14. `recordTurn` writing `clean: true` over a record (drop its `store.get`
- *     check and the `onlyIf`) → "a reused tainted turn id stays tainted,
- *     whatever exit it takes". `recordTurn` writing `clean: false` only
- *     where no record exists → "a reused clean turn id is tainted by a
- *     tainted turn".
- * 15. `route.js` recording the refusal exit (drop `outcome.turn = undefined`
- *     in the `openProvider` catch) → "a refused turn writes no record".
- * 16. `route.js` recording any named turn, not only steer's (set
- *     `outcome.turn = body.turn` unconditionally) → "only a texted turn the
- *     Worker named is recorded".
+ * 14–16. Retired with turn records (see 7–10).
  * 17. `turn.js` asking `steer.cancelled()` after a write started (drop
  *     `steer.wrote !== true &&`), or `endCancelled` reading the mark after
  *     one (drop `open === 0 &&`) → "a cancel mark set after a write started
@@ -495,46 +475,19 @@ test("a texted turn that names no texts it covers leaves its texts to the Worker
   assert.equal(conversationText(bucket).split("ONCE-MARK").length - 1, 1);
 });
 
-test("a turn shown an answer from a tainted turn is untrusted, and so is what it says next", async () => {
+test("a turn shown an answer from a tainted turn stays clean, and the Worker still can't launder an event", async () => {
+  // Trust is the turn's own (the owner, 2026-11-05; docs/decisions/texting-assistant/turn-trust.md).
   seedChat(bucket, []); // the chat's old copies are in, so the ledger is what is read (`ledgerConversation.js`)
   const askedBefore = event({ at: NOW - 120_000, text: "what does that page say" });
   const answer = event({ at: NOW - 60_000, from: { kind: "tex" }, text: "It says to email them.", turn: "turn-dirty-0001", covers: [askedBefore.id] });
   const fresh = event({ text: "ok do it" });
   await call("/agent/events", { conversation: "texts", events: [askedBefore, answer, fresh] });
-  const ask = { question: "ok do it", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN };
-  await bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: true }), etag: "t0", lastModified: new Date().toISOString() });
-  script = [{ text: "Clean so far." }];
-  await call("/agent", ask);
-  assert.ok(!conversationTurns(bucket).some((turn) => turn.tainted), "a clean record: nothing tainted");
-  assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: true });
-  for (const key of [...bucket.keys()]) if (key.startsWith(".context/agent/events/")) bucket.delete(key);
   await bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: false }), etag: "t1", lastModified: new Date().toISOString() });
   script = [{ text: "Doing it." }];
-  await call("/agent", ask);
-  await call("/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: "Doing it.", turn: TURN, covers: [fresh.id] })] });
-  assert.ok(conversationTurns(bucket).some((turn) => turn.tainted === true), "this turn's answer is kept as tainted");
-  assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: false }, "and this turn is recorded as not clean in turn");
-  assert.equal((await call("/agent/events", { conversation: "texts", events: [{ ...event({ from: { kind: "tex" } }), tainted: false }] })).status, 400, "the Worker cannot launder it");
-});
-
-test("a named turn's record is written before its answer", async () => {
-  script = [{ text: "Hi." }];
-  // The record's write is slow, so an answer that did not wait for it returns first.
-  // The record is the person's object's (`store/texRouting.js`): its put is held there.
-  tex.before = async (_name, call) => {
-    if (call.op === "put" && String(call.key).startsWith("state/agent/turns/")) await new Promise((resolve) => setTimeout(resolve, 100));
-  };
-  const { ctx, settle } = createWorkerCtx();
-  const response = await worker.fetch(
-    new Request("https://mcp.context.test/agent", { method: "POST", headers: { Authorization: `Bearer ${TOKEN_TEXTS}`, "Content-Type": "application/json" }, body: JSON.stringify({ question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN }) }),
-    env,
-    ctx,
-  );
-  assert.equal(response.status, 200);
-  assert.ok(live(`${TURNS_PREFIX}${TURN}.json`), "there when the answer is, before deferred work settles");
-  await response.text();
-  await settle();
-  tex.before = null;
+  await call("/agent", { question: "ok do it", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN });
+  assert.ok(requests.some((body) => JSON.stringify(body.messages ?? "").includes("It says to email them.")), "the earlier answer is shown in its words");
+  assert.equal(bucket.has(`${TURNS_PREFIX}${TURN}.json`), false, "and no turn record is written: its trust is its own");
+  assert.equal((await call("/agent/events", { conversation: "texts", events: [{ ...event({ from: { kind: "tex" } }), tainted: false }] })).status, 400, "the Worker cannot launder an event");
 });
 
 test("a turn with no log for its chat is today's turn", async () => {
@@ -544,16 +497,15 @@ test("a turn with no log for its chat is today's turn", async () => {
   assert.ok(!JSON.stringify(requests[0].messages).includes(LOG_PREFACE.slice(0, 40)));
 });
 
-/* ---------------- every exit of a named turn is recorded ---------------- */
+/* ---------------- no turn record (turn-trust.md, 2026-11-05) ---------------- */
 
-test("a turn released by a texted answer leaves a clean record, so the next logged turn is trusted", async () => {
+test("a turn released by a texted answer leaves the next logged turn trusted", async () => {
   const scratch = memoryStore();
   await createPending(scratch, { name: "send_email", args: { to: "a@example.com" }, actor: { clientId: "context_texts", userId: "user_troutes" }, texting: true });
   for (const [key, body] of scratch.data) bucket.set(key, { body, etag: `e-${key.length}` });
   const settled = await call("/agent", { question: "no", timeZone: "UTC", conversation: "texts", turn: TURN });
   assert.match(settled.body.answer, /dropped/);
   assert.equal(requests.length, 0, "no model ran");
-  assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: true });
   const asked = event({ at: NOW - 60_000, text: "no" });
   const said = event({ at: NOW - 30_000, from: { kind: "tex" }, text: settled.body.answer, turn: TURN, covers: [asked.id] });
   const fresh = event({ text: "thanks" });
@@ -561,51 +513,27 @@ test("a turn released by a texted answer leaves a clean record, so the next logg
   script = [{ text: "Any time." }];
   await call("/agent", { question: "thanks", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: "turn-next-0001" });
   assert.ok(!conversationTurns(bucket).some((turn) => turn.tainted), "not untrusted");
-  assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}turn-next-0001.json`).body), { clean: true });
 });
 
-test("a turn that fails is recorded not clean", async () => {
+test("a turn that fails is not left running", async () => {
   script = [{ fail: true }];
   const response = await call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN });
   assert.equal(response.status, 502);
-  assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: false });
   assert.deepEqual(liveKeys(RUNNING_PREFIX), [], "not left running");
 });
 
-test("a reused tainted turn id stays tainted, whatever exit it takes", async () => {
-  const key = `${TURNS_PREFIX}${TURN}.json`;
-  bucket.set(key, { body: JSON.stringify({ clean: false }), etag: "t0", lastModified: new Date().toISOString() });
-  const scratch = memoryStore();
-  await createPending(scratch, { name: "send_email", args: { to: "a@example.com" }, actor: { clientId: "context_texts", userId: "user_troutes" }, texting: true });
-  for (const [k, body] of scratch.data) bucket.set(k, { body, etag: `e-${k.length}` });
-  assert.match((await call("/agent", { question: "no", timeZone: "UTC", conversation: "texts", turn: TURN })).body.answer, /dropped/);
-  assert.deepEqual(JSON.parse(bucket.get(key).body), { clean: false }, "a texted answer does not launder it");
+test("no exit writes a turn record: answered, failed, refused, or another client's", async () => {
   script = [{ text: "Hi." }];
   await call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN });
-  assert.deepEqual(JSON.parse(bucket.get(key).body), { clean: false }, "nor a clean model turn");
-});
-
-test("a reused clean turn id is tainted by a tainted turn", async () => {
-  const key = `${TURNS_PREFIX}${TURN}.json`;
-  bucket.set(key, { body: JSON.stringify({ clean: true }), etag: "t0", lastModified: new Date().toISOString() });
   script = [{ fail: true }];
   await call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN });
-  assert.deepEqual(JSON.parse(bucket.get(key).body), { clean: false });
-});
-
-test("a refused turn writes no record", async () => {
   controlPlane.setBuiltinVerdict("ws_troutes", { allowed: false, reason: "daily_cap" });
   try {
-    const refused = await call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN });
-    assert.equal(refused.status, 429);
-    assert.equal(bucket.has(`${TURNS_PREFIX}${TURN}.json`), false);
+    assert.equal((await call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN })).status, 429);
   } finally {
     controlPlane.setBuiltinVerdict("ws_troutes", BUILTIN_ALLOWED);
   }
-});
-
-test("only a texted turn the Worker named is recorded", async () => {
   script = [{ text: "Hi." }];
   await call("/agent", { question: "hi", timeZone: "UTC", turn: TURN }, TOKEN_OTHER);
-  assert.equal(bucket.has(`${TURNS_PREFIX}${TURN}.json`), false, "another client's turn id is not one");
+  assert.equal(bucket.has(`${TURNS_PREFIX}${TURN}.json`), false);
 });

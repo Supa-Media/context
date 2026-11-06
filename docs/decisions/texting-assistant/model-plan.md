@@ -100,3 +100,58 @@ think, then main drives", "an ordinary text stays on main", "an opinion text
 stays on main too: it asks the advisor, not a planner", "parseSetup reads a
 planner (think and think_rounds, no router), and refuses one without
 think_rounds".
+
+## Jobs run on Haiku and ask the advisor (2026-11-05)
+
+**Asked for by the owner (2026-11-05)**, looking at the bill: "it looks like
+Opus is just burning through all of our API usage despite it being using so
+few tokens ... for the Tex minions knock them down to Haiku, and also make sure
+that they have access to the advisor, whenever they need it."
+
+The numbers behind it (AI Gateway analytics and the gateway's own per-round
+points, `tex_model_calls`, 2026-11-02 to 2026-11-05): Opus was about 5% of
+model calls (415 of about 7,800) and 57% of the spend the gateway priced ($40
+of $71), and almost none of it was output (236k tokens). 292 of those 415 calls
+were job rounds: the two planning rounds every job part opened with, and about
+160 rounds taken back to Opus after a failed call. Each of those rounds
+re-wrote the job's whole prompt cache at Opus's price, because a model switch
+starts a new cache (see the known costs above). The rest were the advisor and
+its check of each finished part.
+
+So production drops `think`, `think_rounds` and `think_effort` (the planner
+section above stays, unused, as an option), and a job's turn runs on `main`
+from its first round. It keeps the advisor: it was already offered on every
+chat turn, a job's included, and a job's turn is now also told when to ask it
+(`advisor.js` `JOB_ADVISOR_LINE`: before the first step of a job with several
+steps or a judgment call, when a step fails and the next way isn't clear, and
+before reporting it finished). The cap of ten asks a turn holds and is never
+told. The advisor's check of each finished part against its finish line
+(`jobCheck.js`), the guard against a job called done on a promise, is
+unchanged and still runs on the advisor's model.
+
+**What a simplification would cost:** putting the planner back makes every job
+part pay two full-context Opus rounds plus one per failed call, most of the
+Opus bill; dropping the job line leaves Haiku with an advisor it was never told
+to use on a long job, which is where the planner's judgment used to come from.
+
+Tests (`apps/mcp/test/agentJobHaiku.test.mjs`): "a job's turn runs on Haiku
+from its first round, is offered the advisor, and told when to ask it", "an
+ordinary text is never told the job line, and is still offered the advisor",
+"the setup before it put a job's first two rounds on Opus: the cost this
+change removes".
+
+## The prompt cache keeps an hour (owner, 2026-11-05)
+
+A texted turn's tools, system prompt and history carry Anthropic's one-hour
+cache mark; the round's own end keeps five minutes, and one-off callers keep
+five minutes, since nothing reads them back and an hour's write costs 2x input
+instead of 1.25x. With five-minute marks the first round of most texts re-wrote
+about 80% of its cached prompt (`tex_model_calls`, 2026-11-01 to 11-04), and
+writes were about 80% of the front door's cost. The owner asked to "just set
+it" and assume the gateway accepts the field. A 400 on a body with one-hour
+marks is resent once without them and, when that goes through, remembered for
+the isolate, so a refused field never fails a turn.
+
+**What a simplification would cost:** dropping the fallback makes one refused
+field fail every texted turn; dropping the hour brings the re-writes back.
+Tests: `apps/mcp/test/agentHourCache.test.mjs`.

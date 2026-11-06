@@ -86,13 +86,12 @@ export function Explorer({
   agents,
   personal,
   onStartBusiness,
-  nextUp,
 }: ExplorerProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const frame = useFrame();
   const {
-    descending,
+    workspaceSort,
     query,
     dialog,
     setDialog,
@@ -146,7 +145,7 @@ export function Explorer({
       files={files}
       selectedFolder={selectedFolder}
       setDialog={setDialog}
-      descending={descending}
+      workspaceSort={workspaceSort}
       query={query}
       closeFilter={closeFilter}
       inBar={frame.columnTools !== null}
@@ -158,9 +157,6 @@ export function Explorer({
     <View style={styles.explorer} testID="explorer">
       {/* In the column only when the title bar has no row over it. */}
       {frame.columnTools === null ? toolbar : null}
-
-      {/* The next meeting on the calendar, from ten minutes before it (board w1). */}
-      {nextUp}
 
       <ExplorerTree
         files={files}

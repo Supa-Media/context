@@ -204,7 +204,7 @@ describe("a quick note", () => {
     expect(browser.selectedPath).toBe(MADE);
     expect(browser.editor.path).toBe(MADE);
     expect(browser.editor.etag).toBeNull();
-    expect(browser.editor.draft).toBe(`# ${STEM}\n\n`);
+    expect(browser.editor.draft).toBe("# \n\n");
     expect(browser.opening).toBeNull();
     expect(rows()).toContain(MADE);
     expect(calls.filter((c) => c.name === name("writeNote") || c.name === name("readNote"))).toEqual([]);
@@ -231,7 +231,7 @@ describe("a quick note", () => {
     await act(async () => {
       browser.createUntitled(FOLDER, "note");
     });
-    const text = `# ${STEM}\n\nBuy milk\n`;
+    const text = `# \n\nBuy milk\n`;
     await act(async () => {
       browser.setDraft(text);
     });
@@ -312,7 +312,7 @@ describe("a quick note", () => {
       browser.createUntitled(FOLDER, "note");
     });
     await act(async () => {
-      browser.setDraft(`# ${STEM}\n\nFirst\n`);
+      browser.setDraft(`# \n\nFirst\n`);
     });
     // Leaving writes what was typed; the second note is made while that is on its way.
     await act(async () => {
@@ -326,7 +326,7 @@ describe("a quick note", () => {
     await settle();
 
     expect(written()).toEqual([MADE]);
-    expect(files.get(MADE)).toBe(`# ${STEM}\n\nFirst\n`);
+    expect(files.get(MADE)).toBe(`# \n\nFirst\n`);
     expect(browser.notice).toBeNull();
   });
 
@@ -339,7 +339,7 @@ describe("a quick note", () => {
       browser.createUntitled(FOLDER, "note");
     });
     await act(async () => {
-      browser.setDraft(`# ${STEM}\n\nMine\n`);
+      browser.setDraft(`# \n\nMine\n`);
     });
     await act(async () => {
       browser.save();
@@ -351,7 +351,7 @@ describe("a quick note", () => {
     expect(browser.editor.path).toBe(NEXT);
     expect(browser.selectedPath).toBe(NEXT);
     expect(files.get(MADE)).toBe("# made on another device\n");
-    expect(files.get(NEXT)).toBe(`# ${STEM}-2\n\nMine\n`);
+    expect(files.get(NEXT)).toBe("# \n\nMine\n");
     expect(rows()).toContain(NEXT);
   });
 
@@ -370,7 +370,7 @@ describe("a quick note", () => {
       browser.createUntitled(FOLDER, "note");
     });
     await act(async () => {
-      browser.setDraft(`# ${STEM}\n\nHello\n`);
+      browser.setDraft(`# \n\nHello\n`);
     });
     await act(async () => {
       browser.save();

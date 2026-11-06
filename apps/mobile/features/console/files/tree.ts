@@ -36,6 +36,7 @@
  * the whole sentence out. What is dropped is a label, not a control.
  */
 
+import { listingSortOf, sortEntries, type ListingSort } from "@context/shared/src/listingSort.cjs";
 import { aboutNoteName, baseName, displayName, isMarkdown, isUnlistedFile, parentPath } from "./paths";
 import type { FileEntry, FolderListing, Visibility } from "./types";
 
@@ -140,21 +141,19 @@ export interface BuildTreeOptions {
   expanded: ReadonlySet<string>;
   selectedPath: string | null;
   /**
-   * Reverse the name order, folders still before files.
-   *
-   * The tree's sort control, which the reference has and this did not. It is a
-   * *view* over the listing rather than a second ordering: the server's order —
-   * folders first, then files, each case-insensitively alphabetical — is the
-   * only one there is, and this walks it backwards within each of the two
-   * groups. Folders stay ahead of files in both directions, because "sort
-   * descending" is a statement about names and not about kinds, and a tree that
-   * put files above folders one press in would read as a different tree.
+   * The workspace's own Sort setting (`listingOrder.ts`): what a listing that
+   * carries none of its own draws by. Each folder's setting arrives on its
+   * listing (`listing.sort`), so one tree can draw a folder in custom order
+   * beside one sorted by date (owner, 2026-11-04;
+   * `docs/decisions/app-and-console/folder-sort.md`).
    */
-  descending?: boolean;
+  workspaceSort?: ListingSort | null;
 }
 
 /**
- * The entries of one folder, in the order the tree draws them.
+ * The entries of one folder (`parent`), in the order the tree draws them
+ * under `sort` (`listingSort.cjs`; null for the order a folder with no
+ * setting draws in).
  *
  * Exported so the sort is one implementation: the folder page lists the same
  * rows on the same data, and two orderings of one listing is the defect this
@@ -162,12 +161,11 @@ export interface BuildTreeOptions {
  */
 export function orderedEntries(
   entries: readonly FileEntry[],
-  descending = false,
+  sort: ListingSort | null = null,
+  parent = "",
 ): readonly FileEntry[] {
-  if (!descending) return entries;
-  const folders = entries.filter((entry) => entry.kind === "folder");
-  const files = entries.filter((entry) => entry.kind !== "folder");
-  return [...folders.reverse(), ...files.reverse()];
+  // No setting: the listing's own order, which is already the server's (`compareListingEntries`).
+  return sort === null ? entries : sortEntries(parent, entries, sort);
 }
 
 /**
@@ -192,7 +190,7 @@ export function orderedEntries(
  */
 export function listedEntries(
   entries: readonly FileEntry[],
-  options: { descending?: boolean; keep?: string | null; aboutDrawn?: boolean } = {},
+  options: { sort?: ListingSort | null; parent?: string; keep?: string | null; aboutDrawn?: boolean } = {},
 ): readonly FileEntry[] {
   const keep = options.keep ?? null;
   const found = aboutNoteOf(entries);
@@ -206,7 +204,7 @@ export function listedEntries(
     (entry) =>
       entry.kind !== "file" || entry.path === keep || (!isUnlistedFile(entry.path) && entry.path !== about),
   );
-  return orderedEntries(listed, options.descending ?? false);
+  return orderedEntries(listed, options.sort ?? null, options.parent ?? "");
 }
 
 /**
@@ -243,11 +241,9 @@ export function hiddenAboutNote(about: string | null): boolean {
 /**
  * Flatten to rows, depth-first, in listing order.
  *
- * Listing order is the server's — folders first, then files, each
- * case-insensitively alphabetical — so re-sorting here would only introduce a
- * second opinion. `descending` reverses the *presentation* of that one order;
- * see `orderedEntries`. What is dropped on the way in is the folder
- * placeholder; see `listedEntries`.
+ * Each level in the order its Sort setting gives (`orderedEntries`, one
+ * implementation for every surface). What is dropped on the way in is the
+ * folder placeholder; see `listedEntries`.
  */
 export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
   const rows: TreeRow[] = [];
@@ -276,7 +272,8 @@ export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
       says what there is to open, and there is nothing.
     */
     const entries = listedEntries(listing.entries, {
-      descending: options.descending,
+      sort: listingSortOf(listing, options.workspaceSort ?? null),
+      parent: folder,
       keep: options.selectedPath,
     });
     if (entries.length === 0) {

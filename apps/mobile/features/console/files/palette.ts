@@ -46,6 +46,7 @@
 import { noteHeading } from "./frontmatter";
 import { baseName, displayName, displayPath, isPrivacyManifest, parentPath } from "./paths";
 import type { FileEntry, FolderListing } from "./types";
+import { nameBand, nameQuery, type NameQuery } from "./noteChoices";
 
 /**
  * What a result found by meaning alone says beside it: the note is about what
@@ -344,6 +345,56 @@ function compareMatches(left: Match, right: Match): number {
   return left.item.id < right.item.id ? -1 : 1;
 }
 
+/** How many name bands `nameBand` has (0 to 4). */
+const BANDS = 5;
+
+/**
+ * What one band is worth: more than any score letters in order can reach, so
+ * "llc formation" puts `llc-formation` above a note whose letters merely
+ * appear in that order, and typing words in any order still finds the name.
+ */
+const BAND_WEIGHT = 100_000;
+
+/**
+ * A name match strong enough to lead the list over the search's answer: the
+ * name starts with, holds, or has a word starting with each word typed
+ * (`nameBand` 0 to 2). "Deut 23" for `Deuteronomy 23` is one.
+ */
+export const STRONG_NAME_SCORE = (BANDS - 2) * BAND_WEIGHT;
+
+/** The closest band of an item's name, title or path; `-1` when none matches. */
+function bandOf(asked: NameQuery, item: PaletteItem): number {
+  const candidates = item.kind === "note" ? [item.id, item.label] : [item.label];
+  let best = -1;
+  for (const candidate of candidates) {
+    const band = nameBand(asked, candidate);
+    if (band >= 0 && (best < 0 || band < best)) best = band;
+  }
+  return best;
+}
+
+/**
+ * The words of `label` that a typed word starts, for a name found by its words
+ * rather than its letters in order: `llc formation` lights `llc` and
+ * `formation` in `llc-formation`.
+ */
+function wordStartRanges(asked: NameQuery, label: string): [number, number][] {
+  const lower = label.toLowerCase();
+  if (lower.length !== label.length) return [];
+  const ranges: [number, number][] = [];
+  for (const word of asked.typed) {
+    for (let index = 0; index < lower.length; index += 1) {
+      const starts = index === 0 || !/[a-z0-9]/.test(lower[index - 1]);
+      if (starts && lower.startsWith(word, index)) {
+        ranges.push([index, index + word.length]);
+        break;
+      }
+    }
+  }
+  ranges.sort((a, b) => a[0] - b[0]);
+  return ranges.filter((range, index) => index === 0 || range[0] >= ranges[index - 1][1]);
+}
+
 /**
  * Rank `items` against `query`, best first, capped at `limit`.
  *
@@ -367,16 +418,21 @@ export function rank(
     return items.slice(0, cap).map((item) => ({ item, score: 0, ranges: [] }));
   }
 
+  const asked = nameQuery(trimmed);
   const matches: Match[] = [];
   for (const item of items) {
     const hit = fuzzyMatch(trimmed, item.label);
     // The name is a second way in, and lights nothing in a title it is not.
     const byName = item.name === undefined ? null : fuzzyMatch(trimmed, item.name);
-    if (hit !== null && (byName === null || hit.score >= byName.score)) {
-      matches.push({ item, score: hit.score, ranges: hit.ranges });
-    } else if (byName !== null) {
-      matches.push({ item, score: byName.score, ranges: [] });
-    }
+    const band = bandOf(asked, item);
+    if (band < 0 && hit === null && byName === null) continue;
+    // The band decides first (`noteChoices.ts`): a name every typed word starts
+    // beats letters picked out in order, whatever the letters' score. Inside a
+    // band the letters' own score orders, as it always has.
+    const letters = Math.max(hit?.score ?? 0, byName?.score ?? 0);
+    const score = (band < 0 ? 0 : (BANDS - band) * BAND_WEIGHT) + letters;
+    const ranges = hit !== null && (byName === null || hit.score >= byName.score) ? hit.ranges : wordStartRanges(asked, item.label);
+    matches.push({ item, score, ranges });
   }
   matches.sort(compareMatches);
   return matches.slice(0, cap);
@@ -553,30 +609,6 @@ export function recentItems(
     if (/\.[^./]+$/.test(baseName(path)) && !isPrivacyManifest(path)) recent.push(noteItem(path, naming));
   }
   return recent;
-}
-
-/**
- * What an untyped search lists for a signed-in person: their own Recent, the
- * one phone Home draws, each row saying what they did ("You edited 9:12").
- * Drawn as `recentItems` draws a path, with the saying in `snippet`.
- */
-export function accountRecentItems(
-  rows: readonly { path: string; at: number; kind?: "opened" | "edited" }[],
-  items: readonly PaletteItem[],
-  label: (row: { at: number; kind?: "opened" | "edited" }) => string,
-  naming: NoteNaming = {},
-  limit: number = RECENT_LIMIT,
-): PaletteItem[] {
-  const said = new Map(rows.map((row) => [row.path, label(row)]));
-  return recentItems(
-    rows.map((row) => row.path),
-    items,
-    naming,
-    limit,
-  ).map((item) => {
-    const saying = said.get(item.id);
-    return saying === undefined || saying === "" ? item : { ...item, snippet: saying };
-  });
 }
 
 /**

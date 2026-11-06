@@ -12,7 +12,7 @@
  * second copy.
  *
  * Never in the way of a reply: the writer never throws, and its writes are
- * waited for after the answer has gone (`texTurn.js`).
+ * waited for after the answer has gone (`texEntryPoint.js`).
  */
 
 import { storeLedger } from "./ledger.js";
@@ -77,6 +77,16 @@ function verdictOf(checked, { held = false, sent = false }) {
 /** A `job` entry: the job's id (the one the texting Worker runs it under), its title, and its state. */
 export function jobEntry({ id, title }, state, { turn = null, advice = null, at = Date.now() } = {}) {
   return { v: 1, id: newId(), at, kind: "job", ...turnOf(turn), job: String(id), ...(title ? { title: cut(title, 120) } : {}), state, ...(advice ? { advice: cut(advice, 600) } : {}) };
+}
+
+/**
+ * A `job` entry for a job's report as the chat's own turn was handed it: its title, state and the job's own words
+ * (`report`), written before the model sees it. On 2026-11-05 Tex texted that it "can't read" a computer job's report
+ * and nobody could tell what the turn had been given (Dev2 chose to log it).
+ */
+export function reportEntry(report, { turn = null, at = Date.now() } = {}) {
+  const words = (report?.texts ?? []).join("\n\n").slice(0, 4_000);
+  return { ...jobEntry({ id: report?.id ?? "report", title: report?.title }, report?.state, { turn, at }), report: words };
 }
 
 /** An email the Mail checker read, written to the ledger; a session with no ledger keeps nothing. */

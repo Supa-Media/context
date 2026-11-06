@@ -253,6 +253,13 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep expired tex machine pairings",
+  { hours: 1 },
+  internal.functions.texMachines.purgeExpiredTexMachinePairings,
+  {},
+);
+
+crons.interval(
   "sweep expired authorization requests",
   { hours: 1 },
   internal.functions.authorizations.purgeExpiredAuthorizations,

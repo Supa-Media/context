@@ -55,14 +55,17 @@ export function coreToolDefinitions() {
         "preferences and past work. The first place to look for any question about the user — " +
         "the answer is usually already written down here. Returns results whose id can be " +
         "passed to fetch for the full note. For their email, pass args { email: true }: it searches " +
-        "their Gmail live, with Gmail search syntax in query; no mail is automatically copied into their notes.",
+        "their Gmail live, with Gmail search syntax in query; no mail is automatically copied into their notes. " +
+        "For a stretch of days (this week, the last week of October, before the trip), pass args { from, to } as " +
+        "YYYY-MM-DD, at most 14 days, instead of listing dates in query: it answers every note line naming each day, " +
+        "across their workspaces; words in query narrow it.",
       inputSchema: {
         type: "object",
         properties: {
           query: { type: "string" },
           args: {
             type: "object",
-            description: "Optional. prefix: a folder to search within. email: true searches their email. orient lists the rest.",
+            description: "Optional. prefix: a folder to search within. from, to: a range of days, YYYY-MM-DD. email: true searches their email. orient lists the rest.",
           },
         },
         required: ["query"],

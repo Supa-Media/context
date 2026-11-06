@@ -218,7 +218,7 @@ const ROUTES: Record<string, Coverage> = {
   */
   "(home)/_layout.tsx": { kind: "framed" },
   "(home)/index.tsx": { kind: "gate", mount: () => createElement(requireRoute("(home)/index.tsx")) },
-  ...Object.fromEntries(["privacy.tsx", "support.tsx", "terms.tsx", "not-me.tsx", "stop-new-email.tsx", "waitlist.tsx", "text.tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
+  ...Object.fromEntries(["privacy.tsx", "support.tsx", "terms.tsx", "download.tsx", "not-me.tsx", "stop-new-email.tsx", "waitlist.tsx", "text.tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
   "(auth)/login.tsx": { kind: "screen", mount: () => createElement(LoginScreen) },
   /*
@@ -281,7 +281,9 @@ const ROUTES: Record<string, Coverage> = {
   "signin/[token].tsx": { kind: "gate", mount: () => createElement(requireRoute("signin/[token].tsx")) },
   "texts/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("texts/[token].tsx")) },
   "vault/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("vault/[token].tsx")) },
-  "tex/[handle].tsx": { kind: "screen", mount: () => createElement(requireRoute("tex/[handle].tsx")) },
+  ...Object.fromEntries(["tex/[handle]/index.tsx", "tex/[handle]/[...rest].tsx", "tex/group/[words]/index.tsx", "tex/group/[words]/[...rest].tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
+  // Bare `/tex?…` only sends the person on to their own `/tex/<handle>?…`.
+  "tex/index.tsx": { kind: "gate", mount: () => createElement(requireRoute("tex/index.tsx")) },
   "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },

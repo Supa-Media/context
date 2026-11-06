@@ -17,7 +17,6 @@ import { WaitlistResult } from "./WaitlistResult";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { SignInPreview } from "./SignInPreview";
 import { PhoneSignInForm } from "./PhoneSignInForm";
-import { EMAIL_STILL_NEEDS_PHONE } from "./phoneSignIn";
 import { SHARED_NOTE_FOOT, SHARED_NOTE_INTRO, isSharedNoteNext } from "./sharedNoteNext";
 import { usePhoneSignIn } from "./usePhoneSignIn";
 
@@ -48,10 +47,11 @@ import { usePhoneSignIn } from "./usePhoneSignIn";
  * on a working invite an address that is not let in is the wrong address, said
  * as an error rather than as a place on the waitlist (`joinInvite.ts`).
  *
- * Since 2026-10-09 the page asks for a phone first (board p1, `PhoneSignInForm`):
- * a phone an account holds, or one staff let in, signs in with a texted code,
- * and any other number joins the waitlist in place. A friend's
- * `/join/<token>` link stays on email, because the invite is.
+ * The page opens on email (Dev2, 2026-11-04), as the homepage has since
+ * 2026-10-28: context.lc markets Context and tex.lc markets Tex. "Sign in with
+ * your phone instead" swaps in `PhoneSignInForm` (board p1, 2026-10-09): a
+ * phone an account holds, or one staff let in, signs in with a texted code,
+ * and any other number joins the waitlist in place.
  */
 export function LoginScreen({ join }: { join?: JoinVariant }) {
   const colors = useColors();
@@ -68,7 +68,10 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
   // A link to a note in a workspace open to somebody's email domain: email
   // first, and the copy says what happens next (`sharedNoteNext.ts`).
   const sharedNote = join === undefined && isSharedNoteNext(next);
-  const [mode, setMode] = useState<"phone" | "email">(join || sharedNote ? "email" : "phone");
+  // Email first (Dev2, 2026-11-04: "for context right now the default sign in
+  // should be email"), the homepage's order since 2026-10-28; the phone is the
+  // link under the field.
+  const [mode, setMode] = useState<"phone" | "email">("email");
   const phoneFlow = usePhoneSignIn({ onSignedIn, onUnavailable: () => setMode("email") });
   const { step, email, code, submitting, error, resent, canSubmit } = flow;
   const view = signInView(join, step);
@@ -253,11 +256,6 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
                   : sharedNote
                     ? SHARED_NOTE_FOOT
                     : "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."}
-            </Text>
-          ) : null}
-          {asking ? (
-            <Text variant="foot" style={styles.foot} testID="login-needs-phone">
-              {EMAIL_STILL_NEEDS_PHONE}
             </Text>
           ) : null}
 

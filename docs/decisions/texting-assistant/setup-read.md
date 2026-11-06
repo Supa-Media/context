@@ -42,3 +42,30 @@ member: a guest 1:1 and a group turn get the production prompt, an AI client
 never asks) and `apps/convex/__tests__/texSetupRead.test.ts` (the setup shows
 and nothing else does, AI clients and other workspaces get no binding), each
 with its sabotage record.
+
+## Answered by the pin's own object (2026-11-04)
+
+Dev, after a cold text spent 400 ms opening this door through the control
+plane: "can we do setup without convex?". The pin's workspace object already
+holds the member rules and the sealed binding a member's request is opened
+from (`store/objectBinding.js`), so it answers the setup read too:
+`ws.open {userId, setupRead: true}` returns the member rules narrowed to
+`ai/production` and `ai/agents` (`apps/mcp/src/workspaceStore/setupRules.js`,
+the same narrowing as `texSetupRead.ts`) and the sealed binding, whoever the
+reader is. The full member rules never leave the object for it.
+
+The gateway asks it only for a session `sessionForSetup` built: a Tex client,
+the pinned workspace by name, `team` as a `member`. `ws.open` stays the
+gateway's alone (the control plane's door refuses it). On a miss (nothing
+kept, a change still coming, access not yet in the object) the control plane
+answers as before, and its binding is kept for the next one.
+`SETUP_FROM_OBJECT=off` switches it back.
+
+**What a simplification costs.** Sending the member rules whole would let the
+setup door read every staff `team` note in the pin. Dropping the client or pin
+check would hand any session the pin's setup folders.
+
+**Tests.** `apps/mcp/test/objectBindingSetupRead.test.mjs` (served from the
+object after the first, nothing outside the setup folders visible, every other
+session refused) and `apps/convex/__tests__/texSetupReadParity.test.ts` (the
+object's narrowing answers every path as the control plane's).

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useColors, useScheme } from "../../../../design/theme";
-import { darkMapColors, lightMapColors } from "../../../../design/tokens/colors";
+import { boardColors, darkMapColors, lightMapColors } from "../../../../design/tokens/colors";
 import { useReducedMotion } from "../../../../design/useReducedMotion";
 import { MCP_ENDPOINT } from "../../../placeholderData";
 import type { ConsoleData } from "../../../types";
@@ -10,6 +10,7 @@ import {
   folderCountsAt,
   histogram,
   mapPalette,
+  withBoard,
   momentsOf,
   type FollowState,
   type MapActor,
@@ -27,6 +28,8 @@ import { useCrossMovesSince, useReplayHistory } from "./useHistory";
 import { useLiveActivity } from "./useLiveActivity";
 import { useMapHub } from "./useMapHub";
 import { useMapGraphs, type MapWorkspace } from "./useMapGraphs";
+import { useMapLook } from "./useMapLook";
+import { drawnBoard } from "../look";
 
 /** Live, the past 24 hours, the past week, or a custom stretch picked from the history. */
 export type MapMode = "live" | "day" | "week" | "custom";
@@ -186,7 +189,12 @@ export function useMapPage(data: ConsoleData) {
     [replaying, events, replay?.at, replay?.from, replay?.to, live.actors, now],
   );
   const hub = useMapHub(data, scope === "all" && many && remote, atWork);
-  const palette = useMemo(() => mapPalette(colors, scheme === "dark" ? darkMapColors : lightMapColors), [colors, scheme]);
+  const { look, setLook, reset: resetLook } = useMapLook(remote);
+  const palette = useMemo(() => {
+    const dark = scheme === "dark";
+    const board = drawnBoard(look.board, dark);
+    return withBoard(mapPalette(colors, dark ? darkMapColors : lightMapColors), board, boardColors[board], dark);
+  }, [colors, scheme, look.board]);
 
   const mapData: MapData = useMemo(
     () => ({
@@ -199,10 +207,11 @@ export function useMapPage(data: ConsoleData) {
       palette,
       selfId,
       hub,
+      look,
     }),
     // `clock` is rebuilt from its parts each render; these are what change it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [present, actors, events, scope, many, selected?.id, view, replaying, replay?.from, replay?.to, replay?.seek, replay?.speed, replay?.range, palette, selfId, hub],
+    [present, actors, events, scope, many, selected?.id, view, replaying, replay?.from, replay?.to, replay?.seek, replay?.speed, replay?.range, palette, selfId, hub, look],
   );
 
   const book = useMemo(() => nameBook(present), [present]);
@@ -291,6 +300,10 @@ export function useMapPage(data: ConsoleData) {
     followActor,
     engineRef,
     reducedMotion,
+    /** How the person has the map drawn (its settings panel), and how to change it. */
+    look,
+    setLook,
+    resetLook,
     historyLoading: mode !== "live" && history === null,
   };
 }

@@ -24,6 +24,7 @@ import type { FileBrowser } from "../features/console/files/browser";
 import type { FileBrowserOptions, Listings } from "../features/console/files/fileBrowser/types";
 import { useFolderJobs, type FolderJobsValues } from "../features/console/files/fileBrowser/useFolderJobs";
 import { useTreeDrag } from "../features/console/files/explorer/useTreeDrag";
+import { resetListingOrder } from "../features/console/files/listingOrder";
 import { NO_PICK } from "../features/console/files/selection";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
 
@@ -72,6 +73,7 @@ afterEach(() => {
 beforeEach(() => {
   mockCalls.length = 0;
   mockOrderAnswer = async () => null;
+  resetListingOrder();
 });
 
 function mount(render: () => void) {
@@ -123,8 +125,32 @@ describe("useFolderJobs.placeFolder", () => {
     expect(move).not.toHaveBeenCalled();
     expect(mockCalls).toEqual([
       { name: "functions/folderOrder:set", args: { workspaceId: "w1", parent: "", folders: ["Capture", "Recipes", "Projects", "website"] } },
+      // The level was not in custom order: the drag switches it (folder-sort.md).
+      { name: "functions/folderSort:set", args: { workspaceId: "w1", folder: "", sort: "custom" } },
     ]);
     expect(probe.drawn[0]![""]!.entries.map((entry) => entry.path)).toEqual(["Capture", "Recipes", "Projects", "website"]);
+    expect(probe.said).toEqual(["The top level is now in custom order. Pick another sort from View to go back."]);
+  });
+
+  test("a level already in custom order is only reordered", async () => {
+    const custom: Listings = { ...LISTINGS, Projects: { ...LISTINGS.Projects!, sort: "custom" } };
+    const said: string[] = [];
+    let api!: FolderJobsValues;
+    mount(() => {
+      api = useFolderJobs({
+        options: { canEdit: true, workspaceId: "w1" } as unknown as FileBrowserOptions,
+        listings: custom,
+        iconOf: () => null,
+        drawLocally: () => {},
+        refresh: async () => {},
+        say: (message) => said.push(message),
+        move: async () => true,
+      });
+    });
+    act(() => api.placeFolder("Projects/beta", "Projects", ["Projects/beta", "Projects/alpha"]));
+    await flush();
+    expect(mockCalls.map((call) => call.name)).toEqual(["functions/folderOrder:set"]);
+    expect(said).toEqual([]);
   });
 
   test("from another level, the order waits for the move", async () => {
@@ -141,6 +167,7 @@ describe("useFolderJobs.placeFolder", () => {
         name: "functions/folderOrder:set",
         args: { workspaceId: "w1", parent: "Projects", folders: ["Projects/alpha", "Projects/Recipes", "Projects/beta"] },
       },
+      { name: "functions/folderSort:set", args: { workspaceId: "w1", folder: "Projects", sort: "custom" } },
     ]);
   });
 
@@ -182,7 +209,7 @@ describe("useTreeDrag", () => {
     mount(() => {
       value = useTreeDrag({
         files,
-        descending: false,
+        workspaceSort: null,
         contextLabel: "@seyi",
         pickedRows: [],
         shown: { paths: new Set() },

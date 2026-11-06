@@ -14,7 +14,7 @@ import { WHO, ev, fakeCanvas, para, palette } from "./liveMapFixture";
  * Reading is drawn in ink; teal only appears once somebody writes.
  *
  * Sabotage record: `hitTest` ignoring layers (last drawn wins) → "a face is
- * on top of the note it sits on" fails; drawing reading particles in `accent`
+ * on top of the note it sits on" fails; drawing the reading mark in `accent`
  * → "reading is drawn in ink" fails; `fillText` in `draw/primitives.ts`
  * passing the text through uncontained → "a title with a direction override
  * is drawn contained" fails.
@@ -126,19 +126,14 @@ describe("colour", () => {
     calls.filter((c) => (c.op === "fill" && c.fillStyle === palette.accent) || (c.op === "stroke" && c.strokeStyle === palette.accent));
 
   test("reading is drawn in ink; teal only appears once somebody writes", () => {
-    // Reduced motion: nothing streams at all.
-    const still = engineWith(base([claude]));
-    still.canvas.ctx.calls.length = 0;
-    still.engine.renderAt(NOW);
-    expect(still.canvas.ctx.calls.filter((c) => c.op === "fill" && c.fillStyle === palette.ink && (c.alpha ?? 1) < 0.85)).toEqual([]);
-
-    const reading = engineWith(base([claude]), 1000, 700, false);
-    reading.canvas.ctx.calls.length = 0;
-    reading.engine.renderAt(NOW);
-    // The dots streaming from the note into its reader: small ink circles, faded in and out.
-    const streaming = reading.canvas.ctx.calls.filter((c) => c.op === "fill" && c.fillStyle === palette.ink && (c.alpha ?? 1) < 0.85);
-    expect(streaming.length).toBeGreaterThan(3);
-    expect(teal(reading.canvas.ctx.calls)).toEqual([]);
+    // A pencil circle on the note being read, still or moving, and never a line to the reader.
+    for (const rm of [true, false]) {
+      const reading = engineWith(base([claude]), 1000, 700, rm);
+      reading.canvas.ctx.calls.length = 0;
+      reading.engine.renderAt(NOW);
+      expect(reading.canvas.ctx.calls.filter((c) => c.op === "stroke" && c.strokeStyle === palette.ink).length).toBeGreaterThan(0);
+      expect(teal(reading.canvas.ctx.calls)).toEqual([]);
+    }
 
     const writing = engineWith(base([claude, maya]), 1000, 700, false);
     writing.canvas.ctx.calls.length = 0;

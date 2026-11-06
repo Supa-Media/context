@@ -21,7 +21,7 @@ import { effectiveVisibility } from "../privacy/engine.js";
 import { indexableText } from "../encryption/format.js";
 import { isIndexableNote } from "../search/indexable.js";
 import { deleteStatements, FTS_TABLE, projectNote, upsertStatements } from "../search/d1/project.js";
-import { searchParams, searchSql } from "../search/d1/query.js";
+import { searchParams, searchSql, withWholeLines } from "../search/d1/query.js";
 import { parsedRules } from "./serve.js";
 import { TEX_TABLES, texObjects } from "../texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
@@ -54,7 +54,8 @@ export const QUERY_BYTES = 32 * 1024;
 export const BUILD_ROWS = 400;
 export const BUILD_BYTES = 64 * 1024;
 /** The index's own layout; an index from an earlier one is emptied and built again. */
-const LAYOUT = "3";
+// 4: file names in the headings column and word forms asked at query time (2026-11-04).
+const LAYOUT = "4";
 /** Queries one search sends (a strict and a relaxed expression, over at most both tables). */
 const MAX_ASKS = 4;
 /** Rows one query may ask for (the gateway's `CHUNK_FETCH_CAP` is well under it). */
@@ -261,7 +262,7 @@ export function workspaceSearch(sql, { rows, objects }) {
       if (before > 2 * QUERY_ROWS) return { served: false, waiting: before };
       const left = catchUp({ rows: QUERY_ROWS, bytes: QUERY_BYTES });
       if (left === null || left > 0) return { served: false, waiting: left };
-      return { served: true, answers: checked.map(({ table, match, options }) => all(sql.exec(searchSql(table, options), ...searchParams(match, options)))) };
+      return { served: true, answers: checked.map(({ table, match, options }) => all(sql.exec(searchSql(table, options), ...searchParams(match, options))).map(withWholeLines)) };
     },
   };
 }

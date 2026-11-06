@@ -46,7 +46,7 @@
  *     email reaches the model as waiting for a yes` fails.
  * 16. `answerWithAsk` not calling `withoutHeldEcho`. → `a held email is texted
  *     once` fails.
- * 17. `setAsideLine` dropped from the model's question in `texTurn.js`. → `the
+ * 17. `setAsideLine` dropped from the model's question in `texEntryPoint.js`. → `the
  *     turn that set a held email aside is told so` fails.
  */
 
@@ -60,7 +60,7 @@ import { TEXTED_ASK_CAP, textedAsk } from "../src/agent/textedApprovals.js";
 import { EVERY_CHAT, createPending, disarmRecords, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
-const EMAIL = { to: ["jo@example.com"], subject: "Re: Thursday", body: "Hi Jo,\n\nThursday at 3 works for me.\n\nSeyi" };
+const EMAIL = { to: ["jo@example.com"], subject: "Thursday", body: "Hi Jo,\n\nThursday at 3 works for me.\n\nSeyi" };
 const verdict = (value, reason = "") => ({ text: JSON.stringify({ verdict: value, reason }) });
 const isChecker = (body) => JSON.stringify(body?.system ?? "").includes("You check one email");
 
@@ -90,7 +90,7 @@ export async function runEmailGateChecks(check) {
         pending().length === 1 &&
         asked.body?.asked === 1 &&
         (asked.body?.answer ?? "").includes(
-          "Here's the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nGive it a 👍 and I'll send it",
+          "Here's the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nGive it a 👍 and I'll send it",
         ),
     );
     check(
@@ -120,7 +120,7 @@ export async function runEmailGateChecks(check) {
         model.requests.length === before &&
         sends().length === 1 &&
         JSON.stringify(sends()[0].email) === JSON.stringify({ from: "seyi@gmail.example", to: EMAIL.to, cc: [], subject: EMAIL.subject, body: EMAIL.body }) &&
-        /^Done, I sent an email to jo@example\.com, "Re: Thursday"\.$/.test(yes.body?.answer ?? "") &&
+        /^Done, I sent an email to jo@example\.com, "Thursday"\.$/.test(yes.body?.answer ?? "") &&
         pending().length === 0,
     );
 
@@ -138,7 +138,7 @@ export async function runEmailGateChecks(check) {
 
     /* ---------------- a side text leaves it standing; Tex asking something else does not ---------------- */
 
-    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: one sec" } }] }, verdict("yes"), { text: "Drafted." }]);
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "one sec" } }] }, verdict("yes"), { text: "Drafted." }]);
     await ask(env, TOKEN_TEXTS, "tell Jo one sec works");
     model.install([{ text: "No rush." }]);
     await ask(env, TOKEN_TEXTS, "one sec");
@@ -148,11 +148,11 @@ export async function runEmailGateChecks(check) {
     // The model is no longer told it waits: a text that is no yes or no reads no ask (owner, 2026-11-03, `front-door.md`).
     check(
       "a side text leaves the ask standing, and the yes after it sends (Dev2, 2026-10-22)",
-      !stood.includes("it still waits") && sends().length === before + 1 && sends().at(-1).email.subject === "Re: one sec",
+      !stood.includes("it still waits") && sends().length === before + 1 && sends().at(-1).email.subject === "one sec",
     );
 
     model.install([
-      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: Friday" } }] },
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Friday" } }] },
       verdict("yes"),
       { text: "Drafted." },
     ]);
@@ -180,7 +180,7 @@ export async function runEmailGateChecks(check) {
 
     /* ---------------- the sender shown is the sender ---------------- */
 
-    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: sender" } }] }, verdict("yes"), { text: "Drafted." }]);
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "sender" } }] }, verdict("yes"), { text: "Drafted." }]);
     await ask(env, TOKEN_TEXTS, "tell Jo yes");
     controlPlane.flags.emailSender = "other@gmail.example";
     before = sends().length;
@@ -197,7 +197,7 @@ export async function runEmailGateChecks(check) {
     /* ---------------- a text shows it whole, or it is not asked ---------------- */
 
     model.install([
-      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: long", body: "word ".repeat(600) } }] },
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "long", body: "word ".repeat(600) } }] },
       verdict("yes"),
       { text: "It was too long to text." },
     ]);
@@ -210,26 +210,26 @@ export async function runEmailGateChecks(check) {
 
     /* ---------------- any yes sends an email ---------------- */
 
-    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: ok" } }] }, verdict("yes"), { text: "Drafted." }]);
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "ok" } }] }, verdict("yes"), { text: "Drafted." }]);
     await ask(env, TOKEN_TEXTS, "email Jo that it's fine");
     before = sends().length;
     const turnsBeforeOk = model.requests.length;
     const okay = await ask(env, TOKEN_TEXTS, "ok");
     check(
       'an "ok" to an email is a yes: it sends it, without a model (Dev2, 2026-10-22)',
-      sends().length === before + 1 && sends().at(-1).email.subject === "Re: ok" && model.requests.length === turnsBeforeOk && /^Done, I sent an email/.test(okay.body?.answer ?? ""),
+      sends().length === before + 1 && sends().at(-1).email.subject === "ok" && model.requests.length === turnsBeforeOk && /^Done, I sent an email/.test(okay.body?.answer ?? ""),
     );
     for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
 
-    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: said so" } }] }, verdict("yes"), { text: "Drafted." }]);
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "said so" } }] }, verdict("yes"), { text: "Drafted." }]);
     await ask(env, TOKEN_TEXTS, "email Jo that it's fine");
     before = sends().length;
     const sendIt = await ask(env, TOKEN_TEXTS, "Yes, send it");
     check(
       'a yes that says to send it ("Yes, send it") sends the email',
-      sends().length === before + 1 && sends().at(-1).email.subject === "Re: said so" && /^Done, I sent an email/.test(sendIt.body?.answer ?? ""),
+      sends().length === before + 1 && sends().at(-1).email.subject === "said so" && /^Done, I sent an email/.test(sendIt.body?.answer ?? ""),
     );
-    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: changed" } }] }, verdict("yes"), { text: "Drafted." }]);
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "changed" } }] }, verdict("yes"), { text: "Drafted." }]);
     await ask(env, TOKEN_TEXTS, "email Jo that it's fine");
     model.install([{ text: "Who should it go to?" }]);
     before = sends().length;
@@ -243,7 +243,7 @@ export async function runEmailGateChecks(check) {
 
     model.install([
       { toolCalls: [{ name: "create_workspace", args: { slug: "mixed-co", name: "Mixed Co" } }] },
-      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: mixed" } }] },
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "mixed" } }] },
       verdict("yes"),
       { text: "Drafted, and I'd set up @mixed-co." },
     ]);
@@ -252,14 +252,14 @@ export async function runEmailGateChecks(check) {
     await ask(env, TOKEN_TEXTS, "ok");
     check(
       'one "ok" answers the whole ask: the workspace and the email beside it',
-      mixed.body?.asked === 2 && sends().length === before + 1 && !held().some((left) => left.tool === "send_email" && left.summary.includes("Re: mixed")),
+      mixed.body?.asked === 2 && sends().length === before + 1 && !held().some((left) => left.tool === "send_email" && left.summary.includes("mixed")),
     );
     for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
 
     model.install([
-      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: one" } }] },
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "one" } }] },
       verdict("yes"),
-      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: two" } }] },
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "two" } }] },
       verdict("yes"),
       { text: "Drafted both." },
     ]);
@@ -270,8 +270,8 @@ export async function runEmailGateChecks(check) {
       "two emails in one texted turn go in one ask, each shown whole, and one yes sends both (Dev2, 2026-10-22)",
       two.body?.asked === 2 &&
         (two.body?.verbatim?.[0] ?? "").startsWith("Here are the emails I'd send:") &&
-        (two.body?.verbatim?.[0] ?? "").includes("Re: one") &&
-        (two.body?.verbatim?.[0] ?? "").includes("Re: two") &&
+        (two.body?.verbatim?.[0] ?? "").includes("one") &&
+        (two.body?.verbatim?.[0] ?? "").includes("two") &&
         sends().length === before + 2,
     );
 
@@ -295,22 +295,22 @@ export async function runEmailGateChecks(check) {
     );
 
     model.install([
-      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: maybe Thursday" } }] },
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "maybe Thursday" } }] },
       verdict("unsure", "they said maybe Thursday"),
       { text: "Drafted." },
     ]);
     const unsure = await ask(env, TOKEN_TEXTS, "maybe tell Jo thursday");
     check(
       "an unsure checker puts it to the person, the email alone and never its reason",
-      pending().length === 1 && (unsure.body?.answer ?? "").includes("Re: maybe Thursday") && !(unsure.body?.answer ?? "").includes("Mail checker"),
+      pending().length === 1 && (unsure.body?.answer ?? "").includes("maybe Thursday") && !(unsure.body?.answer ?? "").includes("Mail checker"),
     );
     await ask(env, TOKEN_TEXTS, "no");
 
-    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: unchecked" } }] }, { status: 500 }, { text: "Drafted." }]);
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "unchecked" } }] }, { status: 500 }, { text: "Drafted." }]);
     const unchecked = await ask(env, TOKEN_TEXTS, "send Jo the thursday email");
     check(
       "a checker that cannot run still leaves the person the say",
-      pending().length === 1 && (unchecked.body?.answer ?? "").includes("Re: unchecked") && !(unchecked.body?.answer ?? "").includes("Mail checker"),
+      pending().length === 1 && (unchecked.body?.answer ?? "").includes("unchecked") && !(unchecked.body?.answer ?? "").includes("Mail checker"),
     );
     await ask(env, TOKEN_TEXTS, "no");
 
@@ -354,14 +354,14 @@ export async function runEmailGateChecks(check) {
 
     /* ---------------- one copy of a held email (Dev, 2026-10-19) ---------------- */
 
-    const SATURDAY = { to: ["jo@example.com"], subject: "Re: Saturday", body: "Hi Jo,\n\nWe'd like to go with the Saturday option at 7 pm. Could you send over a link where we can pay the deposit?\n\nThanks,\nSeyi" };
+    const SATURDAY = { to: ["jo@example.com"], subject: "Saturday", body: "Hi Jo,\n\nWe'd like to go with the Saturday option at 7 pm. Could you send over a link where we can pay the deposit?\n\nThanks,\nSeyi" };
     model.install([
       { toolCalls: [{ name: "send_email", args: SATURDAY }] },
       verdict("yes"),
       {
         text:
           "The email didn't go through on my end, so here it is to send yourself:\n\n" +
-          "To: jo@example.com\nSubject: Re: Saturday\n\n" +
+          "To: jo@example.com\nSubject: Saturday\n\n" +
           "Hi Jo, we'd like to go with the Saturday option at 7 pm. Could you send over a link where we can pay the deposit? Thanks, Seyi\n\n" +
           "Her quotes were for 6:30, so she may send a new one for 7.",
       },
@@ -479,9 +479,9 @@ export async function runEmailGateChecks(check) {
     controlPlane.flags.mailMessage = null;
 
     // The same for a plain email: Tex's own "To: … Subject: … Say yes and I'll send it." raises the hold, and one "yes" sends it.
-    const NOTE = { to: ["sam@example.com"], subject: "Re: Saturday", body: "Hi Sam,\n\nSaturday works.\n\nSeyi" };
+    const NOTE = { to: ["sam@example.com"], subject: "Saturday", body: "Hi Sam,\n\nSaturday works.\n\nSeyi" };
     model.install([
-      { text: "Here's the email:\n\nTo: sam@example.com\nSubject: Re: Saturday\n\nHi Sam, Saturday works.\n\nSay yes and I'll send it." },
+      { text: "Here's the email:\n\nTo: sam@example.com\nSubject: Saturday\n\nHi Sam, Saturday works.\n\nSay yes and I'll send it." },
       { toolCalls: [{ name: "send_email", args: NOTE }] },
       verdict("yes"),
       { text: "I wrote Sam that Saturday works." },
@@ -495,7 +495,7 @@ export async function runEmailGateChecks(check) {
       (previewed.body?.verbatim?.[0] ?? "").startsWith("Here's the email I'd send:") &&
         model.requests.length === plainModel &&
         sends().length === plainSends + 1 &&
-        sends().at(-1)?.email?.subject === "Re: Saturday" &&
+        sends().at(-1)?.email?.subject === "Saturday" &&
         /^Done, I sent an email/.test(sentYes.body?.answer ?? ""),
     );
     delete env.TEX_FRONT_DOOR;

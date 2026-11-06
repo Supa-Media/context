@@ -123,8 +123,16 @@ export const nodeTables = {
      * job whatever it is called (`lib/nodes/folderJobs.ts`, owner 2026-10-18).
      */
     role: v.optional(v.string()),
-    /** Where this folder is drawn among its siblings, once somebody has set it; else its job's rank, then its name. */
+    /**
+     * Where this row is drawn among its siblings, once somebody has set it: a folder's (else its job's rank, then its
+     * name), or a note's in a folder set to custom order (`functions/folderOrder.ts`).
+     */
     order: v.optional(v.number()),
+    /**
+     * A folder's Sort setting (`LISTING_SORTS` in `listingSort.cjs`): how its rows are drawn, for everybody, and for
+     * every folder beneath it without one of its own (`functions/folderSort.ts`, owner 2026-11-04).
+     */
+    sort: v.optional(v.string()),
     /**
      * On a folder inside Archive: the built-in folder it is the archive copy of, by the job's original name
      * (`projects`), so Archive keeps the workspace's shape (`archiveMirror.cjs`, owner 2026-10-18). Written
@@ -154,6 +162,8 @@ export const nodeTables = {
     /** A key a row keys its bytes at: the old-copy cleanup's re-check and count look a key up here (`lib/cleanup/`). */
     .index("by_workspace_storageKey", ["workspaceId", "storageKey"])
     .index("by_workspace_chaos", ["workspaceId", "chaosNote"])
+    /** The folders with a Sort setting of their own: "Apply to folders inside" clears these (`functions/folderSort.ts`). */
+    .index("by_workspace_sort", ["workspaceId", "sort"])
     .index("by_parent_name", ["workspaceId", "parentId", "name"])
     .index("by_workspace_observed", ["workspaceId", "observedAt"])
     /** The rows that carry an access setting of their own: the access scan reads these, never the whole tree (`accessRows.ts`). */

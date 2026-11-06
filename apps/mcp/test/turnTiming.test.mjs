@@ -30,7 +30,7 @@ test("a texted turn's reply keeps where its time went: the wait, each step, each
       { thinking: "Their calendar or notes would say.", toolCalls: [{ name: "search", args: { query: "dentist" } }], usage: { input_tokens: 250, output_tokens: 900, cache_read_input_tokens: 9_000, cache_creation_input_tokens: 400 } },
       { text: "Tuesday at 3.", usage: { input_tokens: 1_200, output_tokens: 40, cache_read_input_tokens: 9_400 } },
     ]);
-    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: text.text, conversation: "texts", covers: [text.id], chat: CHAT, recent: [text], turn: "turn-timing-0001", arrivedAt: now - 1_500 });
+    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: text.text, conversation: "texts", covers: [text.id], chat: CHAT, recent: [text], turn: "turn-timing-0001", arrivedAt: now - 1_500, worker: { sessionMs: 412.4, beforeAskMs: 37, phone: "+15555550100" } });
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
     const { entries } = await ledgerOf(world).read(ONE_TO_ONE_CHAT);
     const reply = entries.find((entry) => entry.kind === "reply");
@@ -38,6 +38,7 @@ test("a texted turn's reply keeps where its time went: the wait, each step, each
     assert.equal(timing.v, 1);
     assert.ok(timing.waitMs >= 1_400 && timing.waitMs < 60_000, `the wait before the gateway: ${timing.waitMs}`);
     assert.ok(timing.replyMs >= 0);
+    assert.deepEqual(timing.worker, { sessionMs: 412, beforeAskMs: 37 }, "the Worker's own wait inside it, numbers only (Dev, 2026-11-04)");
     const names = timing.steps.map((step) => step.name);
     for (const step of ["read_request", "wait:history", "model"]) assert.ok(names.includes(step), `${step} in ${names.join()}`);
     assert.ok(!names.some((step) => step.startsWith("after:") || step === "to_response"), "only what the person waited for");
@@ -49,7 +50,7 @@ test("a texted turn's reply keeps where its time went: the wait, each step, each
     const model = timing.steps.find((step) => step.name === "model");
     assert.ok(timing.rounds[0].at >= model.at && timing.rounds[0].at <= timing.tools[0].at && timing.tools[0].at <= timing.rounds[1].at, "on the turn's own clock, in the order they ran");
     assert.ok(timing.rounds[1].at + timing.rounds[1].ms <= timing.replyMs, "all before the reply was ready");
-    assert.doesNotMatch(JSON.stringify(timing), /dentist|Tuesday|calendar/, "names and numbers, never a word");
+    assert.doesNotMatch(JSON.stringify(timing), /dentist|Tuesday|calendar|5555550100/, "names and numbers, never a word");
     const thinking = entries.find((entry) => entry.kind === "thinking");
     assert.equal(thinking.output, 900, "a thinking entry says what its round cost");
     assert.equal(typeof thinking.ms, "number");
@@ -108,4 +109,10 @@ test("the block keeps names and numbers, moves the loop's offsets onto the turn'
   const long = turnTiming({ steps: Array.from({ length: 500 }, (_, i) => ({ name: `s${i}`, at: i, ms: 1 })), trace: Array.from({ length: 500 }, () => ({ kind: "tool", tool: "x", at: 0, ms: 1 })), replyMs: 1 });
   assert.ok(long.steps.length <= 60 && long.tools.length <= 80, "a long job's turn cannot grow its reply");
   assert.equal(turnTiming({ replyMs: 10 }).waitMs, undefined, "an unknown wait is left out, never 0");
+});
+
+test("the Worker's wait keeps only sane milliseconds, and is left out when there are none", () => {
+  assert.equal(turnTiming({ replyMs: 1, worker: "slow" }).worker, undefined);
+  assert.equal(turnTiming({ replyMs: 1, worker: { sessionMs: -4, beforeAskMs: Infinity } }).worker, undefined);
+  assert.deepEqual(turnTiming({ replyMs: 1, worker: { sessionMs: 900.6, beforeAskMs: 99 * 60 * 60 * 1000 } }).worker, { sessionMs: 901 });
 });

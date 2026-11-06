@@ -227,7 +227,7 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 9,000 when they were told never to hand back work they can do (prompt.js, DO_IT_YOURSELF_LINE, 2026-10-22),
   // and from 9,600 when that line became the adopted hand-back rule: what they may be asked for, captchas only after every try (9,884 then).
   // and from 10,000 when they were told what they can do outside the notes and to keep a fact the moment it's given (ACTIONS_LINE, REMEMBER_LINE, 2026-10-23; 11,035 then).
-  // and from 11,500 when a texter with no Gmail connected, or one that can only be read, is offered it once (googleOffer.js, 2026-10-23).
+  // and from 11,500 when a texter with no Gmail connected, or one that can only be read, is offered it once (googleOffer.js, 2026-10-23; removed 2026-11-04).
   // and from 12,000 when a note they ask for is saved, and filed in the subfolder that fits (prompt.js, SAVING_LINE, 2026-10-24; 12,244 then).
   // and from 12,500 when they were told a reorganize they ask for is theirs to do at once (prompt.js, REORGANIZE_LINE, 2026-10-25).
   // and from 13,000 when they were told to push back once on a request against their goals, and never flatter (pushback.js, OPINION_LINE, 2026-10-25; 13,647 then).
@@ -249,7 +249,7 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
 test("a texted turn takes a safe next step instead of offering it (self-reviews, 2026-10-31)", async () => {
   pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
   const system = await systemFor(TOKEN_TEXTS);
-  assert.match(system, /A next step that reaches nobody else \(try again, restart, start a sign-in, give what you have\) is yours: take it and say what happened, never "want me to\?"/);
+  assert.match(system, /A next step that reaches nobody else \(a read or search of their notes, email, files or the web, a draft, try again, restart, start a sign-in, give what you have\) is yours: take it and say what happened, never "want me to\?"/);
   assert.match(system, /Ask first only for what reaches another person, spends money or can't be undone\./);
 });
 
@@ -267,11 +267,11 @@ test("a texted turn does the reorganizing it's asked for itself (owner, 2026-10-
   assert.match(system, /Several notes go in one move_notes/);
 });
 
-test("a texted turn by somebody with no Gmail connected is asked to offer it once (owner, 2026-10-23)", async () => {
+test("a texted turn is never told to offer Google, and never waits to find out (Dev, 2026-11-04: \"remove the google offer\")", async () => {
   pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
   const system = await systemFor(TOKEN_TEXTS);
-  assert.match(system, /they have no Gmail connected yet/);
-  assert.match(system, /manage connect_google \(kind gmail\)/);
+  assert.doesNotMatch(system, /no Gmail connected yet/);
+  assert.doesNotMatch(system, /offer it once in one short line/);
 });
 
 test("a texted turn saves a note it's asked for, and files it in the subfolder that fits (self-review, 2026-10-24)", async () => {

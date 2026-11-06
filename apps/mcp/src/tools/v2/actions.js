@@ -112,7 +112,7 @@ export const ACTIONS = {
     website: { tool: "write_note", summary: "Check, publish, screenshot or roll back the website, or set its domain.", take: website },
     share_link: { tool: "create_link", summary: "Make a link to a note or folder (owners only).", take: plain },
     revoke_link: { tool: "revoke_link", summary: "Turn a link off.", take: plain },
-    vault_add: { tool: "vault_add_link", summary: "Get a link where the person saves a login, secret or card.", take: plain },
+    vault_add: { tool: "vault_add_link", summary: "Get a link where the person saves a login, secret or card. A login fills only on its site, so never guess the site from the name: unless they gave the address, search_web the company and what it's for first (theCut the barber app is thecut.co, not thecut.com) and name the domain of the result that is that company. When they ask you to save a login, send the link at once: never ask first which email they sign in with, since they fill that in on the link.", take: plain },
     vault_share: { tool: "vault_share_link", summary: "Get a link to give a saved login to another member.", take: plain },
     vault_view: { tool: "vault_view_link", summary: "Get a link where the person sees a saved entry.", take: plain },
     create_workspace: {
@@ -134,6 +134,11 @@ export const ACTIONS = {
     connect_google: { tool: "connect_google", summary: "Get the link where the person connects Gmail or Calendar.", take: plain },
     connect: { tool: "connect_app", summary: "Get the link where the person connects an app fetch apps: lists, through its own approval screen.", take: plain },
     dream_now: { tool: "dream_now", summary: "Start Tex's dream now: it rewrites tex/about.md (owner only).", take: plain },
+    pair_device: {
+      tool: "pair_device",
+      summary: "Approve the code this session's own computer shows, so it gets note mail at once (mail only, never jobs).",
+      take: plain,
+    },
   },
   send: {
     api: {

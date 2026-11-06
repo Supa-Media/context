@@ -9,13 +9,13 @@
  * (`TEX_TIMING`, read with the account's SQL API): the turn's kind and
  * outcome, and how its milliseconds split between the wait before the
  * gateway, each step before the first model round (`STAGES`, marked in
- * `texTurn.js`), the model, the tools, the rest of the turn, and the work after
+ * `texEntryPoint.js`), the model, the tools, the rest of the turn, and the work after
  * the answer until the response. Numbers, a kind and an outcome only: never a
  * workspace, a person, a model's words or theirs. Without the binding
  * (self-hosting, tests) nothing is written.
  */
 
-/** The marks `texTurn.js` sets before the model, in order; each one's double is the time since the one before. */
+/** The marks `texEntryPoint.js` sets before the model, in order; each one's double is the time since the one before. */
 export const STAGES = ["provider", "tools", "history", "web", "setup", "skills", "pictures", "ready"];
 
 /**
@@ -170,7 +170,7 @@ export function stagesOf({ start, marks, end, report }) {
   const modelMs = report?.modelMs ?? 0;
   const toolMs = report?.toolMs ?? 0;
   const turnMs = marks.ready === undefined ? 0 : Math.max(0, answered - marks.ready);
-  const rounds = (report?.trace ?? []).filter((entry) => entry.kind !== "tool" && entry.kind !== "router" && entry.kind !== "fallback");
+  const rounds = (report?.trace ?? []).filter((entry) => entry.kind !== "tool" && entry.kind !== "router" && entry.kind !== "fallback" && entry.kind !== "judge");
   const waitMs = report?.waitMs ?? 0;
   return {
     blobs: [String(report?.kind ?? "unknown"), String(report?.outcome ?? "unfinished")],

@@ -119,7 +119,7 @@ describe("the recheck", () => {
       { draftFor: undefined },
       { draftFor: id(9) }, // not a candidate
       { draftFor: NEWEST }, // a draft for the newest message is not a reply to an older one
-      { style: "direct", sender: ADA }, // groups only
+      { style: "direct" }, // a 1:1 recheck names its sender
       { line: undefined },
       { candidates: [id(1)] }, // newest not among them
     ];
@@ -127,6 +127,20 @@ describe("the recheck", () => {
       const response = await recheck(t, extra);
       expect(response.status, JSON.stringify(Object.keys(extra))).toBe(400);
     }
+  });
+
+  // Dev2's one-door plan (2026-11-05): a 1:1 chat gets the same last look a group does, metered to the sender's personal workspace.
+  test("a 1:1 draft is rechecked too, told it is a one-to-one chat", async () => {
+    const t = setupTest();
+    await texter(t, "ada", ADA);
+    const sent = clef({ draft_fits: { type: "noul", noul: 0.1 } });
+    const response = await recheck(t, { chat: ADA, line: undefined, sender: ADA, style: "direct" });
+    expect(response.json).toEqual({ ok: true, fits: false, confidence: 0.1 });
+    const question = Object.values(sent[0]!.questions)[0] as unknown as { instructions: string };
+    expect(question.instructions).toContain("one-to-one");
+    expect(question.instructions).not.toContain("group chat");
+    // An unlinked phone has no workspace to meter: unclear, so the Worker sends the draft.
+    expect((await recheck(t, { chat: BO, line: undefined, sender: BO, style: "direct" })).json).toMatchObject({ ok: false, reason: "unavailable" });
   });
 
   test("asks one question with the draft in the state, and never returns or logs the words", async () => {

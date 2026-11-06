@@ -20,7 +20,7 @@ import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { SCOPE_WRITE, TEX_SETUP_CLIENTS, hasScope } from "./session.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
-import { objectFirstSetAccess } from "./store/objectAccess.js";
+import { objectFirstAddGrantees, objectFirstSetAccess } from "./store/objectAccess.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
 
 /**
@@ -69,8 +69,11 @@ async function openBinding(session, env, controlPlane, later = () => {}) {
   }
   const logged = (source, extra = {}) =>
     console.log(JSON.stringify({ event: "workspace_binding_opened", workspaceId: session.workspaceId, source, reason: fromObject.reason, ms: Date.now() - started, ...(fromObject.wake ? { cold: fromObject.wake.cold, waitedMs: fromObject.wake.waitedMs } : {}), ...extra }));
+  // Where it came from, for the entry point's timings (`http/mcpRoute.js`): a source and a short code, never a key.
+  const from = { source: fromObject.opened !== null ? "object" : "control_plane", reason: typeof fromObject.reason === "string" && /^[a-z_]{1,32}$/.test(fromObject.reason) ? fromObject.reason : null };
   if (fromObject.opened !== null) {
     logged("object");
+    sources.set(fromObject.opened, from);
     // A kept copy past fresh was served; the control plane is asked behind the response, for the next request.
     if (typeof fromObject.refresh === "function") later(refreshBehind(session, controlPlane, fromObject.refresh));
     return fromObject.opened;
@@ -89,13 +92,18 @@ async function openBinding(session, env, controlPlane, later = () => {}) {
   }
   const kept = typeof fromObject.keep === "function" ? await fromObject.keep(opened) : null;
   logged("control_plane", kept === null ? {} : { kept: kept.kept, keptReason: kept.reason });
+  if (opened && typeof opened === "object") sources.set(opened, from);
   return opened;
 }
+
+/** Where each opened binding came from (`openBinding`), read once by the store built from it. */
+const sources = new WeakMap();
 
 /** Ask the control plane for the binding and keep it in the object. Never throws: a failed refresh is tried next time. */
 async function refreshBehind(session, controlPlane, keep) {
   try {
-    const opened = await controlPlane.getStorageBinding(session.accessToken, session.workspaceId);
+    // Asked as the store was opened: Tex's setup read as that (`session.js` `sessionForSetup`), never as the person.
+    const opened = await controlPlane.getStorageBinding(session.accessToken, session.workspaceId, ...(session.setupRead === true ? [undefined, { setupRead: true }] : []));
     const kept = await keep(opened);
     console.log(JSON.stringify({ event: "workspace_binding_refreshed", workspaceId: session.workspaceId, kept: kept?.kept === true, keptReason: kept?.reason ?? null }));
   } catch {
@@ -164,7 +172,7 @@ async function openSessionStore(session, env, controlPlane) {
   // layer, and a binding refresh behind the response, are handed a door to it now.
   const behind = deferDoor();
   const opened = await openBinding(session, env, controlPlane, (work) => behind.later(work));
-  const { binding, searchIndex, meaningIndex, encryptionKey, rotation, noteCap } = opened;
+  const { binding, searchIndex, meaningIndex, meaningOn, encryptionKey, rotation, noteCap } = opened;
 
   if (binding === null) throw new StorageUnavailable("not bound");
   if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
@@ -200,23 +208,34 @@ async function openSessionStore(session, env, controlPlane) {
     typeof controlPlane.privacyAuthority === "function"
       ? controlPlane.privacyAuthority({ accessToken: session.accessToken }, session.workspaceId, opened.privacy ?? null)
       : null;
-  // A tier-only change in an object-home workspace is decided there first (`store/objectAccess.js`); the control
-  // plane's `setAccess` is the fallback and what grantee lists still use. The actor is this request's own grant.
+  // A tier change, or people added by name or address, in an object-home workspace is decided there first
+  // (`store/objectAccess.js`); the control plane's `setAccess` / `addGrantees` is the fallback, and resolves a handle
+  // the object has not been told. The actor is this request's own grant.
+  const objectAccessOptions = {
+    client: workspaceClient(env, session.workspaceId),
+    home: binding.notesHome ?? null,
+    role: session.role,
+    userId: session.actorUserId ?? null,
+    clientId: session.actorClientId ?? null,
+    canWrite: (session.role === "owner" || session.role === "editor") && hasScope(session, SCOPE_WRITE),
+    workspaceId: session.workspaceId,
+    log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
+  };
   const authority =
     controlAuthority === null || typeof controlAuthority.setAccess !== "function"
       ? controlAuthority
       : {
           ...controlAuthority,
-          setAccess: objectFirstSetAccess(controlAuthority.setAccess.bind(controlAuthority), {
-            client: workspaceClient(env, session.workspaceId),
-            home: binding.notesHome ?? null,
-            role: session.role,
-            userId: session.actorUserId ?? null,
-            clientId: session.actorClientId ?? null,
-            canWrite: (session.role === "owner" || session.role === "editor") && hasScope(session, SCOPE_WRITE),
-            workspaceId: session.workspaceId,
-            log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
-          }),
+          setAccess: objectFirstSetAccess(controlAuthority.setAccess.bind(controlAuthority), objectAccessOptions),
+          ...(typeof controlAuthority.addGrantees === "function"
+            ? {
+                addGrantees: objectFirstAddGrantees(
+                  controlAuthority.addGrantees.bind(controlAuthority),
+                  typeof controlAuthority.resolveHandles === "function" ? controlAuthority.resolveHandles.bind(controlAuthority) : null,
+                  objectAccessOptions,
+                ),
+              }
+            : {}),
         };
   // The free plan's cap counts the Convex tree's notes, never the bucket
   // (`store/noteCap.js`); asked only when a capped write would add a note.
@@ -276,6 +295,8 @@ async function openSessionStore(session, env, controlPlane) {
   // For the agent tools' listing (`http/routing.js` `treeManifest`, `store/objectManifest.js`). Non-enumerable: it holds
   // the object's client, which nothing that spreads or logs a store should carry.
   Object.defineProperty(store, "objectReading", { value: objectReading, enumerable: false, writable: false, configurable: true });
+  // Where its binding came from (`openBinding`): `{source, reason}`, so a slow open can say why (`http/mcpRoute.js`).
+  Object.defineProperty(store, "bindingFrom", { value: sources.get(opened) ?? null, enumerable: false, writable: false, configurable: true });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
   // Where the bucket's backup writes go behind the response, once the request names it (`http/requestStore.js`).
   Object.defineProperty(store, "backupBehind", { value: behind, enumerable: false, writable: false, configurable: true });
@@ -337,7 +358,7 @@ async function openSessionStore(session, env, controlPlane) {
    * this line changed.
    */
   // And search by meaning's index beside it, on the same terms.
-  attachSearchIndexes(store, { searchIndex, meaningIndex }, env?.AI);
+  attachSearchIndexes(store, { searchIndex, meaningIndex, meaningOn }, env?.AI);
 
   /**
    * The key that opens this context's encrypted notes, for this request only.
@@ -505,7 +526,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
 
   const store = storeForBinding(binding, env, { managedEncryption: managedEncryptionForStore(opened, binding), texStore: gatewayTexStore(env), workspaceStore: (workspaceId) => workspaceClient(env, workspaceId) });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
-  attachSearchIndexes(store, { searchIndex: opened?.searchIndex, meaningIndex: opened?.meaningIndex }, env?.AI);
+  attachSearchIndexes(store, { searchIndex: opened?.searchIndex, meaningIndex: opened?.meaningIndex, meaningOn: opened?.meaningOn }, env?.AI);
   Object.defineProperty(store, "encryptionKey", {
     value: readEncryptionKey(opened?.encryptionKey),
     enumerable: false,

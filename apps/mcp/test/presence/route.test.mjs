@@ -37,6 +37,7 @@ import {
   presenceRequest,
   roomKey,
 } from "./fixtures.mjs";
+import { ticketNamespace, ticketProtocols } from "../liveTicketFixture.mjs";
 
 export async function runPresenceRouteChecks(check) {
   /* ============================== the route ============================== */
@@ -203,6 +204,7 @@ export async function runPresenceRouteChecks(check) {
       PRESENCE_BUCKET: bucket,
       OTHER_BUCKET: otherBucket,
       PRESENCE_ROOM: rooms,
+      LIVE_TICKET: ticketNamespace(),
     };
     controlPlane.serveTreesFrom(env); // the tree, and so the access rules, come from these buckets
 
@@ -285,18 +287,25 @@ export async function runPresenceRouteChecks(check) {
     const joined = await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/roadmap.md&seed=tab-a");
     check("a team connection joins a team note's room", joined.status === 200);
     check("a header-token join names no subprotocol", joined.protocol === null);
-    // The app's socket offers its token as a subprotocol instead of a URL path
+    // The app's socket offers a one-use ticket as a subprotocol, never a token
     // (docs/decisions/gateway-protocol/token-transport.md): it joins the same
-    // room, and the answer names `context.presence` alone, never the token.
-    const viaProtocol = await presenceRequest(env, null, "?note=1-projects/roadmap.md&seed=tab-a", {
+    // room, and the answer names `context.presence` alone, never the ticket.
+    const ticketed = await ticketProtocols(env, { token: TEAM_TOKEN, socket: "/presence", protocol: "context.presence" });
+    const viaTicket = await presenceRequest(env, null, "?note=1-projects/roadmap.md&seed=tab-a", {
+      headers: { "Sec-WebSocket-Protocol": ticketed },
+    });
+    check("a ticket offered as a subprotocol joins the same room", viaTicket.status === 200);
+    check("the answer names the presence protocol and not the ticket", viaTicket.protocol === "context.presence");
+    const replayed = await presenceRequest(env, null, "?note=1-projects/roadmap.md&seed=tab-a", {
+      headers: { "Sec-WebSocket-Protocol": ticketed },
+    });
+    check("a spent ticket joins nothing", replayed.status === 401);
+    const asToken = await presenceRequest(env, null, "?note=1-projects/roadmap.md", {
       headers: { "Sec-WebSocket-Protocol": `context.presence, context.token.${TEAM_TOKEN}` },
     });
-    check("a token offered as a subprotocol joins the same room", viaProtocol.status === 200);
-    check("the answer names the presence protocol and not the token", viaProtocol.protocol === "context.presence");
-    const tokenOnly = await presenceRequest(env, null, "?note=1-projects/roadmap.md", {
-      headers: { "Sec-WebSocket-Protocol": `context.token.${TEAM_TOKEN}` },
-    });
-    check("a token subprotocol without the presence protocol is no token", tokenOnly.status === 401);
+    check("a token offered as a subprotocol is no token", asToken.status === 401);
+    const viaPath = await presenceRequest(env, null, "", { path: `/t/${TEAM_TOKEN}/presence?note=1-projects/roadmap.md` });
+    check("a token in the socket's URL is refused", viaPath.status === 410);
     check(
       "the room addressed is the one the session's workspace names",
       rooms.calls.at(-1)?.name === `enam:${roomKey("ws_presence", "1-projects/roadmap.md")}`,

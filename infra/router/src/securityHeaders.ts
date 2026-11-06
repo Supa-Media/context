@@ -24,19 +24,41 @@
  *   redirect, and nothing creates an `<object>`, an `<embed>` or a `<base>`.
  *   Frames of ours that write their own policy keep theirs, which is
  *   stricter (`'none'`), since a document obeys every policy it is given.
- *   Script and style stay report-only (`cspReport.ts`) until the frames that
- *   need inline script and `new Function` move out from under them.
+ *   The shell document also enforces its `script-src`
+ *   (`shellEnforcedPolicy`); style stays report-only (`cspReport.ts`).
  *
  * Headers a branch already set win: the preview cards' `no-referrer`, for one,
  * is stricter than the default here. Customer domains never pass through this:
  * their sites have a routing table and headers of their own (`site.ts`).
  */
 
-import { reportOnlyPolicyFor, SCRIPT_POLICY } from "./cspReport";
+import { ENFORCED_REPORT_PATH, reportOnlyPolicyFor, SCRIPT_POLICY, shellScriptSource } from "./cspReport";
 import { isPageBoxPath } from "./pageFrame";
 
-/** What the enforcing header allows: no directive here may block a script or a style. */
+/** What the enforcing header allows on every platform response: no directive here may block a script or a style. */
 export const ENFORCED_POLICY = "frame-ancestors 'self'; form-action 'self'; object-src 'none'; base-uri 'self'";
+
+/**
+ * The app shell's enforcing policy: the platform's, plus the shell's
+ * `script-src` (2026-11-05, the CASA scan's "CSP: script-src unsafe-inline").
+ *
+ * Only the shell document gets it (`styleNonce.ts` sets it on the one
+ * response it recognises as the shell), because the shell is what was
+ * measured: its three inline scripts run by hash, the plugin sandbox, the
+ * drawing editor and the diagram page are documents with policies of their
+ * own, and a week of production reports (2026-10-29 to 2026-11-05) held no
+ * script refusal on a shell document. Pages the router or the gateway write
+ * themselves (cards, previews, the Messages extension) keep their own
+ * policies or none, as before. Its refusals report to an address of their
+ * own, so the log says which ones actually blocked something.
+ *
+ * Style stays report-only: the live editor's CodeMirror styles still need the
+ * nonce to reach the enforcing header, and the html preview fence its own
+ * page (`docs/decisions/testing/csp-candidate.md`).
+ */
+export function shellEnforcedPolicy(landing = false): string {
+  return `${ENFORCED_POLICY}; ${shellScriptSource(landing)}; report-uri ${ENFORCED_REPORT_PATH}`;
+}
 
 export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Strict-Transport-Security": "max-age=31536000",

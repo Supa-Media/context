@@ -1,39 +1,41 @@
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Circle, G, Path, Rect, Svg } from "react-native-svg";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   Figure,
-  JobRow,
-  LinkWord,
   More,
   SectionHead,
   T,
-  ThinkBlock,
   useNow,
   useWide,
 } from "./TexPageParts";
 import { TexSelect } from "./TexSelect";
+import { TexHistoryLines } from "../history/TexHistoryLines";
 import type { ViewProps } from "./TexPageBody";
+import { MachineAskCard } from "./TexMachineAsk";
+import { EarlierRow, MinionPool } from "./TexMinionPool";
+import { MinionFigure } from "./TexMinionFigure";
+import { activityOf } from "./minionProps";
 import {
-  actionPieces,
   advisorLine,
   busyLine,
+  minionMood,
   endedLine,
   heading,
   mailcheckLine,
-  moodOf,
   slotLine,
   statusLine,
   tileLines,
-  turnHead,
-  turnTail,
 } from "./texPageFormat";
-import type { Overview, Slot, Turn, TurnAction } from "./texPageTypes";
+import type { Overview, Slot } from "./texPageTypes";
 
 /** The Tex page's first screen, the mock's `template#page` and `#page-g`. */
 export function TexHome({
+  source,
+  chat,
   go,
+  page,
   group,
   overview,
   pickChat,
@@ -45,16 +47,14 @@ export function TexHome({
   const lines = tileLines(overview.tiles, group !== null, new Date(now));
   const titleSize = wide ? 34 : 26;
 
-  const open = (action: TurnAction) => {
-    if (action.kind === "advisor") go({ view: "advisor" });
-    else if (action.kind === "mailcheck") go({ view: "mailcheck" });
-    else if (action.kind === "job" && action.ref) go({ job: action.ref });
-  };
 
+  // A tile's line is drawn once it is known; until then a quiet bar, and after `TILES_WAIT_MS` the title alone.
+  const known = (view: TileView) => (view === "computer" ? page.tiles.computer : page.tiles.lines);
   const strip = tilesFor(group !== null).map(({ view, title }) => (
     <Pressable
       key={view}
       accessibilityRole="button"
+      accessibilityLabel={known(view) ? `${title}, ${lines[view]}` : title}
       onPress={() => go({ view })}
       testID={`tex-tile-${view}`}
       style={[styles.tile, wide ? styles.tileWide : styles.tilePhone]}
@@ -69,9 +69,15 @@ export function TexHome({
       <T size={14} weight="500" numberOfLines={1}>
         {title}
       </T>
-      <T size={12} tone="muted" numberOfLines={1}>
-        {lines[view]}
-      </T>
+      <View style={styles.tileLine}>
+        {known(view) ? (
+          <T size={12} tone="muted" numberOfLines={1}>
+            {lines[view]}
+          </T>
+        ) : page.tiles.waiting ? (
+          <View testID={`tex-tile-${view}-wait`} style={styles.tileWait} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+        ) : null}
+      </View>
     </Pressable>
   ));
 
@@ -97,6 +103,10 @@ export function TexHome({
         />
       </View>
 
+      {(overview.asks ?? []).map((ask) => (
+        <MachineAskCard key={ask.job} ask={ask} page={page} />
+      ))}
+
       {wide ? (
         <View style={styles.stripWide}>{strip}</View>
       ) : (
@@ -112,43 +122,29 @@ export function TexHome({
       )}
 
       <View>
-        <SectionHead>{"Tex's thinking"}</SectionHead>
-        {overview.thinking.length === 0 ? (
-          <T size={13} tone="muted">
-            Nothing yet today.
-          </T>
-        ) : (
-          overview.thinking.map((turn, i) => (
-            <ThinkBlock key={`${turn.at}:${i}`} testID={`tex-think-${i}`}>
-              <T size={13} tone="muted">
-                {turnHead(turn, new Date(now))}
-              </T>
-              <T size={15} serif line={1.55}>
-                {turn.thought}
-              </T>
-              <T size={13} tone="muted">
-                {thoughtLine(turn, open)}
-              </T>
-            </ThinkBlock>
-          ))
-        )}
-        {overview.thinkingToday > overview.thinking.length ? (
-          <More onPress={() => go({ view: "thinking" })} testID="tex-more-thinking">
-            {`Show all ${overview.thinkingToday} from today`}
-          </More>
-        ) : null}
+        <SectionHead>History</SectionHead>
+        <TexHistoryLines
+          source={source}
+          chat={chat}
+          group={group !== null}
+          mini={{ openFull: (history) => go({ view: "history", history }) }}
+        />
       </View>
 
-      <View style={styles.column}>
-        <View style={styles.busy}>
-          <SectionHead>{busyLine(overview.minions)}</SectionHead>
+      {overview.places ? (
+        <MinionPool overview={overview} now={now} wide={wide} go={go} />
+      ) : (
+        <View style={styles.column}>
+          <View style={styles.busy}>
+            <SectionHead>{busyLine(overview.minions)}</SectionHead>
+          </View>
+          <View style={wide ? styles.rowGap : styles.columnGap}>
+            {overview.minions.map((slot) => (
+              <Minion key={slot.slot} slot={slot} now={now} wide={wide} go={go} />
+            ))}
+          </View>
         </View>
-        <View style={wide ? styles.rowGap : styles.columnGap}>
-          {overview.minions.map((slot) => (
-            <Minion key={slot.slot} slot={slot} now={now} wide={wide} go={go} />
-          ))}
-        </View>
-      </View>
+      )}
 
       <View>
         <SectionHead>Earlier today</SectionHead>
@@ -158,9 +154,10 @@ export function TexHome({
           </T>
         ) : (
           overview.earlier.map((job) => (
-            <JobRow
+            <EarlierRow
               key={job.id}
               title={job.title}
+              ranOn={job.ranOn}
               right={endedLine(job, now)}
               onPress={() => go({ job: job.id })}
               testID={`tex-earlier-${job.id}`}
@@ -190,13 +187,6 @@ export function TexHome({
             line={mailcheckLine(overview.behind.mailcheck)}
             wide={wide}
             onPress={() => go({ view: "mailcheck" })}
-          />
-          <BehindCard
-            testID="tex-behind-history"
-            title="History"
-            line="Everything said and done here"
-            wide={wide}
-            onPress={() => go({ view: "history" })}
           />
           <BehindCard
             testID="tex-behind-sees"
@@ -256,36 +246,17 @@ const ICONS: Record<TileView, ReactNode> = {
   ),
 };
 
-/** `Asked the Advisor › · replied “…” · 3.8 s`: each action, then the tail, separated by " · ". */
-function thoughtLine(turn: Turn, open: (action: TurnAction) => void): ReactNode {
-  const items: ReactNode[] = [
-    ...turn.did.map((action, j) => {
-      const p = actionPieces(action);
-      return (
-        <Fragment key={`a${j}`}>
-          {p.before}
-          {p.link ? <LinkWord onPress={() => open(action)}>{`${p.link} ›`}</LinkWord> : null}
-          {p.after}
-        </Fragment>
-      );
-    }),
-    ...turnTail(turn).map((text, k) => <Fragment key={`t${k}`}>{text}</Fragment>),
-  ];
-  return items.map((item, k) => (
-    <Fragment key={k}>
-      {k > 0 ? " · " : null}
-      {item}
-    </Fragment>
-  ));
-}
-
-function Minion({ slot, now, wide, go }: { slot: Slot; now: number; wide: boolean; go: ViewProps["go"] }) {
+export function Minion({ slot, now, wide, go }: { slot: Slot; now: number; wide: boolean; go: ViewProps["go"] }) {
   const styles = useThemedStyles(makeStyles);
   const { job } = slot;
   const s = job ? slotLine(job, now) : null;
   const body = (
     <>
-      <Figure mood={moodOf(job)} size={wide ? 64 : 52} />
+      {job ? (
+        <MinionFigure activity={activityOf(job)} trouble={job.failedSteps > 0} size={wide ? 64 : 52} testID={`tex-minion-figure-${slot.place ?? "cloud"}-${slot.slot}`} />
+      ) : (
+        <Figure mood={minionMood(job)} size={wide ? 64 : 52} testID={`tex-minion-figure-${slot.place ?? "cloud"}-${slot.slot}`} />
+      )}
       <View style={styles.minionText}>
         <T size={11} weight="600" tone="muted" upper>
           {`Minion ${slot.slot}`}
@@ -325,6 +296,7 @@ function Minion({ slot, now, wide, go }: { slot: Slot; now: number; wide: boolea
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={`Minion ${slot.slot}: ${job.title}. ${s ? s.text.replace(/\u00a0/g, " ") : ""}${s?.failed ? `. ${s.failed}` : ""}`}
       onPress={() => go({ job: job.id })}
       style={frame}
       testID={`tex-slot-${slot.slot}`}
@@ -385,7 +357,11 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 12,
       backgroundColor: colors.surface,
     },
-    tilePhone: { minWidth: 112, flexShrink: 0 },
+    // Wide enough for most lines, so a line landing after the page rarely widens its tile.
+    tilePhone: { minWidth: 128, flexShrink: 0 },
+    // One 12px line's height whether it holds the line, the bar or nothing: nothing below moves when it lands.
+    tileLine: { height: 18, justifyContent: "center" },
+    tileWait: { width: 56, height: 8, borderRadius: 4, backgroundColor: colors.surface3 },
     tileWide: { flex: 1, minWidth: 0 },
     icon: {
       width: 26,

@@ -26,6 +26,7 @@ import { handleAccess, personalWorkspaceOf } from "../src/live/accessRoute.js";
 import { isTransportPath } from "../src/origin.js";
 import { splitWorkspacePath } from "../src/workspacePath.js";
 import { route } from "../src/http/route.js";
+import { ticketNamespace, ticketProtocols } from "./liveTicketFixture.mjs";
 
 let DatabaseSync = null;
 try {
@@ -166,6 +167,8 @@ const consoleSession = (overrides = {}) => ({
 function routeWorld(resolved) {
   const forwarded = [];
   const env = {
+    GATEWAY_SECRET: "s".repeat(32),
+    LIVE_TICKET: ticketNamespace(),
     WORKSPACE_STORE: {
       idFromName: (name) => ({ name }),
       get: (id) => ({
@@ -284,13 +287,18 @@ test("the access route refuses a request with no token as the tree does, and nev
   assert.equal(world.forwarded.length, 0);
 });
 
-test("the access socket reads its token from the subprotocol the app offers", async () => {
-  const { ask, forwarded } = routeWorld(consoleSession());
-  const offered = { token: false, headers: { "Sec-WebSocket-Protocol": `context.access, context.token.${TOKEN}` } };
-  const response = await ask(offered);
-  assert.equal(response.status, 101, "a console subprotocol token opens the access socket");
+test("the access socket opens on the one-use ticket the app offers, and never on a token there", async () => {
+  const { ask, forwarded, env } = routeWorld(consoleSession());
+  const protocols = await ticketProtocols(env, { token: TOKEN, socket: ACCESS_SOCKET_PATH, protocol: ACCESS_PROTOCOL });
+  const response = await ask({ token: false, headers: { "Sec-WebSocket-Protocol": protocols } });
+  assert.equal(response.status, 101, "a ticket opens the access socket");
   assert.equal(forwarded.length, 1);
-  assert.equal(response.headers.get("Sec-WebSocket-Protocol"), ACCESS_PROTOCOL, "the token offered beside it is never echoed");
+  assert.equal(response.headers.get("Sec-WebSocket-Protocol"), ACCESS_PROTOCOL, "the ticket offered beside it is never echoed");
+  const again = await ask({ token: false, headers: { "Sec-WebSocket-Protocol": protocols } });
+  assert.equal(again.status, 401, "a spent ticket opens nothing");
+  const asToken = await ask({ token: false, headers: { "Sec-WebSocket-Protocol": `context.access, context.token.${TOKEN}` } });
+  assert.equal(asToken.status, 401, "a token offered as a subprotocol is no token");
+  assert.equal(forwarded.length, 1);
 });
 
 test("the access socket is origin-checked, as every socket a browser can open", () => {

@@ -8,7 +8,7 @@ import { roomByName } from "../objectPlace.js";
 import { heartbeatPerson } from "./activityHeartbeat.js";
 import { asksForStoredReads, storedReadsAnswer } from "./storedReads.js";
 import { asksForHistory, asksForHistoryDays, historyAnswer, historyDaysAnswer } from "../history/serve.js";
-import { resolvePresentedSession, subprotocolToken, withPresenceProtocol } from "../http/presentedToken.js";
+import { offersProtocol, resolvePresentedSession, withPresenceProtocol } from "../http/presentedToken.js";
 import {
   hasScope,
   SCOPE_READ,
@@ -93,7 +93,7 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
   const controlPlane = createControlPlane(env);
   let session;
   try {
-    session = await resolvePresentedSession(request, { pathToken, path: "/presence", slug, controlPlane });
+    session = await resolvePresentedSession(request, { pathToken, path: "/presence", slug, controlPlane, env });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403
@@ -246,15 +246,14 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
         : {}),
     }),
   );
-  // The browser compatibility transport carries its bearer in the public URL.
-  // The room has no use for it after the gateway resolves the session, so the
-  // internal request is rebuilt on a fixed origin and contains no token, note
+  // The room has no use for the caller's ticket or URL after the gateway
+  // resolves the session, so the internal request is rebuilt on a fixed origin and contains no token, note
   // path, or other caller-controlled URL material.
   const roomUrl = collaborationV2
     ? "https://presence.invalid/presence?collaboration=2"
     : "https://presence.invalid/presence";
   const answer = await room.fetch(new Request(roomUrl, { method: "GET", headers }));
-  return !pathToken && subprotocolToken(request) ? withPresenceProtocol(answer) : answer;
+  return !pathToken && offersProtocol(request) ? withPresenceProtocol(answer) : answer;
 }
 
 /**

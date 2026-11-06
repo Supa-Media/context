@@ -129,3 +129,7 @@ Moved to [A workspace object keeps its own word index](./search/object-word-inde
 ### A workspace object keeps its own meaning index
 
 Moved to [A workspace object keeps its own meaning index](./search/object-meaning-index.md).
+
+### Days, whole lines, and the pinned workspace (2026-11-05)
+
+Moved to [Days, whole lines, and the pinned workspace](./search/dates-and-lines.md).

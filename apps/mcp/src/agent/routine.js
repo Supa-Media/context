@@ -26,6 +26,7 @@ import { MAX_QUESTION_LENGTH } from "./turn.js";
 import { readMailHealth, routineMailSection } from "./mailHealth.js";
 import { QUIET_WORD, saysQuiet, spokenToThem } from "./checkInGuards.js";
 import { readConversation } from "./conversation.js";
+import { SAY_NOTHING } from "./sayNothing.js";
 
 /** The routine runner's first-party client (`apps/convex`). Decided by the grant. */
 export const ROUTINES_CLIENT_ID = "context_routines";
@@ -155,8 +156,8 @@ function senderOf(turns, i, path) {
  * The last texts with them, for a run to read before it texts (the owner,
  * 2026-10-23: a one-off reminder and an every-3-hours one about the same call
  * both texted at 9:00). Tex's own texts say which routine or check-in sent
- * them. A turn that read something from outside is left out, so a routine's
- * question is never someone else's words.
+ * them. Every text is shown, as a texted turn is shown them
+ * (`docs/decisions/texting-assistant/turn-trust.md`).
  */
 export function recentTextsSection(history, path, timeZone = null) {
   const turns = Array.isArray(history) ? history : [];
@@ -166,7 +167,7 @@ export function recentTextsSection(history, path, timeZone = null) {
   for (let i = 0; i < turns.length; i += 1) {
     const turn = turns[i];
     if (turn?.role === "user") at = Number.isFinite(turn.at) ? turn.at : null;
-    if (typeof turn?.text !== "string" || turn.tainted === true) continue;
+    if (typeof turn?.text !== "string") continue;
     if (turn.role === "user" && (ROUTINE_LINE.test(turn.text) || CHECK_IN_LINE.test(turn.text))) continue;
     const who = turn.role === "user" ? "Them" : senderOf(turns, i, path);
     const when = at !== null && timeZone !== null ? `(${localStamp(at, timeZone)}) ` : "";
@@ -176,7 +177,7 @@ export function recentTextsSection(history, path, timeZone = null) {
   if (shown.length === 0) return "";
   return (
     `Your last texts with them, oldest first:\n${shown.join("\n")}\n\n` +
-    `If another routine or a check-in above already told them what this run would, they already said it is done, or they asked not to be texted until a time still to come ("don't bother me till 5"), answer ${SKIP_WORD}. ` +
+    `If another routine or a check-in above already told them what this run would, they already said it is done, or they asked not to be texted until a time still to come ("don't bother me till 5"), ${SAY_NOTHING}: nothing is texted. ` +
     "Never ask again what they already told you above."
   );
 }
@@ -229,7 +230,7 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", re
     // The owner, 2026-10-23: "Remind them to call Apple ..." went out word for word, and "... no status update. SKIP" with it.
     "Your answer is texted to them exactly as you write it. Speak to them (you, your), never about them, " +
       'and never read the routine\'s instructions back: a routine that says "Remind them to call the bank" texts "Reminder: call the bank".',
-    `Do what the routine below asks. If there is nothing worth telling this time, answer with exactly ${SKIP_WORD} and nothing else: no reason, no other words.`,
+    `Do what the routine below asks. If there is nothing worth telling this time, ${SAY_NOTHING}: nothing is texted, and no word like SKIP is ever needed.`,
     "Routine:",
   );
   const framing = `${lines.join("\n\n")}\n\n`;

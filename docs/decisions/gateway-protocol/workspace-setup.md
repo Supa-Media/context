@@ -102,7 +102,7 @@ with the texting line ("Tell them plainly what you want to do; they will be
 asked to reply YES"), the turn's answer ends with the gateway's own one-line
 ask ("I need your OK: claim the handle @woodshop for a new shared workspace
 (handles are permanent). Should I go ahead?"), and the person's yes runs it
-through `agent/texTurn.js` before any model, as for every other held call. The
+through `agent/texEntryPoint.js` before any model, as for every other held call. The
 cost is one text per workspace made. An MCP client is told the person can
 approve it in the Context app and to call again with the same arguments.
 

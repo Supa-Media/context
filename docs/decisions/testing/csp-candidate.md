@@ -61,7 +61,32 @@ that keeps "per push, a real browser tests only the note editor"
 request themselves and never see these headers. The specs have to pass, and the log must hold no enforced
 `script-src` violation. Both checks are needed: when the shell's appearance
 script was sabotaged (its hash changed), the smoke spec stayed green and only
-the log check failed.
+the log check failed. The style-nonce half (the `full` runs below) is its own
+job, `Style nonce enforced in WebKit`, running beside it since 2026-11-05.
+
+### The shell enforces its script policy (2026-11-05)
+
+Production now enforces the shell's `script-src` (`shellEnforcedPolicy` in
+`infra/router/src/securityHeaders.ts`), on the one response the router
+recognises as the app shell (`styleNonce.ts`), reporting to
+`/_csp-report/enforce` so the log says `csp_violation` with disposition
+`enforce`. The evidence: this job green on `script` mode since 2026-10-29, and
+the router's production report log for the seven days to 2026-11-05 holding
+no `script-src` row for a shell document (the only script rows were the
+drawing editor's report-only Cloudflare beacon, which that document's own
+policy does not name and which does not enforce). Pages the router or the
+gateway write themselves keep the policies they set, or none.
+
+The X and Meta pixels' hosts are named on context.lc's landing page only
+(`LANDING_SCRIPT_HOSTS`), the one document that loads them, so the enforced
+policy never lets them serve script on an app page. The service worker strips
+them from a held landing shell it replays offline at any address
+(`appShellWorker.test.ts`).
+
+So `production` mode now enforces the shell's script half by itself: the
+candidate adds no second `script-src` copy for the shell (it would report every
+refusal twice as enforced), and the negative probe expects the inline script
+blocked in every mode. Style and `default-src` still only report.
 
 ### What the first runs showed (Chromium, 2026-10-29)
 

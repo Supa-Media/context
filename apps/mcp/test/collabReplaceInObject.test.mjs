@@ -124,6 +124,23 @@ test("a save runs in the object in one call, lands in the Markdown, and answers 
   assert.ok(answer.writes.some((write) => write.key.startsWith(`${COLLAB}v1/documents/`)), "no document state was written");
 });
 
+test("a save's backup copies each key once, where it ended: the document state is not copied twice", async () => {
+  const { routed, saved, bucket, settle } = await started();
+  const copied = [];
+  const put = bucket.put.bind(bucket);
+  bucket.put = (key, ...rest) => {
+    copied.push(key);
+    return put(key, ...rest);
+  };
+  const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
+  await settle();
+  const states = answer.writes.filter((write) => write.key.startsWith(`${COLLAB}v1/documents/`));
+  assert.ok(states.length >= 2, "the object wrote its document state once: nothing to collapse");
+  assert.deepEqual(copied.filter((key) => key === states[0].key), [states[0].key]);
+  assert.equal(new Set(copied).size, copied.length, `a key was copied twice: ${copied.join(", ")}`);
+  assert.equal(await text(bucket, states[0].key), states.at(-1).body);
+});
+
 test("a save from a version that has moved is a CONFLICT, and the note is unchanged", async () => {
   const { routed, client, saved } = await started();
   await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
@@ -150,10 +167,34 @@ test("a workspace not backfilled into the object is never asked: the gateway run
   assert.equal(calls.length, 0);
 });
 
-test("a saved version only the bucket keeps sends the save back to the gateway", async () => {
+test("a save whose version file the object pruned is still served, from the copy its document state keeps", async () => {
   const { routed, store, saved } = await started();
-  // The object pruned the version the save is based on; the bucket still has it.
   for (const row of store.sql.exec("SELECT key FROM objects WHERE key LIKE ?", `${COLLAB}v1/revisions/%`).toArray()) store.objects.delete(row.key);
+  const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
+  assert.equal(answer.served, true, answer.reason);
+  assert.equal(answer.result.text, "# Plan\n\nThird words.\n");
+});
+
+/**
+ * The object pruned the version a save is based on, and the document was last saved before its state kept a copy of
+ * its current version (`current`), so only the bucket has it.
+ */
+async function prunedLegacyVersion(store, bucket) {
+  for (const row of store.sql.exec("SELECT key FROM objects WHERE key LIKE ?", `${COLLAB}v1/revisions/%`).toArray()) store.objects.delete(row.key);
+  for (const row of store.sql.exec("SELECT key FROM objects WHERE key LIKE ? AND key NOT LIKE ?", `${COLLAB}v1/documents/%`, "%/operations/%").toArray()) {
+    const { current, bases: _bases, editedAt: _editedAt, ...legacy } = JSON.parse(new TextDecoder().decode(store.objects.get(row.key).body));
+    if (legacy.kind !== "document") continue;
+    // A writer from before kept a file for every version, and the bucket has it.
+    const version = { schemaVersion: 1, kind: "revision", documentId: legacy.documentId, generation: legacy.generation, revision: legacy.revision, snapshot: current.snapshot, text: legacy.text, rawMarkdownEtag: current.rawMarkdownEtag };
+    await bucket.put(`${COLLAB}v1/revisions/${legacy.documentId}/${legacy.revision}.json`, JSON.stringify(version));
+    await store.objects.put(row.key, JSON.stringify(legacy));
+  }
+}
+
+test("a saved version only the bucket keeps sends the save back to the gateway", async () => {
+  const { routed, store, saved, bucket } = await started();
+  // The object pruned the version the save is based on; the bucket still has it.
+  await prunedLegacyVersion(store, bucket);
   const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
   // Which read the object lacked, said to the save for its timings (`inside:collab_declined_not_held_version`).
   assert.equal(answer.served, false);
@@ -287,8 +328,8 @@ test("the object says how long it spent on the save, and write_note's store reco
 });
 
 test("a save the object declines says why in its timings, and the gateway's engine still saves it", async () => {
-  const { routed, client, store, saved } = await started();
-  for (const row of store.sql.exec("SELECT key FROM objects WHERE key LIKE ?", `${COLLAB}v1/revisions/%`).toArray()) store.objects.delete(row.key);
+  const { routed, client, store, saved, bucket } = await started();
+  await prunedLegacyVersion(store, bucket);
   const { store: layeredStore } = layered(routed, client);
   const took = [];
   Object.defineProperty(layeredStore, "phase", { value: Object.assign((name, run) => run(), { took: (name, ms) => took.push([name, ms]) }) });

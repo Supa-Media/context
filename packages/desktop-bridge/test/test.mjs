@@ -55,6 +55,21 @@ for (const name of [
 ]) {
   check(`index exports ${name}`, index[name] !== undefined);
 }
+// -- the folders Tex may work in (version 11), as the page reads them back
+{
+  const read = index.machineFoldersFrom;
+  check("folders: unknown stays unknown, never an empty list", read(undefined) === null && read(null) === null && read("/Users/a") === null);
+  check("folders: absolute paths kept in order, each once", JSON.stringify(read(["/Users/a/Code", "/Users/a/Code", "/srv/x"])) === JSON.stringify(["/Users/a/Code", "/srv/x"]));
+  check("folders: a relative path, a non-string or an overlong path is dropped", JSON.stringify(read(["Code", 3, `/${"x".repeat(1100)}`, "/ok"])) === JSON.stringify(["/ok"]));
+  check("folders: at most MAX_MACHINE_FOLDERS", read(Array.from({ length: 50 }, (_, i) => `/f${i}`)).length === index.MAX_MACHINE_FOLDERS);
+}
+// -- this Mac's id (version 12): the gateway's id shape or nothing
+{
+  const id = index.machineIdFrom;
+  check("machine id: the gateway's shape is kept", id("mch_01AbC-9") === "mch_01AbC-9");
+  check("machine id: anything else is null", [undefined, null, "", "a/b", "x".repeat(65), 3, "cmg_ zz"].every((v) => id(v) === null));
+}
+
 check(
   "the index exports nothing credential-shaped",
   !Object.keys(index).some((name) => /token|secret|credential|password/i.test(name)),

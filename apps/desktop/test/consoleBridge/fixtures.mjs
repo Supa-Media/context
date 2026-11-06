@@ -261,6 +261,10 @@ export function mainBridge(overrides = {}) {
       calls.push("setUpcoming");
       upcomings.push(upcoming);
     },
+    machine: () => (calls.push("machine"), { available: false, enabled: false, state: "off", slots: 0, busy: 0, awake: false, message: null }),
+    machineId: async () => (calls.push("machineId"), null),
+    pickMachineFolders: async () => (calls.push("pickMachineFolders"), null),
+    setMachineEnabled: async (enabled) => (calls.push("setMachineEnabled"), { available: false, enabled, state: "off", slots: 0, busy: 0, awake: false, message: null }),
     ...overrides.deps,
   });
   // `movePin` is how a check stages the shell falling back to the offline
@@ -307,6 +311,10 @@ export const HANDLED = [
   BRIDGE_CHANNELS.agentStatus,
   BRIDGE_CHANNELS.agentAsk,
   BRIDGE_CHANNELS.calendarSetUpcoming,
+  BRIDGE_CHANNELS.machineStatus,
+  BRIDGE_CHANNELS.machineSetEnabled,
+  BRIDGE_CHANNELS.machineId,
+  BRIDGE_CHANNELS.machinePickFolders,
 ];
 
 /** A well-formed write, so a check can vary exactly one field of it. */

@@ -53,12 +53,16 @@ async function settled(work, empty) {
   }
 }
 
-/** Is Tex's browser open for this chat (the person's own, or a group's by its people), and where. Never the frame. */
+/**
+ * Is Tex's browser open for this chat (the person's own, or a group's by its people), and where. Never the frame:
+ * `/view/status` asks Browserbase over HTTP and never connects to the browser, takes a picture or keeps it awake
+ * (`infra/site-shots/src/viewStatus.ts`; the owner, 2026-11-04: the page took a browser screenshot on every load).
+ */
 async function computerOf(env, session, chat, jobs) {
   const binding = env?.SITE_SHOTS;
   const owner = chat.kind === "group" ? await groupTagOf(env, chat, (await jobs)?.people) : await browserOwner(env, session.actorUserId);
   if (typeof binding?.fetch !== "function" || owner === null) return { running: false };
-  const response = await binding.fetch("https://site-shots/view/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner }) });
+  const response = await binding.fetch("https://site-shots/view/status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner }) });
   const body = response.ok ? await response.json().catch(() => null) : null;
   return body?.running === true ? { running: true, ...(typeof body.url === "string" ? { url: body.url.slice(0, 300) } : {}) } : { running: false };
 }

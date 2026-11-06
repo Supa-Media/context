@@ -41,6 +41,8 @@ function deps(opts: {
   sessionStatus?: () => number;
   setup?: unknown;
   agentMs?: number;
+  /** Holds the read receipt and the bubble until it resolves: a slow Sendblue. */
+  presenceGate?: Promise<unknown>;
 }): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
@@ -49,10 +51,12 @@ function deps(opts: {
       // Slower than the answer, as Linq can be, so a bubble that is not
       // awaited would land after the reply and hang in the chat.
       await new Promise((resolve) => setTimeout(resolve, 5));
+      await opts.presenceGate;
       opts.events?.push("typing");
       return new Response(null, { status: opts.typingStatus ?? 204 });
     }
     if (path.endsWith("/read")) {
+      await opts.presenceGate;
       opts.events?.push("read");
       return new Response("{}", { status: opts.readStatus ?? 200 });
     }
@@ -72,6 +76,7 @@ function deps(opts: {
       return Response.json({ status: "issued", url: "https://app.example/texts/abc123" });
     }
     if (path === "/agent") {
+      if (opts.presenceGate) opts.events?.push("ask"); // only where a test watches the order against a slow Sendblue
       opts.asks?.push(body.question);
       opts.bodies?.push(body);
       if (opts.agentMs) await new Promise((resolve) => setTimeout(resolve, opts.agentMs));
@@ -198,14 +203,51 @@ describe("inbox", () => {
     expect(storage.data.has("pending:000000000001")).toBe(false);
   });
 
-  it("never asks again a turn that failed after it started, since its tools may have run", async () => {
+  // Dev2's one-door plan (2026-11-05): a 1:1 turn that failed after it started is tried again, as a group's is
+  // (`groupTurnWorkflow.ts`: three more times), where it used to say "something went wrong" at once.
+  it("tries a turn that failed after it started three more times, then says so once", async () => {
     const storage = new MemoryStorage();
     await accept(storage, msg("e1", "q"), 1_000);
     const asks: string[] = [];
     const sent: Sent[] = [];
     await drain(storage, deps({ asks, sent, agentStatus: () => 502 }));
     expect(asks).toEqual(["q"]);
+    expect(sent).toEqual([]);
+    for (let i = 1; i < MAX_ANSWER_ATTEMPTS; i++) await drain(storage, deps({ asks, sent, agentStatus: () => 502 }));
+    expect(asks).toEqual(["q", "q", "q", "q"]);
     expect(sent).toEqual([{ text: COPY.unavailable, idempotency: "reply:e1" }]);
+  });
+
+  it("never retries a turn the gateway refused outright: it is refused the same way every time", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "q"), 1_000);
+    const asks: string[] = [];
+    const sent: Sent[] = [];
+    await drain(storage, deps({ asks, sent, agentStatus: () => 400 }));
+    await drain(storage, deps({ asks, sent, agentStatus: () => 400 }));
+    expect(asks).toEqual(["q"]);
+    expect(sent).toEqual([{ text: COPY.unavailable, idempotency: "reply:e1" }]);
+  });
+
+  it("a newer text merged into a failing burst does not start its tries over", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "q"), 1_000);
+    const asks: string[] = [];
+    const sent: Sent[] = [];
+    await drain(storage, deps({ asks, sent, agentStatus: () => 502 }));
+    await accept(storage, msg("e2", "and r"), 2_000);
+    for (let i = 0; i < MAX_ANSWER_ATTEMPTS + 2 && sent.length === 0; i++) await drain(storage, deps({ asks, sent, agentStatus: () => 502 }));
+    expect(asks).toHaveLength(MAX_ANSWER_ATTEMPTS);
+    expect(sent.map((one) => one.text)).toEqual([COPY.unavailable]);
+  });
+
+  it("a retried turn that then answers sends only the answer", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "q"), 1_000);
+    const sent: Sent[] = [];
+    await drain(storage, deps({ sent, agentStatus: () => 502 }));
+    await drain(storage, deps({ sent }));
+    expect(sent.map((s) => s.text)).toEqual(["answer to q"]);
   });
 
   it("sends a sign-in link as its own text, and a retry resends only the text that failed", async () => {
@@ -269,6 +311,22 @@ describe("inbox", () => {
     const events: string[] = [];
     await drain(storage, deps({ events }));
     expect(events).toEqual(["read", "typing", "send"]);
+  });
+
+  it("never holds the turn for the read receipt or the bubble, and still texts only after both (Dev, 2026-11-04)", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1"), 1_000);
+    const events: string[] = [];
+    let release!: () => void;
+    const presenceGate = new Promise<void>((resolve) => (release = resolve));
+    const drained = drain(storage, deps({ events, presenceGate }));
+    // Sendblue has not answered either call, and the gateway is already asked.
+    await vi.waitFor(() => expect(events).toContain("ask"));
+    expect(events).toEqual(["ask"]);
+    release();
+    await drained;
+    // The answer still goes after the receipt and the bubble, never before them.
+    expect(events).toEqual(["ask", "read", "typing", "send"]);
   });
 
   it("asks for the bubble again just after the read receipt, while a slower answer is worked out", async () => {
@@ -581,6 +639,9 @@ describe("the work after a reply", () => {
     // The wait the person felt ends at the first bubble, before the last and before the work after it.
     expect(row.toFirstTextMs).toBeGreaterThan(row.queueMs + row.gatewayMs - 1);
     expect(row.toLastTextMs).toBeGreaterThanOrEqual(row.toFirstTextMs);
+    // Inside the gateway's answer: the session lookup, then the Worker's work before asking (Dev, 2026-11-04).
+    expect(row.sessionMs).toBeGreaterThan(0);
+    expect(row.sessionMs + row.beforeAskMs).toBeLessThan(row.gatewayMs);
     for (const value of points[0].doubles!) expect(value).toBeGreaterThanOrEqual(0);
     expect(JSON.stringify(points)).not.toMatch(/secret words|5555550100|chat_1/);
   });

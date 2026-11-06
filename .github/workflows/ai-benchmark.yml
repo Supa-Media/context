@@ -256,6 +256,7 @@ jobs:
           echo "result=${result}" >> "$GITHUB_OUTPUT"
           echo "key=${result%.md} key.md" >> "$GITHUB_OUTPUT"
           echo "judging=${result}.judging.json" >> "$GITHUB_OUTPUT"
+          echo "ledgers=${result%.md} ledgers" >> "$GITHUB_OUTPUT"
 
       # The search benchmark (`bench/search.mjs`) is one `search_notes` call a
       # query, scored against the notes the test expects: no judge, no model
@@ -440,6 +441,17 @@ jobs:
         with:
           name: benchmark-result
           path: ${{ steps.name.outputs.result }}
+          if-no-files-found: ignore
+          retention-days: 90
+
+      # Every conversation's ledger file (`bench/modelLog.mjs`), also written into Context beside the scores.
+      # Named outside `benchmark-*`, so a judge_run_id run downloads only the result and key.
+      - name: Upload the ledgers
+        if: ${{ always() && steps.name.outputs.ledgers != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledgers
+          path: ${{ steps.name.outputs.ledgers }}
           if-no-files-found: ignore
           retention-days: 90
 

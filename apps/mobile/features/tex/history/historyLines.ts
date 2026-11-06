@@ -30,7 +30,7 @@ export const SHOW_LABEL: Record<Show, string> = { texts: "Texts", tools: "Tool c
  */
 export const SHOW_KINDS: Record<Show, LedgerKind[]> = {
   texts: ["text"],
-  tools: ["tool"],
+  tools: ["tool", "judge"],
   thinking: ["thinking", "said"],
   background: ["note", "advisor", "mail_check", "job"],
 };
@@ -77,7 +77,7 @@ export interface HistoryLine {
   /** "tex" for Tex's texts, so they can be told apart at a glance. */
   tone: "text" | "tex" | "quiet" | "thinking";
   text: string;
-  /** The message a text answers, in a few words, when it names one this view holds. */
+  /** The message a text answers, in full (Dev2, 2026-11-05): who sent it and its words, from this view or the words kept with the reply. */
   replyTo?: string;
   /** The reactions on this text, under it as in the mock: `👍 Mom, Ada · ❤️ You`. */
   reactions?: string;
@@ -151,7 +151,7 @@ const EVENT_WORDS: Record<string, string> = { picture: "sent a picture", file: "
 
 function textWords(e: LedgerEntry): string {
   const words = oneLine(e.text);
-  const what = EVENT_WORDS[str(e.event)];
+  const what = e.heard === "voice" ? "sent a voice message" : EVENT_WORDS[str(e.event)];
   if (what === undefined) return words;
   return words ? `(${what}) ${words}` : `(${what})`;
 }
@@ -159,6 +159,26 @@ function textWords(e: LedgerEntry): string {
 function toolWords(e: LedgerEntry): string {
   const how = e.withheld ? "result withheld (another workspace)" : e.held ? "held" : e.ok === false ? "failed" : "";
   return [str(e.name) || "tool", how].filter(Boolean).join(" · ");
+}
+
+/**
+ * One judging of a draft reply (`apps/mcp/src/agent/replyJudge.js`): which
+ * draft, whether it went out or went back, the judges that failed with their
+ * score against their threshold, and the draft (Dev2, 2026-11-05: "so we can
+ * see how responses were shaped along the way").
+ */
+export function judgeWords(e: LedgerEntry): string {
+  const judges = Array.isArray(e.judges) ? (e.judges as unknown[]).map(record).filter((j): j is Record<string, unknown> => j !== null) : [];
+  const round = typeof e.round === "number" ? e.round : 0;
+  const by = e.by === "code" ? "checks" : "judges";
+  const outcome = e.went === true ? "went out" : "sent back";
+  // A passed draft a text that came in late held back: it never went (`turn.js`).
+  if (e.by === "late") return ["late text · held", oneLine(e.reason), `"${short(e.text, 160)}"`].filter(Boolean).join(" · ");
+  const num = (v: unknown) => (typeof v === "number" ? v.toFixed(2) : "–");
+  const failed = judges.filter((j) => j.passed !== true).map((j) => `${str(j.id)} ${num(j.yes)} ≥ ${num(j.at)}`);
+  const passed = judges.length - failed.length;
+  const tally = judges.length === 0 ? "" : failed.length === 0 ? `all ${judges.length} passed` : `${failed.join(", ")}${passed ? ` · ${passed} passed` : ""}`;
+  return [`${by} · draft ${round + 1} · ${outcome}`, tally, oneLine(e.reason), `"${short(e.text, 160)}"`].filter(Boolean).join(" · ");
 }
 
 function lineOf(e: LedgerEntry, group: boolean): HistoryLine {
@@ -186,10 +206,14 @@ function lineOfKind(e: LedgerEntry, group: boolean): HistoryLine {
       return quiet(e.check ? `advisor · ${oneLine(e.question)} ${oneLine(e.answer)}` : `advisor · asked: ${oneLine(e.question)}`);
     case "mail_check":
       return quiet(`mail checker · email to ${short(e.to, 60)} · ${str(e.verdict) || "checked"}${oneLine(e.why) ? ` · ${short(e.why, 120)}` : ""}`);
+    case "judge":
+      return quiet(judgeWords(e));
     case "job":
       return quiet(`job · ${oneLine(e.title) || str(e.job)} · ${str(e.state).replace(/_/g, " ")}`);
     case "note":
       if (typeof e.routine === "string") return quiet(`routine · ${short(e.routine.replace(/\.md$/, ""), 60)} · ${oneLine(e.text)}`);
+      // A message another of their agents asked Tex to pass on: that agent's words, never Tex's.
+      if (typeof e.about === "string" && /another of their agents asked you/i.test(e.about)) return quiet(`passed on from another agent · ${oneLine(e.text)}`);
       if (typeof e.about === "string" && e.about) return quiet(`answered in another app · ${short(e.about, 80)} · ${oneLine(e.text)}`);
       return quiet(oneLine(e.text));
     default:
@@ -286,8 +310,14 @@ export function dayTitle(key: string, now: Date): string {
  */
 export function historyDays(entries: readonly LedgerEntry[], now: Date, { group = false, thinking = false, fold = true, timing = false, tools = true }: { group?: boolean; thinking?: boolean; /** Fold each job's work under its line; off on one job's own page, where all of it is that job's. */ fold?: boolean; /** Staff: each turn's first text from Tex carries where the turn's time went. */ timing?: boolean; /** Tool calls are drawn; off, they were read only for the timing. */ tools?: boolean } = {}): HistoryDay[] {
   const timed = timing ? timingByTurn(entries) : new Map<string, TurnTimingSource>();
+  // Newest first: an event written again (a voice message once heard) is drawn once, where it first came, in its newest words.
   const byEventId = new Map<string, LedgerEntry>();
-  for (const e of entries) if (e.kind === "text" && typeof e.eid === "string") byEventId.set(e.eid, e);
+  const firstOf = new Map<string, LedgerEntry>();
+  for (const e of entries) {
+    if (e.kind !== "text" || typeof e.eid !== "string") continue;
+    if (!byEventId.has(e.eid)) byEventId.set(e.eid, e);
+    firstOf.set(e.eid, e);
+  }
   // Reactions go under the text they are on, never on a line of their own, as in the mock; one whose text isn't in view stays a line.
   const reactions = new Map<string, Map<string, string[]>>();
   const folded = new Set<string>();
@@ -305,7 +335,11 @@ export function historyDays(entries: readonly LedgerEntry[], now: Date, { group 
     else if (!(byEmoji.get(r.emoji) ?? []).includes(who)) byEmoji.set(r.emoji, [...(byEmoji.get(r.emoji) ?? []), who]);
   }
   const days: HistoryDay[] = [];
-  for (const e of entries) {
+  for (const listed of entries) {
+    const eid = listed.kind === "text" && typeof listed.eid === "string" ? listed.eid : null;
+    if (eid !== null && firstOf.get(eid) !== listed) continue;
+    const newest = eid !== null ? byEventId.get(eid) : undefined;
+    const e: LedgerEntry = newest !== undefined && newest !== listed ? { ...listed, text: newest.text, heard: newest.heard } : listed;
     // A reply is the same words as Tex's texts: only its timing is drawn, on the first of them.
     if (folded.has(e.id) || e.kind === "reply" || (!tools && e.kind === "tool")) continue;
     const key = dayKey(e.at);
@@ -332,7 +366,8 @@ export function historyDays(entries: readonly LedgerEntry[], now: Date, { group 
       }
     }
     const answered = typeof e.replyTo === "string" ? byEventId.get(e.replyTo) : undefined;
-    if (answered !== undefined) line.replyTo = `${whoOf(answered, group)}: ${short(textWords(answered), 60)}`;
+    if (answered !== undefined) line.replyTo = `${whoOf(answered, group)}: ${textWords(answered)}`;
+    else if (typeof e.quoted === "string" && e.quoted.trim() !== "") line.replyTo = oneLine(e.quoted); // replied-to message outside this view: the words kept with the reply
     const on = reactions.get(e.id);
     if (on !== undefined && reactionWords(on) !== "") line.reactions = reactionWords(on);
     // The advisor's own thinking, kept beside its answer, shown under it with Thinking on.

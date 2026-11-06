@@ -146,6 +146,9 @@ describe("a person's chat as events", () => {
         ["picture", false, "upload_failed"],
       ]);
       expect(outs.some((event) => event.text === PICTURE_FAILED)).toBe(false);
+      // The line the person was told is in the history too, as the system's (one sender, `sendOne.ts`).
+      const said = (await keptEvents(storage, line.chatId)).filter((event) => event.text === PICTURE_FAILED);
+      expect(said.map((event) => [event.from.kind, event.delivered, event.turn])).toEqual([["system", true, undefined]]);
     });
   }
 
@@ -230,6 +233,8 @@ describe("a person's chat as events", () => {
       ["text", true, undefined],
       ["picture", false, "send_refused"],
     ]);
+    const said = (await keptEvents(storage, chatId)).filter((event) => event.text === PICTURE_FAILED);
+    expect(said.map((event) => [event.from.kind, event.delivered])).toEqual([["system", true]]);
   });
 });
 

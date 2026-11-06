@@ -100,3 +100,17 @@ test("asked to hear nothing until it's done: a start or restart texts nothing", 
   await withBackground(loud, async () => ({ content: [] }))(START_JOB_TOOL, { title: "Haircut", brief: "Book it." });
   assert.match(loud.endsTurn(START_JOB_TOOL), /^On it: Haircut\./);
 });
+
+test("a computer job picked back up gets the computer as its settings are now, not the folder it first ran in", async () => {
+  // 2026-11-05: a GitHub sign-in restarted after its folder was cleared kept the old folder, and the gateway refused it.
+  const SIGN_IN = job("Log in to GitHub on dev2", "failed", { machine: true, on: "mch_1", onName: "dev2", onTool: "claude" });
+  const machines = async () => [{ workspaceId: "ws_a", id: "mch_1", name: "dev2", online: true, tools: ["claude"], folders: [], ownerId: "user_a" }];
+  const background = backgroundSession({ running: [SIGN_IN], job: null, now: NOW, machines });
+  const dispatch = withBackground(background, async () => ({ content: [] }));
+  assert.match(words(await dispatch(START_JOB_TOOL, { title: "Log in to GitHub on dev2", brief: "Sign in with gh.", on_computer: { name: "dev2" } })), /back up where it stopped/);
+  assert.deepEqual(startedJobs(background, false), { steers: [{ id: SIGN_IN.id, resume: true, machine: { workspaceId: "ws_a", machineId: "mch_1", name: "dev2", tool: "claude", folder: "@work" } }] });
+  // A computer no longer listed: picked up as it was, and the computer's refusal says why.
+  const gone = backgroundSession({ running: [SIGN_IN], job: null, now: NOW, machines: async () => [] });
+  await withBackground(gone, async () => ({ content: [] }))(RESTART_JOB_TOOL, {});
+  assert.deepEqual(startedJobs(gone, false), { steers: [{ id: SIGN_IN.id, resume: true }] });
+});

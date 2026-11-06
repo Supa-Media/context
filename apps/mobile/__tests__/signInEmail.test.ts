@@ -91,6 +91,8 @@ describe("production CUJ provider routing", () => {
 
   test("only the directory reviewer's address uses the reviewer provider", () => {
     expect(signInProviderForEmail(normalizeSignInEmail(" Connector-Review@Supa.Media "))).toBe("test-email-reviewer");
+    expect(signInProviderForEmail(normalizeSignInEmail("directory-review@supa.media"))).toBe("test-email-directory-review");
+    expect(signInProviderForEmail(normalizeSignInEmail("directory-review@supa.media.evil.test"))).toBe("email");
     expect(signInProviderForEmail(normalizeSignInEmail("connector-review@supa.media.evil.test"))).toBe("email");
   });
 

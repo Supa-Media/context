@@ -9,15 +9,16 @@
  *
  * SABOTAGE: drop `kept` from the trash branch in `menu.ts` → "Capture is
  * never put away" fails; drop the `first` check in `orderGroup` → "at the
- * top" fails; flip `descending` in `folderMenuFacts` → "Z to A" fails.
+ * top" fails; drop the workspace sort from `folderMenuFacts` → "Z to A" fails.
  */
 import { describe, expect, test } from "@jest/globals";
 import type { RowRole } from "@context/shared/src/folderRoles.cjs";
+import type { ListingSort } from "@context/shared/src/listingSort.cjs";
 import { runMenuAction, type ActionContext } from "../../features/console/files/actions";
 import type { FileBrowser } from "../../features/console/files/browser";
 import { folderMenuFacts, rowJob } from "../../features/console/files/menuBuiltIn";
 import type { FileEntry, FolderListing } from "../../features/console/files/types";
-import { dir, find, ids, menu } from "./fixtures";
+import { dir, find, ids, menu, note } from "./fixtures";
 
 function entry(path: string, over: Partial<FileEntry> = {}): FileEntry {
   return {
@@ -49,8 +50,8 @@ const LISTINGS = {
   "1-projects": listing("1-projects", [entry("1-projects/launch")]),
 };
 
-const facts = (over: { moveFolder?: unknown } = { moveFolder: () => {} }, descending = false) =>
-  folderMenuFacts({ listings: LISTINGS, ...over }, descending);
+const facts = (over: { moveFolder?: unknown } = { moveFolder: () => {} }, workspaceSort: ListingSort | null = null) =>
+  folderMenuFacts({ listings: LISTINGS, ...over }, workspaceSort);
 
 describe("a built-in folder known by its job", () => {
   test("rowJob reads the listing's job, and falls back to the name only where the listing is not known", () => {
@@ -128,9 +129,16 @@ describe("Move up and Move down", () => {
   });
 
   test("Z to A: the ends are the other way round, as drawn", () => {
-    const top = menu({ kind: "row", row: dir("9-archive") }, facts(undefined, true));
+    const top = menu({ kind: "row", row: dir("website") }, facts(undefined, "name-desc"));
     expect(find(top, "moveUp")?.disabled).toBe(true);
     expect(find(top, "moveDown")?.disabled).toBeUndefined();
+    const bottom = menu({ kind: "row", row: dir("1-projects") }, facts(undefined, "name-desc"));
+    expect(find(bottom, "moveDown")?.disabled).toBe(true);
+  });
+
+  test("in custom order a note moves among the folders too", () => {
+    const list = menu({ kind: "row", row: note("todo.md") }, facts(undefined, "custom"));
+    expect(find(list, "moveUp")?.disabled).toBeUndefined();
   });
 
   test("a folder alone at its level, a note, a reader, a selection and a browser that cannot order get none", () => {

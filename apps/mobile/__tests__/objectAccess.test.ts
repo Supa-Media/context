@@ -49,6 +49,7 @@ function harness() {
       return "T";
     },
     onTopic: (topic, rows) => topics.push([topic, rows]),
+    ticket: async (token) => `ticket-${token}`,
     open: (url, protocols) => {
       const socket: Fake = {
         url,
@@ -113,13 +114,14 @@ describe("the access socket to the object", () => {
   test("its address is wss on the gateway's path, and the token never goes in the URL", async () => {
     expect(accessSocketUrl("https://mcp.context.lc", "person")).toBe("wss://mcp.context.lc/presence/access?of=person");
     expect(accessSocketUrl("http://127.0.0.1:8799", "workspace")).toBe("ws://127.0.0.1:8799/presence/access?of=workspace");
-    expect(accessSocketProtocols("T")).toEqual(["context.access", "context.token.T"]);
+    expect(accessSocketProtocols("K")).toEqual(["context.access", "context.ticket.K"]);
 
     const h = harness();
     await h.flush();
     expect(h.sockets[0].url).toBe("wss://mcp.context.lc/presence/access?of=person");
     expect(h.sockets[0].url).not.toContain("token");
-    expect(h.sockets[0].protocols).toEqual(["context.access", "context.token.T"]);
+    // The socket carries a ticket minted for the token, never the token itself.
+    expect(h.sockets[0].protocols).toEqual(["context.access", "context.ticket.ticket-T"]);
   });
 
   test("the subscribed topics are sent when the socket opens, and a later subscribe sends them again", async () => {

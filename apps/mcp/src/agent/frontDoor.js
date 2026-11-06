@@ -15,9 +15,9 @@
  *    person's yes, checked by the gateway and never the model;
  *  - any other text reads no ask at all (owner, 2026-11-03: "get rid of the
  *    waiting asks step entirely"; listing them cost ~5 s a text). Only the
- *    Worker's fixed texts are kept in the history (`texTurn/settleAYesOrNo.js` `keep_told`).
+ *    Worker's fixed texts are kept in the history (`texEntryPoint/settleAYesOrNo.js` `keep_told`).
  * After the model, the reply checks don't run, and the chat is saved after the
- * reply has gone (`texTurn.js`).
+ * reply has gone (`texEntryPoint.js`).
  *
  * A setup turns it off with `front_door: off` (`production.js`), and a
  * deployment with `TEX_FRONT_DOOR=off`; either brings back the old turn

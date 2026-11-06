@@ -11,6 +11,7 @@ import { recordAgentRead } from "../live/readLog.js";
 import { callTool } from "./dispatch.js";
 import { inWordsOf, translateV2Params } from "./v2/translate.js";
 import { SAVE_MANY_TOOL, saveMany } from "./v2/saveMany.js";
+import { readNotesAcross, readsAcross } from "./readNotesAcross.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
   FORM_TOOLS,
@@ -34,6 +35,7 @@ import { measuredCall, reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { canonicalToolName, coercedArguments, toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
+import { MACHINE_RUN_REFUSAL, machineRunRefuses } from "./machineRun.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { recordRead } from "../privacy/egress.js";
@@ -313,18 +315,24 @@ function addressByPath(tool, args) {
   if (named !== null) args.context = named;
 }
 
-export async function callToolForSession(params, store, session) {
-  const { error, params: call, v2 } = translateV2Params(params, store); // v2 → the existing call, before any gate
+export async function callToolForSession(params, store, session, options = {}) {
+  const { error, params: call, v2 } = options.legacy ? { params, v2: null } : translateV2Params(params, store); // v2 → the existing call, before any gate
   if (error) return toolError(error);
+  // A job part on the person's computer never reaches outside, by either the v2 name or the tool it translated to.
+  if (machineRunRefuses(session, canonicalToolName(params?.name)) || machineRunRefuses(session, canonicalToolName(call?.name))) return toolError(MACHINE_RUN_REFUSAL);
   // `save_many` is one ordinary `write` per note, each back through this function and every gate in it (`saveMany.js`).
   if (v2 && call?.name === SAVE_MANY_TOOL) {
     return inWordsOf(v2, await saveMany(call.arguments, (one) => callToolForSession({ name: "write", arguments: one }, store, session)));
   }
-  const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed));
+  // Paths in other workspaces (`@band/...`, as search writes them): one read per workspace, each back through here (`readNotesAcross.js`).
+  if (readsAcross(call?.name, call?.arguments)) {
+    return inWordsOf(v2, await readNotesAcross(call.arguments, (args) => callToolForSession({ name: "read_notes", arguments: args }, store, session, { ...options, legacy: true })));
+  }
+  const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed, options));
   return inWordsOf(v2, result);
 }
 
-async function routeToolCall(params, store, session, routed) {
+async function routeToolCall(params, store, session, routed, options = {}) {
   // Read as the advertised types: a stale client sends an argument its copy lacks as text (`advertised.js`).
   const supplied = coercedArguments(params?.name, params?.arguments);
   const args = supplied && typeof supplied === "object" && !Array.isArray(supplied) ? { ...supplied } : {};
@@ -600,7 +608,7 @@ async function routeToolCall(params, store, session, routed) {
 
   // A move inside one context adds no note, so it runs in the cap's
   // relocation window (`store/noteCap.js`); everything else is capped.
-  const dispatch = async () => await callTool(params?.name, args, targetStore, target.scope);
+  const dispatch = async () => await callTool(params?.name, args, targetStore, target.scope, options);
   let result = await answeringNoteCap(() =>
     RELOCATING_TOOLS.has(params?.name) ? asRelocation(targetStore, dispatch) : dispatch()
   );

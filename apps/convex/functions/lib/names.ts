@@ -303,6 +303,9 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // What a card in Messages shows, `/cards/inbox` and `/cards/week` on the
   // gateway. Reserved on the same terms as `presence`.
   "cards",
+  // A person's own computers pair and connect at `/machines/` on the gateway.
+  // Reserved on the same terms as `presence`.
+  "machines",
   "oauth",
   "static",
   "status",

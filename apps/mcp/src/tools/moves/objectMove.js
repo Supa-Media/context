@@ -19,7 +19,7 @@
  */
 
 import { recordChange } from "../../activity/record.js";
-import { phase } from "../../mcp/phase.js";
+import { phase, phaseTook } from "../../mcp/phase.js";
 import { recordForwarding } from "../../forwarding.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import { announceMoves } from "../../moves/keyedCollaboration.js";
@@ -58,6 +58,30 @@ function objectFor(store, scope) {
   return reading;
 }
 
+/**
+ * Where a move's trip went outside the object's op (2026-11-04: the trip ran 30 to 60 ms past the op's own time):
+ * - `move_before`: in the object, from the call beginning to the op starting (the object's clock alone);
+ * - `move_legs`: the trip less the object's whole span, both ways on the wire and any wait before the object began
+ *   the call: the gateway's clock minus the object's, so no clock skew enters it;
+ * - `move_out` and `move_back`: each way alone, across the two machines' clocks, so a skew shifts time between them
+ *   (their sum is `move_legs`); a negative one is a skew, not a time, and is not recorded;
+ * - `move_legs_cold` and `move_legs_alarm`: `move_legs` again when the object was woken by this call or its alarm was
+ *   running, so their counts say how often and their times what it cost; `move_legs_alarm_during` when an alarm began
+ *   while the call was in the object (the alarm the move's own write arms runs at once).
+ */
+function tripTimes(store, answer, sentAt, receivedAt) {
+  const { arrived, answered } = answer;
+  if (typeof arrived !== "number" || typeof answered !== "number" || !(answered >= arrived)) return;
+  phaseTook(store, "move_before", answer.before);
+  const legs = receivedAt - sentAt - (answered - arrived);
+  phaseTook(store, "move_legs", legs);
+  phaseTook(store, "move_out", arrived - sentAt);
+  phaseTook(store, "move_back", receivedAt - answered);
+  if (answer.cold === true) phaseTook(store, "move_legs_cold", legs);
+  if (answer.alarm === true) phaseTook(store, "move_legs_alarm", legs);
+  if (answer.alarmDuring === true) phaseTook(store, "move_legs_alarm_during", legs);
+}
+
 /** Work kept going behind the answer where the host allows it, and awaited where it does not. */
 async function behind(store, work) {
   const running = work().catch(() => {});
@@ -71,29 +95,39 @@ async function behind(store, work) {
 /**
  * Moves `source` to `destination` in the object. `kind` words the answer (`"note"` or `"folder"`), `action` is the
  * change's name in the activity record, and `privacy` (`{rules, overrides}`) says which rooms may hear the new name.
+ * `archive` (`{root, roots}`) in place of a destination asks the object to archive `source` where it decides, and
+ * `onCode(code)` words a refusal only the caller can (`undefined` leaves it to the usual words).
  *
  * @returns {Promise<object|null>} a tool result, or null to send the move to the control plane
  */
-export async function startObjectMove(store, scope, source, destination, expectedEtag, { kind, action, privacy }) {
+export async function startObjectMove(store, scope, source, destination, expectedEtag, { kind, action, privacy, archive, onCode }) {
   const reading = objectFor(store, scope);
   if (reading === null) return null;
   let answer;
+  // The gateway's clock either side of the trip, beside the object's own (`tripTimes`).
+  const sentAt = Date.now();
+  let receivedAt = sentAt;
   try {
     answer = await reading.client.write.move({
       from: source,
-      to: destination,
+      // An archive names no destination: the object names it (`moveWrites.js` `archiveTo`) and answers it as `to`.
+      ...(archive === undefined ? { to: destination } : { archive }),
       ...(typeof expectedEtag === "string" && expectedEtag !== "" ? { expectedEtag } : {}),
       scope: reading.scope,
       // The session's names are a Set (`grantedGroupsOf`): sent as a list.
       groups: [...(reading.names ?? [])],
       userId: reading.userId ?? null,
     });
+    receivedAt = Date.now();
   } catch (error) {
     // The error's class only: a message can quote a path, and logs never carry note names.
     reading.log?.("workspace_object_move_failed", { workspaceId: reading.workspaceId, error: error?.name ?? "Error" });
     return null;
   }
   if (answer?.ok !== true) {
+    // A code only the caller can word (an archive's `NO_ARCHIVE`, `ARCHIVED`, `HIDDEN_DESTINATION`).
+    const worded = typeof onCode === "function" ? onCode(answer?.code) : undefined;
+    if (worded !== undefined) return worded;
     const refusal = REFUSALS.get(answer?.code);
     if (refusal !== undefined) return toolError(refusal);
     // `DEFER`, `UNKEYED` and anything else the object did not decide: nothing moved, so the control plane decides.
@@ -101,6 +135,13 @@ export async function startObjectMove(store, scope, source, destination, expecte
     return null;
   }
 
+  // The object's own time on the move and, of that, its wait for durable writes (`serveWrites.js`), beside the call's
+  // whole trip (`obj:ws.write.move`), so a slow move says whether the time is the object's or the trip's.
+  phaseTook(store, "move", answer.took);
+  phaseTook(store, "move_commit", answer.commit);
+  tripTimes(store, answer, sentAt, receivedAt);
+  // The object's answer names where the move went (an archive's own choice); a move it made is never sent on.
+  if (typeof answer.to === "string" && answer.to !== "") destination = answer.to;
   const files = Array.isArray(answer.files) ? answer.files : [{ from: source, to: destination }];
   // Each step after the object's answer is timed on its own (`phase:move_*`), so a move over 0.1 s says where.
   await phase(store, "move_announce", () => announceMoves(store, files, privacy));

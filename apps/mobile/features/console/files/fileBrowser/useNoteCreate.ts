@@ -25,7 +25,7 @@ import {
 } from "../paths";
 import { applyNoteCreate, undoNoteCreate } from "../optimistic";
 import { announceDid } from "../../map/live/announce";
-import { untitledName, type UntitledKind } from "../untitled";
+import { isUntitled, untitledName, type UntitledKind } from "../untitled";
 import type { OpenNote } from "../types";
 import { DRAWING_NEEDS_CONNECTION, claimedMessage, collision } from "./copy";
 import type { Listings, FileBrowserOptions } from "./types";
@@ -60,9 +60,16 @@ function cannotAddTo(folder: string): ConvexError<{ code: string; message: strin
   });
 }
 
-/** What a new note or drawing starts as. */
+/**
+ * What a new note or drawing starts as. A named note starts with its name as
+ * its title. An untitled one starts with an empty title and an empty line: its
+ * made-up name is the file's, on its row, and never in its text, so what is
+ * typed into the title is only ever the person's (`untitledTitle.ts`, Dev2's
+ * pick on 2026-11-05).
+ */
 function seedFor(name: string): string {
-  return isDrawingPath(name) ? newDrawing() : `# ${name.replace(/\.md$/i, "")}\n\n`;
+  if (isDrawingPath(name)) return newDrawing();
+  return isUntitled(name) ? "# \n\n" : `# ${name.replace(/\.md$/i, "")}\n\n`;
 }
 
 export function useNoteCreate(deps: NoteCreateDeps) {
@@ -86,6 +93,14 @@ export function useNoteCreate(deps: NoteCreateDeps) {
    * separately, which is how every other note in the bucket already works.
    */
   const awaitingTitle = useRef<Set<string>>(new Set());
+
+  /**
+   * A new note moved to the next untitled name because its first save found
+   * the name taken (`UnsentCreate.retarget`): its new path, and the one it
+   * left. The same note with a new name, which the title follows as it is
+   * (`useLinkedTitle`) rather than as a note just opened.
+   */
+  const retargeted = useRef<Map<string, string>>(new Map());
 
   /** The newest create; only it may move the selection when its write lands. */
   const latestCreate = useRef(0);
@@ -252,6 +267,7 @@ export function useNoteCreate(deps: NoteCreateDeps) {
             const nextName = untitledName(listingsRef.current, folder, "note", new Date(), refused);
             const next = joinPath(folder, nextName);
             awaitingTitle.current.add(next);
+            retargeted.current.set(next, path);
             register(next, nextName);
             return next;
           },
@@ -354,7 +370,7 @@ export function useNoteCreate(deps: NoteCreateDeps) {
     [createNote, listings, openUnsent, options.canEdit, refresh, reportRefreshFailure],
   );
 
-  return { createNote, createDrawing, awaitingTitle, createUntitled };
+  return { createNote, createDrawing, awaitingTitle, retargeted, createUntitled };
 }
 
 export type NoteCreateValues = ReturnType<typeof useNoteCreate>;

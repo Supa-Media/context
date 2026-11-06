@@ -3,7 +3,6 @@ name: Deploy Desktop (build the Mac and Linux apps)
 # A `.dmg` of the meeting recorder, built on a Mac runner — signed and notarised
 # when the credentials exist, and honestly unsigned when they do not. Linux is
 # the `linux` and `publish-linux` jobs at the end (`deploy-desktop-linux.yml`).
-#
 # Desktop builds and releases are manual. Use the publish input to release a
 # signed, notarised build; a merge to main only deploys staging.
 #
@@ -18,7 +17,6 @@ name: Deploy Desktop (build the Mac and Linux apps)
 #
 # What an unsigned build does **not** get, and this is the whole reason the
 # signed path matters:
-#
 #  - Gatekeeper refuses it on any other Mac.
 #  - macOS does not grant a hardened-runtime app TCC permissions it has not
 #    verified, so **system audio does not work** — the app degrades to mic-only
@@ -31,7 +29,6 @@ name: Deploy Desktop (build the Mac and Linux apps)
 # without them.
 #
 # ## What this cannot check
-#
 # That the signature is trusted on somebody else's Mac, that notarisation
 # actually granted TCC, or that ScreenCaptureKit hands over system audio. All
 # three need a person, a Mac and a meeting. The artifact is what they need to do
@@ -377,9 +374,7 @@ jobs:
         if: steps.decide.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # electron-builder's own default tag scheme (`vPrefixedTagName`, on by
-          # default) — not renamed here, because the tag this step checks has to
-          # be the exact one electron-builder will look for and reuse below.
+          # electron-builder's default tag scheme (`vPrefixedTagName`): the tag checked here is the one it reuses below.
           TAG: v${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
@@ -387,7 +382,9 @@ jobs:
             echo "::error::$TAG already has a release. This workflow never overwrites one — bump the version in apps/desktop/package.json and dispatch again."
             exit 1
           fi
-          echo "$TAG has no release yet; this dispatch may create it."
+          latest="$( (gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName -q '.[].tagName' 2>/dev/null || true) | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"; latest="${latest:-v0.0.0}" # newest app tag, not GitHub's latest (can be a runner release); a Mac release can be ahead of this run
+          [ "$(printf '%s\n%s\n' "${latest#v}" "${TAG#v}" | sort -V | tail -n 1)" = "${TAG#v}" ] || { echo "::error::$TAG is older than the latest release $latest. Dispatch again; a newer run number gives a newer version."; exit 1; }
+          echo "$TAG has no release yet and is newer than $latest; this dispatch may create it."
 
       # The signing half arrives as `CSC_KEYCHAIN` and
       # `CSC_IDENTITY_AUTO_DISCOVERY` from the step above, through `GITHUB_ENV`
@@ -435,6 +432,9 @@ jobs:
       # separate step, "Publish the release" below, gated on the launch step
       # in between actually passing. This step's only job is to produce the
       # bits; nothing it does can put them in front of an installed base.
+      - name: Build the machine runner # Let Tex use this Mac; see the script
+        if: hashFiles('apps/machine-runner/Cargo.toml') != ''
+        run: bash apps/desktop/build/build-machine-runner.sh
       - name: Build
         working-directory: apps/desktop
         env:

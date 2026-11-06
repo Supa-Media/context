@@ -26,6 +26,7 @@ import { toolReadGoogleChat } from "./googleChatRead.js";
 import { toolForwardRule } from "./forwardRule.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace, toolInviteMember } from "./workspaces.js";
 import { toolDreamNow } from "./dreamNow.js";
+import { toolPairDevice } from "./pairDevice.js";
 import { toolNotifyMe } from "./attention.js";
 import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
 import { toolError, toolText } from "./results.js";
@@ -47,6 +48,7 @@ import { toolMoveFolder } from "./moves/folder.js";
 import { toolMoveNote } from "./moves/note.js";
 import { toolMoveNotes } from "./moves/notes.js";
 import { toolOpenAiFetch, toolOpenAiSearch, toolSearchNotes } from "./search.js";
+import { toolSearchDated } from "./searchDates.js";
 import { toolRelatedNotes } from "./related.js";
 import { toolOrient, toolScopeInfo } from "../orient/tool.js";
 import { toolReadActivity } from "../activity/readActivity.js";
@@ -95,15 +97,15 @@ function pathsNamed(value, found = []) {
   return found;
 }
 
-export async function callTool(name, args, store, scope) {
+export async function callTool(name, args, store, scope, options = {}) {
   // A chat's history file is a view of its log, read only (`agent/historyFile.js`): nothing changes it, whoever asks.
   if (changes(name)) {
     const refusal = pathsNamed(args ?? {}).map(historyWriteRefusal).find((words) => words !== null);
     if (refusal !== undefined) return toolError(refusal);
   }
-  if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope);
+  if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope, options);
   try {
-    return await runTool(name, args, servedListingStore(store), scope);
+    return await runTool(name, args, servedListingStore(store), scope, options);
   } catch (error) {
     if (error instanceof TreeUnavailable) return toolError(error.message);
     throw error;
@@ -122,7 +124,7 @@ export async function readNoteForGateway(store, scope, path) {
   return toolReadNote(store, scope, privacy.rules, privacy.overrides, path);
 }
 
-async function runTool(name, args, store, scope) {
+async function runTool(name, args, store, scope, options = {}) {
   const privacy = await loadPrivacyState(store);
   if (privacy.error) {
     return toolError(
@@ -172,7 +174,7 @@ async function runTool(name, args, store, scope) {
       if (args.upload !== undefined) return toolImageUploadLinks(store, args);
       if (args.comment !== undefined) return toolCommentNote(store, scope, rules, overrides, args);
       if (args.mail !== undefined) return toolMailNote(store, scope, rules, overrides, args);
-      return toolWriteNote(store, scope, rules, overrides, args);
+      return toolWriteNote(store, scope, rules, overrides, args, options.noteWrite);
     case "remember":
       return toolRemember(store, scope, rules, overrides, args);
     case "set_visibility":
@@ -191,10 +193,12 @@ async function runTool(name, args, store, scope) {
     case "set_folder_visibility":
       return toolSetFolderVisibility(store, scope, args);
     case "search":
-      return toolOpenAiSearch(store, scope, rules, overrides, args.query);
+      return toolOpenAiSearch(store, scope, rules, overrides, args.query, args.args?.prefix);
     case "fetch":
       return toolOpenAiFetch(store, scope, rules, overrides, args.id);
     case "search_notes":
+      // A range of days: what the notes say is on each, across workspaces (`searchDates.js`).
+      if (args.from !== undefined || args.to !== undefined) return toolSearchDated(store, scope, rules, overrides, args);
       return toolSearchNotes(store, scope, rules, overrides, args.query, args.prefix);
     case "related_notes":
       return toolRelatedNotes(store, scope, rules, overrides, args);
@@ -280,6 +284,8 @@ async function runTool(name, args, store, scope) {
       return toolInviteMember(store, args);
     case "dream_now":
       return toolDreamNow(store, scope);
+    case "pair_device":
+      return toolPairDevice(store, args);
     case "notify_me":
       return toolNotifyMe(store, scope, rules, overrides, args);
     case "list_links":

@@ -309,6 +309,15 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     }
   };
 
+  // The note's Markdown as its lookup carried it (`workspaceStore/lookupBody.js`, `workspaceRouting.js` `storedFromLookup`),
+  // or `null`: only for a plain `get` (no range or condition), and only once, so a second read asks the store.
+  const carriedBody = (entry, rest) => {
+    const { body } = entry;
+    if (body === undefined || typeof store.storedFromLookup !== "function" || rest.some((option) => option !== undefined && (option === null || typeof option !== "object" || Object.keys(option).length > 0))) return null;
+    entry.body = undefined;
+    return store.storedFromLookup(entry.key, body);
+  };
+
   /** A read routed by the tree: `method` is `get`, `head`, `exists` or `existsMetadata`. */
   // A read's lookup: the same answer, from where a read may take "no note here" without the control plane.
   const readLookup = typeof lookupRead === "function" ? lookupRead : lookup;
@@ -316,7 +325,7 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     if (!mirroredPath(path)) return await store[method](path, ...rest);
     const resolved = await resolveWith(ask, path);
     const { entry } = resolved;
-    if (keyedEntry(entry)) return await store[method](entry.key, ...rest);
+    if (keyedEntry(entry)) return (method === "get" ? carriedBody(entry, rest) : null) ?? (await store[method](entry.key, ...rest));
     // No note here, or a folder: nothing to read.
     return method === "exists" || method === "existsMetadata" ? false : null;
   };
@@ -624,7 +633,8 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
    * check and the object's row check (`replaceInObject`, `wrote`) judge the write against what is there now.
    */
   wrapped.oneWrite = (outer = wrapped) => {
-    const ask = rememberingLookup(lookup);
+    // A one-path question asks for the note's Markdown too, so an edit's load is served from the same trip.
+    const ask = rememberingLookup((paths) => lookup(paths, { withBody: paths.length === 1 }));
     const view = Object.create(outer);
     const define = (name, value) =>
       Object.defineProperty(view, name, { value, enumerable: false, writable: false, configurable: true });

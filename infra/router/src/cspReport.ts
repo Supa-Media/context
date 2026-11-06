@@ -8,8 +8,10 @@
  * "CSP not set"), but the app has never run under one, so enforcing it blind
  * could blank the app for everyone. It ships as `Content-Security-Policy-
  * Report-Only` first: browsers run every script as before and post what the
- * policy would have blocked to `/_csp-report`, which logs it. Once those logs
- * are quiet the same policy moves to the enforcing header.
+ * policy would have blocked to `/_csp-report`, which logs it. Its `script-src`
+ * now also enforces on the app shell (2026-11-05, `shellEnforcedPolicy` in
+ * `securityHeaders.ts`), reporting to `/_csp-report/enforce`; the style and
+ * fetch halves still only report.
  *
  * What may run is what the first day of reports (2026-10-28, 79 of them)
  * showed the app needs, and nothing more:
@@ -21,22 +23,24 @@
  *    hash, and `cspReport.test.ts` fails until the hash here is updated.
  *  - Cloudflare Web Analytics' beacon, which Cloudflare adds to the page.
  *  - The X and Meta pixels' own scripts, which the shell loads on context.lc's
- *    landing page only.
+ *    landing page only, and so are named on that one document only
+ *    (`LANDING_SCRIPT_HOSTS`).
  *  - `'wasm-unsafe-eval'`: compiling WebAssembly, which the app does. It
  *    allows no JavaScript `eval`.
  *
  * PostHog's SDK comes through our own `/ingest` (`analyticsIngest.ts`), and
  * Stripe is a redirect, not a script on our page.
  *
- * Quiet reports are not enough to enforce it. Two frames of ours run script
+ * Quiet reports were not enough to enforce it. Two frames of ours ran script
  * this policy blocks, and only when someone uses them, so a quiet hour says
  * nothing about them: the plugin sandbox (`packages/obsidian-runtime`) is a
  * `srcdoc` document, which inherits this policy, and runs its bootstrap and
  * every plugin as inline script; the drawing editor's bundle
  * (`drawing-assets/editor/editor.js`, built from `@excalidraw/excalidraw`)
  * carries WebAssembly glue that builds functions with `new Function`.
- * Each has to move to a document this policy does not cover, or stop needing
- * it, first; `cspReport.test.ts` fails if the policy enforces before then.
+ * Each moved to a document of its own with a policy of its own (#2435,
+ * #2437) before the shell's policy enforced; `cspReport.test.ts` fails if
+ * either moves back while it does.
  *
  * A report names URLs, and a URL can carry a note's path or a token, so the
  * log keeps origins and the directive only: never a path, a query, or the
@@ -80,19 +84,41 @@ export const SHELL_STYLE_HASHES = [
 ];
 export const EMPTY_STYLE_HASH = "sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=";
 
-/** Every host that may serve script, each for the reason above. */
-export const SCRIPT_HOSTS = [
-  "https://challenges.cloudflare.com",
-  "https://static.cloudflareinsights.com",
-  "https://static.ads-twitter.com",
-  "https://connect.facebook.net",
-];
+/** Every host that may serve script on any shell document, each for the reason above. */
+export const SCRIPT_HOSTS = ["https://challenges.cloudflare.com", "https://static.cloudflareinsights.com"];
 
-export const SCRIPT_POLICY =
-  `script-src 'self' ${SHELL_SCRIPT_HASHES.map((hash) => `'${hash}'`).join(" ")} ${SCRIPT_HOSTS.join(" ")} 'wasm-unsafe-eval'; ` +
-  `style-src 'self' ${[...SHELL_STYLE_HASHES, EMPTY_STYLE_HASH].map((hash) => `'${hash}'`).join(" ")}; ` +
-  "object-src 'none'; base-uri 'self'; " +
-  `report-uri ${CSP_REPORT_PATH}`;
+/**
+ * The X and Meta pixels' hosts, named only on context.lc's landing page, the
+ * one document the shell loads them on (`location.hostname === "context.lc"
+ * && location.pathname === "/"`). Named on every document, an enforced policy
+ * would let them serve script on the app pages too, where the sign-in tokens
+ * live in `localStorage`. `apps/mobile/public/sw.js` keeps the same list, to
+ * take them out of a landing shell it replays offline at another address.
+ */
+export const LANDING_SCRIPT_HOSTS = ["https://static.ads-twitter.com", "https://connect.facebook.net"];
+
+/** Whether `url` is the landing page, the one shell document the ad pixels load on. */
+export function isLandingPage(url: URL): boolean {
+  return url.hostname === "context.lc" && url.pathname === "/";
+}
+
+/** The shell's `script-src`: `'self'`, its inline scripts by hash, the hosts above, and WebAssembly. */
+export function shellScriptSource(landing = false): string {
+  const hosts = landing ? [...SCRIPT_HOSTS, ...LANDING_SCRIPT_HOSTS] : SCRIPT_HOSTS;
+  return `script-src 'self' ${SHELL_SCRIPT_HASHES.map((hash) => `'${hash}'`).join(" ")} ${hosts.join(" ")} 'wasm-unsafe-eval'`;
+}
+
+/** The shell's report-only policy: its script half is also enforced (`securityHeaders.ts`). */
+export function shellReportOnlyPolicy(landing = false): string {
+  return (
+    `${shellScriptSource(landing)}; ` +
+    `style-src 'self' ${[...SHELL_STYLE_HASHES, EMPTY_STYLE_HASH].map((hash) => `'${hash}'`).join(" ")}; ` +
+    "object-src 'none'; base-uri 'self'; " +
+    `report-uri ${CSP_REPORT_PATH}`
+  );
+}
+
+export const SCRIPT_POLICY = shellReportOnlyPolicy(false);
 
 /**
  * The drawing editor's document (`/drawing-assets/editor/`) gets a report-only
@@ -197,10 +223,10 @@ export function fetchDirectives(convexOrigin: string | undefined): string {
  * which it also enforces; the console's would only report every plugin. The
  * diagram page reports against the policy its own `<meta>` enforces.
  */
-export function reportOnlyPolicyFor(pathname: string, convexOrigin: string | undefined): string {
+export function reportOnlyPolicyFor(pathname: string, convexOrigin: string | undefined, landing = false): string {
   if (isPluginSandboxPath(pathname)) return `${SANDBOX_POLICY}; report-uri ${CSP_REPORT_PATH}`;
   if (pathname.startsWith(DIAGRAM_PATH_PREFIX)) return `${DIAGRAM_POLICY}; report-uri ${CSP_REPORT_PATH}`;
-  const scripts = pathname.startsWith(EDITOR_PATH_PREFIX) ? EDITOR_POLICY : SCRIPT_POLICY;
+  const scripts = pathname.startsWith(EDITOR_PATH_PREFIX) ? EDITOR_POLICY : shellReportOnlyPolicy(landing);
   return `${fetchDirectives(convexOrigin)}; ${scripts}`;
 }
 
@@ -290,14 +316,26 @@ export function parseCspReport(text: string): CspViolation[] {
   }));
 }
 
-/** `POST /_csp-report`: log each violation, answer 204, never echo the body. */
+/** Where the shell's enforced script policy reports, so its refusals are told apart from report-only ones. */
+export const ENFORCED_REPORT_PATH = `${CSP_REPORT_PATH}/enforce`;
+
+/** Whether `pathname` is one of the two report addresses. */
+export function isCspReportPath(pathname: string): boolean {
+  return pathname === CSP_REPORT_PATH || pathname === ENFORCED_REPORT_PATH;
+}
+
+/**
+ * `POST /_csp-report` (report-only) or `/_csp-report/enforce` (enforced): log
+ * each violation with its disposition, answer 204, never echo the body.
+ */
 export async function cspReportResponse(request: Request): Promise<Response> {
+  const disposition = new URL(request.url).pathname === ENFORCED_REPORT_PATH ? "enforce" : "report";
   if (request.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
   const length = Number(request.headers.get("Content-Length") ?? "0");
   if (length > MAX_REPORT_BYTES) return new Response(null, { status: 413 });
   const text = (await request.text()).slice(0, MAX_REPORT_BYTES);
   for (const violation of parseCspReport(text)) {
-    console.log(JSON.stringify({ event: "csp_report_only_violation", ...violation }));
+    console.log(JSON.stringify({ event: disposition === "enforce" ? "csp_violation" : "csp_report_only_violation", ...violation, disposition }));
   }
   return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
 }

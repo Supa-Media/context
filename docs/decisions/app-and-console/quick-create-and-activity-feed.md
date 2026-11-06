@@ -24,6 +24,20 @@ after it says something, so the file is created immediately as
 document's first heading, and `useFileBrowser` renames the file to match the
 first time that heading settles into something other than the placeholder.
 
+**The made-up name is the file's, never the note's text** (decided by the
+owner, 2026-11-05). A new note starts as `# ` and an empty line; the editor
+draws a grey "Title" in the empty heading (`files/untitledTitle.ts`), and what
+is typed there is the title by ordinary typing. Until then the text said
+`# untitled-<date>` and a transaction filter guessed which part of each change
+was the person's; a browser typing over the selected words of a line drawn as
+something else hands the editor the old words plus the new letter, and the
+title came out `# untitled-2026-11-04-2S`. A note whose untitled name turns out
+taken at its first save moves to the next name with its text untouched, and
+its title goes on renaming it (`useLinkedTitle`'s `retargeted`). Writing the
+name back into the text brings back the guess and that bug;
+`untitledTitle.test.ts`, `newNoteTyping.test.ts` and
+`newNoteTakenName.test.ts` fail.
+
 What a "simplification" of this would cost, in the order the mistakes are likely:
 
 - **Put the prompt back for "safety".** It is not safety. It is a modal in front

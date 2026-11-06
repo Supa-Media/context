@@ -74,6 +74,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A shared note takes typing before its document arrives
 - A note that turns shared under the person typing keeps taking typing
 - A closed shared note's unsent typing is sent without opening it
+- A save keeps one current copy of its history, and a version when the person goes idle
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
@@ -205,7 +206,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [No proposals](./gateway-protocol/no-proposals.md)
 - [An agent sets a workspace up, and only a third party's sign-in needs a browser](./gateway-protocol/workspace-setup.md)
 - [Open CORS on the gateway, and HSTS with nosniff on the control plane](./gateway-protocol/cors-and-headers.md)
-- [URL tokens are counted, then retired route by route](./gateway-protocol/token-transport.md)
+- [URL tokens are counted, then retired route by route](./gateway-protocol/token-transport.md) (retired on every route but the live sockets, 2026-11-05)
 - [A CLI learns its workspaces from `scope_info`, as data; the metadata names the app](./gateway-protocol/cli-workspaces.md)
 - [An agent reports a problem through the bug button's intake](./gateway-protocol/report-problem.md)
 - [Agents remember facts with one tool, and the note stays clean](./gateway-protocol/remember.md)
@@ -216,6 +217,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Orient again with `since`, and only what changed comes back](./gateway-protocol/orient-since.md)
 - [Each workspace draws orient's map in its own object](./gateway-protocol/orient-map-in-object.md)
 - [A note is read inside its workspace object in one call](./gateway-protocol/note-read-in-object.md)
+- [The gateway runs beside its workspace objects](./gateway-protocol/gateway-placement.md)
+- [An edit's row lookup carries the note's Markdown](./gateway-protocol/edit-lookup-body.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
 - [An agent with a picture as a file sends it with a one-use upload link](./gateway-protocol/image-upload-links.md)
 - [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
@@ -413,6 +416,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Built-in folders are found by their job, not their name](./app-and-console/folder-jobs.md) (2026-10-18)
 - [Archive keeps the workspace's shape](./app-and-console/folder-jobs.md#archive-keeps-the-workspaces-shape) (2026-10-18)
 - [Built-in folders have no number in front](./app-and-console/folder-jobs.md#built-in-folders-have-no-number-in-front) (2026-10-21)
+- [Each folder has a Sort setting, shared by everyone in the workspace](./app-and-console/folder-sort.md) (2026-11-04)
 - [Experiments, case groups and how sure a score is](./app-and-console/admin-ai.md#experiments-case-groups-and-how-sure-a-score-is-boards-17-22) (2026-10-16)
 - [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)
 - [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)
@@ -750,13 +754,16 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The texting assistant](./texting-assistant.md)
 
+- [One drawing of Tex, changed with every architecture change (2026-11-05)](./texting-assistant/architecture-diagram.md)
 - [Every Tex turn reads its setup, whoever the person is (2026-11-02)](./texting-assistant/setup-read.md)
 - [Tex answers directly, or says what it is doing as it works, never that it is done (2026-11-01)](./texting-assistant/interleaved-updates.md)
 - [Every reaction in a chat is input, a reaction on Tex's question its answer (2026-11-01)](./texting-assistant/reactions-as-input.md)
 - [Tex's front door: a text in, Haiku answers, the reply out (2026-10-31)](./texting-assistant/front-door.md)
 - [The front door keeps one check: "I can't open it" with nothing tried (2026-11-03)](./texting-assistant/front-door.md#one-check-stays-i-cant-open-it-with-nothing-tried-2026-11-03)
 - [No waiting asks step (2026-11-03)](./texting-assistant/front-door.md#no-waiting-asks-step-2026-11-03)
+- [A text reaches Tex without Convex (2026-11-04)](./texting-assistant/texting-in-objects.md)
 - [Tex's warm copy, sealed in the sender's object (2026-10-31)](./texting-assistant/warm-copy.md)
+- [The setup and skills are served stale while read again (2026-11-04)](./texting-assistant/warm-copy.md#served-stale-while-read-again-2026-11-04)
 - [Tex's notes live in Durable Objects, not the bucket (2026-10-31)](./texting-assistant/tex-durable-objects.md)
 - The Worker decides nothing about access
 - A webhook is acted on only with Linq's signature
@@ -772,11 +779,15 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A bug filed by text goes to the team only on the person's YES, texts included (2026-10-17)](./texting-assistant/bug-reports.md)
 - [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
 - [Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)](./texting-assistant/groups.md)
+- [A group's voice message is heard before the chat decides it is for Tex (2026-11-05)](./texting-assistant/groups.md)
 - [A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)](./texting-assistant/group-guests.md)
 - [Group Tex keeps each chat's home in @context-lc, sealed from the people who run it (2026-10-31)](./texting-assistant/chat-homes.md)
 - [A group chat's history has one copy: the memory page in its home, kept in its Durable Object (2026-11-01)](./texting-assistant/group-memory-one-copy.md)
 - [A person's texts with Tex are one record in their Tex object, read with About me in one call (2026-11-01)](./texting-assistant/one-to-one-history.md)
 - [Each chat with Tex has one ledger, and every view is rebuilt from it (2026-11-02)](./texting-assistant/chat-ledger.md)
+- [A turn's trust is its own; nothing it said marks a later turn (2026-11-05)](./texting-assistant/turn-trust.md)
+- [What was said stays in the record, and Tex does the read instead of offering it (2026-11-04)](./texting-assistant/do-the-read.md)
+- [A decision model judges each texted reply before it goes (2026-11-04)](./texting-assistant/reply-judge.md)
 - [A person's Tex folder and a group chat's home use the same names (2026-11-01)](./texting-assistant/tex-folders.md)
 - [The advisor's asks, the Mail checker's verdicts and jobs go in the chat's ledger (2026-11-02)](./texting-assistant/ledger-asks.md)
 - [A guest in a group chat opens a shared note with a texted code, and the code makes an account (2026-10-27, 2026-10-31)](./texting-assistant/guest-phone-pass.md)
@@ -787,6 +798,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A mailbox is shared with one group chat by its own person (2026-10-27)](./texting-assistant/chat-mail.md)
 - [A group chat checks in on its own, like a person's Tex (2026-10-27)](./texting-assistant/chat-mail.md#the-chat-checks-in-on-its-own)
 - [A thumbs up on an ask is the yes, once it has stayed ten seconds (2026-10-21)](./texting-assistant/thumbs-up.md)
+- [A reply is logged with the words it answers (2026-11-05)](./texting-assistant/reply-quotes.md)
 - [Tex reads one event log and decides when to answer (Dev2, 2026-10-26)](./texting-assistant/event-log.md)
 - [A group turn is seen through by a Cloudflare Workflow (Dev2, 2026-10-27)](./texting-assistant/group-turn-workflow.md)
 - [A busy group is answered fast, and only with a reply that still fits (2026-10-30)](./texting-assistant/group-turn-workflow.md#a-busy-group-is-answered-fast-and-only-with-a-reply-that-still-fits-2026-10-30)
@@ -859,6 +871,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A long ask runs as a background job, so Tex works on several things at once (2026-10-21)](./texting-assistant/background-jobs.md)
 - [A running job can be steered, stopped and audited from the chat (2026-10-21)](./texting-assistant/background-jobs.md)
 - [A job's turns are off the daily cap (2026-10-31)](./texting-assistant/background-jobs.md)
+- [A job paused at the daily limit picks itself back up (2026-11-05)](./texting-assistant/background-jobs.md)
+- [A big ask splits into parallel jobs, planned by the advisor (2026-11-04)](./texting-assistant/background-jobs.md)
+- [Every job gets a shared note first, with the job, Tex and the advisor on its mail (2026-11-05)](./texting-assistant/job-notes.md)
+- [A person's own computer becomes more minion slots, run by one Rust runner (2026-11-03, 2026-11-04)](./texting-assistant/machines.md)
+- [A run is plain Claude Code in the person's folder (owner, 2026-11-04)](./texting-assistant/machines.md)
+- [Credentials on a device: the machine grant and the run grant (2026-11-04)](./texting-assistant/machines.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it

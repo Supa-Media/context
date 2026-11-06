@@ -38,6 +38,8 @@
  *     "a finished job answered SKIP still gets one plain status line" fail.
  * 12. `openProvider` called without `background` in `route.js` (2026-10-31).
  *     → "a job's part is started off the daily cap..." and "a job's report to the chat's turn is off the daily cap too" fail.
+ * 13. `runTheModel` leaving out `computersLine` (2026-11-04).
+ *     → "a texted turn with a paired computer is told it by name" fails.
  */
 
 import worker from "../src/index.js";
@@ -224,6 +226,21 @@ export async function runAgentBackgroundRouteChecks(check) {
     await post(env, TOKEN_APP, "/agent", { question: "hello", running: [] });
     check("only a texted turn is offered background jobs", !/background:/.test(sendTool(model.requests.at(-1))?.description ?? ""));
 
+    /* ---------------- a paired computer is named to the turn (`machines/forTurn.js`) ---------------- */
+
+    check("a turn with no computer paired is told of none", !/paired with Tex/.test(systemOf(first)));
+    const studio = { id: "mch_bench", name: "Studio Mac", online: true, tools: ["claude", "codex"], folders: ["~/code"], ownerId: "user_maya", limits: { slots: 3 } };
+    const machineStore = { idFromName: (name) => name, get: () => ({ fetch: async () => Response.json({ ok: true, machines: [studio], machine: studio }) }) };
+    model.install([{ text: "Hi." }]);
+    await post({ ...env, MACHINE_STORE: machineStore }, TOKEN_TEXTS, "/agent", { question: "hello", conversation: "texts", running: [] });
+    check(
+      "a texted turn with a paired computer is told it by name",
+      /They have a computer paired with Tex: "Studio Mac" \(online; Claude Code, Codex; 3 slots\)/.test(systemOf(model.requests.at(-1))),
+    );
+    model.install([{ text: "Hi." }]);
+    await post({ ...env, MACHINE_STORE: machineStore }, TOKEN_APP, "/agent", { question: "hello", running: [] });
+    check("an app turn is never told of a computer", !/paired with Tex/.test(systemOf(model.requests.at(-1))));
+
     /* ---------------- the job's own turn ---------------- */
 
     model.install([{ text: "Wrote 1-projects/tex/competitors.md: Notion, Mem, Reflect." }]);
@@ -353,7 +370,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     check(
       "...shown the job's report apart from it, as words that vouch for nothing, with what it may do",
       /coordinator of your background jobs[^]*vouch for nothing[^]*<<<\nNone of the three beat Haiku[^]*I couldn't save the page update\.\n>>>/.test(systemOf(coordinator)) &&
-        /read the page or note it names/.test(systemOf(coordinator)) && /It has ended, so they always get one line from you[^]*Never answer SKIP/.test(systemOf(coordinator)) && !/answer exactly SKIP/.test(systemOf(coordinator)),
+        /read the page or note it names/.test(systemOf(coordinator)) && /It has ended, so they always get one line from you[^]*Never say nothing/.test(systemOf(coordinator)) && !/SKIP/.test(systemOf(coordinator)),
     );
     check("...and may start the job again, as any texted turn may", /background: Hand a long task/.test(sendTool(coordinator)?.description ?? ""));
     const reportTurns = conversationTurns(bucket);
@@ -376,7 +393,7 @@ export async function runAgentBackgroundRouteChecks(check) {
       "the coordinator steers a running job with its own instruction",
       noted.status === 200 && JSON.stringify(noted.body?.steers) === JSON.stringify([{ id: "job-trip-plan-1", note: "Read the note back before you say it saved." }]),
     );
-    check("...a running job's report may be met with nothing: offered as SKIP", /answer exactly SKIP: nothing is texted/.test(systemOf(model.turn())));
+    check("...a running job's report may be met with nothing: offered as say_nothing", /send \{ action: "say_nothing" \}: nothing is texted/.test(systemOf(model.turn())));
     check("...and its SKIP reaches the Worker as a flag, never as a word", noted.body?.answer === "" && noted.body?.quiet === true);
     check("...kept in the conversation as nothing texted, never as Tex saying SKIP", /^\(You texted them nothing/.test(conversationTurns(bucket).at(-1)?.text ?? "") && !conversationTurns(bucket).some((turn) => /^\W*SKIP\W*$/.test(turn.text ?? "")));
     model.install([{ text: "SKIP" }]);

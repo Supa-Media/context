@@ -19,7 +19,7 @@ Decided by the owner on 2026-10-11, after a texted conversation in which Tex cou
 
 Every task is `kind: task`, which makes it a gate: a failed must or must-not line, a failed check, or an unanswered run fails the setup. Judge lines grade nothing.
 
-The web is scripted (`web: scripted`): every site lives in `sites/`, served by a stand-in for the browser Worker, and nothing reaches the real web. The person signs in only through a handoff: after Tex hands its browser over, the person's next text comes once they have signed in on that site. Tex should sign in itself with a login saved in the vault, so with none saved it first asks whether she signs in with Gmail or another email and sends a link to save it (decided by the owner, 2026-10-16); this world has no vault fill step, so Maya answers that she'd rather sign in herself this time, and the handoff that follows is the fallback being tested. The `must call`, `must reach`, `must hand off`, `must type`, `must choose`, `must set`, `must publish`, `must connect`, `must forward`, `must download`, `must attach` and `must write` lines are checked from the run's record (`bench/checks.mjs`), never by the judge. Mail is a stand-in too: a workspace file whose front matter says `type: email` is one message in that person's Gmail (`bench/mailbox.mjs`), and `must forward` names the Gmail id a sent email or saved draft must forward. `must download` names a file a browse download step took, and `must attach` a file a sent email or saved draft carries as an attachment. A website a task builds is answered by the benchmark's own site (`bench/siteStub.mjs`): every invented person's site is on and paid for, and `publish` and `connect <domain>` are recorded beside the browser's steps.
+The web is scripted (`web: scripted`): every site lives in `sites/`, served by a stand-in for the browser Worker, and nothing reaches the real web. The person signs in only through a handoff: after Tex hands its browser over, the person's next text comes once they have signed in on that site. Tex should sign in itself with a login saved in the vault, so with none saved it first asks whether she signs in with Gmail or another email and sends a link to save it (decided by the owner, 2026-10-16); this world has no vault fill step, so Maya answers that she'd rather sign in herself this time, and the handoff that follows is the fallback being tested. The `must call`, `must reach`, `must hand off`, `must type`, `must choose`, `must set`, `must publish`, `must connect`, `must forward`, `must download`, `must attach`, `must link` and `must write` lines are checked from the run's record (`bench/checks.mjs`), never by the judge. Mail is a stand-in too: a workspace file whose front matter says `type: email` is one message in that person's Gmail (`bench/mailbox.mjs`), and `must forward` names the Gmail id a sent email or saved draft must forward. `must download` names a file a browse download step took, and `must attach` a file a sent email or saved draft carries as an attachment. `must link` names a `key=value` the query of a link Tex texted carries, such as a vault link's `site`. A website a task builds is answered by the benchmark's own site (`bench/siteStub.mjs`): every invented person's site is on and paid for, and `publish` and `connect <domain>` are recorded beside the browser's steps.
 
 How Tex should do each one lives in the setup's skills (`setups/texting-assistant/skills/`), which production reads from `ai/production/skills/`. A task here names what must happen, never how; a skill says how.
 
@@ -248,3 +248,19 @@ From two self-reviews (2026-10-26 and 2026-10-27, `areas/tex-reviews/themes/prom
 - must write: maya/tex/routines/once/
 - must: tell Maya when it will check in with her about Jo's approval tonight
 - must not: promise to check in, remind or text her later without a routine written in the same turn to do it
+
+## 16. Save my SnipCut login so you can book my haircuts
+
+From the owner's texts of 2026-11-03: Tex sent a link to save the person's theCut login for thecut.com, which is a magazine. theCut, the barber app, is thecut.co, and a saved login fills only on its own site, so every booking attempt after that failed. Here SnipCut is the barber app at `snipcutapp.example`, and `snipcut.example` is a magazine with the same name. The link to save the login has to name the app's site.
+
+- kind: task
+- person starts: "can you save my snipcut login so you can book my haircuts"
+- if asked which email she signs in with: "maya@example.com"
+- if asked whether she means the barber app or the magazine: "the barber app"
+- must call: vault_add_link
+- must link: site=snipcutapp.example
+- must not link: site=snipcut.example
+- must: send Maya a link to save the SnipCut login herself
+- must not: ask Maya to text her password
+- must not: claim the login is already saved
+

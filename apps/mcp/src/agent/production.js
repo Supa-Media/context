@@ -44,6 +44,10 @@
  *                  action `advisor` (`advisor.js`, the Tex Devs meeting,
  *                  2026-10-30); never `models.main`
  *   models.advisor_effort optional, with `advisor`: the same for the advisor
+ *   plan_big_asks  optional `on`, with `models.advisor`: a big ask with parts
+ *                  that run side by side goes to `plan_big_ask`, where the
+ *                  advisor plans it and the gateway writes its notes and
+ *                  starts its jobs (`planBigAsk.js`, Dev, 2026-11-04)
  *   models.fallback optional: the model a turn goes on with when the one it
  *                  was on failed after its retry (decided by the owner,
  *                  2026-10-09; another model than `main`, or it is no fallback)
@@ -73,11 +77,12 @@
  * uses the built-in words, exactly as if the file were missing. The front matter's grammar is the small subset below, so
  * no YAML dependency is needed; anything outside it is refused, not guessed at.
  *
- * Whether this deployment can call the setup's model is `texTurn.js`'s to
+ * Whether this deployment can call the setup's model is `texEntryPoint.js`'s to
  * decide; this file only reads the note.
  */
 
 import { loadPrivacyState } from "../privacy/state.js";
+import { readPlanSetting } from "./planBigAsk.js";
 import { PINNED_CONTEXT_NAME, readPinnedNote } from "../orient/globalNote.js";
 import { isBuiltinModelName } from "./builtin.js";
 import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
@@ -85,6 +90,7 @@ import { readSearchSettings } from "../search/settings.js";
 import { readSkillList, skillBody } from "./skills.js";
 import { readOpenWeb, readTrustedSites } from "./trustedSites.js";
 import { readFrontDoor } from "./frontDoor.js";
+import { readReplyJudge } from "./replyJudge.js";
 import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
 
@@ -108,6 +114,8 @@ export const PRODUCTION_HEARTBEAT_PATH = "ai/production/heartbeat.md";
 /** Tex's housekeeping (`housekeeping.js`): its model, and the words that say how to organize. */
 export const PRODUCTION_HOUSEKEEPING_PATH = "ai/production/housekeeping.md";
 /** Meeting summaries (`meetings/summarize.js`): the model, and the write and check prompts. */
+/** How a job on a person's computer runs, changed without a runner release (`readComputerJobSettings`). */
+export const PRODUCTION_COMPUTER_JOBS_PATH = "ai/production/computer-jobs.md";
 export const PRODUCTION_MEETING_SUMMARIES_PATH = "ai/production/meeting-summaries.md";
 
 /**
@@ -173,6 +181,8 @@ async function parse(raw) {
     if (typeof models[key] !== "string" || !EFFORTS.has(models[key]) || typeof name !== "string") return null;
     efforts[name] = models[key];
   }
+  const planBigAsks = readPlanSetting(front.plan_big_asks);
+  if (planBigAsks === null || (planBigAsks && advisor === null)) return null;
   let fallback = null;
   if (models.fallback !== undefined) {
     if (typeof models.fallback !== "string" || !isBuiltinModelName(models.fallback) || models.fallback === models.main) return null;
@@ -204,6 +214,10 @@ async function parse(raw) {
   const frontDoor = readFrontDoor(front.front_door);
   if (frontDoor === null) return null;
 
+  // A decision model reads each texted reply before it goes (`replyJudge.js`): `reply_judge: clef | clef-flash` runs the ten gates, `judge_at` overrides their thresholds.
+  const replyJudge = readReplyJudge(front.reply_judge, front.judge_at);
+  if (replyJudge === undefined) return null;
+
   let maxSteps = null;
   if (front.max_steps !== undefined) {
     if (typeof front.max_steps !== "string" || !/^[1-9]\d?$/.test(front.max_steps)) return null;
@@ -221,6 +235,7 @@ async function parse(raw) {
     router,
     planner,
     advisor,
+    planBigAsks,
     efforts,
     fallback,
     search,
@@ -230,6 +245,7 @@ async function parse(raw) {
     tools,
     history: history ?? null,
     frontDoor,
+    replyJudge,
     maxSteps,
     prompt,
     version: await versionOf(raw),
@@ -487,4 +503,43 @@ export function helperCallersOf(raw) {
     .split(",")
     .map((item) => item.trim().replace(/^["']|["']$/g, ""))
     .filter((item) => /^[a-z][a-z0-9-]{0,40}$/.test(item));
+}
+
+/**
+ * How a job on a person's computer runs, from `ai/production/computer-jobs.md`, so it changes without a runner release
+ * (the owner, 2026-11-05: "i'd like to be able to change those properties on the fly without a new update"):
+ *
+ *   claude_model          the model Claude Code runs on (`--model`)
+ *   codex_model           the model Codex runs on (`--model`)
+ *   after_answer_seconds  0-600: how long the tool may take to exit after its answer before what it left running is
+ *                         stopped (`apps/machine-runner/src/drive.rs`)
+ *   body                  the runner's system prompt; `{machine}`, `{job}` and `{part}` are filled in on the computer
+ *
+ * Each is sent only when set and valid; the runner keeps its built-in value for the rest. `{}` when the note is
+ * absent or unreadable. Never throws.
+ */
+export async function readComputerJobSettings(store, session) {
+  try {
+    return (await readInPin(store, session, PRODUCTION_COMPUTER_JOBS_PATH, computerJobSettingsOf)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,99}$/;
+
+/** The note's text as the settings an assignment carries (`machineProtocol.schema.json` `RunSettings`). */
+export function computerJobSettingsOf(raw) {
+  if (typeof raw !== "string") return {};
+  const front = FRONT_MATTER.exec(raw);
+  const data = front ? readFront(front[1]) ?? {} : {};
+  const body = (front ? raw.slice(front[0].length) : raw).trim();
+  const settings = {};
+  if (typeof data.claude_model === "string" && MODEL_NAME.test(data.claude_model)) settings.claudeModel = data.claude_model;
+  if (typeof data.codex_model === "string" && MODEL_NAME.test(data.codex_model)) settings.codexModel = data.codex_model;
+  if (typeof data.after_answer_seconds === "string" && /^\d{1,3}$/.test(data.after_answer_seconds) && Number(data.after_answer_seconds) <= 600) {
+    settings.afterAnswerMs = Number(data.after_answer_seconds) * 1000;
+  }
+  if (body !== "" && body.length <= 8000) settings.systemPrompt = body;
+  return settings;
 }

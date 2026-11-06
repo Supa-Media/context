@@ -12,7 +12,7 @@
  *  - a check-in raises a mailbox that needs reconnecting, is full, or has not
  *    synced for hours, at most once a day per mailbox state, even when nothing
  *    else changed (`heartbeat.js`);
- *  - a routine is told the same, and never texts for it alone (`texTurn.js`);
+ *  - a routine is told the same, and never texts for it alone (`texEntryPoint.js`);
  *  - `orient` names a mailbox only when the person has to act (`orient/tool.js`).
  *
  * A mailbox that is rate-limited or briefly failing (`recovering`) is said
@@ -121,7 +121,7 @@ export function routineMailSection(mailboxes, now) {
   if (lines.length === 0) return "";
   return (
     "Their mailboxes. If your answer goes to them anyway, add this in one short sentence; it is never a reason " +
-    `to answer instead of SKIP, and anything this routine reads from their mail may be missing:\n${lines.map((line) => `- ${line}`).join("\n")}`
+    `to text when you would otherwise say nothing, and anything this routine reads from their mail may be missing:\n${lines.map((line) => `- ${line}`).join("\n")}`
   );
 }
 

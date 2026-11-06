@@ -44,21 +44,28 @@
  */
 
 import { PAGE_JOB_LINE } from "../pages.js";
+import { mailLine, mailOf } from "./steer.js";
+import { pickMachine } from "../machines/forJobs.js";
+import { MAX_CLOUD_JOBS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";
+import { START_JOB_TOOL, TOOL } from "./backgroundTool.js";
+import { PLAN_TOOL } from "./planBigAsk.js";
 export { jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply } from "./jobReport.js";
 
-export const START_JOB_TOOL = "start_background_job";
+export { START_JOB_TOOL } from "./backgroundTool.js";
 export const STEER_JOB_TOOL = "steer_background_job";
 export const JOB_STATUS_TOOL = "job_status";
 export const RESTART_JOB_TOOL = "restart_background_job";
 /** Their later texts a job's turn is shown, newest last. */
 export const MAX_FOLLOW_UPS = 5;
+/** Note mail lines a job's part is shown from between parts (`apps/agent/src/jobMail.ts`). */
+export const MAX_MAIL_SHOWN = 20;
 const MAX_FOLLOW_UP = 4_000;
 /** The most of a replaced answer (`jobRun.ts` `draft`) the next part is shown. */
 const MAX_DRAFT = 4_000;
-/** Jobs one chat may have running at once; a fourth waits for one to finish. */
-export const MAX_RUNNING_JOBS = 3;
+/** Cloud jobs one chat may have running at once; a fourth waits for one to finish. A job on their computer counts against its own slots (`jobSlots.js`). */
+export const MAX_RUNNING_JOBS = MAX_CLOUD_JOBS;
 /** Entries of `running` read from a request: running ones and a few just finished. */
-export const MAX_RUNNING_SHOWN = 6;
+export const MAX_RUNNING_SHOWN = 14; // every running one (three in the cloud, up to eight on a computer) and a few just finished
 /** Parts one job may take, the first included, before it reports what it has (Dev2, 2026-10-31: 10 parts or 30 minutes, `jobCheck.js`). */
 export const MAX_JOB_ATTEMPTS = 10;
 
@@ -76,7 +83,7 @@ const MAX_STEP = 140;
 const MAX_WHY = 160;
 const MAX_ADVICE = 600;
 /** The most of a finished job's report `job_status` shows. */
-const MAX_RESULT = 1_500;
+export const MAX_RESULT = 8_000; // the Worker keeps as much (`apps/agent/src/jobs.ts`); 1,500 cut a ten-PR report after the fourth (Tex Devs, 2026-11-05)
 
 const STOP_WORDS = new Set(
   "a an and the of for to on in at by with about my our your me us it its this that these those up do make write".split(" "),
@@ -125,6 +132,10 @@ export function runningJobsOf(value) {
         startedAt: at(entry.startedAt),
         finishedAt: at(entry.finishedAt),
         status: line(entry.status, MAX_STATUS),
+        // The computer it runs on, by machine id (`apps/agent/src/jobs.ts`), which counts it against that computer's slots, not the cloud's.
+        on: typeof entry.on === "string" && ID.test(entry.on) ? entry.on : null,
+        // Paused at the daily limit, to start again by itself (`apps/agent/src/jobPause.ts`): it can still be stopped.
+        paused: entry.state === "waiting" && Number.isFinite(entry.resumeAt) && entry.resumeAt > 0,
         // The advisor's last call on it and its advice (`jobCheck.js`), and a finished job's report: for `job_status`.
         verdict: VERDICTS.has(entry.verdict) ? entry.verdict : null,
         advice: line(entry.advice, MAX_ADVICE),
@@ -139,6 +150,19 @@ export function runningJobsOf(value) {
       };
     })
     .filter(Boolean);
+}
+
+const MAIL_PART = /^[a-z0-9][a-z0-9-]{0,23}$/;
+const CONTEXT_NAME = /^@[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** A split ask's shared note and this part's name there, read strictly; null for anything else. */
+export function jobMailOf(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const path = typeof value.path === "string" ? value.path.trim().replace(/^\/+/, "") : "";
+  const name = typeof value.name === "string" ? value.name.trim().toLowerCase().replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 24) : "";
+  if (path === "" || path.length > 1024 || /[\u0000-\u001f]/.test(path) || !path.endsWith(".md") || !MAIL_PART.test(name) || name === "everyone") return null;
+  const context = typeof value.context === "string" && CONTEXT_NAME.test(value.context.trim()) ? value.context.trim() : null;
+  return { path, name, ...(context ? { context } : {}) };
 }
 
 /** `body.job`: the background job this turn runs, or null. */
@@ -160,7 +184,21 @@ export function jobOf(value) {
           .slice(-MAX_FOLLOW_UPS)
           .map((words) => words.trim().slice(0, MAX_FOLLOW_UP))
       : [],
+    // Note mail that came for it since its last part (`apps/agent/src/jobMail.ts`): another agent's words, never theirs.
+    mail: Array.isArray(value.mail)
+      ? value.mail
+          .flatMap((entry) => {
+            const marker = mailOf(entry);
+            const text = typeof entry?.text === "string" ? entry.text.trim().slice(0, MAX_FOLLOW_UP) : "";
+            return marker !== null && text !== "" ? [{ ...marker, text }] : [];
+          })
+          .slice(-MAX_MAIL_SHOWN)
+      : [],
     draft: typeof value.draft === "string" ? value.draft.trim().slice(0, MAX_DRAFT) : "",
+    // The project note it shares with the other parts of a split ask (`START_JOB_TOOL`'s `mail`).
+    project: jobMailOf(value.project),
+    // Who is on its note's mail and what each is for, as the gateway wrote it when the job's note was made (`jobNote.js`).
+    roster: typeof value.roster === "string" ? value.roster.trim().slice(0, 4_000) : "",
     // The draft stopped short of what they asked (`stopsShort.js`, `jobCheck.js`), rather than being overtaken by a text of theirs.
     unfinished: value.unfinished === true,
     // The advisor's advice on the last part (`jobCheck.js`): what this part starts on.
@@ -248,39 +286,6 @@ export function withJobSteps(job, step, record) {
   };
 }
 
-const TOOL = {
-  name: START_JOB_TOOL,
-  description:
-    "Hand a long task to a background job, so you stay free for their other texts and several things run at once: research " +
-    "across many sources, a multi-step task on a site, anything that takes more than a handful of tool calls. The job runs on its " +
-    "own with the same access as you, writes the result where it belongs and reports back to you when done: you decide what they get. Never for a quick " +
-    "answer or a single note you can write now, and never for something already in the background list. When one fact only they " +
-    "know would change what the job does (do they want to cook, or have it catered? which city?), ask that one question first and " +
-    "start the job on their answer; anything you can find or safely assume goes in the brief instead.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      title: { type: "string", description: "A few words naming the job, as they would: \"Competitor research for Tex\"." },
-      brief: {
-        type: "string",
-        description: "Your plan for it: what to find or do, which workspace and folder, what to write and where, anything they said that matters.",
-      },
-      done_when: {
-        type: "string",
-        description:
-          "What finished looks like, in one line, with every figure they asked for: \"a note comparing five competitors in @supa projects/tex/\", " +
-          "\"three caterers with the full cost per person, sides and drinks included\".",
-      },
-      quiet: {
-        type: "boolean",
-        description:
-          "True when they asked not to hear from you until it's done (\"don't come back to me until you're done\"): nothing is texted now, only its result.",
-      },
-    },
-    required: ["title", "brief"],
-  },
-};
-
 /** A job that ended without finishing: what "restart it" picks back up (`apps/agent/src/jobs.ts` `resumeJobs`). */
 const resumable = (entry) => entry.state !== "running" && entry.state !== "done";
 
@@ -345,21 +350,25 @@ const STEER_TOOL = {
  * starts its job as the turn's first call, the brief carrying what the turn
  * already knows, and the turn ends the moment the job starts with a fixed
  * line: no model round after it. A turn still working after two rounds (or
- * SLOW_TURN_MS) without one is told once to hand the rest over.
+ * SLOW_TURN_MS) without one is told once to hand the rest over or keep going,
+ * never to "answer now" (Dev2, 2026-11-04: that line made Tex stop and offer
+ * three reads it could have done; `doItChecks.js`).
  */
 const JOB_FIRST =
   "\n\nA task that takes more than a couple of tool calls (research across many sources, an application, a plan, a draft built from " +
   'several notes, a multi-step task on a site) goes to a background job (send { action: "background" }) as your FIRST call: before ' +
-  "reading notes, searching, browsing or asking your advisor. The job does the reading; put what you already know from this chat in the brief. " +
+  "reading notes, searching or browsing. The job does the reading; put what you already know from this chat in the brief. " +
+  "A question a few reads answer is not a task: do those reads yourself, and ask your advisor yourself whenever they ask you to. " +
   "They hear \"on it\" the moment it starts, and you can take their next text while it runs.";
 /** How long a texted turn works before it is told to hand the rest to a job. */
 export const SLOW_TURN_MS = 12_000;
 export const SLOW_TURN_NOTE =
-  "(This is taking a while and they're waiting on the line. If what's left takes more than one more step, hand it to a background job " +
-  'now with send { action: "background" }, putting what you found so far in the brief; otherwise answer now.)';
+  "(This is taking a while and they're waiting on the line. If what's left is more than a few more steps, hand it to a background job " +
+  'now with send { action: "background" }, putting what you found so far in the brief. Otherwise keep going and finish it here: ' +
+  "never stop early to offer a read, search, check or draft you could do yourself.)";
 /**
  * A start or restart they asked to hear nothing about until it's done (Dev, 2026-11-03: "don't come back to me until
- * you are done" was answered with "On it" three times): the turn ends texting nothing (`texTurn.js`), and the chat keeps
+ * you are done" was answered with "On it" three times): the turn ends texting nothing (`texEntryPoint.js`), and the chat keeps
  * `QUIET_ACK_LINE` as what was said.
  */
 export const QUIET_ACK = "[[tex:quiet-ack]]";
@@ -367,7 +376,10 @@ export const QUIET_ACK_LINE = "(You texted them nothing: they asked not to hear 
 
 /** What they're texted when a job starts: at once, by the gateway, not another model round. */
 export function ackLine(title) {
-  return `On it: ${line(title, MAX_TITLE)}. I'll text you when it's done.\n[card threads]`;
+  const titles = (Array.isArray(title) ? title : [title]).map((each) => line(each, MAX_TITLE)).filter(Boolean);
+  if (titles.length <= 1) return `On it: ${titles[0] ?? ""}. I'll text you when it's done.\n[card threads]`;
+  // Several parts started together (a split ask, `planBigAsk.js`): one text names them all.
+  return `On it, in ${titles.length} parts at once: ${titles.join("; ")}. I'll text you when it's done.\n[card threads]`;
 }
 
 const text = (words, isError = false) => ({ content: [{ type: "text", text: words }], ...(isError ? { isError: true } : {}) });
@@ -378,18 +390,30 @@ const text = (words, isError = false) => ({ content: [{ type: "text", text: word
  *
  * @param {{ running: Array|null, job: object|null, now: number, report?: boolean, read?: () => void }} options
  */
-export function backgroundSession({ running, job, now, report = false, read = () => {} }) {
+export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false }) {
   if (running === null) return null;
   const started = [];
-  let justStarted = null; // the title of the job the last call started, read once by `endsTurn`
+  let justStarted = []; // the titles of the jobs started since `endsTurn` last read them: a round may start several
   const resumed = []; // ended jobs this turn picks back up, by id: steered to the Worker with `resume`
   let justResumed = []; // their titles, read once by `endsTurn`
   let quietAck = false; // they asked to hear nothing until it's done: the start or restart texts nothing (`QUIET_ACK`)
-  const busy = () => running.filter((entry) => entry.state === "running").length + started.length + resumed.length;
-  const resume = (entries) => {
-    const room = Math.max(0, MAX_RUNNING_JOBS - busy());
-    const taken = entries.filter((entry) => !resumed.some((kept) => kept.id === entry.id)).slice(0, room);
-    resumed.push(...taken);
+  const slots = jobSlots(() => [...running.filter((entry) => entry.state === "running"), ...started, ...resumed]);
+  // A job on a computer picks it again from the computer's settings now, never the folder it was handed when it first
+  // ran: the owner may have changed or cleared it since (2026-11-05, a restarted sign-in kept a folder no longer allowed).
+  const repick = async (entry) => {
+    if (typeof entry.on !== "string" || machines === null) return entry;
+    const picked = pickMachine(await machines(), { name: entry.on, ...(entry.onTool ? { tool: entry.onTool } : {}), group: inGroup });
+    return picked.machine ? { ...entry, repicked: picked.machine } : entry;
+  };
+  const resume = async (entries) => {
+    // One at a time, each against its own place's slots: the cloud's three, or its computer's (`jobSlots.js`).
+    const taken = [];
+    for (const entry of entries) {
+      if (resumed.some((kept) => kept.id === entry.id) || !slots.room(entry.on ? { id: entry.on, slots: MAX_MACHINE_SLOTS } : null)) continue;
+      const again = await repick(entry);
+      resumed.push(again);
+      taken.push(again);
+    }
     justResumed = taken.map((entry) => entry.title);
     return taken;
   };
@@ -409,19 +433,32 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     }
     // The same job that stopped before finishing is picked back up, never started over from this text (2026-10-31).
     const stopped = running.find((entry) => resumable(entry) && sameJob(entry.title, title));
-    if (stopped && busy() < MAX_RUNNING_JOBS) {
-      resume([stopped]);
+    if (stopped && slots.room(stopped.on ? { id: stopped.on, slots: MAX_MACHINE_SLOTS } : null)) {
+      await resume([stopped]);
       return text(`Picking "${stopped.title}" back up where it stopped. They're told so; send nothing more.`);
     }
-    if (busy() >= MAX_RUNNING_JOBS) {
+    const mail = jobMailOf(args?.mail);
+    // On one of their own computers (`machines/forJobs.js`): found now, and admitted by its owner's rules at every part.
+    let machine = null;
+    let computer = null;
+    if (args?.on_computer !== undefined && args?.on_computer !== null) {
+      if (machines === null) return text("Only a job from their own chat, or a group chat a computer was lent to, can run on a computer.", true);
+      const picked = pickMachine(await machines(), { ...args.on_computer, group: inGroup });
+      if (picked.error) return text(picked.error, true);
+      ({ machine, computer } = picked);
+    }
+    // The cloud's three slots, or the computer's own (`jobSlots.js`).
+    if (!slots.room(computer)) {
       return text(
-        `${MAX_RUNNING_JOBS} jobs are already running. Tell them you'll take this one once one finishes and they can ask again then, ` +
-          "or do it now if it's small.",
+        computer === null
+          ? `${MAX_RUNNING_JOBS} jobs are already running in the cloud. Tell them you'll take this one once one finishes and they can ask again then, ` +
+              "or do it now if it's small."
+          : `Every slot on "${machine.name}" is taken. Tell them you'll start it there once one of its jobs finishes.`,
         true,
       );
     }
-    started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
-    justStarted = title;
+    started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
+    justStarted.push(title);
     return text(
       `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result, ` +
         "with [card threads] on its own line so they can watch it; don't do the work in this turn.",
@@ -433,6 +470,18 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     const title = line(args?.title, MAX_TITLE);
     const target = live.find((entry) => entry.title.toLowerCase() === title.toLowerCase()) ?? live.find((entry) => sameJob(entry.title, title));
     if (!target) {
+      const paused = running.find((entry) => entry.paused && (entry.title.toLowerCase() === title.toLowerCase() || sameJob(entry.title, title)));
+      if (paused && args?.stop === true) {
+        if (!steered.some((entry) => entry.id === paused.id)) steered.push({ id: paused.id, stop: true });
+        return text(`Stopped "${paused.title}": it won't start again by itself. Tell them in one short line that it's stopped.`);
+      }
+      if (paused) {
+        return text(
+          `"${paused.title}" is paused at today's limit for background work and starts again by itself once the limit resets; it can't take a change ` +
+            "until then. Tell them so in one short line; if they no longer want it, stop it with stop: true.",
+          true,
+        );
+      }
       const finished = running.find((entry) => entry.state !== "running" && sameJob(entry.title, title));
       return text(
         finished && resumable(finished)
@@ -475,8 +524,8 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         true,
       );
     }
-    const taken = resume(picked);
-    if (taken.length === 0) return text(`${MAX_RUNNING_JOBS} jobs are already running. Tell them you'll pick these up once one finishes.`, true);
+    const taken = await resume(picked);
+    if (taken.length === 0) return text(`Every slot they'd run in is taken. Tell them you'll pick these up once one finishes.`, true);
     const left = picked.filter((entry) => !taken.includes(entry)).map((entry) => `"${entry.title}"`);
     return text(`Picking ${taken.map((entry) => `"${entry.title}"`).join(", ")} back up.${left.length > 0 ? ` No room for ${left.join(", ")} yet: ${MAX_RUNNING_JOBS} run at once.` : ""}`);
   };
@@ -484,7 +533,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     const title = line(args?.title, MAX_TITLE);
     const picked = title === "" ? running : running.filter((entry) => entry.title.toLowerCase() === title.toLowerCase() || sameJob(entry.title, title));
     if (picked.length === 0) return text("No background job by that title in this chat. Your list has them all.", true);
-    // A job's report and its advisor's advice are what it read from outside, as its report to the coordinator is (`texTurn.js`).
+    // A job's report and its advisor's advice are what it read from outside, as its report to the coordinator is (`texEntryPoint.js`).
     if (picked.some((entry) => entry.result || entry.advice)) read();
     return text(picked.map((entry) => jobStatusText(entry, now)).join("\n\n"));
   };
@@ -508,14 +557,15 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     (job === null ? JOB_FIRST : "");
   let nudged = false;
   return {
-    tools: job === null ? [TOOL, ...(live.length > 0 ? [STEER_TOOL] : []), ...(running.length > 0 ? [STATUS_TOOL] : []), ...(running.some(resumable) ? [RESTART_TOOL] : [])] : [],
+    tools: job === null ? [TOOL, ...(live.length > 0 || running.some((entry) => entry.paused) ? [STEER_TOOL] : []), ...(running.length > 0 ? [STATUS_TOOL] : []), ...(running.some(resumable) ? [RESTART_TOOL] : [])] : [],
     /** A job that started settles the turn: the fixed line goes out, with no model round after (`turn.js` `endsTurn`). */
     endsTurn:
       job === null
         ? (name) => {
-            const title = name === START_JOB_TOOL ? justStarted : null;
-            const picked = name === START_JOB_TOOL || name === RESTART_JOB_TOOL ? justResumed : [];
-            justStarted = null;
+            const starts = name === START_JOB_TOOL || name === PLAN_TOOL;
+            const title = starts && justStarted.length > 0 ? justStarted : null;
+            const picked = starts || name === RESTART_JOB_TOOL ? justResumed : [];
+            justStarted = [];
             justResumed = [];
             if (picked.length === 0 && title === null) return null;
             if (quietAck) return QUIET_ACK;
@@ -532,6 +582,11 @@ export function backgroundSession({ running, job, now, report = false, read = ()
           }
         : null,
     call,
+    /** Cloud slots a new job may take now, a computer's free slots, and their computers, for the planner (`planBigAsk.js`), which sets `plan`. */
+    freeSlots: slots.cloudFree,
+    freeOn: slots.freeOn,
+    machines,
+    plan: null,
     steer,
     restart,
     status,
@@ -546,7 +601,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
 export function withBackground(background, callTool) {
   if (background === null) return callTool;
   return (name, args) =>
-    name === START_JOB_TOOL ? background.call(args) : name === STEER_JOB_TOOL ? background.steer(args) : name === JOB_STATUS_TOOL ? background.status(args) : name === RESTART_JOB_TOOL ? background.restart(args) : callTool(name, args);
+    name === START_JOB_TOOL ? background.call(args) : name === PLAN_TOOL && typeof background.plan === "function" ? background.plan(args, callTool) : name === STEER_JOB_TOOL ? background.steer(args) : name === JOB_STATUS_TOOL ? background.status(args) : name === RESTART_JOB_TOOL ? background.restart(args) : callTool(name, args);
 }
 
 /** What a job's own turn is told: the plan it started with, and to deliver. */
@@ -567,6 +622,19 @@ export function jobPrompt(job) {
       ? "\nSince you started, they texted this about it (their own words, newer than your plan: where they differ, do it their " +
         "new way, and fix anything you already made the old way; a text telling you to stop or not to do something is a rule for the rest of the job, retries included):\n" +
         job.followUps.map((words) => `- ${words}`).join("\n")
+      : "") +
+    (job.roster
+      ? `\n${job.roster}`
+      : job.project
+      ? `\nYou are one part of a bigger ask that runs in parallel. Before anything else, join the mail of ${job.project.path}` +
+        `${job.project.context ? ` in ${job.project.context}` : ""} as "${job.project.name}" (write action mail, args { join: "${job.project.name}" }), ` +
+        "and read what is there. The other parts' jobs and Tex are on it: tell them when you finish or when something you found changes their part, " +
+        "ask them (kind \"ask\") rather than guess what they are doing, and keep your own task note's status current."
+      : "") +
+    (job.mail?.length > 0
+      ? "\nMail came for you on the notes you joined while you were between parts, oldest first. Answer each ask with a note to its sender " +
+        "on that note; an interrupt means drop what you were doing and do what it says:\n" +
+        job.mail.map((entry) => `- ${mailLine(entry.text, entry)}`).join("\n")
       : "") +
     (job.draft && job.unfinished
       ? "\nYour last part ended with this answer, which was never sent because it stopped short of what they asked (a part still missing, " +
@@ -597,17 +665,25 @@ export function jobSavedLine(job) {
 
 /**
  * The answer's `jobs`: what the Worker starts, with whether the turn that
- * planned them had read from outside; and `steers`: the running jobs the
- * Worker hands this text to.
+ * planned them had read from outside; `steers`: the running jobs the Worker
+ * hands this text to; and, with either, `heard` (what the person said aloud
+ * this turn) and `sent` (the gateway's line naming the files they sent and
+ * where each is kept), which the Worker adds to their typed words
+ * (`apps/agent/src/jobs.ts` `jobQuestion`).
  */
-export function startedJobs(background, tainted) {
+export function startedJobs(background, tainted, { heard = "", sent = "" } = {}) {
   if (background === null) return {};
+  const reached = background.started.length + background.steered.length + background.resumed.length > 0;
   return {
     ...(background.started.length > 0
-      ? { jobs: background.started.map(({ id, title, brief, doneWhen }) => ({ id, title, brief, doneWhen, ...(tainted ? { tainted: true } : {}) })) }
+      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
       : {}),
     ...(background.steered.length + background.resumed.length > 0
-      ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true }))] }
+      ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true, ...(entry.repicked ? { machine: entry.repicked } : {}) }))] }
       : {}),
+    // What they said aloud and the files they sent with this text, for every job it starts, changes or restarts (`heardWords.js`):
+    // a job's turn sees none of the chat, so a voice message or a picture would otherwise never reach it.
+    ...(reached && heard ? { heard } : {}),
+    ...(reached && sent ? { sent } : {}),
   };
 }

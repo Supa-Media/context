@@ -163,8 +163,8 @@ export async function runTenancyDiscoveryChecks(check, harness) {
     tokenPathStatus = "threw";
   }
   check(
-    "a malformed escape in a token-in-path token is a 401, not a Worker exception",
-    tokenPathStatus === 401
+    "a malformed escape in a retired token-in-path token is the 410, not a Worker exception",
+    tokenPathStatus === 410
   );
 
   /* ------------------- 7. no static-token path exists at all ------------------ */

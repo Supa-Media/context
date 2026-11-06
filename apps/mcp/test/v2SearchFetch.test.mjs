@@ -57,7 +57,7 @@ describe("translateSearch", () => {
 
   it("refuses any other key in args, naming the one search takes", () => {
     const out = translateSearch({ query: "q", args: { prefix: "a", limit: 3 } }, CLAUDE);
-    assert.equal(out.error, "search takes args: prefix. orient lists what each id takes.");
+    assert.equal(out.error, "search takes args: prefix, from, to. orient lists what each id takes.");
     assert.equal(out.arguments, undefined);
   });
 

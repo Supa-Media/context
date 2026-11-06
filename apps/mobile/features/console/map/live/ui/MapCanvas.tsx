@@ -38,7 +38,6 @@ export function MapCanvas({
       onFollow={page.setFollow}
       onTime={page.onTime}
       onOpenNote={(note) => peek.onTapNote({ workspaceId: note.workspaceId, path: note.path, at: note.at ?? null })}
-      onTapEmpty={peek.onTapEmpty}
     />
   );
 }

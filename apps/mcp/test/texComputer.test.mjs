@@ -234,7 +234,7 @@ test("signed out, a bad token, or a token in the path is refused", async () => {
     assert.equal((await ask(world, "/tex/computer", { body: { handle: "alice" } })).status, 401);
     assert.equal((await ask(world, "/tex/computer", { token: tok("nobody"), body: { handle: "alice" } })).status, 401);
     const inPath = await ask(world, null, { url: `https://mcp.context.test/t/${T.alice}/tex/computer`, body: { handle: "alice" } });
-    assert.equal(inPath.status, 401);
+    assert.equal(inPath.status, 410);
     assert.equal((await ask(world, "/tex/computer", { token: T.alice, method: "GET" })).status, 405);
     assert.deepEqual(world.requests, []);
   } finally {

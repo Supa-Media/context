@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import { useDeviceSearch, useMirrorPaths } from "../../offline/useDeviceSearch";
 import { recentPaths, type HistoryState } from "../files/history";
-import { accountRecentItems, itemsFromListings, itemsFromPaths, recentItems, type NoteNaming } from "../files/palette";
+import { itemsFromListings, itemsFromPaths, recentItems, type NoteNaming } from "../files/palette";
 import { useContextSearch } from "../files/useContextSearch";
 import type { ConsoleContext, ConsoleData } from "../types";
 import { scopePrefix } from "./SearchScope";
 import { useHomeSource } from "../home/useHomeSource";
 import { useAccountRecents } from "../home/useHomePlaces";
-import { recentLabel } from "../home/homeModel";
+import { guessOrder } from "../search/guesses";
 
 /**
  * What the ⌘K palette searches and lists: the whole context through the
@@ -130,14 +130,29 @@ export function usePaletteSearch({
   */
   const signedIn = data.visitor === undefined && current?.role !== undefined;
   const accountRecents = useAccountRecents(current?.id, insideContext && signedIn);
+  const openPath = data.files.selectedPath ?? null;
   const recent = useMemo(() => {
     if (!paletteOpen || !insideContext) return [];
     if (accountRecents !== null) {
+      /*
+        Guesses, best first: how often and how lately they opened each note,
+        what they wrote in, and the notes the one on screen links to
+        (`search/guesses.ts`). Read from what is stored; nothing is recorded.
+      */
       const now = Date.now();
-      return accountRecentItems(accountRecents, paletteItems, (row) => recentLabel(row.kind, row.at, now), naming);
+      const openText = openPath === null ? undefined : heldNotes?.[openPath];
+      const order = guessOrder({
+        rows: accountRecents,
+        now,
+        openPath,
+        ...(openText === undefined ? {} : { openText }),
+        paths: paletteItems.flatMap((item) => (item.kind === "note" ? [item.id] : [])),
+      });
+      // No "You opened 7:35" under each row: the list says nothing about itself (owner, 2026-11-04).
+      return recentItems(order, paletteItems, naming);
     }
     return history === undefined ? [] : recentItems(recentPaths(history), paletteItems, naming);
-  }, [paletteOpen, history, insideContext, paletteItems, naming, accountRecents]);
+  }, [paletteOpen, history, insideContext, paletteItems, naming, accountRecents, openPath, heldNotes]);
   /*
     Every folder and tag in this workspace, for a phone's search: this
     device's copy, read only while search is open on a phone.
@@ -147,9 +162,7 @@ export function usePaletteSearch({
     current?.role,
     listings,
   );
-  /** Whether `recent` is the person's own Recent, so the palette may say so. */
-  const recentYours = paletteOpen && insideContext && accountRecents !== null;
-  return { search, paletteItems, recent, recentYours, places };
+  return { search, paletteItems, recent, places };
 }
 
 export type PaletteSearch = ReturnType<typeof usePaletteSearch>;

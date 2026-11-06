@@ -31,12 +31,13 @@ const ids = (items: { id: string }[]) => items.map((item) => item.id);
 describe("the note actions sheet", () => {
   test("an owner gets the artboard's rows, in its order", () => {
     const items = noteActionItems({ entry: note(), canEdit: true, canShare: true, visitor: false });
-    expect(ids(items)).toEqual(["share", "rename", "moveTo", "addProperty", "copyLink", "archive"]);
+    expect(ids(items)).toEqual(["share", "rename", "moveTo", "addProperty", "copyText", "copyLink", "archive"]);
     expect(items.map((item) => item.label)).toEqual([
       "Share…",
       "Rename",
       "Move to…",
       "Add property",
+      "Copy text",
       "Copy link",
       "Move to archive",
     ]);
@@ -60,7 +61,7 @@ describe("the note actions sheet", () => {
 
   test("an editor who is not the owner is offered no Share and no team link", () => {
     const items = noteActionItems({ entry: note(), canEdit: true, canShare: false, visitor: false });
-    expect(ids(items)).toEqual(["rename", "moveTo", "addProperty", "archive"]);
+    expect(ids(items)).toEqual(["rename", "moveTo", "addProperty", "copyText", "archive"]);
   });
 
   test("Add property is for a note somebody may change, and not a website page or privacy.md", () => {
@@ -71,9 +72,15 @@ describe("the note actions sheet", () => {
     expect(ids(noteActionItems({ entry: note({ path: "2-areas/sketch.excalidraw.png", name: "sketch.excalidraw.png" }), canEdit: true, canShare: true, visitor: false }))).not.toContain("addProperty");
   });
 
-  test("a reader is offered nothing to change", () => {
+  test("a reader is offered nothing to change, only Copy text", () => {
     const items = noteActionItems({ entry: note(), canEdit: false, canShare: false, visitor: false });
-    expect(items).toEqual([]);
+    expect(ids(items)).toEqual(["copyText"]);
+  });
+
+  test("Copy text is offered on every file, Markdown or not, read-only included, and not on a folder", () => {
+    const history = noteActionItems({ entry: { ...note(), path: "tex/history.ledger.json", name: "history.ledger.json", readOnly: true }, canEdit: true, canShare: true, visitor: false });
+    expect(ids(history)).toContain("copyText");
+    expect(ids(noteActionItems({ entry: { ...note(), kind: "folder" }, canEdit: true, canShare: true, visitor: false }))).not.toContain("copyText");
   });
 
   test("a read-only note — privacy.md — offers no Share and nothing that writes", () => {
@@ -83,7 +90,7 @@ describe("the note actions sheet", () => {
       canShare: true,
       visitor: false,
     });
-    expect(ids(items)).toEqual(["copyLink"]);
+    expect(ids(items)).toEqual(["copyText", "copyLink"]);
   });
 
   test("an archived note offers Restore rather than archiving it again", () => {
@@ -108,7 +115,7 @@ describe("the note actions sheet", () => {
     expect(ids(owner)[0]).toBe("read");
     expect(owner[0]!.label).toBe("Read this note");
     const reader = noteActionItems({ entry: note(), canEdit: false, canShare: false, visitor: false, reading: true });
-    expect(ids(reader)).toEqual(["read"]);
+    expect(ids(reader)).toEqual(["read", "copyText"]);
     expect(reader[0]!.label).toBe("Edit this note");
   });
 
@@ -131,7 +138,7 @@ describe("the note actions sheet", () => {
   test("a page swaps reading mode for Edit as text, and drops Add property", () => {
     const page = note({ path: "1-projects/concert/plan.page.md", name: "plan.page.md" });
     const shown = noteActionItems({ entry: page, canEdit: true, canShare: true, visitor: false, reading: false, pageAsText: false });
-    expect(ids(shown)).toEqual(["pageText", "share", "rename", "moveTo", "copyLink", "archive"]);
+    expect(ids(shown)).toEqual(["pageText", "share", "rename", "moveTo", "copyText", "copyLink", "archive"]);
     expect(shown[0]!.label).toBe("Edit as text");
     const asText = noteActionItems({ entry: page, canEdit: true, canShare: true, visitor: false, reading: false, pageAsText: true });
     expect(asText[0]!.label).toBe("View as page");

@@ -6,6 +6,7 @@ import { runCommentFormatChecks, runCommentToolChecks } from "./comments.test.mj
 import { runProtocolBasicsChecks } from "./protocolBasics.test.mjs";
 import { runTransportSecurityChecks } from "./transportSecurity.test.mjs";
 import { runTokenTransportChecks } from "./tokenTransport.test.mjs";
+import { runLiveTicketChecks } from "./liveTicket.test.mjs";
 import { runProtocolVersioningChecks } from "./protocolVersioning.test.mjs";
 import { runOrientVisibilityChecks } from "./orientVisibility.test.mjs";
 import { runPrivacyAclChecks } from "./privacyAcl.test.mjs";
@@ -32,6 +33,7 @@ import { runPictureCompressionChecks } from "./pictureCompression.test.mjs";
 await runProtocolBasicsChecks();
 await runTransportSecurityChecks();
 await runTokenTransportChecks();
+await runLiveTicketChecks();
 await runProtocolVersioningChecks();
 await runOrientVisibilityChecks();
 await runPrivacyAclChecks();

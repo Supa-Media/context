@@ -42,7 +42,7 @@ describe("a note link texted with its picture", () => {
     expect(drawn).toEqual([{ url: LINK, slug: "dev2", folder: "1-projects/tex", caption: "Launch plan" }]);
     expect(calls.map((call) => call.body.media_url ?? call.body.content)).toEqual([
       "https://agent.example/media/abc.png",
-      `Open it in Context: ${LINK} (tap the link)`,
+      `Open it in Context: ${LINK}.`,
     ]);
     expect(calls.every((call) => (call.body.reply_to as { message_handle?: string })?.message_handle === "mh_0")).toBe(true);
   });
@@ -51,7 +51,7 @@ describe("a note link texted with its picture", () => {
     const text = linkAfterCard({ url: LINK, slug: "dev2", folder: "", caption: "Plan" });
     expect(text.startsWith(LINK)).toBe(false);
     expect(text.trimEnd().endsWith(LINK)).toBe(false);
-    expect(text).toContain(` ${LINK} `);
+    expect(text).toContain(` ${LINK}.`);
   });
 
   it("sends the link alone, kept tappable, when no card is drawn, hosting fails, or the line refuses the picture", async () => {
@@ -61,12 +61,12 @@ describe("a note link texted with its picture", () => {
     ]) {
       const calls: Call[] = [];
       await lineFor({ fetch: sendblue(calls), linqApiKey: "", sendblue: KEYS, ...deps }, chatId).sendText(chatId, LINK, "k");
-      expect(calls.map((call) => call.body.content)).toEqual([`Link: ${LINK} (tap the link)`]);
+      expect(calls.map((call) => call.body.content)).toEqual([`Link: ${LINK}.`]);
     }
     const calls: Call[] = [];
     const refused = { noteCardPicture: async () => PNG, hostPicture: async () => "https://agent.example/m.png" };
     await lineFor({ fetch: sendblue(calls, 400), linqApiKey: "", sendblue: KEYS, ...refused }, chatId).sendText(chatId, LINK, "k");
-    expect(calls.map((call) => call.body.content ?? "picture")).toEqual(["picture", `Open it in Context: ${LINK} (tap the link)`]);
+    expect(calls.map((call) => call.body.content ?? "picture")).toEqual(["picture", `Open it in Context: ${LINK}.`]);
   });
 
   it("never draws for words or a web page", async () => {
@@ -75,7 +75,7 @@ describe("a note link texted with its picture", () => {
     const line = lineFor({ fetch: sendblue(calls), linqApiKey: "", sendblue: KEYS, hostPicture: async () => "x", noteCardPicture: draw }, chatId);
     for (const text of ["Saved it.", "https://example.com/page"]) await line.sendText(chatId, text, "k");
     expect(draw).not.toHaveBeenCalled();
-    expect(calls.map((call) => call.body.content)).toEqual(["Saved it.", "Link: https://example.com/page (tap the link)"]);
+    expect(calls.map((call) => call.body.content)).toEqual(["Saved it.", "Link: https://example.com/page."]);
   });
 
   // Every link gets its picture on Sendblue (owner, 2026-11-03), a note's link inside a sentence included.
@@ -137,8 +137,8 @@ describe("a note link texted into a group", () => {
     const words: Call[] = [];
     const draw = vi.fn(async () => PNG);
     await groupLineFor({ fetch: sendblue(words), sendblue: KEYS, hostPicture: async () => "x", noteCardPicture: draw }, "group-1").sendText(place, "Saved it.");
-    expect(calls.map((call) => call.body.content)).toEqual([`Link: ${LINK} (tap the link)`]);
-    expect(refused.map((call) => call.body.content ?? "picture")).toEqual(["picture", `Open it in Context: ${LINK} (tap the link)`]);
+    expect(calls.map((call) => call.body.content)).toEqual([`Link: ${LINK}.`]);
+    expect(refused.map((call) => call.body.content ?? "picture")).toEqual(["picture", `Open it in Context: ${LINK}.`]);
     expect(draw).not.toHaveBeenCalled();
   });
 });

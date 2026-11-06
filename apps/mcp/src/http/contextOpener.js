@@ -160,6 +160,8 @@ export function attachContextOpener(store, session, { env, controlPlane, origin,
     // index passes (`search/heldPasses.js`) after it may already have opened one.
     followParent(targetStore, store, "searchSettings");
     followParent(targetStore, store, "holdSearchPass");
+    // Who is sending mail (`tools/notes/mail.js`): a job's turn joins another context's note mail as the job too.
+    followParent(targetStore, store, "mailTurn");
     attachLinkCalls(targetStore, target, controlPlane, env);
     attachImageUploads(targetStore, target, controlPlane, origin, env);
     targetStore.defer = store.defer;
@@ -177,6 +179,7 @@ export function attachContextOpener(store, session, { env, controlPlane, origin,
     targetStore.contexts = contextsFor(target);
     // The connection's own listing, wherever orient was addressed.
     targetStore.offeredTools = store.offeredTools;
+    targetStore.explicitToolContract = store.explicitToolContract;
     // Against the context that was routed to, never the connection's own.
     // `targetStore.searchIndex` came from that context's own binding, so the
     // projection and the figure describing it name one workspace.

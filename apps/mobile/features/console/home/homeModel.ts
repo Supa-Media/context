@@ -1,4 +1,4 @@
-import { compareListingEntries } from "@context/shared/src/folderRoles.cjs";
+import { compareSorted, type ListingSort } from "@context/shared/src/listingSort.cjs";
 import { baseName, displayName, folderLabel, isUnlistedFile, parentPath, restoreTargetFor } from "../files/paths";
 
 /**
@@ -61,6 +61,8 @@ export interface HomeRecent {
   kind?: "opened" | "edited";
   /** When their own hand last changed it, kept through later opens; absent if they never did. */
   editedAt?: number;
+  /** How often they open it, fading by half every two weeks, as of `at`; absent on rows from before. */
+  opens?: number;
 }
 
 export interface HomeInput {
@@ -72,10 +74,12 @@ export interface HomeInput {
   /**
    * What the listings say about a folder's place: its job (`role`) and its
    * saved `order`, so All folders draws in the tree's order
-   * (`compareListingEntries`). Absent for a folder no listing has named,
+   * (`compareSorted`). Absent for a folder no listing has named,
    * which then sorts by what its name says.
    */
   folderFacts?: ReadonlyMap<string, FolderFacts>;
+  /** The top level's Sort setting, the workspace's, so All folders draws as the sidebar does (`folder-sort.md`). */
+  sort?: ListingSort | null;
   /**
    * The top-level folders the root's listing names (`useHomeSource`), when it
    * is whole. Given, no other folder is drawn at the top, whatever the
@@ -99,6 +103,8 @@ export interface HomeInput {
 export interface FolderFacts {
   role?: string;
   order?: number;
+  updatedAt?: number;
+  createdAt?: number;
 }
 
 export interface HomeFolder {
@@ -245,15 +251,16 @@ export function buildHome(input: HomeInput): Home {
           .slice(0, RECENT_COUNT);
 
   /*
-    The tree's order, not the alphabet: a saved `order` first (Move up, Move
-    down, dragging a folder in the sidebar), else the job's rank, else the
-    name. One comparator for every surface, so the phone and the sidebar
-    never disagree about which folder comes first (owner, 2026-10-18).
+    The tree's order, not the alphabet: the top level's Sort setting (owner,
+    2026-11-04, `folder-sort.md`), and with none a saved `order` first, else
+    the job's rank, else the name. One comparator for every surface, so the
+    phone and the sidebar never disagree about which folder comes first
+    (owner, 2026-10-18).
   */
   const asEntry = (path: string) => ({ kind: "folder", name: path, ...input.folderFacts?.get(path) });
   const topLevel = folders
     .filter((folder) => !folder.includes("/") && (input.topFolders?.has(folder) ?? true))
-    .sort((a, b) => compareListingEntries("", asEntry(a), asEntry(b)));
+    .sort((a, b) => compareSorted("", asEntry(a), asEntry(b), input.sort ?? null));
   return {
     totals: { folders: topLevel.length, notes: notes.length },
     tagged: input.tag === null ? null : { tag: input.tag, count: tagged.length },

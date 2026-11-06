@@ -30,7 +30,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { warmTurn } from "../src/agent/warmCopy.js";
 import { afterTurn } from "../src/agent/deferred.js";
 import { readFileSync } from "node:fs";
-import { texTurnSource } from "./texTurnSource.mjs";
+import { texEntryPointSource } from "./texEntryPointSource.mjs";
 
 const env = { GATEWAY_SECRET: "a-test-secret-of-some-length" };
 const session = { workspaceId: "ws_1", actorUserId: "user_1", actorClientId: "context_texts" };
@@ -97,7 +97,7 @@ test("a group chat's own turn takes its outbox too, but makes no warm copy", asy
   const turn = warmTurn(env, group, { recent: [event(now - 1_000, { text: "Tex, now" })] }, { eligible: false, logEligible: true, now });
   assert.deepEqual((await turn.events(CHAT, async () => stored)).map((entry) => entry.text), ["from the ledger", "Tex, now"]);
   assert.equal(await turn.seal({}), null, "no warm copy for a group");
-  const source = texTurnSource();
+  const source = texEntryPointSource();
   assert.match(source, /logEligible: group !== null && job === null && !runner/, "route.js marks a group's own turn");
 });
 
@@ -137,8 +137,8 @@ test("the turn's row is sent once the response is ready, never inside it", async
     assert.equal(turn.status, 200, JSON.stringify(turn.body));
     const rows = turn.calls.filter((call) => call.path.endsWith("/gateway/agent-turn"));
     assert.equal(rows.length, 1, turn.calls.map((call) => call.path).join(", "));
-    // The turn's record is the last thing its response waits on (`loggedTurn.js` `recordedTurn`): the row starts after it.
-    const record = turn.calls.findIndex((call) => call.method === "PUT" && call.path.includes(".context/agent/turns/turn-held-0003"));
+    // The turn's cancel check is the last thing its response waits on (`texEntryPoint.js` `steer.endCancelled`): the row starts after it.
+    const record = turn.calls.findIndex((call) => call.method === "GET" && call.path.includes(".context/agent/cancel/turn-held-0003"));
     assert.ok(record >= 0, turn.calls.map((call) => `${call.method} ${call.path}`).join(", "));
     assert.ok(turn.calls.indexOf(rows[0]) > record, "the row waited for the response");
   } finally {
@@ -156,7 +156,7 @@ test("after-work starts only when the turn's queue is run, and one that fails fa
 });
 
 test("a group turn's history is read beside the plan check, with the egress ledger set first (2026-10-31)", () => {
-  const source = texTurnSource();
+  const source = texEntryPointSource();
   const ledger = source.indexOf("session.egress = {");
   const read = source.search(/historyRead = tex\.ahead\("history", \(\) => turnReads\(/);
   const provider = source.indexOf("await tex.wait(\"allowed\", allowedRead)");

@@ -13,7 +13,7 @@ import { tellShellUpcoming } from "./shellCalendar";
  *
  * One store, filled by one source mounted beside `useMeetingsSetup` in the app
  * gate, and read by every surface that offers Join: the Meetings tab, the
- * sidebar's next-up row, the meetings list. A store rather than a hook per
+ * next-up pill beside the console's +, the meetings list. A store rather than a hook per
  * surface so three surfaces are one read of Google, not three, and so a
  * surface needs no Convex client to render (the demo console and the render
  * tests have none).
@@ -62,7 +62,7 @@ export function useScheduledMeetings(): ScheduledMeetings {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-/** The meeting the sidebar row names now, or null. */
+/** The meeting the next-up pill names now, or null. */
 export function useNextMeeting(now: number): CalendarEvent | null {
   const { meetings } = useScheduledMeetings();
   return nextMeeting(meetings, now === 0 ? Date.now() : now, NEXT_MEETING_LEAD_MS);

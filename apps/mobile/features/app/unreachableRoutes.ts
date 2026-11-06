@@ -184,12 +184,52 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
   },
   {
     route: "/tex/[handle]",
-    file: "app/tex/[handle].tsx",
+    file: "app/tex/[handle]/index.tsx",
     reachable: false,
     reason:
       "The person's Tex page: what Tex is doing for them and their groups, " +
       "and the browser it drives. Tex texts the address when they must sign " +
       "in somewhere, and the page opens only for the signed-in owner of that handle.",
     marker: "the page Tex texts when they have to sign in somewhere",
+  },
+  {
+    route: "/tex/[handle]/[...rest]",
+    file: "app/tex/[handle]/[...rest].tsx",
+    reachable: false,
+    reason:
+      "A sub-page of the person's Tex page, or one job's steps, at its own " +
+      "address so Tex can text a link straight to it. Inside the app it is " +
+      "reached from the Tex page itself, which the app does not link to either.",
+    marker: "so Tex can text a link straight to it",
+  },
+  {
+    route: "/tex/group/[words]",
+    file: "app/tex/group/[words]/index.tsx",
+    reachable: false,
+    reason:
+      "A group chat's Tex page, addressed by its home's words: the link Tex " +
+      "texts a group asking what it is working on. It opens only for a " +
+      "signed-in person in that chat, so nothing in the app could list it.",
+    marker: "the link Tex texts a group asking what it is working",
+  },
+  {
+    route: "/tex/group/[words]/[...rest]",
+    file: "app/tex/group/[words]/[...rest].tsx",
+    reachable: false,
+    reason:
+      "A sub-page of a group chat's Tex page, or one job's steps, reached " +
+      "from a link Tex texts the group or from that group's Tex page itself, " +
+      "which only the people in the chat can open.",
+    marker: "`/tex/group/<words>/<view>` and",
+  },
+  {
+    route: "/tex",
+    file: "app/tex/index.tsx",
+    reachable: false,
+    reason:
+      "Sends the signed-in person on to their own Tex page with the query kept. " +
+      "A runner's pairing link points here because it is made before the " +
+      "gateway knows whose computer is asking, so it cannot name the handle.",
+    marker: "A runner's pairing link",
   },
 ];

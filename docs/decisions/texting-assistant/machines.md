@@ -1,0 +1,552 @@
+# The texting assistant — your own machines as Tex's minions
+
+_Part of [the texting assistant](../texting-assistant.md), beside
+[background jobs](./background-jobs.md) and [delegation](./delegation.md)._
+
+### A person's own computer becomes more minion slots, run by one Rust runner (2026-11-03, 2026-11-04)
+
+Asked for and approved by the owner, 2026-11-03 and 2026-11-04 ("go ahead and
+spawn threads that can work on this in parallel"). With a small program on a
+computer, Tex runs that person's own `claude` and `codex`, signed in to their
+own subscriptions, as more minion slots. The job's own Durable Object, the
+advisor checking every part, steer, stop, restart and the report to the
+coordinator stay exactly as they are for cloud jobs; only the part that does
+the work moves to the machine.
+
+- **A machine lives in its owning workspace object.** No Durable Object per
+  machine. A personal laptop is rows in its person's workspace object; a team
+  computer (the Tex Devs VM) is rows in that shared workspace's object, run by
+  its owners and editors. The object holds the runner's one hibernating
+  WebSocket, the slot counters and the settings rows, and exports them with
+  the workspace. The control plane keeps only the machine's revocable grant,
+  as it does an AI client's. Reversing it (a `machine:<id>` object) would put
+  a second boundary beside the workspace's, with its own isolation to prove.
+- **One runner, in Rust** (`apps/machine-runner`), headless, carried inside the
+  Mac app; `npx @supa-media/context machine` only downloads it. It dials out
+  and never listens.
+- **One protocol, written once.** `packages/shared/src/machineProtocol.schema.json`
+  is the only definition of what the runner and the workspace object say. The
+  gateway's types (`machineProtocol.generated.ts`) and the runner's Rust types
+  are generated from it, `machineProtocol.examples.json` holds one example of
+  every message for both sides' tests, and every runner frame passes the
+  validator in `machineProtocol.cjs` before a field of it is read. Test:
+  `apps/mcp/test/machineProtocol.test.mjs` ("the generated TypeScript types
+  match the schema", "the validator refuses a schema keyword it does not
+  check"). Sabotage record (2026-11-04): adding a refusal code to the schema
+  without regenerating failed the first; making the validator ignore
+  `additionalProperties: false` failed "a runner frame is parsed only when it
+  is valid".
+- **The protocol cannot run a command.** The workspace object sends only
+  `challenge`, `welcome`, `rules`, `assign`, `message`, `interrupt`, `cancel`
+  and `goodbye`. An assignment's brief is words for the agent, never a shell
+  line, and the runner checks every assignment against its local copy of the
+  owner's rules (folders, tools, limits, who may ask) before starting
+  anything, so neither a gateway bug nor a compromised gateway gets past one
+  check. Test: "the protocol has no message that runs a command".
+- **A hello proves the key.** Every connection opens with a challenge the
+  runner signs with the machine's Ed25519 private key, over
+  `helloSigningText(machineId, nonce)`, which names the purpose and the
+  machine so a pairing signature or another machine's never passes. A copied
+  grant without the key is useless.
+- **A slot is compute, not a tool.** Any slot runs Claude Code or Codex, picked
+  per job. Each machine shows a recommended count (shared use) and a most (only
+  runs Tex) from its memory and cores, about 1.5 GB and half a core per
+  session, never over 8 (`slotCounts`). The chat's pool is its cloud slots plus
+  each attached machine's share; the workspace object refuses an assignment
+  that would overfill a machine two chats share.
+- **The Tex page shows where every job runs** (owner, 2026-11-04: a job on
+  their VM looked like a cloud job, and the Minions row showed only the cloud's
+  three). A chat's inbox keeps a job's computer (id, name, tool) on its entry;
+  the page's job parts number a computer's jobs in that computer's own slots,
+  never a cloud one (`apps/mcp/src/http/texPage/jobs.js`), and the app draws
+  Tex's cloud, then each computer the chat may use, with its free slots from
+  the computer's own count; an offline computer's free slots are not counted
+  as room. A job page says `On <computer> · <tool>`; a cloud job says nothing.
+  When the computer's part ends, a step says `Done on <computer> · checking
+  the work`, since the advisor's check and the report take a while after it.
+  Reverting it fails `apps/mcp/test/texPageJobPlaces.test.mjs` and the pool
+  tests in `apps/mobile/__tests__/texPage.test.ts`.
+- **Machine jobs run longer.** Four hours by default, up to 24, the advisor
+  still checking every fifteen-minute part; cloud jobs keep thirty minutes and
+  ten parts. After a disconnect a job resumes the same CLI session: the runner
+  reports the session id as soon as the tool names it, and its held runs in
+  every hello.
+- **No separate approvals for push, deploy or secrets** (owner, 2026-11-04,
+  after Tex Devs' feedback). Once a job is allowed on a machine it may use what
+  that machine is signed in to; the owner's choice of who may send it work is
+  the control.
+- **Groups.** A machine in a group serves only its owner by default ("Only
+  me"); the owner may open it to everyone or to named people, with "Ask me
+  first" on, which the gateway holds until the owner's own yes. Other people's
+  runs get plain Claude Code like the owner's (see below), but never computer use, folders outside the allowlist, the owner's
+  personal notes (they run on the group's grant), the owner's kept slot, or
+  the network unless the owner turned it on for that chat.
+
+### A run is plain Claude Code in the person's folder (owner, 2026-11-04)
+
+The owner, after a job named `context` failed 96 times on their Mac in two
+minutes: "I want to essentially use it as a way to run claude code remotely,
+i dont want to create a new harness, on my laptop if I started claude code in
+any directory it pretty much can do anything", and then "plain claude code for
+me and anyone else that I give access to". The only allowed folder was an
+empty `~/Code/tex-files` and the repo sat beside it, so every part failed
+"repo not found in the folder" before Claude Code started.
+
+- **Where it starts.** In the checkout the job names when it is under the
+  allowed folder, or in the folder itself, told the repo's name so it clones
+  it there. A missing repo never stops a run. No worktree, no `tex/<jobId>`
+  branch, no `.context-machine-work`, and nothing removed when the part ends
+  (`apps/machine-runner/src/workdir.rs` `start_dir`). Parts of one job, and
+  jobs side by side, share the checkout, as two terminals would. Tests: "a
+  missing repo starts the tool in the folder instead of failing" (unit) and
+  "a repo missing from the folder still runs in the folder" (`tests/e2e.rs`).
+- **What it may do.** Tex sends `full` for every run (`machineTurn.ts`), the
+  workspace object no longer narrows another person's run to `edits`
+  (`serveMachines.js`), and the runner no longer refuses it (`rules.rs`): the
+  owner's choice of who may send work (Only me / named people / everyone,
+  Ask me first) is the control. The folder's own `.claude` settings, hooks
+  and MCP servers load for every run (`trustedRepos` is no longer read). Only
+  `--strict-mcp-config` stays, so the run's Context server carries the run's
+  own grant.
+- **Unchanged.** The allowed folders (never `/` or a home folder itself),
+  computer use (the owner's own asks only), the per-chat network and helpers
+  switches for other people's runs, the limits and slots, and the run grant's
+  handling.
+- **What a simplification costs.** Putting the copy-per-job back brings back
+  the failure that started this: a job that names a repo the folder does not
+  hold never reaches Claude Code. Test: "other people's runs get full
+  permissions but never computer use" (`machineSockets.test.mjs`).
+
+### Credentials on a device: the machine grant and the run grant (2026-11-04)
+
+Non-negotiable #1 says credentials never live on a device. Two do here, as the
+desktop app's grant already did, and this is the decided exception rather than
+an implied one:
+
+- **The machine grant**: one per machine, issued at pairing, bound to the
+  machine's public key, listed and revocable in Settings like an AI client
+  grant. Kept in the Mac app's safeStorage, or the OS keychain, or a `0600`
+  file in the runner's own folder.
+- **The run grant**: minted per job part, expiring when the part ends, scoped to
+  what the job's own grant allows (the group's for a group's job), never
+  carrying send actions. Written to a `0600` MCP config file, never argv or
+  the environment, and deleted when the part ends.
+
+The person's subscription logins (`~/.claude`, `~/.codex`) never leave their
+machine: we never read, copy, seal or store them. The runner starts the
+unmodified CLI, which signs itself in.
+
+### What a part is told, and how it ends (owner, 2026-11-05)
+
+A GitHub sign-in job on the owner's computer got its one-time code in 29
+seconds, put it only in its final answer, and left `gh auth login` and a
+15-minute check running in the background. Those kept Claude Code's output
+open, the runner waited for an exit that never came, the part was cut off at
+its deadline as out of time, and an out-of-time part's words are never texted.
+The code expired unseen. The owner: "the model is probably way way smarter
+than our runner, what we need to do is tell claude code the context in which
+it's running". So:
+
+- **The gateway opens every brief with the part's background**
+  (`apps/mcp/src/machines/jobBackground.js`), written from the job's own
+  grant, never from the caller's words: started from the person's own texts
+  (it acts as them) or from a group chat (only the group's reach, and the
+  owner's computer used only for the job); that nobody is at the keyboard;
+  what the person sees; Context as the shared memory, `orient` first; keyed
+  API calls through Context; that only Tex reaches the person, by mail on the
+  job's note, at once; and that a part ends at its answer. The runner's own
+  prompt (`run.rs` `system_prompt`) says the same in short, for the computer.
+  Being in the brief, it reaches runners of every version.
+- **A part ends at its answer.** Ten seconds after the tool's answer the
+  runner kills whatever it left running and reports the answer as finished
+  (`drive.rs` `AFTER_ANSWER`), so the advisor's check runs and a `waiting`
+  verdict is texted. Test: `a_background_process_never_holds_a_finished_run_open`.
+- **Claude Code runs on Opus 5.5** (`claude.rs` `MODEL`), never on whatever
+  default the computer has.
+- **The model, the wait after an answer and the runner's prompt change without
+  a release** (owner, 2026-11-05: "i'd like to be able to change those
+  properties on the fly without a new update"). They are read from
+  `@context-lc` `ai/production/computer-jobs.md` (`claude_model`,
+  `codex_model`, `after_answer_seconds`, and the body as the system prompt with
+  `{machine}`, `{job}` and `{part}` filled in) on every part and sent as the
+  assignment's `settings` (`production.js` `readComputerJobSettings`). Only a
+  runner whose hello says `runSettings` (0.2.9 on) is sent them, because an
+  older runner refuses a field it does not know; a missing or invalid value
+  keeps the runner's built-in one. Test: `machineRunSettings.test.mjs`,
+  e2e `a_runs_settings_name_its_model_and_its_wait_after_the_answer`.
+- **Keyed API calls are allowed.** A run may use `send` action `api`
+  (`vault_list` with `fetch`): Context adds the saved key on the way out and
+  blanks it from the answer, so the key never reaches the computer, and the
+  first use by "Tex on your computer" waits for the person's yes like any AI's
+  (`vault/asks.js`). Every other send action, and every vault page link, stays
+  refused. A run started from a group carries `groupChat` on its actor
+  (`context/identity.js`), so it uses only the keys given to the whole
+  workspace, as the group's own turn does (`vault/access.js` `workspaceOnly`;
+  test in `vaultGroupChat.test.mjs`). Reverting that would let a group's job
+  use the tagger's personal keys.
+
+### Signing a coding tool in from the app, with a pasted code (owner, 2026-11-05)
+
+Claude Code signed itself out on the owner's Mac mid-evening and every job was
+refused until someone ran `/login` in a terminal. The owner: "I should be able
+to log in through the app and the hub", and chose signing in from any phone
+too. So the computer's page has **Sign in** beside a signed-out tool:
+
+- The gateway sends the runner `signIn` with no code. The runner starts the
+  tool's own fixed sign-in (`claude auth login`, `sign_in.rs` `command`; the
+  gateway names only the tool, from the enum), reads the link it prints, and
+  sends back `signInState` `link` only when the link is on the tool maker's
+  own site (`link_in`). The page opens only such a link too (`signInLinkOk`).
+- The owner signs in on that page, on any device, and pastes the code it
+  shows. The gateway hands it to the runner in one `signIn` frame and keeps it
+  nowhere: not on the machine's row (`signInOf` keeps id, tool, state, link,
+  error), not in a refusal, not in a log. The runner types it into the
+  waiting sign-in, never writes it down, and strips it from any error.
+- Only the computer's **own owner** starts one or sends a code, never the
+  workspace's owner who also runs it, and only they see the link. A code for
+  a sign-in that is not the newest, or older than 16 minutes, is refused.
+
+This keeps the rule above: the subscription login is still made and kept by
+the CLI on the machine; the code is a one-time step in the tool's own flow.
+After any failed part the runner asks the tool once more whether it is signed
+in, one ask at a time, so a signed-out machine reads "not ready" and the next
+part is refused instead of started and failed again. In the owner's own
+texts, a refusal for a signed-out tool names the computer's page on their hub
+(`jobRoutes.js` `fixLink`). Tests: `machineSignIn.test.mjs`,
+`texMachineSignIn.test.ts`, `sign_in.rs`.
+
+### Pairing: a code compared on both screens, a grant only the machine can collect (2026-11-04)
+
+- **A runner pairs with a short code** (`POST /machines/pair`, `apps/mcp/src/machines/routes.js`):
+  six characters without 0/O or 1/I, shown on the machine and in the app, approved
+  by the person signed in. Only a personal workspace's owner, or a shared
+  workspace's owner or editor, may approve (`mayOwnTexMachine` in the control
+  plane). The control plane keeps the code's hash, ten minutes, and nothing else
+  of it.
+- **The grant is collected with the machine's key.** The runner polls with an
+  Ed25519 signature over `pairSigningText(pairingId)`; the gateway checks it
+  against the public key the pairing started with, and only then mints the
+  grant (`cmg_` and 32 random bytes), which the control plane stores hashed.
+  An unknown pairing and a bad signature answer the same 404. The grant is
+  returned once. Test: `machineRoutes.test.mjs` ("only the machine that asked
+  can collect the grant").
+- **The Mac app registers its own Mac** (`POST /machines/register`) with its
+  signed-in connection's session instead of a code. The Mac still gets a grant
+  of its own bound to its own key, so revoking the Mac never touches the app's
+  connection.
+- **The socket** (`GET /machines/socket`) resolves the grant with the control
+  plane, and the owning workspace object takes it and asks for a signed hello
+  before reading anything (`workspaceStore/machineSockets.js`). A socket lives
+  an hour, then the runner reconnects through the gateway, so a revoked grant
+  stops working within the hour even without the object being told; the app's
+  Disconnect tells the object at once. A browser `Origin` header on any
+  machine route is refused.
+- **The app's screens** (`POST /machines/app/{list,set,disconnect}`,
+  `apps/mcp/src/machines/appRoutes.js`) take only the app's own session.
+  A computer is run by its owner or the workspace's owner, the same two the
+  control plane lets disconnect it (`revokeMachineAs`): they see its settings
+  and change them, and the object tells the runner the new rules at once.
+  Another editor of a shared workspace does not, even of a team computer,
+  because who may send work to a computer is its rules, and an editor who
+  could change them could let themselves onto somebody else's computer; any
+  other member sees only its name, system, owner and whether it is online.
+  Disconnect revokes the grant in the control plane first, then the object
+  says goodbye on the socket and ends its live runs. Test:
+  `machineApp.test.mjs`, whose header records its sabotage.
+- **Known risk: a pairing code can be phished**, as any device-code flow can:
+  somebody sends a person a link with their own machine's code. The approval
+  screen names the machine, its OS and when it asked, and says to approve only a
+  computer being set up right now; and a machine only ever gets the jobs Tex
+  sends it, under its owner's rules. Accepted by the design; revisit if abused.
+
+### A cloud VM as a mail-only device (2026-11-04)
+
+The owner: every Claude Code and Codex VM could run the headless runner,
+"register and show a network of connected devices and their ids and you can
+send them instant mail"; then "fine for them to show up, but not to take jobs,
+but to receive mail", paired "using the mcp somehow because my claude and
+codex vms would already be connected to the MCP". Claude Code first.
+
+- **Paired by the session's own connection, never by a token on the VM.** The
+  AI client holds the MCP token, so the VM cannot present it. The repository's
+  hooks (`.claude/settings.json` → `scripts/context-machine-hook.sh`, only when
+  `CLAUDE_CODE_REMOTE=true`, so a laptop's own runner is never touched) start
+  `context-machine hook session-start`, whose background daemon opens an
+  ordinary pairing and prints its code into the session's context. The
+  session calls `manage pair_device { code }`; the control plane
+  (`apps/convex/functions/texMachineDevices.ts`) approves it as that grant's
+  person, into that grant's own workspace, under the same role rule and the
+  same ten-in-ten-minutes budget as the app, and refuses Tex's own texting
+  grants. The daemon collects the grant with its own key, as `pair` does.
+- **Mail only, decided in two places.** The pairing and the machine carry
+  `mailOnly`; the control plane refuses such a machine every run grant and
+  every chat lending, and the workspace object holds it with no tools, lets
+  only its name be changed, and answers every assignment `mail_only`
+  (`workspaceStore/machines.js`). Nothing an owner sets turns one into a
+  computer Tex sends jobs to.
+- **It ends on its own.** It stops resolving the moment the grant that paired
+  it is no longer active (`pairedByGrantId`; that grant's token rotates, so
+  its standing is checked, not its token's time) and a day after it was paired
+  (`expiresAt`). The session's `SessionEnd` hook gives the grant back
+  (`/machines/leave`), and the object drops it at once; one that never says
+  goodbye leaves the devices list after fifteen minutes offline, and the
+  hourly purge deletes the row and its mailboxes an hour after it ended.
+  A runner whose socket is answered 404 (the object removed it) or 401 (its
+  grant no longer resolves) takes that as a goodbye, not a bad moment: it
+  deletes the grant and stops, so the next hook pairs the VM again rather
+  than the session being told it is a device that no longer exists
+  (2026-11-05; found live after a container stayed down past the fifteen
+  minutes).
+- **Mail reaches the session at once.** A session joins a note's mail with
+  `{ join, device }`; the control plane checks the device is live and the
+  joining grant's own person's, and lists it beside job mailboxes with the
+  device's own workspace. The gateway sends each line down that device's
+  socket as a `mail` frame (`ws.machine.mail`), the runner keeps it in a
+  `0600` inbox, and three things show it to the session, each once: a
+  background `context-machine mail wait` that ends when mail arrives (Claude
+  Code wakes a session when a background command ends), the
+  `UserPromptSubmit`/`PostToolUse` hooks, and a `Stop` hook that keeps the
+  turn going until it is read. The words say it is other agents' mail, not
+  the person's instructions. Only the sender's own Tex may interrupt; to a
+  device an interrupt is an ask.
+- **Known gaps.** Codex has no hooks wired yet. "Read" receipts back to the
+  sender are not built: the line is in the note, and the sender sees
+  delivered. A pairing that ran out is not retried in the same session.
+- **Known risk: a code planted for the session.** Text the session reads (a
+  note, a page, mail) could hand it somebody else's code to approve. The
+  device would be the person's own, mail-only, in their own workspace and
+  listed there; it gets only mail a session explicitly joins as that device,
+  never a job and never a note, and it ends within the day. The tool says to
+  approve only a code its own computer printed. Accepted; revisit if abused.
+
+Tested end to end by `apps/mcp/test/e2e/vmDeviceMail.e2e.mjs` (the real
+runner binary against the real gateway routes, tool, delivery and object
+sockets; run in CI by `machine-runner.yml`), and by
+`apps/convex/__tests__/texMachineDevices.test.ts`,
+`apps/mcp/test/machineMailOnly.test.mjs` and `apps/mcp/test/pairDevice.test.mjs`,
+whose headers record their sabotage.
+
+### A job's part on a machine: a run grant that acts as the job and never sends (2026-11-04)
+
+- **The texting Worker's job asks the gateway, with its own texting token**
+  (`POST /agent/machine/{assign,run,cancel,deliver}`, `apps/mcp/src/machines/jobRoutes.js`).
+  Only a person's own 1:1 texting client with write scope reaches them; a
+  group's job waits for groups. Who asked, and whether it is the machine's
+  owner, come from the grant, never the body. A person's own chat is
+  `texts-<userId>` to the owner's chat rules, so a rule for one person's
+  chat never covers another's. Test: `machineJobs.test.mjs` ("who asked comes
+  from the grant, never the body").
+- **The run grant is the job's own grant, under its own client.** The gateway
+  mints the run id, then the control plane a `cat_` token kept only as a hash
+  in `texMachineRunGrants`, pointing at the job's texting grant
+  (`/gateway/machines/run-grant`). It resolves only as an MCP session
+  (`resolveRunGrant`, never `resolveLiveGrant`, so no owner clearance accepts
+  it), as `context_tex_machine_run`, with the parent's person, workspace,
+  scopes and group checks re-read every request; it lives at most thirty
+  minutes, outlives the fifteen-minute texting token it was minted under, and
+  dies with the parent grant, the machine, a refused assignment, the run's
+  end or a stop. Test: `apps/convex/__tests__/texMachineRuns.test.ts`.
+- **It never reaches outside.** A run session is not offered, and is refused,
+  every `send` action, links, invitations and the vault
+  (`tools/machineRun.js`); what should be sent goes in its answer, and Tex's
+  own turn asks the person. Test: "a run grant's session is never offered,
+  and never runs, a call that reaches outside". Sabotage record (2026-11-04):
+  dropping the refusal in `callToolForSession`, the asker check on a run, or
+  reading `fromOwner` from the body each failed its test.
+- Only the person whose job it is reads, steers or stops a run; another run
+  id answers `unknown_run`, as a run that does not exist does.
+
+### Tex runs a job on the person's computer by name, in fifteen-minute parts (2026-11-04)
+
+- **The texted turn names the computer** (`start_background_job`'s
+  `on_computer`, `apps/mcp/src/machines/forJobs.js`): by name, or none when
+  they have one; its tool and folder are checked against the machine's own
+  lists, and a repo is a name under the folder, never a path out of it. The
+  machines are read only for a chat's own turn: a person's own 1:1 chat, or
+  a group chat for what was lent to it. Test: `machineForJobs.test.mjs`.
+- **The turn is told their computers** (`apps/mcp/src/machines/forTurn.js`,
+  2026-11-04, replacing "read only when a job asks for one"). The first
+  splitting round (gh-149) gave every person a paired computer. All twelve
+  code answers still ran in Tex's cloud or went to Claude Code on the web
+  (`delegate`), because the turn never knew a computer was there. So a chat
+  turn reads its computers beside the history (`tex.ahead("computers")`,
+  one workspace-object read per workspace it reaches, never holding up the
+  model longer than that read). When one with Claude Code or Codex is there,
+  the turn is told it by name and what goes to it, and `delegate` drops
+  Claude Code and Codex: a call naming either is answered with the computer,
+  so code has one road while a computer is paired. With none, the turn is
+  unchanged. Tests: `machineForTurn.test.mjs`, and "a texted turn with a
+  paired computer is told it by name" (`agentBackgroundRoute.test.mjs`).
+- **The job's object runs each part there** (`apps/agent/src/machineTurn.ts`):
+  it assigns the part through the gateway with the job's own texting grant,
+  reads the run every ten seconds, streams its steps to the chat as a cloud
+  part's are, and keeps the run in progress on the job's run, so a pass that
+  restarts reads the same run and never starts a second. A part is fifteen
+  minutes; one out of time, or whose machine dropped, is carried on by the
+  next part resuming the same CLI session. A later text goes into the running
+  session and a stop cancels it there. A computer that refuses the part
+  (offline, busy, over its limits, not allowed) is told in words, and the job
+  can be picked back up.
+- **Four hours by default, at most 96 parts** (`MACHINE_JOB_LIMIT_MS`,
+  `MAX_MACHINE_JOB_ATTEMPTS`); a cloud job keeps thirty minutes and ten parts,
+  and the chat marks a machine job stale only past its own limit. Raising one
+  job past four hours, up to the machine's longest run, is the app's to
+  offer. Test: `machineTurn.test.ts`, whose header records its sabotage.
+- **The advisor checks every machine part**, as it checks a cloud part
+  (`jobCheck.js`). When a part ends finished or out of time, the job's object
+  asks `POST /agent/machine/check` with the job as it knows it (title, brief,
+  finish line, their later texts, the last advice); the gateway reads the
+  part's steps and last words from the run in the workspace object, never
+  from the body, and only for the person whose run it is. `keep_going` on a
+  finished part carries the job on, resuming the same session on the advice;
+  `waiting` and `stuck` end it saying what is needed or why. The steps reach
+  the advisor as tool calls without their results, which stay on the
+  computer, and it is told so. A machine part's words are never trusted as
+  the person's (`untrusted`), the check is metered as background spend on the
+  job's own grant, and an advisor that can't be reached leaves the part's own
+  outcome to decide. Tests: `machineJobs.test.mjs` and `machineTurn.test.ts`.
+- **A computer is lent to a group chat by its own owner** (2026-11-04). A
+  group's grant reaches only its shared workspace, never anyone's personal one,
+  so a laptop in its owner's workspace is reached through the lending: the
+  owner, one of the chat's people, lends it from the app
+  (`POST /machines/app/lend`), the control plane records it
+  (`texMachineChats`), and a group job's calls reach only the computers lent
+  to that chat, live and with their owner still in it (`machines/reach.js`).
+  Only the computer's own owner lends it, never the workspace's owner. Who in
+  the chat may send it work is the computer's rule under `group-<key>`:
+  "Only me" unless the owner opens it to everyone or names people, with "Ask
+  me first" on unless they turn it off. The part runs on the group's own grant
+  (minted again with the chat's people read again, as a group job's cloud part
+  is), so it never reaches the owner's own notes, and the tagger is who asked.
+  Tests: `machineJobs.test.mjs` ("a group chat reaches only a computer lent to
+  it", "somebody else in the group gets the computer only as its owner's rule
+  for that chat says"), `machineApp.test.mjs`, `machineTurn.test.ts`.
+- **"Ask me first" is the owner's own yes, kept by the workspace object**
+  (2026-11-04). An ask the rule holds makes one waiting ask per job, chat and
+  person (`ws_machine_asks`), listed with the computer (`asks`), and the
+  owner answers it in the app (`POST /machines/app/answer`); only the
+  computer's own owner may. A yes holds for that job for the day, a no ends
+  it (`declined`), and "always" adds that person to the chat's `always`, so
+  they are never asked again there. The object decides whether the yes was
+  given; a caller saying `approved` is ignored. The job's part waits up to
+  ten minutes for the answer, inside its own fifteen, asking again each
+  minute, then starts or says why not. Tests: `machineJobs.test.mjs` ("Ask me
+  first waits for the owner's own yes…"), `machineApp.test.mjs`,
+  `machineTurn.test.ts`.
+- **What the app's machine screens needed besides** (2026-11-04):
+  "more time today" (`POST /machines/app/raise`, whoever runs the computer)
+  is kept on the computer as a raise for that day in its owner's time zone,
+  added to the day's limit by `admit` and in the rules the runner gets, and
+  gone the next day; the daily limit itself never changes. Naming people in
+  a group's rule needs their ids: `POST /machines/app/chat-people` gives a
+  chat's people with ids and handles, to one of them only (the control
+  plane's `chatPeopleAs`). An ask from a group carries the chat's full key
+  from the grant, so the owner's list names who asked by handle
+  (`askerHandle`); the key itself is never sent to the app.
+- **A computer's jobs count against its own slots** (2026-11-04, Dev: "count
+  machine slots separately from the 3 cloud slots"). A cloud job takes one
+  of the chat's three; a job on a computer takes one of that computer's
+  (its owner's count, one when it names none, never over eight), so two
+  jobs there no longer leave one slot for everything else. The gateway
+  checks it before it starts one (`apps/mcp/src/agent/jobSlots.js`, the
+  running list now carrying each job's machine id as `on`), the texting
+  Worker holds to the same when two turns race (`apps/agent/src/jobs.ts`
+  `fits`), every running job is sent to the gateway however many there are,
+  and the workspace object still refuses a computer two chats overfill.
+  The planner is told the cloud's free slots and each computer's apart.
+  Tests: `agentJobSlots.test.mjs`, "counts jobs on a computer against its
+  own slots, never the cloud's three" (`jobs.test.ts`).
+- **A group's ask is put to the group, and the owner's 👍 there is the
+  yes** (2026-11-04, Dev2: "it should send it to the groupchat actually,
+  and wait for the owner to thumbs it up"; this replaced a text in the
+  owner's own Tex chat and a phone push, which were offered first). The
+  first time a group's job is held for "Ask me first" (`fresh` from the
+  object), the gateway answers the job with a line in its own words naming
+  the owner by handle, the job and the computer
+  (`apps/mcp/src/machines/groupAsk.js` `machineAskLine`). The job hands it
+  to the chat's Tex as its report's `ask`, and that turn texts it word for
+  word whatever its model says (`jobReport.js` `reportReply`), so the
+  tapback's words can be matched. Anyone's 👍, ❤️ or 👎 on it goes to the
+  gateway (`apps/agent/src/thumbs.ts` `onMachineAsk`; other asks hold only
+  the asker's), and the gateway answers the ask only when the turn's own
+  grant is the computer's owner, the computer is lent to this chat, and the
+  ask is this chat's with its title and the computer's name in the words
+  (`machineThumb`, before any other approval). A guest's tapback runs on the
+  binder's grant and never counts. The app's card answers the same ask. An
+  ask from a person's own texts is still answered only in the app. Tests:
+  `machineGroupAsk.test.mjs`, "anyone's 👍 on an ask to use someone's
+  computer goes to the gateway…" (`groupReactions.test.ts`), "a group's ask
+  goes to the chat's Tex once…" (`machineTurn.test.ts`).
+- **Not yet**: a phone push for an ask from someone's own texts.
+
+## Installing a coding tool from the app (owner, 2026-11-05)
+
+The owner asked for one-click install of Claude Code and Codex from the
+computer's page, then sign-in. The page's Install button sends `install`
+naming only the tool. The runner (`install.rs`) asks the npm registry for the
+maker's latest version and this computer's own build of it
+(`@anthropic-ai/claude-code-<platform>`, `@openai/codex@<version>-<platform>`),
+downloads it only from the registry under that package's own name, refuses it
+unless its sha512 matches the registry's `dist.integrity`, unpacks it with the
+system `tar` into `~/.local/share/context-machine/tools`, and links
+`tools/bin/<name>`. No installer script runs and nothing outside that folder
+changes. The runner looks there before PATH, so a broken copy elsewhere (an npm
+install missing its platform binary) no longer shadows a working one.
+
+Codex signs in with its device flow (`codex login --device-auth`): the runner
+sends its page and one-time code (`signInState.userCode`), the owner types the
+code on OpenAI's page, and Codex finishes by itself. Nothing is pasted back,
+and the gateway refuses a code for such a sign-in. The one-time code, like the
+link, is shown only to the computer's own owner.
+
+What a simplification would cost: letting the frame carry a URL, a version or
+a command turns the owner's phone into a remote shell on their computer.
+`machineInstall.test.mjs` checks the frame carries only the tool, and
+`install.rs` tests refuse any tarball not on the registry under that package.
+
+
+## A headless runner updates itself (owner, 2026-11-05)
+
+The owner asked that a headless runner check for updates and update itself.
+A runner `install.sh` put in place (`~/.context-machine/bin/context-machine`)
+looks for a newer `machine-runner-v<x.y.z>` release five minutes after it starts
+and every six hours, from the same GitHub release `install.sh` reads, checks the
+archive against its `.sha256`, swaps the binary in with one rename, and restarts
+into it (`exec`, same arguments) only once no job or install is under way, so a
+job is never cut off by an update. Drafts, pre-releases and anything but a plain
+`x.y.z` never count, and it only ever moves forward. The Mac app's runner never
+updates itself: it lives in the app's signed bundle, which updates as a whole
+(the app passes `--grant-file`). `CONTEXT_MACHINE_AUTO_UPDATE=off` turns it off.
+Trust is the same as `install.sh`'s: GitHub over TLS. Reversing this means every
+headless computer stays on whatever version was first installed.
+Tests: `apps/machine-runner/src/update.rs`.
+
+## A computer's work is in the chat's history (owner, 2026-11-05)
+
+The owner asked that every Claude Code or Codex turn and thought be logged in the chat's history, saying which
+computer ran it. Since runner 0.2.6, the runner sends a `said` frame for each piece of text and each thought the
+tool shows (Claude Code `thinking` blocks, Codex `reasoning` items), at most 4,000 characters each, numbered with
+the run's steps. The workspace object keeps the last 30 on the run. When the job reads the run, these entries are
+written once to the chat's ledger: steps as `tool`, words as `said`, thoughts as `thinking`, and how the part
+ended (`computer_part`, with the runner's short error code). Each entry carries `computer`, `computerName` and
+`jobId`. Tool results and file contents still stay on the computer. Tests: `apps/mcp/test/machineJobs.test.mjs`
+and the runner's `tests/e2e.rs`.
+
+## A job needs no folder, and a refusal ends it once, with the reason (owner, 2026-11-05)
+
+A machine whose owner chose no folder runs jobs in the runner's own work
+folder in its app data (`~/.local/share/context-machine/work`, or
+`~/Library/Application Support/context-machine/work` on a Mac), made on first
+use (owner: "isn't there some app data folder that we could just run out of").
+The gateway names it with the word `@work`, never a path, so it can never be
+bent into one of the person's own folders; the runner resolves it and refuses
+it when `local.json` narrows it out. A sign-in or scratch job then needs no
+setup; a job on the person's code still runs in a folder they chose.
+
+A part the computer refuses, or one that fails before its first step, ends the
+job with the computer's own reason in Tex's words, instead of trying again: on
+11-04 and 11-05 the same refusal was retried up to 96 times in two minutes and
+Tex said it "gave no reason". A part that fails partway is still carried on.
+Reversing either fails `rules/tests.rs` "a job with no folder of the owner's
+runs in the work folder" and `machineTurn.test.ts` "a part the computer itself
+refuses ends the job once".

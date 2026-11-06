@@ -55,6 +55,12 @@
 import { SEARCH_PREFIX } from "../../../../../packages/shared/src/storageLayout.cjs";
 import { compareIndexingOrder, countByIndexingPriority } from "../../../../../packages/shared/src/folderRoles.cjs";
 import { MeaningError } from "./errors.js";
+
+/** A note the model refused every way (`embed.js` `withInputFallback`) while it took a plain probe. */
+const REFUSED_NOTE = Object.freeze({ refused: true });
+function isRefusedInput(error) {
+  return error instanceof MeaningError && error.code === "REFUSED" && error.operation === "embed" && error.probeStatus === "accepted";
+}
 import { isNoteId } from "../../store/noteIdKeys.js";
 import {
   MEANING_MAX_PASSAGES,
@@ -387,8 +393,10 @@ export async function meaningPass(
     let held = [];
     let heldTails = [];
     let heldPaths = [];
+    let heldRefused = [];
     const flush = async () => {
       if (held.length > 0) await client.upsert(held);
+      if (heldRefused.length > 0) await removePassages(client, heldRefused);
       await deleteStaleTails(client, heldTails);
       for (const [key, version] of heldPaths) {
         notes.set(key, version);
@@ -399,6 +407,7 @@ export async function meaningPass(
       held = [];
       heldTails = [];
       heldPaths = [];
+      heldRefused = [];
     };
 
     // A note is a bucket read and a model call, each a round trip, so notes
@@ -425,16 +434,31 @@ export async function meaningPass(
             // Gone between the docmap and now: the next pass's census drops it.
             return null;
           }
-          return await meaningChangeFor(
-            path,
-            { content: await object.text(), visibility: visibilityOf(path), noteId: noteIdOf(key) },
-            embed,
-          );
+          try {
+            return await meaningChangeFor(
+              path,
+              { content: await object.text(), visibility: visibilityOf(path), noteId: noteIdOf(key) },
+              embed,
+            );
+          } catch (error) {
+            // A note whose text the model refuses every way, while it takes a plain one (`embed.js`
+            // `withInputFallback`), is recorded with no passages, so one note cannot stop every pass after it
+            // (2026-11-04: @seyi's row failed REFUSED/http_400 on every retry for two days). Any other failure
+            // still ends the pass with nothing of its group recorded.
+            if (isRefusedInput(error)) return REFUSED_NOTE;
+            throw error;
+          }
         }),
       );
       for (let index = 0; index < group.length; index += 1) {
         const change = changes[index];
         if (change === null) continue;
+        if (change === REFUSED_NOTE) {
+          // What it held before its text changed is no answer for it now.
+          heldRefused.push(group[index]);
+          heldPaths.push([group[index], census.get(group[index])]);
+          continue;
+        }
         held.push(...change.vectors);
         if (change.deleteIds.length > 0) heldTails.push(change.deleteIds);
         heldPaths.push([group[index], census.get(group[index])]);

@@ -3,6 +3,9 @@ import { Screen } from "../app/Screen";
 import { TexPageBody, type Place } from "../tex/page/TexPageBody";
 import { fixtureNow, fixtureSource } from "../tex/page/texPageFixture";
 import { readPlace } from "../tex/page/texPlace";
+import { MACHINE_SCENARIOS, machineFixtureSource, type MachineScenario } from "../tex/page/texMachineFixture";
+
+const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 import { useTexPage } from "../tex/page/useTexPage";
 import type { TexComputerState } from "../tex/useTexComputer";
 import { FIXTURE_FRAME } from "./texComputerFrame";
@@ -24,7 +27,13 @@ const COMPUTER: TexComputerState = {
  * back over its live feed, as the gateway's do.
  */
 export function TexPageFixture({ params }: { params: Record<string, string | string[] | undefined> }) {
-  const source = useMemo(() => fixtureSource(), []);
+  // `machines=<scenario>` draws the machine screens' data (`texMachineFixture.ts`); `ask=1` adds a job waiting for a yes.
+  const scenario = first(params.machines);
+  const ask = first(params.ask) === "1";
+  const source = useMemo(
+    () => (scenario && (MACHINE_SCENARIOS as readonly string[]).includes(scenario) ? machineFixtureSource(scenario as MachineScenario, { ask }) : fixtureSource()),
+    [scenario, ask],
+  );
   const [place, setPlace] = useState<Place>(() => readPlace(params));
   const page = useTexPage(source, place.chat);
   return (

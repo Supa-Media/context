@@ -1,0 +1,55 @@
+# Print one person's live map look (Dev2, 2026-11-04: "make the current
+# setting on @shyoh's account the default for the map").
+#
+# Manual only, read only. It runs `functions/mapLook:lookOfUsername`, which
+# answers only the look's own fields (paper, pencil, sliders and choices) and
+# when it was set: no id, no note, nothing else of the account. This
+# repository is public, and so is this job's log.
+name: Map look of a person
+
+on:
+  workflow_dispatch:
+    inputs:
+      username:
+        description: "The person's username, without the @."
+        type: string
+        required: true
+      environment:
+        description: "Which deployment to read."
+        type: choice
+        options:
+          - production
+          - staging
+        default: production
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Read the look
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          USERNAME_INPUT: ${{ inputs.username }}
+        run: |
+          set -euo pipefail
+          args=$(jq -cn --arg u "$USERNAME_INPUT" '{username: $u}')
+          # stderr is dropped: `convex run` prints the function's own log lines there.
+          answer=$(npx convex run functions/mapLook:lookOfUsername "$args" 2>/dev/null)
+          echo "look: $(echo "$answer" | jq -c .)"
+          { echo '```json'; echo "$answer" | jq .; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

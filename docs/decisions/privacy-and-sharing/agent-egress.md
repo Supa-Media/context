@@ -231,7 +231,7 @@ AI client's call passes, after every other refusal and before dispatch.
 call. A held call is a record under `.context/approvals/pending/` in the
 context the client connected to: the tool, its arguments exactly as sent, a
 one-line summary, who asked. The texting assistant's person replies YES or NO
-on the thread; `agent/texTurn.js` matches a text that is nothing but that,
+on the thread; `agent/texEntryPoint.js` matches a text that is nothing but that,
 before any model runs, settles only what that thread's latest ask put to the
 person: asked within the last half hour (a bare "yes" texted tomorrow must not
 run what was asked today), not since moved on from (any text that goes to a
@@ -384,7 +384,7 @@ knows which message that is, so the words are fetched
 
 They are sent to `/agent` as their own field and never folded into
 `question`. Four guards read `question` as the person's own words: the
-openable addresses a browser may fetch (`vouched` in `agent/texTurn.js`), the
+openable addresses a browser may fetch (`vouched` in `agent/texEntryPoint.js`), the
 addresses a texted answer may send a picture from (`outgoingPictures.js`),
 the sharing judge's reading of what was asked (`privacy/judge.js`, through
 `session.egress.turn`), and the Mail checker's words (`agent/mailChecker.js`).

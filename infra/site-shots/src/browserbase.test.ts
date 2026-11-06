@@ -113,7 +113,7 @@ describe("browseOnBrowserbase", () => {
       timeout: SESSION_LIFETIME_S,
       userMetadata: { owner: OWNER },
       proxies: true,
-      browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 }, advancedStealth: true },
+      browserSettings: { recordSession: false, blockAds: true, verified: true },
     });
     expect(JSON.stringify(created?.body)).not.toContain("context");
     expect(result.body.page).toMatchObject({ url: "https://shop.example.com/" });
@@ -338,11 +338,14 @@ describe("what a new browser is asked for", () => {
     browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 } },
   };
 
-  it("asks for proxies, stealth and the region first, and ends with the plain browser", () => {
+  it("asks for proxies, Verified and the region first, and ends with the plain browser", () => {
     const tiers = sessionRequests({ ...ENV, BROWSERBASE_REGION: "us-east-1" }, OWNER);
-    expect(tiers[0]).toMatchObject({ proxies: true, region: "us-east-1", browserSettings: { advancedStealth: true, recordSession: false } });
-    expect(tiers[1]).toMatchObject({ proxies: true, region: "us-east-1" });
-    expect((tiers[1]!.browserSettings as Record<string, unknown>).advancedStealth).toBeUndefined();
+    expect(tiers[0]).toMatchObject({ proxies: true, region: "us-east-1", browserSettings: { verified: true, recordSession: false, blockAds: true } });
+    // Verified brings its own window size, and Browserbase refuses one alongside it; the old stealth name is gone.
+    expect((tiers[0]!.browserSettings as Record<string, unknown>).viewport).toBeUndefined();
+    for (const tier of tiers) expect((tier.browserSettings as Record<string, unknown>).advancedStealth).toBeUndefined();
+    expect(tiers[1]).toMatchObject({ proxies: true, region: "us-east-1", browserSettings: { viewport: { width: 1280, height: 860 } } });
+    expect((tiers[1]!.browserSettings as Record<string, unknown>).verified).toBeUndefined();
     expect(tiers.at(-1)).toEqual(plain);
     // Every tier stays unrecorded, and names no profile unless given one.
     for (const tier of tiers) {
@@ -363,7 +366,7 @@ describe("what a new browser is asked for", () => {
     expect(sessionRequests({ ...ENV, BROWSERBASE_PROXIES: "off", BROWSERBASE_STEALTH: "off", BROWSERBASE_REGION: "mars-1" }, OWNER)).toEqual([plain]);
     const noProxies = sessionRequests({ ...ENV, BROWSERBASE_PROXIES: "off" }, OWNER);
     expect(noProxies.some((tier) => "proxies" in tier)).toBe(false);
-    expect(noProxies[0]).toMatchObject({ browserSettings: { advancedStealth: true } });
+    expect(noProxies[0]).toMatchObject({ browserSettings: { verified: true } });
   });
 
   function vendor(statuses: number[]) {
@@ -380,7 +383,7 @@ describe("what a new browser is asked for", () => {
     const { bodies, fetcher } = vendor([400, 403]);
     expect(await createSession(ENV, OWNER, fetcher)).toEqual({ id: "s-1", connectUrl: "wss://connect.example/s-1" });
     expect(bodies).toHaveLength(3);
-    expect(bodies[0]).toMatchObject({ proxies: true, browserSettings: { advancedStealth: true } });
+    expect(bodies[0]).toMatchObject({ proxies: true, browserSettings: { verified: true } });
     expect(bodies[1]).toMatchObject({ proxies: true });
     expect(bodies[2]).toEqual(plain);
   });

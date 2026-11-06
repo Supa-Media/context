@@ -84,7 +84,8 @@ test("a store call is named by the kind of its key, never the key", () => {
 
 test("a control-plane fetch is timed by its route, never its query or an id in it", async () => {
   const MCP_ENTRY = dataset();
-  const mcp = mcpEntry({ MCP_ENTRY });
+  // A still clock: a slow runner's real milliseconds between steps would add an "uncovered" point this test is not about.
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: () => 1_000 });
   const seen = [];
   const fetchImpl = mcp.fetchFor("cp", async (input) => (seen.push(input), new Response("ok")));
   await fetchImpl("https://cp.example.test/gateway/binding?token=abc");
@@ -222,6 +223,8 @@ test("a call naming another workspace times that open too", async () => {
   const { status, points } = await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "fetch", arguments: { id: "1-projects/a.md", context: "@entry-other" } } });
   assert.equal(status, 200);
   assert.ok(steps(points).includes("open_other_context"), steps(points).join(", "));
+  // And again by where its binding came from, and why: here no workspace object, so the control plane.
+  assert.ok(steps(points).includes("open_other_context:control_plane:no_object"), steps(points).join(", "));
   assert.doesNotMatch(JSON.stringify(points), /entry-other|ws_other/);
 });
 
@@ -257,10 +260,41 @@ test("each call through the workspace object's door is timed under \"door\" by i
   });
   const response = await handleWorkspaceStoreDoor(request, env, { controlPlane: { openTexStoreTicket: async () => ({ workspaceId: "w1", owners: [] }) } });
   assert.equal(response.status, 200);
-  assert.deepEqual(MCP_ENTRY.points.map((p) => [p.blobs[0], p.blobs[1], p.blobs[2], p.blobs[3], p.indexes[0]]), [
+  // On the real clock a slow runner can leave a millisecond between steps, which is written as its own "uncovered"
+  // point (tested below with a fake clock); it is not one of the door's steps, so it is left out here.
+  const doorPoints = MCP_ENTRY.points.filter((p) => p.blobs[2] !== "uncovered");
+  assert.deepEqual(doorPoints.map((p) => [p.blobs[0], p.blobs[1], p.blobs[2], p.blobs[3], p.indexes[0]]), [
     ["door", "ws.rows.snapshot", "ticket", "ok", "w1"],
     ["door", "ws.rows.snapshot", "object", "ok", "w1"],
     ["door", "ws.rows.snapshot", "to_response", "ok", "w1"],
   ]);
   assert.doesNotMatch(JSON.stringify(MCP_ENTRY.points), /secret|plan\.md/);
+});
+
+test("the time no step covered is its own point, so a request's steps add up to its whole", async () => {
+  const time = clock();
+  const MCP_ENTRY = dataset();
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: time.now });
+  await mcp.step("session", async () => time.tick(30));
+  time.tick(40); // between steps: nothing timed
+  await mcp.step("answer", async () => {
+    // A step inside another covers nothing new.
+    await mcp.step("obj:ws.write.move", async () => time.tick(20));
+    time.tick(10);
+  });
+  time.tick(5);
+  mcp.done(new Response("{}"));
+  const byName = Object.fromEntries(MCP_ENTRY.points.map((p) => [p.blobs[2], p.doubles[0]]));
+  assert.equal(byName.to_response, 105);
+  assert.equal(byName.uncovered, 45);
+});
+
+test("a request whose steps cover it all writes no uncovered point", async () => {
+  const time = clock();
+  const MCP_ENTRY = dataset();
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: time.now });
+  // Two steps at once, overlapping: their union is the whole request.
+  await Promise.all([mcp.step("a", async () => time.tick(10)), mcp.step("b", async () => {})]);
+  mcp.done(new Response("{}"));
+  assert.equal(MCP_ENTRY.points.some((p) => p.blobs[2] === "uncovered"), false);
 });

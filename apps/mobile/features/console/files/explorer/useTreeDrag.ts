@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { ListingSort } from "@context/shared/src/listingSort.cjs";
 import type { FileBrowser } from "../browser";
 import { canDrop as verdictFor, type DragModifier, type DragSource } from "../dnd";
 import type { TreeDragHandlers } from "../FileTree";
@@ -26,7 +27,7 @@ export interface TreeDropAt {
  */
 export function useTreeDrag({
   files,
-  descending,
+  workspaceSort,
   contextLabel,
   pickedRows,
   shown,
@@ -34,7 +35,7 @@ export function useTreeDrag({
   refuse,
 }: {
   files: FileBrowser;
-  descending: boolean;
+  workspaceSort: ListingSort | null;
   contextLabel: string;
   pickedRows: readonly TreeRow[];
   shown: { paths: ReadonlySet<string> };
@@ -58,8 +59,9 @@ export function useTreeDrag({
       const copying = modifiers.includes("copy");
       // A copy is always into a folder: there is no copy to a place.
       const orderable = files.placeFolder !== undefined && source.paths.length === 1 && !copying;
-      const zone = dropZoneAt(at, { kind: "folder", expanded: files.expanded.has(path) }, orderable);
-      const plan = planTreeDrop({ paths: source.paths, target: path, zone, listings: files.listings, descending, copying });
+      const kind = findEntry(files.listings, path)?.kind ?? "folder";
+      const zone = dropZoneAt(at, { kind, expanded: files.expanded.has(path) }, orderable);
+      const plan = planTreeDrop({ paths: source.paths, target: path, zone, listings: files.listings, workspaceSort, copying });
       return { zone, plan };
     };
 
@@ -108,7 +110,8 @@ export function useTreeDrag({
 
     return {
       canDrag: (row) => !row.readOnly && row.kind !== "loading" && row.kind !== "empty",
-      canDrop: (row) => row.kind === "folder",
+      // A folder takes a drop into it; a note, one beside it, where rows can be put in order.
+      canDrop: (row) => row.kind === "folder" || (row.kind === "file" && files.placeFolder !== undefined && !row.readOnly),
       onDragStart: (path) => {
         /*
           Picking up one of several picked rows picks up all of them, the way
@@ -159,7 +162,7 @@ export function useTreeDrag({
         }
       },
     };
-  }, [descending, drag, files, pickedRows, refuse, setPicked, shown]);
+  }, [workspaceSort, drag, files, pickedRows, refuse, setPicked, shown]);
 
   return { dragHandlers, dropTarget };
 }

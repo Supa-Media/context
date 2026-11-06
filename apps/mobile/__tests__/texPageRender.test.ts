@@ -21,6 +21,12 @@
  *  4. The chat picker's list drawn inside the header again (as first written,
  *     painted under the tiles on the web) → "the chat picker switches the
  *     whole page to the group" fails.
+ *
+ * Applied, run, named test seen failing, reverted (2026-11-04):
+ *  5. "Open full history" going to the History page without the hub's
+ *     filters → "the hub's history opens the full page with its filters" fails.
+ *  6. Tex's cloud's heading made a link like a machine's → "a connected
+ *     machine's heading opens its settings; Tex's cloud's does not" fails.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -32,6 +38,7 @@ jest.mock("../features/tex/history/useSeesTurnTiming", () => ({ useSeesTurnTimin
 jest.mock("expo-router", () => ({ Redirect: () => null, Stack: () => null, router: { push: () => {} }, useLocalSearchParams: () => ({}) }));
 
 import { TexPageBody, type Place } from "../features/tex/page/TexPageBody";
+import { machineFixtureSource } from "../features/tex/page/texMachineFixture";
 import { fixtureNow, fixtureSource } from "../features/tex/page/texPageFixture";
 import type { TexPageSource } from "../features/tex/page/texPageSource";
 import type { LedgerQuery, PageAction } from "../features/tex/page/texPageTypes";
@@ -85,9 +92,9 @@ describe("the Tex page", () => {
     for (const words of [
       "Working on 2 jobs · 1 needs you",
       "3 on · next 8:00",
-      "Tex's thinking",
-      "Not sure on my own",
-      "Show all 6 from today",
+      "History",
+      "Standup at 10 and the dentist at 3.",
+      "Open full history ›",
       "Minions · 2 of 3 busy",
       "3 steps didn't work",
       "Needs your sign-in code",
@@ -110,8 +117,35 @@ describe("the Tex page", () => {
     await press("tex-chat-picker-option-g-team");
     expect(text()).toContain("Tex in Team Night");
     expect(text()).toContain("5 people · working on 1 job");
-    expect(text()).toContain("Stayed quiet");
+    expect(text()).toContain("I'll bring snacks to standup");
     expect(text()).not.toContain("maritime");
+  });
+
+  test("the hub's history opens the full page with its filters", async () => {
+    await render(fixtureSource());
+    expect(byTestId("tex-history-mini-box")).not.toBeNull();
+    // The same lines as the History page, thinking off until asked for.
+    expect(text()).not.toContain("Look at today's calendar");
+    await press("tex-history-show-thinking");
+    expect(text()).toContain("Look at today's calendar");
+    expect(text()).toContain("2 tool calls");
+    await press("tex-history-show-tools");
+    expect(text()).not.toContain("2 tool calls");
+    await press("tex-history-open-full");
+    expect(byTestId("tex-history")).not.toBeNull();
+    expect(byTestId("tex-history-mini-box")).toBeNull();
+    // Thinking still on, tool calls still off.
+    expect(text()).toContain("Look at today's calendar");
+    expect(text()).not.toContain("2 tool calls");
+  });
+
+  test("a connected machine's heading opens its settings; Tex's cloud's does not", async () => {
+    await render(machineFixtureSource("full"));
+    expect(byTestId("tex-pool-settings-cloud")).toBeNull();
+    expect(byTestId("tex-pool-settings-m-mbp")?.textContent).toContain("Settings ›");
+    await press("tex-pool-settings-m-mbp");
+    expect(byTestId("tex-pool")).toBeNull();
+    expect(text()).toContain("Your machines");
   });
 
   test("a chat that is not yours shows nothing of it", async () => {

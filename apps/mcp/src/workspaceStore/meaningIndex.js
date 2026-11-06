@@ -68,6 +68,11 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ws_meaning_meta (name TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 ];
 
+/** The model refused this input itself, every shorter way, while it still takes a plain one (`embed.js`). */
+function isRefusedInput(error) {
+  return error?.code === "REFUSED" && error?.operation === "embed" && error?.probeStatus === "accepted";
+}
+
 export class MeaningAskRefused extends Error {
   constructor(message) {
     super(message);
@@ -231,6 +236,28 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
 
   let running = false;
 
+  /**
+   * A round's passages a note at a time, for when the whole round was refused: `{vectors, refused}`, the vectors of
+   * every note the model took in the round's order, and the rows it refused. A failure that is not a refusal of the
+   * note's own text puts the round back and is thrown, as a whole-round failure is.
+   */
+  const embedEach = async (round) => {
+    const vectors = [];
+    const refused = new Set();
+    for (const entry of round) {
+      try {
+        vectors.push(...(await embedAll(entry.texts)));
+      } catch (error) {
+        if (!isRefusedInput(error)) {
+          for (const again of round) log.again(again.rowId);
+          throw error;
+        }
+        refused.add(entry.rowId);
+      }
+    }
+    return { vectors, refused };
+  };
+
   /** `texts`' fingerprints in order, `EMBED_BATCH` a model call and `EMBED_PARALLEL` calls at once. */
   const embedAll = async (texts) => {
     const groups = [];
@@ -309,15 +336,28 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       // Every row of the round in one go: its passages asked of the model `EMBED_PARALLEL` calls at a time, not a
       // note at a time one after another (2026-11-03: about 130 ms a call made a 512-passage build take a minute).
       let vectors;
+      let refused = null;
       try {
         vectors = await embedAll(round.flatMap((entry) => entry.texts));
       } catch (error) {
-        // The model failed: the round waits for the next build.
-        for (const entry of round) log.again(entry.rowId);
-        throw error;
+        if (!isRefusedInput(error)) {
+          // The model failed: the round waits for the next build.
+          for (const entry of round) log.again(entry.rowId);
+          throw error;
+        }
+        // One passage the model refuses every way (`embed.js` `withInputFallback`) must not hold every other note
+        // back (2026-11-04: @seyi's index never finished its first build, and its Vectorize catch-up failed on the
+        // same refusal). The round is embedded a note at a time; a note refused even so is kept with no passages,
+        // under its etag, so it is not asked again until its text changes.
+        ({ vectors, refused } = await embedEach(round));
       }
       let at = 0;
       for (const { rowId, want, texts } of round) {
+        if (refused?.has(rowId)) {
+          const now = wantFor(rowId, parsed, overrides);
+          if (now !== null && now.etag === want.etag && now.path === want.path) keep(rowId, want, []);
+          continue;
+        }
         const mine = vectors.slice(at, (at += texts.length));
         // Written only if the row is still what was embedded; otherwise its change is already on the log.
         const now = wantFor(rowId, parsed, overrides);

@@ -42,6 +42,13 @@ export function createPrivacyMethods({ post }) {
          * People added to one row's list (`set_visibility`'s `people`), each `{handle|email, role}`.
          * Adds, never replaces; owner only. Answers the control plane's own answer, as `setAccess` does.
          */
+        /**
+         * Handles to who holds them (`gatewayHandles.ts`), for the workspace object's cache of names: read only,
+         * owner only. `{ok: true, resolved: [{handle, grantee: {kind, id} | null}]}`.
+         */
+        async resolveHandles(handles) {
+          return await post("/gateway/privacy", { ...credential, expectedWorkspaceId, op: "resolveHandles", handles }, { timeoutMs: CONTROL_PLANE_WRITE_TIMEOUT_MS });
+        },
         async addGrantees(change) {
           return await post("/gateway/privacy", {
             ...credential,

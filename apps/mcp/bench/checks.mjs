@@ -26,6 +26,18 @@
  *   - must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am
  *                                    a note written at that path (a folder when
  *                                    it ends in `/`), with that front matter
+ *   - must link: site=snipcutapp.example
+ *                                    a link Tex texted whose query carries that
+ *                                    key=value (a vault link's `site`, which
+ *                                    is where the login will fill)
+ *   - must start: 2+ jobs on one note's mail
+ *                                    background jobs the turns started (with
+ *                                    `background: on`): `a job` is one or more,
+ *                                    `N+ jobs` N or more, `N jobs` exactly N;
+ *                                    `on one note's mail` needs every one joined
+ *                                    to the same note's mail (a split ask), and
+ *                                    `on a computer` or `in the cloud` counts only
+ *                                    the jobs that ran there
  *   - must file: tomas/1-projects/kitchen/overview.md under tomas/4-archive/
  *                                    where the note that was at that path is
  *                                    after the run (housekeeping moves notes,
@@ -41,7 +53,7 @@
 
 import { cadenceFromFolder, parseTime, parseWeekdays } from "../../../packages/shared/src/routines.cjs";
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach):\s*(.+)$/;
+const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach|start|link):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
@@ -50,10 +62,35 @@ export function readCheck(line) {
   // A malformed write line fails when the test is read, not as a failed check.
   if (m[2] === "write") writeTarget(m[3].trim());
   if (m[2] === "file") fileTarget(m[3].trim());
+  if (m[2] === "start") startTarget(m[3].trim());
   return { kind: m[1], what: m[2], value: m[3].trim(), line: `${m[2]} ${m[3].trim()}` };
 }
 
 const called = (tools, name) => tools.some((label) => label === name || label === `${name} (held for OK)`);
+
+/**
+ * Whether a link Tex texted carries `key=value` in its query (2026-11-03: a theCut login's vault link said
+ * site=thecut.com, the magazine, so it could never fill on thecut.co, the barber app). Matched on the parsed
+ * query, so `site=snipcut.example` is never satisfied by `site=snipcut.example.com` or `site=snipcutapp.example`.
+ */
+function linked(conversation, value) {
+  const at = value.indexOf("=");
+  if (at <= 0) return false;
+  const key = value.slice(0, at).trim();
+  const want = value.slice(at + 1).trim().toLowerCase();
+  for (const turn of conversation) {
+    if (turn?.from !== "assistant") continue;
+    for (const url of String(turn.text ?? "").match(/https?:\/\/[^\s<>()"']+/g) ?? []) {
+      try {
+        const got = new URL(url.replace(/[.,;:!?]+$/, "")).searchParams.get(key);
+        if (got !== null && got.trim().toLowerCase() === want) return true;
+      } catch {
+        // Not a URL after all.
+      }
+    }
+  }
+  return false;
+}
 
 /** Whether the answer did what the check names. */
 function happened(check, answer) {
@@ -62,6 +99,8 @@ function happened(check, answer) {
   switch (check.what) {
     case "call":
       return called(answer.tools ?? [], check.value);
+    case "link":
+      return linked(answer.conversation ?? [], check.value);
     case "reach":
       return events.some((event) => /^(open|read) /.test(event) && event.slice(5).toLowerCase().startsWith(value));
     case "hand off":
@@ -86,9 +125,29 @@ function happened(check, answer) {
       return wrote(check.value, answer.changes ?? []);
     case "file":
       return filed(check.value, answer.where ?? {});
+    case "start":
+      return startedAsNamed(startTarget(check.value), answer.jobs ?? []);
     default:
       return false;
   }
+}
+
+/** A `start` check's target: `{ least, exact, shared }`; a line that isn't one throws when the test is read. */
+export function startTarget(value) {
+  const m = value.match(/^(a|\d+)(\+)? jobs?( on one note's mail)?( on a computer| in the cloud)?$/);
+  if (!m) throw new Error(`start check: "${value}" is not "a job", "N jobs" or "N+ jobs", optionally "on one note's mail", then "on a computer" or "in the cloud"`);
+  const n = m[1] === "a" ? 1 : Number(m[1]);
+  return { n, atLeast: m[1] === "a" || m[2] === "+", shared: Boolean(m[3]), where: m[4] === " on a computer" ? "computer" : m[4] === " in the cloud" ? "cloud" : null };
+}
+
+/** Whether the jobs started match: their count, and with `shared`, one note's mail joined by every one. */
+function startedAsNamed({ n, atLeast, shared, where = null }, all) {
+  // Only the jobs that ran where the check names count: on one of their computers, or in the cloud.
+  const jobs = where === null ? all : all.filter((job) => (where === "computer" ? Boolean(job.on) : !job.on));
+  if (atLeast ? jobs.length < n : jobs.length !== n) return false;
+  if (!shared) return true;
+  const notes = new Set(jobs.map((job) => job.mail ?? null));
+  return notes.size === 1 && !notes.has(null) && new Set(jobs.map((job) => job.name)).size === jobs.length;
 }
 
 /**

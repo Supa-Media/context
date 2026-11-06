@@ -77,7 +77,7 @@ export const PREFETCH_CONFIDENCE = 0.6;
  * per page), so one slow page comes back as "could not be opened" and the
  * others in the same call still return. The tool's own limit covers a call's
  * pages, opened together, then the one link guessed after them
- * (`texTurn.js` `toolTimeouts`; a quick turn's tool budget still cuts it).
+ * (`texEntryPoint.js` `toolTimeouts`; a quick turn's tool budget still cuts it).
  */
 export const PAGE_OPEN_MS = 60_000;
 export const OPEN_PAGE_TIMEOUT_MS = 2 * PAGE_OPEN_MS + 15_000;
@@ -340,7 +340,7 @@ export function webSession(computer, question, { decide = null, search = null, a
   // person's own words and NOT necessarily the prompt. They are the same thing
   // for a texted question and differ for a routine, whose prompt is framing
   // this gateway wrote and carries the last run's answer — the model's words,
-  // which must never vouch for anything (`texTurn.js`).
+  // which must never vouch for anything (`texEntryPoint.js`).
   const allowed = new OpenableAddresses(addressesIn(addresses));
   // Pages this conversation's earlier answers opened (`sources.js`) open again, as they did then:
   // a later text carries on where the last one was ("Tex try again", 2026-10-24). They vouch for no words.

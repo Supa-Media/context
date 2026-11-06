@@ -21,9 +21,9 @@ import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import { narrowRowForMove, setAccessRow } from "../../functions/lib/nodes/setAccess";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { gatewayPost, errorCode } from "../fixtures.helpers";
-import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "../controlPlane/fixtures.helpers";
+import { ACCESS_A, ACCESS_B, CLIENT_A_SIBLING, bodyOf, seedConnectedClient, token, twoConnectedTenants } from "../controlPlane/fixtures.helpers";
 import { fixture } from "../files/fixtures.helpers";
-import { asUser } from "../fixtures.helpers";
+import { addMember, asUser, createUser } from "../fixtures.helpers";
 import { ADMIN, boundWorkspace, user } from "../noteIds/noteIds.helpers";
 import { parentRows } from "./treeRows.helpers";
 import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
@@ -322,6 +322,34 @@ describe("the gateway's setAccess op", () => {
     expect(await bodyOf(crossed)).toEqual({ ok: false });
     expect(bobWs).toBeDefined();
     expect((await rowAt(t, aliceWs, "1-projects"))?.access).toBeUndefined();
+  });
+});
+
+describe("the gateway's resolveHandles op", () => {
+  test("an owner gets the handles answered; an editor of the same workspace is refused", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    const carol = await createUser(t, "carol@example.invalid");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("names", { name: "carol", kind: "user", userId: carol, claimedBy: carol, claimedAt: Date.now() });
+    });
+    const editor = await createUser(t, "editor@example.invalid");
+    await addMember(t, aliceWs, editor, "editor", alice);
+    const ACCESS_EDITOR = token("tenant_a_editor");
+    await seedConnectedClient(t, { workspaceId: aliceWs, userId: editor, clientId: CLIENT_A_SIBLING, accessToken: ACCESS_EDITOR });
+
+    const handles = ["@carol", "@nobody-holds-this"];
+    expect(
+      await bodyOf(await gatewayPost(t, "/gateway/privacy", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, op: "resolveHandles", handles })),
+    ).toEqual({
+      ok: true,
+      resolved: [
+        { handle: "@carol", grantee: { kind: "user", id: carol } },
+        { handle: "@nobody-holds-this", grantee: null },
+      ],
+    });
+    expect(
+      await bodyOf(await gatewayPost(t, "/gateway/privacy", { accessToken: ACCESS_EDITOR, expectedWorkspaceId: aliceWs, op: "resolveHandles", handles })),
+    ).toEqual({ ok: false });
   });
 });
 

@@ -281,7 +281,7 @@ describe("/tex/<handle>", () => {
     await render({ kind: "notYours", own: "bola" }, computer());
     expect(byTestId("tex-not-yours")).not.toBeNull();
     expect(container.textContent).toContain("isn’t yours");
-    expect(container.textContent).toContain("/tex/bola");
+    expect(container.textContent).toContain("/tex/@bola");
     expect(byTestId("tex-frame")).toBeNull();
     expect(byTestId("tex-toolbar")).toBeNull();
     expect(container.innerHTML).not.toContain("chatgpt.com");

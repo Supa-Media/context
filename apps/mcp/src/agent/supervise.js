@@ -20,7 +20,7 @@
  *     other. A routine's own run is never offered note writes
  *     (`textingWrites.js`); this is narrower than any of them.
  *   - **Delivers to the main loop.** What a run texts is also put in the
- *     texting conversation (`texTurn.js`), so the person's next text to Tex
+ *     texting conversation (`texEntryPoint.js`), so the person's next text to Tex
  *     carries it, and a finished job's note is marked done and its line taken
  *     out of `tex/jobs.md`.
  *
@@ -32,6 +32,7 @@
 import mail from "../../../../packages/shared/src/mail.cjs";
 import routines from "../../../../packages/shared/src/routines.cjs";
 import { AGENTS } from "./delegate.js";
+import { SAY_NOTHING } from "./sayNothing.js";
 import { JOBS_PATH } from "./jobs.js";
 import { appendConversation } from "./conversation.js";
 
@@ -178,10 +179,10 @@ export async function superviseRun(callTool, task, { now = Date.now(), runs = []
       `If it is drifting from the brief, mail it back on track in one or two lines. If it needs something only ${handle} can give ` +
       "(a decision, a sign-in, a payment, an approval), say exactly that in one short text, and nothing else. " +
       `If it says the work is done and the Result section shows it, start your answer with DONE: and give ${handle} the result ` +
-      "in two or three short texts with its links. Otherwise mail nothing you don't need to, and answer exactly SKIP.",
+      `in two or three short texts with its links. Otherwise mail nothing you don't need to, and ${SAY_NOTHING}.`,
     chase:
       `${task.label} has been quiet for a while. Mail it one short line with ${MAIL_AGENT_TOOL}, asking where it is and ` +
-      "reminding it to mail progress and write its result into the note. Then answer exactly SKIP.",
+      `reminding it to mail progress and write its result into the note. Then ${SAY_NOTHING}.`,
     tell:
       `${task.label} hasn't answered ${chases} reminders. Text ${handle} one short line: it seems stuck on "${title}", ` +
       `and they can open it from the runs-on line (${fields["runs-on"] ?? "the task note"}) or ask you to start it again. Mail nothing.`,

@@ -25,6 +25,8 @@ const SCHEMA = [
     role TEXT,
     ord REAL,
     archive_of TEXT,
+    sort TEXT,
+    created INTEGER,
     at INTEGER NOT NULL,
     gone INTEGER NOT NULL DEFAULT 0,
     own_at INTEGER NOT NULL DEFAULT 0,
@@ -49,6 +51,16 @@ export const ENCRYPTION_STATES = new Set(["none", "keyed"]);
 /** The fields a row's digest covers, in order. */
 const DIGEST_FIELDS = ["id", "noteId", "path", "kind", "storageKey", "etag", "size", "collaborates", "uploaded", "role", "order", "archiveOf"];
 
+/**
+ * A row's digest line: its digest fields, then its Sort setting only when it has one, so every row made before the
+ * setting existed keeps the digest it had (`lib/workspaceObjects/rows.ts` builds the same line). `created` is not
+ * digested: it is fixed when the row is made and only ever orders a listing.
+ */
+export function digestLine(row) {
+  const fields = DIGEST_FIELDS.map((field) => row[field] ?? null);
+  return JSON.stringify(typeof row.sort === "string" && row.sort !== "" ? [...fields, row.sort] : fields);
+}
+
 /** Each row field the object may originate, and the column that holds it. */
 const COLUMN = {
   noteId: "note_id",
@@ -62,18 +74,21 @@ const COLUMN = {
   role: "role",
   order: "ord",
   archiveOf: "archive_of",
+  sort: "sort",
+  created: "created",
 };
 
-const UPSERT = `INSERT INTO ws_rows (id, note_id, path, kind, storage_key, etag, size, collaborates, uploaded, role, ord, archive_of, at, own_at, own_fields, gone)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+const UPSERT = `INSERT INTO ws_rows (id, note_id, path, kind, storage_key, etag, size, collaborates, uploaded, role, ord, archive_of, sort, created, at, own_at, own_fields, gone)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
   ON CONFLICT(id) DO UPDATE SET note_id = excluded.note_id, path = excluded.path, kind = excluded.kind, storage_key = excluded.storage_key,
     etag = excluded.etag, size = excluded.size, collaborates = excluded.collaborates, uploaded = excluded.uploaded, role = excluded.role,
-    ord = excluded.ord, archive_of = excluded.archive_of, at = excluded.at, own_at = excluded.own_at, own_fields = excluded.own_fields, gone = 0`;
+    ord = excluded.ord, archive_of = excluded.archive_of, sort = excluded.sort, created = COALESCE(excluded.created, ws_rows.created),
+    at = excluded.at, own_at = excluded.own_at, own_fields = excluded.own_fields, gone = 0`;
 
 /** A row field's value as its column stores it. Every value is a SQLite value, never undefined. */
 function stored(field, value) {
   if (field === "collaborates") return value === true ? 1 : 0;
-  if (field === "size" || field === "uploaded" || field === "order") return Number.isFinite(value) ? value : null;
+  if (field === "size" || field === "uploaded" || field === "order" || field === "created") return Number.isFinite(value) ? value : null;
   return value ?? null;
 }
 
@@ -132,6 +147,8 @@ function rowOut(row) {
     role: row.role ?? null,
     order: row.ord === null || row.ord === undefined ? null : Number(row.ord),
     archiveOf: row.archive_of ?? null,
+    sort: row.sort ?? null,
+    created: row.created === null || row.created === undefined ? null : Number(row.created),
     at: Number(row.at),
   };
 }
@@ -152,6 +169,8 @@ function checkTexts(row) {
   if (row.noteId !== undefined && row.noteId !== null && !text(row.noteId, 64)) throw new WorkspaceRowRefused("not a note id");
   if (row.storageKey !== undefined && row.storageKey !== null && !text(row.storageKey, 1024)) throw new WorkspaceRowRefused("not a storage key");
   for (const field of ["role", "archiveOf"]) if (row[field] !== undefined && row[field] !== null && !text(row[field], 1024)) throw new WorkspaceRowRefused(`not a ${field}`);
+  if (row.sort !== undefined && row.sort !== null && !text(row.sort, 32)) throw new WorkspaceRowRefused("not a sort");
+  if (row.created !== undefined && row.created !== null && !Number.isFinite(row.created)) throw new WorkspaceRowRefused("not a created");
 }
 
 /**
@@ -167,7 +186,7 @@ function checkChange(fields) {
     if (field === "path" && !text(value)) throw new WorkspaceRowRefused("a row needs its path");
     if (field === "kind" && value !== "file" && value !== "folder") throw new WorkspaceRowRefused("a row is a file or a folder");
     if (field === "collaborates" && typeof value !== "boolean") throw new WorkspaceRowRefused("collaborates is true or false");
-    if (["size", "uploaded", "order"].includes(field) && value !== null && !Number.isFinite(value)) throw new WorkspaceRowRefused(`not a ${field}`);
+    if (["size", "uploaded", "order", "created"].includes(field) && value !== null && !Number.isFinite(value)) throw new WorkspaceRowRefused(`not a ${field}`);
     if (field === "etag" && value !== null && !text(value, 1024)) throw new WorkspaceRowRefused("not an etag");
   }
   checkTexts(fields);
@@ -192,6 +211,9 @@ function addOwnershipColumns(sql) {
   const have = new Set(all(sql.exec("SELECT name FROM pragma_table_info('ws_rows')")).map((column) => column.name));
   if (!have.has("own_at")) sql.exec("ALTER TABLE ws_rows ADD COLUMN own_at INTEGER NOT NULL DEFAULT 0");
   if (!have.has("own_fields")) sql.exec("ALTER TABLE ws_rows ADD COLUMN own_fields TEXT");
+  // A folder's Sort setting and when a row was made (owner, 2026-11-04: `listingSort.cjs`).
+  if (!have.has("sort")) sql.exec("ALTER TABLE ws_rows ADD COLUMN sort TEXT");
+  if (!have.has("created")) sql.exec("ALTER TABLE ws_rows ADD COLUMN created INTEGER");
 }
 
 export function workspaceRows(sql) {
@@ -207,7 +229,7 @@ export function workspaceRows(sql) {
    */
   const upsertValues = (id, values, at, ownAt, ownFields) =>
     sql.exec(UPSERT, id, values.note_id, values.path, values.kind, values.storage_key, values.etag, values.size, values.collaborates,
-      values.uploaded, values.role, values.ord, values.archive_of, at, ownAt, ownFields);
+      values.uploaded, values.role, values.ord, values.archive_of, values.sort, values.created, at, ownAt, ownFields);
   const writeRow = (row, held, owned) => {
     const values = storedValues(row);
     if (owned) for (const field of owned) if (Object.hasOwn(COLUMN, field)) values[COLUMN[field]] = held[COLUMN[field]];
@@ -279,7 +301,10 @@ export function workspaceRows(sql) {
       const given = checkChange(fields);
       const checked = checkRow({ ...fields, id, at: now });
       if (heldRow(id) !== null) throw new WorkspaceRowRefused("the row exists");
-      upsertValues(id, storedValues(checked), now, now, JSON.stringify(given.map(([field]) => field)));
+      // A row the object makes is made now, unless it says when (a copy of one made elsewhere).
+      const values = storedValues(checked);
+      if (values.created === null) values.created = now;
+      upsertValues(id, values, now, now, JSON.stringify(given.map(([field]) => field)));
       return rowOut(heldRow(id));
     },
     /** The object's own clock and fields for a row (`ownFields` null when none), or null for no row. */
@@ -346,10 +371,10 @@ export function workspaceRows(sql) {
       // A row the object holds as its own, written back exactly as it was held.
       const keep = (row) =>
         sql.exec(
-          `INSERT INTO ws_rows (id, note_id, path, kind, storage_key, etag, size, collaborates, uploaded, role, ord, archive_of, at, own_at, own_fields, gone)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ws_rows (id, note_id, path, kind, storage_key, etag, size, collaborates, uploaded, role, ord, archive_of, sort, created, at, own_at, own_fields, gone)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           row.id, row.note_id, row.path, row.kind, row.storage_key, row.etag, row.size, row.collaborates, row.uploaded, row.role, row.ord,
-          row.archive_of, row.at, row.own_at, row.own_fields, row.gone,
+          row.archive_of, row.sort ?? null, row.created ?? null, row.at, row.own_at, row.own_fields, row.gone,
         );
       const copied = new Set();
       for (const row of staged) {
@@ -370,7 +395,7 @@ export function workspaceRows(sql) {
     /** Live rows counted, and a SHA-256 over them in id order, so a copy can be compared without pulling every row. */
     async digest() {
       const live = all(sql.exec("SELECT * FROM ws_rows WHERE gone = 0 ORDER BY id")).map(rowOut);
-      const canonical = live.map((row) => JSON.stringify(DIGEST_FIELDS.map((field) => row[field] ?? null))).join("\n");
+      const canonical = live.map(digestLine).join("\n");
       const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
       return { rows: live.length, sha256: Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("") };
     },
