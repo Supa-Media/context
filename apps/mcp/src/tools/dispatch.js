@@ -144,7 +144,7 @@ async function runTool(name, args, store, scope, options = {}) {
       return toolListNotes(store, scope, rules, overrides, args.prefix);
     case "read_note":
       if (args.mail !== undefined) return toolReadMail(store, scope, rules, overrides, args);
-      return toolReadNote(store, scope, rules, overrides, args.path);
+      return toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job });
     case "read_notes":
       return toolReadNotes(store, scope, rules, overrides, args.paths);
     case "evaluate_lists":

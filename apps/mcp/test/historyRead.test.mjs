@@ -8,6 +8,8 @@
  *  - (2026-11-04) `ownHistoryRead` without its `canSee` check → "the owner's team connection reads the chat when the
  *    path is Team, and not otherwise";
  *  - the `trust: untrusted` line dropped → "the answer marks the turn as having read other people's words".
+ *  - (2026-11-06) `before` ignored in `readOwnHistory` → "an older stretch is read by paging back with before";
+ *    `job` not passed to the ledger read → "a job's own entries are read alone".
  */
 
 import assert from "node:assert/strict";
@@ -91,4 +93,36 @@ test("the answer marks the turn as having read other people's words", async () =
   const ledger = newLedger();
   recordRead(ledger, { name: "read_note", args: { path: "tex/history.ledger.json" }, result });
   assert.equal(ledger.untrusted, true);
+});
+
+test("an older stretch is read by paging back with before", async () => {
+  const many = Array.from({ length: 300 }, (_, n) => entry(n + 1, "x".repeat(800)));
+  const store = storeWith(PRIVATE_OWNER, many);
+  const first = JSON.parse(await readOwnHistory(store));
+  assert.equal(Number.isSafeInteger(first.view.before), true, "the answer names where the next page starts");
+  const second = JSON.parse(await readOwnHistory(store, { before: first.view.before }));
+  assert.ok(second.entries.length > 0);
+  assert.equal(second.entries.at(-1).seq, first.view.before - 1, "the page ends right before the first one began");
+  assert.ok(second.entries.every((e) => e.seq < first.view.before));
+  // Through the tool, as a connected AI asks.
+  const answer = await toolReadNote(store, "private", [], new Map(), "tex/history.ledger.json", { before: 3 });
+  const body = JSON.parse(answer.content[0].text.slice(answer.content[0].text.indexOf("{")));
+  assert.deepEqual(body.entries.map((e) => e.id), ["e1", "e2"]);
+  assert.equal(body.view.older, false);
+  assert.equal(body.view.before, undefined, "nothing older: no next page named");
+});
+
+test("a job's own entries are read alone", async () => {
+  const store = storeWith(PRIVATE_OWNER, [
+    entry(1, "split the project"),
+    { id: "j1", kind: "job", at: 1_700_000_000_002, job: "job-1", state: "started" },
+    { id: "t1", kind: "tool", at: 1_700_000_000_003, name: "write", jobId: "job-1", ok: false, reason: "busy" },
+    entry(4, "anything else?"),
+    { id: "t2", kind: "tool", at: 1_700_000_000_005, name: "search_web", jobId: "job-2", ok: true },
+  ]);
+  const body = JSON.parse(await readOwnHistory(store, { job: "job-1" }));
+  assert.deepEqual(body.entries.map((e) => e.id), ["j1", "t1"]);
+  assert.equal(body.view.job, "job-1");
+  // A malformed id is not a filter.
+  assert.equal(JSON.parse(await readOwnHistory(store, { job: "x' OR 1=1" })).entries.length, 5);
 });

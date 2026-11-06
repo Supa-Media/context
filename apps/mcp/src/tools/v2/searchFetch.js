@@ -187,7 +187,7 @@ export function translateFetch(call, app = {}) {
 
   // A chat's history file reads as the note it is, with that note's access.
   if (HISTORY_FILE_ID.test(id)) {
-    return target(label, a, { name: "read_note", action: "note", fixed: { path: id } });
+    return target(label, a, { name: "read_note", action: "note", fixed: { path: id }, copy: ["before", "job"] });
   }
 
   // A message anchor from search (`<note>.md#<anchor>`) is the note itself.

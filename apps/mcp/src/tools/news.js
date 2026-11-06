@@ -40,6 +40,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-06",
+    text:
+      "read_note (and fetch) of tex/history.ledger.json takes `before` (a seq) to page back past the newest entries, and `job` (a " +
+      "background job's id) to read just what that job did. Each answer names the next page as view.before.",
+  },
+  {
     date: "2026-11-05",
     text:
       'search takes args `{ from, to }` (YYYY-MM-DD, at most 14 days): every note line naming each day of that range, across the ' +
@@ -404,7 +410,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "267c7aa1";
+export const TOOL_SHAPE = "7e2038d9";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;
