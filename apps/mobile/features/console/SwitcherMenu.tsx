@@ -121,7 +121,9 @@ export function SwitcherMenu({
   onOpenMeetings?: () => void;
   /**
    * Tex's hub, your own page at `/tex/@<handle>` (Dev2, 2026-11-06: "put some
-   * entrypoint in the settings next to meetings"). A row right after Meetings.
+   * entrypoint in the settings next to meetings"). A row right after Meetings,
+   * only for the owner of a personal workspace, the one person `/tex` has a
+   * page for.
    */
   onOpenTex?: () => void;
   onClaimContext?: () => void;
@@ -298,7 +300,7 @@ export function SwitcherMenu({
     ...(onOpenMeetings
       ? [{ id: "meetings", label: "Meetings", leading: <Icon name="calendar" size={14} />, testID: "switcher-meetings" }]
       : []),
-    ...(onOpenTex
+    ...(onOpenTex && data.contexts.some(isOwnWorkspace)
       ? [{ id: "tex", label: "Tex", leading: <Icon name="chat" size={14} />, testID: "switcher-tex" }]
       : []),
     /*
