@@ -22,6 +22,7 @@
  *     → "a chat's own turn is never checked; an unreachable advisor falls back to the phrase check" fails.
  */
 
+import { withArchitecture } from "../src/agent/texArchitecture.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -95,7 +96,7 @@ test("a chat's own turn is never checked; an unreachable advisor falls back to t
   const checked = await jobTurnFields(JOB, turn, { unfinished: false, model: "m", efforts: { m: "low" }, request, meter });
   assert.deepEqual(checked, { verdict: "keep_going", advice: "Sign in with the email link.", unfinished: true });
   assert.equal(asked.length, 1);
-  assert.equal(asked[0].system, JOB_CHECK_PROMPT);
+  assert.equal(asked[0].system, withArchitecture(JOB_CHECK_PROMPT, "jobCheck"), "the drawing, then its own prompt");
   assert.equal(asked[0].effort, "low");
   assert.deepEqual(asked[0].tools, []);
   assert.deepEqual(metered, [{ usage: { input: 10, output: 5 }, failed: false, model: "m" }]);

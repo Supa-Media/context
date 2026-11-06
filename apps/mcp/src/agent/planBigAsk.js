@@ -24,6 +24,7 @@
  */
 
 import { advisorThinking } from "./advisor.js";
+import { withArchitecture } from "./texArchitecture.js";
 
 export const PLAN_TOOL = "plan_big_ask";
 /** A part's name in the overview's mail: the mail's own name rule (`packages/shared/src/mail.cjs`). */
@@ -208,7 +209,7 @@ export function planCall({ model, effort, request, meter = async () => {}, histo
       `Their computers: ${computers.length === 0 ? "none (every part runs in the cloud)" : computers.map((each) => `${each.name}${each.online ? "" : " (offline)"} (${(each.tools ?? []).join(", ") || "no coding tool"}${Number.isSafeInteger(each.slots) ? `, ${each.slots} slots, ${freeOn(each)} free` : ""})`).join("; ")}.`;
     let answer;
     try {
-      answer = await request({ model, system: PLANNER_PROMPT, messages: [{ role: "user", text: brief }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
+      answer = await request({ model, system: withArchitecture(PLANNER_PROMPT, "planner"), messages: [{ role: "user", text: brief }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
     } catch {
       await meter(null, true, model, false);
       return text("Your advisor couldn't plan it. Start one background job for the whole ask instead.", true);

@@ -41,6 +41,7 @@ import { requestViaGateway, aiGatewayConfig } from "./aiGateway.js";
 import { readConversation } from "./conversation.js";
 import { groupMemoryPath, groupOf, readGroupMemory } from "./groupTurn.js";
 import { json } from "../http/responses.js";
+import { withArchitecture } from "./texArchitecture.js";
 
 export const SELF_REVIEW_MODEL = "anthropic/claude-haiku-5-5";
 export const SCORE_KEYS = ["goal", "independence", "turns", "friendly", "calm"];
@@ -228,7 +229,7 @@ export async function scoreConversation({ transcript, words, config, request = r
     reply = await request(
       {
         model: SELF_REVIEW_MODEL,
-        system: words ? SYSTEM_FULL : SYSTEM_SCORES,
+        system: withArchitecture(words ? SYSTEM_FULL : SYSTEM_SCORES, "selfReview"),
         messages: [{ role: "user", text: `CONVERSATION\n\n${transcript}` }],
         tools: [],
         maxTokens: words ? REVIEW_MAX_TOKENS.full : REVIEW_MAX_TOKENS.scores,

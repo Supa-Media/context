@@ -30,6 +30,7 @@
 
 import { advisorThinking } from "./advisor.js";
 import { withoutTag } from "./promptFence.js";
+import { withArchitecture } from "./texArchitecture.js";
 
 export const VERDICTS = ["done", "keep_going", "waiting", "stuck"];
 const MAX_ADVICE = 600;
@@ -118,7 +119,7 @@ export async function checkJob({ job, live, answer, exhausted = false, model, ef
   try {
     reply = await request({
       model,
-      system: JOB_CHECK_PROMPT,
+      system: withArchitecture(JOB_CHECK_PROMPT, "jobCheck"),
       messages: [{ role: "user", text: jobCheckBrief({ job, messages: live?.messages, answer, exhausted }) }],
       tools: [],
       display: "summarized", // its thinking in words, for the chat's history only (`workEntries.js` `jobChecked`)

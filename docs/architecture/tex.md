@@ -179,9 +179,17 @@ What each model costs is `jev/meter.ts`.
      `Tex diagram: unchanged because <reason>` (a fix inside a file that
      leaves the shape as drawn).
 
+3. **Every Tex agent reads sections 1 to 3.** They are generated into
+   `apps/mcp/src/agent/texArchitecture.generated.js` and put ahead of each
+   agent's own prompt with one line naming its box (`texArchitecture.js`).
+   After redrawing, run `node scripts/tex-architecture-module.mjs`; CI fails
+   while the module is stale, and fails any file under `apps/mcp/src/agent/`
+   that gives a model a system prompt without `withArchitecture`.
+
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-06: every Tex agent reads this drawing: sections 1 to 3 go ahead of each one's own prompt (front door for 1:1, group and job turns, computer jobs, advisor, advisor on the mail, job check, reviewer, hand-back judge, mail checker, card check, self-review, day summaries, big-ask planner), with one line naming the box it is (`texArchitecture.js`, generated into `texArchitecture.generated.js` by `scripts/tex-architecture-module.mjs`).
 - 2026-11-06: the reviewer's rubric is tuned on the bench to 98-99% of faults caught with 2-4% false alarms: a joke that says Tex sent something is a claim, every sum is worked out, a figure must come from what was read, and a page or card is told in a line (`replyJudge.js`).
 - 2026-11-06: day summaries reach back through the whole chat, newest first, twenty a night, quiet nights included (`daySummaries.js`, `dream.js`).
 - 2026-11-06: after the dream, each finished day of the last week with no summary is summed up by Haiku into a `day` ledger entry; a turn whose chat runs past what it reads opens its history with the summaries of the days before every text it shows (`daySummaries.js`, `dream.js`, `ledgerHistory.js`, `loggedTurn.js`).

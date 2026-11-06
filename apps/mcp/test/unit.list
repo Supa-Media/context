@@ -480,3 +480,4 @@ test/texPromptNames.test.mjs
 test/texCalendarCache.test.mjs
 test/texDaySummaries.test.mjs
 test/texFadedHistory.test.mjs
+test/texArchitecture.test.mjs

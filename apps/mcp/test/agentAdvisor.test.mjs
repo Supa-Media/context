@@ -18,6 +18,7 @@
  *    fails, and a page's own words reach the advisor as the brief's.
  */
 
+import { withArchitecture } from "../src/agent/texArchitecture.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -65,7 +66,7 @@ test("without a live turn it reads the earlier texts and the question, holds no 
   assert.equal(result.isError, undefined);
   const [params] = asked;
   assert.equal(params.model, OPUS);
-  assert.equal(params.system, ADVISOR_PROMPT);
+  assert.equal(params.system, withArchitecture(ADVISOR_PROMPT, "advisor"), "the drawing, then its own prompt");
   assert.deepEqual(params.tools, [], "holds no tools");
   assert.equal(params.effort, "high");
   assert.deepEqual(params.messages.map((message) => message.role), ["user"], "one text holding the whole turn");

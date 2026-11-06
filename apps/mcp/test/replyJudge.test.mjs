@@ -14,6 +14,7 @@
  *  4. `report` left out of `judgeState` → "a job's report is in what the reviewer reads…".
  */
 
+import { withArchitecture } from "../src/agent/texArchitecture.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -102,7 +103,7 @@ test("one Haiku review reads the whole turn, and a draft it sends back goes to T
   assert.equal(review.asked.length, 2, "one call per draft, not one per check");
   const first = review.asked[0].call;
   assert.equal(first.model, REVIEW_MODEL);
-  assert.equal(first.system, REVIEW_SYSTEM);
+  assert.equal(first.system, withArchitecture(REVIEW_SYSTEM, "reviewer"), "the drawing, then its own prompt");
   assert.deepEqual(first.tools, []);
   assert.ok(first.messages[0].text.includes("The reply about to be sent: Thanks, that helps."));
   assert.ok(first.messages[0].text.includes("nothing: no searches"), "a reply with no actions says so");

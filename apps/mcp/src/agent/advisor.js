@@ -30,6 +30,7 @@
 
 import { requestBuiltin } from "./builtin.js";
 import { withoutTag } from "./promptFence.js";
+import { withArchitecture } from "./texArchitecture.js";
 
 export const ADVISOR_TOOL = "ask_advisor";
 export const MAX_ASKS = 10;
@@ -115,7 +116,7 @@ export function advisorTools({ model, effort, history, question, request, meter 
     try {
       // `display: "summarized"`: its thinking comes back in words, kept with its answer in the chat's
       // history (Dev, 2026-11-02: "'Its private reasoning isn't kept.' - why?"). It never goes to Tex.
-      answer = await request({ model, system: ADVISOR_PROMPT, messages: [{ role: "user", text: advisorBrief(live, transcript) }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
+      answer = await request({ model, system: withArchitecture(ADVISOR_PROMPT, "advisor"), messages: [{ role: "user", text: advisorBrief(live, transcript) }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
     } catch {
       await meter(null, true, model, false);
       return text("Your advisor couldn't be reached. Answer with what you have.", true);
