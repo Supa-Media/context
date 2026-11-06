@@ -36,8 +36,7 @@ export function communicationsToolDefinitions() {
       title: "Read calendar",
       description:
         "Read what is on the user's calendar for a day or a run of days. " +
-        "It asks their connected Google calendars at that moment; nothing of a calendar is copied " +
-        "into their notes. Reach for this first whenever a question turns on a date: what they have on Friday, whether they " +
+        "It asks their connected Google calendars at that moment. Reach for this first whenever a question turns on a date: what they have on Friday, whether they " +
         "are free next week, when something is. It says plainly when no calendar is connected or " +
         "Google did not answer.",
       inputSchema: {

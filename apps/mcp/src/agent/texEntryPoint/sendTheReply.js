@@ -20,7 +20,8 @@ import { afterTextedTurn } from "../reflect.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "../replyChecks.js";
 import { reviewAfterTurn } from "../selfReview.js";
 import { steeredLine } from "../steer.js";
-import { learnDeskKeys } from "../texDesk.js";
+import { deskEligible, learnDeskKeys } from "../texDesk.js";
+import { changedCalendar, refreshCalendarCache } from "../calendarCache.js";
 import { answerWithAsk, textedAsk } from "../textedApprovals.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { groupTimingLine, waitBefore } from "../turnLog.js";
@@ -80,6 +81,8 @@ export async function sendTheReply(t) {
     }
   })());
 
+  // Their next 7 days, read again behind the reply when the copy is stale or this turn changed the calendar (`calendarCache.js`).
+  if (job === null && group === null && conversation === "texts" && deskEligible(store)) await tex.after("calendar_copy", () => refreshCalendarCache(dispatch, { timeZone, force: changedCalendar(turn.steps) }));
   // "fix this" or frustration scores the conversation now (`selfReview.js`); quiet ends do it from the Worker.
   if (!turn.exhausted) await tex.after("self_review", () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
   return json({
