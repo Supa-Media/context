@@ -2,19 +2,17 @@
 /**
  * THE ADVISOR-FIRST COMPARISON (Dev2, 2026-11-06: "bench first, then a flagged build").
  *
- * Four setups answer `tests/advisor.md` (single texts, and case 6, a stretch
+ * Three setups answer `tests/advisor.md` (single texts, and case 6, a stretch
  * of five), each from the live setup with only its models and flags changed:
  *
  *   advisor-a-router     today's router: a text it flags runs whole on `think` (Opus)
  *   advisor-b-first      `advisor_first: on`: every text on `main` (Haiku), Opus only as the advisor
  *   advisor-c-rung       b plus `effort_rung: high`: a flagged or sent-back text thinks harder on Haiku
- *   advisor-d-thinking   b, run from the branch that keeps thinking across a model switch
- *                        (`fix/tex-keep-turn-thinking`, PR #2877); on this branch it is b
  *
  * `node bench/advisorBench.mjs setups --dir <folder>` writes them into
  * `<folder>/setups/texting-assistant/` from the `production.md` that
  * `pnpm ai pull texting-assistant` put there. The setups folder is never
- * committed (`.gitignore`), so the four are made from the live setup each
+ * committed (`.gitignore`), so the three are made from the live setup each
  * time instead of copied. The result note's "Advisor first" lines
  * (`advisorLines`, called by `report.mjs`) are what the comparison reads.
  */
@@ -35,7 +33,6 @@ export const ADVISOR_SETUPS = Object.freeze({
   "advisor-a-router": { models: { router: ROUTER_MODEL, think: OPUS }, top: {} },
   "advisor-b-first": { models: { router: ROUTER_MODEL, think: OPUS }, top: { advisor_first: "on" } },
   "advisor-c-rung": { models: { router: ROUTER_MODEL, think: OPUS }, top: { advisor_first: "on", effort_rung: "high" } },
-  "advisor-d-thinking": { models: { router: ROUTER_MODEL, think: OPUS }, top: { advisor_first: "on" } },
 });
 
 /**
@@ -59,7 +56,7 @@ export function withChanges(raw, { models, top }) {
   return `---\n${front.join("\n")}\n---${raw.slice(match[0].length)}`;
 }
 
-/** Writes the four setups beside `production.md`; refuses one the product would refuse. */
+/** Writes the three setups beside `production.md`; refuses one the product would refuse. */
 export async function writeAdvisorSetups(dir) {
   const folder = join(dir, "setups", JOB);
   const live = await readFile(join(folder, "production.md"), "utf8");

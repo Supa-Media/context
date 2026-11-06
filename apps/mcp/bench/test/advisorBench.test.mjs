@@ -1,5 +1,5 @@
 /**
- * The advisor-first comparison (`bench/advisorBench.mjs`): the four setups are
+ * The advisor-first comparison (`bench/advisorBench.mjs`): the three setups are
  * the live one with only their models and flags changed, each one the product
  * accepts, and the result note's lines count what the comparison reads.
  *

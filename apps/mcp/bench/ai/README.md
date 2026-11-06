@@ -67,14 +67,12 @@ this folder: it is public, like the rest of the repository.
   lines (`bench/checks.mjs`), not by the judge. Run it with `--test advisor`.
   Case 6 (2026-11-06) is a stretch of five texts in one chat.
 
-  The advisor-first comparison (Dev2, 2026-11-06) runs it against four
+  The advisor-first comparison (Dev2, 2026-11-06) runs it against three
   setups made from the live one (`bench/advisorBench.mjs`): a, today's router
   (a flagged text runs whole on Opus); b, `advisor_first: on` (every text on
-  Haiku, Opus only as the advisor); c, b with `effort_rung: high`; d, b run
-  from a checkout of the branch that keeps thinking across a model switch
-  (`fix/tex-keep-turn-thinking`). Every case is still `drafted`, so a person
-  checks the cases and removes their `- drafted:` lines first; until then a
-  run skips them all. From the repository root:
+  Haiku, Opus only as the advisor); c, b with `effort_rung: high`. Every
+  case is still `drafted`, so a person checks the cases and removes their
+  `- drafted:` lines first; until then a run skips them all. From the repository root:
 
       pnpm ai pull texting-assistant
       node apps/mcp/bench/advisorBench.mjs setups --dir apps/mcp/bench/ai
@@ -82,8 +80,7 @@ this folder: it is public, like the rest of the repository.
       pnpm ai judge "<the result file it names>"
       pnpm ai score "<the result file>"
 
-  and, for d, the same `run` with `--setups advisor-d-thinking` from a
-  worktree of that branch with the setup files copied in. Add `--fake` to
+  Add `--fake` to
   check the plumbing for nothing. A real run needs the Claude keys
   (`AI_GATEWAY_ACCOUNT_ID`, `AI_GATEWAY_ID` and `AI_GATEWAY_TOKEN`, with
   `ANTHROPIC_CREDIT_KEY` or `ANTHROPIC_API_KEY`; or `ANTHROPIC_API_KEY`
