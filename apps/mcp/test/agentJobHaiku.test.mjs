@@ -13,6 +13,7 @@
  * 1. `runTheModel` offering the advisor only when `job === null`: "a job's turn ... is offered the advisor" fails.
  * 2. `jobAdvisorLine` always "": "...and told when to ask it" fails.
  * 3. `jobAdvisorLine` ignoring `job`: "an ordinary text is never told the job line" fails.
+ * 4. (2026-11-06) `turnEfforts` ignoring `job_effort`: "a job's turn thinks as models.job_effort says" fails.
  */
 
 import assert from "node:assert/strict";
@@ -20,7 +21,7 @@ import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
 import { JOB_ADVISOR_LINE } from "../src/agent/advisor.js";
-import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
+import { PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
@@ -220,4 +221,21 @@ test("what Tex texts about a job's report is read by the report gates, never the
   } finally {
     delete env.AI;
   }
+});
+
+test("a job's turn thinks as models.job_effort says; an ordinary text keeps effort (Dev2, 2026-11-06: Haiku, reasoning high)", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: SETUP.replace("  effort: medium", "  effort: medium\n  job_effort: high"), etag: "s2" });
+  script.push({ content: [{ type: "text", text: "Submitted it." }], stop_reason: "end_turn" });
+  assert.equal((await ask(TOKEN_GUEST, { job: JOB })).status, 200);
+  const [jobRound] = turnCalls();
+  assert.equal(modelOf(jobRound), HAIKU);
+  assert.deepEqual(jobRound.body.output_config, { effort: "high" });
+  gatewayCalls.length = 0;
+  assert.equal((await ask(TOKEN_GUEST, { question: "what's on tomorrow" })).status, 200);
+  assert.deepEqual(turnCalls()[0].body.output_config, { effort: "medium" });
+});
+
+test("a job_effort that is not an effort refuses the setup, as every other effort does", async () => {
+  assert.equal((await parseSetup(SETUP.replace("  effort: medium", "  effort: medium\n  job_effort: high")))?.jobEffort, "high");
+  assert.equal(await parseSetup(SETUP.replace("  effort: medium", "  effort: medium\n  job_effort: loud")), null);
 });
