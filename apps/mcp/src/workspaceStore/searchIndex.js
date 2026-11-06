@@ -56,8 +56,8 @@ export const BUILD_BYTES = 64 * 1024;
 /** The index's own layout; an index from an earlier one is emptied and built again. */
 // 4: file names in the headings column and word forms asked at query time (2026-11-04).
 const LAYOUT = "4";
-/** Queries one search sends (a strict and a relaxed expression, over at most both tables). */
-const MAX_ASKS = 4;
+/** Queries one search sends (a strict, a relaxed and a name expression, over at most both tables). */
+const MAX_ASKS = 6;
 /** Rows one query may ask for (the gateway's `CHUNK_FETCH_CAP` is well under it). */
 const MAX_LIMIT = 500;
 /** Longest match expression or prefix taken. */
@@ -254,7 +254,7 @@ export function workspaceSearch(sql, { rows, objects }) {
         if (typeof prefix !== "string" || prefix.length > MAX_TEXT) throw new SearchAskRefused("not a prefix");
         const limit = Number(ask.limit);
         if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) throw new SearchAskRefused(`a query asks for 1 to ${MAX_LIMIT} rows`);
-        return { table: ask.table, match: ask.match, options: { limit, prefix } };
+        return { table: ask.table, match: ask.match, options: { limit, prefix, firstChunk: ask.firstChunk === true } };
       });
       schema();
       // Far behind (a first build, a change of rules): not served, and nothing spent here; the build catches up.

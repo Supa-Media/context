@@ -179,14 +179,14 @@ test("the search is not served while the object is not the home of the notes", {
   assert.deepEqual((await object.call("ws.search.build")).body, { served: false });
 });
 
-test("asks naming another table, an empty match, a row cap outside 1 to 500, or more than four asks are refused", { skip }, async () => {
+test("asks naming another table, an empty match, a row cap outside 1 to 500, or more than six asks are refused", { skip }, async () => {
   const object = await seeded();
   const refused = [
     [ask("ws_rows", "x")],
     [{ ...ask(TEAM, "x"), match: "" }],
     [ask(TEAM, "x", 0)],
     [ask(TEAM, "x", 501)],
-    [ask(TEAM, "x"), ask(TEAM, "x"), ask(TEAM, "x"), ask(TEAM, "x"), ask(TEAM, "x")],
+    Array.from({ length: 7 }, () => ask(TEAM, "x")),
     [],
   ];
   for (const asks of refused) {

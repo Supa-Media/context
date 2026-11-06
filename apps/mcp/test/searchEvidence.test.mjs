@@ -11,6 +11,8 @@
  *   one- and two-letter words counted as terms            → "terms are…" and "short words are not terms…" fail
  *   the phrase bonus dropped                              → "the bonus is the title weight…" fails
  *   TITLE_WEIGHT changed                                  → "the title weight is a fifth of a rank-0 hit…" fails
+ *   FILLER_WORDS emptied                                  → "terms are…" and "words that only say how…" fail
+ *   coverage read without stems                           → "a word and its other forms count as one…" fails
  */
 
 import test from "node:test";
@@ -19,8 +21,20 @@ import { PHRASE_BONUS, TITLE_WEIGHT, evidenceBonus, fileStem, hasPhrase, queryTe
 
 test("terms are the query's words in lowercase, without the one- and two-letter ones, once each", () => {
   assert.deepEqual(queryTerms("to be or not"), ["not"]);
-  assert.deepEqual(queryTerms("A plan, PLAN of the 2027 Owners-x"), ["plan", "the", "2027", "owners"]);
+  assert.deepEqual(queryTerms("A plan, PLAN of the 2027 Owners-x"), ["plan", "2027", "owners"]);
   assert.deepEqual(queryTerms("  "), []);
+});
+
+test("words that only say how a question is asked are not terms", () => {
+  assert.deepEqual(queryTerms("how we position Context against other AI memory tools"), ["position", "context", "memory", "tools"]);
+  assert.deepEqual(queryTerms("why I started Context"), ["started", "context"]);
+});
+
+test("a word and its other forms count as one: positioning holds position, started holds start", () => {
+  assert.equal(titleCoverage("how we position Context against other AI memory tools", { key: "products/positioning.md", title: "Context.LC positioning" }), 2 / 4);
+  assert.equal(titleCoverage("why I started Context", { key: "yc/why-context-started.page.md", title: "Context began as a notebook" }), 1);
+  assert.equal(titleCoverage("start context", { key: "x.md", title: "Context started" }), 1);
+  assert.equal(titleCoverage("comp", { key: "x.md", title: "Workers compensation" }), 0);
 });
 
 test("short words are not terms: a query of them has no coverage and no phrase", () => {

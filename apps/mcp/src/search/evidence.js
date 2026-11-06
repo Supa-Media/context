@@ -18,6 +18,7 @@
  */
 
 import { SNIPPET_CLOSE, SNIPPET_OPEN } from "./d1/query.js";
+import { FILLER_WORDS, stem } from "./text.js";
 
 /** A word of one or two letters is not a term: "a", "of", "to". */
 const MIN_TERM_LENGTH = 3;
@@ -66,9 +67,12 @@ function words(text) {
     .filter(Boolean);
 }
 
-/** The distinct terms of a query: its words without the one- and two-letter ones. */
+/**
+ * The distinct terms of a query: its words without the one- and two-letter ones and without the words that only say
+ * how it is asked (`FILLER_WORDS`), so "why I started Context" is held against a name as "started context".
+ */
 export function queryTerms(query) {
-  return [...new Set(words(query).filter((word) => word.length >= MIN_TERM_LENGTH))];
+  return [...new Set(words(query).filter((word) => word.length >= MIN_TERM_LENGTH && !FILLER_WORDS.has(word)))];
 }
 
 /** A hit's file name without its folders and its `.md`. A key may carry `@name/` in front, which is a folder too. */
@@ -79,7 +83,9 @@ export function fileStem(key) {
 
 /**
  * The share of the query's terms that the hit's title or file name holds, from
- * 0 to 1. A query with no term (only short words) has no coverage.
+ * 0 to 1, a word and its other forms counting as one (`stem`: "position" is held
+ * by "Positioning", "started" by `why-context-started`). A query with no term
+ * (only short or filler words) has no coverage.
  *
  * @param {string} query
  * @param {{key: string, title?: string}} hit
@@ -88,8 +94,8 @@ export function fileStem(key) {
 export function titleCoverage(query, hit) {
   const terms = queryTerms(query);
   if (terms.length === 0) return 0;
-  const held = new Set(words(`${hit.title ?? ""} ${fileStem(hit.key)}`));
-  return terms.filter((term) => held.has(term)).length / terms.length;
+  const held = new Set(words(`${hit.title ?? ""} ${fileStem(hit.key)}`).map(stem));
+  return terms.filter((term) => held.has(stem(term))).length / terms.length;
 }
 
 /**
