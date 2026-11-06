@@ -66,6 +66,26 @@ one sees the wiring); "a title match alone does not beat a note strong on both w
 meaning" fails if the title weight goes back to 1/61, and "a loose hit gets no title bonus while a
 strict hit exists" fails if a loose hit is credited.
 
+**A note whose name answers the question is a word hit, and leads the word hits (2026-11-06).**
+Each workspace's word search also asks the query's content words against titles and file names
+alone, one row per note (`search/named.js`, `toNameMatchExpression`). Where some note held every word
+of the query, a hit from either search whose title or file name holds at least half of the query's
+content words, and at least two of them, moves to the front of that workspace's word hits, most of
+the words first; it is a word hit, not a loose one, even if it lacks a word the others hold. Where no
+note held every word, nothing moves and the any-word order stands. Content words are the query's
+words of three letters or more without the ones that only say how it is asked (`FILLER_WORDS`:
+"how", "why", "against", "other"), and a word counts as held in any of its forms ("positioning"
+holds "position"); title coverage for the evidence bonus above reads them the same way. Why: the
+real-search check of 2026-11-04 missed "why I started Context" (`why-context-started.page.md`) and
+"how we position Context against other AI memory tools" (`positioning.md`) from every workspace,
+while each ranked first or second inside its own folder: meeting transcripts holding every common
+word many times outranked them, and the words that pick them out are only in their names. The
+condition on a strict hit is the search benchmark's q54 ("book club snack rules"): without it, notes
+named with the workspace's own words ("book club") lifted over the rules note, a loose hit, and
+pushed it out. Reverting the lift fails the checks in
+`apps/mcp/test/searchProjection/named.test.mjs`; reading the name search from every chunk fails "a
+long note asks the name search once".
+
 **Every context the caller is in is searched, and each one says which index
 answered it.** This reverses the rule that shipped with the blended page, and
 the reversal is the most useful thing in this section, so both sides are kept.
