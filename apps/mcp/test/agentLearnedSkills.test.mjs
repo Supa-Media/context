@@ -462,7 +462,9 @@ test("a texted turn is told its learned skills, by name and when, and reads none
   const first = requests[0].body;
   assert.ok(!first.tools.some((tool) => tool.name === READ_LEARNED_SKILL_TOOL), "the six only: a learned skill is a fetch id");
   assert.match(fetchTool(requests[0]).description, /learned:<name>/);
-  assert.match(fetchTool(requests[0]).description, /book-a-table \(they want a table booked for a group\)/);
+  // The index is in the prompt beside who they are, never in the tools, which are cached ahead of everything for everybody.
+  assert.doesNotMatch(JSON.stringify(first.tools), /book-a-table/);
+  assert.match(JSON.stringify(first.system), /Your own skills \(fetch learned:<name>[^)]*\): book-a-table \(they want a table booked for a group\)/);
   assert.ok(!JSON.stringify(first).includes("LEARNED-MARK"), "a skill's steps are read only when asked for");
 });
 

@@ -15,7 +15,7 @@ import { withEmailFiles } from "../emailFiles.js";
 import { withFolderFit } from "../folderFit.js";
 import { chatLines, commandTools, consentForTurn, groupAwareCallTool, groupPrompt, settingsChanged } from "../groupTurn.js";
 import { withKeptFiles } from "../keptFiles.js";
-import { withLearnedSkills } from "../learnedSkills.js";
+import { learnedSkillsLine, withLearnedSkills } from "../learnedSkills.js";
 import { ledgerObserver } from "../ledger.js";
 import { meterEach, meterParts } from "../modelPlan.js";
 import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
@@ -101,7 +101,7 @@ export async function runTheModel(t) {
     },
     web: steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: logged?.history ?? shown,
-    threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(logged ? { thread: null } : inThread) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (job === null ? computersLine(computers, { planning }) : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobAdvisorLine(job, advising) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
+    threadNote: (group !== null ? groupPrompt(group, home) : "") + learnedSkillsLine(learned) + threadPrompt(logged ? { thread: null } : inThread) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (job === null ? computersLine(computers, { planning }) : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobAdvisorLine(job, advising) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
     local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
