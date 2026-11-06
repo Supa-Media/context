@@ -273,6 +273,9 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   // Once the page is copied into the chat's ledger, the ledger is the history and the page is never read (`groupPageCopy.js`).
   const ledger = groupLedger(store, group);
   const copied = ledger === null ? Promise.resolve(false) : groupPageCopied(ledger, group.key);
+  // A copied chat's history is the ledger alone, so its read starts here, beside the notes, not after them (production,
+  // 2026-11-06: 480 ms of ledger after the notes' wait). Settled either way, so a failure waits to be seen where it was.
+  const early = copied.then((yes) => (yes ? readGroupLedgerConversation(ledger, group.key) : null)).then((turns) => ({ turns }), (error) => ({ error }));
   const [kept] = await Promise.all([readRecord(store, group), openHome(store, group)]);
   // A home's notes by their names now, or the old ones the last lookup found them under (`homeNames.js`).
   const named = homeNamesOf(group, names.key, kept);
@@ -328,7 +331,7 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   const [memory, playbook, voice, aboutUs, jobs] = await time.reads(() => Promise.all([time.record(() => record), time.playbook(() => readPlaybook(inFirstReach(dispatch, group), group)), time.voice(() => voiceRead), time.about(() => aboutRead), time.jobs(() => jobsRead)]));
   const turns = Array.isArray(memory?.turns) ? memory.turns.filter(isTurn) : [];
   Object.assign(group, { playbook, voice, aboutUs, jobs });
-  const fromLedger = await time.ledger(() => historyFromLedger(ledger, group, turns, { copied: memory?.copied === true, writes: dispatch !== null && kept.onPage === ON_PAGE }));
+  const fromLedger = await time.ledger(() => historyFromLedger(ledger, group, turns, { copied: memory?.copied === true, writes: dispatch !== null && kept.onPage === ON_PAGE, early }));
   if (fromLedger !== null) return fromLedger;
   // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
   return trimGroupTurns(turns.map(({ role, text, tainted, tools, sources, timing }) => ({ ...keptTurn({ role, text, tainted, tools, sources }), ...timedTurn(role, timing) })));
@@ -344,9 +347,15 @@ function groupLedger(store, group) {
  * page is the one copy (`ON_PAGE`); null to read the page as before (no ledger, the old log not in yet, a failure).
  * `group.pageCopied` tells the exchange's keeping not to write the page (`keepGroupExchange`).
  */
-async function historyFromLedger(ledger, group, turns, { copied, writes }) {
+async function historyFromLedger(ledger, group, turns, { copied, writes, early = null }) {
   if (ledger === null) return null;
   try {
+    if (copied && early !== null) {
+      group.pageCopied = true;
+      const read = await early;
+      if (read.error !== undefined) throw read.error;
+      return read.turns.map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources }));
+    }
     if (!copied) {
       if (!writes) return null;
       const copy = await copyGroupPageIn(ledger, group.key, turns);
