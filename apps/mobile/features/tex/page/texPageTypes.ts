@@ -38,6 +38,16 @@ export interface Turn {
   /** `null` when Tex stayed quiet. */
   reply: string | null;
   ms: number;
+  /** Replies it wrote that were sent back before one went, oldest first. */
+  drafts?: TurnDraft[];
+}
+
+/** A reply that did not go out, and what sent it back: the gates that failed it, a code check, or a later text. */
+export interface TurnDraft {
+  text: string;
+  by: "gates" | "code" | "late";
+  failed: string[];
+  notice?: string;
 }
 
 export type JobState = "running" | "waiting" | "done" | "failed" | "stopped";

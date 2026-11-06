@@ -40,7 +40,7 @@ import {
 import { liveProtocols, liveSocketUrl, openLive, readPatch, type SocketLike } from "../features/tex/page/texPageLive";
 import { gatewaySource, readAnswer, texPageUrl } from "../features/tex/page/texPageSource";
 import { addressOf, chatOfWords, placeHref, readPlace, signInHref } from "../features/tex/page/texPlace";
-import { onSite } from "../features/tex/page/texPageFormat";
+import { draftReason, onSite } from "../features/tex/page/texPageFormat";
 import type { JobSummary } from "../features/tex/page/texPageTypes";
 
 const job = (over: Partial<JobSummary> = {}): JobSummary => ({ id: "j", title: "T", state: "running", startedAt: 0, failedSteps: 0, ...over });
@@ -433,4 +433,23 @@ test("Review carries a pairing link's code to the connect screen", () => {
   expect(placeHref("seyi", { chat: "me", view: "connect" }, CHATS)).toBe("/tex/@seyi/connect");
   expect(placeHref("seyi", { chat: "me", view: "machines" }, CHATS, "L7E-JQ3")).toBe("/tex/@seyi/machines");
   expect(placeHref("seyi", { chat: KEY, view: "connect" }, CHATS, "L7E-JQ3")).toBe("/tex/group/brave-otter-lamp/connect?code=L7E-JQ3");
+});
+
+describe("a turn's sent-back drafts", () => {
+  test("are read with what sent each back, and a turn with none has none", () => {
+    const page = readList("thinking", {
+      items: [
+        { at: 1, reply: "Red Sorghum.", drafts: [{ text: "try Lugo's", by: "gates", failed: ["heard_them", 3], notice: "Answer what they asked." }, { text: "a list", by: "code" }, { by: "late" }] },
+        { at: 2, reply: "Done." },
+      ],
+    });
+    expect(page.items[0].drafts).toEqual([
+      { text: "try Lugo's", by: "gates", failed: ["heard_them"], notice: "Answer what they asked." },
+      { text: "a list", by: "code", failed: [] },
+    ]);
+    expect(page.items[1].drafts).toBeUndefined();
+    expect(draftReason({ by: "gates", failed: ["heard_them", "short_and_clean"] })).toBe("Sent back by heard them, short and clean");
+    expect(draftReason({ by: "code", failed: [] })).toBe("Sent back by a check");
+    expect(draftReason({ by: "late", failed: [] })).toBe("Redone for a text that came in");
+  });
 });
