@@ -41,8 +41,8 @@
 
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timedTurn, updateGroupPage } from "./groupMemoryNote.js";
-import { copyGroupPageIn, groupPageCopied } from "./groupPageCopy.js";
-import { readGroupLedgerConversation } from "./groupLedgerHistory.js";
+import { groupPageCopied } from "./groupPageCopy.js";
+import { historyFromLedger, readGroupLedgerConversation } from "./groupLedgerHistory.js";
 import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
@@ -340,34 +340,6 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
 /** The chat's ledger through the turn's store, by its group key, or null (`ledger.js` `storeLedger`). */
 function groupLedger(store, group) {
   return typeof store?.texLedger === "function" && typeof group?.key === "string" && /^[0-9a-f]{64}$/.test(group.key) ? store.texLedger(group.key) : null;
-}
-
-/**
- * The history from the chat's ledger once its page is copied in, copying it in first on a turn that writes and whose
- * page is the one copy (`ON_PAGE`); null to read the page as before (no ledger, the old log not in yet, a failure).
- * `group.pageCopied` tells the exchange's keeping not to write the page (`keepGroupExchange`).
- */
-async function historyFromLedger(ledger, group, turns, { copied, writes, early = null }) {
-  if (ledger === null) return null;
-  try {
-    if (copied && early !== null) {
-      group.pageCopied = true;
-      const read = await early;
-      if (read.error !== undefined) throw read.error;
-      return read.turns.map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources }));
-    }
-    if (!copied) {
-      if (!writes) return null;
-      const copy = await copyGroupPageIn(ledger, group.key, turns);
-      console.log(JSON.stringify({ event: "group_page_copy", state: copy.state, entries: copy.entries }));
-      if (copy.state !== "copied" && copy.state !== "done") return null;
-    }
-    group.pageCopied = true;
-    return (await readGroupLedgerConversation(ledger, group.key)).map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources }));
-  } catch (error) {
-    console.log(JSON.stringify({ event: "group_history_from_ledger_failed", reason: String(error?.name ?? "error").slice(0, 40) }));
-    return null;
-  }
 }
 
 /**
