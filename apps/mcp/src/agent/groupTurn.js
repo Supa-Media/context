@@ -607,12 +607,12 @@ export function groupPrompt(group, workspace) {
 /** Where the chat's memory is kept, for the prompt: its home's page, or with the chat until it has a home (`groupMemoryCarry.js`). */
 function memoryLine(group) {
   if (group?.pageCopied === true) {
-    const kept = "What you remember of this chat is its history, everything said and done in it, which its people can open in its home; read all of it with earlier_chat. ";
+    const kept = "What you remember of this chat is its history, everything said and done in it, which its people can open in its home; read all of it with fetch id \"chat:\". ";
     return group?.home ? `${kept}${homePrompt(group)}` : kept;
   }
   const kept = group?.home
-    ? "What you remember of this chat is its memory page in its home, which its people can read and change; read all of it with earlier_chat. "
-    : "What you remember of this chat is kept with the chat itself; read all of it with earlier_chat. ";
+    ? "What you remember of this chat is its memory page in its home, which its people can read and change; read all of it with fetch id \"chat:\". "
+    : "What you remember of this chat is kept with the chat itself; read all of it with fetch id \"chat:\". ";
   return group?.home ? `${kept}${homePrompt(group)}` : kept;
 }
 

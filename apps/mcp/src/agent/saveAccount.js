@@ -86,7 +86,7 @@ export function failedSaveNotice({ path, saved }) {
   }
   return (
     `Before this goes: your answer says ${path} didn't save, but you haven't read it back since that save failed, and a save can land even when its answer fails. ` +
-    "Read it once now (read_note). If your new content is there, it saved: say so, with its link. If it isn't, say plainly it didn't save. " +
+    "Read it once now (fetch it). If your new content is there, it saved: say so, with its link. If it isn't, say plainly it didn't save. " +
     "Give one account either way, and no bug report over a single failed save."
   );
 }

@@ -278,7 +278,7 @@ test("a reply that starts a thread under a plain text is shown what led up to th
   assert.notEqual(view.thread, null);
   assert.ok(view.shown.some((turn) => turn.text.includes("Here's the email I'd send")), "the draft before the replied-to text is shown");
   assert.equal(view.shown.at(-1).text, "Got it, I won't contact Luciana about the hold.");
-  assert.match(threadPrompt(view), /earlier_texts/, "the turn is told it can read further back");
+  assert.match(threadPrompt(view), /fetch id "texts:"/, "the turn is told it can read further back");
 
   // Bounded by the shown turns: the thread's own exchanges win over the lead-in.
   assert.equal(threadView(history, { words: "Got it, I won't contact Luciana about the hold.", replied: true }, 2).shown.length, 2);

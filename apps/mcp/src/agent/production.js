@@ -96,6 +96,7 @@ import { readFrontDoor } from "./frontDoor.js";
 import { readReplyJudge } from "./replyJudge.js";
 import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
+import { staleToolNames } from "./promptNames.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 
@@ -257,6 +258,8 @@ async function parse(raw) {
     replyJudge,
     maxSteps,
     prompt,
+    // Tool names the six tools retired (`promptNames.js`): logged on every read until the note is fixed.
+    staleNames: staleToolNames(prompt),
     version: await versionOf(raw),
   };
 }
@@ -383,6 +386,14 @@ async function pinnedReach(store, session) {
  */
 export async function readProductionSetup(store, session, { texting, warm = null }) {
   if (!texting) return null;
+  const setup = await readTextingSetup(store, session, warm);
+  if (setup !== null && setup.staleNames.length > 0) {
+    console.log(JSON.stringify({ event: "tex_setup_stale_names", setup: setup.version, names: setup.staleNames }));
+  }
+  return setup;
+}
+
+async function readTextingSetup(store, session, warm) {
   try {
     // With a warm copy (`warmCopy.js`), the note's text is read only when the copy hasn't it.
     if (warm !== null) {

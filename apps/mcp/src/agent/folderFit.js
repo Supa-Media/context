@@ -70,8 +70,8 @@ export function folderFitAsk(folder, subfolders) {
   const more = subfolders.length > SHOWN ? `, and ${subfolders.length - SHOWN} more` : "";
   return (
     `Not saved yet, and nothing failed: ${folder}/ keeps its notes in subfolders: ${named}${more}. ` +
-    "Call write_note again with the path in the one this note belongs in (by its date, the current term or year; or by its topic). " +
-    "If none of them fits, call write_note again with this same path and it saves. Don't ask them which."
+    "Call write again with the path in the one this note belongs in (by its date, the current term or year; or by its topic). " +
+    "If none of them fits, call write again with this same path and it saves. Don't ask them which."
   );
 }
 
