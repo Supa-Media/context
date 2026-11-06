@@ -33,7 +33,7 @@
  */
 
 import { attachmentsLine } from "./attachments.js";
-import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin, systemText } from "./builtin.js";
+import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, liveTurn, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError } from "./providers.js";
 import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
 import { turnPrompt } from "./turnPrompt.js";
@@ -549,7 +549,7 @@ export async function runTurn(options) {
         tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
         continue;
       }
-      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: { system: systemText(prompt.system), messages } }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
+      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: liveTurn(prompt, messages) }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
       messages.push({ role: "user", text: held.sendBack(recheck, answer.text) }); // the draft quoted as NOT sent, never put in as said (`sendBack.js`)
       continue;
     }
@@ -624,7 +624,7 @@ export async function runTurn(options) {
               progress && call.name === PROGRESS_TOOL
                 ? progress.call(call.args)
                 : localCalls.has(call.name)
-                ? localCalls.get(call.name)(call.args, { system: [systemText(prompt.system), prompt.preamble].join("\n\n"), messages, tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
+                ? localCalls.get(call.name)(call.args, { ...liveTurn(prompt, messages), system: [systemText(prompt.system), prompt.preamble].join("\n\n"), tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
                 : webNames.has(call.name)
                   ? web.call(call.name, call.args)
                   : callTool(call.name, call.args),
@@ -674,7 +674,7 @@ export async function runTurn(options) {
     for (const call of settling) {
       const settled = settles(call.name, call.args);
       if (typeof settled === "string" && settled !== "") {
-        return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: { system: systemText(prompt.system), messages } };
+        return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: liveTurn(prompt, messages) };
       }
     }
     if (steer !== null && typeof steer.cancelled === "function" && steer.wrote !== true && (await steer.cancelled())) return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, cancelled: true }; // the Worker cancelled it (`steer.js`)
@@ -695,6 +695,6 @@ export async function runTurn(options) {
     usageByModel,
     timing: { ...timing, trace },
     exhausted: true,
-    live: { system: systemText(prompt.system), messages },
+    live: liveTurn(prompt, messages),
   };
 }
