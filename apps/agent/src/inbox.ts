@@ -69,6 +69,7 @@ import { clearTold, noteTold, owedTold } from "./told";
 import { startPresence, type Presence } from "./presence";
 import { MAX_CANDIDATES, staleAsks } from "./decide"; import { lookAgainTexts } from "./lookAgain";
 import { rememberText } from "./threads";
+import { noteHandle } from "./replyQuote";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
 import { closeMenu, menuState, openMenu } from "./texStyle";
@@ -445,8 +446,9 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
         sendText: (text, failure) => line.sendText(item.message.chatId, text, failure ? `${idempotency}:failed` : idempotency, thread),
         sendPicture: async (media) => (await line.sendMedia(item.message.chatId, media, idempotency, thread), "url" in media ? media.url : undefined),
         refused: refusedPicture,
-        remember: (handle, text) => rememberText(storage, item.message.chatId, handle, text, deps.now()),
-        log: async (logged, system) => void (await out(logged, system || item.system === true)),
+        // The handle beside its event too, so the send's status finds it (`sendblueStatus.ts`).
+        remember: async (handle, text, ev) => (await rememberText(storage, item.message.chatId, handle, text, deps.now()), await noteHandle(storage, handle, ev)),
+        log: (logged, system) => out(logged, system || item.system === true),
       };
       if (typeof part === "string") await sendWords(partLine, part);
       else if ("card" in part) await sendCardPart(line, item.message.chatId, part, thread, idempotency);
