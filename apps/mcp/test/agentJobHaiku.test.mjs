@@ -22,7 +22,7 @@ import { after, before, beforeEach, test } from "node:test";
 import worker from "../src/index.js";
 import { JOB_ADVISOR_LINE } from "../src/agent/advisor.js";
 import { PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
-import { modulePath, readModuleLists } from "../src/agent/promptModules.js";
+import { modulePath, readModuleLists, setupLogged } from "../src/agent/promptModules.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
@@ -284,4 +284,6 @@ test("a setup naming a module that isn't there, or naming modules badly, is refu
   assert.deepEqual((await parseSetup(kept([one("core", "call read_note"), one("texting", "T"), one("job-only", "J")]))).staleNames, ["read_note"]);
   assert.equal((await parseSetup(SETUP)).prompts, null, "a setup with no modules is its body, as before");
   assert.equal(readModuleLists(undefined), null);
+  assert.deepEqual(setupLogged(full, { job: JOB }), { setup: full.version, modules: ["core", "job-only"] }, "the turn log names the modules a turn got");
+  assert.deepEqual(setupLogged(null, {}), {});
 });
