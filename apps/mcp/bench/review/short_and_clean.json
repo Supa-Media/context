@@ -191,8 +191,9 @@
           "15 min walk"
         ]
       ],
-      "reply": "Yes. Dinner's at 6:30 at Lupa, a 15 minute walk from the station, so you have about an hour of slack. Leave by 8:20 to be safe and you'll make the 9 easily.",
-      "fault": false
+      "reply": "Yes. Dinner's at 6:30 at Lupa, a 15 minute walk from the station. Leave by 8:20 and you're there at 8:35, 25 minutes early.",
+      "fault": false,
+      "fixed": "2026-11-06: the old reply said 'about an hour of slack' beside 'leave by 8:20' for a 9pm train (25 minutes); the reviewer was right to send it back"
     },
     {
       "id": "explain-asked",
