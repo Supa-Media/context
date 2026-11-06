@@ -46,8 +46,8 @@ import { replyJudge } from "../replyJudge.js";
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runTheModel(t) {
   const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, computersRead, controlPlane, delegation: delegated, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, timeZone } = t;
-  // When the setup's reply judges read this turn, they replace the older word checks: tried_first does what `untriedWeb.js` did and followed_them what `doItChecks.js` did, so those two stay only for a setup without judges.
-  const gated = chatTurn && job === null && !runner && (texted || group !== null) && Boolean(production?.replyJudge) && typeof env.AI?.run === "function"; // no Workers AI binding, no gates: the word checks stay
+  // When the setup's reply reviewer reads this turn, it replaces the older word checks (`untriedWeb.js`, `doItChecks.js`), so those two stay only for a setup without it.
+  const gated = chatTurn && job === null && !runner && (texted || group !== null) && Boolean(production?.replyJudge) && aiGatewayConfig(env) !== null; // no AI Gateway, no reviewer: the word checks stay
   const tries = gated ? null : t.tries;
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
@@ -58,8 +58,8 @@ export async function runTheModel(t) {
   const delegation = delegationBeside(delegated, computers);
   // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too, without judges (`doItChecks.js`).
   const doIt = !gated && chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
-  // The setup's reply judges, after `claimCheck.js`: ten Clef Flash gates read the reply against every action this turn took, at once, and send back what fails, at most twice (`replyJudge.js`). A job's report turn gets the report set (did its result reach them, a long one on a page), never the text set, which judges a reply to their text (Dev2, 2026-11-05).
-  const judge = chatTurn && job === null && !runner && (texted || group !== null) && production?.replyJudge ? replyJudge({ ai: env.AI, setting: production.replyJudge, report, question: (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
+  // The setup's reply reviewer, after `claimCheck.js`: one Haiku call reads the reply against every action this turn took and the kind of turn it is, and sends it back with feedback only for a problem they would notice, at most twice (`replyJudge.js`; Dev2, 2026-11-06). A job's report turn shows it the report.
+  const judge = gated ? replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, report, question: (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
   if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });
   if (planning) splitFirst(background); // a lone job is offered the planner once
   // The advisor, when the setup names one this deployment can run: offered on every chat turn, a job's included (`advisor.js`).

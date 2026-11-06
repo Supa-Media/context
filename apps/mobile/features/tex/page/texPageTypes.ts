@@ -42,10 +42,10 @@ export interface Turn {
   drafts?: TurnDraft[];
 }
 
-/** A reply that did not go out, and what sent it back: the gates that failed it, a code check, or a later text. */
+/** A reply that did not go out, and what sent it back: the reviewer (the gates, before 2026-11-06), a code check, or a later text. */
 export interface TurnDraft {
   text: string;
-  by: "gates" | "code" | "late";
+  by: "review" | "gates" | "code" | "late";
   failed: string[];
   notice?: string;
 }

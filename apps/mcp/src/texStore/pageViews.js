@@ -141,13 +141,13 @@ function turnsOf(entries, replies, chat) {
       else if (entry.kind === "mail_check") did.push({ kind: "mailcheck", label: `Checked an email to ${String(entry.to ?? "someone")}`, ref: entry.id });
       else if (entry.kind === "job") did.push({ kind: "job", label: String(entry.title ?? "Started a job"), ...(typeof entry.job === "string" ? { ref: entry.job } : {}) });
     }
-    // Each draft that did not go out, with what sent it back: the gates that failed it, a code check, or a later text (`replyJudge.js`).
+    // Each draft that did not go out, with what sent it back: the reviewer's problems (the gates that failed it, before 2026-11-06), a code check, or a later text (`replyJudge.js`).
     const drafts = oldest
       .filter((entry) => entry.kind === "judge" && entry.went === false && typeof entry.text === "string" && entry.text.trim() !== "")
       .slice(0, MAX_DRAFTS)
       .map((entry) => ({
         text: cut(entry.text, WORDS_CHARS),
-        by: entry.by === "code" || entry.by === "late" ? entry.by : "gates",
+        by: entry.by === "code" || entry.by === "late" || entry.by === "review" ? entry.by : "gates",
         failed: (Array.isArray(entry.failed) ? entry.failed : []).filter((id) => typeof id === "string").slice(0, 12),
         ...(typeof entry.notice === "string" && entry.notice.trim() !== "" ? { notice: cut(entry.notice, NOTICE_CHARS) } : {}),
       }));

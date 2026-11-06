@@ -66,7 +66,7 @@ function readAction(v: unknown): TurnAction | null {
   return { kind, label, ...(str(r.ref) ? { ref: str(r.ref) } : {}) };
 }
 
-const DRAFT_BY = new Set(["gates", "code", "late"]);
+const DRAFT_BY = new Set(["review", "gates", "code", "late"]);
 
 function readDraft(v: unknown): TurnDraft | null {
   const r = rec(v);

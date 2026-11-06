@@ -238,10 +238,11 @@ export function isWhenField(v: string): boolean {
   return /^\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}$/.test(v.trim());
 }
 
-/** What sent a draft back, in words: the gates that failed it, a code check, or a text that came in while it was written. */
-export function draftReason(draft: { by: "gates" | "code" | "late"; failed: string[] }): string {
+/** What sent a draft back, in words: the reviewer and what it named (the gates, before 2026-11-06), a code check, or a text that came in while it was written. */
+export function draftReason(draft: { by: "review" | "gates" | "code" | "late"; failed: string[] }): string {
   if (draft.by === "late") return "Redone for a text that came in";
   if (draft.by === "code") return "Sent back by a check";
+  if (draft.by === "review") return draft.failed.length > 0 ? `Sent back by the reviewer: ${draft.failed.map((id) => id.replace(/_/g, " ")).join(", ")}` : "Sent back by the reviewer";
   const names = draft.failed.map((id) => id.replace(/_/g, " "));
   return names.length > 0 ? `Sent back by ${names.join(", ")}` : "Sent back";
 }

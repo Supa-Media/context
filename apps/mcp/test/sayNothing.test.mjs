@@ -47,7 +47,7 @@ function scripted(replies) {
 async function turn(replies, { sayNothing = true, judged = true } = {}) {
   const ai = scripted(replies);
   const ran = [];
-  const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question: "❓ on Tex's \"Done\" text", history: [], log: () => {} });
+  const judge = replyJudge({ setting: { model: "haiku" }, question: "❓ on Tex's \"Done\" text", history: [], request: async () => (ai.judged.push("review"), { text: '{"kind":"chat","send":true,"problems":[],"feedback":""}' }), log: () => {} });
   const result = await runTurn({
     question: "(a tapback) ❓ on your message \"Done.\"",
     history: [],
