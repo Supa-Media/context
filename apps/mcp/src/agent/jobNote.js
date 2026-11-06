@@ -65,10 +65,15 @@ export function jobName(title) {
   return NAME.test(words) && words !== TEX_NAME && words !== ADVISOR_NAME && words !== "everyone" ? words : "job";
 }
 
-/** Where a job with no project goes: Tex's own notes in the person's workspace, one note a job. */
-export function fallbackPath(title, jobId) {
+/**
+ * Where a job with no project goes, one note a job: a person's in Tex's own notes in their workspace; a group chat's in
+ * `projects/tex-jobs/` of the workspace its grant writes to, where everyone in the chat can follow it. A group's job
+ * had no note at all before 2026-11-06, so no mail, no advisor and no way to Tex: job 350eddce answered in one part
+ * and spent two more looking for a page that was never made.
+ */
+export function fallbackPath(title, jobId, { group = false } = {}) {
   const slug = clip(title, 200).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48).replace(/-+$/, "") || "job";
-  return `tex/jobs/${slug}-${jobId.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toLowerCase()}.md`;
+  return `${group ? "projects/tex-jobs" : "tex/jobs"}/${slug}-${jobId.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toLowerCase()}.md`;
 }
 
 /** What every job is told at its start: who is on its note's mail and what each is for (the owner, 2026-11-05). */
@@ -127,11 +132,11 @@ async function noteRoute(request, store, session, call) {
   const brief = clip(body.brief, MAX_TEXT);
   if (title === "" || brief === "") return invalid("title and brief");
   const given = jobMailOf(body.note);
-  // With no project of its own, a person's job keeps its note in Tex's own notes; a group's has none to fall back to.
-  if (given === null && session.actorClientId !== TEXTS_CLIENT_ID) return json({ ok: false, code: "no_note" });
+  // With no project of its own, a person's job keeps its note in Tex's own notes, a group's in its workspace's projects.
+  if (given === null && session.actorClientId !== TEXTS_CLIENT_ID && session.actorClientId !== TEXTS_GROUP_CLIENT_ID) return json({ ok: false, code: "no_note" });
   // A job never takes the name of an agent on the roster, so no line it gets can pass for Tex's or the advisor's.
   const named = given && (given.name === TEX_NAME || given.name === ADVISOR_NAME) ? { ...given, name: jobName(title) } : given;
-  const note = named ?? { path: fallbackPath(title, body.jobId), name: jobName(title) };
+  const note = named ?? { path: fallbackPath(title, body.jobId, { group: session.actorClientId === TEXTS_GROUP_CLIENT_ID }), name: jobName(title) };
   let existing = await readNote(call, note);
   if (existing === null) {
     const doneWhen = clip(body.doneWhen, 600);

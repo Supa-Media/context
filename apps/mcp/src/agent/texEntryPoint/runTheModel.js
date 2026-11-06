@@ -20,6 +20,7 @@ import { ledgerObserver } from "../ledger.js";
 import { meterEach, meterParts } from "../modelPlan.js";
 import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
 import { withDrawnImages, withPictureMaker } from "../pictureMaker.js";
+import { turnEfforts } from "../production.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS } from "../progress.js";
 import { askedWith, loggedQuestion, reactedLine } from "../quoted.js";
 import { withSameAsk } from "../sameAsk.js";
@@ -111,7 +112,7 @@ export async function runTheModel(t) {
     notes: production !== null ? { prompt: production.prompt } : null,
     builtinModelOverride: productionModel ?? undefined,
     router,
-    efforts: production?.efforts ?? null,
+    efforts: turnEfforts(production, job), // a job's turn thinks as `models.job_effort` says (`production.js`)
     fallback,
     maxRounds: production?.maxSteps ?? undefined,
     // A browser call can open a page and settle it (`infra/site-shots`
