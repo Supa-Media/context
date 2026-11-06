@@ -16,7 +16,11 @@ export function createMailRoutes(grantForAccessToken, coveredContexts) {
   let counter = 0;
   const view = ({ mailboxId, workspaceId, path, name, readThrough }) => ({ mailboxId, workspaceId, path, name, readThrough });
 
+  // Answers a test sets for the next joins (`{ error: "refused" }`, `{ error: "own_name", name }`), taken in order.
+  const joinAnswers = [];
+
   async function join(body) {
+    if (joinAnswers.length) return joinAnswers.shift();
     const grant = await grantForAccessToken(body.accessToken);
     const reach = grant ? coveredContexts(grant).some((entry) => entry.workspaceId === body.workspaceId) : false;
     if (!grant || !reach || !NAME.test(body.name) || body.name === "everyone") return { error: "refused" };
@@ -90,5 +94,5 @@ export function createMailRoutes(grantForAccessToken, coveredContexts) {
     return undefined;
   }
 
-  return { handle, mailboxes, devices };
+  return { handle, mailboxes, devices, joinAnswers };
 }

@@ -38,5 +38,7 @@ export const noteMailTables = {
   })
     .index("by_mailboxId", ["mailboxId"])
     .index("by_workspace_path_name", ["workspaceId", "path", "name"])
-    .index("by_machine", ["machineId"]),
+    .index("by_machine", ["machineId"])
+    // A job's own mailboxes, so a job part on a computer joins every note under its job's one name (`joinMailbox`).
+    .index("by_job", ["jobId"]),
 };

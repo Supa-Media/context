@@ -11,6 +11,7 @@ import worker from "../src/index.js";
 import mail from "../../../packages/shared/src/mail.cjs";
 import comments from "../../../packages/shared/src/comments.cjs";
 import { propsOf } from "../src/tree/props.js";
+import { outcomeOf } from "../src/mcp/outcome.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
@@ -119,6 +120,7 @@ function binding(bucket, key) {
 }
 
 let bucket;
+let controlPlaneStub;
 let restoreS3;
 let restoreControlPlane;
 after(() => {
@@ -130,6 +132,7 @@ before(async () => {
   const s3 = createS3Backend(S3_ENDPOINT);
   restoreS3 = s3.install();
   const controlPlane = createControlPlaneStub();
+  controlPlaneStub = controlPlane;
   restoreControlPlane = controlPlane.install();
   controlPlane.addWorkspace("ws_mail", "launchteam", binding("note-mail", "MA"), { kind: "shared" });
   controlPlane.addWorkspace("ws_else", "elsewhere", binding("note-else", "MB"));
@@ -267,6 +270,22 @@ test("a read-only connection can read mail but cannot send or join", async () =>
   const join = await call(TOKEN_READER, "write_note", { path: PLAN, mail: { join: "watcher" } });
   assert.ok(join.isError);
   assert.ok(!bucket.get(PLAN).body.includes("watcher"));
+});
+
+test("a refused join says it was refused, never to try again (2026-11-06)", async () => {
+  // A job on a computer read "could not join … right now; try again" (UNAVAILABLE) for a deliberate refusal and retried.
+  controlPlaneStub.mailJoinAnswers.push({ error: "refused" }, { error: "own_name", name: "split-test" });
+  const refused = await call(TOKEN_LEAD, "write", { path: PLAN, action: "mail", args: { join: "macbook" } });
+  assert.ok(refused.isError);
+  assert.match(refused.text, /^permission denied: Context refused joining this note's mail as "macbook"/);
+  assert.doesNotMatch(refused.text, /try again|right now|UNAVAILABLE/);
+  assert.deepEqual(outcomeOf("write", { isError: true, content: [{ type: "text", text: refused.text }] }), { applied: false, error: "FORBIDDEN" });
+  const ownName = await call(TOKEN_LEAD, "write", { path: PLAN, action: "mail", args: { join: "macbook" } });
+  assert.ok(ownName.isError);
+  assert.match(ownName.text, /join as "split-test"/);
+  assert.deepEqual(outcomeOf("write", { isError: true, content: [{ type: "text", text: ownName.text }] }), { applied: false, error: "FORBIDDEN" });
+  assert.doesNotMatch(ownName.text, /try again|UNAVAILABLE/);
+  assert.ok(!bucket.get(PLAN).body.includes("macbook"));
 });
 
 test("write_note refuses mail beside content or a comment", async () => {

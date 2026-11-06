@@ -21,6 +21,8 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
 const MAX_PATH = 1024;
 const JOB_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_JOB_MAILBOXES = 20;
+/** The roster's own names on every job note (`apps/mcp/src/agent/jobNote.js`): a job never joins as one. */
+const ROSTER_NAMES = new Set(["tex", "advisor"]);
 
 const mailboxView = v.object({
   mailboxId: v.string(),
@@ -46,8 +48,9 @@ function view(row: Doc<"noteMailboxes">) {
  * the mailbox its job joined (the owner, 2026-11-05: the job, Tex and the advisor on one job note's mail).
  *
  * A run grant reaches only the mailboxes bound to its own job (`onlyJob`), never the rest of what its parent joined:
- * the part runs untrusted work on a computer, so it must not speak as Tex, the advisor or another job. A run grant
- * that names no job reaches no mail.
+ * the part runs untrusted work on a computer, so it must not speak as Tex, the advisor or another job. It may join
+ * any note's mail its grant reaches, but only as its job's own name and bound to its job (the owner, 2026-11-06:
+ * "that's the whole point"; `joinMailbox`). A run grant that names no job reaches no mail.
  */
 async function mailGrant(ctx: QueryCtx, hashedAccessToken: string) {
   const live = await resolveLiveGrant(ctx, hashedAccessToken);
@@ -99,6 +102,8 @@ export const joinMailbox = internalMutation({
   returns: v.union(
     v.object({ ok: v.literal(true), mailbox: mailboxView }),
     v.object({ ok: v.literal(false), error: v.union(v.literal("name_taken"), v.literal("refused")) }),
+    // A job part joined under a name that is not its job's own: `name` is the one it must use.
+    v.object({ ok: v.literal(false), error: v.literal("own_name"), name: v.string() }),
   ),
   handler: async (ctx, args) => {
     const refused = { ok: false as const, error: "refused" as const };
@@ -107,8 +112,11 @@ export const joinMailbox = internalMutation({
     if (args.jobId !== undefined && !JOB_ID_RE.test(args.jobId)) return refused;
     const live = await mailGrant(ctx, args.hashedAccessToken);
     if (live === null) return refused;
-    // A run grant never joins on its own: its job's mailbox was joined for it, and it may only rejoin that one.
-    if (live.onlyJob !== null && (args.jobId !== live.onlyJob || args.machineId !== undefined)) return refused;
+    // A run grant (a job part on a computer) joins only for its own job: the job is taken from the grant, never from
+    // the call, it never joins as one of the person's machines, and never as a roster name (Tex, the advisor).
+    if (live.onlyJob !== null && ((args.jobId !== undefined && args.jobId !== live.onlyJob) || args.machineId !== undefined)) return refused;
+    if (live.onlyJob !== null && ROSTER_NAMES.has(args.name)) return refused;
+    const jobId = live.onlyJob ?? args.jobId;
     let machineId: Id<"texMachines"> | undefined;
     if (args.machineId !== undefined) {
       const id = ctx.db.normalizeId("texMachines", args.machineId);
@@ -127,10 +135,21 @@ export const joinMailbox = internalMutation({
       )
       .collect();
     const mine = existing.find((row) => row.grantId === live.grant._id);
-    if (live.onlyJob !== null && (mine === undefined || !mayUse(live, mine))) return refused;
+    // The parent grant's box under this name is Tex's or another job's: a part never takes it over.
+    if (live.onlyJob !== null && mine !== undefined && !mayUse(live, mine)) return refused;
+    if (live.onlyJob !== null && mine === undefined) {
+      // A job speaks under one name everywhere, the one its first mailbox has (its job note's), so it can never pass
+      // itself off as a sibling job on a note that sibling has not joined yet.
+      const own = await ctx.db
+        .query("noteMailboxes")
+        .withIndex("by_job", (q) => q.eq("jobId", live.onlyJob!))
+        .filter((q) => q.eq(q.field("grantId"), live.grant._id))
+        .first();
+      if (own !== null && own.name !== args.name) return { ok: false as const, error: "own_name" as const, name: own.name };
+    }
     if (mine) {
       // A rejoin that names a job re-binds the mailbox to it; a rejoin that names none leaves the binding as it is.
-      if (args.jobId !== undefined && mine.jobId !== args.jobId) await ctx.db.patch(mine._id, { jobId: args.jobId });
+      if (jobId !== undefined && mine.jobId !== jobId) await ctx.db.patch(mine._id, { jobId });
       if (machineId !== undefined && mine.machineId !== machineId) await ctx.db.patch(mine._id, { machineId });
       return { ok: true as const, mailbox: view((await ctx.db.get(mine._id))!) };
     }
@@ -142,7 +161,7 @@ export const joinMailbox = internalMutation({
       path: args.path,
       name: args.name,
       readThrough: new Date().toISOString(),
-      ...(args.jobId !== undefined ? { jobId: args.jobId } : {}),
+      ...(jobId !== undefined ? { jobId } : {}),
       ...(machineId !== undefined ? { machineId } : {}),
       createdAt: Date.now(),
     });

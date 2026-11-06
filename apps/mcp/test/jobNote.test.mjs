@@ -95,6 +95,8 @@ test("every job is told who is on its note and what each is for", async () => {
   assert.match(roster, /"research": other jobs on parts of the same ask/);
   assert.match(roster, new RegExp(`mailbox "${body.mailbox}"`));
   assert.match(roster, /Never look for a saved login or password/);
+  // The owner, 2026-11-06: a job joins other notes' mail, always under its own name.
+  assert.match(roster, /join it with write action mail on that note, args \{ join: "[a-z0-9-]+" \}: you always join as/);
   assert.doesNotMatch(roster, /\b10\b|limit/i, "the advisor's limit is never told");
   // A cloud job's part reads it in place of the old join instruction.
   const prompt = jobPrompt(jobOf({ id: JOB, title: "Pricing", brief: "Price it.", project: { path: "projects/x/overview.md", name: "pricing" }, roster }));

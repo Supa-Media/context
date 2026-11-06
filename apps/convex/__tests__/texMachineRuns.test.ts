@@ -135,12 +135,27 @@ describe("minting and resolving a run grant", () => {
     for (const box of [texBox, otherJob]) expect(((await post("/gateway/mail/get", { accessToken: token, mailboxId: box })) as { mailbox: unknown }).mailbox).toBeNull();
     const boxes = ((await post("/gateway/mail/jobs", { accessToken: token, workspaceId: alfa, path: "projects/sign-in.md" })) as { mailboxes: Array<{ name: string; own: boolean }> }).mailboxes;
     expect(boxes).toEqual(expect.arrayContaining([expect.objectContaining({ name: "dev2", own: true }), expect.objectContaining({ name: "other", own: false })]));
-    // It cannot join as Tex, as another job, or anew; it can only rejoin its own job's box.
-    const asPart = (name: string, jobId?: string) => post("/gateway/mail/join", { accessToken: token, workspaceId: alfa, path: "projects/sign-in.md", name, ...(jobId ? { jobId } : {}) });
+    // It cannot join as Tex, as another job, or under any name but its job's own; it rejoins its own job's box.
+    const asPart = (name: string, jobId?: string, path = "projects/sign-in.md") => post("/gateway/mail/join", { accessToken: token, workspaceId: alfa, path, name, ...(jobId ? { jobId } : {}) });
     expect(await asPart("tex", "job_aaaaaaaa")).toEqual({ error: "refused" });
+    expect(await asPart("tex")).toEqual({ error: "refused" });
     expect(await asPart("other", "job_bbbbbbbb")).toEqual({ error: "refused" });
-    expect(await asPart("fresh", "job_aaaaaaaa")).toEqual({ error: "refused" });
+    expect(await asPart("other")).toEqual({ error: "refused" });
+    expect(await asPart("fresh", "job_aaaaaaaa")).toEqual({ error: "own_name", name: "dev2" });
     expect(await asPart("dev2", "job_aaaaaaaa")).toMatchObject({ mailbox: { mailboxId } });
+    // The gateway names no job for a part: the grant's own job is used, so its own box answers.
+    expect(await asPart("dev2")).toMatchObject({ mailbox: { mailboxId } });
+    // The owner, 2026-11-06: a job joins another note's mail, under its own name and bound to its job.
+    const elsewhere = (await asPart("dev2", undefined, "projects/mail-split-test/overview.md")) as { mailbox: { mailboxId: string; name: string } };
+    expect(elsewhere.mailbox).toMatchObject({ name: "dev2" });
+    expect(elsewhere.mailbox.mailboxId).not.toBe(mailboxId);
+    const row = await t.run((ctx) => ctx.db.query("noteMailboxes").withIndex("by_mailboxId", (q) => q.eq("mailboxId", elsewhere.mailbox.mailboxId)).unique());
+    expect(row).toMatchObject({ jobId: "job_aaaaaaaa", path: "projects/mail-split-test/overview.md" });
+    expect(((await post("/gateway/mail/get", { accessToken: token, mailboxId: elsewhere.mailbox.mailboxId })) as { mailbox: { name: string } | null }).mailbox?.name).toBe("dev2");
+    // Nor as a sibling, a roster name, or under a different name there; nor as one of the person's machines.
+    expect(await asPart("other", undefined, "projects/mail-split-test/overview.md")).toEqual({ error: "own_name", name: "dev2" });
+    expect(await asPart("advisor", undefined, "projects/mail-split-test/overview.md")).toEqual({ error: "refused" });
+    expect(await post("/gateway/mail/join", { accessToken: token, workspaceId: alfa, path: "projects/x.md", name: "dev2", machineId })).toEqual({ error: "refused" });
     // A run grant that names no job reaches no mail at all.
     const unnamed = await mintedToken(t, machineId, { runId: OTHER_RUN_ID });
     expect(((await post("/gateway/mail/get", { accessToken: unnamed, mailboxId })) as { mailbox: unknown }).mailbox).toBeNull();

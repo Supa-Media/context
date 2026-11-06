@@ -962,6 +962,7 @@ export function createControlPlaneStub(options = {}) {
     revoke,
     mailboxes: mail.mailboxes,
     devices: mail.devices,
+    mailJoinAnswers: mail.joinAnswers,
     dreams,
     moves,
     transcription,
