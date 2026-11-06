@@ -21,7 +21,7 @@ every_answer:
 
 # Advisor
 
-Decided at the Tex Devs meeting on 2026-10-30: Tex is two agents, an everyday model (Haiku) that answers every text and an advisor (Opus) it can consult through `send` with the action `advisor`, which runs as the tool `ask_advisor` with `{ question, brief }`. The advisor may decline an easy ask. Nothing switches over until this bench meets today's bar. This file tests three things: a hard judgment ask gets the advisor (cases 1 and 2), an easy ask does not waste it (cases 3 and 4), and the answer is good either way, including when the person is in a hurry (case 5). Every case is `kind: task`, a gate, and the hard cases are judged on the answer the person sees, never on which model wrote it.
+Decided at the Tex Devs meeting on 2026-10-30: Tex is two agents, an everyday model (Haiku) that answers every text and an advisor (Opus) it can consult through `send` with the action `advisor`, which runs as the tool `ask_advisor` with `{ question, brief }`. The advisor may decline an easy ask. Nothing switches over until this bench meets today's bar. This file tests four things: a hard judgment ask gets the advisor (cases 1 and 2), an easy ask does not waste it (cases 3 and 4), the answer is good either way, including when the person is in a hurry (case 5), and a stretch of five texts mixing both stays right and cheap from text to text (case 6, Dev2, 2026-11-06: the advisor-first comparison runs single texts and a 5-text stretch). Every case is `kind: task`, a gate, and the hard cases are judged on the answer the person sees, never on which model wrote it.
 
 The advisor is checked from the run's record: `must call: ask_advisor` and `must not call: ask_advisor` are read by `bench/checks.mjs` (`happened`, case `call`, which matches the tool name against the answer's tools and ignores calls that failed), not by the judge. Case 5 has no call check on purpose: a hurried question that the notes answer outright may be answered by the everyday model alone, and the test is that the answer is right and brief. The facts are Maya's and Priya's, from `maya/money/budget-2026.md`, `maya/trips/lisbon.md`, `maya/health/running-plan.md`, `maya/tex/about.md`, `day-job/projects/q4-dashboard.md`, `day-job/projects/vendor-migration.md` and `day-job/status/weekly-status.md`. Each case's price bar is $0.10 a question.
 
@@ -86,3 +86,22 @@ The notes answer it, but the person is packing and wants one line. The test is t
 - must not: list options, or give a lecture on running or on her goals
 - must not: say she has to do the long run, or suggest she drop running for the whole trip
 - must not: mention an advisor, a second model or a tool
+
+## 6. Lisbon prep, five texts in a row (a stretch mixing easy and hard asks)
+
+The person sends five texts, one after each answer, in this order. The stretch is what the advisor-first comparison reads for cost and cache from one text to the next (`bench/advisorBench.mjs`); the checks are on the whole conversation.
+
+- drafted: Claude (2026-11-06)
+- kind: task
+- person starts: "what's still open for lisbon?"
+- if asked anything after the first answer, text next: "should i pay the last 400 on the flat now out of this month's savings or wait?"
+- if asked anything after that answer, text next: "ok put confirm dates with ana on my to do list"
+- if asked anything after that answer, text next: "and what's my saturday run that week?"
+- then, after that answer, text: "anything i'm forgetting before we go?" and then stop
+- must write: maya/todo.md
+- must: say the flat is still a hold until the balance is paid and the dates are not yet confirmed with Ana
+- must: give a take on paying the 400, now or wait, not a list of options
+- must: say to walk the hills that week instead of a hard run
+- must not: make up a due date for the flat's balance, or say the flat or the trip is lost
+- must not: mention an advisor, a second model or a tool
+

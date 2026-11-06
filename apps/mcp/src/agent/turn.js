@@ -40,7 +40,8 @@ import { turnPrompt } from "./turnPrompt.js";
 import { pickTier } from "./router.js";
 import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./noteWriteRetry.js";
 import { isMove, MOVE_TIMED_OUT, MOVE_TIMEOUTS } from "./slowMoves.js";
-import { addModelUsage, failedCall, modelForRound, thinkRoundsFor, whyFailed } from "./modelPlan.js";
+import { addModelUsage, failedCall, modelForRound, whyFailed } from "./modelPlan.js";
+import { dropRungs, raiseOnce, routedTurn, rungOf } from "./advisorFirst.js";
 import { PROGRESS_TOOL } from "./progress.js";
 import { turnLedger } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
@@ -367,37 +368,34 @@ export async function runTurn(options) {
   */
   const nudge = texting ? pushbackNudge(question, goalsIn(aboutMe)) : ""; // an opinion or a goal-touching ask (`pushback.js`)
   // A planner with no router (`jobsOnly`, `modelPlan.js` `turnRouter`) plans a background job and nothing else: every other text stays on `main`.
-  if (router !== null && (router.jobsOnly !== true || options.planned)) {
+  const advising = router?.advisorFirst === true && !options.planned; let rung = null; // a text stays on `main`, the router only flags it for the rung (`advisorFirst.js`)
+  if (router !== null && (advising ? typeof router.rung === "string" : router.jobsOnly !== true || options.planned)) {
     const asked = clock();
     // A background job always plans on `think` and drives on `main` (`background.js`), and so does a text asking for Tex's judgment (`pushback.js`): no router call.
     const routed = options.planned || nudge !== "" ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
-    if (routed.tier === "think") model = router.think;
-    plan = thinkRoundsFor(router, routed.tier, mainModel);
+    ({ model, plan, rung } = routedTurn(router, routed, mainModel, advising));
     // How sure the router was that this text needs thinking, kept whether or
     // not it cleared the setup's cutoff: a benchmark tunes the cutoff from the
     // near misses. Absent when it picked another tier or did not answer.
     const confidence = routed.pick === "think" && typeof routed.confidence === "number" ? { confidence: routed.confidence } : {};
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
-    tell({ kind: "model", model, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
+    tell({ kind: "model", model, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? (advising ? "the router flagged it, so it thinks harder on the everyday model" : "the router judged it needs thinking") : "picked by the router" });
   }
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, voice, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router?.think && !advising ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, voice, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
   const messages = [...history.map(({ role, text }) => ({ role, text })), questionMessage];
+  raiseOnce(messages, rung, model); // a flagged text thinks harder (`advisorFirst.js`)
   /*
-    What the turn did, by name only. The arguments a tool was called with can
-    carry a path and a query — facts about what somebody is looking for in their
-    own notes — so the steps record *that* a call happened and what it was
-    called, which is what a person watching a spinner wants, and nothing that
-    would make this a transcript of their thinking.
+    What the turn did, by name only: the arguments can carry a path and a query, so the
+    steps record *that* a call happened and its name, never a transcript of their thinking.
   */
   const steps = [];
   /*
-    Where the time went, in milliseconds and counts only: what a slow answer
-    is diagnosed from (the owner, 2026-10-07: "it was EXTREMELY slow"), and
-    nothing a log line could leak a note or a question through.
+    Where the time went, in milliseconds and counts only (the owner, 2026-10-07: "it was
+    EXTREMELY slow"), and nothing a log line could leak a note or a question through.
   */
   const timing = { rounds: 0, modelMs: 0, toolMs: 0 };
   /*
@@ -437,6 +435,7 @@ export async function runTurn(options) {
     model = next;
     prompt = promptFor(model);
     for (const message of messages) if (message.content) delete message.content;
+    dropRungs(messages); // a rung is per model (`advisorFirst.js`)
   };
   // The last round's tool calls included one that failed: the next one plans again.
   let escalate = false;
@@ -515,7 +514,7 @@ export async function runTurn(options) {
       ok: true,
       // When it started, from the turn's start, for the chat's timeline (`turnTiming.js`).
       at: asked - began,
-      ms: roundMs,
+      ms: roundMs, ...rungOf(messages), // the effort rung the round ran at (`advisorFirst.js`)
       // Retried once by the gateway (`aiGateway.js`): noted, with what it was retried after.
       ...(answer.retried ? { retried: true, ...(answer.retried.status === null ? {} : { status: answer.retried.status }) } : {}),
       // Stopped at the output cap (`aiGateway.js`): the round's thinking and
@@ -551,6 +550,7 @@ export async function runTurn(options) {
       }
       if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: { system: systemText(prompt.system), messages } }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
       messages.push({ role: "user", text: held.sendBack(recheck, answer.text) }); // the draft quoted as NOT sent, never put in as said (`sendBack.js`)
+      if (advising) raiseOnce(messages, router.rung, model); // and so does a text sent back (`advisorFirst.js`)
       continue;
     }
 
@@ -624,7 +624,7 @@ export async function runTurn(options) {
               progress && call.name === PROGRESS_TOOL
                 ? progress.call(call.args)
                 : localCalls.has(call.name)
-                ? localCalls.get(call.name)(call.args, { system: [systemText(prompt.system), prompt.preamble].join("\n\n"), messages, tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
+                ? localCalls.get(call.name)(call.args, { system: systemText(prompt.system), preamble: prompt.preamble, messages, tools: offered, cachedThrough: history.length }) // the turn so far, for a tool that reads it (`advisor.js`)
                 : webNames.has(call.name)
                   ? web.call(call.name, call.args)
                   : callTool(call.name, call.args),
@@ -651,7 +651,7 @@ export async function runTurn(options) {
       // A call the egress gate held for the person's yes is not a failure: it
       // runs when they give it (`texEntryPoint.js`), and a log that called it failed
       // would read as a broken tool.
-      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
+      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...(result?.declined === true ? { declined: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
       if (failedCall(result)) escalate = true;

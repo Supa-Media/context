@@ -65,6 +65,37 @@ this folder: it is public, like the rest of the repository.
   asks that must not, and a hurried hard ask that must still be right and
   brief. The advisor calls are graded by `must call` and `must not call`
   lines (`bench/checks.mjs`), not by the judge. Run it with `--test advisor`.
+  Case 6 (2026-11-06) is a stretch of five texts in one chat.
+
+  The advisor-first comparison (Dev2, 2026-11-06) runs it against four
+  setups made from the live one (`bench/advisorBench.mjs`): a, today's router
+  (a flagged text runs whole on Opus); b, `advisor_first: on` (every text on
+  Haiku, Opus only as the advisor); c, b with `effort_rung: high`; d, b run
+  from a checkout of the branch that keeps thinking across a model switch
+  (`fix/tex-keep-turn-thinking`). Every case is still `drafted`, so a person
+  checks the cases and removes their `- drafted:` lines first; until then a
+  run skips them all. From the repository root:
+
+      pnpm ai pull texting-assistant
+      node apps/mcp/bench/advisorBench.mjs setups --dir apps/mcp/bench/ai
+      pnpm ai run texting-assistant --test advisor --setups advisor-a-router,advisor-b-first,advisor-c-rung --runs 3
+      pnpm ai judge "<the result file it names>"
+      pnpm ai score "<the result file>"
+
+  and, for d, the same `run` with `--setups advisor-d-thinking` from a
+  worktree of that branch with the setup files copied in. Add `--fake` to
+  check the plumbing for nothing. A real run needs the Claude keys
+  (`AI_GATEWAY_ACCOUNT_ID`, `AI_GATEWAY_ID` and `AI_GATEWAY_TOKEN`, with
+  `ANTHROPIC_CREDIT_KEY` or `ANTHROPIC_API_KEY`; or `ANTHROPIC_API_KEY`
+  alone, straight to Anthropic), `CLOUDFLARE_ACCOUNT_ID` and
+  `CLOUDFLARE_AI_TOKEN` for the router (Clef) and the embeddings, and
+  `pnpm ai pull`'s sign-in to `@context-lc`; the test runs on the scripted
+  web, so no search key. The score gives the pass rate; the result note's
+  `Advisor first:` lines give, per setup, the p50 and p95 time to a text (each
+  turn's time: the bench sends nothing before the answer but progress
+  lines), the cost per text with Opus apart, the share of input read from
+  the cache per model, how often a text asked the advisor and how often it
+  declined, and how many texts ran at the rung.
 - `tests/splitting.md` (Dev, 2026-11-04): big asks split into one
   background job per part while slots are free, simple asks never split.
   `background: on` sends the chat's running jobs with every text (none

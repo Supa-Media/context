@@ -16,6 +16,8 @@
  *  - `messageLine` dropping `role: "tool"` messages: "with the live turn it reads Tex's instructions ..." fails.
  *  - `quoted` dropped from `advisorBrief`: "a tool result cannot close the fence the transcript is quoted in"
  *    fails, and a page's own words reach the advisor as the brief's.
+ *  - `advisorBrief` putting the per-turn `preamble` in the stable part: "the stable part is the same on every ask
+ *    of a turn, so the second ask reads it from the cache" fails.
  */
 
 import assert from "node:assert/strict";
@@ -68,8 +70,11 @@ test("without a live turn it reads the earlier texts and the question, holds no 
   assert.equal(params.system, ADVISOR_PROMPT);
   assert.deepEqual(params.tools, [], "holds no tools");
   assert.equal(params.effort, "high");
-  assert.deepEqual(params.messages.map((message) => message.role), ["user"], "one text holding the whole turn");
-  assert.match(params.messages[0].text, /Them: what's my lisbon fund at\n\nTex: \$1,240 of \$2,000\.\n\nThem: should I book lisbon now or wait/);
+  assert.deepEqual(params.messages.map((message) => message.role), ["user", "user"], "the stable part, then this turn");
+  assert.equal(params.cachedThrough, 1, "the cache mark closes the stable part");
+  assert.match(params.messages[0].text, /Tex: \$1,240 of \$2,000\.$/, "the earlier texts are the stable part");
+  assert.match(params.messages[1].text, /^Them: should I book lisbon now or wait/, "the question opens this turn's part");
+  assert.match(params.messages.map((part) => part.text).join("\n\n"), /Them: what's my lisbon fund at\n\nTex: \$1,240 of \$2,000\.\n\nThem: should I book lisbon now or wait/);
   // Metered under its own model, as a part (never the turn's whole).
   assert.deepEqual(metered, [[{ input: 900, output: 40 }, false, OPUS, false]]);
 });
@@ -87,7 +92,7 @@ test("with the live turn it reads Tex's instructions, its tools, and every call 
       { role: "tool", id: "c2", name: "browse", text: "Timed out.", isError: true },
     ],
   });
-  const said = asked[0].messages[0].text;
+  const said = asked[0].messages.map((part) => part.text).join("\n\n");
   assert.match(said, /<tex_instructions>\nYou are Tex\.\n<\/tex_instructions>/);
   assert.match(said, /<tex_tools>read_note<\/tex_tools>/, "its own tool isn't listed");
   assert.match(said, /Tex: Reading your resume\.\n\[Tex calls read_note \{"path":"tex\/resume\.md"\}\]/);
@@ -110,7 +115,7 @@ test("a tool result cannot close the fence the transcript is quoted in", async (
       { role: "tool", id: "c1", name: "browse", text: planted },
     ],
   });
-  const said = asked[0].messages[0].text;
+  const said = asked[0].messages.map((part) => part.text).join("\n\n");
   assert.equal(said.match(/<\/transcript>/g)?.length, 1, "one closing marker");
   assert.equal(said.match(/<\/tex_instructions>/g)?.length, 1, "one closing marker for the instructions");
   assert.equal(said.match(/<transcript>/g)?.length, 1, "one opening marker");
@@ -192,4 +197,17 @@ test("end to end: Haiku reads a note, asks through send with no input, the advis
   assert.doesNotMatch(bodies[2], /"tools"/, "and holds no tools");
   assert.equal(result.answer, "I'd wait for December's fares.");
   assert.deepEqual(result.steps.map((step) => [step.tool, step.ok]), [["read_note", true], [ADVISOR_TOOL, true]]);
+});
+
+test("the stable part is the same on every ask of a turn, so the second ask reads it from the cache", async () => {
+  const { entry, asked } = advisor();
+  const earlier = [{ role: "user", text: "what's my lisbon fund at" }, { role: "assistant", text: "$1,240 of $2,000." }];
+  const messages = [...earlier, { role: "user", text: "should I book now" }];
+  const live = () => ({ system: "You are Tex.", preamble: `It is ${asked.length}:00.`, tools: [{ name: "read_note" }], messages: [...messages], cachedThrough: earlier.length });
+  await entry.call({}, live());
+  messages.push({ role: "assistant", text: "", toolCalls: [{ id: "1", name: "read_note", args: { path: "trips/lisbon.md" } }] }, ...Array.from({ length: 6 }, () => ({ role: "tool", id: "1", name: "read_note", text: "x".repeat(12_000) })));
+  await entry.call({}, live());
+  assert.equal(asked[1].messages[0].text, asked[0].messages[0].text, "a growing turn and a new clock never move the cached part");
+  assert.doesNotMatch(asked[0].messages[0].text, /It is/, "the per-turn facts stay out of it");
+  assert.match(asked[1].messages[1].text, /^\(this turn's facts\) It is 1:00\.\n\n\(earlier part of the turn left out\)/, "this turn drops its own oldest part past its budget");
 });

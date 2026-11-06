@@ -47,6 +47,7 @@ import { createWorld } from "./world.mjs";
 import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
+import { adviceOf } from "./advisorBench.mjs";
 
 /**
  * The fewest texts the played person may send in one conversation. A brief
@@ -185,7 +186,7 @@ export async function converse(world, question, person, mode = null, background 
   const conversation = [];
   // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count already (`benchRunning`).
   const running = background ? benchRunning(question.running ?? 0) : null;
-  const totals = { ms: 0, personMs: 0, tools: [], jobs: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
+  const totals = { ms: 0, personMs: 0, tools: [], jobs: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null, turnMs: [] };
   let message = question.personStarts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
@@ -194,6 +195,7 @@ export async function converse(world, question, person, mode = null, background 
     const seen = world.browser().length;
     const turn = await world.text(message, pictures, { running });
     totals.ms += turn.ms;
+    totals.turnMs.push(turn.ms); // each text's own time (`advisorBench.mjs`)
     totals.tools.push(...turn.tools);
     totals.traces.push(turn.trace ?? []);
     totals.jobs.push(...(turn.jobs ?? []));
@@ -373,7 +375,7 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
         const { traces = [], ...answered } = result;
         // Everything the conversation did, for its ledger file (`modelLog.mjs`); `run` writes it beside the result.
         const ledger = benchLedger({ setup: setup.name, question: question.n, run: n, as, questionText: question.text, conversation: answered.conversation, turns: traces, chat: await world.chatLedger?.().catch(() => []) ?? [], calls: world.modelCalls?.() ?? [] });
-        result = answered;
+        result = { ...answered, advice: adviceOf(traces) }; // the advisor's asks and the effort rung, from the traces (`advisorBench.mjs`)
         records.push({
           ...(reran === null ? {} : { reran }),
           setup: setup.name,

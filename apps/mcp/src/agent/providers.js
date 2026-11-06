@@ -51,6 +51,11 @@ export function anthropicMessages(messages) {
   */
   const out = [];
   for (const message of messages) {
+    // The effort rung (`advisorFirst.js`): an effort-only system message, Anthropic's per-message effort.
+    if (message.role === "effort") {
+      out.push({ role: "system", content: [], output_config: { effort: message.effort } });
+      continue;
+    }
     if (message.role === "tool") {
       // A picture the tool handed back is shown, beside its words, inside the tool's answer.
       const images = Array.isArray(message.images) ? message.images : [];
@@ -129,6 +134,7 @@ function withPreamble(blocks, preamble) {
 export function openAiMessages(system, messages) {
   const out = system ? [{ role: "system", content: system }] : [];
   for (const message of messages) {
+    if (message.role === "effort") continue; // Anthropic's alone (`advisorFirst.js`)
     if (message.role === "tool") {
       // Words only on this API's tool answers: a picture is named as one it cannot see.
       const unseen = Array.isArray(message.images) && message.images.length > 0 ? `\n[${message.images.length === 1 ? "A picture" : `${message.images.length} pictures`} in this result; you cannot see pictures on this model, so say so if asked what it shows.]` : "";

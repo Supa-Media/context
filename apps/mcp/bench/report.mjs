@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 
 import { WORDS } from "./words.mjs";
+import { advisorLines } from "./advisorBench.mjs";
 
 // Where the four words of an id are read from the 32-byte SHA-256 digest.
 const WORD_OFFSETS = [0, 4, 8, 12];
@@ -363,6 +364,7 @@ export function resultMarkdown(result) {
     ...routedLines(setups, runs),
     ...resilienceLines(setups, runs),
     ...timeLines(setups, runs),
+    ...advisorLines(result.test, setups, runs),
     "## Answers",
     "",
   ];

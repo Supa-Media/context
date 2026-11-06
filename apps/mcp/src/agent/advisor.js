@@ -33,9 +33,14 @@ import { withoutTag } from "./promptFence.js";
 
 export const ADVISOR_TOOL = "ask_advisor";
 export const MAX_ASKS = 10;
-/** The most of Tex's instructions the advisor reads, and of the turn's transcript, newest kept. */
+/**
+ * The most of Tex's instructions the advisor reads, and of the transcript: the
+ * earlier texts and this turn have a budget each, so this turn growing never
+ * moves the cached part (`advisorBrief`). Each keeps its newest messages whole.
+ */
 const MAX_SYSTEM_CHARS = 40_000;
-const MAX_TRANSCRIPT_CHARS = 160_000;
+const MAX_HISTORY_CHARS = 100_000;
+const MAX_TURN_CHARS = 60_000;
 /** The most of one tool result shown to it: a page read can be long. */
 const MAX_RESULT_CHARS = 12_000;
 
@@ -44,6 +49,7 @@ export const ADVISOR_DEFINITION = {
   description:
     "Ask your advisor, a stronger model, when an ask needs judgment: weighing their goals or a trade-off, a plan with several steps, " +
     "something that goes wrong if answered carelessly, before you call a task done, or after a step failed and you are stuck. Not for a lookup, a simple write or a greeting. " +
+    "On an ask like that, look around first (read the notes, search), then ask before you commit to an approach, and again before you say it is done. " +
     "It sees everything in this turn so far (your instructions, the conversation, every tool call and result), so call it with no input. " +
     "It answers you, never them; you still do the work and write the text. If it declines, answer yourself.",
   inputSchema: { type: "object", properties: {} },
@@ -105,11 +111,14 @@ export function advisorTools({ model, effort, history, question, request, meter 
     if (asks >= MAX_ASKS) return text("Your advisor isn't available for the rest of this turn. Answer with what you have.", true);
     asks += 1;
     const transcript = Array.isArray(live?.messages) ? live.messages : [...history, { role: "user", text: question }];
+    const earlier = Number.isInteger(live?.cachedThrough) ? live.cachedThrough : Array.isArray(live?.messages) ? 0 : history.length;
     let answer;
     try {
       // `display: "summarized"`: its thinking comes back in words, kept with its answer in the chat's
       // history (Dev, 2026-11-02: "'Its private reasoning isn't kept.' - why?"). It never goes to Tex.
-      answer = await request({ model, system: ADVISOR_PROMPT, messages: [{ role: "user", text: advisorBrief(live, transcript) }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
+      // Two parts, the stable one cached (`aiGateway.js` `cachedThrough`): a second ask, or the next text's, reads it back.
+      const [stable, fresh] = advisorBrief(live, transcript, earlier);
+      answer = await request({ model, system: ADVISOR_PROMPT, messages: [{ role: "user", text: stable }, { role: "user", text: fresh }], cachedThrough: 1, tools: [], display: "summarized", ...(effort ? { effort } : {}) });
     } catch {
       await meter(null, true, model, false);
       return text("Your advisor couldn't be reached. Answer with what you have.", true);
@@ -117,7 +126,8 @@ export function advisorTools({ model, effort, history, question, request, meter 
     await meter(answer?.usage ?? null, false, model, false);
     const words = typeof answer?.text === "string" ? answer.text.trim() : "";
     const thought = advisorThinking(answer);
-    const result = words ? text(words, false) : text("Your advisor had nothing to add. Answer with what you have.", false);
+    // `declined`: kept in the turn's trace, so the bench counts how often it declined (`bench/advisorBench.mjs`).
+    const result = words ? { ...text(words, false), ...(/^Decline:/i.test(words) ? { declined: true } : {}) } : text("Your advisor had nothing to add. Answer with what you have.", false);
     return thought ? { ...result, thinking: thought } : result;
   };
   return [{ tool: ADVISOR_DEFINITION, call }];
@@ -134,21 +144,39 @@ export function advisorThinking(answer) {
 }
 
 /**
- * The whole turn, as one text the advisor reads: Tex's instructions, its
- * tools by name, then every message in order, tool calls and results
- * included. A long turn keeps its newest part.
+ * The whole turn as the advisor reads it, in two parts. The stable part is
+ * the same on every ask of the turn and, the earlier texts unchanged, of the
+ * next: Tex's instructions, its tools by name and the earlier texts. The
+ * fresh part is this turn: its per-turn facts (`preamble`), then every message
+ * from the person's text on, tool calls and results included. Each part drops
+ * its oldest whole messages past its budget, so the stable one never shifts
+ * while this turn grows.
  */
-export function advisorBrief(live, transcript) {
+export function advisorBrief(live, transcript, earlier = 0) {
   const system = quoted(clip(live?.system, MAX_SYSTEM_CHARS));
+  const preamble = quoted(clip(live?.preamble, MAX_SYSTEM_CHARS));
   const tools = (Array.isArray(live?.tools) ? live.tools : []).map((tool) => tool?.name).filter((name) => typeof name === "string" && name !== ADVISOR_TOOL);
-  const lines = transcript.map(messageLine).filter(Boolean);
-  let body = lines.join("\n\n");
-  if (body.length > MAX_TRANSCRIPT_CHARS) body = `(earlier part of the turn left out)\n\n${body.slice(-MAX_TRANSCRIPT_CHARS)}`;
-  return (
+  const before = newest(transcript.slice(0, earlier).map(messageLine).filter(Boolean), MAX_HISTORY_CHARS, "(earlier texts left out)");
+  const now = newest(transcript.slice(earlier).map(messageLine).filter(Boolean), MAX_TURN_CHARS, "(earlier part of the turn left out)");
+  const stable =
     (system ? `<tex_instructions>\n${system}\n</tex_instructions>\n\n` : "") +
     (tools.length > 0 ? `<tex_tools>${tools.join(", ")}</tex_tools>\n\n` : "") +
-    `<transcript>\n${body || "(nothing yet)"}\n</transcript>\n\nTex has paused here to ask your advice.`
-  );
+    `<transcript>\n${before || "(no earlier texts)"}`;
+  const fresh = `${preamble ? `(this turn's facts) ${preamble}\n\n` : ""}${now || "(nothing yet)"}\n</transcript>\n\nTex has paused here to ask your advice.`;
+  return [stable, fresh];
+}
+
+/** The newest whole lines that fit in `max` characters, oldest first, with `gap` said when any were left out. */
+function newest(lines, max, gap) {
+  const kept = [];
+  let size = 0;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i].length > max ? lines[i].slice(-max) : lines[i];
+    if (size + line.length > max) break;
+    kept.unshift(line);
+    size += line.length + 2;
+  }
+  return [...(kept.length < lines.length ? [gap] : []), ...kept].join("\n\n");
 }
 
 function messageLine(message) {
