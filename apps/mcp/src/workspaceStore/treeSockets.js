@@ -22,6 +22,7 @@
 
 import {
   decodeClientFrame,
+  headFrame,
   listingFrame,
   notServedFrame,
   pongFrame,
@@ -35,6 +36,7 @@ import { ACCESS_HOMES } from "./access.js";
 import { judgedReader } from "./members.js";
 import { folderPathOf, listFolderFromRows } from "./listing.js";
 import { treeRows } from "./treeRows.js";
+import { clearanceKey, HEAD_GATHER_MS, headFor } from "./treeHead.js";
 
 export const TREE_READER_HEADER = "x-tree-reader";
 const SCOPES = new Set(["private", "team"]);
@@ -46,6 +48,8 @@ const NOTICE_GATHER_MS = 25;
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ws_tree_sockets (id TEXT PRIMARY KEY, reader TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS ws_tree_watch (socket TEXT NOT NULL, folder TEXT NOT NULL, sent TEXT, PRIMARY KEY (socket, folder))`,
+  // A socket that asked for the workspace's change signal (`treeHead.js`), and the head it was last sent.
+  `CREATE TABLE IF NOT EXISTS ws_tree_head (socket TEXT PRIMARY KEY, sent TEXT NOT NULL DEFAULT '')`,
 ];
 
 const all = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray() : []);
@@ -101,6 +105,7 @@ export function treeSockets(state, sql, store, deps = {}) {
   const upgraded = deps.upgraded ?? ((client) => new Response(null, { status: 101, webSocket: client }));
   const tree = treeRows(sql);
   let pending = null;
+  let headPending = false;
 
   const socketId = (ws) => {
     try {
@@ -116,6 +121,7 @@ export function treeSockets(state, sql, store, deps = {}) {
   };
   const forget = (id) => {
     sql.exec("DELETE FROM ws_tree_watch WHERE socket = ?", id);
+    sql.exec("DELETE FROM ws_tree_head WHERE socket = ?", id);
     sql.exec("DELETE FROM ws_tree_sockets WHERE id = ?", id);
   };
   const close = (ws, code, reason) => {
@@ -173,6 +179,48 @@ export function treeSockets(state, sql, store, deps = {}) {
       sql.exec("UPDATE ws_tree_watch SET sent = ? WHERE socket = ? AND folder = ?", sent, id, folder);
       ws.send(frame);
     }
+  };
+
+  /**
+   * Send each socket in `ids` its head when it moved since the last one it was sent. Readers who see the same share
+   * one digest, so a pass costs one walk of the rows per clearance, not per socket.
+   */
+  const sendHeads = async (sockets) => {
+    const held = store.rows.rules("member");
+    const byClearance = new Map();
+    for (const { ws, id, reader } of sockets) {
+      const clearance = clearanceOf(reader);
+      if (clearance === null) {
+        forget(id);
+        close(ws, TREE_CLOSE_REAUTH, "reauthorize");
+        continue;
+      }
+      const key = clearanceKey(clearance);
+      if (!byClearance.has(key)) byClearance.set(key, await headFor(sql, held, clearance));
+      const token = byClearance.get(key);
+      if (token === null) continue;
+      const row = all(sql.exec("SELECT sent FROM ws_tree_head WHERE socket = ?", id))[0];
+      if (row === undefined || row.sent === token) continue;
+      sql.exec("UPDATE ws_tree_head SET sent = ? WHERE socket = ?", token, id);
+      ws.send(headFrame(token));
+    }
+  };
+
+  /** Every open, served socket that asked for the head; one past its deadline is closed instead. */
+  const flushHeads = async () => {
+    headPending = false;
+    if (store.rows.home() !== HOMES.OBJECT) return;
+    const asked = new Set(all(sql.exec("SELECT socket FROM ws_tree_head")).map((row) => row.socket));
+    if (asked.size === 0) return;
+    const sockets = [];
+    for (const ws of openSockets()) {
+      const id = socketId(ws);
+      if (id === null || !asked.has(id)) continue;
+      const reader = readerFor(id);
+      if (expired(ws, id, reader)) continue;
+      sockets.push({ ws, id, reader });
+    }
+    await sendHeads(sockets);
   };
 
   /** Close a socket whose grant needs checking again; the client reconnects through the gateway. */
@@ -250,6 +298,12 @@ export function treeSockets(state, sql, store, deps = {}) {
       const added = folders.filter((folder) => !held.has(folder));
       for (const folder of added) sql.exec("INSERT INTO ws_tree_watch (socket, folder, sent) VALUES (?, ?, '')", id, folder);
       await sendListings(ws, id, reader, added);
+      if (frame.head === true) {
+        sql.exec("INSERT OR IGNORE INTO ws_tree_head (socket, sent) VALUES (?, '')", id);
+        await sendHeads([{ ws, id, reader }]);
+      } else {
+        sql.exec("DELETE FROM ws_tree_head WHERE socket = ?", id);
+      }
     },
 
     closed(ws) {
@@ -263,6 +317,13 @@ export function treeSockets(state, sql, store, deps = {}) {
      * Watchers are listed again after a short gather.
      */
     notice({ rows = [], all: everything = false } = {}) {
+      // Heads are worked out on a slower gather than listings: a whole-tree digest, not one folder.
+      if (!headPending) {
+        headPending = true;
+        schedule(() => {
+          flushHeads().catch(() => {});
+        }, HEAD_GATHER_MS);
+      }
       if (pending === null) {
         pending = { folders: new Set(), changedFolders: new Set(), all: false };
         schedule(() => {
@@ -294,5 +355,7 @@ export function treeSockets(state, sql, store, deps = {}) {
 
     /** For tests: run a gathered notice now. */
     flush,
+    /** For tests: run a gathered head pass now. */
+    flushHeads,
   };
 }

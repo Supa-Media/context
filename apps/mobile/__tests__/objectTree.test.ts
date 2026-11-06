@@ -26,17 +26,20 @@ type Fake = {
   onerror: ((event: unknown) => void) | null;
 };
 
-function harness() {
+function harness(options: { head?: boolean } = {}) {
   const sockets: Fake[] = [];
   const timers: Array<{ fn: () => void; ms: number }> = [];
   const listings: Array<[string, unknown]> = [];
   const served: boolean[] = [];
   const refreshes: boolean[] = [];
+  const heads: string[] = [];
   const flush = async () => {
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
   };
   const tree = openObjectTree({
     gatewayOrigin: "https://gateway.example",
+    head: options.head,
+    onHead: (token) => heads.push(token),
     token: async (refresh) => {
       refreshes.push(refresh);
       return "tok";
@@ -86,7 +89,7 @@ function harness() {
     await flush();
     return retry.ms;
   };
-  return { tree, sockets, timers, listings, served, refreshes, flush, opened, runRetry };
+  return { tree, sockets, timers, listings, served, refreshes, heads, flush, opened, runRetry };
 }
 
 describe("the tree socket to the workspace object", () => {
@@ -114,6 +117,19 @@ describe("the tree socket to the workspace object", () => {
     h.sockets[0].onmessage?.({ data: JSON.stringify({ t: "listing", folder: "projects", page }) });
     expect(h.listings).toEqual([["projects", page]]);
     expect(h.served).toEqual([true]);
+  });
+
+  test("asked for, the head is requested on open and on every watch, and each one reaches onHead", async () => {
+    const h = harness({ head: true });
+    h.tree.watch([]);
+    await h.flush();
+    h.opened(h.sockets[0]);
+    expect(JSON.parse(h.sockets[0].sent[0])).toEqual({ t: "watch", folders: [], head: true });
+    h.sockets[0].onmessage?.({ data: JSON.stringify({ t: "head", token: "ab12" }) });
+    expect(h.heads).toEqual(["ab12"]);
+    expect(h.served).toEqual([true]);
+    h.tree.watch([""]);
+    expect(JSON.parse(h.sockets[0].sent[1])).toEqual({ t: "watch", folders: [""], head: true });
   });
 
   test("not_served hands the tree to Convex and asks the object again only after a while", async () => {

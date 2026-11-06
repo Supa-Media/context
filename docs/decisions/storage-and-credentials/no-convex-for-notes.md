@@ -38,6 +38,29 @@ These are questions the object can't yet settle on its own. They aren't failures
 
 The next step moves each of these into the object, or removes it.
 
+## The object pushes the change signal (2026-11-06)
+
+A device that keeps a copy (the app's offline mirror) caught up when the control plane's change log moved
+(`nodesFeed.head`), a copy written behind the object. The owner chose to keep a note's mail inside the note and have
+the object push changes ("Keep in note, push from object", 2026-11-06), so the cue now comes from the object itself.
+
+A tree socket may ask for the workspace's **head** (`{t: "watch", folders, head: true}`, `packages/shared/src/treeFrames.cjs`).
+The object answers `{t: "head", token}` at once and again whenever the token moves (`workspaceStore/treeHead.js`).
+The token is a digest of what that reader may see: each visible note's path and version, and the rules' version. So
+it moves on a save, a mail line (it is the note's text), a new, moved or removed note, or a rules change, and never
+on a change the reader may not see. It is the same on a new socket when nothing changed, so the socket's
+re-authorization every five minutes costs no catch-up. Writes are gathered for a second before heads are worked out,
+and readers with the same clearance share one digest.
+
+The app follows each workspace's head over one socket (`apps/mobile/features/offline/objectHeads.ts`, `useNodeFeed.ts`)
+and subscribes to `nodesFeed.head` only for a workspace whose object says it does not serve. The catch-up a moved
+head starts still reads the change log (`nodesFeed.changes`); a row the mirror has not yet carried there arrives with
+a later sequence and is picked up by the next catch-up, never lost. Moving the catch-up into the object is next.
+
+A simplification that dropped the reader's judgment from the digest would tell a member, by timing, that a note they
+may not see had changed. `apps/mcp/test/workspaceTree.test.mjs` ("a socket that asks for the head…") fails if it does,
+and `apps/mobile/__tests__/objectHeads.test.ts` fails if a workspace the object stops serving is not handed back.
+
 ## What a simplification would cost
 
 Putting the fallback back turns one busy minute into a feedback loop on the same object, and serves rows Convex may

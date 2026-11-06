@@ -275,7 +275,73 @@ test("a reader the gateway did not write is refused, and a bad frame closes the 
   assert.equal(decodeClientFrame(JSON.stringify({ t: "watch", folders: Array.from({ length: 41 }, (_, i) => `f${i}`) })), null);
 });
 
+/* ------------------------- the workspace's change signal ------------------------- */
+
+const heads = (socket) => socket.sent.filter((frame) => frame.t === "head").map((frame) => frame.token);
+
+test("a socket that asks for the head gets it, and again only when something it may see changes", { skip }, async () => {
+  // Sabotage record (2026-11-06): `canSee` in `treeHead.js` `headFor` replaced with `true` → the team socket's head
+  // moves on the private note's change and this test fails; the `row.sent === token` skip in `sendHeads` dropped →
+  // the unchanged pass sends a second head and this test fails.
+  const w = socketWorld();
+  const team = w.open(reader("team")).server;
+  const owner = w.open(reader("private")).server;
+  await w.tree.message(team, JSON.stringify({ t: "watch", folders: [], head: true }));
+  await w.tree.message(owner, JSON.stringify({ t: "watch", folders: [], head: true }));
+  assert.equal(heads(team).length, 1);
+  assert.equal(heads(owner).length, 1);
+  assert.notEqual(heads(team)[0], heads(owner)[0], "each reader's head is of what that reader may see");
+
+  // Nothing changed: a pass sends nothing.
+  await w.tree.flushHeads();
+  assert.equal(heads(team).length, 1);
+
+  // A private note's text changes (its version moves): the owner's head moves, the team member's does not.
+  await w.call("ws.rows.put", { rows: [row("n2", "projects/plan-private.md", "file", { etag: "v2" })] });
+  await w.tree.flushHeads();
+  assert.equal(heads(team).length, 1, "a change the reader may not see moves nothing for them");
+  assert.equal(heads(owner).length, 2);
+
+  // A team note's text changes, as a mail line written into it does: both heads move.
+  await w.call("ws.rows.put", { rows: [row("n1", "projects/plan.md", "file", { etag: "v2", size: 10, uploaded: 1000 })] });
+  await w.tree.flushHeads();
+  assert.equal(heads(team).length, 2);
+  assert.equal(heads(owner).length, 3);
+});
+
+test("the head is the same on a new socket when nothing changed, so a reconnect costs no catch-up", { skip }, async () => {
+  const w = socketWorld();
+  const first = w.open(reader("team")).server;
+  await w.tree.message(first, JSON.stringify({ t: "watch", folders: [], head: true }));
+  const second = w.open(reader("team")).server;
+  await w.tree.message(second, JSON.stringify({ t: "watch", folders: [], head: true }));
+  assert.deepEqual(heads(first), heads(second));
+});
+
+test("a socket that did not ask for the head is sent none, and rules taken away move it", { skip }, async () => {
+  const w = socketWorld();
+  const plain = w.open(reader("team")).server;
+  await w.tree.message(plain, JSON.stringify({ t: "watch", folders: ["projects"] }));
+  const fed = w.open(reader("team")).server;
+  await w.tree.message(fed, JSON.stringify({ t: "watch", folders: [], head: true }));
+  await w.call("ws.rules.put", { rules: RULES(2, { notes: [{ path: "projects/plan.md", visibility: "private" }] }) });
+  await w.tree.flushHeads();
+  assert.equal(heads(plain).length, 0);
+  assert.equal(heads(fed).length, 2);
+});
+
+test("a workspace whose rules are not held sends no head, failing closed", { skip }, async () => {
+  const w = socketWorld({ rules: null });
+  const socket = w.open(reader("private")).server;
+  await w.tree.message(socket, JSON.stringify({ t: "watch", folders: [], head: true }));
+  assert.equal(heads(socket).length, 0);
+});
+
 test("frames read the same on both sides", () => {
+  assert.deepEqual(decodeClientFrame(JSON.stringify({ t: "watch", folders: [], head: true })), { t: "watch", folders: [], head: true });
+  assert.deepEqual(decodeClientFrame(JSON.stringify({ t: "watch", folders: [], head: "yes" })), { t: "watch", folders: [] });
+  assert.deepEqual(decodeServerFrame(JSON.stringify({ t: "head", token: "0a1b" })), { t: "head", token: "0a1b" });
+  assert.equal(decodeServerFrame(JSON.stringify({ t: "head", token: "<script>" })), null);
   assert.deepEqual(decodeServerFrame(JSON.stringify({ t: "listing", folder: "a", page: { path: "a", entries: [] } })), { t: "listing", folder: "a", page: { path: "a", entries: [] } });
   assert.equal(decodeServerFrame(JSON.stringify({ t: "listing", folder: "a" })), null);
   assert.equal(decodeServerFrame("{"), null);
