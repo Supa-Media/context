@@ -19,6 +19,13 @@
             "url": "https://site.example/login"
           },
           "Other ways to sign in: text me a code"
+        ],
+        [
+          "browse",
+          {
+            "click": "text me a code"
+          },
+          "Code sent by text to the number on file."
         ]
       ],
       "reply": "Switched to a texted code instead, it should hit your phone now. What's the code?",

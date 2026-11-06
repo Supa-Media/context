@@ -201,6 +201,10 @@ test("readReview keeps only known problem names, and a send-back needs feedback"
   assert.deepEqual(readReview('{"kind":"task","send":false,"problems":["claims_undone","made_up","claims_undone"],"feedback":" Do it. "}'), { kind: "task", send: false, problems: ["claims_undone"], feedback: "Do it." });
   assert.equal(readReview('{"kind":"task","send":false,"problems":["claims_undone"]}'), null);
   assert.equal(readReview(""), null);
+  assert.deepEqual(readReview('{"kind":"chat","verdict":"ok"}'), { kind: "chat", send: true, problems: [], feedback: "" });
+  assert.deepEqual(readReview('{"kind":"task","verdict":"send_back","problems":["too_long"],"feedback":"Cut it to a line."}\n\nWait, that\'s {wrong}.'), { kind: "task", send: false, problems: ["too_long"], feedback: "Cut it to a line." }, "the first object counts, whatever follows it");
+  assert.equal(readReview('{"kind":"task","verdict":"send_back","problems":[],"feedback":""}'), null, "a send-back with nothing to say is no verdict");
+  assert.equal(readReview('{"kind": "task"'), null, "a cut answer is no verdict");
   assert.ok(PROBLEMS.every((name) => REVIEW_SYSTEM.includes(`${name}:`) || REVIEW_SYSTEM.includes(`${name} (`)), "every problem name is explained to the reviewer");
 });
 
