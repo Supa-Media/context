@@ -369,7 +369,7 @@ export async function runTurn(options) {
   const nudge = texting ? pushbackNudge(question, goalsIn(aboutMe)) : ""; // an opinion or a goal-touching ask (`pushback.js`)
   // A planner with no router (`jobsOnly`, `modelPlan.js` `turnRouter`) plans a background job and nothing else: every other text stays on `main`.
   const advising = router?.advisorFirst === true && !options.planned; let rung = null; // a text stays on `main`, the router only flags it for the rung (`advisorFirst.js`)
-  if (router !== null && (advising ? typeof router.rung === "string" : router.jobsOnly !== true || options.planned)) {
+  if (router !== null && (advising ? typeof router.rung === "string" : typeof router.think === "string" && (router.jobsOnly !== true || options.planned))) {
     const asked = clock();
     // A background job always plans on `think` and drives on `main` (`background.js`), and so does a text asking for Tex's judgment (`pushback.js`): no router call.
     const routed = options.planned || nudge !== "" ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });

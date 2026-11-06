@@ -21,6 +21,8 @@
  *     → "the rung rides after the question and leaves the cached prefix as it was" fails
  *   `requestViaGateway` not resending without the rung
  *     → "a gateway that refuses the rung is sent the body again without it, and remembers" fails
+ *   `turn.js` routing a planned job when the router has no think model
+ *     → "a background job under a bare advisor-first setup (no think model) runs on Haiku and logs no planning" fails
  *   `parseSetup` dropping the advisor-first-needs-an-advisor refusal
  *     → "advisor_first and effort_rung parse, default off, and refuse what makes no sense" fails
  */
@@ -134,6 +136,13 @@ test("a pushback ask (asking for Tex's judgment) is flagged with no router call"
   const gw = scripted([answer()]);
   await turn(gw.fetchImpl, { router: { decide: null, think: null, jobsOnly: true, advisorFirst: true, rung: "high" } });
   assert.equal(rungs(gw.sent[0].body).length, 1, "the opinion ask runs at the rung");
+});
+
+test("a background job under a bare advisor-first setup (no think model) runs on Haiku and logs no planning", async () => {
+  const gw = scripted([answer()]);
+  const result = await turn(gw.fetchImpl, { router: { decide: null, think: null, jobsOnly: true, advisorFirst: true }, planned: true, texting: false });
+  assert.equal(gw.sent[0].body.model, "claude-haiku-5-5");
+  assert.equal(result.timing.trace.some((entry) => entry.kind === "router"), false, "no planning claimed on a think model it does not have");
 });
 
 test("a model without per-message effort never gets a rung", async () => {
