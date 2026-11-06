@@ -550,3 +550,9 @@ Tex said it "gave no reason". A part that fails partway is still carried on.
 Reversing either fails `rules/tests.rs` "a job with no folder of the owner's
 runs in the work folder" and `machineTurn.test.ts` "a part the computer itself
 refuses ends the job once".
+
+## A job waits on its run, not on a timer (2026-11-06)
+
+Dev2 asked that jobs wait on pushes, with a slow safety read. A job's object used to read its run on a computer every 10 seconds for as long as the part ran, and each read wrote the run's steps to the chat's record again. Now each read after the first names the run version it last saw. The workspace object holds the read until the run moves (a step, a word, a session, its end) or 50 seconds pass, checking its own row locally (`apps/mcp/src/workspaceStore/runWait.js`). Then the job reads again at once (`apps/agent/src/machineTurn.ts`). A step reaches the chat as the runner sends it. An idle part is read about once a minute. The record is written only when the run moved. Whose run it is gets checked before anything waits. A gateway that doesn't hold is read every 10 seconds as before.
+
+**Simplifying it away costs:** six reads a minute per running part, each rewriting its steps. Tested by `apps/mcp/test/runWait.test.mjs` and `apps/agent/src/machineTurn.test.ts` ("a read is held by the gateway until the run moves").
