@@ -40,7 +40,8 @@ import { runDueHousekeeping } from "./housekeeping";
 import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
-import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
+import { parseSendblueInbound, repliedToText, sendblueKeys, statusPath, threadContext, verifySendblueSecret } from "./sendblue";
+import { noteSendStatus, parseSendStatus, type SendStatus } from "./sendblueStatus";
 import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
 import { heardInGroup } from "./groupVoice";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
@@ -87,6 +88,8 @@ export interface Env {
   SENDBLUE_API_SECRET?: string;
   /** The secret set on Sendblue's receive webhook; it arrives verbatim in `sb-signing-secret`. */
   SENDBLUE_WEBHOOK_SECRET?: string;
+  /** Where every Sendblue send's status goes: `https://<worker>/sendblue/status/<secret>` (`sendblueStatus.ts`). Absent, sends name none. */
+  SENDBLUE_STATUS_URL?: string;
   /** Tex's WhatsApp line (`whapi.ts`): the Whapi channel's token and the line's own number (E.164). */
   WHAPI_TOKEN?: string;
   WHAPI_LINE?: string;
@@ -153,6 +156,7 @@ export default {
     if (url.pathname.startsWith("/threads/")) return threads(request, env, url);
     if (url.pathname === "/new-line") return newLine(request, env);
     if (url.pathname === "/whapi") return whapiWebhook(request, env, url.origin);
+    if (url.pathname.startsWith("/sendblue/status/")) return sendblueStatus(request, env, url);
     const line = url.pathname === "/sendblue" ? "sendblue" : url.pathname === "/linq" ? "linq" : null;
     if (line === null) return new Response(null, { status: 404 });
     if (request.method !== "POST") return new Response(null, { status: 405 });
@@ -283,6 +287,44 @@ export default {
  * apart from "nothing ever arrived": an outcome and, for a dropped event, why.
  * Never the sender's number, never the text (see `inbox.ts` on what is kept).
  */
+/** Whether two strings match, hashed first so the time taken says nothing of either. */
+async function sameSecret(a: string, b: string): Promise<boolean> {
+  const digest = async (value: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  const [x, y] = await Promise.all([digest(a), digest(b)]);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+/**
+ * `POST /sendblue/status/<secret>`: one send's status (`sendblueStatus.ts`).
+ * Only the configured path is taken; any other is a 404, as an unknown route
+ * is. A body we cannot place still gets a 200, so Sendblue does not retry it.
+ */
+async function sendblueStatus(request: Request, env: Env, url: URL): Promise<Response> {
+  const expected = statusPath(env.SENDBLUE_STATUS_URL);
+  if (expected === null || !(await sameSecret(expected, url.pathname))) {
+    logWebhook("sendblue", "unsigned", "status");
+    return new Response(null, { status: 404 });
+  }
+  if (request.method !== "POST") return new Response(null, { status: 405 });
+  const raw = await request.text();
+  if (raw.length > MAX_BODY_BYTES) return new Response(null, { status: 413 });
+  let status: SendStatus | null = null;
+  try {
+    status = parseSendStatus(JSON.parse(raw));
+  } catch {
+    status = null;
+  }
+  if (status === null) {
+    logWebhook("sendblue", "invalid", "status");
+    return new Response(null, { status: 200 });
+  }
+  const name = status.object.kind === "group" ? groupInboxName(status.object.groupId) : status.object.phone;
+  const result = await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/send-status", { method: "POST", body: JSON.stringify(status) });
+  return new Response(null, { status: result.ok ? 200 : 503 });
+}
+
 function logWebhook(line: "linq" | "sendblue" | "whapi", outcome: "unsigned" | "invalid" | "ignored" | "accepted", reason?: string): void {
   console.log(JSON.stringify({ event: `${line}_webhook`, outcome, ...(reason ? { reason } : {}) }));
 }
@@ -506,7 +548,7 @@ export class SenderInbox implements DurableObject {
         {
           fetch: (input, init) => fetch(input, init),
           linqApiKey: this.env.LINQ_API_KEY,
-          sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET),
+          sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
           whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
           now: () => Date.now(),
           simulator: simulatorEnabled(this.env.SIMULATOR),
@@ -520,7 +562,7 @@ export class SenderInbox implements DurableObject {
       const told = await tellNewLine(this.state.storage, { text: body.text, dryRun: body.dryRun }, {
         fetch: (input, init) => fetch(input, init),
         linqApiKey: this.env.LINQ_API_KEY,
-        sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET),
+        sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
         whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
         now: () => Date.now(),
       });
@@ -571,6 +613,10 @@ export class SenderInbox implements DurableObject {
     }
     if (path === "/page-jobs") return Response.json(await pageJobsOf(this.state.storage, Date.now()));
     if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
+    if (path === "/send-status") {
+      const status = (await request.json()) as SendStatus;
+      return Response.json({ outcome: await noteSendStatus(this.state.storage, status, Date.now()) });
+    }
     if (path === "/react") {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
@@ -655,7 +701,7 @@ export class SenderInbox implements DurableObject {
       workerSecret: this.env.AGENT_WORKER_SECRET,
       gatewayOrigin: this.env.GATEWAY_ORIGIN,
       linqApiKey: this.env.LINQ_API_KEY,
-      sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET),
+      sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
       whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
       appCard: appCardConfig(this.env),
       waitUntil: (promise) => this.handOff(promise),

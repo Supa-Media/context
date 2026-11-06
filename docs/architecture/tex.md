@@ -59,6 +59,7 @@ flowchart LR
   S1 --> SO["Shared step: one sender<br/>each text and picture sent, kept and logged the same way<br/>a picture that won't go is said once, logged as the system's<br/>sendOne.ts"]:::shared
   S2 --> SO
   SO --> Out([iMessage · WhatsApp · SMS]):::you
+  Out -. "Sendblue status, POST /sendblue/status/secret" .-> ST["Shared step: each send's status<br/>logged as codes; one that never went is marked<br/>in the chat's log, never resent<br/>sendblueStatus.ts"]:::shared
   classDef you fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef pipe fill:#fff0e2,stroke:#ff8a2a,color:#1d1838
   classDef door fill:#dcf7f3,stroke:#11b5a4,stroke-width:3px,color:#1d1838

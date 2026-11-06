@@ -40,7 +40,8 @@ export const PROFILE_PHOTO_URL = `https://context.lc/texts-card.png?v=${CARD_VER
  */
 export const MAX_QUOTED_TEXT = 3000;
 
-export type SendblueKeys = { keyId: string; secret: string };
+/** `statusCallback`: where Sendblue posts each send's status (`sendblueStatus.ts`); absent, sends carry none. */
+export type SendblueKeys = { keyId: string; secret: string; statusCallback?: string };
 
 export const E164 = /^\+[1-9]\d{6,14}$/;
 const CHAT_PREFIX = "sendblue:";
@@ -63,11 +64,27 @@ export function parseSendblueChat(chatId: string): { line: string; phone: string
   return { line, phone };
 }
 
-/** Both keys, or null: a half-configured line is no line. */
-export function sendblueKeys(keyId: string | undefined, secret: string | undefined): SendblueKeys | null {
+/** Both keys, or null: a half-configured line is no line. A status address that is not one (`statusPath`) is left off. */
+export function sendblueKeys(keyId: string | undefined, secret: string | undefined, statusUrl?: string): SendblueKeys | null {
   const id = keyId?.trim();
   const key = secret?.trim();
-  return id && key ? { keyId: id, secret: key } : null;
+  if (!id || !key) return null;
+  return statusPath(statusUrl) === null ? { keyId: id, secret: key } : { keyId: id, secret: key, statusCallback: statusUrl!.trim() };
+}
+
+/**
+ * The path of the status address (`SENDBLUE_STATUS_URL`), or null when it is
+ * not an https address ending in `/sendblue/status/<secret>` with a secret of
+ * at least 16 characters. Sendblue's docs say nothing of signing a
+ * `status_callback`, so the secret in the path is what authenticates it.
+ */
+export function statusPath(statusUrl: string | undefined): string | null {
+  try {
+    const url = new URL((statusUrl ?? "").trim());
+    return url.protocol === "https:" && /^\/sendblue\/status\/[A-Za-z0-9_-]{16,128}$/.test(url.pathname) ? url.pathname : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function call(
@@ -139,7 +156,8 @@ export async function sendCall(
     response = await fetcher(`${SENDBLUE_API}${path}`, {
       method: "POST",
       headers: { ...headersOf(keys), "content-type": "application/json" },
-      body: JSON.stringify(body),
+      // Every send names where its status goes (docs: sending-messages, `status_callback`).
+      body: JSON.stringify(keys.statusCallback ? { ...body, status_callback: keys.statusCallback } : body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {
