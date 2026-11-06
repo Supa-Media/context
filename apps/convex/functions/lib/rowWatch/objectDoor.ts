@@ -22,7 +22,10 @@ export class ObjectUnreachable extends Error {
   }
 }
 
-type Options = { fetchImpl?: typeof fetch; env?: Record<string, string | undefined>; now?: () => number };
+type Options = { fetchImpl?: typeof fetch; env?: Record<string, string | undefined>; now?: () => number; caller?: string };
+/** Who in the control plane is calling, a fixed label the gateway counts (`apps/mcp/src/observability/callCounts.js`). */
+const callerLabel = (caller: string | undefined) => (typeof caller === "string" && /^[a-z][a-zA-Z0-9:._-]{0,47}$/.test(caller) ? caller : "convex");
+
 
 /** A ticket is minted again this long before it expires, so a call in flight never carries a dead one. */
 const TICKET_MARGIN_MS = 60_000;
@@ -73,6 +76,7 @@ export function doorStub(ctx: ActionCtx, workspaceId: Id<"workspaces">, options:
             Authorization: `Bearer ${secret}`,
             "x-workspace-ticket": await ticketNow(),
             "x-tex-call": request.headers.get("x-tex-call") ?? "",
+            "x-door-caller": callerLabel(options.caller),
           },
           body: await request.arrayBuffer(),
           signal: controller.signal,

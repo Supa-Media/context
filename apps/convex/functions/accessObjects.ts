@@ -177,7 +177,7 @@ async function startState(ctx: ActionCtx, cursor: string | undefined, only: stri
 
 /** The door for one scope: `"unreachable"` without a gateway, `"notReady"` when the object does not offer the scope yet. */
 export function doorFor(ctx: ActionCtx, workspaceId: Id<"workspaces">, scope: AccessScope): AccessDoor | "unreachable" | "notReady" {
-  const client = consoleWorkspaceClient(ctx, workspaceId);
+  const client = consoleWorkspaceClient(ctx, workspaceId, { caller: "accessObjects" });
   if (client === null) return "unreachable";
   return accessDoor(client, scope) ?? "notReady";
 }

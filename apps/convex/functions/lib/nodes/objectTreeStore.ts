@@ -87,7 +87,7 @@ export async function objectTreeClient(
 ): Promise<WorkspaceObjectClient | null> {
   const home = await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId }).catch(() => null);
   if (home !== "object") return null;
-  const client = options.client !== undefined ? options.client : consoleWorkspaceClient(ctx, workspaceId);
+  const client = options.client !== undefined ? options.client : consoleWorkspaceClient(ctx, workspaceId, { caller: "tree" });
   if (client === null) return null;
   // A change Convex committed and the object has not taken yet (a public mutation cannot wait for its push): Convex's
   // rows are the newer until it lands, as every binding opened now says (`notesBehind`).

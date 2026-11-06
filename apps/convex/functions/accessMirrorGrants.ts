@@ -68,7 +68,7 @@ const dropArgs = {
 export const drop = internalAction({
   args: dropArgs,
   returns: v.union(v.literal("object"), v.literal("convex")),
-  handler: async (ctx, args): Promise<"object" | "convex"> => await dropInObject(ctx, args, consoleWorkspaceClient(ctx, args.workspaceId)),
+  handler: async (ctx, args): Promise<"object" | "convex"> => await dropInObject(ctx, args, consoleWorkspaceClient(ctx, args.workspaceId, { caller: "accessMirrorGrants" })),
 });
 
 /** The grants taken out in Convex, watched, so the row push carries the access set to the object. */

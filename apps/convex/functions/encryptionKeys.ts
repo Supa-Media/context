@@ -225,7 +225,7 @@ async function listOrCreateDataKeyRows(
 
   // The workspace's object learns it is keyed before the key exists, so it never says `none` while a key does
   // (a reader told `none` goes without asking for the key). A failure here fails the creation: try again.
-  await consoleWorkspaceClient(ctx, workspaceId)?.setEncryption("keyed");
+  await consoleWorkspaceClient(ctx, workspaceId, { caller: "encryptionKeys" })?.setEncryption("keyed");
   const material = generateKeyMaterial();
   const encryptedDataKey = await encryptSecret(material, requireKeyset(), { workspaceId });
   // Racing callers converge here: the mutation returns whatever row exists

@@ -108,7 +108,7 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">, chats: s
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-  const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+  const routing = await consoleWorkspaceRouting(ctx, workspaceId, { caller: "texLedgerBackfillGroups" });
   const tex = chats.length === 0 ? {} : { ...consoleTexRouting(ctx, workspaceId, { ticketOwners: chats.map((chat) => `chat:${chat}`) }), texChats: chats };
   return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...tex, ...routing.options });
 }

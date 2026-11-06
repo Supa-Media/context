@@ -103,3 +103,27 @@ test("a tool call on a busy workspace object says busy and to try again", async 
   assert.match(answer.content[0].text, /busy right now; try again in a few seconds/);
   assert.doesNotMatch(answer.content[0].text, /lookup failed/, "the reason stays in the gateway's logs");
 });
+
+test("the door's point names the op and the control plane's own label, and nothing else", async () => {
+  const { countDoorCall } = await import("../src/observability/callCounts.js");
+  const CALL_COUNTS = dataset();
+  countDoorCall({ CALL_COUNTS }, "ws_1", "get", "file:maintainIndex");
+  countDoorCall({ CALL_COUNTS }, "ws_1", "get", "Robert'); DROP");
+  countDoorCall({ CALL_COUNTS }, "ws_1", "get", null);
+  assert.deepEqual(CALL_COUNTS.points.map((p) => p.blobs), [["door", "get", "file:maintainIndex"], ["door", "get", "unlabelled"], ["door", "get", "unlabelled"]]);
+});
+
+// Sabotage: drop `countDoorCall` from `src/workspaceStore/door.js` → this test fails.
+test("a control-plane call through the door is counted with its caller's label", async () => {
+  const { handleWorkspaceStoreDoor } = await import("../src/workspaceStore/door.js");
+  const CALL_COUNTS = dataset();
+  const env = { GATEWAY_SECRET: "s".repeat(32), CALL_COUNTS, WORKSPACE_STORE: { idFromName: (name) => ({ name }), get: () => ({ fetch: async () => Response.json({}) }) } };
+  const request = new Request("https://gateway/internal/workspace-store", {
+    method: "POST",
+    headers: { authorization: `Bearer ${"s".repeat(32)}`, "x-workspace-ticket": "ticket", "x-door-caller": "file:maintainIndex", "x-tex-call": encodeURIComponent(JSON.stringify({ op: "get" })) },
+    body: "",
+  });
+  const response = await handleWorkspaceStoreDoor(request, env, { controlPlane: { openTexStoreTicket: async () => ({ workspaceId: "w1", owners: [] }) } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(CALL_COUNTS.points, [{ indexes: ["w1"], blobs: ["door", "get", "file:maintainIndex"], doubles: [1] }]);
+});

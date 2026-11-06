@@ -33,7 +33,7 @@ async function openWorkspaceStore(ctx: ActionCtx, workspaceId: Id<"workspaces">,
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
   const chats = owner.startsWith("chat:") ? [owner.slice("chat:".length)] : [];
-  const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+  const routing = await consoleWorkspaceRouting(ctx, workspaceId, { caller: "texMigration" });
   return storeForBinding(routing.credential(credential), undefined, {
     managedEncryption,
     ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [owner] }),

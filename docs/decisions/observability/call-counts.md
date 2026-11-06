@@ -22,6 +22,13 @@ gets one point per call, from `apps/mcp/src/observability/callCounts.js`:
   person's Tex). Its index is the object's own id, the same id Cloudflare's `durableObjectsInvocationsAdaptiveGroups`
   names.
 
+- **The door writes one point for every control-plane call it lets through** (added 2026-11-06, after the first
+  production minutes showed about 4,000 note reads a minute arriving from Convex through the door). Its fields are
+  `blob1` `door`, `blob2` the op and `blob3` the caller's own label, sent as `x-door-caller`: `file:<operation>` for a
+  file operation (`lib/filesFns/fileOperationBarrier.ts`), `tree` and `facts` for the control plane's tree and fact
+  reads, and otherwise the calling module's name. An unusable label is recorded as `unlabelled`, and a Convex caller
+  that names none is recorded as `convex`. Its index is the workspace.
+
 A point never holds a path, a slug, a note id, a token or a word. A route the list doesn't name is recorded as `page`
 (a workspace's own path) or `other`, and an op that isn't a plain name is recorded as `other`. Writing a point never
 throws and never waits, and without the binding nothing is written (tests, self-hosting).

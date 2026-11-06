@@ -10,6 +10,9 @@
  *   the door, `socket` for an upgrade, `tex` for a person's Tex), indexed by the object's own id, the one Cloudflare's
  *   Durable Object analytics name.
  *
+ * - The door writes `door` for every control-plane call it lets through: the op and the caller's own fixed label
+ *   (`x-door-caller`: `file:<operation>`, `tree`, `facts`, or the calling module's name), indexed by workspace.
+ *
  * Writing a point never throws and never waits: a missing binding (tests, self-hosting) writes nothing.
  */
 
@@ -102,6 +105,23 @@ export function countObjectCall(env, objectId, op, caller) {
     dataset.writeDataPoint({
       indexes: [typeof objectId === "string" ? objectId.slice(0, 96) : "unknown"],
       blobs: ["object", typeof op === "string" && OP.test(op) ? op : "other", caller],
+      doubles: [1],
+    });
+  } catch {
+    // Counting never fails a call.
+  }
+}
+
+const LABEL = /^[a-z][a-zA-Z0-9:._-]{0,47}$/;
+
+/** The door's point for one control-plane call: the op and the caller's own label (`file:<operation>`, `tree`, ...). */
+export function countDoorCall(env, workspaceId, op, caller) {
+  try {
+    const dataset = env?.CALL_COUNTS;
+    if (!dataset || typeof dataset.writeDataPoint !== "function") return;
+    dataset.writeDataPoint({
+      indexes: [typeof workspaceId === "string" ? workspaceId.slice(0, 96) : "unknown"],
+      blobs: ["door", typeof op === "string" && OP.test(op) ? op : "other", typeof caller === "string" && LABEL.test(caller) ? caller : "unlabelled"],
       doubles: [1],
     });
   } catch {
