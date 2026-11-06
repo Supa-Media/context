@@ -42,6 +42,10 @@ import { chatHubUrl, hubPrompt } from "../hubLinks.js";
 import { withVaultWatch } from "../vaultSaved.js";
 import { doItChecks } from "../doItChecks.js";
 import { replyJudge } from "../replyJudge.js";
+import { withArchitecture } from "../texArchitecture.js";
+
+/** The setup's rules with the drawing ahead, the box named for this kind of turn (`texArchitecture.js`). */
+const setupWithMap = (prompt, kind) => (typeof prompt === "string" && prompt !== "" ? withArchitecture(prompt, kind) : prompt);
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runTheModel(t) {
@@ -110,7 +114,7 @@ export async function runTheModel(t) {
     observe: ledgerObserver(chatLog, withJobSteps(job, step, null), ledgerAt), // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger
     workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
     texting: texting || group !== null, // a group's answer is a text too, written for one
-    notes: production !== null ? { prompt: setupPromptFor(production, turnKind({ group, job })) } : null, // a 1:1 text, a group or a job: each its own modules (`promptModules.js`)
+    notes: production !== null ? { prompt: setupWithMap(setupPromptFor(production, turnKind({ group, job })), turnKind({ group, job })) } : null, // a 1:1 text, a group or a job: each its own modules (`promptModules.js`)
     builtinModelOverride: productionModel ?? undefined,
     router,
     efforts: turnEfforts(production, job), // a job's turn thinks as `models.job_effort` says (`production.js`)

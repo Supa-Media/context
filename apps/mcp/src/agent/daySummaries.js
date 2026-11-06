@@ -15,6 +15,7 @@ import { requestViaGateway } from "./aiGateway.js";
 import { dayOf } from "./jobLog.js";
 import { ledgerPlace, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { renderChatDays } from "./ledgerDays.js";
+import { withArchitecture } from "./texArchitecture.js";
 
 export const DAY_SUMMARY_MODEL = "anthropic/claude-haiku-5-5";
 /** The most days one night sums up (newest first, so a long chat's past is caught up over a few nights), and how many at once. */
@@ -89,7 +90,7 @@ export async function summarizeDay({ entries, timeZone, config, request = reques
   if (chat === "") return null;
   try {
     const reply = await request(
-      { model: DAY_SUMMARY_MODEL, system: SYSTEM, messages: [{ role: "user", text: `THE DAY\n\n${chat}` }], tools: [], maxTokens: 400, effort: "low" },
+      { model: DAY_SUMMARY_MODEL, system: withArchitecture(SYSTEM, "daySummary"), messages: [{ role: "user", text: `THE DAY\n\n${chat}` }], tools: [], maxTokens: 400, effort: "low" },
       config,
       { metadata },
     );

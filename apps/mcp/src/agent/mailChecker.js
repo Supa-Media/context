@@ -28,6 +28,7 @@
  */
 
 import { requestViaGateway } from "./aiGateway.js";
+import { withArchitecture } from "./texArchitecture.js";
 
 export const MAIL_CHECKER_MODEL = "anthropic/claude-haiku-5-5";
 /** The latest texts it reads, each side counted; the rest is older than any ask a YES could answer. */
@@ -114,7 +115,7 @@ export function mailCheckerFor({ history, question, config, request = requestVia
       const answer = await request(
         {
           model: MAIL_CHECKER_MODEL,
-          system: SYSTEM,
+          system: withArchitecture(SYSTEM, "mailChecker"),
           messages: [{ role: "user", text: `TEXTS\n\n${conversation}\n\nDRAFT\n\n${draftFor(email)}` }],
           tools: [],
           maxTokens: 800,

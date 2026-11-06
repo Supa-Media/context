@@ -26,6 +26,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MODULE as MAP_MODULE, moduleIsCurrent } from "./tex-architecture-module.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export const DIAGRAM = "docs/architecture/tex.md";
@@ -36,7 +37,18 @@ const MODEL_FOLDERS = ["apps/mcp/src/agent", "apps/agent/src", "apps/convex/func
 /** Where a file the page names is looked for, by its path's end. */
 const NAMED_FOLDERS = ["apps/mcp/src", "apps/agent/src", "apps/convex/functions/lib/jev"];
 const MODEL_ID = /["'`](?:anthropic\/claude-[a-z0-9.-]+|@cf\/[a-z0-9._-]+\/[a-z0-9._-]+|gemini-[a-z0-9.-]+)["'`]/;
+/** Where a Tex agent's prompt is written: each file here that gives a model a system prompt puts the drawing ahead of it (`texArchitecture.js`). */
+const AGENT_FOLDER = "apps/mcp/src/agent";
+/** Files that carry a system prompt without writing one: the transport, the turn that sends runTheModel's prompt, and a card template's field named system. */
+const PROMPT_CARRIERS = new Set(["aiGateway.js", "builtin.js", "turn.js", "turnPrompt.js", "visuals/index.js", "texArchitecture.js"]);
+const GIVES_A_PROMPT = /\bsystem:\s*(?!\[)/;
+const WITH_MAP = /\b(?:withArchitecture|architectureFor)\(/;
 const UNCHANGED = /^\s*Tex diagram: unchanged because \S.{3,}/im;
+
+/** Problems with the agents' prompts: one that gives a model a system prompt without the drawing. */
+export function mapProblems(files) {
+  return files.filter(({ path, source }) => !PROMPT_CARRIERS.has(path) && GIVES_A_PROMPT.test(source) && !WITH_MAP.test(source)).map(({ path }) => `${AGENT_FOLDER}/${path} gives a model a system prompt without the drawing: pass it through withArchitecture (texArchitecture.js) with its role`);
+}
 
 /** The steps the code runs, in order: each `steps.<name>(t` in the entry file. */
 export function codeSteps(source) {
@@ -111,6 +123,9 @@ function check(base) {
       if (MODEL_ID.test(readFileSync(file, "utf8")) && !pageNames(page, path)) problems.push(`${path} names a model but ${DIAGRAM} does not name it: draw what it does`);
     }
   }
+  const agentFiles = filesUnder(join(ROOT, AGENT_FOLDER)).map((file) => ({ path: relative(join(ROOT, AGENT_FOLDER), file), source: readFileSync(file, "utf8") }));
+  problems.push(...mapProblems(agentFiles));
+  if (!moduleIsCurrent(ROOT)) problems.push(`${MAP_MODULE} is not what ${DIAGRAM} makes: run node scripts/tex-architecture-module.mjs`);
   if (base) {
     const changed = execFileSync("git", ["diff", "--name-only", base, "HEAD"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
     problems.push(...changeProblems(changed, page, process.env.TEX_PR_BODY));
@@ -136,6 +151,9 @@ function selfTest() {
   expect(changeProblems(["apps/agent/src/reply.ts"], page, "Tex diagram: unchanged because").length === 1, "an empty reason passed");
   expect(changeProblems(["apps/agent/src/other.ts", "apps/agent/src/reply.test.ts"], page, "").length === 0, "an unnamed file or a test refused");
   expect(MODEL_ID.test('const M = "@cf/cloudflare/clef";') && MODEL_ID.test("'anthropic/claude-haiku-5-5'") && !MODEL_ID.test("claude is nice"), "model ids misread");
+  expect(mapProblems([{ path: "judge.js", source: "request({ system: SYSTEM })" }]).length === 1, "a prompt without the drawing passed");
+  expect(mapProblems([{ path: "judge.js", source: "request({ system: withArchitecture(SYSTEM, \"x\") })" }]).length === 0, "a prompt with the drawing refused");
+  expect(mapProblems([{ path: "aiGateway.js", source: "{ system: systemText }" }]).length === 0, "the transport refused");
   console.log("tex-diagram-check self-test: ok");
 }
 

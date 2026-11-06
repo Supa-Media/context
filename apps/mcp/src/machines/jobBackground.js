@@ -12,6 +12,7 @@
  */
 
 import { TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
+import { architectureFor } from "../agent/texArchitecture.js";
 
 const plain = (text, max) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -89,5 +90,5 @@ export function jobBackground(session, { machineName, fromOwner }) {
 
 /** The brief a part is sent: its background first, then the job's own words. */
 export function backgroundedBrief(session, brief, { machineName, fromOwner }) {
-  return `${jobBackground(session, { machineName, fromOwner })}\n${String(brief ?? "")}`;
+  return `${architectureFor("computer")}\n\n${jobBackground(session, { machineName, fromOwner })}\n${String(brief ?? "")}`;
 }

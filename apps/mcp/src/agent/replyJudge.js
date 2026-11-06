@@ -30,6 +30,7 @@
 
 import { requestViaGateway } from "./aiGateway.js";
 import { isControlWord } from "./jobReport.js";
+import { withArchitecture } from "./texArchitecture.js";
 
 /** The reviewer's model, effort and limits. */
 export const REVIEW_MODEL = "anthropic/claude-haiku-5-5";
@@ -188,7 +189,7 @@ export function sendBackNotice(feedback) {
 /** One review: `{ kind, send, problems, feedback }`, or null when there is no verdict in time. */
 export async function reviewReply({ state, earlier = [], request = requestViaGateway, config, metadata, timeoutMs = REVIEW_TIMEOUT_MS }) {
   const call = request(
-    { model: REVIEW_MODEL, system: REVIEW_SYSTEM, messages: [{ role: "user", text: reviewMessage(state, earlier) }], tools: [], maxTokens: REVIEW_MAX_TOKENS, effort: REVIEW_EFFORT },
+    { model: REVIEW_MODEL, system: withArchitecture(REVIEW_SYSTEM, "reviewer"), messages: [{ role: "user", text: reviewMessage(state, earlier) }], tools: [], maxTokens: REVIEW_MAX_TOKENS, effort: REVIEW_EFFORT },
     config,
     { metadata },
   );
