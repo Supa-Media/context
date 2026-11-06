@@ -386,6 +386,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The mobile app and the console](./app-and-console.md)
 
+- [The phone's account sheet is its own sheet, not the file menu](./app-and-console/native-app-shell.md#the-phones-account-sheet-is-its-own-sheet-not-the-file-menu-2026-11-06)
 - The note count is measured, stamped, and allowed to be a floor
 - One runtime version, pinned, and native deps gated behind it
 - The native baseline was chosen once, before the first build

@@ -86,9 +86,10 @@ describe("the order and the grouping", () => {
     const all = settingsSectionsFor("personal");
     expect(all.filter((section) => !isFoldedSection(section)).map((section) => section.key)).toEqual([
       "profile",
+      // Tex's own group, How Tex talks first (Dev2, 2026-11-06, board 2).
+      "tex",
       "texApps",
       "messages",
-      "tex",
       "workspace",
       "sharing",
       "integrations",
@@ -113,10 +114,11 @@ describe("the order and the grouping", () => {
 
   test("every section sits under a heading somebody can answer", () => {
     for (const section of SETTINGS_SECTIONS) {
-      // One heading left: the account/context split, which is a difference in
-      // what a row acts on rather than a category to learn. Every context row
-      // is ungrouped.
-      expect([null, "You"]).toContain(section.group);
+      // The account/context split, which is a difference in what a row acts
+      // on rather than a category to learn, and Tex's three pages under its
+      // own name (Dev2, 2026-11-06). Every context row is ungrouped.
+      expect([null, "You", "Tex"]).toContain(section.group);
+      if (["tex", "texApps", "messages"].includes(section.key)) expect(section.group).toBe("Tex");
     }
   });
 

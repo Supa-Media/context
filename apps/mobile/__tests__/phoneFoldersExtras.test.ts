@@ -109,7 +109,8 @@ describe("the @name menu on Inbox", () => {
     const opened: string[] = [];
     const ui = inboxMenu(true, opened);
     ui.press("account-menu");
-    expect(ui.find("switcher-chaos")?.textContent).toContain("Chaos 34 · crowded");
+    // "Chaos" on the left and the score where a value goes, at the right (2026-11-06).
+    expect(ui.find("switcher-chaos")?.textContent).toBe("Chaos34 · crowded");
     ui.press("switcher-chaos");
     expect(opened).toEqual(["chaos"]);
   });
