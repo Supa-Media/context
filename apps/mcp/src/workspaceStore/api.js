@@ -114,6 +114,9 @@ export function workspaceStub(env, workspaceId) {
  * - `members.*`, `invites.*`: who belongs to the workspace (`workspaceStore/members.js`): see `membershipClient`.
  * - `collab.replace({path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text})` → `{served: true, result|error, markdown, writes, deletes}`
  *   or `{served: false, writes?, deletes?}`: a whole-note save's editing history run in the object (`collabReplace.js`)
+ * - `mail.since({path, name, readThrough, scope, groups, audience})` → `{served, found, path, fresh}` and
+ *   `mail.wait({path, from, to, since, timeoutMs, scope, groups, audience})` → `{served, found, answers}`: a note's mail,
+ *   read in the object (`workspaceStore/mailOps.js`)
  * - `collab.read({path, key, noteId})` → `{served: true, markdown, collaboration|error, writes, deletes}` or
  *   `{served: false}`: a note's Markdown and its editing history's text, for a read (`collabRead.js`)
  * - `open(userId)` → `{home, backfilledAt, encryption, accessHome, member, rules, binding: {sealed, at}|null, epoch}`:
@@ -175,6 +178,11 @@ export function workspaceClient(env, workspaceId) {
       // A note's Markdown and its editing history's text, for a read (`workspaceStore/collabRead.js`).
       read: async (fields) => await ask("ws.collab.read", fields),
       create: async (fields) => await ask("ws.create", fields),
+    },
+    // A note's mail, read here (`workspaceStore/mailOps.js`): what is new for a mailbox, and an ask's held wait.
+    mail: {
+      since: async (fields) => await ask("ws.mail.since", fields),
+      wait: async (fields) => await ask("ws.mail.wait", fields),
     },
     ...membershipClient(ask),
     state: async () => await ask("ws.state"),

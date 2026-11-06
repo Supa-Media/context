@@ -14,6 +14,7 @@
 import { gatewayTexStore } from "./texStore/wire.js";
 import { workspaceClient } from "./workspaceStore/api.js";
 import { objectFirstFacts, objectFirstHooks, objectFirstNames, objectFirstSurvey } from "./store/objectLookup.js";
+import { objectFirstMail } from "./store/objectMail.js";
 import { openedFromObject } from "./store/objectBinding.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
@@ -332,6 +333,13 @@ async function openSessionStore(session, env, controlPlane) {
   // Orient's map of this workspace, drawn in its object (`workspaceStore/orientSurvey.js`) where its notes live there.
   Object.defineProperty(store, "objectSurvey", {
     value: objectFirstSurvey(objectReading),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // A note's mail, read in its object: what is new for a mailbox, and an ask's held wait (`store/objectMail.js`).
+  Object.defineProperty(store, "objectMail", {
+    value: objectFirstMail(objectReading),
     enumerable: false,
     writable: false,
     configurable: true,

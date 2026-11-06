@@ -152,6 +152,16 @@ Dev2 chose this after a split job's mail and joins were wiped mid-run (handoff: 
 
 **Simplifying it away costs:** one agent's rewrite silently erases every other agent's messages and joins, and nobody is told. Tested by `test/noteMail.test.mjs` ("a whole-note save that leaves the mail out keeps it", "a blank line inside a message keeps the rest of it") and `test/machineJobs.test.mjs`.
 
+## The object answers mail checks (2026-11-06)
+
+Dev2: nothing about a note is polled from afar. The mail stays in the note's Markdown, so export and the backup copy carry it unchanged. Dev2 was offered moving it to rows and was shown why this keeps it. What moved is reading it. In a workspace whose notes live in its object:
+
+- **The footer is one call.** `ws.mail.since` gives back what is new for a mailbox name, as who, to whom, when and which kind, without the words. Before, every tool call that passed a mailbox read the whole note into the gateway (`mail/footer.js`).
+- **An ask's wait is held by the object.** `ws.mail.wait` answers the moment a line from the asked agent back to the sender lands, or at its time (at most 120 seconds). It looks at its own copy's version locally and parses the note only when that version moves. Before, the gateway read the whole note every 1.5 seconds (`tools/notes/mail.js` `waitForAnswer`).
+- **Judged as a read.** A reader who may not see the note gets the same answer as for a note that is not there (`workspaceStore/mailOps.js`, `judgeFor`). Elsewhere, or when the object does not answer, the gateway reads the note as before. Nothing here asks the control plane.
+
+**Simplifying it away costs:** every agent's every call reads a whole note again, and a waiting ask reads it 80 times. That is the polling the 2026-11-06 floods were made of. Tested by `apps/mcp/test/noteMailObject.test.mjs`.
+
 ## Tested by
 
 `apps/mcp/test/noteMail.test.mjs` (join, signing, footer, privacy of

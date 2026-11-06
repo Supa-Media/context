@@ -4,8 +4,9 @@
  *
  * This is the whole of "being told": a server cannot wake an agent, but the
  * agent calls us all the time, so every answer can carry the news. It costs a
- * control-plane lookup and one read of the mail's note, only on calls that
- * pass a mailbox, and it never fails the call it rides on: anything that goes
+ * control-plane lookup and one read of the mail's note (one call to its
+ * workspace object where the note lives there, which counts the new lines
+ * itself: `workspaceStore/mailOps.js`), only on calls that pass a mailbox, and it never fails the call it rides on: anything that goes
  * wrong is simply no line.
  *
  * The note is read through `readNoteForGateway` against the store for the
@@ -40,15 +41,22 @@ export async function mailFooter(mailboxId, where) {
   if (!mailbox) return `mail: mailbox ${mailboxId} is not one this connection joined; join a note's mail with write { action: "mail", args: { join } }`;
   const reach = await storeFor(mailbox.workspaceId, where);
   if (!reach) return null;
+  // Where the note lives in its workspace object, the object counts what is new itself: one call, no note read.
+  const counted = (await reach.store.objectMail?.since(mailbox.path, mailbox.name, mailbox.readThrough)) ?? null;
+  if (counted !== null) return counted.found === true ? footerLine(counted.fresh ?? [], mailbox, counted.path || mailbox.path, mailboxId) : null;
   const read = await readNoteForGateway(reach.store, reach.scope, mailbox.path);
   if (read?.isError) return null;
   const parsed = parseRead(read);
   if (!parsed) return null;
   const fresh = mail.newFor(mail.parseMail(parsed.body).events, mailbox.name, mailbox.readThrough);
+  return footerLine(fresh, mailbox, parsed.fields.path || mailbox.path, mailboxId);
+}
+
+/** The line for what is new, or null when nothing is. */
+function footerLine(fresh, mailbox, path, mailboxId) {
   if (!fresh.length) return null;
   const toYou = fresh.filter((event) => event.to === mailbox.name).length;
   const from = [...new Set(fresh.map((event) => event.from))].join(", ");
-  const path = parsed.fields.path || mailbox.path;
   return (
     `mail: ${fresh.length} new for ${mailbox.name} in ${path}` +
     `${toYou ? ` (${toYou} to you)` : ""}, from ${from}. ` +
