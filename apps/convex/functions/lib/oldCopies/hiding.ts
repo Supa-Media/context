@@ -89,7 +89,7 @@ export async function hideOldCopiesPass(
   store: FileStore,
   projection: ProjectionClient | null,
   cursor: string | null,
-  openMover: () => OldCopyMover | null = () => consoleWorkspaceClient(ctx, workspaceId),
+  openMover: () => OldCopyMover | null = () => consoleWorkspaceClient(ctx, workspaceId, { caller: "hiding" }),
 ): Promise<HidePass> {
   // Where the notes live in their object, the object hides each copy (`hideInObject.ts`), and with no way to reach it
   // nothing is hidden this pass: Convex's row move would push the move back to the object.

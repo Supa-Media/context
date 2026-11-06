@@ -39,7 +39,7 @@ export function objectPair(personalWorkspaceId: Id<"workspaces">): { accessToken
 type Put = (rows: unknown[]) => Promise<unknown>;
 export type OpenConnections = (ctx: ActionCtx, personalWorkspaceId: Id<"workspaces">) => Put | null;
 const openConnections: OpenConnections = (ctx, personalWorkspaceId) => {
-  const client = consoleWorkspaceClient(ctx, personalWorkspaceId) as unknown as { access?: { connections?: { put?: Put } } } | null;
+  const client = consoleWorkspaceClient(ctx, personalWorkspaceId, { caller: "objectMint" }) as unknown as { access?: { connections?: { put?: Put } } } | null;
   return client?.access?.connections?.put ?? null;
 };
 

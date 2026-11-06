@@ -84,7 +84,7 @@ export const erase = internalAction({
   returns: v.null(),
   handler: async (ctx, { workspaceId }) => {
     if (!(await ctx.runQuery(internal.functions.oldCopiesObject.deleting, { workspaceId }))) return null;
-    const client = consoleWorkspaceClient(ctx, workspaceId);
+    const client = consoleWorkspaceClient(ctx, workspaceId, { caller: "oldCopiesObject" });
     const outcome = client === null ? "retry" : await deleteInObject(ctx, workspaceId, client);
     if (outcome !== "done") await ctx.scheduler.runAfter(outcome === "more" ? 0 : RETRY_MS, internal.functions.oldCopiesObject.erase, { workspaceId });
     return null;

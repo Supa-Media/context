@@ -16,6 +16,7 @@ import { mcpEntry } from "../mcp/mcpEntryPoint.js";
 import { BINDING_OPS } from "./bindingRows.js";
 import { ACCESS_OPS } from "./access.js";
 import { TEXTING_OPS } from "./personTexting.js";
+import { countDoorCall } from "../observability/callCounts.js";
 
 export const WORKSPACE_STORE_PATH = "/internal/workspace-store";
 const CALL = "x-tex-call";
@@ -63,6 +64,8 @@ async function serveDoor(request, env, { controlPlane = null } = {}, door) {
   }
   if (opened === null || typeof opened.workspaceId !== "string" || opened.workspaceId === "") return json({ error: "forbidden" }, 403);
   door.workspace = opened.workspaceId;
+  // Which control-plane caller this is, by its own fixed label, counted per op (`observability/callCounts.js`).
+  countDoorCall(env, opened.workspaceId, op, request.headers.get("x-door-caller"));
   const stub = workspaceStub(env, opened.workspaceId);
   if (stub === null) return json({ error: "workspace_store_unavailable" }, 503);
   let body = await request.arrayBuffer();

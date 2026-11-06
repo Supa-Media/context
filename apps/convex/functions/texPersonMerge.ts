@@ -50,7 +50,7 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-  const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+  const routing = await consoleWorkspaceRouting(ctx, workspaceId, { caller: "texPersonMerge" });
   return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [`person:${workspaceId}`] }), ...routing.options }) as unknown as HeadStore;
 }
 

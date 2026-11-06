@@ -30,4 +30,21 @@ describe("the console's door to a workspace object", () => {
     expect(sent[2]).not.toBe(sent[0]);
     expect(minted[1]!.now).toBe(clock);
   });
+
+  // The gateway counts the door's calls by this label (2026-11-06: a control-plane caller made thousands of reads a
+  // minute and nothing named it). Sabotage: drop the header in objectDoor.ts → this fails.
+  test("every call names its caller with a fixed label, and an unusable label is sent as convex", async () => {
+    const ctx = { runMutation: async () => undefined };
+    const labels: string[] = [];
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      labels.push((init.headers as Record<string, string>)["x-door-caller"]!);
+      return new Response(null);
+    }) as typeof fetch;
+    const env = { STORAGE_MOVER_ORIGIN: "https://gateway.example.invalid", GATEWAY_SECRET: "test-secret" };
+    for (const caller of ["file:maintainIndex", undefined, "Bad Label!"]) {
+      const stub = doorStub(ctx as never, "ws1" as never, { env, fetchImpl, ...(caller === undefined ? {} : { caller }) })!;
+      await stub.fetch(new Request("https://store.internal/get", { method: "POST", headers: { "x-tex-call": "{}" } }));
+    }
+    expect(labels).toEqual(["file:maintainIndex", "convex", "convex"]);
+  });
 });

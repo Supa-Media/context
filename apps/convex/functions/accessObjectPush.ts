@@ -213,7 +213,7 @@ export async function drainOnce(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   openDoor: PushDoor = defaultDoor(ctx),
-  openAdds: OpenAdds = (id) => consoleWorkspaceClient(ctx, id) as unknown as AddsObject | null,
+  openAdds: OpenAdds = (id) => consoleWorkspaceClient(ctx, id, { caller: "accessObjectPush" }) as unknown as AddsObject | null,
 ): Promise<"done" | "more" | "busy" | "failed"> {
   if (!(await ctx.runMutation(internal.functions.accessObjectPush.claim, { workspaceId, now: Date.now() }))) return "busy";
   try {

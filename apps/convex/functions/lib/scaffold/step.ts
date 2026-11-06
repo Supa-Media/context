@@ -60,7 +60,7 @@ export async function scaffoldStep(
     sealing = await managedEncryptionOption(ctx, options.workspaceId);
     // The layout is written through the id switch, as every other console write is (`lib/noteIds/consoleLayer.ts`).
     const idLayout = await consoleIdLayoutHooks(ctx, options.workspaceId);
-    const routing = await consoleWorkspaceRouting(ctx, options.workspaceId);
+    const routing = await consoleWorkspaceRouting(ctx, options.workspaceId, { caller: "step" });
     store = storeForBinding(routing.credential(options.credential), undefined, {
       probeCapabilities: true,
       managedEncryption: sealing,

@@ -30,7 +30,10 @@ const TICKET_MARGIN_MS = 60_000;
 
 export type WorkspaceObjectClient = NonNullable<ReturnType<typeof workspaceClient>>;
 
-type Options = { fetchImpl?: typeof fetch; env?: Record<string, string | undefined> };
+type Options = { fetchImpl?: typeof fetch; env?: Record<string, string | undefined>; caller?: string };
+/** Who in the control plane is calling, a fixed label the gateway counts (`apps/mcp/src/observability/callCounts.js`). */
+const callerLabel = (caller: string | undefined) => (typeof caller === "string" && /^[a-z][a-zA-Z0-9:._-]{0,47}$/.test(caller) ? caller : "convex");
+
 
 /** The client for `workspaceId`'s object, or `null` when this deployment cannot reach the gateway. */
 export function consoleWorkspaceClient(ctx: ActionCtx, workspaceId: Id<"workspaces">, options: Options = {}): WorkspaceObjectClient | null {
@@ -71,6 +74,7 @@ export function consoleWorkspaceClient(ctx: ActionCtx, workspaceId: Id<"workspac
             Authorization: `Bearer ${secret}`,
             "x-workspace-ticket": await ticketNow(),
             "x-tex-call": request.headers.get("x-tex-call") ?? "",
+            "x-door-caller": callerLabel(options.caller),
           },
           body: await request.arrayBuffer(),
           signal: controller.signal,

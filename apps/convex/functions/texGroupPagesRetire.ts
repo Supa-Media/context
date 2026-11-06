@@ -71,7 +71,7 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">, chats: s
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-  const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+  const routing = await consoleWorkspaceRouting(ctx, workspaceId, { caller: "texGroupPagesRetire" });
   return storeForBinding(routing.credential(credential), undefined, {
     managedEncryption,
     // The id layer, as the gateway's group turn has it: `keysAt` and a new note's row (the history file's) come from it.

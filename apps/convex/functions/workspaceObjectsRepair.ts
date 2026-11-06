@@ -112,7 +112,7 @@ export const repair = internalAction({
       }
       try {
         const bucket = await openBucket(ctx, workspaceId);
-        const client = consoleWorkspaceClient(ctx, workspaceId);
+        const client = consoleWorkspaceClient(ctx, workspaceId, { caller: "workspaceObjectsRepair" });
         if (bucket === null || client === null) {
           answer.unreachable += 1;
           const label = `open:${bucket === null ? "no_bucket" : "no_object"}`;
@@ -190,7 +190,7 @@ export const repairRecent = internalAction({
     const record = await ctx.runQuery(internal.functions.workspaceObjectsRows.recordFor, { workspaceId });
     if ((record as { home?: string } | null)?.home !== "object") return { keys: 0, complete: true, counts, why, refused: "NOT_OBJECT_HOME" };
     const bucket = await openBucket(ctx, workspaceId);
-    const client = consoleWorkspaceClient(ctx, workspaceId);
+    const client = consoleWorkspaceClient(ctx, workspaceId, { caller: "workspaceObjectsRepair" });
     if (bucket === null || client === null) return { keys: 0, complete: true, counts, why, refused: "UNREACHABLE" };
     const object = withRetries(client.bodies as unknown as BodyStore, sleep);
     const { keys, complete }: { keys: string[]; complete: boolean } = await ctx.runQuery(internal.functions.workspaceObjectsRows.keysWrittenSince, { workspaceId, since, limit: RECENT_KEYS });

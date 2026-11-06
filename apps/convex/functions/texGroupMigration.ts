@@ -74,7 +74,7 @@ async function openWorkspaceStore(ctx: ActionCtx, workspaceId: Id<"workspaces">)
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-  const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+  const routing = await consoleWorkspaceRouting(ctx, workspaceId, { caller: "texGroupMigration" });
   return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId), ...routing.options }) as unknown as FileStore;
 }
 

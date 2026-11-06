@@ -52,7 +52,7 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
   // Opened as every console store is, workspace object routing included (`lib/rowWatch/consoleRouting.ts`).
-  const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+  const routing = await consoleWorkspaceRouting(ctx, workspaceId, { caller: "texHistoryMigration" });
   return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [`person:${workspaceId}`] }), ...routing.options });
 }
 
