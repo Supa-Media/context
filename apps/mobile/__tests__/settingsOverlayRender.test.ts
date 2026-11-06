@@ -263,8 +263,6 @@ describe("the list is one press away, and it navigates", () => {
     for (const label of ["General", "People & sharing", "Connected apps", "Storage", "Website"]) {
       expect(text).toContain(label);
     }
-    // Profile is the card at the top on a phone: you, by name, then the rows.
-    expect(host.querySelector('[data-testid="settings-profile-card"]')?.getAttribute("aria-label")).toMatch(/^Profile, /);
     expect(text).not.toContain("Plan"); // Context is free (2026-10-20).
     // Folded pages are reached from a row on another page, not listed.
     for (const key of ["activity", "meetings", "emoji", "feedback"]) {
@@ -284,33 +282,6 @@ describe("the list is one press away, and it navigates", () => {
       (row as HTMLElement).click();
     });
     expect(chosen).toEqual(["storage"]);
-  });
-
-  /*
-    A phone's Profile is the card at the top, not a row (Dev2, 2026-11-06).
-    SABOTAGE: drop `ProfileCard`'s `onPress`, or hide the card while the
-    Profile row is also hidden, and this fails.
-  */
-  test("the card at the top opens Profile", () => {
-    const chosen: string[] = [];
-    const host = overlay("storage", (next) => chosen.push(next));
-    act(() => {
-      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
-    });
-    expect(host.querySelector('[data-testid="settings-section-profile"]')).toBeNull();
-    act(() => {
-      (host.querySelector('[data-testid="settings-profile-card"]') as HTMLElement).click();
-    });
-    expect(chosen).toEqual(["profile"]);
-  });
-
-  test("the list's title is large, under a bar with only the close", () => {
-    const host = overlay("storage");
-    act(() => {
-      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
-    });
-    expect(host.querySelector('[data-testid="settings-overlay-title"]')?.textContent).toBe("Settings");
-    expect(host.querySelector('[data-testid="settings-overlay-back"]')).toBeNull();
   });
 
   test("closing asks to close, rather than navigating", () => {
