@@ -51,11 +51,14 @@ export const mockConsoleState: {
   query: Record<string, string>;
   /** Every `router.setParams` the console made, oldest first. */
   paramsSet: Record<string, unknown>[];
+  /** Every `router.push` the console made, oldest first. */
+  pushed: string[];
 } = {
   pathname: "/console/@seyi",
   selectedPath: null,
   query: {},
   paramsSet: [],
+  pushed: [],
 };
 
 /** What the `+` sheet asked the browser to make, as `<kind>:<folder>`. */
@@ -104,7 +107,7 @@ jest.mock("expo-router", () => ({
   },
   useRouter: () => ({
     replace: () => {},
-    push: () => {},
+    push: (href: string) => mockConsoleState.pushed.push(href),
     setParams: (params: Record<string, unknown>) => mockConsoleState.paramsSet.push(params),
   }),
   usePathname: () => mockConsoleState.pathname,

@@ -77,6 +77,7 @@ import { WorkspaceMark } from "./WorkspaceMark";
 export type SwitcherMenuId =
   | `ctx:${string}`
   | "meetings"
+  | "tex"
   | "claim"
   | "new"
   | "settings"
@@ -97,6 +98,7 @@ export function SwitcherMenu({
   label,
   onOpenContext,
   onOpenMeetings,
+  onOpenTex,
   onClaimContext,
   onNewWorkspace,
   onOpenSettings,
@@ -117,6 +119,11 @@ export function SwitcherMenu({
   label: string;
   onOpenContext: (slug: string) => void;
   onOpenMeetings?: () => void;
+  /**
+   * Tex's hub, your own page at `/tex/@<handle>` (Dev2, 2026-11-06: "put some
+   * entrypoint in the settings next to meetings"). A row right after Meetings.
+   */
+  onOpenTex?: () => void;
   onClaimContext?: () => void;
   onNewWorkspace?: () => void;
   onOpenSettings?: () => void;
@@ -291,6 +298,9 @@ export function SwitcherMenu({
     ...(onOpenMeetings
       ? [{ id: "meetings", label: "Meetings", leading: <Icon name="calendar" size={14} />, testID: "switcher-meetings" }]
       : []),
+    ...(onOpenTex
+      ? [{ id: "tex", label: "Tex", leading: <Icon name="chat" size={14} />, testID: "switcher-tex" }]
+      : []),
     /*
       The phone's Folders page lost its Trash and Chaos lines to board 2 of
       meeting-2026-10-17/phone-inbox (Dev2: "EXACTLY like the mockups"), so
@@ -391,6 +401,7 @@ export function SwitcherMenu({
     setSheetOpen(false);
     if (id.startsWith("ctx:")) onOpenContext(id.slice(4));
     else if (id === "meetings") onOpenMeetings?.();
+    else if (id === "tex") onOpenTex?.();
     else if (id === "claim") onClaimContext?.();
     else if (id === "new") onNewWorkspace?.();
     else if (id === "settings") onOpenSettings?.();

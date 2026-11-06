@@ -27,6 +27,8 @@ import { SafeAreaProvider, type Metrics } from "react-native-safe-area-context";
 const mockParams: { current: Record<string, string | string[]> } = { current: {} };
 const mockPushed: unknown[] = [];
 const mockRedirected: string[] = [];
+/** Where Tex's own stack is (`index` 0: the first Tex screen), and whether anything is behind it. */
+const mockNav = { index: 0, canGoBack: true, backs: 0, replaced: [] as string[] };
 
 jest.mock("expo-router", () => ({
   Redirect: ({ href }: { href: string }) => {
@@ -34,8 +36,14 @@ jest.mock("expo-router", () => ({
     return null;
   },
   Stack: () => null,
-  router: { push: (href: unknown) => mockPushed.push(href) },
+  router: {
+    push: (href: unknown) => mockPushed.push(href),
+    canGoBack: () => mockNav.canGoBack,
+    back: () => (mockNav.backs += 1),
+    replace: (href: string) => mockNav.replaced.push(href),
+  },
   useLocalSearchParams: () => mockParams.current,
+  useNavigation: () => ({ getState: () => ({ index: mockNav.index }) }),
 }));
 jest.mock("convex/react", () => ({
   useConvexAuth: () => ({ isLoading: false, isAuthenticated: mockAuth.signedIn }),
@@ -79,6 +87,7 @@ beforeEach(() => {
   root = createRoot(container);
   mockPushed.length = 0;
   mockRedirected.length = 0;
+  Object.assign(mockNav, { index: 0, canGoBack: true, backs: 0, replaced: [] });
   asked.length = 0;
   mockAuth.signedIn = true;
 });
@@ -134,6 +143,35 @@ describe("/tex/group/<words>", () => {
     mockAuth.signedIn = false;
     await open({ words: "team-night-lamp", rest: ["routines"] });
     expect(mockRedirected).toEqual(["/login?next=%2Ftex%2Fgroup%2Fteam-night-lamp%2Froutines"]);
+  });
+});
+
+/*
+  The way out of the hub (Dev2, 2026-11-06). SABOTAGE: always `router.back()`
+  and "nothing behind" and "Tex pages behind" fail.
+*/
+describe("‹ Notes on the hub", () => {
+  test("opened from the app, goes back to where it was opened", async () => {
+    await open({ handle: "@seyi" });
+    await press("tex-exit");
+    expect(mockNav.backs).toBe(1);
+    expect(mockNav.replaced).toEqual([]);
+  });
+
+  test("with nothing behind it (a link from a text), goes to the notes", async () => {
+    mockNav.canGoBack = false;
+    await open({ handle: "@seyi" });
+    await press("tex-exit");
+    expect(mockNav.backs).toBe(0);
+    expect(mockNav.replaced).toEqual(["/console"]);
+  });
+
+  test("with Tex pages behind it, leaves Tex instead of walking them", async () => {
+    mockNav.index = 2;
+    await open({ handle: "@seyi" });
+    await press("tex-exit");
+    expect(mockNav.backs).toBe(0);
+    expect(mockNav.replaced).toEqual(["/console"]);
   });
 });
 

@@ -46,6 +46,7 @@ import {
 import { selectedContext, type ConsoleData, type VisitorActions } from "./types";
 import { useReadMode } from "./files/readMode";
 import { MEETINGS_ROUTE, type MeetingsPanelAsk } from "../meetings/route";
+import { TEX_ROUTE } from "../tex/texComputer";
 import { WELCOME_ROUTE } from "../onboarding/route";
 import { NEW_WORKSPACE_ROUTE } from "../workspace/create";
 import { OpenAsideOn } from "./layout/frameBridges";
@@ -408,6 +409,14 @@ export function ConsoleFrame({
     },
     // A phone has no right panel, so its Meetings is the list; elsewhere, the panel's tab (`MEETINGS_PANEL_HREF`).
     onOpenMeetings: data.demo ? undefined : phone ? () => router.push(MEETINGS_ROUTE) : showMeetings,
+    /*
+      `/tex` opens the signed-in person's own Tex page (`app/tex/index.tsx`),
+      which only a personal workspace's owner has: nobody else gets the row.
+    */
+    onOpenTex:
+      data.demo || !data.contexts.some((c) => c.kind === "personal" && c.role === "owner")
+        ? undefined
+        : () => router.push(TEX_ROUTE),
     onClaimContext: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
     onNewWorkspace: data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE),
     onOpenSettings: () => {

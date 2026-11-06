@@ -57,6 +57,7 @@ export function TexPageBody({
   go,
   computer,
   openComputer,
+  exit,
   now,
   wide: forceWide,
 }: {
@@ -67,6 +68,11 @@ export function TexPageBody({
   computer: TexComputerState | null;
   /** The full-screen computer, to watch or take over. */
   openComputer: () => void;
+  /**
+   * Out of Tex, back to the notes: "‹ Notes" above the first screen, which
+   * otherwise has no way out inside the app (Dev2, 2026-11-06). Omitted, no link.
+   */
+  exit?: () => void;
   now?: () => number;
   /** Overrides the measured width (the screenshot pass, where jsdom never lays out). */
   wide?: boolean;
@@ -120,6 +126,16 @@ export function TexPageBody({
     );
   } else {
     body = <TexHome {...props} overview={overview} pickChat={(chat: string) => go({ chat })} />;
+  }
+
+  // The first screen, loading or not, gets the way out; a sub-page's "‹ Tex" leads back to it.
+  if (exit && !place.job && !place.view) {
+    body = (
+      <>
+        <Back onPress={exit} label="‹ Notes" testID="tex-exit" />
+        {body}
+      </>
+    );
   }
 
   // History owns its scroller, so its filters stay put and it opens on the newest line (`HistoryPage`): the page around it holds still.
