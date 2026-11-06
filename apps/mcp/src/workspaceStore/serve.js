@@ -35,6 +35,7 @@ import { SearchAskRefused } from "./searchIndex.js";
 import { MeaningAskRefused } from "./meaningIndex.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 import { withLookupBody } from "./lookupBody.js";
+import { restampRowVersions } from "./rowVersions.js";
 
 const CALL = "x-tex-call";
 
@@ -375,9 +376,12 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
         // The control plane's tree reads, through the door: unjudged rows and the audience's rules from one call,
         // settled like a lookup, so a reader there falls back to its own rows only while this object is behind.
         if (rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        // Each row listed carries its body's version here, so a reader's copy is not taken as changed (`rowVersions.js`).
+        if (store.sql) restampRowVersions(store.sql, rows);
         return Response.json(await settledAnswer(store, () => ({ served: true, ...rows.filesPage(fields), rules: rows.rules(fields.audience ?? "member") })));
       case "ws.rows.listing":
         if (rows.home() !== HOMES.OBJECT || !store.sql) return Response.json({ served: false });
+        restampRowVersions(store.sql, rows);
         return Response.json(await settledAnswer(store, () => listingAnswer(store, fields)));
       case "ws.rows.list":
         return Response.json(rows.list(fields));

@@ -472,3 +472,4 @@ test/agentHourCache.test.mjs
 test/emailReplyNeedsId.test.mjs
 test/agentTexts.test.mjs
 test/callCounts.test.mjs
+test/rowVersions.test.mjs
