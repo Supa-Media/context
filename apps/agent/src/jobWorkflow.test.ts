@@ -120,7 +120,11 @@ describe("a background job's workflow", () => {
     const { d, reports } = deps(parts);
     const { step } = fakeStep();
     expect(await runJobFlow(step, objectCall(storage, d), RUN.id)).toBe("done");
-    expect(reports.at(-1)).toMatchObject({ state: "stuck", texts: ["Wrote the note."] });
+    // Its last part's words, then what the parts before it did (2026-11-06), the newest eight of them.
+    const last = reports.at(-1)!;
+    expect(last).toMatchObject({ state: "stuck" });
+    expect(last.texts?.[0]).toBe("Wrote the note.");
+    expect(last.texts?.[1]).toBe(`What the earlier parts did:\n${Array.from({ length: 8 }, (_, i) => `Part ${i + 2}: More to do.`).join("\n")}`);
   });
 
   it("a pass that keeps failing is retried, then the job ends with its couldn't-finish line", async () => {

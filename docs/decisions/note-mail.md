@@ -146,6 +146,12 @@ Tested by `apps/mcp/test/noteMailDelivery.test.mjs`,
 `apps/mcp/test/noteMailKinds.test.mjs`, `apps/agent/src/jobMail.test.ts`
 and `apps/convex/__tests__/noteMail/mailboxes.test.ts`.
 
+## A save of the note never loses its mail (2026-11-06)
+
+Dev2 chose this after a split job's mail and joins were wiped mid-run (handoff: `@supa projects/tex/handoff/2026-11-06-split-job-failures.md`). The mail is one record that every agent on the note shares. A whole-note `write` that leaves out the stored mail block gets the block put back at the end, and the result says so (`mail.cjs` `keepMailBlock`, `tools/notes/write.js`). A save that brings its own mail block is left as it is, because the etag already catches a stale copy. A blank line inside a message is written as an indented blank line. The parser also reads an empty line between two parts of one message as part of that message, so mail written before this fix reads whole too. Mail from another agent that reaches a job part on a computer is labelled as that agent's mail, never "the person" (`machines/jobRoutes.js` `deliver`).
+
+**Simplifying it away costs:** one agent's rewrite silently erases every other agent's messages and joins, and nobody is told. Tested by `test/noteMail.test.mjs` ("a whole-note save that leaves the mail out keeps it", "a blank line inside a message keeps the rest of it") and `test/machineJobs.test.mjs`.
+
 ## Tested by
 
 `apps/mcp/test/noteMail.test.mjs` (join, signing, footer, privacy of

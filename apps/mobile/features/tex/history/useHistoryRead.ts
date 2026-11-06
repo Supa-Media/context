@@ -6,6 +6,9 @@ import { LATEST, type LedgerEntry, type LedgerPage } from "../page/texPageTypes"
 import { FALLBACK_POLL_MS } from "../page/useTexPage";
 import type { HistoryChoice } from "./historyChoice";
 
+/** How long after a failed first read each next try waits; past the last, a live patch or the fallback poll reads again. */
+export const RETRY_MS = [2_000, 5_000, 10_000, 30_000, 60_000];
+
 /** Patches come in bursts as a turn writes: one read for each burst. */
 const LIVE_SETTLE_MS = 400;
 
@@ -57,16 +60,24 @@ export function useHistoryRead({ source, chat, group, job, live = false, timing 
 
   useEffect(() => {
     let live = true;
+    let retry: ReturnType<typeof setTimeout> | null = null;
     setRead(null);
     setEntries([]);
     if (waiting) return;
-    void source.ledger(chat, { ...query, before: LATEST }).then((r) => {
-      if (!live) return;
-      setRead(r);
-      setEntries(r.kind === "ok" ? r.value.entries : []);
-    });
+    // A failed read is read again, a little later each time: one busy minute on the person's workspace once left
+    // "can't be read right now" on the page until a filter changed (2026-11-06).
+    const ask = (tries: number) => {
+      void source.ledger(chat, { ...query, before: LATEST }).then((r) => {
+        if (!live) return;
+        setRead(r);
+        setEntries(r.kind === "ok" ? r.value.entries : []);
+        if (r.kind === "failed" && tries < RETRY_MS.length) retry = setTimeout(() => ask(tries + 1), RETRY_MS[tries]);
+      });
+    };
+    ask(0);
     return () => {
       live = false;
+      if (retry !== null) clearTimeout(retry);
     };
   }, [source, chat, query, waiting]);
 
@@ -83,6 +94,8 @@ export function useHistoryRead({ source, chat, group, job, live = false, timing 
         pending = null;
         void source.ledger(chat, { ...query, before: LATEST }).then((r) => {
           if (!alive || r.kind !== "ok" || asking.current !== query) return;
+          // A first read that failed is replaced by this one, so the page stops saying it can't be read.
+          setRead((was) => (was?.kind === "failed" ? r : was));
           setEntries((kept) => {
             const held = new Set(kept.map((e) => e.id));
             const added = r.value.entries.filter((e) => !held.has(e.id));

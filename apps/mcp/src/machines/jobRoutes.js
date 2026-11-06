@@ -18,8 +18,9 @@
  *   grant is taken back here too, in case the part ended before it expired.
  * - `POST /agent/machine/cancel` `{ workspaceId, runId, reason? }` → `{ ok }`.
  * - `POST /agent/machine/deliver` `{ workspaceId, runId, messageId, text,
- *   interrupt? }` → `{ ok }`: a later text of theirs, into the running
- *   session, as the next message or (`interrupt`) stopping the current step.
+ *   interrupt?, mail? }` → `{ ok }`: a later text of theirs, into the running
+ *   session, as the next message or (`interrupt`) stopping the current step;
+ *   with `mail` `{ from, kind?, path? }`, a note mail line from that agent.
  *
  * - `POST /agent/machine/check` `{ workspaceId, runId, job }` → `{ ok, verdict?,
  *   advice?, unfinished?, exhausted?, idle? }`: the advisor's check of an ended
@@ -256,10 +257,25 @@ async function deliver(request, env, session, controlPlane) {
   if (typeof body.text !== "string" || body.text.trim() === "") return invalid("text");
   if ((await ownRun(env, session, covered.workspaceId, body.runId)) === null) return refused("unknown_run");
   const text = body.text.trim().slice(0, 4000);
+  // Note mail from another agent, handed on by the job: said as that agent's, never as the person's (2026-11-06: a
+  // reviewer's mail reached a MacBook part as "Mail from the person"). A name can never read "the person".
+  const mail = body.mail === undefined ? null : mailFrom(body.mail);
+  if (body.mail !== undefined && (mail === null || body.interrupt === true)) return invalid("mail");
   // Their own words, from their own chat: the one sender who may interrupt (with Tex), checked by who holds this grant.
   const op = body.interrupt === true ? "ws.machine.interrupt" : "ws.machine.deliver";
-  const answer = await call(env, covered.workspaceId, op, { runId: body.runId, messageId: body.messageId, kind: "note", from: "the person", text });
+  const answer = await call(env, covered.workspaceId, op, { runId: body.runId, messageId: body.messageId, kind: mail?.kind ?? "note", from: mail?.from ?? "the person", text, ...(mail?.path ? { path: mail.path } : {}) });
   return json({ ok: answer?.ok === true });
+}
+
+/** A mail line's sender as `/agent/machine/deliver` takes it: a joined name or an `@handle`, its kind, and its note. */
+const MAIL_FROM = /^@?[a-z0-9][a-z0-9_.-]{0,39}$/i;
+export function mailFrom(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  if (typeof value.from !== "string" || !MAIL_FROM.test(value.from)) return null;
+  const kind = value.kind === undefined || value.kind === "note" || value.kind === "interrupt" ? "note" : value.kind === "ask" ? "ask" : null;
+  if (kind === null) return null;
+  if (value.path !== undefined && (typeof value.path !== "string" || value.path === "" || value.path.length > 512 || /[\u0000-\u001f]/.test(value.path))) return null;
+  return { from: value.from, kind, ...(value.path ? { path: value.path } : {}) };
 }
 
 const MAX_JOB_TEXT = 4_000;
