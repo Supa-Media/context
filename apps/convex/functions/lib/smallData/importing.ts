@@ -24,6 +24,7 @@ import type { MutationCtx } from "../../../_generated/server";
 import { addForwarding } from "../../../../mcp/src/forwarding.js";
 import { iconsAfterMove } from "@context/shared/src/folderIcons.cjs";
 import { type ForwardingEntry, ledgerOf, ledgerRows, writeLedger } from "./forwarding";
+import { sendLedgerToObject } from "./objectLedger";
 import { iconRows } from "./icons";
 import { ensureSmallDataState } from "./state";
 
@@ -71,11 +72,15 @@ export async function importSmallData(
     if (row === null) await ctx.db.insert("customEmoji", { workspaceId, name, leaf });
   }
 
-  // A file is owed a write only where Convex held something the file did not.
+  // A file is owed a write only where Convex held something the file did not. The ledger's version also moves
+  // when the file brought entries in, so the workspace object's copy of it (`objectLedger.ts`) is sent again at a
+  // version past any it holds; writing the file back unchanged is the only cost.
+  const ledgerChanged = held.length > 0 || found.forwarding.length > 0;
   await ctx.db.patch(state._id, {
     importedAt: now,
-    ...(held.length > 0 ? { forwardingVersion: state.forwardingVersion + 1 } : {}),
+    ...(ledgerChanged ? { forwardingVersion: state.forwardingVersion + 1 } : {}),
     ...(icons.length > 0 ? { iconsVersion: state.iconsVersion + 1 } : {}),
   });
+  if (ledgerChanged) await sendLedgerToObject(ctx, workspaceId);
   return { imported: true };
 }

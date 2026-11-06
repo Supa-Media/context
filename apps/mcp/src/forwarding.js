@@ -79,6 +79,12 @@
  * gateway's in-memory test stub, a self-hosted gateway without one) keeps the
  * file as the record.
  *
+ * Where a workspace's notes live in its object, the gateway's `read` is
+ * answered there first (`workspaceStore/forwardingRows.js`): a copy of the
+ * rows the control plane sends whole behind each change, judged the same way,
+ * so a read that misses never waits on the control plane
+ * (`docs/decisions/storage-and-credentials/forwarding-in-objects.md`).
+ *
  * Nothing else here talks to a store — text in, text out — so the rules are
  * testable without a bucket. `readForwarding` and `recordForwarding` are the
  * two functions that do I/O, and they hold nothing but the read and the write.

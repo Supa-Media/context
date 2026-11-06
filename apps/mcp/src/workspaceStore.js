@@ -34,6 +34,7 @@ import { workspaceMembers } from "./workspaceStore/members.js";
 import { workspaceRows } from "./workspaceStore/rows.js";
 import { bindingRows } from "./workspaceStore/bindingRows.js";
 import { workspaceFacts } from "./workspaceStore/facts.js";
+import { workspaceForwarding } from "./workspaceStore/forwardingRows.js";
 import { workspaceSearch } from "./workspaceStore/searchIndex.js";
 import { workspaceMeaning } from "./workspaceStore/meaningIndex.js";
 import { bindingEmbedder } from "./search/meaning/embed.js";
@@ -110,6 +111,8 @@ export class WorkspaceStore {
       rows,
       // What its notes say about themselves: links and props, read from the text held here (`workspaceStore/facts.js`).
       facts: workspaceFacts(sql, objects),
+      // Where moved notes went, a copy the control plane sends whole behind each change (`workspaceStore/forwardingRows.js`).
+      forwarding: workspaceForwarding(sql),
       // A word index over that text, so a search is one call here (`workspaceStore/searchIndex.js`).
       search: workspaceSearch(sql, { rows, objects }),
       // Its own meaning index (`workspaceStore/meaningIndex.js`), built with the model this Worker is bound to.

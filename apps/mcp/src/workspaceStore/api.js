@@ -101,6 +101,8 @@ export function workspaceStub(env, workspaceId) {
  * - `facts({ask, ..., scope, groups, audience})`: a note facts ask (`props`, `links`, `neighbors`) answered from the
  *   text held here (`workspaceStore/facts.js`), in the control plane's `/gateway/tree/facts` shape; `{served: false}`
  *   before the notes live here
+ * - `forwardingPut({version, entries})` → `{kept, version}`: the control plane's forwarding ledger, whole, kept when
+ *   its version is at least the one held (`workspaceStore/forwardingRows.js`); `facts({ask: "forwarding"})` answers it
  * - `orientSurvey({scope, groups, audience})` → `{served: true, survey}` or `{served: false}`: `orient`'s map of the
  *   workspace for that reader, drawn in the object (`workspaceStore/orientSurvey.js`)
  * - `factRows({ask: "props"|"links"|"chaos"|"candidates"|"linking", paths?})`: the same facts unfiltered, for the control plane's own readers
@@ -155,6 +157,8 @@ export function workspaceClient(env, workspaceId) {
     facts: async (request) => await ask("ws.facts", request),
     orientSurvey: async (request) => await ask("ws.orient.survey", request),
     factRows: async (request) => await ask("ws.facts.rows", request),
+    // The control plane's forwarding ledger, whole, at its version (`workspaceStore/forwardingRows.js`).
+    forwardingPut: async ({ version, entries }) => await ask("ws.forwarding.put", { version, entries }),
     rules: {
       put: async (rules, audience = "member") => await ask("ws.rules.put", { rules, audience }),
       get: async (audience = "member") => await ask("ws.rules.get", { audience }),

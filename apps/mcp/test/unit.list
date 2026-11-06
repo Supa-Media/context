@@ -386,6 +386,7 @@ test/objectGrants.test.mjs
 test/personTopics.test.mjs
 test/agentGroupAskChat.test.mjs
 test/objectFacts.test.mjs
+test/objectForwarding.test.mjs
 test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/objectChildren.test.mjs
