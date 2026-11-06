@@ -124,7 +124,7 @@ test("a save runs in the object in one call, lands in the Markdown, and answers 
   assert.ok(answer.writes.some((write) => write.key.startsWith(`${COLLAB}v1/documents/`)), "no document state was written");
 });
 
-test("a save's backup copies each key once, where it ended: the document state is not copied twice", async () => {
+test("a save hands back and copies each key once, where it ended: the document state is not sent twice", async () => {
   const { routed, saved, bucket, settle } = await started();
   const copied = [];
   const put = bucket.put.bind(bucket);
@@ -134,11 +134,14 @@ test("a save's backup copies each key once, where it ended: the document state i
   };
   const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
   await settle();
-  const states = answer.writes.filter((write) => write.key.startsWith(`${COLLAB}v1/documents/`));
-  assert.ok(states.length >= 2, "the object wrote its document state once: nothing to collapse");
-  assert.deepEqual(copied.filter((key) => key === states[0].key), [states[0].key]);
+  // The answer itself carries each key once: the state the save wrote twice travels back from the object once.
+  const keys = answer.writes.map((write) => write.key);
+  assert.equal(new Set(keys).size, keys.length, `the answer carried a key twice: ${keys.join(", ")}`);
+  const state = answer.writes.find((write) => write.key.startsWith(`${COLLAB}v1/documents/`) && !write.key.includes("/operations/"));
+  assert.ok(state, "no document state was handed back");
+  assert.equal(JSON.parse(state.body).pending, null, "the state handed back is not where the save ended");
   assert.equal(new Set(copied).size, copied.length, `a key was copied twice: ${copied.join(", ")}`);
-  assert.equal(await text(bucket, states[0].key), states.at(-1).body);
+  assert.equal(await text(bucket, state.key), state.body);
 });
 
 test("a save from a version that has moved is a CONFLICT, and the note is unchanged", async () => {
