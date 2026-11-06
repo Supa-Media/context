@@ -110,7 +110,7 @@ test("a warm simple texted turn makes at most the budgeted calls before its mode
       warm = result.warm;
       world.tex.modelAt = undefined;
       // The workspace has no About me or jobs list: as the lookup behind the reply keeps it in a keyed workspace (`texDesk.js`).
-      if (i === 1) await keepDeskKeys(world, { about: false, jobs: false, voice: false }); // and no voice note (`personVoice.js`)
+      if (i === 1) await keepDeskKeys(world, { about: false, jobs: false, voice: false, calendar: false }); // and no voice note (`personVoice.js`) or calendar copy (`calendarCache.js`)
       recent.push(event(Date.now(), { from: { kind: "tex" }, text: `Answer ${i}`, turn, covers: [e.id] }));
       if (measured) {
         const person = result.objectCalls.filter((call) => call.name === "person:ws_egress");

@@ -18,7 +18,7 @@ export const DESK_KEYS_KEY = "state/agent/history/desk.json";
 /** The notes a desk may name: an id key of a note kept in this object. */
 const NOTE_KEY = /^notes\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.md$/;
 /** The names of the notes a desk carries. */
-export const DESK_NOTES = ["about", "jobs", "voice"];
+export const DESK_NOTES = ["about", "jobs", "voice", "calendar"]; // calendar: their next 7 days, a copy (`agent/calendarCache.js`)
 
 /**
  * The newest page of the person's one-to-one chat's ledger, slim, that the
