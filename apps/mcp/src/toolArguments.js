@@ -71,6 +71,8 @@ const KNOWN_KEYWORDS = new Set([
   "maximum",
   "minItems",
   "maxItems",
+  "minLength",
+  "maxLength",
   "description",
   "title",
   "default",
@@ -186,6 +188,35 @@ function checkValue(schema, value, path, budget) {
   }
   if (typeof schema.maximum === "number" && typeof value === "number" && value > schema.maximum) {
     return `argument ${describeName(path)} must be at most ${schema.maximum}`;
+  }
+
+  /*
+    A string's advertised length, enforced because `tools/list` states it.
+
+    These two were absent from `KNOWN_KEYWORDS`, which made them exactly what
+    the comment there warns of: a bound a reviewer reads in the schema and
+    believes, with nothing behind it. The connector endpoints build their own
+    schemas (`mcp/chatgpt/tools.js`), the `save_context` they advertise to a
+    directory scan says `maxLength: 12000` on the words it carries, and a
+    200,000-character call passed.
+
+    Counted with `.length`, so in UTF-16 units rather than the code points JSON
+    Schema specifies: an astral character counts twice and is refused slightly
+    sooner than the letter of the spec would. That is the direction a bound may
+    err in, it costs no scan of the string, and no schema here is near enough to
+    its bound for the difference to decide a call. Spelled out because the next
+    schema to carry a bound might be.
+
+    Length before the object walk below, as with `maxItems`: a megabyte of
+    string is refused after reading one integer.
+  */
+  if (typeof value === "string") {
+    if (typeof schema.minLength === "number" && value.length < schema.minLength) {
+      return `argument ${describeName(path)} must be at least ${schema.minLength} character${schema.minLength === 1 ? "" : "s"}`;
+    }
+    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) {
+      return `argument ${describeName(path)} must be at most ${schema.maxLength} character${schema.maxLength === 1 ? "" : "s"}`;
+    }
   }
 
   if (Array.isArray(value)) {
