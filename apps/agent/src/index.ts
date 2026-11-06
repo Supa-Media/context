@@ -62,6 +62,7 @@ import { SIMULATOR_PAGE } from "./simulatorPage";
 import { appCardConfig } from "./appCards";
 import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, watchGroupPresenceDaily, whapiKeys, type WhapiKeys } from "./whapi";
 import { parseWhapiWebhook, whapiGroupNames } from "./whapiInbound";
+import { logEventShape, logSendblueShape } from "./webhookShape";
 import { groupLineFor } from "./groupLine";
 import { noteCardDrawer } from "./noteCards";
 import { answerHanded, failHanded } from "./groupTurnRun";
@@ -177,18 +178,23 @@ export default {
     try {
       payload = JSON.parse(raw);
     } catch {
-      return new Response(null, { status: 400 });
+      if (line === "linq") return new Response(null, { status: 400 });
+      return logSendblueShape(null, "not_json");
     }
     // A group message goes to the group's own queue, never a sender's (`groupInbox.ts`).
     const grouped = line === "sendblue" ? parseSendblueGroup(payload) : null;
+    if (grouped?.kind === "invalid") logSendblueShape(payload, "group_invalid");
     if (grouped !== null) return groupWebhook(env, grouped, url.origin, "sendblue", groupNameOf(payload));
+    // Sendblue retries a 400, so only Linq gets one; typing, calls, statuses and the rest are described by shape.
     const inbound = line === "sendblue" ? parseSendblueInbound(payload) : parseInbound(payload);
     if (inbound.kind === "invalid") {
       logWebhook(line, "invalid");
-      return new Response(null, { status: 400 });
+      if (line === "linq") return new Response(null, { status: 400 });
+      return logSendblueShape(payload, "invalid");
     }
-    // Signed, but nothing we act on: 200 so the line does not retry it.
+    // Signed, but nothing we act on, or a shape not yet known (`logSendblueShape`): 200 so the line does not retry it.
     if (inbound.kind === "ignored") {
+      if (line === "sendblue" && inbound.reason === "event_type") logSendblueShape(payload, "ignored");
       logWebhook(line, "ignored", inbound.reason);
       return new Response(null, { status: 200 });
     }
@@ -285,7 +291,7 @@ function logWebhook(line: "linq" | "sendblue" | "whapi", outcome: "unsigned" | "
 async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>, origin: string, line: "sendblue" | "whapi" = "sendblue", name: string | null = null): Promise<Response> {
   if (grouped.kind === "invalid") {
     logWebhook(line, "invalid");
-    return new Response(null, { status: 400 });
+    return new Response(null, { status: 200 });
   }
   if (grouped.kind === "ignored") {
     logWebhook(line, "ignored", `group_${grouped.reason}`);
@@ -327,7 +333,8 @@ async function whapiWebhook(request: Request, env: Env, origin: string): Promise
   try {
     payload = JSON.parse(raw);
   } catch {
-    return new Response(null, { status: 400 });
+    logEventShape("whapi", undefined, undefined, null, "not_json");
+    return new Response(null, { status: 200 });
   }
   let failed = false;
   for (const event of parseWhapiWebhook(payload, keys.line)) {
