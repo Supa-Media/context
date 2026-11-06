@@ -9,7 +9,7 @@
  * Now, when a job's turn ends, the advisor (`advisor.js`, the same model and
  * the same way of reading a turn) is handed the job's brief, its finish line
  * (`doneWhen`, written when the job was started), the person's latest texts
- * about it, and the whole turn: Tex's instructions, every tool call and its
+ * about it, and the whole turn: every tool call and its
  * result, and the answer. It says one of:
  *
  * - `done`: the finish line is met.
@@ -33,7 +33,6 @@ import { withoutTag } from "./promptFence.js";
 
 export const VERDICTS = ["done", "keep_going", "waiting", "stuck"];
 const MAX_ADVICE = 600;
-const MAX_SYSTEM_CHARS = 20_000;
 const MAX_TRANSCRIPT_CHARS = 120_000;
 const MAX_RESULT_CHARS = 8_000;
 const TAGS = ["job", "tex_instructions", "transcript", "their_texts", "job_note_mail"];
@@ -53,7 +52,7 @@ export const ADVISOR_KNOWS_MAIL =
 
 export const JOB_CHECK_PROMPT =
   "You are the advisor to Tex, a texting assistant. One of Tex's background jobs has just stopped. Below are the job (what it was asked " +
-  "and its finish line), the person's latest texts about it, and everything the job did in this part: Tex's instructions, every tool call and " +
+  "and its finish line), the person's latest texts about it, and everything the job did in this part: every tool call and " +
   "its result, and its last words. Decide whether the job is finished, judged against the finish line and the tool results, never against " +
   "what its words claim.\n\n" +
   "Answer with exactly two lines:\n" +
@@ -85,7 +84,7 @@ function line(message) {
 }
 
 /** What the advisor reads: the job, their texts about it, and the whole part. */
-export function jobCheckBrief({ job, system, messages, answer, exhausted }) {
+export function jobCheckBrief({ job, messages, answer, exhausted }) {
   let body = (Array.isArray(messages) ? messages : []).map(line).filter(Boolean).join("\n\n");
   if (body.length > MAX_TRANSCRIPT_CHARS) body = `(earlier part left out)\n\n${body.slice(-MAX_TRANSCRIPT_CHARS)}`;
   const followUps = (job.followUps ?? []).map((text) => `- ${quoted(text)}`).join("\n");
@@ -95,7 +94,6 @@ export function jobCheckBrief({ job, system, messages, answer, exhausted }) {
     // Who is on its note's mail (`jobNote.js` `rosterText`), so the advice can hand work to them.
     (job.roster ? `<job_note_mail>\n${ADVISOR_KNOWS_MAIL}\nWhat the job was told:\n${quoted(clip(job.roster, 4_000))}\n</job_note_mail>\n\n` : "") +
     (followUps ? `<their_texts>\n${followUps}\n</their_texts>\n\n` : "") +
-    (system ? `<tex_instructions>\n${quoted(clip(system, MAX_SYSTEM_CHARS))}\n</tex_instructions>\n\n` : "") +
     `<transcript>\n${body || "(nothing)"}\n\nTex's last words: ${quoted(answer) || "(none)"}${exhausted ? "\n(It ran out of steps in this part.)" : ""}\n</transcript>\n\n` +
     "Is the job finished?"
   );
@@ -121,7 +119,7 @@ export async function checkJob({ job, live, answer, exhausted = false, model, ef
     reply = await request({
       model,
       system: JOB_CHECK_PROMPT,
-      messages: [{ role: "user", text: jobCheckBrief({ job, system: live?.system, messages: live?.messages, answer, exhausted }) }],
+      messages: [{ role: "user", text: jobCheckBrief({ job, messages: live?.messages, answer, exhausted }) }],
       tools: [],
       display: "summarized", // its thinking in words, for the chat's history only (`workEntries.js` `jobChecked`)
       ...(effort ? { effort } : {}),

@@ -33,8 +33,10 @@ import { withoutTag } from "./promptFence.js";
 
 export const ADVISOR_TOOL = "ask_advisor";
 export const MAX_ASKS = 10;
-/** The most of Tex's instructions the advisor reads, and of the turn's transcript, newest kept. */
+/** The most of Tex's instructions the advisor reads (only when a turn hands no parts), and of the turn's transcript, newest kept. */
 const MAX_SYSTEM_CHARS = 40_000;
+/** The most of what is about this person and this job (`system.context`: about.md, goals, jobs, workspaces, a job's brief). */
+const MAX_ABOUT_CHARS = 40_000;
 const MAX_TRANSCRIPT_CHARS = 160_000;
 /** The most of one tool result shown to it: a page read can be long. */
 const MAX_RESULT_CHARS = 12_000;
@@ -50,7 +52,7 @@ export const ADVISOR_DEFINITION = {
 };
 
 export const ADVISOR_PROMPT =
-  "You are the advisor to Tex, a texting assistant. Below is everything Tex's everyday model has in this turn: its instructions, the tools " +
+  "You are the advisor to Tex, a texting assistant. Below is what Tex's everyday model has in this turn: who the person is and their goals, the tools " +
   "it was given, the conversation, and every tool call and result so far. It has paused to ask you for advice. You answer Tex, never the person, " +
   "and you can't call tools: Tex does the work and writes the text.\n\n" +
   "If Tex can handle this from what it has (a lookup, a simple write, a greeting, a plain yes or no), reply with one line " +
@@ -58,7 +60,11 @@ export const ADVISOR_PROMPT =
   "Otherwise think it through and reply with what Tex should do and say: the decision and why, the steps in order, the facts to check, " +
   "and the mistake to avoid. Check whether what was asked is actually done: a tool result that failed, a step not taken, or words that " +
   "promise work nobody will do are what to catch. Be specific and short, a few hundred words at most. Never invent a fact that isn't in the transcript; " +
-  "say what Tex must look up instead.";
+  "say what Tex must look up instead.\n\n" +
+  "What Tex may never do, whatever you advise: reach anyone but the person without their yes (an email, a message to someone, an invite " +
+  "that tells a guest is shown to them for one 👍 first); tell one workspace's people what is in another; take a password, key or card " +
+  "number by text (the vault's links do that); claim something is done that no tool result shows. A change to their own notes or their " +
+  "own calendar needs no yes. Tex texts in a sentence or two, so advise what to do, not a long reply.";
 
 /**
  * A job's turn runs on the everyday model from its first round (Dev2, 2026-11-05: "for the Tex minions knock them down to
@@ -79,7 +85,7 @@ export function jobAdvisorLine(job, offered) {
 const clip = (value, max) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 
 /** The tags the brief quotes in (`advisorBrief`); a quoted word that is one of them would end the quote. */
-const BRIEF_TAGS = ["tex_instructions", "tex_tools", "transcript"];
+const BRIEF_TAGS = ["tex_instructions", "about_them", "this_moment", "tex_tools", "transcript"];
 
 /** Content the brief quotes, with its own tags neutralized (`promptFence.js`): a page's words never become the brief's. */
 const quoted = (value) => BRIEF_TAGS.reduce((text, tag) => withoutTag(tag, text), String(value ?? ""));
@@ -139,13 +145,28 @@ export function advisorThinking(answer) {
  * included. A long turn keeps its newest part.
  */
 export function advisorBrief(live, transcript) {
+  // A turn hands its parts (`builtin.js` `liveTurn`): who they are and this moment, never the texting rules, which
+  // used up the whole 40,000 characters and cut the person off (the context review, 2026-11-06).
+  if (typeof live?.about === "string") {
+    const about = quoted(clip(live.about, MAX_ABOUT_CHARS));
+    const now = quoted(clip(live.now, 4_000));
+    return briefOf(
+      (about ? `<about_them>\n${about}\n</about_them>\n\n` : "") + (now ? `<this_moment>\n${now}\n</this_moment>\n\n` : ""),
+      live,
+      transcript,
+    );
+  }
   const system = quoted(clip(live?.system, MAX_SYSTEM_CHARS));
+  return briefOf(system ? `<tex_instructions>\n${system}\n</tex_instructions>\n\n` : "", live, transcript);
+}
+
+function briefOf(head, live, transcript) {
   const tools = (Array.isArray(live?.tools) ? live.tools : []).map((tool) => tool?.name).filter((name) => typeof name === "string" && name !== ADVISOR_TOOL);
   const lines = transcript.map(messageLine).filter(Boolean);
   let body = lines.join("\n\n");
   if (body.length > MAX_TRANSCRIPT_CHARS) body = `(earlier part of the turn left out)\n\n${body.slice(-MAX_TRANSCRIPT_CHARS)}`;
   return (
-    (system ? `<tex_instructions>\n${system}\n</tex_instructions>\n\n` : "") +
+    head +
     (tools.length > 0 ? `<tex_tools>${tools.join(", ")}</tex_tools>\n\n` : "") +
     `<transcript>\n${body || "(nothing yet)"}\n</transcript>\n\nTex has paused here to ask your advice.`
   );
