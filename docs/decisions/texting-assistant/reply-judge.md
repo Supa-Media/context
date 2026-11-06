@@ -88,6 +88,14 @@ redesign".
   back at least 80% of faults and at most 10% of good replies across all of
   them.
 
+Scored before it went live (AI Reviewer run 16, 2026-11-06): 69 of 81 faults
+sent back (85%) and 9 of 102 good replies (9%) across every set, 9 of the 10
+banter and roast replies let go, no review without a verdict, a median of 1.3 s
+a review (slowest 5.9 s). The first run, with a looser rubric and a
+true-or-false `send`, caught 70% with 23% false alarms; seven good cases that
+held a real flaw (a wrong sum, an invented time, a claim no call made) were
+fixed so their label is true for a whole-reply review.
+
 What a "simplification" would cost: splitting it back into per-fault calls
 brings back the stacked vetoes; dropping the earlier feedback brings back
 redrafts that never converge. Tests: `apps/mcp/test/replyJudge.test.mjs`,
