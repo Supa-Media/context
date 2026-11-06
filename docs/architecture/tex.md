@@ -112,6 +112,7 @@ may leave the turn (`privacy/egress.js`).
 flowchart TB
   Q([The question, the chat, About me, the setup]):::you --> FD
   FD["Front door<br/>Haiku 5.5 · effort high · up to 24 rounds<br/>turn.js runTurn"]:::haiku
+  FD -. off unless advisor_first .-> AF["Advisor first<br/>every text stays on Haiku; effort_rung raises<br/>a flagged or sent-back text's effort, per message<br/>advisorFirst.js"]:::off
   FD <-->|tools| T["Tools: notes, search, web, browser,<br/>vault, email, calendar, apps,<br/>their texts (1:1 only, Mac backup)<br/>the one dispatcher, callToolForSession"]:::tool
   FD <-->|ask_advisor, when stuck or weighing| ADV["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js"]:::opus
   FD -. model down .-> FB["Fallback<br/>GLM-4.7 Flash, @cf/zai-org/glm-4.7-flash<br/>builtin.js"]:::off
@@ -181,6 +182,7 @@ What each model costs is `jev/meter.ts`.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-06: advisor first, built and off (`advisorFirst.js`): with `advisor_first: on` the router never sends a text to Opus, and with `effort_rung` a flagged or sent-back text runs at a higher Haiku effort as a per-message effort that keeps the cache (resent without it if the gateway refuses the beta). The advisor's brief is two parts, the earlier texts cached; it is told the docs' order (look first, ask before committing, ask before done).
 - 2026-11-06: a turn's history is timed part by part (`history_memory`, `history_ledger`, `history_log`) and, in a group, each of its five memory notes apart (`history_group_record`, `_playbook`, `_voice`, `_about`, `_jobs`), read with the `tex-text-timings` workflow; nothing read changed.
 - 2026-11-06: a group's job with no project note gets one in its workspace's `projects/tex-jobs/` (it had none: no mail, no advisor, no Tex); a computer part's brief always names its advisor; a cloud job's turn thinks at `models.job_effort` (`jobNote.js`, `jobBackground.js`, `production.js`).
 - 2026-11-06: a note's new-mail line and an ask's wait are answered by the note's workspace object (`mailOps.js`): one call each, no whole-note reads or 1.5-second polling (`mail.js`, `footer.js`).

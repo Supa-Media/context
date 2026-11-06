@@ -51,6 +51,14 @@
  *                  that run side by side goes to `plan_big_ask`, where the
  *                  advisor plans it and the gateway writes its notes and
  *                  starts its jobs (`planBigAsk.js`, Dev, 2026-11-04)
+ *   advisor_first  optional `on`, with `models.advisor`: a texted turn starts
+ *                  and stays on `main`, never sent to `think` by the router;
+ *                  judgment comes from the advisor (`advisorFirst.js`, Dev2,
+ *                  2026-11-06). Absent: off.
+ *   effort_rung    optional low|medium|high|xhigh|max, with `advisor_first`:
+ *                  a text the router flags, or one sent back by a check, runs
+ *                  at this effort for the rest of its turn, as a per-message
+ *                  effort that keeps the cache (`advisorFirst.js`). Absent: off.
  *   models.fallback optional: the model a turn goes on with when the one it
  *                  was on failed after its retry (decided by the owner,
  *                  2026-10-09; another model than `main`, or it is no fallback)
@@ -191,6 +199,11 @@ async function parse(raw) {
   }
   const planBigAsks = readPlanSetting(front.plan_big_asks);
   if (planBigAsks === null || (planBigAsks && advisor === null)) return null;
+  // Advisor first (`advisorFirst.js`): needs an advisor; the rung needs advisor first.
+  const advisorFirst = readPlanSetting(front.advisor_first);
+  if (advisorFirst === null || (advisorFirst && advisor === null)) return null;
+  const effortRung = front.effort_rung === undefined ? null : front.effort_rung;
+  if (effortRung !== null && (!advisorFirst || typeof effortRung !== "string" || !EFFORTS.has(effortRung))) return null;
   let fallback = null;
   if (models.fallback !== undefined) {
     if (typeof models.fallback !== "string" || !isBuiltinModelName(models.fallback) || models.fallback === models.main) return null;
@@ -244,6 +257,8 @@ async function parse(raw) {
     planner,
     advisor,
     planBigAsks,
+    advisorFirst,
+    effortRung,
     efforts,
     jobEffort,
     fallback,

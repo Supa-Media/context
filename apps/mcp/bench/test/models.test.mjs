@@ -153,3 +153,13 @@ test("a refusal's words are read from the gateway's own shape too, and an empty 
   assert.equal(refusalLine(400, null, null), "Claude refused a call: 400 no body read (no content-type)");
   assert.equal(refusalLine(400, null, JSON.stringify({ error: { message: "x".repeat(500) } })).length, "Claude refused a call: 400 ".length + 300);
 });
+
+test("the product's beta header for an effort rung reaches the gateway, so setup c measures the rung (`advisorBench.mjs`)", async () => {
+  const { calls, fetchImpl } = recorder();
+  const world = anthropicGateway(claudeTransport({ ...GATEWAY, ANTHROPIC_CREDIT_KEY: "fixture-credit-key-000000000000" }, fetchImpl), () => {});
+  await world("https://ignored.invalid", { body: BODY, headers: { "anthropic-beta": "mid-conversation-output-config-2026-07-01" } });
+  await world("https://ignored.invalid", { body: BODY, headers: {} });
+  assert.equal(calls[0].headers["anthropic-beta"], "mid-conversation-output-config-2026-07-01");
+  assert.equal(calls[0].headers["x-api-key"], "fixture-credit-key-000000000000");
+  assert.equal(calls[1].headers["anthropic-beta"], undefined, "never added to a call without a rung");
+});

@@ -60,9 +60,12 @@ export const DRIVER_PROMPT =
  * @param {() => Function} decide the decision engine, made only for a router
  */
 export function turnRouter(setup, canRun, decide) {
-  const { router, planner = null } = setup;
-  if (router !== null && canRun(router.think)) return { decide: decide(), think: router.think, routeAt: router.routeAt, thinkRounds: router.thinkRounds };
-  if (router === null && planner !== null && canRun(planner.think)) return { decide: null, think: planner.think, thinkRounds: planner.thinkRounds, jobsOnly: true };
+  const { router, planner = null, advisorFirst = false, effortRung = null } = setup;
+  // Advisor first (`advisorFirst.js`): a text never leaves `main`; the router is kept only to flag a text for the rung.
+  const first = advisorFirst === true ? { advisorFirst: true, ...(effortRung !== null ? { rung: effortRung } : {}) } : {};
+  if (router !== null && canRun(router.think)) return { decide: decide(), think: router.think, routeAt: router.routeAt, thinkRounds: router.thinkRounds, ...first };
+  if (router === null && planner !== null && canRun(planner.think)) return { decide: null, think: planner.think, thinkRounds: planner.thinkRounds, jobsOnly: true, ...first };
+  if (advisorFirst === true) return { decide: null, think: null, jobsOnly: true, ...first }; // the rung still rides on a pushback ask or a send-back
   return null;
 }
 

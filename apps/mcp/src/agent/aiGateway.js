@@ -218,16 +218,28 @@ function hasHourMarks(body) {
   return JSON.stringify(body).includes('"ttl":"1h"');
 }
 
+/** The beta a per-message effort needs (https://platform.claude.com/docs/en/build-with-claude/effort). */
+export const RUNG_BETA = "mid-conversation-output-config-2026-07-01";
+
+/** Whether a body carries an effort rung (`advisorFirst.js`), and the body without it. */
+const hasRung = (body) => body.messages.some((message) => message.role === "system");
+export const withoutRung = (body) => ({ ...body, messages: body.messages.filter((message) => message.role !== "system") });
+
+/** Set once the gateway has refused a rung: later bodies go without it, a slower answer never a failed one. */
+let rungRefused = false;
+
 /** Set once the gateway has refused a one-hour mark: later bodies go without them. */
 let hourMarksRefused = false;
 
 /** For tests: forget a remembered refusal. */
 export function resetHourMarks() {
   hourMarksRefused = false;
+  rungRefused = false;
 }
 
-/** Puts a breakpoint on the last block of message `index` of the API's message list. */
+/** Puts a breakpoint on the last block of message `index` of the API's message list, or the nearest before it with blocks (an effort rung has none). */
 function markLastBlock(wire, index, mark = { type: "ephemeral" }) {
+  while (index > 0 && wire[index]?.role === "system") index -= 1;
   const message = wire[index];
   if (!message || !Array.isArray(message.content) || message.content.length === 0) return;
   const blocks = [...message.content];
@@ -319,6 +331,8 @@ async function send(config, body, { withKey, metadata }, fetchImpl) {
           "cf-aig-authorization": `Bearer ${config.token}`,
           "cf-aig-collect-log": "false",
           ...metadataHeader(metadata),
+          // Unverified through Cloudflare AI Gateway: a refusal is resent without the rung (`requestViaGateway`).
+          ...(hasRung(body) ? { "anthropic-beta": RUNG_BETA } : {}),
           // The plan's key appears here and nowhere else.
           ...(withKey ? { "x-api-key": config.creditKey } : {}),
         },
@@ -375,11 +389,21 @@ export async function requestViaGateway(call, config, options = {}) {
   const wait = options.wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   let body = gatewayBody(call);
   if (hourMarksRefused) body = withoutHourMarks(body);
+  if (rungRefused) body = withoutRung(body);
   // A 400 on a body with one-hour marks is resent once without them; when that
   // goes through, the refusal is remembered for this isolate, so an unaccepted
   // field never fails a turn.
   const sendIt = async (withKey) => {
-    const answer = await sendWithRetry(config, body, { withKey, metadata: options.metadata }, fetchImpl, wait);
+    let answer = await sendWithRetry(config, body, { withKey, metadata: options.metadata }, fetchImpl, wait);
+    // A 400 on a body with an effort rung is resent once without it, and remembered when that goes through.
+    if (answer.status === 400 && hasRung(body) && !saysCreditSpent(answer.text)) {
+      const plain = withoutRung(body);
+      answer = await sendWithRetry(config, plain, { withKey, metadata: options.metadata }, fetchImpl, wait);
+      if (answer.status === 200) {
+        rungRefused = true;
+        body = plain;
+      }
+    }
     if (answer.status !== 400 || !hasHourMarks(body) || saysCreditSpent(answer.text)) return answer;
     const plain = withoutHourMarks(body);
     const again = await sendWithRetry(config, plain, { withKey, metadata: options.metadata }, fetchImpl, wait);

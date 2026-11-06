@@ -64,22 +64,23 @@ export function claudeTransport(env, fetchImpl = realFetch) {
       "cf-aig-collect-log": "false",
       "cf-aig-metadata": JSON.stringify({ feature: "benchmark" }),
     };
-    const post = (body, withKey) =>
-      fetchImpl(url, { method: "POST", headers: withKey ? { ...headers, "x-api-key": key } : headers, body });
-    const send = async (body) => {
+    const post = (body, withKey, extra) =>
+      fetchImpl(url, { method: "POST", headers: { ...headers, ...extra, ...(withKey ? { "x-api-key": key } : {}) }, body });
+    // `extra`: the product's own beta header (`aiGateway.js` `RUNG_BETA`), passed on as production sends it.
+    const send = async (body, extra = {}) => {
       if (key) {
-        const response = await post(body, true);
+        const response = await post(body, true, extra);
         if (!(await retryWithoutKey(response))) return response;
       }
-      return post(body, false);
+      return post(body, false, extra);
     };
     send.route = "gateway";
     return send;
   }
 
   if (env.ANTHROPIC_API_KEY) {
-    const send = (body) =>
-      fetchImpl(ANTHROPIC_URL, { method: "POST", headers: { ...base, "x-api-key": env.ANTHROPIC_API_KEY }, body });
+    const send = (body, extra = {}) =>
+      fetchImpl(ANTHROPIC_URL, { method: "POST", headers: { ...base, ...extra, "x-api-key": env.ANTHROPIC_API_KEY }, body });
     send.route = "anthropic";
     return send;
   }
@@ -99,7 +100,8 @@ export function claudeTransport(env, fetchImpl = realFetch) {
  */
 export function anthropicGateway(send, log = (line) => process.stderr.write(`${line}\n`)) {
   return async (_url, init) => {
-    const response = await send(init.body);
+    const beta = init.headers?.["anthropic-beta"];
+    const response = await send(init.body, beta ? { "anthropic-beta": beta } : {});
     if (response.status !== 200) log(refusalLine(response.status, response.headers.get("content-type"), await response.clone().text().catch(() => null)));
     return response;
   };
@@ -186,7 +188,8 @@ function keyword(question) {
 export function fakeGateway() {
   return async (_url, init) => {
     const body = JSON.parse(init.body);
-    const last = body.messages.at(-1);
+    // An effort rung (`advisorFirst.js`) is a system message with no content: the turn's last words are before it.
+    const last = body.messages.filter((message) => message.role !== "system").at(-1);
     const result = Array.isArray(last?.content) ? last.content.find((block) => block.type === "tool_result") : null;
     if (!result) {
       const question = typeof last?.content === "string" ? last.content : last?.content?.find((b) => b.type === "text")?.text ?? "";
