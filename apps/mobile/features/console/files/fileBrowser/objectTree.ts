@@ -9,6 +9,8 @@
  *
  * What the socket can say, and what the tree does about it:
  * - a listing: lay it down as the server's answer for that folder;
+ * - a head (asked for with `head`): what this person may see in the workspace
+ *   changed when it moves, the cue a device's copy catches up on (`useNodeFeed.ts`);
  * - `not_served` (or the gateway has no object for this workspace): read the
  *   tree from Convex as before, and ask the object again after a while, so a
  *   workspace switched over later moves to it without a reload;
@@ -55,6 +57,8 @@ export interface ObjectTreeEvents {
   onListing: (folder: string, page: FolderListing) => void;
   /** Whether the object serves this workspace's tree now; `false` means read Convex. */
   onServed: (served: boolean) => void;
+  /** The workspace's change signal for this person, when asked for with `head`. */
+  onHead?: (token: string) => void;
 }
 
 interface SocketLike {
@@ -69,6 +73,8 @@ interface SocketLike {
 
 export interface ObjectTreeOptions extends ObjectTreeEvents {
   gatewayOrigin: string;
+  /** Ask for the workspace's change signal as well as the folders (`onHead`). */
+  head?: boolean;
   /** The console grant's token; `refresh` mints a new one. Rejects when there is none. */
   token: (refresh: boolean) => Promise<string>;
   /** For tests: the socket and the clock. */
@@ -144,7 +150,7 @@ export function openObjectTree(options: ObjectTreeOptions): ObjectTree {
     socket = live;
     live.onopen = () => {
       opened = true;
-      live.send(watchFrame(folders));
+      live.send(watchFrame(folders, { head: options.head === true }));
       keepAlive();
     };
     live.onmessage = (event) => {
@@ -152,6 +158,12 @@ export function openObjectTree(options: ObjectTreeOptions): ObjectTree {
       if (frame === null) return;
       if (frame.t === "not_served") {
         notServed = true;
+        return;
+      }
+      if (frame.t === "head") {
+        failures = 0;
+        options.onServed(true);
+        options.onHead?.(frame.token);
         return;
       }
       if (frame.t === "listing") {
@@ -187,7 +199,7 @@ export function openObjectTree(options: ObjectTreeOptions): ObjectTree {
   return {
     watch(next) {
       folders = [...next];
-      if (socket?.readyState === OPEN) socket.send(watchFrame(folders));
+      if (socket?.readyState === OPEN) socket.send(watchFrame(folders, { head: options.head === true }));
     },
     close() {
       stopped = true;
