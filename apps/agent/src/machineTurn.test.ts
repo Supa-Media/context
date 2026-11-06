@@ -14,6 +14,7 @@
  *  5. `fromMachine` dropping the check's `unfinished` → "a finished part the advisor says isn't done is carried on, on its advice".
  *  7. `machineTurn` stopping every group job → "a group chat's job runs on the computer lent to it, on the chat's own grant".
  *  8. `machineTurn` not waiting on `ask_first` → "a part waits for the computer owner's yes, then starts".
+ *  9. `machineTurn` sleeping after a held read → "a read is held by the gateway until the run moves".
  *  6. `machineTurn` not asking for the check → "the advisor checks a part against the finish line" and the two after it.
  */
 
@@ -49,7 +50,7 @@ const GROUP = "11111111-2222-3333-4444-555555555555";
 const ADA = "+15555550101";
 let groupAnswer: Record<string, unknown> = { status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "group_token" };
 
-function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }], reads = [] as RunRead[], checks = [] as Record<string, unknown>[], during, down = [] as number[] }: { assign?: Record<string, unknown>[]; reads?: RunRead[]; checks?: Record<string, unknown>[]; during?: (read: number) => Promise<void>; /** Statuses the gateway answers reads of the run with first, before `reads` (0 for an answer). */ down?: number[] } = {}) {
+function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }], reads = [] as RunRead[], checks = [] as Record<string, unknown>[], during, down = [] as number[], held = false }: { assign?: Record<string, unknown>[]; reads?: RunRead[]; checks?: Record<string, unknown>[]; during?: (read: number) => Promise<void>; /** Statuses the gateway answers reads of the run with first, before `reads` (0 for an answer). */ down?: number[]; /** A gateway that holds reads and names each run version (`workspaceStore/runWait.js`). */ held?: boolean } = {}) {
   const clock = { at: NOW };
   const calls: Array<{ path: string; token: string | null; body: Record<string, unknown> }> = [];
   const reports: JobUpdate[] = [];
@@ -70,7 +71,7 @@ function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", de
         const status = down.shift();
         if (status !== undefined && status !== 0) return new Response(null, { status });
         const next = reads.shift() ?? { state: "running" };
-        return Response.json({ ok: true, run: { steps: [], result: null, session: null, ...next }, online: true });
+        return Response.json({ ok: true, run: { steps: [], result: null, session: null, ...next }, online: true, ...(held ? { version: `v${read}` } : {}) });
       }
       if (path === "/agent/machine/deliver" || path === "/agent/machine/cancel") return Response.json({ ok: true });
       // No check scripted: the advisor can't be reached, and the part's own outcome decides.
@@ -110,6 +111,22 @@ describe("a job on the person's own computer", () => {
     const last = reports[reports.length - 1];
     expect(last.state).toBe("done");
     expect(last.texts).toEqual(["Fixed: the test raced the upload's flush."]);
+  });
+
+  it("a read is held by the gateway until the run moves, with no ten-second sleep between reads", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps, calls, clock } = world({
+      held: true,
+      reads: [{ state: "running", steps: [{ seq: 1, tool: "Bash", target: "pnpm test" }] }, { state: "running", steps: [{ seq: 1, tool: "Bash", target: "pnpm test" }] }, finished("Fixed.")],
+    });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    const reads = calls.filter((call) => call.path === "/agent/machine/run").map((call) => call.body);
+    expect(reads[0].seen).toBeUndefined();
+    expect(reads[1]).toMatchObject({ seen: "v1", waitMs: 50_000 });
+    expect(reads[2]).toMatchObject({ seen: "v2", waitMs: 50_000 });
+    // No read slept: the gateway's hold was the wait.
+    expect(clock.at).toBe(NOW);
   });
 
   it("a part out of time is carried on by the next, in the same session", async () => {
