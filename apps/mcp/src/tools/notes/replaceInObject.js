@@ -24,9 +24,34 @@ export async function replaceNoteText(store, path, input) {
     } else if (answer !== null && answer !== undefined) {
       // How long the object spent on it by its own clock, beside the call's whole trip (`obj:ws.collab.replace`).
       phaseTook(store, "collab_replace", answer.took);
+      recordSaveShape(store, answer);
       if (answer.error) throw new CollaborationError(String(answer.error.code ?? "STORAGE_WRITE_FAILED"), String(answer.error.message ?? "collaboration save failed"));
       if (answer.result && typeof answer.result === "object") return answer.result;
     }
   }
   return await replaceText(store, path, input);
+}
+
+/** The size bucket of a document state of `bytes`: the history's snapshot is most of it. */
+export function stateBucket(bytes) {
+  if (bytes < 16 * 1024) return "small";
+  if (bytes < 256 * 1024) return "medium";
+  if (bytes < 2 * 1024 * 1024) return "large";
+  return "huge";
+}
+
+/**
+ * A save's shape beside its timings, so a slow save can be told apart (2026-11-06): its whole trip by the size of its
+ * document state (`inside:collab_trip_<bucket>`), how long it waited before the object ran it (`collab_waited`),
+ * its state and everything it wrote in KB (`collab_state_kb`, `collab_written_kb`), and its writes
+ * (`collab_writes`, three on a first try). Sizes only, never content. These are not times though they sit in the
+ * timing columns: the timings workflow prints them as they are.
+ */
+function recordSaveShape(store, answer) {
+  const sizes = answer?.sizes;
+  if (Number.isFinite(answer?.trip) && Number.isFinite(sizes?.state)) phaseTook(store, `collab_trip_${stateBucket(sizes.state)}`, answer.trip);
+  if (Number.isFinite(answer?.waited)) phaseTook(store, "collab_waited", answer.waited);
+  if (Number.isFinite(sizes?.state)) phaseTook(store, "collab_state_kb", Math.round(sizes.state / 1024));
+  if (Number.isFinite(sizes?.written)) phaseTook(store, "collab_written_kb", Math.round(sizes.written / 1024));
+  if (Number.isFinite(sizes?.writes)) phaseTook(store, "collab_writes", sizes.writes);
 }

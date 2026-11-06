@@ -146,6 +146,22 @@ function recordVersion(store, fields, markdown) {
   }
 }
 
+/**
+ * What a save wrote, in bytes and counts, never what: the note's Markdown, its document state (which carries the
+ * editing history's snapshot), every byte the engine wrote, and how many writes it made (three on a save that won
+ * its first try; more means it retried against another writer).
+ */
+function sizesOf(writes, key) {
+  const bytes = (body) => (typeof body === "string" ? body.length : 0);
+  const state = writes.filter((write) => write.key.startsWith(`${COLLABORATION_ROOT}v1/documents/`) && !write.key.includes("/operations/")).at(-1);
+  return {
+    note: bytes(writes.filter((write) => write.key === key).at(-1)?.body),
+    state: bytes(state?.body),
+    written: writes.reduce((sum, write) => sum + bytes(write.body), 0),
+    writes: writes.length,
+  };
+}
+
 const wantsRecord = (fields) => typeof fields.workspaceId === "string" && Number.isFinite(fields.record?.at);
 
 /**
@@ -156,7 +172,10 @@ const wantsRecord = (fields) => typeof fields.workspaceId === "string" && Number
 export async function serveCollabReplace(store, fields) {
   // The object's own clock, which moves only across its awaits (a digest, a read): the call's time inside, without the trip.
   const started = Date.now();
-  const timed = (answer) => ({ ...answer, took: Date.now() - started });
+  // How long the call waited before it ran: queued behind the object's other work, and on the way here. By two
+  // clocks, the gateway's and this object's, so a rough figure; a negative one is clock skew and reads as 0.
+  const waited = Number.isFinite(fields?.sentAt) ? Math.max(0, Math.min(started - fields.sentAt, 600_000)) : null;
+  const timed = (answer) => ({ ...answer, took: Date.now() - started, ...(waited === null ? {} : { waited }) });
   const { path, key, noteId, expectedEtag, text } = fields ?? {};
   if (typeof path !== "string" || typeof key !== "string" || !NOTE_KEY.test(key) || typeof noteId !== "string" || !NOTE_ID.test(noteId) || typeof expectedEtag !== "string" || typeof text !== "string") {
     return { served: false, reason: "bad_call" };
@@ -175,7 +194,7 @@ export async function serveCollabReplace(store, fields) {
     const result = await replaceText(engine.store, path, { expectedEtag, onlyCurrent: true, text });
     const markdown = engine.writes.filter((write) => write.key === key).at(-1) ?? null;
     const recorded = markdown !== null && wantsRecord(fields) && recordVersion(store, fields, markdown);
-    return timed({ served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, ...handedBack() });
+    return timed({ served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, sizes: sizesOf(engine.writes, key), ...handedBack() });
   } catch (error) {
     const held = heldBack(error);
     if (held !== null) return timed({ served: false, reason: `not_held_${held.what}`, ...handedBack() });

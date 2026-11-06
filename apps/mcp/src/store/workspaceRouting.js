@@ -269,14 +269,18 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
   if (typeof client.collab?.replace === "function") {
     wrapped.replaceInObject = async ({ path, key, noteId, legacyEtag = null, rowEtag = null, expectedEtag, text, record = null }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      // `sentAt` lets the object say how long the call waited before it ran (`collabReplace.js` `waited`).
+      const sentAt = now();
       const answer = await client.collab.replace({
         path, key, noteId,
         ...(typeof legacyEtag === "string" && typeof rowEtag === "string" ? { legacyEtag, rowEtag } : {}),
         expectedEtag, text,
         ...(Number.isFinite(record?.at) ? { record: { at: record.at } } : {}),
+        sentAt,
       });
+      const trip = Math.max(0, now() - sentAt);
       await copyHandedBack(answer);
-      if (answer?.served === true) return answer;
+      if (answer?.served === true) return { ...answer, trip };
       // Why the save ran the engine from here instead: a short code from the object, never the path.
       const reason = typeof answer?.reason === "string" && /^[a-z_]{1,32}$/.test(answer.reason) ? answer.reason : null;
       log("workspace_object_collab_not_served", { workspaceId, reason });
