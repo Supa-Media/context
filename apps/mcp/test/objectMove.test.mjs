@@ -591,7 +591,7 @@ test("an object move records the object's own time and its durable-write wait be
   Object.defineProperty(store, "phase", { value: timer, enumerable: false });
   const result = await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
   assert.notEqual(result.isError, true, result.content[0].text);
-  assert.deepEqual(took, [["move", 12], ["move_commit", 9]]);
+  assert.deepEqual(took.filter(([name]) => name !== "move_cpu_before"), [["move", 12], ["move_commit", 9]]);
 });
 
 test("an object move records its trip outside the op: the wire both ways, each way, and a cold or busy object", async () => {
@@ -604,8 +604,8 @@ test("an object move records its trip outside the op: the wire both ways, each w
   timer.took = (name, ms) => took.set(name, ms);
   Object.defineProperty(store, "phase", { value: timer, enumerable: false });
   const realNow = Date.now;
-  // The gateway's clock: the send, then the answer 40 ms later.
-  const clock = [now, now + 40];
+  // The gateway's clock: its last I/O 5 ms before the send, the send, then the answer 40 ms later.
+  const clock = [now - 5, now, now + 40];
   Date.now = () => (clock.length > 1 ? clock.shift() : clock[0]);
   let result;
   try {
@@ -615,6 +615,8 @@ test("an object move records its trip outside the op: the wire both ways, each w
   }
   assert.notEqual(result.isError, true, result.content[0].text);
   assert.equal(took.get("move_before"), 2);
+  // The gateway's own work before the send is its own point, never the trip's.
+  assert.equal(took.get("move_cpu_before"), 5);
   // 40 ms of trip, 14 of it the object's span: 26 on the wire, split 3 + 23 by the skewed clocks.
   assert.equal(took.get("move_legs"), 26);
   assert.equal(took.get("move_out"), 3);
@@ -631,7 +633,7 @@ test("an object answer without the object's clock records no trip split", async 
   timer.took = (name, ms) => took.push(name);
   Object.defineProperty(store, "phase", { value: timer, enumerable: false });
   await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
-  assert.deepEqual(took, ["move", "move_commit"]);
+  assert.deepEqual(took, ["move_cpu_before", "move", "move_commit"]);
 });
 
 test("archive through the object asks no jobs first: the object finds the Archive itself", async () => {
