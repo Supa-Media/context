@@ -16,6 +16,7 @@ import { withFolderFit } from "../folderFit.js";
 import { chatLines, commandTools, consentForTurn, groupAwareCallTool, groupPrompt, settingsChanged } from "../groupTurn.js";
 import { withKeptFiles } from "../keptFiles.js";
 import { learnedSkillsLine, withLearnedSkills } from "../learnedSkills.js";
+import { setupPromptFor, turnKind } from "../promptModules.js";
 import { ledgerObserver } from "../ledger.js";
 import { meterEach, meterParts } from "../modelPlan.js";
 import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
@@ -109,7 +110,7 @@ export async function runTheModel(t) {
     observe: ledgerObserver(chatLog, withJobSteps(job, step, null), ledgerAt), // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger
     workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
     texting: texting || group !== null, // a group's answer is a text too, written for one
-    notes: production !== null ? { prompt: production.prompt } : null,
+    notes: production !== null ? { prompt: setupPromptFor(production, turnKind({ group, job })) } : null, // a 1:1 text, a group or a job: each its own modules (`promptModules.js`)
     builtinModelOverride: productionModel ?? undefined,
     router,
     efforts: turnEfforts(production, job), // a job's turn thinks as `models.job_effort` says (`production.js`)

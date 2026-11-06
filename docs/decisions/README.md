@@ -758,6 +758,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The texting assistant](./texting-assistant.md)
 
+- [Tex's rules are module notes, and the setup names which ones each kind of turn gets (2026-11-06)](./texting-assistant/prompt-modules.md)
 - [Tex keeps a short copy of the next seven days, and says it is a copy (2026-11-06)](./texting-assistant/calendar-cache.md)
 - [One drawing of Tex, changed with every architecture change (2026-11-05)](./texting-assistant/architecture-diagram.md)
 - [Every Tex turn reads its setup, whoever the person is (2026-11-02)](./texting-assistant/setup-read.md)

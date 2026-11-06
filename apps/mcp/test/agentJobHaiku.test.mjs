@@ -22,6 +22,7 @@ import { after, before, beforeEach, test } from "node:test";
 import worker from "../src/index.js";
 import { JOB_ADVISOR_LINE } from "../src/agent/advisor.js";
 import { PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
+import { modulePath, readModuleLists } from "../src/agent/promptModules.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
@@ -238,4 +239,49 @@ test("a job's turn thinks as models.job_effort says; an ordinary text keeps effo
 test("a job_effort that is not an effort refuses the setup, as every other effort does", async () => {
   assert.equal((await parseSetup(SETUP.replace("  effort: medium", "  effort: medium\n  job_effort: high")))?.jobEffort, "high");
   assert.equal(await parseSetup(SETUP.replace("  effort: medium", "  effort: medium\n  job_effort: loud")), null);
+});
+
+/* ---------------- The prompt in modules (`promptModules.js`; Dev2, 2026-11-06: "split into modules now") ---------------- */
+// Sabotage record (local edits, reverted): `notes: { prompt: production.prompt }` back in runTheModel.js fails "each kind
+// of turn"; dropping `assembleSetup` from `readAssembled` (production.js) fails it too; `prompts.texts` for every kind
+// in `setupPromptFor` fails "each kind of turn".
+const MODULAR = SETUP.replace("open_web: yes", "open_web: yes\nmodules:\n  texts: [core, texting]\n  job: [core, job-only]").replace(PROMPT, "This note's rules are in its modules.");
+
+test("each kind of turn is given its own modules, in order, and never the setup's body", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: MODULAR, etag: "s-mod" });
+  pinnedBucket.set(modulePath("core"), { body: "---\nnote: for people\n---\n\nCORE-MARK: You are Tex.\n", etag: "m1" });
+  pinnedBucket.set(modulePath("texting"), { body: "TEXTING-MARK: answer in a sentence.\n", etag: "m2" });
+  pinnedBucket.set(modulePath("job-only"), { body: "JOB-MARK: report what you did.\n", etag: "m3" });
+  script.push({ content: [{ type: "text", text: "Nothing tomorrow." }], stop_reason: "end_turn" });
+  assert.equal((await ask(TOKEN_GUEST, { question: "what's on tomorrow" })).status, 200);
+  const text = systemText(turnCalls()[0].body);
+  assert.match(text, /CORE-MARK: You are Tex\.\n\nTEXTING-MARK/);
+  assert.doesNotMatch(text, /JOB-MARK|note: for people|rules are in its modules/);
+  gatewayCalls.length = 0;
+  script.push({ content: [{ type: "text", text: "Submitted it." }], stop_reason: "end_turn" });
+  assert.equal((await ask(TOKEN_GUEST, { job: JOB })).status, 200);
+  const job = systemText(turnCalls()[0].body);
+  assert.match(job, /CORE-MARK[\s\S]*JOB-MARK/);
+  assert.doesNotMatch(job, /TEXTING-MARK/);
+});
+
+test("a setup naming a module that isn't there, or naming modules badly, is refused whole", async () => {
+  const one = (name, text) => [name, text];
+  const kept = (modules) => JSON.stringify({ kind: "context-tex-setup-modules/1", raw: MODULAR, modules: Object.fromEntries(modules) });
+  const full = await parseSetup(kept([one("core", "C"), one("texting", "T"), one("job-only", "J")]));
+  assert.deepEqual(full.prompts, { texts: "C\n\nT", group: "C\n\nT", job: "C\n\nJ" }, "group falls back to texts");
+  assert.deepEqual(full.modules.job, ["core", "job-only"]);
+  assert.equal(full.prompt, "C\n\nT");
+  assert.equal(await parseSetup(kept([one("core", "C"), one("texting", "T")])), null, "a missing module");
+  assert.equal(await parseSetup(kept([one("core", "C"), one("texting", "   "), one("job-only", "J")])), null, "an empty module");
+  assert.equal(await parseSetup(MODULAR), null, "modules named, none read");
+  assert.equal(await parseSetup(MODULAR.replace("  texts: [core, texting]\n", "")), null, "texts is required");
+  assert.equal(await parseSetup(MODULAR.replace("job: [core, job-only]", "advisor: [core]")), null, "an unknown kind");
+  assert.equal(await parseSetup(MODULAR.replace("[core, texting]", "[core, ../texting]")), null, "a name that is not a module name");
+  assert.equal(await parseSetup(MODULAR.replace("[core, texting]", "[core, core]")), null, "a module named twice");
+  const other = await parseSetup(kept([one("core", "C2"), one("texting", "T"), one("job-only", "J")]));
+  assert.notEqual(other.version, full.version, "a changed module is a new version");
+  assert.deepEqual((await parseSetup(kept([one("core", "call read_note"), one("texting", "T"), one("job-only", "J")]))).staleNames, ["read_note"]);
+  assert.equal((await parseSetup(SETUP)).prompts, null, "a setup with no modules is its body, as before");
+  assert.equal(readModuleLists(undefined), null);
 });
