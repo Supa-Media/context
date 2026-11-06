@@ -142,3 +142,63 @@ test("a group's texts read back as the page kept them: the chatter in its block,
   assert.equal(checkerHistory([{ role: "user", text: question }])[0].text, "@ada: Tex can you push dinner to 8");
   assert.equal(groupQuestion([{ from: { kind: "person", name: "ada" } }], ["@tex hi"]), "@ada: @tex hi");
 });
+
+test("once copied in, the ledger's history is read beside the chat's notes, not after them", async () => {
+  // Sabotage: reading the ledger's texts only after the notes (as before 2026-11-06) leaves no read of them while
+  // the notes are held, and this fails.
+  const { ledger, store, home, bound, group } = world();
+  await quiet(async () => {
+    await keepGroupExchange(store, group(), await readGroupMemory(store, group(), bound.dispatch), "what's for dinner?", "Pasta.");
+    await readGroupMemory(store, group(), bound.dispatch); // copies the page in
+    let release;
+    const held = new Promise((resolve) => (release = resolve));
+    let notesHeld = 0;
+    let released = false;
+    let readWhileHeld = false;
+    const read = ledger.read.bind(ledger);
+    const watched = Object.assign(Object.create(ledger), {
+      read: (chat, options = {}) => {
+        if (options.kinds?.includes("text") && !released) readWhileHeld = true;
+        return read(chat, options);
+      },
+    });
+    const slow = (dispatch) => async (name, args) => {
+      notesHeld += 1;
+      await held;
+      return dispatch(name, args);
+    };
+    const s = Object.assign(Object.create(store), { texLedger: (chat) => (chat === KEY ? watched : null) });
+    const g = { ...GROUP, home: { folder: HOME, dispatch: slow(home.dispatch) } };
+    const turn = readGroupMemory(s, g, slow(bound.dispatch));
+    for (let i = 0; i < 50 && !readWhileHeld; i += 1) await new Promise((resolve) => setTimeout(resolve, 2));
+    released = true;
+    release();
+    const history = await turn;
+    assert.ok(notesHeld > 0, "some note was read through the held tools");
+    assert.ok(readWhileHeld, "the ledger's texts were asked for while the notes were still out");
+    assert.equal(g.pageCopied, true);
+    assert.match(JSON.stringify(history), /what's for dinner\?[\s\S]*Pasta\./);
+  });
+});
+
+test("a ledger that fails to read beside the notes leaves the page retired, as before", async () => {
+  const { ledger, store, home, bound, group } = world();
+  await quiet(async () => {
+    await keepGroupExchange(store, group(), await readGroupMemory(store, group(), bound.dispatch), "what's for dinner?", "Pasta.");
+    await readGroupMemory(store, group(), bound.dispatch);
+    const read = ledger.read.bind(ledger);
+    const failing = Object.assign(Object.create(ledger), {
+      read: (chat, options = {}) => {
+        if (options.kinds?.includes("text")) throw new Error("ledger down");
+        return read(chat, options);
+      },
+    });
+    const s = Object.assign(Object.create(store), { texLedger: (chat) => (chat === KEY ? failing : null) });
+    const g = group();
+    const history = await readGroupMemory(s, g, bound.dispatch);
+    assert.equal(g.pageCopied, true, "the page stays retired: a failed read never writes it again");
+    assert.ok(Array.isArray(history));
+    await keepGroupExchange(store, g, history, "and dessert?", "Tiramisu.");
+    assert.doesNotMatch(home.notes.get(PAGE), /Tiramisu/);
+  });
+});

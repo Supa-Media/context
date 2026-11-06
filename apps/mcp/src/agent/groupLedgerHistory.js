@@ -7,6 +7,8 @@
 
 import { conversationFromLedger } from "./ledgerConversation.js";
 import { CHAT_PREFACE, trimGroupTurns } from "./groupTurn.js";
+import { keptTurn } from "./conversation.js";
+import { copyGroupPageIn } from "./groupPageCopy.js";
 
 /** At most this many reads of the ledger rebuild one group's history. */
 const MAX_PAGES = 4;
@@ -46,4 +48,32 @@ export async function readGroupLedgerConversation(ledger, chat) {
     cursor = read.before;
   }
   return trimGroupTurns(conversationFromLedger(entries, { question: groupQuestion }));
+}
+
+/**
+ * The history from the chat's ledger once its page is copied in, copying it in first on a turn that writes and whose
+ * page is the one copy (`ON_PAGE`); null to read the page as before (no ledger, the old log not in yet, a failure).
+ * `group.pageCopied` tells the exchange's keeping not to write the page (`keepGroupExchange`).
+ */
+export async function historyFromLedger(ledger, group, turns, { copied, writes, early = null }) {
+  if (ledger === null) return null;
+  try {
+    if (copied && early !== null) {
+      group.pageCopied = true;
+      const read = await early;
+      if (read.error !== undefined) throw read.error;
+      return read.turns.map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources }));
+    }
+    if (!copied) {
+      if (!writes) return null;
+      const copy = await copyGroupPageIn(ledger, group.key, turns);
+      console.log(JSON.stringify({ event: "group_page_copy", state: copy.state, entries: copy.entries }));
+      if (copy.state !== "copied" && copy.state !== "done") return null;
+    }
+    group.pageCopied = true;
+    return (await readGroupLedgerConversation(ledger, group.key)).map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources }));
+  } catch (error) {
+    console.log(JSON.stringify({ event: "group_history_from_ledger_failed", reason: String(error?.name ?? "error").slice(0, 40) }));
+    return null;
+  }
 }
