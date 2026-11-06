@@ -45,7 +45,13 @@ reach Tex or the advisor while its part ran.
   sign-in a computer job needs runs as a one-time link and code it mails Tex.
 
 A run grant (`context_tex_machine_run`) reads and is delivered its job's mail
-through its parent texting grant, never anyone else's.
+through its parent texting grant, never anyone else's. It may also join any
+other note's mail its grant reaches (owner, 2026-11-06: a computer job talking
+to another machine on a shared note is "the whole point"), but only under its
+job's own name (the name its job note box has), bound to its job, never as
+`tex` or `advisor`, never as another job and never as one of the person's
+machines. A refused join says `permission denied`, never "try again": an agent
+told to retry a deliberate refusal retried five times (2026-11-06).
 
 **What a simplification would cost:** tools per agent would grow the tool list
 with every new agent and hide the others from the job; telling the job the cap

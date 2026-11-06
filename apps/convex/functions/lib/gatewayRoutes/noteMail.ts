@@ -2,7 +2,8 @@
  * Note mail over HTTP (`functions/noteMail.ts`, `docs/decisions/note-mail.md`):
  *
  *  - `POST /gateway/mail/join` `{ accessToken, workspaceId, path, name, jobId?, machineId? }` →
- *    `{ mailbox }` or `{ error: "name_taken" | "refused" }`.
+ *    `{ mailbox }`, `{ error: "name_taken" | "refused" }`, or `{ error: "own_name", name }` when a job part joins
+ *    under a name that is not its job's own.
  *  - `POST /gateway/mail/get` `{ accessToken, mailboxId }` → `{ mailbox | null }`.
  *  - `POST /gateway/mail/read` `{ accessToken, mailboxId, readThrough }` → `{ ok }`.
  *  - `POST /gateway/mail/jobs` `{ accessToken, workspaceId, path }` →
@@ -44,7 +45,8 @@ export async function gatewayMailJoinHandler(ctx: ActionCtx, body: Record<string
   } catch {
     return json({ error: "refused" });
   }
-  return answer.ok ? json({ mailbox: answer.mailbox }) : json({ error: answer.error });
+  if (answer.ok) return json({ mailbox: answer.mailbox });
+  return json(answer.error === "own_name" ? { error: answer.error, name: answer.name } : { error: answer.error });
 }
 
 export async function gatewayMailGetHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {

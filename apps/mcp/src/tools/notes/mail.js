@@ -24,6 +24,7 @@ import { toolError, toolText } from "../results.js";
 import { parseRead } from "./comment.js";
 import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
+import { MACHINE_RUN_CLIENT_ID } from "../machineRun.js";
 
 const { EVERYONE, MAX_ASK_DEPTH, MAX_PER_PAIR_PER_HOUR, appendMail, askDepth, describeEntry, mailName, newFor, pairCount, parseMail } = mail;
 
@@ -133,6 +134,15 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
         return toolError(`could not join as device ${device}: it is not a live device of this person's. Pair this computer with manage pair_device first`);
       }
       if (answer?.error === "name_taken") return toolError(`another connection already joined this note's mail as "${name}"; pick another name`);
+      // A job part on a computer joins every note's mail under its job's one name (`functions/noteMail.ts`).
+      if (answer?.error === "own_name" && typeof answer.name === "string") {
+        return toolError(`permission denied: this job joins mail only as its own name; join as "${answer.name}"`);
+      }
+      // A refusal is not an outage: saying "try again" here sent agents round in retries (2026-11-06).
+      if (answer?.error === "refused") {
+        const job = store.actor?.clientId === MACHINE_RUN_CLIENT_ID ? `; a job on a computer never joins as "tex" or "advisor", or as another job` : "";
+        return toolError(`permission denied: Context refused joining this note's mail as "${name}" from this connection${job}`);
+      }
       if (!answer?.mailbox?.mailboxId) return toolError("could not join this note's mail right now; try again");
       joined = answer.mailbox;
       const already = events.some((event) => event.kind === "joined" && event.from === name);

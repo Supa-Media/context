@@ -85,6 +85,7 @@ export function rosterText({ path, context, name, mailbox, others = [] }) {
     "(kind \"ask\", with wait: 120) when you are stuck, unsure what to do next, or before you call the job finished. It also " +
     "judges whether you finished.\n" +
     (others.length > 0 ? `- ${others.map((other) => `"${other}"`).join(", ")}: other jobs on parts of the same ask. Tell them what changes their part; ask them rather than guess.\n` : "") +
+    `To work with agents on another note's mail, join it with write action mail on that note, args { join: "${name}" }: you always join as "${name}". ` +
     "Never look for a saved login or password: a sign-in runs as a one-time link and code you hand to Tex while you wait."
   );
 }
