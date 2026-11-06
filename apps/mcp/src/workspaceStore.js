@@ -46,6 +46,7 @@ import { accessSockets } from "./workspaceStore/accessSockets.js";
 import { watchMembers, watchPerson } from "./workspaceStore/accessWatch.js";
 import { createControlPlane } from "./controlPlane/index.js";
 import { isTexCall, texHost } from "./workspaceStore/texHost.js";
+import { countObjectCall, objectCaller } from "./observability/callCounts.js";
 import { mirrorOutbox } from "./workspaceStore/mirrorOutbox.js";
 import { flushMirror } from "./workspaceStore/mirrorFlush.js";
 import { indexBuilder } from "./workspaceStore/indexBuild.js";
@@ -190,8 +191,11 @@ export class WorkspaceStore {
   async fetch(request) {
     // The object's clock as the call begins: a timed write says how long its trip spent outside the op (`serveWrites.js`).
     const arrived = Date.now();
+    // Every call counted by op and caller, under this object's id (`observability/callCounts.js`).
+    const tex = isTexCall(request);
+    countObjectCall(this.env, this.state.id?.toString?.(), opOf(request) ?? new URL(request.url).pathname.slice(1), objectCaller(request, { tex }));
     // A call naming its person is their Tex's, sockets included, and nothing of the workspace's.
-    if (isTexCall(request)) return await this.tex().fetch(request);
+    if (tex) return await this.tex().fetch(request);
     const store = this.ready();
     if ((request.headers.get("Upgrade") || "").toLowerCase() === "websocket") {
       const path = new URL(request.url).pathname;
@@ -251,9 +255,11 @@ export class WorkspaceStore {
 
   async webSocketMessage(ws, raw) {
     this.ready();
-    if (this.tex().owns(ws)) return this.tex().message(ws, raw);
-    if (this.access.owns(ws)) return await this.access.message(ws, raw);
-    if (this.machines.owns(ws)) return await this.machines.message(ws, raw);
+    const id = this.state.id?.toString?.();
+    if (this.tex().owns(ws)) return (countObjectCall(this.env, id, "frame.tex", "socket"), this.tex().message(ws, raw));
+    if (this.access.owns(ws)) return (countObjectCall(this.env, id, "frame.access", "socket"), await this.access.message(ws, raw));
+    if (this.machines.owns(ws)) return (countObjectCall(this.env, id, "frame.machine", "socket"), await this.machines.message(ws, raw));
+    countObjectCall(this.env, id, "frame.tree", "socket");
     await this.tree.message(ws, raw);
   }
 
