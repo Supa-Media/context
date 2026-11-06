@@ -54,3 +54,5 @@ Counting only at the gateway would miss Convex's calls through the door and ever
 suspects. Counting only in the object would miss which client route caused the calls. Putting a path or an id in a
 blob would put customer data in a dataset that is kept for months. `apps/mcp/test/callCounts.test.mjs` fails if
 either side stops counting, or if a path reaches a point.
+
+**What the counts found first (2026-11-06).** The door's labels named `file:readMany` for about 14,000 reads in 40 minutes. On each workspace object, about the same number of reads (2,953 then 2,994, and 4,819 then 4,866) came every ten minutes. That was the app's offline copy reading every note again on every pass. The cause: rows copied in from the control plane kept the bucket's etag, while the object's bodies carry the object's own hash. So a listing's version never matched a read's, until the note was written again. Now a listing stamps each row with its body's version first (`apps/mcp/src/workspaceStore/rowVersions.js`, `test/rowVersions.test.mjs`).
