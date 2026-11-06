@@ -523,6 +523,8 @@ export async function runTurn(options) {
       ...(answer.stop === "max_tokens" ? { cut: true } : {}),
       // What the round cost in tokens, and how much of its output was words or calls (the rest is thinking): `turnStages.js` `callPoints`.
       ...(answer.usage ? { usage: answer.usage, said: (answer.text ?? "").length, calls: answer.toolCalls.length } : {}),
+      // The cached stretches' short hashes, for which one changed since the last round (`aiGateway.js` `prefixHashes`).
+      ...(answer.prefix ? { prefix: answer.prefix } : {}),
     });
     if (answer.usage) {
       usage.input += answer.usage.input;

@@ -277,6 +277,26 @@ export function gatewayBody({ model, system, messages, tools, maxTokens, toolCho
   };
 }
 
+/** The first eight hex characters of a SHA-256 of `value` as JSON: tells two prefixes apart, says nothing of either. */
+async function shortHash(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value ?? null)));
+  return [...new Uint8Array(digest).slice(0, 4)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * A texted turn's four cached stretches as short hashes (`turnStages.js`
+ * `callPoints`), so a cache miss can be put down to the stretch that changed:
+ * the tools, system.stable, system.context, and the history through its
+ * breakpoint. Null for a call without `cachedThrough`.
+ */
+export async function prefixHashes(call, body) {
+  if (!Number.isInteger(call.cachedThrough) || call.cachedThrough < 0) return null;
+  const historyEnd = anthropicMessages(call.messages.slice(0, call.cachedThrough)).length;
+  const [system0, system1] = typeof call.system === "string" ? [call.system, ""] : [call.system?.stable ?? "", call.system?.context ?? ""];
+  const [tools, stable, context, history] = await Promise.all([shortHash(body.tools ?? []), shortHash(system0), shortHash(system1), shortHash(body.messages.slice(0, historyEnd))]);
+  return { tools, stable, context, history };
+}
+
 async function readCapped(response) {
   const declared = Number(response.headers?.get?.("content-length"));
   if (Number.isFinite(declared) && declared > RESPONSE_BYTE_CAP) return null;
@@ -454,5 +474,6 @@ export async function requestViaGateway(call, config, options = {}) {
     },
     paidBy,
     retried: answer.retried ?? null,
+    prefix: await prefixHashes(call, body),
   };
 }

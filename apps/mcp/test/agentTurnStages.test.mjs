@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { CALL_COLUMNS, callPoints, callsLine, COLUMNS, keyShape, MAX_CALL_POINTS, STAGES, stagesOf, turnStages } from "../src/agent/turnStages.js";
+import { CALL_COLUMNS, callPoints, prefixChange, callsLine, COLUMNS, keyShape, MAX_CALL_POINTS, STAGES, stagesOf, turnStages } from "../src/agent/turnStages.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 test("the steps before the model, the model, the tools and the time after it add up, in columns", () => {
@@ -137,9 +137,9 @@ test("call points skip tools and the router, cap their count, and read a missing
   const trace = [{ kind: "router", ms: 5 }, { kind: "model", model: "anthropic/claude-haiku-5-5", ms: 3_000, usage: { input: 10, output: -1 } }, { kind: "tool", tool: "search", ms: 40 }, { kind: "model", ok: false, ms: 9 }];
   const points = callPoints("one", trace);
   assert.equal(points.length, 2);
-  assert.deepEqual(points[0].blobs, ["one", "claude-haiku-5-5", "ok", ""]);
+  assert.deepEqual(points[0].blobs, ["one", "claude-haiku-5-5", "ok", "", "unknown", "", "", "", ""]);
   assert.deepEqual(points[0].doubles, [1, 3_000, 10, 0, 0, 0, 0, 0]);
-  assert.deepEqual(points[1].blobs, ["one", "unknown", "failed", ""]);
+  assert.deepEqual(points[1].blobs, ["one", "unknown", "failed", "", "unknown", "", "", "", ""]);
   assert.equal(callPoints("one", trace, "turn-9")[0].blobs[3], "turn-9", "the turn's id, when known");
   assert.equal(callPoints("job", Array.from({ length: 40 }, () => ({ kind: "model", ms: 1 }))).length, MAX_CALL_POINTS);
 });
@@ -148,4 +148,21 @@ test("both deployments bind TEX_CALLS", () => {
   const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
   assert.match(toml, /\[\[analytics_engine_datasets\]\]\s*binding = "TEX_CALLS"\s*dataset = "tex_model_calls"/);
   assert.match(toml, /\[\[env\.staging\.analytics_engine_datasets\]\]\s*binding = "TEX_CALLS"\s*dataset = "tex_model_calls_staging"/);
+});
+
+test("each call names the cached stretch that changed since the turn's previous call, by short hashes only", () => {
+  const a = { tools: "aaaaaaaa", stable: "bbbbbbbb", context: "cccccccc", history: "dddddddd" };
+  const trace = [
+    { kind: "model", ms: 1, prefix: a },
+    { kind: "tool", tool: "search", ms: 1 },
+    { kind: "model", ms: 1, prefix: a },
+    { kind: "model", ms: 1, prefix: { ...a, context: "eeeeeeee", history: "ffffffff" } },
+    { kind: "model", ms: 1, prefix: { ...a, tools: "not hex!" } },
+  ];
+  const points = callPoints("group", trace, "t1");
+  assert.deepEqual(points.map((point) => point.blobs[4]), ["first", "none", "context:history", "tools:context:history"]);
+  assert.deepEqual(points[0].blobs.slice(5), ["aaaaaaaa", "bbbbbbbb", "cccccccc", "dddddddd"]);
+  assert.equal(points[3].blobs[5], "", "a value that is not a short hash is dropped");
+  assert.equal(prefixChange(null, null), "unknown");
+  for (const code of ["first", "none", "tools:stable:context:history"]) assert.match(code, /^[a-z][a-z0-9_:-]{0,39}$/, "passes log-codes code()");
 });

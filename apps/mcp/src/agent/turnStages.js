@@ -81,7 +81,7 @@ export function turnStages(env, now = Date.now) {
       // The same numbers in the Worker's log, for a live tail (`wrangler tail`).
       if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "turn_stages", kind: point.blobs[0], outcome: point.blobs[1], ...Object.fromEntries(COLUMNS.map((name, i) => [name, Math.round(point.doubles[i])])) }));
       const perCall = callPoints(point.blobs[0], rounds ?? report?.trace ?? [], turn);
-      for (const call of perCall) if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "model_call", kind: call.blobs[0], model: call.blobs[1], ...Object.fromEntries(CALL_COLUMNS.map((name, i) => [name, call.doubles[i]])) }));
+      for (const call of perCall) if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "model_call", kind: call.blobs[0], model: call.blobs[1], changed: call.blobs[4], ...Object.fromEntries(CALL_COLUMNS.map((name, i) => [name, call.doubles[i]])) }));
       write(env?.TEX_CALLS, perCall);
       return write(env?.TEX_TIMING, [point]) ? point : null;
     },
@@ -105,7 +105,11 @@ function write(dataset, points) {
  * ONE POINT PER MODEL CALL (`TEX_CALLS`, dataset `tex_model_calls`), so a slow
  * call can be told apart from a slow turn (Dev2, 2026-10-31: Haiku calls took
  * 7 to 11 s against about 2.5 s expected). blobs: the turn's kind, the model,
- * "ok" or "failed", the turn's id. doubles, in order (`CALL_COLUMNS`): the round's number in
+ * "ok" or "failed", the turn's id, which cached stretch changed since the
+ * turn's previous call (`prefixChange`), then the four stretches' short hashes
+ * (tools, system.stable, system.context, history: `aiGateway.js`
+ * `prefixHashes`, "" when unknown), so a turn's first call can be diffed
+ * against the chat's previous turn in SQL. doubles, in order (`CALL_COLUMNS`): the round's number in
  * the turn, its milliseconds, the uncached input tokens, the cache reads, the
  * cache writes, the output tokens, the characters of words it wrote, and how
  * many tools it called. Output tokens past what the words and calls explain
@@ -117,6 +121,7 @@ export const MAX_CALL_POINTS = 24;
 export function callPoints(kind, trace, turn = "") {
   const points = [];
   let round = 0;
+  let previous = null;
   for (const entry of trace) {
     if (entry?.kind !== "model") continue;
     round += 1;
@@ -124,13 +129,29 @@ export function callPoints(kind, trace, turn = "") {
     const usage = entry.usage ?? {};
     const n = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
     const model = typeof entry.model === "string" ? entry.model.replace(/^[^/]*\//, "").slice(0, 64) : "unknown";
+    const prefix = entry.prefix ?? null;
+    const changed = prefixChange(previous, prefix);
+    if (prefix) previous = prefix;
     points.push({
-      blobs: [String(kind), model, entry.ok === false ? "failed" : "ok", String(turn)],
+      blobs: [String(kind), model, entry.ok === false ? "failed" : "ok", String(turn), changed, ...PREFIX_PARTS.map((part) => (/^[0-9a-f]{8}$/.test(prefix?.[part]) ? prefix[part] : ""))],
       doubles: [round, n(entry.ms), n(usage.input), n(usage.cacheRead), n(usage.cacheWrite), n(usage.output), n(entry.said), n(entry.calls)],
       indexes: [String(kind)],
     });
   }
   return points;
+}
+
+export const PREFIX_PARTS = ["tools", "stable", "context", "history"];
+
+/**
+ * Which stretches differ from the previous call's, joined by ":" ("tools:history"),
+ * "none" when all four match, "first" without a previous call, "unknown" without hashes.
+ */
+export function prefixChange(previous, prefix) {
+  if (!prefix) return "unknown";
+  if (!previous) return "first";
+  const parts = PREFIX_PARTS.filter((part) => previous[part] !== prefix[part]);
+  return parts.length > 0 ? parts.join(":") : "none";
 }
 
 export function stagesOf({ start, marks, end, report }) {
