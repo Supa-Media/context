@@ -136,7 +136,7 @@ flowchart TB
 
   FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js, only without the reviewer<br/>sent back once"]:::judge
   FD -->|say_nothing: nothing to text| QT["Say nothing, a call<br/>ends the turn at once, no judge reads it<br/>never a word like SKIP<br/>sayNothing.js"]:::judge
-  CHK -->|reply_judge: haiku| RJ["Reply reviewer, Haiku 5.5, one call<br/>reads the whole turn, names its kind<br/>a joke is never a claim<br/>sends back only with feedback, at most twice<br/>a rewrite read beside that feedback<br/>reviews kept in the chat history<br/>replyJudge.js"]:::judge
+  CHK -->|reply_judge: haiku| RJ["Reply reviewer, Haiku 5.5, one call<br/>reads the whole turn, names its kind<br/>a joke is never a fact, unless it says Tex sent something<br/>works out every sum, checks every figure against what was read<br/>sends back only with feedback, at most twice<br/>a rewrite read beside that feedback<br/>reviews kept in the chat history<br/>replyJudge.js"]:::judge
   CHK -->|held back| SB["Send-back, from the turn's ledger<br/>each draft quoted, marked NOT sent<br/>every action taken, what the reviewer named<br/>revise, don't restart; the same write is not rerun<br/>sendBack.js"]:::judge
   RJ -->|held back| SB
   SB -->|revise the draft| FD
@@ -182,6 +182,7 @@ What each model costs is `jev/meter.ts`.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-06: the reviewer's rubric is tuned on the bench to 98-99% of faults caught with 2-4% false alarms: a joke that says Tex sent something is a claim, every sum is worked out, a figure must come from what was read, and a page or card is told in a line (`replyJudge.js`).
 - 2026-11-06: day summaries reach back through the whole chat, newest first, twenty a night, quiet nights included (`daySummaries.js`, `dream.js`).
 - 2026-11-06: after the dream, each finished day of the last week with no summary is summed up by Haiku into a `day` ledger entry; a turn whose chat runs past what it reads opens its history with the summaries of the days before every text it shows (`daySummaries.js`, `dream.js`, `ledgerHistory.js`, `loggedTurn.js`).
 - 2026-11-06: a turn's chat history fades by age from the text it answers: that day and the day before whole, older texts clipped (Tex's answers most, links kept), the oldest day whole or not at all (`ledgerHistory.js`, `loggedTurn.js`).

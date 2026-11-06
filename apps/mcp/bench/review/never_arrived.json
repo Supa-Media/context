@@ -111,13 +111,15 @@
         [
           "browse",
           {
-            "url": "https://accounts.example/signin"
+            "url": "https://accounts.example/signin",
+            "click": "Try another way"
           },
-          "Try another way: get a code by text"
+          "Enter the 6-digit code we texted to •••42"
         ]
       ],
       "reply": "Switched to a texted code instead. What's the 6 digits?",
-      "fault": false
+      "fault": false,
+      "fixed": "2026-11-06: the old browse only showed the 'Try another way' option, so 'Switched to a texted code' claimed a click nothing made"
     }
   ]
 }

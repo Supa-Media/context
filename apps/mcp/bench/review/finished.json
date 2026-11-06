@@ -26,11 +26,12 @@
           {
             "url": "https://shop.example/catering"
           },
-          "Pasta tray $45 serves 10; salad $25; cookies $20"
+          "Pasta tray $45 serves 10; salad tray $25 serves 10; cookie tray $20 serves 10"
         ]
       ],
-      "reply": "Pasta + salad + cookies comes to about $6 a head. Want the other two options on a page?",
-      "fault": false
+      "reply": "Three under $10 a head for 30: pasta trays alone, $4.50; pasta and salad, $7; pasta, salad and cookies, $9.",
+      "fault": false,
+      "fixed": "2026-11-06: the old reply gave one of the three options asked for and offered the rest; the reviewer was right to send it back"
     },
     {
       "id": "caterers-to-call",
