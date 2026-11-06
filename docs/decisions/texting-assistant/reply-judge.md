@@ -96,6 +96,17 @@ true-or-false `send`, caught 70% with 23% false alarms; seven good cases that
 held a real flaw (a wrong sum, an invented time, a claim no call made) were
 fixed so their label is true for a whole-reply review.
 
+Tuned the same day after Dev2 asked for a 99 (AI Reviewer runs 17 to 19): the
+rubric names the shapes run 16 got wrong (a joke that says Tex sent something
+is still a claim; turning down a way leaves the goal standing; every sum is
+worked out; a live price with nothing read is unsourced; a page or card is told
+in a line; a held draft, a saved preference and a running job's ask for a code
+are fine). Five more good cases held a real flaw the reviewer was right about
+and were fixed, each saying why under `fixed`; no fault case was loosened.
+Run 18: 80 of 81 faults (99%) and 2 of 102 good replies (2%), median 1.2 s;
+run 19, the same code: 79 of 81 (98%) and 4 of 102 (4%). A run moves by about
+two cases, so the reviewer sits near 98% caught with 2 to 4% false alarms.
+
 What a "simplification" would cost: splitting it back into per-fault calls
 brings back the stacked vetoes; dropping the earlier feedback brings back
 redrafts that never converge. Tests: `apps/mcp/test/replyJudge.test.mjs`,
