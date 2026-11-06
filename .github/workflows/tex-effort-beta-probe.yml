@@ -1,0 +1,40 @@
+# Asks claude-haiku-5-5 four tiny questions through Tex's AI Gateway with the
+# per-message effort beta, under two anthropic-version values, and prints only
+# status, error type, usage and whether the effort field was accepted. See
+# scripts/tex-effort-beta-probe.mjs.
+#
+# Manual only: it reads the chosen environment's gateway token and spends four
+# small Haiku calls.
+name: Tex Effort Beta Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which environment's gateway secrets to use"
+        required: true
+        type: choice
+        options: [production, staging]
+        default: staging
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Four effort beta calls
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 5
+    env:
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: node scripts/tex-effort-beta-probe.mjs
