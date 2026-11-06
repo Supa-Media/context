@@ -36,6 +36,7 @@ import { MeaningAskRefused } from "./meaningIndex.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 import { withLookupBody } from "./lookupBody.js";
 import { restampRowVersions } from "./rowVersions.js";
+import { isMailOp, MailAskRefused, serveMail } from "./mailOps.js";
 
 const CALL = "x-tex-call";
 
@@ -245,6 +246,8 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
     // The grant rows and the rules rendered from them (`serveAccess.js`).
     const access = accessCall(store, op, fields);
     if (access !== null) return access;
+    // A note's mail, judged as a read is (`mailOps.js`).
+    if (isMailOp(op)) return Response.json(await serveMail(store, op, fields, judgeFor(rows, fields, store.members ?? null)));
     switch (op) {
       case "ws.read": {
         const behind = await waitForMarks(store.marks ?? null);
@@ -422,7 +425,7 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused || error instanceof MeaningAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused || error instanceof MeaningAskRefused || error instanceof MailAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }

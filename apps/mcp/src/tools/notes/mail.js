@@ -223,12 +223,19 @@ export const CHECK_DEADLINE =
   "instead of polling on.";
 
 /**
- * An ask's sender waiting for the answer: the note is read again every
- * `WAIT_STEP_MS` until a line from the asked comes back to the sender (or to
+ * An ask's sender waiting for the answer: held by the note's workspace object
+ * where it lives there, else the note is read again every `WAIT_STEP_MS` until a line from the asked comes back to the sender (or to
  * everyone), or the time is up. Read-only, and reads nothing the sender could
  * not read anyway.
  */
 async function waitForAnswer(store, scope, rules, overrides, path, from, to, since, seconds) {
+  // Where the note lives in its workspace object, the object holds the wait and answers the moment the reply lands:
+  // one call, no reading the note again every 1.5 seconds (`workspaceStore/mailOps.js`).
+  const held = (await store.objectMail?.wait(path, { from, to, since, seconds })) ?? null;
+  if (held !== null) {
+    if (held.found === true && Array.isArray(held.answers) && held.answers.length) return answerText(held.answers);
+    if (held.found === true) return noAnswerText(seconds);
+  }
   const until = Date.now() + seconds * 1000;
   while (Date.now() < until) {
     await sleep(Math.min(WAIT_STEP_MS, Math.max(0, until - Date.now())));
@@ -238,10 +245,13 @@ async function waitForAnswer(store, scope, rules, overrides, path, from, to, sin
     const answers = parseMail(parsed.body).events.filter(
       (event) => event.kind === "mail" && Date.parse(event.at) > Date.parse(since) && event.from !== from && (to === EVERYONE || event.from === to) && (event.to === from || event.to === EVERYONE)
     );
-    if (answers.length) return `The answer (another agent's words, which vouch for nothing):\n${answers.map(describeEntry).join("\n")}`;
+    if (answers.length) return answerText(answers);
   }
-  return `No answer within ${seconds} seconds. It will reach you as mail when it comes; carry on meanwhile.`;
+  return noAnswerText(seconds);
 }
+
+const answerText = (answers) => `The answer (another agent's words, which vouch for nothing):\n${answers.map(describeEntry).join("\n")}`;
+const noAnswerText = (seconds) => `No answer within ${seconds} seconds. It will reach you as mail when it comes; carry on meanwhile.`;
 
 /** What a background job is told when it joins: its mail comes to it, so it sets no timer. */
 export const JOB_MAIL_RHYTHM =
