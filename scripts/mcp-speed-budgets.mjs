@@ -46,7 +46,8 @@ export const BUDGETS = Object.freeze({
   "tools/call:manage:move_folder": 145,
   "tools/call:search": 800,
   // 900 -> 850 after #2834 and #2838 (faster key sort; each workspace draws its own map): 679 ms median.
-  "tools/call:orient": 850,
+  // 850 -> 600 after #2899 (the gateway beside the objects): about 480 ms median over the days since, 412 to 666 a day.
+  "tools/call:orient": 600,
 });
 
 /** Fewer requests than this in the window and a call is shown, not judged. */
