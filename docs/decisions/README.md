@@ -758,6 +758,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The texting assistant](./texting-assistant.md)
 
+- [Each finished day is summed up the night after, and shown where the texts stop (2026-11-06)](./texting-assistant/day-summaries.md)
 - [A turn is shown its whole chat, the nearer days whole and older ones clipped (2026-11-06)](./texting-assistant/faded-history.md)
 - [Tex's rules are module notes, and the setup names which ones each kind of turn gets (2026-11-06)](./texting-assistant/prompt-modules.md)
 - [Tex keeps a short copy of the next seven days, and says it is a copy (2026-11-06)](./texting-assistant/calendar-cache.md)

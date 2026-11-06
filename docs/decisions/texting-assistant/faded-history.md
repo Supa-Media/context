@@ -23,7 +23,7 @@ shown whole or not at all, for the same reason.
 as it is; only what a model is shown fades. Quoted replies (`replying to`)
 quote the message whole.
 
-**Day summaries** in `history.ledger.json` are the next step: a short line per
-past day, written once, read in place of the day's clipped texts.
+**Day summaries** carry the chat past where the texts stop: see
+[day-summaries](./day-summaries.md).
 
 Tests: `apps/mcp/test/texFadedHistory.test.mjs`.

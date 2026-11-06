@@ -24,6 +24,9 @@ import { sentOnItsOwn } from "./sentOnItsOwn.js";
 /** The most entries one read of the ledger asks for; a turn reads at most `MAX_PAGES` of them. */
 const PAGE = DESK_LEDGER.options.limit;
 const MAX_PAGES = 3;
+/** The most day summaries a turn reads past its texts, and the characters they may take. */
+export const MAX_SUMMARIES = 60;
+export const SUMMARY_CHARS = 12_000;
 const BY_ITSELF = /^\(Not a text from them\./;
 
 const asEvent = (entry, chat) => {
@@ -43,6 +46,7 @@ export async function readLedger(ledger, chat, { chars = READ_CHARS, first = nul
   const entries = [];
   let cursor = Number.MAX_SAFE_INTEGER;
   let words = 0;
+  let more = false;
   try {
     for (let page = 0; page < MAX_PAGES && words < chars; page += 1) {
       // The first page may already be read, with the record, in the desk's one call (`texStore/desk.js`).
@@ -51,9 +55,12 @@ export async function readLedger(ledger, chat, { chars = READ_CHARS, first = nul
         entries.push(entry);
         if (entry.kind === "text" || entry.kind === "note") words += String(entry.text ?? "").length;
       }
-      if (!Number.isSafeInteger(read?.before)) break;
+      more = Number.isSafeInteger(read?.before);
+      if (!more) break;
       cursor = read.before;
     }
+    // A chat longer than the turn reads: the summaries of the days before it, so the old stays in context (`daySummaries.js`).
+    if (more) entries.push(...((await ledger.read(chat, { before: cursor, kinds: ["day"], limit: MAX_SUMMARIES, slim: true }))?.entries ?? []));
   } catch (error) {
     console.log(JSON.stringify({ event: "ledger_history_unread", reason: String(error?.name ?? "error").slice(0, 40) }));
     return [];
@@ -98,7 +105,8 @@ export function dayFromLedger(entries, chat, covers) {
  * first): `{events, tools}`. `events` are the chat's texts older than
  * `before` (the oldest the turn already holds), oldest first, within `chars`
  * characters, as `log.js` events, with Tex's check-ins among them; `tools`
- * maps a turn to the tools it used.
+ * maps a turn to the tools it used; faded, `summaries` are the days before
+ * every text shown, as summed up the night after (`daySummaries.js`).
  */
 export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTEGER, chars = READ_CHARS, known = new Set(), fade = false, fadeFrom = before } = {}) {
   const tools = new Map();
@@ -123,7 +131,35 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
   // Faded, the oldest day is shown whole or not at all, so what is shown of the past only moves once a day and the
   // cached history ahead of it stays the same from one text to the next (the context review, 2026-11-06).
   const kept = fade && room <= 0 && events.length > 0 ? wholeDays(events) : events;
-  return { events: kept.sort((a, b) => a.at - b.at), tools };
+  kept.sort((a, b) => a.at - b.at);
+  // Faded, the days older than every text shown are given as the summaries written the night after (`daySummaries.js`).
+  const summaries = fade ? daysBefore(entries, kept.length > 0 ? kept[0].at : before) : [];
+  return { events: kept, tools, summaries };
+}
+
+/**
+ * The day summaries in `entries` of days that ended before `oldest`, one per day, newest kept within
+ * `SUMMARY_CHARS`, oldest first: `{day, text}`.
+ */
+function daysBefore(entries, oldest) {
+  const found = [];
+  const seen = new Set();
+  let room = SUMMARY_CHARS;
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (entry?.kind !== "day" || typeof entry.day !== "string" || typeof entry.text !== "string" || entry.text.trim() === "" || !(entry.at < oldest) || seen.has(entry.day)) continue;
+    const text = entry.text.trim();
+    room -= text.length + 20;
+    if (room < 0) break;
+    seen.add(entry.day);
+    found.push({ day: entry.day, text });
+  }
+  return found.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+}
+
+/** The summaries as the lines a turn's history opens with, or "" when there are none. */
+export function summaryLines(summaries) {
+  if (!Array.isArray(summaries) || summaries.length === 0) return "";
+  return ["Earlier days, older than the texts below, as you summed each up the night after:", ...summaries.map((summary) => `- ${summary.day}: ${summary.text.replace(/\s+/g, " ")}`)].join("\n");
 }
 
 /** A day, as the number of whole days since the epoch, in UTC. */

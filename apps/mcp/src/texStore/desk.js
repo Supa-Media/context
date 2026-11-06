@@ -25,7 +25,7 @@ export const DESK_NOTES = ["about", "jobs", "voice", "calendar"]; // calendar: t
  * desk answers beside the record (`agent/ledgerHistory.js`): the whole chat a
  * texted turn is shown, in the same call.
  */
-export const DESK_LEDGER = Object.freeze({ chat: "texts", options: Object.freeze({ before: Number.MAX_SAFE_INTEGER, kinds: Object.freeze(["text", "note", "tool", "reply"]), limit: 2_000, slim: true }) });
+export const DESK_LEDGER = Object.freeze({ chat: "texts", options: Object.freeze({ before: Number.MAX_SAFE_INTEGER, kinds: Object.freeze(["text", "note", "tool", "reply", "day"]), limit: 2_000, slim: true }) });
 
 const decoder = new TextDecoder();
 

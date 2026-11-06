@@ -49,6 +49,7 @@ import { json } from "../http/responses.js";
 import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.js";
 import { RETIRED_SKILLS_FOLDER, UNUSED_SKILL_DAYS, retireUnusedSkills } from "./learnedSkills.js";
 import { mineHandbacks } from "./handbackMiner.js";
+import { writeDaySummaries } from "./daySummaries.js";
 import { findMemories, memoriesLine } from "./dreamMemories.js";
 
 /** The dream runner's first-party client (`apps/convex/functions/lib/dreams/model.ts`). Decided by the grant. */
@@ -361,6 +362,10 @@ export async function handleDream(request, env, store, session, controlPlane) {
       config: aiGatewayConfig(env),
       metadata: { feature: "handback-miner", workspace: String(session.workspaceId) },
     }).catch(() => null);
+  }
+  // Each finished day with no summary yet, summed up into the chat's ledger for later turns (`daySummaries.js`).
+  if (env.DAY_SUMMARIES !== "off") {
+    await writeDaySummaries({ store, session, now, timeZone, config: aiGatewayConfig(env), metadata: { feature: "day-summary", workspace: String(session.workspaceId) } }).catch(() => null);
   }
   if (outcome === "failed") return json({ error: "model_unavailable", outcome }, 502);
   return json({ outcome, steps: turn?.steps ?? [] });
