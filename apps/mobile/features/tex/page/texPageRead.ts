@@ -24,6 +24,7 @@ import type {
   Slot,
   Tiles,
   Turn,
+  TurnDraft,
   TurnAction,
 } from "./texPageTypes";
 import type { SlotPlace } from "./texMachineTypes";
@@ -65,6 +66,18 @@ function readAction(v: unknown): TurnAction | null {
   return { kind, label, ...(str(r.ref) ? { ref: str(r.ref) } : {}) };
 }
 
+const DRAFT_BY = new Set(["gates", "code", "late"]);
+
+function readDraft(v: unknown): TurnDraft | null {
+  const r = rec(v);
+  const text = str(r?.text);
+  if (!r || !text) return null;
+  const by = DRAFT_BY.has(r.by as string) ? (r.by as TurnDraft["by"]) : "gates";
+  const failed = Array.isArray(r.failed) ? r.failed.filter((id): id is string => typeof id === "string") : [];
+  const notice = str(r.notice);
+  return { text, by, failed, ...(notice ? { notice } : {}) };
+}
+
 export function readTurn(v: unknown): Turn | null {
   const r = rec(v);
   if (!r) return null;
@@ -79,6 +92,7 @@ export function readTurn(v: unknown): Turn | null {
     did: list(r.did, readAction),
     reply: reply === undefined || reply === "" ? null : reply,
     ms: num(r.ms) ?? 0,
+    ...(Array.isArray(r.drafts) && r.drafts.length > 0 ? { drafts: list(r.drafts, readDraft) } : {}),
   };
 }
 

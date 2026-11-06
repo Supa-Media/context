@@ -5,7 +5,8 @@
  * here is kept: each read pages back through the log.
  *
  * - `thinking`: one item per turn, newest first: `{id, at, who, said, thought,
- *   did, reply, ms}`. The turn's entries share its `turn`; what it answered is
+ *   did, reply, ms, drafts?}`; `drafts` are the replies it wrote that were sent
+ *   back before one went (`{text, by, failed, notice?}`, oldest first). The turn's entries share its `turn`; what it answered is
  *   the person's texts its own texts name in `covers`.
  * - `advisor`: each `advisor` entry, and each `ask_advisor` tool call.
  * - `mailcheck`: each `mail_check` entry; the checker's `yes` is "sent", `no`
@@ -23,7 +24,10 @@ export const ADVISOR_TOOL = "ask_advisor";
 export const VIEW_READ = 2_000;
 const THOUGHT_CHARS = 600;
 const WORDS_CHARS = 2_000;
-const TURN_KINDS = ["text", "thinking", "said", "tool", "reply", "advisor", "mail_check", "job"];
+const TURN_KINDS = ["text", "thinking", "said", "tool", "reply", "advisor", "mail_check", "job", "judge"];
+/** The most drafts one turn shows, and the longest notice a draft keeps. */
+const MAX_DRAFTS = 4;
+const NOTICE_CHARS = 600;
 const VERDICT = { yes: "sent", sent: "sent", no: "stopped", stopped: "stopped" };
 const GROUP_KEY = /^[0-9a-f]{64}$/;
 
@@ -137,6 +141,16 @@ function turnsOf(entries, replies, chat) {
       else if (entry.kind === "mail_check") did.push({ kind: "mailcheck", label: `Checked an email to ${String(entry.to ?? "someone")}`, ref: entry.id });
       else if (entry.kind === "job") did.push({ kind: "job", label: String(entry.title ?? "Started a job"), ...(typeof entry.job === "string" ? { ref: entry.job } : {}) });
     }
+    // Each draft that did not go out, with what sent it back: the gates that failed it, a code check, or a later text (`replyJudge.js`).
+    const drafts = oldest
+      .filter((entry) => entry.kind === "judge" && entry.went === false && typeof entry.text === "string" && entry.text.trim() !== "")
+      .slice(0, MAX_DRAFTS)
+      .map((entry) => ({
+        text: cut(entry.text, WORDS_CHARS),
+        by: entry.by === "code" || entry.by === "late" ? entry.by : "gates",
+        failed: (Array.isArray(entry.failed) ? entry.failed : []).filter((id) => typeof id === "string").slice(0, 12),
+        ...(typeof entry.notice === "string" && entry.notice.trim() !== "" ? { notice: cut(entry.notice, NOTICE_CHARS) } : {}),
+      }));
     const first = Math.min(...[...list, ...covered].map((entry) => entry.at));
     const last = Math.max(...list.map((entry) => entry.at));
     out.push({
@@ -148,6 +162,7 @@ function turnsOf(entries, replies, chat) {
       thought: cut(oldest.filter((entry) => entry.kind === "thinking").map((entry) => entry.text).join(" "), THOUGHT_CHARS),
       did,
       reply: reply && typeof reply.text === "string" && reply.text !== "" ? reply.text : null,
+      ...(drafts.length > 0 ? { drafts } : {}),
       ms: Number.isFinite(reply?.ms) ? reply.ms : Math.max(0, last - first),
     });
   }
@@ -225,7 +240,7 @@ export function pageViews(ledgerOf) {
 export function sectionsForKinds(kinds) {
   const sections = new Set();
   for (const kind of Array.isArray(kinds) ? kinds : []) {
-    if (["text", "thinking", "said", "tool", "reply", "job"].includes(kind)) sections.add("thinking");
+    if (["text", "thinking", "said", "tool", "reply", "job", "judge"].includes(kind)) sections.add("thinking");
     if (kind === "advisor" || kind === "tool") sections.add("advisor");
     if (kind === "mail_check") sections.add("mailcheck");
   }
