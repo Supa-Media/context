@@ -126,3 +126,10 @@ export function setupPromptFor(setup, kind) {
   if (setup?.prompts && typeof setup.prompts[kind] === "string") return setup.prompts[kind];
   return setup?.prompt ?? null;
 }
+
+/** What the turn log says of the setup that answered: its version and, with modules, the ones this kind of turn got. */
+export function setupLogged(setup, turn) {
+  if (!setup || typeof setup.version !== "string") return {};
+  const modules = setup.modules?.[turnKind(turn)];
+  return { setup: setup.version, ...(Array.isArray(modules) ? { modules } : {}) };
+}

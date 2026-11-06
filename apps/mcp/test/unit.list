@@ -478,3 +478,4 @@ test/noteMailObject.test.mjs
 test/runWait.test.mjs
 test/texPromptNames.test.mjs
 test/texCalendarCache.test.mjs
+test/texFadedHistory.test.mjs
