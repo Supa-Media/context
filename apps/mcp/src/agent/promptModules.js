@@ -64,7 +64,7 @@ export function namedModules(lists) {
 
 /** A module note's text as sent: its body, without front matter, trimmed. */
 export function moduleBody(text) {
-  const source = String(text ?? "").replace(/^﻿/, "");
+  const source = String(text ?? "").replace(/^\uFEFF/, "");
   const front = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/.exec(source);
   return (front ? source.slice(front[0].length) : source).trim();
 }
