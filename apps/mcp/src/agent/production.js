@@ -74,7 +74,12 @@
  *   max_steps      1-40, the most rounds a turn may take; a quick turn is still
  *                  held to `turn.js`'s 8, and only a streamed (long) texting turn
  *                  (`progress.js`) may go past it
- *   body           the whole prompt a texted turn is given
+ *   modules        optional: `  texts: [a, b]`, `  group: [...]`, `  job: [...]`,
+ *                  the notes `ai/production/prompt/<name>.md` each kind of turn
+ *                  is built from, in order; `texts` required, the others fall
+ *                  back to it (`promptModules.js`, Dev2, 2026-11-06). With it,
+ *                  the body is for people and is never sent.
+ *   body           the whole prompt a texted turn is given, without `modules`
  *
  * Validated on read. A file that does not validate is `null`, and the turn
  * uses the built-in words, exactly as if the file were missing. The front matter's grammar is the small subset below, so
@@ -97,6 +102,7 @@ import { readReplyJudge } from "./replyJudge.js";
 import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
 import { staleToolNames } from "./promptNames.js";
+import { assembleSetup, moduleTexts, readModuleLists, splitAssembled } from "./promptModules.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 
@@ -137,7 +143,9 @@ export async function parseSetup(raw) {
   }
 }
 
-async function parse(raw) {
+async function parse(kept) {
+  // A setup that names modules arrives with them (`promptModules.js`); `kept` is then what `assembleSetup` made.
+  const { raw, modules } = splitAssembled(kept);
   if (typeof raw !== "string") return null;
   const match = FRONT_MATTER.exec(raw);
   if (!match) return null;
@@ -234,9 +242,16 @@ async function parse(raw) {
     if (maxSteps > MAX_STEPS) return null;
   }
 
-  const prompt = raw.slice(match[0].length).trim();
-  if (prompt.length === 0 || prompt.length > MAX_BODY_CHARS) return null;
-  if (prompt.split(/\r?\n/).length > MAX_BODY_LINES) return null;
+  // With `modules`, each kind of turn is given its modules (`promptModules.js`) and the body is for people only.
+  const lists = readModuleLists(front.modules);
+  if (lists === undefined) return null;
+  const prompts = lists === null ? null : moduleTexts(lists, modules);
+  if (prompts === undefined) return null;
+  const prompt = prompts === null ? raw.slice(match[0].length).trim() : prompts.texts;
+  for (const text of prompts === null ? [prompt] : Object.values(prompts)) {
+    if (text.length === 0 || text.length > MAX_BODY_CHARS) return null;
+    if (text.split(/\r?\n/).length > MAX_BODY_LINES) return null;
+  }
 
   return {
     job: typeof front.job === "string" ? front.job : null,
@@ -258,9 +273,14 @@ async function parse(raw) {
     replyJudge,
     maxSteps,
     prompt,
+    // Each kind's rules when the setup names modules (`promptModules.js` `setupPromptFor`), else null.
+    prompts,
+    // Which modules each kind is built from, for the log and the AI tab; null without modules.
+    modules: lists,
     // Tool names the six tools retired (`promptNames.js`): logged on every read until the note is fixed.
-    staleNames: staleToolNames(prompt),
-    version: await versionOf(raw),
+    staleNames: [...new Set((prompts === null ? [prompt] : Object.values(prompts)).flatMap((text) => staleToolNames(text)))],
+    // Over the setup and its modules, so a changed module is a new version in the log.
+    version: await versionOf(kept),
   };
 }
 
@@ -395,15 +415,25 @@ export async function readProductionSetup(store, session, { texting, warm = null
 
 async function readTextingSetup(store, session, warm) {
   try {
-    // With a warm copy (`warmCopy.js`), the note's text is read only when the copy hasn't it.
-    if (warm !== null) {
-      const raw = await warm(async () => await readInPin(store, session, PRODUCTION_TEXTING_PATH, (text) => text));
-      return typeof raw === "string" ? await parseSetup(raw) : null;
-    }
-    return await readInPin(store, session, PRODUCTION_TEXTING_PATH, parseSetup);
+    // With a warm copy (`warmCopy.js`), the note's text, and its modules', is read only when the copy hasn't it.
+    const read = async () => await readAssembled(store, session, PRODUCTION_TEXTING_PATH);
+    const kept = warm !== null ? await warm(read) : await read();
+    return typeof kept === "string" ? await parseSetup(kept) : null;
   } catch {
     return null;
   }
+}
+
+/** A setup note's text with the module notes it names (`promptModules.js`), as one string, or null. */
+async function readAssembled(store, session, path) {
+  const raw = await readInPin(store, session, path, (text) => text);
+  return await assembleSetup(raw, (modulePath) => readInPin(store, session, modulePath, (text) => text), frontOf);
+}
+
+/** A setup's front matter as `readFront` reads it, or null. */
+function frontOf(raw) {
+  const match = FRONT_MATTER.exec(String(raw ?? ""));
+  return match ? readFront(match[1]) : null;
 }
 
 /**
@@ -475,7 +505,7 @@ export function promptSections(prompt) {
 export async function readSetupAt(store, session, path) {
   if (typeof path !== "string" || !TRY_SETUP_PATH.test(path) || path.includes("..")) return null;
   try {
-    return await readInPin(store, session, path, parseSetup);
+    return await parseSetup(await readAssembled(store, session, path)); // with its modules, as a turn reads it
   } catch {
     return null;
   }
