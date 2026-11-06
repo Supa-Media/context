@@ -30,6 +30,7 @@ import { HOMES, isRevisionKey } from "./api.js";
 import { liveRowByPath } from "./rowsByPath.js";
 import { objectRowId } from "./treeOps.js";
 import { WRITE_OPS, WriteOpRefused } from "./writeOps.js";
+import { lastWriteEach } from "./lastWrite.js";
 
 const COLLABORATION_ROOT = ".context/collaboration/";
 const NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
@@ -168,7 +169,8 @@ export async function serveCollabReplace(store, fields) {
   if (live === null || live.key !== key || live.noteId !== noteId) return { served: false, reason: "row_moved" };
 
   const engine = engineStore(objects, { path, key, noteId, legacyEtag: typeof fields.legacyEtag === "string" ? fields.legacyEtag : null, rowEtag: typeof fields.rowEtag === "string" ? fields.rowEtag : null });
-  const handedBack = () => ({ writes: engine.writes, deletes: engine.deletes });
+  // Only where each key ended goes back: a save writes its document state twice, and the bucket keeps the last.
+  const handedBack = () => ({ writes: lastWriteEach(engine.writes), deletes: engine.deletes });
   try {
     const result = await replaceText(engine.store, path, { expectedEtag, onlyCurrent: true, text });
     const markdown = engine.writes.filter((write) => write.key === key).at(-1) ?? null;

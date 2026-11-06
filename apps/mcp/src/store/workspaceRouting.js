@@ -34,6 +34,7 @@
  */
 
 import { r2Shaped } from "../texStore/wire.js";
+import { lastWriteEach } from "../workspaceStore/lastWrite.js";
 import { HOMES, REVISIONS, documentStateId, isHome, isRevisionKey, isWorkspaceObjectKey } from "../workspaceStore/api.js";
 
 const routedPrefix = (prefix) => typeof prefix === "string" && (prefix.startsWith("notes/") || prefix.startsWith(".context/collaboration/"));
@@ -49,19 +50,6 @@ const coversRevisions = (prefix) => typeof prefix === "string" && (REVISIONS.sta
  */
 export const REVISION_GRACE_MS = 10 * 60 * 1000;
 
-/**
- * One backup write per key: the last the object made. A save writes its document's state twice (accepted, then
- * rendered); the backup is a copy nobody reads mid-save, so only where each key ended is copied.
- */
-export function lastWriteEach(writes) {
-  const last = new Map();
-  for (const write of writes) {
-    if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
-    last.delete(write.key);
-    last.set(write.key, write);
-  }
-  return [...last.values()];
-}
 
 /**
  * @param {object} store the bucket's store
