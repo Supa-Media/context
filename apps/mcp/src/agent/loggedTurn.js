@@ -27,7 +27,7 @@ import { EVENT_ID, isChatKey, READ_CHARS, readEvents } from "./log.js";
 import { renderEvents, replyingTo, speaker, TIME_OF, words } from "./logRender.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
 import { sentByItself, withSentByItself } from "./sentByItself.js";
-import { dayFromLedger, earlierFromLedger, readLedger } from "./ledgerHistory.js";
+import { dayFromLedger, earlierFromLedger, faded, readLedger } from "./ledgerHistory.js";
 import { ledgerPlace } from "./ledger.js";
 import { deskLedger } from "./history.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
@@ -120,11 +120,13 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   if (question === "") return null;
   // A group is shown its whole log, whoever has joined or left since (the owner, 2026-11-02): no cut by the people a text was said in front of.
   const shown = events.filter((event) => !wanted.has(event.id));
+  // Days are aged from the newest text it answers: that day and the one before whole, older ones faded (`faded`).
+  const answering = Math.max(...covered.map((event) => event.at));
   // Everything before the day the turn holds, from the chat's ledger (`ledgerHistory.js`).
-  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: Math.max(0, READ_CHARS - shown.reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)) }) : { events: [], tools: new Map() };
+  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: Math.max(0, READ_CHARS - shown.reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)), fade: true, fadeFrom: answering }) : { events: [], tools: new Map() }; // older days faded by age (`ledgerHistory.js` `faded`)
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
   const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [] };
-  const transcript = renderEvents(withSentByItself([...earlier.events, ...shown], own.shown), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
+  const transcript = renderEvents(withSentByItself([...earlier.events, ...shown.map((event) => faded(event, answering))], own.shown), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
   // What the texts it answers were typed under, quoted in full as the transcript shows that message (`logRender.js` `replyingTo`).
   const byId = new Map([...earlier.events, ...events].map((event) => [event.id, event]));
   const replying = covered.map((event) => replyingTo(event, byId, TIME_OF(timeZone))).filter((line) => line !== "");

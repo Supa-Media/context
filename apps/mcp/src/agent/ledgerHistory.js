@@ -100,7 +100,7 @@ export function dayFromLedger(entries, chat, covers) {
  * characters, as `log.js` events, with Tex's check-ins among them; `tools`
  * maps a turn to the tools it used.
  */
-export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTEGER, chars = READ_CHARS, known = new Set() } = {}) {
+export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTEGER, chars = READ_CHARS, known = new Set(), fade = false, fadeFrom = before } = {}) {
   const tools = new Map();
   const events = [];
   const seen = new Set(known);
@@ -112,14 +112,54 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
       tools.set(entry.turn, names);
     }
     if (room <= 0 || !(entry?.at < before)) continue;
-    const shown = entry.kind === "text" ? asEvent(entry, chat) : entry.kind === "note" ? noteEvent(entry, chat) : null;
-    if (shown === null || (!shown.byItself && !EVENT_ID.test(shown.id ?? "")) || !EVENT_KINDS.has(shown.kind) || seen.has(shown.id)) continue;
+    const found = entry.kind === "text" ? asEvent(entry, chat) : entry.kind === "note" ? noteEvent(entry, chat) : null;
+    if (found === null || (!found.byItself && !EVENT_ID.test(found.id ?? "")) || !EVENT_KINDS.has(found.kind) || seen.has(found.id)) continue;
+    const shown = fade ? faded(found, fadeFrom) : found;
     room -= String(shown.text ?? "").length + 40;
     if (room < 0) break;
     seen.add(shown.id);
     events.push(shown);
   }
-  return { events: events.sort((a, b) => a.at - b.at), tools };
+  // Faded, the oldest day is shown whole or not at all, so what is shown of the past only moves once a day and the
+  // cached history ahead of it stays the same from one text to the next (the context review, 2026-11-06).
+  const kept = fade && room <= 0 && events.length > 0 ? wholeDays(events) : events;
+  return { events: kept.sort((a, b) => a.at - b.at), tools };
+}
+
+/** A day, as the number of whole days since the epoch, in UTC. */
+const dayOf = (at) => Math.floor(at / 86_400_000);
+
+/** How many days before the turn's last day each age begins to fade, and how much of a text each keeps. */
+export const FADE = Object.freeze([
+  { from: 2, tex: 600, them: Infinity }, // the two days before the last: their words whole, Tex's answers clipped
+  { from: 8, tex: 240, them: 800 }, // the week before that
+  { from: 31, tex: 120, them: 400 }, // older than a month
+]);
+
+const LINK = /https?:\/\/[^\s<>()"']+/g;
+
+/**
+ * An earlier text faded by its age (Dev2, 2026-11-06: "weight recent heavier, keep old in context"): the nearer
+ * days whole, older ones clipped, Tex's own answers most. A clipped text keeps every link it held, so a page or
+ * draft Tex sent stays findable however old.
+ */
+export function faded(event, before, fade = FADE) {
+  const text = String(event.text ?? "");
+  if (!Number.isFinite(before) || before === Number.MAX_SAFE_INTEGER) return event;
+  const age = dayOf(before) - dayOf(event.at);
+  const tier = [...fade].reverse().find((step) => age >= step.from);
+  if (tier === undefined) return event;
+  const max = event.from?.kind === "tex" ? tier.tex : tier.them;
+  if (text.length <= max) return event;
+  const links = [...new Set(text.slice(max).match(LINK) ?? [])].filter((link) => !text.slice(0, max).includes(link));
+  return { ...event, text: `${text.slice(0, max).trimEnd()}… [cut${links.length > 0 ? `; links: ${links.join(" ")}` : ""}]` };
+}
+
+/** `events` (newest first) without the oldest day, which ran out of room part-way. */
+function wholeDays(events) {
+  const oldest = dayOf(events.at(-1).at);
+  const whole = events.filter((event) => dayOf(event.at) !== oldest);
+  return whole.length > 0 ? whole : events;
 }
 
 /** A check-in or other text Tex sent by itself, as an event; anything else kept as a note is not shown. */
