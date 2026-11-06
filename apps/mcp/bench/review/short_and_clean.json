@@ -169,7 +169,7 @@
           "created"
         ]
       ],
-      "reply": "Yes, he confirmed Thursday between 9 and 11, and the call-out is $140. He needs someone home to let him in, so it's on your calendar with a reminder at 8:30.",
+      "reply": "Yes, he confirmed Thursday between 9 and 11, and the call-out is $140. He needs someone home to let him in, so it's on your calendar.",
       "fault": false
     },
     {
@@ -206,14 +206,14 @@
           "error: Node 18 is not supported, engines requires >=20"
         ]
       ],
-      "reply": "Your CI image runs Node 18, but the package now requires Node 20 or newer, so install stops before the build starts. It began when the engines line was bumped on Monday. Switching the workflow's node-version to 22 fixes it.",
+      "reply": "Your CI image runs Node 18, but the package now requires Node 20 or newer, so install stops before the build starts. Switching the workflow's node-version to 22 fixes it.",
       "fault": false
     },
     {
       "id": "draft-asked",
       "q": "draft a reply to robin saying we'll be about 20 minutes late",
       "did": [],
-      "reply": "Here's a draft to Robin:\n\nHi Robin, we're running about 20 minutes behind and should be there around 7:20. Sorry for the shuffle, see you soon.\n\nGive it a 👍 and I'll send it.",
+      "reply": "Here's a draft to Robin:\n\nHi Robin, we're running about 20 minutes behind. Sorry for the shuffle, see you soon.\n\nGive it a 👍 and I'll send it.",
       "fault": false
     },
     {
@@ -270,7 +270,7 @@
           {
             "path": "chat/history.md"
           },
-          "messages"
+          "214 messages, e.g. 'ight bet', 'tex roast dami', 'lmao', 'smh bro', 'Tex, book it', 'bet', '😭', 'no caveats pls'"
         ]
       ],
       "reply": "How you three talk: casual and fast, mostly lowercase, with slang like bet, bro, lmao and smh. You roast each other and me, and a roast gets a roast back, not an apology. Asks are direct ('Tex, do X') and you want the answer first, with no 'Sure!', no restating the ask and no 'want me to?' when I can just do it. You're impatient with hedging and long caveats. Emoji mostly come as tapbacks, with a few 😭 and 😂 in text. Example: 'ight bet' closes most plans.",

@@ -133,10 +133,10 @@ flowchart TB
   PIC --> CC["Card check<br/>Haiku 5.5 looks before it goes<br/>cardCheck.js"]:::judge
   IMG --> CC
 
-  FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js, only without reply gates<br/>sent back once"]:::judge
+  FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js, only without the reviewer<br/>sent back once"]:::judge
   FD -->|say_nothing: nothing to text| QT["Say nothing, a call<br/>ends the turn at once, no judge reads it<br/>never a word like SKIP<br/>sayNothing.js"]:::judge
-  CHK -->|reply_judge: clef-flash| RJ["Reply gates, Clef Flash, all at once<br/>a reply to their text: ten gates<br/>a job report's text: reached them, on a page<br/>length gates only on long drafts<br/>each tuned, sent back at most twice<br/>verdicts kept in the chat history<br/>replyJudge.js · replyGates.js"]:::judge
-  CHK -->|held back| SB["Send-back, from the turn's ledger<br/>each draft quoted, marked NOT sent<br/>every action taken, the judges that failed<br/>revise, don't restart; the same write is not rerun<br/>sendBack.js"]:::judge
+  CHK -->|reply_judge: haiku| RJ["Reply reviewer, Haiku 5.5, one call<br/>reads the whole turn, names its kind<br/>a joke is never a claim<br/>sends back only with feedback, at most twice<br/>a rewrite read beside that feedback<br/>reviews kept in the chat history<br/>replyJudge.js"]:::judge
+  CHK -->|held back| SB["Send-back, from the turn's ledger<br/>each draft quoted, marked NOT sent<br/>every action taken, what the reviewer named<br/>revise, don't restart; the same write is not rerun<br/>sendBack.js"]:::judge
   RJ -->|held back| SB
   SB -->|revise the draft| FD
   CHK --> SEND([sendTheReply]):::door
@@ -191,6 +191,7 @@ Newest first. One line per pull request that changed the drawing.
 - 2026-11-06: a group's job with no project note gets one in its workspace's `projects/tex-jobs/` (it had none: no mail, no advisor, no Tex); a computer part's brief always names its advisor; a cloud job's turn thinks at `models.job_effort` (`jobNote.js`, `jobBackground.js`, `production.js`).
 - 2026-11-06: a note's new-mail line and an ask's wait are answered by the note's workspace object (`mailOps.js`): one call each, no whole-note reads or 1.5-second polling (`mail.js`, `footer.js`).
 - 2026-11-06: a computer job may join any other note's mail it reaches, always as its job's own name and bound to its job (never tex, advisor, another job or a machine); a refused join says permission denied instead of "try again" (`noteMail.ts`, `mail.js`, roster in `jobNote.js`).
+- 2026-11-06: one Haiku reviewer replaces the ten Clef Flash reply gates: one call reads the whole turn, names its kind (task, question, chat, correction, report), and sends a draft back only with feedback quoting the words to change, at most twice; a rewrite is read beside that feedback. `reply_judge: clef-flash` now means the reviewer (`replyJudge.js`; `replyGates.js` removed; bench `pnpm ai review`).
 - 2026-11-05: Tex chooses silence by calling `say_nothing` (front door, routines, check-ins, reports, job supervision), which ends the turn before any judge reads it; no prompt asks for SKIP any more, and a stray SKIP is never judged or texted. A group's last look ignores tapbacks, as a 1:1 chat's did. `job_status` shows up to 8,000 characters of a report.
 - 2026-11-05: what Tex texts about a job's report is judged by a report set of its own (reached_them: the result itself reaches them, links kept; on_a_page: a long result on a page or card with its link), never the text set; short_and_clean reads only a draft over 60 words (30 beside a page, card or picture it made) or one in a script they never write in, which code fails as a fact; on_a_page reads a report's text over 30 words. Fixes the wiring that sent report turns through every text gate.
 - 2026-11-05: with the reply gates on, the older word checks they replace (`doItChecks.js`, `untriedWeb.js`) no longer run; tried_first and followed_them do their job. They stay for a setup without gates. Every gate reads each rewrite, a job's report no longer runs the gates, and a draft a late text holds is recorded as held.

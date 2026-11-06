@@ -22,7 +22,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { aiGatewayConfig } from "../src/agent/aiGateway.js";
+import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
 import { judgeState, reviewReply } from "../src/agent/replyJudge.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -79,8 +79,10 @@ export async function scoreCases(cases, review, concurrency = 6) {
       while (next < cases.length) {
         const at = next++;
         const item = cases[at];
-        const verdict = await review(caseTurn(item), item).catch(() => null);
-        out[at] = { ...item, sent: verdict === null ? null : verdict.send, kind: verdict?.kind ?? null, problems: verdict?.problems ?? [], feedback: verdict?.feedback ?? "" };
+        const seen = {};
+        const started = Date.now();
+        const verdict = await review(caseTurn(item), item, seen).catch((error) => ((seen.error = String(error?.message ?? error)), null));
+        out[at] = { ...item, sent: verdict === null ? null : verdict.send, kind: verdict?.kind ?? null, problems: verdict?.problems ?? [], feedback: verdict?.feedback ?? "", ms: Date.now() - started, raw: seen.raw ?? null, error: seen.error ?? null };
       }
     }),
   );
@@ -108,6 +110,10 @@ export function reviewReport(sets, scored) {
     }),
     "",
   ];
+  const times = scored.map((item) => item.ms).filter(Number.isFinite).sort((a, b) => a - b);
+  if (times.length) lines.push(`Review time: median ${(times[Math.floor(times.length / 2)] / 1000).toFixed(1)} s, slowest ${(times.at(-1) / 1000).toFixed(1)} s.`, "");
+  const none = scored.filter((item) => item.sent === null);
+  if (none.length) lines.push("No verdict:", ...none.map((item) => `- ${item.id}: ${item.error ?? (item.raw === null ? "no answer in time" : `answered ${JSON.stringify(item.raw.slice(0, 160))}`)}`), "");
   const missed = scored.filter((item) => item.fault && item.sent !== false);
   const alarms = scored.filter((item) => !item.fault && item.sent === false);
   if (missed.length) lines.push(`Missed: ${missed.map((item) => item.id).join(", ")}`, "");
@@ -121,7 +127,8 @@ export async function reviewCommand(options, { write = (text) => process.stdout.
   for (const name of names) if (!(name in sets)) throw new Error(`no set named ${name}`);
   const config = aiGatewayConfig(process.env);
   if (!options.fake && config === null) throw new Error("set AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID and AI_GATEWAY_TOKEN");
-  const review = options.fake ? fakeReview : (state) => reviewReply({ state, config, metadata: { feature: "bench", client: "reviewer" } });
+  // Each answer's raw text is kept, so a review with no verdict says why.
+  const review = options.fake ? fakeReview : (state, _item, seen) => reviewReply({ state, config, metadata: { feature: "bench", client: "reviewer" }, request: async (...args) => { const reply = await requestViaGateway(...args); seen.raw = String(reply?.text ?? ""); return reply; } });
   const chosen = Object.fromEntries(names.map((name) => [name, sets[name]]));
   const scored = await scoreCases(Object.values(chosen).flat(), review, Number(options.concurrency ?? 6));
   write(`${reviewReport(chosen, scored)}\n`);
