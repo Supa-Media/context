@@ -44,6 +44,17 @@ test("entries append to one block at the end, oldest first", () => {
   assert.ok(text.startsWith("# Plan\n\nShip it.\n\n```mail\n"));
 });
 
+test("a blank line inside a message keeps the rest of it (2026-11-06)", () => {
+  const spec = "FUNCTION: f(path)\n\nRULES:\n- one\n\n\n- two";
+  let text = send("# Plan\n", { at: "2026-11-06T00:58:00.000Z", from: "macbook", to: "everyone", text: spec });
+  text = send(text, { at: "2026-11-06T00:59:00.000Z", from: "dev2", to: "everyone", text: "got it" });
+  const { events } = mail.parseMail(text);
+  assert.deepEqual(events.map((event) => [event.from, event.text]), [["macbook", spec], ["dev2", "got it"]]);
+  // Mail already written with an empty line for a blank one reads whole too.
+  const old = "# Plan\n\n```mail\n- 2026-11-06T00:58:00.000Z macbook to everyone: FUNCTION: f(path)\n\n    RULES:\n- 2026-11-06T00:59:00.000Z dev2 to everyone: ok\n```\n";
+  assert.deepEqual(mail.parseMail(old).events.map((event) => event.text), ["FUNCTION: f(path)\n\nRULES:", "ok"]);
+});
+
 test("a message cannot close the block, whatever it contains", () => {
   let text = send("x", { at: "2026-10-15T18:01:00.000Z", from: "lead", kind: "mail", to: "everyone", text: "one\n```\n## not a heading" });
   text = send(text, { at: "2026-10-15T18:02:00.000Z", from: "lead", kind: "mail", to: "everyone", text: "two" });
@@ -292,4 +303,25 @@ test("write_note refuses mail beside content or a comment", async () => {
   const both = await call(TOKEN_LEAD, "write_note", { path: PLAN, content: "x", mail: { text: "y" } });
   assert.ok(both.isError);
   assert.match(both.text, /content or mail, not both/);
+});
+
+test("a whole-note save that leaves the mail out keeps it, and says so (2026-11-06)", async () => {
+  const before = bucket.get(PLAN).body;
+  const events = mail.parseMail(before).events;
+  assert.ok(events.length > 0, "the note has mail by now");
+  const read = await call(TOKEN_LEAD, "read_note", { path: PLAN });
+  const etag = /etag: (\S+)/.exec(read.text)?.[1];
+  assert.ok(etag, read.text);
+  const saved = await call(TOKEN_LEAD, "write_note", { path: PLAN, content: "# Launch plan\n\nShip on Wednesday.\n", expected_etag: etag });
+  assert.ok(!saved.isError, saved.text);
+  assert.match(saved.text, /mail: this save left out the note's mail, so it was kept/);
+  const after = bucket.get(PLAN).body;
+  assert.match(after, /^# Launch plan\n\nShip on Wednesday\.\n\n```mail\n/);
+  assert.deepEqual(mail.parseMail(after).events.map(({ at, from, text }) => [at, from, text]), events.map(({ at, from, text }) => [at, from, text]));
+  // A save that carries the mail itself is left as it is.
+  const again = await call(TOKEN_LEAD, "read_note", { path: PLAN });
+  const next = await call(TOKEN_LEAD, "write_note", { path: PLAN, content: after.replace("Wednesday", "Thursday"), expected_etag: /etag: (\S+)/.exec(again.text)?.[1] });
+  assert.ok(!next.isError, next.text);
+  assert.doesNotMatch(next.text, /left out the note's mail/);
+  assert.equal(bucket.get(PLAN).body, after.replace("Wednesday", "Thursday"));
 });

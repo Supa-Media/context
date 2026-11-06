@@ -73,6 +73,11 @@ type RunRead = { state: string; steps: { seq: number; tool: string; action: stri
 
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** An error worth reading again past: no answer, a busy service or its server failing; never a refusal (4xx). */
+export function passing(error: ServiceError): boolean {
+  return error.status === null || error.status === 429 || error.status >= 500;
+}
+
 /** Words a refusal is told to them in: the job ends, and "pick it back up" starts it again once fixed. */
 export function refusedText(title: string, name: string, code: string, fix: { why?: unknown; fixAt?: unknown } = {}): string {
   const where = `"${title}" on ${name}`;
@@ -219,9 +224,19 @@ export async function machineTurn(
   let shown = 0;
   try {
     for (;;) {
-      if (!(await fresh())) return { kind: "stop" };
-      hooks.live({ workspaceId: machine.workspaceId, runId: current.runId, accessToken: token, delivered });
-      const answer = await ask("/agent/machine/run", { runId: current.runId });
+      let answer: Record<string, unknown>;
+      try {
+        if (!(await fresh())) return { kind: "stop" };
+        hooks.live({ workspaceId: machine.workspaceId, runId: current.runId, accessToken: token, delivered });
+        answer = await ask("/agent/machine/run", { runId: current.runId });
+      } catch (error) {
+        // The part goes on on the computer while Context is briefly unreachable (2026-11-06: three busy minutes on the
+        // person's workspace ended a split job's MacBook part "failed", with nothing said why): read again until the
+        // part's deadline and its grace, and only then give the pass back to be tried again.
+        if (!(error instanceof ServiceError) || !passing(error) || deps.now() > current.deadline + GRACE_MS) throw error;
+        await sleep(MACHINE_POLL_MS);
+        continue;
+      }
       // The run is gone (another person's id, or kept past its day): this part starts again.
       if (answer.ok !== true) {
         delete run.machineRun;

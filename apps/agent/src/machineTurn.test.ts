@@ -49,7 +49,7 @@ const GROUP = "11111111-2222-3333-4444-555555555555";
 const ADA = "+15555550101";
 let groupAnswer: Record<string, unknown> = { status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "group_token" };
 
-function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }], reads = [] as RunRead[], checks = [] as Record<string, unknown>[], during }: { assign?: Record<string, unknown>[]; reads?: RunRead[]; checks?: Record<string, unknown>[]; during?: (read: number) => Promise<void> } = {}) {
+function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", deadline: NOW + 15 * 60_000 }], reads = [] as RunRead[], checks = [] as Record<string, unknown>[], during, down = [] as number[] }: { assign?: Record<string, unknown>[]; reads?: RunRead[]; checks?: Record<string, unknown>[]; during?: (read: number) => Promise<void>; /** Statuses the gateway answers reads of the run with first, before `reads` (0 for an answer). */ down?: number[] } = {}) {
   const clock = { at: NOW };
   const calls: Array<{ path: string; token: string | null; body: Record<string, unknown> }> = [];
   const reports: JobUpdate[] = [];
@@ -67,6 +67,8 @@ function world({ assign = [{ ok: true, runId: "run_000000000000000000000001", de
       if (path === "/agent/machine/run") {
         read += 1;
         await during?.(read);
+        const status = down.shift();
+        if (status !== undefined && status !== 0) return new Response(null, { status });
         const next = reads.shift() ?? { state: "running" };
         return Response.json({ ok: true, run: { steps: [], result: null, session: null, ...next }, online: true });
       }
@@ -166,7 +168,15 @@ describe("a job on the person's own computer", () => {
     await runJob(storage, deps);
     const delivered = calls.find((call) => call.path === "/agent/machine/deliver");
     expect(delivered?.body).toMatchObject({ workspaceId: "ws_seyi", runId: "run_000000000000000000000001", messageId: "e2_text", text: "make the badge yellow" });
+    expect(delivered?.body.mail).toBeUndefined();
     expect(calls.some((call) => call.path === "/agent/steer")).toBe(false);
+
+    // Note mail goes in as its sender's, never as the person's (2026-11-06).
+    const mailed = new MemoryStorage();
+    await mailed.put(RUN_KEY, { ...run(), sent: 0 });
+    const third = world({ reads: [{ state: "running" }, finished("Ran them.")], during: async (read) => void (read === 1 && (await steerJob(mailed, { id: "mail:1:cloud", text: "run the tests", mail: { from: "cloud", kind: "ask", path: "projects/split/overview.md" } }))) });
+    await runJob(mailed, third.deps);
+    expect(third.calls.find((call) => call.path === "/agent/machine/deliver")?.body).toMatchObject({ text: "run the tests", mail: { from: "cloud", kind: "ask", path: "projects/split/overview.md" } });
 
     const stopping = new MemoryStorage();
     await stopping.put(RUN_KEY, { ...run(), sent: 0 });
@@ -334,5 +344,38 @@ describe("a job on the person's own computer", () => {
       expect(clock.at - NOW).toBeLessThanOrEqual(15 * 60_000);
       expect(calls.filter((call) => call.path === "/agent/machine/assign").length).toBe(code === "declined" ? 1 : 11);
     }
+  });
+});
+
+describe("a part on a computer while Context is briefly unreachable (2026-11-06)", () => {
+  it("is read again past a busy gateway, and its answer is the job's", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps, reports } = world({ down: [503, 503, 429, 503], reads: [finished("Fixed it.")] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+    expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Fixed it."] });
+  });
+
+  it("a refusal (4xx) is never read past", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps } = world({ down: [403], reads: [finished("Fixed it.")] });
+    // Nothing ran this pass: it is tried again later, as before.
+    expect(await runJob(storage, deps)).toEqual({ kind: "after", ms: 20_000 });
+  });
+
+  it("past its deadline and grace with no answer, the pass is tried again, and out of tries the job says why", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run(), sent: 0 });
+    const { deps, reports } = world({ down: Array.from({ length: 1_000 }, () => 503) });
+    for (let pass = 0; pass < 3; pass += 1) {
+      const next = await runJob(storage, deps);
+      if (pass < 2) expect(next.kind).toBe("after");
+      else expect(next).toEqual({ kind: "done" });
+    }
+    const last = reports.at(-1)!;
+    expect(last.state).toBe("failed");
+    expect(last.status).toBe("Stopped: Context didn't answer 3 times in a row (error 503)");
+    expect(last.texts).toEqual([`I couldn't finish "Fix the flaky test": Context didn't answer 3 times in a row (error 503). Text me if you want me to try again.`]);
   });
 });
