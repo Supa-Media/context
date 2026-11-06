@@ -16,7 +16,12 @@
 import { addEvent } from "./events";
 import type { InboxStorage } from "./inbox";
 import { HANDLES_KEY } from "./replyQuote";
-import { E164, isRecord, sendblueChatId } from "./sendblue";
+import { groupInboxName } from "./groupInbox";
+import { inboxByName } from "./objectPlace";
+import { E164, isRecord, sendblueChatId, statusPath } from "./sendblue";
+
+/** A status body is small; anything this big is not one. */
+const MAX_BODY = 64 * 1024;
 
 /** Statuses that mean the send never reached them. ERROR and DECLINED are the docs'; FAILED is named by the provider check, unconfirmed. */
 const NEVER_WENT = new Set(["ERROR", "DECLINED", "FAILED"]);
@@ -77,4 +82,42 @@ export async function noteSendStatus(storage: InboxStorage, status: SendStatus, 
   }
   console.log(JSON.stringify({ event: "sendblue_status", status: status.status, ...(status.errorClass ? { error_class: status.errorClass } : {}), downgraded: status.downgraded, ...(ev ? { ev } : {}), outcome }));
   return outcome;
+}
+
+/** Whether two strings match, hashed first so the time taken says nothing of either. */
+async function sameSecret(a: string, b: string): Promise<boolean> {
+  const digest = async (value: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  const [x, y] = await Promise.all([digest(a), digest(b)]);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+/**
+ * `POST /sendblue/status/<secret>`: one send's status (`sendblueStatus.ts`).
+ * Only the configured path is taken; any other is a 404, as an unknown route
+ * is. A body we cannot place still gets a 200, so Sendblue does not retry it.
+ */
+export async function sendblueStatus(request: Request, inboxes: DurableObjectNamespace, statusUrl: string | undefined, url: URL): Promise<Response> {
+  const expected = statusPath(statusUrl);
+  if (expected === null || !(await sameSecret(expected, url.pathname))) {
+    console.log(JSON.stringify({ event: "sendblue_webhook", outcome: "unsigned", reason: "status" }));
+    return new Response(null, { status: 404 });
+  }
+  if (request.method !== "POST") return new Response(null, { status: 405 });
+  const raw = await request.text();
+  if (raw.length > MAX_BODY) return new Response(null, { status: 413 });
+  let status: SendStatus | null = null;
+  try {
+    status = parseSendStatus(JSON.parse(raw));
+  } catch {
+    status = null;
+  }
+  if (status === null) {
+    console.log(JSON.stringify({ event: "sendblue_webhook", outcome: "invalid", reason: "status" }));
+    return new Response(null, { status: 200 });
+  }
+  const name = status.object.kind === "group" ? groupInboxName(status.object.groupId) : status.object.phone;
+  const result = await inboxByName(inboxes, name).fetch("https://inbox/send-status", { method: "POST", body: JSON.stringify(status) });
+  return new Response(null, { status: result.ok ? 200 : 503 });
 }

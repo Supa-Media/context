@@ -73,6 +73,7 @@
     }
   ],
   "reviewed": {
+    "apps/agent/src/index.ts": "The Worker's one router and the chat object's one dispatch; it crossed 700 by four lines only to route Sendblue's send statuses, whose handling lives in sendblueStatus.ts.",
     "apps/machine-runner/src/protocol.rs": "The runner's whole wire protocol: every frame the gateway and the runner exchange, each a serde struct with deny_unknown_fields mirroring packages/shared/src/machineProtocol.schema.json one to one, so one file can be read against the schema field by field.",
     "packages/shared/src/machineProtocol.schema.json": "The machine protocol's JSON Schema: the single source both sides are checked against and machineProtocolTypes.mjs generates TypeScript from, one $defs entry per frame, kept in one file so the frames and the Rust mirror in apps/machine-runner/src/protocol.rs can be read side by side.",
     ".github/workflows/mcp.yml": "The gateway and package-core CI jobs: each job's length is its ci-scope inputs and the comments recording why each path is watched, and the jobs share one trigger block whose rules check-workflow-triggers.mjs enforces, so a second file would duplicate that block for no gain.",
