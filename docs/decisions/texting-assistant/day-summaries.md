@@ -11,14 +11,16 @@ its every word.
 id `day-<YYYY-MM-DD>`, so a day keeps one summary however often the night runs.
 Its `at` is that day's last entry. It exports with the ledger.
 
-**Who writes it.** After the nightly dream, the gateway (never the turn's
-model) reads the last week of the person's one-to-one chat as the dream reads
-it (texts, thinking and tool calls, never what a tool returned) and has Haiku
-sum up each finished day that had a text from them and has no summary yet,
-at most three a night, in two to five sentences that keep names, dates,
-amounts and links (`daySummaries.js`). Today and the part-day a read begins
-in are never summed up. The log counts days, never words.
-`DAY_SUMMARIES = "off"` turns it off.
+**Who writes it.** After the nightly dream, quiet nights included, the
+gateway (never the turn's model) finds every finished day of the person's
+one-to-one chat that had a text from them and has no summary yet, newest
+first, and has Haiku sum up at most twenty of them a night, four at a time,
+so a long chat's past is caught up over a few nights (Dev2, 2026-11-06, on
+learning that nothing older than a week would ever be summed up). Each day is
+read as the dream reads it (texts, thinking and tool calls, never what a tool
+returned), and summed up in two to five sentences that keep names, dates,
+amounts and links (`daySummaries.js`). Today is never summed up. The log counts
+days, never words. `DAY_SUMMARIES = "off"` turns it off.
 
 **What a turn is shown.** A turn reads its chat newest first until the
 history budget is spent ([faded-history](./faded-history.md)). When the chat
