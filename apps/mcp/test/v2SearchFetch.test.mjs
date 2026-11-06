@@ -284,6 +284,14 @@ describe("translateFetch: a chat's history file", () => {
     });
   });
 
+  it("pages back through it and filters to one job", () => {
+    assert.deepEqual(translateFetch({ id: "tex/history.ledger.json", args: { before: 120, job: "job-1" } }, CLAUDE).arguments, {
+      path: "tex/history.ledger.json",
+      before: 120,
+      job: "job-1",
+    });
+  });
+
   it("reads it for ChatGPT with no args too, rather than refusing a non-.md id", () => {
     assert.equal(translateFetch({ id: "tex/history.ledger.json" }, GPT).name, "read_note");
   });
