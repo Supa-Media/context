@@ -17,6 +17,7 @@ import { atName } from "../format";
 import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
 import { MachinesCard } from "./panels/MachinesCard";
+import { AppVersionCard } from "./panels/AppVersionCard";
 import { BlockedPeopleCard } from "./panels/BlockedPeopleCard";
 import { SignInEmailsCard } from "./panels/SignInEmailsCard";
 import { AccountSafetyCard } from "./panels/AccountSafetyCard";
@@ -271,6 +272,9 @@ export function AccountSection({
       <View style={styles.spaced}>
         <BlockedPeopleCard />
       </View>
+
+      {/* Which copy of the phone app is running, and Check for update. Nothing on the web. */}
+      <AppVersionCard />
 
       {/*
         The two ways out, side by side. Sign-out ends a session; delete ends
