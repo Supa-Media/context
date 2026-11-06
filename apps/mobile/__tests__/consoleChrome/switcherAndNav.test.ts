@@ -156,6 +156,31 @@ describe("the account card and the top bar do not overlap", () => {
   });
 });
 
+/*
+  Tex's hub from the same menu, right after Meetings (Dev2, 2026-11-06), for
+  the owner of a personal workspace: `/tex` opens their own page.
+  SABOTAGE: drop `onOpenTex` from `ConsoleFrame`'s switcher props and both fail.
+*/
+describe("Tex in the account menu", () => {
+  const order = () =>
+    Array.from(document.body.querySelectorAll('[data-testid^="switcher-"]')).map((node) =>
+      node.getAttribute("data-testid"),
+    );
+
+  for (const [name, width, trigger] of [["phone", 390, "account-menu"], ["pointer", 1440, "account-switcher"]] as const) {
+    test(`a ${name} offers Tex right after Meetings, and it opens /tex`, () => {
+      const app = mountConsole(width);
+      app.press(app.find(trigger));
+      const ids = order();
+      expect(ids.indexOf("switcher-tex")).toBe(ids.indexOf("switcher-meetings") + 1);
+      mockConsoleState.pushed.length = 0;
+      app.press(app.find("switcher-tex"));
+      expect(mockConsoleState.pushed).toEqual(["/tex"]);
+      app.unmount();
+    });
+  }
+});
+
 describe("the panes that are not Browse carry the navigation too", () => {
   /*
     THE FIXTURE ABOVE DRAWS `NavBand` ITSELF, AND THAT IS THE RIGHT CALL — a

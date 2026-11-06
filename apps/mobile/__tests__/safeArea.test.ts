@@ -118,6 +118,7 @@ jest.mock("expo-router", () => {
     Navigator: Object.assign(() => null, { Slot: () => null }),
     Link: ({ children }: { children?: unknown }) => h("div", null, children as never),
     useRouter: () => ({ replace: () => {}, push: () => {}, back: () => {} }),
+    useNavigation: () => ({ getState: () => ({ index: 0 }) }),
     useLocalSearchParams: () => ({}),
     useGlobalSearchParams: () => ({}),
     usePathname: () => "/",

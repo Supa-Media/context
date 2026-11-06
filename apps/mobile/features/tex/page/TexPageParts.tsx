@@ -149,10 +149,10 @@ export function JobRow({ title, right, onPress, testID }: { title: string; right
 }
 
 /** `.crumb` + `.back`: "‹ Tex", above every page that is not the first. */
-export function Back({ onPress, label = "‹ Tex" }: { onPress: () => void; label?: string }) {
+export function Back({ onPress, label = "‹ Tex", testID = "tex-back" }: { onPress: () => void; label?: string; testID?: string }) {
   return (
     <View style={{ flexDirection: "row" }}>
-      <Pressable accessibilityRole="link" onPress={onPress} testID="tex-back">
+      <Pressable accessibilityRole="link" onPress={onPress} testID={testID}>
         <T size={14} weight="500" tone="accent">
           {label}
         </T>

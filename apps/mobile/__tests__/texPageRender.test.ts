@@ -60,10 +60,11 @@ afterEach(() => {
   container.remove();
 });
 
+let exits = 0;
 function Harness({ source, start }: { source: TexPageSource; start: Place }) {
   const [place, setPlace] = useState<Place>(start);
   const page = useTexPage(source, place.chat);
-  return createElement(TexPageBody, { source, page, place, go: setPlace, computer: null, openComputer: () => {}, now: fixtureNow });
+  return createElement(TexPageBody, { source, page, place, go: setPlace, computer: null, openComputer: () => {}, exit: () => (exits += 1), now: fixtureNow });
 }
 
 const tick = () =>
@@ -106,6 +107,21 @@ describe("the Tex page", () => {
     ]) {
       expect(text()).toContain(words);
     }
+  });
+
+  // In the app the hub had no way out (Dev2, 2026-11-06): the first screen leads back to the notes, a sub-page to Tex.
+  test("the first screen has a way out", async () => {
+    exits = 0;
+    await render(fixtureSource());
+    expect(byTestId("tex-exit")?.textContent).toBe("‹ Notes");
+    await press("tex-exit");
+    expect(exits).toBe(1);
+  });
+
+  test("a sub-page has no way out of Tex, only back to its first screen", async () => {
+    await render(fixtureSource(), { chat: "me", view: "routines" });
+    expect(byTestId("tex-exit")).toBeNull();
+    expect(byTestId("tex-back")).not.toBeNull();
   });
 
   test("the chat picker switches the whole page to the group", async () => {
