@@ -51,6 +51,7 @@ import { PRODUCTION_HEARTBEAT_PATH, readJobSetup } from "./production.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { SKIP_WORD } from "./routine.js";
+import { SAY_NOTHING } from "./sayNothing.js";
 import { READ_SOURCE_PREFIX } from "./sources.js";
 import { appendConversation, readConversation } from "./conversation.js";
 import { threadOf } from "./threadView.js";
@@ -348,8 +349,8 @@ export function heartbeatQuestion({ changed, now, texted, recent = [], instructi
         recent.join("\n")
       : "",
     theirs ? `Their own instructions for check-ins, from ${HEARTBEAT_SETTINGS_PATH}:\n${theirs}` : "",
-    muted.length > 0 ? `They asked never to be texted about these unless they ask, so anything about them is ${SKIP_WORD}: ${muted.join(", ")}.` : "",
-    `Answer with the text to send them, or, if nothing is worth a text, exactly ${SKIP_WORD} and nothing else.`,
+    muted.length > 0 ? `They asked never to be texted about these unless they ask, so for anything about them, ${SAY_NOTHING}: ${muted.join(", ")}.` : "",
+    `Answer with the text to send them, or, if nothing is worth a text, ${SAY_NOTHING}: nothing is texted.`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -569,6 +570,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       }),
       tools: heartbeatTools(offered),
       grants: {}, // reads only: no write, manage or send action at all
+      sayNothing: true, // nothing worth a text ends the look with no words (`sayNothing.js`)
       callTool: heartbeatCallTool(dispatch),
       env,
       builtinModelOverride: chosen,

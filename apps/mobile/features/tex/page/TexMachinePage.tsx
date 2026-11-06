@@ -1,0 +1,471 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { Linking, StyleSheet, TextInput, View } from "react-native";
+import { Switch } from "../../design/components/Switch";
+import { useFieldFont } from "../../design/fieldFont";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { texPageType } from "../../design/tokens";
+import type { ViewProps } from "./TexPageBody";
+import { ListBox, ListRow, SectionHead, SubPage, T, pageStyles, useNow } from "./TexPageParts";
+import { TexSelect, type SelectOption } from "./TexSelect";
+import { Button, ButtonRow, Chevron, DotLine, Meter, Notice, Pips, RowLink, Stepper } from "./TexMachineParts";
+import {
+  OTHERS_PER_DAY,
+  TOOL_LABEL,
+  dotOf,
+  folderExample,
+  folderProblem,
+  detailStatus,
+  hm,
+  hereOf,
+  hoursWord,
+  limitChoices,
+  runningLine,
+  sharedLine,
+  slotsLine,
+  toolLine,
+} from "./texMachineFormat";
+import type { MachineValues, ToolName, ToolState } from "./texMachineTypes";
+import { useTexMachines } from "./useTexPage";
+import { InstallBar, installBusy, installFor, installLine } from "./TexMachineInstall";
+import { SignInPanel, signInBusy, signInFor } from "./TexMachineSignIn";
+
+/** Where each coding tool's sign-in and install instructions are. */
+const TOOL_HELP: Record<ToolName, string> = {
+  claude: "https://docs.anthropic.com/en/docs/claude-code/quickstart",
+  codex: "https://github.com/openai/codex",
+};
+
+/** The one value a tool's switch may send: that tool's own key. */
+const toolValues = (tool: ToolName, on: boolean): MachineValues => (tool === "claude" ? { claude: on } : { codex: on });
+
+const OTHERS_OPTIONS: readonly SelectOption[] = OTHERS_PER_DAY.map((n) => ({ key: String(n), label: n === 0 ? "None" : String(n) }));
+
+/**
+ * Screen 2 "Machine detail" of the Tex machines design (`02-machine-detail`),
+ * with screen 9 "Not ready" (no coding tool signed in: the coding tools come
+ * first, and there are no limits or sharing yet) and screen 10 "Limit reached"
+ * (the day's hours used up, with the one-day raise) as its states. A control
+ * is drawn only when it does something.
+ */
+export function MachinePage(props: ViewProps) {
+  const { source, page, chat, go, machine: id } = props;
+  const [again, setAgain] = useState(0);
+  const read = useTexMachines(source, chat, page.changes, again);
+  const now = useNow();
+  // The coding tool being signed in from here, while its panel is open.
+  const [signingIn, setSigningIn] = useState<ToolName | null>(null);
+  const shownMachine = read?.kind === "ok" ? read.value.machines.find((x) => x.id === id) : undefined;
+  const busy = shownMachine ? signInBusy(shownMachine, Date.now()) || installBusy(shownMachine, Date.now()) : false;
+  // While the computer works on a sign-in or an install, read again every two seconds: its link or progress, then the end.
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setTimeout(() => setAgain((n) => n + 1), 2000);
+    return () => clearTimeout(timer);
+  }, [busy, again]);
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
+  const field = useFieldFont(texPageType.field);
+  const [confirming, setConfirming] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [folderError, setFolderError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+
+  if (read === null || read.kind !== "ok") return null;
+  const m = read.value.machines.find((x) => x.id === id);
+  if (!m) {
+    return (
+      <SubPage title="Machine not found" lead="It may have been disconnected." testID="tex-machine-missing">
+        <ListBox>
+          <View style={styles.linkRow}>
+            <RowLink label="Your machines" onPress={() => go({ view: "machines" })} testID="tex-machine-back" />
+          </View>
+        </ListBox>
+      </SubPage>
+    );
+  }
+
+  const set = (values: MachineValues) => void page.act({ type: "machine.set", id: m.id, values });
+  const startSignIn = (tool: ToolName) => {
+    setSigningIn(tool);
+    void page.act({ type: "machine.signIn", id: m.id, tool }).then(() => setAgain((n) => n + 1));
+  };
+  const startInstall = (tool: ToolName) => {
+    void page.act({ type: "machine.install", id: m.id, tool }).then(() => setAgain((n) => n + 1));
+  };
+  const notReady = m.state === "notReady";
+  const paused = m.state === "paused";
+  const total = m.limitMin + (m.raisedMin ?? 0);
+  const fullToday = m.usedMin >= m.limitMin;
+  const where = hereOf(m) === "this Mac" ? "the Mac" : "this computer";
+
+  const toolRow = (tool: ToolName) => {
+    const state: ToolState = m.tools[tool];
+    const title = TOOL_LABEL[tool];
+    const online = m.state !== "offline" && m.state !== "pending";
+    const installing = state === "missing" ? installFor(m, tool, now) : null;
+    let right: ReactNode = null;
+    let sub = toolLine(state, m);
+    if (installing && installing.state !== "done") {
+      sub = installLine(installing, hereOf(m));
+      if (installing.state === "failed" && online) {
+        right = <Button label="Try again" look="primary" onPress={() => startInstall(tool)} testID={`tex-machine-tool-${tool}-install`} />;
+      }
+    } else if (state === "missing" && (m.canInstall ?? []).includes(tool) && online) {
+      right = <Button label="Install" look="primary" onPress={() => startInstall(tool)} testID={`tex-machine-tool-${tool}-install`} />;
+    } else if (state === "signedIn" || state === "off") {
+      right = (
+        <Switch
+          value={state === "signedIn"}
+          onValueChange={(on) => set(toolValues(tool, on))}
+          label={title}
+          style={{ alignSelf: "center" }}
+          testID={`tex-machine-tool-${tool}-switch`}
+        />
+      );
+    } else if (state === "installed" && (m.canSignIn ?? []).includes(tool) && online) {
+      right = <Button label="Sign in" look="primary" onPress={() => startSignIn(tool)} testID={`tex-machine-tool-${tool}-signin`} />;
+    } else {
+      const label = state === "installed" ? "How to sign in" : "How to add it";
+      right = <RowLink label={label} onPress={() => void Linking.openURL(TOOL_HELP[tool])} testID={`tex-machine-tool-${tool}-link`} />;
+    }
+    const listed = <ListRow key={tool} title={title} sub={sub} right={right} testID={`tex-machine-tool-${tool}`} />;
+    const row =
+      installing && (installing.state === "starting" || installing.state === "working") ? (
+        <View key={tool}>
+          {listed}
+          <InstallBar percent={installing.step === "downloading" ? installing.percent : undefined} />
+        </View>
+      ) : (
+        listed
+      );
+    if (signingIn !== tool) return row;
+    return (
+      <View key={tool}>
+        {row}
+        <SignInPanel
+          m={m}
+          tool={tool}
+          signIn={signInFor(m, tool, now)}
+          onStart={() => startSignIn(tool)}
+          onCode={async (signInId, code) => {
+            const answer = await page.act({ type: "machine.signInCode", id: m.id, signInId, code });
+            setAgain((n) => n + 1);
+            return answer.ok ? null : (answer.error ?? "failed");
+          }}
+          onClose={() => setSigningIn(null)}
+        />
+      </View>
+    );
+  };
+
+  const codingTools = (
+    <Section head="Coding tools">
+      <ListBox>{(["claude", "codex"] as const).map(toolRow)}</ListBox>
+    </Section>
+  );
+
+  const openEditor = () => {
+    setDraft(m.folders.join("\n"));
+    setFolderError(null);
+    setEditing((open) => !open);
+  };
+  const saveFolders = () => {
+    const folders = draft.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+    // The computer keeps only full paths, and would drop any other without a word: say which and keep the box open.
+    const problem = folders.map(folderProblem).find((p) => p !== null) ?? null;
+    setFolderError(problem);
+    if (problem !== null) return;
+    set({ folders });
+    setEditing(false);
+  };
+
+  const canUse = (
+    <Section head="Can use">
+      <ListBox>
+        <View style={styles.row} testID="tex-machine-folders">
+          <View style={styles.grow}>
+            <T size={14} weight="500">
+              Folders
+            </T>
+            {m.folders.length > 0 ? (
+              <T size={12} mono tone="muted" line={1.5}>
+                {m.folders.join(" · ")}
+              </T>
+            ) : (
+              <T size={13} tone="muted">
+                None chosen, so Tex works in its own folder here
+              </T>
+            )}
+          </View>
+          <RowLink label={m.folders.length > 0 ? "Change" : "Choose"} onPress={openEditor} testID="tex-machine-folders-edit" />
+        </View>
+        {editing ? (
+          <View style={styles.editor}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              multiline
+              placeholder={`One folder per line, like ${folderExample(m.kind)}`}
+              placeholderTextColor={colors.muted}
+              accessibilityLabel="Folders Tex may work in"
+              style={[pageStyles(colors).input, field, styles.editorInput]}
+              testID="tex-machine-folders-input"
+            />
+            {folderError !== null ? (
+              <T size={13} tone="warn" testID="tex-machine-folders-error">
+                {folderError}
+              </T>
+            ) : null}
+            <ButtonRow>
+              <Button label="Save" look="outline" onPress={saveFolders} testID="tex-machine-folders-save" />
+              <Button label="Cancel" look="outline" onPress={() => setEditing(false)} testID="tex-machine-folders-cancel" />
+            </ButtonRow>
+          </View>
+        ) : null}
+        {m.kind === "mac" ? (
+          <ListRow
+            title="Computer use"
+            sub="Tex sees the screen and uses apps, for your own asks only"
+            testID="tex-machine-computer-use"
+            right={
+              <Switch
+                value={m.computerUse}
+                onValueChange={(on) => set({ computerUse: on })}
+                label="Computer use"
+                style={{ alignSelf: "center" }}
+                testID="tex-machine-computer-use-switch"
+              />
+            }
+          />
+        ) : null}
+      </ListBox>
+    </Section>
+  );
+
+  const limits = (
+    <Section head="Limits">
+      <ListBox>
+        <View style={styles.row} testID="tex-machine-used">
+          <View style={styles.grow}>
+            <View style={styles.usedTop}>
+              <T size={14} weight="500">
+                Used today
+              </T>
+              <T size={13} tone={fullToday ? "warn" : "text2"} testID="tex-machine-used-value">
+                {`${hm(m.usedMin)} of ${hm(total)}`}
+              </T>
+            </View>
+            <Meter fraction={total > 0 ? m.usedMin / total : 0} full={fullToday} testID="tex-machine-meter" />
+            <T size={13} tone="muted" style={{ marginTop: 8 }}>
+              Starts again at midnight
+            </T>
+          </View>
+        </View>
+        <ListRow
+          title="Daily limit"
+          sub="Time Claude Code and Codex spend on Tex's jobs"
+          testID="tex-machine-limit-row"
+          right={
+            <TexSelect
+              look="sel"
+              label="Daily limit"
+              options={limitChoices(m.limitMin).map((n) => ({ key: String(n), label: hoursWord(n) }))}
+              selected={String(m.limitMin)}
+              onPick={(key) => set({ limitMin: Number(key) })}
+              testID="tex-machine-limit"
+            />
+          }
+        />
+        <ListRow
+          title="Jobs others can start a day"
+          sub="Across every chat it is in"
+          testID="tex-machine-others-row"
+          right={
+            <TexSelect
+              look="sel"
+              label="Jobs others can start a day"
+              options={OTHERS_OPTIONS}
+              selected={String(m.othersPerDay)}
+              onPick={(key) => set({ othersPerDay: Number(key) })}
+              testID="tex-machine-others"
+            />
+          }
+        />
+        <ListRow
+          title="Pause near my plan's limit"
+          sub="When Claude Code says you are close, new jobs wait or go to the cloud"
+          testID="tex-machine-pause-row"
+          right={
+            <Switch
+              value={m.pauseNearPlan}
+              onValueChange={(on) => set({ pauseNearPlan: on })}
+              label="Pause near my plan's limit"
+              style={{ alignSelf: "center" }}
+              testID="tex-machine-pause"
+            />
+          }
+        />
+      </ListBox>
+    </Section>
+  );
+
+  const shared = (
+    <Section head="Shared with">
+      <ListBox>
+        {m.chats.map((c) => {
+          // Each row opens that chat's settings, where its machine settings live (screen 4).
+          return (
+            <ListRow
+              key={c.key}
+              title={c.key === "me" ? "Just you" : c.name}
+              sub={sharedLine(c, m)}
+              onPress={() => go({ chat: c.key, view: "settings" })}
+              testID={`tex-machine-chat-${c.key}`}
+              right={<Chevron />}
+            />
+          );
+        })}
+      </ListBox>
+    </Section>
+  );
+
+  const saveName = () => {
+    const name = nameDraft.trim();
+    if (name !== "" && name !== m.name) set({ name });
+    setRenaming(false);
+  };
+  const nameRow = renaming ? (
+    <View style={styles.editor} testID="tex-machine-name-editor">
+      <TextInput
+        value={nameDraft}
+        onChangeText={setNameDraft}
+        maxLength={100}
+        autoFocus
+        onSubmitEditing={saveName}
+        returnKeyType="done"
+        accessibilityLabel="This computer's name"
+        style={[pageStyles(colors).input, field]}
+        testID="tex-machine-name-input"
+      />
+      <ButtonRow>
+        <Button label="Save" look="outline" onPress={saveName} testID="tex-machine-name-save" />
+        <Button label="Cancel" look="outline" onPress={() => setRenaming(false)} testID="tex-machine-name-cancel" />
+      </ButtonRow>
+    </View>
+  ) : (
+    <View style={styles.renameRow}>
+      <RowLink
+        label="Rename"
+        onPress={() => {
+          setNameDraft(m.name);
+          setRenaming(true);
+        }}
+        testID="tex-machine-rename"
+      />
+    </View>
+  );
+
+  return (
+    <SubPage title={m.name} testID="tex-machine">
+      <View style={styles.status}>
+        <DotLine tone={dotOf(m.state)} size={14} testID="tex-machine-status">
+          {detailStatus(m, now)}
+        </DotLine>
+        {nameRow}
+      </View>
+      {notReady ? (
+        <Notice testID="tex-machine-not-ready">
+          {m.tools.claude === "installed" && (m.canSignIn ?? []).includes("claude")
+            ? `Claude Code is signed out on ${hereOf(m)}. Sign it in below and Tex can run jobs here again.`
+            : m.tools.claude === "missing" && m.tools.codex === "missing" && (m.canInstall ?? []).length > 0
+              ? `Install Claude Code or Codex below, then sign in, and Tex can start running jobs on ${hereOf(m)}.`
+              : `Sign in to Claude Code or Codex on ${hereOf(m)} and Tex can start running jobs here. This page updates on its own.`}
+        </Notice>
+      ) : null}
+      {paused && m.paused === "limit" ? (
+        <Notice
+          testID="tex-machine-limit-notice"
+          action={
+            <Button label="Allow 2 more hours today" look="outline" onPress={() => void page.act({ type: "machine.raise", id: m.id, minutes: 120 })} testID="tex-machine-raise" />
+          }
+        >
+          {`Today's ${hoursWord(m.limitMin)} are used up. New jobs go to Tex's cloud until midnight.`}
+        </Notice>
+      ) : null}
+      {paused && m.paused === "plan" ? (
+        <Notice testID="tex-machine-plan-notice">Claude Code says your plan is close to its limit. New jobs go to Tex's cloud until it resets.</Notice>
+      ) : null}
+      {notReady ? codingTools : null}
+      <Section head="Slots">
+        <ListBox>
+          <ListRow
+            title="Jobs at once"
+            sub={slotsLine(m)}
+            testID="tex-machine-slots-row"
+            right={<Stepper value={m.slots} min={1} max={Math.max(1, m.most)} onChange={(next) => set({ slots: next })} label="jobs at once" testID="tex-machine-slots" />}
+          />
+          {notReady ? null : (
+            <ListRow
+              title="Running now"
+              sub={runningLine(m, now)}
+              testID="tex-machine-running-row"
+              right={<Pips slots={m.slots} busy={m.running.length} off={paused || m.state === "offline"} testID="tex-machine-pips" />}
+            />
+          )}
+        </ListBox>
+      </Section>
+      {notReady ? null : codingTools}
+      {canUse}
+      {notReady ? null : limits}
+      {notReady ? null : shared}
+      {confirming ? (
+        <View style={styles.confirm}>
+          <T size={14} testID="tex-machine-disconnect-confirm">
+            {`Disconnect ${m.name}? Tex stops using it at once.`}
+          </T>
+          <ButtonRow>
+            <Button
+              label="Disconnect"
+              look="danger"
+              onPress={() => {
+                void page.act({ type: "machine.disconnect", id: m.id });
+                go({ view: "machines" });
+              }}
+              testID="tex-machine-disconnect-yes"
+            />
+            <Button label="Keep it" look="quiet" onPress={() => setConfirming(false)} testID="tex-machine-disconnect-no" />
+          </ButtonRow>
+        </View>
+      ) : (
+        <ButtonRow aside={`Tex stops using it at once. Nothing on ${where} is touched.`}>
+          <Button label="Disconnect this machine" look="danger" onPress={() => setConfirming(true)} testID="tex-machine-disconnect" />
+        </ButtonRow>
+      )}
+    </SubPage>
+  );
+}
+
+/** A section: its small capital head, then its rows. */
+function Section({ head, children }: { head: string; children: ReactNode }) {
+  return (
+    <View>
+      <SectionHead>{head}</SectionHead>
+      {children}
+    </View>
+  );
+}
+
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    status: { marginTop: -10, gap: 6 },
+    renameRow: { flexDirection: "row" },
+    row: { flexDirection: "row", gap: 12, alignItems: "center", paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: colors.line },
+    grow: { flex: 1, minWidth: 0, gap: 2 },
+    usedTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: 10 },
+    editor: { gap: 10, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: colors.line },
+    editorInput: { minHeight: 88, paddingVertical: 10, textAlignVertical: "top" },
+    linkRow: { paddingVertical: 11 },
+    confirm: { gap: 10, paddingTop: 4 },
+  });

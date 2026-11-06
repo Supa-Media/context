@@ -23,6 +23,7 @@ import {
   advisorLine,
   ago,
   busyLine,
+  minionMood,
   clock,
   endedLine,
   heading,
@@ -38,7 +39,7 @@ import {
 } from "../features/tex/page/texPageFormat";
 import { liveProtocols, liveSocketUrl, openLive, readPatch, type SocketLike } from "../features/tex/page/texPageLive";
 import { gatewaySource, readAnswer, texPageUrl } from "../features/tex/page/texPageSource";
-import { placeParams, readPlace } from "../features/tex/page/texPlace";
+import { addressOf, chatOfWords, placeHref, readPlace, signInHref } from "../features/tex/page/texPlace";
 import { onSite } from "../features/tex/page/texPageFormat";
 import type { JobSummary } from "../features/tex/page/texPageTypes";
 
@@ -67,6 +68,39 @@ describe("reading the gateway", () => {
     expect(o!.tiles.routines).toEqual({ on: 3, next: "8:00" });
     expect(o!.earlier).toEqual([]);
     expect(JSON.stringify(o)).not.toContain("kept out");
+  });
+
+  test("a job on a computer gets that computer's place beside Tex's cloud, and keeps its name", () => {
+    const vm = { id: "v", title: "Add hello.py", state: "running", startedAt: 1, machine: "mch_1", machineName: "Cloud VM", ranOn: "On Cloud VM", tool: "Claude Code" };
+    const o = readOverview({ minions: [{ slot: 1, job: null }, { slot: 1, place: "mch_1", job: vm }] })!;
+    expect(o.places?.map((p) => [p.key, p.name, p.slots])).toEqual([
+      ["cloud", "Tex's cloud", 3],
+      ["mch_1", "Cloud VM", 1],
+    ]);
+    expect(o.minions.map((s) => [s.place, s.slot, s.job?.id ?? null])).toEqual([
+      ["cloud", 1, null],
+      ["cloud", 2, null],
+      ["cloud", 3, null],
+      ["mch_1", 1, "v"],
+    ]);
+    expect(o.minions[3]!.job).toMatchObject({ ranOn: "On Cloud VM", tool: "Claude Code", machine: "mch_1" });
+    // Nobody with a computer: no places, the three slots as always.
+    expect(readOverview({ minions: [{ slot: 2, job: { id: "a" } }] })!.places).toBeUndefined();
+  });
+
+  test("a minion card is the calm # Tex whatever its job's state, dimmed when free", () => {
+    for (const state of ["running", "waiting", "failed", "done"] as const) expect(minionMood(job({ state }))).toBe("calm");
+    expect(minionMood(null)).toBe("rest");
+  });
+
+  test("an offline computer's free slots are not counted as room", () => {
+    const places = [
+      { key: "cloud", kind: "cloud" as const, name: "Tex's cloud", slots: 3 },
+      { key: "vm", kind: "machine" as const, name: "Cloud VM", slots: 2 },
+      { key: "mac", kind: "machine" as const, name: "MacBook Pro", slots: 2, offline: true },
+    ];
+    const slots = places.flatMap((p) => Array.from({ length: p.slots }, (_, i) => ({ slot: i + 1, place: p.key, job: p.key === "vm" && i === 0 ? job() : null })));
+    expect(busyLine(slots, places)).toBe("Minions · 1 of 5 busy");
   });
 
   test("a section not sent yet answers empty, never an error", () => {
@@ -147,9 +181,9 @@ describe("the mock's words", () => {
 
   test("minions", () => {
     expect(busyLine([{ slot: 1, job: job() }, { slot: 2, job: job() }, { slot: 3, job: null }])).toBe("Minions · 2 of 3 busy");
-    expect(slotLine(job({ failedSteps: 3 }), 60_000)).toEqual({ text: "1 min", failed: "3 steps didn't work" });
+    expect(slotLine(job({ failedSteps: 3 }), 60_000)).toEqual({ text: "Thinking · 1\u00a0min", failed: "3 steps didn't work" });
     expect(slotLine(job({ state: "waiting", needs: "Needs your sign-in code" }))).toEqual({ text: "Needs your sign-in code", warn: true });
-    expect(slotLine(job({ for: "Ada" }), 180_000)).toEqual({ text: "For Ada · 3 min" });
+    expect(slotLine(job({ for: "Ada", now: "search_web: flights" }), 180_000)).toEqual({ text: "Researching · For Ada · 3\u00a0min" });
     expect(moodOf(null)).toBe("rest");
     expect(moodOf(job({ state: "waiting" }))).toBe("stuck");
     expect(endedLine(job({ state: "done", endedAt: 0 }), 20 * 60_000)).toBe("Done · 20 min ago ›");
@@ -222,8 +256,41 @@ describe("the address", () => {
     expect(readPlace({ chat: "g1", view: "routines" })).toEqual({ chat: "g1", view: "routines" });
     expect(readPlace({ chat: "../x", view: "nope", job: "<script>" })).toEqual({ chat: "me" });
     expect(readPlace({ view: "computer", full: "1" })).toEqual({ chat: "me", view: "computer", full: true });
-    expect(placeParams({ chat: "me" })).toEqual({});
-    expect(placeParams({ chat: "g1", job: "j1" })).toEqual({ chat: "g1", job: "j1" });
+  });
+
+  // The owner, 2026-11-03: Tex's links go to `/tex/@user` and `/tex/group/<words>`, and to sub-pages under them.
+  const KEY = "a".repeat(64);
+  const CHATS = [
+    { key: "me", name: "Just you" },
+    { key: KEY, name: "Band", people: 3, home: { context: "@context-lc", folder: "tex/groups/brave-otter-lamp" } },
+    { key: "b".repeat(64), name: "Old chat", people: 2 },
+  ];
+
+  test("a sub-page or a job is a path under the chat, and the old query still reads", () => {
+    expect(readPlace({ handle: "@seyi", rest: ["routines"] })).toEqual({ chat: "me", view: "routines" });
+    expect(readPlace({ handle: "@seyi", rest: ["job", "j_123"] })).toEqual({ chat: "me", job: "j_123" });
+    expect(readPlace({ handle: "@seyi", rest: ["computer"], full: "1" })).toEqual({ chat: "me", view: "computer", full: true });
+    // A path wins over the query, and anything it doesn't know is the first screen.
+    expect(readPlace({ rest: ["jobs"], view: "routines" })).toEqual({ chat: "me", view: "jobs" });
+    for (const rest of [["nope"], ["job"], ["job", "<script>"], ["job", "j1", "x"], ["routines", "x"]]) expect(readPlace({ rest })).toEqual({ chat: "me" });
+    expect(readPlace({ view: "computer" })).toEqual({ chat: "me", view: "computer" });
+  });
+
+  test("the address for a place: the person's own under their handle, a group under its words", () => {
+    expect(placeHref("seyi", { chat: "me" }, CHATS)).toBe("/tex/@seyi");
+    expect(placeHref("seyi", { chat: "me", view: "jobs" }, CHATS)).toBe("/tex/@seyi/jobs");
+    expect(placeHref("seyi", { chat: KEY }, CHATS)).toBe("/tex/group/brave-otter-lamp");
+    expect(placeHref("seyi", { chat: KEY, job: "j1" }, CHATS)).toBe("/tex/group/brave-otter-lamp/job/j1");
+    expect(placeHref("seyi", { chat: KEY, view: "computer", full: true }, CHATS)).toBe("/tex/group/brave-otter-lamp/computer?full=1");
+    // A group with no home keeps the old query under the person's own address.
+    expect(placeHref("seyi", { chat: "b".repeat(64), view: "routines" }, CHATS)).toBe(`/tex/@seyi/routines?chat=${"b".repeat(64)}`);
+    expect(addressOf("/tex/@seyi", { job: "a b" })).toBe("/tex/@seyi/job/a%20b");
+  });
+
+  test("a group's words find only that group among the person's own chats", () => {
+    expect(chatOfWords(CHATS, "brave-otter-lamp")).toBe(KEY);
+    expect(chatOfWords(CHATS, "calm-river-stone")).toBeNull();
+    expect(chatOfWords([{ key: "me", name: "Just you", home: { context: "@x", folder: "tex/groups/brave-otter-lamp" } }], "brave-otter-lamp")).toBeNull();
   });
 });
 
@@ -262,7 +329,7 @@ describe("the live socket", () => {
     expect(liveSocketUrl("https://mcp.example.test")).toBe("wss://mcp.example.test/tex/page/live");
     // The gateway decides whose page and which chat at the upgrade, from the query: without them every socket is refused.
     expect(liveSocketUrl("https://mcp.example.test", "ada", "g1")).toBe("wss://mcp.example.test/tex/page/live?handle=ada&chat=g1");
-    expect(liveProtocols("tok")).toEqual(["context.tex-page", "context.token.tok"]);
+    expect(liveProtocols("K")).toEqual(["context.tex-page", "context.ticket.K"]);
   });
 
   test("only patches are read", () => {
@@ -282,6 +349,7 @@ describe("the live socket", () => {
       handle: "ada",
       chat: "me",
       token: async () => "tok",
+      ticket: async (token) => `ticket-${token}`,
       onPatch: (p) => patches.push(p),
       onLive: (u) => ups.push(u),
       open: f.open,
@@ -334,6 +402,7 @@ describe("the live socket", () => {
       handle: "ada",
       chat: "g-not-mine",
       token: async () => "tok",
+      ticket: async (token) => `ticket-${token}`,
       onPatch: () => {},
       onLive: () => {},
       open: f.open,
@@ -344,4 +413,24 @@ describe("the live socket", () => {
     f.made[0]!.onclose!({ code: 4403 });
     expect(f.timers.at(-1)!.ms).toBe(5 * 60_000);
   });
+});
+
+// A runner's pairing link opened signed out: the code must survive signing in,
+// or the person lands on the machines list with nothing to approve.
+test("signing in keeps a pairing link's code", () => {
+  const next = decodeURIComponent(signInHref("/login", { handle: "seyi" }, { chat: "me", view: "machines" }, "NQJ-FSV"));
+  expect(next).toContain("/tex/@seyi/machines?code=NQJ-FSV");
+  expect(decodeURIComponent(signInHref("/login", { handle: "seyi" }, { chat: "me", view: "machines" }))).not.toContain("code=");
+  expect(decodeURIComponent(signInHref("/login", { handle: null, words: "brave-otter-lamp" }, { chat: "me", view: "routines" }))).toContain("/tex/group/brave-otter-lamp/routines");
+});
+
+// The machines list's Review opens the connect screen as a new screen: the code
+// must ride in its address, or the screen shows "Waiting for a code".
+test("Review carries a pairing link's code to the connect screen", () => {
+  const KEY = "a".repeat(64);
+  const CHATS = [{ key: KEY, name: "Band", people: 3, home: { context: "@context-lc", folder: "tex/groups/brave-otter-lamp" } }];
+  expect(placeHref("seyi", { chat: "me", view: "connect" }, CHATS, "L7E-JQ3")).toBe("/tex/@seyi/connect?code=L7E-JQ3");
+  expect(placeHref("seyi", { chat: "me", view: "connect" }, CHATS)).toBe("/tex/@seyi/connect");
+  expect(placeHref("seyi", { chat: "me", view: "machines" }, CHATS, "L7E-JQ3")).toBe("/tex/@seyi/machines");
+  expect(placeHref("seyi", { chat: KEY, view: "connect" }, CHATS, "L7E-JQ3")).toBe("/tex/group/brave-otter-lamp/connect?code=L7E-JQ3");
 });

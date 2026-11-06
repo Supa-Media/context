@@ -13,6 +13,7 @@ import {
   toolExistenceMasked,
 } from "./registry.js";
 import { readsPrivateAnywhere, writesAnywhere } from "../session.js";
+import { machineRunRefuses } from "./machineRun.js";
 import { validateArguments } from "../toolArguments.js";
 
 export const toolDefinitions = registryToolDefinitions;
@@ -219,10 +220,13 @@ export async function toolsForSession(session, store, { shape = "v2" } = {}) {
   */
   const off = await disabledToolNames(store);
   const enabled = off.size === 0 ? scoped : scoped.filter((tool) => !off.has(tool.name));
+  // An explicit adapter may expose a previously unlisted operation under its
+  // own reviewed schema. Keep all existing scope/plugin/machine filters.
+  if (shape === "all") return enabled.filter((tool) => !machineRunRefuses(session, tool.name));
   // Last, so that everything above still reasons about the whole surface: an
   // unlisted tool is one this server stopped *recommending*, not one it
   // stopped answering. See `UNLISTED_TOOLS`.
-  const listed = enabled.filter((tool) => !UNLISTED_TOOLS.has(tool.name));
+  const listed = enabled.filter((tool) => !UNLISTED_TOOLS.has(tool.name) && !machineRunRefuses(session, tool.name));
   return shape === "v1"
     ? listed.filter((tool) => !V2_ONLY_TOOLS.has(tool.name))
     : listed.filter((tool) => V2_TOOLS.has(tool.name));

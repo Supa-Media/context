@@ -101,7 +101,7 @@ export function drawFlights(env: DrawEnv, captions: Map<Flight, FlightCaption | 
         }
         env.hit.rect(r, { kind: "note", workspaceId: fl.to.workspaceId, path: fl.to.path }, LAYER.card);
       } else {
-        const R = Math.max(dotRadius(s, fl.to.deg), 2.6) + 0.8;
+        const R = Math.max(dotRadius(s, fl.to.deg, env.style.look.dotSize), 2.6) + 0.8;
         circle(ctx, p.x, p.y, R);
         ctx.fillStyle = C.dot;
         ctx.fill();
@@ -110,7 +110,7 @@ export function drawFlights(env: DrawEnv, captions: Map<Flight, FlightCaption | 
       // Landed: a ring spreads from where it came to rest.
       const k = fl.landedFor / 1.6;
       if (k < 1) {
-        const R = Math.max(dotRadius(s, fl.to.deg), 2);
+        const R = Math.max(dotRadius(s, fl.to.deg, env.style.look.dotSize), 2);
         const e = 1 - (1 - k) * (1 - k);
         circle(ctx, p.x, p.y, R + 3 + e * 18);
         ctx.strokeStyle = C.ink;

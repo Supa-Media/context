@@ -47,10 +47,14 @@ export interface FileEntry {
   updatedAt?: number;
   /** A folder's built-in job (`lib/nodes/folderJobs.ts`): written on its row, or at the root given by its name. */
   role?: string;
-  /** A folder's place among its siblings, when somebody set one (`nodes.order`). */
+  /** A row's place among its siblings, when somebody set one (`nodes.order`): a folder's, or a note's in custom order. */
   order?: number;
   /** On a folder in Archive: the built-in folder it is the archive copy of (`nodes.archiveOf`). */
   archiveOf?: string;
+  /** When the row was made, from the tree (`listingSort.cjs` sorts by it). */
+  createdAt?: number;
+  /** A folder's own Sort setting (`nodes.sort`, `listingSort.cjs`). */
+  sort?: string;
 }
 
 export interface FolderListing {
@@ -64,6 +68,8 @@ export interface FolderListing {
   manifestUsable: boolean;
   /** The listed folder's own built-in job, from the tree (`ownJob` in `lib/nodes/listing.ts`). */
   role?: string;
+  /** The Sort setting the folder draws by: its own or the nearest above it (`listingSort.cjs` `effectiveSort`). */
+  sort?: string;
 }
 
 /**

@@ -11,10 +11,12 @@ import { runEntitlementsAndIconChecks } from "./packaging/entitlementsAndIcon.te
 import { runNotarizeAndShipChecks } from "./packaging/notarizeAndShip.test.mjs";
 import { runDeployWorkflowChecks } from "./packaging/deployWorkflow.test.mjs";
 import { runLinuxBuildChecks } from "./packaging/linuxBuild.test.mjs";
+import { runReleaseLocalChecks } from "./packaging/releaseLocal.test.mjs";
 
 export async function runPackagingChecks(check) {
   await runEntitlementsAndIconChecks(check);
   await runNotarizeAndShipChecks(check);
   await runDeployWorkflowChecks(check);
   await runLinuxBuildChecks(check);
+  await runReleaseLocalChecks(check);
 }

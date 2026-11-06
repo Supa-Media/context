@@ -44,10 +44,24 @@ const OBJECT_NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
 /** A listing that could name an older saved version, which only the bucket holds whole. */
 const coversRevisions = (prefix) => typeof prefix === "string" && (REVISIONS.startsWith(prefix) || prefix.startsWith(REVISIONS));
 /**
- * How long a saved version no document names yet is kept in the object: a save writes its version before the
- * document that names it (`commitSnapshot`), so a younger one may be that save's, still in flight.
+ * How long a saved version no document names yet is kept in the object: a version kept when its person went idle,
+ * or one an older writer made before the document that names it (`commitSnapshot`), may still be in flight.
  */
 export const REVISION_GRACE_MS = 10 * 60 * 1000;
+
+/**
+ * One backup write per key: the last the object made. A save writes its document's state twice (accepted, then
+ * rendered); the backup is a copy nobody reads mid-save, so only where each key ended is copied.
+ */
+export function lastWriteEach(writes) {
+  const last = new Map();
+  for (const write of writes) {
+    if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
+    last.delete(write.key);
+    last.set(write.key, write);
+  }
+  return [...last.values()];
+}
 
 /**
  * @param {object} store the bucket's store
@@ -254,8 +268,7 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
    * response exactly as `put` copies one, and a document state it wrote prunes the object's older versions the same way.
    */
   const copyHandedBack = async (answer) => {
-    for (const write of Array.isArray(answer?.writes) ? answer.writes : []) {
-      if (typeof write?.key !== "string" || typeof write.body !== "string") continue;
+    for (const write of lastWriteEach(Array.isArray(answer?.writes) ? answer.writes : [])) {
       await mirror("put", write.key, () => store.put(write.key, write.body));
       const documentId = documentStateId(write.key);
       if (documentId !== null) await mirror("prune", write.key, () => pruneRevisions(documentId, write.body));

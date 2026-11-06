@@ -5,11 +5,12 @@
 /**
  * The map's controls and the custom range picker, as a person meets them. On a
  * desktop every control is in one dock at the bottom of the map (Dev2 picked
- * it, 2026-10-14): Live, Replay with its stretches in a menu, Map or Columns,
- * and zoom; the workspace menu in the top left stands for the breadcrumb and
- * the scope pills. Pick dates opens the picker, whose Replay hands the stretch
- * to the page, and Escape closes it. On a phone the calendar segment is the
- * same picker, named "Pick a stretch of time".
+ * it, 2026-10-14): zoom (Columns removed 2026-11-05); the workspace menu in the top
+ * left stands for the breadcrumb and the scope pills. The replay moved into
+ * the map's settings (Dev2, 2026-11-04): Live, the past 24 hours, the past
+ * week and Pick dates, which opens the picker, whose Replay hands the stretch
+ * to the page, and Escape closes it. While replaying, the dock (or the phone
+ * bar) keeps a way back to live.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -35,6 +36,8 @@ import { MapBar } from "../features/console/map/live/ui/MapBar";
 import { MapDock, WorkspaceMenu } from "../features/console/map/live/ui/MapDock";
 import { createCameraStore } from "../features/console/map/live/ui/CanvasOverlay";
 import { RangePicker } from "../features/console/map/live/ui/RangePicker";
+import { MapSettings } from "../features/console/map/live/ui/MapSettings";
+import { DEFAULT_LOOK } from "../features/console/map/live/look";
 import { DAY_MS, startOfDay, type Stretch } from "../features/console/map/live/replayClock";
 
 const NOW = new Date(2026, 9, 13, 15, 30).getTime();
@@ -98,53 +101,127 @@ const press = async (el: Element | null) => {
 };
 
 describe("the desktop dock", () => {
-  test("holds Live, Replay, Map, Columns and zoom in one row, and no stretch until Replay is pressed", async () => {
+  test("holds only − and + (Dev2, 2026-11-05: Columns is gone); the replay lives in the map's settings", async () => {
     const { page } = pageWith();
     const host = await mount(createElement(MapDock, { page }));
     const text = host.textContent ?? "";
-    for (const word of ["Live", "Replay", "Map", "Columns"]) expect(text).toContain(word);
-    expect(text).not.toContain("Folders");
+    expect(text).not.toContain("Columns");
+    expect(find(host, "map-view-folders")).toBeNull();
+    expect(text).not.toContain("Replay");
     expect(text).not.toContain("Past week");
     expect(find(host, "map-zoom-in")).not.toBeNull();
     expect(find(host, "map-zoom-out")).not.toBeNull();
     expect(find(host, "map-replay-bar")).toBeNull();
+    expect(find(host, "map-when-live")).toBeNull();
   });
 
-  test("Replay opens the past 24 hours, the past week and Pick dates, and a pick plays it", async () => {
-    const { page, calls } = pageWith();
+  test("while a stretch plays, the replay bar opens in the dock with a way back to live", async () => {
+    const from = startOfDay(NOW - 11 * DAY_MS);
+    const { page, calls } = pageWith({ mode: "custom", custom: { from, to: NOW, open: true } });
     const host = await mount(createElement(MapDock, { page }));
-    await press(find(host, "map-replay"));
-    const menu = document.body.textContent ?? "";
-    expect(menu).toContain("Past 24 hours");
-    expect(menu).toContain("Pick dates…");
-    await press(find(document.body, "map-when-week"));
+    expect(find(host, "map-replay-bar")).not.toBeNull();
+    await press(find(host, "map-when-live"));
+    expect(calls.setMode).toEqual(["live"]);
+  });
+});
+
+describe("the map's settings", () => {
+  const withLook = (extra: Record<string, unknown> = {}) => {
+    const looks: Array<Record<string, unknown>> = [];
+    let resets = 0;
+    const made = pageWith({ look: { ...DEFAULT_LOOK }, setLook: (p: Record<string, unknown>) => looks.push(p), resetLook: () => resets++, ...extra });
+    return { ...made, looks, resets: () => resets };
+  };
+
+  test("Replay offers Live, the past 24 hours, the past week, and a pick plays it", async () => {
+    const { page, calls } = withLook();
+    const host = await mount(createElement(MapSettings, { page, compact: false, onClose: () => {} }));
+    const text = host.textContent ?? "";
+    for (const word of ["Live", "Past 24 hours", "Past week", "Pick dates…"]) expect(text).toContain(word);
+    expect(find(host, "map-settings-when-live")!.getAttribute("aria-checked")).toBe("true");
+    await press(find(host, "map-settings-when-week"));
     expect(calls.setMode).toEqual(["week"]);
   });
 
   test("Pick dates opens the range picker rather than playing anything", async () => {
-    const { page, calls } = pageWith();
-    const host = await mount(createElement(MapDock, { page }));
-    await press(find(host, "map-replay"));
-    await press(find(document.body, "map-when-custom"));
+    const { page, calls } = withLook();
+    const host = await mount(createElement(MapSettings, { page, compact: false, onClose: () => {} }));
+    await press(find(host, "map-settings-pick-dates"));
     expect(calls.setMode).toEqual([]);
     expect(find(document.body, "map-range-picker")).not.toBeNull();
   });
 
-  test("while a stretch plays, the Replay button names it and the replay bar opens in the dock", async () => {
+  test("a picked stretch shows no preset as chosen, and offers other dates", async () => {
     const from = startOfDay(NOW - 11 * DAY_MS);
-    const { page } = pageWith({ mode: "custom", custom: { from, to: NOW, open: true } });
-    const host = await mount(createElement(MapDock, { page }));
-    expect(find(host, "map-replay")!.textContent).toContain("– now");
-    expect(find(host, "map-replay-bar")).not.toBeNull();
-    await press(find(host, "map-when-live"));
+    const { page } = withLook({ mode: "custom", custom: { from, to: NOW, open: true } });
+    const host = await mount(createElement(MapSettings, { page, compact: false, onClose: () => {} }));
+    for (const v of ["live", "day", "week"]) expect(find(host, `map-settings-when-${v}`)!.getAttribute("aria-checked")).toBe("false");
+    expect(find(host, "map-settings-pick-dates")!.textContent).toBe("Other dates…");
   });
 
-  test("Columns has nothing to zoom, so it has no − and +", async () => {
-    const { page, calls } = pageWith({ view: "folders" });
-    const host = await mount(createElement(MapDock, { page }));
-    expect(find(host, "map-zoom-in")).toBeNull();
-    await press(find(host, "map-view-map"));
-    expect(calls.setView).toEqual(["map"]);
+  test("a board and a choice of names change the look, and Restore defaults resets it", async () => {
+    const made = withLook();
+    const host = await mount(createElement(MapSettings, { page: made.page, compact: false, onClose: () => {} }));
+    expect(find(host, "map-settings-board-auto")!.getAttribute("aria-checked")).toBe("true");
+    await press(find(host, "map-settings-board-chalk"));
+    await press(find(host, "map-settings-names-hover"));
+    expect(made.looks).toEqual([{ board: "chalk" }, { names: "hover" }]);
+    await press(find(host, "map-settings-reset"));
+    expect(made.resets()).toBe(1);
+  });
+
+  test("the show switches, colour and lines change the look", async () => {
+    const made = withLook();
+    const host = await mount(createElement(MapSettings, { page: made.page, compact: false, onClose: () => {} }));
+    await press(find(host, "map-settings-archive"));
+    await press(find(host, "map-settings-color-pressure"));
+    await press(find(host, "map-settings-lines-hover"));
+    await press(find(host, "map-settings-merge"));
+    expect(made.looks).toEqual([{ showArchive: false }, { colorBy: "pressure" }, { lines: "hover" }, { mergeLines: false }]);
+    expect(find(host, "map-settings-color-topic")!.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("Find lists notes whose names hold the words, and a pick goes to it", async () => {
+    const graphs = [
+      { workspaceId: "ws-a", slug: "seyi", name: "seyi", kind: "personal", edges: [], nodes: [
+        { path: "areas/bible/Romans 8.md", title: "Romans 8" },
+        { path: "areas/bible/Romans 12.md", title: "Romans 12" },
+        { path: "inbox/groceries.md", title: "Groceries" },
+      ] },
+    ];
+    const made = withLook({ data: { graphs, scope: { kind: "one", workspaceId: "ws-a" } } });
+    const found: Array<{ workspaceId: string; path: string }> = [];
+    const host = await mount(createElement(MapSettings, { page: made.page, compact: false, onClose: () => {}, onFind: (n: { workspaceId: string; path: string }) => found.push(n) }));
+    const input = find(host, "map-settings-find") as HTMLInputElement;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      set.call(input, "roma");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(find(host, "map-settings-find-areas/bible/Romans 8.md")).not.toBeNull();
+    expect(find(host, "map-settings-find-inbox/groceries.md")).toBeNull();
+    expect(host.textContent).toContain("areas › bible");
+    await press(find(host, "map-settings-find-areas/bible/Romans 8.md"));
+    expect(found).toEqual([{ workspaceId: "ws-a", path: "areas/bible/Romans 8.md" }]);
+  });
+
+  test("the movement and 3D depth change the look", async () => {
+    const made = withLook();
+    const host = await mount(createElement(MapSettings, { page: made.page, compact: false, onClose: () => {} }));
+    await press(find(host, "map-settings-motion-still"));
+    await press(find(host, "map-settings-depth"));
+    expect(made.looks).toEqual([{ motion: "still" }, { depth: false }]);
+  });
+
+  test("shows the defaults, and the close button closes it", async () => {
+    const { page } = withLook();
+    let closed = 0;
+    const host = await mount(createElement(MapSettings, { page, compact: false, onClose: () => closed++ }));
+    const text = host.textContent ?? "";
+    for (const v of ["1.00", "0.75", "1.20", "1.80", "14"]) expect(text).toContain(v);
+    expect(find(host, "map-settings-names-all")!.getAttribute("aria-checked")).toBe("true");
+    await press(find(host, "map-settings-close"));
+    expect(closed).toBe(1);
   });
 });
 
@@ -176,14 +253,18 @@ describe("the workspace menu", () => {
 });
 
 describe("the phone bar", () => {
-  test("the calendar segment is named for what it does, and offers no words while no stretch is picked", async () => {
+  test("holds the layout, the workspaces and the gear; Back to live only while replaying", async () => {
     const { page } = pageWith();
-    const host = await mount(createElement(MapBar, { page }));
-    const calendar = find(host, "map-when-custom")!;
-    expect(calendar.getAttribute("aria-label")).toBe("Pick a stretch of time");
-    expect(host.textContent).toContain("24h");
-    expect(host.textContent).toContain("Week");
+    let opened = 0;
+    const host = await mount(createElement(MapBar, { page, onSettings: () => opened++ }));
     expect(host.textContent).toContain("This one");
+    expect(find(host, "map-when-live")).toBeNull();
+    await press(find(host, "map-settings-open"));
+    expect(opened).toBe(1);
+    const { page: replaying, calls } = pageWith({ mode: "week" });
+    const again = await mount(createElement(MapBar, { page: replaying, onSettings: () => {} }));
+    await press(find(again, "map-when-live"));
+    expect(calls.setMode).toEqual(["live"]);
   });
 });
 

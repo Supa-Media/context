@@ -27,7 +27,7 @@ export type ControlAnswer =
       timeZone?: string;
       handle?: string;
       accessToken?: string;
-      names?: { phone: string; handle: string }[];
+      names?: { phone: string; handle: string; name?: string }[];
       guests?: { phone: string; label: string }[];
       /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
       mail?: { handle: string; address: string }[];
@@ -42,7 +42,8 @@ export type ControlAnswer =
 const LABEL = /^guest-[0-9a-f]{4}$/;
 const MAIL_ADDRESS = /^[^\s@/]{1,64}@[^\s@/]{1,190}$/;
 
-export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
+/** `mint: false` asks without minting a grant: the turn already holds a kept token (`groupKept.ts`). */
+export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null, { mint = true }: { mint?: boolean } = {}): Promise<ControlAnswer> {
   const wire = command === null || command.kind === "status" || command.kind === "settings" || command.kind === "style" || command.kind === "review_sharing" ? undefined : command;
   const { status, json } = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/group`, deps.workerSecret, {
     line: message.line,
@@ -50,7 +51,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
     sender: message.from,
     participants: people.includes(message.from) ? people : [...people, message.from],
     ...(wire !== undefined ? { command: wire } : {}),
-    ...(command === null ? { mint: true } : {}),
+    ...(command === null && mint ? { mint: true } : {}),
     // A routine's or check-in's own turn is nobody talking: the chat's last word stays when it was (`textGroupLooks.ts`).
     ...(message.routine !== undefined ? { routine: true } : {}),
   });

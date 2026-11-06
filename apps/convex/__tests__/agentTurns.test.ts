@@ -156,6 +156,22 @@ describe("the turn log", () => {
     expect(await turns(t)).toHaveLength(0);
   });
 
+  // Reply gates are on (2026-11-05) and every judged turn's trace carries `kind: "judge"`
+  // (`turnLog.js` `wireTraceEntry`); refusing it lost the whole turn's row and usage.
+  test("a reply gate's verdict in the trace is skipped, and the judged turn is still kept", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    const trace = [
+      { kind: "model", ok: true, ms: 900 },
+      { kind: "judge", verdict: "does_it", acted: true, confidence: 0.9, ok: true, ms: 300 },
+      { kind: "model", ok: true, ms: 800 },
+      { kind: "judge", verdict: "accepted", acted: false, confidence: 0.1, ok: true, ms: 280 },
+    ];
+    expect((await report(t, accessToken, { trace })).recorded).toBe(true);
+    const [row] = await turns(t, workspaceId);
+    expect(row.trace).toEqual([{ kind: "model", ok: true, ms: 900 }, { kind: "model", ok: true, ms: 800 }]);
+  });
+
   test("a router's pick, a fallback, a retried round and one cut off at the output cap are kept with their status, and a provider's words are not", async () => {
     const t = setupTest();
     const { workspaceId, accessToken } = await texter(t);

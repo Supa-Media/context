@@ -88,6 +88,45 @@ async function earlierTextsToken(ctx: QueryCtx, hashedAccessToken: string): Prom
 }
 
 /**
+ * A Tex machine job part's run grant (`texMachineRunGrants`): live only while its own time lasts, its machine is active,
+ * and its parent texting grant passes every check `validateLiveGrantRecord` makes except the parent token's own expiry
+ * (a part outlives the 15-minute texting token it was minted under). Resolved only for an MCP session
+ * (`resolveGrantByAccessTokenHandler`), never by `resolveLiveGrant`, so no owner clearance, share mint or Tex page route
+ * accepts it.
+ */
+export interface RunGrantInfo {
+  machineId: Id<"texMachines">;
+  runId: string;
+  expiresAt: number;
+  /** The job whose part this is, when the gateway named it. */
+  jobId?: string;
+}
+
+export async function resolveRunGrant(
+  ctx: QueryCtx,
+  hashedAccessToken: string,
+): Promise<(LiveGrant & { run: RunGrantInfo }) | null> {
+  if (!TOKEN_HASH_PATTERN.test(hashedAccessToken)) return null;
+  const row = await ctx.db
+    .query("texMachineRunGrants")
+    .withIndex("by_access_token", (q) => q.eq("hashedAccessToken", hashedAccessToken))
+    .unique();
+  // A cheap refusal before the reads below. The run's own expiry is enforced by `validateLiveGrantRecord`, through the
+  // override further down, so this line is not what bounds the run.
+  if (row === null || row.expiresAt <= Date.now()) return null;
+  const machine = await ctx.db.get(row.machineId);
+  if (machine === null || machine.status !== "active") return null;
+  const parent = await ctx.db.get(row.parentGrantId);
+  if (parent === null) return null;
+  if (parent.clientId !== TEXTS_CLIENT_ID && parent.clientId !== TEXTS_GROUP_CLIENT_ID) return null;
+  if (parent.clientId === TEXTS_CLIENT_ID && (await phoneSignInPaused(ctx, parent.userId))) return null;
+  // The parent's own token expiry is replaced by the run's, so only the run's time bounds this grant here.
+  const live = await validateLiveGrantRecord(ctx, { ...parent, accessTokenExpiresAt: row.expiresAt });
+  if (live === null) return null;
+  return { ...live, run: { machineId: machine._id, runId: row.runId, expiresAt: row.expiresAt, ...(row.jobId !== undefined ? { jobId: row.jobId } : {}) } };
+}
+
+/**
  * Re-check a grant row that was selected by some other credential.  The
  * batch presence route receives grant ids from the already-authorized gateway,
  * so it cannot use the access-token lookup above; it must still apply exactly

@@ -441,3 +441,72 @@ test("a progress line texted on the way comes back with the turn, as a text the 
     world.close();
   }
 });
+
+// Background jobs in the bench (2026-11-04, `tests/splitting.md`): only a text sent with the chat's running jobs is offered them,
+// and the jobs a turn started come back for the start checks, the planner's notes with them.
+test("a text sent with running jobs can start jobs, and a planned split writes its notes and starts its parts", async () => {
+  const PLANNED = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n  advisor: anthropic/claude-opus-5-5\nplan_big_asks: on\n---\n\nYou are a test assistant.\n";
+  const plan = { split: true, title: "Lisbon week", goal: "The whole week.", parts: [{ name: "dinners", title: "Pick dinners", brief: "One a night." }, { name: "trip", title: "Pick a day trip", brief: "One trip." }] };
+  const offered = [];
+  const gatewayFetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const reply = (content, stop) => new Response(JSON.stringify({ content, stop_reason: stop, usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (JSON.stringify(body.system ?? "").includes("You plan work for Tex")) return reply([{ type: "text", text: JSON.stringify(plan) }], "end_turn");
+    offered.push(JSON.stringify(body.tools ?? []));
+    const last = body.messages.at(-1);
+    if (Array.isArray(last?.content) && last.content.some((block) => block.type === "tool_result")) return reply([{ type: "text", text: "ok" }], "end_turn");
+    return reply([{ type: "tool_use", id: "toolu_1", name: "send", input: { action: "plan", args: { ask: "plan the lisbon week", folder: "projects/lisbon-week/" } } }], "tool_use");
+  };
+  const world = await createWorld(bench, "Maya", PLANNED, { gatewayFetch }, "2026-10-08");
+  try {
+    const none = await world.text("plan the lisbon week");
+    assert.deepEqual(none.jobs, [], "no running list sent: no jobs");
+    assert.ok(!offered.at(-1).includes("your advisor plans it"), "nor the planner");
+    const turn = await world.text("plan the lisbon week", [], { running: [] });
+    assert.ok(offered.at(-1).includes("your advisor plans it"), "offered under send");
+    assert.deepEqual(turn.jobs.map((job) => [job.name, job.mail]), [["dinners", "projects/lisbon-week/overview.md"], ["trip", "projects/lisbon-week/overview.md"]]);
+    assert.match(turn.answer, /^On it, in 2 parts at once/);
+    const written = world.changes().filter((change) => change.kind === "written").map((change) => change.path);
+    assert.deepEqual(written.filter((path) => path.startsWith("projects/lisbon-week/")).sort(), ["projects/lisbon-week/dinners.md", "projects/lisbon-week/overview.md", "projects/lisbon-week/trip.md"]);
+  } finally {
+    world.close();
+  }
+});
+
+test("a test's computer is the one a job can run on, and the record says it ran there", async () => {
+  const gatewayFetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const last = body.messages.at(-1);
+    const reply = (content, stop) => new Response(JSON.stringify({ content, stop_reason: stop, usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (Array.isArray(last?.content) && last.content.some((block) => block.type === "tool_result")) return reply([{ type: "text", text: "ok" }], "end_turn");
+    return reply([{ type: "tool_use", id: "toolu_1", name: "send", input: { action: "background", args: { title: "Read the Next.js cache code", brief: "How fetch caching is decided.", on_computer: {} } } }], "tool_use");
+  };
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, computer: { name: "Studio Mac", tools: ["claude", "codex"], slots: 3 } }, "2026-10-08");
+  try {
+    const turn = await world.text("how does next.js decide to cache a fetch?", [], { running: [] });
+    assert.deepEqual(turn.jobs.map((job) => [job.title, job.on]), [["Read the Next.js cache code", "Studio Mac"]], JSON.stringify([turn.answer, turn.tools]));
+  } finally {
+    world.close();
+  }
+});
+
+test("a conversation keeps every model call and the chat's own ledger, for its ledger file", async () => {
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: readsOnce({ path: "health/dentist.md" }) });
+  try {
+    const turn = await world.text("when's the dentist?");
+    assert.ok(turn.trace.some((entry) => entry.kind === "tool"), "the turn's trace comes back with the turn");
+    const calls = world.modelCalls();
+    assert.equal(calls.length, 2, "one call per model round");
+    assert.ok(typeof calls[0].system === "string" && calls[0].system.length > 0, "the first call keeps the system prompt");
+    assert.equal(calls[1].system, undefined, "an unchanged system prompt is kept once");
+    assert.ok(JSON.stringify(calls[1].messages).includes("DENTIST-MARK"), "the second round keeps the tool result the model was shown");
+    assert.equal(calls[0].answer.content[0].type, "tool_use");
+    const chat = await world.chatLedger();
+    const read = chat.find((entry) => entry.kind === "tool" && entry.name === "read_note");
+    assert.deepEqual(read.args, { path: "health/dentist.md" });
+    assert.ok(String(read.result).includes("DENTIST-MARK"));
+    assert.ok(chat.some((entry) => entry.kind === "reply"));
+  } finally {
+    world.close();
+  }
+});

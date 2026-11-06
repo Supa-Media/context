@@ -26,6 +26,8 @@ import type {
   Turn,
   TurnAction,
 } from "./texPageTypes";
+import type { SlotPlace } from "./texMachineTypes";
+import { readAsks, readPlaces } from "./texMachineRead";
 
 type Rec = Record<string, unknown>;
 
@@ -96,7 +98,7 @@ export function readJob(v: unknown): JobSummary | null {
   };
   const endedAt = num(r.endedAt);
   if (endedAt !== undefined) job.endedAt = endedAt;
-  for (const key of ["needs", "for", "now"] as const) {
+  for (const key of ["needs", "for", "now", "ranOn", "tool", "machine", "machineName"] as const) {
     const s = str(r[key]);
     if (s) job[key] = s;
   }
@@ -144,15 +146,68 @@ export function readJobDetail(v: unknown): JobDetail | null {
   return detail;
 }
 
-function readSlots(v: unknown): Slot[] {
+/** Tex's cloud as a place: its three slots, first in the pool. */
+export const CLOUD_PLACE: SlotPlace = { key: "cloud", kind: "cloud", name: "Tex's cloud", slots: 3 };
+
+/** A slot the gateway sent is in a place: the cloud's have none (or `cloud`), a machine's name the machine's key. */
+const inPlace = (g: Rec, p: SlotPlace) => (p.kind === "cloud" ? g.place === undefined || g.place === p.key : g.place === p.key);
+
+function readSlots(v: unknown, places?: SlotPlace[]): Slot[] {
   const given = arr(v)
     .map((x) => rec(x))
     .filter((x): x is Rec => x !== null);
   // Always three slots, 1 to 3, whatever the gateway sent: a slot nobody filled is free.
-  return [1, 2, 3].map((slot) => {
-    const found = given.find((g) => num(g.slot) === slot);
-    return { slot, job: found ? readJob(found.job) : null };
-  });
+  if (!places) {
+    return [1, 2, 3].map((slot) => {
+      const found = given.find((g) => num(g.slot) === slot && g.place === undefined);
+      return { slot, job: found ? readJob(found.job) : null };
+    });
+  }
+  // With places, each place has exactly its own count of slots, numbered from 1.
+  return places.flatMap((p) =>
+    Array.from({ length: p.slots }, (_, i) => {
+      const slot = i + 1;
+      const found = given.find((g) => num(g.slot) === slot && inPlace(g, p));
+      return { slot, place: p.key, job: found ? readJob(found.job) : null };
+    }),
+  );
+}
+
+/**
+ * The places the slots need: the ones already known, then any machine a busy
+ * slot names that is not among them (a group's lent machine, or one the list
+ * has not answered for yet), with as many slots as it holds jobs. Undefined
+ * while every slot is in Tex's cloud and no place is known, so a person
+ * without machines sees the pool as it always was.
+ */
+export function placesForSlots(known: SlotPlace[] | undefined, v: unknown): SlotPlace[] | undefined {
+  const machineSlots = arr(v)
+    .map((x) => rec(x))
+    .filter((x): x is Rec => x !== null && typeof x.place === "string" && x.place !== CLOUD_PLACE.key);
+  if (!known && machineSlots.length === 0) return undefined;
+  const places = known ? [...known] : [CLOUD_PLACE];
+  for (const g of machineSlots) {
+    const key = g.place as string;
+    const slot = num(g.slot) ?? 1;
+    const at = places.findIndex((p) => p.key === key);
+    if (at >= 0) {
+      // A machine running more than the list said (its owner raised it since): every job still gets its card.
+      if (places[at]!.slots < slot) places[at] = { ...places[at]!, slots: slot };
+      continue;
+    }
+    const job = rec(g.job);
+    places.push({ key, kind: "machine", name: str(job?.machineName) ?? "Your computer", slots: slot });
+  }
+  return places;
+}
+
+/** The overview with these places, its slots re-read into them (a busy slot keeps its job, the rest are free). */
+export function withPlaces(overview: Overview, places: SlotPlace[]): Overview {
+  const busy = overview.minions
+    .filter((s) => s.job !== null)
+    .map((s) => ({ slot: s.slot, ...(s.place && s.place !== CLOUD_PLACE.key ? { place: s.place } : {}), job: s.job }));
+  const all = placesForSlots(places, busy) ?? places;
+  return { ...overview, places: all, minions: readSlots(busy, all) };
 }
 
 function readTiles(v: unknown): Tiles {
@@ -212,8 +267,18 @@ export function readSection(overview: Overview, section: string, value: unknown)
       return { ...overview, thinking: list(value, readTurn).slice(0, 3) };
     case "thinkingToday":
       return { ...overview, thinkingToday: num(value) ?? 0 };
-    case "minions":
-      return { ...overview, minions: readSlots(value) };
+    case "minions": {
+      const places = placesForSlots(overview.places, value);
+      return { ...overview, ...(places ? { places } : {}), minions: readSlots(value, places) };
+    }
+    case "places": {
+      const places = readPlaces(value);
+      const { places: _old, ...rest } = overview;
+      return places ? { ...rest, places } : rest;
+    }
+    case "asks":
+      // Absent means a gateway without machines: no key, as with `places`.
+      return Array.isArray(value) ? { ...overview, asks: readAsks(value) } : overview;
     case "earlier":
       return { ...overview, earlier: list(value, readJob).slice(0, 2) };
     case "earlierWeek":
@@ -233,7 +298,7 @@ export function readOverview(v: unknown): Overview | null {
   const chat = readChat(r.chat) ?? EMPTY_OVERVIEW.chat;
   const chats = list(r.chats, readChat);
   let out: Overview = { ...EMPTY_OVERVIEW, chat, chats: chats.length ? chats : [chat] };
-  for (const key of ["status", "thinking", "thinkingToday", "minions", "earlier", "earlierWeek", "tiles", "behind"]) {
+  for (const key of ["places", "asks", "status", "thinking", "thinkingToday", "minions", "earlier", "earlierWeek", "tiles", "behind"]) {
     out = readSection(out, key, r[key]) ?? out;
   }
   return out;

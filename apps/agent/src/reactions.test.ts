@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { accept, drain, react, type InboxDeps } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
+import { addEvent, keptEvents } from "./events";
 import { answers, notedReactions, readTapback, REACTIONS_FOR_MS, REACTIONS_KEY } from "./reactions";
 
 const NOW = 1_800_000_000_000;
@@ -63,6 +64,21 @@ describe("tapbacks", () => {
     await drain(storage, deps(asks, []));
     expect(asks).toHaveLength(1);
     expect(asks[0]).toMatchObject({ question: "👍", quoted: "Want me to book it?", tapback: "Liked" });
+  });
+
+  it("an answered thumbs up is logged once as its line, with the words it was on, so the turn read from the log knows what it was on", async () => {
+    // Dev2, 2026-11-05: a 👍 on "Want me to merge it?" was logged as "👍" alone, and the turn asked again three times.
+    const storage = new MemoryStorage();
+    const ask = "The README fix is up as PR #836, but it isn't on main yet. Want me to merge it? 👍 or 👎?";
+    await addEvent(storage, { at: NOW - 1_000, chat: "chat_1", from: { kind: "tex" }, kind: "text", text: ask });
+    expect(await react(storage, tapback("e1", "Liked", ask), NOW)).toBe("queued");
+    const logged = (await keptEvents(storage, "chat_1")).filter((event) => event.kind === "reaction");
+    expect(logged).toHaveLength(1);
+    expect(logged[0].text).toBe(`👍 (yes) on Tex's message "${ask.slice(0, 120)}"`);
+    // The message itself is still the emoji code reads: the gateway's yes and `pureAck` look at it.
+    const asks: Record<string, unknown>[] = [];
+    await drain(storage, deps(asks, []));
+    expect(asks[0]).toMatchObject({ question: "👍", quoted: ask, tapback: "Liked" });
   });
 
   it("a heart on a statement is noted, not answered, and told to the next text's turn once", async () => {

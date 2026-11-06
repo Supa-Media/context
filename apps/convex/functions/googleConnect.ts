@@ -111,6 +111,7 @@ import * as validators from "./lib/googleConnect/validators";
 import { validateLoginHint } from "./lib/googleConnect/loginHint";
 import { googleClientRole } from "./lib/googleConnect/clients";
 import { mintAccessToken } from "./lib/googleConnect/mintTokens";
+import { refreshTexting } from "./lib/textingRefresh";
 
 export {
   BACKFILL_DAYS_DEFAULT,
@@ -762,6 +763,8 @@ export const disconnectGoogleConnection = mutation({
       action: "mail.disconnected",
       details: { mailboxSlug: connection.gmail?.mailboxSlug ?? "" },
     });
+    // Tex is told every turn which Google accounts are connected (`lib/texIdentity/identity.ts`): their person object hears now, as on connect.
+    for (const person of new Set([userId, connection.boundBy])) await refreshTexting(ctx, person);
 
     // Best-effort, after the row is already gone from anything sync reads —
     // same ordering `disconnectGoogleConnection` uses, and the

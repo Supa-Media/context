@@ -164,21 +164,57 @@ export async function listSkillNames(dispatch, folder = LEARNED_SKILLS_FOLDER) {
 }
 
 /**
- * The index of learned skills: one `list_notes` and a `read_note` per skill,
- * at most `MAX_LEARNED_SKILLS`, side by side. `[]` when there are none or the
+ * The index of learned skills: one `list_notes`, then every skill read in one
+ * `read_notes` (one lookup for all of them, each note answered as `read_note`
+ * answers it), at most `MAX_LEARNED_SKILLS`. A skill that call could not
+ * answer is read with `read_note` as before. `[]` when there are none or the
  * folder can't be read: a turn without its skills knows less, it never fails.
+ *
+ * On 2026-11-03 a cold text spent 750 ms here with one `read_note` per skill:
+ * for ten skills, ten lookups, ten tool calls' gates and usage reports to the
+ * control plane, and ten read-trail writes, all before the model.
  *
  * @param {(name: string, args: object) => Promise<object>} dispatch the session's own dispatcher
  */
 export async function readLearnedSkills(dispatch, folder = LEARNED_SKILLS_FOLDER) {
   const names = ((await listSkillNames(dispatch, folder)) ?? []).slice(0, MAX_LEARNED_SKILLS);
+  const together = names.length > 1 ? await readTogether(dispatch, names.map((name) => learnedSkillPath(name, folder))) : new Map();
   const read = await Promise.all(
     names.map(async (name) => {
-      const note = await readWithEtag(dispatch, learnedSkillPath(name, folder));
+      const path = learnedSkillPath(name, folder);
+      const note = together.get(path) ?? (await readWithEtag(dispatch, path));
       return note?.body === undefined ? null : indexEntry(name, note.body);
     }),
   );
   return read.filter((entry) => entry !== null);
+}
+
+/**
+ * The notes at `paths` from one `read_notes` call, by the path each part
+ * answers for: `{etag, body}` as `readWithEtag` reads one. A part that is an
+ * error, names a path not asked for, or arrived at another path (`moved_from`)
+ * is left out, and its note is read on its own. Never throws.
+ */
+async function readTogether(dispatch, paths) {
+  const found = new Map();
+  try {
+    const result = await dispatch("read_notes", { paths });
+    if (result?.isError === true || !Array.isArray(result?.content)) return found;
+    const asked = new Set(paths);
+    for (const part of result.content) {
+      const text = typeof part?.text === "string" ? part.text : "";
+      const split = text.indexOf("\n\n");
+      if (split === -1) continue;
+      const head = text.slice(0, split);
+      const path = /^path: (.+)$/m.exec(head)?.[1]?.trim();
+      const etag = /^etag: (.+)$/m.exec(head)?.[1]?.trim();
+      if (!path || !etag || !asked.has(path) || found.has(path) || /^(?:error|moved_from): /m.test(head)) continue;
+      found.set(path, { etag, body: text.slice(split + 2) });
+    }
+  } catch {
+    // Each skill is read on its own.
+  }
+  return found;
 }
 
 /** A skill's steps for the model: front matter dropped, capped. */

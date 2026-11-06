@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 
 import { texLedger, LEDGER_SCHEMA, LEDGER_VERSION, MAX_ENTRY_BYTES } from "../src/texStore/ledger.js";
 import { TexObjectRefused } from "../src/texStore/objects.js";
-import { keptArgs, ledgerFor, ledgerPlace, ledgerWriter, readsOtherWorkspace, toolEntry, wordsEntry, eventEntry, MAX_RESULT_CHARS, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
+import { judgeEntry, ledgerObserver, keptArgs, ledgerFor, ledgerPlace, ledgerWriter, readsOtherWorkspace, toolEntry, wordsEntry, eventEntry, MAX_RESULT_CHARS, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 
 const entry = (id, kind = "text", extra = {}) => ({ id, kind, at: 1_700_000_000_000 + Number(id.replace(/\D/g, "") || 0), ...extra });
@@ -157,4 +157,23 @@ test("the writer keeps order, never throws, and logs a failed write without its 
   assert.deepEqual(seen, ["second", "third"]);
   assert.equal(logged.length, 1);
   assert.ok(!logged[0].includes("first, lost"));
+});
+
+test("a judging of a draft is kept as a judge entry: the draft, each judge, whether it went (2026-11-05)", () => {
+  const written = [];
+  const observe = ledgerObserver({ write: (entry) => written.push(entry) }, null, { turn: "t1" });
+  observe({ kind: "judge", by: "gates", model: "@cf/cloudflare/clef-flash", round: 0, draft: "Here's the icon.", went: false, ms: 1412.4, notice: "Fix it.", judges: [{ id: "heard_them", yes: 0.82, at: 0.7, passed: false }, { id: "finished", yes: 0.19, at: 0.35, passed: true }, { id: "sourced", yes: null, at: 0.35, passed: true }], failed: ["heard_them"] });
+  const [kept] = written;
+  assert.equal(kept.kind, "judge");
+  assert.equal(kept.turn, "t1");
+  assert.equal(kept.text, "Here's the icon.");
+  assert.equal(kept.went, false);
+  assert.equal(kept.ms, 1412);
+  assert.equal(kept.notice, "Fix it.");
+  assert.deepEqual(kept.failed, ["heard_them"]);
+  assert.deepEqual(kept.judges[2], { id: "sourced", yes: null, at: 0.35, passed: true }, "a judge that didn't answer is kept as no score");
+  const ledger = texLedger(durableSql());
+  ledger.append("texts", [kept]);
+  assert.equal(ledger.read("texts").entries[0].kind, "judge", "the ledger keeps the kind");
+  assert.equal(judgeEntry({ by: "code", round: 1, draft: "x", went: false }).by, "code");
 });

@@ -215,6 +215,7 @@ export interface FrameState {
   asideOpen: boolean;
   /** Medium and wide: the right panel's width, in points. */
   asideWidth: number;
+  asideFolded: boolean; // Folded to a strip of its tabs (Dev2, 2026-11-05: "collapsable").
 }
 
 export const initialFrame: FrameState = {
@@ -225,6 +226,7 @@ export const initialFrame: FrameState = {
   focus: false,
   asideOpen: false,
   asideWidth: layout.asideWidth,
+  asideFolded: false,
 };
 
 export interface Regions {
@@ -317,7 +319,7 @@ export function regionsFor(
    * constellation and a phone would offer a drawer button that pulls in
    * nothing, which is worse than either pane simply being full width.
    */
-  options: { hasExplorer?: boolean } = {},
+  options: { hasExplorer?: boolean; asideBeside?: boolean } = {},
 ): Regions {
   const hasExplorer = options.hasExplorer ?? true;
 
@@ -396,14 +398,12 @@ export function regionsFor(
     for the explorer column beside the note and for nothing else" — is the
     reason this comes in over the note there rather than beside it.
 
-    There is deliberately no `hasExplorer` term. The panel is about the
-    context, not about the file tree, so Map and Connections may have it open
-    beside them; a route with no tree is a route with more room for it, not
-    less.
+    No `hasExplorer` term: the panel is about the context, not the tree. A
+    page with no note behind it (`asideBeside`, the map) gets it beside.
   */
   const aside: Regions["aside"] = !state.asideOpen
     ? "hidden"
-    : density === "wide"
+    : density === "wide" || options.asideBeside === true
       ? "column"
       : "overlay";
 

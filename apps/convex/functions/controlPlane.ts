@@ -295,24 +295,28 @@ export const openStorageBinding = internalAction({
         projection an accelerator behind it, and a caller holding the gateway
         secret must not tell "no index" from "an index we could not open".
       */
-      (async (): Promise<{ searchIndex?: GatewaySearchIndex; meaningIndex?: GatewayMeaningIndex }> => {
+      (async (): Promise<{ searchIndex?: GatewaySearchIndex; meaningIndex?: GatewayMeaningIndex; meaningOn?: true }> => {
         try {
-          const [target, meaning] = await Promise.all([
+          const [target, meaning, on] = await Promise.all([
             ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId }),
             ctx
               .runQuery(internal.functions.meaningSearch.writeTargetForWorkspace, { workspaceId })
               .catch(() => null),
+            // The owner's switch apart from the index's health, for the object's own meaning index. No credential.
+            ctx.runQuery(internal.functions.meaningSearch.meaningOnForWorkspace, { workspaceId }).catch(() => false),
           ]);
-          if (target === null && meaning === null) return {};
+          const meaningOn = on ? { meaningOn: true as const } : {};
+          if (target === null && meaning === null) return meaningOn;
           const [apiToken, accountId] = await Promise.all([
             ctx.runAction(internal.functions.admin.readIntegrationSecret, { name: D1_TOKEN_SECRET }),
             ctx.runAction(internal.functions.admin.readIntegrationSecret, { name: D1_ACCOUNT_SECRET }),
           ]);
           // Both or neither, matching `fastSearchProvision.configFor`: half a
           // configuration reads exactly like none, because there is one cure.
-          if (typeof apiToken !== "string" || apiToken.length === 0) return {};
-          if (typeof accountId !== "string" || accountId.length === 0) return {};
+          if (typeof apiToken !== "string" || apiToken.length === 0) return meaningOn;
+          if (typeof accountId !== "string" || accountId.length === 0) return meaningOn;
           return {
+            ...meaningOn,
             ...(target === null
               ? {}
               : { searchIndex: { databaseId: target.databaseId, accountId, apiToken, state: target.state } }),
@@ -367,7 +371,7 @@ export const openStorageBinding = internalAction({
     if (credential === null) return null;
     if (!isUsable(credential.status as BindingStatus)) return null;
     if (!encryptionRead.ok) return null;
-    const { searchIndex, meaningIndex } = indexes;
+    const { searchIndex, meaningIndex, meaningOn } = indexes;
     const encryptionKey = keyRead;
     const rotation = rotationRead;
     const noteCap = capRead;
@@ -397,6 +401,7 @@ export const openStorageBinding = internalAction({
       },
       searchIndex,
       meaningIndex,
+      ...(meaningOn === true ? { meaningOn } : {}),
       encryptionKey,
       rotation,
       noteCap,
@@ -459,6 +464,10 @@ export const openGatewayJob = internalAction({
 
     let searchIndex: GatewaySearchIndex | undefined;
     let meaningIndex: GatewayMeaningIndex | undefined;
+    // The owner's switch apart from the index's health (`meaningSearch.meaningOnForWorkspace`). No credential.
+    const meaningOn: boolean = await ctx
+      .runQuery(internal.functions.meaningSearch.meaningOnForWorkspace, { workspaceId: claimed.workspaceId })
+      .catch(() => false);
     try {
       const [target, meaning]: [
         { databaseId: string; state: "backfilling" | "ready" } | null,
@@ -560,6 +569,7 @@ export const openGatewayJob = internalAction({
       },
       searchIndex,
       meaningIndex,
+      ...(meaningOn ? { meaningOn: true as const } : {}),
       encryptionKey,
       rotation,
       managedEncryption,

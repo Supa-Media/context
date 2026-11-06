@@ -8,7 +8,12 @@ import type { TexComputerState } from "../useTexComputer";
 import type { ViewProps } from "./TexPageBody";
 import { ListBox, ListRow, SubPage, T, pageStyles } from "./TexPageParts";
 import { TexSelect, type SelectOption } from "./TexSelect";
-import { useTexList } from "./useTexPage";
+import { useTexList, useTexMachines } from "./useTexPage";
+import { GroupMachines } from "./TexGroupMachines";
+import { Switch } from "../../design/components/Switch";
+import { thisMacLine, useThisMac } from "./useThisMac";
+import { Chevron } from "./TexMachineParts";
+import type { MachinesPage } from "./texMachineTypes";
 
 /** The control plane's limit on the text (`apps/convex/functions/lib/texInstructions.ts` `MAX_INSTRUCTIONS`). */
 const MAX_INSTRUCTIONS = 1_500;
@@ -52,9 +57,13 @@ function Instructions({ text, picks, save, testID }: { text: string; picks: read
 }
 
 /** Settings › Tex: how Tex talks to this person, its number, and the websites it is signed in to. */
-export function SettingsPage({ source, page, chat }: ViewProps) {
+export function SettingsPage({ source, page, chat, go }: ViewProps) {
   const colors = useColors();
   const { read } = useTexList(source, chat, "settings", page.changes);
+  // Only a gateway that knows machines answers; any other draws no row.
+  const machines = useTexMachines(source, chat, page.changes);
+  // Only inside the Mac app; and only the person's own Tex settings, never a group's.
+  const thisMac = useThisMac();
   const value = read?.kind === "ok" ? read.value : undefined;
   const number = value?.number;
   const [copied, setCopied] = useState(false);
@@ -87,6 +96,33 @@ export function SettingsPage({ source, page, chat }: ViewProps) {
             }
           />
         ) : null}
+        {thisMac ? (
+          <ListRow
+            title="Let Tex use this Mac"
+            sub={thisMacLine(thisMac.status)}
+            testID="tex-settings-this-mac"
+            right={
+              thisMac.status.available ? (
+                <Switch
+                  value={thisMac.status.enabled}
+                  onValueChange={thisMac.setEnabled}
+                  label="Let Tex use this Mac"
+                  style={{ alignSelf: "center" }}
+                  testID="tex-settings-this-mac-switch"
+                />
+              ) : null
+            }
+          />
+        ) : null}
+        {machines?.kind === "ok" ? (
+          <ListRow
+            title="Your machines"
+            sub={machinesSub(machines.value)}
+            onPress={() => go({ view: "machines" })}
+            testID="tex-settings-machines"
+            right={<Chevron />}
+          />
+        ) : null}
         <ListRow
           title="Sign Tex out of websites"
           sub="Clears the sign-ins Tex keeps"
@@ -112,7 +148,7 @@ export function SettingsPage({ source, page, chat }: ViewProps) {
 }
 
 /** Group settings: how Tex behaves in one group chat. Changed here, not in the person's own chat. */
-export function GroupSettingsPage({ source, page, chat, group }: ViewProps) {
+export function GroupSettingsPage({ source, page, chat, group, go }: ViewProps) {
   const { read } = useTexList(source, chat, "settings", page.changes);
   const value = read?.kind === "ok" ? read.value : undefined;
   const approver = value?.approver;
@@ -152,6 +188,7 @@ export function GroupSettingsPage({ source, page, chat, group }: ViewProps) {
         />
       </ListBox>
       <Instructions text={value?.instructions ?? ""} picks={value?.picks ?? []} save={save} testID="tex-group" />
+      <GroupMachines source={source} page={page} chat={chat} group={group} go={go} />
       <ListBox>
         <ListRow
           title="People here"
@@ -249,4 +286,12 @@ function addressOf(url: string, title: string): string {
   } catch {
     return url.length > 0 ? url : title;
   }
+}
+
+/** "2 machines · 6 slots", or how to start when there are none. */
+function machinesSub(page: MachinesPage): string {
+  const mine = page.machines.filter((m) => m.state !== "pending");
+  if (mine.length === 0) return "Run coding jobs on your own computer";
+  const slots = mine.reduce((n, m) => n + m.slots, 0);
+  return `${mine.length} machine${mine.length === 1 ? "" : "s"} · ${slots} slot${slots === 1 ? "" : "s"}`;
 }

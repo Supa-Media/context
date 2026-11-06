@@ -3,6 +3,7 @@ import { MapRouteProvider } from "../console/map/live/MapRouteContext";
 import { MapSourceProvider } from "../console/map/live/MapSourceContext";
 import type { MapRoute } from "../console/map/live/route";
 import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
+import { MapSideProvider } from "../console/aside/mapSide";
 import { liveMapFixture } from "./liveMapFixtureData";
 
 /**
@@ -36,7 +37,9 @@ export function LiveMapFixture() {
   return (
     <MapSourceProvider value={source}>
       <MapRouteProvider value={route}>
-        <AppFrameVisualFixture />
+        <MapSideProvider>
+          <AppFrameVisualFixture panel fakeMeeting={false} />
+        </MapSideProvider>
       </MapRouteProvider>
     </MapSourceProvider>
   );

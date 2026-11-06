@@ -27,7 +27,10 @@
 
 import { MAIN_ROLES, isMainFolder, isProtectedFolder, topLevelRole, type RowRole } from "@context/shared/src/folderRoles.cjs";
 import { TEX_PARTS } from "@context/shared/src/folderJobInfo.cjs";
-import { folderPlace, isTwinPath, jobOfPath, type JobListings } from "./jobIcons/folderJobs";
+import { isTwinPath, jobOfPath, type JobListings } from "./jobIcons/folderJobs";
+import type { ListingSort } from "@context/shared/src/listingSort.cjs";
+import { drawnLevel, rowPlace } from "./levelOrder";
+import type { FolderListing } from "./types";
 import type { MenuContext } from "./menu";
 import type { MenuItem } from "./menuItem";
 import { makeItem } from "./menuMake";
@@ -68,19 +71,22 @@ export function rootFolderNames(
 
 /**
  * What a menu needs to know about folders from the loaded listings: the root's
- * names, each folder's job, and, where this console can reorder folders, each
- * one's place among its siblings as drawn (Z to A turns the ends round).
+ * names, each folder's job, where this console can reorder rows each one's
+ * place as drawn (`levelOrder.ts`), and where it can sort a folder the setting
+ * the folder draws by now (`menuSort.ts`).
  */
 export function folderMenuFacts(
   files: {
     listings: JobListings & Readonly<Record<string, { entries: readonly { kind: string; name: string }[] } | undefined>>;
     moveFolder?: unknown;
+    setFolderSort?: unknown;
     setFolderJob?: unknown;
     canShare?: boolean;
   },
-  descending = false,
-): Pick<MenuContext, "topLevelFolders" | "jobOf" | "isTwin" | "folderPlace" | "canSetJob"> {
+  workspaceSort: ListingSort | null = null,
+): Pick<MenuContext, "topLevelFolders" | "jobOf" | "isTwin" | "folderPlace" | "canSetJob" | "sortOf"> {
   const { listings } = files;
+  const loaded = listings as unknown as Readonly<Record<string, FolderListing | undefined>>;
   const topLevelFolders = rootFolderNames(listings);
   return {
     ...(topLevelFolders === undefined ? {} : { topLevelFolders }),
@@ -88,12 +94,13 @@ export function folderMenuFacts(
     isTwin: (path: string) => isTwinPath(listings, path),
     // Owner only, as Share is (`canShare`): a job decides where everybody's mail lands.
     canSetJob: files.canShare === true && files.setFolderJob !== undefined,
-    ...(files.moveFolder === undefined
+    ...(files.moveFolder === undefined ? {} : { folderPlace: (path: string) => rowPlace(loaded, path, workspaceSort) }),
+    ...(files.setFolderSort === undefined
       ? {}
       : {
-          folderPlace: (path: string) => {
-            const place = folderPlace(listings, path);
-            return place === null || !descending ? place : { first: place.last, last: place.first };
+          sortOf: (path: string) => {
+            const level = drawnLevel(loaded, path, workspaceSort);
+            return level === null ? null : { drawn: level.sort };
           },
         }),
   };

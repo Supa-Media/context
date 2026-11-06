@@ -37,7 +37,8 @@
  * `public/index.html`, so a renamed id fails there instead.
  */
 
-import { reportOnlyPolicyFor } from "./cspReport";
+import { isLandingPage, reportOnlyPolicyFor } from "./cspReport";
+import { shellEnforcedPolicy } from "./securityHeaders";
 import { isPageBoxPath } from "./pageFrame";
 import { isPluginSandboxPath } from "./pluginSandbox";
 
@@ -109,7 +110,8 @@ export async function assetsWithStyleNonce(
   const html = await response.text();
   const nonce = freshNonce();
   const body = withStyleNonce(html, nonce);
-  const policy = policyWithNonce(reportOnlyPolicyFor(pathname, convexOrigin), nonce);
+  const landing = isLandingPage(new URL(request.url));
+  const policy = policyWithNonce(reportOnlyPolicyFor(pathname, convexOrigin, landing), nonce);
   const headers = new Headers(response.headers);
   // The body is read and written again: its length and encoding describe the bytes as they came.
   headers.delete("Content-Length");
@@ -120,5 +122,7 @@ export async function assetsWithStyleNonce(
   headers.set("Cache-Control", "no-cache");
   // Set here, so `withSecurityHeaders` keeps it rather than writing the policy without the nonce.
   headers.set("Content-Security-Policy-Report-Only", policy);
+  // The shell's script policy enforces; only the document recognised as the shell gets it.
+  headers.set("Content-Security-Policy", shellEnforcedPolicy(landing));
   return new Response(body, { status: 200, statusText: response.statusText, headers });
 }

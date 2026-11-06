@@ -22,6 +22,7 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { folderPrefix } from "../search/indexable.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
+import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { holdSearchPasses } from "../search/heldPasses.js";
 import { notePrior } from "../search/priors.js";
 import { evidenceBonus } from "../search/evidence.js";
@@ -148,14 +149,22 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
   return answer.map(({ original }) => original);
 }
 
+/**
+ * The merge shape for a workspace searched as one of several (`searchEverywhere`). `fuseEverywhere` applies the
+ * query's rules across workspaces from the evidence it is given, so the workspace's own merge must not apply them
+ * again: that would count a code passage or a link-only hit twice, and reorder what the fusion reads.
+ */
+export const AS_ONE_OF_SEVERAL = Object.freeze({ query: null });
+
 /** Word search and search by meaning in one workspace, as `search_notes` has always asked. */
-export function searchOne(store, scope, rules, overrides, query, prefix, embed) {
+export function searchOne(store, scope, rules, overrides, query, prefix, embed, shape = undefined) {
   return searchBothWays(
     store,
     () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
     // A folder, never the start of a sibling's name: see `folderPrefix`. The
     // app answers alike (`apps/convex/__tests__/searchParity.test.ts`).
     { query, scope, prefix: folderPrefix(prefix), isVisible: (path) => canSee(path, scope, rules, overrides), ...(embed ? { embed } : {}) },
+    shape,
   );
 }
 
@@ -194,7 +203,8 @@ function sharedEmbedder(store) {
  */
 async function searchEverywhere(store, searchingHere, names, query, embed) {
   // Every workspace at once, this one included: waiting for this one first
-  // put a whole search in front of the others.
+  // put a whole search in front of the others. `searchingHere` is null when
+  // the app's search page left this workspace out of its scope.
   const [here, ...answers] = await Promise.all([
     searchingHere,
     ...names.map(async (name) => {
@@ -202,7 +212,7 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
         const { session: target, store: targetStore } = await store.openContext(name);
         const privacy = await loadPrivacyState(targetStore);
         if (privacy.error) return null;
-        const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed);
+        const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed, AS_ONE_OF_SEVERAL);
         return { name, found };
       } catch {
         return null;
@@ -213,39 +223,68 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
   const annotated = (found, name = null) =>
     found.hits.map((hit) => ({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: name ? `${name}/${hit.key}` : hit.key }));
   const hits = fuseEverywhere(
-    [annotated(here), ...elsewhere.map(({ name, found }) => annotated(found, name))],
+    [...(here ? [annotated(here)] : []), ...elsewhere.map(({ name, found }) => annotated(found, name))],
     EVERYWHERE_HITS,
     { extraNotes: searchSettingsOf(store).extraNotes, query },
   );
+  const base = here ?? { hits: [], matchCount: 0, matchCountIsFloor: false };
   return {
-    ...here,
+    ...base,
     hits,
-    matchCount: elsewhere.reduce((total, { found }) => total + found.matchCount, here.matchCount),
-    matchCountIsFloor: here.matchCountIsFloor || elsewhere.some(({ found }) => found.matchCountIsFloor),
+    matchCount: elsewhere.reduce((total, { found }) => total + found.matchCount, base.matchCount),
+    matchCountIsFloor: base.matchCountIsFloor || elsewhere.some(({ found }) => found.matchCountIsFloor),
     crossWorkspace: hits.some((hit) => hit.key.startsWith("@")),
   };
+}
+
+/**
+ * What `search_notes` finds, before it is written out: the hits (a key with `@name/` in front where it is another
+ * workspace's), the counts, and the index's state. One path for an AI client's search and the app's search bar
+ * (`http/appSearch.js`; the search revamp, 2026-11-04).
+ *
+ * `only`, from the app's scope picker, narrows the workspaces asked to those it names (`@slug`); without it, the
+ * person's setting (`everywhere`) decides, as for an AI client.
+ */
+export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
+  // Context.LC's own pinned workspace is reached by every account for its guides and Tex's setup, never for the
+  // person's notes: a search everywhere leaves it out unless they run it (owner or editor), or it is asked by name.
+  // In the core benchmark (2026-11-05) Tex's own prompt, `@context-lc/ai/production/texting-assistant.md`, ranked
+  // among "What do I have on October 20?"'s hits.
+  const reachable = typeof store.openContext === "function"
+    ? (store.contexts ?? [])
+        .filter((entry) => !entry.current && typeof entry.name === "string")
+        .filter((entry) => entry.name !== PINNED_CONTEXT_NAME || entry.role === "owner" || entry.role === "editor" || (Array.isArray(only) && only.includes(entry.name)))
+        .map((entry) => entry.name)
+    : [];
+  const currentName = (store.contexts ?? []).find((entry) => entry.current)?.name ?? null;
+  const asked = Array.isArray(only) ? new Set(only) : null;
+  const searchHere = asked === null || (currentName !== null && asked.has(currentName));
+  // A prefix names a folder in this workspace, so a search with one stays here.
+  const names = prefix
+    ? []
+    : asked !== null
+    ? reachable.filter((name) => asked.has(name))
+    : searchSettingsOf(store).everywhere
+    ? reachable
+    : [];
+  if (!searchHere && names.length === 0) return { hits: [], matchCount: 0, matchCountIsFloor: false };
+  const embed = names.length > 0 ? sharedEmbedder(store) : undefined;
+  // The index passes these searches start wait until every workspace has
+  // answered, so none of them queues behind another's (`search/heldPasses.js`).
+  const passes = names.length > 0 ? holdSearchPasses(store) : null;
+  try {
+    const here = searchHere ? searchOne(store, scope, rules, overrides, query, prefix, embed, names.length > 0 ? AS_ONE_OF_SEVERAL : undefined) : null;
+    return names.length > 0 ? await searchEverywhere(store, here, names, query, embed) : await here;
+  } finally {
+    passes?.release();
+  }
 }
 
 export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  // A prefix names a folder in this workspace, so a search with one stays here.
-  const names =
-    searchSettingsOf(store).everywhere && !prefix && typeof store.openContext === "function"
-      ? (store.contexts ?? []).filter((entry) => !entry.current && typeof entry.name === "string").map((entry) => entry.name)
-      : [];
-  const embed = names.length > 0 ? sharedEmbedder(store) : undefined;
-  // The index passes these searches start wait until every workspace has
-  // answered, so none of them queues behind another's (`search/heldPasses.js`).
-  const passes = names.length > 0 ? holdSearchPasses(store) : null;
-  let found;
-  try {
-    const here = searchOne(store, scope, rules, overrides, query, prefix, embed);
-    found = names.length > 0 ? await searchEverywhere(store, here, names, query, embed) : await here;
-  } finally {
-    passes?.release();
-  }
+  const found = await findNotes(store, scope, rules, overrides, query, prefix);
   const hits = found.hits.map(({ key, snippets, title, meaningOnly }) =>
     meaningOnly
       ? // Found by what it is about, not by the words typed: said so, so an
@@ -322,12 +361,14 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
 }
 
 /** The first heading if the note has one, else its filename. */
-export async function toolOpenAiSearch(store, scope, rules, overrides, query) {
+export async function toolOpenAiSearch(store, scope, rules, overrides, query, prefixArg) {
   if (!query || typeof query !== "string") return toolError("query required");
+  const prefix = prefixArg ? normalizePath(prefixArg) : "";
+  if (prefixArg && prefix === null) return toolError("invalid prefix");
   const { hits } = await searchBothWays(
     store,
-    () => searchVisibleNotes(store, scope, rules, overrides, query, ""),
-    { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) },
+    () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
+    { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) && (!prefix || path === prefix || path.startsWith(`${prefix}/`)) },
   );
   // Titles come from the text already fetched for the snippets, so a result
   // costs no read of its own. This used to spend a second GET per hit, which

@@ -23,7 +23,6 @@ export function consolePalette({
   paletteOpen,
   paletteItems,
   recent = [],
-  recentYours = false,
   search,
   setPaletteOpen,
   router,
@@ -35,8 +34,6 @@ export function consolePalette({
   paletteOpen: boolean;
   paletteItems: PaletteSearch["paletteItems"];
   recent?: PaletteSearch["recent"];
-  /** `recent` is the person's own Recent rather than this tab's history. */
-  recentYours?: boolean;
   search: PaletteSearch["search"];
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
   router: ConsoleRouter;
@@ -67,8 +64,7 @@ export function consolePalette({
       <Palette
         items={loadedInScope(paletteItems, everywhere?.narrowed ?? null, current?.slug ?? null)}
         recent={recent}
-        emptyHeading={recent.length > 0 ? "Recent" : undefined}
-        emptyNote={recent.length > 0 && recentYours ? "Notes you opened or typed in, on any device." : undefined}
+        /* No heading over the guesses: the bar lists them and says nothing about them (owner, 2026-11-04). */
         placeholder={scope === null ? "Search" : `Search in ${scopeLabel(scope)}`}
         scopeBar={
           scope === null || setScope === undefined ? bar : (

@@ -29,7 +29,7 @@ import type { FileEntry } from "../files/types";
  * visitor's edits stay in their tab, so they may rename and move there, and
  * copy the page's link; they have no workspace to share into and no archive.
  */
-export type NoteActionId = "read" | "pageText" | "share" | "rename" | "moveTo" | "addProperty" | "copyLink" | "archive" | "restore";
+export type NoteActionId = "read" | "pageText" | "share" | "rename" | "moveTo" | "addProperty" | "copyText" | "copyLink" | "archive" | "restore";
 
 export interface NoteActionContext {
   /** The note or folder that is open. */
@@ -96,6 +96,16 @@ export function noteActionItems({
   */
   if (!page && !visitor && writable && entry.kind === "file" && isMarkdown(entry.path) && chipsFit(entry.path)) {
     items.push({ id: "addProperty", label: "Add property", testID: "note-action-add-property" });
+  }
+  /*
+    Copy text: the whole file on the clipboard, Markdown or not, a read-only
+    one included (owner, 2026-11-04: "something that is needed for every file,
+    md and the json alike is a copy text option in the menu"). A read, so it
+    asks no permission beyond opening the file; a visitor's page has its own
+    copy in the browser.
+  */
+  if (!visitor && entry.kind === "file") {
+    items.push({ id: "copyText", label: "Copy text", testID: "note-action-copy-text" });
   }
   if (visitor || canShare) {
     items.push({ id: "copyLink", label: "Copy link", testID: "note-action-copy-link" });

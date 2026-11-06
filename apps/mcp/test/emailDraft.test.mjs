@@ -17,7 +17,7 @@
 
 import { ask, call, textOf, toolReplies, createEgressWorld, TOKEN_MCP, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
-const EMAIL = { to: ["jo@example.com"], subject: "Re: Thursday", body: "Hi Jo,\n\nThursday at 3 works for me." };
+const EMAIL = { to: ["jo@example.com"], subject: "Thursday", body: "Hi Jo,\n\nThursday at 3 works for me." };
 
 export async function runEmailDraftChecks(check) {
   const world = await createEgressWorld();

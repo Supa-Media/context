@@ -39,6 +39,8 @@ import { ACTIONS } from "../tools/v2/actions.js";
 
 /** Analytics Engine takes 250 points a request. */
 const MAX_POINTS = 240;
+/** The least uncovered time worth its own point. */
+const UNCOVERED_FLOOR_MS = 5;
 /** A store's own calls, timed by `watch`. */
 const STORE_OPS = ["get", "head", "put", "delete", "list"];
 /** A Cloudflare data center's code. */
@@ -59,7 +61,7 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
   let written = false;
 
   const record = (name, at, state) => {
-    const entry = { name, ms: Math.max(0, now() - at), at: at - start, state };
+    const entry = { name, ms: Math.max(0, now() - at), at: at - start, state, span: true };
     points.push(entry);
     return entry;
   };
@@ -152,6 +154,11 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
     },
     /** The answer is handed back now: write every point, once, and return `response`. */
     done(response) {
+      // What no step covered (2026-11-03: archive's steps summed to 180 ms of a 227 ms request): its own point, so the
+      // gap is measured in the same request as the whole, not guessed from medians of different samples.
+      const uncovered = Math.max(0, now() - start) - coveredMs(points);
+      // Under 5 ms is a clock's grain and the work between two awaits, not a gap worth a point.
+      if (uncovered >= UNCOVERED_FLOOR_MS) points.push({ name: "uncovered", ms: uncovered, at: 0, state: "ok" });
       record("to_response", start, response instanceof Response && response.status >= 500 ? "failed" : "ok");
       if (!written) {
         written = true;
@@ -211,6 +218,22 @@ function routeOf(input) {
 function opOf(input) {
   const route = routeOf(input);
   return /^\/[A-Za-z0-9_.-]{1,48}$/.test(route) ? route.slice(1) : "unknown";
+}
+
+/**
+ * How much of the request the timed steps cover: the union of their spans, so a step inside another (an `obj:` call
+ * inside `answer`) or two at once count once. A point recorded with a time from elsewhere (`point`) is not a span here.
+ */
+function coveredMs(points) {
+  const spans = points.filter((entry) => entry.span === true).map((entry) => [entry.at, entry.at + entry.ms]).sort((a, b) => a[0] - b[0]);
+  let covered = 0;
+  let reach = -Infinity;
+  for (const [from, to] of spans) {
+    if (to <= reach) continue;
+    covered += to - Math.max(from, reach);
+    reach = to;
+  }
+  return covered;
 }
 
 /**

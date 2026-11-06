@@ -272,6 +272,10 @@ export function noteHeadingSource(source: string, path?: string | null): Heading
   if (statedTitle(frontmatter) !== null) return "frontmatter";
   if (typeof path === "string" && isDrawingPath(path)) return "filename";
   if (firstHeading(body) !== null) return "heading";
+  // A new note's empty title (`# `, `seedFor`): the editor draws the grey
+  // "Title" in it (`untitledTitle.ts`), so the file's made-up name is not
+  // drawn above it as well.
+  if (/^#\s*$/.test(body.split(/\r?\n/).find((line) => line.trim() !== "")?.trim() ?? "")) return "heading";
   return "filename";
 }
 

@@ -55,6 +55,7 @@ export function T({
   line,
   upper = false,
   numberOfLines,
+  selectable,
   style,
   testID,
 }: {
@@ -68,6 +69,8 @@ export function T({
   line?: number;
   upper?: boolean;
   numberOfLines?: number;
+  /** Lets the reader select and copy it, as a code they type elsewhere. */
+  selectable?: boolean;
   style?: StyleProp<TextStyle>;
   testID?: string;
 }) {
@@ -76,6 +79,7 @@ export function T({
   return (
     <RNText
       numberOfLines={numberOfLines}
+      selectable={selectable}
       testID={testID}
       style={[
         {

@@ -1,6 +1,7 @@
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 
 import { agentPaint } from "../../agentKind";
+import { DEFAULT_LOOK, type MapLook } from "../../look";
 import type { MapPalette } from "../palette";
 
 /**
@@ -19,7 +20,11 @@ export type Style = {
   palette: MapPalette;
   font: string;
   faceFor: FaceFor | null;
+  /** The person's map settings. */
+  look: MapLook;
 };
+
+export { DEFAULT_LOOK };
 
 export const DEFAULT_FONT = '"Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 

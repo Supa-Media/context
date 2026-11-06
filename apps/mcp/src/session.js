@@ -250,6 +250,8 @@ export async function resolveSession(token, slug, controlPlane, transport = null
     // When this client last fetched our tool list; `orient` names what
     // changed since (`tools/news.js`). A time, and nothing about the tools.
     toolsListedAt: session.toolsListedAt,
+    // A text's session from the person object carries who is texting (`sessionPayload.js`); absent everywhere else.
+    ...(session.texterIdentity !== undefined ? { texterIdentity: session.texterIdentity } : {}),
   };
 
   /**

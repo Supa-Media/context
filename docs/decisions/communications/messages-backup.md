@@ -50,6 +50,17 @@ tools behind them unlisted. The route gives them to the personal workspace's
 owner on a private-tier connection only, and never to Tex answering a group
 chat; every texts read marks the turn untrusted (`apps/mcp/test/texts.test.mjs`).
 
+**Tex reaches them too, on a 1:1 turn** (owner, 2026-11-05: "if I say, look
+at the thing this person sent me, it's able to find it"). The three tools are
+unlisted, so the list a Tex turn starts from dropped them and Tex could not
+read the backup at all. A Tex turn whose store is cleared for texts
+(`store.texts`, the same rule as above, so never a group chat) is handed
+`search_texts` and `read_texts` by name (`agent/sixTools.js`
+`grantedToolsFor`), shown as `search { texts: true }` and `fetch
+texts:<id>`; bare `texts:` stays Tex's own history with the person. Dreams,
+check-ins and Try it are not handed them. `apps/mcp/test/agentTexts.test.mjs`
+fails if a 1:1 turn cannot find a text by who sent it.
+
 **On by default, and nothing is read until the person grants Full Disk
 Access by hand.** A fresh install has `messagesBackup: true`; a settings file
 that says false stays false. macOS never lets an app ask for Full Disk Access,

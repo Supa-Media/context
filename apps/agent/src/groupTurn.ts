@@ -11,6 +11,8 @@
  * transcript starts where they joined (`renderTranscript` with `people`).
  */
 
+import { gatherTheTurn } from "./gatherTheTurn";
+import { noteHandle, replyFields } from "./replyQuote";
 import { chatEvent } from "./chatState";
 import type { SettingReply } from "./texStyle";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
@@ -58,7 +60,6 @@ export type GroupPending = {
   rechecked?: true;
 };
 export type GroupEntry = [string, GroupPending];
-export const groupPendingKey = (seq: number) => `gpending:${String(seq).padStart(12, "0")}`;
 
 /** Handles by the hash of a phone, as the control plane last named them, never a number: so events can say who spoke. */
 const NAMES_KEY = "gnames";
@@ -73,14 +74,18 @@ export async function keepNames(storage: InboxStorage, names: readonly { phone: 
 export async function logGroupInbound(storage: InboxStorage, message: GroupMessage, now: number): Promise<string> {
   const who = await sha256Hex(message.from);
   const name = ((await storage.get<Record<string, string>>(NAMES_KEY)) ?? {})[who];
-  return await addEvent(storage, {
+  const id = await addEvent(storage, {
     at: now,
     chat: message.groupId,
     from: { kind: "person", who, ...(name ? { name } : {}) },
     kind: message.reaction ? "reaction" : kindOf(message.text, message.attachments),
     text: message.text,
     people: await eventPeople(storage, message),
+    // A reply under an earlier message, found by the handle the webhook names: its id and full words (`replyQuote.ts`).
+    ...(message.reaction || message.replyTo === undefined ? {} : await replyFields(storage, message.groupId, { handle: message.replyTo })),
   });
+  if (!message.reaction) await noteHandle(storage, message.messageId, id);
+  return id;
 }
 
 async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: GroupMessage, candidates: string[], running: boolean, addressed = false): Promise<Decision> {
@@ -175,11 +180,9 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
   const react = (act === "react" || decision.emoji !== undefined) && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
   if (act === "wait") return { answer: [], chat: [], drop: [], wait: burst, waitSeconds: decision.waitSeconds ?? 1, ...react };
   if (act !== "answer") return { answer: [], chat: burst, drop: [], ...react };
-  const chosen = burst.filter((entry) => entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
-  const answer = chosen.length > 0 ? chosen : [burst.at(-1)!];
-  const last = burst.indexOf(answer.at(-1)!);
-  // Left out before the answer: chat.
-  return { answer, chat: burst.slice(0, last).filter((entry) => !answer.includes(entry)), drop: [], ...react };
+  // Left out before the answer: chat (`gatherTheTurn.ts`). Everything here is untagged (`addressedTurn` took the rest), so nothing jumps the order.
+  const { answer, left } = gatherTheTurn(burst, (entry) => entry[1].ev !== undefined && decision.covers.includes(entry[1].ev), (entry) => !soft(entry));
+  return { answer, chat: left, drop: [], ...react };
 }
 
 /**

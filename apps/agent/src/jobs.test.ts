@@ -21,7 +21,7 @@ import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { acceptJob, runJob, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, JOB_SHOWN_MS, JOB_STALE_MS, noteJobUpdate, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
+import { chatJobs, JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, JOB_SHOWN_MS, JOB_STALE_MS, noteJobUpdate, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, WAIT_ENDED_STATUS, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -108,6 +108,22 @@ describe("background jobs", () => {
     expect(await chatJobs(other, NOW)).toEqual([]);
   });
 
+  it("counts jobs on a computer against its own slots, never the cloud's three (2026-11-04)", async () => {
+    const storage = new MemoryStorage();
+    const context = { now: NOW, inbox: PHONE, origin: { kind: "phone" as const, phone: PHONE, question: "q" }, place: { chatId: "chat_1" }, spawn: async () => {} };
+    const studio = { workspaceId: "ws_maya", machineId: "mch_studio1", name: "Studio Mac", tool: "claude" as const, folder: "~/code" };
+    const onStudio = ["Weekly digest routine", "Digest card", "Digest docs", "Login bug"].map((title) => ({ title, brief: "b", machine: studio }));
+    expect(await startJobs(storage, onStudio, context)).toEqual({ started: 4, notStarted: [] });
+    expect(await startJobs(storage, [{ title: "Trip plan", brief: "b" }, { title: "Gift ideas", brief: "b" }, { title: "Tax forms", brief: "b" }, { title: "Fourth one", brief: "b" }], context)).toEqual({ started: 3, notStarted: ["Fourth one"] });
+    const listed = await chatJobs(storage, NOW);
+    expect(listed).toHaveLength(7);
+    expect(listed.filter((job) => job.on === "mch_studio1")).toHaveLength(4);
+    expect(listed.filter((job) => job.on === undefined)).toHaveLength(3);
+    const more = Array.from({ length: 6 }, (_, i) => ({ title: `Part ${"abcdef"[i]} of the build`, brief: "b", machine: studio }));
+    expect((await startJobs(storage, more, context)).notStarted).toHaveLength(2);
+    expect(readStartedJobs(Array.from({ length: 12 }, (_, i) => ({ title: `Job ${i}`, brief: "b" })))).toHaveLength(11);
+  });
+
   it("tells them about a job it said it started that never did, and says nothing when every one started", () => {
     expect(notStartedText([])).toBeUndefined();
     const said = notStartedText(["Fourth one"]);
@@ -146,6 +162,24 @@ describe("background jobs", () => {
     expect(storage.data.has("job:done-8d-1")).toBe(false);
     expect(JOB_KEPT_MS).toBe(7 * day);
     expect(JOB_SHOWN_MS).toBe(2 * 60 * 60 * 1000);
+  });
+
+  it("ends a wait nobody can answer any more: once its run is gone, a waiting job is stuck, never waiting", async () => {
+    // 2026-11-04: a job waiting on a Gmail yes since 11-02 still held a minion on the Tex page, two days after its run was deleted.
+    const storage = new MemoryStorage();
+    const waited = (id: string, finishedAt: number): JobEntry => ({ id, title: id, state: "waiting", startedAt: finishedAt - 60_000, finishedAt, status: "Needs their yes in Gmail", verdict: "waiting", advice: "Ask them" });
+    await storage.put("job:wait-1h-1", waited("wait-1h-1", NOW - 60 * 60 * 1000));
+    await storage.put("job:wait-2d-1", waited("wait-2d-1", NOW - 2 * 24 * 60 * 60 * 1000));
+    const listed = await chatJobs(storage, NOW, { all: true });
+    // Still answerable: shown waiting, so their answer picks it up (`resumeJob` keeps the run this long).
+    expect(listed.find((job) => job.id === "wait-1h-1")!.state).toBe("waiting");
+    const lapsed = storage.data.get("job:wait-2d-1") as JobEntry;
+    expect(lapsed).toMatchObject({ state: "stuck", status: WAIT_ENDED_STATUS, finishedAt: NOW - 2 * 24 * 60 * 60 * 1000 + JOB_SHOWN_MS });
+    expect(lapsed).not.toHaveProperty("verdict");
+    expect(lapsed).not.toHaveProperty("advice");
+    // Settled once: a second read leaves it as it is.
+    await chatJobs(storage, NOW + 1);
+    expect(storage.data.get("job:wait-2d-1")).toEqual(lapsed);
   });
 
   it("uses the gateway's job id when it is well formed and free, and a fresh one when it is taken", async () => {
@@ -302,6 +336,18 @@ describe("background jobs", () => {
     expect(JSON.stringify(shown)).not.toMatch(/confirmation 42|Sign in first/);
   });
 
+  // Tex Devs, 2026-11-05: a ten-PR report (about 4,000 characters) was kept to 1,500 and cut after the fourth PR.
+  it("keeps a long report whole for the chat's turns", async () => {
+    const storage = new MemoryStorage();
+    await startJobs(storage, [{ title: "Summarize ten PRs", brief: "b" }], { now: NOW, inbox: PHONE, origin: { kind: "phone", phone: PHONE, question: "q" }, place: { chatId: "chat_1", messageId: "m_ask" }, spawn: async () => {} });
+    const [{ id }] = await chatJobs(storage, NOW);
+    const report = Array.from({ length: 10 }, (_, i) => `${i + 1}. #${2839 - i} – a PR title (Nov 3)\n   What it changed, in plain words, and the risk it carries.`.padEnd(400, ".")).join("\n");
+    await noteJobUpdate(storage, { id, state: "done", status: "Done.", texts: [report] }, NOW + 1);
+    const [ended] = await chatJobs(storage, NOW + 1, { results: true });
+    expect(ended.result).toBe(report);
+    expect(ended.result).toMatch(/^10\. #2830/m);
+  });
+
   it("tries a turn that could not start again later, then says it couldn't finish", async () => {
     const storage = new MemoryStorage();
     await acceptJob(storage, run(), NOW);
@@ -366,7 +412,7 @@ describe("background jobs", () => {
     expect(sent).toEqual([]);
     const queued = [...(await storage.list<{ message: Message }>({ prefix: "pending:" })).values()].map((item) => item.message);
     expect(queued).toEqual([
-      expect.objectContaining({ chatId: "chat_1", from: PHONE, messageId: "m_ask", text: "q", event: "job_report", jobReport: { title: "Competitor research", state: "done", texts: ["Wrote it.", "https://context.lc/n/abc"] } }),
+      expect.objectContaining({ chatId: "chat_1", from: PHONE, messageId: "m_ask", text: "q", event: "job_report", jobReport: { id, title: "Competitor research", state: "done", texts: ["Wrote it.", "https://context.lc/n/abc"] } }),
     ]);
     const [listed] = await chatJobs(storage, NOW + 1);
     expect(listed).toMatchObject({ state: "done", status: "Wrote it.", finishedAt: NOW + 1 });

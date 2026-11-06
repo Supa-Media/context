@@ -3,6 +3,7 @@
  * mock's wording ("Working on 2 jobs · 1 needs you", "Helped twice today").
  */
 
+import { MINION_PROPS, activityOf } from "./minionProps";
 import type { Behind, ChatRef, JobSummary, Mood, Overview, Tiles, Turn, TurnAction } from "./texPageTypes";
 
 /** `6:05`, or `9:20 am` before noon: the page's clock, in the viewer's own time. */
@@ -83,11 +84,19 @@ export function statusLine(o: Pick<Overview, "chat" | "status">): string {
   return parts.join(" · ");
 }
 
-export function busyLine(slots: Overview["minions"]): string {
-  return `Minions · ${slots.filter((s) => s.job !== null).length} of ${slots.length} busy`;
+export function busyLine(slots: Overview["minions"], places?: Overview["places"]): string {
+  // An offline machine's free slots can take nothing, so they are not counted as room; its jobs, if any, still are.
+  const off = new Set((places ?? []).filter((p) => p.offline).map((p) => p.key));
+  const counted = slots.filter((s) => s.job !== null || s.place === undefined || !off.has(s.place));
+  return `Minions · ${counted.filter((s) => s.job !== null).length} of ${counted.length} busy`;
 }
 
 /** The figure a job is drawn with. */
+/** A minion card's figure: the calm # Tex while it works, dimmed while free (owner, 2026-11-04: no chaos ball on the cards; the words say how it is going). */
+export function minionMood(job: JobSummary | null): Mood {
+  return job === null ? "rest" : "calm";
+}
+
 export function moodOf(job: JobSummary | null): Mood {
   if (job === null) return "rest";
   if (job.state === "waiting") return "stuck";
@@ -96,10 +105,13 @@ export function moodOf(job: JobSummary | null): Mood {
   return "calm";
 }
 
-/** The line under a running job: `1 min · 3 steps didn't work`, `Needs your sign-in code`, `For Ada · 3 min`. */
+/** The line under a running job: `1 min · 3 steps didn't work`, `Needs your sign-in code`, `For Ada · Claude Code · 3 min`. */
 export function slotLine(job: JobSummary, now: number = Date.now()): { text: string; failed?: string; warn?: boolean } {
   if (job.state === "waiting" && job.needs) return { text: job.needs, warn: true };
-  const parts = [job.for ? `For ${job.for}` : null, span(now - job.startedAt)].filter((x): x is string => x !== null);
+  // What its minion is doing, in words beside the picture (`minionProps.ts`); a coding tool's name already says it.
+  const doing = job.tool ? null : MINION_PROPS[activityOf(job)].word;
+  // The duration never breaks across lines ("4" / "min").
+  const parts = [doing, job.for ? `For ${job.for}` : null, job.tool ?? null, span(now - job.startedAt).replace(/ /g, "\u00a0")].filter((x): x is string => x !== null);
   return {
     text: parts.join(" · "),
     ...(job.failedSteps > 0 ? { failed: `${plural(job.failedSteps, "step")} didn't work` } : {}),

@@ -269,15 +269,13 @@ export function useSaving(deps: SavingDeps) {
             const to = unsent.retarget();
             if (to !== null) {
               unsentCreates.current.delete(path);
+              // Only the file's name moves. The made-up name is not in the
+              // note's text (`seedFor`), so nothing typed there is rewritten.
               const shown = editorRef.current;
-              const from = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
-              const next = to.slice(to.lastIndexOf("/") + 1).replace(/\.md$/i, "");
-              const draft = shown.draft.startsWith(`# ${from}`) ? `# ${next}${shown.draft.slice(from.length + 2)}` : shown.draft;
-              editorRef.current = { ...shown, path: to, draft };
+              editorRef.current = { ...shown, path: to };
               dispatch({ type: "renamed", from: path, to });
-              if (draft !== shown.draft) dispatch({ type: "edited", text: draft });
               setSelectedPath(to);
-              performSaveRef.current(to, draft, null);
+              performSaveRef.current(to, shown.draft, null);
               return;
             }
           }

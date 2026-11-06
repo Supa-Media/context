@@ -65,9 +65,16 @@
       "path": "apps/convex/functions/lib/reservedNames.generated.ts",
       "reason": "Vendored username blocklists with a digest.",
       "command": "node scripts/build-reserved-names.mjs"
+    },
+    {
+      "path": "apps/machine-runner/Cargo.lock",
+      "reason": "Cargo lockfile; machine-generated.",
+      "command": "cd apps/machine-runner && cargo generate-lockfile"
     }
   ],
   "reviewed": {
+    "apps/machine-runner/src/protocol.rs": "The runner's whole wire protocol: every frame the gateway and the runner exchange, each a serde struct with deny_unknown_fields mirroring packages/shared/src/machineProtocol.schema.json one to one, so one file can be read against the schema field by field.",
+    "packages/shared/src/machineProtocol.schema.json": "The machine protocol's JSON Schema: the single source both sides are checked against and machineProtocolTypes.mjs generates TypeScript from, one $defs entry per frame, kept in one file so the frames and the Rust mirror in apps/machine-runner/src/protocol.rs can be read side by side.",
     ".github/workflows/mcp.yml": "The gateway and package-core CI jobs: each job's length is its ci-scope inputs and the comments recording why each path is watched, and the jobs share one trigger block whose rules check-workflow-triggers.mjs enforces, so a second file would duplicate that block for no gain.",
     ".github/workflows/ci.yml": "The pull-request entry workflow: the reusable workflow's inputs and its change-filters are one YAML block that must stay in this file, and most of its length is the convex filter's list of gateway files Convex reaches (scripts/convex-gateway-reads.mjs --filter), which check-ci-path-gates.mjs holds to that derivation.",
     "apps/mobile/features/console/settings/sections.ts": "The settings catalogue: every section with its label, search words and flags in one list the sidebar, the search box and the tests read, kept whole so one file says what settings exist; most of its length is the comment on each row recording why it is where it is.",
@@ -96,7 +103,10 @@
     "apps/mobile/__tests__/meetingsScreens/savedClaims.test.ts": "One describe: the note screen says `saved` only when there is a path to print; its cases share one rendered screen.",
     "apps/mobile/__tests__/safeArea.test.ts": "One invariant (every route clears the device safe area) checked across the route table, which has to list every route, so it grows by one entry per route; splitting it would scatter the table the check exists to keep complete.",
     "apps/mobile/features/app/reachability.ts": "The route registry: every route and the surfaces that reach it, one list that routeReachability.test.ts checks against the filesystem, so it reads as a whole.",
+    "packages/desktop-bridge/src/contract.ts": "One interface, DesktopBridge, with its channel table and version constants: the contract both halves of the desktop bridge are checked against, each member documented where it is declared with the version that added it, so a reader sees the whole surface in one place.",
+    "apps/desktop/src/core/shell/bridge.ts": "One function, desktopBridge: the preload's frozen object that implements DesktopBridge member by member, each rebuilt through its own reader; splitting it would scatter one object across files the bridge census reads as a whole.",
     "apps/mobile/features/console/files/browser/contract.ts": "One interface, FileBrowser: the console's file-browser contract, each member documented where it is declared.",
+    "apps/mobile/features/console/files/menu.ts": "The file menu's one model: every target's item list (background, crumb, page, row, selection) in one file so the gating rules (absent, never greyed, for a reader) are read and tested in one place; each group's items already live in menuMake, menuSort, menuVisibility and menuBuiltIn.",
     "apps/mobile/features/console/files/editorSetup.ts": "The one place every editor surface's CodeMirror extension list is assembled; each block is a one-line install of a feature that lives in its own module.",
     "apps/mobile/features/console/files/LiveEditor.tsx": "The native note editor component: one WebView host whose props, handler refs and bridge sink are one list each, and each new editor event (a link, a tag, a form) is a line in all three; the bridge itself already lives in webview/host.",
     "apps/mobile/features/console/files/webview/host/bridge.ts": "The host end of the WebView bridge: one createHostBridge closure owns the desired state that ready resends and the reply to every guest request; comments and lists are already split out to host/extras.ts.",

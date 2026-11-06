@@ -8,7 +8,7 @@
 # It answers no question and spends no model money: it reads the scored
 # result notes of AI Benchmark runs that already happened (their
 # benchmark-result and benchmark-key artifacts), one per test the gate needs
-# (core and tasks for the texting assistant), each with `production` and the
+# (core, tasks and splitting for the texting assistant), each with `production` and the
 # candidate run side by side. The gate refuses rounds of an earlier live file,
 # an earlier candidate, an earlier or weakened test, too few runs or cases, or
 # a candidate under the bars or worse than live; the refusal's reasons are the

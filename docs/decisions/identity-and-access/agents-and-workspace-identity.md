@@ -23,8 +23,8 @@ the RFC 8252 §7.3 port exception precisely so native clients can do this. The
 three alternatives were considered and are worse: a dashboard-minted long-lived
 token is a bearer secret with no client identity behind it, so revoking it is
 all-or-nothing; reusing the token the AI client already holds would require
-reading another application's credential store; and token-in-URL is already the
-compatibility fallback and never the boundary.
+reading another application's credential store; and token-in-URL was a
+compatibility fallback, never the boundary, and is now retired.
 
 Each machine registers its own client, so revoking the laptop you lost does not
 sign out the one on your desk.

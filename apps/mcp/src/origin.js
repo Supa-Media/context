@@ -89,6 +89,8 @@ export function isTransportPath(path) {
   // not origin-checked here, the check would not exist anywhere.
   return (
     path === "/mcp" ||
+    path === "/mcp/chatgpt" ||
+    path === "/mcp/chatgpt/v2" ||
     path === "/inbox" ||
     path === "/agent" ||
     path === "/presence" ||
@@ -97,6 +99,8 @@ export function isTransportPath(path) {
     path === "/presence/tree" ||
     // The access socket names members, invitations and connected apps, and writes them: likewise.
     path === "/presence/access" ||
+    // A ticket opens one of those sockets: minted for this app's pages only.
+    path === "/presence/ticket" ||
     path === "/collaboration" ||
     // The app's trash and restore (`live/fileOpsRoute.js`): a page on another origin must not move notes with
     // somebody else's token.

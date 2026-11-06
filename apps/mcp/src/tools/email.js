@@ -85,6 +85,12 @@ export function passesSomethingOn(subject, body) {
   return PASSES_ON.some((pattern) => pattern.test(said));
 }
 
+/** A subject that says the email answers another: "Re:", as Gmail and Outlook write it, in any case. */
+const REPLY_SUBJECT = /^\s*re\s*:/i;
+export const REPLY_NEEDS_ID =
+  "Not sent: the subject starts with Re:, so this answers an email, but in_reply_to is missing and it would start a new thread. " +
+  "Find the email it answers with search_email, then call again with in_reply_to set to that email's id. Don't ask the person for it.";
+
 /**
  * The email a call asks for, `{ email }` with addresses lowercased, or
  * `{ error }` saying what to fix. Never repaired: what is sent is exactly what
@@ -127,6 +133,14 @@ export function readEmail(args) {
       return { error: `A forward goes from the mailbox the email is in: leave from out, or make it ${forward.address}.` };
     }
   }
+  /*
+    A "Re:" email names the email it answers (Dev2, 2026-11-05). Tex sent
+    "Re: Plan recommended, …" to Jo with no in_reply_to: the turn that sent it
+    came from a 👍 and never held the email's id, so it went as a new email
+    beside her thread instead of inside it. Refused in band, so Tex finds the
+    email with search_email and calls again with its id; nothing is guessed.
+  */
+  if (reply === null && forward === null && REPLY_SUBJECT.test(subject)) return { error: REPLY_NEEDS_ID };
   // Files downloaded in the browser, by id (`emailAttach.js`).
   const attach = readAttach(args?.attach);
   if (attach.error) return { error: attach.error };

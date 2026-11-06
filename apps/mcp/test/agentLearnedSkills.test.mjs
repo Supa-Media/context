@@ -332,7 +332,7 @@ test("the dream's upkeep moves a stale skill under tex/skills/retired/ and delet
   };
   const retired = await retireUnusedSkills(dispatch, Date.parse("2026-10-19T03:00:00Z"));
   assert.deepEqual(retired, ["stale"]);
-  assert.deepEqual(calls.filter((c) => !["list_notes", "read_note"].includes(c.name)), [
+  assert.deepEqual(calls.filter((c) => !["list_notes", "read_notes", "read_note"].includes(c.name)), [
     { name: "move_note", args: { source: "tex/skills/stale.md", destination: "tex/skills/retired/stale.md" } },
   ]);
   const entry = dreamEntry({ now: Date.now(), timeZone: "UTC", transcripts: [], model: null, changes: { added: [], removed: [] }, why: "", events: [], outcome: "unchanged", retired });
@@ -533,30 +533,25 @@ test("a reflect step that finds nothing worth writing changes nothing", async ()
   assert.equal(bucket.get("tex/skills/plan-review.md"), undefined);
 });
 
-test("a tainted turn reflects blind, and can't write a skill itself", async () => {
-  // An earlier answer written after a read from outside taints this turn from its start (`conversation.js`).
-  const history = async (tainted) => {
-    // The chat is the person's ledger (`src/agent/ledgerConversation.js`); a turn reads the taint from it.
-    seedChat(bucket, [{ role: "user", text: "what does this page say?" }, { role: "assistant", text: "It says hi.", ...(tainted ? { tainted: true } : {}) }]);
-  };
-  const writeEvil = { calls: [["write_note", { path: "tex/skills/evil.md", content: skill("evil", { updated: TODAY }) }]] };
-  await history(true);
-  script = [writeEvil, { text: "Sorted. TAINTED-ANSWER-MARK" }, { text: "NONE" }];
+test("an earlier answer from a turn that read outside never taints this one, but reflect never writes from its words", async () => {
+  // Trust is the turn's own (the owner, 2026-11-05; docs/decisions/texting-assistant/turn-trust.md). What a tainted turn
+  // may not do is proven where the turn itself is tainted: "a tainted turn can't write a skill" and the reflect units above.
+  // A turn shown a tainted answer could repeat its words, so its reflect step sees only their text and its step names.
+  seedChat(bucket, [{ role: "user", text: "what does this page say?" }, { role: "assistant", text: "It says hi.", tainted: true }]);
+  script = [{ calls: [["write_note", { path: "tex/skills/booking.md", content: skill("booking", { updated: TODAY }) }]] }, { text: "Sorted. OWN-ANSWER-MARK" }, { text: "NONE" }];
   await text("no, the other one", { conversation: "texts" });
-  assert.equal(bucket.get("tex/skills/evil.md"), undefined, "the turn itself still can't write a skill");
-  assert.match(JSON.stringify(requests.find((r) => r.metadataClient === "turn" && JSON.stringify(r.body.messages).includes("can't write or change a skill"))?.body.messages ?? ""), /can't write or change a skill/);
+  assert.notEqual(bucket.get("tex/skills/booking.md"), undefined, "the turn read nothing from outside, so it writes its skill");
   const reflected = reflectRequests();
-  assert.equal(reflected.length, 1, "their own correction still reflects");
-  const asked = JSON.stringify(reflected[0].body);
-  assert.match(asked, /no, the other one/);
-  assert.match(asked, /write_note: failed/);
-  assert.ok(!asked.includes("TAINTED-ANSWER-MARK"), "a tainted turn's answer is never shown");
+  assert.equal(reflected.length, 1, "it still reflects, on their own text");
+  assert.ok(!JSON.stringify(reflected[0].body).includes("OWN-ANSWER-MARK"), "but its answer, which could repeat the tainted words, is not shown");
+  assert.ok(JSON.stringify(reflected[0].body).includes("no, the other one"), "their own text is");
+});
 
-  // Positive control: the same correction and write, untainted, are written and reflect.
-  await history(false);
-  requests.length = 0;
-  script = [writeEvil, { text: "Sorted." }, { text: "NONE" }];
+test("a turn shown only clean answers reflects with its own answer shown", async () => {
+  seedChat(bucket, [{ role: "user", text: "what is on today?" }, { role: "assistant", text: "Nothing yet." }]);
+  script = [{ calls: [["write_note", { path: "tex/skills/booking.md", content: skill("booking", { updated: TODAY }) }]] }, { text: "Sorted. OWN-ANSWER-MARK" }, { text: "NONE" }];
   await text("no, the other one", { conversation: "texts" });
-  assert.equal(reflectRequests().length, 1);
-  assert.notEqual(bucket.get("tex/skills/evil.md"), undefined);
+  const reflected = reflectRequests();
+  assert.equal(reflected.length, 1);
+  assert.ok(JSON.stringify(reflected[0].body).includes("OWN-ANSWER-MARK"), "its own answer is shown");
 });

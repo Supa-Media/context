@@ -19,13 +19,15 @@
  *   one ceiling for opened and edited rows                         → "fifty opens never push out a note they wrote"
  *   no ceiling                                                    → "the oldest makes room at the ceiling"
  *   retarget leaves placeRecents alone                            → "a note's recent row follows the mover's move"
+ *   an edit counted as an open                                    → "each open counts once and fades"
+ *   the open count never fades                                    → "each open counts once and fades"
  *   placeRecents left out of the sweeps                           → "they leave with the account, the member and the workspace"
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "../_generated/api";
-import { EDITED_ROWS_PER_WORKSPACE, RECENT_ROWS_PER_WORKSPACE } from "../functions/lib/places";
+import { EDITED_ROWS_PER_WORKSPACE, OPEN_HALF_LIFE_MS, RECENT_ROWS_PER_WORKSPACE } from "../functions/lib/places";
 import { addMember, asUser, createUser, createWorkspace, setupTest, type TestConvex } from "./fixtures.helpers";
 
 const recordRecent = api.functions.places.recordRecent;
@@ -118,7 +120,7 @@ describe("recent notes", () => {
     vi.setSystemTime(Date.UTC(2026, 9, 20, 9));
     await me.mutation(recordRecent, { workspaceId: ws, path: "kings-23.md", kind: "opened" });
     expect(await me.query(recentNotes, { workspaceId: ws })).toEqual([
-      { path: "kings-23.md", at: Date.UTC(2026, 9, 20, 9), kind: "opened", editedAt: Date.UTC(2026, 9, 10, 9) },
+      { path: "kings-23.md", at: Date.UTC(2026, 9, 20, 9), kind: "opened", editedAt: Date.UTC(2026, 9, 10, 9), opens: 1 },
     ]);
     // A row written before `editedAt` existed that says edited reads as edited at its time.
     await t.run(async (ctx) => {
@@ -127,7 +129,28 @@ describe("recent notes", () => {
     vi.setSystemTime(Date.UTC(2026, 9, 21, 9));
     await me.mutation(recordRecent, { workspaceId: ws, path: "old.md" });
     const old = (await me.query(recentNotes, { workspaceId: ws })).find((r) => r.path === "old.md");
-    expect(old).toEqual({ path: "old.md", at: Date.UTC(2026, 9, 21, 9), kind: "opened", editedAt: 5 });
+    expect(old).toEqual({ path: "old.md", at: Date.UTC(2026, 9, 21, 9), kind: "opened", editedAt: 5, opens: 1 });
+  });
+
+  test("each open counts once and fades by half every two weeks; typing is not an open (owner, 2026-11-04)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.UTC(2026, 10, 1, 9));
+    const { t, seyi, ws } = await world();
+    const me = asUser(t, seyi);
+    await me.mutation(recordRecent, { workspaceId: ws, path: "plan.md" });
+    await me.mutation(recordRecent, { workspaceId: ws, path: "plan.md" });
+    await me.mutation(recordRecent, { workspaceId: ws, path: "plan.md", kind: "edited" });
+    await me.mutation(recordRecent, { workspaceId: ws, path: "draft.md", kind: "edited" });
+    const now = async () => new Map((await me.query(recentNotes, { workspaceId: ws })).map((r) => [r.path, r.opens]));
+    expect(await now()).toEqual(new Map([["plan.md", 2], ["draft.md", 0]]));
+    vi.setSystemTime(Date.UTC(2026, 10, 15, 9));
+    await me.mutation(recordRecent, { workspaceId: ws, path: "plan.md" });
+    expect((await now()).get("plan.md")).toBeCloseTo(2, 10);
+    expect(OPEN_HALF_LIFE_MS).toBe(14 * 24 * 60 * 60 * 1000);
+    // No row anywhere keeps when each open happened: one number per note.
+    for (const row of await allRecents(t)) expect(Object.keys(row).sort()).toEqual(
+      ["_creationTime", "_id", "at", "kind", "opens", "path", "userId", "workspaceId", ...(row.editedAt === undefined ? [] : ["editedAt"])].sort(),
+    );
   });
 
   test("fifty opens never push out a note they wrote; edits keep a ceiling of their own", async () => {

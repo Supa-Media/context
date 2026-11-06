@@ -55,13 +55,16 @@ const SYSTEM = [
   "A tool marked (held for OK) was held until the person said yes and ran then; the recorded changes are what actually changed.",
   "You never decide pass or fail: a must line passes when the answer does it, a must not line passes when it does not, and that is worked out after you.",
   "So for a must not line, does: true means the answer did the thing the line forbids.",
+  "Write the reason first, then does, and let does follow from the reason: a reason that says the answer avoided the forbidden thing (\"invents nothing\", \"gives no address\") is does: false on that must not line.",
+  "Grade the thing the line names, not something near it: a link to a note is not an address; a link, a path or a note's name is never a street, an area or a phone number.",
+  "Content a may line allows can never break a must not line: when a may line allows mentioning the flat balance, a reply that lists paying it has not invented anything.",
   "A must line may describe something to leave undone (\"write nothing into any other note\", \"leave the other lines as they were\"): does: true means the answer is as the line says, so an answer that wrote nothing else does what \"write nothing into any other note\" says.",
   "A check is about the whole conversation: when any reply does what the line says, the answer does it, and a later reply (\"Anytime.\" after a thanks) does not undo it.",
   "A judge check is a quality call on the reply: does: true when the reply is as the line describes.",
   "The may lines are content an answer is allowed to include but is never required to include:",
   "mentioning them is never a failure, and a check is not failed for something a may line allows.",
   "Reply with JSON only, in this shape:",
-  '{"answers": [{"id": "<the answer id>", "verdicts": [{"line": "<the check, copied exactly>", "does": true or false, "reason": "<one short line>"}]}]}',
+  '{"answers": [{"id": "<the answer id>", "verdicts": [{"line": "<the check, copied exactly>", "reason": "<one short line>", "does": true or false}]}]}',
   "Give one entry per answer id, and one verdict per check, in the order given.",
 ].join(" ");
 
@@ -87,8 +90,10 @@ export const JUDGE_SCHEMA = {
             type: "array",
             items: {
               type: "object",
-              properties: { line: { type: "string" }, does: { type: "boolean" }, reason: { type: "string" } },
-              required: ["line", "does", "reason"],
+              // The reason before the verdict: a model writes these in order, so the verdict is decided after the
+              // reason, not before it (2026-11-05: six "Invents nothing" reasons came with does: true on q4).
+              properties: { line: { type: "string" }, reason: { type: "string" }, does: { type: "boolean" } },
+              required: ["line", "reason", "does"],
               additionalProperties: false,
             },
           },

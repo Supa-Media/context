@@ -12,7 +12,11 @@ import { drawContainerLabels, placeContainerLabels } from "./containers";
 import { countPresent, type DrawEnv } from "./env";
 import { drawFlights } from "./flights";
 import { drawHubFaces, drawHubLines } from "./hub";
-import { drawActors, drawReading, placeFacesAndLabels } from "./overlay";
+import { zOf } from "./depth";
+import { breathOffset, EYE_PX, PITCH_MAX, YAW_MAX } from "../motion";
+import { drawAgentTrails, drawTrace, drawReadingMarks, traceOf } from "./marks";
+import { drawScribbles, drawWorkspaceLoops, scribbleAlpha, type Opening } from "./sketch";
+import { drawActors, placeFacesAndLabels } from "./overlay";
 import { circle, fillText, fontOf, roundRect, type Ctx, type Style } from "./primitives";
 
 /** Below this width the map behaves like a phone: anything that does not fit is dropped. */
@@ -22,7 +26,35 @@ export type RenderOptions = {
   style: Style;
   selected: string | null;
   minimap: boolean;
+  /** The map's opening while it plays. */
+  opening?: Opening | null;
+  /** The pointer, for "lines near the cursor" and "on hover". */
+  pointer?: Point | null;
+  hoverKey?: string | null;
+  /** The 3D tilt, -1..1 each way, or null when the drawing is flat. */
+  tilt?: { x: number; y: number } | null;
+  /** The dots breathe, very slightly. */
+  breathe?: boolean;
+  /** The wall clock in ms, for the breathing. */
+  wall?: number;
 };
+
+/** A point on screen, and for the 3D view how much nearer (over 1) or further (under 1) it is. */
+export type ScreenPoint = Point & { per?: number };
+
+/** A note's own seed for breathing, from its key. */
+const seeds = new Map<string, number>();
+function seedOf(key: string): number {
+  let v = seeds.get(key);
+  if (v === undefined) {
+    let h = 2166136261;
+    for (let i = 0; i < key.length; i += 1) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+    v = ((h >>> 0) % 10007) / 37;
+    if (seeds.size > 50_000) seeds.clear();
+    seeds.set(key, v);
+  }
+  return v;
+}
 
 /** Draw one frame of the map view and return what can be clicked. */
 export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: Viewport, opts: RenderOptions): HitFrame {
@@ -30,13 +62,61 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
   ctx.save();
   paintBoard(ctx, C, cam, vp);
   const v = visibleRect(vp);
-  const screen = (p: Point) => toScreen(cam, vp, p);
+  const flat = (p: Point) => toScreen(cam, vp, p);
+  const tilt = opts.tilt ?? null;
+  const centre = flat(cam);
+  const wall = opts.wall ?? 0;
+  // Breathing: every note drifts a pixel or so round its place, out of step
+  // with its neighbours, except the one under the pointer.
+  const drift = opts.breathe
+    ? (p: Point, q: ScreenPoint): ScreenPoint => {
+        const k = (p as { key?: unknown; sub?: unknown }).key;
+        if (typeof k !== "string" || !(p as { sub?: unknown }).sub || k === opts.hoverKey) return q;
+        const o = breathOffset(wall, seedOf(k));
+        return { x: q.x + o.x, y: q.y + o.y, per: q.per };
+      }
+    : null;
+  // 3D depth, as the prototype draws it: every point has a depth (`zOf`),
+  // the view turns about the screen's centre by the tilt, and what is nearer
+  // is drawn bigger and further apart.
+  let screen: (p: Point) => ScreenPoint = flat;
+  if (tilt) {
+    const yaw = tilt.x * YAW_MAX;
+    const pitch = tilt.y * PITCH_MAX;
+    const cy = Math.cos(yaw);
+    const sy = Math.sin(yaw);
+    const cp = Math.cos(pitch);
+    const sp = Math.sin(pitch);
+    const s = cam.s;
+    screen = (p: Point) => {
+      const q = flat(p);
+      const z = zOf(p) * s;
+      const dx = q.x - centre.x;
+      const dy = q.y - centre.y;
+      const x1 = dx * cy - z * sy;
+      const z1 = dx * sy + z * cy;
+      const y1 = dy * cp - z1 * sp;
+      const z2 = dy * sp + z1 * cp;
+      const per = Math.min(2.2, Math.max(0.45, EYE_PX / (EYE_PX + z2)));
+      return { x: centre.x + x1 * per, y: centre.y + y1 * per, per };
+    };
+  }
+  if (drift) {
+    const placed = screen;
+    screen = (p: Point) => drift(p, placed(p));
+  }
   const hot = new Set<string>([...scene.editing.keys(), ...scene.reading.keys()]);
-  if (opts.selected) hot.add(opts.selected);
+  // A clicked note and the notes it links to keep their names.
+  // A clicked note traces its links; with none clicked, the note under the pointer does (as in the prototype).
+  const traceFrom = opts.selected ?? opts.hoverKey ?? null;
+  const trace = traceOf(model, scene, traceFrom);
+  if (trace) for (const k of trace) hot.add(k);
   for (const a of scene.actors) if (a.note && a.doing) hot.add(a.note.key);
   // The widest margin any pass tests with is 30 + 40 pixels; a little more.
-  const lo = toWorld(cam, vp, { x: -120, y: -120 });
-  const hi = toWorld(cam, vp, { x: vp.w + 120, y: vp.h + 120 });
+  // Turned in 3D, a note can be drawn well away from its flat place.
+  const margin = tilt ? 120 + vp.w * 0.25 : 120;
+  const lo = toWorld(cam, vp, { x: -margin, y: -margin });
+  const hi = toWorld(cam, vp, { x: vp.w + margin, y: vp.h + margin });
   const near: NotePlace[] = [];
   // A folder drawn as an icon (Archive) keeps its notes out of sight.
   for (const n of notesNear(model.layout, lo.x, lo.y, hi.x, hi.y)) if (scene.present.has(n.key) && !n.sub.folder.collapsed) near.push(n);
@@ -56,6 +136,14 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
     narrow: v.w < NARROW,
     dim: model.following !== null,
     selected: opts.selected,
+    traceFrom: trace ? traceFrom : null,
+    trace,
+    far: scribbleAlpha(cam.s, opts.style.look.spread),
+    opening: opts.opening ?? null,
+    pointer: opts.pointer,
+    breathe: opts.breathe ?? false,
+    cull: margin,
+    hoverKey: opts.hoverKey ?? null,
     counts: countPresent(model, scene),
     hot,
     near,
@@ -64,16 +152,20 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
     flyingAt: new Map(scene.flights.filter((f) => !f.cross && f.landedFor < 0).map((f) => [f.to.key, f.pos])),
   };
   drawGround(env);
+  drawScribbles(env);
+  drawWorkspaceLoops(env);
   const hub = drawHubLines(env);
   drawLinks(env);
+  drawTrace(env);
   drawNotes(env);
+  drawReadingMarks(env);
+  drawAgentTrails(env);
   // Names of containers claim their space first and are drawn over the dots.
   const labels = placeContainerLabels(env);
   env.quiet.push(...labels.map((l) => l.rect), ...env.pills.map((p) => ({ x: p.x - p.w / 2, y: p.y - 12, w: p.w, h: 24 })));
   const mini = opts.minimap ? minimapRect(env) : null;
   if (mini) env.occ.claim(mini);
   const { groups, flags, captions } = placeFacesAndLabels(env);
-  drawReading(env, groups);
   drawContainerLabels(env, labels, env.pills);
   drawFlights(env, captions);
   drawHubFaces(env, hub);

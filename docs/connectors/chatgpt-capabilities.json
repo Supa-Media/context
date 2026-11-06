@@ -1,0 +1,413 @@
+{
+  "endpoint": "https://mcp.context.lc/mcp/chatgpt/v2",
+  "ordinary_endpoint": "https://mcp.context.lc/mcp",
+  "claude_unchanged": true,
+  "tool_names": [
+    "orient",
+    "scope_info",
+    "list_notes",
+    "read_note",
+    "read_notes",
+    "evaluate_lists",
+    "list_meetings",
+    "read_calendar",
+    "read_meeting",
+    "list_channel_days",
+    "read_channel_day",
+    "list_contacts",
+    "read_contact",
+    "read_image",
+    "read_file",
+    "list_plugins",
+    "related_notes",
+    "read_activity",
+    "list_changes",
+    "list_links",
+    "search_email",
+    "read_email",
+    "search_texts",
+    "list_texts",
+    "read_texts",
+    "read_google_chat",
+    "get_profile",
+    "list_workspaces",
+    "search",
+    "fetch",
+    "list_saved_credentials",
+    "list_connected_apps",
+    "create_note",
+    "update_note",
+    "save_notes",
+    "add_comment",
+    "reply_to_comment",
+    "resolve_comment",
+    "reopen_comment",
+    "delete_comment",
+    "join_note_mail",
+    "send_note_mail",
+    "prepare_image_upload",
+    "remember",
+    "submit_form",
+    "update_submission",
+    "retract_submission",
+    "vote_form",
+    "create_form",
+    "save_context",
+    "report_problem",
+    "move_note",
+    "move_notes",
+    "move_folder",
+    "archive_note",
+    "set_visibility",
+    "set_folder_visibility",
+    "set_encryption",
+    "suggest_destination",
+    "create_link",
+    "revoke_link",
+    "vault_add_link",
+    "vault_share_link",
+    "vault_view_link",
+    "create_workspace",
+    "invite_member",
+    "apply_layout",
+    "connect_google",
+    "connect_app",
+    "run_context_reflection",
+    "pair_device",
+    "set_folder_job",
+    "get_website_status",
+    "check_website",
+    "publish_website",
+    "screenshot_website",
+    "read_website_history",
+    "get_website_domain",
+    "connect_website_domain",
+    "send_email",
+    "save_email_draft",
+    "notify_me",
+    "create_calendar_event",
+    "edit_calendar_event",
+    "move_calendar_event",
+    "cancel_calendar_event",
+    "rsvp_calendar_event",
+    "list_google_chat_spaces",
+    "send_google_chat_message",
+    "start_mail_forwarding",
+    "stop_mail_forwarding",
+    "list_slack_users",
+    "read_slack_user",
+    "find_slack_user_by_email",
+    "get_slack_message_link",
+    "list_slack_channels",
+    "read_slack_channel",
+    "read_slack_history",
+    "read_slack_thread",
+    "search_slack_messages",
+    "post_slack_message",
+    "update_slack_message",
+    "delete_slack_message",
+    "schedule_slack_message",
+    "post_slack_action",
+    "add_slack_reaction",
+    "remove_slack_reaction"
+  ],
+  "capabilities": [
+    {
+      "capability": "write.save",
+      "tools": [
+        "create_note",
+        "update_note",
+        "create_form"
+      ]
+    },
+    {
+      "capability": "write.save_many",
+      "tools": [
+        "save_notes"
+      ]
+    },
+    {
+      "capability": "write.comment",
+      "tools": [
+        "add_comment",
+        "reply_to_comment",
+        "resolve_comment",
+        "reopen_comment",
+        "delete_comment"
+      ]
+    },
+    {
+      "capability": "write.mail",
+      "tools": [
+        "join_note_mail",
+        "send_note_mail"
+      ]
+    },
+    {
+      "capability": "write.upload",
+      "tools": [
+        "prepare_image_upload"
+      ]
+    },
+    {
+      "capability": "write.remember",
+      "tools": [
+        "remember"
+      ]
+    },
+    {
+      "capability": "write.answer",
+      "tools": [
+        "submit_form"
+      ]
+    },
+    {
+      "capability": "write.update_answer",
+      "tools": [
+        "update_submission"
+      ]
+    },
+    {
+      "capability": "write.retract_answer",
+      "tools": [
+        "retract_submission"
+      ]
+    },
+    {
+      "capability": "write.vote",
+      "tools": [
+        "vote_form"
+      ]
+    },
+    {
+      "capability": "write.save_session",
+      "tools": [
+        "save_context"
+      ],
+      "limitation": "User-requested task summaries only; no raw-history field or automatic capture."
+    },
+    {
+      "capability": "write.report_problem",
+      "tools": [
+        "report_problem"
+      ]
+    },
+    {
+      "capability": "manage.move",
+      "tools": [
+        "move_note"
+      ]
+    },
+    {
+      "capability": "manage.move_many",
+      "tools": [
+        "move_notes"
+      ]
+    },
+    {
+      "capability": "manage.move_folder",
+      "tools": [
+        "move_folder"
+      ]
+    },
+    {
+      "capability": "manage.archive",
+      "tools": [
+        "archive_note"
+      ]
+    },
+    {
+      "capability": "manage.visibility",
+      "tools": [
+        "set_visibility"
+      ]
+    },
+    {
+      "capability": "manage.folder_visibility",
+      "tools": [
+        "set_folder_visibility"
+      ]
+    },
+    {
+      "capability": "manage.encrypt",
+      "tools": [
+        "set_encryption"
+      ]
+    },
+    {
+      "capability": "manage.suggest_destination",
+      "tools": [
+        "suggest_destination"
+      ]
+    },
+    {
+      "capability": "manage.website",
+      "tools": [
+        "get_website_status",
+        "check_website",
+        "publish_website",
+        "screenshot_website",
+        "read_website_history",
+        "get_website_domain",
+        "connect_website_domain"
+      ]
+    },
+    {
+      "capability": "manage.share_link",
+      "tools": [
+        "create_link"
+      ]
+    },
+    {
+      "capability": "manage.revoke_link",
+      "tools": [
+        "revoke_link"
+      ]
+    },
+    {
+      "capability": "manage.vault_add",
+      "tools": [
+        "vault_add_link"
+      ]
+    },
+    {
+      "capability": "manage.vault_share",
+      "tools": [
+        "vault_share_link"
+      ]
+    },
+    {
+      "capability": "manage.vault_view",
+      "tools": [
+        "vault_view_link"
+      ]
+    },
+    {
+      "capability": "manage.create_workspace",
+      "tools": [
+        "create_workspace"
+      ]
+    },
+    {
+      "capability": "manage.invite",
+      "tools": [
+        "invite_member"
+      ]
+    },
+    {
+      "capability": "manage.layout",
+      "tools": [
+        "apply_layout"
+      ]
+    },
+    {
+      "capability": "manage.folder_job",
+      "tools": [
+        "set_folder_job"
+      ]
+    },
+    {
+      "capability": "manage.connect_google",
+      "tools": [
+        "connect_google"
+      ]
+    },
+    {
+      "capability": "manage.connect",
+      "tools": [
+        "connect_app"
+      ]
+    },
+    {
+      "capability": "manage.dream_now",
+      "tools": [
+        "run_context_reflection"
+      ]
+    },
+    {
+      "capability": "manage.pair_device",
+      "tools": [
+        "pair_device"
+      ]
+    },
+    {
+      "capability": "send.api",
+      "tools": [],
+      "exclusion": "Arbitrary vault-backed API execution is excluded: destinations and operations are not individually exposed for directory review."
+    },
+    {
+      "capability": "send.email",
+      "tools": [
+        "send_email"
+      ]
+    },
+    {
+      "capability": "send.email_draft",
+      "tools": [
+        "save_email_draft"
+      ]
+    },
+    {
+      "capability": "send.notify",
+      "tools": [
+        "notify_me"
+      ]
+    },
+    {
+      "capability": "send.slack",
+      "tools": [
+        "list_slack_users",
+        "read_slack_user",
+        "find_slack_user_by_email",
+        "get_slack_message_link",
+        "list_slack_channels",
+        "read_slack_channel",
+        "read_slack_history",
+        "read_slack_thread",
+        "search_slack_messages",
+        "post_slack_message",
+        "update_slack_message",
+        "delete_slack_message",
+        "schedule_slack_message",
+        "post_slack_action",
+        "add_slack_reaction",
+        "remove_slack_reaction"
+      ]
+    },
+    {
+      "capability": "send.app",
+      "tools": [],
+      "exclusion": "Dynamically discovered connected-app execution is excluded: future operations cannot be individually reviewed in this fixed contract."
+    },
+    {
+      "capability": "send.google_chat",
+      "tools": [
+        "list_google_chat_spaces",
+        "send_google_chat_message"
+      ]
+    },
+    {
+      "capability": "send.calendar",
+      "tools": [
+        "create_calendar_event",
+        "edit_calendar_event",
+        "move_calendar_event",
+        "cancel_calendar_event",
+        "rsvp_calendar_event"
+      ]
+    },
+    {
+      "capability": "send.forward_rule",
+      "tools": [
+        "start_mail_forwarding",
+        "stop_mail_forwarding"
+      ]
+    }
+  ],
+  "limits": [
+    "Dynamic connected-app reads and changes are excluded; connection metadata remains available.",
+    "Slack is limited to individually exposed fixed methods.",
+    "save_context accepts task summaries only; raw history and automatic capture are not exposed.",
+    "Sharing and publication are separate explicit operations."
+  ]
+}

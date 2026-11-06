@@ -6,6 +6,7 @@ import { addressedTo } from "../../tools/offerFor.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { hearVoiceMessages } from "../attachments.js";
 import { backgroundSession, runningJobsOf } from "../background.js";
+import { machinesFor } from "../../machines/forJobs.js";
 import { openChatSkills } from "../chatSkills.js";
 import { lastOffer } from "../claimCheck.js";
 import { checkerHistory } from "../groupTurn.js";
@@ -17,7 +18,7 @@ import { TEXTS_CLIENT_ID } from "./clients.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function readTheHistory(t) {
-  const { body, chatTurn, dispatch, env, group, historyRead, hot, job, ledger, offeredRead, question, quoted, received, report, routine, runner, sent, session, stages, store, tex } = t;
+  const { body, chatTurn, controlPlane, dispatch, env, group, historyRead, hot, job, ledger, offeredRead, question, quoted, received, report, routine, runner, sent, session, stages, store, tex } = t;
   // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
   const fresh = await tex.step("keep_sent_files", async () => keepSentFiles(store, await tex.step("hear_voice", () => hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId))));
 
@@ -26,7 +27,9 @@ export async function readTheHistory(t) {
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
   const [{ conversation, history }, logged] = await tex.wait("history", historyRead); const attachments = [...fresh, ...(runner ? [] : await tex.step("kept_files_again", () => carryKeptFiles(store, history, fresh), []))]; stages?.mark("history");
   if (group !== null) markChatWords(ledger); if (job?.tainted || report !== null) markUntrusted(ledger); // a chat's own words are no stranger's (`chatSkills.js`); a job planned after a read from outside still carries it, and a job's report is what it read
-  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger) }) : null;
+  // The computers a chat turn may name, read beside the rest so the turn is told they're there (`machines/forTurn.js`); a job's own turn names none.
+  const computersRead = chatTurn && job === null && (group !== null || session.actorClientId === TEXTS_CLIENT_ID) ? tex.ahead("computers", () => machinesFor(env, session, controlPlane), []).catch(() => []) : null;
+  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group !== null || session.actorClientId === TEXTS_CLIENT_ID ? () => computersRead ?? machinesFor(env, session, controlPlane) : null, inGroup: group !== null }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
   if (session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = [lastOffer(history)].find((offer) => group === null || addressedTo(offer, group.from)) ?? undefined;
@@ -47,6 +50,6 @@ export async function readTheHistory(t) {
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });
   }
-  Object.assign(t, { attachments, background, conversation, fresh, history, learnedRead, logged, offered });
+  Object.assign(t, { attachments, background, computersRead, conversation, fresh, history, learnedRead, logged, offered });
 }
 // TEX ENTRY POINT: end

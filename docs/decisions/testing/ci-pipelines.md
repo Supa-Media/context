@@ -118,6 +118,15 @@ an artifact. On a pull request or a push to main:
 - Note editor in WebKit runs the editor's own specs (`editor`,
   `editorFormatting`, `callouts`, `tables`, `comments`) in one job, and only
   when the editor or what it is built from changed.
+- The CSP candidate runs in two jobs on the same scope, side by side: Script
+  policy enforced in WebKit (production's headers, then `script-src`
+  enforced) and Style nonce enforced in WebKit (the whole policy with a style
+  nonce per response, its offline replay, and the diagram page's own policy).
+  They were one job until 2026-11-05, when it ran five and a half minutes and
+  was the longest check on any pull request that reached the editor; split,
+  each runs in about two and a half. `Editor in WebKit` requires both, and
+  `scripts/check-ci-path-gates.mjs` fails if it stops requiring either or if
+  their specs drift from the scope.
 
 Once a day (and on demand):
 
@@ -140,6 +149,15 @@ aren't touching the editor"). Replayed over the 111 merges before 2026-10-07,
 22 ran it, most of them real editor changes; the rest were a dependency bump
 or a change to the CI scope tooling itself. The old per-push trigger ran the
 full suite on 43.
+
+A type-only import (`import type … from`, `export type … from`) is not
+followed, since it is erased before anything runs. Until 2026-11-05 it was:
+the editor's context menu named `MenuItem` from the file tree's menu by type
+alone, which pulled the tree menu, folder jobs and the folder icon list into
+the editor's scope (280 files, now 228). #3038 changed two lines of that icon
+list and ran the editor's browser tests for it (Dev2: "why would a tex change
+trigger a browser job?"). `ci-change-scope.mjs --self-test` fails if the icon
+list comes back into the editor scope.
 
 The scope fails open:
 

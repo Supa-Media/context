@@ -278,6 +278,10 @@ export function bindingAnswerOf(parsed, required) {
     searchIndex: parsed.searchIndex ?? null,
     // Search by meaning's index, `searchIndex`'s terms: absent until it takes writes.
     meaningIndex: parsed.meaningIndex ?? null,
+    // Whether the owner's switch for search by meaning is on, whatever that index's health: a workspace whose notes
+    // live in its object answers meaning from its own index (`search/meaning/serve.js` `meaningSearchable`). Only a
+    // literal `true` is on.
+    meaningOn: parsed.meaningOn === true,
     encryptionKey: parsed.encryptionKey ?? null,
     rotation: parsed.rotation ?? null,
     // The free managed tier's note cap, a fifth sibling and absent for

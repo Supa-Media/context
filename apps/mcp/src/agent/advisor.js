@@ -60,6 +60,22 @@ export const ADVISOR_PROMPT =
   "promise work nobody will do are what to catch. Be specific and short, a few hundred words at most. Never invent a fact that isn't in the transcript; " +
   "say what Tex must look up instead.";
 
+/**
+ * A job's turn runs on the everyday model from its first round (Dev2, 2026-11-05: "for the Tex minions knock them down to
+ * Haiku, and also make sure that they have access to the advisor, whenever they need it"). Opus planning every job's first
+ * rounds, and taking back every round after a failed call, was most of Tex's Opus spend. So the job is told where the
+ * judgment now comes from: the advisor, asked when the job needs it. Never the limit on asks.
+ */
+export const JOB_ADVISOR_LINE =
+  "\n\nYou run this job on a fast model. Your advisor (send with action advisor) is a stronger model that sees the whole job so far: " +
+  "ask it before your first step when the job has several steps or needs judgment, when a step fails and the next way isn't clear, " +
+  "and before you report the job finished.";
+
+/** The line for a job's turn when its advisor is offered, else "". */
+export function jobAdvisorLine(job, offered) {
+  return job !== null && job !== undefined && offered === true ? JOB_ADVISOR_LINE : "";
+}
+
 const clip = (value, max) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 
 /** The tags the brief quotes in (`advisorBrief`); a quoted word that is one of them would end the quote. */

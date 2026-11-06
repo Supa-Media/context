@@ -37,6 +37,24 @@ import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { calendarAnswer, calendarWrites } from "./calendar.mjs";
+import { chatEntries, modelLog } from "./modelLog.mjs";
+import { failedStatus, roundsOf } from "./trace.mjs";
+
+/** An invented paired computer, in the person's own workspace only, as its object lists it (`ws.machine.list`, `ws.machine.get`). */
+export function benchMachines({ name, tools, slots }, workspaceId) {
+  const machine = { id: "mch_bench_computer", name, online: true, tools, folders: ["~/code"], ownerId: "bench-owner", limits: { slots } };
+  return {
+    idFromName: (id) => id,
+    get: (objectName) => ({
+      async fetch(request) {
+        const op = new URL(request.url).pathname.slice(1);
+        if (op === "ws.machine.list") return Response.json({ ok: true, machines: objectName === `workspace:${workspaceId}` ? [machine] : [] });
+        if (op === "ws.machine.get") return Response.json({ ok: true, machine });
+        return Response.json({ error: "unknown_op" }, { status: 400 });
+      },
+    }),
+  };
+}
 
 /** Brave's search endpoint (`src/agent/search.js`). */
 const BRAVE_SEARCH = "https://api.search.brave.com/";
@@ -258,9 +276,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // the real web, so a run does too (decided 2026-10-09; until 2026-10-11 the
   // world refused the call, so every search_web in a result had failed).
   const below = globalThis.fetch;
+  const modelCalls = modelLog(models.gatewayFetch); // every model call kept, for the conversation's ledger file (`modelLog.mjs`)
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
-    if (url.startsWith("https://gateway.ai.cloudflare.com/")) return models.gatewayFetch(url, init);
+    if (url.startsWith("https://gateway.ai.cloudflare.com/")) return modelCalls.fetch(url, init);
     if (url.startsWith(BRAVE_SEARCH)) {
       if (web) {
         const results = web.search(new URL(url).searchParams.get("q") ?? "");
@@ -339,7 +358,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // Tex's objects, as in production: the person's history and turn records live there (`src/agent/history.js`).
     TEX_STORE: texStoreNamespace().namespace,
     // Where the person's own pages live, as in production: a handoff texts
-    // `<APP_ORIGIN>/tex/<handle>` (`http/texComputer.js`), and without one
+    // `<APP_ORIGIN>/tex/@<handle>` (`http/texComputer.js`), and without one
     // the browser cannot be handed over at all.
     APP_ORIGIN: "https://app.bench.invalid",
     // The deployed Worker's search budget (wrangler.toml). The free-tier default
@@ -354,6 +373,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // a run offers the same tools (decided 2026-10-09; round two measured a
     // shorter tool list than production). The run command passes the key.
     ...(typeof models.searchKey === "string" && models.searchKey ? { BRAVE_SEARCH_API_KEY: models.searchKey } : {}),
+    // The person's paired computer, when the test names one (`run.mjs` `readComputer`): read through
+    // MACHINE_STORE (`src/machines/forJobs.js`), the only reads it answers. Nothing runs on it here.
+    ...(models.computer ? { MACHINE_STORE: benchMachines(models.computer, ids.get(own.workspace)) } : {}),
     // The hand-back judge, as production runs it (`agent/handbackJudge.js`); a scripted model leaves it off, since it would answer the judge's call too.
     ...(models.handbackJudge === true ? { HANDBACK_JUDGE: "on" } : {}),
     // A scripted web answers searches itself, so no real key is needed or sent.
@@ -387,21 +409,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     }
     return { usage, usageByModel, model: reports.at(-1)?.model ?? null };
   };
-  /** How many model rounds each model ran, from the turn log's trace (`turn.js` records it per round). */
-  const roundsOf = (trace) => {
-    const rounds = {};
-    for (const entry of trace ?? []) if (entry.kind === "model" && entry.ok !== false && typeof entry.model === "string") rounds[entry.model] = (rounds[entry.model] ?? 0) + 1;
-    return rounds;
-  };
-  /** The status the failed round got, from the turn log's trace; null when none. */
-  const failedStatus = (trace) => {
-    const failed = (trace ?? []).find((entry) => entry.kind === "model" && entry.ok === false);
-    return typeof failed?.status === "number" ? failed.status : null;
-  };
-
   return {
     /** One texted message, answered with the conversation so far. */
-    async text(message, attachments = []) {
+    async text(message, attachments = [], { running = null } = {}) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -415,7 +425,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         new Request("https://mcp.bench.invalid/agent", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
-          body: JSON.stringify({ question: message, conversation: "texts", ...(attachments.length > 0 ? { attachments } : {}) }),
+          // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
+          // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
+          body: JSON.stringify({ question: message, conversation: "texts", ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
         }),
         env,
         ctx,
@@ -431,6 +443,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // Lines the turn texted while it worked: each is a text the person got,
         // sent before the answer, as the texting Worker sends them (`apps/agent/src/inbox.ts`).
         progress,
+        // The background jobs the turn started, for the start checks (`checks.mjs`): nothing runs them here.
+        jobs: (Array.isArray(body?.jobs) ? body.jobs : []).map((job) => ({ title: String(job?.title ?? ""), mail: job?.mail?.path ?? null, name: job?.mail?.name ?? null, on: job?.machine?.name ?? null })),
         // Held calls the answer asks a YES for (`route.js`); the played person answers.
         asked: typeof body?.asked === "number" ? body.asked : 0,
         // The gateway hides a provider's reason from the caller; the turn log
@@ -448,9 +462,12 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // A fallback and a retried round are recorded the same way, because
         // they are what production does and a result must show how often.
         tools: (turn.trace ?? [])
-          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && (entry.retried || entry.cut)))
+          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || entry.kind === "judge" || (entry.kind === "model" && (entry.retried || entry.cut)))
           .map((entry) =>
-            entry.kind === "router"
+            entry.kind === "judge"
+              ? // The reply judge's verdict (`src/agent/replyJudge.js`): `judge: only_acknowledged 0.82 sent back, 40 ms`.
+                { tool: `judge: ${entry.verdict ?? "no verdict"}${typeof entry.confidence === "number" ? ` ${entry.confidence.toFixed(2)}` : ""}${entry.acted ? " sent back" : ""}, ${Math.round(entry.ms ?? 0)} ms`, ok: true }
+              : entry.kind === "router"
               ? // `router: think (0.8)`; a think pick under the setup's cutoff is
                 // `router: main (think 0.4)`, so a result shows the near misses.
                 { tool: `router: ${entry.tier}${routerSaid(entry)}`, ok: true }
@@ -470,6 +487,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // What each model spent and how many rounds it ran: a planned turn is priced model by model.
         usageByModel: spent.usageByModel,
         rounds: roundsOf(turn.trace),
+        trace: turn.trace ?? [],
       };
     },
 
@@ -647,6 +665,12 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       await settle();
       const usage = controlPlane.builtinReports.at(-1) ?? {};
       return { status: response.status, body: answer, ms: realNow() - started, model: usage.model ?? null };
+    },
+
+    /** Every model call so far, and the chat's own ledger as its history file reads (`modelLog.mjs`). */
+    modelCalls: () => modelCalls.calls(),
+    async chatLedger() {
+      return chatEntries(await this.readThrough("tex/history.ledger.json"));
     },
 
     /** One JSON-RPC call to the MCP endpoint, as an AI client connected with this grant makes it. */

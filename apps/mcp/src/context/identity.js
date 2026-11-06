@@ -23,6 +23,9 @@ export function actorFor(session) {
     userId: session.actorUserId,
     clientId: session.actorClientId,
     grantId: session.grantId,
+    // A grant made for a Tex group chat, under any client: a run on a computer started from a group is the group's
+    // still, and the vault gives it only the group's keys (`vault/access.js` `workspaceOnly`).
+    ...(typeof session.texChatId === "string" && session.texChatId !== "" ? { groupChat: true } : {}),
     // The two the form tools need, carried the same way and for the same
     // reason: a form response records *who*, and a form's `submit` policy is
     // compared against the caller's role in the context the call was routed

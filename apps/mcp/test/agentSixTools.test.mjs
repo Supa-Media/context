@@ -143,3 +143,16 @@ test("runTurn shows the model the six, and never dispatches what was not granted
   const results = bodies[1].messages.flatMap((message) => (Array.isArray(message.content) ? message.content : [])).filter((block) => block.type === "tool_result");
   assert.equal(results.filter((block) => block.is_error === true).length, 3, "the three ungranted calls are refused in band");
 });
+
+test("the vault link's action tells the model to look a login's site up, not guess it", () => {
+  // 2026-11-04: the `site` argument's own description never reaches the model
+  // (an action line shows argument names and types only), and Tex sent theCut's
+  // and the bench's SnipCut link for a guessed .com without searching.
+  const texting = sixToolsOver(held("orient", "vault_add_link", "search_web"));
+  const line = texting.tools.map((tool) => tool.description).join("\n").split("\n").find((text) => text.startsWith("- vault_add:"));
+  assert.ok(line, "vault_add is listed");
+  assert.match(line, /never guess the site from the name/);
+  assert.match(line, /search_web the company/);
+  // golden task 3: asked to save a login, Tex asked "Gmail or another email?" instead of sending the link.
+  assert.match(line, /never ask first which email/);
+});

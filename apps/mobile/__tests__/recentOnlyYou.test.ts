@@ -2,7 +2,7 @@ import { describe, expect, test } from "@jest/globals";
 import { lastChangeOf } from "../features/console/activity/lastChange";
 import type { ActivityEntry } from "../features/console/activity/activity";
 import { buildHome, recentLabel, type HomeInput } from "../features/console/home/homeModel";
-import { accountRecentItems } from "../features/console/files/palette";
+import { recentItems } from "../features/console/files/palette";
 
 /**
  * Recent shows only what you did (owner, 2026-10-17; boards 1 to 4, option A):
@@ -59,19 +59,11 @@ describe("Recent rows say what you did", () => {
     ]);
   });
 
-  test("⌘K lists the person's own Recent, saying what they did", () => {
-    const items = accountRecentItems(
-      [
-        { path: "notes/plan.md", at: at(9, 12), kind: "edited" },
-        { path: "folder", at: at(9) },
-        { path: "todo.md", at: at(8, 40), kind: "opened" },
-      ],
-      [],
-      (row) => recentLabel(row.kind, row.at, NOW),
-    );
+  test("⌘K lists the guesses bare, with no line saying when you opened each (owner, 2026-11-04)", () => {
+    const items = recentItems(["notes/plan.md", "folder", "todo.md"], []);
     expect(items.map((item) => [item.id, item.snippet])).toEqual([
-      ["notes/plan.md", "You edited 9:12"],
-      ["todo.md", "You opened 8:40"],
+      ["notes/plan.md", undefined],
+      ["todo.md", undefined],
     ]);
   });
 });

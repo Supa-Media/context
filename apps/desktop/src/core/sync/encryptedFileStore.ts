@@ -45,8 +45,9 @@ const FILE_NAME = "connection.enc";
  * @param keychain The OS's encrypted storage. `main/tokenStore.ts` passes
  *   Electron's `safeStorage`.
  */
-export function encryptedFileStore(directory: string, keychain: EncryptedStorage): TokenStore {
-  const path = join(directory, FILE_NAME);
+export function encryptedFileStore(directory: string, keychain: EncryptedStorage, fileName: string = FILE_NAME): TokenStore {
+  // A second credential (the machine runner's grant, `main/machineRunner.ts`) keeps its own file by the same rules.
+  const path = join(directory, fileName);
   const encrypted = keychain.isEncryptionAvailable();
   /** The in-memory fallback for a machine with no keyring. Never written down. */
   let inMemory: string | null = null;

@@ -302,7 +302,8 @@ export const sharedKey = (row) => `${row.fromWorkspaceId}:${row.noteId !== undef
  * previousRefreshHash?, expiresAt, status, lastUsedAt, createdAt?, machine?, at}`. `tokenHash` is null for a grant with no access token yet
  * (it resolves nothing until a refresh); `expiresAt` is 0 when none was recorded. `previousRefreshHash` is the refresh token the last
  * rotation spent: presented again, it revokes the grant. Texting clients (`context_texts`, `context_texts_group`) are
- * never held here; their checks stay with the control plane. `workspaceId` is the workspace the person connected it at, the session's default. Hashes
+ * never copied here: a 1:1 texting connection is kept only by the object's own `person.texting.open`
+ * (`personTexting.js`), which checks the phone itself. `workspaceId` is the workspace the person connected it at, the session's default. Hashes
  * only, never a token. `clientName` is display text the client asserted and decides nothing. `createdAt` (when the
  * grant was made) and `machine` (the Context desktop app on the person's computer, as the control plane's
  * `isDesktopShellClient` decided when it copied the row) are display only, for the app's connected-apps screens, and

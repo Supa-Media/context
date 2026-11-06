@@ -121,6 +121,12 @@ export function TexJobPage(props: TexJobPageProps) {
         <T size={26} serif line={1.25} testID="tex-job-title">
           {job.title}
         </T>
+        {job.ranOn ? (
+          // Where a machine's job runs (owner, 2026-11-04: a job on their computer looked like a cloud job). A cloud job says nothing.
+          <T size={13} tone="muted" testID="tex-job-where">
+            {job.tool ? `${job.ranOn} · ${job.tool}` : job.ranOn}
+          </T>
+        ) : null}
 
         {watching ? (
           <Pressable accessibilityRole="button" onPress={openComputer} style={styles.mini} testID="tex-computer-mini">

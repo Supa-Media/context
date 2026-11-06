@@ -66,6 +66,8 @@ export interface OpenedGatewayJob {
   binding: GatewayBinding;
   searchIndex?: GatewaySearchIndex;
   meaningIndex?: GatewayMeaningIndex;
+  /** The owner's switch for search by meaning is on, whatever the index's health (`meaningSearch.meaningOnForWorkspace`). */
+  meaningOn?: true;
   encryptionKey?: GatewayEncryptionKey;
   rotation?: GatewayKeyRotation;
   /** Managed-storage encryption mode, as on `OpenedGatewayBinding`. */

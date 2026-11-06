@@ -68,7 +68,7 @@ describe("the order and the grouping", () => {
     }
   });
 
-  test("nine listed rows; seven pages live behind a row on another page", () => {
+  test("ten listed rows; six pages live behind a row on another page", () => {
     /*
       The owner called the fifteen-row list cluttered (2026-10-10). Feedback,
       Activity, Meetings and Emoji keep their pages and their keys —
@@ -81,12 +81,14 @@ describe("the order and the grouping", () => {
       by name, not behind another page. Plan is listed only where something
       is sold (`pricedOnly`): Context is free (2026-10-20). Messages is the
       ninth (2026-10-26): the texts a Mac backs up, on the boards as a row.
+      Tex is the tenth (Dev2, 2026-11-04): how Tex talks, and Let Tex use this Mac.
     */
     const all = settingsSectionsFor("personal");
     expect(all.filter((section) => !isFoldedSection(section)).map((section) => section.key)).toEqual([
       "profile",
       "texApps",
       "messages",
+      "tex",
       "workspace",
       "sharing",
       "integrations",
@@ -100,8 +102,9 @@ describe("the order and the grouping", () => {
         .map((section) => section.key),
     ).toContain("premium");
     expect(all.filter(isFoldedSection).map((section) => section.key).sort()).toEqual(
-      // Spelling (2026-10-27) is reached from Profile, like Feedback; so is Tex (Dev2, 2026-10-28).
-      ["activity", "emoji", "feedback", "folders", "meetings", "spelling", "tex"],
+      // Spelling (2026-10-27) is reached from Profile, like Feedback. Tex was too (Dev2, 2026-10-28) until
+      // Dev2 asked for it in the list (2026-11-04).
+      ["activity", "emoji", "feedback", "folders", "meetings", "spelling"],
     );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),

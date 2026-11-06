@@ -9,20 +9,20 @@ import { whenText } from "../feed";
 import type { MapPageState } from "../hooks/useMapPage";
 import { useNotePeek, type NotePeekText } from "../hooks/useNotePeek";
 import { peekRuns, type PeekRun } from "../peek/peekInline";
-import { lastWritten, peekCrumbs, peekPlacement, peekPresence, presenceChips, type PeekBlock, type PeekNote, type PresenceChip } from "../peek/peekModel";
+import { lastWritten, peekCrumbs, peekPresence, presenceChips, type PeekBlock, type PeekNote, type PresenceChip } from "../peek/peekModel";
 
 /** The note a dot tap opened, and where on the canvas the tap was (none when the map came back with it open). */
 export type OpenPeek = PeekNote & { at: { x: number; y: number } | null };
 
-const CARD = { width: 380, height: 460 };
-
 /**
- * The card a tapped dot opens, instead of leaving the map: the note's words,
+ * The note a tapped dot opens, instead of leaving the map: the note's words,
  * who is writing it and who is reading it, and what is being typed as it is
  * typed (the blocks that changed since the last read are marked, with a caret
  * after the latest). Expand opens the whole note at its own place in history,
- * so Back comes to the map again with this card still open. On a pointer
- * layout it sits beside the dot; on a phone it is a sheet over the map's own.
+ * so Back comes to the map again with this note still open. On a pointer
+ * layout it is the Note tab of the map's side panel (Dev2, 2026-11-04: the
+ * card over the map was in the way, "maybe we can have the notes be previewed
+ * on the side instead"); on a phone it is a sheet over the map's own.
  *
  * Reading is shown for the whole note: the map knows which notes were read,
  * not which parts.
@@ -36,7 +36,6 @@ export function NotePeek({
   page,
   peek,
   compact,
-  box,
   onClose,
   onExpand,
   onPeek,
@@ -44,7 +43,6 @@ export function NotePeek({
   page: MapPageState;
   peek: OpenPeek;
   compact: boolean;
-  box: { width: number; height: number };
   onClose: () => void;
   onExpand: () => void;
   /** A link in the card to another note on the map: the card opens on it, where it is now. */
@@ -72,14 +70,12 @@ export function NotePeek({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const card = { width: Math.min(CARD.width, box.width - 24), height: Math.min(CARD.height, box.height - 24) };
-  const place = compact ? null : peekPlacement(peek.at, box, card);
   const written = writing ? null : lastWritten(page.events, peek);
   const updated = writing ? "Being written now" : written !== null ? `Edited ${whenText({ now: false, at: written }, page.now)}` : null;
 
   return (
     <View
-      style={compact ? styles.sheet : [styles.card, { left: place!.left, top: place!.top, width: card.width, maxHeight: card.height }]}
+      style={compact ? styles.sheet : styles.docked}
       accessibilityRole="none"
       aria-label={`Preview of ${title}`}
       testID="map-peek"
@@ -232,18 +228,8 @@ function Run({ run, link, look }: { run: PeekRun; link: LinkTo; look: object }) 
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    card: {
-      position: "absolute",
-      borderRadius: 16,
-      backgroundColor: colors.pageSurface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.lineStrong,
-      shadowColor: "#000",
-      shadowOpacity: 0.28,
-      shadowRadius: 30,
-      shadowOffset: { width: 0, height: 12 },
-      overflow: "hidden",
-    },
+    // In the map's side panel, under its tabs: the panel's own width and height.
+    docked: { flex: 1, minHeight: 0, backgroundColor: colors.pageSurface },
     sheet: {
       position: "absolute",
       left: 0,
@@ -262,11 +248,11 @@ const makeStyles = (colors: Colors) =>
       overflow: "hidden",
     },
     grab: { alignSelf: "center", width: 38, height: 5, borderRadius: 3, marginTop: 8, backgroundColor: colors.lineStrong },
-    head: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingLeft: 18, paddingRight: 8, paddingTop: 10 },
+    head: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingLeft: 16, paddingRight: 8, paddingTop: 10 },
     crumbs: { flex: 1, fontFamily: fonts.body, fontSize: pointerType.meta, color: colors.chromeMuted },
     close: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
     closePhone: { width: 44, height: 44, borderRadius: 22 },
-    title: { marginHorizontal: 18, fontFamily: fonts.body, fontSize: pointerType.h3, fontWeight: "600", color: colors.text },
+    title: { marginHorizontal: 16, fontFamily: fonts.body, fontSize: pointerType.body, fontWeight: "600", color: colors.text },
     chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 18, paddingTop: 10 },
     chip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, maxWidth: "100%" },
     chipWriting: { backgroundColor: colors.accentDim },
@@ -275,13 +261,13 @@ const makeStyles = (colors: Colors) =>
     chipText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", flexShrink: 1 },
     chipTextWriting: { color: colors.accentText },
     chipTextReading: { color: colors.warnText },
-    body: { flexGrow: 1, flexShrink: 1, marginTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-    bodyInner: { paddingHorizontal: 18, paddingVertical: 12, gap: 8 },
+    body: { flexGrow: 1, flexShrink: 1, marginTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+    bodyInner: { paddingHorizontal: 16, paddingVertical: 10, gap: 6 },
     block: { marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
     blockChanged: { backgroundColor: colors.accentDim },
-    h2: { fontFamily: fonts.body, fontSize: pointerType.body, fontWeight: "600", color: colors.text },
-    h3: { fontFamily: fonts.body, fontSize: pointerType.lede, fontWeight: "600", color: colors.text },
-    para: { fontFamily: fonts.body, fontSize: pointerType.lede, lineHeight: 22, color: colors.text2 },
+    h2: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "700", color: colors.text },
+    h3: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.text },
+    para: { fontFamily: fonts.body, fontSize: pointerType.ui, lineHeight: 19, color: colors.text2 },
     codeBlock: { fontFamily: fonts.mono, fontSize: pointerType.ui, lineHeight: 19, color: colors.text2 },
     caret: { color: colors.accent },
     quote: { paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: colors.line },
@@ -313,15 +299,15 @@ const makeStyles = (colors: Colors) =>
       flexDirection: "row",
       alignItems: "center",
       gap: space.x2,
-      paddingLeft: 18,
-      paddingRight: 14,
-      paddingVertical: 12,
+      paddingLeft: 16,
+      paddingRight: 10,
+      paddingVertical: 8,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.line,
     },
     footPhone: { paddingHorizontal: 18, paddingBottom: 24 },
     meta: { flex: 1, fontFamily: fonts.body, fontSize: pointerType.meta, color: colors.chromeMuted },
-    expand: { height: 36, paddingHorizontal: 16, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: colors.text },
+    expand: { height: 30, paddingHorizontal: 14, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: colors.text },
     expandPhone: { flex: 1, height: 48, borderRadius: 12 },
     expandText: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.pageSurface },
   });

@@ -1,0 +1,99 @@
+# Where a text's wait goes, from both sides (the owner, 2026-11-04: "please make sure you speed up both
+# group chats and 1:1 texts"). The texting Worker's `tex_text_timing` (`apps/agent/src/textTiming.ts`):
+# per kind (one, group), the median and 95th percentile of each column, from arrival to the first bubble
+# out. The gateway's `tex_entry` (`apps/mcp/src/agent/texTiming.js`): per turn kind and step, the median
+# and 95th percentile of how long that step held the turn up. Names, kinds and milliseconds only: neither
+# dataset holds a phone, a chat or a word, and this prints no workspace. Read-only, manual only.
+name: Tex text timings
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to read."
+        type: choice
+        options: [production, staging]
+        default: production
+      hours:
+        description: "How far back to read, in hours (1 to 168)."
+        required: true
+        default: "6"
+
+permissions:
+  contents: read
+
+jobs:
+  timings:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 5
+    steps:
+      - name: Read the timings
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HOURS: ${{ inputs.hours }}
+          TEXTS: ${{ inputs.environment == 'staging' && 'tex_text_timing_staging' || 'tex_text_timing' }}
+          ENTRY: ${{ inputs.environment == 'staging' && 'tex_entry_staging' || 'tex_entry' }}
+        run: |
+          set -euo pipefail
+          case "$HOURS" in ''|*[!0-9]*) echo "hours must be a number" >&2; exit 1 ;; esac
+          if [ "$HOURS" -lt 1 ] || [ "$HOURS" -gt 168 ]; then echo "hours must be 1 to 168" >&2; exit 1; fi
+          # The API's own error (a bad query, never data) goes to the log, so a refusal says why.
+          sql() {
+            if ! curl -sS --fail-with-body -X POST \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/analytics_engine/sql" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data "$1" -o sql.out; then
+              head -c 600 sql.out >&2; echo >&2; return 1
+            fi
+            cat sql.out
+          }
+          # One column at a time, so a step not reached (-1) never drags a median down.
+          names="queueMs gatewayMs beforeSendMs sendMs toFirstTextMs toLastTextMs afterSendMs parts sessionMs beforeAskMs"
+          i=0
+          : > texts.jsonl
+          for name in $names; do
+            i=$((i + 1))
+            sql "SELECT blob1 AS kind, '$name' AS col, SUM(_sample_interval) AS n,
+              quantileWeighted(0.5)(double$i, _sample_interval) AS p50,
+              quantileWeighted(0.95)(double$i, _sample_interval) AS p95
+              FROM $TEXTS WHERE double$i >= 0 AND timestamp > NOW() - INTERVAL '$HOURS' HOUR
+              GROUP BY kind FORMAT JSON" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{for(const r of JSON.parse(s).data)console.log(JSON.stringify(r))})' >> texts.jsonl
+          done
+          sql "SELECT blob2 AS kind, blob3 AS step, blob4 AS state, SUM(_sample_interval) AS n,
+            quantileWeighted(0.5)(double1, _sample_interval) AS p50,
+            quantileWeighted(0.95)(double1, _sample_interval) AS p95
+            FROM $ENTRY WHERE timestamp > NOW() - INTERVAL '$HOURS' HOUR
+            GROUP BY kind, step, state ORDER BY kind, p50 DESC LIMIT 200 FORMAT JSON" > entry.json
+          # The three newest turns of each kind, step by step in the order they started: what no median shows.
+          # A turn's id is opaque and is never printed: each is shown as "turn 1", "turn 2", ...
+          : > turns.jsonl
+          for kind in one group; do
+            sql "SELECT blob5 AS turn, double1 AS ms, timestamp AS t FROM $ENTRY WHERE blob2 = '$kind' AND blob3 = 'to_response' AND blob5 != ''
+              AND timestamp > NOW() - INTERVAL '$HOURS' HOUR ORDER BY t DESC LIMIT 3 FORMAT JSON" > newest.json
+            for turn in $(node -e 'for (const r of JSON.parse(require("fs").readFileSync("newest.json","utf8")).data) if (/^[A-Za-z0-9_-]{1,64}$/.test(r.turn)) console.log(r.turn)'); do
+              sql "SELECT '$kind' AS kind, blob3 AS step, blob4 AS state, double1 AS ms, double2 AS at FROM $ENTRY
+                WHERE blob5 = '$turn' AND timestamp > NOW() - INTERVAL '$HOURS' HOUR ORDER BY at LIMIT 150 FORMAT JSON" \
+                | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.stringify(JSON.parse(s).data)))' >> turns.jsonl
+            done
+          done
+          node -e '
+            const fs = require("fs");
+            const texts = fs.readFileSync("texts.jsonl", "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+            const entry = JSON.parse(fs.readFileSync("entry.json", "utf8")).data;
+            const word = (value) => String(value ?? "").replace(/[^a-z0-9_:-]/gi, "").slice(0, 48) || "-";
+            const out = [`### The texting Worker, last ${process.env.HOURS} h`, "", "| kind | column | n | p50 ms | p95 ms |", "| --- | --- | ---: | ---: | ---: |"];
+            for (const row of texts.sort((a, b) => word(a.kind).localeCompare(word(b.kind)))) out.push(`| ${word(row.kind)} | ${word(row.col)} | ${Math.round(row.n)} | ${Math.round(row.p50)} | ${Math.round(row.p95)} |`);
+            out.push("", `### Steps in the gateway, last ${process.env.HOURS} h`, "", "| kind | step | state | n | p50 ms | p95 ms |", "| --- | --- | --- | ---: | ---: | ---: |");
+            for (const row of entry) out.push(`| ${word(row.kind)} | ${word(row.step)} | ${word(row.state)} | ${Math.round(row.n)} | ${Math.round(row.p50)} | ${Math.round(row.p95)} |`);
+            let shown = 0;
+            for (const steps of fs.readFileSync("turns.jsonl", "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line))) {
+              if (steps.length === 0) continue;
+              shown += 1;
+              out.push("", `### A ${word(steps[0].kind)} turn (turn ${shown}), step by step`, "", "| starts at ms | step | state | ms |", "| ---: | --- | --- | ---: |");
+              for (const step of steps) out.push(`| ${Math.round(step.at)} | ${word(step.step)} | ${word(step.state)} | ${Math.round(step.ms)} |`);
+            }
+            const text = out.join("\n");
+            console.log(text);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text + "\n");
+          '

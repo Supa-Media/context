@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useMemo, useRef } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { MapSideProvider } from "../../aside/mapSide";
 import type { ConsoleRouter } from "../../layout/types";
 import { routeMap, type MapRoute } from "./route";
 
@@ -13,6 +14,15 @@ import { routeMap, type MapRoute } from "./route";
 const MapRouteContext = createContext<MapRoute | undefined>(undefined);
 
 export const MapRouteProvider = MapRouteContext.Provider;
+
+/** The route, and the store the map hands its right-panel tabs through (`mapSide.tsx`): what a console provides. */
+export function MapRouteAndSideProvider({ value, children }: { value: MapRoute | undefined; children: ReactNode }) {
+  return (
+    <MapRouteContext.Provider value={value}>
+      <MapSideProvider>{children}</MapSideProvider>
+    </MapRouteContext.Provider>
+  );
+}
 
 export function useMapRoute(): MapRoute | undefined {
   return useContext(MapRouteContext);

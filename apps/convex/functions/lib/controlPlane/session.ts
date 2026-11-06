@@ -18,9 +18,13 @@ import {
   addressable,
   contextsForGrant,
   resolveLiveGrant,
+  resolveRunGrant,
   texChatIdOf,
   validateLiveGrantRecord,
+  type LiveGrant,
+  type RunGrantInfo,
 } from "./liveGrants";
+import { TEX_MACHINE_RUN_CLIENT_ID } from "../texMachineRules";
 
 export const resolveLivePresenceGrantsArgs = {
   expectedWorkspaceId: v.string(),
@@ -207,20 +211,24 @@ export async function resolveGrantByAccessTokenHandler(
   ctx: QueryCtx,
   args: ObjectType<typeof resolveGrantByAccessTokenArgs>,
 ) {
-  const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+  const live: (LiveGrant & { run?: RunGrantInfo }) | null =
+    (await resolveLiveGrant(ctx, args.hashedAccessToken)) ?? (await resolveRunGrant(ctx, args.hashedAccessToken));
   if (live === null) return null;
-  const client = await ctx.db
-    .query("oauthClients")
-    .withIndex("by_clientId", (q) => q.eq("clientId", live.grant.clientId))
-    .unique();
+  // A run grant reads as its own client, and as the parent grant for everything else: who it acts as, what it reaches.
+  const client = live.run
+    ? null
+    : await ctx.db
+        .query("oauthClients")
+        .withIndex("by_clientId", (q) => q.eq("clientId", live.grant.clientId))
+        .unique();
   const chatId = await texChatIdOf(ctx, live);
   return {
     grantId: live.grant._id,
-    clientId: live.grant.clientId,
-    clientName: client?.clientName ?? null,
+    clientId: live.run ? TEX_MACHINE_RUN_CLIENT_ID : live.grant.clientId,
+    clientName: live.run ? "Tex on your computer" : (client?.clientName ?? null),
     actorUserId: live.grant.userId,
     scopes: live.grant.scopes,
-    expiresAt: live.grant.accessTokenExpiresAt as number,
+    expiresAt: live.run ? live.run.expiresAt : (live.grant.accessTokenExpiresAt as number),
     toolsListedAt: live.grant.toolsListedAt ?? live.grant.createdAt,
     ...(chatId === null ? {} : { texChatId: chatId }),
     workspaceId: live.grant.workspaceId,

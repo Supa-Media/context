@@ -19,6 +19,7 @@ import {
 import { applyUpdateTo, assertTextSize, docFromSnapshot } from "./ydoc.js";
 import { assertExpectedRevision, makeResult, readRevision } from "./records.js";
 import { ready } from "./load.js";
+import { markedRevision } from "./versions.js";
 import { commitSnapshot } from "./commit.js";
 import { replayResolution } from "./replay.js";
 
@@ -128,9 +129,10 @@ export async function replaceText(store, path, input) {
       const suffix = tokenMatch[2];
       if (!/^[A-Za-z0-9-]+$/.test(suffix)) throw fail("BASE_MISSING", "the requested Markdown base is invalid");
       // The base is usually the revision just loaded (nobody wrote since the caller read): no second read.
-      baseRevision = suffix === loaded.state.revision ? loaded.revision : await readRevision(store, loaded.state.documentId, suffix);
+      // A recent revision is rebuilt from the marker its state keeps; an older one is a kept version's file.
+      baseRevision = suffix === loaded.state.revision ? loaded.revision : (markedRevision(loaded.state, loaded.revision, suffix) ?? (await readRevision(store, loaded.state.documentId, suffix)));
     } else if (input.expectedEtag === loaded.state.legacyRawEtag) {
-      baseRevision = await readRevision(store, loaded.state.documentId, loaded.state.legacyRevision);
+      baseRevision = loaded.state.legacyRevision === loaded.state.revision ? loaded.revision : await readRevision(store, loaded.state.documentId, loaded.state.legacyRevision);
     } else {
       throw fail("BASE_MISSING", "the requested Markdown base is no longer retained");
     }

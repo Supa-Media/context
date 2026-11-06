@@ -75,20 +75,12 @@ What it is actually for:
 - **Legibility.** People see this URL in their client settings, and
   `<host>/@seyi/mcp` reads as theirs.
 
-### If the client cannot set headers
+### No token in the URL
 
-```
-https://<host>/t/<access token>/mcp
-```
-
-This is a compatibility fallback and nothing more. The value in the path is an
-**OAuth-issued access token**, not a shared secret: it is resolved by exactly the
-same code as a header token, yields exactly the same grant, and confers exactly
-the same authority. It has never been the security boundary.
-
-A token in a URL lands in browser history, proxy logs, and referrer headers. Use
-the header form unless the client genuinely cannot, and revoke the grant if you
-suspect the URL leaked.
+The access token goes in the `Authorization: Bearer` header. The old
+`/t/<access token>/mcp` fallback, from before OAuth, is retired: the gateway
+answers any `/t/...` path with `410` and never looks the token up
+([token-transport](../../docs/decisions/gateway-protocol/token-transport.md)).
 
 ### What a connection may do
 
@@ -131,7 +123,6 @@ owner granted access to.
 | Endpoint                                        | Method | Notes                                        |
 | ----------------------------------------------- | ------ | -------------------------------------------- |
 | `/mcp`, `/@<slug>/mcp`, `/<slug>/mcp`           | POST   | MCP streamable HTTP; needs `context:read`     |
-| `/t/<token>/mcp`                                | POST   | header-less fallback for the same thing       |
 | `/inbox`                                        | POST   | capture into `0-inbox/`; needs `context:capture` |
 | `/.well-known/oauth-protected-resource[/…]`     | GET    | RFC 9728; also served under `/@<slug>/`       |
 | `/.well-known/oauth-authorization-server[/…]`   | GET    | RFC 8414                                      |

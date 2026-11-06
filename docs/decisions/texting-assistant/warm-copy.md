@@ -112,3 +112,47 @@ and the reply took 46 s with 3 s in the model.
 
 Tests: `apps/mcp/test/agentWarmCopy.test.mjs`, `apps/mcp/test/agentHeldLog.test.mjs`,
 `apps/agent/src/warm.test.ts`, `apps/agent/src/heldLog.test.ts`.
+
+## Served stale while read again (2026-11-04)
+
+Dev asked why a cold text spent about a second on its setup and skills
+("why setup notes and skills are 1s"). On 2026-11-03 at 11:09 PM ET the setup
+took 400 ms and the learned skills 750 ms, both before the model, because the
+copy's setup had passed its hour and its skills their ten minutes.
+
+**Decision.** Past fresh and inside a day (`WARM_STALE_MS`), the setup and the
+learned skills' index are used for this turn and read again beside it, not
+before it (`warmTurn` `part`). What that read finds is sealed into the copy
+this turn hands back, so the next text has it fresh. A setup whose read again
+finds nothing is not carried on, so a removed or hidden setup is gone by the
+following text. Who they are by their account is never served stale. A
+background job running, or a turn that wrote, still reads the skills before
+the model, as before.
+
+**What it costs.** An edit to the setup note, or a skill added in the app,
+reaches a chat that was quiet for over an hour one text late. Nothing else:
+the history, About me and the jobs list are never in the copy.
+
+**Tests.** `apps/mcp/test/agentWarmCopy.test.mjs`: "past fresh and inside a
+day, the setup and skills answer at once and are read beside the turn; past
+a day, before it" and "a stale setup whose read again finds none is not
+carried on".
+
+## The chat is never carried (2026-11-05)
+
+Dev2's 1:1 chat on 2026-11-05: Tex said "My last text was the Air France
+check-in failure" five replies after that text, and asked who sent an email
+it had drafted a reply to two minutes before. Since 2026-11-02 (#2724, "keep
+only the texting Worker's outbox") a turn with a copy took the copy's events
+as its day and read no ledger. The copy was sealed before the turn's reply
+went out, and the Worker drops a reply from its outbox once the gateway has
+written it, so for up to a day every 1:1 turn saw the person's texts and none
+of Tex's own answers.
+
+Decided by Dev2 ("read from the ledger"): the copy never holds the chat's
+day. Every 1:1 turn reads it from the chat's ledger in the person's Tex
+object, as a group's turn does, with the Worker's outbox on top. The read
+already ran beside the turn's other reads (110 to 220 ms that day), so it
+costs no wait. What simplifying it back would cost: Tex loses its own
+answers again. Test: `apps/mcp/test/agentWarmCopy.test.mjs`, "a turn after
+Tex answered is shown that answer though the Worker no longer holds it".

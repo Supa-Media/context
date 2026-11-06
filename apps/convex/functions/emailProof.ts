@@ -7,6 +7,7 @@ import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { sendAccountMail } from "./lib/accountMail";
+import { DIRECTORY_REVIEW_EMAIL, DIRECTORY_REVIEW_PROVIDER_ID, directoryReviewTestEmail } from "./lib/reviewerAccount";
 import {
   confirmedEmailsOf,
   EMAIL_PROOF_WINDOW_MS,
@@ -232,6 +233,27 @@ export const requireProof = internalQuery({
   returns: v.null(),
   handler: async (ctx) => {
     const userId = requireSignedIn(await getAuthUserId(ctx));
+    await requireEmailProof(ctx, userId);
+    return null;
+  },
+});
+
+/**
+ * Directory reviewers receive the isolated sample account's fixed credential,
+ * not access to our inbox. Only connector approval accepts that credential as
+ * sufficient: account changes, storage changes and the historical reviewer
+ * account still require the ordinary emailed proof.
+ */
+export const requireConnectorProof = internalQuery({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const userId = requireSignedIn(await getAuthUserId(ctx));
+    const user = await ctx.db.get(userId);
+    if (directoryReviewTestEmail().length === 1 && user?.email === DIRECTORY_REVIEW_EMAIL && user.emailVerificationTime !== undefined && await liveSessionOf(ctx, userId)) {
+      const accounts = await ctx.db.query("authAccounts").withIndex("providerAndAccountId", q => q.eq("provider", DIRECTORY_REVIEW_PROVIDER_ID).eq("providerAccountId", DIRECTORY_REVIEW_EMAIL)).take(2);
+      if (accounts.length === 1 && accounts[0]!.userId === userId) return null;
+    }
     await requireEmailProof(ctx, userId);
     return null;
   },

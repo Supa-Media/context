@@ -83,7 +83,7 @@ import { consoleCreateButton } from "./layout/createButton";
 import { consolePalette } from "./layout/palette";
 import { ChaosProvider, useConsoleChaos } from "../chaos/ChaosContext";
 import { ChaosSheet } from "../chaos/ChaosPopover";
-import { MapRouteProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
+import { MapRouteAndSideProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
 import { TrashRouteProvider, useConsoleTrashRoute } from "./trash/TrashRouteContext";
 import { useHomeView } from "./home/homeView";
 import { usePreviousPage } from "./home/phoneHistory";
@@ -257,7 +257,7 @@ export function ConsoleFrame({
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
   const sharedHere = onShared(route);
-  const { search, paletteItems, recent, recentYours, places } = usePaletteSearch({
+  const { search, paletteItems, recent, places } = usePaletteSearch({
     data, insideContext, current, paletteOpen, history, scope: searchScope, phone,
   });
   /*
@@ -444,7 +444,7 @@ export function ConsoleFrame({
   return (
     <ConsoleDataProvider value={data}>
       <ChaosProvider value={chaos}>
-      <MapRouteProvider value={mapRoute}>
+      <MapRouteAndSideProvider value={mapRoute}>
       <TrashRouteProvider value={trashRoute}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
@@ -658,7 +658,7 @@ export function ConsoleFrame({
         <OpenAsideOn at={openAsideAt} />
 
         {consolePalette({
-          paletteOpen, paletteItems, recent, recentYours, search, setPaletteOpen, router, data,
+          paletteOpen, paletteItems, recent, search, setPaletteOpen, router, data,
           scope: searchScope, setScope: setSearchScope,
           places: phone ? { ...places, rootLabel: current?.displayName ?? "Your workspace" } : undefined,
         })}
@@ -677,7 +677,7 @@ export function ConsoleFrame({
       </VoiceHostProvider>
       </ConsoleNavProvider>
       </TrashRouteProvider>
-      </MapRouteProvider>
+      </MapRouteAndSideProvider>
       </ChaosProvider>
     </ConsoleDataProvider>
   );

@@ -185,7 +185,7 @@ export async function browseOnBrowserbase(
     const uploads = browserbaseUploads(env, session.id, fetcher);
     let result = await runSteps(page, parsed.steps, { downloads, uploads });
     // Not while the person is being handed the browser: it is theirs then.
-    const captcha = handingOver ? null : await settleCaptcha(attached.evaluate);
+    const captcha = handingOver ? null : await settleCaptcha(attached.evaluate, { solver: attached.solver ?? null });
     if (captcha === "solved") result = { ...result, page: (await runSteps(page, [{ do: "read" }])).page };
     // A captcha that shows nothing can still turn a Register press away: the gateway is told it is there.
     const hidden = handingOver || captcha !== null ? false : await invisibleCaptcha(attached.evaluate);

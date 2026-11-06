@@ -6,9 +6,13 @@ import type { ApprovalsView } from "../../approvals/useApprovals";
 import { Dot } from "../../design/components/Dot";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
-import { useThemedStyles, type Colors } from "../../design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
+import { useMapSide } from "./mapSide";
+import { AsideStrip } from "./AsideStrip";
+import { useFrame } from "../../app/AppFrame";
+import { Icon } from "../../design/components/Icon";
 import type { CalendarEvent } from "../../meetings/protocol";
 import {
   ASIDE_TABS,
@@ -83,13 +87,17 @@ export function AsidePanel({
   const waiting = approvals?.items.length ?? 0;
   // The tab somebody chose, if this console still shows it; else Meetings, which every console shows.
   const wanted = asideTabFor(chosen);
+  const map = useMapSide();
   const tabs = visibleAsideTabs({
     approvals: approvalsAvailable,
     waiting,
     answered: wanted === "approvals" && approvals?.notice != null,
     failed: approvals?.phase === "failed",
+    map: map !== null,
+    note: map?.noteKey != null,
   });
-  const showing: AsideTab = tabs.includes(wanted) ? wanted : "meetings";
+  // A chosen tab that has gone (the note closed, the map left) falls back to the map's Activity, else Meetings.
+  const showing: AsideTab = tabs.includes(wanted) ? wanted : tabs.includes("activity") ? "activity" : "meetings";
 
   /* Somebody asked for Meetings, from the + menu or the title bar. See `started`. */
   useEffect(() => {
@@ -97,8 +105,41 @@ export function AsidePanel({
     setChosen("meetings");
   }, [started]);
 
+  /*
+    The map opening brings its Activity forward, and a note clicked on it
+    brings Note forward. These are the person's own presses on the map, so
+    they move the tab where a meeting starting does not. After `started`'s
+    effect, so a panel opened on the map shows the map's tab even when a
+    meeting was asked for earlier; a new ask still takes the tab.
+  */
+  const mapOpen = map !== null;
+  const noteKey = map?.noteKey ?? null;
+  useEffect(() => {
+    if (mapOpen) setChosen("activity");
+  }, [mapOpen]);
+  useEffect(() => {
+    if (noteKey !== null) setChosen("note");
+  }, [noteKey]);
+
   const live = useMeetingsSnapshot().live;
   const meetingLive = live !== null;
+  const colors = useColors();
+  const frame = useFrame();
+  const setFolded = frame.setAsideFolded;
+
+  if (frame.state.asideFolded) {
+    return (
+      <AsideStrip
+        tabs={tabs}
+        showing={showing}
+        recording={meetingLive}
+        onUnfold={(tab) => {
+          if (tab !== null) setChosen(tab);
+          setFolded(false);
+        }}
+      />
+    );
+  }
 
   return (
     <View style={styles.panel} testID="aside-panel">
@@ -156,9 +197,27 @@ export function AsidePanel({
             </Pressable>
           );
         })}
+        <View style={styles.tabsGap} />
+        <Pressable
+          onPress={() => setFolded(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Fold the panel"
+          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.fold, hovered && styles.tabCurrent]}
+          testID="aside-fold"
+        >
+          <Icon name="chevronRight" size={16} color={colors.text2} />
+        </Pressable>
       </View>
 
-      {showing === "approvals" && approvals !== undefined ? (
+      {showing === "activity" && map !== null ? (
+        <View style={styles.body} testID="aside-map-activity">
+          {map.activity}
+        </View>
+      ) : showing === "note" && map !== null ? (
+        <View style={styles.body} testID="aside-map-note">
+          {map.note}
+        </View>
+      ) : showing === "approvals" && approvals !== undefined ? (
         <View style={styles.body} testID="aside-approvals">
           <ApprovalsPanel view={approvals} />
         </View>
@@ -174,6 +233,7 @@ const makeStyles = (colors: Colors) =>
     panel: { flex: 1, minWidth: 0 },
     tabs: {
       flexDirection: "row",
+      alignItems: "center",
       gap: space.x1,
       paddingHorizontal: space.x2,
       paddingTop: space.x2,
@@ -190,6 +250,8 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.control,
     },
     tabCurrent: { backgroundColor: colors.chrome },
+    tabsGap: { flex: 1 },
+    fold: { width: 36, minHeight: layout.minTouchTarget, borderRadius: radii.control, alignItems: "center", justifyContent: "center" },
     tabLabel: { color: colors.muted },
     count: { color: colors.muted },
     tabLabelCurrent: { color: colors.text },

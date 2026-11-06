@@ -273,7 +273,7 @@ describe("the folder placeholder", () => {
       "b.md",
     ]);
     // Folders stay ahead of files in both directions; see `orderedEntries`.
-    expect(listedEntries(entries, { descending: true }).map((entry) => entry.name)).toEqual([
+    expect(listedEntries(entries, { sort: "name-desc" }).map((entry) => entry.name)).toEqual([
       "plans",
       "b.md",
       "a.md",

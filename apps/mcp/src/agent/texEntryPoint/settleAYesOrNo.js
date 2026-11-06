@@ -11,10 +11,11 @@ import { thumbsDownIsNo, thumbsUpIsYes } from "../textedApprovals.js";
 import { settleTextedText } from "../textedSettle.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { chatLedger } from "../workEntries.js";
+import { machineThumb, machineThumbLine } from "../../machines/groupAsk.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function settleAYesOrNo(t) {
-  const { body, dispatch, env, group, hot, job, outcome, question, quoted, received, sent, session, setupRead, store, tex } = t;
+  const { body, controlPlane, dispatch, env, group, hot, job, outcome, question, quoted, received, sent, session, setupRead, store, tex } = t;
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   let setAside = [], dropped = [], paid = [], thumbsUp = false; // dropped: asks Tex texted something else after by itself (`askOvertaken.js`)
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`); a guest's is nobody's (`groupGuests.js`).
@@ -26,6 +27,9 @@ export async function settleAYesOrNo(t) {
     if (ownConversation !== null && readTold(body.told).length > 0) await tex.step("keep_told", () => appendTold(store, ownConversation, readTold(body.told)));
   }
   else if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
+    // A 👍 or 👎 from a computer's owner on the chat's ask to run a job there answers that ask, and nothing else (`groupAsk.js`).
+    const machine = group !== null && quoted?.tapback ? await tex.step("machine_thumb", () => machineThumb(env, session, quoted, controlPlane, { guest: group.guestTagger === true })) : null;
+    if (machine !== null) return (outcome.clean = true), json({ answer: machineThumbLine(machine), provider: "gateway", model: "none", steps: [] });
     thumbsUp = await tex.step("thumbs_up", () => thumbsUpIsYes(store, session, quoted, { who: group?.from || null, chat: askChat })); // a 👍 on the ask is that yes
     const thumbsDown = !thumbsUp && (await tex.step("thumbs_down", () => thumbsDownIsNo(store, session, quoted, { who: group?.from || null, chat: askChat }))); // and a 👎 the no
     const settled = await tex.step("settle_yes", () => settleTextedText(store, session, {

@@ -352,3 +352,24 @@ test("a code passage found only by meaning is left out of a prose question, kept
   assert.ok(asked("workers comp renewal").includes(prose.key));
   assert.ok(asked("state.tokenUrl refresh").includes(code.key));
 });
+
+test("a search everywhere leaves out Context.LC's pinned workspace for a member, keeps it for those who run it (benchmark, 2026-11-05)", async () => {
+  const rowsOf = (store) => withPrivacyAuthority(store, { rules: { etag: "rows-v1", accessVersion: 1, folders: [], notes: [] } });
+  const others = {
+    "@band": scannedStore({ "gigs/show.md": "# Show\n\nOctober 20 load-in.\n" }),
+    "@context-lc": scannedStore({ "ai/production/texting-assistant.md": "# Setup\n\nA question about October 20 sweeps every workspace.\n" }),
+  };
+  const asRole = (role) =>
+    scannedStore(
+      { "todo.md": "# Todo\n\nNothing.\n" },
+      {
+        contexts: [{ name: "@band", role: "member" }, { name: "@context-lc", role }],
+        async openContext(name) {
+          return { session: { scope: "private" }, store: rowsOf(others[name]) };
+        },
+      },
+    );
+  const keys = async (home) => (await toolSearchNotes(home, "private", [], new Map(), "October 20", "")).content[0].text.split("\n").filter((line) => line.endsWith(".md"));
+  assert.deepEqual(await keys(asRole("member")), ["@band/gigs/show.md"]);
+  assert.ok((await keys(asRole("owner"))).includes("@context-lc/ai/production/texting-assistant.md"), "staff who run it still find its notes");
+});

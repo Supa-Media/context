@@ -84,6 +84,8 @@ import {
   type TranscriptSegment,
   type TrayCommand,
   type UpcomingMeetings,
+  machineFoldersFrom, machineIdFrom, machineStatusFrom,
+  type MachineRunStatus,
 } from "@context/desktop-bridge";
 import { originOfUrl } from "../core/shell/mirror.ts";
 import { downloadFrom, filesChoiceFrom } from "../core/shell/imessageStatus.ts";
@@ -208,6 +210,15 @@ export interface ConsoleBridgeDeps {
   askLocalAgent: (request: LocalAgentAsk) => Promise<LocalAgentReply>;
   /** Today's meetings for the menu bar (version 9), already rebuilt by `upcomingFrom`. */
   setUpcoming: (upcoming: UpcomingMeetings) => void;
+  /**
+   * Let Tex use this Mac: the runner's state and switch (version 10), and the
+   * folders Tex may work in, chosen in the Mac's picker (version 11). Optional,
+   * so a shell without them answers "off". No credential crosses here.
+   */
+  machine?: () => MachineRunStatus;
+  setMachineEnabled?: (enabled: boolean) => Promise<MachineRunStatus>;
+  machineId?: () => Promise<string | null>;
+  pickMachineFolders?: () => Promise<string[] | null>;
 }
 
 export interface ConsoleBridge {
@@ -230,6 +241,8 @@ export interface ConsoleBridge {
   emitTrayCommand(command: TrayCommand): void;
   /** Tell the page iMessage's enabled/permission/last-sync state changed. */
   emitImessage(status: ImessageStatus): void;
+  /** Tell the page the runner's state changed (version 10). */
+  emitMachine(status: MachineRunStatus): void;
   /** Unregister every channel. For a window that is going away for good. */
   dispose(): void;
 }
@@ -584,6 +597,15 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     return null;
   });
 
+  // Rebuilt by `machineStatusFrom` on the way out too: only the bridge's own fields ever reach the page.
+  handle(BRIDGE_CHANNELS.machineStatus, () => machineStatusFrom(deps.machine?.() ?? null));
+  handle(BRIDGE_CHANNELS.machineSetEnabled, async (payload) => {
+    const enabled = (payload as { enabled?: unknown } | undefined)?.enabled === true;
+    return machineStatusFrom(deps.setMachineEnabled ? await deps.setMachineEnabled(enabled) : null);
+  });
+  handle(BRIDGE_CHANNELS.machineId, async () => machineIdFrom(deps.machineId ? await deps.machineId() : null));
+  handle(BRIDGE_CHANNELS.machinePickFolders, async () => machineFoldersFrom(deps.pickMachineFolders ? await deps.pickMachineFolders() : null));
+
   function send(channel: string, payload: unknown): void {
     /*
       A window that went away between the check and the send throws, and one
@@ -639,6 +661,9 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     emitImessage(status: ImessageStatus): void {
       send(BRIDGE_CHANNELS.imessageChange, { ...status });
     },
+    emitMachine(status: MachineRunStatus): void {
+      send(BRIDGE_CHANNELS.machineChange, machineStatusFrom(status));
+    },
     dispose(): void {
       for (const channel of [
         BRIDGE_CHANNELS.capabilities,
@@ -663,6 +688,8 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.agentStatus,
         BRIDGE_CHANNELS.agentAsk,
         BRIDGE_CHANNELS.calendarSetUpcoming,
+        BRIDGE_CHANNELS.machineStatus, BRIDGE_CHANNELS.machineSetEnabled,
+        BRIDGE_CHANNELS.machineId, BRIDGE_CHANNELS.machinePickFolders,
       ]) {
         deps.ipc.removeHandler(channel);
       }

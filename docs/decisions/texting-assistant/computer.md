@@ -245,7 +245,8 @@ and counts, and never a path, query, console text or typed word").
 
 The owner, on the Browserbase audit: "let's use all these features we are
 paying for". A new browser is asked for with residential proxies
-(`proxies: true`), advanced stealth (`browserSettings.advancedStealth`) and a
+(`proxies: true`), advanced stealth (`browserSettings.advancedStealth`, since 2026-11-05
+`verified`, below) and a
 region (`BROWSERBASE_REGION`, `us-east-1` in `wrangler.jsonc`, since the people
 texting Tex are in the US), on top of `blockAds` and captcha solving. Google's
 admin pages, banks, airlines and shops refuse or captcha a data centre's
@@ -300,3 +301,60 @@ to draw. Blank, private and empty frames are left out.
 embedded document (an artifact, an embedded form or doc) read as empty.
 `read.test.ts` ("read, a page whose words are in a frame") fails.
 
+
+## Opening a page does not use up a browse call's time (2026-11-05)
+
+A browse call gets 20 seconds at the gateway, so a step starts only in the
+first 5 seconds of it. An airline's check-in pages took about 7 seconds to
+open, so every click or type sent after a `goto` in the same call came back
+"out of time; run it again"; Tex sent the open again, and a check-in job
+spent all ten of its parts in that loop (the owner's flight check-in,
+2026-11-05; the owner chose this fix and the next). Now the time a `goto` or
+`back` took does not count against the steps after it
+(`infra/site-shots/src/browse.ts` `runSteps`): those start within 5 seconds of
+the call's own work, and only while one still ends by `BROWSE_END_MS`, when the
+slowest step started at the last allowed moment would have, so the call still
+fits the gateway's 20 seconds. Opens, downloads and uploads still start only
+in the first 5 seconds; a click's download wait is cut to what is left.
+
+The same job asked for `wait`, `key` and `fill_login` steps and was told only
+that there were none. A step that isn't one is now answered with the step
+that does it and the list of real steps (`apps/mcp/src/agent/browseNotAStep.js`),
+and the tool's description says there is no wait step.
+
+**What a simplification would cost:** counting the open against the steps
+again brings back the loop on any slow site; dropping the end check lets a
+call outlive the gateway and lose its browser. `browse.test.ts` ("does not charge the
+steps after a page open...", "turns a short step away...") and `agentBrowseNotAStep.test.mjs` fail.
+
+## Verified, and waiting for Browserbase's captcha solver (2026-11-05)
+
+An airline's check-in form reset without a word every time Tex pressed Check
+in, while another agent got through the same form four minutes later (the
+owner's flight check-in, 2026-11-05). Browserbase renamed advanced stealth to
+**Verified** (`browserSettings.verified`; the SDK marks `advancedStealth`
+deprecated): its own browser with real fingerprints that its bot-protection
+partners recognize, on the Scale plan only. The first tier now asks for it,
+without our viewport, which Verified refuses alongside its own fingerprint; a
+plan without it steps down as before (the owner chose "the basic verified",
+what the lower plans give, and Verified when the plan has it).
+
+Browserbase solves captchas itself and writes `browserbase-solving-started`,
+`-finished` or `-errored` to the page's console; its guide for agents says
+to press nothing while a solve runs. An invisible reCAPTCHA shows nothing on
+the page, so Tex could not see one being solved. Now each Browserbase
+connection listens for those three lines (`infra/site-shots/src/captchaSolver.ts`),
+turning on the Log domain and never Runtime (a known bot-check tell); a step
+other than read or look waits while a solve runs, for as long as the call's
+steps may, and is turned away with "a captcha is being solved for you" if it
+outlasts them; after the steps, a running solve counts as a captcha on the
+page (`settleCaptcha`), and an errored one as unsolved. Only the solver's own
+fixed words are matched; the event `site_shots_captcha_solver` logs the state
+and which channel carried it.
+
+**What a simplification would cost:** pressing during a solve throws it away
+and the site answers nothing; asking for `advancedStealth` keeps a name
+Browserbase is retiring. Tests: `captchaSolver.test.ts`, `browse.test.ts`
+("holds a press until the solve ends...", "presses nothing while a solve
+outlasts the call..."), `browserbase.test.ts` ("asks for proxies, Verified and
+the region first...").

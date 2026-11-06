@@ -105,7 +105,7 @@ export function translateSearch(call, app = {}) {
     name: "search_notes",
     action: "notes",
     fixed: { query: call.query },
-    copy: ["prefix"],
+    copy: ["prefix", "from", "to"],
   });
 }
 

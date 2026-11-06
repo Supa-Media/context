@@ -13,53 +13,38 @@
  * gets an answer. Recheck unreachable or unsure: sent, as before.
  */
 
-import { recheck, type ControlDeps } from "./decide";
-import { renderTranscript } from "./events";
-import { chatEvents } from "./chatRead";
+import type { ControlDeps } from "./decide";
 import { groupStyle } from "./groupStyle";
 import type { GroupPending } from "./groupTurn";
 import type { InboxStorage } from "./inbox";
+import { lookAgain, type Rechecked } from "./lookAgain";
 import type { GroupMessage } from "./sendblueGroups";
 
-export type Rechecked = "send" | "held";
+export type { Rechecked };
 
 /**
  * Whether the draft `text` written for `covers` (the turn's events, from
- * `message`'s sender, the newest of them in at `upTo`) still goes out.
- * Only the asker's own newer words count: somebody else's tag is their own turn.
+ * `message`'s sender, the newest of them in at `upTo`) still goes out: the
+ * door's `lookAgain` step (`lookAgain.ts`), with a group's queue and style.
  */
 export async function recheckDraft(
   storage: InboxStorage,
   deps: ControlDeps,
   { message, covers, upTo, text }: { message: GroupMessage; covers: readonly string[]; upTo: number; text: string },
 ): Promise<Rechecked> {
-  if (text.trim() === "" || covers.length === 0) return "send";
-  const pending = [...(await storage.list<GroupPending>({ prefix: "gpending:" }))];
-  const own = pending.filter(([, item]) => item.ev !== undefined && covers.includes(item.ev));
-  // Asked once: the turn that answers both is never held again.
-  if (own.some(([, item]) => item.rechecked)) return "send";
-  // A command, a yes or a style choice is answered by code (`byCode`), never an ask that could change this one.
-  const newer = pending.filter(([, item]) => item.message.from === message.from && item.ev !== undefined && !covers.includes(item.ev) && !item.byCode && (item.at ?? 0) > upTo);
-  if (newer.length === 0) return "send";
-  const newest = newer.at(-1)![1].ev!;
-  const answer = await recheck(
+  return await lookAgain<GroupPending>(
+    storage,
     deps,
     {
+      prefix: "gpending:",
+      // A tapback never holds a reply, as in a 1:1 chat (`lookAgainTexts`): the 2026-11-05 Tex Devs 👎 on an older link threw away a finished answer.
+      read: (item) => ({ from: item.message.from, ev: item.ev, at: item.at, byCode: item.byCode === true || item.message.reaction !== undefined, ...(item.rechecked ? { rechecked: true as const } : {}) }),
+      // One turn answers both, the old ask and the newer words (`addressedTurn`: forced entries are its floor).
+      mark: (item) => ({ ...item, force: true, rechecked: true }),
       chat: message.groupId,
       line: message.line,
-      sender: message.from,
       style: (await groupStyle(storage)).style,
-      // The chat's whole log, as decide is shown.
-      transcript: renderTranscript(await chatEvents(storage, message.groupId)),
-      candidates: [...covers, ...newer.map(([, item]) => item.ev!)],
-      newest,
     },
-    text,
-    covers.at(-1)!,
+    { sender: message.from, covers, upTo, text },
   );
-  console.log(JSON.stringify({ event: "group_recheck", outcome: answer.ok ? (answer.fits ? "send" : "held") : "unavailable", ...(!answer.ok ? { reason: answer.cause } : {}), newer: newer.length }));
-  if (!answer.ok || answer.fits) return "send";
-  // One turn answers both, the old ask and the newer words (`addressedTurn`: forced entries are its floor).
-  for (const [key, item] of [...own, ...newer]) await storage.put<GroupPending>(key, { ...item, force: true, rechecked: true });
-  return "held";
 }

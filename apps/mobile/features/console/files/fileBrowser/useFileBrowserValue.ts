@@ -134,7 +134,7 @@ type FileBrowserValueDeps =
   & Pick<ShareScopeValues, "setScope" | "setSharePreviewTitle" | "shareWithGroup">
   & Pick<PendingOpsValues, "answerOp" | "pending">
   & Pick<FolderIconsValues, "iconOf" | "setIcon" | "suggestIcon">
-  & Pick<FolderJobsValues, "moveFolder" | "placeFolder">
+  & Pick<FolderJobsValues, "moveFolder" | "placeFolder" | "setFolderSort">
   & Pick<BuiltInFoldersValues, "addBuiltInFolder" | "folderJobs" | "setFolderJob">
   & Pick<OpenNoteValues, "prefetch">
   & Pick<TrashedNoteValues, "trashed" | "restoreTrashed" | "restoringTrashed" | "keptOpen">;
@@ -156,7 +156,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     setShareSlug, setVisibility, share, shareWithGroup, shares, storeImage, submitForm, toasts,
     toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon, suggestIcon,
     addBuiltInFolder, folderJobs, setFolderJob, prefetch, trashed, restoreTrashed, restoringTrashed, keptOpen, moveFolder,
-    placeFolder,
+    placeFolder, setFolderSort,
   } = deps;
 
   return useMemo(
@@ -170,6 +170,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       setFolderJob,
       moveFolder,
       placeFolder,
+      setFolderSort,
       submitForm,
       loadImage,
       storeImage,
@@ -417,6 +418,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       setFolderJob,
       moveFolder,
       placeFolder,
+      setFolderSort,
     ],
   );
 }

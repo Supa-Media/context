@@ -89,6 +89,17 @@ test("a team note and a private note are indexed in their own tables, and each t
   assert.deepEqual(paths(answer.body.answers[1]), ["root.md"]);
 });
 
+test("a hit's snippet is the whole line it is on, never a twelve-word window that cuts off its start", { skip }, async () => {
+  // Core benchmark q14 (2026-11-05): "…40 m from Harbor Linen Mill, by October 20" hid "twill" in all six runs.
+  const object = await seeded();
+  const line = "- [ ] Place the fabric order for the twill trousers: 40 m from Harbor Linen Mill, by October 20";
+  await note(object, 1, "plans/todo.md", `# To do\n\n- [ ] Order swatches from the knit mill\n${line}\n- [ ] Send the line sheet to the shop`);
+  const [hit] = (await object.call("ws.search", { asks: [ask(TEAM, "20")] })).body.answers[0];
+  assert.equal(hit.snippet.split("\n")[0], line, "the line is whole, from its start");
+  assert.equal(hit.snippet.includes("…"), false);
+  assert.equal("chunk" in hit, false, "the chunk the line was cut from stays in the object");
+});
+
 test("a changed body, a moved note and a removed note are found by the next search", { skip }, async () => {
   const object = await seeded();
   await note(object, 1, "plans/a.md", "# A\nalpha beacon");

@@ -3,9 +3,10 @@ import { Pressable, ScrollView, StyleSheet, View, type NativeScrollEvent, type N
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { T } from "../page/TexPageParts";
 import type { TexPageSource } from "../page/texPageSource";
-import { HistoryDayLines } from "./HistoryDayLines";
+import { HistoryDayLines, type Look } from "./HistoryDayLines";
 import { HistoryFilters } from "./HistoryFilters";
 import { HistoryState } from "./TexHistoryLines";
+import type { HistoryChoice } from "./historyChoice";
 import { useHistoryRead } from "./useHistoryRead";
 import { useSeesTurnTiming } from "./useSeesTurnTiming";
 
@@ -22,6 +23,11 @@ const NEAR_TOP = 80;
  * this might mean that we have to keep the filters sticky", from the
  * artboard he approved). "Show older" is at the top and keeps the line in
  * view where it was; scrolled up, a "Latest" button goes back down.
+ *
+ * The Tex page's History reads the same way (Dev, 2026-11-05: "this page
+ * doesn't update in realtime, also it should start at the bottom and then
+ * scroll up to see history like the history ledger page, filters still
+ * visible"), opened with the filters it was sent with and its own look.
  */
 export function HistoryFileLines({
   source,
@@ -30,6 +36,9 @@ export function HistoryFileLines({
   head,
   pad,
   phone = false,
+  initial,
+  look,
+  testID = "history-file-lines",
 }: {
   source: TexPageSource;
   chat: string;
@@ -40,9 +49,14 @@ export function HistoryFileLines({
   pad: { top: number; bottom: number; side: number };
   /** A phone: the title above the filters, and each line's name and time above its words (the phone artboard). */
   phone?: boolean;
+  /** The day and kinds to open with (`historyChoice.ts`). */
+  initial?: HistoryChoice;
+  /** How each line is drawn; by default the file's, or the phone's on a phone. */
+  look?: Look;
+  testID?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const history = useHistoryRead({ source, chat, group, live: true, timing: useSeesTurnTiming() });
+  const history = useHistoryRead({ source, chat, group, live: true, initial, timing: useSeesTurnTiming() });
   const scroller = useRef<ScrollView>(null);
   // At the newest line until the reader scrolls up: then new lines and a filter's answer leave them where they are.
   const atEnd = useRef(true);
@@ -91,7 +105,7 @@ export function HistoryFileLines({
   const days = [...history.days].reverse();
 
   return (
-    <View style={styles.fill} testID="history-file-lines">
+    <View style={styles.fill} testID={testID}>
       <View style={[styles.head, phone ? null : styles.headRow, { paddingTop: pad.top, paddingHorizontal: pad.side }]} testID="history-file-head">
         {head}
         {phone ? null : <View style={styles.divider} />}
@@ -115,7 +129,7 @@ export function HistoryFileLines({
             </T>
           </Pressable>
         ) : null}
-        <HistoryState history={history}>{days.map((d) => <HistoryDayLines key={d.key} day={d} look={phone ? "phone" : "file"} />)}</HistoryState>
+        <HistoryState history={history}>{days.map((d) => <HistoryDayLines key={d.key} day={d} look={look ?? (phone ? "phone" : "file")} />)}</HistoryState>
         {history.read?.kind === "ok" && !history.waiting ? (
           <View style={styles.upToDate} testID="history-file-up-to-date">
             <View style={styles.dot} />

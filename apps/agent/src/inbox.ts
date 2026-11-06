@@ -47,7 +47,9 @@
  *   them to the person's own bucket (`events.ts`).
  */
 
-import { partEvent, sendCardPart, threadFor } from "./sendParts";
+import { queueItem, TEXTS_QUEUE } from "./chatQueue";
+import { isItForTexAlone } from "./isItForTex";
+import { partEvent, sendCardPart, threadFor } from "./sendParts"; import { sendPicturePart, sendWords, type PartLine, type PartLogged } from "./sendOne";
 import type { Choice } from "./pickCard";
 import { settleCard, withCardsHere } from "./cardChats";
 import type { Offer } from "./dataCards";
@@ -59,24 +61,24 @@ import { pruneMedia } from "./media";
 import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
 import { isWhapiChat } from "./whapi";
 import { carouselRun, isRefusal } from "./carousel";
-import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
+import { describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
 import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
 import { startPresence, type Presence } from "./presence";
-import { MAX_CANDIDATES, staleAsks } from "./decide";
+import { MAX_CANDIDATES, staleAsks } from "./decide"; import { lookAgainTexts } from "./lookAgain";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
-import { closeMenu, isSettingsText, menuState, openMenu } from "./texStyle";
+import { closeMenu, menuState, openMenu } from "./texStyle";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
-import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm";
+import { addEvent, flushChat, kindOf, logAsk, pruneEvents } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
-import { chatJobs, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
+import { chatJobs, jobQuestion, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, viewLink, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
 import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
@@ -114,14 +116,13 @@ export type InboxDeps = ReplyDeps &
  * none of them on a line with no idempotency key (Sendblue).
  */
 
-
 export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_PREFIX = "psent:"; // a progress line sent for the oldest text a turn answers, by the line's hash, until that work is answered (`answerTexts`)
 export const MAX_SEND_ATTEMPTS = 3;
-/** Tries at a text whose turn could not start (`TryLater`), the last one saying so. */
-export const MAX_ANSWER_ATTEMPTS = 3;
+/** Tries at a text whose turn failed (`TryLater`), the last one saying so: three more after the first, from 10 s doubling, as a group's (`groupTurnWorkflow.ts`). */
+export const MAX_ANSWER_ATTEMPTS = 4;
 /** Most pending messages one sender may have queued; beyond it, new ones are dropped. */
-export const MAX_PENDING = 20;
+export const MAX_PENDING = TEXTS_QUEUE.max;
 
 /**
  * Where a routine's text goes: the chat this sender last texted from. The
@@ -168,7 +169,6 @@ async function isLatePreview(storage: InboxStorage, message: Message, now: numbe
 }
 
 const seenKey = (eventId: string) => `seen:${eventId}`;
-const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
 
 export async function accept(
   storage: InboxStorage,
@@ -182,21 +182,19 @@ export async function accept(
   }
   if (isSendblueChat(message.chatId) && WEB_ADDRESS.test(message.text)) await storage.put<number>(LINK_AT_KEY, now);
   message = await settleCard(storage, message, now);
-  const pending = await storage.list<Pending>({ prefix: "pending:" });
+  const pending = await storage.list<Pending>({ prefix: TEXTS_QUEUE.prefix });
   if (pending.size >= MAX_PENDING) return "full";
 
   const previous = await storage.get<RememberedChat>(CHAT_KEY);
   // A plain text after a quiet spell starts a topic (`threadFor`).
   const quiet = previous === undefined || previous.chatId !== message.chatId || now - previous.at >= NEW_TOPIC_AFTER_MS;
   if (quiet && !message.threaded && !message.tapback) message = { ...message, newTopic: true };
-  // A settings text, or a reply the open menu reads, is answered by code before decide (Dev2, 2026-10-28; `texStyle.ts`).
-  if (!message.sms && !message.tapback && (await isSettingsText(storage, message.text, now))) message = { ...message, setting: true };
-  const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
-  await storage.put("seq", seq);
+  // A settings text, or a reply the open menu reads, is answered by code before decide (Dev2, 2026-10-28; `isItForTex.ts`).
+  ({ message } = await isItForTexAlone(storage, message, now));
   await storage.put(seenKey(message.eventId), now);
   // An SMS is never logged as the person's words: anyone can send one that shows their number.
   const ev = message.sms ? undefined : await logInbound(storage, message, now);
-  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, at: now, ...(ev ? { ev } : {}) });
+  const key = await queueItem<Pending>(storage, TEXTS_QUEUE, { message, attempts: 0, at: now, ...(ev ? { ev } : {}) });
   await rememberText(storage, message.chatId, message.messageId, message.text, now);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && !isWhapiChat(previous.chatId) && isSendblueChat(message.chatId)) {
@@ -213,7 +211,7 @@ export async function accept(
   await storage.setAlarm(now + wait);
   // Anything sent while Tex works in this chat is decided with the turn running (`inboxTurn.ts`).
   try {
-    await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text, emoji) => {
+    await decideWhileRunning(storage, key, { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text, emoji) => {
       const running = runningTurn(storage, text.chatId);
       if (running !== undefined && text.messageId && !text.tapback && text.channel !== "simulator") {
         await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, reactionFor(emoji, ackEmoji(text.text)));
@@ -245,10 +243,8 @@ export async function carryOnAfterSave(storage: InboxStorage, deps: Pick<InboxDe
 /** Queue a turn this Worker asks for itself (a saved login's, a job's report), never a webhook; false when that event was queued already. */
 export async function queueByCode(storage: InboxStorage, message: Message, now: number): Promise<boolean> {
   if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return false;
-  const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
-  await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
-  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
+  await queueItem<Pending>(storage, TEXTS_QUEUE, { message, attempts: 0 });
   await storage.setAlarm(now);
   return true;
 }
@@ -268,7 +264,7 @@ export async function react(
   now: number,
 ): Promise<"queued" | "duplicate" | "full" | "noted" | "preview" | "held" | "dropped"> {
   const { reaction, kind: _kind, ...message } = inbound;
-  const logged = async () => logInbound(storage, { kind: "message", ...message, text: reactionLine(reaction, await onTexText(storage, message.chatId, reaction)), tapback: reaction.how }, now); // every reaction in the log, as its line (Dev2, 2026-11-01)
+  const logged = async () => { const line = reactionLine(reaction, await onTexText(storage, message.chatId, reaction)); return logInbound(storage, { kind: "message", ...message, text: line, tapback: reaction.how }, now, line); }; // every reaction in the log, as its line (Dev2, 2026-11-01)
   // A 👍 or 👎 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
   if (reaction.removed) return (await logged(), await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
   // On the line above an ask, it is a 👍 on the ask; taking it back still names the line it was on.
@@ -299,7 +295,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   if (thumb !== undefined) await accept(storage, thumb, deps.now());
   // Each pass sends a reply kept for a retry, or decides and answers one turn; each takes at least one text.
   for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
-    const pending = [...(await storage.list<Pending>({ prefix: "pending:" }))];
+    const pending = [...(await storage.list<Pending>({ prefix: TEXTS_QUEUE.prefix }))];
     if (pending.length === 0) break;
     const kept = pending.find(([, item]) => item.reply !== undefined);
     if (kept !== undefined) {
@@ -311,7 +307,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     const line = first.channel === "simulator" ? undefined : lineFor(lineDeps(deps), first.chatId);
     // Only "ok", "thanks", tapbacks: read, and no bubble until decide picks an answer (`answerTexts` starts it then).
     const acksOnly = pending.every(([, item]) => item.message.chatId !== first.chatId || (!item.force && pureAck(item.message)));
-    if (acksOnly) await line?.markRead(first.chatId, first.messageId);
+    const read = acksOnly ? line?.markRead(first.chatId, first.messageId) : undefined; // never blocks decide (Dev, 2026-11-04)
     const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first, { aimLater: true });
     try {
       const choice = await chooseTurn(storage, deps, pending);
@@ -326,6 +322,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       if (choice.answer.length > 0 && !(await answerTurn(storage, deps, choice.answer, presence))) return;
     } finally {
       await presence?.stop();
+      await read;
     }
   }
   await pruneSeen(storage, deps.now());
@@ -355,7 +352,8 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const message = merged(entries.map(([, entry]) => entry.message));
   const work = entries[0][1].message.eventId; // a rerun, a newer text merged in or not, still answers its oldest: its lines are kept by that
   const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : [])).slice(-MAX_CANDIDATES);
-  const tries = (item.tries ?? 0) + 1;
+  // A newer text merged into a failing burst brings no tries of its own: the burst's count is its most-tried text's.
+  const tries = Math.max(...entries.map(([, entry]) => entry.tries ?? 0)) + 1;
   const timing: TurnTiming = { started: deps.now(), arrived: arrivedAt(entries) };
   let turn: Answered;
   try {
@@ -363,13 +361,14 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
     if (typeof turn.turn === "string") timing.turn = turn.turn; // its timing row lines up with the gateway's (`textTiming.ts`)
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
-    // Nothing ran, so these texts and the ones behind them wait; later ones keep their order.
+    // Tried again later: these texts and the ones behind them wait; later ones keep their order.
     await storage.put<Pending>(key, { ...item, tries });
     await storage.setAlarm(deps.now() + 2 ** tries * 5_000);
     return false;
   }
-  // Restarted (`steer.ts`): nothing it said goes; its texts wait, marked, for the turn that answers them with the newer one.
+  // Restarted (`steer.ts`), or held by the last look at their newer texts (`lookAgain.ts`): nothing it said goes; its texts wait, marked, for the turn that answers them with the newer one.
   if (turn.cancelled) return true;
+  if (!turn.fixed && (await lookAgainTexts(storage, deps, entries, turn.parts, timing.started)) === "held") return (turn.asks.length > 0 && turn.token !== undefined && (await staleAsks(deps, turn.token, turn.asks)), true);
   for (const sentKey of (await storage.list({ prefix: `${PROGRESS_PREFIX}${work}:` })).keys()) await storage.delete(sentKey); // answered: its lines (`answerTexts`) go
   let reply = turn.parts;
   // The first answer on the new line says it is Tex's new number, once.
@@ -394,15 +393,15 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
 async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: Entry, timing?: TurnTiming): Promise<boolean> {
   const reply = [item.reply ?? []].flat();
   let sent = item.sent ?? 0;
-  const out = (part: Omit<TexEvent, "id" | "at" | "chat" | "from">) => {
+  const out = (part: PartLogged, system = item.system === true) => {
     // Each part is logged once it went: the first is when the person's wait ended (`textTiming.ts`).
     if (timing && timing.firstSent === undefined) timing.firstSent = deps.now();
     return addEvent(storage, {
       at: deps.now(),
       chat: item.message.chatId,
-      from: { kind: item.system ? "system" : "tex" },
-      ...(item.turn ? { turn: item.turn } : {}),
-      ...(item.covers ? { covers: item.covers } : {}),
+      from: { kind: system ? "system" : "tex" },
+      ...(!system && item.turn ? { turn: item.turn } : {}),
+      ...(!system && item.covers ? { covers: item.covers } : {}),
       ...part,
     });
   };
@@ -441,17 +440,17 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
         continue;
       }
       const idempotency = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
-      if (typeof part === "string" && isControlWord(part)) console.log(JSON.stringify({ event: "reply", outcome: "control_word_dropped" })); // a word meant for us, never a text (`controlWords.ts`)
-      else if (typeof part === "string") {
-        const handle = await line.sendText(item.message.chatId, part, idempotency, thread);
-        await rememberText(storage, item.message.chatId, handle, part, deps.now());
-        await out(partEvent(part));
-      } else if ("card" in part) {
-        await sendCardPart(line, item.message.chatId, part, thread, idempotency);
-      } else {
-        const went = await sendPicture(deps, item.message.chatId, part.media, idempotency, thread);
-        await out(went ? partEvent(part) : { kind: "picture", delivered: false, reason: "send_refused" });
-      }
+      // One sender (`sendOne.ts`): this lane's way out is its idempotency key and thread.
+      const partLine: PartLine<Media> = {
+        sendText: (text, failure) => line.sendText(item.message.chatId, text, failure ? `${idempotency}:failed` : idempotency, thread),
+        sendPicture: async (media) => (await line.sendMedia(item.message.chatId, media, idempotency, thread), "url" in media ? media.url : undefined),
+        refused: refusedPicture,
+        remember: (handle, text) => rememberText(storage, item.message.chatId, handle, text, deps.now()),
+        log: async (logged, system) => void (await out(logged, system || item.system === true)),
+      };
+      if (typeof part === "string") await sendWords(partLine, part);
+      else if ("card" in part) await sendCardPart(line, item.message.chatId, part, thread, idempotency);
+      else await sendPicturePart(partLine, part.media);
       sent = index + 1;
     }
     if (timing) timing.sendEnd = deps.now();
@@ -506,12 +505,12 @@ export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./pres
  * `fixed`: the reply is one of the Worker's own texts (a failure, a limit,
  * setup), never the model's: the gateway recorded no turn for it.
  */
-type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean };
+type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean; token?: string };
 
 async function answering(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, covers: string[], presence: Presence | undefined, timing: TurnTiming): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
   let choices: Choice[] = [];
-  let offers: Offer[] = [];
+  let offers: Offer[] = [], hub: string | undefined;
   let asks: string[] = [];
   let askText = "";
   let modelWrote = false;
@@ -553,7 +552,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: () => watchForSave(storage, message.from, deps.now()),
       onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
-      onOffers: (offered) => void (offers = offered),
+      onOffers: (offered, named) => void ((offers = offered), (hub = named)),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
       // "Tex, settings" (`texStyle.ts`).
       settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
@@ -565,7 +564,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
     presence,
     timing,
   ).finally(end);
-  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote });
+  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote, token: live.accessToken });
   if (live.cancelled) {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (asks.length > 0 && live.accessToken !== undefined) await staleAsks(deps, live.accessToken, asks);
@@ -577,14 +576,14 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
   await rememberAskReply(storage, texts, deps.now());
   const cards = message.channel === "simulator" || !isSendblueChat(message.chatId) ? null : deps.appCard;
-  if (pictures.length === 0) return done(await withAnswerCards(texts, { texts, choices: [], offers }, cards, deps.threadsLink));
+  if (pictures.length === 0) return done(await withAnswerCards(texts, { texts, choices: [], offers }, cards, viewLink(hub, deps.threadsLink)));
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =
     message.channel === "simulator"
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
       : async (picture: { name: string; mediaType: string; data: string; title?: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
-  return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers }, cards, deps.threadsLink));
+  return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers }, cards, viewLink(hub, deps.threadsLink)));
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */
@@ -594,18 +593,18 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
   const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
   return {
     running: await chatJobs(storage, deps.now(), { results: true }),
-    onJobs: async (jobs) =>
+    onJobs: async (jobs, said) =>
       notStartedText((await startJobs(storage, jobs, {
         now: deps.now(),
         inbox: message.from,
-        origin: { kind: "phone", phone: message.from, question: message.text, ...channel },
+        origin: { kind: "phone", phone: message.from, question: jobQuestion(message.text, said), ...channel }, // typed, said aloud, and the files sent
         place: { chatId: message.chatId, ...(message.messageId ? { messageId: message.messageId } : {}), ...channel },
         spawn,
       })).notStarted),
     // The model only names the job: what the job is handed is always their own text.
-    onSteers: async (asks) => {
+    onSteers: async (asks, told) => {
       if (!deps.steerJob) return;
-      const said = { id: message.eventId, text: message.event ? "" : message.text.trim() }; await steerJobs(storage, asks, said, deps.steerJob, deps.now()); // a turn by code passes only its own notes
+      const said = { id: message.eventId, text: message.event ? "" : jobQuestion(message.text, told) }; await steerJobs(storage, asks, said, deps.steerJob, deps.now()); // a turn by code passes only its own notes; a voice message's words and the files sent reach the job too
       return notResumedText(await resumeJobs(storage, asks, said, deps.steerJob, deps.now())); // "restart it" picks an ended job back up, with their words
     },
   };
@@ -626,17 +625,10 @@ async function dropSteered(storage: InboxStorage, ids: string[], covers: string[
  * becomes a sentence saying so rather than a reply retried until dropped; a
  * failure that is not a refusal is retried with the reply.
  */
-async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: string, thread?: string): Promise<boolean> {
-  const line = lineFor(lineDeps(deps), chatId);
-  try {
-    await line.sendMedia(chatId, media, key, thread);
-    return true;
-  } catch (error) {
-    const status = (error as { status?: number | null }).status;
-    if (typeof status !== "number" || status < 400 || status >= 500 || status === 429) throw error;
-    await line.sendText(chatId, PICTURE_FAILED, `${key}:failed`, thread);
-    return false;
-  }
+/** A picture the line refuses outright (a 4xx that is not a rate limit) is said once; any other failure retries the reply. */
+function refusedPicture(error: unknown): boolean {
+  const status = (error as { status?: number | null }).status;
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 429;
 }
 
 async function answerTexts(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, presence: Presence | undefined, timing: TurnTiming): Promise<string[]> {
@@ -647,7 +639,10 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
       return reply;
     });
   const simulator = message.channel === "simulator";
-  let chain: Promise<void> = Promise.resolve();
+  const shown = simulator ? undefined : presence ?? (await startPresence(lineFor(lineDeps(deps), message.chatId), message));
+  // Tex's own texts wait for the read receipt and the bubble (`presence.ts` `ready`); the turn never does.
+  let chain: Promise<void> = shown?.ready ?? Promise.resolve();
+  const bubbles: Promise<void>[] = [];
   const say = (text: string): Promise<void> => {
     if (isControlWord(text)) return chain; // a word meant for us, never a text (`controlWords.ts`)
     chain = chain.then(async () => {
@@ -660,8 +655,8 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
         else await line.sendText(message.chatId, text, `progress:${work}:${hash.slice(0, 16)}`, threadFor(message));
         await storage.put(sentKey, deps.now());
         await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, ...(deps.steer ? { turn: deps.steer.turn } : {}) });
-        // Sending a text clears the bubble; the task is still going.
-        await line?.startTyping(message.chatId);
+        // Sending a text clears the bubble; the task is still going. Asked for again beside the next line, never before it.
+        if (line) bubbles.push(line.startTyping(message.chatId));
       } catch {
         // A progress line that failed costs the person a line, never the answer.
       }
@@ -677,19 +672,16 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
   // has something to say (Dev, 2026-10-19: "most useless message ... I don't
   // want to see it ever again").
 
-  if (simulator) {
-    try {
-      return await replied(replyTo(message, { ...deps, onProgress }));
-    } finally {
-      await chain;
-    }
-  }
-  const shown = presence ?? (await startPresence(lineFor(lineDeps(deps), message.chatId), message));
   try {
-    return await replied(replyTo(message, { ...deps, onProgress }));
+    const onStage = (stage: "session" | "asking") => {
+      if (stage === "session") timing.sessioned = deps.now();
+      else timing.asking = deps.now();
+    };
+    return await replied(replyTo(message, { ...deps, onProgress, onStage }));
   } finally {
-    await shown.stop();
+    await shown?.stop();
     await chain;
+    await Promise.all(bubbles);
   }
 }
 

@@ -65,6 +65,15 @@ this folder: it is public, like the rest of the repository.
   asks that must not, and a hurried hard ask that must still be right and
   brief. The advisor calls are graded by `must call` and `must not call`
   lines (`bench/checks.mjs`), not by the judge. Run it with `--test advisor`.
+- `tests/splitting.md` (Dev, 2026-11-04): big asks split into one
+  background job per part while slots are free, simple asks never split.
+  `background: on` sends the chat's running jobs with every text (none
+  unless a case says `- running: N`), so Tex is offered background jobs with
+  the same free slots for every setup. Graded by `must start: 2+ jobs on one
+  note's mail`, `must not start: a job` and the like (`bench/checks.mjs`).
+  `computer: Studio Mac (claude, codex) 3 slots` gives every case the same
+  paired computer, and `on a computer` / `in the cloud` on a start check
+  counts only the jobs that ran there: code goes to the computer.
 - `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
   2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
   messy workspace, graded by `must file: <note> under <folder>/` lines, which
@@ -79,7 +88,12 @@ this folder: it is public, like the rest of the repository.
   way. Retired setups stay in `@context-lc ai/setups/retired/`.
 - `results/`: written by a run and ignored by git. The Action uploads the
   result and the key as artifacts and writes the scores to
-  `@context-lc ai/results/` (`pnpm ai publish`).
+  `@context-lc ai/results/` (`pnpm ai publish`). Every conversation also
+  gets a ledger file in `<result> ledgers/` (`bench/modelLog.mjs`): its texts,
+  each turn's trace with the reply judge's verdict, the chat's own ledger,
+  and every model request and answer, tool results included. The Action
+  uploads them as the `ledgers` artifact and writes them to
+  `@context-lc ai/results/<result> ledgers/` beside the scores.
 
 A case an AI drafted carries `- drafted: <who>` under its heading. `pnpm ai run` skips it, naming it on stderr, until a person has checked it and removed that line, so a drafted case never reaches a score. A scored result ends its `## Scored by` section with a `### Case by case` table (one row per question, one column per setup), placed after the setup table so a reader of the first table never takes a case for a setup.
 

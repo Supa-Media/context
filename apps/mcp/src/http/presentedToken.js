@@ -1,12 +1,12 @@
 /**
  * Which way a request carried its access token, and the session it resolves to.
  *
- * The token reaches the gateway one of two ways: an `Authorization: Bearer`
- * header, or the `/t/<token>/...` path fallback for a client that cannot set
- * one. Both resolve identically (`resolveSession`). The path form puts the
- * token where browser history, proxy logs and referrers keep it, so it is on
- * its way out, and taking it out without breaking somebody's connection first
- * needs to know who still uses it (docs/decisions/gateway-protocol/token-transport.md).
+ * The token reaches the gateway in an `Authorization: Bearer` header and
+ * nowhere else. The app's live sockets, which cannot set one, present a
+ * one-use ticket instead (`live/ticket.js`), minted with the header. A token in
+ * the URL (`/t/<token>/...`) is refused outright (`route.js`), and a token
+ * offered as a socket subprotocol is no token
+ * (docs/decisions/gateway-protocol/token-transport.md).
  *
  * So the control plane is told the transport, and for the path form a coarse
  * name for the route. Never the token (the control plane hashes it to find the
@@ -15,35 +15,30 @@
  * around this hour".
  */
 import { bearerToken, resolveSession } from "../session.js";
-
-/**
- * A browser `WebSocket` cannot set an Authorization header, which is why the
- * app's presence socket used to put its token in the URL. It now offers two
- * subprotocols instead, `context.presence` and `context.token.<token>`: the
- * token rides in the `Sec-WebSocket-Protocol` request header, which history,
- * referrers and URL logs never see, and the gateway answers with
- * `context.presence` alone (`withPresenceProtocol`), so the token is never
- * echoed. Access tokens are base64url, which is a valid subprotocol token.
- */
+import { offeredTicket, redeemTicket } from "../live/ticket.js";
 import { TREE_PROTOCOL, TREE_SOCKET_PATH } from "../../../../packages/shared/src/treeFrames.cjs";
 import { ACCESS_PROTOCOL, ACCESS_SOCKET_PATH } from "../../../../packages/shared/src/accessFrames.cjs";
 
 export const PRESENCE_PROTOCOL = "context.presence";
-/** The Tex page's socket (`http/texPage/live.js`), which offers its token the same way. */
+/** The Tex page's socket (`http/texPage/live.js`), which offers its ticket the same way. */
 export const TEX_PAGE_SOCKET_PATH = "/tex/page/live";
 export const TEX_PAGE_PROTOCOL = "context.tex-page";
-const TOKEN_PROTOCOL_PREFIX = "context.token.";
 
-/** The live file tree's socket (`live/treeRoute.js`), which offers its token the same way. */
+/** The live file tree's socket (`live/treeRoute.js`), which offers its ticket the same way. */
 export { TREE_PROTOCOL as TREE_SOCKET_PROTOCOL };
 
-/** The token a socket offered as a subprotocol beside `protocol`, or null. */
-export function subprotocolToken(request, protocol = PRESENCE_PROTOCOL) {
-  const offered = (request.headers.get("Sec-WebSocket-Protocol") || "").split(",").map((entry) => entry.trim());
-  if (!offered.includes(protocol)) return null;
-  const entry = offered.find((value) => value.startsWith(TOKEN_PROTOCOL_PREFIX));
-  const token = entry === undefined ? "" : entry.slice(TOKEN_PROTOCOL_PREFIX.length);
-  return token || null;
+/** The subprotocol each socket path speaks, for the sockets that take a ticket. */
+function socketProtocolFor(path) {
+  if (path === "/presence") return PRESENCE_PROTOCOL;
+  if (path === TREE_SOCKET_PATH) return TREE_PROTOCOL;
+  if (path === ACCESS_SOCKET_PATH) return ACCESS_PROTOCOL;
+  if (path === TEX_PAGE_SOCKET_PATH) return TEX_PAGE_PROTOCOL;
+  return null;
+}
+
+/** Whether a socket offered `protocol` among its subprotocols, so the 101 must name it. */
+export function offersProtocol(request, protocol = PRESENCE_PROTOCOL) {
+  return (request.headers.get("Sec-WebSocket-Protocol") || "").split(",").map((entry) => entry.trim()).includes(protocol);
 }
 
 /**
@@ -54,6 +49,30 @@ export function withPresenceProtocol(response) {
   const headers = new Headers(response.headers);
   headers.set("Sec-WebSocket-Protocol", PRESENCE_PROTOCOL);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers, webSocket: response.webSocket });
+}
+
+/**
+ * `/t/<token>/...` once carried a token in the URL. `path` is the route after
+ * the workspace selector came off, so `/@slug/t/...` is caught too.
+ *
+ * @param {string} path
+ */
+export function isRetiredTokenPath(path) {
+  return path === "/t" || path.startsWith("/t/");
+}
+
+/**
+ * The answer to a token in the URL: the same bytes whatever the token, so it
+ * says nothing about whether the token was real, and it names the header.
+ */
+export function retiredTokenPathResponse() {
+  return new Response(
+    JSON.stringify({
+      error: "invalid_request",
+      error_description: "Tokens in the URL are not accepted. Send the access token in the Authorization header.",
+    }),
+    { status: 410, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }
+  );
 }
 
 /** The only route names a path-token use is recorded under. */
@@ -78,29 +97,16 @@ export function pathTokenRoute(path) {
 }
 
 /**
- * The request's token, from the path when it came there, else a socket's
- * subprotocol, else the header, and how it came.
+ * The request's token: the `Authorization` header's, and only that. A path
+ * token handed in is still read and counted, for a caller outside `route.js`.
  *
  * @param {Request} request
  * @param {string|null} pathToken
  * @param {string} path
- * @returns {{token: string|null, transport: {kind: "path", route: string} | {kind: "subprotocol"} | {kind: "header"} | null}}
+ * @returns {{token: string|null, transport: {kind: "path", route: string} | {kind: "header"} | null}}
  */
 export function presentedToken(request, pathToken, path) {
   if (pathToken) return { token: pathToken, transport: { kind: "path", route: pathTokenRoute(path) } };
-  // Only the presence, tree and access sockets read a subprotocol token: everywhere else the
-  // header is the way, and a header that names a socket protocol is no token.
-  const offered =
-    path === "/presence"
-      ? subprotocolToken(request)
-      : path === TREE_SOCKET_PATH
-        ? subprotocolToken(request, TREE_PROTOCOL)
-        : path === ACCESS_SOCKET_PATH
-          ? subprotocolToken(request, ACCESS_PROTOCOL)
-          : path === TEX_PAGE_SOCKET_PATH
-            ? subprotocolToken(request, TEX_PAGE_PROTOCOL)
-            : null;
-  if (offered) return { token: offered, transport: { kind: "subprotocol" } };
   const header = bearerToken(request);
   return { token: header, transport: header ? { kind: "header" } : null };
 }
@@ -109,7 +115,12 @@ export function presentedToken(request, pathToken, path) {
  * `resolveSession` for the token this request presented, telling the control
  * plane how it came. Same refusals, same session.
  */
-export async function resolvePresentedSession(request, { pathToken, path, slug, controlPlane }) {
+export async function resolvePresentedSession(request, { pathToken, path, slug, controlPlane, env }) {
+  // A socket that offered a ticket (`live/ticket.js`) is answered by the ticket alone: a ticket that does not
+  // open is refused, never read as "no ticket" and passed on to a token offered beside it.
+  const protocol = !pathToken && env ? socketProtocolFor(path) : null;
+  const ticket = protocol === null ? null : offeredTicket(request, protocol);
+  if (ticket !== null) return await redeemTicket(env, ticket, { socket: path, slug, controlPlane });
   const { token, transport } = presentedToken(request, pathToken, path);
   return await resolveSession(token, slug, controlPlane, transport);
 }

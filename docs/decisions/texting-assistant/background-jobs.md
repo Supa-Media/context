@@ -153,11 +153,27 @@ all three answered "it's running again" eight times before they stopped.
 - **Two parts in a row that call no tool and still aren't done end the job
   stuck** (`idle` from `jobCheck.js`), saying so, instead of spending parts.
 
+- **A wait ends when its run does** (2026-11-04). A job that ended `waiting`
+  can be picked up only while its object keeps the run, so once those two
+  hours pass the chat's inbox marks it `stuck` ("Stopped waiting: no answer
+  within two hours"), timed at the moment the wait ran out (`sweptJobs`,
+  `apps/agent/src/jobs.ts`). The chat's turns and the Tex page read their
+  jobs through that one sweep. Before, the page kept a job waiting on a
+  Gmail yes on a cloud minion for two days after nothing could answer it,
+  while Tex's own turns had stopped being shown it. On the page, running
+  jobs get a place's slots before waiting ones (`slotsOf`,
+  `apps/mcp/src/http/texPage/jobs.js`), since only running jobs count
+  against the limit and a waiting one must never hide one that runs.
+
 **What a simplification would cost:** starting a new job on "restart" runs it
 on the restart text with nothing it had done; showing a job the chat lets it
 answer as the chat; dropping the repeat guard spends ten parts on nothing.
 Tests: `apps/mcp/test/agentJobRestart.test.mjs`, `agentJobCheck.test.mjs`,
-`apps/agent/src/jobResume.test.ts`, each with a sabotage record.
+`apps/agent/src/jobResume.test.ts`, each with a sabotage record; keeping a
+lapsed wait `waiting` fails "ends a wait nobody can answer any more"
+(`jobs.test.ts`) and its page twin (`texPage.test.ts`), and numbering slots
+by start alone fails "a running job gets a cloud slot before jobs waiting"
+(`apps/mcp/test/texPageJobPlaces.test.mjs`).
 
 ### A running job can be steered, stopped and audited from the chat (2026-10-21)
 
@@ -198,6 +214,10 @@ step checks in `apps/mcp/test/agentBackground.test.mjs`,
 `agentBackgroundRoute.test.mjs` and `agentSteer.test.mjs`.
 
 ### The live view of what's running (2026-10-29)
+
+_Since 2026-11-03 the link is the chat's Tex page (`/tex/@<handle>`,
+`/tex/group/<words>`) whenever the chat has one; the view below is kept only
+for a chat with neither. See [the Tex page](./tex-page.md)._
 
 Dev2 asked for a card that shows the running threads, each tapped to see
 what it is doing, so iMessage works more like an agent chat, and for it to
@@ -332,3 +352,89 @@ picks up", "the chat's restart hands the job their words"),
 `apps/mcp/test/agentJobRestart.test.mjs` ("asked to hear nothing until it's
 done"), `apps/mcp/test/agentBackground.test.mjs`,
 `apps/mcp/test/agentFillLogin.test.mjs`.
+
+## A big ask splits into parallel jobs, planned by the advisor (2026-11-04)
+
+Dev asked for big asks to be split into parts that run side by side, and
+then asked how it was built. At that point only `start_background_job`'s
+description asked for it ("start one job per part in this same turn"). And
+it could never happen: `turn.js` ended the turn at the first job that
+started, before the next call in the same round ran, so a split ask always
+got one job. Dev then asked for the advisor to plan big asks, write the
+notes, and say which workers run each part. Dev also asked for a benchmark
+proving that the Haiku and Opus advisor pair splits a big ask when slots are
+free and never splits a simple one.
+
+So:
+
+- A round's calls all run before the turn settles. `endsTurn` is read once
+  the round is done, so two starts in one round both start, and the person
+  gets one text naming every part (`ackLine` with several titles).
+- `plan_big_ask` (`src/agent/planBigAsk.js`, the `send` action `plan`) is
+  offered when the setup says `plan_big_asks: on` and names an advisor. The
+  everyday model calls it with the ask and a new project folder. The
+  advisor reads the conversation, the free slots and the person's computers,
+  and answers with JSON. The answer is either one piece of work ("now" or
+  "one job"), or up to free-slots parts, each with a name, a brief, what
+  done means and a computer. The gateway, not a model, does the rest. It
+  writes the overview and one task note per part through the turn's own
+  dispatcher. It never writes over a note already there, and starts nothing
+  if a note fails. Then it starts one job per part on the overview's mail
+  through the same `call` every start goes through, so the slot cap, the
+  duplicate check and the computer check all apply.
+- Production keeps it off until the splitting bench (`bench/ai/tests/
+  splitting.md`, `background: on`, `must start` checks) says it should.
+- **A lone job is offered the planner once** (`splitFirst`, 2026-11-04).
+  The first splitting round (gh-149) had the planner offered, and the
+  everyday model still started the Lisbon week, three parts that run side by
+  side, as one job in every answer. So with the planner on and two or more
+  slots free, the turn's first job started by the model with no mail is
+  answered with the choice instead: a big ask goes to `plan_big_ask`; one
+  piece of work is the same call again, which then starts. The planner's own
+  parts (they carry mail) and a job after the planner was called are never
+  asked. Starting a lone job at once again reverses it; test: "with the
+  planner on, a lone job is offered the planner once, then starts".
+- **A split project gets a folder of its own** (2026-11-04, gh-151: an
+  overview and its parts went loose into `health/`, among the person's own
+  notes). The planner lists the folder first and refuses one that already
+  holds notes, before the advisor is asked. Test: "a project gets a folder
+  of its own, never one that holds their notes".
+
+Settling at the first start again, letting the planner exceed the free
+slots, writing outside the named folder, or starting a part whose note
+failed reverses this. Tests: `apps/mcp/test/agentPlanBigAsk.test.mjs`,
+`apps/mcp/bench/test/checks.test.mjs`, `bench/test/world.test.mjs` ("a
+planned split writes its notes and starts its parts").
+
+Code runs on their computer, never the cloud (Dev, 2026-11-04), and so does
+heavy computing and anything else a computer with Claude Code or Codex is
+good at (running scripts, crunching big data or many files, builds, long
+analysis). For code this covers
+a question about how a codebase works (theirs or a public one), reading or
+searching a repo, and any change to code. Every such job goes to a paired
+computer with Claude Code or Codex when they have one. The rule is written
+into `start_background_job`'s `on_computer` and into the planner's prompt,
+and a planner's "one job" answer names the computer
+(`on_computer { name }`). A small code change is one job on the computer; a
+big one splits into parts there. Work that isn't code prefers the cloud,
+but a part of it on the computer is not a failure (Dev, 2026-11-04), so the
+bench says so with a `may:` line, never a check. The planner is told each computer's tools
+and slots (`machinesFor` lists `slots`). The bench gives every case the same
+invented computer (`computer:` in a test, read through `MACHINE_STORE`,
+which answers only the computer reads), and `must start: … on a computer` /
+`… in the cloud` checks where each job ran. Cases 9 to 11 of
+`tests/splitting.md` cover a public-code question, a small Context change
+and a big one. Tests: `apps/mcp/test/machineForJobs.test.mjs` ("a
+deployment that binds MACHINE_STORE"), `agentPlanBigAsk.test.mjs` ("code
+goes to a computer").
+
+## A job paused at the daily limit picks itself back up (2026-11-05)
+
+Dev2 chose this on the 2026-11-05 bug hunt. A part refused at the daily limit said "Text me tomorrow and I'll pick it back up", but the paused job's run was kept two hours, so the next day "pick it back up" found nothing.
+
+- **It waits for the reset, then restarts by itself** (`apps/agent/src/jobPause.ts`). The limit is counted per UTC day (`apps/convex/functions/lib/jev/meter.ts` `utcDay`), so the pause carries `resumeAt`, two minutes past the next midnight UTC. The job's object keeps its run until two hours past `resumeAt` (`jobRun.ts` `keepUntil`), the chat's inbox keeps the entry waiting until then (`sweptJobs`) and shows it to every turn meanwhile (`chatJobs`), and its alarm is armed for `resumeAt` (`jobTexts.ts`).
+- **The restart is "restart it"** (`resumeJobs`): the same ask, brief and finish line, its last answer to build on, under a new workflow, shown "(Picked back up.)". Three jobs already running, or a restart that fails, tries again every ten minutes until the two hours are up; then it lapses to stuck as any ended wait does.
+- **It can still be stopped.** The chat's turns are shown it with `resumeAt` and offered `steer_job` for it: a stop marks it stopped so it never starts again (`steerJobs`); a change is refused until it is running, and the turn is told why (`background.js`).
+- **The words promise only that:** "I'll pick it back up by myself as soon as the limit resets, and tell you when it's done." A pause for no model keeps its two hours and waits to be asked.
+
+What a simplification would cost: keeping the two-hour window breaks the promise every time; resuming from the job's own object skips the chat's slot count. Tests: `apps/agent/src/jobPause.test.ts`.

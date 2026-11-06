@@ -5,12 +5,14 @@ import { api } from "@context/convex/_generated/api";
 
 import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
+import { Switch } from "../../../design/components/Switch";
 import { TextField } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
-import { useThemedStyles } from "../../../design/theme";
+import { useThemedStyles, type Colors } from "../../../design/theme";
 import { settingsSectionLabel } from "../sections";
 import { PickMenu, type PickOption } from "./PickMenu";
+import { foldersLine, thisMacLine, useThisMac } from "../../../tex/page/useThisMac";
 
 /**
  * Settings › Tex (Dev2, 2026-11-01; docs/decisions/texting-assistant/custom-instructions.md):
@@ -39,7 +41,50 @@ export function TexSettings() {
       </Text>
       {/* Nothing to read or save without a client: the demo and the render tests. */}
       {live ? <TexSettingsLive /> : null}
+      <ThisMac />
     </View>
+  );
+}
+
+/**
+ * "Let Tex use this Mac", inside the Mac app only (`useThisMac` is null
+ * anywhere else, so nothing is drawn). The Tex page's connect screen sends a
+ * Mac owner here ("open Settings › Tex"), and the Mac app has no link to the
+ * Tex page, so the switch must be here as well as on the Tex page's settings.
+ */
+function ThisMac() {
+  const styles = useThemedStyles(makeStyles);
+  const thisMac = useThisMac();
+  if (thisMac === null) return null;
+  return (
+    <Card style={styles.mac} testID="tex-this-mac">
+      <Row>
+        <Grow>
+          <Text variant="rowTitle">Let Tex use this Mac</Text>
+          <Text variant="rowSub">{thisMacLine(thisMac.status)}</Text>
+        </Grow>
+        {thisMac.status.available ? (
+          <Switch value={thisMac.status.enabled} label="Let Tex use this Mac" onValueChange={thisMac.setEnabled} testID="tex-this-mac-switch" />
+        ) : null}
+      </Row>
+      {/* Only while it is on: a folder choice for a Mac Tex can't use is noise (artboard audit, finding 1). */}
+      {thisMac.status.enabled && thisMac.folders !== null ? (
+        <View style={styles.folders} testID="tex-this-mac-folders">
+          <Row>
+            <Grow>
+              <Text variant="rowTitle">Folders Tex can work in</Text>
+              <Text variant="rowSub">{foldersLine(thisMac.folders.list, thisMac.folders.failed)}</Text>
+            </Grow>
+            <Button
+              label={thisMac.folders.list && thisMac.folders.list.length > 0 ? "Change…" : "Choose…"}
+              variant="dialog"
+              onPress={thisMac.folders.choose}
+              testID="tex-this-mac-folders-choose"
+            />
+          </Row>
+        </View>
+      ) : null}
+    </Card>
   );
 }
 
@@ -152,9 +197,11 @@ export function TexSettingsView({
   );
 }
 
-const makeStyles = () =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     head: { marginBottom: space.x3 },
     actions: { flexDirection: "row", gap: space.x2, marginVertical: space.x3, alignItems: "center" },
     problem: { marginTop: space.x2 },
+    mac: { marginTop: space.x3 },
+    folders: { marginTop: space.x3, paddingTop: space.x3, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   });

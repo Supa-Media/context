@@ -16,6 +16,9 @@ import type { FileBrowserOptions } from "./types";
 import type { FolderIconsValues } from "./useFolderIcons";
 import { useObjectMoves } from "../useObjectMoves";
 import { objectServes } from "./objectServes";
+import { useConsoleGrant } from "../../../agent/useConsoleGrant";
+import { MCP_ENDPOINT } from "../../placeholderData";
+import { appSearchUrl, searchThroughGateway } from "../../search/gatewaySearch";
 
 type FileActionsDeps = { options: FileBrowserOptions; folderIcons: FolderIconsValues };
 
@@ -57,7 +60,29 @@ export function useFileActions(deps: FileActionsDeps) {
   );
   const readNote = useAction(api.functions.files.readNote);
   const readNotesAction = useAction(api.functions.files.readNotes);
-  const searchContext = useAction(api.functions.files.searchContext);
+  const searchContextAction = useAction(api.functions.files.searchContext);
+  /*
+    The bar asks the gateway first, the same search an AI client runs (`search/gatewaySearch.ts`), and the
+    control plane's `searchContext` only when no answer came back from it (the search revamp, 2026-11-04).
+  */
+  const mintGrant = useConsoleGrant();
+  const searchContext = useCallback<typeof searchContextAction>(
+    async (args) => {
+      const url = appSearchUrl(MCP_ENDPOINT);
+      if (url !== null && slug !== null) {
+        const answer = await searchThroughGateway({
+          url,
+          token: async (refresh) => (await mintGrant({ workspaceId: args.workspaceId }, refresh)).accessToken,
+          query: args.query,
+          slug,
+          ...(args.prefix === undefined ? {} : { prefix: args.prefix }),
+        });
+        if (answer !== null) return answer as Awaited<ReturnType<typeof searchContextAction>>;
+      }
+      return await searchContextAction(args);
+    },
+    [searchContextAction, mintGrant, slug],
+  );
   const reportSearchScreen = useMutation(api.functions.searchTimings.reportScreen);
   const notePathsAction = useAction(api.functions.files.notePaths);
   const exportAccessAction = useAction(api.functions.exportAccess.exportAccess);

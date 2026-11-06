@@ -13,6 +13,7 @@
  */
 
 import { TEX_FOLDER, topLevelRole } from "../../../../packages/shared/src/folderRoles.cjs";
+import { ACTIVITY_PATH } from "../../../../packages/shared/src/activity.cjs";
 
 /** The multiplier for a log or archived note: half the score of an ordinary one with the same evidence. */
 export const LOG_PRIOR = 0.5;
@@ -22,6 +23,13 @@ const INBOX_LOG_FOLDERS = Object.freeze(["sessions", "imessage", "email", "googl
 
 /** Tex's folders that hold what Tex wrote down as it ran, not what Tex knows about the person. */
 const TEX_LOG_FOLDERS = Object.freeze(["heartbeat", "dreams", "housekeeping", "handbacks", "attention", "transcripts"]);
+
+/**
+ * Folders at any depth that hold a running record rather than knowledge: Tex's review logs and retired AI setups.
+ * Production, 2026-11-04: a search across workspaces put eleven `tex-reviews/` logs and `setups/retired/` copies
+ * above the notes the words were about.
+ */
+const LOG_FOLDERS_ANYWHERE = Object.freeze(["tex-reviews", "retired"]);
 
 /** The search-probe folder: benchmark tool notes whose fingerprint equals a query. */
 const SEARCH_PROBE_FOLDER = "search-probes";
@@ -42,9 +50,14 @@ export function notePrior(path) {
   if (typeof path !== "string") return 1;
   const segments = withoutWorkspace(path).split("/");
   const [top, second] = segments;
+  // The workspace's own activity log names every note it touched, so it holds
+  // the words of half the queries anyone types: production, 2026-11-04, "YC
+  // application" put it above the application itself.
+  if (segments.length === 1 && top === ACTIVITY_PATH) return LOG_PRIOR;
   if (topLevelRole(top) === "archive") return LOG_PRIOR;
   if (topLevelRole(top) === "inbox" && INBOX_LOG_FOLDERS.includes(second?.toLowerCase())) return LOG_PRIOR;
   if (top === TEX_FOLDER && TEX_LOG_FOLDERS.includes(second)) return LOG_PRIOR;
+  if (segments.slice(0, -1).some((segment) => LOG_FOLDERS_ANYWHERE.includes(segment.toLowerCase()))) return LOG_PRIOR;
   return 1;
 }
 

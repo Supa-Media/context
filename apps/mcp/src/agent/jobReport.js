@@ -31,12 +31,15 @@
  */
 
 import { saysQuiet } from "./checkInGuards.js";
+import { SAY_NOTHING } from "./sayNothing.js";
+import { MACHINE_ASK_OPENING } from "../machines/groupAsk.js";
 
 const MAX_TITLE = 120;
 const MAX_TEXTS = 12;
 const MAX_TEXT = 4_000;
 const STATES = new Set(["done", "failed", "running", "waiting", "stuck"]);
 const MAX_RESULT = 600;
+const MAX_ASK = 400;
 /** A whole answer that is only a word meant for us: SKIP, NOOP, NO_REPLY, QUIET, NONE (capitals), null. */
 const CONTROL_ONLY = /^[\s\W]*(?:(?:skip(?:ped)?|no[ _-]?op|no[ _-]?reply|stay[ _-]?quiet|quiet|silent|null|undefined)|NONE)[\s\W]*$/i;
 /** SKIP said at the start or the end of words that are otherwise a text (`checkInGuards.js`). */
@@ -57,7 +60,11 @@ export function jobReportOf(body, { chatTurn, job }) {
     .filter((text) => typeof text === "string" && text.trim() !== "")
     .slice(0, MAX_TEXTS)
     .map((text) => text.trim().slice(0, MAX_TEXT));
-  return { title, state: value.state, texts };
+  // A lent computer's owner asked for their 👍 in the gateway's own words (`machines/groupAsk.js`): only on a running job's report.
+  const ask = value.state === "running" && typeof value.ask === "string" && value.ask.includes(MACHINE_ASK_OPENING) ? value.ask.trim().slice(0, MAX_ASK) : "";
+  // The job's id, so the chat's history can say which job it was (`workEntries.js` `reportEntry`).
+  const id = typeof value.id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value.id) ? value.id : null;
+  return { title, state: value.state, texts, ...(ask ? { ask } : {}), ...(id ? { id } : {}) };
 }
 
 /** What the coordinator's turn is asked: the gateway's own line, kept in the history as Tex speaking by itself. */
@@ -68,6 +75,8 @@ export function jobReportQuestion(report) {
 /** The report, shown to the coordinator's turn apart from the question, and what it may do with it. */
 export function jobReportPrompt(report) {
   if (report === null) return "";
+  // The owner's ask goes out as the gateway wrote it, whatever this turn says (`reportReply`): nothing to decide.
+  if (report.ask) return `\n\nYour job "${report.title}" is waiting for the owner of the computer it runs on to say yes. Their ask is texted for you as it is; ${SAY_NOTHING}.`;
   const how =
     report.state === "running"
       ? "is still running and sent this on its way (a sign-in link, a question)"
@@ -85,14 +94,15 @@ export function jobReportPrompt(report) {
     `${report.texts.join("\n\n") || "(nothing)"}\n>>>\n` +
     "Check it before anything goes: against this chat (what you or another job already told them) and against your notes when it claims a save " +
     "(read the page or note it names). Then do one of these:\n" +
-    "- Text them the result in your own words: one casual line with your take and the link, links exactly as the job wrote them. " +
-    "If it made a page, draw_visual template page with its path, so its first screen goes with the link.\n" +
+    "- Text them the result itself, in your own words, links exactly as the job wrote them: they never see this report, only what you text. " +
+    "A short result (a booking, a price, a yes) is a line or two. A long one (a list, findings, a breakdown) goes on a page: the job's own page if it made one " +
+    "(draw_visual template page with its path, so its first screen goes with the link), or one you write now (a .page.md note); then one or two lines with your take and its link.\n" +
     "- If it is wrong, contradicts what they were told, or stops short of what they asked, fix it yourself now, or start the job again " +
     '(send { action: "background" }) with a brief that says what to do differently, and tell them in one line which it is.\n' +
     '- A job still running that should change course gets your instruction with send { action: "steer_job", args: { title, note } }.\n' +
     (report.state === "running"
-      ? "- If nothing in it is new to them (they already have it, or it repeats another job), answer exactly SKIP: nothing is texted."
-      : "- It has ended, so they always get one line from you saying where it stands and what it found, even when that repeats what they have. Never answer SKIP.")
+      ? `- If nothing in it is new to them (they already have it, or it repeats another job), ${SAY_NOTHING}: nothing is texted.`
+      : "- It has ended, so they always get one line from you saying where it stands and what it found, even when that repeats what they have. Never say nothing.")
   );
 }
 
@@ -113,6 +123,8 @@ export const QUIET_REPORT_LINE = "(You texted them nothing: nothing in this runn
  */
 export function reportReply(report, answer) {
   if (report === null || report === undefined) return { answer, quiet: false };
+  // A computer owner's ask is texted word for word, so their 👍 on it is read as the yes (`machines/groupAsk.js`).
+  if (typeof report.ask === "string" && report.ask !== "") return { answer: report.ask, quiet: false };
   const said = String(answer ?? "").trim();
   const nothing = said === "" || isControlWord(said) || saysQuiet(said);
   if (report.state === "running") return nothing ? { answer: "", quiet: true } : { answer, quiet: false };

@@ -131,6 +131,14 @@ export async function runProtocolBasicsChecks() {
   const tools = await rpc("priv-token", "tools/list");
   // What a client is offered: the six v2 tools, for a writing connection.
   check("tools/list offers exactly the six v2 tools", JSON.stringify(namesOf(tools.result?.tools ?? [])) === JSON.stringify(V2_NAMES));
+  // Claude's directory reads annotations.title even when a top-level title
+  // exists. Check the HTTP response, which is what its scanner receives.
+  check(
+    "every advertised tool has a human-readable title annotation",
+    tools.result?.tools?.length === V2_NAMES.length && tools.result.tools.every((tool) =>
+      typeof tool.annotations?.title === "string" && tool.annotations.title.trim().length > 0,
+    ),
+  );
   const readOnlyV2 = await rpc("readonly-token", "tools/list");
   check(
     "a read-only connection is offered orient, search and fetch, and no tool that writes",
@@ -177,7 +185,8 @@ export async function runProtocolBasicsChecks() {
   // 66 with `google_chat`, one Google Chat message held for the person's 👍 (`tools/googleChatGate.js`).
   // 67 with `related_notes`, one note's links, backlinks and similar notes (`tools/related.js`).
   // 64 without `propose_note`, `list_proposals`, `read_proposal` and `review_proposal` (removed 2026-11-03).
-  check("64 tools listed", fullTools.result?.tools.length === 64);
+  // 65 with `pair_device`, a session's own computer paired as a mail-only device (`tools/pairDevice.js`).
+  check("65 tools listed", fullTools.result?.tools.length === 65);
   check(
     "Folder lists have an explicit read-only server evaluator",
     fullTools.result?.tools?.find((tool) => tool.name === "evaluate_lists")?.annotations?.readOnlyHint === true,
@@ -289,7 +298,7 @@ export async function runProtocolBasicsChecks() {
   const listWithFormsOff = await fullListFor("priv-token");
   check(
     "a Context plugin turned off takes its tools out of the listing",
-    listWithFormsOff.length === 60 &&
+    listWithFormsOff.length === 61 &&
       listWithFormsOff.some((tool) => tool.name === "submit_form") === false
   );
   check(
@@ -348,12 +357,12 @@ export async function runProtocolBasicsChecks() {
   await contextStore.put(enablementKey, "{ half a file");
   check(
     "a settings file that does not parse leaves every tool where it was",
-    (await fullListFor("priv-token")).length === 64
+    (await fullListFor("priv-token")).length === 65
   );
   await contextStore.delete(enablementKey);
   check(
     "and removing the file restores the full listing",
-    (await fullListFor("priv-token")).length === 64
+    (await fullListFor("priv-token")).length === 65
   );
   check("set_visibility tool is discoverable", fullTools.result?.tools.some((tool) => tool.name === "set_visibility"));
   check(

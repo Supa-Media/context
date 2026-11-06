@@ -169,6 +169,17 @@ Convex's rows and read the body by key, so for up to the mirror's lag they may s
 trashed, only to people who could open it a moment earlier. Nobody gains access. Moves, which can change who sees a
 note, still wait.
 
+## Every object write tells the live tree (2026-11-04)
+
+While the object serves a workspace's tree, the app's tree listens to the object's socket and to nothing else: the
+Convex queries are off. A write the object makes itself (`ws.write.*`) therefore has to tell the socket's watchers
+what it changed, as a row pushed in from Convex does (`serve.js`). Before this, only a push did, so a trash from the
+web landed in the object and the note stayed drawn: "Move to trash" did nothing (reported by the owner,
+2026-11-04). The notice is made in one place, `serveWrites.js` `runWriteOp`, after the transaction commits, from the
+paths each queued change names (`pathsOfChange`: both ends of a move, folders stood up, a note adopted or written,
+and the folders above any rows removed); new rules re-judge everything. A write op added later is covered without
+being asked. Moving the notice into each op instead, or dropping it, is what `writesTellTree.test.mjs` fails on.
+
 ## New notes and missing paths in the object (2026-11-03)
 
 The owner's bar, 2026-11-03: every read and every write answers in under 0.1 s in production, so nothing on a save's
@@ -276,11 +287,22 @@ had moved. A move asked of the control plane now waits `CONTROL_PLANE_MOVE_TIMEO
 is told as one that may still finish. Removing the mark fails `objectRowsMirrorTree.test.ts` ("a move into Archive").
 
 `archive_note` asks the object before it reads anything else (`tools/moves/archive.js`): not the note's text, its
-editing history or the tree's names. The object's own `TAKEN` asks the next numbered name, and a `DEFER` falls through
-to the control plane without asking the object a second time. With those reads, an archive in the object still took
+editing history or the tree's names. Since 2026-11-04 it is one trip: the gateway sends `archive: {root, roots}` (the
+rules' archive) in place of a destination, and the object finds the folder doing the Archive's job as the caller sees
+it, refuses a note already under it or under a rules root (`ARCHIVED`) or with no archive at all (`NO_ARCHIVE`), and
+names the first free numbered destination itself (`moveWrites.js` `archiveTo`), so no `jobs` ask goes first (about
+25 ms). An absent or hidden note is `NOT_FOUND` before anything about the archive. A `DEFER` falls through to the
+control plane without asking the object a second time. With those reads, an archive in the object still took
 2.45 s in production (2026-11-03). A folder move the control plane times out on is told as one that may still finish,
 never "Nothing was changed", and is not moved the old way on top: 93 notes took 9.2 s and all moved while the answer
 said nothing had (`keyedNoteMove.test.mjs`, "a keyed folder move the gateway gave up on").
+
+A move answers only once its writes are durable (decided by the owner, 2026-11-04). The object's wait for that,
+about 45 ms in production (`inside:move_commit`), is the floor of every move and archive, and answering before it
+(`allowUnconfirmed`, or a reply before `storage.sync()`) would confirm a move a crash could still lose. Moves get faster
+by cutting the trip to the object instead. Every write the object makes for a move, the mirror's flush alarm included,
+lands before that one wait (`serveWrites.js`), so the output gate never holds the answer for a second flush that
+`commit` does not see (`moveWrites.test.mjs`, "a move sets its flush alarm before waiting for durable writes").
 
 ## Copies in the object (2026-11-03)
 
@@ -298,3 +320,20 @@ not a note, a source or destination with its own rule, a source seen through a g
 home. The caller is judged by the session, source first, so a source they cannot see is `not_found` whatever the
 destination holds. Duplicate tries the control plane's "… copy", "… copy 2" names in order against every live name,
 seen or not, and leaves the choice to the control plane after 20. The tests are `apps/mcp/test/fileCopy.test.mjs`.
+
+## People added by name in the object (2026-11-04)
+
+Adding people to one row's list (`addRowPeople`, `set_visibility`'s `people`) is written in the workspace object
+first when it serves the workspace (`objectFirstAddGrantees`, `apps/mcp/src/store/objectAccess.js`): `ws.write.access`
+with `mode: "add"`, an email as an `email` grantee and a `@name` from the object's own cache of resolved handles
+(`ws_handles`, `apps/mcp/src/workspaceStore/handleCache.js`). A name the object has not been told answers `RESOLVE`
+with nothing written; the gateway asks the control plane once (`/gateway/privacy` `resolveHandles`, read only, owner
+only, `apps/convex/functions/gatewayHandles.ts`) and sends the answer back with the same write, which keeps it. A name
+nobody holds is `GRANTEE_NOT_FOUND`, as before. Owner only, as the control plane's list is; anything the object cannot
+decide alone goes to the control plane's `addGrantees` (decided by the owner, 2026-11-04: names cached in the gateway
+so a repeat add skips Convex).
+
+Why a cache is safe: a username or group name is released only when its account or group is deleted, so a stale
+entry points at someone who no longer exists and grants nobody. Entries are kept an hour (`HANDLE_TTL_MS`), so a name
+re-claimed by someone new is resolved afresh within it, and a group resolves only within its own workspace. The
+tests are `accessHandles.test.mjs`, `objectAddGrantees.test.mjs` and `apps/convex/__tests__/gatewayHandles.test.ts`.

@@ -1,0 +1,182 @@
+{
+  "gate": "heard_them",
+  "about": "Replies that leave the newest question unanswered: a different question, a skipped yes or no, half the ask, or an ignored picture. From the 2026-10-28/29 tester chats and the core benchmark.",
+  "cases": [
+    {
+      "id": "skips-yes-no",
+      "q": "can I make the 7pm show on the 17th?",
+      "did": [
+        [
+          "search_notes",
+          {
+            "query": "17th"
+          },
+          "travel: Lisbon Nov 15-19"
+        ]
+      ],
+      "reply": "The show starts at 7, doors at 6:30.",
+      "fault": true
+    },
+    {
+      "id": "answers-yes-no",
+      "q": "can I make the 7pm show on the 17th?",
+      "did": [
+        [
+          "search_notes",
+          {
+            "query": "17th"
+          },
+          "travel: Lisbon Nov 15-19"
+        ]
+      ],
+      "reply": "No, you're in Lisbon till the 19th.",
+      "fault": false
+    },
+    {
+      "id": "half-answer",
+      "q": "what time is the dentist and do I need to bring anything?",
+      "did": [
+        [
+          "search_notes",
+          {
+            "query": "dentist"
+          },
+          "Thu 3pm; bring insurance card and new-patient form"
+        ]
+      ],
+      "reply": "Thursday at 3.",
+      "fault": true
+    },
+    {
+      "id": "whole-answer",
+      "q": "what time is the dentist and do I need to bring anything?",
+      "did": [
+        [
+          "search_notes",
+          {
+            "query": "dentist"
+          },
+          "Thu 3pm; bring insurance card and new-patient form"
+        ]
+      ],
+      "reply": "Thursday at 3, bring your insurance card and the new-patient form.",
+      "fault": false
+    },
+    {
+      "id": "picture-ignored",
+      "q": "what's wrong here? [screenshot of a 'card expired' error]",
+      "did": [
+        [
+          "look_at_picture",
+          {},
+          "Error: Your card ending 4242 has expired"
+        ]
+      ],
+      "reply": "Can you tell me what error you're seeing?",
+      "fault": true
+    },
+    {
+      "id": "picture-used",
+      "q": "what's wrong here? [screenshot of a 'card expired' error]",
+      "did": [
+        [
+          "look_at_picture",
+          {},
+          "Error: Your card ending 4242 has expired"
+        ]
+      ],
+      "reply": "Your card ending 4242 expired. Want to add the new one in your vault?",
+      "fault": false
+    },
+    {
+      "id": "two-part-both",
+      "q": "how long is the drive to boston and is there traffic now?",
+      "did": [
+        [
+          "maps",
+          {
+            "to": "boston"
+          },
+          "3h 40m; heavy traffic on I-95 near New Haven"
+        ]
+      ],
+      "reply": "3h40, and yes, heavy around New Haven right now.",
+      "fault": false
+    },
+    {
+      "id": "two-part-one",
+      "q": "how long is the drive to boston and is there traffic now?",
+      "did": [
+        [
+          "maps",
+          {
+            "to": "boston"
+          },
+          "3h 40m; heavy traffic on I-95 near New Haven"
+        ]
+      ],
+      "reply": "About 3 hours 40 minutes.",
+      "fault": true
+    },
+    {
+      "id": "different-question",
+      "q": "is the gym open on thanksgiving?",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://gym.example/hours"
+          },
+          "Thanksgiving: 6am-noon"
+        ]
+      ],
+      "reply": "They're open 5am to 11pm most days.",
+      "fault": true
+    },
+    {
+      "id": "right-question",
+      "q": "is the gym open on thanksgiving?",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://gym.example/hours"
+          },
+          "Thanksgiving: 6am-noon"
+        ]
+      ],
+      "reply": "Yes, 6 to noon.",
+      "fault": false
+    },
+    {
+      "id": "which-skipped",
+      "q": "which is cheaper, the 8am or the 1pm bus?",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://bus.example"
+          },
+          "8am $25; 1pm $19"
+        ]
+      ],
+      "reply": "Both have seats left.",
+      "fault": true
+    },
+    {
+      "id": "which-answered",
+      "q": "which is cheaper, the 8am or the 1pm bus?",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://bus.example"
+          },
+          "8am $25; 1pm $19"
+        ]
+      ],
+      "reply": "The 1pm, $19 vs $25.",
+      "fault": false
+    }
+  ]
+}

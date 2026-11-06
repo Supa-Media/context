@@ -77,6 +77,10 @@ import {
   type TrayCommand,
   type UpcomingMeetings,
   type Unsubscribe,
+  machineFoldersFrom,
+  machineIdFrom,
+  machineStatusFrom,
+  type MachineRunStatus,
 } from "@context/desktop-bridge";
 import { shouldExposeBridge } from "./console.ts";
 import { downloadFrom, filesChoiceFrom, imessageStatusFrom } from "./imessageStatus.ts";
@@ -660,6 +664,17 @@ export function desktopBridge(ipc: PreloadIpc, speller?: PreloadSpeller): Deskto
           // Fire and forget, like `tell`: the menu bar is where the answer shows.
         });
       },
+    }),
+    /* Version 10. Let Tex use this Mac: a status and a switch, nothing that carries the grant. */
+    machine: Object.freeze({
+      status: (): Promise<MachineRunStatus> => ask(ipc, BRIDGE_CHANNELS.machineStatus, undefined, machineStatusFrom),
+      setEnabled: (enabled: boolean): Promise<MachineRunStatus> =>
+        ask(ipc, BRIDGE_CHANNELS.machineSetEnabled, { enabled: enabled === true }, machineStatusFrom),
+      onChange: (handler: (status: MachineRunStatus) => void): Unsubscribe =>
+        subscribe(ipc, BRIDGE_CHANNELS.machineChange, machineStatusFrom, handler),
+      /* Version 12: this Mac's id and the folder picker. The page saves with its own grant; never a grant here. */
+      id: (): Promise<string | null> => ask(ipc, BRIDGE_CHANNELS.machineId, undefined, machineIdFrom),
+      pickFolders: (): Promise<string[] | null> => ask(ipc, BRIDGE_CHANNELS.machinePickFolders, undefined, machineFoldersFrom),
     }),
   });
 }

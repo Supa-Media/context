@@ -26,6 +26,18 @@ export const EDITED_ROWS_PER_WORKSPACE = 500;
 
 export const dayOf = (at: number) => Math.floor(at / DAY_MS);
 
+/** How long one open of a note takes to count half as much for the search bar's guesses. */
+export const OPEN_HALF_LIFE_MS = 14 * DAY_MS;
+
+/**
+ * A recent row's open count as of `now`: what it held at `at`, halved for every
+ * `OPEN_HALF_LIFE_MS` since. A row from before the count read as one open.
+ */
+export function openWeight(row: { at: number; opens?: number }, now: number): number {
+  const held = row.opens === undefined ? 1 : Number.isFinite(row.opens) ? Math.max(0, row.opens) : 0;
+  return held * 0.5 ** (Math.max(0, now - row.at) / OPEN_HALF_LIFE_MS);
+}
+
 /** The days still inside the window as of `today`, oldest first. */
 export function daysInWindow(days: Doc<"placeOpens">["days"], today: number) {
   const oldest = today - (OPENS_WINDOW_DAYS - 1);
@@ -123,9 +135,12 @@ export async function retargetPlaces(
     // The later edit of the two survives, whichever row said what was done last.
     const editOf = (r: typeof row) => r.editedAt ?? (r.kind === "edited" ? r.at : -Infinity);
     const editedAt = Math.max(editOf(row), editOf(existing));
+    // Both open counts carry over, each as of the later of the two times.
+    const at = Math.max(row.at, existing.at);
     await ctx.db.patch(existing._id, {
       ...(row.at > existing.at ? { at: row.at, kind: row.kind } : {}),
       ...(Number.isFinite(editedAt) ? { editedAt } : {}),
+      opens: openWeight(row, at) + openWeight(existing, at),
     });
     await ctx.db.delete(row._id);
   }

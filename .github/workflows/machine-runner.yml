@@ -1,0 +1,170 @@
+# CI for the context-machine crate (apps/machine-runner).
+#
+# This is the machine runner: a process that runs on somebody's own computer and
+# executes jobs Tex hands it, with their own Claude Code and Codex. It holds a
+# signing key and a service credential on that machine, so its tests and lints
+# are the only check it gets before it is installed on a laptop.
+#
+# ## Why every trigger is unfiltered, and the required check is the last job
+#
+# No `paths:` or `branches:` filter on pull_request, for the reason mcp.yml
+# gives: a required check that is filtered out never reports, and the pull
+# request sits on "Expected" forever. Instead the first job detects whether this
+# crate or this workflow changed, the test job is skipped when neither did, and
+# the final job, `Machine runner`, always runs and passes when everything it
+# depends on was skipped. Make that job the required check, not `test`.
+#
+# The push trigger keeps its `paths:` filter, because a push run is not a check
+# anyone waits on, and it stays on `main`.
+
+name: Machine runner
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "apps/machine-runner/**"
+      - "packages/shared/src/machineProtocol.*"
+      - "apps/mcp/src/machines/**"
+      - "apps/mcp/src/mail/**"
+      - "apps/mcp/src/workspaceStore/machine*"
+      - "apps/mcp/src/workspaceStore/serveMachines.js"
+      - "apps/mcp/src/tools/pairDevice.js"
+      - "apps/mcp/test/e2e/**"
+      - "scripts/context-machine-hook.sh"
+      - ".github/workflows/machine-runner.yml"
+
+permissions:
+  contents: read
+
+# A newer push to a pull request supersedes the run for the older commit. Pushes
+# to main are each kept: the group is the commit there.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Detect machine runner changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - "apps/machine-runner/**"
+              - "packages/shared/src/machineProtocol.*"
+              - "apps/mcp/src/machines/**"
+              - "apps/mcp/src/mail/**"
+              - "apps/mcp/src/workspaceStore/machine*"
+              - "apps/mcp/src/workspaceStore/serveMachines.js"
+              - "apps/mcp/src/tools/pairDevice.js"
+              - "apps/mcp/test/e2e/**"
+              - "scripts/context-machine-hook.sh"
+              - ".github/workflows/machine-runner.yml"
+
+  test:
+    name: Test (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/machine-runner
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/machine-runner
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+  # The real runner binary against the gateway's real machine routes, pair_device tool, mail delivery and workspace
+  # object sockets: a Claude Code cloud VM pairing as a mail-only device and the session seeing its mail
+  # (apps/mcp/test/e2e/vmDeviceMail.e2e.mjs). It fails, rather than skips, when the binary is not built.
+  e2e:
+    name: End to end (a VM as a mail-only device)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/machine-runner
+
+      - name: Build the runner
+        working-directory: apps/machine-runner
+        run: cargo build
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # pnpm is installed below; do not try to locate its cache before then.
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install the gateway
+        run: pnpm install --filter "@context/mcp..." --frozen-lockfile
+
+      - name: Run the end-to-end test
+        working-directory: apps/mcp
+        env:
+          CI: "true"
+        run: node --test test/e2e/vmDeviceMail.e2e.mjs
+
+  # The check to require. It passes when the crate did not change (the test job
+  # was skipped), and fails when the test job failed or was cancelled.
+  machine-runner:
+    name: Machine runner
+    needs: [changes, test, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report the result
+        env:
+          CHANGED: ${{ needs.changes.outputs.code }}
+          TEST_RESULT: ${{ needs.test.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          set -eu
+          if [ "$CHANGED" != "true" ]; then
+            echo "No changes under apps/machine-runner or its workflow; nothing to test."
+            exit 0
+          fi
+          if [ "$TEST_RESULT" = "success" ] && [ "$E2E_RESULT" = "success" ]; then
+            echo "Tests passed on every platform, and end to end."
+            exit 0
+          fi
+          echo "::error::The test job finished as '$TEST_RESULT', the end-to-end job as '$E2E_RESULT'."
+          exit 1

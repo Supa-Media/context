@@ -87,8 +87,12 @@ const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
 /** A Tex guest chat's name (`privacy/engine.js` `READS_AS_CHAT`). */
 const READS_AS_CHAT = "@#reads-as-chat";
 
+/*
+  A job on a computer started from a group chat runs on a grant minted from the chat's (`machines/jobRoutes.js`), under
+  its own client, and is held to the same (the owner, 2026-11-05: "a group tex should have restrictions of the group").
+*/
 function workspaceOnly(actor) {
-  return actor?.clientId === TEXTS_GROUP_CLIENT_ID;
+  return actor?.clientId === TEXTS_GROUP_CLIENT_ID || actor?.groupChat === true;
 }
 
 /*

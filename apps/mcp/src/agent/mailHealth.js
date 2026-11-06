@@ -121,7 +121,7 @@ export function routineMailSection(mailboxes, now) {
   if (lines.length === 0) return "";
   return (
     "Their mailboxes. If your answer goes to them anyway, add this in one short sentence; it is never a reason " +
-    `to answer instead of SKIP, and anything this routine reads from their mail may be missing:\n${lines.map((line) => `- ${line}`).join("\n")}`
+    `to text when you would otherwise say nothing, and anything this routine reads from their mail may be missing:\n${lines.map((line) => `- ${line}`).join("\n")}`
   );
 }
 

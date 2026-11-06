@@ -28,6 +28,7 @@
  * module in this folder is written this way.
  */
 
+import { sortOfId } from "./menuSort";
 import type { FileBrowser } from "./browser";
 import type { MenuActionId, MenuTarget } from "./menu";
 import { parentPath, restoreTargetFor } from "./paths";
@@ -310,8 +311,24 @@ export function runMenuAction(
       return;
     case "moveUp":
     case "moveDown":
-      // Folders only (`orderGroup`); a browser that cannot write has no `moveFolder`.
-      if (kind === "folder") files.moveFolder?.(path, id === "moveUp" ? "up" : "down");
+      // A folder, or a note in custom order (`orderGroup`); a browser that cannot write has no `moveFolder`.
+      files.moveFolder?.(path, id === "moveUp" ? "up" : "down");
+      return;
+    case "sort":
+      // A submenu's own id: its rows are dispatched, never it.
+      return;
+    case "sortCustom":
+    case "sortNameAsc":
+    case "sortNameDesc":
+    case "sortEditedDesc":
+    case "sortEditedAsc":
+    case "sortCreatedDesc":
+    case "sortCreatedAsc":
+      if (kind === "folder") files.setFolderSort?.(path, sortOfId(id));
+      return;
+    case "sortInside":
+      // Give every folder inside the sort this one draws by now (`undefined`: keep it, and pass it down).
+      if (kind === "folder") files.setFolderSort?.(path, undefined, true);
       return;
     case "archive":
       context.setDialog({ kind: "archive", path });

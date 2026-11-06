@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,6 +89,13 @@ test("--parallel answers the conversations in child processes and assembles the 
     const ids = out.match(/^#### \S+$/gm) ?? [];
     assert.equal(ids.length, 2 * (out.match(/^### \d+\. /gm) ?? []).length, "every question has both runs");
     assert.ok(!out.includes("Error:"), out.slice(0, 600));
+    // Every conversation's ledger file is beside the result (`modelLog.mjs`), and none is in the result note.
+    const ledgers = (await readdir(join(dir, "result ledgers"))).sort();
+    assert.equal(ledgers.length, ids.length, ledgers.join(", "));
+    const ledger = JSON.parse((await readFile(join(dir, "result ledgers", ledgers[0]), "utf8")).split("```json\n")[1].split("\n```")[0]);
+    assert.equal(ledger.schema, "bench-ledger");
+    assert.ok(ledger.model.calls.length > 0 && ledger.conversation.length > 0 && ledger.turns.length > 0);
+    assert.ok(!out.includes('"schema": "bench-ledger"') && !out.includes("bench-ledger"));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -248,4 +255,34 @@ test("a housekeeping run puts its setup where housekeeping reads it, beside a pl
   const [own, same] = setupInWorld("texting-assistant", setup, {});
   assert.equal(own, setup.raw);
   assert.deepEqual(same, {});
+});
+
+test("with background on, every text sends the case's running jobs, and the jobs it started are kept", async () => {
+  const { benchRunning, converse } = await import("../run.mjs");
+  const sent = [];
+  const world = {
+    browser: () => [],
+    async text(_message, _pictures, options) {
+      sent.push(options?.running ?? null);
+      return { ok: true, ms: 1, model: null, asked: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, progress: [], tools: [], answer: "On it.", jobs: [{ title: "Find flights", mail: "p/overview.md", name: "flights", on: null }] };
+    },
+  };
+  const result = await converse(world, { ...STREAMLY, ifAsked: [], running: 2 }, { fake: true }, null, true);
+  assert.equal(sent[0].length, 2, "two already running");
+  assert.equal(result.jobs.length, 1);
+  const off = [];
+  await converse({ ...world, async text(m, p, options) { off.push(options?.running ?? null); return world.text(m, p, options); } }, { ...STREAMLY, ifAsked: [] }, { fake: true });
+  assert.equal(off[0], null, "a test without background sends none, so no jobs are offered");
+  assert.equal(benchRunning(0).length, 0);
+  assert.ok(benchRunning(9).length <= 6);
+  for (const job of benchRunning(3)) assert.match(job.id, /^[A-Za-z0-9_-]{8,64}$/, "an id the gateway reads");
+});
+
+test("a test's computer line is read strictly", async () => {
+  const { readComputer } = await import("../run.mjs");
+  assert.deepEqual(readComputer("Studio Mac (claude, codex) 3 slots"), { name: "Studio Mac", tools: ["claude", "codex"], slots: 3 });
+  assert.deepEqual(readComputer("Laptop (codex)"), { name: "Laptop", tools: ["codex"], slots: 1 });
+  assert.equal(readComputer(undefined), null);
+  assert.throws(() => readComputer("Studio Mac with claude"), /is not/);
+  assert.throws(() => readComputer("Studio Mac (vim) 2 slots"), /is not/);
 });

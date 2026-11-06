@@ -10,6 +10,14 @@ class_name = "PresenceRoom"
 tag = "v1-presence"
 new_sqlite_classes = ["PresenceRoom"]
 
+[[durable_objects.bindings]]
+name = "LIVE_TICKET"
+class_name = "LiveTicket"
+
+[[migrations]]
+tag = "v4-live-ticket"
+new_sqlite_classes = ["LiveTicket"]
+
 [vars]
 PUBLIC_ORIGIN = "http://127.0.0.1:8799"
 ALLOWED_ORIGINS = "http://127.0.0.1:8798"

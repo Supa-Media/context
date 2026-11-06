@@ -5,6 +5,7 @@
  */
 
 import { ACCESS_OPS } from "./access.js";
+import { TEXTING_OPS } from "./personTexting.js";
 
 const TABLES = { reach: "reach", sharedToMe: "shared", connections: "connections" };
 
@@ -31,6 +32,12 @@ export function personAccessClient(ask, personalWorkspaceId) {
   access.pin = async (userId) => await call(ACCESS_OPS.PERSON_PIN, { userId });
   access.setHome = async (home) => (await call(ACCESS_OPS.PERSON_HOME, { home })).home;
   access.state = async () => await call(ACCESS_OPS.PERSON_STATE);
+  // Texting with Tex (`personTexting.js`): the record, and the session one text runs under.
+  access.texting = {
+    put: async (record) => await call(TEXTING_OPS.PUT, { record }),
+    get: async () => (await call(TEXTING_OPS.GET)).record ?? null,
+    open: async ({ phoneHash, tokenHash, refreshHash, expiresAt, at }) => await call(TEXTING_OPS.OPEN, { phoneHash, tokenHash, refreshHash, expiresAt, at }),
+  };
   return access;
 }
 

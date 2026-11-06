@@ -306,6 +306,12 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
     return { kind: "proxy", upstream: "expo", path, cache: "immutable" };
   }
 
+  // This is a complete public document, not the app shell or a link card.
+  // Automated directory reviewers must receive the same policy as a person.
+  if (pathname === "/legal/privacy" || pathname === "/legal/privacy/") {
+    return { kind: "proxy", upstream: "expo", path };
+  }
+
   // Everything left is a page. Crawlers do not run JavaScript, so the SPA's
   // single index.html would unfurl every URL identically and wrongly; they get
   // real tags instead. `previewFor` reads only the path, and only to look it

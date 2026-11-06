@@ -1,6 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Menu } from "../../design/components/Menu";
-import { writeClipboard } from "../../design/clipboard";
+import { copyDeferred, writeClipboard } from "../../design/clipboard";
+import { useAction } from "convex/react";
+import { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
 import { runMenuAction, type ActionContext, type Dialog } from "../files/actions";
 import { displayName, parentPath } from "../files/paths";
 import { setReadMode, useReadMode } from "../files/readMode";
@@ -47,11 +50,30 @@ export function NoteActionsSheet({
     pageAsText: page ? asText : undefined,
   });
 
+  const readNote = useAction(api.functions.files.readNote);
+  /*
+    The file's whole text, read as Download reads it (`useRowCommands` `download`), so a history file copies the
+    chat's JSON and a note its Markdown. `copyDeferred` keeps Safari's clipboard inside the press.
+  */
+  const copyText = () => {
+    const workspaceId = data.selectedContextId;
+    if (workspaceId === null) return;
+    trackButton("copy_text");
+    void copyDeferred(async () => {
+      try {
+        return (await readNote({ workspaceId: workspaceId as Id<"workspaces">, path: entry.path })).text;
+      } catch {
+        return null;
+      }
+    }).then(({ ok }) => files.say(ok ? "Text copied." : "Couldn't copy the text."));
+  };
+
   const run = (id: NoteActionId) => {
     onDismiss();
     if (id === "read") return setReadMode(!reading);
     if (id === "pageText") return setPageAsText(entry.path, !asText);
     if (id === "addProperty") return askAddProperty();
+    if (id === "copyText") return copyText();
     runNoteAction(id, { data, entry, contextLabel, setBarDialog });
   };
 
@@ -71,8 +93,8 @@ export function NoteActionsSheet({
  * the two cannot disagree about what Share or Move does.
  */
 export function runNoteAction(
-  /** Reading mode and Add property are the sheet's own rows (`NoteActionsSheet`), not operations on the note. */
-  id: Exclude<NoteActionId, "read" | "pageText" | "addProperty">,
+  /** Reading mode, Add property and Copy text are the sheet's own rows (`NoteActionsSheet`), not operations on the note. */
+  id: Exclude<NoteActionId, "read" | "pageText" | "addProperty" | "copyText">,
   {
     data,
     entry,

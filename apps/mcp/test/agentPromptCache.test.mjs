@@ -142,15 +142,15 @@ test("the clock, the model line and the list of earlier tools are said in the pe
   assert.equal(second.body.messages.at(-1).content.at(-1).text, "and what about Monday?", "the person's own words come last");
 });
 
-test("at most four breakpoints, each where the layout puts it, all five-minute", async () => {
+test("at most four breakpoints, each where the layout puts it: the prefix an hour, the round's end five minutes", async () => {
   const { body } = await sendText({ now: SECOND_TEXT, question: "and what about Monday?", history: HISTORY_LATER });
   const marks = JSON.stringify(body).split('"cache_control"').length - 1;
   assert.equal(marks, 4, "stable system (covering the tools before it), context system, history, and the round's end");
   assert.equal(body.tools.some((entry) => entry.cache_control !== undefined), false, "the tools are cached by the stable part's mark");
   assert.equal(body.system.length, 2, "the stable and the context parts are each a block");
-  for (const block of body.system) assert.deepEqual(block.cache_control, { type: "ephemeral" });
+  for (const block of body.system) assert.deepEqual(block.cache_control, { type: "ephemeral", ttl: "1h" });
   const historyEnd = body.messages[HISTORY_LATER.length - 1];
-  assert.deepEqual(historyEnd.content.at(-1).cache_control, { type: "ephemeral" }, "the history's last block, five minutes");
+  assert.deepEqual(historyEnd.content.at(-1).cache_control, { type: "ephemeral", ttl: "1h" }, "the history's last block, an hour: the next text reads it minutes later");
   assert.deepEqual(body.messages.at(-1).content.at(-1).cache_control, { type: "ephemeral" }, "the round's end, for the next round to read");
 });
 

@@ -13,11 +13,14 @@ import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import type { QueryCtx } from "../_generated/server";
-import type { Doc } from "../_generated/dataModel";
-import { addressable, contextsForGrant, resolveLiveGrant } from "./lib/controlPlane/liveGrants";
+import type { Doc, Id } from "../_generated/dataModel";
+import { addressable, contextsForGrant, resolveLiveGrant, resolveRunGrant } from "./lib/controlPlane/liveGrants";
+import { deviceStillLive } from "./texMachineDevices";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
 const MAX_PATH = 1024;
+const JOB_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+const MAX_JOB_MAILBOXES = 20;
 
 const mailboxView = v.object({
   mailboxId: v.string(),
@@ -37,15 +40,37 @@ function view(row: Doc<"noteMailboxes">) {
   };
 }
 
+/**
+ * The grant a mail call acts as: a live grant, or a job part's run grant on the person's computer, which acts as the
+ * job's own texting grant (`liveGrants.ts` `resolveRunGrant`). So a part reads and sends on the job note's mail with
+ * the mailbox its job joined (the owner, 2026-11-05: the job, Tex and the advisor on one job note's mail).
+ *
+ * A run grant reaches only the mailboxes bound to its own job (`onlyJob`), never the rest of what its parent joined:
+ * the part runs untrusted work on a computer, so it must not speak as Tex, the advisor or another job. A run grant
+ * that names no job reaches no mail.
+ */
+async function mailGrant(ctx: QueryCtx, hashedAccessToken: string) {
+  const live = await resolveLiveGrant(ctx, hashedAccessToken);
+  if (live !== null) return { ...live, onlyJob: null as string | null };
+  const run = await resolveRunGrant(ctx, hashedAccessToken);
+  if (run === null || run.run.jobId === undefined) return null;
+  return { ...run, onlyJob: run.run.jobId as string | null };
+}
+
+/** Whether this grant may use a mailbox row: its own, and for a run grant only its job's. */
+function mayUse(live: { grant: { _id: Id<"oauthGrants"> }; onlyJob: string | null }, row: Doc<"noteMailboxes">): boolean {
+  return row.grantId === live.grant._id && (live.onlyJob === null || row.jobId === live.onlyJob);
+}
+
 /** The live mailbox this token's grant joined, or null for anything else. */
 async function ownMailbox(ctx: QueryCtx, hashedAccessToken: string, mailboxId: string) {
-  const live = await resolveLiveGrant(ctx, hashedAccessToken);
+  const live = await mailGrant(ctx, hashedAccessToken);
   if (live === null) return null;
   const row = await ctx.db
     .query("noteMailboxes")
     .withIndex("by_mailboxId", (q) => q.eq("mailboxId", mailboxId))
     .unique();
-  if (row === null || row.grantId !== live.grant._id) return null;
+  if (row === null || !mayUse(live, row)) return null;
   const reach = addressable(await contextsForGrant(ctx, live));
   if (!reach.some((entry) => entry.workspaceId === row.workspaceId)) return null;
   return row;
@@ -63,6 +88,13 @@ export const joinMailbox = internalMutation({
     path: v.string(),
     name: v.string(),
     mailboxId: v.string(),
+    /** The Tex background job whose turn is joining, when it is one. Bound to the mailbox; see `jobMailboxes`. */
+    jobId: v.optional(v.string()),
+    /**
+     * The person's own machine whose session is joining (a cloud VM's Claude Code). It must be live and the joining
+     * grant's own person's; the gateway pushes new mail down its socket. See `jobMailboxes`.
+     */
+    machineId: v.optional(v.string()),
   },
   returns: v.union(
     v.object({ ok: v.literal(true), mailbox: mailboxView }),
@@ -72,8 +104,18 @@ export const joinMailbox = internalMutation({
     const refused = { ok: false as const, error: "refused" as const };
     if (!NAME_RE.test(args.name) || args.name === "everyone") return refused;
     if (!args.path || args.path.length > MAX_PATH || !/^mb_[a-z0-9]{8,32}$/.test(args.mailboxId)) return refused;
-    const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+    if (args.jobId !== undefined && !JOB_ID_RE.test(args.jobId)) return refused;
+    const live = await mailGrant(ctx, args.hashedAccessToken);
     if (live === null) return refused;
+    // A run grant never joins on its own: its job's mailbox was joined for it, and it may only rejoin that one.
+    if (live.onlyJob !== null && (args.jobId !== live.onlyJob || args.machineId !== undefined)) return refused;
+    let machineId: Id<"texMachines"> | undefined;
+    if (args.machineId !== undefined) {
+      const id = ctx.db.normalizeId("texMachines", args.machineId);
+      const machine = id === null ? null : await ctx.db.get(id);
+      if (machine === null || machine.ownerId !== live.grant.userId || !(await deviceStillLive(ctx, machine))) return refused;
+      machineId = machine._id;
+    }
     const target = addressable(await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
     if (!target) return refused;
     // A group chat's home in the pin is the one place in the pin it may hold a mailbox: its folder, never the pin.
@@ -85,7 +127,13 @@ export const joinMailbox = internalMutation({
       )
       .collect();
     const mine = existing.find((row) => row.grantId === live.grant._id);
-    if (mine) return { ok: true as const, mailbox: view(mine) };
+    if (live.onlyJob !== null && (mine === undefined || !mayUse(live, mine))) return refused;
+    if (mine) {
+      // A rejoin that names a job re-binds the mailbox to it; a rejoin that names none leaves the binding as it is.
+      if (args.jobId !== undefined && mine.jobId !== args.jobId) await ctx.db.patch(mine._id, { jobId: args.jobId });
+      if (machineId !== undefined && mine.machineId !== machineId) await ctx.db.patch(mine._id, { machineId });
+      return { ok: true as const, mailbox: view((await ctx.db.get(mine._id))!) };
+    }
     if (existing.length > 0) return { ok: false as const, error: "name_taken" as const };
     const id = await ctx.db.insert("noteMailboxes", {
       mailboxId: args.mailboxId,
@@ -94,6 +142,8 @@ export const joinMailbox = internalMutation({
       path: args.path,
       name: args.name,
       readThrough: new Date().toISOString(),
+      ...(args.jobId !== undefined ? { jobId: args.jobId } : {}),
+      ...(machineId !== undefined ? { machineId } : {}),
       createdAt: Date.now(),
     });
     return { ok: true as const, mailbox: view((await ctx.db.get(id))!) };
@@ -121,5 +171,60 @@ export const markMailRead = internalMutation({
     const current = row.readThrough ? Date.parse(row.readThrough) : -Infinity;
     if (Date.parse(args.readThrough) > current) await ctx.db.patch(row._id, { readThrough: args.readThrough });
     return null;
+  },
+});
+
+/**
+ * The mailboxes on this note that a Tex background job joined, or a session on one of the person's own machines, and
+ * whose own grant (and machine) is still live. The gateway reads these to deliver new mail at once: to the job, or
+ * down the machine's socket in its own workspace's object (`machineWorkspaceId`). Empty unless the presenting grant reaches the workspace; capped at
+ * `MAX_JOB_MAILBOXES`. Names and ids only, never mail text.
+ */
+export const jobMailboxes = internalQuery({
+  args: { hashedAccessToken: v.string(), workspaceId: v.string(), path: v.string() },
+  returns: v.array(
+    v.object({
+      mailboxId: v.string(),
+      name: v.string(),
+      jobId: v.optional(v.string()),
+      machineId: v.optional(v.id("texMachines")),
+      machineWorkspaceId: v.optional(v.id("workspaces")),
+      own: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    if (!args.path || args.path.length > MAX_PATH) return [];
+    const live = await mailGrant(ctx, args.hashedAccessToken);
+    if (live === null) return [];
+    const target = addressable(await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
+    if (!target) return [];
+    if (target.homeOnly === true && !(typeof target.chatHome === "string" && args.path.startsWith(`${target.chatHome}/`))) return [];
+    const rows = await ctx.db
+      .query("noteMailboxes")
+      .withIndex("by_workspace_path_name", (q) => q.eq("workspaceId", target.workspaceId).eq("path", args.path))
+      .collect();
+    const out: Array<{
+      mailboxId: string;
+      name: string;
+      jobId?: string;
+      machineId?: Id<"texMachines">;
+      machineWorkspaceId?: Id<"workspaces">;
+      own: boolean;
+    }> = [];
+    for (const row of rows) {
+      if (out.length >= MAX_JOB_MAILBOXES) break;
+      if (row.jobId === undefined && row.machineId === undefined) continue;
+      const grant = await ctx.db.get(row.grantId);
+      if (grant === null || grant.status !== "active") continue;
+      // `own`: joined by the presenting grant, so the sender is that job's own Tex (the gateway lets only Tex's own turn interrupt it).
+      const own = mayUse(live, row);
+      if (row.jobId !== undefined) out.push({ mailboxId: row.mailboxId, name: row.name, jobId: row.jobId, own });
+      else if (row.machineId !== undefined) {
+        const machine = await ctx.db.get(row.machineId);
+        if (machine === null || !(await deviceStillLive(ctx, machine))) continue;
+        out.push({ mailboxId: row.mailboxId, name: row.name, machineId: machine._id, machineWorkspaceId: machine.workspaceId, own });
+      }
+    }
+    return out;
   },
 });

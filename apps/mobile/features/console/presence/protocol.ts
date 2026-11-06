@@ -20,6 +20,7 @@
  */
 
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { ticketProtocols } from "@context/shared/src/liveTicket.cjs";
 
 /** Matches `PRESENCE_PROTOCOL_VERSION` in the gateway. */
 export const PRESENCE_PROTOCOL_VERSION = 1;
@@ -467,13 +468,12 @@ export function clampToDocument(value: number, length: number): number {
 export const CLOSE_REFUSED = 4003;
 
 /**
- * The presence socket's URL for one note. It carries no token: a browser
- * `WebSocket` cannot set an `Authorization` header, so the token rides in the
- * subprotocols it offers instead (`presenceSocketProtocols`), where history,
- * referrers and URL logs never see it. The gateway answers with
- * `context.presence` alone (`apps/mcp/src/http/presentedToken.js`). The old
- * `/t/<token>/presence` form still works for builds that predate this, and is
- * counted until nobody uses it (docs/decisions/gateway-protocol/token-transport.md).
+ * The presence socket's URL for one note. It carries no token, and neither
+ * does the socket: a browser `WebSocket` cannot set an `Authorization` header,
+ * so the app trades its token, in a header, for a one-use ticket
+ * (`POST /presence/ticket`) and offers that as a subprotocol
+ * (`presenceSocketProtocols`). The gateway answers with `context.presence`
+ * alone (`apps/mcp/src/live/ticket.js`).
  */
 export function presenceSocketUrl(options: {
   gatewayOrigin: string;
@@ -491,7 +491,10 @@ export function presenceSocketUrl(options: {
   return url.toString();
 }
 
-/** The subprotocols the presence socket offers: the protocol, and its token. */
-export function presenceSocketProtocols(token: string): string[] {
-  return ["context.presence", `context.token.${token}`];
+/**
+ * The subprotocols the presence socket offers: the protocol, and a one-use
+ * ticket minted for it (`@context/shared/src/liveTicket.cjs`). Never the token.
+ */
+export function presenceSocketProtocols(ticket: string): string[] {
+  return ticketProtocols("context.presence", ticket);
 }

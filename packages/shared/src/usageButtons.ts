@@ -19,6 +19,7 @@ export const USAGE_BUTTONS = {
   new_meeting: "New meeting",
   share_note: "Share",
   copy_link: "Copy link",
+  copy_text: "Copy text",
   rename: "Rename",
   move: "Move",
   duplicate: "Duplicate",

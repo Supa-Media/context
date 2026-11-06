@@ -36,7 +36,20 @@ const MAX_ADVICE = 600;
 const MAX_SYSTEM_CHARS = 20_000;
 const MAX_TRANSCRIPT_CHARS = 120_000;
 const MAX_RESULT_CHARS = 8_000;
-const TAGS = ["job", "tex_instructions", "transcript", "their_texts"];
+const TAGS = ["job", "tex_instructions", "transcript", "their_texts", "job_note_mail"];
+
+/**
+ * What the advisor knows of a job's note mail (the owner, 2026-11-05: the advisor "should know about the mail stuff ...
+ * that there are other parallel [jobs] working in the mail. So the advisor can advise a job to mail its coworkers in
+ * order to divide and execute the work and can just orchestrate that way"). Said wherever the advisor reads a job: its
+ * end-of-part check and its answers to the job's mail (`jobNote.js`).
+ */
+export const ADVISOR_KNOWS_MAIL =
+  "The job works on a job note whose mail it shares with Tex (the only one who can reach the person), with you (its advisor, " +
+  "always listening), and with any other jobs working on parts of the same ask, by name. Use that mail to orchestrate: tell the " +
+  "job to mail tex what the person must see or do (a sign-in link and its code, a question only they can answer), and to mail " +
+  "its coworker jobs to split the work, hand one of them a piece, ask what they found, or agree who does what, so the jobs " +
+  "divide the work and finish it together. Never tell it to use a saved login or password: a job can't open the vault.";
 
 export const JOB_CHECK_PROMPT =
   "You are the advisor to Tex, a texting assistant. One of Tex's background jobs has just stopped. Below are the job (what it was asked " +
@@ -79,6 +92,8 @@ export function jobCheckBrief({ job, system, messages, answer, exhausted }) {
   return (
     `<job>\nTitle: ${quoted(job.title)}\nBrief: ${quoted(job.brief)}\nFinish line: ${quoted(job.doneWhen || "(none written: judge by the brief)")}\n` +
     `This was part ${job.attempt}.${job.advice ? `\nYour advice before this part: ${quoted(job.advice)}` : ""}\n</job>\n\n` +
+    // Who is on its note's mail (`jobNote.js` `rosterText`), so the advice can hand work to them.
+    (job.roster ? `<job_note_mail>\n${ADVISOR_KNOWS_MAIL}\nWhat the job was told:\n${quoted(clip(job.roster, 4_000))}\n</job_note_mail>\n\n` : "") +
     (followUps ? `<their_texts>\n${followUps}\n</their_texts>\n\n` : "") +
     (system ? `<tex_instructions>\n${quoted(clip(system, MAX_SYSTEM_CHARS))}\n</tex_instructions>\n\n` : "") +
     `<transcript>\n${body || "(nothing)"}\n\nTex's last words: ${quoted(answer) || "(none)"}${exhausted ? "\n(It ran out of steps in this part.)" : ""}\n</transcript>\n\n` +
