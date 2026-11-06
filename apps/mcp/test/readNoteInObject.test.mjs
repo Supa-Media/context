@@ -13,6 +13,8 @@
 //     → "a note this reader may not see never reaches the object's read" fails.
 //  4. The engine's refusal dropped (`started` resolving null on `answer.error`).
 //     → "an engine refusal from the object fails the read closed" fails.
+//  5. `toolOpenAiFetch` back on its own probe, get and Markdown (2026-11-06).
+//     → "ChatGPT's fetch is read_note's one object call…" fails (a probe and a get beside it).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -26,6 +28,7 @@ import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { serveCollabRead } from "../src/workspaceStore/collabRead.js";
 import { toolReadNote } from "../src/tools/notes/read.js";
+import { toolOpenAiFetch } from "../src/tools/notes/openAiFetch.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
 import { durableSqlite } from "./durableSqlite.mjs";
 
@@ -200,4 +203,26 @@ test("a Tex note's key never asks the workspace object's read: it lives in Tex's
   const routed = withWorkspaceRouting(bucketSide(), { workspaceId: "ws", client: side.client, log: () => {}, known: { home: "object", backfilledAt: 1 } });
   assert.equal(await routed.readInObject({ path: "tex/notes/a.md", key: `tex/person:p1/${KEY}`, noteId: NOTE_ID }), null);
   assert.deepEqual(side.calls, [], "a Tex note's read went to the workspace object");
+});
+
+test("ChatGPT's fetch is read_note's one object call, with the editing history's words", async () => {
+  const { store, calls } = await world();
+  const answer = await toolOpenAiFetch(store, "private", RULES, new PrivacyOverrides(), PATH);
+  assert.equal(answer.isError, undefined, answer.content[0].text);
+  const fetched = JSON.parse(answer.content[0].text);
+  assert.equal(fetched.id, PATH);
+  assert.match(fetched.text, /Second words\./);
+  assert.ok(!/^etag:/m.test(fetched.text), "read_note's header leaked into the text");
+  assert.ok(typeof fetched.metadata.etag === "string" && fetched.metadata.etag.length > 0);
+  assert.deepEqual(ops(calls).filter((op) => op !== "head"), ["ws.collab.read"], `read more than the one call: ${ops(calls).join(", ")}`);
+});
+
+test("ChatGPT's fetch refuses a held-back note in read_note's words, without reading it", async () => {
+  const { store, calls } = await world();
+  const overrides = new PrivacyOverrides();
+  overrides.set(PATH, "private");
+  const answer = await toolOpenAiFetch(store, "team", RULES, overrides, PATH);
+  assert.equal(answer.isError, true);
+  assert.equal(answer.content[0].text, "not found");
+  assert.ok(!ops(calls).includes("ws.collab.read"));
 });

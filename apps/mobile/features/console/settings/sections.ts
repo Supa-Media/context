@@ -41,7 +41,7 @@ import type { IconName } from "../../design/components/Icon";
  * the account/context split, which is a real difference in what a row acts on
  * rather than a category somebody has to learn.
  */
-export type SettingsGroup = "You";
+export type SettingsGroup = "You" | "Tex";
 
 /**
  * Which of the two things a section belongs to.
@@ -148,13 +148,30 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
+    /*
+      How Tex talks to this person in their own chat (Dev2, 2026-10-28): the
+      settings "Tex, settings" changes by text. A group chat's own are changed
+      in that chat. Listed since 2026-11-04 (Dev2: "add Tex to the settings
+      page so I don't have to search for it"), and it holds "Let Tex use this
+      Mac", which the Tex page's connect screen sends Mac owners to.
+    */
+    key: "tex",
+    keywords:
+      "tex texting assistant imessage whatsapp text tone warmth enthusiasm emoji length bubbles humor humour tars personality style voice friendly professional efficient candid quirky nerdy cynical",
+    label: "How Tex talks",
+    scope: "account",
+    group: "Tex",
+    icon: "chat",
+    personalOnly: false,
+  },
+  {
     // The apps Tex acts in as this person, with Connect and Disconnect. A row since 2026-10-21:
     // as a card at the foot of Profile nobody found it. Account scope: a connection is the person's own.
     key: "texApps",
     keywords: "apps tex uses slack linear outlook planning center notion jira connect reconnect disconnect integration assistant",
     label: "Apps Tex uses",
     scope: "account",
-    group: "You",
+    group: "Tex",
     icon: "link",
     personalOnly: false,
   },
@@ -164,8 +181,8 @@ export const SETTINGS_SECTIONS = [
     keywords: "messages imessage texts text sms backup back up copy mac full disk access tex sister phone number",
     label: "Messages",
     scope: "account",
-    group: "You",
-    icon: "chat",
+    group: "Tex",
+    icon: "phone",
     personalOnly: false,
   },
   {
@@ -220,23 +237,6 @@ export const SETTINGS_SECTIONS = [
     icon: "book",
     personalOnly: false,
     folded: true,
-  },
-  {
-    /*
-      How Tex talks to this person in their own chat (Dev2, 2026-10-28): the
-      settings "Tex, settings" changes by text. A group chat's own are changed
-      in that chat. Listed since 2026-11-04 (Dev2: "add Tex to the settings
-      page so I don't have to search for it"), and it holds "Let Tex use this
-      Mac", which the Tex page's connect screen sends Mac owners to.
-    */
-    key: "tex",
-    keywords:
-      "tex texting assistant imessage whatsapp text tone warmth enthusiasm emoji length bubbles humor humour tars personality style voice friendly professional efficient candid quirky nerdy cynical",
-    label: "Tex",
-    scope: "account",
-    group: "You",
-    icon: "chat",
-    personalOnly: false,
   },
   /*
     From here the order is the settings artboard's (2026-09-29, approved by

@@ -155,6 +155,15 @@ export function coreToolDefinitions() {
             description:
               "Read the note's mail instead of its text. true: what is new for your mailbox (all of it without one); \"all\": every message.",
           },
+          before: {
+            type: "integer",
+            minimum: 1,
+            description: "Only for tex/history.ledger.json: the entries before this seq, to page back (each answer names the next one as view.before).",
+          },
+          job: {
+            type: "string",
+            description: "Only for tex/history.ledger.json: just the entries a background job wrote (its id, from a job entry).",
+          },
         },
         required: ["path"],
         additionalProperties: false,

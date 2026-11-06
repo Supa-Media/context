@@ -1,13 +1,9 @@
 /** `search_notes`, and ChatGPT's `search` and `fetch`. */
 
-import { canSee, isPlumbing } from "../privacy/engine.js";
-import { encryptedNoteRefusal, openStoredNote } from "../notes/sealing.js";
-import { forwardPath, readForwarding } from "../forwarding.js";
-import { getWithLegacyFallback } from "../storageLayout.js";
+import { canSee } from "../privacy/engine.js";
 import { normalizePath, noteUrl } from "../notes/paths.js";
 import { NOTE_INDEX_CHAR_CAP } from "../search/maintain.js";
-import { noteTitle, splitReducedRecallNotes } from "../search/visible.js";
-import { probeWithLegacyFallback } from "../notes/storage.js";
+import { splitReducedRecallNotes } from "../search/visible.js";
 import { searchVisibleNotes } from "../search/visibleNotes.js";
 import {
   MEANING_EXTRA_FLOOR_WITH_WORDS,
@@ -20,7 +16,6 @@ import { meaningEmbedderFor } from "../search/meaning/store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../search/settings.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { folderPrefix } from "../search/indexable.js";
-import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { holdSearchPasses } from "../search/heldPasses.js";
@@ -380,61 +375,4 @@ export async function toolOpenAiSearch(store, scope, rules, overrides, query, pr
     url: noteUrl(key),
   }));
   return toolText(JSON.stringify({ results }));
-}
-
-export async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
-  // `search` answers a message inside a channel-day note with the id
-  // `<notePath>#<anchor>`, and `fetch(id)` is the only thing ChatGPT does
-  // with an id it was given. Split before the `.md` test, which that id
-  // would otherwise fail one line before the read ever happened.
-  const path = splitMessageAnchor(normalizePath(idArg) ?? "").path;
-  if (!path || !path.endsWith(".md")) return toolError("invalid id");
-  if (isPlumbing(path)) return toolError("not found");
-  /*
-    `read_note`'s rule, because this is `read_note`: the resolution runs the
-    same way for everybody and the decision is taken once both answers are in,
-    so the refusal for a note being held back costs what the refusal for an
-    absent one costs. It resolves on metadata and fetches the body only after
-    both questions have passed — this door was the widest of the four, 1 trip
-    against 3.
-  */
-  const seen = canSee(path, scope, rules, overrides);
-  let present = Boolean(await probeWithLegacyFallback(store, path));
-  // Metadata can report a logical-delete marker as present. Resolve the
-  // authorized logical object before deciding whether the stale path needs
-  // forwarding, exactly as read_note does; otherwise a tombstone suppresses
-  // the forwarding lookup and the fetch ends as a false not-found.
-  let obj = seen && present ? await getWithLegacyFallback(store, path) : null;
-  if (seen && present && !obj) present = false;
-  if (!seen || !present) {
-    const forwarded = forwardPath(await readForwarding(store), path);
-    if (forwarded !== null && forwarded !== path && canSee(forwarded, scope, rules, overrides)) {
-      const landed = await probeWithLegacyFallback(store, forwarded);
-      if (landed && seen && !present) {
-        const landedObject = await getWithLegacyFallback(store, forwarded);
-        if (landedObject) {
-          present = true;
-          obj = landedObject;
-        }
-      }
-    }
-  }
-  if (!seen || !present) return toolError("not found");
-  if (!obj) return toolError("not found");
-  const stored = await obj.text();
-  // The same decrypt `read_note` does, because this is `read_note` wearing
-  // OpenAI's contract and "a second path is a second place for a bug". A note
-  // this request cannot open is refused rather than answered with its envelope
-  // — returning the ciphertext as `text` would put it in a chat transcript.
-  const opened = await openStoredNote(store, stored);
-  if (!opened.ok) return encryptedNoteRefusal(path);
-  return toolText(
-    JSON.stringify({
-      id: path,
-      title: noteTitle(path, opened.text),
-      text: opened.text,
-      url: noteUrl(path),
-      metadata: { etag: obj.etag, encrypted: opened.encrypted || undefined },
-    })
-  );
 }

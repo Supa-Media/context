@@ -42,6 +42,44 @@ export async function runToolArgumentValidatorChecks(check) {
     "a call that matches the schema is accepted",
     validateArguments(NOTE_SCHEMA, { path: "a.md", content: "x" }) === null
   );
+
+  /*
+    A STRING BOUND IS ENFORCED, BECAUSE A SCHEMA THAT SAYS ONE IS BELIEVED.
+
+    `minLength` and `maxLength` were not among the keywords this file knows, so
+    a schema carrying them read as closed and bounded in `tools/list` while the
+    validator accepted any string at all. `unsupportedKeywords` exists to make
+    that impossible, and the census holds it against every advertised tool —
+    but the connector endpoints build their own schemas (`mcp/chatgpt/tools.js`
+    `operationSchema`), the sweep did not reach them, and one of them advertised
+    `maxLength: 12000` on the words a save_context carries. A reviewer reads the
+    schema and believes it; so does an agent choosing how much to send.
+
+    Delete either branch below and the two connector checks in
+    chatgptParity.test.mjs redden with it.
+  */
+  const BOUNDED = {
+    type: "object",
+    properties: { words: { type: "string", minLength: 1, maxLength: 8 } },
+    required: ["words"],
+    additionalProperties: false,
+  };
+  check(
+    "a string within its advertised bounds is accepted",
+    validateArguments(BOUNDED, { words: "eight" }) === null
+  );
+  check(
+    "a string longer than maxLength is refused, and the refusal names the bound",
+    validateArguments(BOUNDED, { words: "x".repeat(9) }) === 'argument "words" must be at most 8 characters'
+  );
+  check(
+    "an empty string is refused where minLength says one character",
+    validateArguments(BOUNDED, { words: "" }) === 'argument "words" must be at least 1 character'
+  );
+  check(
+    "a length bound says nothing about a value of another type",
+    validateArguments({ type: "object", properties: { n: { type: "integer", minLength: 4 } }, additionalProperties: false }, { n: 1 }) === null
+  );
   check(
     "an unknown property is refused, and the refusal names it",
     (validateArguments(NOTE_SCHEMA, { path: "a.md", workspaceId: "ws_x" }) || "").startsWith(

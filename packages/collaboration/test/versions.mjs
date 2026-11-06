@@ -10,10 +10,19 @@
 //     → "a save after five idle minutes keeps the state the person stopped at as a version" fails.
 //  4. `keepIdleVersion` letting its error through.
 //     → "a version that cannot be kept never fails the save" fails.
+//  5. `markedRevision` keeping the deletions later revisions made (no subtraction).
+//     → "every kept marker rebuilds its revision exactly, after a long history of scattered edits" fails.
+//  6. `markedRevision` not winding the clocks back past later revisions.
+//     → "every kept marker rebuilds its revision exactly…" and "an older version a client holds still merges…" fail.
+//  7. `markedRevision` skipping its unbroken-chain check: passes, because the rebuilt text then misses its hash and the
+//     hash check refuses it too. Both stay, so neither alone is the guard.
 import assert from "node:assert/strict";
+import * as Y from "yjs";
+import { docFromSnapshot } from "../src/ydoc.js";
 import test from "node:test";
 import { readDocument, replaceText } from "../src/index.js";
-import { BASE_MARKERS, IDLE_MS } from "../src/versions.js";
+import { BASE_MARKERS, IDLE_MS, markedRevision } from "../src/versions.js";
+import { inlineRevision } from "../src/records.js";
 
 const PATH = "1-projects/note.md";
 
@@ -135,4 +144,56 @@ test("a version that cannot be kept never fails the save", async () => {
   const later = await at(start + IDLE_MS, () => save(store, stopped.etag, "# Note\n\nWe ship on Tuesday.\n"));
   assert.equal(later.text, "# Note\n\nWe ship on Tuesday.\n");
   assert.equal(store.objects.get(PATH).text, "# Note\n\nWe ship on Tuesday.\n");
+});
+
+const stateOf = (store) => JSON.parse(store.objects.get([...store.objects.keys()].find((name) => name.includes("/documents/") && !name.includes("/operations/"))).text);
+
+test("every kept marker rebuilds its revision exactly, after a long history of scattered edits", async () => {
+  const store = new MemoryStore();
+  const words = Array.from({ length: 400 }, (_, index) => `word${index}`);
+  let text = `# Plan\n\n${words.join(" ")}\n`;
+  await store.put(PATH, text);
+  let etag = (await readDocument(store, PATH)).etag;
+  const texts = new Map();
+  for (let index = 0; index < 120; index += 1) {
+    // Scattered replacements, deletions and insertions, so the delete set grows in many ranges.
+    const word = words[(index * 37) % words.length];
+    text = index % 3 === 0 ? text.replace(` ${word} `, " ") : index % 3 === 1 ? text.replace(word, `${word}-${index}`) : `${text}line ${index}\n`;
+    const saved = await save(store, etag, text);
+    etag = saved.etag;
+    texts.set(etag.split(".").at(-1), text);
+  }
+  const state = stateOf(store);
+  const current = inlineRevision(state);
+  assert.equal(state.bases.length, BASE_MARKERS);
+  for (const entry of state.bases) {
+    const rebuilt = markedRevision(state, current, entry.revision);
+    assert.ok(rebuilt, `marker ${entry.revision} rebuilt nothing`);
+    assert.equal(rebuilt.value.text, texts.get(entry.revision));
+  }
+  // However long the history, a marker stays small: the whole list is a small part of the state.
+  assert.ok(JSON.stringify(state.bases).length < 4096, `markers took ${JSON.stringify(state.bases).length} bytes`);
+});
+
+test("a marker whose chain to the current revision is broken is never used", async () => {
+  const { store, first } = await started();
+  const second = await save(store, first.etag, "# Note\n\nWe ship on Monday.\n");
+  const third = await save(store, second.etag, "# Note\n\nWe ship on Tuesday.\n");
+  await save(store, third.etag, "# Note\n\nWe ship on Wednesday.\n");
+  const state = stateOf(store);
+  // A writer that kept no marker came between the second and third saves.
+  const broken = { ...state, bases: state.bases.filter((entry) => entry.revision !== third.etag.split(".").at(-1)) };
+  assert.equal(markedRevision(broken, inlineRevision(broken), second.etag.split(".").at(-1)), null);
+  assert.ok(markedRevision(state, inlineRevision(state), second.etag.split(".").at(-1)));
+});
+
+test("a marker in its first form, the revision's whole snapshot, still rebuilds it", async () => {
+  const { store, first } = await started();
+  const second = await save(store, first.etag, "# Note\n\nWe ship on Monday.\n");
+  await save(store, second.etag, "# Note\n\nWe ship on Tuesday.\n");
+  const state = stateOf(store);
+  const id = second.etag.split(".").at(-1);
+  const whole = Buffer.from(Y.encodeSnapshot(Y.snapshot(docFromSnapshot(second.update)))).toString("base64");
+  const old = { ...state, bases: state.bases.map((entry) => (entry.revision === id ? { revision: id, marker: whole, length: entry.length, hash: entry.hash } : entry)) };
+  assert.equal(markedRevision(old, inlineRevision(old), id)?.value.text, "# Note\n\nWe ship on Monday.\n");
 });

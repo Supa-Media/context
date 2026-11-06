@@ -264,7 +264,10 @@ function oldNotePlaces(group, dispatch, names) {
  * until a turn that can write moves it onto the page (`moveOntoPage`). The old notes in workspace folders are carried
  * in once. A memory that cannot be read is an empty one.
  */
-export async function readGroupMemory(store, group, dispatch = null, { time = { reads: (run) => run(), ledger: (run) => run() } } = {}) {
+const RUN = (run) => run();
+const UNTIMED_NOTES = { reads: RUN, ledger: RUN, record: RUN, playbook: RUN, voice: RUN, about: RUN, jobs: RUN };
+export async function readGroupMemory(store, group, dispatch = null, { time: timed = {} } = {}) {
+  const time = { ...UNTIMED_NOTES, ...timed };
   // Every read below is its own note, so they run side by side: one after another they took 3 to 5 s of each group reply (2026-10-31).
   const names = await chatNames(group);
   // Once the page is copied into the chat's ledger, the ledger is the history and the page is never read (`groupPageCopy.js`).
@@ -321,7 +324,8 @@ export async function readGroupMemory(store, group, dispatch = null, { time = { 
   })();
   // A home's open jobs, `jobs.md` as a person's Tex keeps `tex/jobs.md` (`chatJobs.js`).
   const jobsRead = group.home ? (direct ? directNote(group, direct, "jobs") : Promise.resolve(null)).then((held) => readChatJobs(group.home, held)) : Promise.resolve(null);
-  const [memory, playbook, voice, aboutUs, jobs] = await time.reads(() => Promise.all([record, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, aboutRead, jobsRead]));
+  // Each of the five timed apart (2026-11-06: together they held a group turn 0.9 s at the median, 6.7 s at p95).
+  const [memory, playbook, voice, aboutUs, jobs] = await time.reads(() => Promise.all([time.record(() => record), time.playbook(() => readPlaybook(inFirstReach(dispatch, group), group)), time.voice(() => voiceRead), time.about(() => aboutRead), time.jobs(() => jobsRead)]));
   const turns = Array.isArray(memory?.turns) ? memory.turns.filter(isTurn) : [];
   Object.assign(group, { playbook, voice, aboutUs, jobs });
   const fromLedger = await time.ledger(() => historyFromLedger(ledger, group, turns, { copied: memory?.copied === true, writes: dispatch !== null && kept.onPage === ON_PAGE }));

@@ -47,7 +47,8 @@ import { toolMigrateStorageLayout } from "../notes/storage.js";
 import { toolMoveFolder } from "./moves/folder.js";
 import { toolMoveNote } from "./moves/note.js";
 import { toolMoveNotes } from "./moves/notes.js";
-import { toolOpenAiFetch, toolOpenAiSearch, toolSearchNotes } from "./search.js";
+import { toolOpenAiSearch, toolSearchNotes } from "./search.js";
+import { toolOpenAiFetch } from "./notes/openAiFetch.js";
 import { toolSearchDated } from "./searchDates.js";
 import { toolRelatedNotes } from "./related.js";
 import { toolOrient, toolScopeInfo } from "../orient/tool.js";
@@ -144,7 +145,7 @@ async function runTool(name, args, store, scope, options = {}) {
       return toolListNotes(store, scope, rules, overrides, args.prefix);
     case "read_note":
       if (args.mail !== undefined) return toolReadMail(store, scope, rules, overrides, args);
-      return toolReadNote(store, scope, rules, overrides, args.path);
+      return toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job });
     case "read_notes":
       return toolReadNotes(store, scope, rules, overrides, args.paths);
     case "evaluate_lists":

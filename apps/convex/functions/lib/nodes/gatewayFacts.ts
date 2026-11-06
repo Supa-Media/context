@@ -176,8 +176,9 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
     }
 
     if (body.ask === "forwarding") {
-      // A workspace whose ledger has not been imported yet starts that; it answers from what Convex holds.
-      await ctx.runMutation(internal.functions.smallData.request, { workspaceId: reader.workspaceId }).catch(() => {});
+      // A workspace whose ledger has not been imported yet starts that; it answers from what Convex holds. A
+      // workspace object that did not answer this ask is sent the ledger (`lib/smallData/objectLedger.ts`).
+      await ctx.runMutation(internal.functions.smallData.request, { workspaceId: reader.workspaceId, objectLedger: true }).catch(() => {});
       const ledger = await ctx.runQuery(internal.functions.smallData.ledger, { workspaceId: reader.workspaceId });
       const sees = (path: string, kind: "note" | "folder") =>
         kind === "folder" ? folderVisibleAtScope(path, clearance, state.rules, state.overrides) : visible(path);

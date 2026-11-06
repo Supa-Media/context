@@ -13,7 +13,7 @@ import { ShellTitleBand } from "../../app/ShellTitleBandView";
 import { useReducedMotion } from "../useReducedMotion";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
-import { layout, radii, space } from "../tokens";
+import { fonts, layout, radii, space, touchType } from "../tokens";
 
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { densityFor } from "../../app/frame";
@@ -171,8 +171,16 @@ export function Overlay({
    * phone a second left-hand control beside its Back would be a bar with two
    * ways out and no room for either.
    */
+  /*
+    A phone's top page — no Back, a title — draws that title large under the
+    bar, on the same black as everything below it, with a round close at the
+    top right: the iPhone's own Settings (Dev2, 2026-11-06, board 2, replacing
+    a grey bar with a small title over a black page). A pushed page keeps the
+    bar's Back and names itself in its own content.
+  */
+  const large = compact && onBack === undefined && title !== undefined;
   const head = (
-    <View style={styles.head}>
+    <View style={compact ? styles.phoneHead : styles.head}>
       {onBack === undefined ? null : (
         <Pressable
           accessibilityRole="button"
@@ -189,7 +197,7 @@ export function Overlay({
           )}
         </Pressable>
       )}
-      {title === undefined ? null : (
+      {title === undefined || large ? null : (
         <Text
           variant="noteTitle"
           role="heading"
@@ -210,7 +218,13 @@ export function Overlay({
         style={styles.close}
         testID={testID ? `${testID}-close` : undefined}
       >
-        <Icon name="close" size={16} />
+        {compact ? (
+          <View style={styles.roundClose}>
+            <Icon name="close" size={15} />
+          </View>
+        ) : (
+          <Icon name="close" size={16} />
+        )}
       </Pressable>
     </View>
   );
@@ -247,6 +261,11 @@ export function Overlay({
         >
           {band}
           {head}
+          {large ? (
+            <Text role="heading" aria-level={1} numberOfLines={1} style={styles.largeTitle} testID={testID ? `${testID}-title` : undefined}>
+              {title}
+            </Text>
+          ) : null}
           <View style={styles.phoneBody}>{sidebar ?? children}</View>
         </KeyboardAvoidingView>
       </Modal>
@@ -373,6 +392,33 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surface2,
     },
     title: { flexShrink: 1 },
+    /** A phone's bar: the page's own black, no rule under it. */
+    phoneHead: {
+      minHeight: layout.minTouchTarget + 4,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x2,
+      paddingLeft: space.x4,
+      paddingRight: space.x3,
+    },
+    /** Inside a 44pt target, drawn as a 34pt circle in the cards' grey. */
+    roundClose: {
+      width: 34,
+      height: 34,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radii.pill,
+      backgroundColor: colors.cardSurface,
+    },
+    largeTitle: {
+      fontFamily: fonts.body,
+      fontSize: touchType.page,
+      fontWeight: "700",
+      letterSpacing: -0.4,
+      color: colors.text,
+      paddingHorizontal: space.x4,
+      paddingBottom: space.x2,
+    },
     grow: { flexGrow: 1 },
     back: {
       flexDirection: "row",

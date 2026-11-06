@@ -22,6 +22,7 @@ import { dropIconRows, iconRows, iconsOf, remapIconRows, setIconRow } from "./li
 import { importSmallData } from "./lib/smallData/importing";
 import { emojiRows } from "./lib/smallData/emoji";
 import { exportOwed, requestSmallDataSync, smallDataStateOf } from "./lib/smallData/state";
+import { sendLedgerToObject } from "./lib/smallData/objectLedger";
 
 const kind = v.union(v.literal("note"), v.literal("folder"));
 const entry = v.object({ from: v.string(), to: v.string(), kind, at: v.number() });
@@ -231,10 +232,13 @@ export const released = internalMutation({
 
 /** Ask for a sync if one is wanted (a reader whose workspace has not been imported). */
 export const request = internalMutation({
-  args: { workspaceId: v.id("workspaces") },
+  // `objectLedger`: the gateway asked here for a ledger its workspace object did not answer, so the object is sent
+  // the whole ledger (`lib/smallData/objectLedger.ts`): the first send is how a workspace's ledger moves there.
+  args: { workspaceId: v.id("workspaces"), objectLedger: v.optional(v.boolean()) },
   returns: v.null(),
-  handler: async (ctx, { workspaceId }): Promise<null> => {
+  handler: async (ctx, { workspaceId, objectLedger }): Promise<null> => {
     await requestSmallDataSync(ctx, workspaceId);
+    if (objectLedger === true) await sendLedgerToObject(ctx, workspaceId);
     return null;
   },
 });

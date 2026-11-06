@@ -104,8 +104,14 @@ export async function startObjectMove(store, scope, source, destination, expecte
   const reading = objectFor(store, scope);
   if (reading === null) return null;
   let answer;
+  // A Worker's clock moves only across I/O, so the time read here is that of the last I/O, and the gateway's own work
+  // since (judging, rules, the body) would count as the trip's. One timer tick moves the clock to now: that work is
+  // `move_cpu_before`, and the trip (`obj:ws.write.move`, `move_legs`) starts where it really starts.
+  const stale = Date.now();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   // The gateway's clock either side of the trip, beside the object's own (`tripTimes`).
   const sentAt = Date.now();
+  phaseTook(store, "move_cpu_before", sentAt - stale);
   let receivedAt = sentAt;
   try {
     answer = await reading.client.write.move({

@@ -71,3 +71,19 @@ export function trigrams(term) {
   for (let i = 0; i + 3 <= padded.length; i++) grams.add(padded.slice(i, i + 3));
   return [...grams];
 }
+
+/**
+ * Words of three letters or more that say how a question is asked, not what it is about: "how we position Context
+ * against other AI memory tools" is about positioning, Context, memory and tools. Read only where a query's words are
+ * held against a note's name (`evidence.js`, `named.js`); the word index itself asks every word.
+ */
+// One string, split: the import check (`scripts`) reads a quoted word after "from" as an import path.
+export const FILLER_WORDS = new Set(
+  [
+    "about against all also and any are can could did does doing for from get got had has have her here ",
+    "his how into its just like many much our ours other she should some still than that the their them ",
+    "then there these they this those was way were what when where which who why will with would you your",
+  ]
+    .join("")
+    .split(" "),
+);

@@ -390,8 +390,11 @@ ended, not every intermediate write. A version a person can go back to (a full r
 idle: when a save comes five minutes or more after the one before it, the state the person stopped at is kept as a
 version, with no cap per hour. Taking the version never holds up a save: it is a local write in the workspace object
 and the backup copy goes after the response. An older version a client still holds as its merge base is found from a
-small marker the state keeps for each recent revision (a Yjs state vector and delete set, about 20 bytes), applied to
-the current snapshot, which never forgets an item because documents keep `gc: false`.
+small marker the state keeps for each of its 16 most recent revisions: what that revision changed (the Yjs clocks it
+moved and the deletions it made), wound back from the current snapshot, which never forgets an item because
+documents keep `gc: false`. A marker holds only that change and never the whole state vector or delete set, which
+grow with every edit: on a note with a long history the whole set was 39 KB of every state write, about three times
+what a save wrote before, where its own change is about 180 bytes (2026-11-06).
 
 It ships in two steps, because a writer from before it cannot read a document whose revision has no file. First the
 state keeps its copy and readers prefer it while every save still writes its revision file. Once that is live
@@ -401,7 +404,8 @@ document saved before then keeps its revision files, which still serve as its me
 **What a simplification would cost.** Trusting the state's copy for a revision it does not name serves an older note
 as the current one: a writer from before this carries the old copy along when it moves the revision on.
 `packages/collaboration/test/inlineRevision.mjs` fails if that check goes, and if a load reads the revision file
-again. Writing a revision file per save again, using a rebuilt base whose text does not match its marker, or
-letting a version that cannot be kept fail the save each fail `packages/collaboration/test/versions.mjs`. Copying
-every intermediate write doubles the document state in the backup:
-`apps/mcp/test/collabReplaceInObject.test.mjs` "a save's backup copies each key once" fails.
+again. Writing a revision file per save again, using a rebuilt base whose text does not match its marker, letting
+a version that cannot be kept fail the save, or rebuilding a marker without winding back the revisions after it each
+fail `packages/collaboration/test/versions.mjs`; it also fails if the markers grow past 4 KB on a long history.
+Handing back or copying every intermediate write sends the document state twice:
+`apps/mcp/test/collabReplaceInObject.test.mjs` "a save hands back and copies each key once" fails.

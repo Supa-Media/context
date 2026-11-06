@@ -178,6 +178,17 @@ export function toTypingMatchExpression(query) {
   return withForms((forms) => [...tokens.slice(0, -1).map((token) => wordTerm(token, [], forms)), wordTerm(last, [`${quote(last)}*`], forms)].join(" AND "));
 }
 
+/**
+ * Any of `tokens`, each with its word forms, held to the title and headings columns (where a note's file name is
+ * indexed, `project.js`): `{title headings} : ("a" OR "b")`. `null` for no tokens. The name search of
+ * `search/named.js`.
+ */
+export function toNameMatchExpression(tokens) {
+  if (!Array.isArray(tokens) || tokens.length === 0) return null;
+  const any = withForms((forms) => [...new Set(tokens.flatMap((token) => formsOf(token, forms).map(quote)))].join(" OR "));
+  return `{title headings} : (${any})`;
+}
+
 /** Shortest token that also matches as the start of a longer word. */
 export const RELAXED_PREFIX_MIN = 3;
 
@@ -236,8 +247,11 @@ export function tablesForTier(tier) {
  * worst hits, which is the kind of bug that looks like bad ranking rather than
  * a reversed comparator.
  */
-export function searchSql(table, { limit = 25, prefix = null } = {}) {
+export function searchSql(table, { limit = 25, prefix = null, firstChunk = false } = {}) {
   const where = [`${table} MATCH ?`];
+  // One row per note: a note's title and headings repeat on every chunk, so a name search reads the first chunk alone
+  // and a long transcript cannot fill the row cap with copies of its one heading (`search/named.js`).
+  if (firstChunk === true) where.push("ord = 0");
   if (typeof prefix === "string" && prefix.length > 0) {
     // A folder narrowing. `path` is UNINDEXED, so this is an ordinary string
     // comparison rather than part of the match expression — and it must mean

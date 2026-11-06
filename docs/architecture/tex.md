@@ -84,7 +84,7 @@ flowchart TB
   checkTheQuestion["checkTheQuestion<br/>the question, its files, what it replies to"]:::step
   settleAYesOrNo["settleAYesOrNo<br/>a yes or 👍 to a waiting send, in code, no model"]:::rail
   watchWhatLeaves["watchWhatLeaves<br/>what this turn may read in and send out"]:::rail
-  checkItMayRun["checkItMayRun<br/>tools, history, may the model run here"]:::step
+  checkItMayRun["checkItMayRun<br/>tools, history (each part timed), may the model run here"]:::step
   readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn<br/>a reply shows the full words it answers"]:::step
   openTheWeb["openTheWeb<br/>write tools and the browser"]:::step
   readTheSetup["readTheSetup<br/>prompt, skills, models, fallback"]:::step
@@ -111,7 +111,7 @@ may leave the turn (`privacy/egress.js`).
 ```mermaid
 flowchart TB
   Q([The question, the chat, About me, the setup]):::you --> FD
-  FD["Front door<br/>Haiku 5.5 · effort medium · up to 24 rounds<br/>turn.js runTurn"]:::haiku
+  FD["Front door<br/>Haiku 5.5 · effort high · up to 24 rounds<br/>turn.js runTurn"]:::haiku
   FD -. off unless advisor_first .-> AF["Advisor first<br/>every text stays on Haiku; effort_rung raises<br/>a flagged or sent-back text's effort, per message<br/>advisorFirst.js"]:::off
   FD <-->|tools| T["Tools: notes, search, web, browser,<br/>vault, email, calendar, apps,<br/>their texts (1:1 only, Mac backup)<br/>the one dispatcher, callToolForSession"]:::tool
   FD <-->|ask_advisor, when stuck or weighing| ADV["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js"]:::opus
@@ -183,6 +183,8 @@ What each model costs is `jev/meter.ts`.
 Newest first. One line per pull request that changed the drawing.
 
 - 2026-11-06: advisor first, built and off (`advisorFirst.js`): with `advisor_first: on` the router never sends a text to Opus, and with `effort_rung` a flagged or sent-back text runs at a higher Haiku effort as a per-message effort that keeps the cache (resent without it if the gateway refuses the beta). The advisor's brief is two parts, the earlier texts cached; it is told the docs' order (look first, ask before committing, ask before done).
+- 2026-11-06: a turn's history is timed part by part (`history_memory`, `history_ledger`, `history_log`) and, in a group, each of its five memory notes apart (`history_group_record`, `_playbook`, `_voice`, `_about`, `_jobs`), read with the `tex-text-timings` workflow; nothing read changed.
+- 2026-11-06: a group's job with no project note gets one in its workspace's `projects/tex-jobs/` (it had none: no mail, no advisor, no Tex); a computer part's brief always names its advisor; a cloud job's turn thinks at `models.job_effort` (`jobNote.js`, `jobBackground.js`, `production.js`).
 - 2026-11-06: a note's new-mail line and an ask's wait are answered by the note's workspace object (`mailOps.js`): one call each, no whole-note reads or 1.5-second polling (`mail.js`, `footer.js`).
 - 2026-11-06: a computer job may join any other note's mail it reaches, always as its job's own name and bound to its job (never tex, advisor, another job or a machine); a refused join says permission denied instead of "try again" (`noteMail.ts`, `mail.js`, roster in `jobNote.js`).
 - 2026-11-05: Tex chooses silence by calling `say_nothing` (front door, routines, check-ins, reports, job supervision), which ends the turn before any judge reads it; no prompt asks for SKIP any more, and a stray SKIP is never judged or texted. A group's last look ignores tapbacks, as a 1:1 chat's did. `job_status` shows up to 8,000 characters of a report.

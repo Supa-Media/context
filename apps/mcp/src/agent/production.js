@@ -40,6 +40,9 @@
  *                  (Claude's `output_config.effort`; the model's own default,
  *                  medium, when absent)
  *   models.think_effort optional, with `think`: the same for `think`
+ *   models.job_effort optional: the same for a background job's turn, on
+ *                  whichever model it runs (the owner, 2026-11-06: "put them
+ *                  in high reasoning mode"); `effort` when absent
  *   models.advisor optional: the model `main` may consult with the `send`
  *                  action `advisor` (`advisor.js`, the Tex Devs meeting,
  *                  2026-10-30); never `models.main`
@@ -189,6 +192,11 @@ async function parse(raw) {
     if (typeof models[key] !== "string" || !EFFORTS.has(models[key]) || typeof name !== "string") return null;
     efforts[name] = models[key];
   }
+  let jobEffort = null;
+  if (models.job_effort !== undefined) {
+    if (typeof models.job_effort !== "string" || !EFFORTS.has(models.job_effort)) return null;
+    jobEffort = models.job_effort;
+  }
   const planBigAsks = readPlanSetting(front.plan_big_asks);
   if (planBigAsks === null || (planBigAsks && advisor === null)) return null;
   // Advisor first (`advisorFirst.js`): needs an advisor; the rung needs advisor first.
@@ -252,6 +260,7 @@ async function parse(raw) {
     advisorFirst,
     effortRung,
     efforts,
+    jobEffort,
     fallback,
     search,
     skills,
@@ -557,4 +566,16 @@ export function computerJobSettingsOf(raw) {
   }
   if (body !== "" && body.length <= 8000) settings.systemPrompt = body;
   return settings;
+}
+
+/**
+ * How hard each model thinks on this turn, by model name: a background job's turn thinks as `models.job_effort` says
+ * on whichever model it runs (main, its fallback, a planner's), every other turn as `efforts` says. `null` with no setup.
+ */
+export function turnEfforts(production, job) {
+  if (!production) return null;
+  const efforts = production.efforts ?? {};
+  if (job === null || job === undefined || typeof production.jobEffort !== "string") return efforts;
+  const models = [production.model, production.fallback, production.router?.think, production.planner?.think].filter((name) => typeof name === "string");
+  return { ...efforts, ...Object.fromEntries(models.map((name) => [name, production.jobEffort])) };
 }

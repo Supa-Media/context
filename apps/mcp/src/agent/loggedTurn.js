@@ -146,9 +146,9 @@ export const JOB_HISTORY_ENTRIES = 30;
  * the entry point names them `history_*`), so the
  * second a group's history takes is never guessed at (2026-11-04); by default nothing is timed.
  */
-const UNTIMED = { memory: (run) => run(), ledger: (run) => run(), log: (run) => run(), groupReads: (run) => run(), groupLedger: (run) => run() };
+const UNTIMED = { memory: (run) => run(), ledger: (run) => run(), log: (run) => run(), group: {} };
 export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, time = UNTIMED }) {
-  const today = time.memory(() => turnHistory(store, session, body, { runner, group, dispatch, job, time: { reads: time.groupReads, ledger: time.groupLedger } }));
+  const today = time.memory(() => turnHistory(store, session, body, { runner, group, dispatch, job, time: time.group ?? {} }));
   const started = job ? null : chatLedger(store, session);
   // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
   const ledger = started === null ? null : time.ledger(() => started);
