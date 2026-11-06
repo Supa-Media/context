@@ -16,6 +16,7 @@ import type { HomeSource } from "./useHomeSource";
 import { useHomeTag } from "./homeTag";
 import { Card, FolderLine, NoteRow, PinnedNote, Section, type HoldPoint } from "./homeRows";
 import { inboxFolderNow } from "./homeView";
+import { SketchBox } from "../../design/components/sketch/SketchBox";
 
 const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" : whenLabel(at, now));
 
@@ -172,10 +173,12 @@ export function PhoneHome({
 
       {home.tagged === null ? null : (
         <View style={styles.tagged} testID="phone-home-tagged">
-          <Icon name="tag" size={18} color={colors.accentText} />
-          <Text style={styles.taggedText} numberOfLines={1}>
-            {`Tagged ${home.tagged.tag} · ${countLabel(home.tagged.count, 0)}`}
-          </Text>
+          <SketchBox look="loop" color={colors.text} seed={`home-tagged:${home.tagged.tag}`} style={styles.taggedOn}>
+            <Icon name="tag" size={18} color={colors.text} />
+            <Text style={styles.taggedText} numberOfLines={1}>
+              {`Tagged ${home.tagged.tag} · ${countLabel(home.tagged.count, 0)}`}
+            </Text>
+          </SketchBox>
           <Pressable
             onPress={() => setTag(null)}
             accessibilityRole="button"
@@ -285,13 +288,13 @@ const makeStyles = (colors: Colors) =>
       flexDirection: "row",
       alignItems: "center",
       gap: space.x2,
+      justifyContent: "space-between",
       minHeight: 44,
-      paddingLeft: space.x4,
-      borderRadius: radii.pill,
-      backgroundColor: colors.accentDim,
     },
-    taggedText: { flex: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.accentText },
-    taggedClear: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.x4 },
+    // The tag Home is narrowed to is circled in pencil (owner, 2026-11-04, `sketch/`).
+    taggedOn: { flexShrink: 1, gap: space.x2, minHeight: 36, paddingHorizontal: space.x3 },
+    taggedText: { flexShrink: 1, fontFamily: fonts.body, fontSize: touchType.ui, fontWeight: "600", color: colors.text },
+    taggedClear: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.x3 },
     taggedClearText: { fontFamily: fonts.body, fontSize: touchType.ui, fontWeight: "600", color: colors.accentText },
     empty: { paddingHorizontal: space.x1 },
     foot: { color: colors.muted },

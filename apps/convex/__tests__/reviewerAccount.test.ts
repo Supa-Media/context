@@ -8,7 +8,19 @@ import {
   googleReviewTestEmail,
   REVIEWER_EMAIL,
   reviewerTestEmail,
+  directoryReviewTestEmail,
 } from "../functions/lib/reviewerAccount";
+
+describe("the isolated public-directory review account", () => {
+  test("requires a separate private code and exact provider identity", () => {
+    expect(directoryReviewTestEmail({})).toEqual([]);
+    expect(directoryReviewTestEmail({ DIRECTORY_REVIEW_SIGNIN_CODE: "000000" })).toEqual([]);
+    expect(directoryReviewTestEmail({ DIRECTORY_REVIEW_SIGNIN_CODE: "731905", REVIEWER_SIGNIN_CODE: "731905" })).toEqual([]);
+    expect(directoryReviewTestEmail({ DIRECTORY_REVIEW_SIGNIN_CODE: "731905" })).toEqual([
+      { email: "directory-review@supa.media", code: "731905", id: "test-email-directory-review" },
+    ]);
+  });
+});
 
 describe("the directory reviewer's sign-in", () => {
   test("is off unless the deployment holds a code", () => {

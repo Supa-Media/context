@@ -1,4 +1,5 @@
-import type { Colors, MapColors } from "../../../../design/tokens/colors";
+import type { BoardColors, Colors, MapColors } from "../../../../design/tokens/colors";
+import type { DrawnBoard } from "../look";
 import type { AgentTintColors } from "../agentKind";
 
 /**
@@ -10,8 +11,10 @@ import type { AgentTintColors } from "../agentKind";
  * the accent in both themes). Reading is drawn in `ink`.
  */
 export type MapPalette = {
-  /** What the map is drawn on: cream paper (light) or a blackboard (dark). See `draw/board.ts`. */
-  board: "paper" | "chalk";
+  /** What the map is drawn on (paper, graph paper, brown paper, chalkboard, blueprint). See `draw/board.ts`. */
+  board: DrawnBoard;
+  /** Ruled lines on graph paper and blueprint, fixed to the window; null on the others. */
+  grid: string | null;
   ground: string;
   island: string;
   chip: string;
@@ -42,6 +45,7 @@ export type MapPalette = {
 export function mapPalette(colors: Colors, map: MapColors): MapPalette {
   return {
     board: map.board,
+    grid: null,
     ground: map.ground,
     island: map.island,
     chip: colors.surface3,
@@ -69,5 +73,35 @@ export function mapPalette(colors: Colors, map: MapColors): MapPalette {
       agentGlyph: map.agentGlyph,
     },
     shadow: "rgba(0,0,0,0.18)",
+  };
+}
+
+/**
+ * The palette on a board the person chose in the map's settings. The board the
+ * theme would pick anyway keeps the theme's own colours; any other brings its
+ * whole set, words and cards included, so brown paper in dark mode still reads.
+ */
+export function withBoard(base: MapPalette, board: DrawnBoard, colors: BoardColors, dark: boolean): MapPalette {
+  if (board === base.board) return base;
+  const darkBoard = board === "chalk" || board === "blueprint";
+  return {
+    ...base,
+    board,
+    grid: colors.grid,
+    ground: colors.ground,
+    island: colors.island,
+    dot: colors.dot,
+    edge: colors.edge,
+    zone: colors.zone,
+    zoneLine: colors.zoneLine,
+    ink: colors.ink,
+    text: colors.text,
+    text2: colors.text2,
+    muted: colors.muted,
+    dim: colors.dim,
+    chip: colors.chip,
+    line: colors.line,
+    accent: colors.accent,
+    shadow: darkBoard === dark ? base.shadow : darkBoard ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.14)",
   };
 }

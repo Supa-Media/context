@@ -526,3 +526,9 @@ web: scripted
     await cleanup();
   }
 });
+
+test("the judge writes its reason before its verdict, so the verdict follows the reason (2026-11-05)", () => {
+  const verdict = JUDGE_SCHEMA.properties.answers.items.properties.verdicts.items;
+  assert.deepEqual(Object.keys(verdict.properties), ["line", "reason", "does"]);
+  assert.deepEqual(verdict.required, ["line", "reason", "does"]);
+});

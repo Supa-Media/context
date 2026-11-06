@@ -22,6 +22,12 @@ name = "context-mcp"
 main = "src/index.js"
 compatibility_date = "2026-08-01"
 
+# Run beside the workspace objects (placed `enam`) and the control plane, not at the caller's edge (decided by the
+# owner, 2026-11-04; docs/decisions/gateway-protocol/gateway-placement.md). A note read makes about four trips to
+# its workspace object, each 25 to 60 ms from the edge and a few ms from here. Staging inherits it.
+[placement]
+region = "aws:us-east-1"
+
 [vars]
 
 # The sharing judge (docs/decisions/privacy-and-sharing/agent-egress.md): an AI
@@ -148,6 +154,19 @@ class_name = "WorkspaceStore"
 [[migrations]]
 tag = "v3-workspace-store"
 new_sqlite_classes = ["WorkspaceStore"]
+
+# One live-socket ticket's spent mark (src/live/ticket.js): an object per
+# ticket, one key, deleted by an alarm two minutes after it was minted. The
+# app's sockets open on a one-use ticket instead of carrying a token.
+# Self-hosting on the free tier: leave it out, and `POST /presence/ticket`
+# answers 501 (the sockets need Durable Objects anyway).
+[[durable_objects.bindings]]
+name = "LIVE_TICKET"
+class_name = "LiveTicket"
+
+[[migrations]]
+tag = "v4-live-ticket"
+new_sqlite_classes = ["LiveTicket"]
 
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
@@ -292,6 +311,10 @@ class_name = "TexStore"
 [[env.staging.durable_objects.bindings]]
 name = "WORKSPACE_STORE"
 class_name = "WorkspaceStore"
+
+[[env.staging.durable_objects.bindings]]
+name = "LIVE_TICKET"
+class_name = "LiveTicket"
 
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_TIMING"

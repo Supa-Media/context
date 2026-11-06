@@ -25,7 +25,7 @@ import { laySavePhase } from "../mcp/phase.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { judgeFor } from "../privacy/judge.js";
 
-export async function serveMcp(request, workerEnv, ctx, { slug, pathToken, origin }) {
+export async function serveMcp(request, workerEnv, ctx, { slug, origin }) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
   // MCP ENTRY POINT: begin
   const mcp = mcpEntry(workerEnv);
@@ -33,8 +33,16 @@ export async function serveMcp(request, workerEnv, ctx, { slug, pathToken, origi
   // Every workspace object call this request makes, timed as `obj:<op>` beside the control plane's `cp:` routes.
   const env = mcp.watchObjects(workerEnv);
   const controlPlane = createControlPlane(env, { fetchImpl: mcp.fetchFor("cp") });
-  const session = await mcp.step("session", () => sessionOrRefusal(request, { pathToken, slug, controlPlane, origin }));
-  if (session instanceof Response) return mcp.done(session);
+  const session = await mcp.step("session", () => sessionOrRefusal(request, { slug, controlPlane, origin }));
+  if (session instanceof Response) {
+    const directoryPath = new URL(request.url).pathname.match(/\/mcp\/chatgpt(?:\/v2)?$/)?.[0];
+    if (directoryPath && session.status === 401) {
+      const headers = new Headers(session.headers);
+      headers.set("WWW-Authenticate", (headers.get("WWW-Authenticate") ?? "").replace("/oauth-protected-resource/mcp", `/oauth-protected-resource${directoryPath}`));
+      return mcp.done(new Response(session.body, { status: session.status, headers }));
+    }
+    return mcp.done(session);
+  }
   mcp.workspace = session.workspaceId;
   mcp.client = session.actorClientName;
   armSharingJudge(session, env);
@@ -68,9 +76,9 @@ function openOtherContext(mcp, target, env, controlPlane) {
 }
 
 /** The session this request's token resolves to, or the refusal `route.js` gives every transport path. */
-async function sessionOrRefusal(request, { pathToken, slug, controlPlane, origin }) {
+async function sessionOrRefusal(request, { slug, controlPlane, origin }) {
   try {
-    return await resolvePresentedSession(request, { pathToken, path: "/mcp", slug, controlPlane });
+    return await resolvePresentedSession(request, { path: "/mcp", slug, controlPlane });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     // A 403 drops the slug from its challenge, so "a context you cannot reach"

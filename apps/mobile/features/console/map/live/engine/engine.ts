@@ -1,4 +1,4 @@
-import type { MapClock, ZoomLevel } from "../types";
+import type { ZoomLevel } from "../types";
 import {
   NO_INSET,
   camAt,
@@ -24,7 +24,9 @@ import type { IslandPlace } from "./layout";
 import { buildModel, createMemory, type MapData } from "./model";
 import { noteKey } from "./paths";
 import { renderMap } from "./draw/render";
-import { DEFAULT_FONT, type FaceFor, type Style } from "./draw/primitives";
+import type { MapEngine, MapEngineOptions } from "./api";
+import { AMBIENT_FRAME_MS, BIG_MAP_NOTES, breathes, createOpening, createTilt } from "./motion";
+import { DEFAULT_FONT, DEFAULT_LOOK, type Style } from "./draw/primitives";
 import { sceneAt, type Model, type SceneAt } from "./scene";
 import { focusTarget, followSnapshot, type FollowState } from "./follow";
 
@@ -37,60 +39,7 @@ import { focusTarget, followSnapshot, type FollowState } from "./follow";
  * visible, and (for a replay) the playhead is playing.
  */
 
-export type MapEngineOptions = {
-  /** A person's picture. Agents are always drawn as the robot. */
-  faceFor?: FaceFor;
-  reducedMotion?: boolean;
-  /** Parts of the canvas covered by other UI (a bottom sheet); the camera fits the rest. */
-  inset?: Inset;
-  /** Draw the overview in the top-right corner once zoomed in. Default true. */
-  minimap?: boolean;
-  font?: string;
-  /** Replay: how long somebody stays on the map after their last event. Default 10 minutes. */
-  idleMs?: number;
-  onCamera?: (info: CameraDetail) => void;
-  onFollow?: (state: FollowState | null) => void;
-  onHover?: (target: HitTarget | null) => void;
-  /** A note was tapped; `at` is where, in canvas pixels, for a card beside it. */
-  onOpenNote?: (note: { workspaceId: string; path: string; at?: { x: number; y: number } }) => void;
-  /** A tap that landed on nothing: whatever a note tap opened can close. */
-  onTapEmpty?: () => void;
-  onDiveInto?: (folder: { workspaceId: string; path: string }) => void;
-  /** Replay: the playhead while the engine plays it. */
-  onTime?: (t: number) => void;
-  /** Injected for tests: wall clock and frame scheduling. */
-  now?: () => number;
-  requestFrame?: (cb: () => void) => number;
-  cancelFrame?: (id: number) => void;
-};
-
-export type MapEngine = {
-  setData(data: MapData): void;
-  setClock(clock: MapClock): void;
-  /** Replay: advance the playhead at the clock's speed. */
-  setPlaying(playing: boolean): void;
-  follow(actorId: string | null): void;
-  select(note: { workspaceId: string; path: string } | null): void;
-  zoomIn(): void;
-  zoomOut(): void;
-  zoomTo(level: ZoomLevel): void;
-  fit(): void;
-  focusPath(workspaceId: string, path: string): void;
-  diveInto(workspaceId: string, folderPath: string): void;
-  /** Put the camera back where it was (coming back to the map); before the first data, on its arrival. */
-  restoreCamera(cam: Cam): void;
-  resize(width: number, height: number, dpr?: number): void;
-  setInset(inset: Inset): void;
-  setReducedMotion(reduced: boolean): void;
-  /** Draw again (a face image finished loading). */
-  redraw(): void;
-  getCamera(): CameraDetail | null;
-  getFollow(): FollowState | null;
-  /** Draw now at time `t` (a replay frame, or a test). */
-  renderAt(t: number): HitFrame;
-  hitTest(x: number, y: number): HitTarget | null;
-  destroy(): void;
-};
+export type { MapEngine, MapEngineOptions } from "./api";
 
 const MIN_TICK = 1000 / 60;
 
@@ -117,6 +66,9 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   let visible = true;
   let hit = new HitFrame();
   let hovered = "";
+  // Where the pointer is, for "Which lines": undefined until a mouse is seen, null once it leaves.
+  let pointer: { x: number; y: number } | null | undefined = undefined;
+  let hoverKey: string | null = null;
   let lastCameraSig = "";
   let lastFollowSig = "";
   let lastScope = "";
@@ -124,8 +76,13 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
   let foldersWidth = 0;
   let destroyed = false;
   let restore: Cam | null = null;
+  const opening = createOpening(!!options.opening, now);
+  const tilt = createTilt();
+  const ambient = !!options.ambient;
+  const slowFrame = options.slowFrame ?? ((cb: () => void, ms: number) => setTimeout(cb, ms));
+  let slowPending = false;
 
-  const style = (): Style => ({ palette: data!.palette, font: options.font ?? DEFAULT_FONT, faceFor: options.faceFor ?? null });
+  const style = (): Style => ({ palette: data!.palette, font: options.font ?? DEFAULT_FONT, faceFor: options.faceFor ?? null, look: data!.look ?? DEFAULT_LOOK });
   const timeNow = (): number => (data?.clock.kind === "replay" ? replayAt : now());
   const rebuild = () => {
     if (!data) return;
@@ -193,11 +150,29 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
         foldersWidth = out.contentW;
       }
     } else {
-      hit = renderMap(ctx, model, scene, c, vp, { style: style(), selected, minimap: options.minimap ?? true });
+      hit = renderMap(ctx, model, scene, c, vp, { style: style(), selected, minimap: options.minimap ?? true, opening: opening.at(model.layout, reduced),
+        pointer,
+        hoverKey,
+        tilt: ambient && !reduced && style().look.depth ? tilt.value : null,
+        breathe: ambient && !reduced && breathes(style().look),
+        wall: now(),
+      });
       emitCamera(c);
     }
     emitFollow(scene);
     return scene;
+  };
+
+  /** The first time there are notes on the map, draw it in as the settings say. */
+  const maybeOpen = () => {
+    if (!model || !data || model.view !== "map" || model.layout.notes.size === 0) return;
+    const kind = data.look?.opening ?? DEFAULT_LOOK.opening;
+    if (!opening.start(kind, reduced)) return;
+    if (kind === "zoom" && cam) {
+      const to = cam;
+      cam = { ...to, s: to.s * 0.35 };
+      flyTo(to);
+    }
   };
 
   const foldersIsland = (c: Cam): IslandPlace | null => {
@@ -243,11 +218,25 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       options.onTime?.(replayAt);
       if (replayAt >= data.clock.to) playing = false;
     }
+    const leaning = tilt.step(lastTick ? Math.min(250, wall - lastTick) : MIN_TICK, reduced || !style().look.depth, wall);
     lastTick = wall;
     const scene = drawFrame(timeNow());
-    const moving = !!flight || (scene?.animating ?? false) || playing;
+    const moving = !!flight || (scene?.animating ?? false) || playing || opening.active || (ambient && leaning);
+    // The sway with no mouse over the map, and the breathing, never stop, so
+    // they run on a slower frame: smooth, and a map nobody touches stays cheap.
+    const swaying = ambient && !reduced && model?.view === "map" && ((style().look.depth && tilt.idle) || breathes(style().look));
     if (moving) frameId = raf(tick);
-    else lastTick = 0;
+    else if (swaying) {
+      if (!slowPending) {
+        slowPending = true;
+        // A very big map turns at half the rate, so it never makes the page heavy.
+        const ms = (model?.layout.notes.size ?? 0) > BIG_MAP_NOTES ? AMBIENT_FRAME_MS * 2 : AMBIENT_FRAME_MS;
+        slowFrame(() => {
+          slowPending = false;
+          wake();
+        }, ms);
+      }
+    } else lastTick = 0;
   };
 
   function wake(): void {
@@ -304,6 +293,17 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     },
     hover: (x, y) => {
       const target = hitTest(hit, x, y);
+      pointer = { x, y };
+      if (ambient) {
+        tilt.aimAt((x / Math.max(1, vp.w)) * 2 - 1, (y / Math.max(1, vp.h)) * 2 - 1);
+        wake();
+      }
+      const nextKey = target?.kind === "note" ? noteKey(target.workspaceId, target.path) : null;
+      // The note under the pointer traces its links.
+      if (nextKey !== hoverKey) wake();
+      hoverKey = nextKey;
+      // Lines that follow the pointer redraw as it moves.
+      if ((data?.look?.lines ?? "all") !== "all") wake();
       const sig = target ? JSON.stringify(target) : "";
       if (sig === hovered) return;
       hovered = sig;
@@ -311,6 +311,14 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
       options.onHover?.(target);
     },
     leave: () => {
+      pointer = null;
+      if (hoverKey !== null) wake();
+      hoverKey = null;
+      if (ambient) {
+        tilt.aimAt(null);
+        wake();
+      }
+      if ((data?.look?.lines ?? "all") !== "all") wake();
       if (hovered === "") return;
       hovered = "";
       canvas.style.cursor = "";
@@ -361,6 +369,7 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
         autoFit = false;
       }
       lastScope = scopeSig;
+      maybeOpen();
       wake();
     },
     setClock(clock) {
@@ -468,6 +477,8 @@ export function createMapEngine(canvas: HTMLCanvasElement, options: MapEngineOpt
     setReducedMotion(next) {
       reduced = next;
       if (model) model = { ...model, reducedMotion: next };
+      // Known only after the map had its notes: the opening may still start.
+      if (!next) maybeOpen();
       wake();
     },
     redraw() {

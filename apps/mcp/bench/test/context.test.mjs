@@ -352,6 +352,19 @@ test("publishResult also writes the replies note score left beside the result", 
   assert.match(state.written[1].content, /role: benchmark-replies/);
 });
 
+test("publishResult also writes each conversation's ledger file into a folder beside the scores", async () => {
+  const { fetchImpl, state } = fakeGateway();
+  const dir = await mkdtemp(join(tmpdir(), "bench-publish-"));
+  const result = join(dir, "2026-11-05 core gh-180.md");
+  await writeFile(result, SCORED);
+  await mkdir(join(dir, "2026-11-05 core gh-180 ledgers"));
+  await writeFile(join(dir, "2026-11-05 core gh-180 ledgers", "production q1 run 1.ledger.md"), "---\nrole: benchmark-ledger\n---\n\n```json\n{}\n```\n");
+  await writeFile(join(dir, "2026-11-05 core gh-180 ledgers", "notes.txt"), "not a ledger");
+  await publishResult({ result, runUrl: null, connection: { endpoint: ENDPOINT, accessToken: "cat_1" }, fetchImpl });
+  assert.deepEqual(state.written.map((item) => item.path), ["ai/results/2026-11-05 core gh-180 scores.md", "ai/results/2026-11-05 core gh-180 ledgers/production q1 run 1.ledger.md"]);
+  assert.match(state.written[1].content, /role: benchmark-ledger/);
+});
+
 test("callTool throws on a transport failure and returns a refusal as isError", async () => {
   const { fetchImpl } = fakeGateway();
   await assert.rejects(callTool({ endpoint: ENDPOINT, accessToken: "cat_wrong" }, "list_notes", {}, fetchImpl), /answered 401/);

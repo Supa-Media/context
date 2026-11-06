@@ -10,6 +10,7 @@
 import type { BrowsePage } from "./browse";
 import { frameLister } from "./cdpFrames";
 import { turnOffPasskeys } from "./passkeys";
+import { type Solver, watchSolver } from "./captchaSolver";
 import { setFileInput } from "./upload";
 
 /** One CDP connection: send a method, get its result. */
@@ -96,6 +97,8 @@ export interface AttachedPage {
   send<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
   evaluate<T>(source: string): Promise<T>;
   settle(timeout: number): Promise<void>;
+  /** Browserbase's captcha solver, heard on this connection (./captchaSolver.ts). */
+  solver?: Solver;
 }
 
 /**
@@ -130,7 +133,9 @@ export async function attachPage(cdp: CdpTransport): Promise<AttachedPage> {
     await sleep(300);
   }
 
-  const attached = { send, evaluate, settle };
+  // Heard from here on: a press made while Browserbase solves a captcha is turned away (./captchaSolver.ts).
+  const solver = await watchSolver(cdp, (method) => send(method));
+  const attached = { send, evaluate, settle, solver };
   // Before anything presses or pictures the page: a passkey window Chrome
   // draws over it is in no picture and takes every press (./passkeys.ts).
   await turnOffPasskeys(attached);
@@ -139,7 +144,7 @@ export async function attachPage(cdp: CdpTransport): Promise<AttachedPage> {
 
 /** Attach to the browser's first page (or use `attached`) and drive it as a `BrowsePage`. */
 export async function cdpPage(cdp: CdpTransport, attached?: AttachedPage): Promise<BrowsePage> {
-  const { send, evaluate, settle } = attached ?? (await attachPage(cdp));
+  const { send, evaluate, settle, solver } = attached ?? (await attachPage(cdp));
   const mouseClick = async (x: number, y: number) => {
     for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
       await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
@@ -216,6 +221,7 @@ export async function cdpPage(cdp: CdpTransport, attached?: AttachedPage): Promi
     async waitForNetworkIdle({ timeout }) {
       await settle(timeout);
     },
+    solving: () => solver?.state() === "solving",
   };
   return page;
 }

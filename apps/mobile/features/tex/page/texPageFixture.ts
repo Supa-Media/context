@@ -104,7 +104,7 @@ const JOBS: Record<string, JobDetail> = {
     startedAt: at(18, 9),
     failedSteps: 3,
     slot: 1,
-    now: "Reading the agents docs.",
+    now: "browse: maritime.sh/docs/agents",
     steps: [
       { at: at(18, 1), text: "Opened maritime.sh · tried twice", failed: true, why: "Try 1: the page took too long to load. Try 2: no browser was open by then." },
       { at: at(18, 2), text: "Opened 4 pages: pricing, GitHub and 2 more" },
@@ -112,6 +112,24 @@ const JOBS: Record<string, JobDetail> = {
       { at: at(18, 2), text: "Asked the advisor what to compare" },
       { at: at(18, 2), text: "Opened maritime.sh/blog", failed: true, why: "The button it aimed for wasn't on the page any more." },
       { at: at(18, 3), text: "Now: reading maritime.sh/docs/agents" },
+    ],
+  },
+  hello: {
+    id: "hello",
+    title: "Add hello.py to the demo repo",
+    state: "running",
+    startedAt: at(18, 5),
+    failedSteps: 0,
+    slot: 1,
+    machine: "m-vm",
+    machineName: "Cloud VM",
+    ranOn: "On Cloud VM",
+    tool: "Claude Code",
+    steps: [
+      { at: at(18, 5), text: "shell run git" },
+      { at: at(18, 5), text: "files write hello.py" },
+      { at: at(18, 6), text: "shell run python3" },
+      { at: at(18, 6), text: "Done on Cloud VM · checking the work" },
     ],
   },
   dinner: {
@@ -269,7 +287,7 @@ function meCopy(): Copy {
         number: "+1 (555) 010-0199",
       },
     },
-    jobs: ["maritime", "dinner", "florists", "sam"],
+    jobs: ["maritime", "dinner", "florists", "sam", "hello"],
   };
 }
 
@@ -400,11 +418,15 @@ export function fixtureSource(): TexPageSource {
       const before = query.before ?? Number.MAX_SAFE_INTEGER;
       return ok({ manifest: { schema: "tex-ledger", version: 1, count: 6, created: at(9, 2), updated: at(9, 3) }, entries: entries.filter((e) => (e.seq ?? 0) < before).reverse() });
     },
+    async machines() {
+      // The mock's gateway predates machines, so it answers as such a gateway does.
+      return { kind: "notYours" };
+    },
     async sees(chat) {
       if (!copies.has(chat)) return { kind: "notYours" };
       const group = chat !== "me";
       return ok({
-        settings: { thinking: false, toolNames: true, toolResults: false, heldBack: !group, budgetChars: 48000, lastDayFrom: "texting Worker", before: "ledger" },
+        settings: { thinking: false, toolNames: true, toolResults: false, budgetChars: 48000, lastDayFrom: "texting Worker", before: "ledger" },
         text: `[9:02 AM] ${group ? "Ada" : "You"}: what's on my calendar today?\n[9:03 AM] Tex: Standup at 10 and the dentist at 3.\n  (used: calendar_events, read_note)`,
       });
     },

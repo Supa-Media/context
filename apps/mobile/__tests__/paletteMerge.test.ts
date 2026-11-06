@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { mergeRanked } from "../features/design/components/paletteMerge";
-import type { Match, PaletteItem } from "../features/console/files/palette";
+import { mergeRanked, NAME_LEADS } from "../features/design/components/paletteMerge";
+import { STRONG_NAME_SCORE, type Match, type PaletteItem } from "../features/console/files/palette";
 
 /* -------------------------------------------------------------------------- */
 /*                                  helpers                                   */
@@ -102,5 +102,20 @@ describe("mergeRanked", () => {
   test("the same key returned twice by the server appears once", () => {
     const server = [note("dup.md", "Dup"), note("dup.md", "Dup")];
     expect(ids(mergeRanked([], server))).toEqual(["dup.md"]);
+  });
+});
+
+describe("a name the words typed clearly name leads (owner, 2026-11-04)", () => {
+  test("a strong name match stays on top when the search's rows land, and a weak one goes below", () => {
+    const deut = note("bible/deuteronomy-23.md", "Deuteronomy 23");
+    const weak = note("misc/daily-update.md", "Daily update");
+    const merged = mergeRanked(
+      [match(deut, STRONG_NAME_SCORE + 10), match(weak, 40)],
+      [note("meetings/pre-production.md"), note("sessions/deut-link.md")],
+    );
+    expect(ids(merged)).toEqual(["bible/deuteronomy-23.md", "meetings/pre-production.md", "sessions/deut-link.md", "misc/daily-update.md"]);
+    expect(merged[0].item.why).toBe("name");
+    const many = Array.from({ length: NAME_LEADS + 2 }, (_, index) => match(note(`n${index}.md`), STRONG_NAME_SCORE + 100 - index));
+    expect(ids(mergeRanked(many, [note("s.md")])).indexOf("s.md")).toBe(NAME_LEADS);
   });
 });

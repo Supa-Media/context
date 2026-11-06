@@ -238,9 +238,9 @@ Tex's own jobs, each with its record:
   to Claude Code, Codex, Claude, Claude Design or ChatGPT, with the task note's
   mail as the channel and a supervisor routine keeping the agent on track.
 - [Background jobs](./texting-assistant/background-jobs.md): a long ask runs in
-  an object of its own, up to three at once in a 1:1 or group chat, its status
-  shown to every turn, and it always writes its deliverable; a later text
-  steers or stops a running job, and its recent steps are shown on asking.
+  an object of its own, up to three at once, its status shown to every turn,
+  and always writes its deliverable; a later text steers or stops it; its steps
+  are shown on asking; [machines](./texting-assistant/machines.md) run jobs on a person's own computer; [job notes](./texting-assistant/job-notes.md) put the job, Tex and the advisor on one mail.
 - [Golden tasks](./texting-assistant/golden-tasks.md): jobs Tex must always
   get right, gating a setup; the task skills it reads before doing one, and
   why a read skill may vouch for an address.
@@ -322,7 +322,7 @@ credit, and nothing that costs money is spent while it lasts:
   text. The address is built from two ids checked against a strict shape, so
   nothing a caller sends can point the gateway's token at another host.
 - Prompt caching: tools, stable system prompt, slow context, then the chat,
-  each behind a five-minute mark; per-text facts (clock, model, nudge) ride in
+  each behind a one-hour mark (why: model-plan.md); per-text facts ride in
   the person's turn (`turnPrompt.js`, guarded by `agentPromptCache.test.mjs`).
 
 **What a simplification would cost:** dropping `cf-aig-collect-log` would

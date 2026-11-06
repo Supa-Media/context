@@ -6,6 +6,7 @@
  * The `ws.*` calls carry JSON bodies and answer JSON.
  */
 
+import { serveMachineCall } from "./serveMachines.js";
 import { canSee, PrivacyOverrides } from "../privacy/engine.js";
 import { serveTexStore } from "../texStore/wire.js";
 import { HOMES, isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
@@ -187,7 +188,7 @@ function listingAnswer(store, fields) {
   const tree = treeRows(store.sql);
   const { rows: children, more } = tree.children(folder);
   const clearance = { scope: fields.scope, names: new Set(Array.isArray(fields.groups) ? fields.groups.filter((group) => typeof group === "string") : []) };
-  return { served: true, listing: listFolderFromRows({ folder, clearance, held, children, more, own: tree.own(folder), roots: tree.jobRows() }) };
+  return { served: true, listing: listFolderFromRows({ folder, clearance, held, children, more, own: tree.own(folder), roots: tree.jobRows(), sortAt: (path) => tree.sortAt(path) }) };
 }
 
 /** The paths a row change touches, before and after, for a tree watcher (`store.onTreeChange`). */
@@ -200,7 +201,7 @@ function pathsTouched(rows, ids, incoming = []) {
  * `store` is `{rows: workspaceRows(sql), objects: texObjects(sql), onTreeChange?}`. `onTreeChange({paths, rules})`
  * runs after a row or rules change lands (the app's live tree), and never fails the call.
  */
-export async function serveWorkspaceStore(store, request) {
+export async function serveWorkspaceStore(store, request, timing = {}) {
   const op = opOf(request);
   if (typeof op !== "string" || !(op.startsWith("ws.") || isPersonCall(op) || isTokenIndexCall(op))) {
     // A note's text written or removed reaches the word index by its own triggers (`searchIndex.js`).
@@ -222,11 +223,15 @@ export async function serveWorkspaceStore(store, request) {
     return op === ACCESS_OPS.SESSION ? await withOpen(store, answered, fields) : answered;
   }
   // Write ops: the change and its mirror entry land in one transaction; they check and pin their workspace themselves (`serveWrites.js`).
-  if (isWriteOp(op)) return await serveWrites(store, op, fields);
+  // `timing` is the object's `fetch`'s view of the call (`serveWrites.js` `timesOf`).
+  if (isWriteOp(op)) return await serveWrites(store, op, fields, undefined, undefined, timing);
   try {
     rows.pinWorkspace(fields.workspaceId);
     const membership = await serveMembersCall(store, op, fields);
     if (membership !== null) return membership;
+    // The computers this workspace owns and their runs (`serveMachines.js`).
+    const machine = await serveMachineCall(store, op, fields);
+    if (machine !== null) return machine;
     // The sealed binding and the one call a request's store is opened from (`bindingRows.js`).
     // `ws.open` waits for an open mark like every read, and says whether one is still open (`marks.js`), so the
     // gateway need not ask the control plane whether the object is behind before a read (`store/objectBinding.js`).
@@ -333,9 +338,14 @@ export async function serveWorkspaceStore(store, request) {
         let built;
         try {
           built = await store.meaning.catchUp();
-        } catch {
-          // The model failed; what changed stays on the log for the next build.
-          return Response.json({ served: true, failed: true, waiting: null });
+        } catch (error) {
+          // The model failed; what changed stays on the log for the next build. Our code and the provider's number
+          // only, for the build's log line (`../workspaceStore.js`), never a message.
+          const codes = Array.isArray(error?.providerCodes) ? error.providerCodes.filter(Number.isSafeInteger) : [];
+          const hint = typeof error?.hint === "string" ? [error.hint] : [];
+          const reason = typeof error?.code === "string" ? [error.code, ...codes, ...hint].join(":").toLowerCase() : "error";
+          const words = typeof error?.providerWords === "string" ? { providerWords: error.providerWords } : {};
+          return Response.json({ served: true, failed: true, waiting: null, reason, ...words });
         }
         return Response.json(built === null ? { served: false } : { served: true, ...built });
       }

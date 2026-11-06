@@ -140,12 +140,8 @@ import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
 import * as siteHomeRoute from "./functions/lib/publicRoutes/siteHome";
 import * as sitePageRoute from "./functions/lib/publicRoutes/sitePage";
-import {
-  calendarChannelRoute,
-  calendarPushHandler,
-  pubsubPushHandler,
-  pubsubPushRoute,
-} from "./functions/lib/googlePush/routes";
+import { calendarChannelRoute, calendarPushHandler, pubsubPushHandler, pubsubPushRoute } from "./functions/lib/googlePush/routes";
+import { TEX_MACHINE_GATEWAY_ROUTES } from "./functions/lib/gatewayRoutes/texMachines";
 import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
 import { addAuthHttpRoutes, withSecurityHeaders } from "./functions/lib/httpSecurityHeaders";
 
@@ -298,6 +294,7 @@ export const gatewayToolsListed = gatewayRoute(sessions.gatewayToolsListedHandle
 export const gatewayMailJoin = gatewayRoute(noteMail.gatewayMailJoinHandler);
 export const gatewayMailGet = gatewayRoute(noteMail.gatewayMailGetHandler);
 export const gatewayMailRead = gatewayRoute(noteMail.gatewayMailReadHandler);
+export const gatewayMailJobs = gatewayRoute(noteMail.gatewayMailJobsHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 1b. POST /gateway/sessions/by-grant — resolve live relay grant metadata    */
@@ -378,20 +375,12 @@ export const gatewayFormsNotify = gatewayRoute(
 
 /* -------------------------------------------------------------------------- */
 /* 2c. POST /gateway/jobs/create — mint queued gateway work                  */
-/* -------------------------------------------------------------------------- */
-
-export const gatewayJobsCreate = gatewayRoute(jobs.gatewayJobsCreateHandler);
-
-/* -------------------------------------------------------------------------- */
 /* 2d. POST /gateway/jobs/open — spend queued work for one bounded attempt    */
-/* -------------------------------------------------------------------------- */
-
-export const gatewayJobsOpen = gatewayRoute(jobs.gatewayJobsOpenHandler);
-
-/* -------------------------------------------------------------------------- */
 /* 2e. POST /gateway/jobs/report — report a queue attempt outcome             */
 /* -------------------------------------------------------------------------- */
 
+export const gatewayJobsCreate = gatewayRoute(jobs.gatewayJobsCreateHandler);
+export const gatewayJobsOpen = gatewayRoute(jobs.gatewayJobsOpenHandler);
 export const gatewayJobsReport = gatewayRoute(jobs.gatewayJobsReportHandler);
 
 /* 2f. POST /gateway/mover/open, /gateway/tex-store/open — the control plane's tickets */
@@ -836,6 +825,7 @@ http.route({ path: "/gateway/grants/tools-listed", method: "POST", handler: gate
 http.route({ path: "/gateway/mail/join", method: "POST", handler: gatewayMailJoin });
 http.route({ path: "/gateway/mail/get", method: "POST", handler: gatewayMailGet });
 http.route({ path: "/gateway/mail/read", method: "POST", handler: gatewayMailRead });
+http.route({ path: "/gateway/mail/jobs", method: "POST", handler: gatewayMailJobs });
 http.route({ path: "/gateway/ingest/resolve", method: "POST", handler: gatewayIngestResolve });
 http.route({ path: "/gateway/ingest/binding", method: "POST", handler: gatewayIngestBinding });
 http.route({ path: "/gateway/ingest/record", method: "POST", handler: gatewayIngestRecord });
@@ -936,9 +926,9 @@ http.route({ path: "/gateway/rows/mirror", method: "POST", handler: gatewayRoute
 export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler); // Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`)
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
 for (const [path, handler] of texStyleRoutes.TEX_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) }); // the agent's chat commands on its own grant, and the Tex page's two calls on the console's (`texCommands.ts`, `texPage.ts`)
-/* Who is texting Tex, for the turns Tex answers for one person (`lib/texIdentity/identity.ts`). */
-export const gatewayAgentIdentity = gatewayRoute(texIdentity.gatewayAgentIdentityHandler);
+export const gatewayAgentIdentity = gatewayRoute(texIdentity.gatewayAgentIdentityHandler); // who is texting Tex (`lib/texIdentity/identity.ts`)
 http.route({ path: "/gateway/agent/identity", method: "POST", handler: gatewayAgentIdentity });
+http.route({ path: "/gateway/texts/opened", method: "POST", handler: gatewayRoute(texIdentity.gatewayTextsOpenedHandler) }); // a text's session the person object opened (`functions/textingObjects.ts`)
 export const gatewayTranscriptionConsent = gatewayRoute(gatewayTranscriptionConsentHandler);
 http.route({ path: "/gateway/transcription/consent", method: "POST", handler: gatewayTranscriptionConsent });
 /* An agent asks for the person's attention (`lib/attention/ask.ts`); delivered by their check-in row. */
@@ -969,6 +959,8 @@ http.route({ path: "/agent-texts/group", method: "POST", handler: agentTextsGrou
 /* Whether Tex answers, reacts or stays silent, and a group's chosen style (`docs/design/tex-event-log/CONTRACT.md`). */
 http.route({ path: "/agent-texts/decide", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideHandler) });
 http.route({ path: "/agent-texts/recheck", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsRecheckHandler) }); // `textRecheck.ts`
+http.route({ path: "/agent-texts/decide/gate", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideGateHandler) }); // `textDecideMeter.ts`
+http.route({ path: "/agent-texts/decide/usage", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideUsageHandler) });
 http.route({ path: "/agent-texts/group/engagement", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsGroupEngagementHandler) });
 http.route({ path: "/agent-texts/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsStyleHandler) });
 for (const [path, handler] of texStyleRoutes.AGENT_GROUP_ROUTES) http.route({ path, method: "POST", handler: agentWorkerRoute(handler) }); // a group's style, and its name for its home (`textGroupNames.ts`)
@@ -996,5 +988,8 @@ http.route({ path: "/agent-texts/heartbeats/result", method: "POST", handler: ag
 /* Tex's housekeeping (`functions/housekeeping.ts`): the same shape as dreams; it texts nobody. */
 http.route({ path: "/agent-texts/housekeeping/due", method: "POST", handler: agentWorkerRoute(housekeeping.agentHousekeepingDueHandler) });
 http.route({ path: "/agent-texts/housekeeping/result", method: "POST", handler: agentWorkerRoute(housekeeping.agentHousekeepingResultHandler) });
+
+/* A person's own computer, paired for Tex (`docs/decisions/texting-assistant/machines.md`). Each path is built by the gateway factory. */
+for (const [path, handler] of TEX_MACHINE_GATEWAY_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) });
 
 export default http;

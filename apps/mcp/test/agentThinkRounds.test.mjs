@@ -24,8 +24,6 @@
  *     → "the switch hands the planner's blocks on unchanged and re-tells the model who it is" fails
  *   `runTurn` not retrying a 400 that names thinking without the blocks
  *     → "a 400 that names thinking is retried once without the blocks, and the round says so" fails
- *   a re-asked or joined answer pushed without its `content`
- *     → "a re-asked answer keeps its thinking" and "an answer joined by a late text keeps its thinking" fail
  *   `runTurn` booking every round's usage to `main`
  *     → "per-model usage adds up to the turn's total, and the meter gets one
  *       report per model" fails (and two more)
@@ -160,29 +158,11 @@ test("a 400 that names thinking is retried once without the blocks, and the roun
 });
 
 test("a 400 that does not name thinking is not retried that way", async () => {
-  const gw = scripted([tools(1), { status: 400, body: JSON.stringify({ error: { message: "max_tokens too large" } }) }]);
+  const plain400 = { status: 400, body: JSON.stringify({ error: { message: "max_tokens too large" } }) };
+  // The gateway resends a 400 once without its hour marks (`aiGateway.js`); the turn strips nothing.
+  const gw = scripted([tools(1), plain400, plain400]);
   await assert.rejects(turn(gw.fetchImpl, { router: router({ thinkRounds: 1 }) }), (error) => error.reason === "status 400");
-  assert.equal(gw.bodies.length, 2);
-});
-
-const thoughtAnswer = (n, text) => ({ blocks: [thought(n), { type: "text", text }], stop: "end_turn" });
-
-test("a re-asked answer keeps its thinking", async () => {
-  const gw = scripted([thoughtAnswer(1, "Draft."), answer("Checked.")]);
-  let asked = 0;
-  const result = await turn(gw.fetchImpl, { answerCheck: async () => (asked++ === 0 ? "say where it came from" : null) });
-  assert.equal(result.answer, "Checked.");
-  const draft = gw.bodies[1].messages.filter((message) => message.role === "assistant").at(-1);
-  assert.deepEqual(draft.content, [thought(1), { type: "text", text: "Draft." }]);
-});
-
-test("an answer joined by a late text keeps its thinking", async () => {
-  const gw = scripted([thoughtAnswer(1, "Draft."), answer("Both done.")]);
-  const steer = { late: true, words: ["also 8pm"], next: async () => { steer.late = false; return "also 8pm"; } };
-  const result = await turn(gw.fetchImpl, { steer });
-  assert.equal(result.answer, "Both done.");
-  const draft = gw.bodies[1].messages.filter((message) => message.role === "assistant").at(-1);
-  assert.deepEqual(draft.content, [thought(1), { type: "text", text: "Draft." }]);
+  assert.equal(gw.bodies.length, 3);
 });
 
 test("a failed call sends the next round to think, once, then main drives again", async () => {

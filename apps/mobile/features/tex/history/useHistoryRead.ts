@@ -4,6 +4,7 @@ import { DEFAULT_SHOWN, dayAsked, historyDays, kindsFor, type DayChoice, type Hi
 import type { Read, TexPageSource } from "../page/texPageSource";
 import { LATEST, type LedgerEntry, type LedgerPage } from "../page/texPageTypes";
 import { FALLBACK_POLL_MS } from "../page/useTexPage";
+import type { HistoryChoice } from "./historyChoice";
 
 /** Patches come in bursts as a turn writes: one read for each burst. */
 const LIVE_SETTLE_MS = 400;
@@ -33,10 +34,10 @@ export interface HistoryRead {
  * A chat's history read from the gateway, a page at a time, with its filters:
  * which day, and which kinds. Nothing here keeps a copy.
  */
-export function useHistoryRead({ source, chat, group, job, live = false, timing = false }: { source: TexPageSource; chat: string; group: boolean; job?: string; /** Keep reading new lines as the chat goes on: the chat's live feed, or a re-read while it is down. */ live?: boolean; /** Staff: read each turn's timing too (`turnTiming.ts`). */ timing?: boolean }): HistoryRead {
-  const [day, setDay] = useState<DayChoice>("today");
-  const [picked, setPicked] = useState("");
-  const [shown, setShown] = useState<Record<Show, boolean>>(DEFAULT_SHOWN);
+export function useHistoryRead({ source, chat, group, job, live = false, timing = false, initial }: { source: TexPageSource; chat: string; group: boolean; job?: string; /** Keep reading new lines as the chat goes on: the chat's live feed, or a re-read while it is down. */ live?: boolean; /** Staff: read each turn's timing too (`turnTiming.ts`). */ timing?: boolean; /** The day and kinds to open with, from the address (`historyChoice.ts`). */ initial?: HistoryChoice }): HistoryRead {
+  const [day, setDay] = useState<DayChoice>(initial?.day ?? "today");
+  const [picked, setPicked] = useState(initial?.picked ?? "");
+  const [shown, setShown] = useState<Record<Show, boolean>>(initial?.shown ?? DEFAULT_SHOWN);
   const [read, setRead] = useState<Read<LedgerPage> | null>(null);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);

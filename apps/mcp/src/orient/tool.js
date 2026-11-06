@@ -120,9 +120,15 @@ async function healthAnswer(store, scope, rules, overrides) {
 
 /** Every `about` answer, each for the one thing it names. */
 async function aboutAnswer(store, scope, rules, overrides, about) {
+  if (store.explicitToolContract) {
+    const answer = await store.explicitToolContract.manual(about);
+    if (answer) return answer;
+    if (!ABOUT_WORDS.includes(about)) return store.explicitToolContract.unknown(about);
+  }
   if (about === "tools") return toolText(`# Context's tools and actions\n\n${await toolsManual(store, scope)}`);
   if (about === "access") {
     const text = scopeInfoText(scope, rules, currentReach(store));
+    if (store.explicitToolContract) return toolText(store.explicitToolContract.access(text));
     return toolText(typeof store.offeredTools === "function" ? inV2Names(text) : text);
   }
   if (about === "website") {
@@ -132,7 +138,7 @@ async function aboutAnswer(store, scope, rules, overrides, about) {
       : survey.unreadable
         ? "This workspace's map cannot be read just now, so whether it has a website/ folder is not known yet. The guide to building one:\n\n"
         : "This workspace has no website/ folder yet. The guide to building one:\n\n";
-    return toolText(note + WEBSITE_GUIDE);
+    return toolText(note + (store.explicitToolContract ? store.explicitToolContract.website(WEBSITE_GUIDE) : WEBSITE_GUIDE));
   }
   if (about === "pages") return toolText(PAGE_GUIDE);
   if (about === "health") return toolText(await healthAnswer(store, scope, rules, overrides));
@@ -148,7 +154,7 @@ async function aboutAnswer(store, scope, rules, overrides, about) {
 async function overview(store, scope, rules, overrides) {
   const open = openOnce(store);
   // When the app's copy is behind, the reconnect steps: read before anything else is awaited.
-  const news = toolNewsSection(store.actor?.toolsListedAt, undefined, appOf(store));
+  const news = store.explicitToolContract ? null : toolNewsSection(store.actor?.toolsListedAt, undefined, appOf(store));
   // Each part timed as `phase:orient_<part>` (`mcp/phase.js`), so the slowest one shows in the entry's timings.
   const timed = (name, run) => phase(store, `orient_${name}`, run);
   // `index.md` read once for the front page and the save procedure, and only where this caller may see it.
@@ -183,8 +189,9 @@ async function overview(store, scope, rules, overrides) {
   // `offeredTools` (`mcp/handlers.js` sets it for MCP connections only): no
   // tool line for it, and the rules below in the names it has.
   const v2 = typeof store.offeredTools === "function";
-  const say = (text) => inToolNames(text, { v2 });
-  if (v2 && news) parts.push(`${news}\n\n${await toolsManual(store, scope)}`);
+  const say = (text) => store.explicitToolContract ? store.explicitToolContract.say(text) : inToolNames(text, { v2 });
+  if (store.explicitToolContract) parts.push(store.explicitToolContract.notice);
+  else if (v2 && news) parts.push(`${news}\n\n${await toolsManual(store, scope)}`);
   else if (v2) parts.push(SIX_TOOLS_LINE);
 
   const current = currentEntryOf(store);
@@ -240,7 +247,7 @@ async function sinceAnswer(store, scope, rules, overrides, since) {
     return toolError("invalid: since must be the orient_mark an earlier orient answer ended with");
   }
   const now = new Date();
-  const news = toolNewsSection(store.actor?.toolsListedAt, undefined, appOf(store));
+  const news = store.explicitToolContract ? null : toolNewsSection(store.actor?.toolsListedAt, undefined, appOf(store));
   const survey = await surveyOf(store, store, scope, rules, overrides);
   const after = (date) => date instanceof Date && date > at;
   const changed = {

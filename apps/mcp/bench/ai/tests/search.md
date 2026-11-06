@@ -25,7 +25,9 @@ the common words ("trip", "deposit", "plan", "team", "band", "book club"), a
 saved session that mentions a trip in passing, a note that is only a link whose
 URL has the query's words, and a title-only probe. Those notes are distractors:
 no question expects one, and the guard test in `bench/test/search.test.mjs`
-fails if one is listed.
+fails if one is listed. The `first` bar counts a question whose first result is
+an expected note. The AI Benchmark Action runs the copy in `@context-lc
+ai/tests/search.md`, which is kept the same as this one.
 
 The queries are the texting assistant's own questions and the words a person
 would type, not the words the note uses, so the two halves of search are both

@@ -1,8 +1,8 @@
 // Test-only entry point. No production config references it.
-import worker, { PresenceRoom } from "../../src/index.js";
+import worker, { LiveTicket, PresenceRoom } from "../../src/index.js";
 import { storeForBinding } from "../../src/store/factory.js";
 import { listFolder, readFile, writeFile, trashPath, restoreTrashedPath } from "../../../convex/functions/lib/fileOps";
-export { PresenceRoom };
+export { LiveTicket, PresenceRoom };
 export default {
   async fetch(request: Request, env: any, ctx: any) {
     const url = new URL(request.url);

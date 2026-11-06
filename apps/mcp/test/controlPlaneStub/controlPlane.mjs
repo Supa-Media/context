@@ -893,6 +893,7 @@ export function createControlPlaneStub(options = {}) {
           (await mail.handle(path, body)) ?? (await tree.handle(path, body)) ?? (await workspaceSetup.handle(path, body)) ?? (await email.handle(path, body)) ??
           (await calendar.handle(path, body)) ?? (await googleChat.handle(path, body)) ?? (await dreams.handle(path, body)) ??
           (await moves.handle(path, body)) ?? (await transcription.handle(path, body));
+        if (answered instanceof Response) return answered; // a sub-router's refusal, with its own status
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
@@ -960,6 +961,7 @@ export function createControlPlaneStub(options = {}) {
     addGrant,
     revoke,
     mailboxes: mail.mailboxes,
+    devices: mail.devices,
     dreams,
     moves,
     transcription,

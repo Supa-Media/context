@@ -139,9 +139,12 @@ const controlPlane = createControlPlaneStub();
 let pinnedBucket;
 let restore = [];
 
+/** What the gateway's model says next: scripted texts in order, then "Hi.". */
+const gatewayReplies = [];
+
 function answer() {
   return new Response(
-    JSON.stringify({ content: [{ type: "text", text: "Hi." }], stop_reason: "end_turn", usage: { input_tokens: 5, output_tokens: 2 } }),
+    JSON.stringify({ content: [{ type: "text", text: gatewayReplies.shift() ?? "Hi." }], stop_reason: "end_turn", usage: { input_tokens: 5, output_tokens: 2 } }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
 }
@@ -258,6 +261,7 @@ after(() => {
 
 beforeEach(() => {
   gatewayCalls.length = 0;
+  gatewayReplies.length = 0;
   pinnedBucket.set("privacy.md", { body: manifest(), etag: "p1" });
   pinnedBucket.set(RETIRED_APP_PATH, { body: setupFile({ prompt: WHO }), etag: "a0" });
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile(), etag: "s0" });
@@ -595,4 +599,60 @@ test("a picture turn whose model fails goes on with the other model that sees it
   } finally {
     globalThis.fetch = below;
   }
+});
+
+/* ---------------- the reply judges replace the older word checks ---------------- */
+
+const GAVE_UP = "I still can't open that page, so I can't weigh in on it yet. Paste the main points here and I'll give you a straight take.";
+const OPEN_FRONT = "models:\n  main: anthropic/claude-haiku-5-5\nopen_web: yes";
+/** A browser that reads one page, so the turn has the web. */
+const SITE_SHOTS = { async fetch(_url, init) { const { url } = JSON.parse(init.body); return new Response(JSON.stringify({ page: { url, truncated: false, title: "Status", text: "All fine.", links: [] } }), { status: 200, headers: { "content-type": "application/json" } }); } };
+/** Every Clef gate answers no: the judges let the reply go. `calls` counts the gates asked. */
+const gatesPass = () => ({ calls: 0, async run(_model, input) { this.calls += 1; return { answers: Object.fromEntries(Object.keys(input?.questions ?? {}).map((name) => [name, { type: "noul", noul: 0.01 }])) }; } });
+
+test("without reply judges, an untried can't-open on the front door is sent back by the word check (untriedWeb.js)", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(OPEN_FRONT), etag: "w-off" });
+  gatewayReplies.push(GAVE_UP, "Read it: all fine.");
+  const response = await ask({ ...onGateway, SITE_SHOTS, AI: gatesPass() }, TOKEN_FREE, { question: "thoughts? https://example.com/status", conversation: "texts" });
+  assert.equal(gatewayCalls.length, 2, "the word check sent it back once");
+  assert.equal(response.body?.answer, "Read it: all fine.");
+});
+
+test("with reply judges, the word checks they replace stay off: tried_first decides, not untriedWeb.js (2026-11-05)", async () => {
+  // Sabotage: `tries` kept when `gated` in runTheModel.js: the word check sends it back (two model calls).
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(`${OPEN_FRONT}\nreply_judge: clef-flash`), etag: "w-on" });
+  gatewayReplies.push(GAVE_UP, "Read it: all fine.");
+  const ai = gatesPass();
+  const response = await ask({ ...onGateway, SITE_SHOTS, AI: ai }, TOKEN_FREE, { question: "thoughts? https://example.com/status", conversation: "texts" });
+  assert.equal(gatewayCalls.length, 1, "the gates passed it and nothing else sent it back");
+  assert.ok(ai.calls >= 9, "the text gates read it (short_and_clean reads only long drafts)");
+  assert.equal(response.body?.answer, GAVE_UP);
+});
+
+const ADVISED_FRONT = "models:\n  main: anthropic/claude-haiku-5-5\n  advisor: anthropic/claude-opus-5-5";
+
+test("without reply judges, an advisor they asked for and nobody asked is sent back by the word check (doItChecks.js)", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ADVISED_FRONT), etag: "a-off" });
+  gatewayReplies.push("My take: ship it.", "Asked: ship it.");
+  await ask({ ...onGateway, AI: gatesPass() }, TOKEN_FREE, { question: "ask your advisor whether we ship today", conversation: "texts" });
+  assert.equal(gatewayCalls.length, 2, "the word check sent it back once");
+});
+
+test("with reply judges, the advisor word check stays off: followed_them decides (2026-11-05)", async () => {
+  // Sabotage: `!gated &&` dropped from `doIt` in runTheModel.js: two model calls.
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(`${ADVISED_FRONT}\nreply_judge: clef-flash`), etag: "a-on" });
+  gatewayReplies.push("My take: ship it.", "Asked: ship it.");
+  const ai = gatesPass();
+  await ask({ ...onGateway, AI: ai }, TOKEN_FREE, { question: "ask your advisor whether we ship today", conversation: "texts" });
+  assert.equal(gatewayCalls.length, 1, "the gates passed it and nothing else sent it back");
+  assert.ok(ai.calls >= 9, "the text gates read it (short_and_clean reads only long drafts)");
+});
+
+test("a setup naming reply judges on a deployment with no Workers AI keeps the word checks (2026-11-05)", async () => {
+  // Sabotage: drop the `env.AI?.run` test from `gated` in runTheModel.js: nothing sends it back.
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(`${OPEN_FRONT}\nreply_judge: clef-flash`), etag: "w-noai" });
+  gatewayReplies.push(GAVE_UP, "Read it: all fine.");
+  const response = await ask({ ...onGateway, SITE_SHOTS }, TOKEN_FREE, { question: "thoughts? https://example.com/status", conversation: "texts" });
+  assert.equal(gatewayCalls.length, 2, "the word check sent it back once");
+  assert.equal(response.body?.answer, "Read it: all fine.");
 });

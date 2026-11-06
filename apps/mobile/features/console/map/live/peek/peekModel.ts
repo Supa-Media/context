@@ -151,30 +151,6 @@ export function presenceChips({ writers, readers }: PeekPresence): PresenceChip[
   return [...chips(writers, "writing", "writing"), ...chips(readers, "reading", "reading")];
 }
 
-/** Space kept between the card and the canvas's edges, and the dot. */
-const EDGE = 12;
-const GAP = 24;
-
-/**
- * Where the card sits: to the right of the dot, or its left when the right
- * has no room, its top a little above the dot, and always inside the canvas.
- * With no tap point (the map coming back with a card open) it sits at the
- * top right.
- */
-export function peekPlacement(
-  at: { x: number; y: number } | null,
-  box: { width: number; height: number },
-  card: { width: number; height: number },
-): { left: number; top: number } {
-  const maxLeft = box.width - EDGE - card.width;
-  const maxTop = box.height - EDGE - card.height;
-  const clamp = (v: number, max: number) => (max < EDGE ? EDGE : Math.min(Math.max(v, EDGE), max));
-  if (at === null) return { left: clamp(maxLeft, maxLeft), top: EDGE };
-  const right = at.x + GAP;
-  const left = right + card.width <= box.width - EDGE ? right : at.x - GAP - card.width;
-  return { left: clamp(left, maxLeft), top: clamp(at.y - 40, maxTop) };
-}
-
 /** The folders a note is in, in words: "Projects › launch". Empty at the top level. */
 export function peekCrumbs(path: string): string {
   const segments = path.split("/").filter((s) => s.length > 0);

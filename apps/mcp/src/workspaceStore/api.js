@@ -117,7 +117,9 @@ export function workspaceStub(env, workspaceId) {
  * - `collab.read({path, key, noteId})` → `{served: true, markdown, collaboration|error, writes, deletes}` or
  *   `{served: false}`: a note's Markdown and its editing history's text, for a read (`collabRead.js`)
  * - `open(userId)` → `{home, backfilledAt, encryption, accessHome, member, rules, binding: {sealed, at}|null, epoch}`:
- *   what a request's store is built from, in one call; `binding.put({sealed, at, epoch})` → `{kept, epoch}`,
+ *   what a request's store is built from, in one call; `open(userId, {setupRead: true})`, Tex's setup read: the member
+ *   rules narrowed to the setup's folders (`setupRules.js`) and the binding, `setupRead: true` when it could answer;
+ *   `binding.put({sealed, at, epoch})` → `{kept, epoch}`,
  *   `binding.clear()` → `{epoch}` (`workspaceStore/bindingRows.js`)
  */
 export function workspaceClient(env, workspaceId) {
@@ -179,7 +181,7 @@ export function workspaceClient(env, workspaceId) {
     setHome: async (home) => await ask("ws.home", { home }),
     setEncryption: async (state) => await ask("ws.encryption", { state }),
     markBackfilled: async (at) => await ask("ws.backfilled", { at }),
-    open: async (userId) => await ask("ws.open", { userId }),
+    open: async (userId, { setupRead = false } = {}) => await ask("ws.open", setupRead === true ? { userId, setupRead: true } : { userId }),
     // The object's own word index (`searchIndex.js`): a search's queries, and a catch-up pass behind a response.
     search: async (asks) => await ask("ws.search", { asks }),
     searchBuild: async () => await ask("ws.search.build"),

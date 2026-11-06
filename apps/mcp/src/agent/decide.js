@@ -20,14 +20,15 @@ export const MAX_DECISION_STATE_CHARS = 24_000;
 
 /**
  * `(state, questions) => answers | null` over a Workers AI binding, or null
- * when there is none. Never throws: a decision that fails is no decision.
+ * when there is none. Clef unless another decision model is named (the reply
+ * judge may name Clef Flash: `replyJudge.js`). Never throws: a decision that fails is no decision.
  */
-export function decisionEngine(ai) {
+export function decisionEngine(ai, { model = DECISION_MODEL, selector = DECISION_MODEL_SELECTOR } = {}) {
   if (typeof ai?.run !== "function") return null;
   return async (state, questions) => {
     try {
-      const raw = await ai.run(DECISION_MODEL, {
-        model: DECISION_MODEL_SELECTOR,
+      const raw = await ai.run(model, {
+        model: selector,
         state: state.slice(0, MAX_DECISION_STATE_CHARS),
         questions,
       });

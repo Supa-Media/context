@@ -116,7 +116,8 @@ function turnsOf(entries, replies, chat) {
   const texts = new Map();
   const turns = new Map();
   for (const entry of entries) {
-    if (entry.kind === "text" && entry.from?.kind !== "tex" && typeof entry.eid === "string") texts.set(entry.eid, entry);
+    // Newest first: an event written again (a voice message once heard, `agent/heardWords.js`) is shown by its newest entry.
+    if (entry.kind === "text" && entry.from?.kind !== "tex" && typeof entry.eid === "string" && !texts.has(entry.eid)) texts.set(entry.eid, entry);
     if (typeof entry.turn !== "string" || entry.turn === "") continue;
     if (!turns.has(entry.turn)) turns.set(entry.turn, []);
     turns.get(entry.turn).push(entry);

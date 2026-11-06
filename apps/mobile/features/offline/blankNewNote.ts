@@ -12,7 +12,9 @@ const GENERATED = /^untitled-\d{4}-\d{2}-\d{2}(-\d+)?\.md$/i;
 
 /**
  * Nothing has been written in this new note: an untitled name, and either
- * nothing at all or only the heading it was made with (`# untitled-…`).
+ * nothing at all, only its empty title (`# `, what a new note starts as since
+ * 2026-11-05), or only the heading one was made with before that
+ * (`# untitled-…`, which a draft kept on a device may still hold).
  *
  * Narrow on purpose. A note somebody named, or whose heading they typed (which
  * renames it, `useLinkedTitle`), has something in it; so has a drawing, which
@@ -26,5 +28,7 @@ export function isBlankNewNote(path: string, text: string): boolean {
   const newline = body.indexOf("\n");
   const first = (newline === -1 ? body : body.slice(0, newline)).trim();
   const rest = newline === -1 ? "" : body.slice(newline + 1).trim();
-  return rest === "" && first.toLowerCase() === `# ${name.replace(/\.md$/i, "")}`.toLowerCase();
+  if (rest !== "") return false;
+  if (/^#\s*$/.test(first)) return true;
+  return first.toLowerCase() === `# ${name.replace(/\.md$/i, "")}`.toLowerCase();
 }

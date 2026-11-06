@@ -9,9 +9,12 @@
  * the last nudge, one small built-in-model turn reads their recent texts and
  * may write `tex/about.md` once, or answer NONE.
  *
- * It is shown the words of untainted exchanges only: an exchange whose answer
- * read from outside the workspace is left out whole, because what it writes is
- * read as Tex's own memory on every later turn. It may call `read_note` and
+ * It is shown every text of theirs, and Tex's answer beside it unless that
+ * answer's turn read from outside the workspace: what the nudge writes is read
+ * as Tex's own memory on every later turn, so an answer that may repeat a
+ * stranger's words is left out, but the person's own words never are (the
+ * owner, 2026-11-05: once one email marked every answer, the nudge was shown
+ * nothing and About me stopped learning from chats). It may call `read_note` and
  * `write_note` on `tex/about.md` in their own workspace and nothing else
  * (`nudgeCallTool`), and the note's own size limit holds (`aboutMe.js`).
  *
@@ -72,8 +75,11 @@ export function nudgeCallTool(dispatch) {
 
 /**
  * The person's texts since `since`, as exchanges oldest first, and the time of
- * the newest. `shown` keeps only the untainted ones.
+ * the newest. `shown` is every one, a tainted answer's words left out.
  */
+const SENT_FILES = /^\[Sent with this text: .*\]$/;
+const withoutSentFiles = (text) => String(text ?? "").split("\n").filter((line) => !SENT_FILES.test(line.trim())).join("\n");
+
 export function textsSince(history, since) {
   const exchanges = [];
   for (let i = 0; i < history.length; i += 1) {
@@ -85,7 +91,8 @@ export function textsSince(history, since) {
   return {
     count: exchanges.length,
     newest: exchanges.reduce((most, exchange) => Math.max(most, exchange.at), since),
-    shown: exchanges.filter((exchange) => !exchange.tainted),
+    // A file's name is whoever made it's, not theirs: off a tainted exchange's question too. A voice message is their own words, said.
+    shown: exchanges.map((exchange) => (exchange.tainted ? { ...exchange, question: withoutSentFiles(exchange.question), answer: "", tainted: false } : exchange)),
   };
 }
 
@@ -175,8 +182,6 @@ export async function memoryNudge({ env, controlPlane, store, session, offered, 
     const asked = withCurrent !== history && answersAskAboutThem(withCurrent);
     if (counted.count < NUDGE_EVERY && !asked) return;
     const since = asked ? textsSince(withCurrent, marker) : counted;
-    // Their own answer is theirs even when Tex's reply read a page: it is shown, and that reply is not.
-    if (asked && current.tainted === true) since.shown.push({ at: now, question: current.question, answer: "", tainted: false });
     // Counted whatever comes of it, so a failing nudge is not retried every text.
     await store.put(NUDGE_MARKER, JSON.stringify({ at: since.newest }));
     if (since.shown.length === 0) return log(session, { outcome: "nothing_shown", texts: since.count });

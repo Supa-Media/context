@@ -37,6 +37,7 @@ import {
   type LocalAgentAsk,
   type LocalAgentReply,
   type LocalAgentStatus,
+  type MachineRunStatus,
   type MachineApprovalResult,
   type MeetingWrite,
   type MeetingWriteAck,
@@ -145,6 +146,14 @@ export interface FakeBridgeOptions {
   noSpelling?: boolean;
   /** Answer no `calendar` member — a **version-8** shell, from before it existed. */
   noCalendar?: boolean;
+  /** Answer no `machine` member — a **version-9** shell, from before it existed. */
+  noMachine?: boolean;
+  /** What `machine.status()` answers first. Default: available, off. */
+  machine?: MachineRunStatus;
+  /** What `machine.id()` answers. Default: `null`, not registered yet. */
+  machineId?: string | null;
+  /** What the folder picker returns: the chosen folders, or `null` for Cancel. Default: Cancel. */
+  pickFolders?: string[] | null;
   /**
    * Answer no `imessage` member at all — a shell older than **version 5**,
    * which is every shell in anybody's Applications folder today.
@@ -192,6 +201,8 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
   const imessageListeners = new Set<(status: ImessageStatus) => void>();
   let pending: PendingMachineApproval | null = options.pendingApproval ?? null;
   const agentAsks: LocalAgentAsk[] = [];
+  let machineNow: MachineRunStatus = options.machine ?? { available: true, enabled: false, state: "off", slots: 0, busy: 0, awake: false, message: null };
+  const machineListeners = new Set<(status: MachineRunStatus) => void>();
   const upcomingPushes: UpcomingMeetings[] = [];
   let imessageStatus: ImessageStatus = options.imessage ?? {
     enabled: false,
@@ -230,7 +241,9 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
               ? 7
               : options.noCalendar === true
                 ? 8
-                : BRIDGE_VERSION),
+                : options.noMachine === true
+                  ? 9
+                  : BRIDGE_VERSION),
     shell:
       options.shell === undefined
         ? { app: "Context", version: "0.0.0-test", platform: "macos" as const }
@@ -456,6 +469,36 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
             setUpcoming(upcoming: UpcomingMeetings): void {
               calls.push("calendar.setUpcoming");
               upcomingPushes.push(upcoming);
+            },
+          }),
+        }),
+    ...(options.noMachine === true
+      ? {}
+      : {
+          machine: Object.freeze({
+            async status(): Promise<MachineRunStatus> {
+              calls.push("machine.status");
+              return { ...machineNow };
+            },
+            async setEnabled(enabled: boolean): Promise<MachineRunStatus> {
+              calls.push("machine.setEnabled");
+              machineNow = { ...machineNow, enabled, state: enabled ? "online" : "off", slots: enabled ? 2 : 0 };
+              for (const fn of machineListeners) fn({ ...machineNow });
+              return { ...machineNow };
+            },
+            onChange(handler: (status: MachineRunStatus) => void): Unsubscribe {
+              machineListeners.add(handler);
+              return () => {
+                machineListeners.delete(handler);
+              };
+            },
+            async id(): Promise<string | null> {
+              calls.push("machine.id");
+              return options.machineId ?? null;
+            },
+            async pickFolders(): Promise<string[] | null> {
+              calls.push("machine.pickFolders");
+              return options.pickFolders ? [...options.pickFolders] : null;
             },
           }),
         }),

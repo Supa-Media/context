@@ -92,6 +92,8 @@ function rowOut(row) {
     role: row.role ?? null,
     order: row.ord === null || row.ord === undefined ? null : Number(row.ord),
     archiveOf: row.archive_of ?? null,
+    sort: row.sort ?? null,
+    created: row.created === null || row.created === undefined ? null : Number(row.created),
     at: Number(row.at),
   };
 }

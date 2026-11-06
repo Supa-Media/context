@@ -1,5 +1,5 @@
 import type { Cam, Viewport } from "../camera";
-import { toScreen } from "../camera";
+import type { DrawnBoard } from "../../look";
 import type { MapPalette } from "../palette";
 import type { Ctx } from "./primitives";
 
@@ -16,7 +16,13 @@ import type { Ctx } from "./primitives";
  * patterns, the flat colours are used and nothing else changes.
  */
 
+/** How a board's surface is made: paper grain, or chalk dust on a dark board. */
 export type Board = "paper" | "chalk";
+
+/** The texture under each board the person can choose (`look.ts`). */
+export function textureOf(board: DrawnBoard): Board {
+  return board === "chalk" || board === "blueprint" ? "chalk" : "paper";
+}
 
 type TileCanvas = { width: number; height: number; getContext(type: "2d"): unknown };
 
@@ -167,31 +173,55 @@ function patternFor(ctx: Ctx, key: string, make: () => TileCanvas | null): Canva
 /** The stroke or fill style for a drawn mark in `color`: grainy where patterns work, else the colour itself. */
 export function grain(ctx: Ctx, C: MapPalette, color: string): string | CanvasPattern {
   if (!canPattern(ctx)) return color;
-  const key = `grain:${C.board}:${color}`;
-  if (!cache.grains.has(key)) cache.grains.set(key, grainTile(C.board, color));
+  const key = `grain:${textureOf(C.board)}:${color}`;
+  if (!cache.grains.has(key)) cache.grains.set(key, grainTile(textureOf(C.board), color));
   return patternFor(ctx, key, () => cache.grains.get(key) ?? null) ?? color;
 }
 
-/** Paint the board under the map. The texture moves with the camera, as paper would. */
-export function paintBoard(ctx: Ctx, C: MapPalette, cam: Cam, vp: Viewport): void {
+/**
+ * Paint the board under the map. It is fixed to the window, not to the world
+ * (Dev2, 2026-11-04: "the backgrounds move as i zoom in and out, it should be
+ * static"): zooming and panning move only the drawing on it. Graph paper and
+ * blueprint add their ruled lines, fixed the same way.
+ */
+export function paintBoard(ctx: Ctx, C: MapPalette, _cam: Cam, vp: Viewport): void {
   ctx.fillStyle = C.ground;
   ctx.fillRect(0, 0, vp.w, vp.h);
-  if (!canPattern(ctx)) return;
-  const key = `ground:${C.board}:${C.ground}`;
-  if (!cache.grounds.has(key)) cache.grounds.set(key, groundTile(C.board, C.ground));
-  const pattern = patternFor(ctx, key, () => cache.grounds.get(key) ?? null);
-  if (!pattern) return;
-  const size = GROUND_TILE[C.board];
-  const o = toScreen(cam, vp, { x: 0, y: 0 });
-  const M = (globalThis as { DOMMatrix?: new () => DOMMatrix }).DOMMatrix;
-  if (typeof pattern.setTransform === "function" && M) {
-    const m = new M();
-    m.e = ((o.x % size) + size) % size;
-    m.f = ((o.y % size) + size) % size;
-    pattern.setTransform(m);
+  if (canPattern(ctx)) {
+    const texture = textureOf(C.board);
+    const key = `ground:${texture}:${C.ground}`;
+    if (!cache.grounds.has(key)) cache.grounds.set(key, groundTile(texture, C.ground));
+    const pattern = patternFor(ctx, key, () => cache.grounds.get(key) ?? null);
+    if (pattern) {
+      ctx.fillStyle = pattern;
+      ctx.fillRect(0, 0, vp.w, vp.h);
+    }
   }
-  ctx.fillStyle = pattern;
-  ctx.fillRect(0, 0, vp.w, vp.h);
+  if (C.grid) paintGrid(ctx, C.grid, vp, textureOf(C.board) === "chalk");
+}
+
+/** Ruled squares: a faint line every `GRID` pixels and a stronger one every fifth. */
+export const GRID = 24;
+function paintGrid(ctx: Ctx, color: string, vp: Viewport, dark: boolean): void {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  for (const [step, alpha] of [
+    [GRID, dark ? 0.16 : 0.13],
+    [GRID * 5, dark ? 0.3 : 0.22],
+  ] as const) {
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    for (let x = 0.5; x < vp.w; x += step) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, vp.h);
+    }
+    for (let y = 0.5; y < vp.h; y += step) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(vp.w, y);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 
 /**

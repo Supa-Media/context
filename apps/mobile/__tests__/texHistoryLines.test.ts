@@ -27,6 +27,10 @@
  *     chat" fails.
  *  9. The filters moved inside the scroller → same test fails.
  * 10. `away` never set → "scrolled up, a Latest button" fails.
+ *
+ * Applied, run, named test seen failing, reverted (2026-11-04):
+ * 11. `historyDays` drawing every entry of an event (no `firstOf` skip) → "a
+ *     voice message heard later is one line" fails.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -62,6 +66,23 @@ describe("the history's lines", () => {
     expect(days[1]!.turns[0]!.lines.map((l) => l.text)).toEqual(["check-in ran", "Morning."]);
   });
 
+  test("a voice message heard later is one line, in its words, where it came; a passed-on agent message says so (2026-11-04)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "v4", at: at(2, 10, 3), kind: "text", turn: "t9", from: { kind: "tex" }, text: "Drafted it." },
+      { id: "v3h", at: at(2, 10, 2), kind: "text", eid: "e1", event: "file", heard: "voice", from: { kind: "person" }, text: "Email Joe that we submitted it" },
+      { id: "v2", at: at(2, 10, 2), kind: "tool", turn: "t9", name: "search", ok: true },
+      { id: "v1", at: at(2, 10, 2), kind: "text", eid: "e1", event: "file", from: { kind: "person" }, text: "" },
+      { id: "n1", at: at(2, 9, 55), kind: "note", text: "ChatGPT: Both connector submissions are started.", about: "(Not a text from them. Another of their agents asked you to get their attention, and you texted them what follows.)" },
+    ];
+    const lines = historyDays(entries, NOW).flatMap((d) => d.turns.flatMap((t) => t.lines));
+    expect(lines.map((l) => l.text)).toEqual([
+      "passed on from another agent · ChatGPT: Both connector submissions are started.",
+      "(sent a voice message) Email Joe that we submitted it",
+      "search",
+      "Drafted it.",
+    ]);
+  });
+
   test("a group names who sent each text, and says what a reply answers, a reaction and a picture", () => {
     const entries: LedgerEntry[] = [
       { id: "c3", at: at(2, 18, 15), kind: "text", event: "reaction", from: { kind: "person", name: "@mom" }, text: "👍" },
@@ -72,6 +93,21 @@ describe("the history's lines", () => {
     expect(lines.map((l) => [l.who, l.text, l.replyTo ?? null, l.reactions ?? null])).toEqual([
       ["Ada", "(sent a picture) the list", null, null],
       ["Seyi", "I'll do the rice.", "Ada: (sent a picture) the list", "👍 mom"],
+    ]);
+  });
+
+  test("a reply shows the message it answers in full, and the words kept with it when that message is out of view", () => {
+    const long = "Drafted in the wrong account. Want me to save it in the other account, where the thread is? 👍 or 👎?";
+    const entries: LedgerEntry[] = [
+      { id: "q3", at: at(2, 9, 51), kind: "text", eid: "w3", replyTo: "w0", quoted: "An older message this view doesn't hold", from: { kind: "person" }, text: "I never sent a note?" },
+      { id: "q2", at: at(2, 9, 48), kind: "text", eid: "w2", replyTo: "w1", quoted: long, from: { kind: "person" }, text: "what do you mean?" },
+      { id: "q1", at: at(2, 9, 47), kind: "text", eid: "w1", turn: "t1", from: { kind: "tex" }, text: long },
+    ];
+    const lines = historyDays(entries, NOW).flatMap((d) => d.turns.flatMap((t) => t.lines)).filter((l) => l.entry.kind === "text");
+    expect(lines.map((l) => [l.text, l.replyTo ?? null])).toEqual([
+      [long, null],
+      ["what do you mean?", `Tex: ${long}`],
+      ["I never sent a note?", "An older message this view doesn't hold"],
     ]);
   });
 
@@ -109,6 +145,22 @@ describe("the history's lines", () => {
     expect(lines.map((l) => l.text)).toEqual(["3 tool calls · browse ×2, vault_list · 1 failed", "Writing it down.", "write_note", "Done."]);
     expect(lines[0]!.calls!.map((c) => c.id)).toEqual(["k1", "k2", "k3"]);
     expect(lines[2]!.calls).toBeUndefined();
+  });
+
+  test("a judging of a draft says which draft, whether it went, the judges that failed and the draft (2026-11-05)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "j3", at: at(2, 9, 4), kind: "judge", turn: "t", by: "late", round: 0, went: false, text: "Here's the logo.", reason: "a text came in while it was written, so it was written again with it" },
+      { id: "j2", at: at(2, 9, 3), kind: "judge", turn: "t", by: "gates", round: 1, went: true, text: "Here's the logo.", judges: [{ id: "heard_them", yes: 0.12, at: 0.7, passed: true }] },
+      { id: "j1", at: at(2, 9, 2), kind: "judge", turn: "t", by: "gates", round: 0, went: false, text: "Here's the icon.", judges: [{ id: "heard_them", yes: 0.82, at: 0.7, passed: false }, { id: "finished", yes: 0.19, at: 0.35, passed: true }] },
+    ];
+    const lines = historyDays(entries, NOW)[0]!.turns[0]!.lines;
+    expect(lines.map((l) => l.text)).toEqual([
+      'judges · draft 1 · sent back · heard_them 0.82 ≥ 0.70 · 1 passed · "Here\'s the icon."',
+      'judges · draft 2 · went out · all 1 passed · "Here\'s the logo."',
+      'late text · held · a text came in while it was written, so it was written again with it · "Here\'s the logo."',
+    ]);
+    expect(kindsFor({ ...DEFAULT_SHOWN, tools: false })).not.toContain("judge");
+    expect(kindsFor(DEFAULT_SHOWN)).toContain("judge");
   });
 
   test("background lines say what each is", () => {
@@ -159,7 +211,7 @@ describe("the history's lines", () => {
   });
 
   test("days and kinds as the gateway is asked for them", () => {
-    expect(kindsFor(DEFAULT_SHOWN)).toEqual(["text", "tool", "note", "advisor", "mail_check", "job"]);
+    expect(kindsFor(DEFAULT_SHOWN)).toEqual(["text", "tool", "judge", "note", "advisor", "mail_check", "job"]);
     expect(kindsFor({ texts: false, tools: false, thinking: true, background: false })).toEqual(["thinking", "said"]);
     expect(dayAsked("today", "", NOW)).toBe("2026-11-02");
     expect(dayAsked("yesterday", "", new Date(2026, 10, 1, 9))).toBe("2026-10-31");

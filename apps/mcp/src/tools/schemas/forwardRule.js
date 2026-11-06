@@ -7,7 +7,7 @@ export function forwardRuleToolDefinitions() {
       description:
         "Let one routine keep forwarding one kind of the person's mail (receipts, invoices) to one address, without asking each " +
         "time. start: write the routine note first, under tex/routines/<schedule>/, saying what to look for since its last run " +
-        "and to forward each match with send_email forward to that address (body \"Forwarded automatically.\"), answering SKIP " +
+        "and to forward each match with send_email forward to that address (body \"Forwarded automatically.\"), sending say_nothing " +
         "when there is none; then call this with the routine's path, to and a few words on what is forwarded. The person is shown " +
         "the rule and their 👍 keeps it. stop: the routine's path; it stops at once. Only when the person asked for this.",
       inputSchema: {

@@ -18,7 +18,7 @@ import { groupLineFor } from "./groupLine";
 import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
-import { chatJobs, resumeJobs, startJobs, steerJobs, threadsLines } from "./jobs";
+import { chatJobs, jobQuestion, resumeJobs, startJobs, steerJobs, viewLink, withThreadsLine } from "./jobs";
 import { addEvent, kindOf, logAsk, recentEvents } from "./events";
 import { cancelTurn, staleAsks } from "./decide";
 import { startTurn } from "./steer";
@@ -65,6 +65,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     ...(asked.handle ? { from: asked.handle } : {}),
     // Who is here, by handle, so an email can be offered to one of them to send (`apps/mcp/src/tools/offerFor.js`).
     people: [...new Set(handles.values())].filter(Boolean),
+    // Each account's name beside its handle, so "@jo" is known as the "Jo Rivers" the notes name (2026-11-04).
+    ...(named(asked.names).length > 0 ? { names: named(asked.names) } : {}),
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
   };
@@ -181,7 +183,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // member of it. So a list unread twice holds the answer, as a joiner does.
   if (routine && (answer.quiet || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
-  const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
+  const toSend = textsWithExact(answer.text, answer.verbatim, checkIn);
+  const texts = checkIn ? toSend : await withThreadsLine(toSend, answer.offers, viewLink(answer.hub, deps.threadsLink), answer.verbatim); // the live view rides in the first text (`jobs.ts`)
   const now = await readTwice();
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");
@@ -212,15 +215,20 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     await startJobs(storage, answer.jobs, {
       now: deps.now(),
       inbox: groupInboxName(message.groupId),
-      origin: { kind: "group", message, at: acceptedAt },
+      origin: { kind: "group", message: { ...message, text: jobQuestion(message.text, answer) }, at: acceptedAt }, // typed, said aloud, and the files sent
       place: { line: message.line, groupId: message.groupId, messageId: message.messageId },
       spawn: deps.spawnJob,
     });
   }
   // A change to a job still running is handed to it, in the words of whoever texted it.
-  const theirWords = { id: message.eventId, text: message.jobReport ? "" : message.text }; // a report's turn passes only its own notes
+  const theirWords = { id: message.eventId, text: message.jobReport ? "" : jobQuestion(message.text, answer) }; // with a voice message's words and the files sent // a report's turn passes only its own notes
   if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now());
   if (answer.steers && deps.steerJob) await resumeJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped, with their words
+}
+
+/** The chat's people with a name on their account, by handle. */
+function named(names: { handle: string; name?: string }[] | undefined): { handle: string; name: string }[] {
+  return (names ?? []).filter((entry) => entry.handle !== "" && typeof entry.name === "string" && entry.name !== "").map(({ handle, name }) => ({ handle, name: name as string }));
 }
 
 /** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */

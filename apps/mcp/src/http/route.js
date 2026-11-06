@@ -5,6 +5,10 @@
  * is one statement, so a pure move cannot make this file shorter.
  */
 
+import { MACHINE_PATHS, handleMachines } from "../machines/routes.js";
+import { MACHINE_JOB_PATHS, handleMachineJob } from "../machines/jobRoutes.js";
+import { JOB_NOTE_PATHS, handleJobNote } from "../agent/jobNote.js";
+import { MACHINE_APP_PATHS, handleMachineApp } from "../machines/appRoutes.js";
 import { openaiAppsChallengeResponse } from "./openaiAppsChallenge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { attachLinkCalls, matchWellKnown } from "./routing.js";
@@ -21,11 +25,10 @@ import {
   publicOrigin,
   unauthorizedResponse,
 } from "../oauth.js";
-import { resolvePresentedSession } from "./presentedToken.js";
+import { isRetiredTokenPath, resolvePresentedSession, retiredTokenPathResponse } from "./presentedToken.js";
 import { attachPinnedDoors } from "./pinnedDoors.js";
 import { attachContextOpener, onceEach } from "./contextOpener.js";
 import {
-  decodePathSegment,
   hasScope,
   SCOPE_CAPTURE,
   SCOPE_READ,
@@ -52,9 +55,11 @@ import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.
 import { MESSAGES_BACKUP_ROUTE, parseFileRoute } from "../../../../packages/communications/src/backup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleTexPage, TEX_PAGE_PATHS } from "./texPage/serve.js";
+import { APP_SEARCH_PATH, handleAppSearch } from "./appSearch.js";
 import { handleTexPageLive, TEX_PAGE_SOCKET_PATH } from "./texPage/live.js";
 import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
+import { handleLiveTicket, LIVE_TICKET_PATH } from "../live/ticket.js";
 import { FILE_OP_PATHS, handleFileOp } from "../live/fileOpsRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
 import {
@@ -107,24 +112,18 @@ export async function route(request, env, ctx) {
     // the control plane's RESERVED_NAMES beside it, so this needs no exception.
     const { slug, path: afterSlug } = splitWorkspacePath(url.pathname);
 
-    // Token-in-path fallback: /t/<token>/mcp, or /@slug/t/<token>/mcp.
+    // The token-in-URL fallback (`/t/<token>/...`, `/@slug/t/<token>/...`)
+    // predates OAuth and is retired (the owner, 2026-11-05;
+    // docs/decisions/gateway-protocol/token-transport.md). It is refused here,
+    // before the origin check and before any session is resolved, so the
+    // token is never looked up and never sent to the control plane, and the
+    // answer is the same bytes whatever the token.
     //
-    // Kept for clients that genuinely cannot set an Authorization header. It is
-    // a TRANSPORT for an OAuth-issued access token and nothing else: the token
-    // is resolved by exactly the same code as a header token, gets exactly the
-    // same grant, and confers exactly the same authority. It is not, and has
-    // never been, the security boundary. A token in a URL lands in browser
-    // history, proxy logs, and referrer headers, so prefer the header.
-    let path = afterSlug;
-    let pathToken = null;
-    const tokenInPath = path.match(/^\/t\/([^/]+)(\/.*)?$/);
-    if (tokenInPath) {
-      // A malformed escape decodes to nothing rather than throwing out of
-      // `fetch`. An undecodable token is not a token; the route still resolves
-      // and the request gets the ordinary 401 instead of a Worker exception.
-      pathToken = decodePathSegment(tokenInPath[1]);
-      path = tokenInPath[2] || "/";
-    }
+    // The live sockets were the last exception; they open on one-use tickets
+    // now (`live/ticket.js`), so no route reads a token in the URL.
+    const path = afterSlug;
+    const pathToken = null;
+    if (isRetiredTokenPath(path)) return retiredTokenPathResponse();
 
     // MCP says a server MUST validate `Origin` on the Streamable HTTP
     // transport, to stop a page in a victim's browser from reaching an
@@ -142,7 +141,7 @@ export async function route(request, env, ctx) {
     // `isTransportPath`'s reasoning about `/inbox` — and the list itself lives
     // in `origin.js`, so this asks the question here rather than editing
     // another module's idea of what speaks the MCP transport.
-    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH || isMessagesBackupPath(path)) {
+    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH || isMessagesBackupPath(path) || MACHINE_PATHS.has(path)) {
       const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
@@ -164,7 +163,8 @@ export async function route(request, env, ctx) {
       // `/.well-known/oauth-protected-resource/@seyi/mcp` before the root form,
       // so the slug can arrive in the prefix or in the suffix. Either way it
       // describes the same resource.
-      return protectedResourceMetadata(origin, slug || wellKnown.slug);
+      const resourcePath = path === "/.well-known/oauth-protected-resource/mcp/chatgpt/v2" ? "/mcp/chatgpt/v2" : path === "/.well-known/oauth-protected-resource/mcp/chatgpt" ? "/mcp/chatgpt" : null;
+      return protectedResourceMetadata(origin, slug || wellKnown.slug, resourcePath);
     }
 
     if (path.startsWith("/oauth/")) {
@@ -195,6 +195,8 @@ export async function route(request, env, ctx) {
     // 101 rather than JSON, and needs no queue, no usage counter and no search
     // budget — it never reads a note and never writes one.
     if (path === "/presence") return await handlePresence(request, env, { slug, pathToken, origin });
+    // A one-use ticket for one of the sockets here, so none of them carries a token (`live/ticket.js`).
+    if (path === LIVE_TICKET_PATH) return await handleLiveTicket(request, env, { slug, pathToken, origin });
     // The app's live file tree and access screens from the objects (`live/treeRoute.js`, `live/accessRoute.js`): sockets, likewise.
     if (path === TREE_SOCKET_PATH || path === ACCESS_SOCKET_PATH) return await (path === TREE_SOCKET_PATH ? handleTree : handleAccess)(request, env, { slug, pathToken, origin });
 
@@ -205,7 +207,7 @@ export async function route(request, env, ctx) {
       return await handleAgentActivity(request, env, { slug, pathToken, origin, ctx });
     }
 
-    // The person's own look at Tex's browser, for the app's `/tex/<handle>`
+    // The person's own look at Tex's browser, for the app's `/tex/@<handle>`
     // page. Its own branch for the reasons `/presence` has one: it reads no
     // note, writes nothing and needs no store. It takes a header token only.
     if (TEX_COMPUTER_PATHS.has(path)) {
@@ -214,8 +216,11 @@ export async function route(request, env, ctx) {
     // The Tex page's socket, held by the chat's Tex object (`texPage/live.js`): a GET answering 101, as `/presence`.
     if (path === TEX_PAGE_SOCKET_PATH) return await handleTexPageLive(request, env, { slug, pathToken, origin });
 
+    // A person's own computers: pairing and the runner's socket (`machines/routes.js`). Their own grant, not a session.
+    if (MACHINE_PATHS.has(path)) return await handleMachines(request, env, { path, origin });
+
     // The MCP transport: every step timed by the MCP entry point (`mcpRoute.js`).
-    if (path === "/mcp") return await serveMcp(request, env, ctx, { slug, pathToken, origin });
+    if (path === "/mcp" || path === "/mcp/chatgpt" || path === "/mcp/chatgpt/v2") return await serveMcp(request, env, ctx, { slug, origin });
 
     // A meeting route resolves a session exactly as `/mcp` does — same token,
     // same grant, same clamps — so it shares this block rather than growing a
@@ -242,7 +247,10 @@ export async function route(request, env, ctx) {
       path === "/inbox" ||
       path === "/agent" ||
       path === "/agent/try" ||
+      path === APP_SEARCH_PATH ||
       TEXTING_ROUTES.has(path) ||
+      MACHINE_JOB_PATHS.has(path) ||
+      MACHINE_APP_PATHS.has(path) ||
       path === "/agent/review" ||
       path === "/collaboration" ||
       fileOpRoute ||
@@ -256,7 +264,7 @@ export async function route(request, env, ctx) {
       const controlPlane = createControlPlane(env);
       let session;
       try {
-        session = await resolvePresentedSession(request, { pathToken, path, slug, controlPlane });
+        session = await resolvePresentedSession(request, { pathToken: null, path, slug, controlPlane });
       } catch (error) {
         if (!(error instanceof SessionRefusal)) throw error;
         // A 403 from workspace selection deliberately drops the slug from its
@@ -428,10 +436,18 @@ export async function route(request, env, ctx) {
       // setup an @context-lc editor picked, then a judge turn on its rules.
       // The texting Worker's steer, events, cancel and stale asks (`agent/textingRoutes.js`).
       if (TEXTING_ROUTES.has(path)) return await TEXTING_ROUTES.get(path)(request, store, session);
+      // A job's part on the person's own computer (`machines/jobRoutes.js`).
+      if (MACHINE_JOB_PATHS.has(path)) return await handleMachineJob(request, env, session, { path, controlPlane, origin, store });
+      // A job's note, and the advisor on its mail (`agent/jobNote.js`).
+      if (JOB_NOTE_PATHS.has(path)) return await handleJobNote(request, env, session, { path, store, controlPlane });
+      // The app's screens for their computers: list, settings, disconnect (`machines/appRoutes.js`).
+      if (MACHINE_APP_PATHS.has(path)) return await handleMachineApp(request, env, session, { path, controlPlane });
       // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (appRoute) return await appRoute(request, store, session, path);
+      // The app's search bar, on the same search an AI client runs (`appSearch.js`).
+      if (path === APP_SEARCH_PATH) return await withSearchPassesHeld(store, () => handleAppSearch(request, store, session));
       if (texPageRoute) return await handleTexPage(request, env, store, session, { path, controlPlane });
       if (messagesBackupRoute) {
         const file = parseFileRoute(path);

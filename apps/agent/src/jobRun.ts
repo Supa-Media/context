@@ -34,10 +34,13 @@ import { groupLineFor } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
-import { JOB_SHOWN_MS, JOB_LIMIT_MS, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
+import { machineTurn, type MachineLive, type MachineOutcome } from "./machineTurn";
+import { JOB_SHOWN_MS, JOB_LIMIT_MS, JOB_LINES, MACHINE_JOB_LIMIT_MS, MAX_MACHINE_JOB_ATTEMPTS, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
+import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
+import { advisorVerdict, openJobNote } from "./jobNote";
 
 export type JobDeps = {
   fetch: Fetch;
@@ -47,6 +50,8 @@ export type JobDeps = {
   sendblue?: SendblueKeys | null;
   whapi?: WhapiKeys | null;
   now: () => number;
+  /** How a part on their computer waits between reads (`machineTurn.ts`); tests pass one that only moves the clock. */
+  sleep?: (ms: number) => Promise<void>;
   /** Shrinks a big picture before it goes to the chat's inbox (`outgoing.ts`); absent, it goes as it is. */
   images?: ImagesLike;
   /** Tell the chat's inbox; true once it took the update (and sent its texts). */
@@ -77,6 +82,8 @@ export const STOP_KEY = "jobstop";
  */
 export const PASS_KEY = "jobpass";
 const MAX_STEERS = 5;
+/** Note mail lines kept for a job's next part (`jobMail.ts`). */
+const MAX_MAIL_KEPT = 20;
 /**
  * A job that ended without finishing (stuck, waiting, stopped, failed) keeps
  * its run here for `JOB_SHOWN_MS`, as its chat keeps its entry, so "restart it"
@@ -84,12 +91,14 @@ const MAX_STEERS = 5;
  * from the restart text (Dev2, 2026-10-31). Dropped once that time is up.
  */
 export const ENDED_KEY = "jobended";
-type Ended = { run: JobRun; endedAt: number };
+/** `keepUntil`: a job paused at the daily limit is kept past its restart, not two hours from its pause (`jobPause.ts`). */
+type Ended = { run: JobRun; endedAt: number; keepUntil?: number };
+const keptUntil = (ended: Ended) => ended.keepUntil ?? ended.endedAt + JOB_SHOWN_MS;
 /** The most of a replaced answer handed to the next part. */
 const MAX_DRAFT = 4_000;
 
 /** The turn running now, in memory only: its access token is a credential. */
-type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: string };
+type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: string; machine?: MachineLive | null };
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
@@ -101,7 +110,9 @@ type Outcome =
   /** Ends here, with this to say, or silently. */
   | { kind: "stop"; text?: string }
   /** The gateway refused to run it (`daily_limit`, `no_model`): it waits on them, and says why. */
-  | { kind: "refused"; why: "daily_limit" | "no_model" };
+  | { kind: "refused"; why: "daily_limit" | "no_model" }
+  /** The gateway turned the part down before anything ran (`clients.ts` `refused`): the same ask is turned down again, so it ends here and says why. */
+  | { kind: "rejected"; why: string };
 
 /** What a job's driver does after a pass: nothing more, the next pass now, or the next pass after `ms`. */
 export type JobNext = { kind: "done" } | { kind: "now" } | { kind: "after"; ms: number };
@@ -157,14 +168,20 @@ export async function resumeJob(
 ): Promise<boolean> {
   if ((await storage.get<JobRun>(RUN_KEY)) !== undefined) return false;
   const ended = await storage.get<Ended>(ENDED_KEY);
-  if (ended === undefined || now - ended.endedAt > JOB_SHOWN_MS) return false;
+  if (ended === undefined || now > keptUntil(ended)) return false;
   // The text that restarted it is theirs and newer than the plan ("book with santana"): the first resumed part is shown it.
   if (steer !== undefined && steer.text.trim() !== "" && steer.text !== PICKED_UP) {
     const steers = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
     if (!steers.some((kept) => kept.id === steer.id)) await storage.put(STEERS_KEY, [...steers, { id: steer.id, text: steer.text }].slice(-MAX_STEERS));
   }
   const resumes = (ended.run.resumes ?? 0) + 1;
-  await storage.put<Stored>(RUN_KEY, { ...ended.run, attempt: 1, tries: 0, startedAt: now, resumes, sent: 0, ...(ended.run.draft ? { unfinished: true as const } : {}) });
+  // On a computer: its settings as they are now (`background.js` `repick`), never the folder it was first handed. A new
+  // folder starts a new session there, since Claude Code keeps its sessions per folder.
+  const was = ended.run.machine;
+  const current = steer?.machine !== undefined && was !== undefined && steer.machine.machineId === was.machineId ? { ...steer.machine, ...(was.repo && !steer.machine.repo ? { repo: was.repo } : {}) } : was;
+  const moved = current !== undefined && was !== undefined && current.folder !== was.folder;
+  const { machineSession: _session, machineRun: _run, ...run } = ended.run;
+  await storage.put<Stored>(RUN_KEY, { ...(moved ? run : ended.run), ...(current ? { machine: current } : {}), attempt: 1, tries: 0, startedAt: now, resumes, sent: 0, ...(ended.run.draft ? { unfinished: true as const } : {}) });
   await storage.delete(ENDED_KEY);
   log("resumed", ended.run.id);
   if (start !== undefined) await start(ended.run.id, resumes);
@@ -181,15 +198,29 @@ export async function steerJob(storage: InboxStorage, steer: JobSteer): Promise<
   if ((await storage.get<JobRun>(RUN_KEY)) === undefined) return false;
   if (steer.stop) await storage.put(STOP_KEY, true);
   const steers = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
-  if (!steers.some((kept) => kept.id === steer.id)) await storage.put(STEERS_KEY, [...steers, steer].slice(-MAX_STEERS));
+  if (!steers.some((kept) => kept.id === steer.id)) await storage.put(STEERS_KEY, keptSteers([...steers, steer]));
   const running = live.get(storage);
-  if (running?.accessToken !== undefined) {
+  if (running?.machine) {
+    // A part on their computer: the words go into its session, and a stop cancels it there (`machines/jobRoutes.js`).
+    const { workspaceId, runId, accessToken, delivered } = running.machine;
+    const messageId = steer.id.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+    const path = steer.stop ? "/agent/machine/cancel" : "/agent/machine/deliver";
+    const sent = await post(running.fetch, "gateway", `${running.gatewayOrigin}${path}`, accessToken, steer.stop ? { workspaceId, runId, reason: "stopped" } : { workspaceId, runId, messageId, text: steer.text }, STEER_TIMEOUT_MS).catch(() => null);
+    if (!steer.stop && (sent?.json as { ok?: unknown } | null)?.ok === true) delivered.push(steer.id);
+  } else if (running?.accessToken !== undefined) {
     // Best effort: one the turn doesn't take is shown to the next turn.
     await post(running.fetch, "gateway", `${running.gatewayOrigin}/agent/steer`, running.accessToken, { turn: running.turn, ...steer }, STEER_TIMEOUT_MS).catch(
       () => null,
     );
   }
   return true;
+}
+
+/** The person's last few texts and the last note mail, each in its own room, oldest first: a busy note never pushes out a text. */
+function keptSteers(steers: JobSteer[]): JobSteer[] {
+  const texts = steers.filter((steer) => steer.mail === undefined).slice(-MAX_STEERS);
+  const mail = steers.filter((steer) => steer.mail !== undefined).slice(-MAX_MAIL_KEPT);
+  return steers.filter((steer) => texts.includes(steer) || mail.includes(steer));
 }
 
 /** After a turn: drop the texts it was shown or took in, and say what is left for the next one. */
@@ -206,7 +237,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   if (run === undefined) {
     // The alarm set when a job ended unfinished: its kept run goes once nobody can pick it up any more.
     const ended = await storage.get<Ended>(ENDED_KEY);
-    if (ended !== undefined && deps.now() - ended.endedAt > JOB_SHOWN_MS) await storage.delete(ENDED_KEY);
+    if (ended !== undefined && deps.now() > keptUntil(ended)) await storage.delete(ENDED_KEY);
     return { kind: "done" };
   }
   let sent = run.sent ?? 0;
@@ -228,6 +259,15 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   // Stopped between turns: it ends here, saying nothing (the chat's turn already told them).
   if ((await storage.get<boolean>(STOP_KEY)) === true) return await finish(storage, run, { state: "failed", status: "Stopped" }, tell, deps.now(), pass);
   await storage.put(PASS_KEY, pass);
+  // Its note, asked for once before its first part: the job, Tex and the advisor on its mail, and the job told who is there (`jobNote.ts`).
+  // A group's job has a note only where Tex put it in a project (`apps/mcp/src/agent/jobNote.js`), so one without asks nothing.
+  if (run.note === undefined && run.noteAsked !== true && (run.origin.kind === "phone" || run.mail !== undefined)) {
+    const token = await jobToken(run, deps).catch(() => null);
+    const note = token === null ? null : await openJobNote(deps, token, run);
+    run.noteAsked = true;
+    if (note !== null) run.note = note;
+    await storage.put<Stored>(RUN_KEY, { ...run, sent });
+  }
   const onProgress = async (text: string) => {
     // Only a line with a link is texted (a sign-in page): the rest is status, read when they ask.
     await tell({ state: "running", status: text, ...(HAS_LINK.test(text) ? { texts: [text] } : {}) });
@@ -239,11 +279,19 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const shown = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
   const turn: Live = { turn: crypto.randomUUID(), fetch: deps.fetch, gatewayOrigin: deps.gatewayOrigin };
   live.set(storage, turn);
-  const asked = ask(run, shown.map((steer) => steer.text));
+  const asked = ask(
+    run,
+    shown.filter((steer) => steer.mail === undefined).map((steer) => steer.text),
+    shown.flatMap((steer) => (steer.mail === undefined ? [] : [{ ...steer.mail, text: steer.text }])),
+  );
   let outcome: Outcome;
   try {
     outcome =
-      run.origin.kind === "phone" ? await phoneTurn(run, asked, turn, deps, onProgress, onStep) : await groupTurn(run, asked, turn, deps, onStep);
+      run.machine !== undefined
+        ? fromMachine(await machineTurn(run, asked, deps, { keep: (patch) => storage.put<Stored>(RUN_KEY, { ...run, ...patch, sent }), onStep, askOwner: async (line) => void (await tell({ state: "running", status: "Waiting for the computer's owner to say yes", texts: [line], ask: line })), live: (machine) => void (turn.machine = machine), steerIds: shown.map((steer) => steer.id), groupGrant: () => groupGrant(run, deps) }))
+        : run.origin.kind === "phone"
+          ? await phoneTurn(run, asked, turn, deps, onProgress, onStep)
+          : await groupTurn(run, asked, turn, deps, onStep);
   } catch (error) {
     outcome = error instanceof ServiceError ? { kind: "retry" } : { kind: "broken" };
   } finally {
@@ -270,15 +318,23 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   }
   // It texted a link to save a login: the chat's inbox watches for the save, to carry the task on (`vaultWatch.ts`).
   const watch = outcome.kind === "answer" && outcome.vaultWatch && run.origin.kind === "phone" ? { vaultWatch: run.origin.phone } : {};
-  // A text that came after the turn's last look changes the job: it is not texted the old way.
-  const changed = outcome.kind === "answer" && left.length > 0;
+  // A text that came after the turn's last look changes the job: it is not texted the old way. So does an ask or an
+  // interrupt mailed to it; a plain note mailed to it is shown to a next part if there is one, and is in the note anyway.
+  const changed = outcome.kind === "answer" && left.some((steer) => steer.mail === undefined || steer.mail.kind !== "note");
+  const mailed = changed && left.every((steer) => steer.mail !== undefined);
   // An answer the advisor says isn't finished (`apps/mcp/src/agent/jobCheck.js`; without it, `stopsShort.js`) is not done: the next part finishes it, on its advice.
   const unfinished = outcome.kind === "answer" && outcome.unfinished && !changed;
   const carryOn = (outcome.kind === "answer" && outcome.exhausted) || outcome.kind === "broken" || changed || unfinished;
   const advice = outcome.kind === "answer" ? outcome.advice : undefined;
   const checked = outcome.kind === "answer" && outcome.verdict ? { verdict: outcome.verdict, ...(advice ? { advice } : {}) } : {};
+  // The advisor's judgement of the part, said on the job's note too, so everyone on its mail sees it (`jobNote.ts`).
+  if (outcome.kind === "answer" && outcome.verdict && run.note?.advisor) {
+    const token = await jobToken(run, deps).catch(() => null);
+    if (token !== null) await advisorVerdict(run, deps, token, `My check of part ${run.attempt}: ${outcome.verdict.replace("_", " ")}.${advice ? ` ${advice}` : ""}`);
+  }
   // Dev2, 2026-10-31: a job keeps going for at most 30 minutes or 10 parts, then reports where it got to.
-  const roomLeft = run.attempt < MAX_JOB_ATTEMPTS && deps.now() - run.startedAt < JOB_LIMIT_MS;
+  // A job on their own computer runs for hours, in fifteen-minute parts (`machineTurn.ts`).
+  const roomLeft = run.machine !== undefined ? run.attempt < MAX_MACHINE_JOB_ATTEMPTS && deps.now() - run.startedAt < MACHINE_JOB_LIMIT_MS : run.attempt < MAX_JOB_ATTEMPTS && deps.now() - run.startedAt < JOB_LIMIT_MS;
   // Two parts in a row that called no tool and still weren't done are going nowhere (2026-10-31: three restarted jobs
   // answered "it's running again" eight times each): it ends stuck and says so, instead of spending more parts.
   const idle = outcome.kind === "answer" && outcome.idle === true && unfinished;
@@ -292,7 +348,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
       state: "running",
       ...watch,
       ...checked,
-      status: changed
+      status: mailed
+        ? `Answering mail from ${left.find((steer) => steer.mail)?.mail?.from ?? "another agent"}`
+        : changed
         ? "Changing it to what you texted"
         : unfinished
           ? advice ? `Not done yet; next: ${advice}`.slice(0, 280) : "Finishing what was still missing"
@@ -303,6 +361,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   }
 
   // What the advisor said decides how it ended: waiting on them, stuck, or (still short when its room ran out) stuck too; else done.
+  if (outcome.kind === "rejected") log("rejected", run.id, outcome.why); // 2026-11-05: a voice-only ask gave a job no question, and ten refused parts went in eight seconds, with no reason kept
   const ended = outcome.kind !== "answer" || changed ? "done" : outcome.verdict === "waiting" ? "waiting" : outcome.verdict === "stuck" || outcome.verdict === "keep_going" || unfinished ? "stuck" : "done";
   if (ended !== "done") log(spinning ? "ended_spinning" : `ended_${ended}`, run.id);
   const why = spinning ? "Two parts in a row did none of the work. " : ended === "stuck" && outcome.kind === "answer" && outcome.verdict !== "stuck" ? "Ran out of time. " : "";
@@ -314,11 +373,13 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           status: ended === "done" ? outcome.status : `${why}${advice || outcome.status}`.slice(0, 280),
           // A page's cover goes first, in place of the link's name card (`jobTexts.ts`); not with an answer a later text changed.
           ...(changed ? {} : await sendable(outcome.pictures, deps.images)),
-          texts: changed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts,
+          texts: changed && !mailed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts,
           ...watch,
         }
       : outcome.kind === "refused"
-        ? { state: "waiting", status: JOB_LINES.refusedStatus[outcome.why], texts: [JOB_LINES.refused(run.title, outcome.why)] }
+        ? { state: "waiting", status: JOB_LINES.refusedStatus[outcome.why], texts: [JOB_LINES.refused(run.title, outcome.why)], ...(outcome.why === "daily_limit" ? { resumeAt: limitResetAt(deps.now()) } : {}) } // starts again by itself (`jobPause.ts`)
+        : outcome.kind === "rejected"
+          ? { state: "failed", status: `Stopped: turned down before it ran (${outcome.why})`.slice(0, 280), texts: [JOB_LINES.rejected(run.title, outcome.why)] }
         : outcome.kind === "stop"
           ? { state: "failed", ...(outcome.text ? { texts: [outcome.text] } : {}) }
           : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
@@ -344,8 +405,9 @@ async function finish(
   if (update.state === "done") await storage.delete(ENDED_KEY);
   else {
     const { sent: _s, owed: _o, owedTries: _t, unfinished: _u, idle: _i, ...kept } = run;
-    await storage.put<Ended>(ENDED_KEY, { run: kept, endedAt: now });
-    await storage.setAlarm(now + JOB_SHOWN_MS + 60_000);
+    const keepUntil = update.resumeAt === undefined ? undefined : update.resumeAt + JOB_SHOWN_MS;
+    await storage.put<Ended>(ENDED_KEY, { run: kept, endedAt: now, ...(keepUntil !== undefined ? { keepUntil } : {}) });
+    await storage.setAlarm((keepUntil ?? now + JOB_SHOWN_MS) + 60_000);
   }
   await storage.delete(RUN_KEY);
   await storage.delete(STEERS_KEY);
@@ -363,18 +425,40 @@ async function sendable(pictures: OutgoingPicture[], images: ImagesLike | undefi
 }
 
 /** What the job's turn is asked with. */
-function ask(run: JobRun, followUps: string[]): JobAsk {
+function ask(run: JobRun, followUps: string[], mail: Array<JobMail & { text: string }> = []): JobAsk {
   return {
     ...(followUps.length > 0 ? { followUps } : {}),
+    ...(mail.length > 0 ? { mail } : {}),
     id: run.id,
     title: run.title,
     brief: run.brief,
     attempt: run.attempt,
     ...(run.doneWhen ? { doneWhen: run.doneWhen } : {}),
+    ...(run.mail ? { project: run.mail } : {}),
+    ...(run.note ? { roster: run.note.roster } : {}),
     ...(run.tainted ? { tainted: true as const } : {}),
     ...(run.draft ? { draft: run.draft } : {}),
     ...(run.draft && run.unfinished ? { unfinished: true as const } : {}),
     ...(run.advice ? { advice: run.advice } : {}),
+  };
+}
+
+/** A part on their computer, as a cloud part's outcome. */
+function fromMachine(outcome: MachineOutcome): Outcome {
+  if (outcome.kind !== "answer") return outcome;
+  const check = outcome.check ?? {};
+  return {
+    kind: "answer",
+    texts: outcome.texts,
+    pictures: [],
+    exhausted: outcome.exhausted,
+    // The advisor's `keep_going` on a finished part: the next part resumes the session on its advice (`jobCheck.js`).
+    unfinished: check.unfinished === true,
+    status: outcome.status,
+    steered: outcome.steered,
+    ...(check.verdict ? { verdict: check.verdict, ...(check.advice ? { advice: check.advice } : {}) } : {}),
+    ...(check.untrusted ? { untrusted: true as const } : {}),
+    ...(check.idle ? { idle: true as const } : {}),
   };
 }
 
@@ -401,7 +485,7 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
     };
   }
   if (answer.kind === "not_started") return { kind: "retry" };
-  if (answer.kind === "unavailable") return { kind: "broken" };
+  if (answer.kind === "unavailable") return answer.refused ? { kind: "rejected", why: answer.refused } : { kind: "broken" };
   // Refused before anything ran: never a silent failure (Dev2, 2026-10-31, the day three jobs ran into the cap).
   if (answer.kind === "daily_limit" || answer.kind === "no_model") return { kind: "refused", why: answer.kind };
   return { kind: "stop", text: undefined };
@@ -437,6 +521,23 @@ async function phoneTurn(
   return outcome;
 }
 
+/** The job's own grant now, a person's or its group chat's, for a call of its own beside a part; null when it may not run. */
+export async function jobToken(run: JobRun, deps: JobDeps): Promise<string | null> {
+  if (run.origin.kind === "group") return await groupGrant(run, deps);
+  const session = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, run.origin.phone);
+  return session.status === "linked" ? session.accessToken : null;
+}
+
+/** A group job's grant, minted as its own turn's is: the chat's people read again, so somebody who joined since narrows it. Null when it may not run. */
+async function groupGrant(run: JobRun, deps: JobDeps): Promise<string | null> {
+  if (run.origin.kind !== "group") return null;
+  const message = run.origin.message;
+  const app = groupLineFor(deps, message.groupId);
+  const members = await app.readMembers({ line: message.line, groupId: message.groupId });
+  const asked = await askControlPlane(deps, message, peopleOf(message.line, message.participants, members), null);
+  return asked.status === "ready" && asked.accessToken !== undefined ? asked.accessToken : null;
+}
+
 async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, onStep: (text: string, how?: StepHow) => Promise<void>): Promise<Outcome> {
   if (run.origin.kind !== "group") return { kind: "stop" };
   const message = run.origin.message;
@@ -468,7 +569,7 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
     async () => {},
     onStep,
   );
-  if (answer.kind === "unavailable") return { kind: "broken" };
+  if (answer.kind === "unavailable" && !answer.refused) return { kind: "broken" };
   const outcome = outcomeOf(answer, textsFromAnswer);
   if (outcome.kind !== "answer") return outcome;
   // Sent only to the people it was written for, as a group's answer is (`groupInbox.ts`).

@@ -33,7 +33,7 @@ jest.mock("react-native-safe-area-context", () => ({
 
 const { FolderView } =
   require("../features/console/files/FolderView") as typeof import("../features/console/files/FolderView");
-const { setListingOrder, resetListingOrder } =
+const { setWorkspaceSort, resetListingOrder } =
   require("../features/console/files/listingOrder") as typeof import("../features/console/files/listingOrder");
 const { listedEntries } =
   require("../features/console/files/tree") as typeof import("../features/console/files/tree");
@@ -113,7 +113,7 @@ describe("the folder page honours the sort the tree's header sets", () => {
   test("Z to A once the control is pressed, without remounting the page", () => {
     mountListing();
     act(() => {
-      setListingOrder(true);
+      setWorkspaceSort("name-desc");
     });
     expect(drawnOrder()).toEqual(["health", "admin", "zebra", "apples"]);
   });
@@ -122,7 +122,7 @@ describe("the folder page honours the sort the tree's header sets", () => {
     // The press happens in the sidebar, and the folder page may be opened
     // afterwards. A store read only on mount would pass the test above and
     // fail this one.
-    setListingOrder(true);
+    setWorkspaceSort("name-desc");
     mountListing();
     expect(drawnOrder()).toEqual(["health", "admin", "zebra", "apples"]);
   });
@@ -132,7 +132,7 @@ describe("the folder page honours the sort the tree's header sets", () => {
     // the list — a plain `.reverse()` would put the notes first.
     mountListing();
     act(() => {
-      setListingOrder(true);
+      setWorkspaceSort("name-desc");
     });
     const drawn = drawnOrder();
     expect(drawn.slice(0, 2).sort()).toEqual(["admin", "health"]);
@@ -140,9 +140,9 @@ describe("the folder page honours the sort the tree's header sets", () => {
   });
 
   test("it is the same function the tree is built from, not a second opinion", () => {
-    setListingOrder(true);
+    setWorkspaceSort("name-desc");
     mountListing();
-    const shared = listedEntries(LISTING.entries, { descending: true }).map((one) =>
+    const shared = listedEntries(LISTING.entries, { sort: "name-desc", parent: LISTING.path }).map((one) =>
       one.name.replace(/\.md$/, ""),
     );
     expect(drawnOrder()).toEqual(shared);

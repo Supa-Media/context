@@ -1,0 +1,116 @@
+{
+  "gate": "never_arrived",
+  "about": "Replies that wait on a code, text, email or prompt the person just said never reached them, instead of taking another route. From the 2026-11-04 morning chat and the 2026-10-28/29 tester chats.",
+  "cases": [
+    {
+      "id": "prompt-never-came",
+      "q": "the approval notification never showed up on my phone",
+      "did": [],
+      "reply": "Approve the request on your phone and I'll continue.",
+      "fault": true
+    },
+    {
+      "id": "prompt-never-came-handled",
+      "q": "the approval notification never showed up on my phone",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://site.example/login"
+          },
+          "Other ways to sign in: text me a code"
+        ]
+      ],
+      "reply": "Switched to a texted code instead, it should hit your phone now. What's the code?",
+      "fault": false
+    },
+    {
+      "id": "code-never-came-asks-again",
+      "q": "i never got the verification text",
+      "did": [],
+      "reply": "Send me the 6-digit code when it arrives and I'll finish.",
+      "fault": true
+    },
+    {
+      "id": "code-never-came-rerouted",
+      "q": "i never got the verification text",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://bank.example/verify"
+          },
+          "Code sent by voice call to the number on file"
+        ]
+      ],
+      "reply": "Switched it to a phone call, your phone should ring now. What's the code?",
+      "fault": false
+    },
+    {
+      "id": "email-link-wait",
+      "q": "the confirm email isn't in my inbox",
+      "did": [],
+      "reply": "It can take a few minutes, tap the link once it shows up and I'll take it from there.",
+      "fault": true
+    },
+    {
+      "id": "email-link-resent",
+      "q": "the confirm email isn't in my inbox",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://shop.example/account"
+          },
+          "Confirmation resent to sam@work.example"
+        ]
+      ],
+      "reply": "It went to your work address, so I resent it there. Check that inbox.",
+      "fault": false
+    },
+    {
+      "id": "code-arrived",
+      "q": "ok got it: 552190",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://bank.example/verify"
+          },
+          "Verified. Signed in."
+        ]
+      ],
+      "reply": "Signed in. Paying the bill now.",
+      "fault": false
+    },
+    {
+      "id": "sms-try-again",
+      "q": "nothing came through on my phone",
+      "did": [],
+      "reply": "Try once more and send me the code when you see it.",
+      "fault": true
+    },
+    {
+      "id": "approval-wait",
+      "q": "i don't see any approve button",
+      "did": [],
+      "reply": "It'll pop up on your phone in a sec, tap Approve and I'll keep going.",
+      "fault": true
+    },
+    {
+      "id": "approval-other-option",
+      "q": "i don't see any approve button",
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://accounts.example/signin"
+          },
+          "Try another way: get a code by text"
+        ]
+      ],
+      "reply": "Switched to a texted code instead. What's the 6 digits?",
+      "fault": false
+    }
+  ]
+}

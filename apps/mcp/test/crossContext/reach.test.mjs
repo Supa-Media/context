@@ -55,6 +55,16 @@ export async function runCrossContextReachChecks(check, harness) {
     "a context this person is not in is refused through the path as through context",
     !textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: "@stranger/1-projects/shared-name.md" })).includes("MARKER")
   );
+  // read_notes with the paths a search across workspaces writes (core benchmark q16/q17, 2026-11-05: every one was "not found").
+  const several = ((await callTool(env, TOKEN_OWNER, "read_notes", { paths: ["1-projects/shared-name.md", "@theirs/1-projects/shared-name.md", "@theirs/2-areas/kept-private.md", "@stranger/1-projects/shared-name.md"] })).content ?? [])
+    .map((part) => part.text ?? "")
+    .join("\n\n");
+  check("read_notes reads a prefixed path in the context it names, beside one of its own", several.includes("MINE-MARKER") && several.includes("THEIRS-MARKER"));
+  check("and its parts keep the order they were asked in", several.indexOf("MINE-MARKER") < several.indexOf("THEIRS-MARKER"));
+  check(
+    "and it clamps as read_note does: neither the private note there nor a context this person is not in is read",
+    !several.includes("THEIRS-PRIVATE-MARKER") && (several.match(/MARKER/g) ?? []).length === 2
+  );
   check(
     "a listing by a prefixed prefix is the addressed context's",
     textOf(await callTool(env, TOKEN_OWNER, "list_notes", { prefix: "@theirs/1-projects" })).includes("1-projects/shared-name.md")

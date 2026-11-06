@@ -1,0 +1,51 @@
+# Copy each person's texting record into their person object and switch their
+# texts over (owner, 2026-11-04: "if the MCP doesn't have to go through convex,
+# I believe, then neither should texting"; see
+# `apps/convex/functions/textingObjects.ts` and
+# docs/decisions/texting-assistant/texting-in-objects.md).
+#
+# Manual only. Only a person whose access already lives in their object is
+# switched, and only once their record landed. Each run pushes a page and
+# schedules the next itself, so this job prints the first page's counts and
+# never an id, a phone or a hash: this repository is public, and so is this
+# job's log. Running it again only pushes fresh records.
+name: Texting objects backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to switch in."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Backfill
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          answer=$(npx convex run functions/textingObjects:backfill '{"limit": 50}' 2>/dev/null)
+          echo "first page: $(echo "$answer" | jq -c '{pushed, skipped, failed, more: (.next != null)}')"

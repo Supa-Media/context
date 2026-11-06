@@ -36,6 +36,8 @@ const rowValidator = v.object({
   role: v.optional(v.string()),
   order: v.optional(v.number()),
   archiveOf: v.optional(v.string()),
+  sort: v.optional(v.string()),
+  _creationTime: v.optional(v.number()),
 });
 
 async function recordOf(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<Doc<"workspaceObjectHomes"> | null> {
@@ -151,6 +153,8 @@ export const rowsPage = internalQuery({
           ...(row.role === undefined ? {} : { role: row.role }),
           ...(row.order === undefined ? {} : { order: row.order }),
           ...(row.archiveOf === undefined ? {} : { archiveOf: row.archiveOf }),
+          ...(row.sort === undefined ? {} : { sort: row.sort }),
+          _creationTime: row._creationTime,
         });
       }
       if (scanned >= ROWS_PER_PAGE) return { rows, next: row.path };

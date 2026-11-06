@@ -62,12 +62,13 @@ test("a long result keeps its link", () => {
   assert.ok(line.length < 720 && line.endsWith(link), line);
 });
 
-test("only a running job's report is offered SKIP", () => {
-  assert.match(jobReportPrompt(running), /answer exactly SKIP: nothing is texted/);
+test("only a running job's report is offered say_nothing, and none is told to type SKIP", () => {
+  assert.match(jobReportPrompt(running), /send \{ action: "say_nothing" \}: nothing is texted/);
+  assert.doesNotMatch(jobReportPrompt(running), /SKIP/);
   for (const state of ["done", "failed", "waiting", "stuck"]) {
     const prompt = jobReportPrompt({ ...done, state });
-    assert.match(prompt, /Never answer SKIP/);
-    assert.doesNotMatch(prompt, /answer exactly SKIP/);
+    assert.match(prompt, /Never say nothing/);
+    assert.doesNotMatch(prompt, /say_nothing|SKIP/);
   }
 });
 

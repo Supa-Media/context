@@ -22,6 +22,8 @@
  *     never held again…" fails.
  *  7. `recheckDraft` counting somebody else's words → "only the asker's own
  *     newer words…" fails.
+ *  8. `recheckDraft` counting a tapback as newer words → "the asker's tapback
+ *     never holds a reply…" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -230,6 +232,19 @@ for (const { name, groupId } of LINES) {
       await put(3, { message: w.message("Tex and the logs?"), attempts: 0, at: 20, ev: "0000000000020-000003" });
       expect(await recheckDraft(storage, w.deps, { ...ask, covers: ["0000000000001-000001", "0000000000010-000002"], upTo: 10 })).toBe("send");
       expect(w.rechecks).toHaveLength(1);
+    });
+
+    // Tex Devs, 2026-11-05 18:23: Jhon's 👎 on an older link held his finished answer, and he waited 40 s for a different one.
+    it("the asker's tapback never holds a reply, as in a 1:1 chat", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { recheck: () => ({ ok: true, fits: false }) });
+      const put = (seq: number, item: GroupPending) => storage.put(`gpending:${String(seq).padStart(12, "0")}`, item);
+      const ask = w.message("Tex give me a prompt for my Mac");
+      await put(1, { message: ask, attempts: 0, at: 0, ev: "0000000000001-000001" });
+      const tapback = { ...w.message("Disliked “Link: https://context.lc/messages/threads”"), reaction: { how: "Disliked" as const, words: "👎 on the link" } };
+      await put(2, { message: tapback, attempts: 0, at: 10, ev: "0000000000010-000002" });
+      expect(await recheckDraft(storage, w.deps, { message: ask, covers: ["0000000000001-000001"], upTo: 0, text: "Try this with Muse: …" })).toBe("send");
+      expect(w.rechecks).toHaveLength(0);
     });
   });
 }

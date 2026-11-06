@@ -26,7 +26,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { GOOGLE_REVIEW_EMAIL, REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
+import { GOOGLE_REVIEW_EMAIL, DIRECTORY_REVIEW_EMAIL, REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
 import { asUser, captureError, createUser, createWorkspace, errorCode, setupTest } from "./fixtures.helpers";
 import { grantUser, noteIdOf, PLAN, PLAN_MARKER, readByNoteId, world } from "./grants/outsider.helpers";
 
@@ -34,10 +34,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("the reserved reviewer stays in its own workspace", () => {
+describe.each([REVIEWER_EMAIL, DIRECTORY_REVIEW_EMAIL])("the reserved reviewer %s stays in its own workspace", (reviewEmail) => {
   test("cannot start a Google connection, while any other owner can", async () => {
     const t = setupTest();
-    const reviewer = await createUser(t, REVIEWER_EMAIL);
+    const reviewer = await createUser(t, reviewEmail);
     const reviewerOwn = await createWorkspace(t, reviewer, "rvw-desk");
     const ana = await createUser(t, "ana@example.invalid");
     const anaOwn = await createWorkspace(t, ana, "ana");
@@ -51,7 +51,7 @@ describe("the reserved reviewer stays in its own workspace", () => {
   test("cannot accept an invitation, and the invitation stays unspent", async () => {
     const t = setupTest();
     const ana = await createUser(t, "ana@example.invalid");
-    const reviewer = await createUser(t, REVIEWER_EMAIL);
+    const reviewer = await createUser(t, reviewEmail);
     await createWorkspace(t, reviewer, "rvw-desk");
     const atlas = await createWorkspace(t, ana, "atlas", { kind: "shared", displayName: "Atlas" });
     await asUser(t, ana).mutation(api.functions.invitations.inviteMember, {
@@ -86,7 +86,7 @@ describe("the reserved reviewer stays in its own workspace", () => {
       domain: "supa.media",
     });
     const colleague = await createUser(t, "colleague@supa.media");
-    const reviewer = await createUser(t, REVIEWER_EMAIL);
+    const reviewer = await createUser(t, reviewEmail);
 
     expect(await asUser(t, reviewer).query(api.functions.workspaceDomains.myDomainWorkspaces, {})).toEqual([]);
     const refused = await captureError(() =>
@@ -100,7 +100,7 @@ describe("the reserved reviewer stays in its own workspace", () => {
 
   test("reads nothing through a grant in somebody else's workspace", async () => {
     const w = await world();
-    const reviewer = await createUser(w.t, REVIEWER_EMAIL);
+    const reviewer = await createUser(w.t, reviewEmail);
     await grantUser(w, PLAN, w.kola);
     const noteId = await noteIdOf(w, PLAN);
     // The control: the same grant opens the note for an ordinary outsider.
@@ -118,7 +118,7 @@ describe("the reserved reviewer stays in its own workspace", () => {
     const t = setupTest();
     const ana = await createUser(t, "ana@example.invalid");
     const anaOwn = await createWorkspace(t, ana, "ana");
-    const reviewer = await createUser(t, REVIEWER_EMAIL);
+    const reviewer = await createUser(t, reviewEmail);
     await createWorkspace(t, reviewer, "rvw-desk");
     const lk = await createUser(t, "lk@example.invalid");
     await createWorkspace(t, lk, "lk");
@@ -137,7 +137,7 @@ describe("the reserved reviewer stays in its own workspace", () => {
 
   test("keeps the one address that names it, while a fresh account may add another", async () => {
     const t = setupTest();
-    const reviewer = await createUser(t, REVIEWER_EMAIL);
+    const reviewer = await createUser(t, reviewEmail);
     const ada = await createUser(t, "ada@example.invalid");
     const start = (userId: typeof ada, email: string) =>
       asUser(t, userId).action(api.functions.signInEmails.startAddEmail, { email });
@@ -153,7 +153,7 @@ describe("the reserved reviewer stays in its own workspace", () => {
       asUser(t, reviewer).mutation(api.functions.signInEmails.setMailEmail, { email: "mine@attacker.example.invalid" }),
     );
     expect(errorCode(swap)).toBe("RESERVED_ACCOUNT");
-    expect((await t.run((ctx) => ctx.db.get(reviewer)))?.email).toBe(REVIEWER_EMAIL);
+    expect((await t.run((ctx) => ctx.db.get(reviewer)))?.email).toBe(reviewEmail);
   });
 });
 
@@ -207,7 +207,7 @@ describe("what the review accounts already hold, as counts", () => {
     await w.t.run((ctx) => ctx.db.insert("workspaceMembers", { workspaceId: w.ws, userId: reviewer, role: "member", joinedAt: 1 } as never));
 
     const rows = await w.t.query(internal.functions.reviewerReachAudit.counts, {});
-    expect(rows.map((row) => row.address)).toEqual([REVIEWER_EMAIL, GOOGLE_REVIEW_EMAIL]);
+    expect(rows.map((row) => row.address)).toEqual([REVIEWER_EMAIL, GOOGLE_REVIEW_EMAIL, DIRECTORY_REVIEW_EMAIL]);
     expect(rows[0]).toMatchObject({ accounts: 1, ownedWorkspaces: 1, otherMemberships: 1, grantsByAccount: 1, googleConnections: 0 });
     expect(rows[1]).toMatchObject({ accounts: 0, ownedWorkspaces: 0, otherMemberships: 0, grantsByAccount: 0 });
     expect(JSON.stringify(rows)).not.toMatch(/"[a-z0-9]{20,}"/);

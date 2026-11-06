@@ -18,7 +18,8 @@
  * - Tex's answer is its texts of one turn, shown only when the gateway's own
  *   `reply` entry for that turn exists: the Worker's events never vouch for
  *   themselves (`ledgerHistory.js`). `clean: false` marks it tainted, as the
- *   record did, so a later turn that reads it is untrusted (`historyIsTainted`).
+ *   record did; that mark is the answer's alone and never a later turn's
+ *   (`docs/decisions/texting-assistant/turn-trust.md`).
  *   A Tex text with no reply behind it is never shown: one Tex sent by itself
  *   is its `note`, and one nobody can vouch for has no words worth the risk.
  * - A text Tex sent by itself (a check-in, a routine's run, a job's update, a
@@ -60,6 +61,10 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
     }
   }
 
+  // An event written again (a voice message once heard, `heardWords.js`) is shown once, where it first came, in its newest words.
+  const newestOf = new Map();
+  for (const entry of list) if (entry.kind === "text" && typeof entry.eid === "string") newestOf.set(entry.eid, entry);
+  const placed = new Set();
   const turns = [];
   const toldAt = new Map();
   let asked = [];
@@ -79,7 +84,10 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
   const flush = () => {
     if (answering === null) return;
     const reply = replies.get(answering.turn);
-    const extra = [typeof reply.attached === "string" && reply.attached !== "" ? reply.attached : null].filter(Boolean);
+    // A voice message heard onto their own line is not repeated from what the gateway noted beside the answer.
+    const onTheirLine = asked.some((entry) => entry.heard === "voice");
+    const noted = typeof reply.attached === "string" ? reply.attached.split("\n").filter((line) => line !== "" && !(onTheirLine && line.startsWith("[Voice message "))).join("\n") : "";
+    const extra = [noted !== "" ? noted : null].filter(Boolean);
     const user = question(null, typeof reply.thread === "string" ? { thread: reply.thread } : {});
     if (user !== null) {
       if (extra.length > 0) user.text = [user.text, ...extra].join("\n");
@@ -99,8 +107,10 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
       const from = entry.from?.kind;
       if (SKIPPED_EVENTS.has(entry.event)) continue;
       if (from === "person") {
+        if (typeof entry.eid === "string" && placed.has(entry.eid)) continue;
+        if (typeof entry.eid === "string") placed.add(entry.eid);
         flush();
-        asked.push(entry);
+        asked.push(typeof entry.eid === "string" ? newestOf.get(entry.eid) : entry);
       } else if (from === "system" && typeof entry.told === "string" && Object.hasOwn(TOLD, entry.told)) {
         // Both the Worker and the gateway keep a fixed text (`conversation.js` `appendTold`): one of them is shown.
         // Each copy pairs with at most one of the other's, so the same text sent twice is still shown twice.

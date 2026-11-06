@@ -224,12 +224,29 @@ export async function viewOnBrowserbase(env: BrowserbaseEnv, path: string, body:
     const page = await attachPage(cdp);
     if (action !== null) await applyAction(page, action);
     const frame = await captureFrame(page);
-    // The action's kind and timing only: never a coordinate, a key's text, a word typed or the page.
-    console.log(JSON.stringify({ event: "site_shots_view", action: action?.kind ?? "frame", ms: Date.now() - started }));
+    const sizes = await windowSizes(page);
+    // The action's kind, timing and the window's sizes only: never a coordinate, a key's text, a word typed or the page.
+    console.log(JSON.stringify({ event: "site_shots_view", action: action?.kind ?? "frame", ms: Date.now() - started, ...sizes }));
     return json(frame);
   } catch {
     return json({ error: "the browser could not do that" }, 502);
   } finally {
     cdp.close();
   }
+}
+
+/**
+ * The window's sizes, numbers only, so a picture that jumps in size in the
+ * person's view can be traced to the browser (2026-11-05): the page's own
+ * size, the window around it, the pixel ratio and any pinch zoom.
+ */
+export async function windowSizes(page: Pick<AttachedPage, "evaluate">): Promise<Record<string, number>> {
+  const raw = await page
+    .evaluate<Record<string, unknown>>(
+      "({ inner: innerWidth, innerH: innerHeight, outer: outerWidth, outerH: outerHeight, ratio: devicePixelRatio, zoom: visualViewport ? visualViewport.scale : 1, screen: screen.width })",
+    )
+    .catch(() => null);
+  const sizes: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw ?? {})) if (typeof value === "number" && Number.isFinite(value)) sizes[key] = Math.round(value * 100) / 100;
+  return sizes;
 }

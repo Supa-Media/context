@@ -1,0 +1,195 @@
+{
+  "gate": "followed_them",
+  "about": "Replies that ignore what the person told Tex to act on: a correction, a refused method (with the goal still wanted), or an ask to use the advisor. From the 2026-10-28/29 tester chats and the 2026-11-04 morning chat.",
+  "cases": [
+    {
+      "id": "advisor-skipped",
+      "q": "ask your advisor whether I should take the offer",
+      "did": [],
+      "reply": "I'd take it, the equity is better.",
+      "fault": true
+    },
+    {
+      "id": "advisor-asked",
+      "q": "ask your advisor whether I should take the offer",
+      "did": [
+        [
+          "ask_advisor",
+          {
+            "question": "take the offer?"
+          },
+          "Take it: equity outweighs the $10k salary gap."
+        ]
+      ],
+      "reply": "Advisor says take it, the equity outweighs the $10k gap.",
+      "fault": false
+    },
+    {
+      "id": "older-question",
+      "q": "actually make it thursday instead",
+      "earlier": [
+        [
+          "person",
+          "book a table for 4 on wednesday at 7"
+        ],
+        [
+          "tex",
+          "Booked Lupa Wednesday at 7 for 4."
+        ]
+      ],
+      "did": [],
+      "reply": "You're all set for Wednesday at 7 at Lupa.",
+      "fault": true
+    },
+    {
+      "id": "correction-handled",
+      "q": "actually make it thursday instead",
+      "earlier": [
+        [
+          "person",
+          "book a table for 4 on wednesday at 7"
+        ],
+        [
+          "tex",
+          "Booked Lupa Wednesday at 7 for 4."
+        ]
+      ],
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://resy.example/lupa"
+          },
+          "Moved to Thursday 7:00 PM, party of 4"
+        ]
+      ],
+      "reply": "Moved to Thursday at 7.",
+      "fault": false
+    },
+    {
+      "id": "goal-dropped",
+      "q": "no not uber, i hate uber",
+      "earlier": [
+        [
+          "person",
+          "how do i get to the airport friday 6am"
+        ],
+        [
+          "tex",
+          "Uber's about $45 at that hour."
+        ]
+      ],
+      "did": [],
+      "reply": "Got it, no Uber.",
+      "fault": true
+    },
+    {
+      "id": "goal-kept",
+      "q": "no not uber, i hate uber",
+      "earlier": [
+        [
+          "person",
+          "how do i get to the airport friday 6am"
+        ],
+        [
+          "tex",
+          "Uber's about $45 at that hour."
+        ]
+      ],
+      "did": [
+        [
+          "web_search",
+          {
+            "q": "airport train 6am"
+          },
+          "AirTrain from Penn 5:40am, $16"
+        ]
+      ],
+      "reply": "Then the 5:40 train from Penn, $16, gets you there by 6:20.",
+      "fault": false
+    },
+    {
+      "id": "wrong-file-ignored",
+      "q": "no, the print version, not the png",
+      "earlier": [
+        [
+          "tex",
+          "Here's the logo: https://drive.example/brand/logo.png"
+        ]
+      ],
+      "did": [],
+      "reply": "Glad that's the one you needed!",
+      "fault": true
+    },
+    {
+      "id": "wrong-file-fixed",
+      "q": "no, the print version, not the png",
+      "earlier": [
+        [
+          "tex",
+          "Here's the logo: https://drive.example/brand/logo.png"
+        ]
+      ],
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://drive.example/brand"
+          },
+          "logo-print.pdf https://drive.example/brand/logo-print.pdf"
+        ]
+      ],
+      "reply": "Here's the print one: https://drive.example/brand/logo-print.pdf",
+      "fault": false
+    },
+    {
+      "id": "plain-new-ask",
+      "q": "what's the weather saturday?",
+      "did": [
+        [
+          "weather",
+          {
+            "day": "saturday"
+          },
+          "Sunny, 64"
+        ]
+      ],
+      "reply": "Sunny, 64.",
+      "fault": false
+    },
+    {
+      "id": "wrong-name-kept",
+      "q": "it's Priya not Pria",
+      "earlier": [
+        [
+          "person",
+          "draft a thank-you to Pria for the intro"
+        ],
+        [
+          "tex",
+          "Draft: 'Hi Pria, thanks so much for the intro!'"
+        ]
+      ],
+      "did": [],
+      "reply": "Thanks! Want me to send it?",
+      "fault": true
+    },
+    {
+      "id": "wrong-name-fixed",
+      "q": "it's Priya not Pria",
+      "earlier": [
+        [
+          "person",
+          "draft a thank-you to Pria for the intro"
+        ],
+        [
+          "tex",
+          "Draft: 'Hi Pria, thanks so much for the intro!'"
+        ]
+      ],
+      "did": [],
+      "reply": "Fixed: 'Hi Priya, thanks so much for the intro!' Send it?",
+      "fault": false
+    }
+  ]
+}

@@ -7,8 +7,8 @@
  *
  * ## It authorizes like `/presence/tree`, and the client names nothing that matters
  *
- * Same token (the console grant, offered as a subprotocol so it never sits in
- * a URL), same session, same role clamp. `?of=` picks one of two objects, and
+ * Same token (the console grant, behind a one-use ticket offered as a
+ * subprotocol: `live/ticket.js`), same session, same role clamp. `?of=` picks one of two objects, and
  * both are read off the session, never off the request:
  * - `workspace`: the workspace the grant resolved to;
  * - `person`: the signed-in person's own personal workspace.
@@ -84,7 +84,7 @@ export async function handleAccess(request, env, { slug, pathToken, origin }, de
   const controlPlane = deps.controlPlane ?? createControlPlane(env);
   let session;
   try {
-    session = await resolvePresentedSession(request, { pathToken, path: ACCESS_SOCKET_PATH, slug, controlPlane });
+    session = await resolvePresentedSession(request, { pathToken, path: ACCESS_SOCKET_PATH, slug, controlPlane, env });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403 ? forbiddenResponse(origin, null, error) : unauthorizedResponse(origin, slug, error);

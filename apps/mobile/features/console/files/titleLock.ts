@@ -47,7 +47,7 @@ import { nameIsAddress } from "./addressNames";
 import { titleRange } from "./liveEditorWeb/titleLine";
 import { noteNameOf } from "./noteName";
 import { describeNameProblem } from "./paths";
-import { titleFor } from "./untitled";
+import { isUntitled, titleFor } from "./untitled";
 
 /** `path()` is the note being edited, read at call time; `null` holds nothing. */
 export function titleLock(path: () => string | null): Extension {
@@ -63,6 +63,7 @@ export function lockTitle(
   if (path === null || nameIsAddress(path) || isDrawingPath(path)) return transaction;
   const before = transaction.startState;
   const after = transaction.state;
+  const untitled = isUntitled(path);
   const beforeTitle = titleFor(before.doc.toString());
   // A heading with no words is not a title: the inline title stands in for
   // it, so its `#` is nobody's to keep.
@@ -90,6 +91,9 @@ export function lockTitle(
     // deleting the line from the body up — does not happen.
     if (line === null) return transaction;
     if (/^\s*#\s*$/.test(line.text) && !insertsText(transaction)) {
+      // An untitled note has no name worth drawing above it: its title goes
+      // back to empty, drawn as the grey "Title" (`untitledTitle.ts`).
+      if (untitled) return line.text === "# " ? transaction : withEdit(transaction, { from: line.from, to: line.to, insert: "# " });
       return withEdit(transaction, { from: line.from, to: line.to });
     }
     if (startsAHeading || !insertedInto(transaction, line.from, line.to)) return [];
@@ -107,7 +111,8 @@ export function lockTitle(
   if (prior !== null && transaction.changes.mapPos(prior.from, 1) > line.to) {
     return withEdit(transaction, { from: line.from, insert: "# " });
   }
-  return withEdit(transaction, { from: line.from, insert: `# ${noteNameOf(path).text}\n\n` });
+  // An untitled note's made-up name is never written into it: its title starts empty (`seedFor`).
+  return withEdit(transaction, { from: line.from, insert: untitled ? "# \n\n" : `# ${noteNameOf(path).text}\n\n` });
 }
 
 /** Input, deletion, a paste or a drop: a person at the keyboard. */

@@ -244,7 +244,8 @@ test("a write failure leaves durable state and recovers on retry", async () => {
 });
 
 test("recovery succeeds when each commit bucket write fails in turn", async () => {
-  for (let failedWrite = 5; failedWrite <= 8; failedWrite += 1) {
+  // A commit writes three records: the accepted state, the Markdown, the rendered state (no revision file of its own).
+  for (let failedWrite = 5; failedWrite <= 7; failedWrite += 1) {
     const store = new MemoryStore();
     store.seed("each-write.md", "before\n");
     const base = await readDocument(store, "each-write.md");

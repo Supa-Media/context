@@ -23,30 +23,39 @@
  * text would get, never one carried over from the turn that started it.
  */
 
+import type { JobNote } from "./jobNote";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 
 /** What a turn asked to start, as the gateway wrote it. */
-export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; tainted?: true };
+/** `mail`: one part of a split ask; the project note every part's job joins the mail of, and this part's name there. */
+/** One of the person's own computers a job runs on (`machineTurn.ts`), as the gateway picked it (`apps/mcp/src/machines/forJobs.js`). */
+export type JobMachine = { workspaceId: string; machineId: string; name: string; tool: "claude" | "codex"; folder: string; repo?: string };
+export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; tainted?: true; mail?: JobProject; machine?: JobMachine };
+export type JobProject = { path: string; name: string; context?: string };
 /** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text; a failed one, with the tool's short reason. */
 export type JobStep = { at: number; text: string; failed?: true; why?: string };
 /** Whether a streamed step failed, and why (`clients.ts`). */
 export type StepHow = { failed?: true; why?: string };
 /** One line of the chat's job list, sent with every texted turn, with its steps; `verdict`/`advice`: the advisor's last check (`apps/mcp/src/agent/jobCheck.js`); `result`: a finished job's report, for the chat's turns only. */
-export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string };
+export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string; on?: string; resumeAt?: number };
 /** The advisor's call on a job's part that just ended (`apps/mcp/src/agent/jobCheck.js`). */
 export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
 /** `draft`: the last part's answer, never texted because a later text changed the job, or (`unfinished`) because it stopped short of the ask; the next part builds on it. */
-export type JobAsk = { id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; draft?: string; unfinished?: true; advice?: string };
+/** `mail`: note mail that came for it since its last part, oldest first (`jobMail.ts`), never among `followUps`. */
+export type JobAsk = { roster?: string; project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
 /** `resume`: pick an ended job back up where it stopped (`jobRun.ts` `resumeJob`), never a new copy of it. */
-export type JobSteer = { id: string; text: string; stop?: true; resume?: true };
+export type JobSteer = { id: string; text: string; stop?: true; resume?: true; mail?: JobMail; machine?: JobMachine };
+/** Note mail delivered to a job (`jobMail.ts`): who sent it, its kind and the note it is on. Another agent's words, never the person's. */
+export type JobMail = { from: string; app?: string; kind: "note" | "ask" | "interrupt"; path: string };
 /** What a turn asked of a running job: the job, whether to stop it, and the coordinating turn's own instruction for it (`note`). */
-export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: true };
+export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: true; machine?: JobMachine };
 /** What a job would have said, handed to its chat's own turn, which decides what is said (`jobTexts.ts`). */
-export type JobReport = { title: string; state: JobState; texts: string[] };
+/** `ask`: the gateway's own line asking a computer's owner for a 👍, texted as it is (`machineTurn.ts`). */
+export type JobReport = { id?: string; title: string; state: JobState; texts: string[]; ask?: string };
 /** `waiting`: it needs something only they can give; `stuck`: no way forward, or out of time (`jobRun.ts`). */
 export type JobState = "running" | "done" | "failed" | "waiting" | "stuck";
 
@@ -56,17 +65,21 @@ export type JobOrigin =
   | { kind: "group"; message: GroupMessage; at: number };
 
 /** Everything a job's object needs to run it. */
-export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true };
+/** `note`: the job's note and who it is on its mail (`jobNote.ts`); `noteAsked`: the note was asked for once, made or not. */
+export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string; note?: JobNote; noteAsked?: true };
+/** The part running on the machine now, kept so a pass that restarts reads the same run instead of assigning another. */
+export type MachineRunRef = { runId: string; part: number; deadline: number };
 
 /** The chat's record of a job: no ask, only where its answer goes. */
-export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string };
+/** `resumeAt`: a job paused at the daily limit starts again then, by itself (`jobPause.ts`). */
+export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string; machine?: true; onName?: string; onTool?: "claude" | "codex" };
 
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
 /** `vaultWatch`: the phone a job's turn texted a link to save a login to, so its inbox watches for the save (`vaultWatch.ts`). */
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
 /** `asked`: who asked for the job and their words, so the chat's turn on its report can start it again (`jobTexts.ts`). */
 /** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
-export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string } };
+export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -89,7 +102,17 @@ export function jobPictures(pictures: OutgoingPicture[]): OutgoingPicture[] {
   return kept;
 }
 
+/** Cloud jobs at once in a chat. A job on their computer counts against that computer's own slots instead (`apps/mcp/src/agent/jobSlots.js`). */
 export const MAX_RUNNING_JOBS = 3;
+/** The most jobs one computer runs for a chat (`slotCounts`'s most); its owner's own count is checked by the gateway and the workspace object. */
+export const MAX_MACHINE_JOBS = 8;
+/** The most jobs one turn may start or steer: the cloud's and one computer's. */
+const MAX_TURN_JOBS = MAX_RUNNING_JOBS + MAX_MACHINE_JOBS;
+/** The computer a job's entry runs on, by machine id; null in the cloud. An entry from before ids were kept is on an unnamed one. */
+const machineOfEntry = (entry: { machine?: true; on?: string }): string | null => (typeof entry.on === "string" ? entry.on : entry.machine ? "machine" : null);
+/** Whether one more job fits where it would run: the cloud's three, or that computer's own. */
+const fits = (running: readonly { on?: string; machine?: true }[], on: string | null) =>
+  on === null ? running.filter((entry) => machineOfEntry(entry) === null).length < MAX_RUNNING_JOBS : running.filter((entry) => machineOfEntry(entry) === on).length < MAX_MACHINE_JOBS;
 /** Parts one job may take before it reports what it has (the gateway clamps to the same); Dev2, 2026-10-31: 10 parts or 30 minutes. */
 export const MAX_JOB_ATTEMPTS = 10;
 /** How long a job keeps going after the advisor says "keep going" before it is reported stuck. */
@@ -102,19 +125,27 @@ export const JOB_KEPT_MS = 7 * 24 * 60 * 60 * 1000;
 export const JOB_SHOWN_MS = 2 * 60 * 60 * 1000;
 /** A job still "running" this long after it started died with its object: it is marked stopped. */
 export const JOB_STALE_MS = JOB_LIMIT_MS + 15 * 60 * 1000 + 5 * 60 * 1000; // its last part may start just inside the limit and run fifteen minutes
+/** A job on the person's own computer runs four hours by default (owner, 2026-11-03), in fifteen-minute parts. */
+export const MACHINE_JOB_LIMIT_MS = 4 * 60 * 60 * 1000;
+/** Parts a machine job may take: twenty-four hours of them, the most a machine's owner may allow. */
+export const MAX_MACHINE_JOB_ATTEMPTS = 96;
+export const MACHINE_JOB_STALE_MS = MACHINE_JOB_LIMIT_MS + 20 * 60 * 1000 + 5 * 60 * 1000;
 export const JOB_PREFIX = "job:";
 export const RUN_KEY = "jobrun";
 const MAX_SHOWN = 6;
 /** Steps kept per job: what `job_status` answers "what is it doing?" from. The whole record is the person's Tex transcript. */
 export const MAX_STEPS_KEPT = 40;
 /** The most of a finished job's report kept with its entry, for the chat's turns (never the live view). */
-export const MAX_RESULT = 1_500;
+/** Tex Devs, 2026-11-05: at 1,500 a ten-PR report was cut after the fourth, and Tex said "I only have the first four in full". */
+export const MAX_RESULT = 8_000;
 const MAX_ADVICE = 600;
 const VERDICTS = new Set(["done", "keep_going", "waiting", "stuck"]);
 const STATES = new Set(["running", "done", "failed", "waiting", "stuck"]);
 const MAX_STATUS = 280;
 /** The asker's words a report carries, as long as a text they could send. */
 const MAX_ASKED = 8_000;
+/** A computer owner's ask is one short line (`groupAsk.js` `machineAskLine`). */
+const MAX_ASK = 400;
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
 
 export const JOB_LINES = {
@@ -124,22 +155,68 @@ export const JOB_LINES = {
   /** A part the gateway refused to run (`jobRun.ts`): the job waits on them, and they're told why. */
   refused: (title: string, why: "daily_limit" | "no_model") =>
     why === "daily_limit"
-      ? `I paused "${title}": I've hit today's limit for background work. Text me tomorrow and I'll pick it back up.`
+      ? `I paused "${title}": I've hit today's limit for background work. I'll pick it back up by myself as soon as the limit resets, and tell you when it's done.`
       : `I paused "${title}": I can't reach my model right now. Text me in a bit and I'll pick it back up.`,
-  refusedStatus: { daily_limit: "Paused: today's limit for background work is used up", no_model: "Paused: no model could run it" },
+  /** A part the gateway turned down before it ran (`jobRun.ts` `rejected`): asking again is turned down the same way. */
+  rejected: (title: string, why: string) => `I couldn't run "${title}": it was turned down before it started (${why}). Text me if you want me to try again.`,
+  refusedStatus: { daily_limit: "Paused: today's limit for background work is used up; it starts again by itself once the limit resets", no_model: "Paused: no model could run it" },
 } as const;
 
+/** What came with a text besides its typed words, as the gateway read it (`clients.ts` `heard`, `sent`). */
+export type JobSaid = { heard?: string; sent?: string };
+
+/**
+ * What a job is asked, or told by a later text: the person's own words, typed and said aloud, and the gateway's
+ * line naming the files they sent (`clients.ts` `heard`, `sent`). The model only names a job; what it is handed is
+ * always what they sent. A job's turn sees none of the chat, so before these a job started from a voice message was
+ * asked nothing and every part was refused (2026-11-05, the Morocco trip job), and a change sent by voice or a
+ * picture never reached a running job. At most as long as the gateway takes a question (`apps/mcp/src/agent/turn.js`).
+ */
+export function jobQuestion(typed: string, said: JobSaid = {}): string {
+  return [typed.trim(), (said.heard ?? "").trim(), (said.sent ?? "").trim()].filter(Boolean).join("\n\n").slice(0, MAX_ASKED);
+}
+
 const line = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
+
+/** A split ask's shared note, read strictly (the gateway checked it too: `jobMailOf`). */
+export function readJobProject(value: unknown): JobProject | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { path, name, context } = value as Record<string, unknown>;
+  if (typeof path !== "string" || path === "" || path.length > 1024 || /[\u0000-\u001f]/.test(path) || !path.endsWith(".md")) return null;
+  if (typeof name !== "string" || !/^[a-z0-9][a-z0-9-]{0,23}$/.test(name) || name === "everyone") return null;
+  return { path, name, ...(typeof context === "string" && /^@[a-z0-9][a-z0-9-]{0,63}$/.test(context) ? { context } : {}) };
+}
+
+/** The computer a job runs on, read strictly; the gateway and the machine's owner rules check it again at every part. */
+export function readJobMachine(value: unknown): JobMachine | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { workspaceId, machineId, name, tool, folder, repo } = value as Record<string, unknown>;
+  const id = /^[A-Za-z0-9_-]{1,64}$/;
+  if (typeof workspaceId !== "string" || !id.test(workspaceId) || typeof machineId !== "string" || !id.test(machineId)) return null;
+  if (tool !== "claude" && tool !== "codex") return null;
+  if (typeof folder !== "string" || folder === "" || folder.length > 1024 || /[\u0000-\u001f]/.test(folder)) return null;
+  return {
+    workspaceId,
+    machineId,
+    name: line(name, 100) || "your computer",
+    tool,
+    folder,
+    // A name under the folder, never a path that climbs out of it (`apps/mcp/src/machines/forJobs.js`).
+    ...(typeof repo === "string" && /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$/.test(repo) ? { repo } : {}),
+  };
+}
 
 /** `jobs` from the gateway's answer, read strictly. */
 export function readStartedJobs(value: unknown): StartedJob[] {
   if (!Array.isArray(value)) return [];
-  return value.slice(0, MAX_RUNNING_JOBS).flatMap((entry) => {
+  return value.slice(0, MAX_TURN_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
-    const { id, title, brief, doneWhen, tainted } = entry as Record<string, unknown>;
+    const { id, title, brief, doneWhen, tainted, mail, machine } = entry as Record<string, unknown>;
     const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 2_000) : "", doneWhen: line(doneWhen, MAX_STATUS) };
     if (job.title === "" || job.brief === "") return [];
-    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(tainted === true ? { tainted: true as const } : {}) }];
+    const project = readJobProject(mail);
+    const computer = readJobMachine(machine);
+    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(tainted === true ? { tainted: true as const } : {}), ...(project ? { mail: project } : {}), ...(computer ? { machine: computer } : {}) }];
   });
 }
 
@@ -150,20 +227,23 @@ export function readSteers(value: unknown): JobSteerAsk[] {
   if (!Array.isArray(value)) return [];
   return value
     .flatMap((entry) => {
-      const { id, stop, note, resume } = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+      const { id, stop, note, resume, machine } = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
       const said = typeof note === "string" ? note.trim().slice(0, 4_000) : "";
       if (typeof id !== "string" || !ID.test(id)) return [];
-      return [resume === true ? { id, resume: true as const } : { id, ...(stop === true ? { stop: true as const } : {}), ...(said ? { note: said } : {}) }];
+      // A computer job picked back up carries the computer as its settings are now (`background.js` `repick`).
+      const computer = resume === true ? readJobMachine(machine) : null;
+      return [resume === true ? { id, resume: true as const, ...(computer ? { machine: computer } : {}) } : { id, ...(stop === true ? { stop: true as const } : {}), ...(said ? { note: said } : {}) }];
     })
-    .slice(0, MAX_RUNNING_JOBS);
+    .slice(0, MAX_TURN_JOBS);
 }
 
 /** `POST /job-steer`'s body, read strictly. */
 export function readJobSteer(value: unknown): JobSteer | null {
   if (!value || typeof value !== "object") return null;
-  const { id, text, stop, resume } = value as Record<string, unknown>;
+  const { id, text, stop, resume, machine } = value as Record<string, unknown>;
   if (typeof id !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(id) || typeof text !== "string" || text.trim() === "") return null;
-  return { id, text: text.trim().slice(0, 4_000), ...(stop === true ? { stop: true as const } : {}), ...(resume === true ? { resume: true as const } : {}) };
+  const computer = resume === true ? readJobMachine(machine) : null;
+  return { id, text: text.trim().slice(0, 4_000), ...(stop === true ? { stop: true as const } : {}), ...(resume === true ? { resume: true as const } : {}), ...(computer ? { machine: computer } : {}) };
 }
 
 /**
@@ -181,6 +261,14 @@ export async function steerJobs(
   for (const { id, stop, note, resume } of asks) {
     if (resume) continue; // `resumeJobs`
     const entry = await storage.get<JobEntry>(entryKey(id));
+    // Paused at the daily limit: a stop keeps it from starting again by itself (`jobPause.ts`); nothing else reaches it.
+    if (entry?.state === "waiting" && entry.resumeAt !== undefined && stop) {
+      const { resumeAt: _r, ...rest } = entry;
+      await storage.put<JobEntry>(entryKey(id), { ...rest, state: "failed", status: "Stopped when they asked", finishedAt: now, stopped: true });
+      count += 1;
+      log("stopped_paused", id);
+      continue;
+    }
     if (entry?.state !== "running") continue;
     // The coordinating turn's own instruction goes as its, never as their words; a turn with no text of theirs passes only that, or a stop.
     const text = note ? `(From your coordinator, the chat's own turn, not their words: ${note})` : steer.text || (stop ? "(Stopped by your coordinator.)" : "");
@@ -194,36 +282,73 @@ export async function steerJobs(
   return count;
 }
 
+/** A waiting job's status once its wait ran out: its run is gone, so their answer can no longer pick it up (`jobRun.ts` `resumeJob`). */
+export const WAIT_ENDED_STATUS = "Stopped waiting: no answer within two hours. Ask me to start it fresh.";
+
 /**
- * The chat's jobs as the next turn is shown them, running first. A finished
- * one is shown for `JOB_SHOWN_MS` after it finished; one older than
- * `JOB_KEPT_MS` is deleted, and a running one past `JOB_STALE_MS` is marked
- * stopped: its object is gone, so it never will say.
+ * Every job the chat's inbox keeps, with what has run out settled first, the
+ * one place both the chat's turns (`chatJobs`) and the Tex page
+ * (`texPage.ts` `pageJobsOf`) read them through, so the two never disagree:
+ * - a finished one older than `JOB_KEPT_MS` is deleted;
+ * - a running one past `JOB_STALE_MS` died with its object, so it never will
+ *   say: it is marked failed;
+ * - a waiting one whose `JOB_SHOWN_MS` has passed can no longer be picked up
+ *   (its object deleted the run it was waiting in), so it is marked stuck at
+ *   the moment the wait ran out. Before 2026-11-04 it stayed "waiting" for
+ *   seven days and held a minion on the page the whole time, long after the
+ *   chat's own turns had stopped being shown it.
  */
-export async function chatJobs(storage: InboxStorage, now: number, { results = false }: { results?: boolean } = {}): Promise<RunningJob[]> {
+export async function sweptJobs(storage: InboxStorage, now: number): Promise<JobEntry[]> {
   const entries = await storage.list<JobEntry>({ prefix: JOB_PREFIX });
   const kept: JobEntry[] = [];
   for (const [key, entry] of entries) {
-    if (entry.state !== "running" && now - (entry.finishedAt ?? entry.startedAt) > JOB_KEPT_MS) {
+    const ended = entry.finishedAt ?? entry.startedAt;
+    if (entry.state !== "running" && now - ended > JOB_KEPT_MS) {
       await storage.delete(key);
       continue;
     }
-    if (entry.state === "running" && now - entry.startedAt > JOB_STALE_MS) {
+    if (entry.state === "running" && now - entry.startedAt > (entry.machine ? MACHINE_JOB_STALE_MS : JOB_STALE_MS)) {
       const stopped = { ...entry, state: "failed" as const, finishedAt: now };
       await storage.put(key, stopped);
       kept.push(stopped);
       continue;
     }
-    if (entry.state === "running" || now - (entry.finishedAt ?? entry.startedAt) <= JOB_SHOWN_MS) kept.push(entry);
+    // A job paused at the daily limit waits until two hours past its restart (`jobPause.ts`), as its object keeps the run.
+    const waitEnds = (entry.resumeAt ?? ended) + JOB_SHOWN_MS;
+    if (entry.state === "waiting" && now > waitEnds) {
+      const { verdict: _v, advice: _a, resumeAt: _r, ...rest } = entry;
+      const lapsed: JobEntry = { ...rest, state: "stuck", status: WAIT_ENDED_STATUS, finishedAt: waitEnds };
+      await storage.put(key, lapsed);
+      log("wait_ended", entry.id);
+      kept.push(lapsed);
+      continue;
+    }
+    kept.push(entry);
   }
+  return kept;
+}
+
+/**
+ * The chat's jobs as the next turn is shown them, running first: every
+ * running one, and a finished one for `JOB_SHOWN_MS` after it finished
+ * (`sweptJobs` settles what has run out).
+ */
+export async function chatJobs(storage: InboxStorage, now: number, { results = false, all = false }: { results?: boolean; all?: boolean } = {}): Promise<RunningJob[]> {
+  // A paused job is shown until it starts again, however long that is (`jobPause.ts`).
+  const kept = (await sweptJobs(storage, now)).filter((entry) => entry.state === "running" || (entry.state === "waiting" && entry.resumeAt !== undefined) || now - (entry.finishedAt ?? entry.startedAt) <= JOB_SHOWN_MS);
   return kept
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running") || b.startedAt - a.startedAt)
-    .slice(0, MAX_SHOWN)
-    .map(({ id, title, state, startedAt, finishedAt, status, steps, verdict, advice, result }) => ({
+    // Every running one, so the gateway counts each place's slots right; finished ones fill what is left of six. `all`: every job.
+    .filter((entry, index) => all || entry.state === "running" || index < MAX_SHOWN)
+    .map(({ id, title, state, startedAt, finishedAt, status, steps, verdict, advice, result, on, resumeAt }) => ({
       id,
       title,
       state,
       startedAt,
+      // Paused at the daily limit, to start again by itself: the gateway lets a turn stop it (`jobPause.ts`).
+      ...(state === "waiting" && resumeAt !== undefined ? { resumeAt } : {}),
+      // The computer it runs on, so the gateway counts it against that computer's slots, not the cloud's.
+      ...(typeof on === "string" ? { on } : {}),
       ...(finishedAt !== undefined ? { finishedAt } : {}),
       ...(status ? { status } : {}),
       // A finished job keeps its steps: what it did is all it will ever do (2026-10-31: the chat called a stopped job running).
@@ -258,14 +383,14 @@ export async function resumeJobs(
   now: number,
 ): Promise<string[]> {
   const missed: string[] = [];
-  for (const { id } of asks.filter((ask) => ask.resume)) {
+  for (const { id, machine } of asks.filter((ask) => ask.resume)) {
     const entry = await storage.get<JobEntry>(entryKey(id));
     if (entry === undefined || entry.state === "running") continue;
-    const running = (await chatJobs(storage, now)).filter((job) => job.state === "running").length;
+    const running = (await chatJobs(storage, now, { all: true })).filter((job) => job.state === "running");
     // A finished job has nothing to pick up: its object kept no run (`resumeJob`).
-    const ok = entry.state !== "done" && running < MAX_RUNNING_JOBS && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true }).catch(() => false));
+    const ok = entry.state !== "done" && fits(running, machineOfEntry(entry)) && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true, ...(machine && machine.machineId === entry.on ? { machine } : {}) }).catch(() => false));
     if (ok) {
-      const { finishedAt: _f, finalPass: _p, verdict: _v, advice: _a, result: _r, stopped: _s, ...kept } = entry;
+      const { finishedAt: _f, finalPass: _p, verdict: _v, advice: _a, result: _r, stopped: _s, resumeAt: _ra, ...kept } = entry;
       await storage.put<JobEntry>(entryKey(id), { ...kept, state: "running", startedAt: now, status: "Picking up where it stopped" });
     } else missed.push(entry.title);
     log(ok ? "resumed" : "not_resumed", id);
@@ -296,10 +421,10 @@ export async function startJobs(
   let count = 0;
   const notStarted: string[] = [];
   for (const job of started) {
-    const running = (await chatJobs(storage, context.now)).filter((entry) => entry.state === "running");
+    const running = (await chatJobs(storage, context.now, { all: true })).filter((entry) => entry.state === "running");
     // The same job already running is the one they asked for; a job over the limit was promised and never runs, so they hear so.
     if (running.some((entry) => sameTitle(entry.title, job.title))) continue;
-    if (running.length >= MAX_RUNNING_JOBS) {
+    if (!fits(running, job.machine?.machineId ?? null)) {
       notStarted.push(job.title);
       log("over_limit", "");
       continue;
@@ -307,7 +432,7 @@ export async function startJobs(
     // The gateway's id is used when it is well formed and no entry holds it yet; otherwise a fresh one.
     const gatewayId = job.id !== undefined && ID.test(job.id) && (await storage.get(entryKey(job.id))) === undefined ? job.id : undefined;
     const id = gatewayId ?? crypto.randomUUID();
-    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place };
+    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.machine ? { machine: true as const, on: job.machine.machineId, onName: job.machine.name, onTool: job.machine.tool } : {}) };
     await storage.put(entryKey(id), entry);
     try {
       await context.spawn(id, { ...job, id, inbox: context.inbox, origin: context.origin, attempt: 1, tries: 0, startedAt: context.now });
@@ -359,7 +484,10 @@ export async function noteJobUpdate(storage: InboxStorage, update: JobUpdate, no
     ...(update.verdict ? { verdict: update.verdict, advice: line(update.advice, MAX_ADVICE) } : {}),
     ...(step ? { steps: [...(entry.steps ?? []), stepOf(update, step, now)].slice(-MAX_STEPS_KEPT) } : {}),
     ...(state !== "running" ? { finishedAt: now, ...(update.pass ? { finalPass: update.pass } : {}), ...resultOf(update) } : {}),
+    ...(state === "waiting" && update.resumeAt !== undefined ? { resumeAt: update.resumeAt } : {}),
   };
+  // Paused for the daily limit only while this word says so (`jobPause.ts`).
+  if (state !== "waiting" || update.resumeAt === undefined) delete next.resumeAt;
   await storage.put(entryKey(update.id), next);
   return next;
 }
@@ -379,7 +507,7 @@ function resultOf(update: JobUpdate): { result?: string } {
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, pass, asked, verdict, advice } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, pass, asked, verdict, advice, ask, resumeAt } = value as Record<string, unknown>;
   const by = asked && typeof asked === "object" ? (asked as Record<string, unknown>) : {};
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || typeof state !== "string" || !STATES.has(state)) return null;
@@ -390,9 +518,11 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(typeof status === "string" ? { status } : {}),
     ...(typeof step === "string" ? { step, ...(stepFailed === true ? { stepFailed: true as const, ...(typeof stepWhy === "string" ? { stepWhy } : {}) } : {}) } : {}),
     ...(typeof vaultWatch === "string" && vaultWatch !== "" ? { vaultWatch } : {}),
+    ...(typeof ask === "string" && ask.trim() !== "" ? { ask: ask.slice(0, MAX_ASK) } : {}),
     ...(typeof pass === "string" && ID.test(pass) ? { pass } : {}),
     ...(typeof by.from === "string" && /^\+[1-9]\d{6,14}$/.test(by.from) && typeof by.text === "string" ? { asked: { from: by.from, text: by.text.slice(0, MAX_ASKED) } } : {}),
     ...(Number.isInteger(first) && (first as number) >= 0 ? { first: first as number } : {}),
+    ...(Number.isSafeInteger(resumeAt) && (resumeAt as number) > 0 ? { resumeAt: resumeAt as number } : {}),
     ...(read.length > 0 ? { pictures: read } : {}),
     ...(Array.isArray(texts) ? { texts: texts.filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 12) } : {}),
   };
@@ -462,17 +592,63 @@ export function threadsKey(value: string | null): { objectId: string; token: str
   return extra === undefined && THREADS_OBJECT.test(objectId ?? "") && THREADS_TOKEN.test(token ?? "") ? { objectId: objectId!, token: token! } : null;
 }
 
-/** The words that carry the view where there is no card to: a group, or a phone without the Context app. */
-export function threadsLine(link: string): string {
-  return `What I'm working on, live (tap one to see its steps): ${link}`;
+/**
+ * The signed-in Tex hub the gateway names beside an answer that offered the
+ * view (`apps/mcp/src/agent/hubLinks.js`; the owner, 2026-11-03: "it should
+ * show the hubs context.lc/tex/@user or context.lc/tex/group/<words> ...
+ * instead of random thread pages"): `/tex/@<handle>` for a person's own chat,
+ * `/tex/group/<words>` for a group's. Read strictly, so the gateway's answer
+ * can never put anything else in a text; null for anything else, and the
+ * chat's own short-lived view is minted instead.
+ */
+const HUB_PATH = /^\/tex\/(?:@[a-z0-9-]{2,32}|group\/[a-z]+(?:-[a-z]+){1,4})$/;
+export function readHub(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 200) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  const clean = url.protocol === "https:" && url.username === "" && url.password === "" && url.port === "" && url.search === "" && url.hash === "";
+  return clean && HUB_PATH.test(url.pathname) && url.href === value ? value : null;
 }
 
-/** The lines a group's answer ends with when it offered the view, or none. Never throws. */
-export async function threadsLines(offers: readonly string[] | undefined, mint: (() => Promise<string>) | undefined): Promise<string[]> {
-  if (!offers?.includes("threads") || mint === undefined) return [];
+/** The link "what I'm working on" sends: the chat's hub when the gateway named one, else a fresh link to its own view. */
+export function viewLink(hub: string | null | undefined, mint: (() => Promise<string>) | undefined): (() => Promise<string>) | undefined {
+  const named = readHub(hub);
+  return named !== null ? async () => named : mint;
+}
+
+/** The words that carry the view where there is no card to: a group, or a phone without the Context app. Short (the owner, 2026-11-03: "shorter link, and put it in the first text"). */
+export function threadsLine(link: string): string {
+  // The link sits inside the sentence, never at its end, where Messages would split it off (`linkPreviews.ts`).
+  return `Watch it live at ${link} while I work.`;
+}
+
+/**
+ * The texts with the view's line added to the first one that is not an exact text (an ask texted as written,
+ * `format.ts` `textsWithExact`), so it rides in the "On it" text rather than a bubble of its own (the owner,
+ * 2026-11-03). With no such text, it goes on its own after them.
+ */
+export function withViewLine<T>(texts: readonly T[], line: string, exact: (text: string) => boolean): (T | string)[] {
+  const at = texts.findIndex((text) => typeof text === "string" && text.trim() !== "" && !exact(text));
+  if (at === -1) return [...texts, line];
+  return texts.map((text, index) => (index === at ? `${text as string}\n\n${line}` : text));
+}
+
+/** A group's texts with the view's line in the first, when it was offered; as they were otherwise. Never throws. */
+export async function withThreadsLine(
+  texts: string[],
+  offers: readonly string[] | undefined,
+  mint: (() => Promise<string>) | undefined,
+  exact: readonly string[] = [],
+): Promise<string[]> {
+  if (!offers?.includes("threads") || mint === undefined) return texts;
   try {
-    return [threadsLine(await mint())];
+    const kept = new Set(exact.map((text) => text.trim()));
+    return withViewLine(texts, threadsLine(await mint()), (text) => kept.has(text.trim())) as string[];
   } catch {
-    return [];
+    return texts;
   }
 }

@@ -106,6 +106,8 @@ function readQuestion(sec) {
     in: null,
     // Lines graded from the run's record, never by the judge (`checks.mjs`).
     checks: [],
+    // Background jobs the chat already has running, with `background: on` (`run.mjs` `benchRunning`).
+    running: 0,
     body: sec.lines.join("\n").trim(),
   };
   for (const raw of sec.lines) {
@@ -116,6 +118,7 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- as:\s*(.*)$/))) q.as = m[1].trim();
     else if ((m = line.match(/^- kind:\s*(.*)$/))) q.kind = m[1].trim();
     else if (/^- gate:/.test(line)) q.gate = true;
+    else if ((m = line.match(/^- running:\s*(\d+)\s*(?:jobs?)?\s*$/))) q.running = Number(m[1]);
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
     else if ((m = line.match(/^- person sends picture:\s*(.*)$/))) q.sendsPicture = pictureName(m[1].trim());
     else if (/^- person answers asks\s*$/.test(line)) q.answersAsks = true;

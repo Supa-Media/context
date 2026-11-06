@@ -10,26 +10,21 @@
  * Tex's answers, the tools it used (names only: the prompt reads the ledger
  * slim, never a tool's arguments or result).
  *
- * Trust fails closed, as `loggedTurn.js` does for the day the Worker holds.
- * The ledger's `text` entries came from the Worker, so they never prove an
- * answer clean; the gateway's own `reply` entry does (`clean`, written when
- * the turn answered, `texEntryPoint.js`). One of Tex's earlier answers whose turn has
- * no clean reply is shown as held back, never its words, so an answer that read
- * from outside the workspace never reaches a later turn's prompt and never
- * taints every turn after it. A check-in Tex sent by itself (`note`) is shown
- * by the same rule from its own `tainted` mark. A group's turn is untrusted
- * whatever it reads (`texEntryPoint.js`), so a group is shown every answer.
+ * Every earlier answer is shown as it was said, one to one as in a group (the
+ * owner, 2026-11-05): an answer whose turn read from outside the workspace
+ * once showed as held back, and since every later turn shown it was marked
+ * the same, Tex lost the thread of its own chat
+ * (`docs/decisions/texting-assistant/turn-trust.md`).
  */
 
 import { checkEvent, EVENT_ID, EVENT_KINDS, READ_CHARS, READ_LIMIT } from "./log.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
+import { sentOnItsOwn } from "./sentOnItsOwn.js";
 
 /** The most entries one read of the ledger asks for; a turn reads at most `MAX_PAGES` of them. */
 const PAGE = DESK_LEDGER.options.limit;
 const MAX_PAGES = 3;
 const BY_ITSELF = /^\(Not a text from them\./;
-/** What one of Tex's earlier answers that is not proven clean is shown as. */
-export const HELD_BACK = "(an earlier answer, not shown: that turn read from outside this workspace or was never confirmed)";
 
 const asEvent = (entry, chat) => {
   const { v: _v, seq: _seq, eid, event, kind: _kind, id: _id, cut: _cut, ...rest } = entry;
@@ -102,14 +97,11 @@ export function dayFromLedger(entries, chat, covers) {
  * What a turn is shown from its ledger's entries (`readLedger`, newest
  * first): `{events, tools}`. `events` are the chat's texts older than
  * `before` (the oldest the turn already holds), oldest first, within `chars`
- * characters, as `log.js` events, with Tex's check-ins among them and Tex's
- * answers not proven clean held back; `tools` maps a turn to the tools it used.
- * `untrusted` is a turn that is untrusted whatever it reads (a group's,
- * `texEntryPoint.js`): it holds nothing back, since nothing shown can taint it more.
+ * characters, as `log.js` events, with Tex's check-ins among them; `tools`
+ * maps a turn to the tools it used.
  */
-export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTEGER, chars = READ_CHARS, known = new Set(), untrusted = false } = {}) {
+export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTEGER, chars = READ_CHARS, known = new Set() } = {}) {
   const tools = new Map();
-  const clean = new Set();
   const events = [];
   const seen = new Set(known);
   let room = chars;
@@ -118,7 +110,7 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
       const names = tools.get(entry.turn) ?? [];
       if (!names.includes(entry.name)) names.unshift(entry.name);
       tools.set(entry.turn, names);
-    } else if (entry?.kind === "reply" && typeof entry.turn === "string" && entry.clean === true) clean.add(entry.turn);
+    }
     if (room <= 0 || !(entry?.at < before)) continue;
     const shown = entry.kind === "text" ? asEvent(entry, chat) : entry.kind === "note" ? noteEvent(entry, chat) : null;
     if (shown === null || (!shown.byItself && !EVENT_ID.test(shown.id ?? "")) || !EVENT_KINDS.has(shown.kind) || seen.has(shown.id)) continue;
@@ -127,17 +119,12 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
     seen.add(shown.id);
     events.push(shown);
   }
-  // Tex's own answers are shown only when the gateway recorded their turn clean; a check-in by its own mark.
-  const held = events.map((event) => {
-    if (event.from?.kind !== "tex" || untrusted) return event;
-    const proven = event.byItself ? event.tainted !== true : clean.has(event.turn);
-    return proven ? event : { ...event, text: HELD_BACK };
-  });
-  return { events: held.sort((a, b) => a.at - b.at), tools };
+  return { events: events.sort((a, b) => a.at - b.at), tools };
 }
 
 /** A check-in or other text Tex sent by itself, as an event; anything else kept as a note is not shown. */
 function noteEvent(entry, chat) {
   if (typeof entry.about !== "string" || !BY_ITSELF.test(entry.about) || typeof entry.text !== "string" || entry.text.trim() === "") return null;
-  return { id: `note-${entry.id}`, at: entry.at, chat, from: { kind: "tex" }, kind: "text", text: entry.text.trim(), delivered: true, byItself: true, ...(entry.tainted === true ? { tainted: true } : {}) };
+  // Why it went out stays with it (`sentOnItsOwn.js`): a ping another agent asked for is that agent's, passed on.
+  return { id: `note-${entry.id}`, at: entry.at, chat, from: { kind: "tex" }, kind: "text", text: entry.text.trim(), delivered: true, byItself: true, ...sentOnItsOwn(entry.about) };
 }

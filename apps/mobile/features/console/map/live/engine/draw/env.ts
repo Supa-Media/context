@@ -6,6 +6,7 @@ import type { Point } from "../math";
 import type { Model, SceneAt } from "../scene";
 import type { Rect } from "../labels";
 import type { Pill } from "./containers";
+import type { Opening } from "./sketch";
 import type { Ctx, Style } from "./primitives";
 
 /** Everything one map frame's drawing passes share. */
@@ -17,7 +18,10 @@ export type DrawEnv = {
   cam: Cam;
   vp: Viewport;
   s: number;
-  screen: (p: Point) => Point;
+  /** Where a point is drawn; in 3D, `per` is how much nearer (over 1) or further it is. */
+  screen: (p: Point) => Point & { per?: number };
+  /** How far past the screen's edge things may be drawn from, in pixels (wider while turned in 3D). */
+  cull: number;
   /** Roughly on screen, with `margin` pixels to spare. */
   onScreen: (p: Point, margin: number) => boolean;
   hit: HitFrame;
@@ -30,6 +34,19 @@ export type DrawEnv = {
   dim: boolean;
   /** A selected note, drawn teal. */
   selected: string | null;
+  /** The note whose links are traced: the selected one, else the one under the pointer. */
+  traceFrom: string | null;
+  /** That note and the notes one link away, traced in pen; null when nothing is traced. */
+  trace: Set<string> | null;
+  /** How far out the map is, 0 to 1: folders turn into pencil scribbles and the notes step back. */
+  far: number;
+  /** Where the pointer is on the canvas (null once it left, undefined if never seen), and the note under it. */
+  pointer: Point | null | undefined;
+  hoverKey: string | null;
+  /** The dots breathe this frame (the map's settings, never with reduced motion). */
+  breathe: boolean;
+  /** The map's opening while it plays, or null. */
+  opening: Opening | null;
   /** Notes present per folder and subfolder key, and per workspace. */
   counts: Map<string, number>;
   /** Note keys that are hot: written, read, followed, new or selected. */

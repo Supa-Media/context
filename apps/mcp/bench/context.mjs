@@ -36,6 +36,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
+import { ledgersFolderFor } from "./modelLog.mjs";
 import { repliesName } from "./replies.mjs";
 import { section, summaryMarkdown } from "./summary.mjs";
 
@@ -349,7 +350,34 @@ export async function publishResult({ result, runUrl = null, connection, fetchIm
   );
   if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
   await publishReplies({ result, connection, fetchImpl });
+  await publishLedgers({ result, connection, fetchImpl });
   return path;
+}
+
+/**
+ * Each conversation's ledger file (`modelLog.mjs`) into `ai/results/<result> ledgers/`, beside the scores,
+ * so a round can be read call by call in Context. A ledger that will not write is reported and skipped:
+ * the scores are the round's result and are already in.
+ */
+async function publishLedgers({ result, connection, fetchImpl }) {
+  const folder = ledgersFolderFor(result);
+  let names;
+  try {
+    names = (await readdir(folder)).filter((name) => name.endsWith(".ledger.md")).sort();
+  } catch {
+    return 0;
+  }
+  let written = 0;
+  for (const name of names) {
+    const path = `${RESULTS_FOLDER}/${basename(folder)}/${name}`;
+    const existing = await callTool(connection, "read_note", { path }, fetchImpl);
+    const etag = existing.isError ? null : (splitNote(existing.text).header.etag ?? null);
+    const answer = await callTool(connection, "write_note", { path, content: await readFile(join(folder, name), "utf8"), summary: `benchmark ledger ${name}`, ...(etag ? { expected_etag: etag } : {}) }, fetchImpl);
+    if (answer.isError) process.stderr.write(`ledger not published: ${path}: ${String(answer.text).slice(0, 200)}\n`);
+    else written += 1;
+  }
+  process.stderr.write(`published ${written} of ${names.length} ledgers into ${RESULTS_FOLDER}/${basename(folder)}/\n`);
+  return written;
 }
 
 /**

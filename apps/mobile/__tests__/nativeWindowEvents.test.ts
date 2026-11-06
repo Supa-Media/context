@@ -32,6 +32,11 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 
 import { onReturnToApp } from "../features/app/returnToApp";
 import { useNoteRoom } from "../features/console/presence/useNoteRoom";
+// The socket's one-use ticket (`POST /presence/ticket`) is the gateway's; here it is the token, marked.
+jest.mock("@context/shared/src/liveTicket.cjs", () => ({
+  ...jest.requireActual<Record<string, unknown>>("@context/shared/src/liveTicket.cjs"),
+  fetchLiveTicket: async ({ token }: { token: string }) => `ticket-${token}`,
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

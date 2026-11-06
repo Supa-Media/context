@@ -1,60 +1,27 @@
-import { useCallback, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { Icon } from "../../../../design/components/Icon";
 import { space } from "../../../../design/tokens";
-import { useColors, useThemedStyles } from "../../../../design/theme";
-import type { MapMode, MapPageState } from "../hooks/useMapPage";
-import { dateShort } from "../replayClock";
-import { LiveDot, Segmented } from "./controls";
-import { RangePicker } from "./RangePicker";
+import { useThemedStyles } from "../../../../design/theme";
+import type { MapPageState } from "../hooks/useMapPage";
+import { Chip, LiveDot, Segmented } from "./controls";
+import { SettingsButton } from "./MapDock";
 
 /**
- * The phone's bar over the map: two rows of tracks, when (Live, 24h, Week,
- * and a calendar for a custom stretch) and then Map / Columns beside which
- * workspaces. The calendar opens the range picker as a sheet. A desktop map
- * has the workspace menu and the bottom dock instead (`MapDock`).
+ * The phone's bar over the map: which workspaces (the Columns layout is gone,
+ * Dev2 2026-11-05), and the
+ * gear for the map's settings, where Replay lives (Dev2, 2026-11-04). While a
+ * replay plays, Back to live sits above them. A desktop map has the workspace
+ * menu, the gear and the bottom dock instead (`MapDock`).
  */
-export function MapBar({ page }: { page: MapPageState }) {
+export function MapBar({ page, onSettings }: { page: MapPageState; onSettings: () => void }) {
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const [picking, setPicking] = useState(false);
-  const closePicker = useCallback(() => setPicking(false), []);
-  const live = page.mode === "live";
-  const custom = page.mode === "custom";
-
-  const pick = (next: MapMode) => {
-    if (next === "custom") setPicking(true);
-    else page.setMode(next);
-  };
-
-  const calendarOn = custom && page.custom !== null;
-  const whenOptions = [
-    { value: "live" as const, label: "Live", leading: <LiveDot pulsing={live} reducedMotion={page.reducedMotion} /> },
-    { value: "day" as const, label: "24h" },
-    { value: "week" as const, label: "Week" },
-    {
-      value: "custom" as const,
-      label: calendarOn ? dateShort(page.custom!.from) : "",
-      accessibilityLabel: "Pick a stretch of time",
-      leading: <Icon name="calendar" size={14} color={custom ? colors.pageSurface : colors.text2} />,
-    },
-  ];
   return (
     <View style={styles.phone} testID="map-bar">
+      {page.mode !== "live" ? (
+        <View style={styles.phoneRow}>
+          <Chip label="Back to live" leading={<LiveDot pulsing={false} reducedMotion={page.reducedMotion} />} onPress={() => page.setMode("live")} testID="map-when-live" />
+        </View>
+      ) : null}
       <View style={styles.phoneRow}>
-        <Segmented label="When" value={page.mode} onChange={pick} testID="map-when" options={whenOptions} />
-      </View>
-      <View style={styles.phoneRow}>
-        <Segmented
-          label="Layout"
-          value={page.view}
-          onChange={page.setView}
-          testID="map-view"
-          options={[
-            { value: "map", label: "Map" },
-            { value: "folders", label: "Columns" },
-          ]}
-        />
         {page.many ? (
           <Segmented
             label="Which workspaces"
@@ -68,8 +35,8 @@ export function MapBar({ page }: { page: MapPageState }) {
             ]}
           />
         ) : null}
+        <SettingsButton open={false} onPress={onSettings} />
       </View>
-      {picking ? <RangePicker page={page} compact anchor={null} onClose={closePicker} /> : null}
     </View>
   );
 }
@@ -79,5 +46,5 @@ const makeStyles = () =>
     // Stretched: `PhoneMap` lays the bar over the canvas with `alignItems: "flex-start"`,
     // and tracks that share a row by `flexBasis: 0` have no width of their own.
     phone: { alignSelf: "stretch", gap: space.x2, paddingHorizontal: space.x4, paddingTop: space.x2, paddingBottom: space.x2 },
-    phoneRow: { flexDirection: "row", gap: space.x2 },
+    phoneRow: { flexDirection: "row", alignItems: "center", gap: space.x2 },
   });

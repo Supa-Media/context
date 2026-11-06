@@ -31,11 +31,15 @@ import {
   askAgent,
   askLine,
   linkPhone,
+  openGatewaySession,
   openSession,
   requestLinkInvite,
   ServiceError,
   unlinkPhone,
+  type AgentAnswer,
   type Fetch,
+  type SessionAnswer,
+  type TextsBinding,
 } from "./clients";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
@@ -47,7 +51,7 @@ import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
 import type { Offer } from "./dataCards";
-import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
+import type { JobSaid, JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
 import type { WarmDeps } from "./warm";
 
@@ -92,12 +96,15 @@ export type ReplyDeps = {
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[], choices: Choice[]) => void;
   /** Handed the data cards an answer offers (`dataCards.ts`); absent, none go. */
-  onOffers?: (offers: Offer[]) => void;
+  onOffers?: (offers: Offer[], hub?: string) => void; // `hub`: the chat's Tex page, when the gateway named one (`jobs.ts` `readHub`)
   /**
-   * Not the last try (`inbox.ts`): a text that could not be started (the
+   * Not the last try (`inbox.ts`): a turn that could not be started (the
    * control plane unreachable, or the gateway answering 503 before the turn
-   * ran, as during a deploy) throws `TryLater` instead of saying something
-   * went wrong. Never for a turn that started: its tools may have run.
+   * ran, as during a deploy), or one that failed after it started, throws
+   * `TryLater` instead of saying something went wrong. A started turn is
+   * tried again as a group's is (Dev2's one-door plan, 2026-11-05: 1:1 gains
+   * the group's retries; `groupTurnWorkflow.ts`), though its tools may have
+   * run: a held send is asked again, never sent, and the same ask is deduped.
    */
   retry?: boolean;
   /**
@@ -110,6 +117,8 @@ export type ReplyDeps = {
   covers?: string[];
   /** When the first text this turn answers came in, sent to `/agent` so the turn log shows how long it waited. */
   arrivedAt?: number;
+  /** Told when the session lookup answered, and when the gateway is about to be asked, so a turn's timing shows each (`textTiming.ts`). */
+  onStage?: (stage: "session" | "asking") => void;
   /** Handed the approval records the turn armed and the ask line shown for them, so each is logged as an ask (`events.ts`). */
   onAsks?: (askIds: string[], askText: string) => void;
   /**
@@ -118,16 +127,52 @@ export type ReplyDeps = {
    */
   running?: RunningJob[];
   /** Resolves to a line for the answer when a job Tex said it started never did (`notStartedText`). */
-  onJobs?: (jobs: StartedJob[]) => Promise<string | undefined | void>;
+  onJobs?: (jobs: StartedJob[], said?: JobSaid) => Promise<string | undefined | void>; // `said`: what they said aloud and the files they sent, part of the jobs' question (`jobs.ts` `jobQuestion`)
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
-  onSteers?: (asks: JobSteerAsk[]) => Promise<string | undefined | void>;
+  onSteers?: (asks: JobSteerAsk[], said?: JobSaid) => Promise<string | undefined | void>;
   /** "Tex, settings" (`texStyle.ts`): where the open menu is kept. Absent, settings texts go to the model like any other. */
   settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
   /** A texted yes to sharing with the devs: file what this chat keeps, once (`reviewWatch.ts` `watchShared`). */
   onShared?: () => Promise<void>;
+  /**
+   * A text's session from the person object, without Convex (`openGatewaySession`): the gateway's binding, the
+   * personal workspace id this inbox remembers, and where a new one is kept. Absent, every session is Convex's.
+   */
+  texts?: TextsSessionDeps;
 };
 
+export type TextsSessionDeps = { binding: TextsBinding; workspaceId: () => Promise<string | undefined>; remember: (personalWorkspaceId: string | null) => Promise<void> };
+
+/**
+ * The person object first, when this inbox knows whose phone it is; Convex otherwise, or on any miss. Convex's answer
+ * names the personal workspace, which the inbox keeps for the next text; a refusal clears what it kept, so a stale id
+ * costs one slow text and never a wrong one (the object answers only for a phone it holds).
+ */
+async function textSession(phone: string, deps: ReplyDeps): Promise<SessionAnswer> {
+  const texts = deps.texts;
+  const kept = texts ? await texts.workspaceId() : undefined;
+  if (texts && kept) {
+    const fast = await openGatewaySession(texts.binding, phone, kept);
+    if (fast !== null) return fast;
+  }
+  const slow = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, phone);
+  if (texts) {
+    const own = slow.status === "linked" ? slow.personalWorkspaceId ?? null : null;
+    if (own !== (kept ?? null)) await texts.remember(own).catch(() => undefined);
+  }
+  return slow;
+}
+
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
+/**
+ * Whether a 1:1 turn that did not answer is tried again (`inbox.ts`, up to `MAX_ANSWER_ATTEMPTS`). A refusal
+ * (`agentRefusal.ts`) is refused the same way on every try, so it is said at once; so is a turn that ran out of
+ * time, which may still be running at the gateway, where a second one would run its tools twice.
+ */
+export function triedAgain(answer: AgentAnswer): boolean {
+  return answer.kind === "not_started" || (answer.kind === "unavailable" && answer.refused === undefined && answer.timedOut !== true);
+}
+
 export class TryLater extends Error {
   constructor() {
     super("try this text again later");
@@ -206,14 +251,12 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       return result === "unlinked" ? COPY.unlinkDone : COPY.unlinkNothing;
     }
 
-    const session = await openSession(
-      deps.fetch,
-      deps.controlPlaneOrigin,
-      deps.workerSecret,
-      message.from,
-    ).catch((error) => {
+    const lookup = Date.now();
+    const session = await textSession(message.from, deps).catch((error) => {
       throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
     });
+    deps.onStage?.("session");
+    const sessioned = Date.now();
     // Nobody texted a save's turn (`vaultWatch.ts`): a phone unlinked since is told nothing.
     if (message.event !== undefined && session.status === "unlinked") return [];
     if (session.status === "unlinked") {
@@ -259,6 +302,10 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       : [];
     // The session is the chat's: its buffered events are written before the turn reads the log (`events.ts`).
     await deps.steer?.onSession(session.accessToken);
+    const warm = { warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) };
+    deps.onStage?.("asking");
+    // The Worker's own wait, said to the gateway so the turn's timing in the ledger shows it (`apps/mcp/src/agent/turnTiming.js`).
+    const worker = { sessionMs: sessioned - lookup, beforeAskMs: Date.now() - sessioned };
     const answer = await askAgent(
       deps.fetch,
       deps.gatewayOrigin,
@@ -270,7 +317,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
@@ -282,11 +329,11 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
-      const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs) : undefined;
-      const notResumed = answer.steers ? await deps.onSteers?.(answer.steers) : undefined;
+      const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs, answer) : undefined;
+      const notResumed = answer.steers ? await deps.onSteers?.(answer.steers, answer) : undefined;
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
-      if (answer.offers) deps.onOffers?.(answer.offers);
+      if (answer.offers) deps.onOffers?.(answer.offers, answer.hub);
       const after = [notStarted, notResumed].filter((line): line is string => typeof line === "string" && line !== "");
       // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`): the gateway's flag, never a word; a bare control word is never a text either.
       if (!answer.text || answer.quiet || isControlWord(answer.text)) return after;
@@ -295,7 +342,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // what they read (`apps/mcp/src/tools/emailGate.js`).
       return [...textsWithExact(answer.text, answer.verbatim), ...after];
     }
-    if (answer.kind === "not_started" && deps.retry) throw new TryLater();
+    if (triedAgain(answer) && deps.retry) throw new TryLater();
     // A job's report the chat's turn was refused for is never lost in silence: the result waits in the job list for their next text.
     if (message.event === "job_report" && (answer.kind === "no_model" || answer.kind === "daily_limit")) return [COPY.jobReportRefused];
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.
@@ -305,6 +352,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     if (answer.kind === "no_storage") return COPY.noStorage;
     return COPY.unavailable;
   } catch (error) {
+    if (error instanceof ServiceError && deps.retry) throw new TryLater();
     if (error instanceof ServiceError) return message.event !== undefined ? [] : COPY.unavailable;
     throw error;
   }

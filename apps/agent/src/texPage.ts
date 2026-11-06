@@ -16,7 +16,7 @@ import { lastTurnPeople } from "./groupChat";
 import { groupInboxName } from "./groupInbox";
 import { inboxByName } from "./objectPlace";
 import type { InboxStorage } from "./inbox";
-import { JOB_KEPT_MS, JOB_PREFIX, JOB_STALE_MS, type JobEntry, type JobState, type JobStep, type JobSteer } from "./jobs";
+import { JOB_PREFIX, sweptJobs, type JobEntry, type JobState, type JobStep, type JobSteer } from "./jobs";
 
 /** Most jobs a page is shown, newest first. */
 export const MAX_PAGE_JOBS = 40;
@@ -39,10 +39,21 @@ export type PageJob = {
   for?: string;
   /** Stopped by a person (`jobRun.ts`): shown as stopped, not failed. */
   stopped?: true;
+  /** The person's own computer it runs on, by id, with the name and coding tool it was started with; absent in Tex's cloud. */
+  on?: { id: string; name: string; tool?: "claude" | "codex" };
 };
 
 /** What a chat's inbox answers a page: its jobs, and for a group the people hash its browser is tagged by. */
 export type PageJobs = { now: number; jobs: PageJob[]; people?: string };
+
+/** Where an entry's job runs, for the page: its computer, or nothing for Tex's cloud. An entry from before names were kept says "your computer". */
+function pageMachineOf(entry: JobEntry): { on?: PageJob["on"] } {
+  if (typeof entry.on !== "string" && entry.machine !== true) return {};
+  const id = typeof entry.on === "string" ? entry.on : "machine";
+  const name = typeof entry.onName === "string" && entry.onName.trim() !== "" ? entry.onName.trim().slice(0, 100) : "your computer";
+  const tool = entry.onTool === "claude" || entry.onTool === "codex" ? entry.onTool : undefined;
+  return { on: { id, name, ...(tool ? { tool } : {}) } };
+}
 
 /** Which chat a page names: a 1:1 chat's phone, or a group's key. */
 export type PageChat = { phone: string } | { groupKey: string };
@@ -52,26 +63,12 @@ export type PageSteer = { id: string; text: string; stop?: true };
 
 /**
  * Every job the chat's inbox keeps, running and finished, newest first, at
- * most `MAX_PAGE_JOBS`. Prunes the way `chatJobs` does: a finished job past
- * `JOB_KEPT_MS` is deleted, and a running one past `JOB_STALE_MS` is marked
- * failed, since its object is gone.
+ * most `MAX_PAGE_JOBS`, read through `sweptJobs` as the chat's own turns
+ * read them: what has run out (a dead run, a wait nobody can answer any more)
+ * is settled first, so it never holds a minion.
  */
 export async function pageJobsOf(storage: InboxStorage, now: number): Promise<PageJobs> {
-  const entries = await storage.list<JobEntry>({ prefix: JOB_PREFIX });
-  const kept: JobEntry[] = [];
-  for (const [key, entry] of entries) {
-    if (entry.state !== "running" && now - (entry.finishedAt ?? entry.startedAt) > JOB_KEPT_MS) {
-      await storage.delete(key);
-      continue;
-    }
-    if (entry.state === "running" && now - entry.startedAt > JOB_STALE_MS) {
-      const stopped = { ...entry, state: "failed" as const, finishedAt: now };
-      await storage.put(key, stopped);
-      kept.push(stopped);
-      continue;
-    }
-    kept.push(entry);
-  }
+  const kept = await sweptJobs(storage, now);
   const jobs = kept
     .sort((a, b) => b.startedAt - a.startedAt)
     .slice(0, MAX_PAGE_JOBS)
@@ -85,6 +82,7 @@ export async function pageJobsOf(storage: InboxStorage, now: number): Promise<Pa
       steps: entry.steps ?? [],
       ...(entry.state !== "running" && entry.result ? { result: entry.result } : {}),
       ...(entry.stopped === true ? { stopped: true as const } : {}),
+      ...pageMachineOf(entry),
     }));
   // A group's browser is tagged by its people (`lastTurnPeople`); a 1:1 inbox keeps none.
   const people = await lastTurnPeople(storage);

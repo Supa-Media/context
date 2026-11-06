@@ -22,6 +22,8 @@
  * `Runtime.evaluate` is what every reading already uses.
  */
 
+import type { Solver } from "./captchaSolver";
+
 /** How long a captcha on the page is given to clear on its own. */
 export const SOLVE_WAIT_MS = 30_000;
 const POLL_MS = 1_000;
@@ -87,14 +89,22 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 export async function settleCaptcha(
   evaluate: (source: string) => Promise<unknown>,
-  { waitMs = SOLVE_WAIT_MS, pollMs = POLL_MS, now = Date.now, wait = sleep }: { waitMs?: number; pollMs?: number; now?: () => number; wait?: (ms: number) => Promise<unknown> } = {},
+  {
+    waitMs = SOLVE_WAIT_MS,
+    pollMs = POLL_MS,
+    now = Date.now,
+    wait = sleep,
+    solver = null,
+  }: { waitMs?: number; pollMs?: number; now?: () => number; wait?: (ms: number) => Promise<unknown>; solver?: Solver | null } = {},
 ): Promise<"solved" | "unsolved" | null> {
-  const probe = async () => captchaPending(asSigns(await evaluate(CAPTCHA_PROBE).catch(() => null)));
+  // Browserbase's solver at work counts as a captcha on the page, seen or not (./captchaSolver.ts).
+  const probe = async () => solver?.state() === "solving" || captchaPending(asSigns(await evaluate(CAPTCHA_PROBE).catch(() => null)));
   if (!(await probe())) return null;
   const until = now() + waitMs;
   while (now() < until) {
     await wait(pollMs);
-    if (!(await probe())) return "solved";
+    // A solve that failed is not a captcha out of the way: the gateway's ladder takes it from there.
+    if (!(await probe())) return solver?.state() === "errored" ? "unsolved" : "solved";
   }
   return "unsolved";
 }

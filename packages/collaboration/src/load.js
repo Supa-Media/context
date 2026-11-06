@@ -17,6 +17,7 @@ import {
 } from "./storage.js";
 import { assertTextSize, docFromSnapshot, newDoc, snapshotOf } from "./ydoc.js";
 import {
+  inlineRevision,
   readHead,
   readRevision,
   readState,
@@ -62,6 +63,7 @@ async function initialize(store, path, note, head, noteId = null, stateRead = nu
         path,
         text: head.initialText,
         rawMarkdownEtag: head.initialEtag,
+        current: { revision: "r0", snapshot: head.initialSnapshot, rawMarkdownEtag: head.initialEtag },
       });
       const revision = {
         documentId: head.documentId,
@@ -272,9 +274,10 @@ export async function finalizePending(store, path, loaded, { committed = false }
     // The accepted revisions and the Markdown are independent reads, asked together.
     const noteRead = readObject(store, path);
     noteRead.catch(() => {});
-    const pendingRead = state.pending ? readRevision(store, state.documentId, state.pending.revision) : null;
+    const inline = inlineRevision(state);
+    const pendingRead = state.pending ? (inline !== null && state.pending.revision === state.revision ? Promise.resolve(inline) : readRevision(store, state.documentId, state.pending.revision)) : null;
     pendingRead?.catch(() => {});
-    const revision = await readRevision(store, state.documentId, state.revision);
+    const revision = inline ?? (await readRevision(store, state.documentId, state.revision));
     if (!state.pending) {
       const note = await noteRead;
       if (!note) throw fail("DOCUMENT_MISSING", "Markdown note disappeared during materialization");

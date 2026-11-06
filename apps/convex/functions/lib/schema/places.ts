@@ -69,6 +69,14 @@ export const placeTables = {
      * with it). Absent on a note they never typed in.
      */
     editedAt: v.optional(v.number()),
+    /**
+     * How often they open it, as one number: each open adds one and the total
+     * halves every `OPEN_HALF_LIFE_MS`, measured as of `at` (`openWeight`).
+     * The search bar's guesses before anything is typed rank by it (owner,
+     * 2026-11-04: one open count per note, never a log of opens). Absent on
+     * rows from before, which read as one open at `at`.
+     */
+    opens: v.optional(v.number()),
   })
     .index("by_user_workspace", ["userId", "workspaceId"])
     .index("by_user_workspace_path", ["userId", "workspaceId", "path"])

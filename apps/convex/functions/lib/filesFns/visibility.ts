@@ -62,8 +62,23 @@ async function resolveNamedAudience(
 type VisibilityOperationResult = Extract<OperationResult, { kind: "visibility" }>;
 
 /**
- * One console change written to the rows (`nodesAccess.consoleAccess`). A note must be `.md`, a folder must not
- * be plumbing. A path with no row is "does not exist": a row is never made here.
+ * The person's own chat with Tex as one read-only file (`apps/mcp/src/agent/historyFile.js` `HISTORY_PATH`). The one
+ * file that is not Markdown and still carries its own visibility (owner, 2026-11-04: "i don't want to give you private
+ * access to everything, just this file, team access to this file should be enough"): the owner may share their chat
+ * with a team-tier connection without opening the rest of `tex/`. A group chat's history file is not this path: its
+ * home is sealed to the chat's people (`chat-homes.md`), so it never takes a visibility of its own.
+ */
+export const PERSONAL_HISTORY_FILE = "tex/history.ledger.json";
+
+/** Whether this path may carry its own visibility as a note: Markdown, or the person's own history file. */
+export function takesOwnVisibility(path: string): boolean {
+  return path.endsWith(".md") || path === PERSONAL_HISTORY_FILE;
+}
+
+/**
+ * One console change written to the rows (`nodesAccess.consoleAccess`). A note must be `.md` (or the person's own
+ * history file, `takesOwnVisibility`), a folder must not be plumbing. A path with no row is "does not exist": a row
+ * is never made here.
  */
 async function rowsChange(
   ctx: ActionCtx,
@@ -78,7 +93,7 @@ async function rowsChange(
     accounts?: boolean;
   },
 ): Promise<VisibilityOperationResult> {
-  if (change.kind === "note" && !change.path.endsWith(".md")) {
+  if (change.kind === "note" && !takesOwnVisibility(change.path)) {
     throw new ConvexError({
       code: "PATH_INVALID",
       message: "Only markdown notes can have their own visibility. Set the folder's default instead.",

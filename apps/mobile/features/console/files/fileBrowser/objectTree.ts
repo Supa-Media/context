@@ -4,8 +4,8 @@
  * the server's listing at this person's clearance, and again whenever it
  * changes for them.
  *
- * The token is the console grant, offered as a subprotocol beside
- * `context.tree` so it never sits in a URL, as the presence socket does.
+ * The console grant's token is traded for a one-use ticket, offered as a
+ * subprotocol beside `context.tree`, so no token is on the socket at all.
  *
  * What the socket can say, and what the tree does about it:
  * - a listing: lay it down as the server's answer for that folder;
@@ -27,6 +27,7 @@ import {
   TREE_SOCKET_PATH,
   watchFrame,
 } from "@context/shared/src/treeFrames.cjs";
+import { fetchLiveTicket, ticketProtocols } from "@context/shared/src/liveTicket.cjs";
 import type { FolderListing } from "../types";
 
 /** How long a workspace the object does not serve reads Convex before the object is asked again. */
@@ -40,8 +41,9 @@ export function treeSocketUrl(gatewayOrigin: string): string {
   return url.toString();
 }
 
-export function treeSocketProtocols(token: string): string[] {
-  return [TREE_PROTOCOL, `context.token.${token}`];
+/** The socket's subprotocols: its protocol and a one-use ticket, never the token (`apps/mcp/src/live/ticket.js`). */
+export function treeSocketProtocols(ticket: string): string[] {
+  return ticketProtocols(TREE_PROTOCOL, ticket);
 }
 
 export function backoffMs(failures: number): number {
@@ -71,6 +73,8 @@ export interface ObjectTreeOptions extends ObjectTreeEvents {
   token: (refresh: boolean) => Promise<string>;
   /** For tests: the socket and the clock. */
   open?: (url: string, protocols: string[]) => SocketLike;
+  /** For tests: trade the token for a socket ticket (`POST /presence/ticket`). */
+  ticket?: (token: string) => Promise<string>;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
 }
@@ -123,9 +127,20 @@ export function openObjectTree(options: ObjectTreeOptions): ObjectTree {
     }
     refresh = false;
     if (stopped) return;
+    // The socket carries a one-use ticket, never the token (`apps/mcp/src/live/ticket.js`).
+    let ticket: string;
+    try {
+      ticket = await (options.ticket ?? ((value: string) => fetchLiveTicket({ gatewayOrigin: options.gatewayOrigin, token: value, socket: TREE_SOCKET_PATH })))(token);
+    } catch (error) {
+      failures += 1;
+      // A token the gateway refused is minted afresh next time.
+      if ((error as { status?: number })?.status === 401) refresh = true;
+      return later(failures >= 3 ? NOT_SERVED_RETRY_MS : backoffMs(failures - 1));
+    }
+    if (stopped) return;
     let opened = false;
     let notServed = false;
-    const live = open(treeSocketUrl(options.gatewayOrigin), treeSocketProtocols(token));
+    const live = open(treeSocketUrl(options.gatewayOrigin), treeSocketProtocols(ticket));
     socket = live;
     live.onopen = () => {
       opened = true;

@@ -30,14 +30,21 @@ function touchCanvas() {
     listeners.get("pointerdown")?.(e);
     listeners.get("pointerup")?.(e);
   };
-  return { canvas, tap };
+  const drag = (x: number, y: number, steps: number) => {
+    t += 1000;
+    const at = (i: number) => ({ clientX: x + i * 12, clientY: y, pointerId: 1, pointerType: "touch", timeStamp: t + i, preventDefault: () => {} });
+    listeners.get("pointerdown")?.(at(0));
+    for (let i = 1; i <= steps; i += 1) listeners.get("pointermove")?.(at(i));
+    listeners.get("pointerup")?.(at(steps));
+  };
+  return { canvas, tap, drag };
 }
 
 function engineWith(options: MapEngineOptions) {
-  const { canvas, tap } = touchCanvas();
+  const { canvas, tap, drag } = touchCanvas();
   const engine = createMapEngine(canvas, { now: () => 0, requestFrame: () => 1, cancelFrame: () => {}, reducedMotion: true, minimap: false, ...options });
   engine.resize(W, H, 1);
-  return { engine, tap };
+  return { engine, tap, drag };
 }
 
 /** A point on the canvas over a note, found the way a finger would: by looking. */
@@ -72,6 +79,22 @@ describe("taps", () => {
     expect(engine.hitTest(2, H - 2)).toBeNull();
     tap(2, H - 2);
     expect(empty).toBe(1);
+    expect(opened).toEqual([]);
+  });
+});
+
+describe("dragging", () => {
+  // Dev2, 2026-11-04: a clicked note stays selected while you drag round to see what it links to;
+  // only a tap on empty space or on another note changes it.
+  test("a drag is no tap: it neither opens a note nor clears one", () => {
+    const opened: unknown[] = [];
+    let empty = 0;
+    const { engine, drag } = engineWith({ onOpenNote: (note) => opened.push(note), onTapEmpty: () => (empty += 1) });
+    engine.setData(mapData());
+    engine.renderAt(0);
+    drag(2, H - 2, 6);
+    drag(400, 300, 6);
+    expect(empty).toBe(0);
     expect(opened).toEqual([]);
   });
 });

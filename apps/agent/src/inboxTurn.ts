@@ -20,6 +20,8 @@
  * (`steer.ts`): fold, queue, or restart.
  */
 
+import { gatherTheTurn } from "./gatherTheTurn";
+import { replyFields } from "./replyQuote";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
 import { chatEvents } from "./chatRead";
@@ -28,6 +30,8 @@ import { sha256Hex } from "./groupChat";
 import { linkCode, type Message } from "./reply";
 import { restartTurn, runningTurn, steerInto } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
+import { reactionLine, type Tapback } from "./reactions";
+import { onTexText } from "./thumbs";
 import type { SendPart } from "./outgoing";
 import type { InboxStorage } from "./inbox";
 
@@ -57,21 +61,41 @@ export type Pending = {
   askText?: string;
   /** The reply is one of the Worker's own texts, logged as the system's with no turn (`inbox.ts` `sendReply`). */
   system?: true;
+  /** A turn's draft for it was held by `lookAgain` once already: the next answer is sent. */
+  rechecked?: true;
 };
 export type Entry = [string, Pending];
 
 const UNLINK = /^\s*unlink\s*[.!]?\s*$/i;
 const PURE_ACK = /^\s*(?:ok|okay|k|kk|thanks|thank you|thx|ty|cool|got it|great|nice|perfect|👍|🙏|❤️)[\s.!]*$/iu;
 
-/** The event for one text in (`events.ts`): who sent it as a hash, never the number. */
-export async function logInbound(storage: InboxStorage, message: Message, now: number): Promise<string> {
+/**
+ * The event for one text in (`events.ts`): who sent it as a hash, never the number.
+ *
+ * A tapback is logged as its whole line, "👍 (yes) on Tex's message …", never
+ * its bare emoji: the log is the one copy of the chat, and a turn's question
+ * is read from it (`apps/mcp/src/agent/loggedTurn.js`). Logged as "👍" alone,
+ * a like on "Want me to merge it? 👍 or 👎?" reached the model with nothing
+ * saying what it was on, and Tex asked again three times (Dev2, 2026-11-05).
+ * The message itself keeps its emoji, which code reads (`pureAck`, the gateway's yes).
+ */
+export async function logInbound(storage: InboxStorage, message: Message, now: number, line?: string): Promise<string> {
   return await addEvent(storage, {
     at: now,
     chat: message.chatId,
     from: { kind: "person", who: await sha256Hex(message.from) },
     kind: message.tapback ? "reaction" : kindOf(message.text, message.attachments),
-    text: message.text,
+    // `line`: a tapback whose line is made already (`inbox.ts` `react`: one taken back, or one only noted).
+    text: line ?? (message.tapback ? await tapbackLogLine(storage, message, message.tapback) : message.text),
+    // A reply under an earlier text: which one, and its full words (`replyQuote.ts`). A tapback's line already names it.
+    ...(message.tapback || line !== undefined || !message.quoted ? {} : await replyFields(storage, message.chatId, { words: message.quoted })),
   });
+}
+
+/** A tapback as the log keeps it: its line, with the words it was on when it was on any. */
+async function tapbackLogLine(storage: InboxStorage, message: Message, how: Tapback): Promise<string> {
+  const reaction = { how, words: message.quoted ?? "" };
+  return reactionLine(reaction, await onTexText(storage, message.chatId, reaction));
 }
 
 /** Texts that are code's to answer, never the model's to choose: LINK, UNLINK, an SMS, a saved login's turn, a 👍 held as an ask's yes. */
@@ -182,21 +206,9 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
     return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {}) };
   }
   const covered = (entry: Entry) => entry[1].force === true || (entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
-  // An older text it left out that still needs an answer goes first, on its own, so answers keep the order texts came in.
-  const skipped = burst.findIndex((entry) => !covered(entry));
-  const lastCovered = burst.length - 1 - [...burst].reverse().findIndex(covered);
-  if (skipped !== -1 && lastCovered < burst.length && skipped < lastCovered) {
-    const left = burst[skipped];
-    const acks = burst.slice(0, skipped);
-    if (!pureAck(left[1].message)) return { answer: [...acks, left].filter((entry) => entry === left || covered(entry)), drop: [] };
-  }
-  const chosen = burst.filter(covered);
-  // Nothing named: the newest is what woke it.
-  const answer = chosen.length > 0 ? chosen : [burst.at(-1)!];
-  const last = burst.indexOf(answer.at(-1)!);
-  // Acknowledgements before the answer that it left out go unanswered.
-  const drop = burst.slice(0, last).filter((entry) => !answer.includes(entry));
-  return { answer, drop };
+  // An older text it left out that still needs an answer goes first; acknowledgements before the answer go unanswered (`gatherTheTurn.ts`).
+  const { answer, left } = gatherTheTurn(burst, covered, (entry) => !pureAck(entry[1].message));
+  return { answer, drop: left };
 }
 
 /** Several texts as the one a turn answers: words in order, files first-sent first, the newest's place. */

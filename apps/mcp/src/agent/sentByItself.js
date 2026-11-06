@@ -12,10 +12,11 @@
  *
  * The record is already read on every turn (`turnHistory`), so this reads
  * nothing more: each such exchange from the log's window that the log does not
- * already hold is placed in it, at its time, as Tex's own text. Whether it is
- * trusted is the record's word for it (`tainted`), never the log's turn
- * records, which no check-in has.
+ * already hold is placed in it, at its time, as Tex's own text. Shown, it never
+ * marks the turn (`docs/decisions/texting-assistant/turn-trust.md`).
  */
+
+import { sentOnItsOwn } from "./sentOnItsOwn.js";
 
 /** Every exchange Tex started without a text from them begins with this (`heartbeat.js`, `conversation.js`, `attention.js`). */
 const BY_ITSELF = /^\(Not a text from them\./;
@@ -29,15 +30,14 @@ const SAME = 60;
 const key = (text) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, SAME);
 
 /**
- * The record's texts Tex sent by itself, as log events for `renderEvents`, and
- * whether any of them is tainted. `events` is the chat's whole log, `newest`
+ * The record's texts Tex sent by itself, as log events for `renderEvents`.
+ * `events` is the chat's whole log, `newest`
  * the time of the newest text this turn answers.
  */
 export function sentByItself(record, events, { chat, newest }) {
   const turns = Array.isArray(record) ? record : [];
   const logged = new Set(events.filter((event) => event.from?.kind === "tex" && typeof event.text === "string").map((event) => key(event.text)).filter(Boolean));
   const shown = [];
-  let tainted = false;
   turns.forEach((turn, index) => {
     const answer = turns[index + 1];
     if (turn?.role !== "user" || typeof turn.text !== "string" || !BY_ITSELF.test(turn.text)) return;
@@ -46,10 +46,9 @@ export function sentByItself(record, events, { chat, newest }) {
     const words = answer.text.trim();
     // A job's report or a fixed line was replied as a text, so the log holds it already.
     if (logged.has(key(words)) || [...logged].some((held) => held.length >= 20 && words.replace(/\s+/g, " ").includes(held))) return;
-    if (answer.tainted === true) tainted = true;
-    shown.push({ id: `record-${index}`, at: turn.at, chat, from: { kind: "tex" }, kind: "text", text: words, delivered: true, byItself: true });
+    shown.push({ id: `record-${index}`, at: turn.at, chat, from: { kind: "tex" }, kind: "text", text: words, delivered: true, byItself: true, ...sentOnItsOwn(turn.text) });
   });
-  return { shown, tainted };
+  return { shown };
 }
 
 /** The log's events with the record's own texts placed at their times, oldest first. */

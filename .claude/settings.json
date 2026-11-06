@@ -47,6 +47,15 @@
             "command": "cat \"${CLAUDE_PROJECT_DIR}/.claude/skills/caveman/SKILL.md\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/scripts/context-machine-hook.sh\" SessionStart",
+            "timeout": 120
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -56,6 +65,48 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/scripts/tex-entry-check.mjs\" --hook"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/scripts/context-machine-hook.sh\" PostToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/scripts/context-machine-hook.sh\" UserPromptSubmit",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/scripts/context-machine-hook.sh\" Stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/scripts/context-machine-hook.sh\" SessionEnd",
+            "timeout": 20
           }
         ]
       }

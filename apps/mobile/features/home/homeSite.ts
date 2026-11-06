@@ -286,6 +286,7 @@ export const APP_SEGMENTS: ReadonlySet<string> = new Set([
   "authorize",
   "connect",
   "console",
+  "download",
   "e2e-fixture",
   "invite",
   "join",

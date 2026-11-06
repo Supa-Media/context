@@ -94,7 +94,7 @@ function everyFrame(): { density: Density; state: FrameState; hasExplorer: boole
                     explorerPeeking,
                     focus,
                     asideOpen,
-                    asideWidth: layout.asideWidth,
+                    asideWidth: layout.asideWidth, asideFolded: false,
                   },
                 });
               }

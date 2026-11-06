@@ -30,7 +30,7 @@
 
 import type { IdleNamespace } from "./idle";
 
-const API = "https://api.browserbase.com/v1";
+export const API = "https://api.browserbase.com/v1";
 
 /**
  * A browser's longest life, however busy. It ends sooner: five minutes after
@@ -141,12 +141,14 @@ export function sessionRequests(env: BrowserbaseEnv, owner: string, profile: str
   const region = (REGIONS as readonly string[]).includes(env.BROWSERBASE_REGION ?? "") ? { region: env.BROWSERBASE_REGION } : {};
   const proxies = env.BROWSERBASE_PROXIES !== "off";
   const stealth = env.BROWSERBASE_STEALTH !== "off";
+  // Verified, Browserbase's browser with real fingerprints its bot-protection partners recognize, which replaced
+  // `advancedStealth` (owner, 2026-11-05). It takes no viewport of its own: its fingerprint comes with one.
+  const { viewport: _viewport, ...settings } = base.browserSettings;
+  const verified = { ...base, ...region, browserSettings: { ...settings, verified: true } };
   const tiers: Array<Record<string, unknown>> = [];
-  if (proxies && stealth) {
-    tiers.push({ ...base, ...region, proxies: true, browserSettings: { ...base.browserSettings, advancedStealth: true } });
-  }
+  if (proxies && stealth) tiers.push({ ...verified, proxies: true });
   if (proxies) tiers.push({ ...base, ...region, proxies: true });
-  if (stealth && !proxies) tiers.push({ ...base, ...region, browserSettings: { ...base.browserSettings, advancedStealth: true } });
+  if (stealth && !proxies) tiers.push(verified);
   if (Object.keys(region).length > 0) tiers.push({ ...base, ...region });
   tiers.push(base);
   return tiers;

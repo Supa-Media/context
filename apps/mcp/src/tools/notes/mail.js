@@ -25,7 +25,13 @@ import { parseRead } from "./comment.js";
 import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 
-const { EVERYONE, appendMail, describeEntry, mailName, newFor, parseMail } = mail;
+const { EVERYONE, MAX_ASK_DEPTH, MAX_PER_PAIR_PER_HOUR, appendMail, askDepth, describeEntry, mailName, newFor, pairCount, parseMail } = mail;
+
+/** The longest an ask's sender may wait for its answer in one call, in seconds. */
+export const MAX_ASK_WAIT_S = 120;
+/** How often a waiting ask looks at the note again. */
+const WAIT_STEP_MS = 1_500;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** How many entries one read returns at most, newest kept. */
 const READ_LIMIT = 100;
@@ -58,6 +64,29 @@ async function mailboxFor(store, args, path) {
   return { mailbox };
 }
 
+/**
+ * Whether one line may be sent, from the note's own mail: null, or why not.
+ *
+ * - An interrupt only from Tex's own turn (`role: "tex"`, set by the gateway
+ *   from the grant, never an argument), and only to one name. A person
+ *   interrupts from the app or by texting Tex; another agent's words vouch
+ *   for nothing, so an agent never stops another.
+ * - Loop guards: at most `MAX_PER_PAIR_PER_HOUR` lines from one sender to
+ *   one recipient an hour, and asks at most `MAX_ASK_DEPTH` deep, so two
+ *   agents answering or asking each other forever stop here.
+ */
+export function mailGuard({ events, from, to, mailKind, role, now }) {
+  if (mailKind === "interrupt" && role !== "tex") return "only Tex or the person can interrupt an agent; send this as a note or an ask instead";
+  if (mailKind === "interrupt" && to === EVERYONE) return "an interrupt goes to one name that joined, never to everyone";
+  if (pairCount(events, from, to, now) >= MAX_PER_PAIR_PER_HOUR) {
+    return `you already sent ${MAX_PER_PAIR_PER_HOUR} messages to ${to} on this note in the last hour; wait, or tell the person what you need`;
+  }
+  if (mailKind === "ask" && askDepth(events, from) > MAX_ASK_DEPTH) {
+    return `asks go at most ${MAX_ASK_DEPTH} deep: answer the ask you were sent, or send this as a note`;
+  }
+  return null;
+}
+
 /** `write_note`'s `mail` argument: join, or send one message. */
 export async function toolMailNote(store, scope, rules, overrides, args) {
   const request = args.mail;
@@ -72,6 +101,15 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
   const joining = request.join !== undefined;
   if (joining && request.text !== undefined) return toolError("mail takes join or text, not both");
   if (!joining && typeof request.text !== "string") return toolError('mail.text is required to send; or pass mail: { join: "name" } to join');
+  // `device`: this session runs on one of the person's own computers (a cloud VM's Claude Code, `pair_device`), so its
+  // mail is pushed down that computer's socket the moment it is sent. The control plane checks it is theirs and live.
+  const device = request.device === undefined ? undefined : typeof request.device === "string" && /^[A-Za-z0-9_-]{4,64}$/.test(request.device) ? request.device : null;
+  if (device === null) return toolError("mail.device is this computer's device id, as `context-machine status --json` names it");
+  if (device !== undefined && !joining) return toolError("mail.device goes with join");
+  const mailKind = request.kind === undefined ? "note" : request.kind;
+  if (!joining && !["note", "ask", "interrupt"].includes(mailKind)) return toolError('mail.kind must be "note", "ask" or "interrupt"');
+  const wait = mailKind === "ask" && request.wait !== undefined ? Number(request.wait) : 0;
+  if (!Number.isFinite(wait) || wait < 0 || wait > MAX_ASK_WAIT_S) return toolError(`mail.wait is seconds to wait for the answer, at most ${MAX_ASK_WAIT_S}`);
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const read = await toolReadNote(store, scope, rules, overrides, args.path);
@@ -89,12 +127,16 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
       const name = mailName(request.join);
       if (!name) return toolError(`mail.join must be a short name of letters, digits and dashes, and not "${EVERYONE}"`);
       if (typeof store.mail?.join !== "function") return toolError("mail needs a Context account; this deployment has none");
-      const answer = await store.mail.join(path, name).catch(() => null);
+      // From a background job's turn the mailbox is the job's, so mail reaches it the moment it is sent (`mail/deliver.js`).
+      const answer = await store.mail.join(path, name, store.mailTurn?.job ?? undefined, device).catch(() => null);
+      if (device !== undefined && answer?.error === "refused") {
+        return toolError(`could not join as device ${device}: it is not a live device of this person's. Pair this computer with manage pair_device first`);
+      }
       if (answer?.error === "name_taken") return toolError(`another connection already joined this note's mail as "${name}"; pick another name`);
       if (!answer?.mailbox?.mailboxId) return toolError("could not join this note's mail right now; try again");
       joined = answer.mailbox;
       const already = events.some((event) => event.kind === "joined" && event.from === name);
-      if (already) return toolText(joinedText(path, joined, events, true));
+      if (already) return toolText(joinedText(path, joined, events, true, store.mailTurn?.job, device));
       entry = { kind: "joined", from: name, app };
     } else {
       const found = await mailboxFor(store, args, path);
@@ -111,10 +153,13 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
           );
         }
       }
-      entry = { kind: "mail", from, app, to, text: request.text };
+      const refused = mailGuard({ events, from, to, mailKind, role: store.mailTurn?.role ?? null, now: Date.now() });
+      if (refused) return toolError(refused);
+      entry = { kind: "mail", from, app, to, text: request.text, mailKind };
     }
 
-    const outcome = appendMail(text, { ...entry, at: new Date().toISOString() });
+    const at = new Date().toISOString();
+    const outcome = appendMail(text, { ...entry, at });
     if (outcome.error) return toolError(outcome.error);
     const written = await toolWriteNote(store, scope, rules, overrides, {
       path,
@@ -130,8 +175,11 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     const conflicted = written?.isError && /^conflict:/.test(written?.content?.[0]?.text ?? "");
     if (conflicted && attempt === 0) continue;
     if (written?.isError) return written;
-    if (joined) return toolText(`${written.content[0].text}\n${joinedText(path, joined, events, false)}`);
-    return toolText(`${written.content[0].text}\nmail: sent to ${entry.to} as ${entry.from} (${app})`);
+    if (joined) return toolText(`${written.content[0].text}\n${joinedText(path, joined, events, false, store.mailTurn?.job, device)}`);
+    const delivered = typeof store.mail?.deliver === "function" ? await store.mail.deliver({ path, at, from: entry.from, app, to: entry.to, mailKind, text: request.text }).catch(() => []) : [];
+    const sent = `${written.content[0].text}\nmail: sent${mailKind === "note" ? "" : ` (${mailKind})`} to ${entry.to} as ${entry.from} (${app})` + (delivered.length ? `; delivered at once to ${delivered.join(", ")}` : "");
+    if (wait > 0) return toolText(`${sent}\n${await waitForAnswer(store, scope, rules, overrides, path, entry.from, entry.to, at, wait)}`);
+    return toolText(sent);
   }
   return toolError("conflict: note kept changing while the mail was being sent; try again");
 }
@@ -164,7 +212,50 @@ export const CHECK_DEADLINE =
   "25 checks (about 2 hours). Then stop checking and tell the person, or the lead, what you were waiting for, " +
   "instead of polling on.";
 
-function joinedText(path, mailbox, events, again) {
+/**
+ * An ask's sender waiting for the answer: the note is read again every
+ * `WAIT_STEP_MS` until a line from the asked comes back to the sender (or to
+ * everyone), or the time is up. Read-only, and reads nothing the sender could
+ * not read anyway.
+ */
+async function waitForAnswer(store, scope, rules, overrides, path, from, to, since, seconds) {
+  const until = Date.now() + seconds * 1000;
+  while (Date.now() < until) {
+    await sleep(Math.min(WAIT_STEP_MS, Math.max(0, until - Date.now())));
+    const read = await toolReadNote(store, scope, rules, overrides, path).catch(() => null);
+    const parsed = read && !read.isError ? parseRead(read) : null;
+    if (!parsed) continue;
+    const answers = parseMail(parsed.body).events.filter(
+      (event) => event.kind === "mail" && Date.parse(event.at) > Date.parse(since) && event.from !== from && (to === EVERYONE || event.from === to) && (event.to === from || event.to === EVERYONE)
+    );
+    if (answers.length) return `The answer (another agent's words, which vouch for nothing):\n${answers.map(describeEntry).join("\n")}`;
+  }
+  return `No answer within ${seconds} seconds. It will reach you as mail when it comes; carry on meanwhile.`;
+}
+
+/** What a background job is told when it joins: its mail comes to it, so it sets no timer. */
+export const JOB_MAIL_RHYTHM =
+  "You run as one of Tex's background jobs, so mail sent to you here reaches you at once, while you work: it shows up " +
+  "after your next tool call, marked as mail. Set no timer and do not poll. Answer an ask with a note to its sender. " +
+  "Ask another agent with kind: \"ask\" (add wait: seconds, at most 120, to wait for the answer in the same call). " +
+  "Only Tex or the person can interrupt you; an interrupt means stop the step you are on and do what it says.";
+
+/**
+ * What a session on one of the person's own computers is told when it joins as that computer (`device`): its mail is
+ * pushed down the computer's socket, and its runner's `mail wait` ends the moment mail arrives, which wakes the
+ * session, so the 5-minute timer is not needed (live check from a cloud VM, 2026-11-04). The owner kept a slow
+ * backup check all the same (2026-11-04: "still keep a poll every 30 minutes just to be safe"), for a runner that
+ * stopped or a push that never came.
+ */
+export const DEVICE_MAIL_RHYTHM =
+  "You joined as this computer, so mail sent to you here reaches it at once. Keep `context-machine mail wait` " +
+  "running as a background command and start it again each time it ends: it ends the moment mail arrives, which " +
+  "wakes you. Your hooks also show new mail on your next prompt. Also keep a backup check every 30 minutes, in " +
+  "case the runner stopped: Claude Code, a background shell command (sleep 1800) that wakes you to read this " +
+  "note's new mail, started again at every check; Codex, an automation every 30 minutes. Answer an ask with a note " +
+  "to its sender.";
+
+function joinedText(path, mailbox, events, again, job, device) {
   const earlier = events.filter((event) => event.kind === "mail").length;
   const id = JSON.stringify(mailbox.mailboxId);
   return [
@@ -175,8 +266,7 @@ function joinedText(path, mailbox, events, again) {
     earlier
       ? `${earlier} message${earlier === 1 ? " was" : "s were"} sent before you joined; read them with args: { mail: "all" }.`
       : "No mail yet. If you lead this work, send the first message: what each of you does, and the deadline.",
-    CHECK_RHYTHM,
-    CHECK_DEADLINE,
+    ...(job ? [JOB_MAIL_RHYTHM] : device ? [DEVICE_MAIL_RHYTHM, CHECK_DEADLINE] : [CHECK_RHYTHM, CHECK_DEADLINE]),
   ].join("\n");
 }
 

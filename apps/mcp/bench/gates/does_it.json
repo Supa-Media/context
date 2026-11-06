@@ -1,0 +1,22 @@
+{
+  "gate": "does_it",
+  "about": "Hand-backs and offers of work Tex could do. From the 2026-11-04 morning chat (three 'want me to search/read?' offers), the conference form handed back (2026-10-27), 'which receipt does she need?' when it was in their mail, and the core benchmark's right answer that ended with a draft offer (must pass).",
+  "cases": [
+    { "id": "offer-search-inbox", "q": "did the landlord ever reply about the leak?", "did": [], "reply": "I haven't searched your inbox. Want me to check?", "fault": true },
+    { "id": "searched-inbox", "q": "did the landlord ever reply about the leak?", "did": [["search_email", {"query": "landlord leak"}, "1 message from Rick, Oct 30: 'Plumber coming Tuesday'"]], "reply": "Yes, Rick said Oct 30 the plumber's coming Tuesday.", "fault": false },
+    { "id": "offer-read-thread", "q": "what did sam say about the venue?", "did": [["search_email", {"query": "sam venue"}, "3 messages in thread 'Venue options'"]], "reply": "There's a thread with Sam called Venue options. Want me to read it?", "fault": true },
+    { "id": "lisbon-answer-with-draft-offer", "q": "should I skip the band rehearsal on the 17th?", "did": [["search_notes", {"query": "17th"}, "travel/lisbon.md: Lisbon Nov 15-19"]], "reply": "Yes, skip it, you're in Lisbon that week. Want me to draft a message to the band?", "fault": false },
+    { "id": "receipt-which", "q": "my accountant needs the receipt for the desk", "did": [], "reply": "Which receipt does she need? Can you forward it to me?", "fault": true },
+    { "id": "receipt-found", "q": "my accountant needs the receipt for the desk", "did": [["search_email", {"query": "desk receipt"}, "Order #4412 Fully desk $649, Oct 2"]], "reply": "Found it (Fully, $649, Oct 2). Here's the email to her with it attached: ... Give it a 👍 and it goes.", "fault": false },
+    { "id": "form-handed-back", "q": "register me for the conference, i answered the 4 questions above", "did": [["browse", {"url": "https://conf.example/register"}, "Form: name, email, church, t-shirt size, dietary"]], "reply": "Here's the registration page, you can fill it in: https://conf.example/register", "fault": true },
+    { "id": "form-filled-to-pay", "q": "register me for the conference, i answered the 4 questions above", "did": [["browse", {"url": "https://conf.example/register"}, "Form filled; payment page: card required"]], "reply": "All filled in, it just needs your card: https://conf.example/register/pay", "fault": false },
+    { "id": "check-billing-yourself", "q": "why did netflix charge me twice?", "did": [], "reply": "Check your billing page on Netflix, it'll show both charges.", "fault": true },
+    { "id": "code-needs-them", "q": "log into my bank and get the balance", "did": [["browse", {"url": "https://bank.example"}, "Enter the 6-digit code sent to your phone"]], "reply": "The bank texted you a code, what is it?", "fault": false },
+    { "id": "ask-findable-address", "q": "order the same pizza as last friday to my place", "did": [], "reply": "What's your address and what did you order last time?", "fault": true },
+    { "id": "offer-open-folder", "q": "where's the brand kit?", "did": [["search_notes", {"query": "brand kit"}, "projects/brand.md: kit is in Drive > Brand"]], "reply": "It's in Drive under Brand. Want me to open the folder and grab the files?", "fault": true },
+    { "id": "their-choice", "q": "find me a dinner spot friday near union square", "did": [["web_search", {"q": "dinner union square"}, "results"], ["browse", {"url": "https://resy.example/search"}, "Lupa 7pm, Via Carota 8:30pm open"]], "reply": "Lupa at 7 or Via Carota at 8:30, both open. Which one?", "fault": false },
+    { "id": "draft-to-other-person", "q": "tell the team standup is moved to 10", "did": [["slack_api", {"channel": "#team"}, "held: waiting for their yes"]], "reply": "Here's the post for #team: 'Standup moves to 10 tomorrow.' 👍 and it goes.", "fault": false },
+    { "id": "fix-yourself-asks", "q": "fix yourself, that last reply was broken", "earlier": [["tex", "[error: tool search_notes failed: timeout]"]], "did": [], "reply": "What went wrong exactly? Can you tell me what you expected?", "fault": true },
+    { "id": "plain-answer", "q": "what time is it in tokyo", "did": [], "reply": "Just after 2am Thursday.", "fault": false }
+  ]
+}

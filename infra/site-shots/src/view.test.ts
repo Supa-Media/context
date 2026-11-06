@@ -21,7 +21,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FRAME_SCALE, MAX_COORDINATE, MAX_SCROLL, MAX_VIEW_TEXT, parseViewAction, viewOnBrowserbase } from "./view";
+import { FRAME_SCALE, MAX_COORDINATE, MAX_SCROLL, MAX_VIEW_TEXT, parseViewAction, viewOnBrowserbase, windowSizes } from "./view";
 
 const ENV = { BROWSERBASE_API_KEY: "bb_test_key", BROWSERBASE_PROJECT_ID: "proj-test" };
 const OWNER = "a".repeat(64);
@@ -245,5 +245,13 @@ describe("viewOnBrowserbase", () => {
     const result = await call("/view/input", { owner: OWNER, action: { kind: "type", text: "hi" } }, fakeApi({ running: [THEIRS] }));
     expect(result.body).toEqual({ running: false });
     expect(result.api.sent).toEqual([]);
+  });
+});
+
+describe("the window's sizes in the view's log", () => {
+  it("keeps numbers only, so nothing the page says reaches the log", async () => {
+    const page = { evaluate: async <T,>() => ({ inner: 1280, innerH: 860, ratio: 1.25, zoom: 1, outer: "a page's words", screen: Number.NaN }) as T };
+    expect(await windowSizes(page)).toEqual({ inner: 1280, innerH: 860, ratio: 1.25, zoom: 1 });
+    expect(await windowSizes({ evaluate: async () => Promise.reject(new Error("gone")) })).toEqual({});
   });
 });

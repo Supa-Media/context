@@ -180,7 +180,7 @@ test("a copy sealed before the change is never used for the history or About me"
   const old = await sealWarm(env, session, { v: 1, notes: { at: now, value: { aboutMe: "OLD-ABOUT" } }, chat: { at: now, history: [{ role: "user", text: "OLD-HISTORY" }], events: [], clean: {} } });
   const opened = await openWarm(env, session, old, now);
   assert.equal(opened.notes, undefined);
-  assert.equal(opened.chat.history, undefined);
+  assert.equal(opened.chat, undefined);
   const hot = warmTurn(env, session, { warm: old }, { eligible: true, now });
   assert.equal(hot.history, undefined, "the warm copy has no history to offer");
   assert.equal(hot.notes, undefined, "nor About me");

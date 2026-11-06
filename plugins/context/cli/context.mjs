@@ -30,6 +30,7 @@ const USAGE = `Context in your coding agents, and your notes from the terminal.
   npx @supa-media/context unlink             remove this folder's binding
   npx @supa-media/context config list        every setting and where it came from
   npx @supa-media/context config set <key> <value>   (empty value unsets)
+  npx @supa-media/context machine [args]     download and run the runner that lets Tex use this computer
   npx @supa-media/context tools              list the tools your sign-in can run
   npx @supa-media/context <tool> --flag v    run one, e.g. search-notes --query pricing
                                              (<tool> --help shows its flags)
@@ -62,6 +63,11 @@ function parseArgs(argv) {
 }
 
 async function main() {
+  // `machine` is a passthrough: its arguments reach the runner exactly as
+  // typed, so it is dispatched before parseArgs, which would eat a bare flag's
+  // value (`-y`, `--name x`) and treat `--help` as its own.
+  if (process.argv[2] === "machine") return commands.runMachine(process.argv.slice(3));
+
   const args = parseArgs(process.argv.slice(2));
   // With no command at a terminal, the setup wizard: nobody has to know the
   // word `install`. Piped or in CI, the help text, so nothing waits on input.

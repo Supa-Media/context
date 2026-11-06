@@ -19,6 +19,14 @@ describe("whose code is it", () => {
     expect(shouldHandleAuthCode("/connect/google-drive")).toBe(false);
   });
 
+  // Sabotage: drop the /tex line in handleCode.ts and this fails.
+  test("a computer's pairing code on the Tex page is never auth's", () => {
+    expect(shouldHandleAuthCode("/tex")).toBe(false);
+    expect(shouldHandleAuthCode("/tex/seyi")).toBe(false);
+    expect(shouldHandleAuthCode("/texts/tok")).toBe(true);
+    expect(shouldHandleAuthCode("/text")).toBe(true);
+  });
+
   test("everywhere else the sign-in link keeps working", () => {
     expect(shouldHandleAuthCode("/")).toBe(true);
     expect(shouldHandleAuthCode("/login")).toBe(true);

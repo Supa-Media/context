@@ -211,31 +211,18 @@ export function earlierTextsResult(history) {
   return { content: [{ type: "text", text: lines.join("\n\n") }] };
 }
 
-/** `earlier_texts` for one turn: reading a tainted history taints the turn (`onTainted`). */
-export function earlierTextsTool(history, onTainted) {
+/** `earlier_texts` for one turn: the chat's own words, which never mark the turn (`docs/decisions/texting-assistant/turn-trust.md`). */
+export function earlierTextsTool(history) {
   return {
     tool: EARLIER_TEXTS_DEFINITION,
-    call: async () => {
-      if (historyIsTainted(history)) onTainted();
-      return earlierTextsResult(history);
-    },
+    call: async () => earlierTextsResult(history),
   };
-}
-
-/**
- * Whether anything still in this history was written after the turn read
- * something from outside the workspace. The next turn's own ledger starts
- * empty, but the model it opens reads this history, and an answer that
- * repeated a planted instruction is that instruction, one text later.
- */
-export function historyIsTainted(history) {
-  return history.some((turn) => turn.tainted === true);
 }
 
 /**
  * Append one question and its answer to the person's history record
  * (`history.js`). `tainted` marks an answer written by a turn that read from
- * outside the workspace (`historyIsTainted`); it ages out with the turn.
+ * outside the workspace, shown in the history it keeps and never carried to a later turn.
  * `tools` is the names of the tools the answer used, `sources` the addresses
  * of the web pages it read (`sources.js`), `thread` the exchange the question
  * was typed under (`threadView.js`), `theirs` that the person sent the

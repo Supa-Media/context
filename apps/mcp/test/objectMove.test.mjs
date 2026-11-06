@@ -340,6 +340,7 @@ async function archiveStore(answer, notes = { "1-projects/a.md": "# A\n" }) {
 test("archive through the object: an ok answer archives at the archive root, with no body read and no control plane", async () => {
   const { store, sent, queued, gets } = await archiveStore({
     ok: true,
+    to: "4-archive/1-projects/a.md",
     files: [{ from: "1-projects/a.md", to: "4-archive/1-projects/a.md" }],
   });
   const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
@@ -350,30 +351,34 @@ test("archive through the object: an ok answer archives at the archive root, wit
   );
   assert.equal(sent.length, 1);
   assert.equal(sent[0].from, "1-projects/a.md");
-  assert.equal(sent[0].to, "4-archive/1-projects/a.md");
+  // The object names the destination: the gateway sends the rules' archive, never a path of its own.
+  assert.equal(sent[0].to, undefined);
+  assert.deepEqual(sent[0].archive, { root: "4-archive", roots: ["4-archive"] });
   assert.equal(sent[0].expectedEtag, "e1");
   assert.deepEqual(queued, []);
   assert.equal(gets.includes("1-projects/a.md"), false, `the body was read: ${JSON.stringify(gets)}`);
 });
 
-test("archive through the object: TAKEN at the archive root asks the next numbered name, which is what firstFreePath makes", async () => {
-  const { store, sent, queued } = await archiveStore((body) =>
-    body.to === "4-archive/1-projects/a.md"
-      ? { ok: false, code: "TAKEN" }
-      : { ok: true, files: [{ from: body.from, to: body.to }] }
-  );
-  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
-  assert.notEqual(result.isError, true, result.content[0].text);
-  // `numberedName` writes "<stem> (<n>)<ext>", so the second name is "a (2).md", not "a 2.md".
-  assert.deepEqual(
-    sent.map((body) => body.to),
-    ["4-archive/1-projects/a.md", "4-archive/1-projects/a (2).md"]
-  );
-  assert.ok(
-    result.content[0].text.startsWith("archived: 1-projects/a.md → 4-archive/1-projects/a (2).md"),
-    result.content[0].text
-  );
-  assert.deepEqual(queued, []);
+test("archive through the object: the object's own numbered name is the answer's, and TAKEN after every name is the archive's conflict", async () => {
+  const named = await archiveStore({ ok: true, to: "4-archive/1-projects/a (2).md", files: [{ from: "1-projects/a.md", to: "4-archive/1-projects/a (2).md" }] });
+  const result = await toolArchiveNote(named.store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
+  assert.ok(result.content[0].text.startsWith("archived: 1-projects/a.md → 4-archive/1-projects/a (2).md"), result.content[0].text);
+  assert.equal(named.sent.length, 1);
+  const full = await archiveStore({ ok: false, code: "TAKEN" });
+  const refused = await toolArchiveNote(full.store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
+  assert.equal(refused.content[0].text, "conflict: archive destination already exists");
+  assert.equal(full.sent.length, 1);
+  assert.deepEqual(full.queued, []);
+});
+
+test("archive through the object: the object's NO_ARCHIVE, ARCHIVED and HIDDEN_DESTINATION are worded as the gateway words them", async () => {
+  for (const [code, words] of [["NO_ARCHIVE", /no archive folder/], ["ARCHIVED", /^already archived$/], ["HIDDEN_DESTINATION", /archive destination/]]) {
+    const { store, sent, queued } = await archiveStore({ ok: false, code });
+    const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
+    assert.match(result.content[0].text, words, code);
+    assert.equal(sent.length, 1, code);
+    assert.deepEqual(queued, [], code);
+  }
 });
 
 test("archive through the object: NOT_FOUND is answered as not found, one move sent, no control plane", async () => {
@@ -472,17 +477,15 @@ test("archive through the object: a note this caller may not see asks no facts",
   assert.equal(sent.length, 0);
 });
 
-test("archive through the object: a note already inside the archive is 'already archived', with no move", async () => {
-  const { store, sent, queued } = await archiveStore(
-    { ok: true, files: [] },
-    { "4-archive/x.md": "# X\n" }
-  );
+test("archive through the object: a note already inside the archive is 'already archived', as the object answers it", async () => {
+  const { store, sent, queued } = await archiveStore({ ok: false, code: "ARCHIVED" }, { "4-archive/x.md": "# X\n" });
   const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "4-archive/x.md", "e1");
   assert.equal(result.isError, undefined);
   assert.equal(result.content[0].text, "already archived");
-  assert.equal(sent.length, 0);
+  assert.equal(sent.length, 1);
   assert.deepEqual(queued, []);
 });
+
 
 test("each step after the object's answer is timed on its own, so a slow move says where its time went", async () => {
   const { store } = objectStore({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }] });
@@ -578,4 +581,68 @@ test("a keyed folder move the object makes inside one top-level folder lists not
   const refused = await toolMoveKeyedFolder(deferred.store, "team", rules, new Map(), "archive/inbox/old", "archive/inbox/new", false);
   assert.match(refused.content[0].text, /New is already here/);
   assert.deepEqual(deferred.queued, []);
+});
+
+test("an object move records the object's own time and its durable-write wait beside the call's trip", async () => {
+  const { store } = objectStore({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }], took: 12, commit: 9 });
+  const took = [];
+  const timer = (name, run) => run();
+  timer.took = (name, ms) => took.push([name, ms]);
+  Object.defineProperty(store, "phase", { value: timer, enumerable: false });
+  const result = await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.deepEqual(took, [["move", 12], ["move_commit", 9]]);
+});
+
+test("an object move records its trip outside the op: the wire both ways, each way, and a cold or busy object", async () => {
+  const now = Date.now();
+  // The object's clock ran 3 ms ahead of the gateway's: each way alone carries the skew, the two ways' sum does not.
+  const answer = () => ({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }], took: 12, commit: 9, before: 2, arrived: now + 3, answered: now + 3 + 14, cold: true, alarm: true, alarmDuring: true });
+  const { store } = objectStore(answer);
+  const took = new Map();
+  const timer = (name, run) => run();
+  timer.took = (name, ms) => took.set(name, ms);
+  Object.defineProperty(store, "phase", { value: timer, enumerable: false });
+  const realNow = Date.now;
+  // The gateway's clock: the send, then the answer 40 ms later.
+  const clock = [now, now + 40];
+  Date.now = () => (clock.length > 1 ? clock.shift() : clock[0]);
+  let result;
+  try {
+    result = await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
+  } finally {
+    Date.now = realNow;
+  }
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.equal(took.get("move_before"), 2);
+  // 40 ms of trip, 14 of it the object's span: 26 on the wire, split 3 + 23 by the skewed clocks.
+  assert.equal(took.get("move_legs"), 26);
+  assert.equal(took.get("move_out"), 3);
+  assert.equal(took.get("move_back"), 23);
+  assert.equal(took.get("move_legs_cold"), 26);
+  assert.equal(took.get("move_legs_alarm"), 26);
+  assert.equal(took.get("move_legs_alarm_during"), 26);
+});
+
+test("an object answer without the object's clock records no trip split", async () => {
+  const { store } = objectStore({ ok: true, files: [{ from: "a/x.md", to: "b/x.md" }], took: 12, commit: 9 });
+  const took = [];
+  const timer = (name, run) => run();
+  timer.took = (name, ms) => took.push(name);
+  Object.defineProperty(store, "phase", { value: timer, enumerable: false });
+  await startObjectMove(store, "team", "a/x.md", "b/x.md", undefined, NOTE);
+  assert.deepEqual(took, ["move", "move_commit"]);
+});
+
+test("archive through the object asks no jobs first: the object finds the Archive itself", async () => {
+  const { store, sent } = await archiveStore({ ok: true, to: "4-archive/1-projects/a.md", files: [{ from: "1-projects/a.md", to: "4-archive/1-projects/a.md" }] });
+  let asked = 0;
+  store.treeFacts = async () => {
+    asked += 1;
+    return { served: true, jobs: { archive: "4-archive" }, roots: [] };
+  };
+  const result = await toolArchiveNote(store, "team", ARCHIVE_RULES, new Map(), "1-projects/a.md", "e1");
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.equal(asked, 0);
+  assert.equal(sent.length, 1);
 });

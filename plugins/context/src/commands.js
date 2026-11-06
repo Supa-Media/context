@@ -618,3 +618,4 @@ async function defaultOpenBrowser(href) {
 }
 
 export { install, uninstall, runTool } from "./setup.js";
+export { runMachine } from "./machine.js";

@@ -24,6 +24,7 @@ import { queueByCode, type InboxStorage } from "./inbox";
 import { queueGroupByCode, type GroupDeps } from "./groupInbox";
 import { JOB_PREFIX, log, noteJobUpdate, type JobEntry, type JobReport, type JobUpdate } from "./jobs";
 import { watchForSave } from "./vaultWatch";
+import { armBy } from "./events";
 import type { LineDeps } from "./line";
 
 export type JobTextDeps = LineDeps & GroupDeps;
@@ -34,7 +35,7 @@ export const JOB_REPORT_PATH = "(job report)";
 /** What the coordinator is handed: the job's words, or null when it said nothing. */
 export function reportOf(entry: JobEntry, update: JobUpdate): JobReport | null {
   const texts = (update.texts ?? []).filter((text) => text.trim() !== "");
-  return texts.length === 0 ? null : { title: entry.title, state: update.state, texts };
+  return texts.length === 0 ? null : { id: update.id, title: entry.title, state: update.state, texts, ...(update.ask ? { ask: update.ask } : {}) };
 }
 
 /** `POST /job-update`: false only when the job is not this chat's. Throws when the report could not be queued, so the job offers it again. */
@@ -46,6 +47,8 @@ export async function jobUpdate(storage: InboxStorage, deps: JobTextDeps, update
   // A link to save a login went out through the coordinator: watch for the save (`vaultWatch.ts`).
   if (!noted.quiet && update.vaultWatch !== undefined && noted.groupId === undefined) await watchForSave(storage, update.vaultWatch, deps.now());
   if (noted.quiet) return true;
+  // Paused at the daily limit: the alarm restarts it once the limit resets (`jobPause.ts`).
+  if (noted.state === "waiting" && noted.resumeAt !== undefined) await armBy(storage, noted.resumeAt, deps.now());
   const report = reportOf(noted, update);
   if (report === null) return true;
   if (update.asked === undefined) {

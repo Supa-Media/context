@@ -6,6 +6,7 @@ import { mirroredListNotes } from "../../offline/mirrorLists";
 import { openMirrorStore } from "../../offline/mirrorStore";
 import { allTagsOf } from "../files/folderPage/taskProps";
 import { isMarkdown } from "../files/paths";
+import { sortOfListing, useWorkspaceSort } from "../files/listingOrder";
 import type { FolderListing } from "../files/types";
 import { visibilityTierForRole } from "../visibility";
 import { noteTitle, type FolderFacts, type HomeNote } from "./homeModel";
@@ -21,6 +22,8 @@ export interface HomeSource {
    * rows the sidebar draws. Home draws no other folder at the top.
    */
   topFolders?: ReadonlySet<string>;
+  /** The top level's Sort setting (`listingOrder.ts`). */
+  sort?: import("@context/shared/src/listingSort.cjs").ListingSort | null;
 }
 
 const EMPTY: HomeSource = { notes: [], folders: [], shared: new Set() };
@@ -148,6 +151,8 @@ export function useHomeSource(
         facts.set(entry.path, {
           ...(entry.role === undefined ? {} : { role: entry.role }),
           ...(entry.order === undefined ? {} : { order: entry.order }),
+          ...(entry.updatedAt === undefined ? {} : { updatedAt: entry.updatedAt }),
+          ...(entry.createdAt === undefined ? {} : { createdAt: entry.createdAt }),
         });
       }
     }
@@ -171,9 +176,11 @@ export function useHomeSource(
     [root],
   );
 
+  const workspaceSort = useWorkspaceSort();
+  const sort = sortOfListing(root ?? { path: "" }, workspaceSort);
   const source = mirrored ?? listed;
   return useMemo(
-    () => ({ ...source, folderFacts, ...(topFolders === undefined ? {} : { topFolders }) }),
-    [source, folderFacts, topFolders],
+    () => ({ ...source, folderFacts, sort, ...(topFolders === undefined ? {} : { topFolders }) }),
+    [source, folderFacts, sort, topFolders],
   );
 }

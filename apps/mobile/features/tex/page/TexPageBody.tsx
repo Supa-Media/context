@@ -9,9 +9,13 @@ import { AdvisorPage, JobsPage, MailcheckPage, ThinkingPage } from "./TexLists";
 import { AboutPage, CheckinsPage, RoutinesPage } from "./TexEditPages";
 import { HistoryPage, SeesPage } from "./TexHistoryPage";
 import { ComputerPage, GroupSettingsPage, SettingsPage } from "./TexSettingsPages";
+import { MachinesPage } from "./TexMachinesPage";
+import { MachinePage } from "./TexMachinePage";
+import { ConnectPage } from "./TexConnectPage";
 import type { TexPageSource } from "./texPageSource";
 import type { TexPageState } from "./useTexPage";
 import type { SubView } from "./texPageTypes";
+import type { HistoryChoice } from "../history/historyChoice";
 
 /** Where on the page the person is: the chat, and a sub-page or a job, or neither for the first screen. */
 export interface Place {
@@ -20,6 +24,10 @@ export interface Place {
   job?: string;
   /** Tex's computer full screen, to watch or take over. */
   full?: boolean;
+  /** Which machine, on `view: "machine"`. */
+  machine?: string;
+  /** The day and kinds the History page opens with, on `view: "history"` (`historyChoice.ts`). */
+  history?: HistoryChoice;
 }
 
 /** What every view below the first screen is given. */
@@ -29,7 +37,12 @@ export interface ViewProps {
   chat: string;
   /** A group's name, or null in the person's own chat. */
   group: string | null;
-  go: (to: Omit<Place, "chat">) => void;
+  /** Somewhere in this chat; naming `chat` moves to another (a machine's settings live in each chat). */
+  go: (to: Omit<Place, "chat"> & { chat?: string }) => void;
+  /** Which machine, on the machine page. */
+  machine?: string;
+  /** The day and kinds the History page opens with. */
+  history?: HistoryChoice;
 }
 
 /**
@@ -45,6 +58,7 @@ export function TexPageBody({
   computer,
   openComputer,
   now,
+  wide: forceWide,
 }: {
   source: TexPageSource;
   page: TexPageState;
@@ -54,13 +68,23 @@ export function TexPageBody({
   /** The full-screen computer, to watch or take over. */
   openComputer: () => void;
   now?: () => number;
+  /** Overrides the measured width (the screenshot pass, where jsdom never lays out). */
+  wide?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [width, setWidth] = useState(0);
-  const wide = width >= WIDE_PX;
+  const wide = forceWide ?? width >= WIDE_PX;
   const overview = page.overview;
   const group = overview && overview.chat.key !== "me" ? overview.chat.name : null;
-  const props: ViewProps = { source, page, chat: place.chat, group, go: (to) => go({ chat: place.chat, ...to }) };
+  const props: ViewProps = {
+    source,
+    page,
+    chat: place.chat,
+    group,
+    go: (to) => go({ chat: place.chat, ...to }),
+    ...(place.machine ? { machine: place.machine } : {}),
+    ...(place.history ? { history: place.history } : {}),
+  };
   const home = () => go({ chat: place.chat });
 
   let body: ReactElement;
@@ -82,9 +106,15 @@ export function TexPageBody({
       </>
     );
   } else if (place.view) {
+    // One machine and connecting one sit under Your machines, and go back there.
+    const underMachines = place.view === "machine" || place.view === "connect";
     body = (
       <>
-        <Back onPress={home} />
+        {underMachines ? (
+          <Back onPress={() => go({ chat: place.chat, view: "machines" })} label="‹ Your machines" />
+        ) : (
+          <Back onPress={home} />
+        )}
         <SubViewPage view={place.view} props={props} computer={computer} openComputer={openComputer} />
       </>
     );
@@ -92,17 +122,26 @@ export function TexPageBody({
     body = <TexHome {...props} overview={overview} pickChat={(chat: string) => go({ chat })} />;
   }
 
+  // History owns its scroller, so its filters stay put and it opens on the newest line (`HistoryPage`): the page around it holds still.
+  const ownsScroll = overview !== null && page.phase !== "notYours" && !place.job && place.view === "history";
+  const column = (
+    <View style={[styles.pg, wide ? styles.pgWide : null, ownsScroll ? styles.pgFill : null]} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+      {body}
+    </View>
+  );
+
   return (
     <NowContext.Provider value={now ?? Date.now}>
       <WideContext.Provider value={wide}>
-        <ScrollView style={styles.ground} contentContainerStyle={styles.scroll} testID="tex-page">
-          <View
-            style={[styles.pg, wide ? styles.pgWide : null]}
-            onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-          >
-            {body}
+        {ownsScroll ? (
+          <View style={styles.ground} testID="tex-page">
+            {column}
           </View>
-        </ScrollView>
+        ) : (
+          <ScrollView style={styles.ground} contentContainerStyle={styles.scroll} testID="tex-page">
+            {column}
+          </ScrollView>
+        )}
       </WideContext.Provider>
     </NowContext.Provider>
   );
@@ -142,6 +181,12 @@ function SubViewPage({
       return <HistoryPage {...props} />;
     case "sees":
       return <SeesPage {...props} />;
+    case "machines":
+      return <MachinesPage {...props} />;
+    case "machine":
+      return <MachinePage {...props} />;
+    case "connect":
+      return <ConnectPage {...props} />;
   }
 }
 
@@ -164,5 +209,6 @@ const makeStyles = (colors: Colors) =>
     scroll: { flexGrow: 1 },
     pg: { width: "100%", maxWidth: 720, alignSelf: "center", paddingTop: 18, paddingHorizontal: 18, paddingBottom: 30, gap: 22 },
     pgWide: { paddingTop: 30, paddingHorizontal: 32, paddingBottom: 40 },
+    pgFill: { flex: 1, minHeight: 0, gap: 12, paddingBottom: 12 },
     wait: { paddingVertical: 60, alignItems: "center" },
   });

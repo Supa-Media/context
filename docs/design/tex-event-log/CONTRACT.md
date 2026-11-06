@@ -33,7 +33,8 @@ type Event = {
   from: { kind: "person" | "tex" | "system"; who?: string /* sha256 of the handle */; name?: string /* display handle, groups */ };
   kind: "text" | "picture" | "file" | "link" | "reaction" | "ask" | "ask_settled" | "delivery";
   text?: string;         // <= 3000 chars; the words, never a tool result
-  replyTo?: string;      // event id, an inline reply
+  replyTo?: string;      // event id of the message a reply answers (an inline reply, a text in a thread)
+  quoted?: string;       // person events only, <= 3000 chars: the full words of the message it answers
   delivered?: boolean;   // outbound parts only
   reason?: "upload_failed" | "send_refused" | "held_newcomer" | "failed" | "timed_out" | "too_long";
   turn?: string;         // the turn id that produced it (outbound) or answered it
@@ -58,6 +59,16 @@ length caps, `at` within ±1 day of now, ids well-formed. Returns
 `{ written: string[] }`. Idempotent by `id`.
 
 ## 3. Convex: `POST /agent-texts/decide`
+
+Since 2026-11-05 (Dev2's pick for the one-door plan) the Worker asks this of
+Clef in the gateway first, over the `TexTexts` binding (`/texts/decide`,
+`/texts/recheck`: the same body, the same answer, plus `meter` counts). The
+control plane keeps the daily cap and usage rows: the Worker asks
+`/agent-texts/decide/gate` now and then and keeps the answer five minutes,
+and reports `{ calls, failed, refused, questions, chars, ms }` to
+`/agent-texts/decide/usage` after each answer. Both name the chat as decide
+does and return no workspace id. The routes below are the fallback when the
+gateway cannot be reached.
 
 Auth: `AGENT_WORKER_SECRET` bearer, as `/agent-texts/session`. Body:
 
@@ -87,9 +98,10 @@ workspace per day). Typed questions only. Returns:
 
 ## 3b. Convex: `POST /agent-texts/recheck`
 
-A group answer's last look before it sends (2026-10-30). Same auth and the
-same body as section 3, for a group only, without `running` and
-`waitingAsks`, plus:
+An answer's last look before it sends (2026-10-30 for groups; 1:1 chats
+too since 2026-11-05, `style: "direct"` with `sender`, metered to the
+sender's personal workspace). Same auth and the same body as section 3,
+without `running` and `waitingAsks`, plus:
 
 ```ts
 { draft: string;     // Tex's unsent reply, <= 4,000 chars (cut, not refused)
