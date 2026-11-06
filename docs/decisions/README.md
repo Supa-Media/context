@@ -810,6 +810,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex's chat commands are tools the agent calls (2026-10-31)](./texting-assistant/command-tools.md)
 - [One conversation state per chat, and decide picks when and how Tex replies (2026-11-01)](./texting-assistant/chat-state-machine.md)
 - [Group typing: a WhatsApp experiment before any build (2026-11-01)](./texting-assistant/whapi-presence-probe.md)
+- [Provider events: capture the shapes before designing for them (2026-11-06)](./texting-assistant/provider-events.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [On Sendblue, every link goes with its picture, and never at either end of its text (2026-11-03)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)

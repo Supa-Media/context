@@ -209,6 +209,32 @@ describe("worker", () => {
       expect(lines.join("\n")).not.toMatch(/5555550100|hello/);
     });
 
+    /**
+     * Sendblue's other webhook kinds (typing, outbound status, calls, a blocked line, a group delivery it cannot
+     * read, a body that is not JSON): 200, described by shape only, never queued. The payloads are guesses until
+     * samples arrive (`docs/decisions/texting-assistant/provider-events.md`). Sabotage: answer `invalid` with 400
+     * again, or log the payload itself in `logEventShape`.
+     */
+    const OTHER_KINDS: [string, string][] = [
+      ["typing", JSON.stringify({ number: "+15555550100", is_typing: true, timestamp: "2026-11-06T00:00:00Z" })],
+      ["outbound status", inbound({ is_outbound: true, status: "DELIVERED", content: "hello secret words", media_url: "https://cdn.example.com/a.png" })],
+      ["inbound call", JSON.stringify({ type: "inbound_call", from_number: "+15555550100", to_number: "+15555550199" })],
+      ["line blocked", JSON.stringify({ type: "line_blocked", number: "+15555550199", reason: "hello secret words" })],
+      ["unreadable group", inbound({ group_id: "g-1", message_handle: "" })],
+      ["not JSON", "hello +15555550100 {"],
+    ];
+    for (const [kind, body] of OTHER_KINDS) {
+      it(`takes a ${kind} delivery with 200, logs its shape without a value, and queues nothing`, async () => {
+        const { env: e, routedTo } = sbEnv();
+        const lines: string[] = [];
+        vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
+        expect((await worker.fetch(post(body, SB_SECRET), e)).status).toBe(200);
+        expect(routedTo).toEqual([]);
+        expect(lines.map((line) => JSON.parse(line).event)).toContain("sendblue_event_shape");
+        expect(lines.join("\n")).not.toMatch(/5555550|hello|secret|example\.com|mh_1/);
+      });
+    }
+
     it("queues a group message in the group's own inbox, never the sender's", async () => {
       const { env: e, routedTo, urls } = sbEnv();
       vi.spyOn(console, "log").mockImplementation(() => {});

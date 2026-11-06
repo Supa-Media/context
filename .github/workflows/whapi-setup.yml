@@ -233,7 +233,18 @@ jobs:
                 url: process.env.WORKER_URL + "/whapi",
                 mode: "body",
                 headers: { "x-tex-webhook-secret": process.env.WHAPI_WEBHOOK_SECRET },
-                events: [{ type: "messages", method: "post" }, { type: "presences", method: "post" }],
+                // Everything but a new message is only described by its shape in the logs until samples are read
+                // (docs/decisions/texting-assistant/provider-events.md). chats.patch is left out: it fires on every message.
+                events: [
+                  { type: "messages", method: "post" }, { type: "messages", method: "patch" }, { type: "messages", method: "delete" },
+                  { type: "statuses", method: "post" }, { type: "statuses", method: "put" },
+                  { type: "groups", method: "post" }, { type: "groups", method: "put" }, { type: "groups", method: "patch" },
+                  { type: "calls", method: "post" },
+                  { type: "chats", method: "post" }, { type: "chats", method: "delete" },
+                  { type: "presences", method: "post" },
+                  { type: "channel", method: "post" }, { type: "channel", method: "patch" },
+                  { type: "users", method: "post" }, { type: "users", method: "delete" },
+                ],
               }],
               media: { auto_download: ["image", "audio", "voice", "video", "document", "sticker"] },
               callback_persist: true,
