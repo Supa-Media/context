@@ -12,7 +12,10 @@
  * member by the member rules, a guest (`READS_AS_GUEST` in the session's names) by the guest rules, and a Tex guest
  * chat (`READS_AS_CHAT`) by the guest rules as its own names render them (`workspaceStore/chatRules.js`), the same
  * rendering the control plane gives it. A chat whose names are not known is asked of the control plane.
- * Any failure of the object falls back to the control plane for the whole question, and is logged.
+ * A failure of the object, or an object still behind after its wait, is `WorkspaceBusy`: the caller is told to try again
+ * in a moment, and the control plane is never asked instead (decided by the owner, 2026-11-06: "we shouldn't be falling
+ * back to convex for anything note related"). Asking it sent a busy object's readers to Convex, which read its tree from
+ * the same object through the door, so a busy minute only got busier.
  *
  * Whether the object is behind (a change committed in the control plane and not yet pushed, such as a share just
  * taken back): the object says so itself. A writer that may narrow leaves a mark there before it commits, and an
@@ -26,6 +29,18 @@ import { narrowNote } from "../controlPlane/noteIds.js";
 import { isPlumbing, READS_AS_CHAT, READS_AS_GUEST } from "../privacy/engine.js";
 import { HOMES } from "../workspaceStore/api.js";
 import { OBJECT_FACT_ASKS } from "../workspaceStore/facts.js";
+
+/**
+ * The workspace's object could not answer now (it failed, or a change it is waiting for has not landed): try again in a
+ * moment. `reason` is for this gateway's logs; a caller is told only that the workspace is busy.
+ */
+export class WorkspaceBusy extends Error {
+  constructor(reason) {
+    super("this workspace is busy right now; try again in a few seconds");
+    this.name = "WorkspaceBusy";
+    this.reason = reason;
+  }
+}
 
 /** Whether a session's names read the workspace as a member: no guest or chat marker (row tokens are a member's). */
 export function readsAsMember(names) {
@@ -112,9 +127,9 @@ export function objectFirstFacts(options) {
       answer = await client.facts({ ...request, ...judged });
     } catch (error) {
       log("workspace_object_facts_failed", { workspaceId, ask: request.ask, error: String(error?.message ?? error) });
-      return null;
+      throw new WorkspaceBusy("facts failed");
     }
-    if (settledBehind(answer)) return null;
+    if (settledBehind(answer)) throw new WorkspaceBusy("facts behind");
     const served = answer?.served === true;
     log("workspace_object_facts", { workspaceId, ask: request.ask, served, ms: Date.now() - started });
     return served ? answer : null;
@@ -135,7 +150,8 @@ function revivedSurvey(survey) {
 /**
  * `orient`'s map of the workspace drawn in its object (`ws.orient.survey`) for this session's reader, or `null` where
  * this session does not read the object, and the gateway draws it. The function answers the survey, or `null` for one
- * the object did not serve (a failure, the object behind, a listing past one page), and the gateway draws it then.
+ * the object did not serve (a listing past one page), and the gateway draws it then. A failure or an object still
+ * behind is `WorkspaceBusy`.
  *
  * @param {Parameters<typeof objectReader>[0]} options
  * @returns {(() => Promise<object|null>) | null}
@@ -151,9 +167,9 @@ export function objectFirstSurvey(options) {
       answer = await client.orientSurvey({ ...judged });
     } catch (error) {
       log("workspace_object_survey_failed", { workspaceId, error: String(error?.message ?? error) });
-      return null;
+      throw new WorkspaceBusy("survey failed");
     }
-    if (settledBehind(answer)) return null;
+    if (settledBehind(answer)) throw new WorkspaceBusy("survey behind");
     const served = answer?.served === true && answer.survey && typeof answer.survey === "object";
     log("workspace_object_survey", { workspaceId, served, ms: Date.now() - started });
     return served ? revivedSurvey(answer.survey) : null;
@@ -183,9 +199,10 @@ export function objectFirstNames(options) {
       answer = await client.rows.names({ paths: request.paths, canWrite: true });
     } catch (error) {
       log("workspace_object_names_failed", { workspaceId, error: String(error?.message ?? error) });
-      return null;
+      throw new WorkspaceBusy("names failed");
     }
-    if (settledBehind(answer) || answer?.served !== true || !Array.isArray(answer.files) || !Array.isArray(answer.folders)) return null;
+    if (settledBehind(answer)) throw new WorkspaceBusy("names behind");
+    if (answer?.served !== true || !Array.isArray(answer.files) || !Array.isArray(answer.folders)) return null;
     return { served: true, files: answer.files, folders: answer.folders };
   };
 }
@@ -208,9 +225,9 @@ export function objectFirstHooks(hooks, options) {
       answer = await client.rows.lookup({ paths, ...judged, ...(withBody === true && paths.length === 1 ? { withBody: true } : {}) });
     } catch (error) {
       log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
-      return await hooks.lookup(paths);
+      throw new WorkspaceBusy("lookup failed");
     }
-    if (settledBehind(answer)) return await hooks.lookup(paths);
+    if (settledBehind(answer)) throw new WorkspaceBusy("lookup behind");
     const notes = {};
     const missing = [];
     paths.forEach((path, at) => {
@@ -287,9 +304,9 @@ export function objectFirstHooks(hooks, options) {
       answer = await client.rows.lookup({ paths, ...judged });
     } catch (error) {
       log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
-      return await hooks.lookup(paths);
+      throw new WorkspaceBusy("lookup failed");
     }
-    if (settledBehind(answer)) return await hooks.lookup(paths);
+    if (settledBehind(answer)) throw new WorkspaceBusy("lookup behind");
     const notes = {};
     const missing = [];
     paths.forEach((path, at) => {
@@ -310,9 +327,9 @@ export function objectFirstHooks(hooks, options) {
       answer = await client.rows.resolve({ noteIds, ...judged });
     } catch (error) {
       log("workspace_object_resolve_failed", { workspaceId, error: String(error?.message ?? error) });
-      return await hooks.resolve(noteIds);
+      throw new WorkspaceBusy("resolve failed");
     }
-    if (settledBehind(answer)) return await hooks.resolve(noteIds);
+    if (settledBehind(answer)) throw new WorkspaceBusy("resolve behind");
     const paths = {};
     const missing = [];
     noteIds.forEach((noteId, at) => {

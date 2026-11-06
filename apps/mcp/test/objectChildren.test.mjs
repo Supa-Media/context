@@ -14,6 +14,7 @@ import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { workspaceClient } from "../src/workspaceStore/api.js";
 import { objectFirstChildren } from "../src/store/objectManifest.js";
+import { WorkspaceBusy } from "../src/store/objectLookup.js";
 import { nameTwinRefusal, protectedFolderRefusal } from "../src/tree/twins.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
 
@@ -130,8 +131,12 @@ test("the gateway asks the object as the reader, and takes nothing it did not se
   const ok = childrenClient({ served: true, folders: { a: ["a/x.md"] } });
   assert.deepEqual(await objectFirstChildren(reading(ok.client))(["a"]), { a: ["a/x.md"] });
   assert.deepEqual(ok.asked, [{ folders: ["a"], scope: "team", groups: [], audience: "member", userId: "u1" }]);
-  for (const answer of [{ served: false }, { served: true, folders: { a: ["a/x.md"] }, behind: true }, { served: true, folders: {} }, new Error("down")]) {
+  for (const answer of [{ served: false }, { served: true, folders: {} }]) {
     assert.equal(await objectFirstChildren(reading(childrenClient(answer).client))(["a"]), null);
+  }
+  // Failing or behind is busy, never listed another way (the owner, 2026-11-06).
+  for (const answer of [{ served: true, folders: { a: ["a/x.md"] }, behind: true }, new Error("down")]) {
+    await assert.rejects(objectFirstChildren(reading(childrenClient(answer).client))(["a"]), WorkspaceBusy);
   }
   for (const extra of [{ home: "bucket" }, { behind: true }, { client: null }]) {
     assert.equal(objectFirstChildren(reading(childrenClient({ served: true, folders: {} }).client, extra)), null);

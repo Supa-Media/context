@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 
 import { namesTaken } from "../src/workspaceStore/namesTaken.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
-import { objectFirstNames } from "../src/store/objectLookup.js";
+import { objectFirstNames, WorkspaceBusy } from "../src/store/objectLookup.js";
 import { READS_AS_CHAT, READS_AS_GUEST } from "../src/privacy/engine.js";
 import { texObjects } from "../src/texStore/objects.js";
 import { workspaceMembers } from "../src/workspaceStore/members.js";
@@ -150,14 +150,15 @@ test("a guest, a chat, a bucket-home workspace or one behind asks the control pl
   assert.equal(objectFirstNames(options({ client: null })), null);
 });
 
-test("a count, another ask, a failure, a refusal or an object behind falls back to the control plane", async () => {
+test("a count, another ask or a refusal falls back to the control plane; a failure or an object behind is busy", async () => {
   const ask = objectFirstNames(options({ client: client() }));
   assert.equal(await ask({ ask: "names", paths: ["a.md"], count: true }), null);
   assert.equal(await ask({ ask: "props", paths: ["a.md"] }), null);
   assert.equal(await ask({ ask: "names", count: true }), null);
-  assert.equal(await objectFirstNames(options({ client: client(new Error("down")) }))({ ask: "names", paths: ["a.md"] }), null);
+  // Never the control plane instead (the owner, 2026-11-06): it read the same busy object through its door.
+  await assert.rejects(objectFirstNames(options({ client: client(new Error("down")) }))({ ask: "names", paths: ["a.md"] }), WorkspaceBusy);
   assert.equal(await objectFirstNames(options({ client: client({ served: false }) }))({ ask: "names", paths: ["a.md"] }), null);
-  assert.equal(await objectFirstNames(options({ client: client({ served: true, files: ["a.md"], folders: [], behind: true }) }))({ ask: "names", paths: ["a.md"] }), null);
+  await assert.rejects(objectFirstNames(options({ client: client({ served: true, files: ["a.md"], folders: [], behind: true }) }))({ ask: "names", paths: ["a.md"] }), WorkspaceBusy);
 });
 
 /** One workspace object, through its door, as the gateway's client reaches it. */

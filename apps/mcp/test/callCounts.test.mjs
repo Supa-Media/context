@@ -91,3 +91,15 @@ test("a workspace object counts each call it answers under its own id", async ()
   await object.fetch(new Request("https://tex-store.internal/ws.open", { method: "POST", headers: { "x-tex-call": encodeURIComponent(JSON.stringify({ op: "ws.open" })) }, body: JSON.stringify({ userId: "user_a", workspaceId: "ws" }) }));
   assert.deepEqual(CALL_COUNTS.points, [{ indexes: ["object-id-1"], blobs: ["object", "ws.open", "gateway"], doubles: [1] }]);
 });
+
+// A busy workspace object is said as busy to an AI client and to a route's caller, never answered from the control
+// plane (the owner, 2026-11-06). Sabotage: drop the `WorkspaceBusy` catch in `tools/dispatch.js` → the first test throws.
+test("a tool call on a busy workspace object says busy and to try again", async () => {
+  const { callTool } = await import("../src/tools/dispatch.js");
+  const { WorkspaceBusy } = await import("../src/store/objectLookup.js");
+  const store = { get: async () => { throw new WorkspaceBusy("lookup failed"); }, list: async () => ({ objects: [] }) };
+  const answer = await callTool("read_note", { path: "plans/a.md" }, store, "private");
+  assert.equal(answer.isError, true);
+  assert.match(answer.content[0].text, /busy right now; try again in a few seconds/);
+  assert.doesNotMatch(answer.content[0].text, /lookup failed/, "the reason stays in the gateway's logs");
+});
