@@ -44,8 +44,10 @@ const inbox = require("../features/console/shared/sharedInbox") as typeof import
 const { SharedList } = require("../features/console/shared/SharedPane") as typeof import("../features/console/shared/SharedPane");
 const { SharedSidebar } =
   require("../features/console/shared/SharedSidebar") as typeof import("../features/console/shared/SharedSidebar");
-const { SwitcherMenu, sheetItems } =
+const { SwitcherMenu } =
   require("../features/console/SwitcherMenu") as typeof import("../features/console/SwitcherMenu");
+const { phoneSheetParts } =
+  require("../features/console/AccountSheet") as typeof import("../features/console/AccountSheet");
 type SharedItem = import("../features/console/shared/sharedInbox").ShareItem;
 type ConsoleData = import("../features/console/types").ConsoleData;
 type ConsoleContext = import("../features/console/types").ConsoleContext;
@@ -217,17 +219,19 @@ describe("the account menu row", () => {
     expect(none.find("switcher-shared")).toBeNull();
   });
 
-  test("on the phone's sheet it is @shared too, with no detail unless something is new", () => {
-    const row = (unseen: number) =>
-      sheetItems([
+  test("on the phone's sheet it is @shared too, among the workspaces, with no detail line", () => {
+    const parts = (unseen: number) =>
+      phoneSheetParts([
         {
           key: "workspaces",
           rows: [{ id: "shared", label: "@shared", badge: unseen > 0, testID: "switcher-shared" }],
         },
-      ])[0]!;
-    expect(row(0).label).toBe("@shared");
-    expect(row(0).detail).toBeUndefined();
-    expect(row(1).detail).toBe("new");
+      ]);
+    expect(parts(0).workspaces.map((row) => row.label)).toEqual(["@shared"]);
+    expect(parts(0).workspaces[0]!.detail).toBeUndefined();
+    // New is the dot at the row's right edge (`AccountSheet`), not a word.
+    expect(parts(1).workspaces[0]!.badge).toBe(true);
+    expect(parts(1).workspaces[0]!.detail).toBeUndefined();
   });
 });
 

@@ -260,7 +260,7 @@ describe("the list is one press away, and it navigates", () => {
       (back as HTMLElement).click();
     });
     const text = host.textContent ?? "";
-    for (const label of ["Profile", "General", "People & sharing", "Connected apps", "Storage", "Website"]) {
+    for (const label of ["General", "People & sharing", "Connected apps", "Storage", "Website"]) {
       expect(text).toContain(label);
     }
     expect(text).not.toContain("Plan"); // Context is free (2026-10-20).
@@ -412,7 +412,7 @@ describe("the workspace is one switcher, under This workspace", () => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
     const switcher = listed(host, '[data-testid="settings-workspace-switcher"]');
-    expect(listed(host, '[data-testid="settings-section-profile"]')).toBeLessThan(switcher);
+    expect(listed(host, '[data-testid="settings-profile-card"]')).toBeLessThan(switcher);
     expect(switcher).toBeLessThan(listed(host, '[data-testid="settings-section-workspace"]'));
   });
 
