@@ -129,5 +129,5 @@ export function claimsNotePicture(answer, steps = []) {
 
 export const NOTE_PICTURE_NOTICE =
   "Before this goes: your answer says a note now has a picture, but no write this turn put one in it. " +
-  "Put it there now: draw it if it isn't drawn (send action draw_visual), then write_note that note with images [{ data: \"picture:N\" }] and its text kept. " +
+  "Put it there now: draw it if it isn't drawn (send action draw_visual), then write that note with images [{ data: \"picture:N\" }] and its text kept. " +
   "If you can't, say plainly the note has no picture yet. Never say a picture is in a note without that write.";

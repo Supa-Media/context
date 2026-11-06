@@ -278,7 +278,7 @@ export function splitFirst(background) {
     return text(
       "Not started yet. Does this ask have parts that can run at the same time, each real work on its own (say dinners, a day trip and a " +
         "packing list, or a shoe comparison, a physio and a plan)? Then call plan_big_ask once with the whole ask and a new folder for the " +
-        "project in their projects folder, and start nothing yourself. If it is truly one piece of work, call start_background_job again the same way.",
+        "project in their projects folder, and start nothing yourself. If it is truly one piece of work, call send action background again the same way.",
       true,
     );
   };

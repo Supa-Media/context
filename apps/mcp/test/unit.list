@@ -476,3 +476,4 @@ test/callCounts.test.mjs
 test/rowVersions.test.mjs
 test/noteMailObject.test.mjs
 test/runWait.test.mjs
+test/texPromptNames.test.mjs

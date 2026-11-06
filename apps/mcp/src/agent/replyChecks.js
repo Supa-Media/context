@@ -142,8 +142,8 @@ export function claimsCalendarTry(answer, steps = []) {
 }
 
 export const TRY_CLAIM_NOTICE =
-  "Before this goes: your answer says you tried the calendar change, but you didn't call calendar_event in this turn. " +
-  "Call calendar_event now with the change they asked for, then answer with what it really said: done, or Google's reason in plain words. " +
+  "Before this goes: your answer says you tried the calendar change, but you didn't call send action calendar in this turn. " +
+  "Call send action calendar now with the change they asked for, then answer with what it really said: done, or Google's reason in plain words. " +
   "Never say you tried something you didn't call, and never promise to keep trying later.";
 
 import { RESULT_NOTICE, WORDY_NOTICE, restatesTheResult, tooWordy } from "./wordy.js";

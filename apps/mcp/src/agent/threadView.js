@@ -117,6 +117,6 @@ export function threadPrompt({ thread, elsewhere }) {
     (elsewhere > 0
       ? ` ${elsewhere} other exchange${elsewhere === 1 ? "" : "s"} went on in the rest of the chat since it started; they are about other things.`
       : "") +
-    " earlier_texts reads the whole chat, further back too, when this text refers to something not in front of you."
+    " fetch id \"texts:\" reads the whole chat, further back too, when this text refers to something not in front of you."
   );
 }

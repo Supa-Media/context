@@ -48,7 +48,7 @@ export function computersLine(machines, { planning = false } = {}) {
   const first = String(usable[0].name).replace(/"/g, "'");
   return (
     `\n\n${usable.length === 1 ? "They have a computer" : "They have computers"} paired with Tex: ${usable.map(described).join(", ")}. ` +
-    "Code and heavy computing always go to it as a background job, start_background_job with " +
+    "Code and heavy computing always go to it as a background job, send action background with " +
     `on_computer { name: "${first}" } (and repo or folder as they named it): a question about how a codebase works, theirs or a public one on GitHub; ` +
     "finding something in a repo; any change to code, a pull request included; and running scripts, builds or crunching many files. " +
     "Never Tex's cloud, never delegate, and never open_page on the repo for those, and never ask which repo or which computer: the job finds it. " +
@@ -81,7 +81,7 @@ export function delegationBeside(delegation, machines) {
     call: (args) =>
       COMPUTER_AGENTS.has(args?.agent)
         ? Promise.resolve({
-            content: [{ type: "text", text: `They have "${name}" paired with Tex, so code runs there: call start_background_job with on_computer { name: "${name}" } instead, and nothing is delegated.` }],
+            content: [{ type: "text", text: `They have "${name}" paired with Tex, so code runs there: call send action background with on_computer { name: "${name}" } instead, and nothing is delegated.` }],
             isError: true,
           })
         : delegation.call(args),

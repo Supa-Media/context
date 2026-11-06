@@ -311,7 +311,7 @@ export const GATES = {
     ],
     yes: "yes: a long result texted in full with no page or card to hold it",
     no: "no: the result is short, or it is on a page or card the text links",
-    notice: "That's too much for a text. Put the full result on a page (write_note to a .page.md note), or a card, then text one or two lines with your take and the link.",
+    notice: "That's too much for a text. Put the full result on a page (write a .page.md note), or a card, then text one or two lines with your take and the link.",
     at: 0.15, // AI Gates 2026-11-05: 5/5 caught, 0/14 false alarms
     when: (draft) => draftWords(draft) > MADE_LINE_WORDS,
   }),

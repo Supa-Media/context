@@ -38,7 +38,7 @@ export function routineWhen(path, content, timeZone, now = Date.now()) {
   if (routine?.kind !== "routine" || typeof content !== "string") return null;
   const { settings, problems } = routineSettings(content, routine.cadence);
   if (problems.length > 0) {
-    return { runs: false, text: `This routine won't run as written: ${problems.join(" ")} Fix it now with write_note before you answer.` };
+    return { runs: false, text: `This routine won't run as written: ${problems.join(" ")} Fix it now with write before you answer.` };
   }
   if (settings.paused) return { runs: false, text: "It is paused, so it won't text them until the paused: (or done:) line is taken out." };
   const zone = readTimeZone(settings.timeZone) ?? readTimeZone(timeZone) ?? DEFAULT_TIME_ZONE;

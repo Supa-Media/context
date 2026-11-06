@@ -264,7 +264,7 @@ test("a texted turn does the reorganizing it's asked for itself (owner, 2026-10-
   pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
   const system = await systemFor(TOKEN_TEXTS);
   assert.match(system, /do it yourself in this turn: a move keeps who can see each note/);
-  assert.match(system, /Several notes go in one move_notes/);
+  assert.match(system, /Several notes go in one manage action move_many/);
 });
 
 test("a texted turn is never told to offer Google, and never waits to find out (Dev, 2026-11-04: \"remove the google offer\")", async () => {

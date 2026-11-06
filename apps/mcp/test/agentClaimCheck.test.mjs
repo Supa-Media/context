@@ -140,7 +140,7 @@ test("an offer with nothing held is sent back; once the call is held, it goes", 
   const offer = "Want me to add 'Emmanuela/Sayo,' 7 to 8 pm today?";
   const notice = claimCheck({ question: "dinner at 7" }).check(offer);
   assert.equal(notice, offerNotice(offeredKinds(offer)));
-  assert.ok(notice.includes("calendar_event") && !notice.includes("slack_api"), "the notice names only the calendar it offered");
+  assert.ok(notice.includes("send action calendar") && !notice.includes("send action slack"), "the notice names only the calendar it offered");
   const held = claimCheck({ question: "dinner at 7" });
   await held.wrap(async () => ({ isError: true, held: true, content: [] }))("calendar_event", {});
   assert.equal(held.check("I'll add Emmanuela and Sayo at 7."), null);
