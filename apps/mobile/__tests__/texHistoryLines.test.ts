@@ -163,6 +163,17 @@ describe("the history's lines", () => {
     expect(kindsFor(DEFAULT_SHOWN)).toContain("judge");
   });
 
+  test("a review by the Haiku reviewer names the kind of turn and the problems it sent back (2026-11-06)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "r2", at: at(2, 9, 3), kind: "judge", turn: "t", by: "review", round: 1, went: true, text: "Added it to Friday.", turnKind: "task", judges: [], failed: [] },
+      { id: "r1", at: at(2, 9, 2), kind: "judge", turn: "t", by: "review", round: 0, went: false, text: "Done!", turnKind: "task", judges: [], failed: ["claims_undone"] },
+    ];
+    expect(historyDays(entries, NOW)[0]!.turns[0]!.lines.map((l) => l.text)).toEqual([
+      'reviewer · draft 1 · sent back · task · claims undone · "Done!"',
+      'reviewer · draft 2 · went out · task · "Added it to Friday."',
+    ]);
+  });
+
   test("background lines say what each is", () => {
     const entries: LedgerEntry[] = [
       { id: "n4", at: at(2, 9, 4), kind: "job", job: "j1", title: "Code transactions", state: "keep_going" },

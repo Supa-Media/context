@@ -451,5 +451,7 @@ describe("a turn's sent-back drafts", () => {
     expect(draftReason({ by: "gates", failed: ["heard_them", "short_and_clean"] })).toBe("Sent back by heard them, short and clean");
     expect(draftReason({ by: "code", failed: [] })).toBe("Sent back by a check");
     expect(draftReason({ by: "late", failed: [] })).toBe("Redone for a text that came in");
+    expect(draftReason({ by: "review", failed: ["claims_undone"] })).toBe("Sent back by the reviewer: claims undone");
+    expect(draftReason({ by: "review", failed: [] })).toBe("Sent back by the reviewer");
   });
 });

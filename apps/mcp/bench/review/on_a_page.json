@@ -35,7 +35,7 @@
           "written: https://context.example/note/jobs/merged-prs.page.md"
         ]
       ],
-      "reply": "Ten PRs, two worth watching: #2684 touches 74 files and #2563 could double-send on retry. All of them with risks: https://context.example/note/jobs/merged-prs.page.md",
+      "reply": "Ten PRs, two worth watching: #2684 touches 74 files and #2563 could double-send on retry. Every one with its risk: https://context.example/note/jobs/merged-prs.page.md",
       "fault": false
     },
     {
