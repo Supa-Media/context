@@ -51,6 +51,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Background tree writers, once the object writes the tree](./storage-and-credentials/background-tree-writers.md) (2026-11-03)
 - [The control plane's tree reads come from the workspace object](./storage-and-credentials/object-tree-reads.md) (2026-11-03)
 - [A busy workspace object says busy; nothing about a note falls back to Convex](./storage-and-credentials/no-convex-for-notes.md) (2026-11-06)
+- [The forwarding ledger is read from the workspace object](./storage-and-credentials/forwarding-in-objects.md) (2026-11-06)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id

@@ -331,8 +331,11 @@ export function workspaceFacts(sql, objects) {
   };
 }
 
-/** The asks a workspace object answers itself. Every other ask is the control plane's. */
-export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors", "jobs"]);
+/**
+ * The asks a workspace object answers itself. Every other ask is the control plane's. `forwarding` is answered from
+ * the ledger copy beside these (`forwardingRows.js`), not from the notes.
+ */
+export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors", "jobs", "forwarding"]);
 
 /**
  * The asks the control plane's own readers make through the door (`ws.facts.rows`): unfiltered, like the control
