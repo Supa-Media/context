@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { audienceOf, objectFirstHooks, readsAsMember } from "../src/store/objectLookup.js";
+import { audienceOf, objectFirstHooks, readsAsMember, WorkspaceBusy } from "../src/store/objectLookup.js";
 
 const NOTE = "0199a000-0000-7000-8000-00000000000c";
 const KEY = `notes/${NOTE}.md`;
@@ -146,15 +146,17 @@ test("a binding that says the object is behind sends every question to the contr
   assert.deepEqual(logged, ["workspace_object_behind"]);
 });
 
-test("an object that fails sends the whole question to the control plane, logged", async () => {
+// Never the control plane instead (the owner, 2026-11-06): it read the same busy object through its door. Sabotage:
+// put back `return await hooks.lookup(paths)` on a failure, and this fails.
+test("an object that fails is busy, logged, and the control plane is not asked", async () => {
   const cp = control();
   const logged = [];
   const failing = { rows: { lookup: async () => { throw new Error("down"); }, resolve: async () => { throw new Error("down"); } } };
   const hooks = objectFirstHooks(cp.hooks, { client: failing, home: "object", scope: "private", names: [], workspaceId: "w1", log: (event) => logged.push(event) });
-  await hooks.lookup(["plans/a.md"]);
-  await hooks.resolve([NOTE]);
-  assert.deepEqual(cp.asked.lookup, [["plans/a.md"]]);
-  assert.deepEqual(cp.asked.resolve, [[NOTE]]);
+  await assert.rejects(hooks.lookup(["plans/a.md"]), WorkspaceBusy);
+  await assert.rejects(hooks.resolve([NOTE]), WorkspaceBusy);
+  assert.deepEqual(cp.asked.lookup, []);
+  assert.deepEqual(cp.asked.resolve, []);
   assert.deepEqual(logged, ["workspace_object_lookup_failed", "workspace_object_resolve_failed"]);
 });
 
@@ -230,13 +232,13 @@ test("an id the object does not find, and is not behind, is null with no control
   assert.deepEqual(cp.asked.resolve, []);
 });
 
-test("behind sends a not-found id to the control plane as well", async () => {
+test("behind is busy for a not-found id as well", async () => {
   const cp = control();
   const ob = object({});
   const behind = { rows: { resolve: async (fields) => ({ ...(await ob.client.rows.resolve(fields)), behind: true }) } };
   const hooks = objectFirstHooks(cp.hooks, { client: behind, home: "object", scope: "team", names: [], workspaceId: "w1" });
-  assert.deepEqual(await hooks.resolve([MISSING]), { paths: { [MISSING]: null } });
-  assert.deepEqual(cp.asked.resolve, [[MISSING]]);
+  await assert.rejects(hooks.resolve([MISSING]), WorkspaceBusy);
+  assert.deepEqual(cp.asked.resolve, []);
 });
 
 // The object returns no path for a note the reader may not see; a path on a not-found row is never read. Sabotage:
@@ -265,7 +267,7 @@ test("two live rows for one note id fall through to the control plane, and neith
 // Behind by the object's own word: a writer that may narrow left a mark there, and its change has not landed. The
 // control plane is never asked beside the object (2026-11-02: every narrowing writer goes first). Sabotage, each
 // confirmed to fail a case here: ignore the object's `behind`, or ask the control plane before the object answers.
-test("the object's own behind sends lookup and resolve to the control plane even when it found the note", async () => {
+test("the object's own behind makes lookup and resolve busy even when it found the note", async () => {
   const cp = control();
   const ob = object({ "plans/a.md": seen });
   const behind = {
@@ -276,10 +278,11 @@ test("the object's own behind sends lookup and resolve to the control plane even
   };
   const logged = [];
   const hooks = objectFirstHooks(cp.hooks, { client: behind, home: "object", scope: "team", names: [], workspaceId: "w1", log: (event) => logged.push(event) });
-  assert.deepEqual((await hooks.lookup(["plans/a.md"])).notes, { "plans/a.md": { state: "gone" } });
-  assert.deepEqual(await hooks.resolve([NOTE]), { paths: { [NOTE]: null } });
-  assert.deepEqual(cp.asked.lookup, [["plans/a.md"]]);
-  assert.deepEqual(cp.asked.resolve, [[NOTE]]);
+  // A share just taken back is never served from the object's older rows: the reader is told to try again.
+  await assert.rejects(hooks.lookup(["plans/a.md"]), WorkspaceBusy);
+  await assert.rejects(hooks.resolve([NOTE]), WorkspaceBusy);
+  assert.deepEqual(cp.asked.lookup, []);
+  assert.deepEqual(cp.asked.resolve, []);
   assert.deepEqual(logged, ["workspace_object_behind", "workspace_object_behind"]);
 });
 
@@ -505,7 +508,7 @@ test("a read's lookup: a path the object does not find, while not behind, is no 
   assert.deepEqual(written.texHomes, { "tex/new.md": "person:w1" });
 });
 
-test("a read's lookup still asks the control plane when the object is behind, fails, or answers some other path", async () => {
+test("a read's lookup is busy when the object is behind or fails, and asks the control plane for some other path", async () => {
   for (const variant of ["behind", "fails", "other path"]) {
     const cp = control();
     const ob = object({});
@@ -520,7 +523,12 @@ test("a read's lookup still asks the control plane when the object is behind, fa
       ob.client.rows.lookup = async (fields) => ({ rows: fields.paths.map(() => ({ path: "elsewhere.md", found: false })) });
     }
     const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: new Set(), workspaceId: "w1" });
-    await hooks.lookupRead(["plans/missing.md"]);
-    assert.deepEqual(cp.asked.lookup, [["plans/missing.md"]], variant);
+    if (variant === "other path") {
+      await hooks.lookupRead(["plans/missing.md"]);
+      assert.deepEqual(cp.asked.lookup, [["plans/missing.md"]], variant);
+    } else {
+      await assert.rejects(hooks.lookupRead(["plans/missing.md"]), WorkspaceBusy, variant);
+      assert.deepEqual(cp.asked.lookup, [], variant);
+    }
   }
 });

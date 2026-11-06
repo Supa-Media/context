@@ -14,7 +14,7 @@ import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { workspaceFacts, UNPARSED_CAP } from "../src/workspaceStore/facts.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { workspaceClient, HOMES } from "../src/workspaceStore/api.js";
-import { objectFirstFacts } from "../src/store/objectLookup.js";
+import { objectFirstFacts, WorkspaceBusy } from "../src/store/objectLookup.js";
 import { attachLinkCalls } from "../src/http/routing.js";
 import { factJobs } from "../src/tree/facts.js";
 import { propsOf } from "../src/tree/props.js";
@@ -239,13 +239,14 @@ test("no object reading where the notes do not live there, the binding says behi
   assert.notEqual(objectFirstFacts(READING(client, { names: [READS_AS_CHAT], chatNames: ["+15550000000"] })), null);
 });
 
-test("the object failing, not serving, or found behind falls back to the control plane", async () => {
+test("an ask the object does not serve goes to the control plane; failing or behind is busy", async () => {
+  // Never the control plane instead (the owner, 2026-11-06): it read the same busy object through its door.
   const failing = objectFirstFacts(READING({ facts: async () => { throw new Error("down"); } }));
-  assert.equal(await failing({ ask: "props", paths: ["a.md"] }), null);
+  await assert.rejects(failing({ ask: "props", paths: ["a.md"] }), WorkspaceBusy);
   const notServed = objectFirstFacts(READING({ facts: async () => ({ served: false }) }));
   assert.equal(await notServed({ ask: "links", sources: [], names: [] }), null);
   const behind = objectFirstFacts(READING({ facts: async () => ({ served: true, props: [], behind: true }) }));
-  assert.equal(await behind({ ask: "props", paths: ["a.md"] }), null);
+  await assert.rejects(behind({ ask: "props", paths: ["a.md"] }), WorkspaceBusy);
 });
 
 test("store.treeFacts answers from the object when it serves, and from the control plane otherwise", async () => {

@@ -14,7 +14,7 @@ import { texObjects } from "../src/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { workspaceMarks, waitForMarks, MAX_MARK_MS } from "../src/workspaceStore/marks.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
-import { objectFirstHooks } from "../src/store/objectLookup.js";
+import { objectFirstHooks, WorkspaceBusy } from "../src/store/objectLookup.js";
 
 let DatabaseSync = null;
 try {
@@ -73,7 +73,7 @@ test("a lookup while a change is coming waits for the push that carries it, and 
   assert.equal((await object.call("ws.state")).body.marks, 0);
 });
 
-test("a lookup whose push never comes says behind, and the gateway asks the control plane", { skip }, async () => {
+test("a lookup whose push never comes says behind, and the gateway says busy without asking the control plane", { skip }, async () => {
   const object = await seeded();
   await object.call("ws.mark.open", { token: "mark-bbbbbbbb" });
   const behind = await waitForMarks(object.store.marks, { waitMs: 40, sleep: async () => {} });
@@ -90,9 +90,8 @@ test("a lookup whose push never comes says behind, and the gateway asks the cont
       workspaceId: "w1",
     },
   );
-  const answer = await hooks.lookup(["plans/shared.md"]);
-  assert.deepEqual(asked, [["plans/shared.md"]], "the control plane answered");
-  assert.deepEqual(answer.notes["plans/shared.md"], { state: "gone" });
+  await assert.rejects(hooks.lookup(["plans/shared.md"]), WorkspaceBusy);
+  assert.deepEqual(asked, [], "never the control plane instead (the owner, 2026-11-06)");
 });
 
 test("a push closes its marks in the same transaction as its rows", { skip }, async () => {

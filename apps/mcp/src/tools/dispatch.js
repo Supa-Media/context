@@ -67,6 +67,7 @@ import { toolEvaluateLists } from "./evaluateLists.js";
 import { toolConnectApp, toolSlackApi } from "./connectors.js";
 import { toolAppChange, toolAppRead } from "./apps.js";
 import { servedListingStore, TreeUnavailable } from "../tree/served.js";
+import { WorkspaceBusy } from "../store/objectLookup.js";
 
 /**
  * The tools that only list and read: their walks are answered from the Convex
@@ -103,11 +104,13 @@ export async function callTool(name, args, store, scope, options = {}) {
     const refusal = pathsNamed(args ?? {}).map(historyWriteRefusal).find((words) => words !== null);
     if (refusal !== undefined) return toolError(refusal);
   }
-  if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope, options);
   try {
+    if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope, options);
     return await runTool(name, args, servedListingStore(store), scope, options);
   } catch (error) {
     if (error instanceof TreeUnavailable) return toolError(error.message);
+    // The workspace's object could not answer now, and the control plane is never asked instead (`store/objectLookup.js`).
+    if (error instanceof WorkspaceBusy) return toolError(error.message);
     throw error;
   }
 }
