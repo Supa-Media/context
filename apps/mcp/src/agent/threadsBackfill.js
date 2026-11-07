@@ -93,7 +93,7 @@ export function answeredTurns(events) {
 export async function backfillThreads({ ledger, chat, classify, dryRun = false, budget = 25, deadline = 45_000, now = Date.now, timeZone = "UTC" }) {
   const began = now();
   const read = await readThreads(ledger, chat);
-  if (read.entries.some((entry) => entry?.id === DONE_ID)) return { state: "done", turns: 0, written: 0, failed: 0, left: 0 };
+  if (read.entries.some((entry) => entry?.id === DONE_ID)) return await retryUnsorted({ ledger, chat, classify, read, dryRun, budget, deadline, now, began, timeZone });
   const live = read.entries.filter((entry) => entry?.backfill !== true && Number.isSafeInteger(entry?.at));
   const liveStart = live.length > 0 ? Math.min(...live.map((entry) => entry.at)) : Number.MAX_SAFE_INTEGER;
   const replayed = read.entries.filter((entry) => entry?.backfill === true && Number.isSafeInteger(entry?.at));
@@ -116,15 +116,7 @@ export async function backfillThreads({ ledger, chat, classify, dryRun = false, 
   for (const turn of turns) {
     if (count >= budget || now() - began > deadline) break;
     count += 1;
-    const shown = events.slice(Math.max(0, turn.index - WINDOW), turn.index).filter((event) => event.at <= turn.at);
-    const tags = threadOfEvents(mine, shown);
-    const byThread = new Map();
-    for (const event of shown) {
-      const id = tags.get(event.id);
-      if (id) byThread.set(id, [...(byThread.get(id) ?? []), lineOf(event, format)]);
-    }
-    const question = turn.texts.map((event) => event.text ?? "").join("\n");
-    const input = { threads: mine, lines: { byThread, recent: shown.slice(-RECENT_LINES).map((event) => lineOf(event, format)) }, question, replying: [], timeoutMs: TIMEOUT_MS };
+    const input = turnInput(turn, events, mine, format);
     let verdict = await classify(input);
     if (verdict === null) verdict = await classify(input); // once more: a missed one stays unsorted for good
     last = turn.at;
@@ -148,4 +140,62 @@ export async function backfillThreads({ ledger, chat, classify, dryRun = false, 
   // A part that sorted nothing still moves on past the turns it tried.
   if (finished || Number.isFinite(last)) await ledger.append(threadsChat(chat), [mark]);
   return { state: finished ? "finished" : "partly", turns: count, written, failed, left: turns.length - count };
+}
+
+/** The input the classifier is shown for one replayed turn: `mine` as they stood before it. */
+function turnInput(turn, events, mine, format) {
+  const shown = events.slice(Math.max(0, turn.index - WINDOW), turn.index).filter((event) => event.at <= turn.at);
+  const tags = threadOfEvents(mine, shown);
+  const byThread = new Map();
+  for (const event of shown) {
+    const id = tags.get(event.id);
+    if (id) byThread.set(id, [...(byThread.get(id) ?? []), lineOf(event, format)]);
+  }
+  const question = turn.texts.map((event) => event.text ?? "").join("\n");
+  return { threads: mine, lines: { byThread, recent: shown.slice(-RECENT_LINES).map((event) => lineOf(event, format)) }, question, replying: [], timeoutMs: TIMEOUT_MS };
+}
+
+/**
+ * After the replay: the turns it left unsorted (the classifier failed twice), asked once more, each shown the
+ * replay's threads as they stood at its time. A turn asked here and missed again is marked (`thretry<at>`) and
+ * never asked again, so this ends. `done` when there is nothing left to ask.
+ */
+async function retryUnsorted({ ledger, chat, classify, read, dryRun, budget, deadline, now, began, timeZone }) {
+  const nothing = { state: "done", turns: 0, written: 0, failed: 0, left: 0 };
+  const replayed = read.entries.filter((entry) => entry?.backfill === true && Number.isSafeInteger(entry?.at));
+  const done = replayed.find((entry) => entry.id === DONE_ID);
+  const live = read.entries.filter((entry) => entry?.backfill !== true && Number.isSafeInteger(entry?.at));
+  const liveStart = live.length > 0 ? Math.min(...live.map((entry) => entry.at)) : Number.MAX_SAFE_INTEGER;
+  const sorted = new Set(read.threads.flatMap((thread) => thread.texts));
+  const asked = new Set(replayed.filter((entry) => entry.retried === true).map((entry) => entry.at));
+  const events = (await chatEvents(ledger, chat)).filter((event) => event.at < liveStart && event.at <= (done?.at ?? Number.MAX_SAFE_INTEGER));
+  const turns = answeredTurns(events).filter((turn) => !turn.covered.some((id) => sorted.has(id)) && !asked.has(turn.at));
+  if (turns.length === 0) return nothing;
+  if (dryRun) return { state: "would", turns: 0, written: 0, failed: 0, left: turns.length };
+  const format = DAY_TIME(timeZone);
+  let entriesSoFar = [...read.entries];
+  let written = 0;
+  let failed = 0;
+  let count = 0;
+  for (const turn of turns) {
+    if (count >= budget || now() - began > deadline) break;
+    count += 1;
+    const before = entriesSoFar.filter((entry) => entry?.backfill === true && entry.at <= turn.at);
+    const mine = foldThreads(before).threads;
+    const verdict = await classify(turnInput(turn, events, mine, format));
+    if (verdict === null) {
+      failed += 1;
+      await ledger.append(threadsChat(chat), [{ v: 1, id: `thretry${turn.at}`, at: turn.at, kind: "thread", backfill: true, retried: true }]);
+      entriesSoFar = [...entriesSoFar, { id: `thretry${turn.at}`, at: turn.at, kind: "thread", backfill: true, retried: true }];
+      continue;
+    }
+    // A new one takes the next id past every thread there is now; the verdict can only name one that stood then.
+    const { entries } = verdictEntries(verdict, [...mine, ...foldThreads(entriesSoFar).threads.filter((thread) => !mine.some((each) => each.id === thread.id))], turn.covered, turn.at);
+    const marked = entries.map((entry) => ({ ...entry, backfill: true, retried: true }));
+    await ledger.append(threadsChat(chat), marked);
+    written += marked.length;
+    entriesSoFar = [...entriesSoFar, ...marked];
+  }
+  const left = turns.length - count;
+  return { state: left === 0 ? "finished" : "partly", turns: count, written, failed, left };
 }

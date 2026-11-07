@@ -8,12 +8,13 @@
  *  2. `threadedTurn` keeping every text instead of the last 24 hours → "classified texts older than a day…" fails.
  *  3. `listedThreads` putting finished threads first → "the list holds 50 at most, open first…" fails.
  *  4. `threadsChat` writing to the chat's own ledger → "a turn's verdict is kept in the chat's threads ledger…" fails.
+ *  5. a 400-token cap on the call → "the classifier's call sets no output cap…" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { foldThreads, listedThreads, MAX_LISTED, readVerdict, threadsChat, threadsOn, threadsWrite, verdictEntries } from "../src/agent/conversationThreads.js";
+import { classifyText, foldThreads, listedThreads, MAX_LISTED, readVerdict, threadsChat, threadsOn, threadsWrite, verdictEntries } from "../src/agent/conversationThreads.js";
 import { threadedTurn } from "../src/agent/threadedTurn.js";
 
 const H = 3600e3;
@@ -147,6 +148,12 @@ test("a turn's verdict is kept in the chat's threads ledger, never the chat's ow
   const store = { texLedger: () => ({ append: async (chat, list) => ((kept[chat] ??= []).push(...list), { added: list.length }) }) };
   await threadsWrite(store, { workspaceKind: "personal", workspaceId: "ws1" }, [{ v: 1, id: "th1t1", at: 1, kind: "thread", thread: "t1", status: "open", texts: [] }]);
   assert.deepEqual(Object.keys(kept), ["texts.threads"]);
+});
+
+test("the classifier's call sets no output cap: a cap cuts its thinking and its answer off together", async () => {
+  let body = null;
+  await classifyText({ threads: [], lines: { byThread: new Map(), recent: [] }, question: "hi", replying: [], config: {}, request: async (sent) => ((body = sent), { text: '{"thread":"new","title":"Hi","description":"d","finished":[]}' }) });
+  assert.equal(body.maxTokens, undefined);
 });
 
 test("CONVERSATION_THREADS=off turns it off", () => {

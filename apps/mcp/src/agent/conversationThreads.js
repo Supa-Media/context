@@ -41,7 +41,6 @@ export const THREADS_SUFFIX = ".threads";
 export const THREADS_MODEL = "anthropic/claude-haiku-5-5";
 export const THREADS_EFFORT = "low";
 export const THREADS_TIMEOUT_MS = 4_000;
-const THREADS_MAX_TOKENS = 400;
 /** The most threads the prompt lists; the rest are reached with `read_thread`. */
 export const MAX_LISTED = 50;
 /** How far back the chat is shown word for word once its threads have started. */
@@ -200,10 +199,12 @@ export function verdictEntries(verdict, threads, covered, at = Date.now()) {
 }
 
 /** One classifier call: the verdict, or null when it failed, was late or said nothing usable. */
+// No `maxTokens`: it caps the thinking and the answer together (`aiGateway.js`), and a 400 cap cut the verdict off
+// often enough that about 4 turns in 10 of the 2026-11-07 backfill came back unsorted.
 export async function classifyText({ threads, lines, question, replying, config, metadata, request = requestViaGateway, timeoutMs = THREADS_TIMEOUT_MS }) {
   if (!config) return null;
   const call = request(
-    { model: THREADS_MODEL, system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying }) }], tools: [], maxTokens: THREADS_MAX_TOKENS, effort: THREADS_EFFORT },
+    { model: THREADS_MODEL, system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying }) }], tools: [], effort: THREADS_EFFORT },
     config,
     { metadata },
   );

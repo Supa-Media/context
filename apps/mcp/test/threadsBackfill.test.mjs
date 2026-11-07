@@ -7,6 +7,7 @@
  *  2. ignoring the `done` mark → "a chat's whole history is replayed oldest first…" fails (second run classifies again).
  *  3. `readThreads` reading one page only → "the threads ledger is read past one page" fails.
  *  4. the door not checking the ticket's owners → "the door wants the gateway secret and a ticket for that chat" fails.
+ *  5. the retry not marking a turn it missed again → "after the replay, the turns left unsorted are asked once more…" fails.
  */
 
 import assert from "node:assert/strict";
@@ -133,6 +134,29 @@ test("a dry run counts and writes nothing; a turn the classifier fails twice is 
   assert.equal(seen.length, 4, "the failed turn is asked twice");
   assert.equal(ran.failed, 1);
   assert.equal(ran.state, "finished");
+});
+
+test("after the replay, the turns left unsorted are asked once more, then never again", async () => {
+  const ledger = fakeLedger({ texts: HISTORY });
+  const first = scripted([{ thread: "new", title: "Lisbon hotel", description: "d", finished: [] }, null, null, { thread: "t1", title: "Lisbon hotel", description: "d", finished: [] }]);
+  assert.equal((await backfillThreads({ ledger, chat: "texts", classify: first.classify })).failed, 1);
+  const again = scripted([{ thread: "new", title: "Dentist", description: "Thursday", finished: [] }]);
+  const retried = await backfillThreads({ ledger, chat: "texts", classify: again.classify });
+  assert.deepEqual(retried, { state: "finished", turns: 1, written: 1, failed: 0, left: 0 });
+  assert.equal(again.seen[0].threads.length, 1, "shown the threads as they stood at its time: t1 only");
+  const { threads } = await readThreads(ledger, "texts");
+  assert.deepEqual(threads.find((thread) => thread.title === "Dentist").texts, ["a2", "a3"]);
+  assert.equal(threads.find((thread) => thread.title === "Dentist").id, "t2");
+  const third = scripted([]);
+  assert.equal((await backfillThreads({ ledger, chat: "texts", classify: third.classify })).state, "done");
+  assert.equal(third.seen.length, 0);
+  // One missed again is marked and left.
+  const other = fakeLedger({ texts: HISTORY });
+  await backfillThreads({ ledger: other, chat: "texts", classify: scripted([{ thread: "new", title: "A", description: "d", finished: [] }, null, null, { thread: "t1", title: "A", description: "d", finished: [] }]).classify });
+  assert.equal((await backfillThreads({ ledger: other, chat: "texts", classify: scripted([null]).classify })).failed, 1);
+  const last = scripted([]);
+  assert.equal((await backfillThreads({ ledger: other, chat: "texts", classify: last.classify })).state, "done");
+  assert.equal(last.seen.length, 0);
 });
 
 test("the threads ledger is read past one page", async () => {
