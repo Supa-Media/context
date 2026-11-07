@@ -58,6 +58,26 @@ whatever overlaps the turn's reads; about 1K input tokens. The `tex_threads`
 log line carries each call's time. A faster decision model in its place is a
 target, not measured.
 
+## The whole history, replayed (Dev2, 2026-11-07: "Backfill full history")
+
+Live turns sort only new texts, so a chat's older texts are replayed once
+through the same classifier, oldest first, one answered turn at a time
+(`apps/mcp/src/agent/threadsBackfill.js`): the texts a Tex answer covers, or,
+for an older answer naming none, the texts since the answer before it. Each
+verdict is written as a live one is, marked `backfill: true` and dated by its
+newest text. Only texts older than the chat's first live entry are replayed,
+the classifier is shown only the replay's own threads, and new ids count past
+every thread so none is taken twice. A part ends with a progress mark and the
+last with a done mark; neither names a thread.
+
+The words never leave the gateway: the control plane
+(`apps/convex/functions/texThreadsBackfill.ts`, the `Tex chats into their
+ledger` workflow, scopes `threads_chats` and `threads_groups`) only pages the
+chats and calls `POST /internal/threads/backfill` with the gateway secret and
+a ticket naming that chat's object, and gets counts back. Cost: one Haiku 5.5
+call a turn (about $0.001); the dry run counts the turns first. Since a long
+chat's threads ledger can pass one read, `readThreads` pages.
+
 ## Undo and reversal cost
 
 `CONVERSATION_THREADS=off` on the gateway shows the chat as before (faded
