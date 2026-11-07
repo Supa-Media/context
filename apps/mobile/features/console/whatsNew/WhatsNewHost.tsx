@@ -1,4 +1,8 @@
 import { useEffect } from "react";
+import { useQuery } from "convex/react";
+
+import { api } from "@context/convex/_generated/api";
+import { discordLink } from "../../referrals/invites";
 
 import { useWhatsNew } from "./useWhatsNew";
 import { WhatsNewPanel } from "./WhatsNewPanel";
@@ -27,6 +31,9 @@ export function WhatsNewHost({
   onEntry: (entry: WhatsNewEntry | null) => void;
 }) {
   const { state, seenWeek, markSeen, retry } = useWhatsNew();
+  // The Discord join link staff keep in the admin console (Community links),
+  // never a link written into the app or the page.
+  const discord = discordLink(useQuery(api.functions.referrals.communityLinks, {}))?.url ?? null;
   const week = shownWeek(state)?.number ?? null;
   const unread = isUnread(state, seenWeek);
 
@@ -38,5 +45,5 @@ export function WhatsNewHost({
     if (open) markSeen();
   }, [open, markSeen]);
 
-  return open ? <WhatsNewPanel state={state} onClose={onClose} onRetry={retry} /> : null;
+  return open ? <WhatsNewPanel state={state} onClose={onClose} onRetry={retry} discordUrl={discord} /> : null;
 }
