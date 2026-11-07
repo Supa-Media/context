@@ -14,6 +14,9 @@ import { carryKeptFiles, keepSentFiles } from "../keptFiles.js";
 import { openLearnedSkills } from "../learnedSkills.js";
 import { checkerQuestion, mailCheckerFor } from "../mailChecker.js";
 import { approvalVerdict } from "../textedApprovals.js";
+import { threadsOn } from "../conversationThreads.js";
+import { ledgerPlace } from "../ledger.js";
+import { threadedTurn } from "../threadedTurn.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
@@ -26,6 +29,11 @@ export async function readTheHistory(t) {
   const learnedRead = tex.ahead("learned_skills", () => group !== null ? historyRead.then(() => openChatSkills(group)) : openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts, warm: hot.skills }), null).catch(() => null); // read beside the history, once the egress ledger is set
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
   const [{ conversation, history }, logged] = await tex.wait("history", historyRead); const attachments = [...fresh, ...(runner ? [] : await tex.step("kept_files_again", () => carryKeptFiles(store, history, fresh), []))]; stages?.mark("history");
+  // The new text sorted into the chat's conversations, started now and waited for just before the model (`threadedTurn.js`).
+  const place = ledgerPlace(session);
+  const threadsRun = chatTurn && job === null && !runner && logged !== null && place !== null && threadsOn(env) && typeof store?.texLedger === "function"
+    ? tex.ahead("threads", () => threadedTurn({ logged, ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "threads" } }), null).catch(() => null)
+    : null;
   if (group !== null) markChatWords(ledger); if (job?.tainted || report !== null) markUntrusted(ledger); // a chat's own words are no stranger's (`chatSkills.js`); a job planned after a read from outside still carries it, and a job's report is what it read
   // The computers a chat turn may name, read beside the rest so the turn is told they're there (`machines/forTurn.js`); a job's own turn names none.
   const computersRead = chatTurn && job === null && (group !== null || session.actorClientId === TEXTS_CLIENT_ID) ? tex.ahead("computers", () => machinesFor(env, session, controlPlane), []).catch(() => []) : null;
@@ -50,6 +58,6 @@ export async function readTheHistory(t) {
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });
   }
-  Object.assign(t, { attachments, background, computersRead, conversation, fresh, history, learnedRead, logged, offered });
+  Object.assign(t, { attachments, background, computersRead, conversation, fresh, history, learnedRead, logged, offered, threadsRun });
 }
 // TEX ENTRY POINT: end

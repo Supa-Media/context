@@ -151,7 +151,7 @@ export function readReview(text) {
 }
 
 /** The first JSON object in a model's answer, however much it wrote after it; null when there is none. */
-function firstObject(raw) {
+export function firstObject(raw) {
   for (let start = raw.indexOf("{"); start >= 0; start = raw.indexOf("{", start + 1)) {
     let depth = 0;
     let quoted = false;

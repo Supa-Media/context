@@ -43,7 +43,8 @@ export function isHistoryMarker(bytes) {
 
 /** The chat this object's history file shows: a person's one-to-one chat, else the object's one chat. */
 function chatOf(ledger) {
-  const chats = ledger.chats().map((manifest) => manifest.chat);
+  // A chat's conversation threads (`agent/conversationThreads.js`, `<chat>.threads`) are its index, not a second chat.
+  const chats = ledger.chats().map((manifest) => manifest.chat).filter((chat) => !chat.endsWith(".threads"));
   if (chats.includes(ONE_TO_ONE)) return ONE_TO_ONE;
   return chats.length === 1 ? chats[0] : null;
 }

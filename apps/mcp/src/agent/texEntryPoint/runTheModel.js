@@ -42,6 +42,7 @@ import { chatHubUrl, hubPrompt } from "../hubLinks.js";
 import { withVaultWatch } from "../vaultSaved.js";
 import { doItChecks } from "../doItChecks.js";
 import { replyJudge } from "../replyJudge.js";
+import { threadsWrite } from "../conversationThreads.js";
 import { withArchitecture } from "../texArchitecture.js";
 
 /** The setup's rules with the drawing ahead, the box named for this kind of turn (`texArchitecture.js`). */
@@ -49,7 +50,7 @@ const setupWithMap = (prompt, kind) => (typeof prompt === "string" && prompt !==
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runTheModel(t) {
-  const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, computersRead, controlPlane, delegation: delegated, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, timeZone } = t;
+  const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, computersRead, controlPlane, delegation: delegated, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, threadsRun, timeZone } = t;
   // When the setup's reply reviewer reads this turn, it replaces the older word checks (`untriedWeb.js`, `doItChecks.js`), so those two stay only for a setup without it.
   const gated = chatTurn && job === null && !runner && (texted || group !== null) && Boolean(production?.replyJudge) && aiGatewayConfig(env) !== null; // no AI Gateway, no reviewer: the word checks stay
   const tries = gated ? null : t.tries;
@@ -68,6 +69,9 @@ export async function runTheModel(t) {
   if (planning) splitFirst(background); // a lone job is offered the planner once
   // The advisor, when the setup names one this deployment can run: offered on every chat turn, a job's included (`advisor.js`).
   const advising = chatTurn && productionModel !== null && Boolean(production.advisor) && canRunBuiltin(production.advisor, env);
+  // The chat by conversation, when the classifier ran: the thread list, the suggested thread, the last 24 hours (`threadedTurn.js`). Its verdict is kept after the answer.
+  const threaded = threadsRun ? await tex.wait("threads", threadsRun) : null;
+  if (threaded?.entries?.length > 0) tex.after("threads_write", () => threadsWrite(store, session, threaded.entries));
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
@@ -105,9 +109,9 @@ export async function runTheModel(t) {
       },
     },
     web: steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
-    history: logged?.history ?? shown,
+    history: threaded?.history ?? logged?.history ?? shown,
     threadNote: (group !== null ? groupPrompt(group, home) : "") + learnedSkillsLine(learned) + threadPrompt(logged ? { thread: null } : inThread) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (job === null ? computersLine(computers, { planning }) : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobAdvisorLine(job, advising) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
-    local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
+    local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(threaded ? [threaded.read_thread] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
     localNow: { now: Date.now(), timeZone },
