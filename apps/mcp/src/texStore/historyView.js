@@ -17,7 +17,7 @@
  */
 
 import { TexObjectRefused } from "./objects.js";
-import { foldThreads, listedThreads, THREADS_SUFFIX } from "../agent/conversationThreads.js";
+import { foldThreads, listedThreads, THREADS_SUFFIX } from "../agent/threadsFold.js";
 
 /** What the object keeps under the history file's key: this, and nothing of the chat. */
 export const HISTORY_VIEW_MARKER = '{"tex-history-view":1}';

@@ -36,13 +36,13 @@ import { requestViaGateway } from "./aiGateway.js";
 import { ledgerPlace, ledgerWriter } from "./ledger.js";
 import { firstObject } from "./replyJudge.js";
 import { withArchitecture } from "./texArchitecture.js";
+import { DESCRIPTION_CHARS, foldThreads, listedThreads, MAX_LISTED, THREADS_SUFFIX, TITLE_CHARS } from "./threadsFold.js";
 
-export const THREADS_SUFFIX = ".threads";
+export { foldThreads, listedThreads, MAX_LISTED, THREADS_SUFFIX };
+
 export const THREADS_MODEL = "anthropic/claude-haiku-5-5";
 export const THREADS_EFFORT = "low";
 export const THREADS_TIMEOUT_MS = 4_000;
-/** The most threads the prompt lists; the rest are reached with `read_thread`. */
-export const MAX_LISTED = 50;
 /** How far back the chat is shown word for word once its threads have started. */
 export const RECENT_MS = 24 * 60 * 60 * 1000;
 /** What the classifier is shown of each candidate thread, and of the chat just before the new text. */
@@ -50,12 +50,9 @@ const CANDIDATES = 30;
 const LAST_LINES = 3;
 const RECENT_LINES = 12;
 const LINE_CHARS = 300;
-const TITLE_CHARS = 60;
-const DESCRIPTION_CHARS = 240;
 /** The most thread entries one read takes: far more than any chat's threads. */
 const MAX_READ = 5000;
 const MAX_PAGES = 20;
-const THREAD_ID = /^t[1-9][0-9]{0,5}$/;
 
 export const THREADS_SYSTEM = `You sort a text chat with Tex (an assistant people text) into conversation threads. A thread is one subject: a question and its answer, a task, a plan, a debate, a run of jokes about one thing. Several can be open at once and interleave. Time apart does not split a thread; a new subject does.
 
@@ -72,31 +69,6 @@ export const threadsChat = (chat) => `${chat}${THREADS_SUFFIX}`;
 
 /** Whether threads run for this deployment. */
 export const threadsOn = (env) => String(env?.CONVERSATION_THREADS ?? "").toLowerCase() !== "off";
-
-/**
- * The threads as they stand, from the ledger's `thread` entries (any order): `{threads, start}`. Each thread
- * `{id, title, description, status, texts, at, last}`: the newest entry's words and status, every entry's texts.
- * `start` is when the first entry was written (null with none).
- */
-export function foldThreads(entries) {
-  const byId = new Map();
-  let start = null;
-  const sorted = (Array.isArray(entries) ? entries : []).filter((entry) => entry?.kind === "thread" && typeof entry.thread === "string" && THREAD_ID.test(entry.thread) && Number.isSafeInteger(entry.at)).sort((a, b) => a.at - b.at || (a.seq ?? 0) - (b.seq ?? 0));
-  for (const entry of sorted) {
-    start = start === null ? entry.at : Math.min(start, entry.at);
-    const was = byId.get(entry.thread) ?? { id: entry.thread, title: "", description: "", status: "open", texts: [], at: entry.at, last: entry.at };
-    const texts = Array.isArray(entry.texts) ? entry.texts.filter((id) => typeof id === "string") : [];
-    byId.set(entry.thread, {
-      ...was,
-      title: typeof entry.title === "string" && entry.title.trim() !== "" ? entry.title.trim().slice(0, TITLE_CHARS) : was.title,
-      description: typeof entry.description === "string" && entry.description.trim() !== "" ? entry.description.trim().slice(0, DESCRIPTION_CHARS) : was.description,
-      status: entry.status === "finished" ? "finished" : entry.status === "open" ? "open" : was.status,
-      texts: [...new Set([...was.texts, ...texts])],
-      last: texts.length > 0 ? entry.at : was.last,
-    });
-  }
-  return { threads: [...byId.values()], start };
-}
 
 /** The chat's threads, read from its threads ledger, with the entries they were folded from; empty when there is none or it can't be read. */
 export async function readThreads(ledger, chat) {
@@ -127,13 +99,6 @@ export function threadOfEvents(threads, events) {
     if (covered) of.set(event.id, covered);
   }
   return of;
-}
-
-/** Which threads the prompt lists: open first, newest first, then the most recently finished, `MAX_LISTED` in all. */
-export function listedThreads(threads, max = MAX_LISTED) {
-  const open = threads.filter((thread) => thread.status === "open").sort((a, b) => b.last - a.last);
-  const finished = threads.filter((thread) => thread.status !== "open").sort((a, b) => b.last - a.last);
-  return [...open, ...finished].slice(0, max);
 }
 
 const oneLine = (text, max = LINE_CHARS) => {
