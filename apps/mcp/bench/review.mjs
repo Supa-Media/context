@@ -32,10 +32,10 @@ export const MAX_FALSE_ALARMS = 0.1;
 /** The least of the faults it must send back, across every set. */
 export const MIN_CATCH = 0.8;
 
-/** A case's turn in the shape `judgeState` reads: `did` rows are [tool, args, result, "failed"?]; a report case has `report` ({ title, state, texts }). */
+/** A case's turn in the shape `judgeState` reads: `did` rows are [tool, args, result, "failed"?]; a report case has `report` ({ title, state, texts }); a routine or check-in case has `scheduled` ("routine" or "check-in"). */
 export function caseTurn(item) {
   const history = (item.earlier ?? []).map(([who, text]) => ({ role: who === "tex" ? "assistant" : "user", text }));
-  return judgeState({ question: item.q, history, messages: caseMessages(item), answer: item.reply, report: item.report ?? null });
+  return judgeState({ question: item.q, history, messages: caseMessages(item), answer: item.reply, report: item.report ?? null, scheduled: item.scheduled ?? null });
 }
 
 /** A case's calls as the turn's messages. */
