@@ -12,6 +12,7 @@ import {
 } from "./TexPageParts";
 import { TexSelect } from "./TexSelect";
 import { TexHistoryLines } from "../history/TexHistoryLines";
+import { ConversationsPeek } from "../conversations/ConversationsPage";
 import type { ViewProps } from "./TexPageBody";
 import { MachineAskCard } from "./TexMachineAsk";
 import { EarlierRow, MinionPool } from "./TexMinionPool";
@@ -120,6 +121,8 @@ export function TexHome({
           {strip}
         </ScrollView>
       )}
+
+      <ConversationsPeek source={source} chat={chat} go={go} />
 
       <View>
         <SectionHead>History</SectionHead>

@@ -78,6 +78,30 @@ a ticket naming that chat's object, and gets counts back. Cost: one Haiku 5.5
 call a turn (about $0.001); the dry run counts the turns first. Since a long
 chat's threads ledger can pass one read, `readThreads` pages.
 
+## Shown to the person (Dev2, 2026-11-07: "mock a special UI for the threads ... in the Tex Hub and also when you open the Tex folder", then "build it then")
+
+The approved canvas, built with the Tex page's own parts, not a new look (Dev2: "use the existing styling"):
+
+- The Tex Hub has a Conversations section under the tiles: the three newest open
+  ones and "All conversations", which opens the Tex page's Conversations page
+  (`view: "conversations"`): open first, then finished, each newest first, a
+  row opening in place to its texts and Tex's answers, drawn as the history
+  file draws a line.
+- The Tex folder holds `conversations.ledger.json` beside `history.ledger.json`
+  (Dev2: "it should look just like a page that you click on it and then you see
+  the UI, similar to how history is"). It is the same kind of row: the object
+  keeps a marker and answers a read with the threads as they stand
+  (`texStore/historyView.js`); nothing writes it; the app opens it as the
+  Conversations page and a download leaves it out, as the history view is.
+- Both read `POST /tex/page/ledger` with `view: "conversations"` and
+  `view: "conversation"` (`http/texPage/conversations.js`), for the chat's own
+  people only, as every Tex page route. A conversation's lines are its texts
+  and the answers that cover them, or, for an older answer naming none, the
+  answer after them, as the replay sorted them.
+
+Tests: `apps/mcp/test/conversationsView.test.mjs`,
+`apps/mobile/__tests__/texConversations.test.ts`.
+
 ## Undo and reversal cost
 
 `CONVERSATION_THREADS=off` on the gateway shows the chat as before (faded

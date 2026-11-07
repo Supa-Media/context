@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
 import { densityFor } from "../../app/frame";
 import { layout } from "../../design/tokens";
@@ -11,8 +11,9 @@ import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
 import { NowContext, T } from "../page/TexPageParts";
 import { gatewaySource } from "../page/texPageSource";
-import { groupChatAt, historyFileChat } from "./historyFile";
+import { chatFileKind, groupChatAt, historyFileChat } from "./historyFile";
 import { HistoryFileLines } from "./HistoryFileLines";
+import { ConversationsList } from "../conversations/ConversationsList";
 
 /**
  * A history file opened in the app (`tex/history.ledger.json`, or a group
@@ -79,7 +80,9 @@ export function HistoryFileView({
   const compact = densityFor(useWindowDimensions().width) === "compact";
   const padding = useSurfacePadding();
   const pad = compact ? { top: padding.content.top, bottom: padding.content.bottom, side: layout.readingMargin } : { top: 0, bottom: 0, side: 40 };
-  const head = <HistoryHead whose={place.kind === "group" && group ? group.name : null} />;
+  // The conversations file beside it opens the same way, as the chat's conversations (Dev2, 2026-11-07).
+  const kind = chatFileKind(path);
+  const head = <HistoryHead whose={place.kind === "group" && group ? group.name : null} kind={kind} />;
 
   const body =
     source === null || place.kind === "none" || (place.kind === "group" && group === null) ? (
@@ -94,6 +97,11 @@ export function HistoryFileView({
         {head}
         <ActivityIndicator size="small" />
       </View>
+    ) : kind === "conversations" ? (
+      <ScrollView style={styles.fill} contentContainerStyle={{ gap: 12, paddingTop: pad.top, paddingBottom: pad.bottom + 24, paddingHorizontal: pad.side }} testID="conversations-file">
+        {head}
+        <ConversationsList source={source} chat={chat} group={place.kind === "group"} phone={compact} />
+      </ScrollView>
     ) : (
       <HistoryFileLines source={source} chat={chat} group={place.kind === "group"} head={head} pad={pad} phone={compact} />
     );
@@ -109,14 +117,14 @@ export function HistoryFileView({
   );
 }
 
-/** One thin row (Dev, 2026-11-03: "can the header be thinner somehow"): the icon, History, and whose. */
-export function HistoryHead({ whose }: { whose: string | null }) {
+/** One thin row (Dev, 2026-11-03: "can the header be thinner somehow"): the icon, History (or Conversations), and whose. */
+export function HistoryHead({ whose, kind = "history" }: { whose: string | null; kind?: "history" | "conversations" }) {
   const colors = useColors();
   return (
     <View style={styles.title}>
-      <ContextIcon part="tex_history" size={18} tint={colors.accent} />
+      <ContextIcon part={kind === "conversations" ? "tex_chats" : "tex_history"} size={18} tint={colors.accent} />
       <T size={17} serif weight="600" line={1.25} testID="history-file-title">
-        History
+        {kind === "conversations" ? "Conversations" : "History"}
       </T>
       {whose !== null ? (
         <T size={14} tone="muted" numberOfLines={1} style={styles.whose}>
