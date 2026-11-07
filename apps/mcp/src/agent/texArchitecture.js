@@ -51,6 +51,10 @@ export const ROLES = Object.freeze({
     box: "Job check",
     you: "the Job check in section 3: a background job stopped, and you decide whether it really finished before Tex texts them about it.",
   },
+  threads: {
+    box: "Conversation classifier",
+    you: "the Conversation classifier in section 3: before the Front door answers, you say which of the chat's conversation threads the new text continues, or that it starts one, and which threads are finished. The Front door is shown your suggestion; nothing you write reaches the person.",
+  },
   reviewer: {
     box: "Reply reviewer",
     you: "the Reply reviewer in section 3: the Front door's draft reaches you before it is sent. What you send back goes to the Send-back box and the Front door rewrites; what you pass goes out through sendTheReply.",

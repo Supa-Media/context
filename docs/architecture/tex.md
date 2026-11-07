@@ -86,7 +86,7 @@ flowchart TB
   settleAYesOrNo["settleAYesOrNo<br/>a yes or 👍 to a waiting send, in code, no model"]:::rail
   watchWhatLeaves["watchWhatLeaves<br/>what this turn may read in and send out"]:::rail
   checkItMayRun["checkItMayRun<br/>tools, history (each part timed), may the model run here"]:::step
-  readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn<br/>a reply shows the full words it answers"]:::step
+  readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn<br/>a reply shows the full words it answers<br/>starts the conversation classifier"]:::step
   openTheWeb["openTheWeb<br/>write tools and the browser"]:::step
   readTheSetup["readTheSetup<br/>prompt, skills, models, fallback"]:::step
   prepareBookkeeping["prepareBookkeeping<br/>usage, turn log, the chat's ledger"]:::step
@@ -111,7 +111,9 @@ may leave the turn (`privacy/egress.js`).
 
 ```mermaid
 flowchart TB
-  Q([The question, the chat, About me, the setup]):::you --> FD
+  Q([The question, the chat, About me, the setup]):::you --> CL
+  CL["Conversation classifier<br/>Haiku 5.5 · effort low · before the model<br/>which open thread the text continues, or a new one<br/>finishes a thread only on evidence, never on silence<br/>kept in the chat's threads ledger, chat.threads<br/>conversationThreads.js · threadedTurn.js"]:::judge
+  CL -->|thread list, suggested thread, last 24 hours| FD
   FD["Front door<br/>Haiku 5.5 · effort high · up to 24 rounds<br/>turn.js runTurn"]:::haiku
   FD <-->|tools| T["Tools: notes, search, web, browser,<br/>vault, email, calendar, apps,<br/>their texts (1:1 only, Mac backup)<br/>the one dispatcher, callToolForSession"]:::tool
   FD <-->|ask_advisor, when stuck or weighing| ADV["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js"]:::opus
@@ -189,6 +191,7 @@ What each model costs is `jev/meter.ts`.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-07: a conversation classifier sorts each chat text into a thread before the model (Haiku 5.5, effort low, 4 s cap), kept in the chat's threads ledger (`<chat>.threads`, an index rebuilt from the chat's ledger); the turn is shown up to 50 threads (open first), the suggested thread's older texts and the last 24 hours tagged by thread, and `read_thread` opens any thread (`conversationThreads.js`, `threadedTurn.js`, `readTheHistory.js`, `runTheModel.js`).
 - 2026-11-06: every Tex agent reads this drawing: sections 1 to 3 go ahead of each one's own prompt (front door for 1:1, group and job turns, computer jobs, advisor, advisor on the mail, job check, reviewer, hand-back judge, mail checker, card check, self-review, day summaries, big-ask planner), with one line naming the box it is (`texArchitecture.js`, generated into `texArchitecture.generated.js` by `scripts/tex-architecture-module.mjs`).
 - 2026-11-06: the reviewer's rubric is tuned on the bench to 98-99% of faults caught with 2-4% false alarms: a joke that says Tex sent something is a claim, every sum is worked out, a figure must come from what was read, and a page or card is told in a line (`replyJudge.js`).
 - 2026-11-06: day summaries reach back through the whole chat, newest first, twenty a night, quiet nights included (`daySummaries.js`, `dream.js`).
