@@ -90,6 +90,7 @@ export const REVIEW_SYSTEM = [
   "- result_missing (report): the job's result doesn't reach them (they can't see the report), a link it gave is dropped ('I wrote up why' with no link), or an ended job is described as still working. A running job's text asking them for the code or choice it is waiting on is the whole report, and right.",
   "- not_for_them: the text is not for the person: it explains Tex's own run, tools, actions, session, routine or reasoning ('the say_nothing action isn't available', 'I didn't text anything this run', 'this routine's output would go to them'), or reads as a note to whoever runs Tex. The person would only be confused. The feedback says to call send with action say_nothing when nothing should be texted, or else to text only what is for them. Saying plainly what Tex did for them, or why it couldn't, is not this.",
   "- On a scheduled run, a text with nothing new, or one that repeats what an earlier text already told them, is not_for_them too: the feedback says to call send with action say_nothing. A reminder they asked for, said when it is due, is always for them. A leading DONE: or [continues N], or a bare SKIP, is Tex's own mark, taken off before anything goes: never a fault.",
+  "- A progress line (the state says when it is one) is texted while Tex keeps working, before its answer: judge it only for not_for_them, claims_undone and too_long. Saying what Tex is doing or will do next is its job, never unfinished, empty_promise or missed_ask.",
   "- needs_a_page (report): a long result texted in full instead of a line or two with a link to a page or card: more than about five items, a table, several findings, or a write-up of more than three sentences. When the report has a link, the findings are retold beside it instead of a line and the link is this too. A one-line take with the link, or a card already drawn, is the right shape.",
   "",
   "Nuance:",
@@ -117,6 +118,12 @@ export function actionsOf(messages) {
   return lines;
 }
 
+/** How the state opens for a text nobody asked for, by what sent it. */
+const SCHEDULED_LEAD = {
+  routine: "This is a scheduled routine Tex runs on its own, and the text below reaches them unprompted.",
+  "check-in": "This is a scheduled check-in Tex runs on its own, and the text below reaches them unprompted.",
+};
+
 /** What the reviewer reads: the ask and the reply first, then a job's report when the turn is one, every action, then the earlier texts. */
 export function judgeState({ question, history = [], messages = [], answer, report = null, scheduled = null }) {
   const actions = actionsOf(messages);
@@ -124,11 +131,11 @@ export function judgeState({ question, history = [], messages = [], answer, repo
     .slice(-6)
     .map((turn) => `${turn?.role === "assistant" ? "Tex" : "Person"}: ${clip(String(turn?.text ?? ""), 600)}`);
   return [
-    ...(scheduled
-      ? [`Nobody texted. This is a scheduled ${scheduled === "check-in" ? "check-in" : "routine"} Tex runs on its own, and the text below reaches them unprompted. What Tex was asked to do this run: ${clip(String(question ?? ""), 6_000)}`]
-      : [`Their text now: ${clip(String(question ?? ""), 3_000)}`]),
+    ...(scheduled === "progress" || !scheduled
+      ? [`Their text now: ${clip(String(question ?? ""), 3_000)}`]
+      : [`Nobody texted. ${SCHEDULED_LEAD[scheduled] ?? SCHEDULED_LEAD.routine} What Tex was asked to do this run: ${clip(String(question ?? ""), 6_000)}`]),
     "",
-    `The reply about to be sent: ${clip(String(answer ?? ""), 3_000)}`,
+    `${scheduled === "progress" ? "The progress line about to be texted while Tex keeps working, before its answer" : "The reply about to be sent"}: ${clip(String(answer ?? ""), 3_000)}`,
     "",
     ...(report ? [`The job's report (job "${clip(String(report.title ?? ""), 120)}", ${String(report.state ?? "done")}), which the person has not seen:`, clip((Array.isArray(report.texts) ? report.texts : []).join("\n\n") || "(nothing)", 4_000), ""] : []),
     `What Tex did this turn (${actions.length === 0 ? "nothing: no searches, reads or other actions" : `${actions.filter((line) => line.startsWith("- ")).length} actions`}):`,
@@ -210,6 +217,7 @@ export async function reviewReply({ state, earlier = [], request = requestViaGat
  * the turn's log. `report`, a job's report (`jobReport.js` `jobReportOf`), is
  * put in the state, so the reviewer judges the text that tells them about it.
  * `scheduled`, `"routine"` or `"check-in"`, marks a run nobody texted for
+ * (`"progress"` marks a progress line instead, texted mid-turn: `progress.js`)
  * (`texEntryPoint/runTheModel.js`, `heartbeat.js`): the state says so, and the
  * reviewer judges whether it is worth an unprompted text and is for them at
  * all (Dev2, 2026-11-07: a routine texted "the say_nothing action isn't
@@ -302,3 +310,4 @@ function withTimeout(promise, ms) {
     }),
   ]).finally(() => clearTimeout(timer));
 }
+
