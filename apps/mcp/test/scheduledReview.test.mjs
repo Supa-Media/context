@@ -14,6 +14,9 @@
  * 2. `scheduled` left out of `gated` in runTheModel.js: "the reviewer reads a routine's text ..." fails.
  * 3. `scheduled` set whatever `send:` says: "a routine that only writes a note is never reviewed" fails.
  * 4. heartbeat.js passing `answerCheck: null`: "the reviewer reads a check-in's text too ..." fails.
+ * 6. (2026-11-07, Dev2: "reviewer should only touch texts that go out to the user") `scheduled` ignoring `to:`:
+ *    "a routine that texts other people is never reviewed ..." fails; `channel.review` never set in runTheModel.js:
+ *    "the reviewer reads each progress line ..." fails.
  * 5. heartbeat.js back to `grants: {}`: the same test fails, on its say_nothing offer (the look's send had no
  *    actions at all, so a check-in could never say nothing either; found writing this test).
  */
@@ -31,6 +34,7 @@ import { texStoreNamespace } from "./texStoreFixture.mjs";
 const S3_ENDPOINT = "https://s3.example-scheduled-review.test";
 const TOKEN_RUNNER = `cat_sched_runner_${"0".repeat(22)}`;
 const TOKEN_BEAT = `cat_sched_beater_${"0".repeat(22)}`;
+const TOKEN_TEXTS = `cat_sched_texter_${"0".repeat(22)}`;
 const HAIKU = "anthropic/claude-haiku-5-5";
 const SETUP = `---\njob: texting-assistant\nmodels:\n  main: ${HAIKU}\n  effort: medium\nreply_judge: haiku\n---\n\nYou are Tex.\n`;
 const MANIFEST =
@@ -89,6 +93,23 @@ async function look() {
   return { status: response.status, text, body: JSON.parse(text) };
 }
 
+/** A 1:1 text asked for as a stream, so the turn may text progress lines (`progress.js`). */
+async function streamed(question) {
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request("https://mcp.context.test/agent", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN_TEXTS}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
+      body: JSON.stringify({ question, conversation: "texts" }),
+    }),
+    env,
+    ctx,
+  );
+  const lines = (await response.text()).split("\n").filter(Boolean).map((part) => JSON.parse(part));
+  await settle();
+  return lines;
+}
+
 async function run(path) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
@@ -139,6 +160,11 @@ before(async () => {
   controlPlane.holdRules("ws_sched_pin", PERSON_RULES);
   controlPlane.holdSetupRules("ws_sched_pin", SETUP_RULES);
   await controlPlane.addGrant({
+    workspaceId: "ws_sched_mine", role: "owner", userId: "user_sched", accessToken: TOKEN_TEXTS,
+    scopes: ["context:read", "context:write", "context:private"], clientId: "context_texts",
+    alsoMemberOf: [{ workspaceId: "ws_sched_pin", role: "member", grantedNames: ["#reads-as-guest"] }],
+  });
+  await controlPlane.addGrant({
     workspaceId: "ws_sched_mine", role: "owner", userId: "user_sched", accessToken: TOKEN_BEAT,
     scopes: ["context:read", "context:write", "context:private"], clientId: "context_heartbeat",
     alsoMemberOf: [{ workspaceId: "ws_sched_pin", role: "member", grantedNames: ["#reads-as-guest"] }],
@@ -164,6 +190,7 @@ beforeEach(() => {
   RINGS = `routines/once/rings-from-simi-${ran}.md`;
   mine.set(RINGS, { body: RINGS_BODY, etag: `r${ran}` });
   mine.set(`notes/changed-${ran}.md`, { body: "# Wedding\n\nRings are with Simi.\n", etag: `n${ran}`, lastModified: new Date(Date.now() - 60_000).toISOString() });
+  mine.set(`routines/once/tell-sam-${ran}.md`, { body: "---\nat: 2026-11-07 2:30 pm\nto: @sam\n---\nRemind Sam to bring the rings.\n", etag: `o${ran}` });
   mine.set(NOTE_ONLY, { body: "---\nat: 2026-11-07 2:30 pm\nsend: note\n---\nNote down that the rings were collected.\n", etag: "r2" });
 });
 
@@ -233,4 +260,27 @@ test("a check-in is not reviewed when the texting setup has no reviewer", async 
   assert.equal(response.status, 200, response.text);
   assert.equal(reviews().length, 0);
   assert.equal(response.body.outcome, "speak");
+});
+
+test("a routine that texts other people is never reviewed: the reviewer reads only texts to the person", async () => {
+  script.push(says("Sam, bring the rings at 2:30."));
+  const response = await run(`routines/once/tell-sam-${ran}.md`);
+  assert.equal(response.status, 200, response.text);
+  assert.equal(reviews().length, 0);
+  assert.equal(response.body.answer, "Sam, bring the rings at 2:30.");
+});
+
+test("the reviewer reads each progress line before it is texted, as a line, and one it holds back is not sent", async () => {
+  const leaked = "Retrying, since my browse tool keeps timing out in this session.";
+  const fine = "Opening OpenTable for Friday.";
+  script.push(calls("send", { action: "progress", args: { text: leaked } }), calls("send", { action: "progress", args: { text: fine } }), says("Nopa has a table for four at 7 on Friday."));
+  reviewScript.push('{"kind":"task","verdict":"send_back","problems":["not_for_them"],"feedback":"This is about your own tools. Say what you are doing for them instead."}');
+  const lines = await streamed("find me a table for four on Friday");
+  const texted = lines.filter((line) => typeof line.progress === "string").map((line) => line.progress);
+  assert.deepEqual(texted, [fine], "the held line never went; the next one did");
+  const [first] = reviews();
+  assert.match(JSON.stringify(first.body.messages), /The progress line about to be texted while Tex keeps working/);
+  assert.match(JSON.stringify(first.body.messages), /find me a table for four/, "it sees what they asked");
+  assert.match(JSON.stringify(turnCalls()[1].body.messages), /Not sent\. A reviewer read your reply/, "the model reads why");
+  assert.equal(lines.at(-1)?.status, 200);
 });

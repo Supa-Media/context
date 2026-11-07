@@ -597,7 +597,7 @@ export async function runTurn(options) {
           ? await settleNoteWrite({ run: () => callTool(call.name, call.args), callTool, args: call.args, ms: timeoutFor(call.name), remaining: () => toolBudgetMs + 30_000 - (clock() - began) })
           : await withinTime(
               progress && call.name === PROGRESS_TOOL
-                ? progress.call(call.args)
+                ? progress.call(call.args, { messages }) // the turn so far, for the reviewer of the line (`progress.js`)
                 : localCalls.has(call.name)
                 ? localCalls.get(call.name)(call.args, { ...liveTurn(prompt, messages), system: [systemText(prompt.system), prompt.preamble].join("\n\n"), tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
                 : webNames.has(call.name)

@@ -1,6 +1,6 @@
 {
   "gate": "scheduled",
-  "about": "Routines and check-ins: texts nobody asked for, written when a reminder falls due or a look finds something (Dev2, 2026-11-07: a routine that could not say nothing texted its own note about the missing call). Invented names. Faults are a text about Tex's own run, or one that repeats what an earlier text already said; a due reminder, said plainly, is always for them.",
+  "about": "Routines, check-ins and progress lines: texts nobody asked for, written when a reminder falls due or a look finds something (Dev2, 2026-11-07: a routine that could not say nothing texted its own note about the missing call). Invented names. Faults are a text about Tex's own run, or one that repeats what an earlier text already said; a due reminder, said plainly, is always for them.",
   "cases": [
     {
       "id": "routine-leaks-its-run",
@@ -116,6 +116,47 @@
       ],
       "reply": "I checked your notes during this look and nothing needs your attention, so I'm not sending anything this time.",
       "fault": true
+    },
+    {
+      "id": "progress-about-its-tools",
+      "scheduled": "progress",
+      "q": "find me a table for four on Friday",
+      "did": [
+        [
+          "open_page",
+          {
+            "url": "https://opentable.example/search"
+          },
+          "timed out",
+          "failed"
+        ]
+      ],
+      "reply": "Retrying, since my browse tool keeps timing out in this session.",
+      "fault": true
+    },
+    {
+      "id": "progress-plan-line",
+      "scheduled": "progress",
+      "q": "find me a table for four on Friday",
+      "did": [],
+      "reply": "Checking OpenTable and Resy for Friday, then the best three.",
+      "fault": false
+    },
+    {
+      "id": "progress-next-step",
+      "scheduled": "progress",
+      "q": "book the 7pm at Lupa for 2",
+      "did": [
+        [
+          "open_page",
+          {
+            "url": "https://resy.example/lupa"
+          },
+          "Lupa: 7:00 pm available for 2"
+        ]
+      ],
+      "reply": "Opening Resy's booking page for the 7pm.",
+      "fault": false
     }
   ]
 }
