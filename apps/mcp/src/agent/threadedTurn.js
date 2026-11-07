@@ -18,10 +18,10 @@ import { renderEvents, speaker, words } from "./logRender.js";
 /** What the threaded history opens with. */
 export const THREADED_PREFACE = "(The chat's conversations, then its last 24 hours of texts, oldest first, as they happened. \"You\" is you. The newest messages, the ones you are answering, come next.)";
 
-const DAY_TIME = (timeZone) => new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", hour: "numeric", minute: "2-digit" });
+export const DAY_TIME = (timeZone) => new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", hour: "numeric", minute: "2-digit" });
 
 /** One event as one line, for the classifier and the suggested thread. */
-const lineOf = (event, format) => `[${format.format(new Date(event.at)).replace(/ /g, " ")}] ${speaker(event.from)}: ${words(event)}`;
+export const lineOf = (event, format) => `[${format.format(new Date(event.at)).replace(/ /g, " ")}] ${speaker(event.from)}: ${words(event)}`;
 
 export async function threadedTurn({ logged, ledger, chat, config, metadata, request, now = Date.now(), log = (line) => console.log(line) }) {
   const parts = logged?.parts;

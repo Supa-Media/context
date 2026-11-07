@@ -55,6 +55,7 @@ const TITLE_CHARS = 60;
 const DESCRIPTION_CHARS = 240;
 /** The most thread entries one read takes: far more than any chat's threads. */
 const MAX_READ = 5000;
+const MAX_PAGES = 20;
 const THREAD_ID = /^t[1-9][0-9]{0,5}$/;
 
 export const THREADS_SYSTEM = `You sort a text chat with Tex (an assistant people text) into conversation threads. A thread is one subject: a question and its answer, a task, a plan, a debate, a run of jokes about one thing. Several can be open at once and interleave. Time apart does not split a thread; a new subject does.
@@ -102,8 +103,15 @@ export function foldThreads(entries) {
 export async function readThreads(ledger, chat) {
   if (ledger === null || typeof ledger?.read !== "function" || typeof chat !== "string") return { ...foldThreads([]), entries: [] };
   try {
-    const read = await ledger.read(threadsChat(chat), { after: 0, limit: MAX_READ });
-    const entries = Array.isArray(read?.entries) ? read.entries : [];
+    // Paged: a chat replayed from its whole history (`threadsBackfill.js`) can hold more entries than one read.
+    const entries = [];
+    let after = 0;
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const read = await ledger.read(threadsChat(chat), { after, limit: MAX_READ });
+      if (Array.isArray(read?.entries)) entries.push(...read.entries);
+      if (!Number.isSafeInteger(read?.next)) break;
+      after = read.next;
+    }
     return { ...foldThreads(entries), entries };
   } catch {
     return { ...foldThreads([]), entries: [] };

@@ -29,7 +29,7 @@ export const MAX_SUMMARIES = 60;
 export const SUMMARY_CHARS = 12_000;
 const BY_ITSELF = /^\(Not a text from them\./;
 
-const asEvent = (entry, chat) => {
+export const asEvent = (entry, chat) => {
   const { v: _v, seq: _seq, eid, event, kind: _kind, id: _id, cut: _cut, ...rest } = entry;
   return { ...rest, id: eid, chat, kind: event };
 };
