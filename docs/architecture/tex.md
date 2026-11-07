@@ -138,7 +138,7 @@ flowchart TB
 
   FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js, only without the reviewer<br/>sent back once"]:::judge
   FD -->|say_nothing: nothing to text| QT["Say nothing, a call<br/>ends the turn at once, no judge reads it<br/>never a word like SKIP<br/>sayNothing.js"]:::judge
-  CHK -->|reply_judge: haiku| RJ["Reply reviewer, Haiku 5.5, one call<br/>reads the whole turn, names its kind<br/>a joke is never a fact, unless it says Tex sent something<br/>works out every sum, checks every figure against what was read<br/>sends back only with feedback, at most twice<br/>a rewrite read beside that feedback<br/>reviews kept in the chat history<br/>replyJudge.js"]:::judge
+  CHK -->|reply_judge: haiku| RJ["Reply reviewer, Haiku 5.5, one call<br/>reads the whole turn, names its kind<br/>a routine's or check-in's text too, as one nobody asked for<br/>a joke is never a fact, unless it says Tex sent something<br/>works out every sum, checks every figure against what was read<br/>sends back only with feedback, at most twice<br/>a rewrite read beside that feedback<br/>reviews kept in the chat history<br/>replyJudge.js"]:::judge
   CHK -->|held back| SB["Send-back, from the turn's ledger<br/>each draft quoted, marked NOT sent<br/>every action taken, what the reviewer named<br/>revise, don't restart; the same write is not rerun<br/>sendBack.js"]:::judge
   RJ -->|held back| SB
   SB -->|revise the draft| FD
@@ -191,6 +191,7 @@ What each model costs is `jev/meter.ts`.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-07: a routine's run and a check-in may call `say_nothing` (neither was offered it, though both prompts named it: a routine texted its own note about the missing call), and the reply reviewer reads what each would text as a scheduled text nobody asked for, sending back one that talks about Tex's own run (`not_for_them`); a check-in follows the texting setup's `reply_judge`, and a routine that only writes a note is not reviewed (`runTheModel.js`, `heartbeat.js`, `replyJudge.js`).
 - 2026-11-07: a conversation classifier sorts each chat text into a thread before the model (Haiku 5.5, effort low, 4 s cap), kept in the chat's threads ledger (`<chat>.threads`, an index rebuilt from the chat's ledger); the turn is shown up to 50 threads (open first), the suggested thread's older texts and the last 24 hours tagged by thread, and `read_thread` opens any thread (`conversationThreads.js`, `threadedTurn.js`, `readTheHistory.js`, `runTheModel.js`).
 - 2026-11-07: the threads ledger is replayed once from each chat's whole history by the same classifier, off the turn's path (`threadsBackfill.js`, run through `POST /internal/threads/backfill` from the control plane); `readThreads` pages, since a replayed chat's threads can pass one read. No box changes: a turn reads the threads as before.
 - 2026-11-06: every Tex agent reads this drawing: sections 1 to 3 go ahead of each one's own prompt (front door for 1:1, group and job turns, computer jobs, advisor, advisor on the mail, job check, reviewer, hand-back judge, mail checker, card check, self-review, day summaries, big-ask planner), with one line naming the box it is (`texArchitecture.js`, generated into `texArchitecture.generated.js` by `scripts/tex-architecture-module.mjs`).

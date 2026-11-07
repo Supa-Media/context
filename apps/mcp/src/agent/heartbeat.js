@@ -47,7 +47,8 @@ import { readTexNotes } from "./jobs.js";
 import { LEARNED_SKILLS_FOLDER } from "./learnedSkills.js";
 import { openProvider, runTurn } from "./turn.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
-import { PRODUCTION_HEARTBEAT_PATH, readJobSetup } from "./production.js";
+import { PRODUCTION_HEARTBEAT_PATH, readJobSetup, readProductionSetup } from "./production.js";
+import { replyJudge } from "./replyJudge.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { SKIP_WORD } from "./routine.js";
@@ -553,24 +554,36 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const meter = builtinMeter(controlPlane, session, model, started);
 
   const shownRecent = recentTexts(conversation);
+  const question = heartbeatQuestion({
+    changed,
+    now: started,
+    texted,
+    recent: shownRecent.map((shown) => shown.line),
+    instructions: setup?.prompt ?? null,
+    theirs: settings.instructions,
+    mail: [newMailSection(mail), heartbeatMailSection(mailboxes, started)].filter(Boolean).join("\n\n"),
+    sources: [calendarSection(calendar, started, timeZone), slackSection(slack), chatSection(chat)].filter(Boolean).join("\n\n"),
+    muted: mutes,
+  });
+  // The reply reviewer reads a check-in's text before it goes, as a text nobody asked for (Dev2, 2026-11-07:
+  // "all of routines ... go through the reviewer agent before it gets to the user"). Its own setup's
+  // `reply_judge:` when it has one, else the texting setup's: one switch for every text Tex sends (`replyJudge.js`).
+  const reviewing = setup?.replyJudge || (await readProductionSetup(store, session, { texting: true }).catch(() => null))?.replyJudge;
+  const judge = reviewing && aiGatewayConfig(env) !== null
+    ? replyJudge({ setting: reviewing, scheduled: "check-in", question, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" } })
+    : null;
   let turn = null;
   let failure = "other";
   try {
     turn = await runTurn({
-      question: heartbeatQuestion({
-        changed,
-        now: started,
-        texted,
-        recent: shownRecent.map((shown) => shown.line),
-        instructions: setup?.prompt ?? null,
-        theirs: settings.instructions,
-        mail: [newMailSection(mail), heartbeatMailSection(mailboxes, started)].filter(Boolean).join("\n\n"),
-        sources: [calendarSection(calendar, started, timeZone), slackSection(slack), chatSection(chat)].filter(Boolean).join("\n\n"),
-        muted: mutes,
-      }),
+      question,
+      answerCheck: judge?.check ?? null,
       tools: heartbeatTools(offered),
-      grants: {}, // reads only: no write, manage or send action at all
-      sayNothing: true, // nothing worth a text ends the look with no words (`sayNothing.js`)
+      // Reads only: no write or manage action, and of send only say_nothing, which ends the look with no words
+      // (`sayNothing.js`). With `{}` it was offered no send at all, so the call its prompt names came back
+      // "no such action" (found 2026-11-07, beside a routine that texted why).
+      grants: { send: ["say_nothing"] },
+      sayNothing: true,
       callTool: heartbeatCallTool(dispatch),
       env,
       builtinModelOverride: chosen,

@@ -52,7 +52,9 @@ const setupWithMap = (prompt, kind) => (typeof prompt === "string" && prompt !==
 export async function runTheModel(t) {
   const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, computersRead, controlPlane, delegation: delegated, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, threadsRun, timeZone } = t;
   // When the setup's reply reviewer reads this turn, it replaces the older word checks (`untriedWeb.js`, `doItChecks.js`), so those two stay only for a setup without it.
-  const gated = chatTurn && job === null && !runner && (texted || group !== null) && Boolean(production?.replyJudge) && aiGatewayConfig(env) !== null; // no AI Gateway, no reviewer: the word checks stay
+  // A routine's run that texts is reviewed too, as a text nobody asked for (Dev2, 2026-11-07: a routine texted its own reasoning); one that writes only a note is not a text.
+  const scheduled = runner && routine?.settings?.send !== "note" ? "routine" : null;
+  const gated = ((chatTurn && job === null && !runner && (texted || group !== null)) || scheduled !== null) && Boolean(production?.replyJudge) && aiGatewayConfig(env) !== null; // no AI Gateway, no reviewer: the word checks stay
   const tries = gated ? null : t.tries;
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
@@ -64,7 +66,7 @@ export async function runTheModel(t) {
   // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too, without judges (`doItChecks.js`).
   const doIt = !gated && chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
   // The setup's reply reviewer, after `claimCheck.js`: one Haiku call reads the reply against every action this turn took and the kind of turn it is, and sends it back with feedback only for a problem they would notice, at most twice (`replyJudge.js`; Dev2, 2026-11-06). A job's report turn shows it the report.
-  const judge = gated ? replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, report, question: (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
+  const judge = gated ? replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, report, scheduled, question: (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
   if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });
   if (planning) splitFirst(background); // a lone job is offered the planner once
   // The advisor, when the setup names one this deployment can run: offered on every chat turn, a job's included (`advisor.js`).
@@ -86,7 +88,7 @@ export async function runTheModel(t) {
     // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
     // per-call scope refusal. An agent that reached past it would be a second, untested authority.
     onModel: (model) => void (store.usageModel = model),
-    answerCheck: judge?.check ?? doIt?.check ?? claims?.check ?? tries?.check ?? null, endsTurn: background?.endsTurn ?? null, sayNothing: job === null && !runner, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`)
+    answerCheck: judge?.check ?? doIt?.check ?? claims?.check ?? tries?.check ?? null, endsTurn: background?.endsTurn ?? null, sayNothing: job === null, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
     callTool: allowedFirst(tex.lean ? allowedRead : null, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
