@@ -481,3 +481,4 @@ test/texCalendarCache.test.mjs
 test/texDaySummaries.test.mjs
 test/texFadedHistory.test.mjs
 test/texArchitecture.test.mjs
+test/typedCall.test.mjs

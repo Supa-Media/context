@@ -34,7 +34,7 @@ export const LANGUAGE_LINE = "Answer in the language of the person you're answer
  * which a group sends as nothing (Dev2, 2026-11-01: an empty answer there became "my answer got lost"; `texEntryPoint.js`).
  */
 export const SETTINGS_LINE =
-  "How you talk changes only through the tex_instructions action; a note is never the settings. Say only what a tool's answer says happened. A message to another assistant by name, not you, isn't yours: send say_nothing.";
+  "How you talk changes only through the tex_instructions action; a note is never the settings. Say only what a tool's answer says happened. A message to another assistant by name, not you, isn't yours: call send with action say_nothing.";
 
 /**
  * A text, not an essay (Dev2, 2026-10-29: "TEX NEEDS TO STOP BEING SO WORDY").

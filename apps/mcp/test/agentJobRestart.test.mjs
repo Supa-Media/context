@@ -37,7 +37,7 @@ const DONE = job("Trip plan", "done");
 test("restart with no titles picks up every job that stopped, in one call, and the turn ends at once", async () => {
   const background = backgroundSession({ running: [A16Z, YC, TOLL, DONE], job: null, now: NOW });
   assert.ok(background.tools.some((tool) => tool.name === RESTART_JOB_TOOL));
-  assert.match(background.prompt, /send \{ action: "restart_job" \}, all of them in one call/);
+  assert.match(background.prompt, /a call to send with action restart_job, all of them in one call/);
   const dispatch = withBackground(background, async () => ({ content: [] }));
   assert.match(words(await dispatch(RESTART_JOB_TOOL, {})), /Picking "a16z Speedrun application", "Y Combinator application", "Total toll charges paid" back up/);
   assert.equal(

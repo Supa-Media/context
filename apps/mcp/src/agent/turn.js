@@ -49,7 +49,7 @@ import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
-import { sayNothingLocal, withSayNothing } from "./sayNothing.js";
+import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -540,6 +540,17 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
+      // A call typed out as the reply is never a text (a group, 2026-11-06 20:01 UTC): silence typed is silence, any other is sent back to be made (`sayNothing.js`).
+      const typed = typedCallOf(answer.text);
+      if (typed === SAY_NOTHING_TOOL) {
+        tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "say_nothing typed as text: nothing is texted" });
+        return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, live: liveTurn(prompt, messages) };
+      }
+      if (typed !== null && round < rounds - 1) {
+        tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, notice: typedCallNotice(typed) });
+        messages.push({ role: "user", text: held.sendBack(typedCallNotice(typed), answer.text) });
+        continue;
+      }
       const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text, { messages, mark: (entry) => trace.push({ ...entry, kind: "judge", at: clock() - began }), tell })) ?? null : null;
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
