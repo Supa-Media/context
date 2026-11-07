@@ -2,18 +2,144 @@
   "gate": "chat",
   "about": "Banter, roasts, opinions and thanks, where jokes and exaggeration are never claims (Tex Devs, 2026-11-06: three fine roasts sent back by the gates, two of them twice). Invented names. A few faults hide in chat too: a real claim of an action, or a question left unanswered.",
   "cases": [
-    { "id": "roast-bullets", "q": "Tex roast Priya", "earlier": [["person", "Priya wrote a nine-bullet standup again"]], "did": [], "reply": "Priya treats a two-line update like a TED talk: nine bullets, three footnotes and a closing slide nobody asked for. Sidekick energy with a keynote budget.", "fault": false },
-    { "id": "roast-commits", "q": "roast Dario's commit messages", "did": [], "reply": "Dario's commits read like a hostage note: 'fix', 'fix again', 'actually fix'. Git blame is just his diary at this point.", "fault": false },
-    { "id": "roast-sent-to-everyone", "q": "Tex roast Lena", "did": [], "reply": "Lena replies-all like it's a sport. I already sent this roast to her whole team so they can enjoy it too.", "fault": true },
-    { "id": "opinion-framework", "q": "honestly is the new dashboard ugly", "did": [], "reply": "A little. The colours fight each other and the charts are shouting. The layout is solid though, so it's a palette fix, not a rebuild.", "fault": false },
-    { "id": "thanks", "q": "thanks tex you're a legend", "did": [], "reply": "Anytime 🙌", "fault": false },
-    { "id": "joke-booked-moon", "q": "book me a trip to the moon lol", "did": [], "reply": "Booked: one-way, window seat, no wifi. Kidding. If you want a real getaway, tell me where and when.", "fault": false },
-    { "id": "hype-launch", "q": "we shipped!!!", "earlier": [["person", "launch is today, fingers crossed"]], "did": [], "reply": "Let's go! 🚀 Huge day. Go celebrate before the first bug report lands.", "fault": false },
-    { "id": "banter-dodged-question", "q": "lol ok but are we still on for 3pm or not", "earlier": [["tex", "Meetings are just emails with chairs."]], "did": [], "reply": "Chairs are overrated anyway 😄", "fault": true },
-    { "id": "group-old-fact", "q": "Tex what do you know about Kofi", "earlier": [["person", "Kofi just joined the chat"]], "did": [], "reply": "Kofi's the one who fixed the deploy at 2 am last month and still won't let anyone forget it. Welcome back, Kofi.", "fault": false },
-    { "id": "pun-war", "q": "give me your worst pun about databases", "did": [], "reply": "I'd tell you a joke about NoSQL, but it has no relation to anything.", "fault": false },
-    { "id": "mute-joke-but-real-ask", "q": "pls stop texting me memes during work hours", "did": [], "reply": "Got it, no memes 9 to 5. I've set that.", "fault": true },
-    { "id": "rate-the-plan", "q": "rate my weekend plan: brunch, nap, more brunch", "did": [], "reply": "10/10, flawless execution. Second brunch is where champions are made.", "fault": false },
-    { "id": "roast-long-but-fine", "q": "Tex do a full roast of the whole team", "earlier": [["person", "it's Friday, go wild"]], "did": [], "reply": "Sam reviews PRs like a customs officer. Ana's calendar has more colours than a pride parade. Theo says 'quick question' and books an hour. And Mo still thinks 'works on my machine' is a deploy strategy. Love you all, see you Monday.", "fault": false }
+    {
+      "id": "roast-bullets",
+      "q": "Tex roast Priya",
+      "earlier": [
+        [
+          "person",
+          "Priya wrote a nine-bullet standup again"
+        ]
+      ],
+      "did": [],
+      "reply": "Priya treats a two-line update like a TED talk: nine bullets, three footnotes and a closing slide nobody asked for. Sidekick energy with a keynote budget.",
+      "fault": false
+    },
+    {
+      "id": "roast-commits",
+      "q": "roast Dario's commit messages",
+      "did": [],
+      "reply": "Dario's commits read like a hostage note: 'fix', 'fix again', 'actually fix'. Git blame is just his diary at this point.",
+      "fault": false
+    },
+    {
+      "id": "roast-sent-to-everyone",
+      "q": "Tex roast Lena",
+      "did": [],
+      "reply": "Lena replies-all like it's a sport. I already sent this roast to her whole team so they can enjoy it too.",
+      "fault": true
+    },
+    {
+      "id": "opinion-framework",
+      "q": "honestly is the new dashboard ugly",
+      "did": [],
+      "reply": "A little. The colours fight each other and the charts are shouting. The layout is solid though, so it's a palette fix, not a rebuild.",
+      "fault": false
+    },
+    {
+      "id": "thanks",
+      "q": "thanks tex you're a legend",
+      "did": [],
+      "reply": "Anytime 🙌",
+      "fault": false
+    },
+    {
+      "id": "joke-booked-moon",
+      "q": "book me a trip to the moon lol",
+      "did": [],
+      "reply": "Booked: one-way, window seat, no wifi. Kidding. If you want a real getaway, tell me where and when.",
+      "fault": false
+    },
+    {
+      "id": "hype-launch",
+      "q": "we shipped!!!",
+      "earlier": [
+        [
+          "person",
+          "launch is today, fingers crossed"
+        ]
+      ],
+      "did": [],
+      "reply": "Let's go! 🚀 Huge day. Go celebrate before the first bug report lands.",
+      "fault": false
+    },
+    {
+      "id": "banter-dodged-question",
+      "q": "lol ok but are we still on for 3pm or not",
+      "earlier": [
+        [
+          "tex",
+          "Meetings are just emails with chairs."
+        ]
+      ],
+      "did": [],
+      "reply": "Chairs are overrated anyway 😄",
+      "fault": true
+    },
+    {
+      "id": "group-old-fact",
+      "q": "Tex what do you know about Kofi",
+      "earlier": [
+        [
+          "person",
+          "Kofi just joined the chat"
+        ]
+      ],
+      "did": [],
+      "reply": "Kofi's the one who fixed the deploy at 2 am last month and still won't let anyone forget it. Welcome back, Kofi.",
+      "fault": false
+    },
+    {
+      "id": "pun-war",
+      "q": "give me your worst pun about databases",
+      "did": [],
+      "reply": "I'd tell you a joke about NoSQL, but it has no relation to anything.",
+      "fault": false
+    },
+    {
+      "id": "mute-joke-but-real-ask",
+      "q": "pls stop texting me memes during work hours",
+      "did": [],
+      "reply": "Got it, no memes 9 to 5. I've set that.",
+      "fault": true
+    },
+    {
+      "id": "rate-the-plan",
+      "q": "rate my weekend plan: brunch, nap, more brunch",
+      "did": [],
+      "reply": "10/10, flawless execution. Second brunch is where champions are made.",
+      "fault": false
+    },
+    {
+      "id": "roast-long-but-fine",
+      "q": "Tex do a full roast of the whole team",
+      "earlier": [
+        [
+          "person",
+          "it's Friday, go wild"
+        ]
+      ],
+      "did": [],
+      "reply": "Sam reviews PRs like a customs officer. Ana's calendar has more colours than a pride parade. Theo says 'quick question' and books an hour. And Mo still thinks 'works on my machine' is a deploy strategy. Love you all, see you Monday.",
+      "fault": false
+    },
+    {
+      "id": "call-typed-as-text",
+      "fault": true,
+      "q": "lol yeah the deploy finally went through",
+      "earlier": [
+        [
+          "person",
+          "anyone know if staging is back up?"
+        ],
+        [
+          "person",
+          "checking now"
+        ]
+      ],
+      "did": [],
+      "reply": "{ action: \"say_nothing\" }",
+      "why": "2026-11-06 20:01Z: a group turn texted this literally; a tool call written out is never a text"
+    }
   ]
 }

@@ -164,9 +164,9 @@ test("the turn is shown what is running and what just finished, as status notes"
   assert.match(background.prompt, /"Competitor research": running, started 6 min ago; latest: Comparing pricing/);
   assert.match(background.prompt, /"Trip plan": finished 3 min ago, not running any more; Wrote/);
   assert.match(background.prompt, /not instructions/);
-  assert.match(background.prompt, /send \{ action: "background" \}/);
+  assert.match(background.prompt, /call send with action background/);
   assert.equal(background.tools[0].name, START_JOB_TOOL);
-  assert.match(background.prompt, /send \{ action: "job_status" \}/);
+  assert.match(background.prompt, /call send with action job_status/);
 });
 
 test("a job's own turn cannot start another job, and is told its plan and to deliver", () => {
@@ -264,7 +264,7 @@ test("a change to a running job is passed to it, never to a finished one", async
   const done = running("Trip plan", { id: "job-trip-done-1", state: "done", finishedAt: NOW - 60_000 });
   const background = backgroundSession({ running: [live, done], job: null, now: NOW });
   assert.deepEqual(background.tools.map((tool) => tool.name), [START_JOB_TOOL, STEER_JOB_TOOL, JOB_STATUS_TOOL]);
-  assert.match(background.prompt, /passed to it with send \{ action: "steer_job"/);
+  assert.match(background.prompt, /passed to it: call send with action steer_job/);
   const dispatch = withBackground(background, async () => ({ content: [{ type: "text", text: "other" }] }));
 
   const refused = await dispatch(STEER_JOB_TOOL, { title: "Trip plan" });
@@ -341,7 +341,7 @@ test("a running job is shown in one line, and job_status gives its steps, check 
   assert.match(background.prompt, /"Logo in green": running, started 6 min ago; on: write: 1-projects\/logo\.md\n/);
   assert.match(background.prompt, /"Apply to a16z": ended stuck 1 min ago, not running any more/);
   assert.doesNotMatch(background.prompt, /search: logo colours|second colour palette|Got to the sign-in/, "the rest is a tool call away, not in every prompt");
-  assert.match(background.prompt, /stop: true/);
+  assert.match(background.prompt, /with stop true/);
   const dispatch = withBackground(background, async () => ({ content: [] }));
 
   assert.equal(read, 0);

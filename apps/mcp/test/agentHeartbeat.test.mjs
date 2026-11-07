@@ -213,7 +213,7 @@ function unitChecks(check) {
   check(
     "the setup note's words replace the built-in ones; the changes, their words and say_nothing are always said",
     asked.startsWith("SETUP-WORDS") && !asked.includes("glances at what changed") && asked.includes("- todo.md (1m ago)") &&
-      asked.includes("Only text me about rent.") && asked.trim().endsWith('send { action: "say_nothing" }: nothing is texted.') && !asked.includes("exactly SKIP"),
+      asked.includes("Only text me about rent.") && asked.trim().endsWith('call send with action say_nothing: nothing is texted.') && !asked.includes("exactly SKIP"),
   );
   const builtIn = heartbeatQuestion({ changed: [{ key: "todo.md", at: since }], now: since + 60_000, texted: [] });
   check(

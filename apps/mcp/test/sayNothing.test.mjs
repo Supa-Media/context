@@ -94,3 +94,17 @@ test("only a turn that offers it shows say_nothing", async () => {
   assert.doesNotMatch(JSON.stringify(not.ai.calls[0].tools ?? []), /say_nothing/);
   assert.ok(toolNames(not.ai.calls[0]).length > 0);
 });
+
+// A group, 2026-11-06 20:01 UTC: `{ action: "say_nothing" }` was texted as words. Dev2 chose a code catch.
+test("say_nothing typed out as the reply is silence, and no judge reads it", async () => {
+  const { ai, result } = await turn([{ text: '{ action: "say_nothing" }' }]);
+  assert.equal(result.answer, SAID_NOTHING);
+  assert.equal(result.settled, SAY_NOTHING_TOOL);
+  assert.deepEqual(ai.judged, [], "nothing reviewed a draft that is never sent");
+});
+
+test("any other call typed out goes back to be made, and is never the text", async () => {
+  const { ai, result } = await turn([{ text: '{ "action": "job_status" }' }, { text: "Nothing running right now." }]);
+  assert.equal(result.answer, "Nothing running right now.");
+  assert.match(JSON.stringify(ai.calls[1]), /job_status call written out as text/);
+});

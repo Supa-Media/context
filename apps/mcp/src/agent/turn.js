@@ -49,9 +49,11 @@ import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
-import { sayNothingLocal, withSayNothing } from "./sayNothing.js";
+import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
+export { toolResultImages, toolResultText } from "./toolResults.js";
+import { toolResultImages, toolResultText } from "./toolResults.js";
 
 /**
  * How many times the model may call tools before the turn ends.
@@ -89,16 +91,6 @@ const WITHHELD_FROM_AGENT = new Set(["rotate_encryption_keys", "search", "fetch"
 
 /** The longest question this route accepts. */
 export const MAX_QUESTION_LENGTH = 8000;
-
-/**
- * The biggest tool answer that goes back to the model.
- *
- * A long note is a legitimate answer, so this is generous — but it is a bound,
- * because without one a single `read_note` on a large file decides how many
- * tokens a turn is billed for, and the model gets a worse prompt out of
- * it than a truncated one with a line saying so.
- */
-const MAX_TOOL_RESULT_CHARS = 60_000;
 
 /**
  * How long one tool call may take before the model is told it failed.
@@ -150,34 +142,6 @@ export function agentTools(offered) {
       !WITHHELD_FROM_AGENT.has(tool.name) &&
       tool.annotations?.readOnlyHint === true,
   );
-}
-
-/** Flatten an MCP tool result into the text the model reads back. */
-export function toolResultText(result) {
-  const content = Array.isArray(result?.content) ? result.content : [];
-  const text = content
-    .filter((part) => part?.type === "text" && typeof part.text === "string")
-    .map((part) => part.text)
-    .join("\n");
-  if (text.length <= MAX_TOOL_RESULT_CHARS) return text;
-  return `${text.slice(0, MAX_TOOL_RESULT_CHARS)}\n\n[truncated: the full result was ${text.length} characters]`;
-}
-
-/** The most pictures one tool result shows the model, and how big each may be (Anthropic's own ceiling). */
-const MAX_RESULT_IMAGES = 2;
-const MAX_RESULT_IMAGE_CHARS = Math.ceil((5_000_000 * 4) / 3);
-const RESULT_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
-
-/**
- * The pictures an MCP tool result carries (`read_image`, a drawn picture), so
- * the model sees what it asked to look at rather than only the words beside it.
- */
-export function toolResultImages(result) {
-  const content = Array.isArray(result?.content) ? result.content : [];
-  return content
-    .filter((part) => part?.type === "image" && typeof part.data === "string" && RESULT_IMAGE_TYPES.has(part.mimeType) && part.data.length <= MAX_RESULT_IMAGE_CHARS)
-    .slice(0, MAX_RESULT_IMAGES)
-    .map((part) => ({ mediaType: part.mimeType, data: part.data }));
 }
 
 /** The one refusal for "there is no model this turn may spend". */
@@ -540,6 +504,17 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
+      // A call typed out as the reply is never a text (a group, 2026-11-06 20:01 UTC): silence typed is silence, any other is sent back to be made (`sayNothing.js`).
+      const typed = typedCallOf(answer.text);
+      if (typed === SAY_NOTHING_TOOL) {
+        tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "say_nothing typed as text: nothing is texted" });
+        return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, live: liveTurn(prompt, messages) };
+      }
+      if (typed !== null && round < rounds - 1) {
+        tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, notice: typedCallNotice(typed) });
+        messages.push({ role: "user", text: held.sendBack(typedCallNotice(typed), answer.text) });
+        continue;
+      }
       const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text, { messages, mark: (entry) => trace.push({ ...entry, kind: "judge", at: clock() - began }), tell })) ?? null : null;
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
