@@ -8,10 +8,10 @@
  * over the marker whatever sends it.
  */
 
-import { HISTORY_FILE, HISTORY_VIEW_MARKER } from "../texStore/historyView.js";
+import { CONVERSATIONS_FILE, CONVERSATIONS_VIEW_MARKER, HISTORY_FILE, HISTORY_VIEW_MARKER } from "../texStore/historyView.js";
 import { isChatHistoryPath } from "../notes/paths.js";
 
-export { HISTORY_FILE };
+export { CONVERSATIONS_FILE, HISTORY_FILE };
 
 /** A person's history file. */
 export const HISTORY_PATH = `tex/${HISTORY_FILE}`;
@@ -19,6 +19,14 @@ export const HISTORY_PATH = `tex/${HISTORY_FILE}`;
 /** A home's history file. */
 export function homeHistoryPath(home) {
   return `${home.folder}/${HISTORY_FILE}`;
+}
+
+/** A person's conversations file, beside their history file: a second view of the same chat (`texStore/historyView.js`). */
+export const CONVERSATIONS_PATH = `tex/${CONVERSATIONS_FILE}`;
+
+/** A home's conversations file. */
+export function homeConversationsPath(home) {
+  return `${home.folder}/${CONVERSATIONS_FILE}`;
 }
 
 /**
@@ -33,13 +41,14 @@ export function historyWriteRefusal(path) {
 }
 
 /**
- * Make the history file's row at `path` when the lookup that just ran (`keys`, `store.keysAt`'s answer) found none
+ * Make the history (or conversations) file's row at `path` when the lookup that just ran (`keys`, `store.keysAt`'s answer) found none
  * there. Never throws: a miss is made on a later exchange.
  */
 export async function ensureHistoryFile(store, path, keys) {
   if (keys?.[path] !== false || typeof store?.put !== "function") return;
+  const marker = path.endsWith(`/${CONVERSATIONS_FILE}`) ? CONVERSATIONS_VIEW_MARKER : HISTORY_VIEW_MARKER;
   try {
-    await store.put(path, HISTORY_VIEW_MARKER, { onlyIf: { absent: true }, httpMetadata: { contentType: "application/json" } });
+    await store.put(path, marker, { onlyIf: { absent: true }, httpMetadata: { contentType: "application/json" } });
   } catch {
     // Made on the next kept exchange.
   }

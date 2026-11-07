@@ -14,8 +14,9 @@ import { readJobDetail, readList, readOverview } from "./texPageRead";
 import { openLive, type Live, type PatchFrame } from "./texPageLive";
 import { readLedgerPage, readLedgerSees } from "./texPageLedger";
 import { readMachinesPage } from "./texMachineRead";
+import { readConversationDetail, readConversations } from "../conversations/conversationsRead";
 import type { MachinesPage } from "./texMachineTypes";
-import type { JobDetail, LedgerPage, LedgerQuery, LedgerSees, ListKind, ListPage, Overview, PageAction } from "./texPageTypes";
+import type { Conversation, ConversationDetail, JobDetail, LedgerPage, LedgerQuery, LedgerSees, ListKind, ListPage, Overview, PageAction } from "./texPageTypes";
 
 type Route = "" | "job" | "list" | "act" | "ledger" | "machines";
 
@@ -46,6 +47,10 @@ export interface TexPageSource {
   ledger(chat: string, query: LedgerQuery): Promise<Read<LedgerPage>>;
   /** The chat as the next texted turn is shown it. */
   sees(chat: string): Promise<Read<LedgerSees>>;
+  /** The chat's conversations, open first; absent where a source has none (`conversations/`). */
+  conversations?(chat: string): Promise<Read<Conversation[]>>;
+  /** One conversation with its lines. */
+  conversation?(chat: string, id: string): Promise<Read<ConversationDetail>>;
   /**
    * The person's machines, as this chat sees them (`/tex/page/machines`). A
    * gateway that does not know machines answers 404, read as `notYours`, and
@@ -147,6 +152,14 @@ export function gatewaySource(options: GatewaySourceOptions): TexPageSource {
     async sees(chat) {
       const a = await post("ledger", { chat, view: "sees" });
       return a === null ? { kind: "failed" } : readAnswer(a.status, a.body, readLedgerSees);
+    },
+    async conversations(chat) {
+      const a = await post("ledger", { chat, view: "conversations" });
+      return a === null ? { kind: "failed" } : readAnswer(a.status, a.body, readConversations);
+    },
+    async conversation(chat, id) {
+      const a = await post("ledger", { chat, view: "conversation", thread: id });
+      return a === null ? { kind: "failed" } : readAnswer(a.status, a.body, readConversationDetail);
     },
     live(chat, onPatch, onLive) {
       if (origin === null || typeof WebSocket === "undefined") return null;
