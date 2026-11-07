@@ -34,9 +34,9 @@ import { failureCode } from "./texHistoryMigration";
 const PATH = "/internal/threads/backfill";
 const CHATS_PER_CALL = 5;
 /** One door call: the gateway stops a part well before this. */
-const CALL_TIMEOUT_MS = 150_000;
-/** Convex stops an action at 10 minutes: no new door call starts after this. */
-const ACTION_BUDGET_MS = 7 * 60_000;
+const CALL_TIMEOUT_MS = 90_000;
+/** How long one page may work before it hands back its cursor (as `workspaceObjects.ts`): a first run of 7 minutes died at about 5 with no answer, 2026-11-07. */
+const ACTION_BUDGET_MS = 2 * 60_000;
 
 type Chat = { workspaceId: Id<"workspaces">; owner: string };
 type Part = { state: string; turns: number; written: number; failed: number; left: number };
