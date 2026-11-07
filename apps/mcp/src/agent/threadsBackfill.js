@@ -90,7 +90,7 @@ export function answeredTurns(events) {
  * `done` (already replayed), `none` (no texts), `would` (dry run: `left`
  * counts the turns to replay), `partly` (more to go) or `finished`.
  */
-export async function backfillThreads({ ledger, chat, classify, dryRun = false, budget = 40, deadline = 90_000, now = Date.now, timeZone = "UTC" }) {
+export async function backfillThreads({ ledger, chat, classify, dryRun = false, budget = 25, deadline = 45_000, now = Date.now, timeZone = "UTC" }) {
   const began = now();
   const read = await readThreads(ledger, chat);
   if (read.entries.some((entry) => entry?.id === DONE_ID)) return { state: "done", turns: 0, written: 0, failed: 0, left: 0 };
