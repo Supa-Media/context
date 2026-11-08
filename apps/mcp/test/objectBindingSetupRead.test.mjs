@@ -83,7 +83,6 @@ function bindingFor(workspaceId) {
     managedEncryption: null,
     privacy: null,
     idLayout: "keys",
-    features: { vaultKeyUse: false },
   };
 }
 

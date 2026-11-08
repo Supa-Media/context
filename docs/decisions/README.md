@@ -387,6 +387,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The mobile app and the console](./app-and-console.md)
 
+- [Each unfinished feature has its own flag, and every flag expires](./app-and-console/feature-flags.md#each-unfinished-feature-has-its-own-flag-and-every-flag-expires-2026-11-08) (2026-11-08)
+- [Vault key use is launched, and the old switches are gone](./app-and-console/feature-flags.md#vault-key-use-is-launched-and-the-old-switches-are-gone-2026-11-08) (2026-11-08)
 - [The phone's account sheet is its own sheet, not the file menu](./app-and-console/native-app-shell.md#the-phones-account-sheet-is-its-own-sheet-not-the-file-menu-2026-11-06)
 - The note count is measured, stamped, and allowed to be a floor
 - One runtime version, pinned, and native deps gated behind it

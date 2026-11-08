@@ -80,7 +80,6 @@ function answerFor(workspaceId, extra = {}) {
     managedEncryption: null,
     privacy: RULES,
     idLayout: "keys",
-    features: { vaultKeyUse: false },
     keyed: true,
     ...extra,
   };

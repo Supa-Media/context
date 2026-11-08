@@ -140,7 +140,7 @@ export async function toolVaultViewLink(store, args) {
   return describe(minted, `Link to see ${meta.name || "the entry"}`);
 }
 
-const NO_PROXY = "Requests through Context are not switched on for this deployment yet.";
+const NO_PROXY = "Requests through Context are not available on this connection.";
 
 function describeAnswer(answer) {
   const lines = [`${answer.status} from ${answer.host}${answer.path}`];

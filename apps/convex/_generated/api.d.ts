@@ -258,7 +258,7 @@ import type * as functions_connectionClients from "../functions/connectionClient
 import type * as functions_connectionConsent from "../functions/connectionConsent.js";
 import type * as functions_connectionSettings from "../functions/connectionSettings.js";
 import type * as functions_connections from "../functions/connections.js";
-import type * as functions_featureSwitches from "../functions/featureSwitches.js";
+import type * as functions_featureFlags from "../functions/featureFlags.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_waitlistStatus from "../functions/waitlistStatus.js";
 import type * as functions_waitlistText from "../functions/waitlistText.js";
@@ -535,7 +535,7 @@ declare const fullApi: ApiFromModules<{
   "functions/connectionConsent": typeof functions_connectionConsent;
   "functions/connectionSettings": typeof functions_connectionSettings;
   "functions/connections": typeof functions_connections;
-  "functions/featureSwitches": typeof functions_featureSwitches;
+  "functions/featureFlags": typeof functions_featureFlags;
   "functions/waitlist": typeof functions_waitlist;
   "functions/waitlistStatus": typeof functions_waitlistStatus;
   "functions/waitlistText": typeof functions_waitlistText;
