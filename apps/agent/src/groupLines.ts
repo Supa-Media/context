@@ -49,6 +49,8 @@ export const GROUP_LINES = {
   noStorage: "I can't open this chat's workspace right now, so I can't answer here. It's a problem on my side, and it's been flagged.",
   // A turn whose workflow never started (`groupTurnRun.ts` `stuck`).
   stuck: "I'm having trouble answering right now. Try me again in a minute.",
+  /** A job's report the chat's turn could not run for, after every try: the result waits in the job list for the next tag (as 1:1's `jobReportRefused`). */
+  jobReportRefused: "One of the things I was working on has news, but I can't put it into words right now. Tag me and I'll catch you up.",
 } as const;
 
 /** The line for a turn given up on, by the reason it was logged with (`turnFailed`). */

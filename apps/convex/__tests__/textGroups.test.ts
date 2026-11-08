@@ -279,13 +279,65 @@ describe("a grant follows the chat while it lives", () => {
     expect(await resolves(t, token)).toBeNull();
   });
 
-  test("each turn replaces the tagger's last token in that chat", async () => {
+  /*
+    OVERLAPPING TURNS DO NOT CUT EACH OTHER OFF (2026-11-08). A person's job report turn in a Tex Devs chat was minted,
+    and half a second later that person's other job minted for its next pass; the mint replaced the grant's only token,
+    so the report's model check found no grant, the gateway said "no model" and the finished job's result was never
+    texted. A replaced token now stays good until its own expiry, as a 1:1 texting token's does.
+  */
+  test("a new turn's token does not cut off the tagger's turn still running in that chat", async () => {
+    const t = setupTest();
+    const { ada } = await crew(t);
+    const first = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    const second = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    expect(await resolves(t, first.accessToken as string)).not.toBeNull();
+    expect(await resolves(t, second.accessToken as string)).not.toBeNull();
+    const started = await t.mutation(internal.functions.builtinModel.startBuiltinTurn, {
+      hashedAccessToken: await hashToken(first.accessToken as string),
+      expectedWorkspaceId: null,
+    });
+    expect(started).toMatchObject({ allowed: true });
+    const usage = await t.run(async (ctx) => await ctx.db.query("jevUsage" as never).collect());
+    expect([...new Set((usage as Array<{ workspaceId: string }>).map((row) => row.workspaceId))]).toEqual([ada.workspaceId]);
+  });
+
+  test("and the replaced token ends at its own expiry", async () => {
     const t = setupTest();
     await crew(t);
     const first = await turn(t, ADA, [ADA, BO, CY, LINE]);
-    const second = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    await turn(t, ADA, [ADA, BO, CY, LINE]);
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("textsEarlierTokens").collect()) await ctx.db.patch(row._id, { expiresAt: Date.now() - 1 });
+    });
     expect(await resolves(t, first.accessToken as string)).toBeNull();
-    expect(await resolves(t, second.accessToken as string)).not.toBeNull();
+    expect(
+      await t.mutation(internal.functions.builtinModel.startBuiltinTurn, { hashedAccessToken: await hashToken(first.accessToken as string), expectedWorkspaceId: null }),
+    ).toBeNull();
+  });
+
+  test("and it is the grant's, so it ends the moment the grant does", async () => {
+    const t = setupTest();
+    await crew(t);
+    const first = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    await turn(t, ADA, [ADA, BO, CY, LINE]);
+    await t.run(async (ctx) => {
+      for (const grant of await ctx.db.query("oauthGrants").collect()) {
+        if (grant.clientId === TEXTS_GROUP_CLIENT_ID) await ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() });
+      }
+    });
+    expect(await resolves(t, first.accessToken as string)).toBeNull();
+  });
+
+  test("and another person's turn never makes a token of theirs", async () => {
+    const t = setupTest();
+    await crew(t);
+    const ada = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    const bo = await turn(t, BO, [ADA, BO, CY, LINE]);
+    expect(await t.run(async (ctx) => (await ctx.db.query("textsEarlierTokens").collect()).length)).toBe(0);
+    const adaSession = await resolves(t, ada.accessToken as string);
+    const boSession = await resolves(t, bo.accessToken as string);
+    expect(adaSession).not.toBeNull();
+    expect(boSession).not.toBeNull();
   });
 });
 

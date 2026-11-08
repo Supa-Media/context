@@ -57,6 +57,7 @@ import { HOUSEKEEPING_CLIENT_ID } from "./lib/housekeeping/model";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { CONSOLE_CLIENT_ID } from "./agentGrant";
 import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
+import { resolveLiveGrant } from "./lib/controlPlane/liveGrants";
 
 /** The clients that may spend the built-in model. Nothing else, whatever its plan. */
 const BUILTIN_CLIENTS: ReadonlySet<string> = new Set([
@@ -96,10 +97,9 @@ async function chargedWorkspace(
   // A group chat's turn is charged to the chat's sponsor, who brought Tex in: their personal workspace's plan, cap and
   // meter (`mintGroupGrant`). Its cost is also recorded against the person who tagged Tex (`recordBuiltinUsage`).
   if (turn.clientId === TEXTS_GROUP_CLIENT_ID) {
-    const grant = await ctx.db
-      .query("oauthGrants")
-      .withIndex("by_access_token", (q) => q.eq("hashedAccessToken", hashedAccessToken))
-      .unique();
+    // Through the live-grant resolver, not the token index: a token a newer mint replaced is still this grant's
+    // until it expires (`keepEarlierToken`), and the turn holding it is charged like any other.
+    const grant = (await resolveLiveGrant(ctx, hashedAccessToken))?.grant ?? null;
     const charged = grant?.texGroup?.meterWorkspaceId;
     if (grant === null || grant.texGroup === undefined || charged === undefined) return null;
     return { workspaceId: charged, chat: true, group: { groupId: grant.texGroup.groupId, who: usageWho(grant) } };

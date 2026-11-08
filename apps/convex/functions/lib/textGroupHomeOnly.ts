@@ -19,6 +19,7 @@ import { SCOPE_READ, SCOPE_WRITE } from "./consentScopes";
 import { recordAudit } from "./audit";
 import { phoneSignInPaused } from "./emailProof";
 import { ensureGroupClient } from "./textGroupClient";
+import { keepEarlierToken } from "./controlPlane/earlierTokens";
 import { ensureChatHome, chatHomeOf } from "./textGroupHome";
 import { handleOf, linkedUser, phoneAccountOf } from "./textGroupAccounts";
 import { syncHomePhones } from "./guestPhones";
@@ -182,7 +183,7 @@ async function mintHomeOnlyGrant(
     hashedAccessToken: input.hashedAccessToken,
     accessTokenExpiresAt: input.expiresAt,
   };
-  // One live grant per chat per sponsor: a new turn's token replaces the last.
+  // One grant per chat per sponsor; a new turn's token replaces the last, which stays good until its own expiry.
   const grants = await ctx.db
     .query("oauthGrants")
     .withIndex("by_workspace_user", (q) => q.eq("workspaceId", input.pinned._id).eq("userId", input.sponsor))
@@ -194,6 +195,7 @@ async function mintHomeOnlyGrant(
   if (reusable === undefined) {
     await ctx.db.insert("oauthGrants", { workspaceId: input.pinned._id, userId: input.sponsor, clientId: TEXTS_GROUP_CLIENT_ID, ...token, status: "active", createdAt: Date.now() });
   } else {
+    await keepEarlierToken(ctx, reusable);
     await ctx.db.patch(reusable._id, token);
   }
   if (input.chat.sponsorId === undefined) await ctx.db.patch(input.chat._id, { sponsorId: input.sponsor });
