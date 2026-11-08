@@ -20,7 +20,7 @@ export const DREAMS_SETTINGS_PATH = "tex/dreams.md";
 
 /** Whether a settings note's front matter says `paused: yes` (or true, on). A note without front matter is on. */
 export function switchedOff(text) {
-  const lines = String(text ?? "").replace(/^﻿/, "").split(/\r?\n/);
+  const lines = String(text ?? "").replace(/^\uFEFF/, "").split(/\r?\n/);
   if (lines[0]?.trim() !== "---") return false;
   for (const line of lines.slice(1)) {
     if (line.trim() === "---" || line.trim() === "...") return false;

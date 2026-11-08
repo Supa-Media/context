@@ -47,7 +47,7 @@ export function readQuietHours(value) {
 
 /** The `quiet-hours:` value of a note's front matter, or null. */
 export function quietHoursLine(text) {
-  const lines = String(text ?? "").replace(/^﻿/, "").split(/\r?\n/);
+  const lines = String(text ?? "").replace(/^\uFEFF/, "").split(/\r?\n/);
   if (lines[0]?.trim() !== "---") return null;
   for (const line of lines.slice(1)) {
     if (line.trim() === "---" || line.trim() === "...") return null;
