@@ -52,7 +52,12 @@ async function mount(source: TexPageSource) {
 const flush = async (ms: number) => act(async () => void (await jest.advanceTimersByTimeAsync(ms)));
 
 beforeEach(() => {
-  jest.useFakeTimers();
+  /*
+    Noon, pinned: "today" is part of the read's query, so a run that started
+    a few minutes before midnight crossed into the next day inside the
+    flushed minutes and asked once more for the new day (2026-11-08, 23:58).
+  */
+  jest.useFakeTimers({ now: new Date("2026-11-08T12:00:00") });
   seen = null;
 });
 
