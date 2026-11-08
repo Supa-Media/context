@@ -42,6 +42,7 @@ import { MARKERS, toggleWrap, type MarkerName } from "./markdownFormat";
 import { editorCompletion } from "./linkComplete";
 import { formHost, type FormHostRef } from "./formBlock";
 import { diagramHost, type DiagramHost } from "./livePreview/diagram";
+import { markdownShown } from "./livePreview/symbols";
 import { imageBlock, type ImageHostRef } from "./imageBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
 import { titleLock } from "./titleLock";
@@ -640,6 +641,8 @@ export function editorExtensions(options: {
    * fence then stays a code block. See `livePreview/diagram.ts`.
    */
   diagrams?: DiagramHost;
+  /** Show Markdown (Settings › Writing) as the note opens; off when absent. See `livePreview/symbols.ts`. */
+  showMarkdown?: boolean;
 }): Extension[] {
   const {
     editable,
@@ -657,6 +660,7 @@ export function editorExtensions(options: {
   return [
     markdownLanguage(),
     livePreview(),
+    markdownShown.init(() => options.showMarkdown === true),
     codeHighlighting(),
     /*
       Dictation's two pieces of state: the guess drawn at the caret, and the

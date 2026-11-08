@@ -35,6 +35,7 @@ import { CalloutArrowWidget, CalloutBadgeWidget, CalloutTitleWidget, callouts } 
 import { CastWidget, castFences } from "./castBlock";
 import { JoinWidget, joinFences } from "./joinBlock";
 import { quietHeadings, revealSelection } from "./engagement";
+import { markSelection, symbolsHidden } from "./symbols";
 import { frontmatterBlock, frontmatterHidden, frontmatterLine, frontmatterRange } from "./frontmatter";
 import { HtmlPreviewWidget, htmlPreviews } from "./htmlPreview";
 import { MermaidWidget, diagramHost, mermaidFences } from "./diagram";
@@ -52,6 +53,9 @@ import { TableGridWidget } from "./tableWidget";
 
 const hideMark = Decoration.replace({});
 
+/** Whether a decoration is a hidden mark, which `symbols.ts` makes atomic and deletes around. */
+export const isHiddenMark = (value: Decoration): boolean => value === hideMark;
+
 /**
  * Build the full decoration set for a state.
  *
@@ -66,6 +70,12 @@ const hideMark = Decoration.replace({});
 export function decorationsFor(state: EditorState): DecorationSet {
   const tree = syntaxTree(state);
   const selection = revealSelection(state);
+  /*
+    The selection the marks follow: the same, or none while Show Markdown is
+    off (`symbols.ts`). The frontmatter and the blocks edited as their source
+    keep `selection`.
+  */
+  const marks = markSelection(state);
 
   /*
     Frontmatter is decided from the text, before the tree is consulted, and
@@ -170,7 +180,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
   const boxEnd = (box: (typeof boxes)[number]) =>
     state.doc.lineAt(box.lines[box.lines.length - 1]!).to;
   const engaged = new Set(
-    boxes.filter((box) => selectionTouches({ from: box.lines[0]!, to: boxEnd(box) }, selection)),
+    boxes.filter((box) => selectionTouches({ from: box.lines[0]!, to: boxEnd(box) }, marks)),
   );
   const insideEngagedHead = (pos: number): boolean =>
     [...engaged].some((box) => {
@@ -295,7 +305,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
   const hiddenMarkers = boxes
     .filter((box) => !engaged.has(box))
     .map((box) => box.marker)
-    .filter((marker) => !selectionTouches(marker, selection) && !insidePreview(marker.from));
+    .filter((marker) => !selectionTouches(marker, marks) && !insidePreview(marker.from));
   const insideMarker = (pos: number): boolean =>
     hiddenMarkers.some((marker) => pos >= marker.from && pos < marker.to);
   /** Where a `[title](url)` that starts a callout's title ends, if one does. */
@@ -324,7 +334,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
       // Words in brackets are not a link — see `isBracketedText`.
       if (isBracketedText(node.node, state.doc)) return;
       // A #tag being typed or edited is drawn as the text it is, like any mark the caret is in.
-      if (node.name === "Tag" && selectionTouches(node, selection)) return;
+      if (node.name === "Tag" && selectionTouches(node, marks)) return;
       // A wiki link is painted brackets and all — see `wikiLinkExtent`.
       const { from, to } = wikiLinkExtent(node, state.doc);
       styles.push(Decoration.mark({ class: className }).range(from, to));
@@ -335,6 +345,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
   // And a heading tapped on a touch screen keeps its `#` — see `caretInput`.
   const hides = hiddenMarkRanges(tree, selection, state.doc.length, state.doc, {
     quietHeadings: quietHeadings(state),
+    never: symbolsHidden(state),
   })
     .filter(
       (range) =>
@@ -488,7 +499,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
       A callout has the box to say so instead.
     */
     for (const mark of box.marks) {
-      if (selectionTouches(mark, selection)) continue;
+      if (selectionTouches(mark, marks)) continue;
       if (insidePreview(mark.from)) continue;
       hides.push(hideMark.range(mark.from, mark.to));
     }

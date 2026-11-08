@@ -36,6 +36,7 @@ import {
   type EditorHandlers,
   type HandlerRef,
 } from "../editorSetup";
+import { markdownShown, setMarkdownShown } from "../livePreview/symbols";
 import type { NoteLinkRef } from "../noteLinks";
 import type { FormHostRef } from "../formBlock";
 import type { ImageHostRef } from "../imageBlock";
@@ -724,6 +725,9 @@ export function mountGuest(
         configureEditable();
         return;
       }
+      case "symbols":
+        if (view.state.field(markdownShown, false) !== message.shown) view.dispatch({ effects: setMarkdownShown.of(message.shown) });
+        return;
       case "theme": {
         applyTheme(documentElement ?? root, message.vars);
         // The palette carries the *measure* too — type size, leading, the note's

@@ -40,7 +40,13 @@ const DEFAULTS = { enabled: true, language: "en-US" as Language, words: [] as st
 export const mySpelling = query({
   args: {},
   returns: v.union(
-    v.object({ enabled: v.boolean(), language, words: v.array(v.string()), updatedAt: v.number() }),
+    v.object({
+      enabled: v.boolean(),
+      language,
+      words: v.array(v.string()),
+      showMarkdown: v.boolean(),
+      updatedAt: v.number(),
+    }),
     v.null(),
   ),
   handler: async (ctx) => {
@@ -51,19 +57,29 @@ export const mySpelling = query({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .unique();
     if (row === null) return null;
-    return { enabled: row.enabled, language: row.language, words: row.words, updatedAt: row.updatedAt };
+    return {
+      enabled: row.enabled,
+      language: row.language,
+      words: row.words,
+      showMarkdown: row.showMarkdown === true,
+      updatedAt: row.updatedAt,
+    };
   },
 });
 
-/** Turn the underlines on or off, or change the dictionary. Either or both. */
+/**
+ * Turn the underlines on or off, change the dictionary, or switch Show
+ * Markdown (the editor's other writing setting, owner 2026-11-08). Any of them.
+ */
 export const setMySpelling = mutation({
-  args: { enabled: v.optional(v.boolean()), language: v.optional(language) },
+  args: { enabled: v.optional(v.boolean()), language: v.optional(language), showMarkdown: v.optional(v.boolean()) },
   returns: v.number(),
   handler: async (ctx, args) => {
     return await writeRow(ctx, (row) => ({
       ...row,
       ...(args.enabled === undefined ? {} : { enabled: args.enabled }),
       ...(args.language === undefined ? {} : { language: args.language }),
+      ...(args.showMarkdown === undefined ? {} : { showMarkdown: args.showMarkdown }),
     }));
   },
 });
@@ -99,7 +115,7 @@ export const forgetSpellingWord = mutation({
   },
 });
 
-type Settings = Pick<Doc<"spellingPreferences">, "enabled" | "language" | "words">;
+type Settings = Pick<Doc<"spellingPreferences">, "enabled" | "language" | "words" | "showMarkdown">;
 
 /** Read the caller's row (or the defaults), change it, write it back. */
 async function writeRow(ctx: MutationCtx, change: (row: Settings) => Settings): Promise<number> {
@@ -113,7 +129,10 @@ async function writeRow(ctx: MutationCtx, change: (row: Settings) => Settings): 
     .query("spellingPreferences")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .unique();
-  const current: Settings = row === null ? DEFAULTS : { enabled: row.enabled, language: row.language, words: row.words };
+  const current: Settings =
+    row === null
+      ? DEFAULTS
+      : { enabled: row.enabled, language: row.language, words: row.words, showMarkdown: row.showMarkdown };
   const next = change(current);
   const updatedAt = Date.now();
   if (row === null) {

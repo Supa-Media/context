@@ -46,6 +46,13 @@ export interface SpellingPrefs {
   language: SpellingLanguage;
   /** Words the person added, as typed. Matched case-insensitively. */
   words: readonly string[];
+  /**
+   * Show Markdown (Settings › Writing): the editor brings a construct's
+   * symbols back under the caret. Off by default (owner, 2026-11-08: a regular
+   * editor that supports Markdown); see `livePreview/symbols.ts`. Kept on the
+   * same account row as spelling, because both are how the person writes.
+   */
+  showMarkdown: boolean;
 }
 
 export type SpellingStatus = "loading" | "ready" | "failed" | "off";
@@ -64,11 +71,12 @@ export interface SpellingSaver {
   forget(word: string): Promise<unknown>;
   setEnabled(enabled: boolean): Promise<unknown>;
   setLanguage(language: SpellingLanguage): Promise<unknown>;
+  setShowMarkdown(shown: boolean): Promise<unknown>;
 }
 
 const DEVICE_KEY = "context.spelling.v1";
 
-let prefs: SpellingPrefs = readDeviceCopy() ?? { enabled: true, language: deviceLanguage(), words: [] };
+let prefs: SpellingPrefs = readDeviceCopy() ?? { enabled: true, language: deviceLanguage(), words: [], showMarkdown: false };
 let snapshot: SpellingSnapshot = derive(prefs, null, prefs.enabled ? "loading" : "off");
 let saver: SpellingSaver | null = null;
 const listeners = new Set<() => void>();
@@ -129,6 +137,11 @@ export function setSpellingEnabled(enabled: boolean): void {
   void saver?.setEnabled(enabled).catch(() => undefined);
 }
 
+export function setShowMarkdown(showMarkdown: boolean): void {
+  setPrefs({ ...prefs, showMarkdown });
+  void saver?.setShowMarkdown(showMarkdown).catch(() => undefined);
+}
+
 export function setSpellingLanguage(language: SpellingLanguage): void {
   setPrefs({ ...prefs, language });
   void saver?.setLanguage(language).catch(() => undefined);
@@ -139,7 +152,7 @@ export function resetSpellingForTests(loader?: (language: SpellingLanguage) => P
   fetchDictionary = loader ?? defaultFetch;
   spellers.clear();
   saver = null;
-  prefs = { enabled: true, language: "en-US", words: [] };
+  prefs = { enabled: true, language: "en-US", words: [], showMarkdown: false };
   snapshot = derive(prefs, null, "loading");
   listeners.clear();
 }
@@ -215,7 +228,7 @@ function readDeviceCopy(): SpellingPrefs | null {
       ? (parsed.language as SpellingLanguage)
       : deviceLanguage();
     const words = Array.isArray(parsed.words) ? parsed.words.filter((word): word is string => typeof word === "string") : [];
-    return { enabled: parsed.enabled !== false, language, words };
+    return { enabled: parsed.enabled !== false, language, words, showMarkdown: parsed.showMarkdown === true };
   } catch {
     return null;
   }

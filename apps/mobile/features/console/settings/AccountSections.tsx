@@ -197,18 +197,18 @@ export function AccountSection({
           </Grow>
           <AppearancePicker />
         </Row>
-        {/* Spelling is a page of its own, reached from this row (board 4, 2026-10-27). */}
+        {/* Writing is a page of its own, reached from this row (board 4, 2026-10-27; Show Markdown 2026-11-08). */}
         <Row divided>
           <Grow>
-            <Text variant="rowTitle">Spelling</Text>
+            <Text variant="rowTitle">Writing</Text>
             <Text variant="rowSub" style={styles.rowSub}>
-              Red underlines, the dictionary's language, and words you added.
+              Show Markdown, spelling fixes, and words you added.
             </Text>
           </Grow>
           {onSelect === undefined ? null : (
             <TextLink
               label="Choose"
-              accessibilityLabel="Choose how spelling is checked"
+              accessibilityLabel="Choose how you write"
               onPress={() => onSelect("spelling")}
               testID="profile-spelling-choose"
             />

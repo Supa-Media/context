@@ -29,6 +29,9 @@ function mount(doc: string, options: { editable?: boolean } = {}): EditorView {
         editable: options.editable ?? true,
         editableCompartment: new Compartment(),
         handlers: { current: { onChange: () => {}, onSave: () => {} } },
+        // The reveal rule these taps are about is Show Markdown's; off, nothing
+        // reveals under any caret (`markdownHidden.test.ts`).
+        showMarkdown: true,
       }),
     }),
   });

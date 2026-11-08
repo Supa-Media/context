@@ -230,8 +230,9 @@ export const SETTINGS_SECTIONS = [
     */
     key: "spelling",
     keywords:
-      "spelling spell check spellcheck dictionary words typo typos misspelled red underline squiggle language english british american autocorrect ignore",
-    label: "Spelling",
+      "writing editor markdown show markdown symbols asterisks hashes formatting source raw spelling spell check spellcheck dictionary words typo typos misspelled red underline squiggle language english british american autocorrect ignore",
+    // "Writing" since Show Markdown joined it (owner, 2026-11-08); the key stays.
+    label: "Writing",
     scope: "account",
     group: "You",
     icon: "book",
