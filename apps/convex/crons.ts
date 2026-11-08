@@ -79,6 +79,9 @@ crons.interval(
  */
 // A share follows its note by id (`lib/shares/entryNote.ts`). Fills the id on shares minted before it existed,
 // and on any a mint could not stamp because its note was not in the tree yet.
+// Each person's feature flags in their person object, pushed again only where the set moved (`functions/flagObjects.ts`):
+// a failed push, a person switched since, a new account, a flag launched or removed in code.
+crons.interval("reconcile feature flags in person objects", { hours: 1 }, internal.functions.flagObjects.reconcile, {});
 crons.interval("stamp share links with their note's id", { hours: 24 }, internal.functions.shares.stampEntryNoteIds, {});
 
 /**
