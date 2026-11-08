@@ -8,9 +8,11 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { Frame } from "../texComputer";
 import { MAX_TYPED } from "../texComputer";
 import type { TexComputerState } from "../useTexComputer";
-import { Figure, Ghost, LinkWord, T, pageStyles, useNow } from "./TexPageParts";
+import { Ghost, LinkWord, T, pageStyles, useNow } from "./TexPageParts";
+import { MinionFigure } from "./TexMinionFigure";
+import { jobFigureOf } from "./minionProps";
 import type { ViewProps } from "./TexPageBody";
-import { clock, moodOf, took } from "./texPageFormat";
+import { clock, took } from "./texPageFormat";
 import type { JobDetail, JobStep } from "./texPageTypes";
 import { useTexJob } from "./useTexPage";
 import { TexHistoryLines } from "../history/TexHistoryLines";
@@ -116,7 +118,7 @@ export function TexJobPage(props: TexJobPageProps) {
 
   return (
     <View style={styles.head} testID="tex-job">
-      <Figure mood={moodOf(job)} size={64} testID="tex-job-figure" />
+      <MinionFigure {...jobFigureOf(job)} size={64} testID="tex-job-figure" />
       <View style={styles.detail}>
         <T size={26} serif line={1.25} testID="tex-job-title">
           {job.title}

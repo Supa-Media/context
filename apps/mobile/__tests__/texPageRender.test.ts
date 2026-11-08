@@ -27,6 +27,10 @@
  *     filters → "the hub's history opens the full page with its filters" fails.
  *  6. Tex's cloud's heading made a link like a machine's → "a connected
  *     machine's heading opens its settings; Tex's cloud's does not" fails.
+ *
+ * Applied, run, named test seen failing, reverted (2026-11-08):
+ *  7. The job page drawing the chaos-ball `Figure` again → "a job's page
+ *     draws the same minion the hub's card shows" fails.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -255,5 +259,25 @@ describe("the Tex page", () => {
     expect(work).toContain("advisor · Pricing page is the one to read");
     expect(work).not.toContain("Standup at 10");
     expect(byTestId("tex-history-show-jobs")).toBeNull();
+  });
+
+  // Opening a minion kept the old scribble ball while the hub drew the # holding its prop (Dev2, 2026-11-08).
+  test("a job's page draws the same minion the hub's card shows", async () => {
+    const open = async (job: string) => {
+      act(() => root.unmount());
+      root = createRoot(container);
+      await render(fixtureSource(), { chat: "me", job });
+    };
+    await open("maritime");
+    expect(byTestId("tex-job-figure-browsing")).not.toBeNull();
+    expect(byTestId("tex-job-figure-trouble")).not.toBeNull();
+    await open("dinner");
+    expect(byTestId("tex-job-figure-waiting")).not.toBeNull();
+    await open("hello");
+    expect(byTestId("tex-job-figure-coding")).not.toBeNull();
+    // Finished: the prop is put down, the calm # stays.
+    await open("florists");
+    expect(byTestId("tex-job-figure-working")).not.toBeNull();
+    expect(byTestId("tex-job-figure-trouble")).toBeNull();
   });
 });

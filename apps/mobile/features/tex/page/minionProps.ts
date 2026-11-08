@@ -266,3 +266,15 @@ export function activityOf(job: JobSummary): Activity {
   if (tool.startsWith("search") || tool.startsWith("read_") || tool.startsWith("list_")) return "researching";
   return "working";
 }
+
+/**
+ * The figure a job's own page draws: the same minion the hub's Minions card
+ * shows (Dev2, 2026-11-08), so opening a busy minion keeps its character.
+ * A finished job has put its prop down and shows the plain calm #; one with a
+ * step that didn't work still sweats. Never the chaos ball: every minion is
+ * the calm # (Dev2, 2026-11-04).
+ */
+export function jobFigureOf(job: JobSummary): { activity: Activity; trouble: boolean } {
+  const live = job.state === "running" || job.state === "waiting";
+  return { activity: live ? activityOf(job) : "working", trouble: job.failedSteps > 0 };
+}
