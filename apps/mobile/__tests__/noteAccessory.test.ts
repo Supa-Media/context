@@ -87,7 +87,7 @@ interface MockEditorProps {
   controls?: (api: MockControls | null) => void;
   onFocus?: () => void;
   onBlur?: () => void;
-  onLineState?: (state: { style: "title" | "heading" | "body"; list: "bullet" | "number" | "task" | null }) => void;
+  onLineState?: (state: { style: "title" | "heading" | "body"; list: "bullet" | "number" | "task" | null; selected?: boolean }) => void;
 }
 
 /** The caret/selection the commands act on, in the *body*'s coordinates. */
@@ -214,6 +214,7 @@ const PANEL_KEYS: [id: string, label: string][] = [
   ["body", "Body"],
   ["bold", "Bold"],
   ["italic", "Italic"],
+  ["underline", "Underline"],
   ["strike", "Strikethrough"],
   ["link", "Insert link"],
   ["list", "Bulleted list"],
@@ -625,6 +626,50 @@ describe("what the keys do", () => {
     expect(pressed("body")).toBe("false");
     expect(pressed("checklist")).toBe("true");
     expect(pressed("list")).toBe("false");
+  });
+
+  /**
+   * Owner, 2026-11-08: "bold italic, underline when a word is highlighted".
+   * Words selected, the list keys and the microphone give way to B I U;
+   * nothing selected, they come back.
+   *
+   * SABOTAGE: always passing `BAR_KEYS` in `NoteAccessory` fails this.
+   */
+  test("words selected, the bar is bold, italic and underline", () => {
+    const app = mountEditor(390);
+    app.focus();
+    expect(app.find("note-accessory-task")).not.toBeNull();
+    expect(app.find("note-accessory-bold")).toBeNull();
+
+    act(() => app.editor().onLineState?.({ style: "body", list: null, selected: true }));
+    expect(app.find("note-accessory-task")).toBeNull();
+    expect(app.find("note-accessory-bullet")).toBeNull();
+    expect(app.find("note-accessory-mic")).toBeNull();
+    expect(app.find("note-accessory-bold")?.getAttribute("aria-label")).toBe("Bold");
+    expect(app.find("note-accessory-italic")?.getAttribute("aria-label")).toBe("Italic");
+    expect(app.find("note-accessory-underline")?.getAttribute("aria-label")).toBe("Underline");
+    expect(app.find("note-accessory-format")).not.toBeNull();
+    expect(app.find("note-accessory-dismiss")).not.toBeNull();
+
+    act(() => app.editor().onLineState?.({ style: "body", list: null, selected: false }));
+    expect(app.find("note-accessory-bold")).toBeNull();
+    expect(app.find("note-accessory-task")).not.toBeNull();
+  });
+
+  test("underline wraps the selection in <u> tags, and carries the frontmatter", () => {
+    const app = mountEditor(390);
+    app.focus();
+    const { frontmatter, body } = splitNote(FILE);
+    const start = body.indexOf("first");
+    mockSelection.start = start;
+    mockSelection.end = start + "first".length;
+
+    act(() => app.editor().onLineState?.({ style: "body", list: null, selected: true }));
+    app.press(app.find("note-accessory-underline"));
+
+    expect(app.changes[0]).toBe(
+      frontmatter + body.slice(0, start) + "<u>first</u>" + body.slice(start + "first".length),
+    );
   });
 
   /** The key the whole bar exists for. */

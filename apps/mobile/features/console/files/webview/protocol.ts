@@ -475,7 +475,7 @@ export type ToHost =
    * on an edit — coalesced to one message a frame, like every other.
    */
   | { v: number; type: "caret"; top: number; bottom: number }
-  | { v: number; type: "line-state"; style: LineState["style"]; list: LineState["list"] } // Aa lights it
+  | { v: number; type: "line-state"; style: LineState["style"]; list: LineState["list"]; selected?: boolean } // Aa lights it; B I U over a selection
   /** The guest failed to start. Surfaced rather than left as a blank rectangle. */
   | { v: number; type: "failed"; message: string }
   /**

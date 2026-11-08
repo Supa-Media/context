@@ -15,6 +15,7 @@ import { GFM, type MarkdownConfig } from "@lezer/markdown";
 import { tags } from "@lezer/highlight";
 import { castGrammar } from "./castGrammar";
 import { highlightGrammar } from "./highlightGrammar";
+import { underlineGrammar } from "./underlineGrammar";
 import { tagGrammar } from "./tagGrammar";
 
 /**
@@ -37,6 +38,8 @@ import { tagGrammar } from "./tagGrammar";
  * to the end of the note — see `castGrammar.ts`. `highlightGrammar`: Obsidian's
  * `==highlight==`, which GFM does not have — see `highlightGrammar.ts`.
  * `tagGrammar`: a `#tag` written in the text — see `tagGrammar.ts`.
+ * `underlineGrammar`: `<u>underline</u>`, the one tag the writing bar
+ * writes — see `underlineGrammar.ts`.
  *
  * Minus one CommonMark rule: setext headings. A line of only `-` or `=` under
  * a paragraph makes that paragraph a heading, so typing `-` to start a bullet
@@ -53,7 +56,7 @@ import { tagGrammar } from "./tagGrammar";
 const noSetextHeadings: MarkdownConfig = { remove: ["SetextHeading"] };
 
 export function markdownLanguage() {
-  return markdown({ extensions: [GFM, castGrammar, highlightGrammar, tagGrammar, noSetextHeadings], codeLanguages: FENCE_LANGUAGES });
+  return markdown({ extensions: [GFM, castGrammar, highlightGrammar, underlineGrammar, tagGrammar, noSetextHeadings], codeLanguages: FENCE_LANGUAGES });
 }
 
 /**

@@ -28,6 +28,7 @@ export const HIDDEN_MARKS: ReadonlySet<string> = new Set([
   "StrongEmphasisMark",
   "StrikethroughMark",
   "HighlightMark",
+  "UnderlineMark",
   "LinkMark",
   "CodeMark",
 ]);
@@ -129,6 +130,7 @@ const REVEAL_CONTAINERS: ReadonlySet<string> = new Set([
   "StrongEmphasis",
   "Strikethrough",
   "Highlight",
+  "Underline",
   "InlineCode",
   "Link",
   "Image",
@@ -458,6 +460,8 @@ export function styleClassFor(nodeName: string): string | null {
       return "cm-lp-strike";
     case "Highlight":
       return "cm-lp-mark";
+    case "Underline":
+      return "cm-lp-underline";
     case "Tag":
       return "cm-lp-tag";
     case "InlineCode":

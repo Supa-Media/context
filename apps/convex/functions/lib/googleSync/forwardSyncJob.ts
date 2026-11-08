@@ -14,11 +14,14 @@ import { defaultGoogleDestinationFolder, mailConnectEnabled } from "../../google
 import { calendarConnectEnabled } from "../../calendarConnect";
 import { nextProductToSync, syncableProductsOf, syncBytesUsed } from "../googleSchedule";
 import { REPAIR_DAYS_PER_PASS } from "./repairDays";
+import { mailInNotesFor } from "./mailCopy";
 import { aiAccessNeeded } from "../googleConnect/aiScopes";
 
 export const googleForwardSyncJobArgs = {
   workspaceId: v.id("workspaces"),
   connectionId: v.id("googleConnections"),
+  /** A flagged mail pass (`mailCopy.ts`): Gmail only, and only while its owner's flag is on. */
+  only: v.optional(v.literal("gmail")),
 };
 
 export const googleForwardSyncJobReturns = v.union(
@@ -124,7 +127,12 @@ export async function googleForwardSyncJobHandler(
     // Gmail import waits with it, untouched, rather than spending its tries.
     return { kind: "skip" as const, reason: "GOOGLE_AI_ACCESS_NEEDED" };
   }
+  if (args.only === "gmail" && !(await mailInNotesFor(ctx, workspace.createdBy))) {
+    // Turned off since the look claimed it: nothing is copied.
+    return { kind: "skip" as const, reason: "MAIL_IN_NOTES_OFF" };
+  }
   const products = syncableProductsOf(connection).filter((product) => {
+    if (args.only !== undefined && product !== args.only) return false;
     if (product === "gmail") return mailConnectEnabled() && connection.gmail !== undefined;
     if (product === "calendar") {
       return calendarConnectEnabled() && connection.calendar !== undefined;

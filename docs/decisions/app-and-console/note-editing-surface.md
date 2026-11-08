@@ -471,3 +471,28 @@ keeps its label instead of swapping to the number when the notes land
 (`repeatsFolderName`); a heading in somebody's own words is kept. The folder's
 own front note is read by name ahead of the rest (`loadFront`), so the
 description no longer waits for every note the List and Board need.
+
+### The phone's writing bar is drawn, and swaps to B I U over a selection
+
+Owner, 2026-11-08, after "I don't love the icons on top of the keyboard … can
+we do context style?" and "let's do checklist, bullet list, Aa, microphone,
+bold italic, underline when a word is highlighted and the done button can be
+changed to just look more like our UI style".
+
+- The bar's keys are drawn in Context's own brush (`AccessoryGlyph.tsx`, the
+  folder icons' strokes), not system glyphs.
+- While words are selected the bar is bold, italic, underline and Aa; the list
+  keys and the microphone come back when the selection goes. The editor reports
+  `selected` with the caret line's state (`lineState.ts`); a web view bundle
+  older than the field reads as "nothing selected".
+- Underline is `<u>`…`</u>`. Markdown has none, and `<u>` is the one form
+  Obsidian, GitHub and browsers already draw, so the file stays readable
+  everywhere. The editor parses it as its own construct
+  (`livePreview/underlineGrammar.ts`, tags hidden under the reveal rule), the
+  share page and website draw it, and `tagToggle.ts` toggles it, because the
+  run-counting rule in `markerToggle.ts` cannot count a tag.
+- Done is no longer the one filled accent key: it sits on the bar's own grey
+  with the word circled in pencil, the app's "this one" mark.
+
+Reversing it: `noteAccessory.test.ts` ("words selected, the bar is bold,
+italic and underline") and `livePreview/underline.test.ts` fail.
