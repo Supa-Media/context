@@ -45,7 +45,14 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
  *     expires: "2026-12-08",
  *   },
  */
-const FLAGS = Object.freeze({});
+const FLAGS = Object.freeze({
+  "mail.in-notes": {
+    label: "Mail in notes",
+    description: "Gmail is copied into the person's notes again, so new mail starts a Tex check-in at once.",
+    added: "2026-11-08",
+    expires: "2027-02-06",
+  },
+});
 
 const FLAG_MODES = Object.freeze(["off", "people", "everyone"]);
 

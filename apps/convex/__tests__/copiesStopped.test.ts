@@ -48,8 +48,7 @@ describe("copying stopped", () => {
     // Owner, 2026-11-08: mail comes back into notes for people with the `mail.in-notes` flag
     // (`lib/googleSync/mailCopy.ts`). Sabotage: dropping `only: "gmail"` there fails this.
     const starters = sources(join(ROOT, "functions"))
-      .filter((path) => /kind:\s*"googleForwardSync",\s*connectionId/.test(readFileSync(path, "utf8")))
-      .filter((path) => /runAfter|runAt/.test(readFileSync(path, "utf8")))
+      .filter((path) => /operation:\s*\{\s*kind:\s*"googleForwardSync"/.test(readFileSync(path, "utf8")))
       .map((path) => relative(ROOT, path))
       .sort();
     expect(starters).toEqual(["functions/googleSync.ts", "functions/lib/googleSync/mailCopy.ts"]);

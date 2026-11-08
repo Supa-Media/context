@@ -91,6 +91,8 @@ describe("mail in notes: the pass asks again", () => {
       products: ["gmail", "calendar"],
       calendar: { scopes: [], destinationFolder: "inbox/calendar" },
       gmail: { ...row.gmail!, historyId: "100" },
+      // Google just pushed Calendar, so an unlimited pass would take Calendar first.
+      push: { pending: { calendar: Date.now() } },
     });
     await turnOnFlagFor(t, MAIL_IN_NOTES_FLAG, owner);
     const job = await t.query(internal.functions.googleSync.googleForwardSyncJob, { workspaceId, connectionId, only: "gmail" });

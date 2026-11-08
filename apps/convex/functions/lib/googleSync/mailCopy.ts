@@ -43,7 +43,7 @@ export const MAX_FLAGGED = 50;
 
 /** Whether `userId` has mail copied into their notes. */
 export async function mailInNotesFor(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
-  return await flagOnFor(ctx, userId, MAIL_IN_NOTES_FLAG);
+  return await flagOnFor(ctx, userId, "mail.in-notes");
 }
 
 /** The personal workspace `userId` owns, or null. */
@@ -99,7 +99,7 @@ export async function startFlaggedMailPasses(ctx: MutationCtx, now: number): Pro
 
 /** The connections a look considers: the flagged people's own, or every due one when it is on for everyone. */
 async function candidates(ctx: MutationCtx, now: number): Promise<Doc<"googleConnections">[]> {
-  const people = await peopleWithFlag(ctx, MAIL_IN_NOTES_FLAG);
+  const people = await peopleWithFlag(ctx, "mail.in-notes");
   if (people.everyone) {
     // The pass asks the flag again, and a claim moves a row out of this range.
     return await ctx.db
