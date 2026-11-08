@@ -276,7 +276,12 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     await tell({ state: "running", status: text, ...(HAS_LINK.test(text) ? { texts: [text] } : {}) });
   };
   // Each step, kept by the chat for "what is it doing?"; a step that failed to arrive costs only that line.
-  const onStep = async (text: string, how?: StepHow) => void (await tell({ state: "running", step: text, ...(how?.failed ? { stepFailed: true as const, ...(how.why ? { stepWhy: how.why } : {}) } : {}) }));
+  // The part's steps, also kept here: a part cut off before it answered hands them to the next one (`cutOff`).
+  const took: string[] = [];
+  const onStep = async (text: string, how?: StepHow) => {
+    if (took.length < MAX_CUT_OFF_STEPS) took.push(how?.failed ? `${text} (failed)` : text);
+    await tell({ state: "running", step: text, ...(how?.failed ? { stepFailed: true as const, ...(how.why ? { stepWhy: how.why } : {}) } : {}) });
+  };
 
   // Their later texts it hasn't seen yet are shown to this turn; ones sent while it runs are sent into it.
   const shown = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
@@ -345,12 +350,15 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   if (carryOn && roomLeft && !spinning) {
     // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
     const draft = (changed || unfinished) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
-    const { unfinished: _was, advice: _said, idle: _idle, ...kept } = run;
+    const { unfinished: _was, advice: _said, idle: _idle, cutOff: _cut, ...kept } = run;
+    // Cut off before it answered (2026-11-08: the gateway ran out of memory after a part had written its page, and the
+    // next part, told nothing, did it all again): the next part is shown what this one had done, to check before redoing.
+    const cutOff = outcome.kind === "broken" && took.length > 0 ? took : undefined;
     // What this part did, one line, so a job that ends short reports every part and not only its last (2026-11-06:
     // a cloud reviewer's tenth part answered a screenshot, and that alone became its report: "nothing from it is built").
     const said = outcome.kind === "answer" ? partLine(run.attempt, outcome.texts, outcome.status) : null;
     const parts = said === null ? run.parts : [...(run.parts ?? []), said].slice(-MAX_PARTS_KEPT);
-    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...(idle ? { idle: true as const } : {}), ...(outcome.kind === "answer" && outcome.untrusted ? { tainted: true as const } : {}) });
+    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...(idle ? { idle: true as const } : {}), ...(cutOff ? { cutOff } : {}), ...(outcome.kind === "answer" && outcome.untrusted ? { tainted: true as const } : {}) });
     await tell({
       state: "running",
       ...watch,
@@ -363,7 +371,8 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           ? advice ? `Not done yet; next: ${advice}`.slice(0, 280) : "Finishing what was still missing"
           : `Still going: part ${run.attempt + 1} of at most ${MAX_JOB_ATTEMPTS}`,
     });
-    log("carry_on", run.id);
+    // Why it carried on, so a part that ran again can be explained from the log alone (2026-11-08: it could not).
+    log("carry_on", run.id, outcome.kind === "broken" ? "broken" : changed ? "changed" : unfinished ? "unfinished" : "exhausted");
     return { kind: "now" };
   }
 
@@ -403,6 +412,9 @@ const MAX_PARTS_KEPT = 8;
 const MAX_PART_LINE = 300;
 
 /** One part as its job's last word recalls it: its answer's first line, or its status. Null when it said nothing. */
+/** The most steps of a part cut off before it answered that the next part is shown (`cutOff`). */
+export const MAX_CUT_OFF_STEPS = 40;
+
 export function partLine(attempt: number, texts: string[], status: string): string | null {
   const first = texts.join("\n").split("\n").find((line) => line.trim() !== "")?.trim() ?? status.trim();
   return first === "" ? null : `Part ${attempt}: ${first}`.slice(0, MAX_PART_LINE);
@@ -471,6 +483,7 @@ function ask(run: JobRun, followUps: string[], mail: Array<JobMail & { text: str
     ...(run.draft ? { draft: run.draft } : {}),
     ...(run.draft && run.unfinished ? { unfinished: true as const } : {}),
     ...(run.advice ? { advice: run.advice } : {}),
+    ...(run.cutOff?.length ? { cutOff: run.cutOff } : {}),
   };
 }
 

@@ -10,7 +10,7 @@ import { canRunBuiltin } from "../builtin.js";
 import { chatHubUrl } from "../hubLinks.js";
 import { appendConversation } from "../conversation.js";
 import { keepGroupExchange } from "../groupTurn.js";
-import { jobTurnFields } from "../jobCheck.js";
+import { jobFields, jobTurnFields } from "../jobCheck.js";
 import { wordsEntry } from "../ledger.js";
 import { exchangeEntries } from "../ledgerConversation.js";
 import { sentPicturesLine } from "../outgoingPictures.js";
@@ -37,7 +37,7 @@ export function showsOutsideWords(history) {
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function sendTheReply(t) {
-  const { askChat, attachments, background, begun, body, builtinUsed, chatLog, claims, controlPlane, conversation, dispatch, env, front, group, history, hot, inThread, job, keepPictures, learned, ledger, ledgerTurn, meter, offered, opened, outgoing, production, question, quoted, reacted, received, report, router, runner, session, setAside, steer, store, tex, textingWriting, timeZone, turn } = t;
+  const { answered, askChat, attachments, background, begun, body, builtinUsed, chatLog, claims, controlPlane, conversation, dispatch, env, front, group, history, hot, inThread, job, keepPictures, learned, ledger, ledgerTurn, meter, offered, opened, outgoing, production, question, quoted, reacted, received, report, router, runner, session, setAside, steer, store, tex, textingWriting, timeZone, turn } = t;
   // The ask goes out in the gateway's own words, after whatever the model
   // said: a person can allow only what they were told about, and the model
   // relaying it is a courtesy rather than the mechanism.
@@ -86,7 +86,7 @@ export async function sendTheReply(t) {
   if (job === null && group === null && conversation === "texts" && deskEligible(store)) await tex.after("calendar_copy", () => refreshCalendarCache(dispatch, { timeZone, force: changedCalendar(turn.steps) }));
   // "fix this" or frustration scores the conversation now (`selfReview.js`); quiet ends do it from the Worker.
   if (!turn.exhausted) await tex.after("self_review", () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
-  return json({
+  const reply = {
     answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
     // How many held calls the answer's last line asks about, so a caller that
     // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
@@ -101,11 +101,22 @@ export async function sendTheReply(t) {
     provider: turn.provider,
     model: turn.model,
     steps: turn.steps,
+  };
+  // A job's part says its answer before the advisor's check, unchecked: a gateway that dies during the check (out of
+  // memory, 2026-11-08) no longer loses a finished part, which the Worker then ran again from nothing (`progress.js`).
+  if (job !== null && typeof answered === "function") await tex.step("answer_early", () => answered({ ...withoutSteps(reply), ...jobFields(null, { exhausted: turn.exhausted === true, unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true }), ...(turn.steps?.length ? {} : { idle: true }) }));
+  return json({
+    ...reply,
     ...(await tex.step("job_fields", () => jobChecked(session, { job, steps: turn.steps?.length ?? 0, turn: body.turn }, () => jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter })))), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
     ...{ warm: (await tex.step("seal_warm", () => hot.seal({ wrote: turn.steps.length > 0 }))) ?? undefined }, // the copy the Worker hands back with the next text (`warmCopy.js`)
   });
 }
 // TEX ENTRY POINT: end
+
+/** The reply without its steps, which only the final line needs: the early line stays small. */
+function withoutSteps({ steps: _steps, provider: _provider, model: _model, ...said }) {
+  return said;
+}
 
 /** `hub` beside an answer that offered the live view of its jobs, when the chat has one (`hubLinks.js`). */
 function hubField(offers, hub) {

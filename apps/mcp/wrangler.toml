@@ -28,6 +28,18 @@ compatibility_date = "2026-08-01"
 [placement]
 region = "aws:us-east-1"
 
+# The gateway's own log lines (`console.log`: structured, ids and names only, never a note's words or a secret)
+# kept in Workers Logs, so a failed turn can be read back (Dev2, 2026-11-08, after a job's part failed in the
+# advisor step with nothing to show why). Cloudflare's per-request invocation lines stay off: they carry the
+# request URL, and an OAuth step's code rides in one. A crash's outcome (exceededMemory, exception) is still in
+# Workers analytics. Self-hosting: delete this block to keep no logs at all. Staging inherits it.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+invocation_logs = false
+
 [vars]
 
 # The sharing judge (docs/decisions/privacy-and-sharing/agent-egress.md): an AI
