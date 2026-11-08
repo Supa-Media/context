@@ -81,8 +81,9 @@ ages"*. Every session's store now carries `vaultProxy`
 `features` sibling, and `functions/featureSwitches.ts` is deleted. That old
 switch also took up to about four minutes to apply, because it rode in the
 storage binding the workspace object keeps (`FRESH_MS`) and a switch did not
-clear it. The `featureSwitches` table's definition stays only until each
-deployment has run the "Drain retired tables" workflow
-(`functions/retiredTables:drainFeatureSwitches`), as `organizerSettings` does
-([removed-features](./removed-features.md)). The check:
+clear it. Its `featureSwitches` table was emptied in both deployments on
+2026-11-08 and its definition removed, together with auto-organize's emptied
+`organizerSettings` ([removed-features](./removed-features.md)); a schema push
+that drops a table still holding rows is refused, so a retired table is
+emptied first and its definition deleted after. The check:
 `apps/mcp/test/vaultLaunched.test.mjs`.
