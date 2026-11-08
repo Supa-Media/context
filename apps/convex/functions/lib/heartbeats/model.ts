@@ -64,7 +64,20 @@ export const HEARTBEAT_OUTCOMES = [
   "daily_limit",
   "no_provider",
   "busy",
+  "quiet_hours",
 ] as const;
+
+/**
+ * How far ahead a gateway's `until` may put the next look or delivery: their
+ * quiet hours end within a day (`apps/mcp/src/agent/quietHours.js`). Anything
+ * else is ignored and the usual schedule stands.
+ */
+export const MAX_QUIET_HOURS_MS = 24 * 60 * 60 * 1000;
+
+/** A gateway's `until`, kept only when it is a time in the next day. */
+export function quietHoursEnd(until: unknown, now: number): number | null {
+  return typeof until === "number" && Number.isFinite(until) && until > now && until <= now + MAX_QUIET_HOURS_MS ? until : null;
+}
 
 /**
  * How long a check-in that found them mid-conversation waits before it looks

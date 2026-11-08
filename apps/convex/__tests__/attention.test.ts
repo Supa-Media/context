@@ -310,6 +310,20 @@ describe("delivery", () => {
     }
   });
 
+  // Dev2, 2026-11-08: quiet hours on the Tex page were shown and never kept.
+  test("pings held by their quiet hours come back when the hours end", async () => {
+    const t = setupTest();
+    const { userId, workspaceId } = await person(t);
+    const token = await grant(t, workspaceId, userId);
+    await ask(t, token, workspaceId, "fyi");
+    await makePingsDue(t, userId);
+    const [beat] = await due(t);
+    expect(beat!.attention).toBe(true);
+    const until = Date.now() + 6 * 60 * 60 * 1000;
+    await agentPost(t, "/agent-texts/heartbeats/result", { runId: beat!.runId, outcome: "quiet_hours", until });
+    expect((await row(t, userId))!.attentionDueAt).toBe(until);
+  });
+
   test("a ping for someone who has since unlinked is never sent", async () => {
     const t = setupTest();
     const { userId, workspaceId } = await person(t);

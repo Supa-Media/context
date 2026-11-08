@@ -35,7 +35,7 @@ export const claimDueHeartbeats = internalMutation({
 });
 
 export const recordHeartbeatResult = internalMutation({
-  args: { runId: v.string(), outcome: v.string() },
+  args: { runId: v.string(), outcome: v.string(), until: v.optional(v.number()) },
   returns: v.union(v.literal("recorded"), v.literal("unknown")),
   handler: recordHeartbeatResultHandler,
 });

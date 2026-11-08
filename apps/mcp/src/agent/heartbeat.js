@@ -39,6 +39,8 @@ import { CONTACTS_FOLDER, asInboxKey } from "../../../../packages/communications
 import { readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
 import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH, HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 import { deliverAttention } from "./attention.js";
+import { quietHoursEnd, readSettings } from "./quietHours.js";
+export { readSettings };
 import { eventLines } from "./transcript.js";
 import { HISTORY_PATH } from "./historyFile.js";
 import { DREAMS_FOLDER } from "./dream.js";
@@ -82,7 +84,6 @@ export const MAX_CHANGED_SHOWN = 30;
 /** Days of earlier check-in logs read for what was already texted. */
 export const TEXTED_LOOKBACK_DAYS = 3;
 const MAX_TEXTED_SHOWN = 10;
-const MAX_INSTRUCTIONS_CHARS = 2_000;
 /** A check-in is a text or two, never an essay. */
 export const MAX_CHECK_IN_CHARS = 1_200;
 const HEARTBEAT_ROUNDS = 10;
@@ -157,29 +158,6 @@ export function newsFirst(changed, now) {
     return Number.isFinite(day) && day < now - RECENT_DAY_MS;
   };
   return [...changed.filter((note) => !later(note.key)), ...changed.filter((note) => later(note.key))];
-}
-
-/**
- * `tex/heartbeat.md` read as settings: paused, and the person's own words.
- * A note that is missing or can't be read is the defaults.
- */
-export function readSettings(text) {
-  const raw = typeof text === "string" ? text.replace(/^\uFEFF/, "") : "";
-  const lines = raw.split(/\r?\n/);
-  let body = raw;
-  let paused = false;
-  if (lines[0]?.trim() === "---") {
-    const end = lines.findIndex((line, i) => i > 0 && (line.trim() === "---" || line.trim() === "..."));
-    if (end > 0) {
-      for (const line of lines.slice(1, end)) {
-        const match = /^\s*paused\s*:\s*(.+?)\s*$/i.exec(line);
-        if (match && /^(true|yes|on)$/i.test(match[1].replace(/^["']|["']$/g, ""))) paused = true;
-      }
-      body = lines.slice(end + 1).join("\n");
-    }
-  }
-  const instructions = body.trim().slice(0, MAX_INSTRUCTIONS_CHARS);
-  return { paused, instructions };
 }
 
 /** The `**Texted:**` lines of earlier logs: what a check-in already said, so it never says it twice. */
@@ -469,9 +447,12 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const timeZone = readTimeZone(given.timeZone) ?? DEFAULT_TIME_ZONE;
   const started = Date.now();
 
+  const settingsNote = await readWithEtag(dispatch, HEARTBEAT_SETTINGS_PATH);
+  const until = quietHoursEnd(settingsNote?.body, started, timeZone); // their quiet hours: when to come back, or null
+
   // A claim for the pings their agents asked for (`attention.js`): texted as they are, no look and no model.
   if (given.attention === true) {
-    const delivered = await deliverAttention(dispatch, store, { now: started, timeZone });
+    const delivered = await deliverAttention(dispatch, store, { now: started, timeZone, onlyEmergencies: until !== null });
     console.log(
       JSON.stringify({
         event: "attention_delivery",
@@ -483,13 +464,14 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     );
     // A text from Tex is something a bare "yes" may answer, so an older ask stops listening.
     if (delivered) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
-    return json(delivered ? { outcome: "speak", answer: delivered.text } : { outcome: "quiet" });
+    if (delivered) return json({ outcome: "speak", answer: delivered.text, ...(until === null ? {} : { until }) });
+    return json(until === null ? { outcome: "quiet" } : { outcome: "quiet_hours", until });
   }
   const since = typeof given.since === "number" && Number.isFinite(given.since) ? given.since : started - FIRST_LOOK_MS;
 
-  const settingsNote = await readWithEtag(dispatch, HEARTBEAT_SETTINGS_PATH);
   const settings = readSettings(settingsNote?.body ?? "");
   if (settings.paused) return json({ outcome: "paused" });
+  if (until !== null) return json({ outcome: "quiet_hours", until }); // nothing looked at; what changed waits
   // What they muted, here or for their agents' pings: never texted, whatever the model says.
   const mutes = checkInMutes(settingsNote?.body ?? "", (await readWithEtag(dispatch, ATTENTION_SETTINGS_PATH))?.body ?? "");
 

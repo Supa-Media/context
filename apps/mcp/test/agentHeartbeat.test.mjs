@@ -47,7 +47,6 @@ import {
   recentTextLines,
   recentTexts,
   continuesFrom,
-  readSettings,
   textedLines,
   calendarLooked,
 } from "../src/agent/heartbeat.js";
@@ -185,13 +184,6 @@ function unitChecks(check) {
         "0-inbox/contacts/someone.md",
         "0-inbox/google-chat/2026/09/2026-09-25.md",
       ]),
-  );
-  const paused = readSettings("---\npaused: true\n---\nOnly deadlines, please.\n");
-  const open = readSettings("Only text me about deadlines.");
-  check(
-    "tex/heartbeat.md pauses it in its front matter, and its body is their instructions",
-    paused.paused === true && paused.instructions === "Only deadlines, please." && open.paused === false &&
-      open.instructions === "Only text me about deadlines." && readSettings("---\npaused: no\n---\n").paused === false,
   );
   check(
     "what earlier check-ins texted is read back from their logs",
@@ -691,6 +683,13 @@ export async function runAgentHeartbeatChecks(check) {
       "paused in tex/heartbeat.md, it reads nothing and runs no model",
       paused?.isError !== true && stopped.status === 200 && stopped.body?.outcome === "paused" && model.requests.length === looked,
     );
+
+    // Dev2, 2026-11-08: quiet hours on the Tex page were shown and never kept. The paused look above ran no model.
+    const pausedEtag = /^etag: (.+)$/m.exec((await rpc(env, TOKEN_APP, "read_note", { path: "tex/heartbeat.md" }))?.content?.[0]?.text ?? "")?.[1]?.trim();
+    const hh = (h) => `${String((new Date().getUTCHours() + h) % 24).padStart(2, "0")}:00`;
+    await rpc(env, TOKEN_APP, "write_note", { path: "tex/heartbeat.md", content: `---\nquiet-hours: ${hh(0)}-${hh(3)}\n---\n`, expected_etag: pausedEtag });
+    const held = await ask(env, TOKEN_BEAT, beat());
+    check("in their quiet hours a look reads nothing, runs no model, and says when the hours end", held.status === 200 && held.body?.outcome === "quiet_hours" && held.body?.until > Date.now() && model.requests.length === looked);
   } finally {
     restoreControlPlane();
     restoreS3();

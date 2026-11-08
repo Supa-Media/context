@@ -309,6 +309,30 @@ test("someone with no linked phone is told so, and nothing is logged", async () 
   assert.equal(log(), before);
 });
 
+// Dev2, 2026-11-08: quiet hours on the Tex page were shown and never kept.
+test("in their quiet hours only an emergency is texted; the rest waits for the hours to end", async () => {
+  const hour = new Date().getUTCHours();
+  const pad = (h) => `${String(h % 24).padStart(2, "0")}:00`;
+  bucket.set("tex/heartbeat.md", { body: `---\nquiet-hours: ${pad(hour)}-${pad(hour + 2)}\n---\n`, etag: "q1" });
+  try {
+    await notify(TOKEN_OWNER, { message: "Deploy finished.", urgency: "asked" });
+    const held = await deliver();
+    assert.equal(held.body.outcome, "quiet_hours");
+    assert.ok(held.body.until > Date.now() && held.body.until <= Date.now() + 2 * 60 * 60 * 1000, "until is when the hours end");
+    assert.match(log(), /· asked · waiting\n\*\*Message:\*\* Deploy finished\./, "still waiting");
+
+    await notify(TOKEN_OWNER, { message: "Prod is down.", urgency: "emergency" });
+    const urgent = await deliver();
+    assert.equal(urgent.body.outcome, "speak");
+    assert.equal(urgent.body.answer, "Urgent, Claude Code: Prod is down.");
+    assert.equal(typeof urgent.body.until, "number", "the one still waiting comes back later");
+    assert.match(log(), /· asked · waiting\n\*\*Message:\*\* Deploy finished\./);
+  } finally {
+    bucket.delete("tex/heartbeat.md");
+  }
+  assert.equal((await deliver()).body.answer, "Claude Code: Deploy finished.", "after the hours it goes");
+});
+
 test("a ping waiting when they pause is marked paused, not texted", async () => {
   await notify(TOKEN_OWNER, { message: "Staging is down.", urgency: "emergency" });
   bucket.set("tex/attention.md", { body: "---\npaused: true\n---\n", etag: "a1" });

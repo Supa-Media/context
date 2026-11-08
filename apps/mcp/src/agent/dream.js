@@ -31,6 +31,7 @@
  * is attributed to the dreams client. The control plane hears an outcome code.
  */
 
+import { DREAMS_SETTINGS_PATH, isSwitchedOff } from "./texSwitches.js";
 import { ABOUT_ME_PATH, readAboutMe } from "./aboutMe.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { eventLines } from "./transcript.js";
@@ -251,6 +252,11 @@ export async function handleDream(request, env, store, session, controlPlane) {
   const timeZone = readTimeZone(body.dream.timeZone) ?? DEFAULT_TIME_ZONE;
   const since = typeof body.dream.since === "number" && Number.isFinite(body.dream.since) ? body.dream.since : null;
   const started = Date.now();
+  // They switched it off (`texSwitches.js`): About me is left as it is; the summaries of their days still run.
+  if (await isSwitchedOff(dispatch, DREAMS_SETTINGS_PATH)) {
+    await summarizeDays(env, store, session, started, timeZone);
+    return json({ outcome: "nothing_new", paused: true });
+  }
   // Their chat with Tex since the last dream (or the last few days), from its ledger: the one record of it.
   const entries = await readChatSince(store, session, { since: since ?? started - (FIRST_DREAM_DAYS - 1) * DAY_MS });
   const chat = renderChatDays(entries, { timeZone });

@@ -222,3 +222,14 @@ so nothing caught it. Now:
 Undo: put a prefix outside base32hex back, or drop the second send;
 `apps/convex/__tests__/calendarWrite.test.ts` "the id asked for is one Google
 takes" and "an id Google refuses never costs the event" fail.
+
+## A group chat may invite guests, on the calendar owner's yes (2026-11-08)
+
+The group prompt said guests can't be invited from a group, but the gate never
+refused them: a group turn is a texted turn, so an event that invites guests
+is held for the tagger's own 👍 or yes, like every change that tells somebody,
+and only that yes makes it and lets Google email the guests. Asked to pick,
+the owner chose the gate's behaviour, so the prompt (`groupTurn.js`) and the
+capability list now say what the gate does. Test:
+`apps/mcp/test/agentGroupActions.test.mjs` ("a tagger's event that invites
+guests…").

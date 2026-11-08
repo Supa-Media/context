@@ -139,3 +139,13 @@ without `firstLookAt` dreams every hour about someone whose workspace is
 empty; sweeping a new phone beats onboarding to the note. Tests:
 `apps/mcp/test/agentDream.test.mjs` ("a first look"),
 `apps/convex/__tests__/dreamsFirstLook.test.ts`.
+
+## An off switch, from a text (decided by the owner, 2026-11-08)
+
+The nightly rewrite of About me stays on by default. `paused: true` in the
+front matter of `tex/dreams.md` switches it off. A dream then leaves
+`tex/about.md` as it is and runs no model, but the summaries of their
+finished days still run, because the conversation history needs them
+(`apps/mcp/src/agent/texSwitches.js`). Tex writes the note when they ask. A
+dream started now while the switch is off does nothing either. Test:
+`apps/mcp/test/agentDream.test.mjs` ("switched off…").

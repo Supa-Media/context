@@ -173,6 +173,7 @@ test/workspaceInvite.test.mjs
 test/dreamNow.test.mjs
 bench/test/promote.test.mjs
 test/attention.test.mjs
+test/quietHours.test.mjs
 test/vaultSharing.test.mjs
 test/pinnedTeamWords.test.mjs
 test/privacy/readsAsGuest.test.mjs

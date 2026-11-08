@@ -215,7 +215,7 @@ export function attentionText(pings) {
  * never sends a ping twice. Pings waiting when the person has since paused
  * them are marked held instead. A log that changed under it is re-read once.
  */
-export async function deliverAttention(dispatch, store, { now, timeZone }) {
+export async function deliverAttention(dispatch, store, { now, timeZone, onlyEmergencies = false }) {
   const settings = readAttentionSettings((await readWithEtag(dispatch, ATTENTION_SETTINGS_PATH))?.body ?? "");
   const days = [...new Set([attentionPath(now - DAY_MS, timeZone), attentionPath(now, timeZone)])];
   const sending = [];
@@ -223,7 +223,8 @@ export async function deliverAttention(dispatch, store, { now, timeZone }) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const log = await readWithEtag(dispatch, path);
       if (log === null || log.missing) break;
-      const waiting = waitingPings(log.body);
+      // In their quiet hours only an emergency goes; the rest stay waiting for the window's end (`quietHours.js`).
+      const waiting = waitingPings(log.body).filter((ping) => !onlyEmergencies || ping.urgency === "emergency");
       if (waiting.length === 0) break;
       const ids = waiting.map((ping) => ping.id);
       const status = settings.paused ? "paused" : `texted ${clock(now, timeZone)}`;

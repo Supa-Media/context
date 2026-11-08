@@ -156,9 +156,9 @@ export const CAPABILITIES = Object.freeze([
     name: "Calendar",
     actions: ["send.calendar"],
     texts: "read any day or run of days on their connected Google calendars live (fetch calendar:), and add, move, change, cancel or answer an event; their own event changes at once, one that tells a guest waits for their 👍",
-    group: "one event on someone here's own calendar, by as as with email, on their yes; guests can't be invited from here, so send everyone the details by email or have each person ask",
+    group:
+      "one event on someone here's own calendar, by as as with email; a change to the tagger's own that tells nobody is made at once, and one that invites guests (the chat's people by email, say) or tells them is shown here and waits for the calendar owner's 👍 or yes alone, then Google emails the guests",
     guest: "only on the calendar of someone here who is on Context, always with as",
-    cant: [{ where: "group", what: "invite the chat's people as guests to an event", workaround: { kind: "words", text: "email everyone the details from someone's Gmail, or have each person ask you to add it to their own calendar" } }],
   },
   {
     name: "Slack and other connected apps",
@@ -201,21 +201,20 @@ export const CAPABILITIES = Object.freeze([
     name: "Reminders and routines",
     actions: [],
     texts:
-      "a reminder (tex/routines/once/, at: a date and time) or a repeating routine (tex/routines/<every-5-minutes, hourly, every-3-hours, daily, weekly, every-2-weeks or monthly>/, with at: and on:) in their own workspace; a routine can change their own calendar when it runs, and an event that tells a guest waits for their yes. You check in on your own at 10 am, 2 pm and 6 pm their time (new mail can bring one forward), looking at new mail, today's calendar, Slack and Google Chat, and text at most three times a day, never at night; a check-in only offers a next step and does it on their yes. To stop check-ins write paused: yes in tex/heartbeat.md; a word under mute: there or in tex/attention.md silences check-ins about it. They can also switch a routine off or change a reminder on their Tex page (context.lc/tex/@their-handle)",
+      "a reminder (tex/routines/once/, at: a date and time) or a repeating routine (tex/routines/<every-5-minutes, hourly, every-3-hours, daily, weekly, every-2-weeks or monthly>/, with at: and on:) in their own workspace; a routine can change their own calendar when it runs, and an event that tells a guest waits for their yes. You check in on your own at 10 am, 2 pm and 6 pm their time (new mail can bring one forward), looking at new mail, today's calendar, Slack and Google Chat, and text at most three times a day, never at night; a check-in only offers a next step and does it on their yes. To stop check-ins write paused: yes in tex/heartbeat.md; quiet-hours: (like 11 pm to 7 am) in its front matter holds check-ins and their agents' pings until the hours end, emergencies still texted; a word under mute: there or in tex/attention.md silences check-ins about it. They can also switch a routine off or change a reminder on their Tex page (context.lc/tex/@their-handle)",
     group: "routines for the chat run here for everyone (your group instructions say where they go); only someone here on Context can set one, and anyone here can switch it off in the app. You check in on the chat on your own and soon after its shared mail arrives; \"Tex, stop\" stops those check-ins too, and \"Tex, be quiet\" does unless mail is shared",
     guest: "you can't set reminders or routines from a guest chat, and you don't check in on it",
     cant: [
       { where: "everywhere", what: "run a routine more often than every 5 minutes, keep more than 200 in one workspace, or send a one-off reminder whose time has passed", workaround: { kind: "words", text: "offer every 5 minutes or hourly, archive routines no longer needed, or set the reminder for the next time that works" } },
-      { where: "everywhere", what: "move check-in times, add more check-in texts, or set quiet hours (a quiet-hours: line does nothing yet)", workaround: { kind: "words", text: "set a routine at the time they want, or write in the body of tex/heartbeat.md what to leave alone (\"only text me about deadlines\")" } },
+      { where: "everywhere", what: "move check-in times or add more check-in texts", workaround: { kind: "words", text: "set a routine at the time they want, or write in the body of tex/heartbeat.md what to leave alone (\"only text me about deadlines\")" } },
       { where: "guest", what: "set reminders or routines in a chat where not everyone is on Context", workaround: { kind: "words", text: "once everyone here has joined the workspace (\"Tex, add everyone here to @name\" from its owner, then each accepts), the chat can have routines; until then, each person can text you on their own for a reminder" } },
     ],
   },
   {
     name: "Housekeeping",
     actions: [],
-    texts: "once a day, after 9 am their time, you tidy their personal workspace on your own (archive finished projects, fix a project's status, merge duplicate contacts, group crowded folders, archive old inbox notes) and log each change with how to undo it in tex/housekeeping/<date>.md",
+    texts: "once a day, after 9 am their time, you tidy their personal workspace on your own (archive finished projects, fix a project's status, merge duplicate contacts, group crowded folders, archive old inbox notes) and log each change with how to undo it in tex/housekeeping/<date>.md; to switch it off write paused: true in tex/housekeeping.md's front matter (paused: false turns it back on), and undo a tidy from its \"To undo\" line on their yes",
     group: null,
-    cant: [{ where: "everywhere", what: "switch housekeeping off (there is no setting yet)", workaround: { kind: "words", text: "undo a tidy from its \"To undo\" line in tex/housekeeping/<date>.md, on their yes" } }],
   },
   {
     name: "Background jobs",
@@ -337,9 +336,8 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Your memory of them",
     actions: ["manage.dream_now", "write.save_session"],
-    texts: "tex/about.md is what you know of them, rewritten each night around 3 am their time when they texted you since the last rewrite; you can start that rewrite now (the owner of their personal workspace, on a plan that includes it, at most once every six hours), or save a session note",
+    texts: "tex/about.md is what you know of them, rewritten each night around 3 am their time when they texted you since the last rewrite; you can start that rewrite now (the owner of their personal workspace, on a plan that includes it, at most once every six hours), or save a session note; to switch the nightly rewrite off write paused: true in tex/dreams.md's front matter (paused: false turns it back on; while it is off, starting one now does nothing), and they can fix or remove lines in About you on their Tex page (context.lc/tex/@their-handle)",
     group: null,
-    cant: [{ where: "everywhere", what: "turn the nightly rewrite off", workaround: { kind: "app_path", text: "they fix or remove lines in About you on their Tex page (context.lc/tex/@their-handle); pausing texting stops it too" } }],
   },
   {
     name: "Their account",

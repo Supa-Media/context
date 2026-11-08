@@ -327,6 +327,18 @@ export async function runAgentHousekeepingChecks(check) {
       texted.status !== 200 && dreamt.status !== 200 && model.requests.length === 0 && (await whereIs(env, "1-projects/garden/overview.md")) === "1-projects/garden/overview.md",
     );
 
+    /* ---------------- switched off ---------------- */
+
+    // Dev2, 2026-11-08: an off switch for the daily tidy, kept in tex/housekeeping.md (`texSwitches.js`).
+    bucket.set("tex/housekeeping.md", { body: "---\npaused: yes\n---\n", etag: "hs1" });
+    const off = await ask(env, TOKEN_HOUSE, run);
+    check(
+      "switched off in tex/housekeeping.md, a run changes nothing, logs nothing and runs no model",
+      off.status === 200 && off.body?.outcome === "unchanged" && off.body?.paused === true && model.requests.length === 0 && log() === "" &&
+        (await whereIs(env, "1-projects/garden/overview.md")) === "1-projects/garden/overview.md",
+    );
+    bucket.set("tex/housekeeping.md", { body: "---\npaused: no\n---\n", etag: "hs2" });
+
     /* ---------------- a run that tidies ---------------- */
 
     model.install([
