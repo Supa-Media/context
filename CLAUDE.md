@@ -339,6 +339,13 @@ checked is not a guard.**
 - **Sabotage-test rather than trusting a green run**: break the invariant
   deliberately and confirm the right tests fail.
 - **Small, tested increments.** Atomic commits; describe *why*.
+- **Agent-first: no feature is buttons-only.** What a person can do in the app,
+  Tex can do from a text, or the capability list
+  (`apps/mcp/src/agent/capabilities.js`) names the one step only a person can
+  take and what Tex hands for it: an agent prompt, a link, an app path, a vault
+  entry. A PR that adds an app route adds its line; one that gives Tex a
+  capability deletes its `cant` entry (decided by the owner, 2026-11-08;
+  [computer-setup](./docs/decisions/texting-assistant/computer-setup.md)).
 - **No handwritten file over 1,000 lines.** Check a file's size before adding
   to it, extract a cohesive responsibility first, and run `pnpm architecture`
   before calling work done. See

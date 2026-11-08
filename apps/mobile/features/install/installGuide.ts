@@ -140,7 +140,8 @@ export const INSTALL_SECTIONS: readonly InstallSection[] = [
  * coding agent running on the computer. The person approves the pairing
  * themselves; a session with a Context connection could approve its own code
  * (`manage pair_device`), and for a computer that takes jobs that is the one
- * thing it must not do.
+ * thing it must not do. Tex hands the same words in a text
+ * (`apps/mcp/src/machines/setupPrompt.js`), held equal by the test.
  */
 export function agentInstructions(tab: InstallTab): string {
   const lines = [
@@ -148,7 +149,7 @@ export function agentInstructions(tab: InstallTab): string {
     "",
     `1. Run: ${INSTALL_COMMAND}`,
     `2. Run: export PATH="${RUNNER_BIN}:$PATH"`,
-    `3. Start \`${PAIR_COMMAND}\` in the background. It prints a link and a code, then waits up to 30 minutes. Show me the link and the code exactly as printed, and wait. I approve it in my browser; never approve it yourself.`,
+    `3. Start \`${PAIR_COMMAND}\` in the background. It prints a link and a code, then waits up to 30 minutes. Show me the link and the code exactly as printed, and wait. I approve it myself, in my browser or by texting the code to Tex; never approve it yourself.`,
     `4. When it prints "Paired", run: ${SERVICE_COMMAND}`,
   ];
   if (tab === "mac") {
@@ -162,7 +163,7 @@ export function agentInstructions(tab: InstallTab): string {
 
 export const AGENT_CARD_TITLE = "Let your agent do it";
 export const AGENT_CARD_LEAD =
-  "Paste this into Claude Code or Codex on that computer. You still approve it yourself, in your browser.";
+  "Paste this into Claude Code or Codex on that computer. You still approve it yourself, in your browser or by texting the code to Tex.";
 export const INSTALL_FOOT = "Windows isn't supported yet.";
 
 export function sectionFor(tab: InstallTab): InstallSection {
