@@ -655,11 +655,8 @@ describe("resolveGatewaySession (the read behind lastUsedAt)", () => {
 
   test("an unknown token resolves to no session and asks for no touch", async () => {
     const { t } = await twoConnectedTenants();
-    expect(await resolve(t, await hashToken("not-a-token"))).toEqual({
-      session: null,
-      touchDue: false,
-      flags: [], // nobody to have any feature flags
-    });
+    // No feature flags either: there is nobody to have any.
+    expect(await resolve(t, await hashToken("not-a-token"))).toEqual({ session: null, touchDue: false, flags: [] });
   });
 
   test("a live grant never stamped is due, and the session names that grant", async () => {
