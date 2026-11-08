@@ -120,6 +120,30 @@ async function approveFromGrantHandler(ctx: ActionCtx, body: Record<string, unkn
   return json({ code: answer.code }, REFUSAL_STATUS.get(answer.code) ?? 403);
 }
 
+/**
+ * A code a person texted Tex, approved with their own 1:1 texting grant (`texMachineTexts.ts`): a full computer in
+ * that grant's own workspace. Refusals are statuses with `{ code }`, as `approveFromGrantHandler`'s are.
+ */
+async function approveFromTextsHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const accessToken = stringField(body, "accessToken");
+  const code = stringField(body, "code");
+  if (accessToken === null || code === null) return badRequest();
+  const normalized = normalizePairingCode(code);
+  const answer = await ctx.runMutation(internal.functions.texMachineTexts.approveTexMachinePairingFromTexts, {
+    hashedAccessToken: await hashToken(accessToken),
+    hashedCode: normalized === null ? null : await hashToken(pairingCodeHashInput(normalized)),
+  });
+  if (answer.ok) return json({ name: answer.name, os: answer.os, workspaceId: answer.workspaceId });
+  return json({ code: answer.code }, REFUSAL_STATUS.get(answer.code) ?? 403);
+}
+
+/** A person's own computers, by the id the gateway resolved from their grant, for a chat turn setting them up. */
+async function ownedHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const userId = stringField(body, "userId");
+  if (userId === null) return badRequest();
+  return json({ machines: await ctx.runQuery(internal.functions.texMachineTexts.texMachinesOwnedBy, { userId }) });
+}
+
 /** A machine giving its own grant back (`/machines/leave` at the gateway). Unknown and revoked grants are one 401. */
 async function leaveHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const grant = stringField(body, "grant");
@@ -302,6 +326,8 @@ export const TEX_MACHINE_GATEWAY_ROUTES: ReadonlyArray<readonly [string, Handler
   ["/gateway/machines/pair/read", readHandler],
   ["/gateway/machines/pair/claim", claimHandler],
   ["/gateway/machines/pair/approve-grant", approveFromGrantHandler],
+  ["/gateway/machines/pair/approve-texts", approveFromTextsHandler],
+  ["/gateway/machines/owned", ownedHandler],
   ["/gateway/machines/leave", leaveHandler],
   ["/gateway/machines/resolve", resolveHandler],
   ["/gateway/machines/register", registerHandler],

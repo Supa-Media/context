@@ -31,7 +31,9 @@ export const ONE_TO_ONE_ONLY = "not here; say they can text you on their own for
  * a 1:1 text (`texts`), a group chat (`group`, null when only a person's own texts have it) and a guest chat (`guest`,
  * when it differs from the group), plus who may ask and approve (`who`), and what Tex can't do yet with the way
  * around it (`cant`: `{ where, what, workaround: { kind, text } }`; Dev2, 2026-11-08: "when we do create new capabilities
- * ... we remove/update the line about the capability in code").
+ * ... we remove/update the line about the capability in code"). `appRoutes` names the app's own routes a line (or a
+ * can't) covers, so a button in the app is never the only way to do a thing (agent-first, 2026-11-08;
+ * `docs/decisions/texting-assistant/computer-setup.md`): the test fails on a computer app route on no line.
  */
 export const CAPABILITIES = Object.freeze([
   {
@@ -176,40 +178,39 @@ export const CAPABILITIES = Object.freeze([
     group: "a computer its owner lent to this chat; an \"Ask me first\" job runs on the owner's 👍 in this chat",
   },
   {
-    // Dev2, 2026-11-08: asked "Tex help me setup community compute", Tex had no idea; lending is an app setting with no tool yet.
-    name: "Lending a computer to a group chat (community compute)",
-    actions: [],
+    // Dev2, 2026-11-08: "Tex help me setup community compute" got "connect it on your own Tex page"; every step was a
+    // button in the app. Now Tex does it (`machines/texActions.js`), and only what's theirs stays theirs.
+    name: "Setting up their computers (community compute)",
+    actions: ["send.computers"],
+    appRoutes: ["/machines/app/list", "/machines/app/set", "/machines/app/disconnect", "/machines/app/lend", "/machines/app/unlend", "/machines/app/raise", "/machines/app/chat-people", "/machines/app/sign-in", "/machines/app/install"],
     texts:
-      "only the computer's own owner lends it, on their Tex page in the Context app (context.lc/tex/@their-handle): pair the computer first, then add the group chat under it, choose who there may send it work (only them, everyone, or named people) and keep or turn off \"Ask me first\"; you can't lend it for them, so say those steps",
-    group: "a computer lent to this chat runs its jobs for whoever its owner allowed; with \"Ask me first\" on, the owner's 👍 in this chat starts each job; to lend one, its owner does it on their Tex page, as in the 1:1 part",
+      "do it yourself with send action computers, never send them to the app: a computer not paired yet gets the setup prompt (do setup_prompt, mac, linux or headless) to paste into Claude Code or Codex on it, " +
+      "then they text you the code it shows and you approve it (do pair); then rename it, set its limits or more time today, install and sign in Claude Code or Codex (they sign in to their own account at the link you text), or disconnect it. " +
+      "Pasting the prompt, signing in and texting the code are the only parts that are theirs",
+    group:
+      "its owner says \"Tex, lend my computer here\" and you lend it (do lend, with who may send it work: only them, everyone or @handles, and Ask me first on or off), or take it back (do unlend); " +
+      "with Ask me first on, the owner's 👍 here starts each job; a pairing code or a sign-in is never done here: anyone here could use it, so they text you on their own for it",
+    guest: "the same as a group, for its people on Context",
+    who: "Only a computer's own owner sets it up or lends it, and only in their own words",
     cant: [
       {
+        where: "1:1",
+        appRoutes: ["/machines/app/answer"],
+        what: "answer a computer's \"Ask me first\" from a 1:1 text",
+        workaround: { kind: "app_path", text: "the owner taps 👍 on the ask in the group chat it came from, or answers it on the computer's page on their Tex page (context.lc/tex/@their-handle)" },
+      },
+      {
         where: "everywhere",
-        what: "lend or take back a computer for a group chat, or change who there may send it work or \"Ask me first\"",
-        workaround: { kind: "app_path", text: "the computer's owner opens their Tex page in the Context app (context.lc/tex/@their-handle), adds the chat under that computer and picks who may use it; if it isn't paired yet, give them the pairing steps first" },
+        what: "change which of a computer's folders, coding tools, trusted repos or computer use Tex may use, or turn on \"Let Tex use this Mac\" in the Mac app",
+        workaround: { kind: "app_path", text: "they open the computer on their Tex page in the Context app (context.lc/tex/@their-handle), or, for the Mac app's switch and folders, Settings → Tex in the Mac app" },
       },
     ],
   },
   {
-    name: "Pairing a computer",
+    name: "Pairing a session's computer for mail",
     actions: ["manage.pair_device"],
-    texts: "manage pair_device approves the code an AI app on a computer shows, so that computer gets note mail at once; it is mail only and never runs your jobs",
+    texts: "manage pair_device approves the code an AI app on a computer shows, so that computer gets note mail at once; it is mail only and never runs your jobs, so for a computer that runs jobs use send action computers",
     group: null,
-    cant: [
-      {
-        where: "everywhere",
-        what: "install the runner on someone's computer or pair it so it can run your jobs",
-        workaround: {
-          kind: "agent_prompt",
-          text: "send context.lc/download and say which tab fits their computer (Mac, Linux or Headless): its \"Let your agent do it\" prompt, pasted into Claude Code or Codex on that computer, installs the runner and runs context-machine pair, which shows a link and a code; they approve it at the link (context.lc/tex?view=connect&code=<the code>). On a Mac with the Context app, they can instead turn on \"Let Tex use this Mac\" in it",
-        },
-      },
-      {
-        where: "everywhere",
-        what: "rename a computer, change its folders, tools or limits, give it more time today, sign it in to Claude Code or Codex, disconnect it, or answer its \"Ask me first\" in a 1:1",
-        workaround: { kind: "app_path", text: "they open their Tex page in the Context app (context.lc/tex/@their-handle) and the computer there" },
-      },
-    ],
   },
   {
     name: "Pictures and cards",

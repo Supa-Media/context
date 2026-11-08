@@ -80,8 +80,8 @@ test("sharing mail with a group: 1:1 Tex says where and how, and who sends", () 
   assert.match(email, /Anyone can ask for a draft and refine it; only the mailbox's own person sends it/);
 });
 
-test("lending a computer to a group (community compute) is on the list", () => {
-  assert.match(CAPABILITY_LIST, /- Lending a computer to a group chat \(community compute\)\. 1:1: only the computer's own owner lends it/);
+test("setting up a computer (community compute) is Tex's own job, on the list", () => {
+  assert.match(CAPABILITY_LIST, /- Setting up their computers \(community compute\)\. 1:1: do it yourself with send action computers, never send them to the app/);
 });
 
 test("a group with no mail shared is told how to share it, never to not offer it", () => {
@@ -121,13 +121,29 @@ test("every can't says where, and hands a way around it of a known kind", async 
   assert.match(CAPABILITY_LIST, /WHAT YOU CAN'T DO YET, AND THE WAY AROUND IT/);
 });
 
-test("community compute: pairing hands the agent prompt, lending names the Tex page", () => {
+// Dev2, 2026-11-08 ("Tex does it, plus rule and CI"): the computer can'ts that waited on Tex's own tool are gone, and
+// what stays is only what's a person's: answering Ask me first from a 1:1, and the Mac app's own switch and folders.
+test("community compute: Tex pairs and lends itself, and pair_device is never offered for jobs", () => {
   const lines = CAPABILITY_LIST.split("\n");
-  const pair = lines.find((text) => text.includes("install the runner on someone's computer"));
-  assert.match(pair, /context\.lc\/download/);
-  assert.match(pair, /Let your agent do it/);
-  assert.match(pair, /context\.lc\/tex\?view=connect&code=/);
-  const lend = lines.find((text) => text.includes("lend or take back a computer for a group chat"));
-  assert.match(lend, /context\.lc\/tex\/@their-handle/);
+  assert.equal(lines.some((text) => text.includes("install the runner on someone's computer")), false, "pairing is no longer a can't");
+  assert.equal(lines.some((text) => text.includes("lend or take back a computer for a group chat")), false, "lending is no longer a can't");
+  const setup = lines.find((text) => text.startsWith("- Setting up their computers"));
+  assert.match(setup, /do setup_prompt/);
+  assert.match(setup, /do pair/);
+  assert.match(setup, /Tex, lend my computer here/);
   assert.match(CAPABILITY_LIST, /mail only and never runs your jobs/, "pair_device is never offered as pairing for jobs");
+});
+
+// Agent-first (Dev2, 2026-11-08; `docs/decisions/texting-assistant/computer-setup.md`): every app route that changes a
+// person's computers is on a line Tex can do, or on a can't that hands the way around it. A new route on no line fails here.
+test("every computer app route is something Tex can do, or a can't with its way around", async () => {
+  const { MACHINE_APP_PATHS } = await import("../src/machines/appRoutes.js");
+  const covered = new Map();
+  for (const entry of CAPABILITIES) {
+    for (const route of entry.appRoutes ?? []) covered.set(route, entry.name);
+    for (const cant of entry.cant ?? []) for (const route of cant.appRoutes ?? []) covered.set(route, `${entry.name} (can't)`);
+  }
+  const missing = [...MACHINE_APP_PATHS].filter((route) => !covered.has(route));
+  assert.deepEqual(missing, [], `give Tex these, or add a can't with the way around it, in apps/mcp/src/agent/capabilities.js: ${missing.join(", ")}`);
+  for (const route of covered.keys()) assert.ok(MACHINE_APP_PATHS.has(route), `${covered.get(route)}: ${route} is not an app route any more`);
 });

@@ -27,6 +27,7 @@ import { toolDefinitions } from "../tools/registry.js";
 import { toolsForSession } from "../tools/advertised.js";
 import { actionArguments } from "../orient/manual.js";
 import { COMMAND_SEND_ACTIONS } from "./commandTools.js";
+import { COMPUTER_SEND_ACTIONS } from "../machines/texActions.js";
 import { TEXTS_ID_PREFIX } from "../tools/texts.js";
 
 /** The six, in the order they are listed. */
@@ -63,6 +64,8 @@ export const ASSISTANT_SEND_ACTIONS = {
   say_nothing: { tool: "say_nothing", summary: "Text nothing this time and end your turn, only where your instructions say silence fits; never type a word like SKIP instead.", take: own }, // `sayNothing.js`
   // Tex's chat commands (`commandTools.js`): offered only when the turn holds them.
   ...Object.fromEntries(Object.entries(COMMAND_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
+  // Their own computers, set up from a text (`machines/texActions.js`): offered only when the turn holds the tool.
+  ...Object.fromEntries(Object.entries(COMPUTER_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
 };
 
 /**

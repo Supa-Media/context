@@ -452,6 +452,7 @@ test/machineRoutes.test.mjs
 test/machineJobs.test.mjs
 test/machineRunSettings.test.mjs
 test/machineApp.test.mjs
+test/machineTexActions.test.mjs
 test/machineGroupAsk.test.mjs
 test/machineForJobs.test.mjs
 test/agentPlanBigAsk.test.mjs

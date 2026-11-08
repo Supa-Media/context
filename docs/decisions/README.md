@@ -889,6 +889,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A person's own computer becomes more minion slots, run by one Rust runner (2026-11-03, 2026-11-04)](./texting-assistant/machines.md)
 - [A run is plain Claude Code in the person's folder (owner, 2026-11-04)](./texting-assistant/machines.md)
 - [Credentials on a device: the machine grant and the run grant (2026-11-04)](./texting-assistant/machines.md)
+- [Tex sets things up itself, and hands back only what a person must do (2026-11-08)](./texting-assistant/computer-setup.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
