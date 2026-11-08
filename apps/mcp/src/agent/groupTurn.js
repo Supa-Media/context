@@ -639,7 +639,7 @@ export function groupWriteTools(offered, group = null) {
  * saved sessions and a workspace of their own. A group's Tex leaves these to
  * the person texting it on their own, as it does their mail and saved logins.
  */
-const SOMEBODYS_ALONE = new Set([
+export const SOMEBODYS_ALONE = new Set([
   "save_email_draft", "google_chat", "forward_rule", "connect_google", "connect_app", "slack_api", "app_read", "app_change",
   "dream_now", "notify_me", "save_context", "create_workspace", "pair_device",
 ]);
