@@ -17,7 +17,7 @@ do, each saying what it is in a 1:1 text, in a group chat and in a guest chat
 approves. `texArchitecture.js` puts it, with one line on where the turn is,
 after the drawing for the front door (1:1, group and job turns), the advisor
 and the reply reviewer: the same bytes every turn, so it sits in the cached
-part of the prompt (about 3,300 tokens). A surface's own lines still say what
+part of the prompt (about 6,600 tokens). A surface's own lines still say what
 holds right here; the list is how Tex points someone to where a thing works
 instead of saying it can't.
 
