@@ -13,11 +13,16 @@ export type LineList = "bullet" | "number" | "task" | null;
 export interface LineState {
   style: LineStyle;
   list: LineList;
+  /**
+   * Whether words are selected. The writing bar swaps its keys for bold,
+   * italic and underline while they are (owner, 2026-11-08).
+   */
+  selected: boolean;
 }
 
-export const BODY_LINE: LineState = { style: "body", list: null };
+export const BODY_LINE: LineState = { style: "body", list: null, selected: false };
 
-export function lineStateOf(text: string): LineState {
+export function lineStateOf(text: string, selected = false): LineState {
   const heading = /^(#{1,6}) /.exec(text);
   const style: LineStyle = heading === null ? "body" : heading[1]!.length === 1 ? "title" : "heading";
   const list: LineList = /^\s*[-*+] \[[ xX]\] /.test(text)
@@ -27,18 +32,19 @@ export function lineStateOf(text: string): LineState {
       : /^\s*\d+[.)] /.test(text)
         ? "number"
         : null;
-  return { style, list };
+  return { style, list, selected };
 }
 
 export function sameLineState(a: LineState, b: LineState): boolean {
-  return a.style === b.style && a.list === b.list;
+  return a.style === b.style && a.list === b.list && a.selected === b.selected;
 }
 
 /** A line state that came over a bridge, or `null` if it is not one. */
 export function decodeLineState(value: unknown): LineState | null {
   if (typeof value !== "object" || value === null) return null;
-  const { style, list } = value as { style?: unknown; list?: unknown };
+  const { style, list, selected } = value as { style?: unknown; list?: unknown; selected?: unknown };
   if (style !== "title" && style !== "heading" && style !== "body") return null;
   if (list !== null && list !== "bullet" && list !== "number" && list !== "task") return null;
-  return { style, list };
+  // A web view bundle older than the field never says; that is "nothing selected".
+  return { style, list, selected: selected === true };
 }

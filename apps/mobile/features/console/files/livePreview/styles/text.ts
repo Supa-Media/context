@@ -67,6 +67,11 @@ export const textStyles = `
 .cm-lp-strong { font-weight: 650; color: var(--lp-heading); }
 .cm-lp-em { font-style: italic; }
 .cm-lp-strike { text-decoration: line-through; opacity: 0.7; }
+/* <u>underlined</u> words: the tags hide, the words keep a plain underline. */
+.cm-lp-underline {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
 /*
   ==highlighted== words: a marker-pen fill and nothing else. No underline and
   no pointer, which is what a comment's wash carries, so the two never read as
