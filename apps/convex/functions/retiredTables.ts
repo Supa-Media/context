@@ -7,6 +7,12 @@
  * the feature by the owner, 2026-10-17 (`lib/schema/organizer.ts`). Run
  * `npx convex run functions/retiredTables:drainOrganizerSettings` once per
  * deployment; it deletes a batch and schedules itself again while rows remain.
+ *
+ * `featureSwitches`: the old global switches, retired 2026-11-08 when the owner
+ * launched vault key use, their one switch, and per-person flags replaced them
+ * (`functions/featureFlags.ts`). `drainFeatureSwitches`, the same way.
+ *
+ * Both run from the "Drain retired tables" workflow, which prints counts only.
  */
 
 import { v } from "convex/values";
@@ -24,6 +30,18 @@ export const drainOrganizerSettings = internalMutation({
     for (const row of rows) await ctx.db.delete(row._id);
     const more = rows.length === DRAIN_BATCH;
     if (more) await ctx.scheduler.runAfter(0, internal.functions.retiredTables.drainOrganizerSettings, {});
+    return { deleted: rows.length, more };
+  },
+});
+
+export const drainFeatureSwitches = internalMutation({
+  args: {},
+  returns: v.object({ deleted: v.number(), more: v.boolean() }),
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("featureSwitches").take(DRAIN_BATCH);
+    for (const row of rows) await ctx.db.delete(row._id);
+    const more = rows.length === DRAIN_BATCH;
+    if (more) await ctx.scheduler.runAfter(0, internal.functions.retiredTables.drainFeatureSwitches, {});
     return { deleted: rows.length, more };
   },
 });

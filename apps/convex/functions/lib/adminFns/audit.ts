@@ -30,6 +30,16 @@ export const ADMIN_ACTIONS = [
   "tex.allowlist_refused",
   "rows.source_set",
   "feature.switched",
+  "flag.mode_set",
+  "flag.person_added",
+  "flag.person_removed",
+  "flag.cleared",
+  "flag.group_added",
+  "flag.group_removed",
+  "group.created",
+  "group.deleted",
+  "group.person_added",
+  "group.person_removed",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];

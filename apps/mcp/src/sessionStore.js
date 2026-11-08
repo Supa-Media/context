@@ -487,17 +487,15 @@ async function openSessionStore(session, env, controlPlane) {
   });
   /*
     Requests through Context with a vault key added (`vault_list` `fetch`,
-    `vault/proxy.js`), only while staff have switched key use on in the
-    admin console's Features tab. Absent otherwise, and the tool says so.
+    `vault/proxy.js`). Behind a staff switch until 2026-11-08, when the owner
+    launched it for everyone and the switch was removed.
   */
-  if (opened.features?.vaultKeyUse === true) {
-    Object.defineProperty(store, "vaultProxy", {
-      value: { fetch: (url, init) => fetch(url, init) },
-      enumerable: false,
-      writable: false,
-      configurable: true,
-    });
-  }
+  Object.defineProperty(store, "vaultProxy", {
+    value: { fetch: (url, init) => fetch(url, init) },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   return store;
 }
 

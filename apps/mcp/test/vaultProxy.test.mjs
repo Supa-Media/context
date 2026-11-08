@@ -275,11 +275,11 @@ test("a value too short to hide is never sent", async () => {
   assert.equal(net.calls.length, 0);
 });
 
-test("with the deployment switch off, fetch is refused and nothing is sent", async () => {
+test("a store without the proxy refuses fetch and sends nothing", async () => {
   const { store, id } = await proxyVault();
   const result = await toolVaultList(store, { fetch: ask(id, "https://api.stripe.com/v1") });
   assert.equal(result.isError, true);
-  assert.match(JSON.stringify(result), /not switched on/);
+  assert.match(JSON.stringify(result), /not available on this connection/);
 });
 
 test("the audit entry names the address but never the query, a header value, the body or the key", async () => {

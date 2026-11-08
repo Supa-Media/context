@@ -150,7 +150,7 @@ test/vaultLinkStub.test.mjs
 test/visibleKeysBranches.test.mjs
 test/calendarKeyedDelete.test.mjs
 test/keyedNoteIdAt.test.mjs
-test/featureSwitches.test.mjs
+test/vaultLaunched.test.mjs
 bench/test/calibrate.test.mjs
 bench/test/review.test.mjs
 bench/test/context.test.mjs

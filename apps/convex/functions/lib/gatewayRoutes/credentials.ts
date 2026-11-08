@@ -64,9 +64,9 @@ export async function gatewayBindingHandler(
       ? body.completeEncryptionRotation
       : undefined;
 
-  // The binding, and beside it the two deployment-wide switches, which need
-  // nothing from it (before 2026-11-02 they were read one after another).
-  const [opened, idLayout, features] = await Promise.all([
+  // The binding, and beside it the id-copy switch, which needs nothing from it
+  // (before 2026-11-02 they were read one after another).
+  const [opened, idLayout] = await Promise.all([
     ctx.runAction(internal.functions.controlPlane.openStorageBinding, {
       hashedAccessToken: await hashToken(accessToken),
       expectedWorkspaceId: expected.value,
@@ -78,9 +78,6 @@ export async function gatewayBindingHandler(
     // The id-copy switch (`functions/noteIds.ts`): `"ids"` only while reads use the id keys, absent otherwise.
     // Not caught: a switch the gateway cannot read must not be guessed at.
     ctx.runQuery(internal.functions.noteIds.idLayout, {}),
-    // The staff console's feature switches (`functions/featureSwitches.ts`), absent while every one is off.
-    // Not caught, like the id switch: a switch the gateway cannot read is not guessed on.
-    ctx.runQuery(internal.functions.featureSwitches.gatewayFeatures, {}),
   ]);
   if (opened === null) return json({ binding: null });
   // The workspace's access rules, rendered from its rows for this reader (`nodesPrivacy.ts`). Absent only when
@@ -138,6 +135,5 @@ export async function gatewayBindingHandler(
     // Tenth: every workspace is keyed (2026-10-22): its notes live at id keys. The
     // gateway refuses a keyed store that has no id layer (`sessionStore.js`).
     keyed: true,
-    ...(Object.values(features).some(Boolean) ? { features } : {}),
   });
 }

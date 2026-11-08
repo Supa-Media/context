@@ -296,8 +296,5 @@ export function bindingAnswerOf(parsed, required) {
     // workspace is keyed; anything else is a control plane that cannot say
     // where notes are, and the session store refuses it.
     idLayout: parsed.idLayout === "keys" ? "keys" : null,
-    // The staff console's feature switches (`functions/featureSwitches.ts`):
-    // only a literal `true` turns one on, so a missing or odd value is off.
-    features: { vaultKeyUse: parsed.features?.vaultKeyUse === true },
   };
 }

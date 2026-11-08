@@ -41,7 +41,7 @@ import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 /**
  * How long a kept binding is used. Under the five minutes before a temporary bucket credential expires that the
  * control plane stops handing it out (`credentialOpening.ts` `TEMPORARY_CREDENTIAL_MARGIN_MS`), so a kept one is
- * never used past its credential; also how long a deployment switch or a note cap may take to reach a request.
+ * never used past its credential; also how long a note cap may take to reach a request.
  */
 export const FRESH_MS = 4 * 60 * 1000;
 /**
@@ -49,8 +49,8 @@ export const FRESH_MS = 4 * 60 * 1000;
  * response for the next request (decided 2026-11-03, Dev's "every read and write under 0.1 s"). Only a binding on the
  * bucket's own key: one carrying a temporary credential (`sessionToken`) is never served past `FRESH_MS`, since that
  * credential may expire. Every change to the binding's own rows already clears the kept copy (`BINDING_TABLES`), and
- * who may read is decided by the object on every request, so what a stale copy can carry is a plan's note cap, a
- * feature switch or a search index's descriptor, each one request behind.
+ * who may read is decided by the object on every request, so what a stale copy can carry is a plan's note cap or a
+ * search index's descriptor, each one request behind.
  */
 export const SERVE_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 /** A kept binding stamped this far ahead of the gateway's clock is not trusted. */
@@ -195,7 +195,6 @@ function keeper(object, workspaceId, secret, epoch, encryption, now) {
           managedEncryption: opened.managedEncryption,
           noteCap: opened.noteCap,
           idLayout: opened.idLayout,
-          features: opened.features,
         },
         { secret, workspaceId },
       );

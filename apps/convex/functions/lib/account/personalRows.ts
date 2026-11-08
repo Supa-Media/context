@@ -167,6 +167,15 @@ export async function deletePersonalRows(
   // What they pinned to Home and which folders they open: paths and counts.
   await deleteUserPlaces(ctx, userId);
 
+  // Feature flag lists and tester groups they are on: ids and times.
+  for (const table of ["featureFlagPeople", "testerGroupPeople"] as const) {
+    const rows = await ctx.db
+      .query(table)
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    for (const row of rows) await ctx.db.delete(row._id);
+  }
+
   // Their feedback receipts: ids and times, never a report's content.
   const feedbackReceipts = await ctx.db
     .query("feedbackReceipts")
