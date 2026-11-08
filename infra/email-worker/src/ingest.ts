@@ -163,8 +163,8 @@ export function classifyRecipient(address: string, ingestDomain: string): Recipi
     return { kind: "operations", localPart: normalized };
   }
 
-  // A group chat's address. Read before `validateName`, which reserves the whole `group-` prefix as a handle; any
-  // other name under it is refused there as reserved, so no person can be named like a group and take its mail.
+  // A group chat's address. Read before `validateName`, which reserves every name of this shape as a handle, so no
+  // person can be named like a group and take its mail; a name merely starting with `group-` is an ordinary name.
   const words = groupMailWords(normalized);
   if (words !== null) return { kind: "group", localPart: groupMailLocalPart(words) };
 

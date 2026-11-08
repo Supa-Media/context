@@ -232,7 +232,7 @@ export const resolveForIngestion = internalMutation({
 
     const normalized = normalizeName(args.name);
     // A group chat's own address, `group-<words>` (`lib/groupMailIngest.ts`). Read before `validateName`, which
-    // reserves the prefix so no handle can be named like one; anything else under it is refused there below.
+    // reserves every name of this shape, so no handle can be named like one.
     const groupWords = groupMailWords(normalized);
     if (groupWords !== null) {
       const group = await resolveGroupMail(ctx, groupWords);

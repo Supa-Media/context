@@ -36,12 +36,12 @@ describe("which addresses are a group's", () => {
     "group-chair-blast-tiger-wolf",
     "group-chair-chair-tiger",
     "group-chair-blast-notaword",
-    "group-x",
-  ])("refuses %s as reserved, never as a person's name", (local) => {
-    expect(classifyRecipient(`${local}@context.lc`, "context.lc")).toEqual({ kind: "refuse", reason: "reserved_recipient" });
+    "group-home",
+  ])("reads %s as an ordinary name, never a group's", (local) => {
+    expect(classifyRecipient(`${local}@context.lc`, "context.lc")).toEqual({ kind: "personal", username: local });
   });
 
-  it("refuses the bare prefix too", () => {
+  it("refuses the bare prefix", () => {
     expect(classifyRecipient("group-@context.lc", "context.lc").kind).toBe("refuse");
   });
 

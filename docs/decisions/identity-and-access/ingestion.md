@@ -50,8 +50,9 @@ untrusted and unverified, Tex is told everything in it is a quotation, and a sub
   A daily cap per chat (`GROUP_MAIL_DAILY_LIMIT`) bounds a flood, counted only for a chat that resolved.
 - **The ticket opens the mail folder alone.** It records `tex/groups/<words>/email/`, and the id-layer routes take
   nothing outside it, so a capture can never write a home's `about.md`, routines or skills.
-- **The `group-` prefix is reserved as a handle and a slug** (`names.ts`), so no person or workspace is ever named
-  like a group and takes its mail; only the exact `group-` plus three different listed words is an address.
+- **Every name shaped like a group's address is reserved** as a handle and a slug (`names.ts`): `group-` plus three
+  different words from the list homes are named from. So no person or workspace is ever named like a group and takes
+  its mail, while names that merely start with the word (`group-home`) stay free, as workspaces already hold some.
 - **Every no is the unknown username's no**: no such chat, no home, no pin, unbound storage, over the cap.
 - **A capture brings the chat's check-in forward** (`textGroupLooks.ts`), as shared Gmail does; a chat that reaches no
   workspace looks in its home, as whoever bound it or the first of its people.
@@ -67,7 +68,7 @@ by script name, so the object itself is no further open; what is wider is the pi
 the same things as before: the secret is the Worker's alone, a resolve is counted per chat, and a stranger with only a
 mail client gets the frozen refusal or a note in a sealed home, nothing more.
 
-What a "simplification" would cost: dropping the prefix reservation hands a group's mail to whoever claims the handle;
+What a "simplification" would cost: dropping the reservation hands a group's mail to whoever claims the handle;
 widening the ticket to the home lets a stranger's mail rewrite the chat's own notes. Both fail
 `apps/convex/__tests__/groupMailAddress.test.ts`; the Worker's half is `infra/email-worker/src/groupAddress.test.ts`.
 

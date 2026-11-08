@@ -5,13 +5,13 @@
  * `docs/decisions/identity-and-access/ingestion.md`, "A group chat's address".
  *
  * Pure, so the email Worker (`infra/email-worker/src/ingest.ts`) and the control plane
- * (`functions/lib/groupMailIngest.ts`) read an address by one rule. The `group-` prefix is reserved in the names
+ * (`functions/lib/groupMailIngest.ts`) read an address by one rule. Every name of that shape is reserved in the names
  * namespace (`names.ts`), so no handle or workspace can ever be named like a group's address and take its mail.
  */
 
 import { THREE_WORD_LIST } from "./threeWords";
 
-/** The prefix every group address starts with, reserved as a handle (`names.ts` `reservedPrefix`). */
+/** The prefix every group address starts with. */
 export const GROUP_MAIL_PREFIX = "group-";
 
 /** Where a group's mail is filed inside its home: `tex/groups/<words>/email/<hash>.md`. */
@@ -31,11 +31,6 @@ export function groupMailWords(localPart: string): string | null {
   const words = [match[1]!, match[2]!, match[3]!];
   if (new Set(words).size !== 3 || !words.every((word) => WORDS.has(word))) return null;
   return words.join("-");
-}
-
-/** Whether a name is in the group address space, well formed or not: the prefix alone reserves it. */
-export function inGroupMailSpace(name: string): boolean {
-  return name.startsWith(GROUP_MAIL_PREFIX);
 }
 
 /** The local part of a group's address. */

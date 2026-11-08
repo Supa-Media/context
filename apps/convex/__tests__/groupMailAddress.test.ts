@@ -59,9 +59,11 @@ async function resolve(t: T, name: string) {
 }
 
 describe("a group chat's address", () => {
-  test("reserves the group- prefix as a handle, so no person can be named like a group", () => {
+  test("reserves every name shaped like a group's address, and only those", () => {
     expect(validateName("group-chair-blast-tiger")).toMatchObject({ ok: false, reason: "reserved" });
-    expect(validateName("group-anything")).toMatchObject({ ok: false, reason: "reserved" });
+    expect(validateName("group-ocean-river-wolf")).toMatchObject({ ok: false, reason: "reserved" });
+    // Names that merely start with the word stay free: workspaces already hold some.
+    expect(validateName("group-home")).toMatchObject({ ok: true });
     expect(validateName("groupie")).toMatchObject({ ok: true });
     expect(groupMailWords("group-chair-blast-tiger")).toBe("chair-blast-tiger");
     expect(groupMailWords("group-chair-chair-tiger")).toBeNull();
