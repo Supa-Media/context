@@ -96,8 +96,9 @@
           "Overview ... [cut: 4,000 of 38,000 characters read; the rest is unread]"
         ]
       ],
-      "reply": "The part that loaded, the overview, doesn't mention memory; the rest of the page wouldn't load.",
-      "fault": false
+      "reply": "The part I read, the overview, doesn't mention memory, but the tool only gave me the first tenth of the page, so I can't say yet.",
+      "fault": false,
+      "fixed": "2026-11-06: the old reply said the rest 'wouldn't load' when the tool said it was unread"
     },
     {
       "id": "picture-figures-wrong",

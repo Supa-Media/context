@@ -1,5 +1,6 @@
 /** Prepares what the turn records: usage, the turn log, the ledger turn id, the pictures to keep. One step of Tex's turn (`../texEntryPoint.js`). */
 
+import { setupLogged } from "../promptModules.js";
 import { newLedger } from "../../privacy/egress.js";
 import { callToolForSession } from "../../tools/session.js";
 import { BUILTIN_PROVIDER } from "../builtin.js";
@@ -53,6 +54,7 @@ export async function prepareBookkeeping(t) {
         event: "agent_turn",
         workspace: session.workspaceId,
         grant: session.grantId, texting,
+        ...setupLogged(t.production, { group, job }), // which setup, and which of its modules, answered (`promptModules.js`)
         ...report,
         trace: undefined,
         tools: report.trace.filter((entry) => entry.kind === "tool").map((entry) => entry.tool),

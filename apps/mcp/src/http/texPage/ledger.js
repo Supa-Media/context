@@ -8,6 +8,8 @@
  *    the ledger's entries as kept, oldest first (or newest first with `before`), 100 at a time.
  *  - `{handle, chat, view: "sees"}` → `{settings, text}`: the chat as the next texted turn is
  *    shown it, rendered by the turn's own code (`agent/ledgerHistory.js`, `agent/logRender.js`).
+ *  - `{handle, chat, view: "conversations"}` and `{…, view: "conversation", thread}`: the chat's
+ *    conversations, and one of them with its texts (`conversations.js`).
  *
  * Who may, and which chat: `page.js`, as every Tex page route; a group's
  * ledger only for the chat's own people. Nothing here is logged but the
@@ -20,6 +22,7 @@ import { renderEvents } from "../../agent/logRender.js";
 import { READ_CHARS } from "../../agent/log.js";
 import { LEDGER_KINDS } from "../../texStore/ledger.js";
 import { startOfDay } from "./page.js";
+import { conversationsView, conversationView } from "./conversations.js";
 
 /** Entries one raw page answers. */
 export const RAW_PAGE = 100;
@@ -52,6 +55,9 @@ export async function ledgerView(env, page, chat, body, { now = Date.now() } = {
   const ledger = place === null ? null : ledgerFor(env, place.owner);
   if (ledger === null) return { manifest: null, entries: [] };
   if (body?.view === "sees") return await sees(ledger, place, page, chat, now);
+  // The chat's conversations, and one of them (`conversations.js`).
+  if (body?.view === "conversations") return await conversationsView(ledger, place.name);
+  if (body?.view === "conversation") return await conversationView(ledger, place.name, body?.thread);
   const kinds = Array.isArray(body?.kinds) ? body.kinds.filter((kind) => LEDGER_KINDS.has(kind)) : null;
   const range = dayRange(body?.day, page.timeZone);
   const before = seqOf(body?.before);

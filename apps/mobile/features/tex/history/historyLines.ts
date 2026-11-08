@@ -170,14 +170,16 @@ function toolWords(e: LedgerEntry): string {
 export function judgeWords(e: LedgerEntry): string {
   const judges = Array.isArray(e.judges) ? (e.judges as unknown[]).map(record).filter((j): j is Record<string, unknown> => j !== null) : [];
   const round = typeof e.round === "number" ? e.round : 0;
-  const by = e.by === "code" ? "checks" : "judges";
+  const by = e.by === "code" ? "checks" : e.by === "review" ? "reviewer" : "judges";
   const outcome = e.went === true ? "went out" : "sent back";
   // A passed draft a text that came in late held back: it never went (`turn.js`).
   if (e.by === "late") return ["late text · held", oneLine(e.reason), `"${short(e.text, 160)}"`].filter(Boolean).join(" · ");
   const num = (v: unknown) => (typeof v === "number" ? v.toFixed(2) : "–");
   const failed = judges.filter((j) => j.passed !== true).map((j) => `${str(j.id)} ${num(j.yes)} ≥ ${num(j.at)}`);
   const passed = judges.length - failed.length;
-  const tally = judges.length === 0 ? "" : failed.length === 0 ? `all ${judges.length} passed` : `${failed.join(", ")}${passed ? ` · ${passed} passed` : ""}`;
+  // The reviewer (since 2026-11-06) names problems, not scored judges.
+  const named = e.by === "review" && Array.isArray(e.failed) ? (e.failed as unknown[]).filter((id): id is string => typeof id === "string").map((id) => id.replace(/_/g, " ")) : [];
+  const tally = e.by === "review" ? [str(e.turnKind), named.join(", ")].filter(Boolean).join(" · ") : judges.length === 0 ? "" : failed.length === 0 ? `all ${judges.length} passed` : `${failed.join(", ")}${passed ? ` · ${passed} passed` : ""}`;
   return [`${by} · draft ${round + 1} · ${outcome}`, tally, oneLine(e.reason), `"${short(e.text, 160)}"`].filter(Boolean).join(" · ");
 }
 

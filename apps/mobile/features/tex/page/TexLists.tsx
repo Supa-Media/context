@@ -4,7 +4,7 @@ import { useColors } from "../../design/theme";
 import type { Read } from "./texPageSource";
 import type { ViewProps } from "./TexPageBody";
 import { JobRow, LinkWord, ListBox, More, SubPage, T, ThinkBlock, useNow } from "./TexPageParts";
-import { actionPieces, clock, endedLine, turnHead, turnTail, VERDICT_LABEL } from "./texPageFormat";
+import { actionPieces, clock, draftReason, endedLine, turnHead, turnTail, VERDICT_LABEL } from "./texPageFormat";
 import type { AdvisorAsk, ListItems, ListKind, ListPage, MailCheck, Turn, TurnAction, Verdict } from "./texPageTypes";
 import { useTexList } from "./useTexPage";
 
@@ -52,6 +52,11 @@ export function TurnBlock({ turn, go }: { turn: Turn; go: ViewProps["go"] }) {
           </Fragment>
         ))}
       </T>
+      {(turn.drafts ?? []).map((draft, i) => (
+        <T key={`d${i}`} size={13} tone="muted" testID={`tex-think-${turn.at}-draft-${i}`}>
+          {`${draftReason(draft)}: “${draft.text}”${draft.notice ? ` (${draft.notice})` : ""}`}
+        </T>
+      ))}
     </ThinkBlock>
   );
 }

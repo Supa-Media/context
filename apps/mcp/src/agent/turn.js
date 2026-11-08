@@ -33,7 +33,7 @@
  */
 
 import { attachmentsLine } from "./attachments.js";
-import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin, systemText } from "./builtin.js";
+import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, liveTurn, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError } from "./providers.js";
 import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
 import { turnPrompt } from "./turnPrompt.js";
@@ -49,9 +49,11 @@ import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
-import { sayNothingLocal, withSayNothing } from "./sayNothing.js";
+import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
+export { toolResultImages, toolResultText } from "./toolResults.js";
+import { toolResultImages, toolResultText } from "./toolResults.js";
 
 /**
  * How many times the model may call tools before the turn ends.
@@ -89,16 +91,6 @@ const WITHHELD_FROM_AGENT = new Set(["rotate_encryption_keys", "search", "fetch"
 
 /** The longest question this route accepts. */
 export const MAX_QUESTION_LENGTH = 8000;
-
-/**
- * The biggest tool answer that goes back to the model.
- *
- * A long note is a legitimate answer, so this is generous — but it is a bound,
- * because without one a single `read_note` on a large file decides how many
- * tokens a turn is billed for, and the model gets a worse prompt out of
- * it than a truncated one with a line saying so.
- */
-const MAX_TOOL_RESULT_CHARS = 60_000;
 
 /**
  * How long one tool call may take before the model is told it failed.
@@ -150,34 +142,6 @@ export function agentTools(offered) {
       !WITHHELD_FROM_AGENT.has(tool.name) &&
       tool.annotations?.readOnlyHint === true,
   );
-}
-
-/** Flatten an MCP tool result into the text the model reads back. */
-export function toolResultText(result) {
-  const content = Array.isArray(result?.content) ? result.content : [];
-  const text = content
-    .filter((part) => part?.type === "text" && typeof part.text === "string")
-    .map((part) => part.text)
-    .join("\n");
-  if (text.length <= MAX_TOOL_RESULT_CHARS) return text;
-  return `${text.slice(0, MAX_TOOL_RESULT_CHARS)}\n\n[truncated: the full result was ${text.length} characters]`;
-}
-
-/** The most pictures one tool result shows the model, and how big each may be (Anthropic's own ceiling). */
-const MAX_RESULT_IMAGES = 2;
-const MAX_RESULT_IMAGE_CHARS = Math.ceil((5_000_000 * 4) / 3);
-const RESULT_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
-
-/**
- * The pictures an MCP tool result carries (`read_image`, a drawn picture), so
- * the model sees what it asked to look at rather than only the words beside it.
- */
-export function toolResultImages(result) {
-  const content = Array.isArray(result?.content) ? result.content : [];
-  return content
-    .filter((part) => part?.type === "image" && typeof part.data === "string" && RESULT_IMAGE_TYPES.has(part.mimeType) && part.data.length <= MAX_RESULT_IMAGE_CHARS)
-    .slice(0, MAX_RESULT_IMAGES)
-    .map((part) => ({ mediaType: part.mimeType, data: part.data }));
 }
 
 /** The one refusal for "there is no model this turn may spend". */
@@ -284,7 +248,7 @@ export async function runTurn(options) {
     local: localTools = [],
     aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
-    voice = null, // `tex/voice.md`'s text on a texted turn (`personVoice.js`); null says nothing about it.
+    voice = null, calendar = null, // `tex/voice.md`'s text on a texted turn (`personVoice.js`); null says nothing about it.
     answerCheck = null, // reads a final answer and the turn's messages, and may send one more round (`claimCheck.js`, `replyJudge.js`)
     endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
     sayNothing = false, // offers `say_nothing`: a call ends the turn with nothing texted (`sayNothing.js`)
@@ -381,7 +345,7 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
     tell({ kind: "model", model, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, voice, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
@@ -540,6 +504,17 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
+      // A call typed out as the reply is never a text (a group, 2026-11-06 20:01 UTC): silence typed is silence, any other is sent back to be made (`sayNothing.js`).
+      const typed = typedCallOf(answer.text);
+      if (typed === SAY_NOTHING_TOOL) {
+        tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "say_nothing typed as text: nothing is texted" });
+        return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, live: liveTurn(prompt, messages) };
+      }
+      if (typed !== null && round < rounds - 1) {
+        tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, notice: typedCallNotice(typed) });
+        messages.push({ role: "user", text: held.sendBack(typedCallNotice(typed), answer.text) });
+        continue;
+      }
       const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text, { messages, mark: (entry) => trace.push({ ...entry, kind: "judge", at: clock() - began }), tell })) ?? null : null;
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
@@ -549,7 +524,7 @@ export async function runTurn(options) {
         tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
         continue;
       }
-      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: { system: systemText(prompt.system), messages } }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
+      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: liveTurn(prompt, messages) }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
       messages.push({ role: "user", text: held.sendBack(recheck, answer.text) }); // the draft quoted as NOT sent, never put in as said (`sendBack.js`)
       continue;
     }
@@ -622,9 +597,9 @@ export async function runTurn(options) {
           ? await settleNoteWrite({ run: () => callTool(call.name, call.args), callTool, args: call.args, ms: timeoutFor(call.name), remaining: () => toolBudgetMs + 30_000 - (clock() - began) })
           : await withinTime(
               progress && call.name === PROGRESS_TOOL
-                ? progress.call(call.args)
+                ? progress.call(call.args, { messages }) // the turn so far, for the reviewer of the line (`progress.js`)
                 : localCalls.has(call.name)
-                ? localCalls.get(call.name)(call.args, { system: [systemText(prompt.system), prompt.preamble].join("\n\n"), messages, tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
+                ? localCalls.get(call.name)(call.args, { ...liveTurn(prompt, messages), system: [systemText(prompt.system), prompt.preamble].join("\n\n"), tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
                 : webNames.has(call.name)
                   ? web.call(call.name, call.args)
                   : callTool(call.name, call.args),
@@ -674,7 +649,7 @@ export async function runTurn(options) {
     for (const call of settling) {
       const settled = settles(call.name, call.args);
       if (typeof settled === "string" && settled !== "") {
-        return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: { system: systemText(prompt.system), messages } };
+        return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: liveTurn(prompt, messages) };
       }
     }
     if (steer !== null && typeof steer.cancelled === "function" && steer.wrote !== true && (await steer.cancelled())) return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, cancelled: true }; // the Worker cancelled it (`steer.js`)
@@ -695,6 +670,6 @@ export async function runTurn(options) {
     usageByModel,
     timing: { ...timing, trace },
     exhausted: true,
-    live: { system: systemText(prompt.system), messages },
+    live: liveTurn(prompt, messages),
   };
 }

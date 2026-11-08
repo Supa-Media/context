@@ -112,7 +112,7 @@ const FAMILY_INTRO = {
     "Change where something lives or who sees it, in ways Context can undo: manage { action, args }. Ask the person " +
     "before anything that lets more people see something.",
   send:
-    "Do something outside Context: send { action, args }. Ask the person before anything that cannot be taken back.",
+    "Do something outside Context: call send with an action and its args. Ask the person before anything that cannot be taken back.",
 };
 
 /** A family's tool, its description listing only what this turn may do with it. */

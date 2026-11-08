@@ -124,7 +124,7 @@ export function turnLedger({ tools = [], ranHere = () => false } = {}) {
   const writes = new Set((tools ?? []).filter((tool) => tool?.annotations?.readOnlyHint === false).map((tool) => tool.name));
   const hold = (draft, why) => {
     const judged = entries.findLast((entry) => entry?.kind === "judge" && entry.went === false && entry.draft === String(draft ?? ""));
-    drafts.push({ draft, judges: judged?.judges ?? [], by: judged?.by ?? "code", why });
+    drafts.push({ draft, judges: judged?.judges ?? [], failed: judged?.failed ?? [], by: judged?.by ?? "code", why });
   };
   return {
     entries,
@@ -150,6 +150,7 @@ function heldBy(entry) {
   if (entry.why) return entry.why;
   const judges = Array.isArray(entry.judges) ? entry.judges.filter((judge) => judge?.passed === false) : [];
   if (judges.length > 0) return judges.map((judge) => `${String(judge.id).replaceAll("_", " ")} (${judge.yes} against ${judge.at})`).join(", ");
+  if (entry.by === "review") return `the reviewer${Array.isArray(entry.failed) && entry.failed.length > 0 ? ` (${entry.failed.map((name) => String(name).replaceAll("_", " ")).join(", ")})` : ""}`;
   return entry.by === "code" ? "a code check" : "the checks named below";
 }
 

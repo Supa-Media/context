@@ -329,13 +329,14 @@ export function renderTranscript(events: readonly TexEvent[], options: { timeZon
   const lines: string[] = [];
   let lastDay = "";
   for (const event of shown) {
-    if (event.kind === "delivery" || event.kind === "ask_settled") continue;
+    // A send that never went (`sendblueStatus.ts`) is shown, so the turn knows; any other delivery is not.
+    if ((event.kind === "delivery" && event.delivered !== false) || event.kind === "ask_settled") continue;
     const today = day(event.at);
     if (today !== lastDay) lines.push(`--- ${today} ---`);
     lastDay = today;
     const who = event.from.kind === "tex" ? "You" : event.from.kind === "system" ? "Context" : speaker(event.from.name);
     const said = event.told ? (TOLD_WORDS[event.told] ?? "") : oneLine(event.text ?? "").trim();
-    const words = said || (event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
+    const words = said || (event.kind === "delivery" ? `(your message <${event.replyTo ?? "unknown"}> did not reach them)` : event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
     const unanswered = event.from.kind === "person" && event.at >= newestAnswered && !answered.has(event.id) ? "   (not answered)" : "";
     // Each line carries its event id, so what decide is asked about by id is grounded in the line it reads.
     lines.push(`<${event.id}> [${time(event.at)}] ${who}: ${words}${unanswered}`);

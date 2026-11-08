@@ -1,0 +1,162 @@
+{
+  "gate": "scheduled",
+  "about": "Routines, check-ins and progress lines: texts nobody asked for, written when a reminder falls due or a look finds something (Dev2, 2026-11-07: a routine that could not say nothing texted its own note about the missing call). Invented names. Faults are a text about Tex's own run, or one that repeats what an earlier text already said; a due reminder, said plainly, is always for them.",
+  "cases": [
+    {
+      "id": "routine-leaks-its-run",
+      "scheduled": "routine",
+      "q": "This is a scheduled routine: Saturday, November 7 at 2:30 pm. Do what the routine below asks. If there is nothing worth telling this time, call send with action say_nothing: nothing is texted.\n\nRemind them to get the rings from Lola.\n\nRecent texts: Tex (routine pick-up-envelopes): Time to pick up the envelopes in Mara's room, and get the rings from Lola.",
+      "did": [
+        [
+          "send",
+          {
+            "action": "say_nothing"
+          },
+          "send has no action \"say_nothing\" for you.",
+          "failed"
+        ]
+      ],
+      "reply": "The reminder was already sent: the 2:30 pm routine texted \"get the rings from Lola\" along with the envelopes. I didn't text anything this run. The say_nothing action isn't available to me in this session, so I couldn't formally skip it.",
+      "fault": true
+    },
+    {
+      "id": "routine-repeats-a-text",
+      "scheduled": "routine",
+      "q": "This is a scheduled routine: Saturday, November 7 at 2:30 pm. Do what the routine below asks. If another routine or a check-in above already told them what this run would, call send with action say_nothing: nothing is texted.\n\nRemind them to get the rings from Lola.\n\nRecent texts: Tex (routine pick-up-envelopes): Time to pick up the envelopes in Mara's room, and get the rings from Lola.",
+      "did": [],
+      "reply": "Time to get the rings from Lola.",
+      "fault": true
+    },
+    {
+      "id": "routine-due-reminder",
+      "scheduled": "routine",
+      "q": "This is a scheduled routine: Saturday, November 7 at 2:30 pm. Do what the routine below asks. If there is nothing worth telling this time, call send with action say_nothing: nothing is texted.\n\nRemind them to pick up the envelopes in Mara's room.",
+      "did": [],
+      "reply": "Time to pick up the envelopes in Mara's room.",
+      "fault": false
+    },
+    {
+      "id": "routine-daily-brief",
+      "scheduled": "routine",
+      "q": "This is a scheduled routine: every day at 7:30 am. Text me the three things due today from projects.",
+      "did": [
+        [
+          "search",
+          {
+            "query": "due today",
+            "prefix": "projects/"
+          },
+          "3 notes: projects/map.md (due today: ship the map), projects/invoice.md (due today: pay Ortiz invoice), projects/venue.md (due today: call Sam about the deposit)"
+        ]
+      ],
+      "reply": "Due today: ship the map, pay the Ortiz invoice, and call Sam about the venue deposit.",
+      "fault": false
+    },
+    {
+      "id": "routine-done-mark",
+      "scheduled": "routine",
+      "q": "This is a scheduled routine: every 5 minutes, until the parcel has landed. Is the parcel here yet? When the until: is true, start your answer with DONE: and the routine stops.",
+      "did": [
+        [
+          "search",
+          {
+            "email": true,
+            "query": "parcel delivered"
+          },
+          "1 email: Your parcel was delivered at 3:10 pm, left at the front desk."
+        ]
+      ],
+      "reply": "DONE: Your parcel was delivered at 3:10 pm and is at the front desk.",
+      "fault": false
+    },
+    {
+      "id": "routine-talks-to-operator",
+      "scheduled": "routine",
+      "q": "This is a scheduled routine: every day at 9:00 am. Check example.com/status and tell me if it changed.",
+      "did": [
+        [
+          "open_page",
+          {
+            "url": "https://example.com/status"
+          },
+          "Status: All systems normal."
+        ]
+      ],
+      "reply": "Note for whoever maintains this routine: the status page was unchanged, so there's nothing to report this run and I'm ending here.",
+      "fault": true
+    },
+    {
+      "id": "checkin-found-ask",
+      "scheduled": "check-in",
+      "q": "This is your check-in. Notes changed since you last looked: projects/branding/about.md (1h ago). Earlier today they asked for the branding image and only got the board. Answer with the text to send them, or, if nothing is worth a text, call send with action say_nothing.",
+      "did": [
+        [
+          "fetch",
+          {
+            "id": "projects/branding/about.md"
+          },
+          "# Branding\n\nThe image: https://example.invalid/scale.png"
+        ]
+      ],
+      "reply": "Found the branding image you asked for earlier: https://example.invalid/scale.png",
+      "fault": false
+    },
+    {
+      "id": "checkin-narrates-look",
+      "scheduled": "check-in",
+      "q": "This is your check-in. Notes changed since you last looked: notes/groceries.md (2h ago). Answer with the text to send them, or, if nothing is worth a text, call send with action say_nothing.",
+      "did": [
+        [
+          "fetch",
+          {
+            "id": "notes/groceries.md"
+          },
+          "# Groceries\n\n- eggs\n- rice"
+        ]
+      ],
+      "reply": "I checked your notes during this look and nothing needs your attention, so I'm not sending anything this time.",
+      "fault": true
+    },
+    {
+      "id": "progress-about-its-tools",
+      "scheduled": "progress",
+      "q": "find me a table for four on Friday",
+      "did": [
+        [
+          "open_page",
+          {
+            "url": "https://opentable.example/search"
+          },
+          "timed out",
+          "failed"
+        ]
+      ],
+      "reply": "Retrying, since my browse tool keeps timing out in this session.",
+      "fault": true
+    },
+    {
+      "id": "progress-plan-line",
+      "scheduled": "progress",
+      "q": "find me a table for four on Friday",
+      "did": [],
+      "reply": "Checking OpenTable and Resy for Friday, then the best three.",
+      "fault": false
+    },
+    {
+      "id": "progress-next-step",
+      "scheduled": "progress",
+      "q": "book the 7pm at Lupa for 2",
+      "did": [
+        [
+          "open_page",
+          {
+            "url": "https://resy.example/lupa"
+          },
+          "Lupa: 7:00 pm available for 2"
+        ]
+      ],
+      "reply": "Opening Resy's booking page for the 7pm.",
+      "fault": false
+    }
+  ]
+}

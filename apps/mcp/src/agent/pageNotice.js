@@ -114,7 +114,7 @@ export function pageNotice(path) {
   return [
     `You saved ${path} as a plain note, but every new note you make is a designed page unless they asked for a plain note.`,
     `Write it again now as ${page}, following the page design skill below (its stamp goes in the front matter), with every fact from the plain note.`,
-    `Then archive ${path}, the plain copy you made this turn, with archive_note (never any other note), draw the page's cover (send action draw_visual, template page, data { path: "${page}" }) and text the cover and the page's link.`,
+    `Then archive ${path}, the plain copy you made this turn, with manage action archive (never any other note), draw the page's cover (send action draw_visual, template page, data { path: "${page}" }) and text the cover and the page's link.`,
     "Your reply is one line about the page, never the plain note's link.",
     "",
     PAGE_SKILL,

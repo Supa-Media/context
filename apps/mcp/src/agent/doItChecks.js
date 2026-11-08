@@ -35,7 +35,7 @@ import { ADVISOR_TOOL } from "./advisor.js";
 const NAMES_ADVISOR = /\b(?:ask|check with|run (?:it|this|that) (?:by|past)|consult|loop in|get|what (?:does|would|did))\s+(?:the |your |ur |tex'?s )?advisor\b|\b(?:the|your|ur) advisor (?:think|say|says|said)\b/i;
 
 export const ADVISOR_NOTICE =
-  "Before this goes: they asked you to ask your advisor, and you haven't. Ask it now (ask_advisor; it sees this whole turn), " +
+  "Before this goes: they asked you to ask your advisor, and you haven't. Ask it now (send action advisor; it sees this whole turn), " +
   "then answer with what it said, in your own words.";
 
 /** Whether their words ask for the advisor. */

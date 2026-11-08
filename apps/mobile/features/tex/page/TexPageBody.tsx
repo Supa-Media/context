@@ -8,6 +8,7 @@ import { TexJobPage } from "./TexJobPage";
 import { AdvisorPage, JobsPage, MailcheckPage, ThinkingPage } from "./TexLists";
 import { AboutPage, CheckinsPage, RoutinesPage } from "./TexEditPages";
 import { HistoryPage, SeesPage } from "./TexHistoryPage";
+import { ConversationsPage } from "../conversations/ConversationsPage";
 import { ComputerPage, GroupSettingsPage, SettingsPage } from "./TexSettingsPages";
 import { MachinesPage } from "./TexMachinesPage";
 import { MachinePage } from "./TexMachinePage";
@@ -197,6 +198,8 @@ function SubViewPage({
       return <HistoryPage {...props} />;
     case "sees":
       return <SeesPage {...props} />;
+    case "conversations":
+      return <ConversationsPage {...props} />;
     case "machines":
       return <MachinesPage {...props} />;
     case "machine":

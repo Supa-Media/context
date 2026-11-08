@@ -164,12 +164,20 @@ export function progressChannel(send, { planOnly = false, level = planOnly ? "pl
       await send(line.length > MAX_GATEWAY_CHARS ? line.slice(0, MAX_GATEWAY_CHARS) : line);
       return true;
     },
-    async call(args) {
+    /**
+     * The reply reviewer for this turn's lines, set by the turn when its setup runs one (`runTheModel.js`):
+     * `(text, { messages }) => notice | null`. A line it holds back is not sent, and the model reads why
+     * (Dev2, 2026-11-07: the reviewer reads every text Tex writes to the person, and nothing else).
+     */
+    review: null,
+    async call(args, turn = {}) {
       const text = typeof args?.text === "string" ? args.text.replace(/\s+/g, " ").trim() : "";
       if (!text) return result("Nothing to send: pass one short line as text.", true);
       if (lines.includes(text)) return result("Not sent: you already sent that line in this turn. Keep working.");
       if (claimsDone(text)) return result(DONE_NOTICE, true);
       if (plan && lines.length > 0) return result(PLAN_ONLY_NOTICE, true);
+      const held = typeof this.review === "function" ? await this.review(text, turn) : null;
+      if (held) return result(`Not sent. ${held}`, true);
       lines.push(text);
       await send(text.length > MAX_PROGRESS_CHARS ? `${text.slice(0, MAX_PROGRESS_CHARS - 1)}…` : text);
       return result("Sent. Keep working.");

@@ -22,6 +22,7 @@ import { after, before, beforeEach, test } from "node:test";
 import worker from "../src/index.js";
 import { JOB_ADVISOR_LINE } from "../src/agent/advisor.js";
 import { PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
+import { modulePath, readModuleLists, setupLogged } from "../src/agent/promptModules.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
@@ -65,6 +66,9 @@ function binding(bucket, key) {
 const gatewayCalls = [];
 const script = [];
 // The advisor's check of a finished part (`jobCheck.js`) is a request of its own after the turn's.
+/** The reply reviewer's call (`replyJudge.js`): answered here, never from the script. */
+const isReview = (body) => JSON.stringify(body?.system ?? "").includes("You review a text that Tex");
+const PASSED = { content: [{ type: "text", text: '{"kind":"task","send":true,"problems":[],"feedback":""}' }], stop_reason: "end_turn" };
 const isJobCheck = (body) => JSON.stringify(body?.system ?? "").includes("One of Tex's background jobs has just stopped");
 const env = {
   CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
@@ -105,7 +109,7 @@ before(async () => {
     if (url.startsWith("https://gateway.ai.cloudflare.com/")) {
       const body = JSON.parse(init.body);
       gatewayCalls.push({ url, body });
-      const next = script.shift() ?? (isJobCheck(body) ? { content: [{ type: "text", text: "VERDICT: done\nADVICE: none" }], stop_reason: "end_turn" } : { content: [{ type: "text", text: "Done." }], stop_reason: "end_turn" });
+      const next = isReview(body) ? PASSED : script.shift() ?? (isJobCheck(body) ? { content: [{ type: "text", text: "VERDICT: done\nADVICE: none" }], stop_reason: "end_turn" } : { content: [{ type: "text", text: "Done." }], stop_reason: "end_turn" });
       return new Response(JSON.stringify({ ...next, usage: { input_tokens: 5, output_tokens: 2 } }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -158,7 +162,8 @@ beforeEach(() => {
 const JOB = { id: "job-apply-00001", title: "Apply to the accelerator", brief: "Fill in the application.", doneWhen: "the application is submitted", attempt: 1, followUps: [] };
 const WIRE = { "claude-haiku-5-5": HAIKU, "claude-opus-5-5": OPUS };
 const modelOf = (call) => WIRE[call.body.model] ?? call.body.model;
-const turnCalls = () => gatewayCalls.filter((call) => !isJobCheck(call.body));
+const turnCalls = () => gatewayCalls.filter((call) => !isJobCheck(call.body) && !isReview(call.body));
+const reviews = () => gatewayCalls.filter((call) => isReview(call.body));
 const sendTool = (body) => (body?.tools ?? []).find((tool) => tool.name === "send");
 const askAdvisor = { content: [{ type: "tool_use", id: "t1", name: "send", input: { action: "advisor", args: {} } }], stop_reason: "tool_use" };
 
@@ -191,36 +196,25 @@ test("the setup before it put a job's first two rounds on Opus: the cost this ch
   assert.deepEqual(turnCalls().slice(0, 2).map(modelOf), [OPUS, OPUS]);
 });
 
-test("a job's report never runs the reply gates; an ordinary text does (review, 2026-11-05)", async () => {
-  // Sabotage: drop `job === null` from `judge` in runTheModel.js: the job turn asks Clef.
-  // Every gate reads a person's text and the reply to it, and none was tuned on a report Tex reads.
-  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: SETUP.replace("open_web: yes", "open_web: yes\nreply_judge: clef-flash"), etag: "s-gates" });
-  const clef = [];
-  env.AI = { async run(model, input) { clef.push(model); return { answers: Object.fromEntries(Object.keys(input?.questions ?? {}).map((name) => [name, { type: "noul", noul: 0.01 }])) }; } };
-  try {
-    script.push({ content: [{ type: "text", text: "Submitted it." }], stop_reason: "end_turn" });
-    assert.equal((await ask(TOKEN_GUEST, { job: JOB })).status, 200);
-    assert.equal(clef.length, 0, "no gate reads a job's report");
-    assert.equal((await ask(TOKEN_GUEST, { question: "what's on tomorrow" })).status, 200);
-    assert.ok(clef.length >= 9, "the text gates read an ordinary text's reply (short_and_clean reads only long drafts)");
-  } finally {
-    delete env.AI;
-  }
+test("a job's own turn is never reviewed; an ordinary text is (review, 2026-11-05; the reviewer, 2026-11-06)", async () => {
+  // Sabotage: drop `job === null` from `gated` in runTheModel.js: the job turn is reviewed.
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: SETUP.replace("open_web: yes", "open_web: yes\nreply_judge: haiku"), etag: "s-review" });
+  script.push({ content: [{ type: "text", text: "Submitted it." }], stop_reason: "end_turn" });
+  assert.equal((await ask(TOKEN_GUEST, { job: JOB })).status, 200);
+  assert.equal(reviews().length, 0, "nothing reviews a job's own turn");
+  assert.equal((await ask(TOKEN_GUEST, { question: "what's on tomorrow" })).status, 200);
+  assert.equal(reviews().length, 1, "one review of an ordinary text's reply");
+  assert.equal(reviews()[0].body.model, "claude-haiku-5-5");
 });
 
-test("what Tex texts about a job's report is read by the report gates, never the text gates (Dev2, 2026-11-05)", async () => {
-  // Sabotage: pass `report: null` to replyJudge in runTheModel.js: the text gates read it, short_and_clean among them.
-  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: SETUP.replace("open_web: yes", "open_web: yes\nreply_judge: clef-flash"), etag: "s-gates-report" });
-  const asked = [];
-  env.AI = { async run(model, input) { asked.push(...Object.keys(input?.questions ?? {})); return { answers: Object.fromEntries(Object.keys(input?.questions ?? {}).map((name) => [name, { type: "noul", noul: 0.01 }])) }; } };
-  try {
-    script.push({ content: [{ type: "text", text: "Your last ten merged PRs, riskiest is #2684, a 74-file rework, and #2563 could double-send on retry. Each one with its risk is on the page here, and nothing was pushed by the job while it read them." }], stop_reason: "end_turn" });
-    const report = { title: "Last ten PRs", state: "done", texts: ["1. #2839 search rework. 2. #2684 74 files, risk high. 3. #2563 retries."] };
-    assert.equal((await ask(TOKEN_GUEST, { event: "job_report", jobReport: report, running: [] })).status, 200);
-    assert.deepEqual([...new Set(asked)].sort(), ["on_a_page", "reached_them"]);
-  } finally {
-    delete env.AI;
-  }
+test("what Tex texts about a job's report is reviewed with the report in view (Dev2, 2026-11-05)", async () => {
+  // Sabotage: pass `report: null` to replyJudge in runTheModel.js: the reviewer never sees the report.
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: SETUP.replace("open_web: yes", "open_web: yes\nreply_judge: clef-flash"), etag: "s-review-report" });
+  script.push({ content: [{ type: "text", text: "Your last ten merged PRs, riskiest is #2684: the page has each one with its risk." }], stop_reason: "end_turn" });
+  const report = { title: "Last ten PRs", state: "done", texts: ["1. #2839 search rework. 2. #2684 74 files, risk high. 3. #2563 retries."] };
+  assert.equal((await ask(TOKEN_GUEST, { event: "job_report", jobReport: report, running: [] })).status, 200);
+  assert.equal(reviews().length, 1);
+  assert.match(JSON.stringify(reviews()[0].body.messages), /#2684 74 files, risk high/);
 });
 
 test("a job's turn thinks as models.job_effort says; an ordinary text keeps effort (Dev2, 2026-11-06: Haiku, reasoning high)", async () => {
@@ -238,4 +232,51 @@ test("a job's turn thinks as models.job_effort says; an ordinary text keeps effo
 test("a job_effort that is not an effort refuses the setup, as every other effort does", async () => {
   assert.equal((await parseSetup(SETUP.replace("  effort: medium", "  effort: medium\n  job_effort: high")))?.jobEffort, "high");
   assert.equal(await parseSetup(SETUP.replace("  effort: medium", "  effort: medium\n  job_effort: loud")), null);
+});
+
+/* ---------------- The prompt in modules (`promptModules.js`; Dev2, 2026-11-06: "split into modules now") ---------------- */
+// Sabotage record (local edits, reverted): `notes: { prompt: production.prompt }` back in runTheModel.js fails "each kind
+// of turn"; dropping `assembleSetup` from `readAssembled` (production.js) fails it too; `prompts.texts` for every kind
+// in `setupPromptFor` fails "each kind of turn".
+const MODULAR = SETUP.replace("open_web: yes", "open_web: yes\nmodules:\n  texts: [core, texting]\n  job: [core, job-only]").replace(PROMPT, "This note's rules are in its modules.");
+
+test("each kind of turn is given its own modules, in order, and never the setup's body", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: MODULAR, etag: "s-mod" });
+  pinnedBucket.set(modulePath("core"), { body: "---\nnote: for people\n---\n\nCORE-MARK: You are Tex.\n", etag: "m1" });
+  pinnedBucket.set(modulePath("texting"), { body: "TEXTING-MARK: answer in a sentence.\n", etag: "m2" });
+  pinnedBucket.set(modulePath("job-only"), { body: "JOB-MARK: report what you did.\n", etag: "m3" });
+  script.push({ content: [{ type: "text", text: "Nothing tomorrow." }], stop_reason: "end_turn" });
+  assert.equal((await ask(TOKEN_GUEST, { question: "what's on tomorrow" })).status, 200);
+  const text = systemText(turnCalls()[0].body);
+  assert.match(text, /CORE-MARK: You are Tex\.\n\nTEXTING-MARK/);
+  assert.doesNotMatch(text, /JOB-MARK|note: for people|rules are in its modules/);
+  gatewayCalls.length = 0;
+  script.push({ content: [{ type: "text", text: "Submitted it." }], stop_reason: "end_turn" });
+  assert.equal((await ask(TOKEN_GUEST, { job: JOB })).status, 200);
+  const job = systemText(turnCalls()[0].body);
+  assert.match(job, /CORE-MARK[\s\S]*JOB-MARK/);
+  assert.doesNotMatch(job, /TEXTING-MARK/);
+});
+
+test("a setup naming a module that isn't there, or naming modules badly, is refused whole", async () => {
+  const one = (name, text) => [name, text];
+  const kept = (modules) => JSON.stringify({ kind: "context-tex-setup-modules/1", raw: MODULAR, modules: Object.fromEntries(modules) });
+  const full = await parseSetup(kept([one("core", "C"), one("texting", "T"), one("job-only", "J")]));
+  assert.deepEqual(full.prompts, { texts: "C\n\nT", group: "C\n\nT", job: "C\n\nJ" }, "group falls back to texts");
+  assert.deepEqual(full.modules.job, ["core", "job-only"]);
+  assert.equal(full.prompt, "C\n\nT");
+  assert.equal(await parseSetup(kept([one("core", "C"), one("texting", "T")])), null, "a missing module");
+  assert.equal(await parseSetup(kept([one("core", "C"), one("texting", "   "), one("job-only", "J")])), null, "an empty module");
+  assert.equal(await parseSetup(MODULAR), null, "modules named, none read");
+  assert.equal(await parseSetup(MODULAR.replace("  texts: [core, texting]\n", "")), null, "texts is required");
+  assert.equal(await parseSetup(MODULAR.replace("job: [core, job-only]", "advisor: [core]")), null, "an unknown kind");
+  assert.equal(await parseSetup(MODULAR.replace("[core, texting]", "[core, ../texting]")), null, "a name that is not a module name");
+  assert.equal(await parseSetup(MODULAR.replace("[core, texting]", "[core, core]")), null, "a module named twice");
+  const other = await parseSetup(kept([one("core", "C2"), one("texting", "T"), one("job-only", "J")]));
+  assert.notEqual(other.version, full.version, "a changed module is a new version");
+  assert.deepEqual((await parseSetup(kept([one("core", "call read_note"), one("texting", "T"), one("job-only", "J")]))).staleNames, ["read_note"]);
+  assert.equal((await parseSetup(SETUP)).prompts, null, "a setup with no modules is its body, as before");
+  assert.equal(readModuleLists(undefined), null);
+  assert.deepEqual(setupLogged(full, { job: JOB }), { setup: full.version, modules: ["core", "job-only"] }, "the turn log names the modules a turn got");
+  assert.deepEqual(setupLogged(null, {}), {});
 });

@@ -94,7 +94,7 @@ export function newestAt(events, answered) {
  * tools it used (`ledgerHistory.js`): its names follow Tex's first line of
  * that turn, names only.
  */
-export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null } = {}) {
+export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null, tags = null } = {}) {
   const day = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "short", day: "numeric" });
   const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true });
   const all = [...answeredBy, ...events];
@@ -113,6 +113,8 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
     }
     let line = `[${time.format(date).replace(/ /g, " ")}] ${speaker(event.from)}: ${words(event)}`;
     if (event.from?.kind === "person" && INBOUND.has(event.kind) && event.at >= newestAnswered && !answered.has(event.id)) line += "   (not answered)";
+    const tag = tags?.get(event.id);
+    if (typeof tag === "string") line += `   [${tag}]`; // its conversation (`conversationThreads.js`)
     lines.push(line);
     if (event.delivered === false) lines.push(`${NOTE_INDENT}(not delivered: ${REASON_WORDS[event.reason] ?? "it didn't go out"})`);
     if (typeof event.why === "string" && event.why !== "") lines.push(`${NOTE_INDENT}(${oneLine(event.why)})`);

@@ -72,7 +72,7 @@ export function unknownLinkNotice(unknown, known = []) {
   const have = known.length === 0 ? "" : ` The note links you were given: ${known.join(" ")}`;
   return (
     `Before this goes: your answer links to ${named}, but no tool gave you that link, so it may open "That file does not exist". ` +
-    "Copy a note's link exactly as the link: line of write_note or read_note gave it, never shortened or retyped; if you have none for it, read the note to get it." +
+    "Copy a note's link exactly as the link: line of write or fetch gave it, never shortened or retyped; if you have none for it, read the note to get it." +
     have +
     "\nThen send your answer again with only links you were given."
   );

@@ -34,6 +34,7 @@ import { advisorRequest } from "./advisor.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { builtinModel, canRunBuiltin } from "./builtin.js";
 import { ADVISOR_KNOWS_MAIL } from "./jobCheck.js";
+import { withArchitecture } from "./texArchitecture.js";
 
 const TEXTS_CLIENT_ID = "context_texts";
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -200,7 +201,7 @@ async function adviseRoute(request, env, store, session, controlPlane, advise, c
   try {
     answer = await request_({
       model,
-      system: ADVISOR_MAIL_PROMPT,
+      system: withArchitecture(ADVISOR_MAIL_PROMPT, "jobAdvisor"),
       messages: [
         {
           role: "user",

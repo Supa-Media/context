@@ -31,7 +31,7 @@ test("a failed save is read back before it is told", async () => {
   await call("write_note", { path: PAGE, content: "# Models", context: "@team" });
   const notice = await claims.check(FAILED);
   assert.match(String(notice), /haven't read it back/);
-  assert.match(String(notice), /read_note/);
+  assert.match(String(notice), /fetch it/);
   assert.match(String(notice), /no bug report/);
   // Once read back, the model's account goes as it is.
   await call("read_note", { path: PAGE, context: "@team" });

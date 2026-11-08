@@ -98,8 +98,8 @@ export function jobReportPrompt(report) {
     "A short result (a booking, a price, a yes) is a line or two. A long one (a list, findings, a breakdown) goes on a page: the job's own page if it made one " +
     "(draw_visual template page with its path, so its first screen goes with the link), or one you write now (a .page.md note); then one or two lines with your take and its link.\n" +
     "- If it is wrong, contradicts what they were told, or stops short of what they asked, fix it yourself now, or start the job again " +
-    '(send { action: "background" }) with a brief that says what to do differently, and tell them in one line which it is.\n' +
-    '- A job still running that should change course gets your instruction with send { action: "steer_job", args: { title, note } }.\n' +
+    '(call send with action background) with a brief that says what to do differently, and tell them in one line which it is.\n' +
+    '- A job still running that should change course gets your instruction with a call to send with action steer_job (args: title, note).\n' +
     (report.state === "running"
       ? `- If nothing in it is new to them (they already have it, or it repeats another job), ${SAY_NOTHING}: nothing is texted.`
       : "- It has ended, so they always get one line from you saying where it stands and what it found, even when that repeats what they have. Never say nothing.")

@@ -43,7 +43,76 @@ the owner rejected; judging without the turn's actions cannot tell "found it"
 from a claim with nothing behind it; judging more than once a turn turns one
 slow reply into a loop. Tests: `apps/mcp/test/replyJudge.test.mjs`.
 
-## Ten parallel gates, sent back at most twice (2026-11-05)
+## One Haiku reviewer in place of the gates (Dev2, 2026-11-06)
+
+Dev2: "replace the judges with one haiku model that is able to understand
+nuances and give feedback". The ten gates below were each benched alone to
+send back at most 10% of good replies, but any one could veto, and on the Tex
+Devs chat from 2026-11-05 18:16 to 2026-11-06 17:52 UTC they sent back 39 of 59
+replies (66%), 31 of them twice, so the cap of two, not the checks, decided
+what went out; the same gate failed the redraft again 30 times. A gate asked
+one yes/no question about words without knowing what kind of turn it was, so
+a roast's "nine-bullet essay" read as an unbacked claim (did_what_it_says failed
+38 times, most of any gate). The analysis is the artifact "Tex reply checks:
+redesign".
+
+**What it is** (`apps/mcp/src/agent/replyJudge.js`):
+
+- One Haiku 5.5 call (effort low) per draft, through the AI gateway, filed
+  under `client: reviewer`. It reads the same state the gates read (their
+  text, the draft, a job's report, every action with its result, the last six
+  texts) and answers JSON: the kind of turn (task, question, chat, correction,
+  report), `send`, the problems by name (`PROBLEMS`, the gates' faults folded
+  into one rubric) and feedback for Tex that quotes the words and says what to
+  do instead. The feedback goes to Tex word for word in the send-back note.
+- The rubric says what the gates could not: in chat, jokes, roasts,
+  exaggeration and opinions are never claims, facts or promises; a fact from
+  earlier in the chat is not unsourced because the reviewer can't see it
+  (the OAuth roast, 2026-11-06); a minor problem, taste, or doubt lets the
+  reply go.
+- A rewrite is reviewed beside the reviewer's own earlier feedback this turn,
+  and passes when it fixes what was asked; no new small point is raised on a
+  rewrite. At most two send-backs a turn stays (Dev2, 2026-11-05).
+- No verdict (an error, more than 8 s, an answer that is not the JSON, or a
+  send-back with no feedback) lets the reply go.
+- `reply_judge: haiku` turns it on; the gates' `clef` and `clef-flash` mean
+  the reviewer too, so production's setup kept a check across the switch
+  without an edit. `judge_at` is read and ignored. Without an AI gateway the
+  older word checks (`doItChecks.js`, `untriedWeb.js`) run instead.
+- A review is a `judge` entry with `by: "review"`, `turnKind` and the problems
+  in `failed`; the Tex page and History show "Sent back by the reviewer: …".
+- The bench is one bar for the whole reviewer, because that is what a person
+  meets: `pnpm ai review` (workflow AI Reviewer, file `ai-gates.yml`) puts
+  every labelled case in `apps/mcp/bench/review/` (the gates' sets, plus
+  `chat`: roasts and banter that must go) to the reviewer, and it must send
+  back at least 80% of faults and at most 10% of good replies across all of
+  them.
+
+Scored before it went live (AI Reviewer run 16, 2026-11-06): 69 of 81 faults
+sent back (85%) and 9 of 102 good replies (9%) across every set, 9 of the 10
+banter and roast replies let go, no review without a verdict, a median of 1.3 s
+a review (slowest 5.9 s). The first run, with a looser rubric and a
+true-or-false `send`, caught 70% with 23% false alarms; seven good cases that
+held a real flaw (a wrong sum, an invented time, a claim no call made) were
+fixed so their label is true for a whole-reply review.
+
+Tuned the same day after Dev2 asked for a 99 (AI Reviewer runs 17 to 19): the
+rubric names the shapes run 16 got wrong (a joke that says Tex sent something
+is still a claim; turning down a way leaves the goal standing; every sum is
+worked out; a live price with nothing read is unsourced; a page or card is told
+in a line; a held draft, a saved preference and a running job's ask for a code
+are fine). Five more good cases held a real flaw the reviewer was right about
+and were fixed, each saying why under `fixed`; no fault case was loosened.
+Run 18: 80 of 81 faults (99%) and 2 of 102 good replies (2%), median 1.2 s;
+run 19, the same code: 79 of 81 (98%) and 4 of 102 (4%). A run moves by about
+two cases, so the reviewer sits near 98% caught with 2 to 4% false alarms.
+
+What a "simplification" would cost: splitting it back into per-fault calls
+brings back the stacked vetoes; dropping the earlier feedback brings back
+redrafts that never converge. Tests: `apps/mcp/test/replyJudge.test.mjs`,
+`apps/mcp/bench/test/review.test.mjs`.
+
+## Ten parallel gates, sent back at most twice (2026-11-05; replaced 2026-11-06)
 
 The owner asked for the pattern checks on replies to go ("a series of parallel
 judges, fine tuned individually ... [when] they don't [pass] it's given back to

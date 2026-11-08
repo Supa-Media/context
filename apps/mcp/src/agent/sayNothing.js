@@ -17,8 +17,17 @@
 
 export const SAY_NOTHING_TOOL = "say_nothing";
 
+/**
+ * How a prompt names a call: in words, never written as code. A prompt that
+ * showed `send { action: "say_nothing" }` was copied word for word into a
+ * group's text (2026-11-06 20:01 UTC, Dev2: "how did this get past??").
+ */
+export function sendCall(action, args = "") {
+  return `call send with action ${action}${args ? ` (args: ${args})` : ""}`;
+}
+
 /** What a prompt tells the model to do when nothing should be texted. */
-export const SAY_NOTHING = `send { action: "${SAY_NOTHING_TOOL}" }`;
+export const SAY_NOTHING = sendCall(SAY_NOTHING_TOOL);
 
 export const SAY_NOTHING_DEFINITION = {
   name: SAY_NOTHING_TOOL,
@@ -42,6 +51,29 @@ export const sayNothingLocal = {
  * (`QUIET_WORD` in `checkInGuards.js`, written out because that module reaches back to `turn.js`; a test holds them equal).
  */
 export const SAID_NOTHING = "SKIP";
+
+/**
+ * TYPED CALLS: a reply that is only a call written out as text, never a text to
+ * anyone. `send { action: "say_nothing" }`, `{ "action": "background", ... }`,
+ * the same in a code fence, or a bare `say_nothing`. Answers the action's name,
+ * or null for anything a person could mean as words.
+ */
+const QUOTE = `["'\u201c\u201d\u2018\u2019]?`;
+const TYPED_ACTION = new RegExp(`^\\{[\\s\\S]*?${QUOTE}action${QUOTE}\\s*:\\s*${QUOTE}([a-z][a-z0-9_]{1,40})${QUOTE}[\\s\\S]*\\}$`);
+export function typedCallOf(text) {
+  let said = String(text ?? "").trim();
+  if (said === "" || said.length > 2_000) return null;
+  said = said.replace(/^```[a-z]*\s*/i, "").replace(/\s*```$/, "").trim();
+  if (/^\W*say_nothing\W*$/.test(said)) return SAY_NOTHING_TOOL;
+  said = said.replace(/^(?:send|call)\s*(?:\(\s*)?/i, "").replace(/\s*\)\s*$/, "").trim();
+  const match = TYPED_ACTION.exec(said);
+  return match ? match[1] : null;
+}
+
+/** Said to the model when its reply was a call typed as text: make it, never text it. */
+export function typedCallNotice(action) {
+  return `(Not sent: your reply was the ${action} call written out as text, and they would have seen it as a text. Make the call itself with the send tool, or write the words you mean to text them.)`;
+}
 
 /** `runTurn`'s `endsTurn` with silence added: a `say_nothing` call settles the turn with nothing to text, before any judge reads it. */
 export function withSayNothing(endsTurn) {

@@ -23,7 +23,7 @@
  */
 
 import { splitTexKey } from "../store/texRouting.js";
-import { ensureHistoryFile, homeHistoryPath } from "./historyFile.js";
+import { ensureHistoryFile, homeConversationsPath, homeHistoryPath } from "./historyFile.js";
 
 /** Whether `key` names a note in this chat's own object. */
 function ownKey(group, key) {
@@ -69,9 +69,11 @@ export async function learnDirect(group, { voice, about, memory, jobs }, old = n
     const paths = { voice, about, memory, ...(typeof jobs === "string" ? { jobs } : {}) };
     const before = old ?? {};
     const history = homeHistoryPath(group.home);
-    const keys = await store.keysAt([...Object.values(paths), ...Object.values(before), history].filter((path) => typeof path === "string"));
-    // The chat's history file, made once, in the same lookup (`historyFile.js`).
+    const conversations = homeConversationsPath(group.home);
+    const keys = await store.keysAt([...Object.values(paths), ...Object.values(before), history, conversations].filter((path) => typeof path === "string"));
+    // The chat's history and conversations files, each made once, in the same lookup (`historyFile.js`).
     await ensureHistoryFile(store, history, keys);
+    await ensureHistoryFile(store, conversations, keys);
     const own = (path) => (ownKey(group, keys?.[path]) ? keys[path] : undefined);
     const missing = (path) => (keys?.[path] === false ? false : undefined);
     const direct = {};

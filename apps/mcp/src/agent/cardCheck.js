@@ -21,6 +21,7 @@
  */
 
 import { requestViaGateway } from "./aiGateway.js";
+import { withArchitecture } from "./texArchitecture.js";
 
 export const CARD_CHECK_MODEL = "anthropic/claude-haiku-5-5";
 const MAX_QUESTION_CHARS = 2_000;
@@ -75,7 +76,7 @@ export function cardCheckFor({ question, config, request = requestViaGateway, me
       const reply = await request(
         {
           model: CARD_CHECK_MODEL,
-          system: SYSTEM,
+          system: withArchitecture(SYSTEM, "cardCheck"),
           messages: [
             {
               role: "user",

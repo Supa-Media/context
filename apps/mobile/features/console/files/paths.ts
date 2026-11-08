@@ -208,6 +208,8 @@ export function folderLabel(name: string): string {
 export function displayName(name: string): string {
   // A chat's history file reads as what it opens as (Dev, 2026-11-03: "view history.ledger.json as “history”").
   if (name === HISTORY_FILE_NAME) return "History";
+  // Its conversations, beside it, as the page it opens as (Dev2, 2026-11-07).
+  if (name === CONVERSATIONS_FILE_NAME) return "Conversations";
   const called = withoutSortPrefix(name);
   if (!isMarkdown(called)) return isolateForDisplay(called);
   const stem = called.slice(0, -3);
@@ -219,6 +221,8 @@ export function displayName(name: string): string {
 
 /** The read-only history file Tex keeps in a chat's folder (`texStore/historyView.js`). */
 const HISTORY_FILE_NAME = "history.ledger.json";
+/** The read-only conversations file beside it (`texStore/historyView.js`). */
+const CONVERSATIONS_FILE_NAME = "conversations.ledger.json";
 
 /**
  * The name of the file that makes a folder exist.

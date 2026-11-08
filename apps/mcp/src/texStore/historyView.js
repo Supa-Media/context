@@ -17,12 +17,25 @@
  */
 
 import { TexObjectRefused } from "./objects.js";
+import { foldThreads, listedThreads, THREADS_SUFFIX } from "../agent/threadsFold.js";
 
 /** What the object keeps under the history file's key: this, and nothing of the chat. */
 export const HISTORY_VIEW_MARKER = '{"tex-history-view":1}';
 
 /** The file's name, in a person's `tex/` and in each group chat's home. */
 export const HISTORY_FILE = "history.ledger.json";
+
+/**
+ * The chat's conversations, as a second view beside it (Dev2, 2026-11-07: in the Tex folder, conversations is "a page
+ * that you click on it and then you see the UI, similar to how history is"). The same kind of row, its own marker, and
+ * a read answers the chat's conversation threads (`agent/conversationThreads.js`) as they stand now: an index of the
+ * history, so never a copy of a word of it, read only, and left out of a download as the history view is.
+ */
+export const CONVERSATIONS_FILE = "conversations.ledger.json";
+export const CONVERSATIONS_VIEW_MARKER = '{"tex-conversations-view":1}';
+/** Threads one read of the conversations file shows, and the threads ledger pages it reads. */
+const VIEW_THREADS = 500;
+const THREAD_PAGES = 20;
 
 /** The most entries one read shows, and the most bytes. */
 export const VIEW_ENTRIES = 1000;
@@ -34,16 +47,26 @@ const ONE_TO_ONE = "texts";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const MARKER_BYTES = encoder.encode(HISTORY_VIEW_MARKER);
+const CONVERSATIONS_BYTES = encoder.encode(CONVERSATIONS_VIEW_MARKER);
 
-/** Whether these bytes are the marker. */
+/** Whether these bytes are the history marker. */
 export function isHistoryMarker(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength !== MARKER_BYTES.byteLength) return false;
   return decoder.decode(bytes) === HISTORY_VIEW_MARKER;
 }
 
+/** Which view these bytes mark: `history`, `conversations`, or null for anything else. */
+export function viewOfMarker(bytes) {
+  if (!(bytes instanceof Uint8Array)) return null;
+  if (isHistoryMarker(bytes)) return "history";
+  if (bytes.byteLength === CONVERSATIONS_BYTES.byteLength && decoder.decode(bytes) === CONVERSATIONS_VIEW_MARKER) return "conversations";
+  return null;
+}
+
 /** The chat this object's history file shows: a person's one-to-one chat, else the object's one chat. */
 function chatOf(ledger) {
-  const chats = ledger.chats().map((manifest) => manifest.chat);
+  // A chat's conversation threads (`agent/conversationThreads.js`, `<chat>.threads`) are its index, not a second chat.
+  const chats = ledger.chats().map((manifest) => manifest.chat).filter((chat) => !chat.endsWith(".threads"));
   if (chats.includes(ONE_TO_ONE)) return ONE_TO_ONE;
   return chats.length === 1 ? chats[0] : null;
 }
@@ -69,41 +92,65 @@ export function renderHistory(ledger) {
   return { text, etag: `history-view-${Number(manifest.count) || 0}-${Number(manifest.updated) || 0}-${entries.length}` };
 }
 
+/** The conversations file's text and etag: the chat's threads as they stand, open first. */
+export function renderConversations(ledger) {
+  const chat = ledger ? chatOf(ledger) : null;
+  if (chat === null) return { text: `${JSON.stringify({ chat: null, view: { shown: 0, more: false }, threads: [] }, null, 2)}\n`, etag: "conversations-view-empty" };
+  const entries = [];
+  let after = null;
+  let manifest = null;
+  for (let page = 0; page < THREAD_PAGES; page += 1) {
+    const read = ledger.read(`${chat}${THREADS_SUFFIX}`, { ...(after !== null ? { after } : {}) });
+    manifest = read.manifest ?? manifest;
+    entries.push(...(read.entries ?? []));
+    if (!Number.isSafeInteger(read.next)) break;
+    after = read.next;
+  }
+  const ordered = listedThreads(foldThreads(entries).threads, Number.MAX_SAFE_INTEGER);
+  const threads = ordered.slice(0, VIEW_THREADS).map((t) => ({ id: t.id, title: t.title, description: t.description, status: t.status, started: t.at, last: t.last, texts: t.texts }));
+  const text = `${JSON.stringify({ chat, view: { shown: threads.length, more: ordered.length > threads.length }, threads }, null, 2)}\n`;
+  return { text, etag: `conversations-view-${Number(manifest?.count) || 0}-${Number(manifest?.updated) || 0}` };
+}
+
 /**
  * `objects` with the history file answered from the ledger: `get` and `head` of a key holding the marker answer the
  * view, and a `put` over it is refused unless it writes the marker again. Everything else as it was.
  */
 export function withHistoryView(objects) {
   if (!objects?.ledger) return objects;
+  const sizes = new Set([MARKER_BYTES.byteLength, CONVERSATIONS_BYTES.byteLength]);
   const markerAt = (key) => {
     const meta = objects.head(key);
-    if (meta === null || meta.size !== MARKER_BYTES.byteLength) return null;
+    if (meta === null || !sizes.has(meta.size)) return null;
     const found = objects.get(key);
-    return found?.body && isHistoryMarker(found.body) ? meta : null;
+    const kind = found?.body ? viewOfMarker(found.body) : null;
+    return kind === null ? null : { meta, kind };
   };
+  const render = (kind) => (kind === "conversations" ? renderConversations(objects.ledger) : renderHistory(objects.ledger));
   const viewMeta = (meta, view, size) => ({ ...meta, etag: view.etag, size, httpMetadata: { contentType: "application/json" } });
   return {
     ...objects,
     head(key) {
-      const meta = markerAt(key);
-      if (meta === null) return objects.head(key);
-      const view = renderHistory(objects.ledger);
-      return viewMeta(meta, view, encoder.encode(view.text).byteLength);
+      const marked = markerAt(key);
+      if (marked === null) return objects.head(key);
+      const view = render(marked.kind);
+      return viewMeta(marked.meta, view, encoder.encode(view.text).byteLength);
     },
     get(key, options = {}) {
-      const meta = markerAt(key);
-      if (meta === null) return objects.get(key, options);
-      const view = renderHistory(objects.ledger);
+      const marked = markerAt(key);
+      if (marked === null) return objects.get(key, options);
+      const view = render(marked.kind);
       const body = encoder.encode(view.text);
-      const answer = viewMeta(meta, view, body.byteLength);
+      const answer = viewMeta(marked.meta, view, body.byteLength);
       const unchanged = options.onlyIf?.etagDoesNotMatch;
       if (typeof unchanged === "string" && unchanged.replace(/"/g, "") === view.etag) return answer;
       return { ...answer, body };
     },
     async put(key, value, options = {}) {
-      if (markerAt(key) !== null) {
+      const marked = markerAt(key);
+      if (marked !== null) {
         const bytes = typeof value === "string" ? encoder.encode(value) : value instanceof Uint8Array ? value : new Uint8Array(value ?? []);
-        if (!isHistoryMarker(bytes)) throw new TexObjectRefused("the history file is a view of the chat's log and can't be written");
+        if (viewOfMarker(bytes) !== marked.kind) throw new TexObjectRefused(`the ${marked.kind} file is a view of the chat's log and can't be written`);
       }
       return await objects.put(key, value, options);
     },

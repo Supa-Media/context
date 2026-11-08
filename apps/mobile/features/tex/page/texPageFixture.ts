@@ -8,6 +8,7 @@
  * push a live patch, so the fixture also shows an edit landing in place.
  */
 
+import type { Conversation, ConversationLine } from "./texPageTypes";
 import type { PatchFrame } from "./texPageLive";
 import type { Read, TexPageSource } from "./texPageSource";
 import type {
@@ -31,6 +32,21 @@ export function fixtureNow(): number {
   return d.getTime();
 }
 const at = (h: number, m: number, dayOffset = 0) => new Date(2026, 10, 2 + dayOffset, h, m, 0, 0).getTime();
+
+/** The approved canvas's conversations (made up, as every fixture is). */
+const CONVERSATIONS: Conversation[] = [
+  { id: "t1", title: "Lisbon trip, hotel and flights", description: "Hotel booked; window seat and Friday dinner still to do", status: "open", started: at(9, 14, -3), last: at(14, 41), texts: 7 },
+  { id: "t2", title: "Car registration renewal", description: "Due Nov 30; asked for the nearest inspection station", status: "open", started: at(10, 2, -1), last: at(10, 6, -1), texts: 3 },
+  { id: "t3", title: "Dentist, Thursday at 3", description: "Booked and confirmed", status: "finished", started: at(11, 0, -2), last: at(11, 2), texts: 3 },
+];
+const CONVERSATION_LINES: Record<string, ConversationLine[]> = {
+  t1: [
+    { id: "c1", at: at(9, 14, -3), who: "person", text: "find me a hotel in Lisbon for the 12th to 15th, Alfama if possible" },
+    { id: "c2", at: at(9, 15, -3), who: "tex", text: "Memmo Alfama has a terrace room at $172 a night, free cancellation to Dec 9. Want it?" },
+    { id: "c3", at: at(14, 41), who: "person", text: "can you get me a window seat on the way out" },
+    { id: "c4", at: at(14, 41), who: "tex", text: "On it. Seat 14A is free; holding it now." },
+  ],
+};
 
 const ME_TURNS: Turn[] = [
   {
@@ -417,6 +433,15 @@ export function fixtureSource(): TexPageSource {
       // As the gateway reads with `before`: newest first.
       const before = query.before ?? Number.MAX_SAFE_INTEGER;
       return ok({ manifest: { schema: "tex-ledger", version: 1, count: 6, created: at(9, 2), updated: at(9, 3) }, entries: entries.filter((e) => (e.seq ?? 0) < before).reverse() });
+    },
+    async conversations(chat) {
+      if (!copies.has(chat)) return { kind: "notYours" };
+      return ok(chat === "me" ? CONVERSATIONS : []);
+    },
+    async conversation(chat, id) {
+      if (!copies.has(chat)) return { kind: "notYours" };
+      const thread = (chat === "me" ? CONVERSATIONS : []).find((c) => c.id === id) ?? null;
+      return ok({ thread, lines: thread ? CONVERSATION_LINES[id] ?? [] : [], more: false });
     },
     async machines() {
       // The mock's gateway predates machines, so it answers as such a gateway does.

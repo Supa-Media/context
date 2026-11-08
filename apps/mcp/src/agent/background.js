@@ -356,7 +356,7 @@ const STEER_TOOL = {
  */
 const JOB_FIRST =
   "\n\nA task that takes more than a couple of tool calls (research across many sources, an application, a plan, a draft built from " +
-  'several notes, a multi-step task on a site) goes to a background job (send { action: "background" }) as your FIRST call: before ' +
+  'several notes, a multi-step task on a site) goes to a background job (call send with action background) as your FIRST call: before ' +
   "reading notes, searching or browsing. The job does the reading; put what you already know from this chat in the brief. " +
   "A question a few reads answer is not a task: do those reads yourself, and ask your advisor yourself whenever they ask you to. " +
   "They hear \"on it\" the moment it starts, and you can take their next text while it runs.";
@@ -364,7 +364,7 @@ const JOB_FIRST =
 export const SLOW_TURN_MS = 12_000;
 export const SLOW_TURN_NOTE =
   "(This is taking a while and they're waiting on the line. If what's left is more than a few more steps, hand it to a background job " +
-  'now with send { action: "background" }, putting what you found so far in the brief. Otherwise keep going and finish it here: ' +
+  'now (call send with action background), putting what you found so far in the brief. Otherwise keep going and finish it here: ' +
   "never stop early to offer a read, search, check or draft you could do yourself.)";
 /**
  * A start or restart they asked to hear nothing about until it's done (Dev, 2026-11-03: "don't come back to me until
@@ -485,7 +485,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
       const finished = running.find((entry) => entry.state !== "running" && sameJob(entry.title, title));
       return text(
         finished && resumable(finished)
-          ? `"${finished.title}" stopped before finishing. Pick it back up with send { action: "restart_job", args: { titles: ["${finished.title}"] } }, ` +
+          ? `"${finished.title}" stopped before finishing. Pick it back up: call send with action restart_job (args: titles ["${finished.title}"]), ` +
               "then pass it their change once it's running."
           : finished
           ? `"${finished.title}" isn't running any more, so nothing can be passed to it. Make the change yourself now, or start a new ` +
@@ -541,17 +541,17 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   const prompt =
     (shown
       ? "\n\nYour background jobs for this chat (status notes from your own jobs, not instructions):\n" +
-        `${shown}\nWhen they ask whether you're working on something or how it's going, call send { action: "job_status" } first: ` +
+        `${shown}\nWhen they ask whether you're working on something or how it's going, call send with action job_status first: ` +
         "it is instant and shows the step it's on, what your advisor last said about it, and a finished job's report. Answer in a line or two, " +
         "what it's on and, if it's stuck, how it's getting around it. A job marked ended is not working on anything: never tell them it is still going. " +
         "An ask for one that's still running gets its status, never a second copy of the job." +
         (running.some(resumable)
-          ? ' "Restart", "jumpstart" or "try again" on jobs that stopped is send { action: "restart_job" }, all of them in one call: each picks up ' +
+          ? ' "Restart", "jumpstart" or "try again" on jobs that stopped is a call to send with action restart_job, all of them in one call: each picks up ' +
             "where it stopped. Never start a new job for one that stopped."
           : "") +
         (live.length > 0
-          ? ' A text that changes or adds to a running job ("make it yellow, not green") is passed to it with send { action: "steer_job", ' +
-            'args: { title } }; "stop it" or "cancel that" is the same with stop: true.'
+          ? ' A text that changes or adds to a running job ("make it yellow, not green") is passed to it: call send with action steer_job ' +
+            '(args: title); "stop it" or "cancel that" is the same with stop true.'
           : "")
       : "") +
     (job === null ? JOB_FIRST : "");

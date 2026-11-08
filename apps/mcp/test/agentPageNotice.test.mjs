@@ -80,7 +80,7 @@ test("a plan saved as a plain note goes back to be a page", () => {
 test("the notice carries the skill and its stamp, and names the page to write", () => {
   const said = pageNotice("projects/100-person-concert/plan.md");
   assert.match(said, /projects\/100-person-concert\/plan\.page\.md/);
-  assert.match(said, /archive_note/);
+  assert.match(said, /manage action archive/);
   assert.match(said, /the plain copy you made this turn/);
   assert.ok(said.includes(PAGE_SKILL_STAMP));
 });

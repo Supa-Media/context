@@ -25,7 +25,8 @@ const GROUP_KEY = /^[0-9a-f]{64}$/;
  * (`apps/mcp/src/texStore/historyView.js`). A whole-workspace download leaves it
  * out so the chat leaves once, whole, never a second, cut copy beside it.
  */
-const HISTORY_VIEW = /^tex\/(?:groups\/[^/]+\/)?history\.ledger\.json$/;
+// The conversations file beside it is a view of the same chat, so it is left out the same way and opens as its page.
+const HISTORY_VIEW = /^tex\/(?:groups\/[^/]+\/)?(?:history|conversations)\.ledger\.json$/;
 export const isHistoryView = (path: string) => HISTORY_VIEW.test(path);
 
 /** Pages read at most: fifty entries each, far past any chat. A longer one is said to be short, never left out unsaid. */

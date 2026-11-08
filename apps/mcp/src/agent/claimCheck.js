@@ -129,11 +129,11 @@ const SLACK_OFFER =
   earlier in the chat instead, and answer that.
 */
 const OFFER_KINDS = [
-  { kind: "an email", tool: "send_email", test: (said) => PREVIEW_LINE.test(said) || /\b(?:email|e-mail|forward|reply to|write back|draft)\b/i.test(said) },
-  { kind: "a Google Chat message", tool: "google_chat", test: (said) => /\bgoogle chat\b/i.test(said) },
-  { kind: "a Slack message", tool: "slack_api", test: (said) => SLACK_OFFER.test(said) || /\bslack\b/i.test(said) },
-  { kind: "a calendar change", tool: "calendar_event", test: (said) => /\bcalendar\b/i.test(said) || (CALENDAR_CHANGE.test(said) && WHEN.test(said)) },
-  { kind: "a bug report", tool: "report_problem", test: (said) => /\b(?:bug|report)\b/i.test(said) },
+  { kind: "an email", tool: "send_email", said: "send action email", test: (said) => PREVIEW_LINE.test(said) || /\b(?:email|e-mail|forward|reply to|write back|draft)\b/i.test(said) },
+  { kind: "a Google Chat message", tool: "google_chat", said: "send action google_chat", test: (said) => /\bgoogle chat\b/i.test(said) },
+  { kind: "a Slack message", tool: "slack_api", said: "send action slack", test: (said) => SLACK_OFFER.test(said) || /\bslack\b/i.test(said) },
+  { kind: "a calendar change", tool: "calendar_event", said: "send action calendar", test: (said) => /\bcalendar\b/i.test(said) || (CALENDAR_CHANGE.test(said) && WHEN.test(said)) },
+  { kind: "a bug report", tool: "report_problem", said: "write action report_problem", test: (said) => /\b(?:bug|report)\b/i.test(said) },
 ];
 
 /** The kinds of held change an answer offers, by what its words name; every kind when they name none. */
@@ -149,12 +149,12 @@ export function offerNotice(kinds = OFFER_KINDS) {
   if (kinds.length === 1 && kinds[0].tool === "calendar_event") {
     return (
       "Before this goes: you offered a change to their calendar in your own words and didn't make it. " +
-      "A change to their own calendar needs no yes: make it now with calendar_event, exactly as you offered it, then say in one short line that it's done. " +
+      "A change to their own calendar needs no yes: make it now with send action calendar, exactly as you offered it, then say in one short line that it's done. " +
       "Ask first only if they asked you to check with them, or something you need is missing. If you offered something else, send your answer again as it was."
     );
   }
   const what = joinOr(kinds.map((entry) => entry.kind));
-  const calls = joinOr(kinds.map((entry) => entry.tool));
+  const calls = joinOr(kinds.map((entry) => entry.said)); // as the model calls it (`promptNames.js`)
   return (
     `Before this goes: you showed or offered, in your own words, ${what}, and nothing is held for their yes. ` +
     "A yes or 👍 to your words alone makes nothing, and they would be asked again. If that is what you offered and you know what it is, " +
@@ -272,10 +272,10 @@ export const HANDBACK_NOTICE =
   "Before this goes: your answer asks them to find, forward, check or look something up, and that is yours to do. " +
   "Never ask them to do what your own tools can: search their email yourself again, a different way each time (search_email by the sender with from:, " +
   "an amount or number, a date range with after: and before:, one or two words, each connected mailbox), read their notes, or open the site in your browser and sign in with a saved login. " +
-  "A calendar change is yours: calendar_event adds, edits any part of (title, time, place, notes, guests, Meet, reminders, repeats), moves, cancels or answers an event. " +
-  "So are an email (send_email), a Slack post (slack) and a Google Chat message (google_chat): each is shown to them for one 👍, so just call it. " +
+  "A calendar change is yours: send action calendar adds, edits any part of (title, time, place, notes, guests, Meet, reminders, repeats), moves, cancels or answers an event. " +
+  "So are an email (send action email), a Slack post (slack) and a Google Chat message (google_chat): each is shown to them for one 👍, so just call it. " +
   "A change on a site you're signed in to (a cart, an order, a booking) is yours to make in your browser; if a browser call failed, run it again. " +
-  "A file on a site (an invoice or receipt PDF, a statement) is yours to take: a browse download step saves it, and attach on send_email or save_email_draft puts it in the email. " +
+  "A file on a site (an invoice or receipt PDF, a statement) is yours to take: a browse download step saves it, and attach on send action email or email_draft puts it in the email. " +
   "If their mail doesn't have it, go where else it lives: Gmail on the web in your browser, or the account, admin or billing page it came from (a billing history, an admin console), signed in with their saved login. " +
   "An email you texted about earlier is still there: find it again. Do it now, then answer with what you did or found. " +
   "Ask them only for what truly needs them: a sign-in with no saved login, a code on their phone, a captcha browse said outlasted every try, a payment or other yes, a choice, or a fact only they know. " +
