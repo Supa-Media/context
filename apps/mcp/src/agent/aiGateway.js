@@ -39,7 +39,7 @@
  * built-in model is the Workers AI one as before (`builtin.js`).
  */
 
-import { ProviderError, anthropicMessages } from "./providers.js";
+import { ProviderError, THINKING_REFUSED, anthropicMessages } from "./providers.js";
 
 /** The Anthropic API version this build is written against. */
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -359,6 +359,12 @@ async function sendWithRetry(config, body, options, fetchImpl, wait) {
   return { ...(await send(config, body, options, fetchImpl)), retried: { status: first.status } };
 }
 
+/** A refused round, named by its status; a 400 about thinking blocks says so, and only by that code. */
+const namesThinking = (answer) => answer.status === 400 && /thinking|signature/i.test(answer.text ?? "");
+function statusError(answer) {
+  return new ProviderError(namesThinking(answer) ? THINKING_REFUSED : `status ${answer.status ?? "none"}`, answer.status);
+}
+
 /**
  * One round through the gateway, in the shape `providers.js` describes,
  * plus token counts and who paid: `"credit"` (the plan) or `"cloudflare"`.
@@ -380,7 +386,7 @@ export async function requestViaGateway(call, config, options = {}) {
   // field never fails a turn.
   const sendIt = async (withKey) => {
     const answer = await sendWithRetry(config, body, { withKey, metadata: options.metadata }, fetchImpl, wait);
-    if (answer.status !== 400 || !hasHourMarks(body) || saysCreditSpent(answer.text)) return answer;
+    if (answer.status !== 400 || !hasHourMarks(body) || saysCreditSpent(answer.text) || namesThinking(answer)) return answer; // a thinking 400 is the turn's to strip (`turn.js`)
     const plain = withoutHourMarks(body);
     const again = await sendWithRetry(config, plain, { withKey, metadata: options.metadata }, fetchImpl, wait);
     if (again.status === 200) {
@@ -405,14 +411,14 @@ export async function requestViaGateway(call, config, options = {}) {
       // without it, so a broken key costs a slower answer, never no answer.
       answer = null;
     } else {
-      throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status);
+      throw statusError(answer);
     }
   }
   if (!answer) {
     answer = await sendIt(false);
   }
   if (answer.status !== 200) {
-    throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status);
+    throw statusError(answer);
   }
 
   const text = answer.text;

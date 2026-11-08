@@ -20,8 +20,10 @@
  *     → "a call held for the person's yes does not escalate" fails
  *   `runTurn` not switching to `main` after the planning rounds
  *     → "think_rounds 1: round 0 plans on think, every later round drives on main" fails
- *   `runTurn` keeping the planner's thinking blocks on a switch
- *     → "the switch drops the planner's thinking and re-tells the model who it is" fails
+ *   `switchTo` deleting the earlier rounds' blocks again
+ *     → "the switch hands the planner's blocks on unchanged and re-tells the model who it is" fails
+ *   `runTurn` not retrying a 400 that names thinking without the blocks
+ *     → "a 400 that names thinking is retried once without the blocks, and the round says so" fails
  *   `runTurn` booking every round's usage to `main`
  *     → "per-model usage adds up to the turn's total, and the meter gets one
  *       report per model" fails (and two more)
@@ -70,6 +72,7 @@ function scripted(rounds) {
     const usage = WIRE[body.model] === OPUS ? { input_tokens: 100, output_tokens: 10 } : { input_tokens: 1000, output_tokens: 50 };
     const next = queue.shift();
     if (!next) throw new Error("the script ran out");
+    if (next.status) return new Response(next.body, { status: next.status });
     return new Response(JSON.stringify(reply(next.blocks, next.stop, usage)), { status: 200, headers: { "content-type": "application/json" } });
   };
   return { bodies, fetchImpl, models: () => bodies.map((body) => WIRE[body.model] ?? body.model) };
@@ -127,11 +130,12 @@ test("a text the router keeps on main never touches think, think_rounds or not",
   assert.deepEqual(Object.keys(result.usageByModel), [HAIKU]);
 });
 
-test("the switch drops the planner's thinking and re-tells the model who it is", async () => {
+test("the switch hands the planner's blocks on unchanged and re-tells the model who it is", async () => {
   const gw = scripted([tools(1), tools(2), answer()]);
   await turn(gw.fetchImpl, { router: router({ thinkRounds: 1 }) });
   const planned = gw.bodies[1].messages.find((message) => message.role === "assistant");
-  assert.ok(!planned.content.some((block) => block.type === "thinking"), "Haiku is not handed Opus's thinking");
+  // The API drops what Haiku cannot read (platform.claude.com/docs/en/build-with-claude/thinking, "Switching models mid-conversation").
+  assert.deepEqual(planned.content, [thought(1), call(1)], "Opus's blocks go to Haiku exactly as they came");
   assert.ok(planned.content.some((block) => block.type === "tool_use"), "but it sees the calls Opus made");
   // The model line and the plan's words are said in the person's turn (`turn.js`): the whole request is read, minus its `model` field.
   const systemText = (body) => JSON.stringify({ ...body, model: undefined });
@@ -140,6 +144,25 @@ test("the switch drops the planner's thinking and re-tells the model who it is",
   // Haiku's own thinking rides along between its own rounds, as on any turn.
   const driven = gw.bodies[2].messages.filter((message) => message.role === "assistant");
   assert.ok(driven.at(-1).content.some((block) => block.type === "thinking"), "the driver keeps its own thinking");
+});
+
+test("a 400 that names thinking is retried once without the blocks, and the round says so", async () => {
+  const refused = { status: 400, body: JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "messages.1.content.0: Invalid `signature` in `thinking` block" } }) };
+  const gw = scripted([tools(1), refused, tools(2), answer()]);
+  const result = await turn(gw.fetchImpl, { router: router({ thinkRounds: 1 }) });
+  assert.equal(result.answer, "Done.");
+  assert.deepEqual(gw.models(), [OPUS, HAIKU, HAIKU, HAIKU]);
+  assert.ok(gw.bodies[1].messages.some((message) => message.content?.[0]?.type === "thinking"), "the first try carried the blocks");
+  assert.ok(!JSON.stringify(gw.bodies[2].messages).includes("sig-1"), "the retry carries none of them");
+  assert.deepEqual(result.timing.trace.filter((entry) => entry.kind === "model").map((entry) => entry.code ?? null), [null, "thinking_stripped", null]);
+});
+
+test("a 400 that does not name thinking is not retried that way", async () => {
+  const plain400 = { status: 400, body: JSON.stringify({ error: { message: "max_tokens too large" } }) };
+  // The gateway resends a 400 once without its hour marks (`aiGateway.js`); the turn strips nothing.
+  const gw = scripted([tools(1), plain400, plain400]);
+  await assert.rejects(turn(gw.fetchImpl, { router: router({ thinkRounds: 1 }) }), (error) => error.reason === "status 400");
+  assert.equal(gw.bodies.length, 3);
 });
 
 test("a failed call sends the next round to think, once, then main drives again", async () => {
