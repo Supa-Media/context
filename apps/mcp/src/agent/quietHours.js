@@ -8,7 +8,8 @@
  * unless it is an emergency. A routine or a reminder they set for a time
  * still goes at that time: they chose it.
  *
- * Read here and in the Tex page (`http/texPage/notes.js`), the same words.
+ * Read here and in the Tex page (`http/texPage/notes.js`), the same words. The
+ * rest of the note, `paused:` and their own words, is `readSettings` below.
  */
 
 import { wallClock } from "../../../../packages/shared/src/routines.cjs";
@@ -70,3 +71,35 @@ export function quietUntil(window, now, timeZone) {
   const left = (window.until - at + DAY_MINUTES) % DAY_MINUTES;
   return now - (now % MINUTE_MS) + left * MINUTE_MS;
 }
+
+/** When the quiet hours a `tex/heartbeat.md` body names end, if `now` is inside them, else null. */
+export function quietHoursEnd(text, now, timeZone) {
+  return quietUntil(readQuietHours(quietHoursLine(text)), now, timeZone);
+}
+
+/** Instructions longer than this are cut: the look's question stays the larger part. */
+const MAX_INSTRUCTIONS_CHARS = 2_000;
+
+/**
+ * `tex/heartbeat.md` read as settings: paused, and the person's own words.
+ * A note that is missing or can't be read is the defaults.
+ */
+export function readSettings(text) {
+  const raw = typeof text === "string" ? text.replace(/^\uFEFF/, "") : "";
+  const lines = raw.split(/\r?\n/);
+  let body = raw;
+  let paused = false;
+  if (lines[0]?.trim() === "---") {
+    const end = lines.findIndex((line, i) => i > 0 && (line.trim() === "---" || line.trim() === "..."));
+    if (end > 0) {
+      for (const line of lines.slice(1, end)) {
+        const match = /^\s*paused\s*:\s*(.+?)\s*$/i.exec(line);
+        if (match && /^(true|yes|on)$/i.test(match[1].replace(/^["']|["']$/g, ""))) paused = true;
+      }
+      body = lines.slice(end + 1).join("\n");
+    }
+  }
+  const instructions = body.trim().slice(0, MAX_INSTRUCTIONS_CHARS);
+  return { paused, instructions };
+}
+

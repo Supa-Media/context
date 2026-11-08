@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { quietHoursLine, quietUntil, readQuietHours } from "../src/agent/quietHours.js";
+import { quietHoursLine, quietUntil, readQuietHours, readSettings } from "../src/agent/quietHours.js";
 
 const at = (iso) => Date.parse(iso);
 
@@ -55,4 +55,12 @@ test("an off switch is paused: yes in the front matter, and nothing else", () =>
   assert.equal(switchedOff("paused: true\n"), false, "not front matter");
   assert.equal(switchedOff("---\ntitle: x\n---\npaused: true\n"), false, "the body says nothing");
   assert.equal(switchedOff(""), false);
+});
+
+test("tex/heartbeat.md pauses check-ins in its front matter, and its body is their instructions", () => {
+  const paused = readSettings("---\npaused: true\n---\nOnly deadlines, please.\n");
+  const open = readSettings("Only text me about deadlines.");
+  assert.deepEqual(paused, { paused: true, instructions: "Only deadlines, please." });
+  assert.deepEqual(open, { paused: false, instructions: "Only text me about deadlines." });
+  assert.equal(readSettings("---\npaused: no\n---\n").paused, false);
 });
