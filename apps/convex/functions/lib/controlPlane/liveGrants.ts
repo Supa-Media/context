@@ -72,8 +72,9 @@ export async function resolveLiveGrant(
 /**
  * A texting token a newer mint replaced (`textsEarlierTokens`), still inside
  * its own lifetime: the turn that holds it finishes instead of being told
- * there is no model. Only the texting client's, only while that grant is live
- * by every check below, and never once the person paused sign-ins by phone.
+ * there is no model. Only Tex's texting clients' (1:1 and group chat), only
+ * while that grant is live by every check below, and never once the person
+ * paused sign-ins by phone.
  */
 async function earlierTextsToken(ctx: QueryCtx, hashedAccessToken: string): Promise<LiveGrant | null> {
   const earlier = await ctx.db
@@ -82,7 +83,7 @@ async function earlierTextsToken(ctx: QueryCtx, hashedAccessToken: string): Prom
     .first();
   if (earlier === null || earlier.expiresAt <= Date.now()) return null;
   const grant = await ctx.db.get(earlier.grantId);
-  if (grant === null || grant.clientId !== TEXTS_CLIENT_ID) return null;
+  if (grant === null || (grant.clientId !== TEXTS_CLIENT_ID && grant.clientId !== TEXTS_GROUP_CLIENT_ID)) return null;
   if (await phoneSignInPaused(ctx, grant.userId)) return null;
   return await validateLiveGrantRecord(ctx, grant);
 }

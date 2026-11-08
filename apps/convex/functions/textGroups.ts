@@ -18,6 +18,7 @@ import { armChatLook } from "./lib/textGroupLooks";
 import { muteChat, setSpeaksUp, speaksUpOf, unmuteChat } from "./lib/texChatRules";
 import { ensureGroupClient } from "./lib/textGroupClient";
 import { ensureChatHome } from "./lib/textGroupHome";
+import { keepEarlierToken } from "./lib/controlPlane/earlierTokens";
 import { sponsorOf } from "./lib/textGroupUsage";
 import { chatPerson, handleOf, linkedUser } from "./lib/textGroupAccounts";
 import { chatWorkspace, reachOf } from "./lib/textGroupReach";
@@ -482,7 +483,9 @@ async function mintGroupGrant(
     hashedAccessToken: input.hashedAccessToken,
     accessTokenExpiresAt: input.expiresAt,
   };
-  // One live grant per person per chat: a new turn's token replaces the last.
+  // One grant per person per chat, and each turn's mint puts its token on it. The replaced token stays good until its
+  // own expiry (`keepEarlierToken`): the same person's job, its report and their next text run at once, and a mint
+  // that revoked the last token cut off whichever was still running (a job's report, 2026-11-08).
   const grants = await ctx.db
     .query("oauthGrants")
     .withIndex("by_workspace_user", (q) => q.eq("workspaceId", input.workspaceId).eq("userId", input.tagger))
@@ -500,6 +503,7 @@ async function mintGroupGrant(
       createdAt: Date.now(),
     });
   } else {
+    await keepEarlierToken(ctx, reusable);
     await ctx.db.patch(reusable._id, token);
   }
   if (fresh.sponsorId === undefined) await ctx.db.patch(input.group._id, { sponsorId: sponsor });

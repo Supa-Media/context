@@ -152,6 +152,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     return "cancelled";
   }
   // A routine the gateway couldn't run throws below like any turn, so its workflow retries it; failing every try reports it quietly.
+  // A job's report refused a model is tried again, on a fresh grant, like any turn that failed: never dropped in silence
+  // (a report whose token another of its asker's turns replaced mid-turn, 2026-11-08). Every try refused, `turnFailed` says so.
+  if (message.jobReport !== undefined && answer.kind === "no_model") throw new ServiceError("gateway", 409);
+  // Out of today's background turns, trying again is no use: the chat hears there is news, and the job list keeps it.
+  if (message.jobReport !== undefined && answer.kind === "daily_limit") return void (await say(storage, deps, message, GROUP_LINES.jobReportRefused, { system: true, reason: "failed" }));
   if (routine && (answer.kind === "daily_limit" || answer.kind === "no_model")) return void (await routineDone(deps, message, answer.kind === "daily_limit" ? "daily_limit" : "no_provider"));
   if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow.", { system: true }));
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
