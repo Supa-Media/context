@@ -334,7 +334,7 @@ const foldedName = (name) => {
  * and is refused with which one to drop, never quietly read as a folder called
  * `@name` (owner's choice, 2026-11-08).
  */
-function addressedTwice(args, into = "context", fields = ["path", "note", "prefix", "paths"]) {
+function addressedTwice(args, into = "context", fields = [...PATH_ARGUMENTS.map(([field]) => field), "paths"]) {
   if (typeof args[into] !== "string" || args[into].trim() === "") return;
   const named = foldedName(args[into]);
   for (const field of fields) {
