@@ -529,7 +529,13 @@ crons.interval(
  * (`googleSync.sweepDueGoogleSyncs`) is kept, unscheduled, so a kind can be
  * added back on purpose; `__tests__/copiesStopped.test.ts` fails if anything
  * schedules it again.
+ *
+ * The one exception: a person with the `mail.in-notes` feature flag gets their
+ * Gmail copied again (owner, 2026-11-08; `lib/googleSync/mailCopy.ts`). Each
+ * minute it starts a Gmail-only pass on their due connections, and nobody
+ * else's; the pass asks the flag again before it opens a credential.
  */
+crons.interval("copy mail into notes for flagged people", { minutes: 1 }, internal.functions.mailCopy.startFlagged, {});
 
 /**
  * Custom domains: restart a check run whose next check went missing, re-read

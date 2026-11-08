@@ -2,6 +2,8 @@
 
 ### Mail, calendar, chat, contacts and iMessage are read from their source, not copied into notes
 
+_Mail comes back into notes for people with the `mail.in-notes` feature flag (owner, 2026-11-08): each minute `mailCopy.startFlagged` starts a Gmail-only pass on their due connections (`lib/googleSync/mailCopy.ts`), the pass asks the flag again before it opens a credential, and a pass that wrote mail brings their check-in forward. Nobody else's mail is copied; `__tests__/googleSyncLoop/mailInNotes.test.ts` and `copiesStopped.test.ts` fail otherwise._
+
 _One exception since 2026-11-06: Tex keeps a short copy of the next seven days in `tex/calendar.md`, marked as a copy and never the source of truth ([calendar-cache](../texting-assistant/calendar-cache.md))._
 
 Decided by the owner on 2026-10-21. After an analysis of what the copies were
