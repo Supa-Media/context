@@ -275,7 +275,11 @@ function addressByPath(tool, args) {
   if (!args || typeof args !== "object") return;
   if (tool === "move_note") {
     for (const [field, into] of PATH_ARGUMENTS) {
-      if (args[into] !== undefined && args[into] !== null) continue;
+      if (args[into] !== undefined && args[into] !== null) {
+        const twice = addressedTwice(args, into, [field]);
+        if (twice) return twice;
+        continue;
+      }
       const match = typeof args[field] === "string" ? BY_NAME.exec(args[field]) : null;
       if (!match) continue;
       args[into] = match[1];
@@ -283,9 +287,8 @@ function addressByPath(tool, args) {
     }
     return;
   }
-  // A call that addressed itself has already said where it is going; a name
-  // inside a path is then part of the path, and fails as one.
-  if (args.context !== undefined && args.context !== null) return;
+  // A call that addressed itself has already said where it is going.
+  if (args.context !== undefined && args.context !== null) return addressedTwice(args);
   /** The workspace the first path argument named, `null` for "here". */
   let named = null;
   /** The argument that named it, and so the one a disagreement is measured against. */
@@ -313,6 +316,45 @@ function addressByPath(tool, args) {
     );
   }
   if (named !== null) args.context = named;
+}
+
+/** `@Band`, `band` and ` @band ` are one name, as `context` reads it. */
+const foldedName = (name) => {
+  const text = String(name).trim().toLowerCase();
+  return text.startsWith("@") ? text : `@${text}`;
+};
+
+/**
+ * A call that names `context` and also opens a path with a workspace's name.
+ *
+ * The same name twice says one place, so the name leaves the path: a cloud job
+ * (2026-11-08, Tex Devs) read `{ path: "@supa/projects/tex/x.page.md", context: "@supa" }`
+ * three times a part, its brief having named the page that way, and each came
+ * back a bare "not found". A *different* name has asked for two places at once
+ * and is refused with which one to drop, never quietly read as a folder called
+ * `@name` (owner's choice, 2026-11-08).
+ */
+function addressedTwice(args, into = "context", fields = ["path", "note", "prefix", "paths"]) {
+  if (typeof args[into] !== "string" || args[into].trim() === "") return;
+  const named = foldedName(args[into]);
+  for (const field of fields) {
+    const value = args[field];
+    const list = Array.isArray(value) ? value : [value];
+    for (const path of list) {
+      const match = typeof path === "string" ? BY_NAME.exec(path) : null;
+      if (match && foldedName(match[1]) !== named) {
+        return (
+          `that call names two workspaces: ${into} is ${named} and ${field} opens with ${match[1]}. ` +
+          `Name one: drop "${match[1]}/" from the path, or set ${into} to ${match[1]}.`
+        );
+      }
+    }
+    if (Array.isArray(value)) {
+      args[field] = value.map((path) => (typeof path === "string" && BY_NAME.test(path) ? BY_NAME.exec(path)[2] : path));
+    } else if (typeof value === "string" && BY_NAME.test(value)) {
+      args[field] = BY_NAME.exec(value)[2];
+    }
+  }
 }
 
 export async function callToolForSession(params, store, session, options = {}) {
@@ -356,9 +398,10 @@ async function routeToolCall(params, store, session, routed, options = {}) {
     workspace's name (`@band/gigs/show.md`), as a search across workspaces
     writes it (`search.js`), addresses the call the way `context: "@band"`
     with `gigs/show.md` does: the name goes to `context`, the rest stays the
-    path. Only when the call named no context itself; a call that names one
-    and also writes another's name into the path has said two things, and is
-    left to be refused as a path that does not exist there. Planned in
+    path. A call that names a context and opens its path with the same name
+    has said one place twice, and the name leaves the path; one that writes
+    another's name there has said two things, and is refused saying which to
+    drop (`addressedTwice`, 2026-11-08). Planned in
     CLAUDE.md as sugar over the same routing; measured on 2026-10-10 when a
     cheap model passed the prefixed path as-is 120 times in one round.
   */

@@ -71,6 +71,36 @@ export async function runCrossContextReachChecks(check, harness) {
   );
 
   /*
+    THE SAME NAME TWICE IS ONE PLACE (2026-11-08). A Tex Devs cloud job read
+    `{ path: "@supa/projects/tex/x.page.md", context: "@supa" }` six times in
+    two parts, each a bare "not found", because a named context left the
+    prefix in the path. Now the name leaves; a different name is refused.
+  */
+  const twice = textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: "@theirs/1-projects/shared-name.md", context: "@theirs" }));
+  check("a path opening with the same workspace the call names is read there", twice.includes("THEIRS-MARKER") && !twice.includes("MINE-MARKER"));
+  check(
+    "and the name is matched as context reads it: the @ and the case are decoration",
+    textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: "@theirs/1-projects/shared-name.md", context: "Theirs" })).includes("THEIRS-MARKER")
+  );
+  check(
+    "and it still clamps: the private note there is not read through it",
+    !textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: "@theirs/2-areas/kept-private.md", context: "@theirs" })).includes("THEIRS-PRIVATE-MARKER")
+  );
+  const twiceMany = ((await callTool(env, TOKEN_OWNER, "read_notes", { paths: ["@theirs/1-projects/shared-name.md"], context: "@theirs" })).content ?? [])
+    .map((part) => part.text ?? "")
+    .join("\n\n");
+  check("read_notes with a context drops that context's name from its paths too", twiceMany.includes("THEIRS-MARKER") && !twiceMany.includes("MINE-MARKER") && !/not found/.test(twiceMany));
+  const crossedNames = textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: "@stranger/1-projects/shared-name.md", context: "@theirs" }));
+  check(
+    "a path naming another workspace than the call's is refused, saying which to drop",
+    /names two workspaces/.test(crossedNames) && crossedNames.includes('drop "@stranger/"') && !crossedNames.includes("MARKER")
+  );
+  check(
+    "and so is one in a list",
+    /names two workspaces/.test(textOf(await callTool(env, TOKEN_OWNER, "read_notes", { paths: ["1-projects/shared-name.md", "@mine/1-projects/shared-name.md"], context: "@theirs" })))
+  );
+
+  /*
     AND A CALL MAY NAME ONE PLACE, NOT TWO.
 
     The sugar's rule is that two prefixed paths must agree. A *plain* path
