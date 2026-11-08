@@ -228,7 +228,6 @@ import type * as functions_texHome from "../functions/texHome.js";
 import type * as functions_texDashboard from "../functions/texDashboard.js";
 import type * as functions_texSpend from "../functions/texSpend.js";
 import type * as functions_routines from "../functions/routines.js";
-import type * as functions_retiredTables from "../functions/retiredTables.js";
 import type * as functions_dreams from "../functions/dreams.js";
 import type * as functions_heartbeats from "../functions/heartbeats.js";
 import type * as functions_mailHealth from "../functions/mailHealth.js";
@@ -503,7 +502,6 @@ declare const fullApi: ApiFromModules<{
   "functions/texDashboard": typeof functions_texDashboard;
   "functions/texSpend": typeof functions_texSpend;
   "functions/routines": typeof functions_routines;
-  "functions/retiredTables": typeof functions_retiredTables;
   "functions/dreams": typeof functions_dreams;
   "functions/heartbeats": typeof functions_heartbeats;
   "functions/mailHealth": typeof functions_mailHealth;

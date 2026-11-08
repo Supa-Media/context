@@ -87,17 +87,6 @@ export const platformTables = {
     .index("by_group", ["groupId"])
     .index("by_flag_group", ["flagId", "groupId"]),
 
-  /**
-   * RETIRED (2026-11-08): the old global switches, whose one switch, vault key use, the owner launched. Kept only
-   * until each deployment has run `functions/retiredTables:drainFeatureSwitches` (the "Drain retired tables"
-   * workflow): a schema push that drops a table still holding documents is refused. Then the definition goes.
-   */
-  featureSwitches: defineTable({
-    key: v.string(),
-    on: v.boolean(),
-    updatedAt: v.number(),
-    updatedBy: v.id("users"),
-  }).index("by_key", ["key"]),
 
   renderAssets: defineTable({
     kind: v.literal("resvgWasm"),
