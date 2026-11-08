@@ -255,6 +255,7 @@ import { DEFAULT_MIME_LIMITS, MAX_ATTACHMENT_BYTES_HARD_CAP } from "./mime";
 // The gateway's own narrowing of a `notes` entry, imported rather than restated:
 // one definition of what the id layer may act on (`apps/mcp/src/controlPlane/noteIds.js`).
 import { narrowNote } from "../../../apps/mcp/src/controlPlane/noteIds.js";
+import { groupMailWords } from "../../../apps/convex/functions/lib/groupMailAddress";
 
 /** One row's entry as the id layer reads it (`narrowNote`'s output). */
 export type NoteIdEntry = { state: string; key?: string; etag?: string | null; [field: string]: unknown };
@@ -288,10 +289,24 @@ export interface PersonalContextRef {
   readonly path: string;
 }
 
+/**
+ * A group chat's own address (`group-<words>@`, decided by the owner, 2026-11-08), whose mail lands in the chat's
+ * sealed home. A second kind, named, so it can only be reached by asking about a name in the group address space:
+ * `assertRecipientContext` holds the kind to the name asked about, so a person's name never resolves to a group or
+ * the other way round.
+ */
+export interface GroupContextRef {
+  readonly kind: "group";
+  /** The address's local part, `group-<words>`. */
+  readonly path: string;
+}
+
+export type RecipientContextRef = PersonalContextRef | GroupContextRef;
+
 export interface IngestionResolution {
   ticket: string;
-  /** Always personal. See `PersonalContextRef` and `assertPersonalContext`. */
-  context: PersonalContextRef;
+  /** Personal, or a group chat's for a group address. See `assertRecipientContext`. */
+  context: RecipientContextRef;
   targetFolder: string;
   attachmentPolicy: string;
   /**
@@ -335,6 +350,16 @@ export function assertPersonalContext(
   username: string,
 ): boolean {
   return !!context && context.kind === "personal" && context.path === username;
+}
+
+/**
+ * The context a resolve answered is the one the name asks for: a group chat's for a name in the group address space
+ * (`groupMailWords`), else that person's own. Anything else is the same `null` as an unknown name.
+ */
+export function assertRecipientContext(context: RecipientContextRef | null | undefined, localPart: string): boolean {
+  if (!context || context.path !== localPart) return false;
+  if (groupMailWords(localPart) !== null) return context.kind === "group";
+  return assertPersonalContext(context as PersonalContextRef, localPart);
 }
 
 export interface ControlPlaneEnv {
@@ -492,10 +517,10 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
       const context = record.context;
       if (!context || typeof context !== "object" || Array.isArray(context)) return null;
       const contextRecord = context as Record<string, unknown>;
-      if (contextRecord.kind !== "personal") return null;
+      if (contextRecord.kind !== "personal" && contextRecord.kind !== "group") return null;
       if (typeof contextRecord.path !== "string" || !contextRecord.path) return null;
-      const personal: PersonalContextRef = { kind: "personal", path: contextRecord.path };
-      if (!assertPersonalContext(personal, username)) return null;
+      const personal: RecipientContextRef = { kind: contextRecord.kind, path: contextRecord.path };
+      if (!assertRecipientContext(personal, username)) return null;
 
       const policyRecord = policy as Record<string, unknown>;
       return {

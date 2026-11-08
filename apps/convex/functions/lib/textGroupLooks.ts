@@ -33,11 +33,12 @@ import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { recordAudit } from "./audit";
 import { nextBeatAfter } from "./heartbeats/model";
-import { accountTimeZone, routineRecipients } from "./routines/access";
+import { accountTimeZone, routineRecipients, writerPhones } from "./routines/access";
 import { ROUTINE_LEASE_MS, effectiveTimeZone } from "./routines/model";
 import { routineChat } from "./routines/chats";
 import { liveMailShares } from "./textGroupMail";
 import { speaksUpOf } from "./texChatRules";
+import { sealedPin } from "./textGroupHome";
 
 /** How long after a notification the look starts, so the mail that came with it has landed. */
 export const LOOK_DELAY_MS = 60_000;
@@ -110,12 +111,48 @@ export async function wakeChatMailLooks(ctx: MutationCtx, userId: Id<"users">, a
       .withIndex("by_key", (q) => q.eq("groupKey", groupKey))
       .first();
     if (group === null) continue;
-    const due = Math.max(now + LOOK_DELAY_MS, (group.lastLookAt ?? 0) + LOOK_GAP_MS);
-    if (group.nextLookAt !== undefined && group.nextLookAt <= due) continue;
-    await ctx.db.patch(group._id, { nextLookAt: due });
-    woken += 1;
+    if (await bringLookForward(ctx, group, now)) woken += 1;
   }
   return woken;
+}
+
+/** The chat's look moved to about a minute from now, never sooner than the gap after its last; false if one is due sooner. */
+async function bringLookForward(ctx: MutationCtx, group: Doc<"textGroups">, now: number, also: { mailAt?: number } = {}): Promise<boolean> {
+  const due = Math.max(now + LOOK_DELAY_MS, (group.lastLookAt ?? 0) + LOOK_GAP_MS);
+  const sooner = group.nextLookAt !== undefined && group.nextLookAt <= due;
+  if (sooner && also.mailAt === undefined) return false;
+  await ctx.db.patch(group._id, { ...also, ...(sooner ? {} : { nextLookAt: due }) });
+  return !sooner;
+}
+
+/**
+ * Mail reached the chat's own address (`groupMailIngest.ts`, the owner, 2026-11-08): it is marked, and the chat looks
+ * soon, as for mail shared with it. A chat with Tex turned off is marked and not woken; its mail waits to be asked about.
+ */
+export async function wakeChatAddressLook(ctx: MutationCtx, chatId: Id<"textGroups">, now: number): Promise<boolean> {
+  const group = await ctx.db.get(chatId);
+  if (group === null) return false;
+  if (speaksUpOf(group) === "off" || group.mutedAt !== undefined || group.guestGroupId !== undefined) {
+    await ctx.db.patch(group._id, { mailAt: now });
+    return false;
+  }
+  return await bringLookForward(ctx, group, now, { mailAt: now });
+}
+
+/**
+ * A look for a chat that reaches no workspace but has mail at its own address: in its home, run as whoever bound it
+ * if still among its people, else the first of them, as a home routine's writer is (`routines/homes.ts`).
+ */
+async function homeLook(
+  ctx: QueryCtx,
+  group: Doc<"textGroups">,
+): Promise<{ workspaceId: Id<"workspaces">; looker: Id<"users">; phones: string[] } | null> {
+  const people = group.homeUsers ?? [];
+  if (group.homeWords === undefined || people.length === 0 || group.mutedAt !== undefined || group.guestGroupId !== undefined) return null;
+  const workspaceId = await sealedPin(ctx);
+  if (workspaceId === null) return null;
+  const looker = group.boundBy !== undefined && people.includes(group.boundBy) ? group.boundBy : people[0]!;
+  return { workspaceId, looker, phones: await writerPhones(ctx.db, looker) };
 }
 
 /**
@@ -135,12 +172,17 @@ export async function claimChatLooks(ctx: MutationCtx, runIds: string[], now: nu
   for (const group of due) {
     if (looks.length >= runIds.length) break;
     if (group.lookClaimedAt !== undefined && group.lookClaimedAt + ROUTINE_LEASE_MS > now) continue;
-    const workspaceId = (await chatWorkspace(ctx, group))?._id;
-    const chat = workspaceId === undefined ? null : await routineChat(ctx, workspaceId, group.groupKey.slice(0, 16));
-    const looker = await lookerOf(ctx, group);
-    const phones = workspaceId === undefined || looker === null ? [] : await routineRecipients(ctx, { workspaceId, writerUserId: looker, send: "text" });
-    const mail = chat === null ? [] : await liveMailShares(ctx, chat);
-    const listening = mail.length > 0 || (speaksUpOf(group) !== "quiet" && group.lastSeenAt + DORMANT_MS > now);
+    const addressMail = (group.mailAt ?? 0) > (group.lastLookAt ?? 0);
+    const reached = (await chatWorkspace(ctx, group))?._id;
+    // A chat that reaches no workspace looks only for mail at its own address, in its home.
+    const home = reached === undefined && addressMail ? await homeLook(ctx, group) : null;
+    const workspaceId = reached ?? home?.workspaceId;
+    const chat = home !== null ? group : reached === undefined ? null : await routineChat(ctx, reached, group.groupKey.slice(0, 16));
+    const looker = home !== null ? home.looker : await lookerOf(ctx, group);
+    const phones =
+      home !== null ? home.phones : reached === undefined || looker === null ? [] : await routineRecipients(ctx, { workspaceId: reached, writerUserId: looker, send: "text" });
+    const mail = chat === null || home !== null ? [] : await liveMailShares(ctx, chat);
+    const listening = mail.length > 0 || addressMail || (speaksUpOf(group) !== "quiet" && group.lastSeenAt + DORMANT_MS > now);
     if (chat === null || chat._id !== group._id || workspaceId === undefined || looker === null || phones.length === 0 || !listening) {
       await ctx.db.patch(group._id, { nextLookAt: undefined });
       continue;

@@ -84,6 +84,7 @@
  */
 
 import { RESERVED_NAMES, RFC2142_MANDATORY_NAMES, normalizeName, validateName } from "../../../apps/convex/functions/lib/names";
+import { groupMailWords, groupMailLocalPart } from "../../../apps/convex/functions/lib/groupMailAddress";
 // The control plane's own folder rules, imported rather than restated — the
 // same function `updateIngestionSettings` validates a folder with. See
 // `normalizeTargetFolder` below for why this Worker checks them again.
@@ -127,6 +128,12 @@ export type RecipientDecision =
    * forwarded rather than refused, and they never reach the ingestion path.
    */
   | { kind: "operations"; localPart: string }
+  /**
+   * A group chat's own address, `group-<three words>@` (decided by the owner, 2026-11-08;
+   * `apps/convex/functions/lib/groupMailAddress.ts`). Its mail lands in that chat's sealed home, never in a
+   * workspace a role opens. `localPart` is the whole `group-<words>`, the name the control plane is asked about.
+   */
+  | { kind: "group"; localPart: string }
   | { kind: "refuse"; reason: RefusalReason };
 
 /**
@@ -155,6 +162,11 @@ export function classifyRecipient(address: string, ingestDomain: string): Recipi
   if (RFC2142_MANDATORY_NAMES.includes(normalized)) {
     return { kind: "operations", localPart: normalized };
   }
+
+  // A group chat's address. Read before `validateName`, which reserves the whole `group-` prefix as a handle; any
+  // other name under it is refused there as reserved, so no person can be named like a group and take its mail.
+  const words = groupMailWords(normalized);
+  if (words !== null) return { kind: "group", localPart: groupMailLocalPart(words) };
 
   const validation = validateName(normalized);
   if (!validation.ok) {
@@ -316,6 +328,8 @@ export interface IngestInput {
    * knowing that `@seyi` is where their own mail lives.
    */
   owner: string;
+  /** Whose address it was: a person's (the default) or a group chat's, whose note says it is in the chat's home. */
+  recipientKind?: "personal" | "group";
   raw: Uint8Array;
   now: Date;
   /** Unpredictable per message. See ./note.ts for why this must be random. */
@@ -549,6 +563,7 @@ export async function decideCapture(
     fenceNonce: input.fenceNonce,
     recipient: input.recipient,
     owner: input.owner,
+    ...(input.recipientKind === "group" ? { recipientKind: "group" as const } : {}),
     targetFolder,
     sender: identity.address,
     senderDomain: identity.domain,

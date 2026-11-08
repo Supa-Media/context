@@ -114,6 +114,8 @@ export const textGroupTables = {
     lastLookAt: v.optional(v.number()),
     lookRunId: v.optional(v.string()),
     lookClaimedAt: v.optional(v.number()),
+    /** When mail last reached the chat's own address (`lib/groupMailIngest.ts`): a look after it reads its mail folder. */
+    mailAt: v.optional(v.number()),
   })
     .index("by_key", ["groupKey"])
     .index("by_workspace", ["workspaceId"])

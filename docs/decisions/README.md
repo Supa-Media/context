@@ -100,6 +100,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - Ingestion is on the apex, which makes the reserved-name list a security control
 - Mail lands in a personal context and nowhere else
+- A group chat's address
 - The privacy tier is a scope on the grant, never an inference from a role
 - A first-party signed shell may have its own grant approved by the session hosting it
 - A third-party OAuth callback carries a secret the browser kept, not just `state`

@@ -4,6 +4,7 @@ import { actorFor, contextsFor } from "../../context/identity.js";
 import { json } from "../../http/responses.js";
 import { callToolForSession } from "../../tools/session.js";
 import { jobOf, jobReportOf, jobReportQuestion } from "../background.js";
+import { mailDomainOf } from "../chatHome.js";
 import { groupOf, isGroupSession } from "../groupTurn.js";
 import { jobTagged } from "../ledger.js";
 import { readProductionSetup } from "../production.js";
@@ -47,6 +48,7 @@ export async function readTheText(t) {
   // A group chat's turn names its chat (`groupTurn.js`); decided by the grant, never by the body.
   const group = isGroupSession(session) ? groupOf(body, session) : null;
   if (isGroupSession(session) && group === null) return json({ error: "invalid_request", error_description: "A group chat's turn names its chat." }, 400);
+  if (group !== null) group.mailDomain = mailDomainOf(env); // the chat's own address is on this deployment's apex (`chatHome.js` `chatMailAddress`)
   // Background jobs (`background.js`): a texted turn may start them, and a job's own turn names itself.
   const chatTurn = !runner && (session.actorClientId === TEXTS_CLIENT_ID || group !== null);
   const job = chatTurn ? jobOf(body.job) : null, report = jobReportOf(body, { chatTurn, job }); // and a job reporting to the chat's own turn, its coordinator (`jobReport.js`)

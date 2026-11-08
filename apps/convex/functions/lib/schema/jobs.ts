@@ -257,11 +257,12 @@ export const jobTables = {
     /** SHA-256 of the opaque ticket, lowercase hex. Never the plaintext. */
     hashedTicket: v.string(),
     /**
-     * The personal context this ticket opens, fixed at mint time.
+     * The context this ticket opens, fixed at mint time.
      *
-     * The only way a row gets here is `resolvePersonalContextForIngestion`
-     * answering a name lookup, so this is never a shared context and never
-     * something a caller chose.
+     * The only ways a row gets here are `resolvePersonalContextForIngestion`
+     * answering a name lookup, or a group chat's address resolving to its home
+     * in the pinned workspace (`chatId` below), so it is never something a
+     * caller chose.
      */
     workspaceId: v.id("workspaces"),
     /** The SMTP-reported size resolve was told about. Accounting only. */
@@ -278,6 +279,11 @@ export const jobTables = {
      * accept only paths under it, so a ticket can write its own mail and nothing else.
      */
     targetFolder: v.optional(v.string()),
+    /**
+     * The group chat whose own address this mail was sent to (`lib/groupMailIngest.ts`); absent for a person's. Its
+     * `targetFolder` is then that chat's mail folder in its sealed home, and a capture brings the chat's look forward.
+     */
+    chatId: v.optional(v.id("textGroups")),
   })
     .index("by_hashed_ticket", ["hashedTicket"])
     .index("by_expiresAt", ["expiresAt"]),

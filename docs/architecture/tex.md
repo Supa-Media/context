@@ -80,7 +80,7 @@ job, job report and routine run takes this path.
 <!-- tex-diagram: steps begin -->
 ```mermaid
 flowchart TB
-  readTheText["readTheText<br/>who is asking, which chat, a group's chat"]:::step
+  readTheText["readTheText<br/>who is asking, which chat, a group's chat<br/>and the apex its own email address is on"]:::step
   runARoutine["runARoutine<br/>a routine's run: paused, or nothing to do"]:::step
   checkTheQuestion["checkTheQuestion<br/>the question, its files, what it replies to"]:::step
   settleAYesOrNo["settleAYesOrNo<br/>a yes or 👍 to a waiting send, in code, no model"]:::rail
@@ -191,6 +191,7 @@ What each model costs is `jev/meter.ts`.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-08: a group chat has its own email address, `group-<its home's three words>@context.lc`: anyone may send or forward to it, each email is filed as a note in the home's `email/` (the email Worker, `groupMailIngest.ts`), a capture brings the chat's check-in forward (a chat that reaches no workspace looks in its home), the check-in reads that mail, and a group turn is told the address and where its mail is (`readTheText.js`, `chatHome.js`, `groupRoutines.ts`). Receive only: nothing is sent from the address.
 - 2026-11-07: the reply reviewer reads only texts to the person (Dev2): each progress line a long 1:1 turn texts is reviewed before it goes, as a line and not an answer, and one held back is not sent (`progress.js`, `runTheModel.js`); a routine that texts other people (`to:`) is no longer reviewed.
 - 2026-11-07: a routine's run and a check-in may call `say_nothing` (neither was offered it, though both prompts named it: a routine texted its own note about the missing call), and the reply reviewer reads what each would text as a scheduled text nobody asked for, sending back one that talks about Tex's own run (`not_for_them`); a check-in follows the texting setup's `reply_judge`, and a routine that only writes a note is not reviewed (`runTheModel.js`, `heartbeat.js`, `replyJudge.js`).
 - 2026-11-07: a conversation classifier sorts each chat text into a thread before the model (Haiku 5.5, effort low, 4 s cap), kept in the chat's threads ledger (`<chat>.threads`, an index rebuilt from the chat's ledger); the turn is shown up to 50 threads (open first), the suggested thread's older texts and the last 24 hours tagged by thread, and `read_thread` opens any thread (`conversationThreads.js`, `threadedTurn.js`, `readTheHistory.js`, `runTheModel.js`).
