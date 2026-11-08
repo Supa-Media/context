@@ -198,7 +198,7 @@ const NO_UPLOAD_SENTENCE = "";
 */
 const DOWNLOAD_SENTENCE =
   "To save a file a page offers (an invoice or receipt PDF, a statement, a ticket), add a download step: ref or text names its download button or link, " +
-  "or leave both out to take the file the page itself is (or the one a click just started). You get back a download: id; attach it to an email yourself with attach on send_email or save_email_draft. " +
+  "or leave both out to take the file the page itself is (or the one a click just started). You get back a download: id; attach it to an email yourself with attach on send action email or email_draft. " +
   "Never tell the person to download or attach a file you can reach. ";
 
 /** The default description's two rules, and what it says instead when the setup opened the web. */

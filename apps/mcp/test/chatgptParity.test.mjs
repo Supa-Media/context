@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { chatgptOperations, chatgptCoverage } from "../src/mcp/chatgpt/operations.js";
-import { chatgptTools } from "../src/mcp/chatgpt/tools.js";
+import { chatgptTools, operationSchema } from "../src/mcp/chatgpt/tools.js";
+import { directoryTools } from "../src/mcp/directoryTools.js";
+import { unsupportedKeywords } from "../src/toolArguments.js";
 import { ACTIONS } from "../src/tools/v2/actions.js";
 import { toolDefinitions } from "../src/tools/registry.js";
 import { readFileSync } from "node:fs";
@@ -92,4 +94,29 @@ const unauthenticated = await worker.fetch(new Request("https://x/mcp/chatgpt/v2
 assert.equal(unauthenticated.status, 401);
 assert.match(unauthenticated.headers.get("WWW-Authenticate"), /oauth-protected-resource\/mcp\/chatgpt\/v2/);
 assert.ok(chatgptOperations().length > 50);
+
+/*
+  WHAT THESE ENDPOINTS ADVERTISE IS WHAT THE VALIDATOR ENFORCES.
+
+  `toolArguments.js` keeps `unsupportedKeywords` so that a schema cannot
+  advertise a constraint nothing enforces, and the census
+  (`test/toolArguments/census.test.mjs`) holds it against every advertised tool.
+  It held it against `advertised` and `v2Advertised` only. Both connector
+  endpoints build schemas of their own — `operationSchema` here, `directoryTools`
+  there — and `save_context`'s overridden `content` carried `minLength: 1` and
+  `maxLength: 12000`, which the validator did not know and silently ignored, so
+  a 200,000-character save passed a schema that said 12,000. These endpoints are
+  scanned by connector reviewers who read exactly this output, which is why the
+  sweep belongs on them too and not only on the ordinary tool list.
+*/
+for (const op of chatgptOperations()) {
+  assert.deepEqual(unsupportedKeywords(operationSchema(op)), [], `${op.name} advertises a keyword the validator ignores`);
+}
+for (const tool of directoryTools({ scope: "private", scopes: ["context:read", "context:write", "context:private"], contexts: [] })) {
+  assert.deepEqual(unsupportedKeywords(tool.inputSchema), [], `${tool.name} advertises a keyword the validator ignores`);
+}
+// And the one bound that was ignored is enforced on the live endpoint, both ways.
+assert.equal((await call("save_context", { platform: "chatgpt", content: "x".repeat(12001) })).isError, true);
+assert.equal((await call("save_context", { platform: "chatgpt", content: "" })).isError, true);
+
 console.log("PASS ChatGPT capability census, real orientation, frozen Claude contract, schemas and authority gates");

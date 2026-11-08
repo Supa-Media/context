@@ -170,7 +170,7 @@ async function pushRows(
 
 /** The switch, object first. Answers why it refused, never a key or a path. */
 async function setHomeFor(ctx: ActionCtx, workspaceId: Id<"workspaces">, home: NotesHome, force: boolean): Promise<{ ok: boolean; reason?: string }> {
-  const client = consoleWorkspaceClient(ctx, workspaceId);
+  const client = consoleWorkspaceClient(ctx, workspaceId, { caller: "workspaceObjects" });
   if (client === null) return { ok: false, reason: "OBJECT_UNREACHABLE" };
   if (home === "object" && !force) {
     const record = await ctx.runQuery(internal.functions.workspaceObjectsRows.recordFor, { workspaceId });
@@ -368,7 +368,7 @@ export const backfill = internalAction({
       let stage = "open";
       try {
         const bucket = await openBucket(ctx, workspaceId);
-        const client = consoleWorkspaceClient(ctx, workspaceId);
+        const client = consoleWorkspaceClient(ctx, workspaceId, { caller: "workspaceObjects" });
         if (bucket === null || client === null) {
           counts.unreachable += 1;
           state.queue.shift();
@@ -467,7 +467,7 @@ export const syncRows = internalAction({
     const counts = { checked: 0, pushed: 0, unreachable: 0 };
     for (const workspaceId of await ctx.runQuery(internal.functions.workspaceObjectsRows.atHome, { home: "dual" })) {
       counts.checked += 1;
-      const client = consoleWorkspaceClient(ctx, workspaceId);
+      const client = consoleWorkspaceClient(ctx, workspaceId, { caller: "workspaceObjects" });
       if (client === null) {
         counts.unreachable += 1;
         continue;
@@ -637,7 +637,7 @@ export const parity = internalAction({
       }
       try {
         const bucket = await openBucket(ctx, workspaceId);
-        const client = consoleWorkspaceClient(ctx, workspaceId);
+        const client = consoleWorkspaceClient(ctx, workspaceId, { caller: "workspaceObjects" });
         if (bucket === null || client === null) {
           counts.unreachable += 1;
           const what = await ctx.runQuery(internal.functions.workspaceObjectsRows.describeUnopened, { workspaceId });

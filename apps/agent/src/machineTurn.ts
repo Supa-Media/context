@@ -22,8 +22,10 @@ import type { JobAsk, JobRun, JobVerdict, StepHow } from "./jobs";
 
 /** One part's length on a machine; the advisor's check comes between parts. */
 export const MACHINE_PART_MS = 15 * 60 * 1000;
-/** How often a running part is read. */
+/** How often a running part is read where the gateway does not hold the read. */
 export const MACHINE_POLL_MS = 10_000;
+/** How long one read of a running part may be held for its next step: the slow safety read, under a minute. */
+export const MACHINE_HOLD_MS = 50_000;
 /** How long a part waits for a computer owner's "Ask me first" yes, and how often it asks again meanwhile. */
 const ASK_WAIT_MS = 10 * 60 * 1000;
 const ASK_POLL_MS = 60_000;
@@ -72,6 +74,11 @@ export type MachineLive = { workspaceId: string; runId: string; accessToken: str
 type RunRead = { state: string; steps: { seq: number; tool: string; action: string | null; target: string | null }[]; result: { outcome: string; answer?: string; session?: string | null; error?: string | null; refused?: string } | null; session: string | null };
 
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** An error worth reading again past: no answer, a busy service or its server failing; never a refusal (4xx). */
+export function passing(error: ServiceError): boolean {
+  return error.status === null || error.status === 429 || error.status >= 500;
+}
 
 /** Words a refusal is told to them in: the job ends, and "pick it back up" starts it again once fixed. */
 export function refusedText(title: string, name: string, code: string, fix: { why?: unknown; fixAt?: unknown } = {}): string {
@@ -166,8 +173,8 @@ export async function machineTurn(
     tokenAt = deps.now();
     return true;
   };
-  const ask = async (path: string, body: Record<string, unknown>) => {
-    const { status, json } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}${path}`, token, { workspaceId: machine.workspaceId, ...body });
+  const ask = async (path: string, body: Record<string, unknown>, timeoutMs?: number) => {
+    const { status, json } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}${path}`, token, { workspaceId: machine.workspaceId, ...body }, timeoutMs);
     if (status !== 200) throw new ServiceError("gateway", status);
     return (json ?? {}) as Record<string, unknown>;
   };
@@ -217,11 +224,27 @@ export async function machineTurn(
   const delivered: string[] = [];
   hooks.live({ workspaceId: machine.workspaceId, runId: current.runId, accessToken: token, delivered });
   let shown = 0;
+  // The run's version this pass last saw: each read after the first is held by the workspace object until the run
+  // moves past it, at most `MACHINE_HOLD_MS` (`apps/mcp/src/workspaceStore/runWait.js`), so a step reaches the chat
+  // as the runner sends it and an idle part is read about once a minute instead of every ten seconds.
+  let seen: string | undefined;
   try {
     for (;;) {
-      if (!(await fresh())) return { kind: "stop" };
-      hooks.live({ workspaceId: machine.workspaceId, runId: current.runId, accessToken: token, delivered });
-      const answer = await ask("/agent/machine/run", { runId: current.runId });
+      let answer: Record<string, unknown>;
+      try {
+        if (!(await fresh())) return { kind: "stop" };
+        hooks.live({ workspaceId: machine.workspaceId, runId: current.runId, accessToken: token, delivered });
+        answer = seen === undefined
+          ? await ask("/agent/machine/run", { runId: current.runId })
+          : await ask("/agent/machine/run", { runId: current.runId, seen, waitMs: MACHINE_HOLD_MS }, MACHINE_HOLD_MS + 15_000);
+      } catch (error) {
+        // The part goes on on the computer while Context is briefly unreachable (2026-11-06: three busy minutes on the
+        // person's workspace ended a split job's MacBook part "failed", with nothing said why): read again until the
+        // part's deadline and its grace, and only then give the pass back to be tried again.
+        if (!(error instanceof ServiceError) || !passing(error) || deps.now() > current.deadline + GRACE_MS) throw error;
+        await sleep(MACHINE_POLL_MS);
+        continue;
+      }
       // The run is gone (another person's id, or kept past its day): this part starts again.
       if (answer.ok !== true) {
         delete run.machineRun;
@@ -229,6 +252,8 @@ export async function machineTurn(
         return { kind: "broken" };
       }
       const read = answer.run as RunRead;
+      const held = typeof answer.version === "string";
+      if (held) seen = answer.version as string;
       for (const step of read.steps.filter((step) => step.seq > shown)) await hooks.onStep(stepText(step));
       shown = Math.max(shown, ...read.steps.map((step) => step.seq));
       const session = read.result?.session ?? read.session;
@@ -277,7 +302,8 @@ export async function machineTurn(
         await hooks.keep({ machineRun: undefined });
         return { kind: "answer", texts: [], exhausted: true, status: "Still going on your computer", steered: [...hooks.steerIds, ...delivered] };
       }
-      await sleep(MACHINE_POLL_MS);
+      // A held read already waited for the run to move; a gateway that does not hold is read every ten seconds as before.
+      if (!held) await sleep(MACHINE_POLL_MS);
     }
   } finally {
     hooks.live(null);

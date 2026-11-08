@@ -1,31 +1,25 @@
-# Scores each reply gate (apps/mcp/src/agent/replyGates.js) on its own
-# labelled set (apps/mcp/bench/gates/) against the real decision model, so a
-# gate's threshold is tuned on evidence before it decides anything in
-# production (Dev2, 2026-11-05: "make sure each of these judges are also well
-# tuned"). The report is the run's summary page. Nothing is written anywhere.
+# Scores the reply reviewer (apps/mcp/src/agent/replyJudge.js, one Haiku
+# call) on every labelled case in apps/mcp/bench/review/, against the real
+# model through the AI gateway, so it clears one bar for the whole reviewer
+# before it decides anything in production (Dev2, 2026-11-06: "replace the
+# judges with one haiku model"). The report is the run's summary page.
+# Nothing is written anywhere. The file keeps its old name so a run can be
+# dispatched on a branch before it merges.
 #
-# Runs by hand only, like the AI Benchmark: it holds production's Workers AI
+# Runs by hand only, like the AI Benchmark: it holds production's gateway
 # token, so it never runs on a pushed branch's unreviewed code
-# (scripts/check-workflow-triggers.mjs). One Clef Flash call per case per
-# gate, a few hundred calls a run: cents.
+# (scripts/check-workflow-triggers.mjs). One Haiku call per case, about two
+# hundred a run: cents.
 
-name: AI Gates
+name: AI Reviewer
 
 on:
   workflow_dispatch:
     inputs:
       gate:
-        description: "Gates to score, comma-separated; empty means all"
+        description: "Case sets to score, comma-separated; empty means all"
         required: false
         default: ""
-      model:
-        description: "Decision model"
-        required: false
-        default: clef-flash
-        type: choice
-        options:
-          - clef-flash
-          - clef
 
 permissions:
   contents: read
@@ -35,16 +29,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  gates:
-    name: Score the reply gates
+  review:
+    name: Score the reply reviewer
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
     env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
-      GATES: ${{ inputs.gate }}
-      MODEL: ${{ inputs.model || 'clef-flash' }}
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      SETS: ${{ inputs.gate }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -53,13 +47,13 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Refuse a gate name that is not one
+      - name: Refuse a set name that is not one
         run: |
           set -euo pipefail
-          [[ -z "$GATES" || "$GATES" =~ ^[a-z_]+(,[a-z_]+)*$ ]] || { echo "::error::gate is names like finished,sourced"; exit 1; }
+          [[ -z "$SETS" || "$SETS" =~ ^[a-z_]+(,[a-z_]+)*$ ]] || { echo "::error::sets are names like chat,sourced"; exit 1; }
       - name: Score
         run: |
           set -euo pipefail
-          args=(--model "$MODEL")
-          [ -z "$GATES" ] || args+=(--gate "$GATES")
-          pnpm --silent ai gates "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          args=()
+          [ -z "$SETS" ] || args+=(--set "$SETS")
+          pnpm --silent ai review "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -35,6 +35,8 @@ import { SearchAskRefused } from "./searchIndex.js";
 import { MeaningAskRefused } from "./meaningIndex.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 import { withLookupBody } from "./lookupBody.js";
+import { restampRowVersions } from "./rowVersions.js";
+import { isMailOp, MailAskRefused, serveMail } from "./mailOps.js";
 
 const CALL = "x-tex-call";
 
@@ -169,7 +171,9 @@ function answerFacts(store, fields) {
   // A folder is seen as the listing shows it (`folderVisibleAtScope`), over the same rules and the reader's clearance.
   const folderSees = (path) => judge.parsed !== null && folderVisibleAtScope(path, judge.clearance, judge.parsed.rules, judge.parsed.overrides);
   // Held rules nobody can judge by (no rules, or a member the object does not know) are the control plane's to answer.
-  if (fields.ask === "jobs" && judge.parsed === null) return { served: false };
+  if ((fields.ask === "jobs" || fields.ask === "forwarding") && judge.parsed === null) return { served: false };
+  // The ledger is not a note fact: its copy is kept beside them (`forwardingRows.js`).
+  if (fields.ask === "forwarding") return store.forwarding ? store.forwarding.answer(fields, sees, folderSees) : { served: false };
   return store.facts[fields.ask](fields, sees, folderSees);
 }
 
@@ -244,6 +248,8 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
     // The grant rows and the rules rendered from them (`serveAccess.js`).
     const access = accessCall(store, op, fields);
     if (access !== null) return access;
+    // A note's mail, judged as a read is (`mailOps.js`).
+    if (isMailOp(op)) return Response.json(await serveMail(store, op, fields, judgeFor(rows, fields, store.members ?? null)));
     switch (op) {
       case "ws.read": {
         const behind = await waitForMarks(store.marks ?? null);
@@ -354,6 +360,10 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
         // `canSee` already let through.
         if (!store.meaning || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
         return Response.json({ served: true, snippets: store.meaning.snippets(fields.asks, fields.chars) });
+      case "ws.forwarding.put":
+        // The control plane's ledger, whole, at the version it moved to (`forwardingRows.js`), through the door.
+        if (!store.forwarding) return Response.json({ kept: false });
+        return Response.json(store.forwarding.put(fields));
       case "ws.facts.rows":
         // The control plane's own readers, through the door: unfiltered, as its internal queries are.
         if (!store.facts || store.rows.home() !== HOMES.OBJECT || !OBJECT_FACT_ROW_ASKS.has(fields.ask)) return Response.json({ served: false });
@@ -375,9 +385,12 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
         // The control plane's tree reads, through the door: unjudged rows and the audience's rules from one call,
         // settled like a lookup, so a reader there falls back to its own rows only while this object is behind.
         if (rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        // Each row listed carries its body's version here, so a reader's copy is not taken as changed (`rowVersions.js`).
+        if (store.sql) restampRowVersions(store.sql, rows);
         return Response.json(await settledAnswer(store, () => ({ served: true, ...rows.filesPage(fields), rules: rows.rules(fields.audience ?? "member") })));
       case "ws.rows.listing":
         if (rows.home() !== HOMES.OBJECT || !store.sql) return Response.json({ served: false });
+        restampRowVersions(store.sql, rows);
         return Response.json(await settledAnswer(store, () => listingAnswer(store, fields)));
       case "ws.rows.list":
         return Response.json(rows.list(fields));
@@ -418,7 +431,7 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused || error instanceof MeaningAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused || error instanceof MeaningAskRefused || error instanceof MailAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }

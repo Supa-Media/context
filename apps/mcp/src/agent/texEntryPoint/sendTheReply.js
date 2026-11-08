@@ -20,13 +20,15 @@ import { afterTextedTurn } from "../reflect.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "../replyChecks.js";
 import { reviewAfterTurn } from "../selfReview.js";
 import { steeredLine } from "../steer.js";
-import { learnDeskKeys } from "../texDesk.js";
+import { deskEligible, learnDeskKeys } from "../texDesk.js";
+import { changedCalendar, refreshCalendarCache } from "../calendarCache.js";
 import { answerWithAsk, textedAsk } from "../textedApprovals.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { groupTimingLine, waitBefore } from "../turnLog.js";
 import { turnTiming } from "../turnTiming.js";
 import { heardWords, sentLine } from "../heardWords.js";
 import { jobChecked, startedJobEntries } from "../workEntries.js";
+import { typedCallOf } from "../sayNothing.js"; // a call typed out is never texted, the last stop before it goes
 
 /** Whether the history this turn was shown (and can read with earlier_texts) holds an answer from a turn that read from outside. */
 export function showsOutsideWords(history) {
@@ -42,7 +44,7 @@ export async function sendTheReply(t) {
   // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
   // A flattering opener ("You're so right!") comes off first (`pushback.js`).
   const hushed = turn.answer === QUIET_ACK; // a start or restart they asked to hear nothing about until it's done (`background.js`)
-  const { answer: replied, quiet } = hushed ? { answer: "", quiet: true } : reportReply(report, turn.answer), silent = (group !== null || turn.settled === "say_nothing") && job === null && /^\W*SKIP\W*$/.test(String(replied ?? "")), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet || silent ? "" : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP, or any say_nothing (`sayNothing.js`), is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct)
+  const { answer: replied, quiet } = hushed ? { answer: "", quiet: true } : reportReply(report, turn.answer), silent = job === null && (((group !== null || turn.settled === "say_nothing") && /^\W*SKIP\W*$/.test(String(replied ?? ""))) || typedCallOf(replied) !== null), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet || silent ? "" : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP, or any say_nothing (`sayNothing.js`), is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct)
   // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
   const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
   const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
@@ -80,6 +82,8 @@ export async function sendTheReply(t) {
     }
   })());
 
+  // Their next 7 days, read again behind the reply when the copy is stale or this turn changed the calendar (`calendarCache.js`).
+  if (job === null && group === null && conversation === "texts" && deskEligible(store)) await tex.after("calendar_copy", () => refreshCalendarCache(dispatch, { timeZone, force: changedCalendar(turn.steps) }));
   // "fix this" or frustration scores the conversation now (`selfReview.js`); quiet ends do it from the Worker.
   if (!turn.exhausted) await tex.after("self_review", () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
   return json({

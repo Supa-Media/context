@@ -89,7 +89,10 @@ judges them with its own rules, so nothing it serves comes from a copy it no
 longer has. A workspace still on `bucket` or `dual` keeps the control plane's
 copy and fill as before. The asks that are not note facts stay on the
 control plane: `names` (with note writes), `jobs` and `forwarding` (rows and
-the ledger), and the chaos score's daily history (`nodeChaosDays`).
+the ledger), and the chaos score's daily history (`nodeChaosDays`). Since then
+`jobs` is answered by the object, and so is `forwarding`, from a copy of the
+ledger the control plane sends it whole behind each change
+([forwarding-in-objects](./forwarding-in-objects.md), 2026-11-06).
 
 **Tex's own notes are the exception the object does not cover.** A person's
 Tex notes and a chat's home notes keep their text in Tex's tables

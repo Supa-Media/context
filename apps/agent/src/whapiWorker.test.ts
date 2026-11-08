@@ -169,3 +169,77 @@ describe("whapi webhook", () => {
     expect(routed.map(({ to }) => to)).toEqual([PHONE, "+15555550111"]);
   });
 });
+
+/**
+ * Every event the channel is subscribed to (`.github/workflows/whapi-setup.yml`) that is not a new message: taken
+ * with 200, described by its shape only, never queued. Sabotage: drop the `event` gate in `parseWhapiWebhook` and
+ * the edit and the `messages.put` are queued; log `JSON.stringify(payload)` in `logEventShape` and the values leak;
+ * answer bad JSON with 400 again and "a body that is not JSON" fails.
+ */
+describe("whapi events that are not new messages", () => {
+  const VALUES = /5555550100|PsobWy36679|hello|secret words|example\.com|CHAN-1|1800000000/;
+  const raw = (body: string) => new Request("https://agent.example/whapi", { method: "POST", headers: { [WHAPI_SECRET_HEADER]: SECRET }, body });
+  const deliver = (type: string, method: string, body: Record<string, unknown>) =>
+    raw(JSON.stringify({ ...body, event: { type, event: method }, channel_id: "CHAN-1" }));
+  const edited = text({ text: { body: "hello, secret words, edited" } });
+  const EVENTS: [string, string, Record<string, unknown>][] = [
+    ["messages", "patch", { messages_updates: [{ id: edited.id, trigger: edited, before_update: text(), after_update: edited, changes: ["text"] }] }],
+    ["messages", "delete", { messages_removed: [{ id: edited.id, chat_id: edited.chat_id, from: edited.from }] }],
+    // `messages.put` carries a `messages` array like a new message does; it is still not one.
+    ["messages", "put", { messages: [edited] }],
+    ["statuses", "post", { statuses: [{ id: edited.id, status: "read", recipient_id: "15555550100", timestamp: 1_800_000_000 }] }],
+    ["statuses", "put", { statuses: [{ id: edited.id, status: "read", viewer_id: "15555550100@s.whatsapp.net" }] }],
+    ["groups", "post", { groups: [{ id: GROUP, name: "hello group", participants: [{ id: "15555550100", rank: "member" }] }] }],
+    ["groups", "put", { groups_participants: [{ group_id: GROUP, participants: ["15555550100"], action: "add" }] }],
+    ["groups", "patch", { groups_updates: [{ before_update: { id: GROUP, name: "hello" }, after_update: { id: GROUP, name: "secret words" }, changes: ["name"] }] }],
+    ["calls", "post", { calls: [{ id: "CALL-1", chat_id: edited.chat_id, from: "15555550100", status: "offer" }] }],
+    ["chats", "post", { chats: [{ id: edited.chat_id, name: "hello", last_message: edited }] }],
+    ["chats", "delete", { chats_removed: [edited.chat_id] }],
+    ["channel", "post", { health: { status: { code: 4, text: "AUTH" }, uptime: 1_800_000_000 } }],
+    ["channel", "patch", { qr: { status: "OK", base64: "aGVsbG8=" } }],
+    ["users", "post", { user: { id: "15555550100", name: "hello" } }],
+    ["users", "delete", { user: { id: "15555550100" } }],
+  ];
+
+  for (const [type, method, body] of EVENTS) {
+    it(`takes ${type}.${method} with 200, logs its shape without a value, and queues nothing`, async () => {
+      const { env: e, routed } = env();
+      const lines: string[] = [];
+      vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
+      expect((await worker.fetch(deliver(type, method, body), e)).status).toBe(200);
+      expect(routed).toEqual([]);
+      const shape = lines.map((line) => JSON.parse(line)).find((entry) => entry.event === "whapi_event_shape");
+      expect(shape).toMatchObject({ outcome: "not_a_message", type, method });
+      expect(shape.shape).toEqual(expect.arrayContaining([expect.stringMatching(/^event\.type:string$/)]));
+      expect(lines.join("\n")).not.toMatch(VALUES);
+    });
+  }
+
+  it("never treats an edit with the same message id as a new message, after the original was queued", async () => {
+    const { env: e, routed } = env();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await worker.fetch(post([text()]), e);
+    await worker.fetch(deliver("messages", "patch", { messages_updates: [{ id: text().id, after_update: edited }], messages: [edited] }), e);
+    expect(routed).toHaveLength(1);
+    expect(routed[0].body).toMatchObject({ text: "hello" });
+  });
+
+  it("writes a key that could be a value, such as a phone number, as *", async () => {
+    const { env: e } = env();
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
+    await worker.fetch(deliver("messages", "patch", { messages_updates: [{ votes: { "15555550100": ["x"] } }] }), e);
+    expect(lines.join("\n")).toContain("messages_updates[].votes.*:array");
+    expect(lines.join("\n")).not.toMatch(VALUES);
+  });
+
+  it("takes a body that is not JSON with 200, so Whapi does not retry it", async () => {
+    const { env: e, routed } = env();
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
+    expect((await worker.fetch(raw("hello 15555550100 {"), e)).status).toBe(200);
+    expect(routed).toEqual([]);
+    expect(lines.map((line) => JSON.parse(line))).toContainEqual(expect.objectContaining({ event: "whapi_event_shape", outcome: "not_json" }));
+    expect(lines.join("\n")).not.toMatch(VALUES);
+  });
+});

@@ -13,13 +13,15 @@
  *   `context_tex_machine_run`, never sending anything), then the workspace
  *   object checks the machine's rules and sends the assignment. A refused
  *   assignment takes its run grant back at once.
- * - `POST /agent/machine/run` `{ workspaceId, runId }` → `{ ok, run, online }`:
+ * - `POST /agent/machine/run` `{ workspaceId, runId, seen?, waitMs? }` → `{ ok, run, online, version }` (held until the run moves
+ *   past `seen`, at most 50 seconds: `workspaceStore/runWait.js`):
  *   the run's state, steps and result, read from the object. An ended run's
  *   grant is taken back here too, in case the part ended before it expired.
  * - `POST /agent/machine/cancel` `{ workspaceId, runId, reason? }` → `{ ok }`.
  * - `POST /agent/machine/deliver` `{ workspaceId, runId, messageId, text,
- *   interrupt? }` → `{ ok }`: a later text of theirs, into the running
- *   session, as the next message or (`interrupt`) stopping the current step.
+ *   interrupt?, mail? }` → `{ ok }`: a later text of theirs, into the running
+ *   session, as the next message or (`interrupt`) stopping the current step;
+ *   with `mail` `{ from, kind?, path? }`, a note mail line from that agent.
  *
  * - `POST /agent/machine/check` `{ workspaceId, runId, job }` → `{ ok, verdict?,
  *   advice?, unfinished?, exhausted?, idle? }`: the advisor's check of an ended
@@ -46,6 +48,7 @@ import { jobChatOf, reachedWorkspace, TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } f
 import { machineAskLine, ownerHandleIn } from "./groupAsk.js";
 import { personHubUrl } from "../agent/hubLinks.js";
 import { backgroundedBrief } from "./jobBackground.js";
+import { MAX_RUN_WAIT_MS } from "../workspaceStore/runWait.js";
 
 export const MACHINE_RUN_CLIENT_ID = "context_tex_machine_run";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -80,8 +83,10 @@ async function call(env, workspaceId, op, fields) {
 }
 
 /** A run of this person's, or null: another person's run reads as no run. */
-async function ownRun(env, session, workspaceId, runId) {
-  const answer = await call(env, workspaceId, "ws.machine.run", { runId });
+async function ownRun(env, session, workspaceId, runId, held = null) {
+  // `held`: the reader's last version and how long it may wait for the next (`workspaceStore/runWait.js`); the
+  // object checks whose run it is before it waits.
+  const answer = await call(env, workspaceId, "ws.machine.run", { runId, ...(held === null ? {} : { seen: held.seen, waitMs: held.waitMs, askerId: session.actorUserId }) });
   if (answer?.ok !== true || answer.run?.askerId !== session.actorUserId) return null;
   return answer;
 }
@@ -174,12 +179,14 @@ async function readRun(request, env, session, controlPlane, store) {
   if (body === null) return invalid("body");
   const covered = await reachedWorkspace(session, controlPlane, body.workspaceId);
   if (covered === null || typeof body.runId !== "string" || !RUN_ID.test(body.runId)) return refused("unknown_run");
-  const answer = await ownRun(env, session, covered.workspaceId, body.runId);
+  const held = typeof body.seen === "string" && body.seen.length <= 200 && Number.isFinite(body.waitMs) ? { seen: body.seen, waitMs: Math.min(MAX_RUN_WAIT_MS, Math.max(0, body.waitMs)) } : null;
+  const answer = await ownRun(env, session, covered.workspaceId, body.runId, held);
   if (answer === null) return refused("unknown_run");
   // Ended before its grant ran out: the grant goes now, not at its expiry.
   if (answer.run.state === "ended") await controlPlane.texMachineRunRevoke(body.runId).catch(() => null);
-  await ledgerSteps(store, session, answer.run, typeof answer.machineName === "string" ? answer.machineName : null);
-  return json({ ok: true, run: shownRun(answer.run), online: answer.online === true });
+  // Written only when the run moved: a held read that timed out on the same version has nothing new for the record.
+  if (held === null || answer.version !== held.seen) await ledgerSteps(store, session, answer.run, typeof answer.machineName === "string" ? answer.machineName : null);
+  return json({ ok: true, run: shownRun(answer.run), online: answer.online === true, ...(typeof answer.version === "string" ? { version: answer.version } : {}) });
 }
 
 /**
@@ -256,10 +263,25 @@ async function deliver(request, env, session, controlPlane) {
   if (typeof body.text !== "string" || body.text.trim() === "") return invalid("text");
   if ((await ownRun(env, session, covered.workspaceId, body.runId)) === null) return refused("unknown_run");
   const text = body.text.trim().slice(0, 4000);
+  // Note mail from another agent, handed on by the job: said as that agent's, never as the person's (2026-11-06: a
+  // reviewer's mail reached a MacBook part as "Mail from the person"). A name can never read "the person".
+  const mail = body.mail === undefined ? null : mailFrom(body.mail);
+  if (body.mail !== undefined && (mail === null || body.interrupt === true)) return invalid("mail");
   // Their own words, from their own chat: the one sender who may interrupt (with Tex), checked by who holds this grant.
   const op = body.interrupt === true ? "ws.machine.interrupt" : "ws.machine.deliver";
-  const answer = await call(env, covered.workspaceId, op, { runId: body.runId, messageId: body.messageId, kind: "note", from: "the person", text });
+  const answer = await call(env, covered.workspaceId, op, { runId: body.runId, messageId: body.messageId, kind: mail?.kind ?? "note", from: mail?.from ?? "the person", text, ...(mail?.path ? { path: mail.path } : {}) });
   return json({ ok: answer?.ok === true });
+}
+
+/** A mail line's sender as `/agent/machine/deliver` takes it: a joined name or an `@handle`, its kind, and its note. */
+const MAIL_FROM = /^@?[a-z0-9][a-z0-9_.-]{0,39}$/i;
+export function mailFrom(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  if (typeof value.from !== "string" || !MAIL_FROM.test(value.from)) return null;
+  const kind = value.kind === undefined || value.kind === "note" || value.kind === "interrupt" ? "note" : value.kind === "ask" ? "ask" : null;
+  if (kind === null) return null;
+  if (value.path !== undefined && (typeof value.path !== "string" || value.path === "" || value.path.length > 512 || /[\u0000-\u001f]/.test(value.path))) return null;
+  return { from: value.from, kind, ...(value.path ? { path: value.path } : {}) };
 }
 
 const MAX_JOB_TEXT = 4_000;

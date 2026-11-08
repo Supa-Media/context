@@ -33,7 +33,7 @@ export async function toolListNotes(store, scope, rules, overrides, prefixArg) {
   return toolText(lines.join("\n"));
 }
 
-export async function toolReadNote(store, scope, rules, overrides, pathArg) {
+export async function toolReadNote(store, scope, rules, overrides, pathArg, history = {}) {
   const named = normalizePath(pathArg);
   if (!named) return toolError("invalid path");
   // A search hit inside a channel-day note is keyed `<notePath>#<anchor>`,
@@ -45,7 +45,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
   const requested = splitMessageAnchor(named).path;
   if (!requested) return toolError("invalid path");
   // The person's own chat with Tex, from its ledger, whether or not its history row was made (`historyRead.js`).
-  if (ownHistoryRead(store, requested, scope, rules, overrides)) return await toolReadOwnHistory(store, rules, overrides);
+  if (ownHistoryRead(store, requested, scope, rules, overrides)) return await toolReadOwnHistory(store, rules, overrides, history);
   /*
     **THE REFUSAL MUST COST WHAT THE OTHER REFUSAL COSTS.**
 

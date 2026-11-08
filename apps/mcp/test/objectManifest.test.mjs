@@ -14,6 +14,7 @@ import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { workspaceClient } from "../src/workspaceStore/api.js";
 import { objectFirstManifest } from "../src/store/objectManifest.js";
+import { WorkspaceBusy } from "../src/store/objectLookup.js";
 
 let DatabaseSync = null;
 try {
@@ -202,20 +203,21 @@ test("a workspace whose notes are not at home in its object, or that is behind, 
   }
 });
 
-test("a share taken back and not yet pushed: the object's own behind sends the listing to the control plane", async () => {
+test("a share taken back and not yet pushed: the object's own behind makes the listing busy", async () => {
   const cp = controlRead();
   const ob = objectClient({ ...OBJECT_PAGE, behind: true });
   const logged = [];
   const manifest = objectFirstManifest(cp.read, reading(ob.client, { log: (event) => logged.push(event) }));
-  assert.deepEqual(paths(await manifest({})), ["from/control.md"]);
-  assert.equal(cp.asked.length, 1);
+  await assert.rejects(manifest({}), WorkspaceBusy);
+  assert.equal(cp.asked.length, 0, "never the control plane instead (the owner, 2026-11-06)");
   assert.ok(logged.includes("workspace_object_behind"));
 });
 
-test("a check-in's changed-since listing, an object failure and an unserved answer all go to the control plane", async () => {
+test("a check-in's changed-since listing and an unserved answer go to the control plane; an object failure is busy", async () => {
+  const down = objectFirstManifest(controlRead().read, reading(objectClient(new Error("object down")).client));
+  await assert.rejects(down({}, { timeoutMs: 9 }), WorkspaceBusy);
   for (const [answer, page] of [
     [OBJECT_PAGE, { changedSince: 5 }],
-    [new Error("object down"), {}],
     [{ served: false }, {}],
     [{ served: true, entries: "nope", cursor: null }, {}],
   ]) {

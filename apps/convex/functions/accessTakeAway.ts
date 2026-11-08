@@ -92,7 +92,7 @@ export const run = internalAction({
   args: { id: v.id("accessTakeAways") },
   returns: v.null(),
   handler: async (ctx, { id }) => {
-    const open: OpenObject = (workspaceId) => consoleWorkspaceClient(ctx, workspaceId) as unknown as TakeAwayObject | null;
+    const open: OpenObject = (workspaceId) => consoleWorkspaceClient(ctx, workspaceId, { caller: "accessTakeAway" }) as unknown as TakeAwayObject | null;
     if ((await runTakeAway(ctx, id, open)) !== "failed") return null;
     const attempt = await ctx.runMutation(internal.functions.accessTakeAway.retried, { id });
     if (attempt === null) return null;

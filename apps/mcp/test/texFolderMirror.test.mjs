@@ -19,10 +19,10 @@ const noteResult = (body) => ({ content: [{ type: "text", text: `path: x\netag: 
 test("a person's voice note is read with About me and the jobs list, from the desk when it carries it", async () => {
   assert.equal(VOICE_PATH, "tex/voice.md");
   assert.ok(DESK_NOTES.includes("voice"), "the desk carries it by key");
-  const fromDesk = await readTexNotes(async () => assert.fail("no tool read when the desk has all three"), null, { about: "a", jobs: "j", voice: "- dry humour" });
+  const fromDesk = await readTexNotes(async () => assert.fail("no tool read when the desk has all four"), null, { about: "a", jobs: "j", voice: "- dry humour", calendar: "" });
   assert.equal(fromDesk.voice, "- dry humour");
   const asked = [];
-  const read = await readTexNotes(async (name, args) => (asked.push(args.path), noteResult(args.path === VOICE_PATH ? "- emoji often" : "")), null, { about: "a", jobs: "j" });
+  const read = await readTexNotes(async (name, args) => (asked.push(args.path), noteResult(args.path === VOICE_PATH ? "- emoji often" : "")), null, { about: "a", jobs: "j", calendar: "" });
   assert.deepEqual(asked, [VOICE_PATH]);
   assert.match(read.voice, /emoji often/);
 });

@@ -40,6 +40,7 @@ test/chatHomeWrite.test.mjs
 test/chatSkills.test.mjs
 test/homeRoutines.test.mjs
 test/historyFile.test.mjs
+test/conversationsView.test.mjs
 test/historyRead.test.mjs
 test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
@@ -151,7 +152,7 @@ test/calendarKeyedDelete.test.mjs
 test/keyedNoteIdAt.test.mjs
 test/featureSwitches.test.mjs
 bench/test/calibrate.test.mjs
-bench/test/gates.test.mjs
+bench/test/review.test.mjs
 bench/test/context.test.mjs
 bench/test/folder.test.mjs
 bench/test/improve.test.mjs
@@ -386,6 +387,7 @@ test/objectGrants.test.mjs
 test/personTopics.test.mjs
 test/agentGroupAskChat.test.mjs
 test/objectFacts.test.mjs
+test/objectForwarding.test.mjs
 test/chatLedger.test.mjs
 test/objectManifest.test.mjs
 test/objectChildren.test.mjs
@@ -471,3 +473,17 @@ test/sendBackLedger.test.mjs
 test/agentHourCache.test.mjs
 test/emailReplyNeedsId.test.mjs
 test/agentTexts.test.mjs
+test/callCounts.test.mjs
+test/rowVersions.test.mjs
+test/noteMailObject.test.mjs
+test/runWait.test.mjs
+test/texPromptNames.test.mjs
+test/texCalendarCache.test.mjs
+test/texDaySummaries.test.mjs
+test/texFadedHistory.test.mjs
+test/texArchitecture.test.mjs
+test/typedCall.test.mjs
+test/conversationThreads.test.mjs
+test/agentThreadsTurn.test.mjs
+test/threadsBackfill.test.mjs
+test/scheduledReview.test.mjs

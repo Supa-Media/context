@@ -23,7 +23,8 @@
  * - `reply`: `{text, ms, model?, timing?}`, the turn's answer as it left the gateway; `timing` is where its time went (`turnTiming.js`)
  * - `advisor`: `{question, answer, ms, steps?}` / `mail_check`: `{to, subject, verdict, why, ref?}` / `job`: `{job, title?, state}`
  * - `note`: `{text}`, anything else worth keeping (a routine's text, a check-in)
- * - `judge`: `{text, by, model?, round, went, ms?, notice?, reason?, judges: [{id, yes, at, passed}], failed}`, one judging of a draft reply (`replyJudge.js`): `text` is the draft, `went` whether it went out
+ * - `judge`: `{text, by, model?, round, went, ms?, notice?, reason?, judges: [{id, yes, at, passed}], failed}`, one judging of a draft reply (`replyJudge.js`; `by` is `review` for the Haiku reviewer since 2026-11-06, with `turnKind` and the problems it named in `failed`, or `gates` before): `text` is the draft, `went` whether it went out
+ * - `day`: `{day, text, model?}`, one finished day summed up the night after (`daySummaries.js`), id `day-<YYYY-MM-DD>` so a day keeps one; `at` is that day's last entry
  */
 
 import { gatewayTexStore } from "../texStore/wire.js";
@@ -221,14 +222,19 @@ export function judgeEntry(event, at = {}) {
   const judges = (Array.isArray(event.judges) ? event.judges : []).map((judge) => ({ id: String(judge.id), yes: typeof judge.yes === "number" && Number.isFinite(judge.yes) ? judge.yes : null, at: typeof judge.at === "number" ? judge.at : null, passed: judge.passed === true }));
   return wordsEntry("judge", event.draft ?? "", {
     ...at,
-    by: event.by === "code" || event.by === "late" ? event.by : "gates",
+    by: JUDGE_BY.has(event.by) ? event.by : "gates",
     ...(typeof event.model === "string" ? { model: event.model } : {}),
     round: Number.isSafeInteger(event.round) ? event.round : 0,
     went: event.went === true,
     ...(Number.isFinite(event.ms) ? { ms: Math.round(event.ms) } : {}),
     ...(typeof event.notice === "string" && event.notice ? { notice: cutText(event.notice, MAX_WORDS_CHARS).text } : {}),
     ...(typeof event.reason === "string" && event.reason ? { reason: event.reason } : {}),
+    ...(typeof event.turnKind === "string" && event.turnKind ? { turnKind: event.turnKind.slice(0, 20) } : {}),
     judges,
-    failed: judges.filter((judge) => !judge.passed).map((judge) => judge.id),
+    // The gates' failed ids, or the reviewer's problem names (`replyJudge.js` `PROBLEMS`).
+    failed: judges.length > 0 ? judges.filter((judge) => !judge.passed).map((judge) => judge.id) : (Array.isArray(event.failed) ? event.failed : []).filter((id) => typeof id === "string").map((id) => id.slice(0, 40)).slice(0, 12),
   });
 }
+
+/** Who judged a draft: the reviewer, the code checks, a late text, or the gates (before 2026-11-06). */
+const JUDGE_BY = new Set(["review", "code", "late", "gates"]);

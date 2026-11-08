@@ -73,18 +73,18 @@ export async function runOneTripChecks(check) {
   // rode in the same request as the strict half.
   const missed = await ask("budget zebra");
   check(
-    "a miss costs one request too: the any-word retry travels with the strict half",
+    "a miss costs one request too: the any-word retry and the name search travel with the strict half",
     missed.paths.includes("projects/budget.md") &&
       missed.answer.hits.every((hit) => hit.loose === true) &&
       missed.reads.length === 1 &&
-      missed.reads[0].batch === 4,
+      missed.reads[0].batch === 6,
   );
 
   const team = await ask("budget zebra", "team");
   check(
-    "a team caller's one request names the team table alone, both halves",
+    "a team caller's one request names the team table alone, all three asks",
     team.reads.length === 1 &&
-      team.reads[0].batch === 2 &&
+      team.reads[0].batch === 3 &&
       team.reads[0].sql.includes("notes_team_fts") &&
       !team.reads[0].sql.includes("notes_private_fts"),
   );

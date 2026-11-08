@@ -25,7 +25,7 @@ export const eraseWorkspace = internalAction({
       if (credential === null) return null;
       // Sealed history is read in its own mode; a mode whose key cannot be opened fails here, and the erasure waits.
       const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-      const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+      const routing = await consoleWorkspaceRouting(ctx, workspaceId, { caller: "trashEmptying" });
       return storeForBinding(routing.credential(credential), undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId), ...routing.options }) as unknown as FileStore;
-    }, async () => consoleWorkspaceClient(ctx, workspaceId)),
+    }, async () => consoleWorkspaceClient(ctx, workspaceId, { caller: "trashEmptying" })),
 });

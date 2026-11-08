@@ -11,6 +11,30 @@ remain independently accessible. Removing either flag fails
 `menuRender/nativeAccessibility.test.ts`, whose harness models iOS grouping
 because react-native-web does not. The change ships as JavaScript through OTA.
 
+### The phone's account sheet is its own sheet, not the file menu (2026-11-06)
+
+Dev2 called the phone's account sheet and Settings "awful" (2026-11-06) and
+approved the boards in project files `settings-redesign-2026-11-06/`. The
+sheet behind the top-left @name had been the shared `Menu` sheet fed the
+pointer card's rows, and the menu row draws mark, tick gutter, label, so
+workspace names started further right than every other row, a changed
+workspace said "changed" on a second line, and eleven actions shared one
+list. It is now `AccountSheet`: your name with the sun (Light or Dark mode),
+four buttons (Settings, Meetings, Tex, Trash), the workspaces on one left
+edge with the tick and the changed dot at the right, then the rest and Sign
+out. There is no Cancel row; a pull down on its top or a tap outside closes
+it. The rows are still built once in `SwitcherMenu`, so the conditions on
+them cannot fork between the card and the sheet. Its two gesture containers
+keep `accessible={false}` (the decision above);
+`menuRender/accountSheetAccessibility.test.ts` fails without either, and
+`consoleChrome/switcherAndNav.test.ts` fails if the tick moves before the
+name or a "changed" line or the Cancel row comes back.
+
+The Settings list on a phone opens with a large title, then you as one card
+(the way into Profile), a Tex group (How Tex talks, Apps Tex uses,
+Messages), and a workspace card headed by the workspace's own mark with
+Switch. `settingsOverlayRender.test.ts` and `settingsSections.test.ts` hold it.
+
 ### The note count is measured, stamped, and allowed to be a floor
 
 For two issues running (#20, #25) the console printed facts about somebody's

@@ -3,7 +3,6 @@ import { StyleSheet, View, type GestureResponderEvent } from "react-native";
 
 import { PressRow } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
-import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
 import { useColors, useScheme, useThemedStyles, type Colors } from "../design/theme";
 import { setAppearance } from "../design/appearance";
@@ -14,13 +13,13 @@ import { openFeedback } from "../feedback/request";
 import { useCanSendFeedback } from "../feedback/transport";
 import { offerOwnContext } from "../onboarding/route";
 import { Avatar } from "./AccountBlock";
+import { AccountSheet, phoneSheetParts, SHEET_MARK, SlotIcon } from "./AccountSheet";
 import {
   AccountCard,
   type AccountCardAnchor,
   type AccountCardRow,
   type AccountCardSection,
 } from "./AccountCard";
-import type { MenuItem } from "./files/menuItem";
 import { atName } from "./format";
 import { isOwnWorkspace, railGroup } from "./rail";
 import { useTrashRoute } from "./trash/TrashRouteContext";
@@ -48,8 +47,9 @@ import { WorkspaceMark } from "./WorkspaceMark";
  * `trigger="phone"` is the top-left account slot of the phone shell (owner,
  * 2026-09-27, the phone artboards, screen 9): your avatar, or — for the
  * homepage's visitor — a "Sign in" pill in the same place. Pressing it opens
- * these same rows as a bottom sheet (the shared `Menu`): your workspaces with
- * the current one ticked, New workspace, Meetings, Settings, Sign out; for a
+ * these same rows as a bottom sheet (`AccountSheet`, redrawn 2026-11-06): your
+ * name and the sun, four buttons for Settings, Meetings, Tex and Trash, your
+ * workspaces with the current one ticked, then the rest and Sign out; for a
  * visitor, Sign in and Create workspace. It replaced two things that had
  * forked: the phone's own `AccountBlock` menu (Meetings, Settings, Sign out)
  * and the chip row of workspaces above the path (`ContextStrip`), since
@@ -77,6 +77,7 @@ import { WorkspaceMark } from "./WorkspaceMark";
 export type SwitcherMenuId =
   | `ctx:${string}`
   | "meetings"
+  | "tex"
   | "claim"
   | "new"
   | "settings"
@@ -97,6 +98,7 @@ export function SwitcherMenu({
   label,
   onOpenContext,
   onOpenMeetings,
+  onOpenTex,
   onClaimContext,
   onNewWorkspace,
   onOpenSettings,
@@ -117,6 +119,13 @@ export function SwitcherMenu({
   label: string;
   onOpenContext: (slug: string) => void;
   onOpenMeetings?: () => void;
+  /**
+   * Tex's hub, your own page at `/tex/@<handle>` (Dev2, 2026-11-06: "put some
+   * entrypoint in the settings next to meetings"). A row right after Meetings,
+   * only for the owner of a personal workspace, the one person `/tex` has a
+   * page for.
+   */
+  onOpenTex?: () => void;
   onClaimContext?: () => void;
   onNewWorkspace?: () => void;
   onOpenSettings?: () => void;
@@ -210,13 +219,27 @@ export function SwitcherMenu({
   const sharedNew = (shared?.unseen ?? 0) > 0;
   const dotted = elsewhere || whatsNew?.unread === true || sharedNew;
 
+  const phone = trigger === "phone";
+  /*
+    The phone's sheet draws its marks in a 28pt slot and its glyphs at 19, so
+    every label starts on one edge (Dev2, 2026-11-06); the pointer card keeps
+    its 14pt glyphs. One list of rows either way, so only the size forks.
+  */
+  const glyph = (name: Parameters<typeof Icon>[0]["name"]) =>
+    phone ? (
+      <SlotIcon>
+        <Icon name={name} size={19} />
+      </SlotIcon>
+    ) : (
+      <Icon name={name} size={14} />
+    );
   const workspaces: AccountCardRow[] = [
     /*
       The claim entry takes the **pinned top slot**, which is `railGroup`'s own
       rule: it is the placeholder for exactly the row that would be there.
     */
     ...(group.claim && onClaimContext
-      ? [{ id: "claim", label: "Claim your @name", leading: <Icon name="plus" size={14} />, testID: "switcher-claim" }]
+      ? [{ id: "claim", label: "Claim your @name", leading: glyph("plus"), testID: "switcher-claim" }]
       : []),
     ...group.contexts.map((context) => ({
       id: `ctx:${context.slug}`,
@@ -237,8 +260,13 @@ export function SwitcherMenu({
       detail: isOwnWorkspace(context) ? "yours" : undefined,
       leading: (
         <View style={styles.markSlot}>
-          <WorkspaceMark label={atName(context.slug)} tone={context.status} icon={iconFor(context)} />
-          {context.hasNewActivity && context.slug !== current?.slug ? (
+          <WorkspaceMark
+            label={atName(context.slug)}
+            tone={context.status}
+            icon={iconFor(context)}
+            size={phone ? SHEET_MARK : undefined}
+          />
+          {!phone && context.hasNewActivity && context.slug !== current?.slug ? (
             <View style={styles.newDot} aria-hidden />
           ) : null}
         </View>
@@ -261,15 +289,26 @@ export function SwitcherMenu({
           badge: sharedNew,
           checked: shared.here === true,
           leading: (
-            <View style={styles.sharedMark}>
-              <Icon name="tray" size={14} />
+            <View style={phone ? [styles.phoneSlot, styles.phoneSlotSolid] : styles.sharedMark}>
+              <Icon name="tray" size={phone ? 16 : 14} />
             </View>
           ),
           testID: "switcher-shared",
         }]
       : []),
     ...(group.create && onNewWorkspace
-      ? [{ id: "new", label: "New workspace", leading: <Icon name="plus" size={14} />, testID: "switcher-new" }]
+      ? [{
+          id: "new",
+          label: "New workspace",
+          leading: phone ? (
+            <View style={[styles.phoneSlot, styles.phoneSlotDashed]}>
+              <Icon name="plus" size={16} />
+            </View>
+          ) : (
+            <Icon name="plus" size={14} />
+          ),
+          testID: "switcher-new",
+        }]
       : []),
   ];
 
@@ -279,17 +318,19 @@ export function SwitcherMenu({
       ? `Chaos ${shownScore(chaosResult.score)} · ${chaosResult.word ?? chaosWord(chaosResult.score)}`
       : null;
 
-  const phone = trigger === "phone";
   const places: AccountCardRow[] = [
     /*
       Settings heads the group (Dev2, 2026-10-18): it is the row people come
       to this card for most.
     */
     ...(onOpenSettings
-      ? [{ id: "settings", label: "Settings", leading: <Icon name="gear" size={14} />, testID: "switcher-settings" }]
+      ? [{ id: "settings", label: "Settings", leading: glyph("gear"), testID: "switcher-settings" }]
       : []),
     ...(onOpenMeetings
-      ? [{ id: "meetings", label: "Meetings", leading: <Icon name="calendar" size={14} />, testID: "switcher-meetings" }]
+      ? [{ id: "meetings", label: "Meetings", leading: glyph("calendar"), testID: "switcher-meetings" }]
+      : []),
+    ...(onOpenTex && data.contexts.some(isOwnWorkspace)
+      ? [{ id: "tex", label: "Tex", leading: glyph("chat"), testID: "switcher-tex" }]
       : []),
     /*
       The phone's Folders page lost its Trash and Chaos lines to board 2 of
@@ -299,11 +340,20 @@ export function SwitcherMenu({
       card behind your name is where Trash is there as well.
     */
     ...((phoneNamed || !phone) && trash !== undefined
-      ? [{ id: "trash", label: "Trash", leading: <Icon name="trash" size={14} />, testID: "switcher-trash" }]
+      ? [{ id: "trash", label: "Trash", leading: glyph("trash"), testID: "switcher-trash" }]
       : []),
     ...(chaos === null
       ? []
-      : [{ id: "chaos", label: chaos, leading: <Icon name="sparkle" size={14} />, testID: "switcher-chaos" }]),
+      : [{
+          id: "chaos",
+          // The phone's sheet puts the score where a value goes, at the right.
+          label: phone ? "Chaos" : chaos,
+          ...(phone && chaosResult !== null
+            ? { detail: `${shownScore(chaosResult.score)} · ${chaosResult.word ?? chaosWord(chaosResult.score)}` }
+            : {}),
+          leading: glyph("sparkle"),
+          testID: "switcher-chaos",
+        }]),
     /*
       The quick way between light and dark (Dev2, 2026-10-14), for everyone
       including the homepage's visitor: it names the one you would switch to.
@@ -315,7 +365,7 @@ export function SwitcherMenu({
       ? [{
           id: "appearance",
           label: scheme === "dark" ? "Light mode" : "Dark mode",
-          leading: <Icon name="sun" size={14} />,
+          leading: glyph("sun"),
           testID: "switcher-appearance",
         }]
       : []),
@@ -326,10 +376,10 @@ export function SwitcherMenu({
       Search (Dev2, 2026-10-18).
     */
     ...(phone && onSignOut && canReport
-      ? [{ id: "feedback", label: "Send feedback", leading: <Icon name="bug" size={14} />, testID: "switcher-feedback" }]
+      ? [{ id: "feedback", label: "Send feedback", leading: glyph("bug"), testID: "switcher-feedback" }]
       : []),
     ...(onInviteFriends
-      ? [{ id: "invite", label: "Invite friends", detail: inviteDetail, leading: <Icon name="mail" size={14} />, testID: "switcher-invite" }]
+      ? [{ id: "invite", label: "Invite friends", detail: inviteDetail, leading: glyph("mail"), testID: "switcher-invite" }]
       : []),
     ...(whatsNew
       ? [{
@@ -338,7 +388,7 @@ export function SwitcherMenu({
           detail: `week ${whatsNew.week}`,
           accessibilityLabel: whatsNew.unread ? `What's new, week ${whatsNew.week}, unread` : undefined,
           badge: whatsNew.unread,
-          leading: <Icon name="sparkle" size={14} />,
+          leading: glyph("sparkle"),
           testID: "switcher-whats-new",
         }]
       : []),
@@ -360,10 +410,10 @@ export function SwitcherMenu({
       word (2026-09-27). The testID is unchanged.
     */
     ...(onCreateAccount
-      ? [{ id: "signup", label: "Create workspace", leading: <Icon name="plus" size={14} />, testID: "switcher-create-account" }]
+      ? [{ id: "signup", label: "Create workspace", leading: glyph("plus"), testID: "switcher-create-account" }]
       : []),
     ...(onSignOut
-      ? [{ id: "signout", label: "Sign out", leading: <Icon name="signOut" size={14} />, danger: true, testID: "switcher-sign-out" }]
+      ? [{ id: "signout", label: "Sign out", leading: glyph("signOut"), danger: true, testID: "switcher-sign-out" }]
       : []),
   ];
 
@@ -391,6 +441,7 @@ export function SwitcherMenu({
     setSheetOpen(false);
     if (id.startsWith("ctx:")) onOpenContext(id.slice(4));
     else if (id === "meetings") onOpenMeetings?.();
+    else if (id === "tex") onOpenTex?.();
     else if (id === "claim") onClaimContext?.();
     else if (id === "new") onNewWorkspace?.();
     else if (id === "settings") onOpenSettings?.();
@@ -473,10 +524,10 @@ export function SwitcherMenu({
           ) : null}
         </PressRow>
         {sheetOpen ? (
-          <Menu<string>
-            items={sheetItems(sections)}
+          <AccountSheet
+            {...phoneSheetParts(sections)}
             title={data.viewer.name}
-            titleDetail={data.viewer.detail}
+            detail={data.viewer.detail}
             onSelect={select}
             onDismiss={() => setSheetOpen(false)}
           />
@@ -541,35 +592,6 @@ export function SwitcherMenu({
   );
 }
 
-/**
- * The card's sections as one list for the phone's sheet: a rule between
- * groups, and the dot a sighted person sees on a changed workspace said in
- * words, since a sheet row has no mark slot for it.
- */
-export function sheetItems(sections: readonly AccountCardSection[]): MenuItem<string>[] {
-  const items: MenuItem<string>[] = [];
-  for (const section of sections) {
-    section.rows.forEach((row, index) => {
-      const changed =
-        row.badge !== true && row.accessibilityLabel !== undefined && row.accessibilityLabel !== row.label;
-      const detail = [row.detail, changed ? "changed" : undefined, row.badge ? "new" : undefined]
-        .filter(Boolean)
-        .join(" · ");
-      items.push({
-        id: row.id,
-        label: row.label,
-        ...(detail === "" ? {} : { detail }),
-        ...(row.leading === undefined ? {} : { leading: row.leading }),
-        ...(row.checked === undefined ? {} : { checked: row.checked }),
-        ...(row.danger === true ? { danger: true } : {}),
-        ...(index === 0 && items.length > 0 ? { separatorBefore: true } : {}),
-        testID: row.testID,
-      });
-    });
-  }
-  return items;
-}
-
 /** The phone's top-left mark: the avatar's size, so the slot does not move. */
 const PHONE_MARK = 28;
 
@@ -629,6 +651,18 @@ const makeStyles = (colors: Colors) =>
     },
     signInText: { fontWeight: "600" },
     markSlot: { position: "relative" },
+    /** On the phone's sheet: @shared and New workspace in a mark-sized square. */
+    phoneSlot: {
+      width: SHEET_MARK,
+      height: SHEET_MARK,
+      borderRadius: Math.round(SHEET_MARK * 0.28),
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1.5,
+      borderColor: colors.lineStrong,
+    },
+    phoneSlotSolid: { borderStyle: "solid" },
+    phoneSlotDashed: { borderStyle: "dashed" },
     /** A workspace mark's square, so @shared's label lines up with theirs. */
     sharedMark: { width: 18, height: 18, alignItems: "center", justifyContent: "center" },
     /**

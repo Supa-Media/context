@@ -2,6 +2,8 @@
 
 ### Mail, calendar, chat, contacts and iMessage are read from their source, not copied into notes
 
+_One exception since 2026-11-06: Tex keeps a short copy of the next seven days in `tex/calendar.md`, marked as a copy and never the source of truth ([calendar-cache](../texting-assistant/calendar-cache.md))._
+
 Decided by the owner on 2026-10-21. After an analysis of what the copies were
 for, they wrote: "I feel like if we removed all of this the quality of
 peoples searches and use of context will go up not go down because there is

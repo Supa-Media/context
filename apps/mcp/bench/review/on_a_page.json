@@ -35,7 +35,7 @@
           "written: https://context.example/note/jobs/merged-prs.page.md"
         ]
       ],
-      "reply": "Ten PRs, two worth watching: #2684 touches 74 files and #2563 could double-send on retry. All of them with risks: https://context.example/note/jobs/merged-prs.page.md",
+      "reply": "Ten PRs, two worth watching: #2684 touches 74 files and #2563 could double-send on retry. Every one with its risk: https://context.example/note/jobs/merged-prs.page.md",
       "fault": false
     },
     {
@@ -149,8 +149,9 @@
         ]
       },
       "did": [],
-      "reply": "Three quotes in: Oak & Iron is lowest at $7,600 but leaves out permits, which usually run about $900 here, so Alvarez at $8,200 is really the cheapest. BuildRight is $9,050.",
-      "fault": false
+      "reply": "Three quotes in: Oak & Iron is lowest at $7,600 but leaves out permits, so price those before you pick it. Alvarez is $8,200 and BuildRight $9,050.",
+      "fault": false,
+      "fixed": "2026-11-06: the old reply invented 'permits usually run about $900 here' with nothing read; the reviewer was right to send it back"
     },
     {
       "id": "steps-in-full",

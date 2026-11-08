@@ -6,6 +6,8 @@
  * Sabotage record (applied, suite run, named test observed failing, reverted):
  *  1. `join` binding every name to the job → "the job joins bound to itself; Tex and the advisor join unbound".
  *  2. `deliverMail` dropping `box.own` for roster agents → "a line to tex or advisor reaches only the sender's own job".
+ *  3. (2026-11-06) the route's `no_note` for every grant but a person's → "a group's job with no project of its own gets
+ *     a note in its workspace's projects".
  */
 
 import assert from "node:assert/strict";
@@ -95,6 +97,8 @@ test("every job is told who is on its note and what each is for", async () => {
   assert.match(roster, /"research": other jobs on parts of the same ask/);
   assert.match(roster, new RegExp(`mailbox "${body.mailbox}"`));
   assert.match(roster, /Never look for a saved login or password/);
+  // The owner, 2026-11-06: a job joins other notes' mail, always under its own name.
+  assert.match(roster, /join it with write action mail on that note, args \{ join: "[a-z0-9-]+" \}: you always join as/);
   assert.doesNotMatch(roster, /\b10\b|limit/i, "the advisor's limit is never told");
   // A cloud job's part reads it in place of the old join instruction.
   const prompt = jobPrompt(jobOf({ id: JOB, title: "Pricing", brief: "Price it.", project: { path: "projects/x/overview.md", name: "pricing" }, roster }));
@@ -102,9 +106,20 @@ test("every job is told who is on its note and what each is for", async () => {
   assert.doesNotMatch(prompt, /Before anything else, join the mail/);
 });
 
-test("a group's job with no project of its own gets no note, and only the texting clients may ask", async () => {
+test("a group's job with no project of its own gets a note in its workspace's projects, with Tex and the advisor on its mail", async () => {
+  // Job 350eddce (2026-11-06) ran from a group with no note: no mail, no advisor, and two parts spent looking for one.
   const fake = fakeNotes();
-  assert.deepEqual((await ask(fake, "/agent/job/note", { jobId: JOB, title: "A", brief: "B" }, texting({ actorClientId: "context_texts_group" }))).body, { ok: false, code: "no_note" });
+  const { body } = await ask(fake, "/agent/job/note", { jobId: JOB, title: "How Tex handles long chats", brief: "Read the code." }, texting({ actorClientId: "context_texts_group" }));
+  assert.equal(body.ok, true);
+  assert.match(body.path, /^projects\/tex-jobs\/how-tex-handles-long-chats-job000\.md$/);
+  assert.equal(body.path, fallbackPath("How Tex handles long chats", JOB, { group: true }));
+  assert.match(fake.notes.get(body.path), /^# How Tex handles long chats\n\nRead the code\./);
+  assert.deepEqual(fake.joins.map((j) => j.name), ["how-tex-handles-long-cha", "tex", "advisor"]);
+  assert.match(body.roster, /"advisor": your advisor/);
+});
+
+test("only the texting clients may ask for a job's note", async () => {
+  const fake = fakeNotes();
   assert.equal((await ask(fake, "/agent/job/note", { jobId: JOB, title: "A", brief: "B" }, texting({ actorClientId: "some_ai_client" }))).status, 403);
   assert.equal((await ask(fake, "/agent/job/note", { jobId: JOB, title: "A", brief: "B" }, texting({ scopes: ["context:read"] }))).status, 403);
   assert.equal((await ask(fake, "/agent/job/note", { jobId: "x", title: "A", brief: "B" })).status, 400);
@@ -172,4 +187,16 @@ test("the advisor's end-of-part check knows the job's note mail and its coworker
   assert.match(brief, /split the work/);
   assert.match(brief, /"research": other jobs on parts of the same ask/);
   assert.doesNotMatch(jobCheckBrief({ job: { title: "A", brief: "B", attempt: 1 }, system: "", messages: [], answer: "", exhausted: false }), /job_note_mail/);
+});
+
+test("a computer part's brief always names its advisor, how to ask it, and that it checks the finish line", async () => {
+  const { jobBackground } = await import("../src/machines/jobBackground.js");
+  for (const actorClientId of ["context_texts", "context_texts_group"]) {
+    const brief = jobBackground({ actorClientId }, { machineName: "dev2", fromOwner: true });
+    assert.match(brief, /## Your advisor/);
+    assert.match(brief, /kind "ask" and wait: 120/);
+    assert.match(brief, /before you call the job finished/);
+    assert.match(brief, /checks your final answer against the job's finish line/);
+    assert.doesNotMatch(brief, /\b10\b|limit on asks|budget/i, "the advisor's limit is never told");
+  }
 });

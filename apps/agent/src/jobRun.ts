@@ -103,8 +103,8 @@ const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
   | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; untrusted?: true; vaultWatch?: true; verdict?: JobVerdict; advice?: string; idle?: true }
-  /** Nothing ran: try the same turn again later. */
-  | { kind: "retry" }
+  /** Nothing ran: try the same turn again later. `why` is kept for the job's last word if no try is left. */
+  | { kind: "retry"; why?: string }
   /** It ran and broke: carry on in a new turn, if one is left. */
   | { kind: "broken" }
   /** Ends here, with this to say, or silently. */
@@ -180,8 +180,10 @@ export async function resumeJob(
   const was = ended.run.machine;
   const current = steer?.machine !== undefined && was !== undefined && steer.machine.machineId === was.machineId ? { ...steer.machine, ...(was.repo && !steer.machine.repo ? { repo: was.repo } : {}) } : was;
   const moved = current !== undefined && was !== undefined && current.folder !== was.folder;
-  const { machineSession: _session, machineRun: _run, ...run } = ended.run;
-  await storage.put<Stored>(RUN_KEY, { ...(moved ? run : ended.run), ...(current ? { machine: current } : {}), attempt: 1, tries: 0, startedAt: now, resumes, sent: 0, ...(ended.run.draft ? { unfinished: true as const } : {}) });
+  // Its earlier parts' lines start again with its parts: the last word recalls this run, not the one before.
+  const { parts: _parts, ...restarted } = ended.run;
+  const { machineSession: _session, machineRun: _run, ...run } = restarted;
+  await storage.put<Stored>(RUN_KEY, { ...(moved ? run : restarted), ...(current ? { machine: current } : {}), attempt: 1, tries: 0, startedAt: now, resumes, sent: 0, ...(ended.run.draft ? { unfinished: true as const } : {}) });
   await storage.delete(ENDED_KEY);
   log("resumed", ended.run.id);
   if (start !== undefined) await start(ended.run.id, resumes);
@@ -202,10 +204,11 @@ export async function steerJob(storage: InboxStorage, steer: JobSteer): Promise<
   const running = live.get(storage);
   if (running?.machine) {
     // A part on their computer: the words go into its session, and a stop cancels it there (`machines/jobRoutes.js`).
+    // Note mail goes in as its sender's, never as the person's.
     const { workspaceId, runId, accessToken, delivered } = running.machine;
     const messageId = steer.id.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
     const path = steer.stop ? "/agent/machine/cancel" : "/agent/machine/deliver";
-    const sent = await post(running.fetch, "gateway", `${running.gatewayOrigin}${path}`, accessToken, steer.stop ? { workspaceId, runId, reason: "stopped" } : { workspaceId, runId, messageId, text: steer.text }, STEER_TIMEOUT_MS).catch(() => null);
+    const sent = await post(running.fetch, "gateway", `${running.gatewayOrigin}${path}`, accessToken, steer.stop ? { workspaceId, runId, reason: "stopped" } : { workspaceId, runId, messageId, text: steer.text, ...(steer.mail ? { mail: { from: steer.mail.from, kind: steer.mail.kind, path: steer.mail.path } } : {}) }, STEER_TIMEOUT_MS).catch(() => null);
     if (!steer.stop && (sent?.json as { ok?: unknown } | null)?.ok === true) delivered.push(steer.id);
   } else if (running?.accessToken !== undefined) {
     // Best effort: one the turn doesn't take is shown to the next turn.
@@ -293,7 +296,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           ? await phoneTurn(run, asked, turn, deps, onProgress, onStep)
           : await groupTurn(run, asked, turn, deps, onStep);
   } catch (error) {
-    outcome = error instanceof ServiceError ? { kind: "retry" } : { kind: "broken" };
+    outcome = error instanceof ServiceError ? { kind: "retry", why: unreachable(error) } : { kind: "broken" };
   } finally {
     if (live.get(storage) === turn) live.delete(storage);
   }
@@ -343,7 +346,11 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
     const draft = (changed || unfinished) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
     const { unfinished: _was, advice: _said, idle: _idle, ...kept } = run;
-    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...(idle ? { idle: true as const } : {}), ...(outcome.kind === "answer" && outcome.untrusted ? { tainted: true as const } : {}) });
+    // What this part did, one line, so a job that ends short reports every part and not only its last (2026-11-06:
+    // a cloud reviewer's tenth part answered a screenshot, and that alone became its report: "nothing from it is built").
+    const said = outcome.kind === "answer" ? partLine(run.attempt, outcome.texts, outcome.status) : null;
+    const parts = said === null ? run.parts : [...(run.parts ?? []), said].slice(-MAX_PARTS_KEPT);
+    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...(idle ? { idle: true as const } : {}), ...(outcome.kind === "answer" && outcome.untrusted ? { tainted: true as const } : {}) });
     await tell({
       state: "running",
       ...watch,
@@ -373,7 +380,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           status: ended === "done" ? outcome.status : `${why}${advice || outcome.status}`.slice(0, 280),
           // A page's cover goes first, in place of the link's name card (`jobTexts.ts`); not with an answer a later text changed.
           ...(changed ? {} : await sendable(outcome.pictures, deps.images)),
-          texts: changed && !mailed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts,
+          texts: changed && !mailed ? [...outcome.texts, JOB_LINES.missed] : ended !== "done" && run.parts?.length ? [...outcome.texts, earlierParts(run.parts)] : outcome.texts,
           ...watch,
         }
       : outcome.kind === "refused"
@@ -382,10 +389,34 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           ? { state: "failed", status: `Stopped: turned down before it ran (${outcome.why})`.slice(0, 280), texts: [JOB_LINES.rejected(run.title, outcome.why)] }
         : outcome.kind === "stop"
           ? { state: "failed", ...(outcome.text ? { texts: [outcome.text] } : {}) }
-          : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
+          : outcome.kind === "retry" && outcome.why
+            ? // Out of tries at a service that didn't answer: said, so neither Tex nor the person is left guessing (2026-11-06).
+              { state: "failed", status: `Stopped: ${outcome.why}`.slice(0, 280), texts: [JOB_LINES.failed(run.title, outcome.why)] }
+            : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
   // What it had got to is what a restart starts on (`resumeJob`).
   const got = outcome.kind === "answer" && !changed ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) : "";
   return await finish(storage, { ...run, sent, ...(got ? { draft: got } : {}), ...(advice ? { advice } : {}) }, update, tell, deps.now(), pass);
+}
+
+/** Earlier parts' lines a job keeps for its last word. */
+const MAX_PARTS_KEPT = 8;
+const MAX_PART_LINE = 300;
+
+/** One part as its job's last word recalls it: its answer's first line, or its status. Null when it said nothing. */
+export function partLine(attempt: number, texts: string[], status: string): string | null {
+  const first = texts.join("\n").split("\n").find((line) => line.trim() !== "")?.trim() ?? status.trim();
+  return first === "" ? null : `Part ${attempt}: ${first}`.slice(0, MAX_PART_LINE);
+}
+
+/** The earlier parts, said after a job's last part when it ended short. */
+export function earlierParts(parts: string[]): string {
+  return `What the earlier parts did:\n${parts.join("\n")}`;
+}
+
+/** Why a pass couldn't run, in words for the job's last line: which service didn't answer, and how. */
+export function unreachable(error: ServiceError): string {
+  const who = error.service === "gateway" ? "Context" : error.service === "control_plane" ? "Context's accounts" : "the texting service";
+  return `${who} didn't answer ${MAX_JOB_TRIES} times in a row${error.status === null ? "" : ` (error ${error.status})`}`;
 }
 
 /** Hand the inbox the job's last word; one it didn't take is kept and offered again, never run again. */

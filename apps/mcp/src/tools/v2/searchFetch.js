@@ -136,7 +136,8 @@ const APP_PREFIX = "apps:";
  * and `read_note` reads it with that note's access; only its name is not `.md`, so without this it fell through to a
  * folder listing and answered "no visible notes" (Dev, 2026-11-03: agents should be able to read the history files).
  */
-const HISTORY_FILE_ID = /(?:^|\/)history\.ledger\.json$/i;
+// Its conversations file beside it is read the same way (`texStore/historyView.js`).
+const HISTORY_FILE_ID = /(?:^|\/)(?:history|conversations)\.ledger\.json$/i;
 
 /** Ids that name something other than a note, which only the table below can route. */
 function routedId(id) {
@@ -187,7 +188,7 @@ export function translateFetch(call, app = {}) {
 
   // A chat's history file reads as the note it is, with that note's access.
   if (HISTORY_FILE_ID.test(id)) {
-    return target(label, a, { name: "read_note", action: "note", fixed: { path: id } });
+    return target(label, a, { name: "read_note", action: "note", fixed: { path: id }, copy: ["before", "job"] });
   }
 
   // A message anchor from search (`<note>.md#<anchor>`) is the note itself.

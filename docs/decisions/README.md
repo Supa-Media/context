@@ -32,6 +32,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex telemetry: every turn says where it came from and what it cost](./observability/tex-telemetry.md) (2026-10-24)
 - [Token usage at the MCP boundary](./observability/token-usage.md) (2026-10-08)
 - [MCP calls have speed budgets, judged from production's own timings](./observability/mcp-speed-budgets.md) (2026-11-03)
+- [Every request and every workspace object call is counted by who made it](./observability/call-counts.md) (2026-11-06)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
 - [A new managed bucket is served on a temporary credential until its own key answers](./storage-and-credentials.md#a-new-managed-bucket-is-served-on-a-temporary-credential-until-its-own-key-answers) (2026-10-29)
@@ -49,6 +50,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Notes' facts live in the workspace object](./storage-and-credentials/facts-in-objects.md) (2026-11-02)
 - [Background tree writers, once the object writes the tree](./storage-and-credentials/background-tree-writers.md) (2026-11-03)
 - [The control plane's tree reads come from the workspace object](./storage-and-credentials/object-tree-reads.md) (2026-11-03)
+- [A busy workspace object says busy; nothing about a note falls back to Convex](./storage-and-credentials/no-convex-for-notes.md) (2026-11-06)
+- [The forwarding ledger is read from the workspace object](./storage-and-credentials/forwarding-in-objects.md) (2026-11-06)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
@@ -384,6 +387,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The mobile app and the console](./app-and-console.md)
 
+- [The phone's account sheet is its own sheet, not the file menu](./app-and-console/native-app-shell.md#the-phones-account-sheet-is-its-own-sheet-not-the-file-menu-2026-11-06)
 - The note count is measured, stamped, and allowed to be a floor
 - One runtime version, pinned, and native deps gated behind it
 - The native baseline was chosen once, before the first build
@@ -754,6 +758,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The texting assistant](./texting-assistant.md)
 
+- [Each finished day is summed up the night after, and shown where the texts stop (2026-11-06)](./texting-assistant/day-summaries.md)
+- [A turn is shown its whole chat, the nearer days whole and older ones clipped (2026-11-06)](./texting-assistant/faded-history.md)
+- [Tex's rules are module notes, and the setup names which ones each kind of turn gets (2026-11-06)](./texting-assistant/prompt-modules.md)
+- [Tex keeps a short copy of the next seven days, and says it is a copy (2026-11-06)](./texting-assistant/calendar-cache.md)
 - [One drawing of Tex, changed with every architecture change (2026-11-05)](./texting-assistant/architecture-diagram.md)
 - [Every Tex turn reads its setup, whoever the person is (2026-11-02)](./texting-assistant/setup-read.md)
 - [Tex answers directly, or says what it is doing as it works, never that it is done (2026-11-01)](./texting-assistant/interleaved-updates.md)
@@ -788,6 +796,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A turn's trust is its own; nothing it said marks a later turn (2026-11-05)](./texting-assistant/turn-trust.md)
 - [What was said stays in the record, and Tex does the read instead of offering it (2026-11-04)](./texting-assistant/do-the-read.md)
 - [A decision model judges each texted reply before it goes (2026-11-04)](./texting-assistant/reply-judge.md)
+- [One Haiku reviewer in place of the reply gates (2026-11-06)](./texting-assistant/reply-judge.md#one-haiku-reviewer-in-place-of-the-gates-dev2-2026-11-06)
+- [Conversation threads: a chat shown by subject, not as one long scroll (2026-11-07)](./texting-assistant/conversation-threads.md)
 - [A person's Tex folder and a group chat's home use the same names (2026-11-01)](./texting-assistant/tex-folders.md)
 - [The advisor's asks, the Mail checker's verdicts and jobs go in the chat's ledger (2026-11-02)](./texting-assistant/ledger-asks.md)
 - [A guest in a group chat opens a shared note with a texted code, and the code makes an account (2026-10-27, 2026-10-31)](./texting-assistant/guest-phone-pass.md)
@@ -808,6 +818,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex's chat commands are tools the agent calls (2026-10-31)](./texting-assistant/command-tools.md)
 - [One conversation state per chat, and decide picks when and how Tex replies (2026-11-01)](./texting-assistant/chat-state-machine.md)
 - [Group typing: a WhatsApp experiment before any build (2026-11-01)](./texting-assistant/whapi-presence-probe.md)
+- [Provider events: capture the shapes before designing for them (2026-11-06)](./texting-assistant/provider-events.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [On Sendblue, every link goes with its picture, and never at either end of its text (2026-11-03)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)

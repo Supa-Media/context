@@ -4,10 +4,14 @@
  * sides read their frames through this file, so neither can drift.
  *
  * Client to object:
- *   {t: "watch", folders: string[]}   the folders to keep live, at most TREE_WATCH_MAX
+ *   {t: "watch", folders: string[], head?: true}
+ *                                     the folders to keep live, at most TREE_WATCH_MAX; `head` asks for the
+ *                                     workspace's change signal too (a device that keeps a copy)
  *   {t: "ping"}
  * Object to client:
  *   {t: "listing", folder, page}      one folder at the socket's clearance (FolderListing)
+ *   {t: "head", token}                 what this reader may see changed when the token moves
+ *                                     (`apps/mcp/src/workspaceStore/treeHead.js`); sent on watch and on each move
  *   {t: "not_served"}                 this workspace's tree is not read from its object: use Convex
  *   {t: "pong"}
  *
@@ -47,7 +51,7 @@ function decodeClientFrame(raw) {
   if (frame.t === "ping") return { t: "ping" };
   if (frame.t === "watch") {
     if (!Array.isArray(frame.folders) || frame.folders.length > TREE_WATCH_MAX || !frame.folders.every(folderOk)) return null;
-    return { t: "watch", folders: [...new Set(frame.folders)] };
+    return { t: "watch", folders: [...new Set(frame.folders)], ...(frame.head === true ? { head: true } : {}) };
   }
   return null;
 }
@@ -63,15 +67,18 @@ function decodeServerFrame(raw) {
   }
   if (frame === null || typeof frame !== "object") return null;
   if (frame.t === "pong" || frame.t === "not_served") return { t: frame.t };
+  if (frame.t === "head" && typeof frame.token === "string" && /^[0-9a-f]{1,64}$/.test(frame.token)) return { t: "head", token: frame.token };
   if (frame.t === "listing" && folderOk(frame.folder) && frame.page && typeof frame.page === "object" && Array.isArray(frame.page.entries)) {
     return { t: "listing", folder: frame.folder, page: frame.page };
   }
   return null;
 }
 
-const watchFrame = (folders) => JSON.stringify({ t: "watch", folders: [...folders].slice(0, TREE_WATCH_MAX) });
+const watchFrame = (folders, { head = false } = {}) =>
+  JSON.stringify({ t: "watch", folders: [...folders].slice(0, TREE_WATCH_MAX), ...(head ? { head: true } : {}) });
 const pingFrame = () => JSON.stringify({ t: "ping" });
 const listingFrame = (folder, page) => JSON.stringify({ t: "listing", folder, page });
+const headFrame = (token) => JSON.stringify({ t: "head", token });
 const notServedFrame = () => JSON.stringify({ t: "not_served" });
 const pongFrame = () => JSON.stringify({ t: "pong" });
 
@@ -87,6 +94,7 @@ module.exports = {
   watchFrame,
   pingFrame,
   listingFrame,
+  headFrame,
   notServedFrame,
   pongFrame,
 };

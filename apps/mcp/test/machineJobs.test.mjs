@@ -199,7 +199,15 @@ test("only the person whose job it is reads, steers or stops a run; an ended run
   await w.frame(server, { type: "step", runId, seq: 1, tool: "Edit", target: "src/a.ts", at: w.clock.at });
   const delivered = await ask("/agent/machine/deliver", { workspaceId: "ws_a", runId, messageId: "msg_1", text: "make it yellow" });
   assert.equal(delivered.body.ok, true);
-  assert.deepEqual({ type: server.last().type, text: server.last().text }, { type: "message", text: "make it yellow" });
+  assert.deepEqual({ type: server.last().type, text: server.last().text, from: server.last().from }, { type: "message", text: "make it yellow", from: "the person" });
+  // Note mail handed on by the job goes in as its sender's, never as the person's (2026-11-06).
+  const mailed = await ask("/agent/machine/deliver", { workspaceId: "ws_a", runId, messageId: "msg_m", text: "run the tests", mail: { from: "cloud", kind: "ask", path: "projects/split/overview.md" } });
+  assert.equal(mailed.body.ok, true);
+  assert.deepEqual({ from: server.last().from, kind: server.last().kind, path: server.last().path }, { from: "cloud", kind: "ask", path: "projects/split/overview.md" });
+  // A sender that isn't a name, or mail that would interrupt, is refused.
+  for (const bad of [{ mail: { from: "the person" } }, { mail: { from: "cloud", kind: "shout" } }, { mail: { from: "cloud" }, interrupt: true }]) {
+    assert.equal((await ask("/agent/machine/deliver", { workspaceId: "ws_a", runId, messageId: "msg_x", text: "hi", ...bad })).status, 400);
+  }
   await ask("/agent/machine/deliver", { workspaceId: "ws_a", runId, messageId: "msg_2", text: "stop and read this", interrupt: true });
   assert.equal(server.last().type, "interrupt");
 

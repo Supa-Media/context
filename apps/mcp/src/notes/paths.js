@@ -97,7 +97,8 @@ export function isPersonalCommunicationsPath(path) {
  * Normalized here rather than by `normalizePath`, which leaves a `@context/` prefix on: an id naming another context's
  * history file is still a chat's history.
  */
-const CHAT_HISTORY_PATH = /(?:^|\/)tex\/(?:groups\/[^/]+\/)?history\.ledger\.json$/i;
+// The conversations file beside it is a view of the same chat (`texStore/historyView.js`), judged the same way.
+const CHAT_HISTORY_PATH = /(?:^|\/)tex\/(?:groups\/[^/]+\/)?(?:history|conversations)\.ledger\.json$/i;
 
 export function isChatHistoryPath(path) {
   if (typeof path !== "string") return false;

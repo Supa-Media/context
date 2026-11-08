@@ -11,6 +11,7 @@ import worker from "../src/index.js";
 import mail from "../../../packages/shared/src/mail.cjs";
 import comments from "../../../packages/shared/src/comments.cjs";
 import { propsOf } from "../src/tree/props.js";
+import { outcomeOf } from "../src/mcp/outcome.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
@@ -41,6 +42,17 @@ test("entries append to one block at the end, oldest first", () => {
     ]
   );
   assert.ok(text.startsWith("# Plan\n\nShip it.\n\n```mail\n"));
+});
+
+test("a blank line inside a message keeps the rest of it (2026-11-06)", () => {
+  const spec = "FUNCTION: f(path)\n\nRULES:\n- one\n\n\n- two";
+  let text = send("# Plan\n", { at: "2026-11-06T00:58:00.000Z", from: "macbook", to: "everyone", text: spec });
+  text = send(text, { at: "2026-11-06T00:59:00.000Z", from: "dev2", to: "everyone", text: "got it" });
+  const { events } = mail.parseMail(text);
+  assert.deepEqual(events.map((event) => [event.from, event.text]), [["macbook", spec], ["dev2", "got it"]]);
+  // Mail already written with an empty line for a blank one reads whole too.
+  const old = "# Plan\n\n```mail\n- 2026-11-06T00:58:00.000Z macbook to everyone: FUNCTION: f(path)\n\n    RULES:\n- 2026-11-06T00:59:00.000Z dev2 to everyone: ok\n```\n";
+  assert.deepEqual(mail.parseMail(old).events.map((event) => event.text), ["FUNCTION: f(path)\n\nRULES:", "ok"]);
 });
 
 test("a message cannot close the block, whatever it contains", () => {
@@ -119,6 +131,7 @@ function binding(bucket, key) {
 }
 
 let bucket;
+let controlPlaneStub;
 let restoreS3;
 let restoreControlPlane;
 after(() => {
@@ -130,6 +143,7 @@ before(async () => {
   const s3 = createS3Backend(S3_ENDPOINT);
   restoreS3 = s3.install();
   const controlPlane = createControlPlaneStub();
+  controlPlaneStub = controlPlane;
   restoreControlPlane = controlPlane.install();
   controlPlane.addWorkspace("ws_mail", "launchteam", binding("note-mail", "MA"), { kind: "shared" });
   controlPlane.addWorkspace("ws_else", "elsewhere", binding("note-else", "MB"));
@@ -269,8 +283,45 @@ test("a read-only connection can read mail but cannot send or join", async () =>
   assert.ok(!bucket.get(PLAN).body.includes("watcher"));
 });
 
+test("a refused join says it was refused, never to try again (2026-11-06)", async () => {
+  // A job on a computer read "could not join … right now; try again" (UNAVAILABLE) for a deliberate refusal and retried.
+  controlPlaneStub.mailJoinAnswers.push({ error: "refused" }, { error: "own_name", name: "split-test" });
+  const refused = await call(TOKEN_LEAD, "write", { path: PLAN, action: "mail", args: { join: "macbook" } });
+  assert.ok(refused.isError);
+  assert.match(refused.text, /^permission denied: Context refused joining this note's mail as "macbook"/);
+  assert.doesNotMatch(refused.text, /try again|right now|UNAVAILABLE/);
+  assert.deepEqual(outcomeOf("write", { isError: true, content: [{ type: "text", text: refused.text }] }), { applied: false, error: "FORBIDDEN" });
+  const ownName = await call(TOKEN_LEAD, "write", { path: PLAN, action: "mail", args: { join: "macbook" } });
+  assert.ok(ownName.isError);
+  assert.match(ownName.text, /join as "split-test"/);
+  assert.deepEqual(outcomeOf("write", { isError: true, content: [{ type: "text", text: ownName.text }] }), { applied: false, error: "FORBIDDEN" });
+  assert.doesNotMatch(ownName.text, /try again|UNAVAILABLE/);
+  assert.ok(!bucket.get(PLAN).body.includes("macbook"));
+});
+
 test("write_note refuses mail beside content or a comment", async () => {
   const both = await call(TOKEN_LEAD, "write_note", { path: PLAN, content: "x", mail: { text: "y" } });
   assert.ok(both.isError);
   assert.match(both.text, /content or mail, not both/);
+});
+
+test("a whole-note save that leaves the mail out keeps it, and says so (2026-11-06)", async () => {
+  const before = bucket.get(PLAN).body;
+  const events = mail.parseMail(before).events;
+  assert.ok(events.length > 0, "the note has mail by now");
+  const read = await call(TOKEN_LEAD, "read_note", { path: PLAN });
+  const etag = /etag: (\S+)/.exec(read.text)?.[1];
+  assert.ok(etag, read.text);
+  const saved = await call(TOKEN_LEAD, "write_note", { path: PLAN, content: "# Launch plan\n\nShip on Wednesday.\n", expected_etag: etag });
+  assert.ok(!saved.isError, saved.text);
+  assert.match(saved.text, /mail: this save left out the note's mail, so it was kept/);
+  const after = bucket.get(PLAN).body;
+  assert.match(after, /^# Launch plan\n\nShip on Wednesday\.\n\n```mail\n/);
+  assert.deepEqual(mail.parseMail(after).events.map(({ at, from, text }) => [at, from, text]), events.map(({ at, from, text }) => [at, from, text]));
+  // A save that carries the mail itself is left as it is.
+  const again = await call(TOKEN_LEAD, "read_note", { path: PLAN });
+  const next = await call(TOKEN_LEAD, "write_note", { path: PLAN, content: after.replace("Wednesday", "Thursday"), expected_etag: /etag: (\S+)/.exec(again.text)?.[1] });
+  assert.ok(!next.isError, next.text);
+  assert.doesNotMatch(next.text, /left out the note's mail/);
+  assert.equal(bucket.get(PLAN).body, after.replace("Wednesday", "Thursday"));
 });

@@ -83,10 +83,18 @@ function parseMail(text) {
   if (!block) return { block: null, events: [] };
   const events = [];
   let last = null;
+  // Blank lines inside a message, held until the next line says whether the message goes on (2026-11-06: a blank
+  // line was written empty, and everything after it in a spec was dropped from the mail view).
+  let blanks = 0;
   for (const row of comments.lines(source.slice(block.bodyStart, block.bodyEnd))) {
     if (block.bodyStart + row.start >= block.bodyEnd) break;
+    if (last && last.kind === "mail" && row.text.trim() === "") {
+      blanks += 1;
+      continue;
+    }
     const match = LINE_RE.exec(row.text);
     if (match && Number.isFinite(Date.parse(match[1]))) {
+      blanks = 0;
       last = {
         at: match[1],
         from: match[2],
@@ -102,10 +110,12 @@ function parseMail(text) {
       continue;
     }
     if (last && last.kind === "mail" && row.text.startsWith(CONTINUATION)) {
-      last.text += `\n${row.text.slice(CONTINUATION.length)}`;
+      last.text += `${"\n".repeat(blanks + 1)}${row.text.slice(CONTINUATION.length)}`;
       last.end = block.bodyStart + row.next;
+      blanks = 0;
       continue;
     }
+    blanks = 0;
     last = null;
   }
   return { block, events };
@@ -148,7 +158,7 @@ function formatText(text) {
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
     .trim()
     .split("\n");
-  return rows.map((row, i) => (i === 0 ? row : row ? `${CONTINUATION}${row}` : CONTINUATION.trimEnd())).join("\n");
+  return rows.map((row, i) => (i === 0 ? row : row ? `${CONTINUATION}${row}` : CONTINUATION)).join("\n");
 }
 
 /**
@@ -187,6 +197,22 @@ function appendMail(text, entry) {
   }
   const lead = source === "" ? "" : source.endsWith("\n\n") ? "" : source.endsWith("\n") ? "\n" : "\n\n";
   return { changes: [{ from: source.length, to: source.length, insert: `${lead}\`\`\`${MAIL_INFO}\n${line}\n\`\`\`\n` }] };
+}
+
+/**
+ * A whole-note rewrite that left out the stored note's mail block, with that
+ * block put back at its end; `null` when there is nothing to put back (the
+ * stored note has no mail, or the rewrite kept a mail block of its own). The
+ * mail is a record the agents on the note share: a save of the note's text is
+ * never a reason to lose it (2026-11-06: a reviewer's whole-note save wiped a
+ * split job's mail, and every join with it).
+ */
+function keepMailBlock(stored, next) {
+  const block = findMailBlock(stored);
+  if (!block || typeof next !== "string" || findMailBlock(next)) return null;
+  const kept = stored.slice(block.start, block.end).replace(/\n*$/, "\n");
+  const body = next.replace(/\s+$/, "");
+  return `${body}${body === "" ? "" : "\n\n"}${kept}`;
 }
 
 /** The note without its mail block, and the blank lines that led up to it. */
@@ -267,6 +293,7 @@ module.exports = {
   appName,
   appendMail,
   stripMail,
+  keepMailBlock,
   newFor,
   describeEntry,
   pairCount,

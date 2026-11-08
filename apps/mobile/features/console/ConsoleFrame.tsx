@@ -46,6 +46,7 @@ import {
 import { selectedContext, type ConsoleData, type VisitorActions } from "./types";
 import { useReadMode } from "./files/readMode";
 import { MEETINGS_ROUTE, type MeetingsPanelAsk } from "../meetings/route";
+import { TEX_ROUTE } from "../tex/texComputer";
 import { WELCOME_ROUTE } from "../onboarding/route";
 import { NEW_WORKSPACE_ROUTE } from "../workspace/create";
 import { OpenAsideOn } from "./layout/frameBridges";
@@ -88,7 +89,6 @@ import { TrashRouteProvider, useConsoleTrashRoute } from "./trash/TrashRouteCont
 import { useHomeView } from "./home/homeView";
 import { usePreviousPage } from "./home/phoneHistory";
 import { useSyncSheetRequests } from "./files/syncSheetRequest";
-
 
 /**
  * The console's frame, with whatever data it is handed.
@@ -408,6 +408,7 @@ export function ConsoleFrame({
     },
     // A phone has no right panel, so its Meetings is the list; elsewhere, the panel's tab (`MEETINGS_PANEL_HREF`).
     onOpenMeetings: data.demo ? undefined : phone ? () => router.push(MEETINGS_ROUTE) : showMeetings,
+    onOpenTex: data.demo ? undefined : () => router.push(TEX_ROUTE),
     onClaimContext: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
     onNewWorkspace: data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE),
     onOpenSettings: () => {
@@ -644,7 +645,6 @@ export function ConsoleFrame({
           toolbar already owns the safe area. See `ToastHost`.
         */}
         <ToastHost toasts={data.files.toasts} onDismiss={data.files.dismissToast} />
-
 
         {consoleCreateButton({
           data, phone, startMeetingFlow, resumeRow, setBarDialog, joinMeeting,

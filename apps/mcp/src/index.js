@@ -111,6 +111,8 @@ import { controlPlaneSettingProblems } from "./controlPlane/client.js";
 import { authorizeLiveRelay } from "./live/relayAuthorization.js";
 import { route } from "./http/route.js";
 import { NoteCapReached } from "./store/noteCap.js";
+import { countInbound } from "./observability/callCounts.js";
+import { WorkspaceBusy } from "./store/objectLookup.js";
 
 export { presenceClientKey } from "./live/relayAuthorization.js";
 export { EXISTENCE_MASKED_TOOLS, toolDefinitions } from "./tools/advertised.js";
@@ -204,12 +206,20 @@ export default {
       // reading `env` is itself the first thing that can throw.
       const missing = controlPlaneSettingProblems(env);
       if (missing.length) return json({ error: "control_plane_not_configured", settings: missing }, 503);
-      return await route(request, env, ctx);
+      // Every request counted by route and client kind, so a busy minute names who made it (`observability/callCounts.js`).
+      const began = Date.now();
+      const response = await route(request, env, ctx);
+      countInbound(env, request, response?.status, Date.now() - began);
+      return response;
     } catch (error) {
       // A create refused at the free tier's note cap is an answer, not a
       // fault: our own sentence and a fixed code, no key and no content.
       if (error instanceof NoteCapReached) {
         return json({ error: "note_cap_reached", cap: error.cap, message: error.message }, 403);
+      }
+      // The workspace's object could not answer now: a 503 its callers retry (`store/objectLookup.js` `WorkspaceBusy`).
+      if (error instanceof WorkspaceBusy) {
+        return new Response(JSON.stringify({ error: "workspace_busy", message: error.message }), { status: 503, headers: { "content-type": "application/json", "retry-after": "5" } });
       }
       try {
         console.error(

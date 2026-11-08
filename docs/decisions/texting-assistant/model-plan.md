@@ -155,3 +155,21 @@ the isolate, so a refused field never fails a turn.
 **What a simplification would cost:** dropping the fallback makes one refused
 field fail every texted turn; dropping the hour brings the re-writes back.
 Tests: `apps/mcp/test/agentHourCache.test.mjs`.
+
+## The front door thinks at effort high (owner, 2026-11-06)
+
+The owner asked to "change Tex's interaction model to Haiku high effort", so
+the production setup's `models.effort` is `high` again (it was `medium` from
+2026-10-31, chosen for speed). It is a setting in the setup note, not code:
+`effort: medium` there undoes it. Measured before the change: AI Gateway's
+`texts` and `texts-group` Haiku calls wrote about 540 output tokens a call at
+high (2026-10-24 to 10-30) and about 560 at medium (11-01 to 11-05), and output
+is about 5% of the front door's bill, so the cost change is within noise;
+`tex_timing` on 2026-10-31 put a one-to-one text's model time at 8.5 s median
+on high against 7.2 s on medium, and the testing loop's bench had high about
+1.7 s slower a text. Efforts are kept per model name, so Haiku job turns run
+at high too.
+
+**What a simplification would cost:** hardcoding the effort makes undoing it a
+deploy instead of a note edit. Tests: `apps/mcp/test/agentAdvisorSetup.test.mjs`
+reads efforts from the setup.

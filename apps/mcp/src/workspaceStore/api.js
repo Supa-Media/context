@@ -101,6 +101,8 @@ export function workspaceStub(env, workspaceId) {
  * - `facts({ask, ..., scope, groups, audience})`: a note facts ask (`props`, `links`, `neighbors`) answered from the
  *   text held here (`workspaceStore/facts.js`), in the control plane's `/gateway/tree/facts` shape; `{served: false}`
  *   before the notes live here
+ * - `forwardingPut({version, entries})` → `{kept, version}`: the control plane's forwarding ledger, whole, kept when
+ *   its version is at least the one held (`workspaceStore/forwardingRows.js`); `facts({ask: "forwarding"})` answers it
  * - `orientSurvey({scope, groups, audience})` → `{served: true, survey}` or `{served: false}`: `orient`'s map of the
  *   workspace for that reader, drawn in the object (`workspaceStore/orientSurvey.js`)
  * - `factRows({ask: "props"|"links"|"chaos"|"candidates"|"linking", paths?})`: the same facts unfiltered, for the control plane's own readers
@@ -114,6 +116,9 @@ export function workspaceStub(env, workspaceId) {
  * - `members.*`, `invites.*`: who belongs to the workspace (`workspaceStore/members.js`): see `membershipClient`.
  * - `collab.replace({path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text})` → `{served: true, result|error, markdown, writes, deletes}`
  *   or `{served: false, writes?, deletes?}`: a whole-note save's editing history run in the object (`collabReplace.js`)
+ * - `mail.since({path, name, readThrough, scope, groups, audience})` → `{served, found, path, fresh}` and
+ *   `mail.wait({path, from, to, since, timeoutMs, scope, groups, audience})` → `{served, found, answers}`: a note's mail,
+ *   read in the object (`workspaceStore/mailOps.js`)
  * - `collab.read({path, key, noteId})` → `{served: true, markdown, collaboration|error, writes, deletes}` or
  *   `{served: false}`: a note's Markdown and its editing history's text, for a read (`collabRead.js`)
  * - `open(userId)` → `{home, backfilledAt, encryption, accessHome, member, rules, binding: {sealed, at}|null, epoch}`:
@@ -152,6 +157,8 @@ export function workspaceClient(env, workspaceId) {
     facts: async (request) => await ask("ws.facts", request),
     orientSurvey: async (request) => await ask("ws.orient.survey", request),
     factRows: async (request) => await ask("ws.facts.rows", request),
+    // The control plane's forwarding ledger, whole, at its version (`workspaceStore/forwardingRows.js`).
+    forwardingPut: async ({ version, entries }) => await ask("ws.forwarding.put", { version, entries }),
     rules: {
       put: async (rules, audience = "member") => await ask("ws.rules.put", { rules, audience }),
       get: async (audience = "member") => await ask("ws.rules.get", { audience }),
@@ -175,6 +182,11 @@ export function workspaceClient(env, workspaceId) {
       // A note's Markdown and its editing history's text, for a read (`workspaceStore/collabRead.js`).
       read: async (fields) => await ask("ws.collab.read", fields),
       create: async (fields) => await ask("ws.create", fields),
+    },
+    // A note's mail, read here (`workspaceStore/mailOps.js`): what is new for a mailbox, and an ask's held wait.
+    mail: {
+      since: async (fields) => await ask("ws.mail.since", fields),
+      wait: async (fields) => await ask("ws.mail.wait", fields),
     },
     ...membershipClient(ask),
     state: async () => await ask("ws.state"),

@@ -437,7 +437,8 @@ export async function runFileOperationHandler(
     // That used to be applied here, by hand and only here, so the gateway's own stores claimed a guarantee they
     // did not have. `storeForBinding` reads the probed capability itself now, for every caller and every backend.
     // Note texts go to the workspace's object where they live there (`lib/rowWatch/consoleRouting.ts`).
-    const routing = await consoleWorkspaceRouting(ctx, args.workspaceId);
+    // Labelled with the operation, so the gateway counts which file operation reads the object (2026-11-06).
+    const routing = await consoleWorkspaceRouting(ctx, args.workspaceId, { caller: `file:${args.operation.kind}` });
     store = storeForBinding(routing.credential(credential), undefined, {
       ...routing.options, fetchImpl: timeoutFetch,
       noteCap,

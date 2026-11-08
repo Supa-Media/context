@@ -8,7 +8,7 @@
 export function createMailMethods({ post }) {
   return {
     /**
-     * `{ mailbox }` or `{ error: "name_taken" | "refused" }`. `jobId` is sent only when it is a string: the Tex
+     * `{ mailbox }`, `{ error: "name_taken" | "refused" }` or `{ error: "own_name", name }` (a job part's own name). `jobId` is sent only when it is a string: the Tex
      * background job whose turn is joining, so the gateway can deliver mail to that job at once.
      */
     async joinMailbox(accessToken, workspaceId, path, name, jobId, machineId) {

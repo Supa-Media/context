@@ -44,6 +44,7 @@
 
 import { MAX_RESULTS } from "../query.js";
 import { SEARCH_RESULT_LIMIT } from "../visible.js";
+import { liftNamed, nameMatchExpression } from "../named.js";
 import {
   mergeHits,
   searchParams,
@@ -152,7 +153,9 @@ export async function searchProjectionEach(
 ) {
   // An empty MATCH is a syntax error in FTS5 and the other reading of it —
   // "match everything" — returns the whole context. Neither is an answer.
-  const asked = matches.filter((match) => match !== null);
+  // An entry is an expression, or `{ match, firstChunk }` for one asked of each note's first chunk alone (`named.js`).
+  const entries = matches.map((entry) => (entry !== null && typeof entry === "object" ? entry : { match: entry, firstChunk: false }));
+  const asked = entries.filter((entry) => entry.match !== null);
   if (asked.length === 0) return matches.map(() => null);
 
   let tables;
@@ -187,8 +190,8 @@ export async function searchProjectionEach(
    * plausible, quietly wrong order instead of a slow correct one; half a
    * corpus is not a smaller answer, it is a different question.
    */
-  const asks = asked.flatMap((match) => tables.map((table) => ({ table, match })));
-  const statements = asks.map(({ table, match }) => ({ sql: searchSql(table, options), params: searchParams(match, options) }));
+  const asks = asked.flatMap(({ match, firstChunk }) => tables.map((table) => ({ table, match, firstChunk: firstChunk === true })));
+  const statements = asks.map(({ table, match, firstChunk }) => ({ sql: searchSql(table, { ...options, firstChunk }), params: searchParams(match, options) }));
   if (budget) {
     for (let n = 0; n < statements.length; n += 1) {
       if (!budget.take(reserve)) return matches.map(() => null);
@@ -199,7 +202,7 @@ export async function searchProjectionEach(
   // A workspace object's own index (`workspaceStore/searchIndex.js`) takes the asks and builds the same SQL itself.
   const answers =
     typeof client.search === "function"
-      ? await client.search(asks.map(({ table, match }) => ({ table, match, prefix: options.prefix, limit: options.limit })))
+      ? await client.search(asks.map(({ table, match, firstChunk }) => ({ table, match, prefix: options.prefix, limit: options.limit, ...(firstChunk ? { firstChunk } : {}) })))
       : typeof client.queryAll === "function"
         ? await client.queryAll(statements)
         : await Promise.all(statements.map(({ sql, params }) => client.query(sql, params)));
@@ -221,7 +224,7 @@ export async function searchProjectionEach(
     return { notes: mergeHits(rows, Number.POSITIVE_INFINITY), truncated };
   });
   let next = 0;
-  return matches.map((match) => (match === null ? null : results[next++]));
+  return entries.map((entry) => (entry.match === null ? null : results[next++]));
 }
 
 /**
@@ -308,7 +311,15 @@ export async function answerFromProjection(
   const strict = toTypingMatchExpression(query);
   const relaxedExpression = toRelaxedMatchExpression(query);
   const relaxed = relaxedExpression === strict ? null : relaxedExpression;
-  let [result, second] = await searchProjectionEach(client, { matches: [strict, relaxed], prefix, tier, budget, reserve });
+  // And the query's content words against each note's name (`named.js`), in the same request.
+  const nameMatch = nameMatchExpression(query);
+  let [result, second, byName] = await searchProjectionEach(client, {
+    matches: [strict, relaxed, { match: nameMatch, firstChunk: true }],
+    prefix,
+    tier,
+    budget,
+    reserve,
+  });
   if (!result) return null;
 
   // The boundary. Nothing below this line has seen a path the caller may not
@@ -327,6 +338,13 @@ export async function answerFromProjection(
     visible = second.notes.filter((note) => isVisible(note.path));
     if (typeof onCounts === "function") onCounts(second.notes.length, visible.length);
   }
+
+  // A note whose name holds most of the question's words leads the word hits, and is one of them though it lacks a
+  // word the others hold (`named.js`). Only where some note held every word: with none, every hit is loose, the
+  // any-word retry's order stands, and a name holding the workspace's own words ("book club") is no evidence.
+  const named = byName && !loose ? byName.notes.filter((note) => isVisible(note.path)) : [];
+  const lift = loose ? { hits: visible, lifted: 0 } : liftNamed(query, visible, named);
+  visible = lift.hits;
 
   if (visible.length === 0) {
     // A ready projection's miss is the answer: the bucket index it used to

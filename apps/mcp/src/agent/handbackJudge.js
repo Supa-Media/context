@@ -25,6 +25,7 @@
  */
 
 import { requestViaGateway } from "./aiGateway.js";
+import { withArchitecture } from "./texArchitecture.js";
 
 export const HANDBACK_JUDGE_MODEL = "anthropic/claude-haiku-5-5";
 const MAX_ANSWER_CHARS = 4_000;
@@ -125,7 +126,7 @@ export async function judgeAsks({ question, answer, steps = [], config, request 
     const reply = await request(
       {
         model: HANDBACK_JUDGE_MODEL,
-        system: SYSTEM,
+        system: withArchitecture(SYSTEM, "handback"),
         messages: [{ role: "user", text: `PERSON'S TEXT\n\n${asked}\n\nTOOLS THIS TURN RAN\n\n${ran}\n\nTEXT\n\n${String(answer ?? "").slice(0, MAX_ANSWER_CHARS)}` }],
         tools: [],
         maxTokens: 600,

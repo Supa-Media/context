@@ -128,7 +128,7 @@ export function keptLine(kept) {
   const kb = kept.size < 1024 * 1024 ? `${Math.max(1, Math.round(kept.size / 1024))} KB` : `${(kept.size / 1024 / 1024).toFixed(1)} MB`;
   return (
     `Downloaded "${kept.name}" (${kb}), kept for ${kept.keptFor} as ${kept.id}. ` +
-    `To email it, pass attach: ["${kept.id}"] to send_email or save_email_draft (it goes in as a real attachment); ` +
+    `To email it, pass attach: ["${kept.id}"] to send action email or email_draft (it goes in as a real attachment); ` +
     `to put it into another page, an upload step with file: "${kept.id}". Never ask the person to download or attach it.`
   );
 }

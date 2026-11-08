@@ -7,6 +7,7 @@ import { Text } from "../../design/components/Text";
 import { layout, pointerType as t, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { atName } from "../format";
+import { ProfileCard, WorkspaceCardHead } from "./PhoneListCards";
 import { selectedContext, type ConsoleContext, type ConsoleData } from "../types";
 import { settingsPreview } from "./previews";
 import { LiveRowValueSource, type LiveRowValues } from "./liveRowValues";
@@ -100,6 +101,24 @@ export function SettingsList({
     return settingsPreview(key, data);
   };
 
+  /** The account's groups in the catalogue's order: You, then Tex. */
+  const accountGroups: string[] = [];
+  for (const entry of listed) {
+    const name = entry.group ?? "You";
+    if (entry.scope === "account" && !accountGroups.includes(name)) accountGroups.push(name);
+  }
+
+  const choose = (key: SettingsSectionKey) => {
+    onSelect(key);
+    /*
+      The query has done its job the moment somebody picks a row. Left
+      standing it kept the list filtered to one or two rows while the panel
+      beside it showed a section, which reads as a list that has lost most of
+      itself rather than as a search still running.
+    */
+    onQuery("");
+  };
+
   const row = (entry: SettingsSectionSpec) => (
     <SettingsRow
       key={entry.key}
@@ -121,22 +140,13 @@ export function SettingsList({
         exactly that way, by the sweep, the first time this was drawn.
       */
       markerTestID={`settings-marker-${entry.key}`}
-      onPress={() => {
-        onSelect(entry.key);
-        /*
-          The query has done its job the moment somebody picks a row. Left
-          standing it kept the list filtered to one or two rows while the
-          panel beside it showed a section, which reads as a list that has
-          lost most of itself rather than as a search still running.
-        */
-        onQuery("");
-      }}
+      onPress={() => choose(entry.key)}
     />
   );
 
   /** One group heading and the card of rows under it. */
-  const group = (heading: ReactNode, entries: readonly SettingsSectionSpec[], key: string) => {
-    if (entries.length === 0) return null;
+  const group = (heading: ReactNode, entries: readonly SettingsSectionSpec[], key: string, top?: ReactNode) => {
+    if (entries.length === 0 && top === undefined) return null;
     return (
       <View key={key} style={styles.group}>
         {heading}
@@ -156,6 +166,7 @@ export function SettingsList({
           style={compact ? [styles.card, styles.cardCompact] : null}
           testID={`settings-group-${key}`}
         >
+          {top}
           {entries.map((entry, index) => (
             <Fragment key={entry.key}>
               {index === 0 || !compact ? null : <View style={styles.divider} />}
@@ -182,7 +193,7 @@ export function SettingsList({
    * names above the person's own settings, and a dot on each; the box says
    * which workspace everything below it is about, in the place it applies.
    */
-  const contextHeading = current === null ? null : (
+  const contextHeading = current === null || compact ? null : (
     <View>
       {heading("This workspace")}
       <WorkspaceSwitcher
@@ -210,7 +221,14 @@ export function SettingsList({
     }
     return (
       <>
-        {group(contextHeading, ungrouped, "context")}
+        {compact
+          ? group(
+              heading("Workspace"),
+              ungrouped,
+              "context",
+              <WorkspaceCardHead contexts={data.contexts} current={current} onSwitchContext={onSwitchContext} />,
+            )
+          : group(contextHeading, ungrouped, "context")}
         {named.map((name) =>
           group(
             heading(name as string),
@@ -267,10 +285,25 @@ export function SettingsList({
           )
         ) : (
           <>
-            {group(
-              heading("You"),
-              listed.filter((entry) => entry.scope === "account"),
-              "account",
+            {/*
+              A phone opens on you: your picture, @name and email as one card
+              that is the way into Profile (Dev2, 2026-11-06, board 2), so the
+              Profile row is that card rather than a row under it.
+            */}
+            {compact && listed.some((entry) => entry.key === "profile") ? (
+              <ProfileCard data={data} onPress={() => choose("profile")} />
+            ) : null}
+            {accountGroups.map((name) =>
+              group(
+                heading(name),
+                listed.filter(
+                  (entry) =>
+                    entry.scope === "account" &&
+                    (entry.group ?? "You") === name &&
+                    !(compact && entry.key === "profile"),
+                ),
+                name === "You" ? "account" : name.toLowerCase(),
+              ),
             )}
             {contextGroups()}
           </>
@@ -439,7 +472,7 @@ function SettingsRow({
         // Two lines rather than an ellipsis: "People & sharing" beside
         // "3 people" is wider than the column, and the artboard wraps it.
         numberOfLines={2}
-        style={[styles.label, selected ? styles.labelOn : null]}
+        style={[styles.label, compact ? styles.labelTouch : null, selected ? styles.labelOn : null]}
       >
         {label}
       </Text>
@@ -558,6 +591,8 @@ const makeStyles = (colors: Colors) =>
     },
     label: { flexShrink: 1 },
     labelOn: { color: colors.accentText },
+    /** A phone's row reads at the phone's body size, in its regular weight. */
+    labelTouch: { fontSize: touchType.body, fontWeight: "400" },
     /*
       A spacer rather than `marginLeft: "auto"` on the value. An auto margin
       absorbs the free space before anything else sees it, so a row with no

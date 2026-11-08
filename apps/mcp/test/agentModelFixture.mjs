@@ -14,6 +14,9 @@ export const AI_GATEWAY_ENV = Object.freeze({
   AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
   AI_GATEWAY_ID: "context-gw",
   AI_GATEWAY_TOKEN: "gateway-token-fixture-0000000000",
+  // A scripted model answers the front door's rounds in order; the conversation classifier, a call of its own before
+  // them, is driven by its own tests (`conversationThreads.test.mjs`, `agentThreadsTurn.test.mjs`).
+  CONVERSATION_THREADS: "off",
 });
 
 /** Where the gateway's requests go; a fake model claims this prefix. */

@@ -200,6 +200,14 @@ dataset = "tex_entry"
 binding = "MCP_ENTRY"
 dataset = "mcp_entry"
 
+# One point per request the gateway answers and per call a workspace object
+# answers (`src/observability/callCounts.js`): a fixed route name or op, the
+# client's kind or the object's caller, indexed by route or by the object's
+# id. Never a path, a slug or a word. Optional: without it nothing is written.
+[[analytics_engine_datasets]]
+binding = "CALL_COUNTS"
+dataset = "context_calls"
+
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
 # only through this binding, so it has no address and holds no secret. It must
@@ -331,6 +339,10 @@ dataset = "tex_entry_staging"
 [[env.staging.analytics_engine_datasets]]
 binding = "MCP_ENTRY"
 dataset = "mcp_entry_staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "CALL_COUNTS"
+dataset = "context_calls_staging"
 
 [[env.staging.services]]
 binding = "SITE_SHOTS"

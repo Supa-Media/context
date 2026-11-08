@@ -79,7 +79,9 @@ export function createNoteIdMethods({ post, required }) {
         expectedWorkspaceId: workspaceId,
       });
       if (!parsed.notes || typeof parsed.notes !== "object" || Array.isArray(parsed.notes)) {
-        throw new ControlPlaneError("malformed note id entries");
+        // `{served: false}`: the control plane would not answer, which is not a malformed answer (2026-11-06: the old words
+        // told an agent its note ids were broken while the workspace was only busy).
+        throw new ControlPlaneError(parsed?.served === false ? "note id lookup not served" : "malformed note id entries");
       }
       const notes = {};
       for (const path of Object.keys(parsed.notes)) {

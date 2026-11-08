@@ -22,7 +22,6 @@ import { test } from "node:test";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { BROWSE_TOOL } from "../src/agent/browse.js";
 import { RECHECK_FROM, RECHECK_REPLACES } from "../src/agent/recheck.js";
-import { GATES } from "../src/agent/replyGates.js";
 import { replyJudge } from "../src/agent/replyJudge.js";
 import { ALREADY_DONE, LATE_FROM, repeatedWrite, turnLedger } from "../src/agent/sendBack.js";
 import { runTurn } from "../src/agent/turn.js";
@@ -78,11 +77,12 @@ async function the1447Turn() {
       },
       { text: "No, three business days, not 48 hours; it closed Tuesday. Your follow-up to Robin is in Drafts." },
     ],
-    [{ sourced: 0.71 }, {}],
+    [],
   );
+  const verdicts = [{ kind: "question", send: false, problems: ["unsourced"], feedback: "Quote the email's own window." }, { kind: "question", send: true, problems: [], feedback: "" }];
   const ran = [];
   const told = [];
-  const judge = replyJudge({ ai, setting: { model: "clef-flash", at: null }, question, history, log: () => {} });
+  const judge = replyJudge({ setting: { model: "haiku" }, question, history, request: async () => ({ text: JSON.stringify(verdicts.shift()) }), log: () => {} });
   const result = await runTurn({
     question,
     history,
@@ -116,7 +116,8 @@ test("the rejected draft is never shown as said: it is quoted in the check's not
   assert.ok(note.includes(JSON.stringify(RECHECK_FROM).slice(1, 40)), "marked as the gateway's check, not a text from them");
   assert.ok(note.includes("Draft 1, NOT sent"));
   assert.ok(note.includes("> No, it's three business days, not 48 hours."), "the draft itself, quoted, so it can be revised");
-  assert.ok(note.includes(`sourced (0.71 against ${GATES.sourced.at})`), "which judge held it and by how much");
+  assert.ok(note.includes("Held back by: the reviewer (unsourced)"), "what held it");
+  assert.ok(note.includes("Quote the email's own window."), "and the reviewer's feedback");
   assert.ok(note.includes("Revise draft 1: keep its answer"), "asked to revise, not to start over");
 });
 

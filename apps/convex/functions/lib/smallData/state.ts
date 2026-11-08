@@ -14,6 +14,7 @@
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
+import { sendLedgerToObject } from "./objectLedger";
 
 /** How long a scheduled or running sync holds the workspace before another may start. */
 export const SMALL_DATA_SYNC_LEASE_MS = 5 * 60_000;
@@ -94,4 +95,6 @@ export async function markChanged(
     ...(which === "forwarding" ? { forwardingVersion: state.forwardingVersion + 1 } : { iconsVersion: state.iconsVersion + 1 }),
   });
   await requestSmallDataSync(ctx, workspaceId);
+  // The workspace object's copy of the ledger follows every change (`objectLedger.ts`).
+  if (which === "forwarding") await sendLedgerToObject(ctx, workspaceId);
 }

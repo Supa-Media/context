@@ -34,7 +34,7 @@ export type FactRows = (request: {
 export async function objectFactRows(ctx: Ctx, workspaceId: Id<"workspaces">): Promise<FactRows | null> {
   const home = await ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId }).catch(() => null);
   if (home !== "object") return null;
-  const client = consoleWorkspaceClient(ctx, workspaceId);
+  const client = consoleWorkspaceClient(ctx, workspaceId, { caller: "facts" });
   if (client === null) return null;
   return async (request) => (await client.factRows(request)) as Record<string, unknown>;
 }

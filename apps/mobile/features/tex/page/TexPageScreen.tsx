@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
-import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -19,6 +19,7 @@ import { chatOfWords, placeHref, readPlace, signInHref } from "./texPlace";
 import { useTexPage } from "./useTexPage";
 import { keepGroupKey, keptGroupKey } from "./texPageMemory";
 import { T } from "./TexPageParts";
+import { CONSOLE_ROOT } from "../../console/nav";
 
 /** A pairing code as the runner prints it: letters and digits, maybe one dash. */
 const PAIRING_CODE = /^[A-Za-z0-9]{3,8}-?[A-Za-z0-9]{0,8}$/;
@@ -100,6 +101,19 @@ export function TexPageScreen() {
     chat: place.chat,
   });
 
+  /*
+    Out of Tex (Dev2, 2026-11-06: no way out once it opened in the app). Every
+    Tex address is a screen in `app/tex/_layout.tsx`'s stack, so on the first
+    of them Back is whatever opened Tex (the menu's Tex row, a note). With Tex
+    pages behind it, or nothing behind at all (a link from a text, a reload),
+    Back would walk Tex's own pages or do nothing, so it goes to the notes.
+  */
+  const navigation = useNavigation();
+  const exit = useCallback(() => {
+    if (navigation.getState()?.index === 0 && router.canGoBack()) router.back();
+    else router.replace(CONSOLE_ROOT);
+  }, [navigation]);
+
   const chats = page.overview?.chats;
   const go = useCallback(
     (to: Place) => {
@@ -129,6 +143,7 @@ export function TexPageScreen() {
         go={go}
         computer={showsComputer ? computer : null}
         openComputer={() => go({ chat: place.chat, view: "computer", full: true })}
+        exit={exit}
       />
     </Screen>
   );

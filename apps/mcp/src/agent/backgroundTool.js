@@ -37,7 +37,7 @@ export const TOOL = {
           "The job's note: the project note it belongs to, in the workspace that makes most sense (path, and context \"@name\" when it is in another " +
           "workspace; write a new project note there first when none fits), and this job's short name there (\"pricing\", \"research\"). " +
           "The job, you and your advisor all join its mail, so the job can mail you what the person must see (a sign-in link, a question) and " +
-          "ask the advisor when stuck. Leave it out only when nothing fits: the job then keeps its note in your own notes. Every part of a split ask names the same project note.",
+          "ask the advisor when stuck. Leave it out only when nothing fits: the job then gets a note of its own (yours, or in a group the chat's workspace's projects/tex-jobs/). Every part of a split ask names the same project note.",
         properties: {
           path: { type: "string" },
           context: { type: "string" },

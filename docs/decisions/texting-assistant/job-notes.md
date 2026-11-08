@@ -15,8 +15,12 @@ reach Tex or the advisor while its part ran.
   (`/agent/job/note`, `apps/mcp/src/agent/jobNote.js`). The note lives where it
   makes most sense: the project note Tex named in `background_job`'s `mail`,
   in the workspace that fits best, written new there if none fits. Tex's own
-  notes (`tex/jobs/<name>-<id>.md`) are the last resort. It must be a note the
-  person can see and follow. The note cap does not hold it back.
+  notes (`tex/jobs/<name>-<id>.md`) are the last resort; a group chat's job,
+  which has no Tex notes of its own to fall back to, goes to
+  `projects/tex-jobs/<name>-<id>.md` in the workspace its grant writes to
+  (2026-11-06: job 350eddce ran from a group with no note, so no mail, no
+  advisor and no way to Tex, and spent two parts looking for one). It must be
+  a note the person can see and follow. The note cap does not hold it back.
 - The job joins the note's mail bound to itself; `tex` and `advisor` join
   unbound beside it.
 - **Every agent is told at its start who it can reach and what each is for**
@@ -45,7 +49,13 @@ reach Tex or the advisor while its part ran.
   sign-in a computer job needs runs as a one-time link and code it mails Tex.
 
 A run grant (`context_tex_machine_run`) reads and is delivered its job's mail
-through its parent texting grant, never anyone else's.
+through its parent texting grant, never anyone else's. It may also join any
+other note's mail its grant reaches (owner, 2026-11-06: a computer job talking
+to another machine on a shared note is "the whole point"), but only under its
+job's own name (the name its job note box has), bound to its job, never as
+`tex` or `advisor`, never as another job and never as one of the person's
+machines. A refused join says `permission denied`, never "try again": an agent
+told to retry a deliberate refusal retried five times (2026-11-06).
 
 **What a simplification would cost:** tools per agent would grow the tool list
 with every new agent and hide the others from the job; telling the job the cap
@@ -57,3 +67,18 @@ from the sender's own job, the advisor's coworker knowledge),
 `apps/agent/src/jobNote.test.ts` (asked once, roster in the brief, mail to Tex
 reported, hidden cap), and the run-grant mail test in
 `apps/convex/__tests__/texMachineRuns.test.ts`.
+
+### Workers know their advisor, and cloud jobs think hard (2026-11-06)
+
+Decided by the owner, 2026-11-06: workers "need to know that they can call the
+advisor", and "for Tex Cloud jobs I want it Haiku reasoning high"; computer
+jobs keep Claude Code's default effort.
+
+- A computer part's brief (`apps/mcp/src/machines/jobBackground.js`) always has
+  a "Your advisor" section: what it is, how to ask it on the job's mail, when
+  (before the first step when the job needs judgment, when stuck, before calling
+  it finished), and that it checks the final answer. Never its cap.
+- `models.job_effort` in `ai/production/texting-assistant.md` sets how hard a
+  cloud job's turn thinks, on whichever model it runs (`production.js`
+  `turnEfforts`); other turns keep `models.effort`. Production sets it to
+  `high`. Test: `apps/mcp/test/agentJobHaiku.test.mjs`.

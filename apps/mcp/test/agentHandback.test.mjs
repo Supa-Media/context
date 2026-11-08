@@ -97,7 +97,7 @@ test("an email offer's notice names only the email, never a Slack message from e
   const offer = "Want me to forward her that receipt?";
   const notice = claimCheck({ question: "interesting, so why didn't she get the receipt for the last payment" }).check(offer);
   assert.equal(notice, offerNotice(offeredKinds(offer)));
-  assert.ok(notice.includes("send_email") && !notice.includes("slack_api") && !notice.includes("calendar_event"), notice);
+  assert.ok(notice.includes("send action email") && !notice.includes("send action slack") && !notice.includes("send action calendar"), notice);
   assert.ok(notice.includes("never hold something from an earlier text"), notice);
 });
 

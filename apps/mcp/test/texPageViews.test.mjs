@@ -152,3 +152,23 @@ test("in the Tex object: an append to the chat's log reaches an open page, and p
   assert.deepEqual(page.items.map((item) => item.id), ["mc1"]);
   assert.equal(typeof page.waiting, "number");
 });
+
+test("thinking: a turn shows each draft that was sent back, with the gates or check that sent it", () => {
+  const entries = [
+    person("d1", T0, "where should we eat"),
+    { v: 1, id: "jg1", at: T0 + 10, kind: "judge", turn: "turndddd1", text: "DRAFT-ONE try Lugo's", by: "gates", round: 0, went: false, judges: [], failed: ["heard_them", "short_and_clean"], notice: "You answered a different question." },
+    { v: 1, id: "jg2", at: T0 + 20, kind: "judge", turn: "turndddd1", text: "DRAFT-TWO a list", by: "code", round: 1, went: false, judges: [], failed: [] },
+    { v: 1, id: "jg3", at: T0 + 30, kind: "judge", turn: "turndddd1", text: "Red Sorghum.", by: "gates", round: 2, went: true, judges: [], failed: [] },
+    { v: 1, id: "rp9", at: T0 + 40, kind: "reply", turn: "turndddd1", text: "Red Sorghum.", ms: 31000 },
+    tex("d2", T0 + 41, "turndddd1", ["d1"], "Red Sorghum."),
+  ];
+  const [turn] = pageViews(() => fakeLedger({ g: entries })).list("thinking", { chat: "g" }).items;
+  assert.deepEqual(turn.drafts, [
+    { text: "DRAFT-ONE try Lugo's", by: "gates", failed: ["heard_them", "short_and_clean"], notice: "You answered a different question." },
+    { text: "DRAFT-TWO a list", by: "code", failed: [] },
+  ]);
+  assert.equal(turn.reply, "Red Sorghum.");
+  const [plain] = pageViews(() => fakeLedger({ texts: oneToOne() })).list("thinking", { chat: "texts", limit: 1 }).items;
+  assert.equal(plain.drafts, undefined, "a turn that went out first time shows none");
+  assert.ok(sectionsForKinds(["judge"]).includes("thinking"));
+});

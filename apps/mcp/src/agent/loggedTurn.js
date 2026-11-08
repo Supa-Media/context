@@ -27,7 +27,7 @@ import { EVENT_ID, isChatKey, READ_CHARS, readEvents } from "./log.js";
 import { renderEvents, replyingTo, speaker, TIME_OF, words } from "./logRender.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
 import { sentByItself, withSentByItself } from "./sentByItself.js";
-import { dayFromLedger, earlierFromLedger, readLedger } from "./ledgerHistory.js";
+import { dayFromLedger, earlierFromLedger, faded, readLedger, summaryLines } from "./ledgerHistory.js";
 import { ledgerPlace } from "./ledger.js";
 import { deskLedger } from "./history.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
@@ -120,15 +120,22 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   if (question === "") return null;
   // A group is shown its whole log, whoever has joined or left since (the owner, 2026-11-02): no cut by the people a text was said in front of.
   const shown = events.filter((event) => !wanted.has(event.id));
+  // Days are aged from the newest text it answers: that day and the one before whole, older ones faded (`faded`).
+  const answering = Math.max(...covered.map((event) => event.at));
   // Everything before the day the turn holds, from the chat's ledger (`ledgerHistory.js`).
-  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: Math.max(0, READ_CHARS - shown.reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)) }) : { events: [], tools: new Map() };
+  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: Math.max(0, READ_CHARS - shown.reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)), fade: true, fadeFrom: answering }) : { events: [], tools: new Map(), summaries: [] }; // older days faded by age (`ledgerHistory.js` `faded`)
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
   const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [] };
-  const transcript = renderEvents(withSentByItself([...earlier.events, ...shown], own.shown), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
+  const all = withSentByItself([...earlier.events, ...shown.map((event) => faded(event, answering))], own.shown);
+  const transcript = renderEvents(all, { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
   // What the texts it answers were typed under, quoted in full as the transcript shows that message (`logRender.js` `replyingTo`).
   const byId = new Map([...earlier.events, ...events].map((event) => [event.id, event]));
   const replying = covered.map((event) => replyingTo(event, byId, TIME_OF(timeZone))).filter((line) => line !== "");
-  return { covered, history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, replying };
+  // Days older than every text shown come first as their night-after summaries (`daySummaries.js`).
+  const told = [summaryLines(earlier.summaries), transcript].filter((part) => part !== "").join("\n\n");
+  // The pieces the conversation threads re-show the chat from (`threadedTurn.js`).
+  const parts = { shown: all, answeredBy: [...earlier.events, ...events], tools: earlier.tools, summaries: earlier.summaries, answering, timeZone, byId };
+  return { covered, history: told === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${told}` }], question, replying, parts };
 }
 
 /**
@@ -146,9 +153,9 @@ export const JOB_HISTORY_ENTRIES = 30;
  * the entry point names them `history_*`), so the
  * second a group's history takes is never guessed at (2026-11-04); by default nothing is timed.
  */
-const UNTIMED = { memory: (run) => run(), ledger: (run) => run(), log: (run) => run(), groupReads: (run) => run(), groupLedger: (run) => run() };
+const UNTIMED = { memory: (run) => run(), ledger: (run) => run(), log: (run) => run(), group: {} };
 export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, time = UNTIMED }) {
-  const today = time.memory(() => turnHistory(store, session, body, { runner, group, dispatch, job, time: { reads: time.groupReads, ledger: time.groupLedger } }));
+  const today = time.memory(() => turnHistory(store, session, body, { runner, group, dispatch, job, time: time.group ?? {} }));
   const started = job ? null : chatLedger(store, session);
   // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
   const ledger = started === null ? null : time.ledger(() => started);

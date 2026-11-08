@@ -104,6 +104,17 @@ export function systemText(system) {
 }
 
 /**
+ * A turn as a tool or a check reads it (`advisor.js`, `jobCheck.js`): the whole system text, and apart from it
+ * what is about this person and this job (`system.context`) and what is about this moment (the preamble: the
+ * time, the model). The advisor reads the parts, so the person is never cut off behind the texting rules
+ * (the context review, 2026-11-06: a 40,000-character cut ended inside the rules, before about.md).
+ */
+export function liveTurn(prompt, messages) {
+  const about = typeof prompt?.system === "object" && typeof prompt.system?.context === "string" ? prompt.system.context : "";
+  return { system: systemText(prompt?.system), about, now: typeof prompt?.preamble === "string" ? prompt.preamble : "", messages };
+}
+
+/**
  * One round on Workers AI, in the shape `providers.js` describes, plus the
  * model's own token counts for the meter.
  *

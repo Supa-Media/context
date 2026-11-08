@@ -24,9 +24,9 @@ resolved, under the same fallbacks (2026-11-03).
 The gateway's facts ask `jobs` (which folder does each built-in job, and the root folders a reader may see) is
 answered by the object itself (`workspaceStore/jobsAnswer.js`), judged with the listing's `folderVisibleAtScope`.
 
-A check-in's changed-since read (`changedNodesStore`) and the device change feed (`nodesFeed.head`/`changes`) stay on Convex for now: answering "not served" there would
-leave a device copy refreshing every five minutes instead of on each change, until the object offers a change
-signal of its own.
+A check-in's changed-since read (`changedNodesStore`) and the device change feed's catch-up (`nodesFeed.changes`)
+stay on Convex for now. The feed's cue no longer does: since 2026-11-06 the object pushes a head of its own over the
+tree socket ([no-convex-for-notes](./no-convex-for-notes.md), "The object pushes the change signal").
 
 **A read's own lookups (2026-11-03).** The id layer asks a read's question (`get`, `head`, `exists`, one read's
 view) through `lookupRead` (`store/idLayout.js`): for a workspace on its object, a path the object answers "not

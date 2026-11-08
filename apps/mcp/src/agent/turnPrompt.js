@@ -23,6 +23,7 @@ import { usedTools } from "./conversation.js";
 import { aboutMePrompt } from "./aboutMe.js";
 import { jobsPrompt } from "./jobs.js";
 import { personVoicePrompt } from "./personVoice.js";
+import { calendarPrompt } from "./calendarCache.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
@@ -59,6 +60,7 @@ export function turnPrompt(place, answering, o) {
         webPrompt(o.webNames) +
         (o.progress ? (o.progress.prompt ?? PROGRESS_PROMPT) : "") + // at the chat's progress level (`progress.js`)
         (o.aboutMe === null ? "" : aboutMePrompt(o.aboutMe, { edits, identity: o.identity })) +
+        (o.calendar == null ? "" : calendarPrompt(o.calendar, o.localNow?.now)) + // their next 7 days, a copy (`calendarCache.js`)
         (o.jobs === null ? "" : jobsPrompt(o.jobs, { edits })) +
         (o.voice == null ? "" : personVoicePrompt(o.voice, { edits })) + // how they talk, `tex/voice.md` (`personVoice.js`)
         (o.observe && o.texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them

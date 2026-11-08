@@ -79,6 +79,7 @@ import { TEXTING_ROUTES } from "../agent/textingRoutes.js";
 import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
 import { TEX_STORE_PATH, handleTexStoreDoor } from "../texStore/door.js";
+import { THREADS_BACKFILL_PATH, handleThreadsBackfill } from "../agent/threadsBackfillDoor.js";
 import { WORKSPACE_STORE_PATH, handleWorkspaceStoreDoor } from "../workspaceStore/door.js";
 import { IMAGE_UPLOAD_PATH, handleImageUpload } from "../notes/imageUploads.js";
 import { judgeFor } from "../privacy/judge.js";
@@ -92,6 +93,8 @@ export async function route(request, env, ctx) {
     // The control plane reaching Tex's notes (`texStore/door.js`) or a workspace object (`workspaceStore/door.js`), the same way.
     if (url.pathname === TEX_STORE_PATH) return await handleTexStoreDoor(request, env);
     if (url.pathname === WORKSPACE_STORE_PATH) return await handleWorkspaceStoreDoor(request, env);
+    // The control plane replaying a chat's old texts into its conversations (`agent/threadsBackfillDoor.js`), the same way.
+    if (url.pathname === THREADS_BACKFILL_PATH) return await handleThreadsBackfill(request, env);
     // An upload link's PUT (`notes/imageUploads.js`): no person's token and no
     // workspace selector; the ticket in its header is the whole authority.
     if (url.pathname === IMAGE_UPLOAD_PATH) return await handleImageUpload(request, env);

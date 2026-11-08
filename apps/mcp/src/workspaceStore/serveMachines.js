@@ -14,6 +14,7 @@
 
 import protocol from "../../../../packages/shared/src/machineProtocol.cjs";
 import { MachineRefused } from "./machines.js";
+import { heldRun, runVersion } from "./runWait.js";
 
 const { invalid } = protocol;
 
@@ -267,9 +268,11 @@ export async function serveMachineCall(store, op, fields) {
       case MACHINE_OPS.INSTALL:
         return install(store, fields);
       case MACHINE_OPS.RUN: {
-        const run = store.machines.run(fields.runId);
+        // Held here until the run moves past the version its reader last saw, or the wait is up (`runWait.js`): the
+        // job's reader is told of a step the moment the runner sends it, and reads no more often than that.
+        const run = await heldRun(store.machines, fields);
         // The computer's name too, so the chat's history says where the work ran.
-        return run ? Response.json({ ok: true, run, online: store.machineSockets.online(run.machineId), machineName: store.machines.get(run.machineId)?.name ?? null }) : refused("unknown_run");
+        return run ? Response.json({ ok: true, run, version: runVersion(run), online: store.machineSockets.online(run.machineId), machineName: store.machines.get(run.machineId)?.name ?? null }) : refused("unknown_run");
       }
     }
   } catch (error) {

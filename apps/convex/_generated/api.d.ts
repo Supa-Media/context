@@ -189,6 +189,7 @@ import type * as functions_sharedTitles from "../functions/sharedTitles.js";
 import type * as functions_shares from "../functions/shares.js";
 import type * as functions_storage from "../functions/storage.js";
 import type * as functions_smallData from "../functions/smallData.js";
+import type * as functions_smallDataObject from "../functions/smallDataObject.js";
 import type * as functions_storageLag from "../functions/storageLag.js";
 import type * as functions_storageMover from "../functions/storageMover.js";
 import type * as functions_feedback from "../functions/feedback.js";
@@ -462,6 +463,7 @@ declare const fullApi: ApiFromModules<{
   "functions/shares": typeof functions_shares;
   "functions/storage": typeof functions_storage;
   "functions/smallData": typeof functions_smallData;
+  "functions/smallDataObject": typeof functions_smallDataObject;
   "functions/storageLag": typeof functions_storageLag;
   "functions/storageMover": typeof functions_storageMover;
   "functions/feedback": typeof functions_feedback;

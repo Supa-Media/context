@@ -66,7 +66,7 @@ export type JobOrigin =
 
 /** Everything a job's object needs to run it. */
 /** `note`: the job's note and who it is on its mail (`jobNote.ts`); `noteAsked`: the note was asked for once, made or not. */
-export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string; note?: JobNote; noteAsked?: true };
+export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; /** One line per part carried on (`jobRun.ts` `partLine`), for the last word of a job that ends short. */ parts?: string[]; unfinished?: true; advice?: string; resumes?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string; note?: JobNote; noteAsked?: true };
 /** The part running on the machine now, kept so a pass that restarts reads the same run instead of assigning another. */
 export type MachineRunRef = { runId: string; part: number; deadline: number };
 
@@ -149,7 +149,7 @@ const MAX_ASK = 400;
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
 
 export const JOB_LINES = {
-  failed: (title: string) => `I couldn't finish "${title}". Text me if you want me to try again.`,
+  failed: (title: string, why?: string) => `I couldn't finish "${title}"${why ? `: ${why}` : ""}. Text me if you want me to try again.`,
   busy: "I'm already running three things for you; I'll take that one once one finishes.",
   missed: "You texted a change after I'd done most of it, and I ran out of room to redo it. Text me if you still want it changed.",
   /** A part the gateway refused to run (`jobRun.ts`): the job waits on them, and they're told why. */

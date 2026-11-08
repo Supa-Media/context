@@ -137,6 +137,7 @@ jobs:
           - 'apps/mcp/src/agent/logRender.js'
           - 'apps/mcp/src/agent/sources.js'
           - 'apps/mcp/src/agent/textingPhone.js'
+          - 'apps/mcp/src/agent/threadsFold.js'
           - 'apps/mcp/src/chaos/**'
           - 'apps/mcp/src/communications/**'
           - 'apps/mcp/src/context/**'
@@ -159,6 +160,7 @@ jobs:
           - 'apps/mcp/src/moves/**'
           - 'apps/mcp/src/notes/**'
           - 'apps/mcp/src/objectPlace.js'
+          - 'apps/mcp/src/observability/**'
           - 'apps/mcp/src/orient/**'
           - 'apps/mcp/src/plugins/**'
           - 'apps/mcp/src/presence.js'
@@ -761,6 +763,7 @@ jobs:
             apps/mcp/src/agent/logRender.js
             apps/mcp/src/agent/sources.js
             apps/mcp/src/agent/textingPhone.js
+            apps/mcp/src/agent/threadsFold.js
             apps/mcp/src/chaos/**
             apps/mcp/src/communications/**
             apps/mcp/src/context/**
@@ -783,6 +786,7 @@ jobs:
             apps/mcp/src/moves/**
             apps/mcp/src/notes/**
             apps/mcp/src/objectPlace.js
+            apps/mcp/src/observability/**
             apps/mcp/src/orient/**
             apps/mcp/src/plugins/**
             apps/mcp/src/presence.js

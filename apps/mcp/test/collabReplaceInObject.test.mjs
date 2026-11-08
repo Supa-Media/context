@@ -10,7 +10,7 @@ import { texBucket } from "../src/texStore/wire.js";
 import { R2Store } from "../src/store/r2.js";
 import { withWorkspaceRouting } from "../src/store/workspaceRouting.js";
 import { withIdLayout } from "../src/store/idLayout.js";
-import { replaceNoteText } from "../src/tools/notes/replaceInObject.js";
+import { replaceNoteText, stateBucket } from "../src/tools/notes/replaceInObject.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { mirrorOutbox } from "../src/workspaceStore/mirrorOutbox.js";
@@ -124,7 +124,7 @@ test("a save runs in the object in one call, lands in the Markdown, and answers 
   assert.ok(answer.writes.some((write) => write.key.startsWith(`${COLLAB}v1/documents/`)), "no document state was written");
 });
 
-test("a save's backup copies each key once, where it ended: the document state is not copied twice", async () => {
+test("a save hands back and copies each key once, where it ended: the document state is not sent twice", async () => {
   const { routed, saved, bucket, settle } = await started();
   const copied = [];
   const put = bucket.put.bind(bucket);
@@ -134,11 +134,14 @@ test("a save's backup copies each key once, where it ended: the document state i
   };
   const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
   await settle();
-  const states = answer.writes.filter((write) => write.key.startsWith(`${COLLAB}v1/documents/`));
-  assert.ok(states.length >= 2, "the object wrote its document state once: nothing to collapse");
-  assert.deepEqual(copied.filter((key) => key === states[0].key), [states[0].key]);
+  // The answer itself carries each key once: the state the save wrote twice travels back from the object once.
+  const keys = answer.writes.map((write) => write.key);
+  assert.equal(new Set(keys).size, keys.length, `the answer carried a key twice: ${keys.join(", ")}`);
+  const state = answer.writes.find((write) => write.key.startsWith(`${COLLAB}v1/documents/`) && !write.key.includes("/operations/"));
+  assert.ok(state, "no document state was handed back");
+  assert.equal(JSON.parse(state.body).pending, null, "the state handed back is not where the save ended");
   assert.equal(new Set(copied).size, copied.length, `a key was copied twice: ${copied.join(", ")}`);
-  assert.equal(await text(bucket, states[0].key), states.at(-1).body);
+  assert.equal(await text(bucket, state.key), state.body);
 });
 
 test("a save from a version that has moved is a CONFLICT, and the note is unchanged", async () => {
@@ -322,9 +325,27 @@ test("the object says how long it spent on the save, and write_note's store reco
   const took = [];
   Object.defineProperty(layeredStore, "phase", { value: Object.assign((name, run) => run(), { took: (name, ms) => took.push([name, ms]) }) });
   await replaceNoteText(layeredStore, PATH, { expectedEtag: answer.result.etag, onlyCurrent: true, text: "# Plan\n\nFourth words.\n" });
-  assert.equal(took.length, 1);
   assert.equal(took[0][0], "collab_replace");
   assert.ok(Number.isFinite(took[0][1]));
+  // And the save's shape beside it: its trip by state size, its wait, its sizes and writes (2026-11-06).
+  const named = Object.fromEntries(took);
+  assert.deepEqual(took.map(([name]) => name), ["collab_replace", "collab_trip_small", "collab_waited", "collab_state_kb", "collab_written_kb", "collab_writes"]);
+  assert.equal(named.collab_writes, 3, "a first-try save makes three writes");
+  for (const [name, value] of took) assert.ok(Number.isFinite(value) && value >= 0, `${name} is ${value}`);
+});
+
+test("a save's answer says its sizes and writes, never its text", async () => {
+  const { routed, saved } = await started();
+  const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
+  assert.deepEqual(Object.keys(answer.sizes).sort(), ["note", "state", "writes", "written"]);
+  assert.equal(answer.sizes.note, "# Plan\n\nThird words.\n".length);
+  assert.ok(answer.sizes.state > 0 && answer.sizes.written > answer.sizes.state);
+  assert.ok(Number.isFinite(answer.waited) && answer.waited >= 0);
+  assert.ok(Number.isFinite(answer.trip) && answer.trip >= 0);
+});
+
+test("a save's state is bucketed by size", () => {
+  assert.deepEqual([0, 16 * 1024 - 1, 16 * 1024, 256 * 1024, 2 * 1024 * 1024].map(stateBucket), ["small", "small", "medium", "large", "huge"]);
 });
 
 test("a save the object declines says why in its timings, and the gateway's engine still saves it", async () => {

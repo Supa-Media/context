@@ -22,6 +22,7 @@
  *     → "a chat's own turn is never checked; an unreachable advisor falls back to the phrase check" fails.
  */
 
+import { withArchitecture } from "../src/agent/texArchitecture.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -65,7 +66,8 @@ test("the advisor reads the job, its finish line, their texts and every tool res
   assert.match(brief, /Finish line: the application is submitted/);
   assert.match(brief, /This was part 2\.\nYour advice before this part: Try the email link\./);
   assert.match(brief, /<their_texts>\n- use my newer pitch\n<\/their_texts>/);
-  assert.match(brief, /<tex_instructions>\nYou are Tex\.\n<\/tex_instructions>/);
+  // The context review, 2026-11-06: 20,000 characters of texting rules, cut mid-sentence, and never the job's own brief.
+  assert.doesNotMatch(brief, /tex_instructions|You are Tex/, "the texting rules are not the check's");
   assert.match(brief, /\[Tex calls send \{"action":"open_page"/);
   assert.match(brief, /\[result of send\]\nPage: Sign in to apply/);
   assert.match(brief, /Tex's last words: I'll begin with the sign-in\./);
@@ -94,7 +96,7 @@ test("a chat's own turn is never checked; an unreachable advisor falls back to t
   const checked = await jobTurnFields(JOB, turn, { unfinished: false, model: "m", efforts: { m: "low" }, request, meter });
   assert.deepEqual(checked, { verdict: "keep_going", advice: "Sign in with the email link.", unfinished: true });
   assert.equal(asked.length, 1);
-  assert.equal(asked[0].system, JOB_CHECK_PROMPT);
+  assert.equal(asked[0].system, withArchitecture(JOB_CHECK_PROMPT, "jobCheck"), "the drawing, then its own prompt");
   assert.equal(asked[0].effort, "low");
   assert.deepEqual(asked[0].tools, []);
   assert.deepEqual(metered, [{ usage: { input: 10, output: 5 }, failed: false, model: "m" }]);

@@ -83,7 +83,7 @@ export async function commitSnapshot(store, path, loaded, documentId, nextDoc) {
     pending: { revision: nextRevision, previousRevision: loaded.state.revision, previousRawEtag: loaded.state.rawMarkdownEtag, text: nextText },
     deferredUpdates: [],
     current: { revision: nextRevision, snapshot: nextSnapshot, rawMarkdownEtag: loaded.state.rawMarkdownEtag },
-    bases: basesWith(loaded.state, nextRevision, nextDoc),
+    bases: basesWith(loaded.state, nextRevision, nextDoc, loaded.revision.value.snapshot),
     editedAt: now,
   };
   const written = await put(store, loaded.head.stateKey, JSON.stringify(next), { etagMatches: loaded.stateEtag });

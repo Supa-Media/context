@@ -149,7 +149,7 @@ export const fileWorkspace = internalAction({
       }
       const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
       // Through the console's id layer, so a head made before heads recorded ids is filed under the id of the row at its name.
-      const routing = await consoleWorkspaceRouting(ctx, workspaceId);
+      const routing = await consoleWorkspaceRouting(ctx, workspaceId, { caller: "collaborationFiling" });
       store = storeForBinding(routing.credential(credential), undefined, { managedEncryption, idLayout: consoleIdLayoutHooks(ctx, workspaceId), ...consoleTexRouting(ctx, workspaceId), ...routing.options }) as unknown as FileStore;
     } catch (error) {
       await ctx.runMutation(internal.functions.collaborationFiling.recordFailure, { workspaceId, error: codeOf(error), now: Date.now() });

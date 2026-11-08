@@ -241,7 +241,9 @@ export async function runAgentDreamChecks(check) {
 
     const bucket = s3.bucketFor("tenant-dream");
     const today = HISTORY_PATH;
-    const saidAt = Date.now() - 2 * 60 * 60 * 1000;
+    // Today in UTC, never yesterday: a text from a finished day is summed up by the dream (`daySummaries.js`), and that
+    // model call would take the scripted answer meant for the dream (it did, run at 01:13 UTC, 2026-11-07).
+    const saidAt = Math.max(Date.now() - 2 * 60 * 60 * 1000, Date.parse(new Date().toISOString().slice(0, 10)));
     bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "d0" });
     bucket.set("todo.md", { body: "# To do\n\n- Pay rent\n", etag: "d1" });
     bucket.set("tex/about.md", { body: "# About them\n\n- Lives in Leeds\n- Likes tea\n", etag: "d2" });
@@ -365,7 +367,7 @@ export async function runAgentDreamChecks(check) {
     const memory = `inbox/memories/${new Date().toISOString().slice(0, 10)}-plays-jazz-piano.md`;
     bucket.set(memory, { body: "- Plays jazz piano on Sundays\n", etag: "m1" });
     model.install([{ text: "Nothing new worth keeping." }]);
-    const remembered = await ask(env, TOKEN_DREAMS, dream(Date.now() - 60_000)); // after the texts: a night with none
+    const remembered = await ask(env, TOKEN_DREAMS, dream(saidAt + 2_000)); // after the texts: a night with none
     const memoryPrompt = JSON.stringify(model.requests.at(-1) ?? {});
     check(
       "facts their other AI apps saved are read by the dream, even on a night with no texts",

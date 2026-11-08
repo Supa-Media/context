@@ -5,10 +5,11 @@
  * which app a text came from.
  *
  * One delivery can carry several messages (`messages: [...]`), so this
- * returns a list. Everything else Whapi can send (statuses, chats, contacts,
- * presences, Tex's own messages) reads as nothing (a presence is only described
- * in the logs, `logPresenceShape`), and the delivery is still
- * answered 200 so it is not retried.
+ * returns a list. Only a `messages.post` delivery is read; everything else Whapi
+ * can send (edits, deletions, statuses, chats, groups, calls, channel and user
+ * events, Tex's own messages) reads as nothing and is described in the logs by
+ * its shape only (`logEventShape`, `logPresenceShape`), and the delivery is
+ * still answered 200 so it is not retried.
  *
  * The same rules as Sendblue's (`sendblue.ts`, `sendblueGroups.ts`):
  * - the sender is the phone WhatsApp registered (`phoneOfJid`); a `@lid`
@@ -30,6 +31,7 @@ import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAt
 import type { Reaction, Tapback } from "./reactions";
 import { cleanGroupName, type GroupInbound, type GroupMessage } from "./sendblueGroups";
 import { MAX_QUOTED_TEXT } from "./sendblue";
+import { logEventShape } from "./webhookShape";
 import { E164, GROUP_JID, MESSAGE_ID, personOfJid, phoneOfJid, whapiChatId, whapiGroupId } from "./whapi";
 
 export type WhapiEvent = Inbound | GroupInbound;
@@ -77,8 +79,21 @@ export function whapiGroupNames(payload: unknown): Map<string, string> {
 
 /** Every message in one delivery, read; `line` is Tex's own WhatsApp number (E.164). */
 export function parseWhapiWebhook(payload: unknown, line: string): WhapiEvent[] {
-  if (isRecord(payload) && Array.isArray(payload.presences)) logPresenceShape(payload);
-  if (!isRecord(payload) || !Array.isArray(payload.messages)) return [];
+  if (!isRecord(payload)) {
+    logEventShape("whapi", undefined, undefined, payload, "not_object");
+    return [];
+  }
+  if (Array.isArray(payload.presences)) logPresenceShape(payload);
+  // Only a new message (`messages.post`) is a message. An edit (`messages.patch`), a deletion, a status, a group,
+  // a call or a channel event is described by its shape and never read as one, whatever arrays it carries.
+  const event = rec(payload.event);
+  const type = event?.type;
+  const method = event?.event ?? event?.method;
+  const posted = event === null || (type === "messages" && method === "post");
+  if (!posted || !Array.isArray(payload.messages)) {
+    if (!Array.isArray(payload.presences)) logEventShape("whapi", type, method, payload, "not_a_message");
+    return [];
+  }
   return payload.messages.slice(0, READ_LIMIT).map((message) => parseMessage(message, line));
 }
 

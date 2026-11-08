@@ -26,7 +26,7 @@ export const record = internalAction({
     );
     for (const workspaceId of homes.flat()) {
       counts.checked += 1;
-      const client = consoleWorkspaceClient(ctx, workspaceId);
+      const client = consoleWorkspaceClient(ctx, workspaceId, { caller: "workspaceObjectEncryption" });
       if (client === null) {
         counts.unreachable += 1;
         continue;

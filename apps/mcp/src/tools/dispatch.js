@@ -47,7 +47,8 @@ import { toolMigrateStorageLayout } from "../notes/storage.js";
 import { toolMoveFolder } from "./moves/folder.js";
 import { toolMoveNote } from "./moves/note.js";
 import { toolMoveNotes } from "./moves/notes.js";
-import { toolOpenAiFetch, toolOpenAiSearch, toolSearchNotes } from "./search.js";
+import { toolOpenAiSearch, toolSearchNotes } from "./search.js";
+import { toolOpenAiFetch } from "./notes/openAiFetch.js";
 import { toolSearchDated } from "./searchDates.js";
 import { toolRelatedNotes } from "./related.js";
 import { toolOrient, toolScopeInfo } from "../orient/tool.js";
@@ -67,6 +68,7 @@ import { toolEvaluateLists } from "./evaluateLists.js";
 import { toolConnectApp, toolSlackApi } from "./connectors.js";
 import { toolAppChange, toolAppRead } from "./apps.js";
 import { servedListingStore, TreeUnavailable } from "../tree/served.js";
+import { WorkspaceBusy } from "../store/objectLookup.js";
 
 /**
  * The tools that only list and read: their walks are answered from the Convex
@@ -103,11 +105,13 @@ export async function callTool(name, args, store, scope, options = {}) {
     const refusal = pathsNamed(args ?? {}).map(historyWriteRefusal).find((words) => words !== null);
     if (refusal !== undefined) return toolError(refusal);
   }
-  if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope, options);
   try {
+    if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope, options);
     return await runTool(name, args, servedListingStore(store), scope, options);
   } catch (error) {
     if (error instanceof TreeUnavailable) return toolError(error.message);
+    // The workspace's object could not answer now, and the control plane is never asked instead (`store/objectLookup.js`).
+    if (error instanceof WorkspaceBusy) return toolError(error.message);
     throw error;
   }
 }
@@ -141,7 +145,7 @@ async function runTool(name, args, store, scope, options = {}) {
       return toolListNotes(store, scope, rules, overrides, args.prefix);
     case "read_note":
       if (args.mail !== undefined) return toolReadMail(store, scope, rules, overrides, args);
-      return toolReadNote(store, scope, rules, overrides, args.path);
+      return toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job });
     case "read_notes":
       return toolReadNotes(store, scope, rules, overrides, args.paths);
     case "evaluate_lists":

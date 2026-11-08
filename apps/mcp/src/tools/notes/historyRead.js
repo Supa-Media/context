@@ -42,14 +42,28 @@ export function ownHistoryRead(store, path, scope, rules, overrides) {
   return canSee(HISTORY_PATH, scope, rules, overrides);
 }
 
-/** The history file's text from the ledger, or `null` when there is no ledger to read. */
-export async function readOwnHistory(store) {
+const JOB_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The history file's text from the ledger, or `null` when there is no ledger to read. `before` pages back: the
+ * entries before that seq (each answer names the next page's as `view.before`), so an older stretch, such as a
+ * background job's tool calls, can be read and not only the newest screenful (Dev2, 2026-11-06: a cloud job's
+ * calls are in this chat's history, and a connected AI could see only its newest ~30 entries). `job` keeps only the
+ * entries that job wrote (`agent/ledger.js` `jobTagged`).
+ */
+export async function readOwnHistory(store, { before = null, job = null } = {}) {
   const ledger = store.texLedger(null);
   if (ledger === null || typeof ledger?.read !== "function") return null;
-  const read = await ledger.read(ONE_TO_ONE_CHAT, { before: Number.MAX_SAFE_INTEGER, limit: HISTORY_READ_ENTRIES });
+  const from = Number.isSafeInteger(before) && before > 0 ? before : Number.MAX_SAFE_INTEGER;
+  const only = typeof job === "string" && JOB_ID.test(job) ? job : null;
+  const read = await ledger.read(ONE_TO_ONE_CHAT, { before: from, limit: HISTORY_READ_ENTRIES, ...(only ? { job: only } : {}) });
   let entries = (Array.isArray(read?.entries) ? read.entries : []).slice().reverse();
   let older = Number.isSafeInteger(read?.before);
-  const textOf = (list) => JSON.stringify({ manifest: read?.manifest ?? null, view: { shown: list.length, older }, entries: list }, null, 2);
+  const oldestSeq = (list) => list.reduce((low, entry) => (Number.isSafeInteger(entry?.seq) && entry.seq < low ? entry.seq : low), Number.MAX_SAFE_INTEGER);
+  const textOf = (list) => {
+    const next = older && list.length > 0 && oldestSeq(list) < Number.MAX_SAFE_INTEGER ? { before: oldestSeq(list) } : {};
+    return JSON.stringify({ manifest: read?.manifest ?? null, view: { shown: list.length, older, ...next, ...(only ? { job: only } : {}) }, entries: list }, null, 2);
+  };
   let text = textOf(entries);
   while (text.length > HISTORY_READ_CHARS && entries.length > 0) {
     entries = entries.slice(Math.ceil(entries.length / 4));
@@ -60,10 +74,10 @@ export async function readOwnHistory(store) {
 }
 
 /** `read_note`'s answer for the person's own history file. */
-export async function toolReadOwnHistory(store, rules, overrides) {
+export async function toolReadOwnHistory(store, rules, overrides, history = {}) {
   let text;
   try {
-    text = await readOwnHistory(store);
+    text = await readOwnHistory(store, history);
   } catch {
     return toolError("Tex's history could not be read just now.");
   }

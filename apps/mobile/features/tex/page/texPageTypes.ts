@@ -38,6 +38,16 @@ export interface Turn {
   /** `null` when Tex stayed quiet. */
   reply: string | null;
   ms: number;
+  /** Replies it wrote that were sent back before one went, oldest first. */
+  drafts?: TurnDraft[];
+}
+
+/** A reply that did not go out, and what sent it back: the reviewer (the gates, before 2026-11-06), a code check, or a later text. */
+export interface TurnDraft {
+  text: string;
+  by: "review" | "gates" | "code" | "late";
+  failed: string[];
+  notice?: string;
 }
 
 export type JobState = "running" | "waiting" | "done" | "failed" | "stopped";
@@ -223,6 +233,8 @@ export type SubView =
   | "mailcheck"
   | "history"
   | "sees"
+  /** The chat's conversations (`conversations/`). */
+  | "conversations"
   /** Tex › Your machines; one machine is `machine` with the place's `machine` id; `connect` adds one. */
   | "machines"
   | "machine"
@@ -240,6 +252,7 @@ export const SUB_VIEWS: readonly SubView[] = [
   "mailcheck",
   "history",
   "sees",
+  "conversations",
   "machines",
   "machine",
   "connect",
@@ -300,3 +313,38 @@ export interface LedgerSees {
 
 /** Which Tex the page draws: calm #, busy, stuck tugging at its yarn, wild, resting. */
 export type Mood = "calm" | "busy" | "stuck" | "wild" | "rest";
+
+/**
+ * One of the chat's conversations: a subject the classifier sorted the chat's
+ * texts into, as `POST /tex/page/ledger` `{view: "conversations"}` answers it
+ * (`apps/mcp/src/http/texPage/conversations.js`;
+ * `docs/decisions/texting-assistant/conversation-threads.md`).
+ */
+export interface Conversation {
+  id: string;
+  title: string;
+  description: string;
+  status: "open" | "finished";
+  /** When it started, and when a text last joined it (ms). */
+  started: number;
+  last: number;
+  /** How many of the people's texts are in it. */
+  texts: number;
+}
+
+/** One line of a conversation: a person's text or Tex's answer. */
+export interface ConversationLine {
+  id: string;
+  at: number;
+  who: "person" | "tex";
+  /** The person's name in a group chat. */
+  name?: string;
+  text: string;
+}
+
+/** One conversation with its lines, oldest first; `more` says older lines are kept. */
+export interface ConversationDetail {
+  thread: Conversation | null;
+  lines: ConversationLine[];
+  more: boolean;
+}

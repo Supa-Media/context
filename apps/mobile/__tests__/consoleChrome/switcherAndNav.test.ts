@@ -156,6 +156,31 @@ describe("the account card and the top bar do not overlap", () => {
   });
 });
 
+/*
+  Tex's hub from the same menu, right after Meetings (Dev2, 2026-11-06), for
+  the owner of a personal workspace: `/tex` opens their own page.
+  SABOTAGE: drop `onOpenTex` from `ConsoleFrame`'s switcher props and both fail.
+*/
+describe("Tex in the account menu", () => {
+  const order = () =>
+    Array.from(document.body.querySelectorAll('[data-testid^="switcher-"]')).map((node) =>
+      node.getAttribute("data-testid"),
+    );
+
+  for (const [name, width, trigger] of [["phone", 390, "account-menu"], ["pointer", 1440, "account-switcher"]] as const) {
+    test(`a ${name} offers Tex right after Meetings, and it opens /tex`, () => {
+      const app = mountConsole(width);
+      app.press(app.find(trigger));
+      const ids = order();
+      expect(ids.indexOf("switcher-tex")).toBe(ids.indexOf("switcher-meetings") + 1);
+      mockConsoleState.pushed.length = 0;
+      app.press(app.find("switcher-tex"));
+      expect(mockConsoleState.pushed).toEqual(["/tex"]);
+      app.unmount();
+    });
+  }
+});
+
 describe("the panes that are not Browse carry the navigation too", () => {
   /*
     THE FIXTURE ABOVE DRAWS `NavBand` ITSELF, AND THAT IS THE RIGHT CALL — a
@@ -298,5 +323,59 @@ describe("Meetings in the switcher opens the right panel", () => {
       mockConsoleState.query = {};
       mockConsoleState.paramsSet.length = 0;
     }
+  });
+});
+
+/**
+ * THE PHONE'S ACCOUNT SHEET (Dev2, 2026-11-06: "this looks awful").
+ *
+ * Its rows started at three different edges because the tick sat between a
+ * workspace's mark and its name, a changed workspace said "changed" on a
+ * second line, and the places ran down the same list as everything else.
+ *
+ * SABOTAGE: draw the tick before the label in `AccountSheet`'s row and the
+ * first test fails; feed the sheet `sheetItems`-style details again ("changed")
+ * and the second does; put the Cancel row back and the third does.
+ */
+describe("the phone's account sheet", () => {
+  const within = (app: ReturnType<typeof mountConsole>, id: string) =>
+    app.find("menu-sheet")!.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+
+  test("the tick is at the row's right edge, after the name", () => {
+    const app = mountConsole(390);
+    app.press(app.find("account-menu"));
+    const row = within(app, "switcher-context-seyi")!;
+    expect(row.getAttribute("aria-checked")).toBe("true");
+    const label = within(app, "sheet-label-ctx:seyi")!;
+    const tick = within(app, "sheet-tick-ctx:seyi")!;
+    expect(label.textContent).toContain("@seyi");
+    // The tick follows the name, and is the last thing in the row.
+    expect(label.compareDocumentPosition(tick) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(row.lastElementChild).toBe(tick);
+    app.unmount();
+  });
+
+  test("Settings, Meetings, Tex and Trash are buttons above the workspaces", () => {
+    const app = mountConsole(390);
+    app.press(app.find("account-menu"));
+    const ids = Array.from(app.find("menu-sheet")!.querySelectorAll('[data-testid^="switcher-"]')).map((node) =>
+      node.getAttribute("data-testid"),
+    );
+    const firstWorkspace = ids.findIndex((id) => id!.startsWith("switcher-context-"));
+    expect(ids.indexOf("switcher-settings")).toBeLessThan(firstWorkspace);
+    expect(ids.indexOf("switcher-meetings")).toBeLessThan(firstWorkspace);
+    // A changed workspace is a dot, never a second line of words.
+    expect(app.find("menu-sheet")!.textContent).not.toContain("changed");
+    app.unmount();
+  });
+
+  test("no Cancel row; the sun beside your name switches the look", () => {
+    const app = mountConsole(390);
+    app.press(app.find("account-menu"));
+    expect(app.find("menu-item-cancel")).toBeNull();
+    const sun = within(app, "switcher-appearance")!;
+    expect(sun.getAttribute("aria-label")).toMatch(/^(Light|Dark) mode$/);
+    expect(sun.textContent).toBe("");
+    app.unmount();
   });
 });

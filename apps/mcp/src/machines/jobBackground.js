@@ -12,6 +12,7 @@
  */
 
 import { TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
+import { architectureFor } from "../agent/texArchitecture.js";
 
 const plain = (text, max) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -71,6 +72,13 @@ export function jobBackground(session, { machineName, fromOwner }) {
       "your final answer, which nobody sees until the part ends. When no job note is named, put what they must see or do first in " +
       "your final answer, and end the part as soon as you can.",
     "",
+    "## Your advisor",
+    "You have an advisor: a much stronger model that reads your brief, your job's note and its mail, and is always listening there " +
+      "as \"advisor\". Mail it an ask (on your job's note, as the end of this message shows, with kind \"ask\" and wait: 120) " +
+      "before your first step when the job needs judgment, whenever you are stuck or a step fails and the next way isn't clear, and " +
+      "before you call the job finished. Its answer comes back on the same mail. It also checks your final answer against the job's " +
+      "finish line when the part ends, so a part that skips what the brief asked for is sent back.",
+    "",
     "## How a part ends",
     "It ends when you give your final answer, or at its time limit. Whatever you leave running in the background is stopped then and " +
       "nobody watches it, so never start a background check meant to report later. A part that runs out of time is resumed by the " +
@@ -82,5 +90,5 @@ export function jobBackground(session, { machineName, fromOwner }) {
 
 /** The brief a part is sent: its background first, then the job's own words. */
 export function backgroundedBrief(session, brief, { machineName, fromOwner }) {
-  return `${jobBackground(session, { machineName, fromOwner })}\n${String(brief ?? "")}`;
+  return `${architectureFor("computer")}\n\n${jobBackground(session, { machineName, fromOwner })}\n${String(brief ?? "")}`;
 }

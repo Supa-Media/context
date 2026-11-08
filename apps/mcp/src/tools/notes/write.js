@@ -25,6 +25,7 @@ import {
   readDocument as readCollaborationDocument,
 } from "@context/collaboration";
 import { replaceNoteText } from "./replaceInObject.js";
+import mail from "../../../../../packages/shared/src/mail.cjs";
 import {
   effectiveVisibility,
   isPlumbing,
@@ -363,6 +364,15 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
       restoredOpening = true;
     }
   }
+  // A rewrite that left out the note's mail is given it back: agents share that record (`mail.cjs` `keepMailBlock`).
+  let keptMail = false;
+  if (storedBody !== null && !isEncryptedNote(storedBody)) {
+    const kept = mail.keepMailBlock(storedBody, content);
+    if (kept !== null) {
+      content = kept;
+      keptMail = true;
+    }
+  }
   // An about line says who it came from and the day it was written, dated here, never by a model (`agent/aboutLines.js`).
   if (isAboutNotePath(path) && !(storedBody !== null && isEncryptedNote(storedBody))) {
     content = stampAboutLines(content, storedBody, Date.now());
@@ -598,6 +608,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
       (restoredOpening
         ? "\nfront matter: the opening --- line was missing, so it was put back; the properties above it would otherwise have been lost"
         : "") +
+      (keptMail ? "\nmail: this save left out the note's mail, so it was kept at the end; mail is sent with write action mail, never rewritten" : "") +
       (publishedForLink
         ? " (published to this workspace so the link can open it; the answers note keeps its own visibility)"
         : "") +
