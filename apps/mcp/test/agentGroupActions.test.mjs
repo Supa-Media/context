@@ -109,6 +109,25 @@ test("a tagger's change to their own calendar is made at once (the owner, 2026-1
   assert.doesNotMatch(asked.body?.answer ?? "", /👍/);
 });
 
+// Dev2, 2026-11-08: a group's guest invite waits for the calendar owner's 👍, as an email does; the prompt used to say it couldn't be done.
+test("a tagger's event that invites guests is held for their own yes, and only their yes makes it", async () => {
+  const made = changes().length;
+  const invite = { ...CREATE, guests: ["jo@example.com"] };
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "calendar", args: invite } }] }, verdict("yes"), { text: "I'd invite Jo." }]);
+  const asked = await tagged(TOKEN_GROUP_MEMBER, "Tex put rehearsal on my calendar friday 7 to 9 and invite jo@example.com", "cy");
+  assert.equal(asked.status, 200, JSON.stringify(asked.body));
+  assert.equal(changes().length, made, "nothing is made before their yes");
+  assert.match(asked.body?.answer ?? "", /@cy[\s\S]*👍/, "the ask names the calendar's owner");
+
+  world.model.install([{ text: "That one's Cy's to approve." }]);
+  await tagged(TOKEN_GROUP_EGRESS, "Tex, yes", "ada");
+  assert.equal(changes().length, made, "somebody else's yes makes nothing");
+
+  await tagged(TOKEN_GROUP_MEMBER, "Tex, yes", "cy");
+  assert.equal(changes().length, made + 1, "the owner's yes makes it");
+  assert.equal(changes().at(-1).change.notify_guests, true, "and Google tells the guest");
+});
+
 test("a group turn can browse, and sign in only from its workspace's vault", async () => {
   world.model.install([
     { toolCalls: [{ name: "send", args: { action: "fill_login", args: { entry: "example" } } }, { name: "send", args: { action: "open_page", args: { urls: ["https://example.com/status"] } } }] },

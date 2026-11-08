@@ -45,6 +45,7 @@ import { json } from "../http/responses.js";
 import { appendLogEntry, builtinMeter, clock, dayOf, logSkipped, longDate, refusedRun } from "./jobLog.js";
 import { factJobs } from "../tree/facts.js";
 import { HOUSEKEEPING_GRANTS, housekeepingCallTool, housekeepingTools, undoLine } from "./housekeepingGuard.js";
+import { HOUSEKEEPING_SETTINGS_PATH, isSwitchedOff } from "./texSwitches.js";
 
 export const HOUSEKEEPING_FOLDER = "tex/housekeeping";
 
@@ -215,6 +216,8 @@ export async function handleHousekeeping(request, env, store, session, controlPl
   const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
 
   const timeZone = readTimeZone(body.housekeeping.timeZone) ?? DEFAULT_TIME_ZONE;
+  // They switched it off (`texSwitches.js`): nothing is read, changed or logged, and tomorrow asks again.
+  if (await isSwitchedOff(dispatch, HOUSEKEEPING_SETTINGS_PATH)) return json({ outcome: "unchanged", changes: 0, paused: true });
   const started = Date.now();
   const offered = await grantedToolsFor(session, store);
   const health = await healthOf(dispatch);

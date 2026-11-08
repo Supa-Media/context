@@ -322,6 +322,28 @@ describe("hearing back", () => {
     }
   });
 
+  // Dev2, 2026-11-08: quiet hours on the Tex page were shown and never kept.
+  test("a check-in in their quiet hours comes back at the first slot after them, and reads the same changes", async () => {
+    const t = setupTest();
+    const { userId } = await linked(t);
+    await text(t);
+    await makeDue(t, userId);
+    const [beat] = await due(t);
+    const until = Date.now() + 9 * HOUR;
+    await agentPost(t, "/agent-texts/heartbeats/result", { runId: beat!.runId, outcome: "quiet_hours", until });
+    const after = await row(t, userId);
+    expect(after!.lastBeatAt).toBeUndefined();
+    expect(after!.nextBeatAt).toBe(nextBeatAfter("America/New_York", until - 1));
+
+    // An end more than a day away is not believed: the usual next slot stands.
+    await makeDue(t, userId);
+    const [again] = await due(t);
+    await agentPost(t, "/agent-texts/heartbeats/result", { runId: again!.runId, outcome: "quiet_hours", until: Date.now() + 3 * 24 * HOUR });
+    const next = (await row(t, userId))!.nextBeatAt!;
+    expect(next).toBeGreaterThan(Date.now());
+    expect(next).toBeLessThan(Date.now() + 24 * HOUR);
+  });
+
   test("a sentence for an outcome, or an unknown run, is refused or ignored", async () => {
     const t = setupTest();
     const { userId } = await linked(t);

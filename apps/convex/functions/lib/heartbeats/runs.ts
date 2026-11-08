@@ -28,6 +28,7 @@ import {
   armHeartbeat,
   isHeartbeatOutcome,
   nextBeatAfter,
+  quietHoursEnd,
 } from "./model";
 import { MAX_DELIVERY_TRIES, RETRY_AFTER_MS, localDay } from "../attention/model";
 import { MAX_CHECK_IN_TEXTS_A_DAY, firstBeatTomorrow, textsOn } from "./mail";
@@ -162,7 +163,7 @@ export async function claimDueHeartbeatsHandler(
  */
 export async function recordHeartbeatResultHandler(
   ctx: MutationCtx,
-  args: { runId: string; outcome: string },
+  args: { runId: string; outcome: string; until?: number },
 ): Promise<"recorded" | "unknown"> {
   if (!isHeartbeatOutcome(args.outcome)) return "unknown";
   const row = await ctx.db
@@ -171,8 +172,10 @@ export async function recordHeartbeatResultHandler(
     .unique();
   if (row === null) return "unknown";
   const now = Date.now();
+  // Their quiet hours (`tex/heartbeat.md`, read on the gateway): nothing more until they end.
+  const quietEnds = quietHoursEnd(args.until, now);
   if (row.runKind === "attention") {
-    await recordAttentionResult(ctx, row, args.outcome, now);
+    await recordAttentionResult(ctx, row, args.outcome, now, quietEnds);
     return "recorded";
   }
   const zone = await zoneOf(ctx, row.userId);
@@ -182,7 +185,11 @@ export async function recordHeartbeatResultHandler(
   // Today's texts used up: nothing more until tomorrow's first slot, mail included (`mail.ts`).
   const nextBeatAt = WAIT_FOR_TEXT_OUTCOMES.has(args.outcome)
     ? null
-    : texted && textedToday >= MAX_CHECK_IN_TEXTS_A_DAY
+    : args.outcome === "quiet_hours"
+      ? quietEnds === null
+        ? nextBeatAfter(zone, now)
+        : nextBeatAfter(zone, quietEnds - 1)
+      : texted && textedToday >= MAX_CHECK_IN_TEXTS_A_DAY
       ? (firstBeatTomorrow(zone, now) ?? nextBeatAfter(zone, now))
       : (row.nextBeatAt ?? nextBeatAfter(zone, now));
   // A look that failed (the tree slow or not serving, the gateway unreachable) is tried again soon, a few
@@ -224,8 +231,10 @@ export async function recordHeartbeatResultHandler(
  * times; the gateway marks what it texted in `tex/attention/`, so a retry
  * never sends a ping twice.
  */
-async function recordAttentionResult(ctx: MutationCtx, row: Doc<"texHeartbeats">, outcome: string, now: number) {
-  const waiting = typeof row.attentionDueAt === "number" ? row.attentionDueAt : null;
+async function recordAttentionResult(ctx: MutationCtx, row: Doc<"texHeartbeats">, outcome: string, now: number, quietEnds: number | null) {
+  // Pings held by their quiet hours are delivered when the hours end, unless one is due sooner.
+  const due = typeof row.attentionDueAt === "number" ? row.attentionDueAt : null;
+  const waiting = quietEnds === null ? due : Math.min(due ?? quietEnds, quietEnds);
   const tries = (row.attentionTries ?? 0) + 1;
   const retry = outcome === "failed" && tries < MAX_DELIVERY_TRIES;
   const retryAt = now + RETRY_AFTER_MS;

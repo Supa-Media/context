@@ -691,6 +691,22 @@ export async function runAgentHeartbeatChecks(check) {
       "paused in tex/heartbeat.md, it reads nothing and runs no model",
       paused?.isError !== true && stopped.status === 200 && stopped.body?.outcome === "paused" && model.requests.length === looked,
     );
+
+    // Dev2, 2026-11-08: quiet hours on the Tex page were shown and never kept.
+    const pausedEtag = /^etag: (.+)$/m.exec((await rpc(env, TOKEN_APP, "read_note", { path: "tex/heartbeat.md" }))?.content?.[0]?.text ?? "")?.[1]?.trim();
+    const hour = new Date().getUTCHours();
+    const pad = (h) => `${String(h % 24).padStart(2, "0")}:00`;
+    await rpc(env, TOKEN_APP, "write_note", {
+      path: "tex/heartbeat.md",
+      content: `---\nquiet-hours: ${pad(hour)}-${pad(hour + 3)}\n---\nOnly text me about deadlines.\n`,
+      expected_etag: pausedEtag,
+    });
+    const beforeQuiet = model.requests.length;
+    const held = await ask(env, TOKEN_BEAT, beat());
+    check(
+      "in their quiet hours a look reads nothing, runs no model, and says when the hours end",
+      held.status === 200 && held.body?.outcome === "quiet_hours" && held.body?.until > Date.now() && model.requests.length === beforeQuiet,
+    );
   } finally {
     restoreControlPlane();
     restoreS3();

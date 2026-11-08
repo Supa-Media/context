@@ -43,12 +43,16 @@ export async function agentHeartbeatsDueHandler(ctx: ActionCtx, _body: Record<st
   return json({ heartbeats: claimed.map(({ token, ...beat }) => ({ ...beat, accessToken: plaintext[token]! })) });
 }
 
-/** `POST /agent-texts/heartbeats/result` — `{ runId, outcome }` → `{ status: "recorded" | "unknown" }`. */
+/**
+ * `POST /agent-texts/heartbeats/result` — `{ runId, outcome, until? }` → `{ status: "recorded" | "unknown" }`.
+ * `until`: when their quiet hours end, so nothing more is tried before then (`lib/heartbeats/runs.ts`).
+ */
 export async function agentHeartbeatsResultHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const runId = stringField(body, "runId");
   const outcome = body.outcome;
   if (runId === null || runId.length > 128 || !isHeartbeatOutcome(outcome)) return badRequest();
-  const status = await ctx.runMutation(internal.functions.heartbeats.recordHeartbeatResult, { runId, outcome });
+  const until = typeof body.until === "number" && Number.isFinite(body.until) ? { until: body.until } : {};
+  const status = await ctx.runMutation(internal.functions.heartbeats.recordHeartbeatResult, { runId, outcome, ...until });
   return json({ status });
 }
 

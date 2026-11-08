@@ -30,7 +30,9 @@ export type HeartbeatOutcome =
   | "daily_limit"
   | "no_provider"
   /** They were texting with Tex: the control plane looks again once the chat is quiet. */
-  | "busy";
+  | "busy"
+  /** In their quiet hours (`tex/heartbeat.md`): the control plane comes back at `until`. */
+  | "quiet_hours";
 
 /** `attention`: a claim for the pings the person's agents asked for, which the gateway texts as they are, with no look. */
 export type DueHeartbeat = {
@@ -44,8 +46,14 @@ export type DueHeartbeat = {
 
 /** What the gateway's look came to: a text to send, or an outcome with nothing to say. */
 export type Looked =
-  | { outcome: "speak"; answer: string; continues?: string; beside?: string }
-  | { outcome: Exclude<HeartbeatOutcome, "texted" | "no_chat">; reason?: string };
+  | { outcome: "speak"; answer: string; continues?: string; beside?: string; until?: number }
+  | { outcome: Exclude<HeartbeatOutcome, "texted" | "no_chat">; reason?: string; until?: number };
+
+/** When the gateway says to come back: a time within a day, or nothing. */
+function untilOf(body: Record<string, unknown>): { until?: number } {
+  const until = body.until;
+  return typeof until === "number" && Number.isFinite(until) && until > 0 ? { until } : {};
+}
 
 /** Why a look failed, for the log: the gateway's own code when it gave one, else the status. Never its words. */
 function failedBecause(status: number, body: Record<string, unknown>): string {
@@ -60,7 +68,7 @@ export const HEARTBEAT_CONCURRENCY = 2;
 const MAX_DUE_HEARTBEATS = 50;
 const MAX_PHONES = 10;
 
-const SILENT = new Set(["quiet", "nothing_new", "paused", "busy"]);
+const SILENT = new Set(["quiet", "nothing_new", "paused", "busy", "quiet_hours"]);
 const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
 export type HeartbeatDeps = {
@@ -110,9 +118,15 @@ export async function runHeartbeat(fetcher: Fetch, gatewayOrigin: string, beat: 
     if (body.outcome === "speak" && typeof body.answer === "string" && body.answer.trim() !== "") {
       const continues = typeof body.continues === "string" && body.continues.trim() !== "" ? body.continues : undefined;
       // `beside`: what it wrote to their texts, sealed for the warm copy (`warm.ts` `keepBeside`).
-      return { outcome: "speak", answer: body.answer, ...(continues !== undefined ? { continues } : {}), ...(typeof body.beside === "string" ? { beside: body.beside } : {}) };
+      return {
+        outcome: "speak",
+        answer: body.answer,
+        ...(continues !== undefined ? { continues } : {}),
+        ...(typeof body.beside === "string" ? { beside: body.beside } : {}),
+        ...untilOf(body),
+      };
     }
-    if (typeof body.outcome === "string" && SILENT.has(body.outcome)) return { outcome: body.outcome as "quiet" };
+    if (typeof body.outcome === "string" && SILENT.has(body.outcome)) return { outcome: body.outcome as "quiet", ...untilOf(body) };
     return { outcome: "failed", reason: "unreadable" };
   }
   if (result.status === 409) return { outcome: "no_provider" };
@@ -120,12 +134,13 @@ export async function runHeartbeat(fetcher: Fetch, gatewayOrigin: string, beat: 
   return { outcome: "failed", reason: failedBecause(result.status, body) };
 }
 
-type Ran = { outcome: HeartbeatOutcome; texted: number; reason?: string };
+type Ran = { outcome: HeartbeatOutcome; texted: number; reason?: string; until?: number };
 
 async function runOne(beat: DueHeartbeat, deps: HeartbeatDeps, gateway: string): Promise<Ran> {
   const looked = await runHeartbeat(deps.fetch, gateway, beat);
+  const later = looked.until === undefined ? {} : { until: looked.until };
   if (looked.outcome !== "speak") {
-    return looked.reason === undefined ? { outcome: looked.outcome, texted: 0 } : { outcome: looked.outcome, texted: 0, reason: looked.reason };
+    return { outcome: looked.outcome, texted: 0, ...(looked.reason === undefined ? {} : { reason: looked.reason }), ...later };
   }
   const results: PhoneTexted[] = [];
   for (const phone of beat.phones) {
@@ -136,7 +151,7 @@ async function runOne(beat: DueHeartbeat, deps: HeartbeatDeps, gateway: string):
     }
   }
   const texted = results.filter((result) => result === "texted").length;
-  if (texted > 0) return { outcome: "texted", texted };
+  if (texted > 0) return { outcome: "texted", texted, ...later };
   return results.includes("failed") ? { outcome: "failed", texted: 0, reason: "text_failed" } : { outcome: "no_chat", texted: 0 };
 }
 
@@ -181,6 +196,7 @@ export async function runDueHeartbeats(deps: HeartbeatDeps): Promise<void> {
         const { status } = await post(deps.fetch, "control_plane", `${origin}/agent-texts/heartbeats/result`, secret, {
           runId: beat.runId,
           outcome: ran.outcome,
+          ...(ran.until === undefined ? {} : { until: ran.until }),
         });
         if (status < 200 || status >= 300) throw new ServiceError("control_plane", status);
       } catch (error) {

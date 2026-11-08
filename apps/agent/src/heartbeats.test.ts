@@ -157,6 +157,23 @@ describe("a tick of check-ins", () => {
   });
 });
 
+describe("quiet hours", () => {
+  it("passes the gateway's until on to the control plane, for a look and for pings texted in the window", async () => {
+    const until = 1_700_000_000_000;
+    const h = harness({
+      heartbeats: [beat("look"), beat("ping", { attention: true })],
+      gateway: (token) =>
+        token === "grant_look" ? Response.json({ outcome: "quiet_hours", until }) : Response.json({ outcome: "speak", answer: "Prod is down.", until }),
+    });
+    await h.run();
+    expect(byRun(h.results)).toEqual([
+      { runId: "look", outcome: "quiet_hours", until },
+      { runId: "ping", outcome: "texted", until },
+    ]);
+    expect(h.texts.map((text) => text.text)).toEqual(["Prod is down."]);
+  });
+});
+
 describe("one look", () => {
   const fetchAnswering = (response: Response | Error) =>
     (async () => {
@@ -171,6 +188,10 @@ describe("one look", () => {
     expect(await look(Response.json({ outcome: "nothing_new" }))).toEqual({ outcome: "nothing_new" });
     expect(await look(Response.json({ outcome: "busy" }))).toEqual({ outcome: "busy" });
     expect(await look(Response.json({ outcome: "paused" }))).toEqual({ outcome: "paused" });
+    // Their quiet hours: the control plane is told when to come back, and a junk time is dropped.
+    expect(await look(Response.json({ outcome: "quiet_hours", until: 1_700_000_000_000 }))).toEqual({ outcome: "quiet_hours", until: 1_700_000_000_000 });
+    expect(await look(Response.json({ outcome: "quiet_hours", until: "soon" }))).toEqual({ outcome: "quiet_hours" });
+    expect(await look(Response.json({ outcome: "speak", answer: "x", until: 5 }))).toEqual({ outcome: "speak", answer: "x", until: 5 });
     expect(await look(Response.json({ outcome: "texted" }))).toEqual({ outcome: "failed", reason: "unreadable" });
     expect(await look(Response.json({}, { status: 409 }))).toEqual({ outcome: "no_provider" });
     expect(await look(Response.json({}, { status: 429 }))).toEqual({ outcome: "daily_limit" });

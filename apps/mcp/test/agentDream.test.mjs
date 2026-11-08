@@ -266,6 +266,18 @@ export async function runAgentDreamChecks(check) {
       texted.status === 400 && asked.status === 400 && model.requests.length === 0,
     );
 
+    /* ---------------- switched off ---------------- */
+
+    // Dev2, 2026-11-08: an off switch for the overnight pass, kept in tex/dreams.md (`texSwitches.js`).
+    bucket.set("tex/dreams.md", { body: "---\npaused: true\n---\nThey asked to stop the nightly rewrite.\n", etag: "ds1" });
+    const off = await ask(env, TOKEN_DREAMS, dream());
+    check(
+      "switched off in tex/dreams.md, a night with new texts rewrites nothing and runs no model",
+      off.status === 200 && off.body?.outcome === "nothing_new" && off.body?.paused === true && model.requests.length === 0 &&
+        bucket.get("tex/about.md")?.body === "# About them\n\n- Lives in Leeds\n- Likes tea\n",
+    );
+    bucket.set("tex/dreams.md", { body: "---\npaused: false\n---\n", etag: "ds2" });
+
     /* ---------------- a dream that learns ---------------- */
 
     model.install([

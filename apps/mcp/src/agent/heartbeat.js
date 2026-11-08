@@ -39,6 +39,7 @@ import { CONTACTS_FOLDER, asInboxKey } from "../../../../packages/communications
 import { readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
 import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH, HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 import { deliverAttention } from "./attention.js";
+import { quietHoursLine, quietUntil, readQuietHours } from "./quietHours.js";
 import { eventLines } from "./transcript.js";
 import { HISTORY_PATH } from "./historyFile.js";
 import { DREAMS_FOLDER } from "./dream.js";
@@ -469,9 +470,14 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const timeZone = readTimeZone(given.timeZone) ?? DEFAULT_TIME_ZONE;
   const started = Date.now();
 
+  const settingsNote = await readWithEtag(dispatch, HEARTBEAT_SETTINGS_PATH);
+  // Their quiet hours (`quietHours.js`): `until` tells the control plane when to come back.
+  const until = quietUntil(readQuietHours(quietHoursLine(settingsNote?.body ?? "")), started, timeZone);
+  const later = until === null ? {} : { until };
+
   // A claim for the pings their agents asked for (`attention.js`): texted as they are, no look and no model.
   if (given.attention === true) {
-    const delivered = await deliverAttention(dispatch, store, { now: started, timeZone });
+    const delivered = await deliverAttention(dispatch, store, { now: started, timeZone, onlyEmergencies: until !== null });
     console.log(
       JSON.stringify({
         event: "attention_delivery",
@@ -483,13 +489,15 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     );
     // A text from Tex is something a bare "yes" may answer, so an older ask stops listening.
     if (delivered) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
-    return json(delivered ? { outcome: "speak", answer: delivered.text } : { outcome: "quiet" });
+    if (delivered) return json({ outcome: "speak", answer: delivered.text, ...later });
+    return json(until === null ? { outcome: "quiet" } : { outcome: "quiet_hours", until });
   }
   const since = typeof given.since === "number" && Number.isFinite(given.since) ? given.since : started - FIRST_LOOK_MS;
 
-  const settingsNote = await readWithEtag(dispatch, HEARTBEAT_SETTINGS_PATH);
   const settings = readSettings(settingsNote?.body ?? "");
   if (settings.paused) return json({ outcome: "paused" });
+  // Nothing is looked at or texted in their quiet hours; what changed waits for the next look.
+  if (until !== null) return json({ outcome: "quiet_hours", until });
   // What they muted, here or for their agents' pings: never texted, whatever the model says.
   const mutes = checkInMutes(settingsNote?.body ?? "", (await readWithEtag(dispatch, ATTENTION_SETTINGS_PATH))?.body ?? "");
 
