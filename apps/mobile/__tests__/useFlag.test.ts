@@ -31,7 +31,10 @@ afterEach(() => {
 });
 
 function Probe() {
-  return createElement("span", null, ["tex.sample", "app.other", "tex.retired"].map((id) => `${id}=${useFlag(id)}`).join(" "));
+  const sample = useFlag("tex.sample");
+  const other = useFlag("app.other");
+  const retired = useFlag("tex.retired");
+  return createElement("span", null, `tex.sample=${sample} app.other=${other} tex.retired=${retired}`);
 }
 
 test("on only for the flags in the person's set that are still in code", () => {
