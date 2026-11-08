@@ -7,6 +7,7 @@
  */
 
 import { ROW_NAME_PATTERN } from "./privacy/rowAccess.js";
+import { FLAG_ID_PATTERN, MAX_PERSON_FLAGS } from "./workspaceStore/personFlags.js";
 
 /** A refusal the caller may see. Carries no tenant detail, ever. */
 export class SessionRefusal extends Error {
@@ -105,10 +106,19 @@ export function normalizeSession(raw) {
       surprise because every other field decides something.
     */
     clientName: typeof raw.clientName === "string" && raw.clientName ? raw.clientName : null,
+    // The acting person's feature flags (`flags.js`). It turns code on and never widens what anyone may see, so an odd
+    // value is dropped to none rather than refused: off is the answer for anything unsure.
+    flags: flagsOf(raw.flags),
     // Who is texting, as their person object keeps it (`personTexting.js`): only on a text's session, and only an
     // object. It decides nothing; it is what Tex is told about them (`agent/identity.js`).
     ...(clientId === TEXTS_CLIENT && raw.texterIdentity !== null && typeof raw.texterIdentity === "object" && !Array.isArray(raw.texterIdentity) ? { texterIdentity: raw.texterIdentity } : {}),
   };
+}
+
+/** A well-formed list of flag ids, or none. */
+function flagsOf(value) {
+  if (!Array.isArray(value) || value.length > MAX_PERSON_FLAGS) return [];
+  return value.every((id) => typeof id === "string" && FLAG_ID_PATTERN.test(id)) ? [...new Set(value)] : [];
 }
 
 /**

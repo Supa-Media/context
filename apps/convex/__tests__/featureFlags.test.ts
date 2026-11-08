@@ -11,6 +11,8 @@
  * from `addFlagPerson` fails the stranger test; `daysLeft(...) < 0` changed to `< -1` fails the expired case.
  */
 
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("@context/shared/src/flags.cjs", async (importOriginal) => {
@@ -42,6 +44,40 @@ describe("the list of flags", () => {
   test("every flag in the real list is well formed and not past its expiry", async () => {
     const real = await vi.importActual<typeof import("@context/shared/src/flags.cjs")>("@context/shared/src/flags.cjs");
     expect(real.flagProblems(real.FLAGS, real.todayOf())).toEqual([]);
+  });
+
+  test("every flag the code reads is in the list", async () => {
+    // A check on an id not in the list is always off, so a typo or a launched flag left behind would silently never
+    // run. Every `flagOn`, `useFlag`, `flagOnFor`, `peopleWithFlag` and `flagMode` naming a literal id is checked.
+    const real = await vi.importActual<typeof import("@context/shared/src/flags.cjs")>("@context/shared/src/flags.cjs");
+    const repo = join(__dirname, "../../..");
+    const roots = ["apps/mcp/src", "apps/convex/functions", "apps/mobile/features", "apps/mobile/app", "apps/agent/src", "apps/desktop/src", "infra"];
+    const call = /\b(?:flagOn|useFlag|flagOnFor|peopleWithFlag|flagMode)\s*\(([^)]*)\)/g;
+    const literal = /["'`]([a-z0-9-]+\.[a-z0-9-]+)["'`]/;
+    const unknown: string[] = [];
+    const walk = (dir: string): void => {
+      for (const name of readdirSync(dir)) {
+        if (name === "node_modules" || name.startsWith(".")) continue;
+        const path = join(dir, name);
+        if (statSync(path).isDirectory()) walk(path);
+        else if (/\.(?:[cm]?js|tsx?)$/.test(name) && !name.endsWith(".d.ts")) {
+          // Doc comments show examples; only code counts.
+          const code = readFileSync(path, "utf8").split("\n").filter((line) => !/^\s*(?:\*|\/\/|\/\*)/.test(line)).join("\n");
+          for (const match of code.matchAll(call)) {
+            const id = literal.exec(match[1] ?? "")?.[1];
+            if (id !== undefined && !real.isFlagId(id)) unknown.push(`${relative(repo, path)}: ${id}`);
+          }
+        }
+      }
+    };
+    for (const root of roots) {
+      try {
+        walk(join(repo, root));
+      } catch {
+        // A root a checkout does not have.
+      }
+    }
+    expect(unknown).toEqual([]);
   });
 
   test("an expired flag, one kept too long and a bad id are each named", async () => {

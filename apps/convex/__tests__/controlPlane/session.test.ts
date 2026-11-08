@@ -658,6 +658,8 @@ describe("resolveGatewaySession (the read behind lastUsedAt)", () => {
     expect(await resolve(t, await hashToken("not-a-token"))).toEqual({
       session: null,
       touchDue: false,
+      // And no feature flags: there is nobody to have any (`lib/featureFlags.ts`).
+      flags: [],
     });
   });
 

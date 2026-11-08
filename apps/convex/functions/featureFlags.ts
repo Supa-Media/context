@@ -7,6 +7,7 @@
  */
 
 import { ConvexError, v } from "convex/values";
+import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
@@ -34,6 +35,27 @@ async function staff(ctx: QueryCtx): Promise<AdminActor> {
 
 function refuse(message: string): never {
   throw new ConvexError({ code: "INVALID_ARGUMENT", message });
+}
+
+/**
+ * Write the change into the person objects it touches, at once (`functions/flagObjects.ts`): these people, or every
+ * switched person when a flag goes to or from everyone. The hourly reconcile catches any push that fails.
+ */
+async function pushTo(ctx: MutationCtx, who: Id<"users">[] | "everyone"): Promise<void> {
+  if (who === "everyone") await ctx.scheduler.runAfter(0, internal.functions.flagObjects.reconcile, { all: true });
+  else if (who.length > 0) await ctx.scheduler.runAfter(0, internal.functions.flagObjects.pushPeople, { userIds: [...new Set(who)] });
+}
+
+/** Everyone on a flag's list, by name or through a group. */
+async function listedOn(ctx: QueryCtx, flagId: string): Promise<Id<"users">[]> {
+  const ids: Id<"users">[] = [];
+  for (const row of await ctx.db.query("featureFlagPeople").withIndex("by_flag", (q) => q.eq("flagId", flagId)).collect()) ids.push(row.userId);
+  for (const link of await ctx.db.query("featureFlagGroups").withIndex("by_flag", (q) => q.eq("flagId", flagId)).collect()) ids.push(...(await membersOf(ctx, link.groupId)));
+  return ids;
+}
+
+async function membersOf(ctx: QueryCtx, groupId: Id<"testerGroups">): Promise<Id<"users">[]> {
+  return (await ctx.db.query("testerGroupPeople").withIndex("by_group", (q) => q.eq("groupId", groupId)).collect()).map((row) => row.userId);
 }
 
 function knownFlag(flagId: string): void {
@@ -112,10 +134,12 @@ export const setFlagMode = mutation({
     const actor = await staff(ctx);
     knownFlag(args.flagId);
     const row = await ctx.db.query("featureFlags").withIndex("by_flag", (q) => q.eq("flagId", args.flagId)).first();
+    const was = row?.mode ?? "off";
     const fields = { mode: args.mode, updatedAt: Date.now(), updatedBy: actor.userId };
     if (row === null) await ctx.db.insert("featureFlags", { flagId: args.flagId, ...fields });
     else await ctx.db.patch(row._id, fields);
     await recordAdminAudit(ctx, actor, "flag.mode_set", args.flagId, { mode: args.mode });
+    if (was !== args.mode) await pushTo(ctx, was === "everyone" || args.mode === "everyone" ? "everyone" : await listedOn(ctx, args.flagId));
     return null;
   },
 });
@@ -135,6 +159,7 @@ export const addFlagPerson = mutation({
     if (held === null) {
       await ctx.db.insert("featureFlagPeople", { flagId: args.flagId, userId, addedAt: Date.now(), addedBy: actor.userId });
       await recordAdminAudit(ctx, actor, "flag.person_added", args.flagId);
+      await pushTo(ctx, [userId]);
     }
     return await describePerson(ctx, userId);
   },
@@ -150,7 +175,10 @@ export const removeFlagPerson = mutation({
       .withIndex("by_flag_user", (q) => q.eq("flagId", args.flagId).eq("userId", args.userId))
       .collect();
     for (const row of rows) await ctx.db.delete(row._id);
-    if (rows.length > 0) await recordAdminAudit(ctx, actor, "flag.person_removed", args.flagId);
+    if (rows.length > 0) {
+      await recordAdminAudit(ctx, actor, "flag.person_removed", args.flagId);
+      await pushTo(ctx, [args.userId]);
+    }
     return null;
   },
 });
@@ -170,6 +198,7 @@ export const addFlagGroup = mutation({
     if (held === null) {
       await ctx.db.insert("featureFlagGroups", { flagId: args.flagId, groupId: args.groupId, addedAt: Date.now(), addedBy: actor.userId });
       await recordAdminAudit(ctx, actor, "flag.group_added", args.flagId, { group: group.name });
+      await pushTo(ctx, await membersOf(ctx, args.groupId));
     }
     return null;
   },
@@ -185,7 +214,10 @@ export const removeFlagGroup = mutation({
       .withIndex("by_flag_group", (q) => q.eq("flagId", args.flagId).eq("groupId", args.groupId))
       .collect();
     for (const row of rows) await ctx.db.delete(row._id);
-    if (rows.length > 0) await recordAdminAudit(ctx, actor, "flag.group_removed", args.flagId);
+    if (rows.length > 0) {
+      await recordAdminAudit(ctx, actor, "flag.group_removed", args.flagId);
+      await pushTo(ctx, await membersOf(ctx, args.groupId));
+    }
     return null;
   },
 });
@@ -215,9 +247,11 @@ export const deleteTesterGroup = mutation({
     const actor = await staff(ctx);
     const group = await ctx.db.get(args.groupId);
     if (group === null) return null;
+    const members = await membersOf(ctx, args.groupId);
     await removeGroupRows(ctx, args.groupId);
     await ctx.db.delete(args.groupId);
     await recordAdminAudit(ctx, actor, "group.deleted", group.name);
+    await pushTo(ctx, members);
     return null;
   },
 });
@@ -242,6 +276,7 @@ export const addGroupPerson = mutation({
     if (held === null) {
       await ctx.db.insert("testerGroupPeople", { groupId: args.groupId, userId, addedAt: Date.now(), addedBy: actor.userId });
       await recordAdminAudit(ctx, actor, "group.person_added", group.name);
+      await pushTo(ctx, [userId]);
     }
     return await describePerson(ctx, userId);
   },
@@ -258,7 +293,10 @@ export const removeGroupPerson = mutation({
       .withIndex("by_group_user", (q) => q.eq("groupId", args.groupId).eq("userId", args.userId))
       .collect();
     for (const row of rows) await ctx.db.delete(row._id);
-    if (rows.length > 0) await recordAdminAudit(ctx, actor, "group.person_removed", group?.name ?? "deleted group");
+    if (rows.length > 0) {
+      await recordAdminAudit(ctx, actor, "group.person_removed", group?.name ?? "deleted group");
+      await pushTo(ctx, [args.userId]);
+    }
     return null;
   },
 });
