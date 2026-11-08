@@ -69,6 +69,15 @@ person's own texts and a group chat's turn (never a guest's tag):
   own words (a computer word, then the same judge as any widening). Another
   member's text, a quote or an email changes nothing.
 
+**Known risk: a code planted for the person.** Someone could talk a person
+into texting Tex a code their own computer printed, pairing that stranger's
+computer into the person's workspace, where the person's jobs would run. The
+app's approve link has the same exposure. A texted code must be in the
+person's own message, is approved only in their own 1:1, and the answer names
+the computer and its system, which then sits in their computers list, where
+`disconnect` removes it. Accepted for parity with the link; if it is abused,
+show the computer's name and ask for a yes before approving.
+
 Not built yet, and listed as person-only: answering "Ask me first" from a 1:1
 (the group 👍 works), the Mac app's "Let Tex use this Mac" switch and its
 folder picker, and computer use.
