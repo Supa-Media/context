@@ -440,15 +440,16 @@ export function runCommand(
 }
 
 /**
- * The caret line's style and list, told to the host when either changes, so
- * the Aa panel lights Title, Heading or Body and the list it is in (board 3).
+ * The caret line's style and list, and whether words are selected, told to the
+ * host when any of them changes, so the Aa panel lights Title, Heading or Body
+ * and the list it is in (board 3), and the bar shows B I U over a selection.
  */
 function lineStateReporter(handlers: HandlerRef) {
   let last: LineState | null = null;
   return EditorView.updateListener.of((update) => {
     if (!update.selectionSet && !update.docChanged && last !== null) return;
     const line = update.state.doc.lineAt(update.state.selection.main.head);
-    const next = lineStateOf(line.text);
+    const next = lineStateOf(line.text, !update.state.selection.main.empty);
     if (last !== null && sameLineState(last, next)) return;
     last = next;
     handlers.current.onLineState?.(next);

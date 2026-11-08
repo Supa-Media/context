@@ -47,6 +47,8 @@ export type Inline =
   | { kind: "strike"; text: string }
   /** `==words==`, Obsidian's highlighter; the editor draws it as `cm-lp-mark`. */
   | { kind: "mark"; text: string }
+  /** `<u>words</u>`, the one tag the phone's writing bar writes; the editor draws it as `cm-lp-underline`. */
+  | { kind: "underline"; text: string }
   /** `href` is already vetted by `safeHref`; a rejected one arrives as `text`. */
   | { kind: "link"; text: string; href: string }
   /**
@@ -221,6 +223,14 @@ export function parseInline(source: string): Inline[] {
 
     // Only the tag's own name, and only around plain words: anything else
     // between the angle brackets stays text, like every other tag here.
+    const underline = UNDERLINE_AT.exec(rest);
+    if (underline) {
+      flush();
+      out.push({ kind: "underline", text: underline[1] });
+      i += underline[0].length;
+      continue;
+    }
+
     const kbd = KBD_AT.exec(rest);
     if (kbd && kbd[1].trim() !== "") {
       flush();
@@ -307,6 +317,8 @@ export function parseInline(source: string): Inline[] {
 
 /** `<kbd>words</kbd>`, case-insensitive, with nothing but text inside. */
 const KBD_AT = /^<kbd>([^<>\n]+)<\/kbd>/i;
+/** Exactly `<u>`…`</u>`, lowercase, on one line: the editor's `underlineGrammar` rule. */
+const UNDERLINE_AT = /^<u>([^<>\n]+)<\/u>/;
 /** A link label that is one `<kbd>` and nothing else. */
 const KBD_WHOLE = /^<kbd>([^<>\n]+)<\/kbd>$/i;
 
