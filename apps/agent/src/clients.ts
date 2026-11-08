@@ -451,10 +451,9 @@ export async function askAgentStream(
     clearTimeout(idle);
     idle = setTimeout(expire, AGENT_STREAM_IDLE_MS);
   };
-  // A job's part sends its answer before the advisor's check (`apps/mcp/src/agent/progress.js` `answered`): when the
-  // gateway dies after it (out of memory, 2026-11-08), the part still answered, unchecked, rather than being redone.
+  // A job's part sends its answer before the advisor's check (`apps/mcp/src/agent/progress.js` `answered`): when the gateway dies after it (out of memory, 2026-11-08), the part still answered, unchecked, rather than being redone.
   let early: AgentAnswer | null = null;
-  const dead = (): AgentAnswer => early ?? { kind: "unavailable" };
+  const dead = (): AgentAnswer => early ?? { kind: "unavailable" }, failed = (final: AgentAnswer) => (final.kind === "unavailable" && final.refused === undefined ? dead() : final);
   try {
     touch();
     const response = await fetcher(`${gatewayOrigin}/agent`, {
@@ -468,15 +467,7 @@ export async function askAgentStream(
       signal: abort.signal,
     });
     const type = response.headers.get("content-type") ?? "";
-    if (!type.includes("application/x-ndjson") || !response.body) {
-      let json: unknown = null;
-      try {
-        json = await response.json();
-      } catch {
-        json = null;
-      }
-      return agentAnswer(response.status, json);
-    }
+    if (!type.includes("application/x-ndjson") || !response.body) return agentAnswer(response.status, await response.json().catch(() => null));
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = "";
     for (;;) {
@@ -508,16 +499,10 @@ export async function askAgentStream(
           touch();
           continue;
         }
-        if (parsed.answered !== null && typeof parsed.answered === "object") {
-          const said = agentAnswer(200, parsed.answered);
-          if (said.kind === "answer") early = said;
-          continue;
-        }
-        if (typeof parsed.status === "number") {
-          // A turn that failed after its answer was sent (the check, the warm copy) still answered.
-          const final = agentAnswer(parsed.status, parsed.body);
-          return final.kind === "unavailable" && final.refused === undefined && early !== null ? early : final;
-        }
+        const said = parsed.answered !== null && typeof parsed.answered === "object" ? agentAnswer(200, parsed.answered) : null;
+        if (said !== null) early = said.kind === "answer" ? said : early;
+        // A turn that failed after its answer was sent (the check, the warm copy) still answered.
+        else if (typeof parsed.status === "number") return failed(agentAnswer(parsed.status, parsed.body));
       }
     }
     // The stream ended with no final line: the turn died on the way.
