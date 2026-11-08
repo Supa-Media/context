@@ -12,6 +12,7 @@ import {
   STATUS_COMMAND,
   agentInstructions,
 } from "../features/install/installGuide";
+import { setupPrompt } from "../../mcp/src/machines/setupPrompt.js";
 
 /**
  * `context.lc/download` (Dev2, 2026-11-05): how to install Context on a Mac,
@@ -97,6 +98,11 @@ describe("the instructions for an agent", () => {
       expect(agentInstructions(tab)).toContain("never approve it yourself");
       expect(agentInstructions(tab)).toContain("Don't use sudo");
     }
+  });
+
+  // Tex texts the same prompt when someone asks it to set up their computer (`apps/mcp/src/machines/setupPrompt.js`).
+  test.each(["mac", "linux", "headless"] as const)("%s: Tex hands the very same words as this page", (tab) => {
+    expect(setupPrompt(tab)).toBe(agentInstructions(tab));
   });
 
   test("linger is a Linux step, so the Mac's instructions leave it out", () => {
