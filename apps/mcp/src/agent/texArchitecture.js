@@ -18,6 +18,7 @@
  */
 
 import { TEX_MAP } from "./texArchitecture.generated.js";
+import { capabilitiesFor } from "./capabilities.js";
 
 export { TEX_MAP };
 
@@ -95,6 +96,8 @@ export function architectureFor(role) {
     TEX_MAP,
     "",
     `WHERE YOU ARE: you are ${at.you}`,
+    // What Tex can do, and where (`capabilities.js`; Dev2, 2026-11-08): the roles that talk to people or guide or check what Tex says.
+    ...(capabilitiesFor(role) === "" ? [] : ["", capabilitiesFor(role)]),
   ].join("\n");
 }
 

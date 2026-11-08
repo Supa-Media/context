@@ -482,6 +482,7 @@ test/texCalendarCache.test.mjs
 test/texDaySummaries.test.mjs
 test/texFadedHistory.test.mjs
 test/texArchitecture.test.mjs
+test/capabilities.test.mjs
 test/typedCall.test.mjs
 test/conversationThreads.test.mjs
 test/agentThreadsTurn.test.mjs

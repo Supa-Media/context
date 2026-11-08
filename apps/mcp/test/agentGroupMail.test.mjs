@@ -75,7 +75,7 @@ test("a chat with nothing shared is offered no mail", async () => {
   world.model.install([{ toolCalls: [{ name: "search", args: { query: "invoice", args: { email: true } } }] }, { text: "I can't read mail here." }]);
   await tagged("Tex anything in the mail?");
   const first = world.model.requests.length - 2;
-  assert.match(JSON.stringify(world.model.requests[first].system), /Nobody's personal notes, mail/);
+  assert.match(JSON.stringify(world.model.requests[first].system), /Nobody's mail is shared with this chat yet/); // since 2026-11-08 it says how to share it, never "never offer" (`capabilities.md`)
   assert.doesNotMatch(toolReplies(world.model.requests.at(-1))[0], /Invoice 1042/);
   assert.equal(world.controlPlane.mailReadCalls.length, before, "the control plane was never asked");
 });

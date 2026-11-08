@@ -195,7 +195,7 @@ saving model; see [collaboration](./docs/decisions/collaboration.md). The second
 is `js-tiktoken`, loaded lazily behind the response to count Premium usage
 tokens ([token-usage](./docs/decisions/observability/token-usage.md)). It runs on the Workers runtime, so use
 Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
-an in-memory store stub: fast, offline, currently 4,338 checks. **Do not let it
+an in-memory store stub: fast, offline, currently 4,578 checks. **Do not let it
 regress** — change the test in the same commit as the behavior, and say why.
 
 The privacy engine (`canSee`, `effectiveVisibility`: the nearest folder or
@@ -210,6 +210,15 @@ calls. Any change to that architecture redraws it in the same pull request
 (decided by the owner, 2026-11-05;
 [architecture-diagram](./docs/decisions/texting-assistant/architecture-diagram.md));
 `scripts/tex-diagram-check.mjs` fails CI when it falls behind.
+
+**Tex has one capability list**, `apps/mcp/src/agent/capabilities.js`: what it
+can do in a 1:1 text, a group chat and a guest chat, who asks, drafts and
+approves, and what it can't do yet with the way around it. A change to what a person can get Tex to do, or how they set it up
+(an app-only setting included), changes its line in the same pull request,
+and a new capability removes or narrows the `cant` it replaces
+(decided by the owner, 2026-11-08;
+[capabilities](./docs/decisions/texting-assistant/capabilities.md));
+`apps/mcp/test/capabilities.test.mjs` fails when a tool or command is missing.
 
 ## Vocabulary
 
