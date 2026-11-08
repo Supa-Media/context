@@ -105,3 +105,29 @@ test("the roles that talk, guide or check Tex carry the list and where they are;
   }
   assert.equal(architectureFor("texts"), architectureFor("texts"), "the same bytes every call");
 });
+
+// Dev2, 2026-11-08: a list of what Tex can't do, where, and the way around it, kept with the capability it waits on.
+test("every can't says where, and hands a way around it of a known kind", async () => {
+  const { CANT_WHERE, WORKAROUND_KINDS } = await import("../src/agent/capabilities.js");
+  const cants = CAPABILITIES.flatMap((entry) => (entry.cant ?? []).map((cant) => ({ entry, cant })));
+  assert.ok(cants.length >= 10, "the list carries the can'ts");
+  for (const { entry, cant } of cants) {
+    assert.ok(Object.hasOwn(CANT_WHERE, cant.where), `${entry.name}: where is one of ${Object.keys(CANT_WHERE).join(", ")}`);
+    assert.ok(typeof cant.what === "string" && cant.what.length > 0, `${entry.name}: what can't be done`);
+    assert.ok(WORKAROUND_KINDS.includes(cant.workaround?.kind), `${entry.name}: a workaround kind`);
+    assert.ok(typeof cant.workaround.text === "string" && cant.workaround.text.length > 0, `${entry.name}: a workaround`);
+    assert.ok(CAPABILITY_LIST.includes(`you can't ${cant.what} (${entry.name}). Instead: ${cant.workaround.text}.`), `${entry.name}: drawn into the list`);
+  }
+  assert.match(CAPABILITY_LIST, /WHAT YOU CAN'T DO YET, AND THE WAY AROUND IT/);
+});
+
+test("community compute: pairing hands the agent prompt, lending names the Tex page", () => {
+  const lines = CAPABILITY_LIST.split("\n");
+  const pair = lines.find((text) => text.includes("install the runner on someone's computer"));
+  assert.match(pair, /context\.lc\/download/);
+  assert.match(pair, /Let your agent do it/);
+  assert.match(pair, /context\.lc\/tex\?view=connect&code=/);
+  const lend = lines.find((text) => text.includes("lend or take back a computer for a group chat"));
+  assert.match(lend, /context\.lc\/tex\/@their-handle/);
+  assert.match(CAPABILITY_LIST, /mail only and never runs your jobs/, "pair_device is never offered as pairing for jobs");
+});

@@ -17,9 +17,21 @@ do, each saying what it is in a 1:1 text, in a group chat and in a guest chat
 approves. `texArchitecture.js` puts it, with one line on where the turn is,
 after the drawing for the front door (1:1, group and job turns), the advisor
 and the reply reviewer: the same bytes every turn, so it sits in the cached
-part of the prompt (about 2,400 tokens). A surface's own lines still say what
+part of the prompt (about 3,300 tokens). A surface's own lines still say what
 holds right here; the list is how Tex points someone to where a thing works
 instead of saying it can't.
+
+**What Tex can't do yet, and the way around it (owner, 2026-11-08):** "a list
+of things Tex can't do at all, in 1:1, in groups, and for each of these things
+the suggested workarounds", so Tex doesn't waste time finding out. Each line
+may carry `cant: [{ where, what, workaround: { kind, text } }]`: where is
+`everywhere`, `1:1`, `group` or `guest`, and the workaround's kind is an agent
+prompt (paste into Claude Code or Codex on their computer), an app path, a
+vault link, a handoff link or words to type. The list draws them as their own
+section after what Tex can do. When a capability lands, the pull request that
+adds it removes or narrows its `cant` in the same change. The thread making
+setup agent-first (computers first) adds app routes to the same lines rather
+than a second list.
 
 **The rule (owner, 2026-11-08: "how are we making sure these capabilities
 lists are updated as we build?"):** a pull request that adds, removes or

@@ -29,13 +29,19 @@ export const ONE_TO_ONE_ONLY = "not here; say they can text you on their own for
  * Each line: `name`, what it covers (`actions`: `write.<action>`, `manage.<action>`, `send.<action>` as the model calls
  * them, `command.<send action>` for a chat command, `words.<kind>` for a group command typed in the chat), and what it is in
  * a 1:1 text (`texts`), a group chat (`group`, null when only a person's own texts have it) and a guest chat (`guest`,
- * when it differs from the group), plus who may ask and approve (`who`).
+ * when it differs from the group), plus who may ask and approve (`who`), and what Tex can't do yet with the way
+ * around it (`cant`: `{ where, what, workaround: { kind, text } }`; Dev2, 2026-11-08: "when we do create new capabilities
+ * ... we remove/update the line about the capability in code").
  */
 export const CAPABILITIES = Object.freeze([
   {
     name: "Notes",
     actions: ["write.save", "write.save_many", "write.comment", "write.upload", "write.remember", "manage.move", "manage.move_many", "manage.move_folder", "manage.archive", "manage.suggest_destination", "manage.layout", "manage.folder_job", "manage.encrypt"],
     texts: "read, search, write, move and archive notes in every workspace they can reach; nothing is ever deleted",
+    cant: [
+      { where: "group", what: "read anyone's personal notes, calendar or saved logins", workaround: { kind: "words", text: "they text you on their own for it, or put the note in a shared workspace everyone here is in" } },
+      { where: "everywhere", what: "make or change a people group, switch a plugin on or off, or change where Google mail and calendar sync to", workaround: { kind: "app_path", text: "Context app → Settings → People & sharing (groups), Plugins, or Connected apps (Google)" } },
+    ],
     group: "the same, in the shared workspaces everyone here is a member of, only notes their whole team sees, at the role of whoever tagged you",
     guest: "only this chat's folder and notes someone shared with the chat; what you make goes in the chat's folder as a page",
   },
@@ -77,6 +83,21 @@ export const CAPABILITIES = Object.freeze([
     texts: "send the link where they save a login, key or card; sign in yourself with a saved login you never see; fill a saved card on their yes in the app; call an API with a saved key; a login is shared with someone only by them pressing Share on a link you send",
     group: "only logins saved in the workspace's vault for the whole workspace, never anyone's own and never typed in the chat; a sign-in by emailed code needs no saved login",
     guest: "only a login saved in the workspace's vault and shared with the chat",
+    cant: [
+      {
+        where: "everywhere",
+        what: "see, say or take by text a password, key, env variable or card number",
+        workaround: {
+          kind: "vault_env",
+          text: "send manage vault_add's link (type secret with the field names, and perEnv for dev, staging and prod values) for them to save it; to let someone else in a shared workspace use it, send manage vault_share's link and they press Share",
+        },
+      },
+      {
+        where: "everywhere",
+        what: "type a code sent to their phone, solve a captcha you can't get past, or pay without them",
+        workaround: { kind: "link", text: "add a handoff step in browse: they get a link to your browser and do only that step, then you carry on" },
+      },
+    ],
   },
   {
     name: "The web",
@@ -102,6 +123,7 @@ export const CAPABILITIES = Object.freeze([
     name: "Sharing someone's mail with a group chat",
     actions: ["command.chat_share_mail", "command.chat_unshare_mail", "words.share_mail", "words.unshare_mail"],
     texts: "is done from inside the group, never from here: tell them to type in that chat \"Tex, share my mail from <their address> here\" (\"... matching <a Gmail search>\" shares only some of it) and \"Tex, stop sharing my mail\" to stop",
+    cant: [{ where: "1:1", what: "share someone's mail with a group chat from a 1:1 text", workaround: { kind: "words", text: "they type \"Tex, share my mail from <their address> here\" in that group chat" } }],
     group: "the mailbox's own person types \"Tex, share my mail from <address> here\", or asks you and you call send action chat_share_mail with their address (ask which address when they didn't say). It needs their own connected Gmail and a chat on a shared workspace they can edit. Once shared, anyone here can ask you to search and read it, you watch it for the chat and post only what the chat needs, and a reply from it is sent only on that person's 👍",
     guest: "shared the same way by its own person; you read it only when someone asks, and nothing watches it",
     who: "Only the mailbox's own person can share it or stop sharing it",
@@ -118,6 +140,7 @@ export const CAPABILITIES = Object.freeze([
     texts: "add, move, change, cancel or answer an event on their Google Calendar; their own event changes at once, one that tells a guest waits for their 👍",
     group: "one event on someone here's own calendar, by as as with email, on their yes; guests can't be invited from here, so send everyone the details by email or have each person ask",
     guest: "only on the calendar of someone here who is on Context, always with as",
+    cant: [{ where: "group", what: "invite the chat's people as guests to an event", workaround: { kind: "words", text: "email everyone the details from someone's Gmail, or have each person ask you to add it to their own calendar" } }],
   },
   {
     name: "Slack and other connected apps",
@@ -130,6 +153,7 @@ export const CAPABILITIES = Object.freeze([
     actions: ["send.notify"],
     texts: "text them now when they asked to be told or it is an emergency; you never text or call anyone but the person or chat you are in",
     group: null,
+    cant: [{ where: "everywhere", what: "text or call anyone but the person or chat you are in", workaround: { kind: "words", text: "write the exact words for them to send (\"I can't text Sam, but here's one you can send:\"), or send it as an email on their 👍" } }],
   },
   {
     name: "Reminders and routines",
@@ -137,6 +161,7 @@ export const CAPABILITIES = Object.freeze([
     texts: "a reminder or a repeating routine is a note in tex/routines/; you also check in on your own a few times a day",
     group: "routines for the chat run here for everyone (your group instructions say where they go); you check in on the chat on your own and soon after its shared mail arrives",
     guest: "you can't set reminders or routines from a guest chat",
+    cant: [{ where: "guest", what: "set reminders or routines in a chat where not everyone is on Context", workaround: { kind: "words", text: "once everyone here has joined the workspace (\"Tex, add everyone here to @name\" from its owner, then each accepts), the chat can have routines; until then, each person can text you on their own for a reminder" } }],
   },
   {
     name: "Background jobs",
@@ -157,12 +182,34 @@ export const CAPABILITIES = Object.freeze([
     texts:
       "only the computer's own owner lends it, on their Tex page in the Context app (context.lc/tex/@their-handle): pair the computer first, then add the group chat under it, choose who there may send it work (only them, everyone, or named people) and keep or turn off \"Ask me first\"; you can't lend it for them, so say those steps",
     group: "a computer lent to this chat runs its jobs for whoever its owner allowed; with \"Ask me first\" on, the owner's 👍 in this chat starts each job; to lend one, its owner does it on their Tex page, as in the 1:1 part",
+    cant: [
+      {
+        where: "everywhere",
+        what: "lend or take back a computer for a group chat, or change who there may send it work or \"Ask me first\"",
+        workaround: { kind: "app_path", text: "the computer's owner opens their Tex page in the Context app (context.lc/tex/@their-handle), adds the chat under that computer and picks who may use it; if it isn't paired yet, give them the pairing steps first" },
+      },
+    ],
   },
   {
     name: "Pairing a computer",
     actions: ["manage.pair_device"],
-    texts: "approve the code a computer shows, so it is paired to them",
+    texts: "manage pair_device approves the code an AI app on a computer shows, so that computer gets note mail at once; it is mail only and never runs your jobs",
     group: null,
+    cant: [
+      {
+        where: "everywhere",
+        what: "install the runner on someone's computer or pair it so it can run your jobs",
+        workaround: {
+          kind: "agent_prompt",
+          text: "send context.lc/download and say which tab fits their computer (Mac, Linux or Headless): its \"Let your agent do it\" prompt, pasted into Claude Code or Codex on that computer, installs the runner and runs context-machine pair, which shows a link and a code; they approve it at the link (context.lc/tex?view=connect&code=<the code>). On a Mac with the Context app, they can instead turn on \"Let Tex use this Mac\" in it",
+        },
+      },
+      {
+        where: "everywhere",
+        what: "rename a computer, change its folders, tools or limits, give it more time today, sign it in to Claude Code or Codex, disconnect it, or answer its \"Ask me first\" in a 1:1",
+        workaround: { kind: "app_path", text: "they open their Tex page in the Context app (context.lc/tex/@their-handle) and the computer there" },
+      },
+    ],
   },
   {
     name: "Pictures and cards",
@@ -229,6 +276,16 @@ const HERE = Object.freeze({
   reviewer: "You review Tex's drafts: a draft that says Tex can't do something this list says it can, or that leaves out who has to approve, is wrong.",
 });
 
+/** Where a can't holds, as said in the list. */
+export const CANT_WHERE = Object.freeze({ everywhere: "anywhere", "1:1": "in a 1:1 text", group: "in a group chat", guest: "in a guest chat" });
+/** The kinds of way around it a line may hand someone. */
+export const WORKAROUND_KINDS = Object.freeze(["agent_prompt", "app_path", "vault_env", "link", "words"]);
+
+/** One can't, with the way around it. */
+function cantLine(entry, cant) {
+  return `- ${CANT_WHERE[cant.where]}: you can't ${cant.what} (${entry.name}). Instead: ${cant.workaround.text}.`;
+}
+
 /** One line of the list. */
 function line(entry) {
   const group = entry.group ?? ONE_TO_ONE_ONLY;
@@ -243,6 +300,10 @@ export const CAPABILITY_LIST = [
     "or who can draft, approve or send something, answer from it: say exactly what to type and where, and who has to say yes. " +
     "Never say you can't do a thing this list says works somewhere else: say where it works and how to start it.",
   ...CAPABILITIES.map(line),
+  "",
+  "WHAT YOU CAN'T DO YET, AND THE WAY AROUND IT: when someone asks for one of these, never stop at \"I can't\" or send them hunting: " +
+    "do every part you can, then hand them exactly the way around it below, as a link, words to type, a prompt for an agent on their computer, or the app's path.",
+  ...CAPABILITIES.flatMap((entry) => (entry.cant ?? []).map((cant) => cantLine(entry, cant))),
 ].join("\n");
 
 /** The list and where this turn is in it, for a role that has it; "" for one that doesn't. */

@@ -212,9 +212,10 @@ calls. Any change to that architecture redraws it in the same pull request
 `scripts/tex-diagram-check.mjs` fails CI when it falls behind.
 
 **Tex has one capability list**, `apps/mcp/src/agent/capabilities.js`: what it
-can do in a 1:1 text, a group chat and a guest chat, and who asks, drafts and
-approves. A change to what a person can get Tex to do, or how they set it up
-(an app-only setting included), changes its line in the same pull request
+can do in a 1:1 text, a group chat and a guest chat, who asks, drafts and
+approves, and what it can't do yet with the way around it. A change to what a person can get Tex to do, or how they set it up
+(an app-only setting included), changes its line in the same pull request,
+and a new capability removes or narrows the `cant` it replaces
 (decided by the owner, 2026-11-08;
 [capabilities](./docs/decisions/texting-assistant/capabilities.md));
 `apps/mcp/test/capabilities.test.mjs` fails when a tool or command is missing.
