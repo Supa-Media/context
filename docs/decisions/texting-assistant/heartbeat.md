@@ -30,6 +30,11 @@ attention pings). Looks started by mail come at most an hour after the last
 look started, since each runs the model, and none once today's texts are used
 up. It only ever moves a look earlier, and the look is the ordinary check-in:
 the model still decides whether the mail is worth a text.
+Since copying stopped (2026-10-21) no pass ran, so this never fired; on
+2026-11-07 an airline email that needed action waited for the next slot while
+another assistant texted about it. Passes come back only for people with the
+`mail.in-notes` flag (owner, 2026-11-08;
+[live-not-copied](../communications/live-not-copied.md)).
 
 Each claim asks again whether the phone is linked and not paused and whether
 the person still owns the personal workspace, mints a 15-minute grant for the

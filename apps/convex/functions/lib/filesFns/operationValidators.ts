@@ -306,11 +306,18 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("googleGmailBackfill"), runId: v.id("googleSyncRuns") }),
   /**
    * Advance one connected Google account from its own cursor. Scheduled by
-   * `googleSync.sweepDueGoogleSyncs` and by nothing else — there is no public
-   * action that reaches this variant, and no argument on it a caller could use
-   * to name a context: the workspace comes from the connection row.
+   * `googleSync.sweepDueGoogleSyncs` (unscheduled since 2026-10-21) and by
+   * `mailCopy.startFlagged` with `only: "gmail"`, and by nothing else — there
+   * is no public action that reaches this variant, and no argument on it a
+   * caller could use to name a context: the workspace comes from the
+   * connection row. `only` limits the pass to Gmail and makes it ask the
+   * owner's `mail.in-notes` flag first (`lib/googleSync/mailCopy.ts`).
    */
-  v.object({ kind: v.literal("googleForwardSync"), connectionId: v.id("googleConnections") }),
+  v.object({
+    kind: v.literal("googleForwardSync"),
+    connectionId: v.id("googleConnections"),
+    only: v.optional(v.literal("gmail")),
+  }),
   v.object({
     kind: v.literal("write"),
     path: v.string(),
