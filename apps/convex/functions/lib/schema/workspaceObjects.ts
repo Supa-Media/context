@@ -68,6 +68,12 @@ export const workspaceObjectTables = {
     texting: v.optional(v.union(v.literal("convex"), v.literal("object"))),
     textingSince: v.optional(v.number()),
     textingPushedAt: v.optional(v.number()),
+    /**
+     * A personal workspace only: the feature flags last written into its person object (`functions/flagObjects.ts`),
+     * as their ids joined by commas, and when. The hourly reconcile writes again only where the set moved.
+     */
+    flagsPushed: v.optional(v.string()),
+    flagsPushedAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_home", ["home"])

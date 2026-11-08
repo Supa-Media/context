@@ -8,6 +8,7 @@
 import { ACCESS_OPS, AccessRowRefused } from "./access.js";
 import { sessionFor, withoutHashes } from "./personRows.js";
 import { TEXTING_OPS } from "./personTexting.js";
+import { FLAGS_OPS } from "./personFlags.js";
 
 const TABLE_OF = { reach: "reach", shared: "shared", connections: "connections" };
 
@@ -69,6 +70,10 @@ export async function servePersonCall(store, op, fields, now = Date.now()) {
         return Response.json({ record: person.texting.get() });
       case TEXTING_OPS.OPEN:
         return Response.json(person.texting.open(fields, now));
+      case FLAGS_OPS.PUT:
+        return Response.json(person.flags.put(fields.record));
+      case FLAGS_OPS.GET:
+        return Response.json({ record: person.flags.get() });
       case ACCESS_OPS.PERSON_STATE:
         return Response.json({ home: person.home(), person: person.person() });
       default:

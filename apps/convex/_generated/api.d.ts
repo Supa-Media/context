@@ -228,7 +228,6 @@ import type * as functions_texHome from "../functions/texHome.js";
 import type * as functions_texDashboard from "../functions/texDashboard.js";
 import type * as functions_texSpend from "../functions/texSpend.js";
 import type * as functions_routines from "../functions/routines.js";
-import type * as functions_retiredTables from "../functions/retiredTables.js";
 import type * as functions_dreams from "../functions/dreams.js";
 import type * as functions_heartbeats from "../functions/heartbeats.js";
 import type * as functions_mailHealth from "../functions/mailHealth.js";
@@ -259,6 +258,7 @@ import type * as functions_connectionConsent from "../functions/connectionConsen
 import type * as functions_connectionSettings from "../functions/connectionSettings.js";
 import type * as functions_connections from "../functions/connections.js";
 import type * as functions_featureFlags from "../functions/featureFlags.js";
+import type * as functions_flagObjects from "../functions/flagObjects.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_waitlistStatus from "../functions/waitlistStatus.js";
 import type * as functions_waitlistText from "../functions/waitlistText.js";
@@ -502,7 +502,6 @@ declare const fullApi: ApiFromModules<{
   "functions/texDashboard": typeof functions_texDashboard;
   "functions/texSpend": typeof functions_texSpend;
   "functions/routines": typeof functions_routines;
-  "functions/retiredTables": typeof functions_retiredTables;
   "functions/dreams": typeof functions_dreams;
   "functions/heartbeats": typeof functions_heartbeats;
   "functions/mailHealth": typeof functions_mailHealth;
@@ -536,6 +535,7 @@ declare const fullApi: ApiFromModules<{
   "functions/connectionSettings": typeof functions_connectionSettings;
   "functions/connections": typeof functions_connections;
   "functions/featureFlags": typeof functions_featureFlags;
+  "functions/flagObjects": typeof functions_flagObjects;
   "functions/waitlist": typeof functions_waitlist;
   "functions/waitlistStatus": typeof functions_waitlistStatus;
   "functions/waitlistText": typeof functions_waitlistText;

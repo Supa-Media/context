@@ -38,9 +38,35 @@ supa-framework later).
 - **A flag only turns code on.** It never widens what anyone can see; the
   privacy engine does not read flags.
 
-Reading one: `flagOnFor(ctx, userId, id)`, `peopleWithFlag(ctx, id)` and
-`flagsFor(ctx, userId)` in `apps/convex/functions/lib/featureFlags.ts`; the
-app's own set is `functions/featureFlags:myFlags`, a live query.
+Reading one, with no call of its own anywhere:
+
+- **Gateway and Tex**: `flagOn(session, id)` (`apps/mcp/src/flags.js`). Every
+  session carries its acting person's set as `session.flags`. Their person
+  object, which already answers every request's session, keeps the set
+  (`workspaceStore/personFlags.js`) and `sessionFor` adds it; a person their
+  object does not answer for yet gets it from `/gateway/session`, in the same
+  read (`controlPlane.resolveGatewaySession`). Durable Objects never read
+  flags themselves: the gateway passes the answer with the call that needs it.
+- **The set reaches the object** (`apps/convex/functions/flagObjects.ts`): each
+  change staff make is pushed at once to the people it touches (one person, a
+  group's members, a flag's list, or everyone when a flag goes to or from
+  `everyone`), and an hourly reconcile writes again wherever the set moved
+  since the last push (`flagsPushed` on the homes row), which catches a lost
+  push, a newly switched person, a new account and a flag launched or removed
+  in code.
+- **The app**: `useFlag(id)` (`apps/mobile/features/flags/useFlag.ts`), one
+  shared live query (`functions/featureFlags:myFlags`), so a change arrives by
+  itself. Off until its first answer; no earlier answer is kept on the device,
+  so a set never outlives the account it was read for.
+- **The control plane**: `flagOnFor(ctx, userId, id)`, `peopleWithFlag(ctx,
+  id)` and `flagsFor(ctx, userId)` in `apps/convex/functions/lib/featureFlags.ts`.
+- **A group chat** counts the flags of the person who sent the text. Its turn's
+  session is the chat's own grant, so a Tex step gated on a flag looks the
+  sender up when the first such step is built; until then a group turn's
+  session carries the grant's person's set.
+- **CI checks every id the code reads**: a `flagOn`, `useFlag`, `flagOnFor`,
+  `peopleWithFlag` or `flagMode` naming an id not in the list fails
+  `featureFlags.test.ts`, since such a check would silently never run.
 
 **What replacing it costs.** A single "dogfood" switch is what the owner
 turned down: it cannot open one feature to one tester. Dropping the expiry
@@ -55,8 +81,9 @@ ages"*. Every session's store now carries `vaultProxy`
 `features` sibling, and `functions/featureSwitches.ts` is deleted. That old
 switch also took up to about four minutes to apply, because it rode in the
 storage binding the workspace object keeps (`FRESH_MS`) and a switch did not
-clear it. The `featureSwitches` table's definition stays only until each
-deployment has run the "Drain retired tables" workflow
-(`functions/retiredTables:drainFeatureSwitches`), as `organizerSettings` does
-([removed-features](./removed-features.md)). The check:
+clear it. Its `featureSwitches` table was emptied in both deployments on
+2026-11-08 and its definition removed, together with auto-organize's emptied
+`organizerSettings` ([removed-features](./removed-features.md)); a schema push
+that drops a table still holding rows is refused, so a retired table is
+emptied first and its definition deleted after. The check:
 `apps/mcp/test/vaultLaunched.test.mjs`.
