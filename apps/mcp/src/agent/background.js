@@ -60,6 +60,8 @@ export const MAX_FOLLOW_UPS = 5;
 /** Note mail lines a job's part is shown from between parts (`apps/agent/src/jobMail.ts`). */
 export const MAX_MAIL_SHOWN = 20;
 const MAX_FOLLOW_UP = 4_000;
+/** The most steps of a cut-off part (`jobRun.ts` `cutOff`) the next part is shown. */
+const MAX_CUT_OFF_STEPS = 40;
 /** The most of a replaced answer (`jobRun.ts` `draft`) the next part is shown. */
 const MAX_DRAFT = 4_000;
 /** Cloud jobs one chat may have running at once; a fourth waits for one to finish. A job on their computer counts against its own slots (`jobSlots.js`). */
@@ -203,6 +205,10 @@ export function jobOf(value) {
     unfinished: value.unfinished === true,
     // The advisor's advice on the last part (`jobCheck.js`): what this part starts on.
     advice: line(value.advice, MAX_ADVICE),
+    // The steps of a last part that was cut off before it answered (`apps/agent/src/jobRun.ts`): step labels only, as streamed.
+    cutOff: Array.isArray(value.cutOff)
+      ? value.cutOff.filter((step) => typeof step === "string" && step.trim() !== "").slice(0, MAX_CUT_OFF_STEPS).map((step) => step.replace(/\s+/g, " ").trim().slice(0, 160))
+      : [],
   };
 }
 
@@ -635,6 +641,11 @@ export function jobPrompt(job) {
       ? "\nMail came for you on the notes you joined while you were between parts, oldest first. Answer each ask with a note to its sender " +
         "on that note; an interrupt means drop what you were doing and do what it says:\n" +
         job.mail.map((entry) => `- ${mailLine(entry.text, entry)}`).join("\n")
+      : "") +
+    (job.cutOff?.length > 0
+      ? "\nYour last part was cut off before it could answer, so nothing it found was reported. It had already taken these steps:\n" +
+        job.cutOff.map((step) => `- ${step}`).join("\n") +
+        "\nWhat it wrote is probably there: read it back first, and redo only what is missing."
       : "") +
     (job.draft && job.unfinished
       ? "\nYour last part ended with this answer, which was never sent because it stopped short of what they asked (a part still missing, " +

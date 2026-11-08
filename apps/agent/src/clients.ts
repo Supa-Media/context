@@ -451,6 +451,10 @@ export async function askAgentStream(
     clearTimeout(idle);
     idle = setTimeout(expire, AGENT_STREAM_IDLE_MS);
   };
+  // A job's part sends its answer before the advisor's check (`apps/mcp/src/agent/progress.js` `answered`): when the
+  // gateway dies after it (out of memory, 2026-11-08), the part still answered, unchecked, rather than being redone.
+  let early: AgentAnswer | null = null;
+  const dead = (): AgentAnswer => early ?? { kind: "unavailable" };
   try {
     touch();
     const response = await fetcher(`${gatewayOrigin}/agent`, {
@@ -480,7 +484,7 @@ export async function askAgentStream(
       if (done) break;
       touch();
       buffer += value;
-      if (buffer.length > MAX_STREAM_LINE && !buffer.includes("\n")) return { kind: "unavailable" };
+      if (buffer.length > MAX_STREAM_LINE && !buffer.includes("\n")) return dead();
       let newline: number;
       while ((newline = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, newline).trim();
@@ -504,13 +508,22 @@ export async function askAgentStream(
           touch();
           continue;
         }
-        if (typeof parsed.status === "number") return agentAnswer(parsed.status, parsed.body);
+        if (parsed.answered !== null && typeof parsed.answered === "object") {
+          const said = agentAnswer(200, parsed.answered);
+          if (said.kind === "answer") early = said;
+          continue;
+        }
+        if (typeof parsed.status === "number") {
+          // A turn that failed after its answer was sent (the check, the warm copy) still answered.
+          const final = agentAnswer(parsed.status, parsed.body);
+          return final.kind === "unavailable" && final.refused === undefined && early !== null ? early : final;
+        }
       }
     }
     // The stream ended with no final line: the turn died on the way.
-    return { kind: "unavailable" };
+    return dead();
   } catch {
-    return timedOut ? { kind: "unavailable", timedOut: true } : { kind: "unavailable" };
+    return early ?? (timedOut ? { kind: "unavailable", timedOut: true } : { kind: "unavailable" });
   } finally {
     clearTimeout(overall);
     clearTimeout(idle);

@@ -191,13 +191,16 @@ function result(text, isError = false) {
 
 /**
  * Run `run(progress)` (which returns the route's ordinary Response) and stream
- * it: `{"progress": "..."}` lines as they happen, `{"tick": n}` while nothing
- * does, and last `{"status": 200, "body": {...}}`.
+ * it: `{"progress": "..."}` lines as they happen, `{"step": "..."}` for a
+ * job's own steps, `{"tick": n}` while nothing does, for a job's part one
+ * `{"answered": {...}}` as soon as its answer is ready (before the advisor's
+ * check, so the answer outlives a failure after it), and last
+ * `{"status": 200, "body": {...}}`.
  *
  * The HTTP status of the stream itself is 200; the turn's status travels in
  * the last line, because it is only known at the end.
  *
- * @param {(progress: (text: string) => Promise<void>) => Promise<Response>} run
+ * @param {(progress: (text: string) => Promise<void>, step: (text: string, how?: object) => Promise<void>, answered: (body: object) => Promise<void>) => Promise<Response>} run
  * @param {{waitUntil?: (work: Promise<unknown>) => void, heartbeatMs?: number}} [options]
  */
 export function streamTurn(run, { waitUntil = null, heartbeatMs = HEARTBEAT_MS } = {}) {
@@ -228,7 +231,13 @@ export function streamTurn(run, { waitUntil = null, heartbeatMs = HEARTBEAT_MS }
   const work = (async () => {
     try {
       // `step`: a background job's own steps, for the chat to audit (`background.js`).
-      const response = await run((text) => write({ progress: text }), (text, how) => write({ step: text, ...(how?.failed ? { failed: true } : {}), ...(how?.why ? { why: how.why } : {}) }));
+      // `answered`: a job's part's answer, sent before its advisor's check, so a reader whose stream then dies still has it
+      // (`texEntryPoint/sendTheReply.js`; 2026-11-08, the gateway ran out of memory in the check and the part ran again).
+      const response = await run(
+        (text) => write({ progress: text }),
+        (text, how) => write({ step: text, ...(how?.failed ? { failed: true } : {}), ...(how?.why ? { why: how.why } : {}) }),
+        (body) => write({ answered: body }),
+      );
       const body = await response.json().catch(() => null);
       await write({ status: response.status, body });
     } catch (error) {

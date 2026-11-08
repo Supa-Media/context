@@ -291,6 +291,17 @@ test("a job's turn is shown their later texts as newer than its plan", () => {
   assert.doesNotMatch(jobPrompt(jobOf({ id: "job-abcdef-3", title: "Logo", brief: "b" })), /Since you started/);
 });
 
+test("a part cut off before it answered is shown what it had done (2026-11-08)", () => {
+  const job = jobOf({ id: "job-abcdef-4", title: "Messaging comparison", brief: "b", attempt: 2, cutOff: ["write: projects/compare.page.md", "", 7, `  search:\n  ${"x".repeat(300)}`, ...Array.from({ length: 50 }, (_, i) => `s${i}`)] });
+  assert.equal(job.cutOff.length, 40);
+  assert.equal(job.cutOff[0], "write: projects/compare.page.md");
+  assert.equal(job.cutOff[1].length, 160, "one line each, kept short");
+  assert.doesNotMatch(job.cutOff[1], /\n/);
+  assert.match(jobPrompt(job), /cut off before it could answer[^]*- write: projects\/compare\.page\.md[^]*read it back first/);
+  assert.doesNotMatch(jobPrompt(jobOf({ id: "job-abcdef-5", title: "x", brief: "b" })), /cut off/);
+  assert.deepEqual(jobOf({ id: "job-abcdef-6", title: "x", cutOff: "write: a" }).cutOff, []);
+});
+
 test("a job's steps are told by tool and target, never a note's text", async () => {
   assert.equal(stepLine({ kind: "say", text: "hi" }), null);
   assert.equal(

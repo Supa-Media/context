@@ -40,6 +40,9 @@
  *     → "a job's part is started off the daily cap..." and "a job's report to the chat's turn is off the daily cap too" fail.
  * 13. `runTheModel` leaving out `computersLine` (2026-11-04).
  *     → "a texted turn with a paired computer is told it by name" fails.
+ * 14. `sendTheReply` sending its early answer on every turn (2026-11-08).
+ *     → "an ordinary texted turn streams no steps, and no early answer" fails;
+ *     dropping the `answer_early` step → "a job's part sends its answer before the advisor's check" fails.
  */
 
 import worker from "../src/index.js";
@@ -426,6 +429,12 @@ export async function runAgentBackgroundRouteChecks(check) {
     await settle();
     check("a job's turn streams each step as a short line", lines.some((entry) => entry.step === "search_notes: competitor pricing"));
     check("...and still ends with its answer", lines.at(-1)?.status === 200 && /competitors\.md/.test(lines.at(-1)?.body?.answer ?? ""));
+    // 2026-11-08: the gateway ran out of memory in the advisor's check, after the part had answered, and the part ran again.
+    const early = lines.findIndex((entry) => entry.answered !== undefined);
+    check(
+      "a job's part sends its answer before the advisor's check, without its steps",
+      early >= 0 && early < lines.length - 1 && /competitors\.md/.test(lines[early].answered?.answer ?? "") && lines[early].answered.steps === undefined && lines[early].answered.verdict === undefined,
+    );
     model.install([{ toolCalls: [{ name: "search", args: { query: "anything" } }] }, { text: "Hi." }]);
     const { ctx: ctx2, settle: settle2 } = createWorkerCtx();
     const plain = await worker.fetch(
@@ -439,7 +448,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     );
     const plainLines = (await plain.text()).split("\n").filter(Boolean).map((part) => JSON.parse(part));
     await settle2();
-    check("an ordinary texted turn streams no steps", plainLines.length > 0 && !plainLines.some((entry) => "step" in entry));
+    check("an ordinary texted turn streams no steps, and no early answer", plainLines.length > 0 && !plainLines.some((entry) => "step" in entry || "answered" in entry));
     // Dev2, 2026-11-01: a chat with progress updates off gets no progress lines, though its turn still streams (one bubble did this before).
     const progressed = {};
     for (const [name, extra] of [["many", {}], ["one", { updates: "off" }]]) {
