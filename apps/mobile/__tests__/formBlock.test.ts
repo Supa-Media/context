@@ -34,6 +34,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
+import { ensureSyntaxTree } from "@codemirror/language";
 import {
   FormWidget,
   formFences,
@@ -77,7 +78,7 @@ function stateFor(
   options: { readOnly?: boolean; cursor?: number; host?: FormHostContext | null } = {},
 ): EditorState {
   const { readOnly = true, cursor, host } = options;
-  return EditorState.create({
+  const state = EditorState.create({
     doc,
     ...(cursor === undefined ? {} : { selection: { anchor: cursor } }),
     extensions: [
@@ -86,6 +87,15 @@ function stateFor(
       ...(host === undefined ? [] : [formHost.of({ current: host })]),
     ],
   });
+  /*
+    A fresh state holds only what the parser finished inside its first time
+    budget, and on a loaded CI runner that can be nothing at all: the first
+    test in this file then saw no fence (CI, 2026-11-09). The editor itself
+    redraws as the parse moves on; a test reads once, so it parses the whole
+    document first.
+  */
+  ensureSyntaxTree(state, state.doc.length, 5_000);
+  return state;
 }
 
 /** Every block-replacing widget in the decoration set, in document order. */
