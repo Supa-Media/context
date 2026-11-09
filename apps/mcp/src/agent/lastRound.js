@@ -20,11 +20,30 @@ export const LAST_NOTICE =
   "(From Context, not the person: this is your last step. Answer them now in words, with no tool calls: what you did, where " +
   "it is, and what's left.)";
 
-/** The notice for `round` of `rounds` (0-based), or null: never on a first round, so a one-round setup is unchanged. */
-export function roundNotice(round, rounds) {
+/*
+  A RUN NOBODY IS WAITING ON ENDS QUIET (Dev2, 2026-11-09). An hourly routine
+  ran out of steps at 11 pm: told to write what it had into a note, it tried a
+  write a routine is never given, and told to "answer them now in words", it
+  texted three paragraphs about its own run ("I didn't text you"). A routine's
+  or a check-in's last steps say silence is the answer when nothing is for them,
+  and never ask for a note it can't write.
+*/
+export const FINISH_SCHEDULED_NOTICE =
+  "(From Context, not the person: you have two steps left in this run, and nobody is waiting on it. Stop gathering. " +
+  "If this run found nothing they need to hear, call send with action say_nothing now: the next run carries on.)";
+
+export const LAST_SCHEDULED_NOTICE =
+  "(From Context, not the person: this is your last step. If this run found something they need to hear, text it now in a line or two. " +
+  "Otherwise call send with action say_nothing. Never text them about this run itself: what you tried, what failed, or what the next run will do.)";
+
+/**
+ * The notice for `round` of `rounds` (0-based), or null: never on a first round, so a one-round setup is unchanged.
+ * `scheduled`: a routine's run or a check-in, which nobody texted for.
+ */
+export function roundNotice(round, rounds, { scheduled = false } = {}) {
   if (round === 0 || rounds < 3) return null;
-  if (round === rounds - 2) return FINISH_NOTICE;
-  if (round === rounds - 1) return LAST_NOTICE;
+  if (round === rounds - 2) return scheduled ? FINISH_SCHEDULED_NOTICE : FINISH_NOTICE;
+  if (round === rounds - 1) return scheduled ? LAST_SCHEDULED_NOTICE : LAST_NOTICE;
   return null;
 }
 

@@ -566,6 +566,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       // "no such action" (found 2026-11-07, beside a routine that texted why).
       grants: { send: ["say_nothing"] },
       sayNothing: true,
+      scheduled: true, // nobody waits on a look: its last steps end quiet (`lastRound.js`)
       callTool: heartbeatCallTool(dispatch),
       env,
       builtinModelOverride: chosen,

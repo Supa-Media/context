@@ -386,3 +386,23 @@ check-in instructions keep their words, because their "today" is each run's,
 and routines are told to write a deadline as its date. Undo: drop
 `dayWordsPrompt` from `localNowPrompt` or `withDatedDayWords` from
 `textingAwareCallTool`; `agentDayWords.test.mjs` fails.
+
+## A run that runs out of steps ends quiet (Dev2, 2026-11-09)
+
+An hourly routine set up to retry a change kept running after the background
+job making that change had finished and texted the result. A job's report
+answers no text from the person, and the rebuilt chat dropped every Tex text
+like that, so the routine never saw it. Two hours later the routine ran out of
+steps. It was told to "write what you have where it belongs", but a run has no
+note write. Then it was told to "answer them now in words", and it texted three
+paragraphs about its own run. The reviewer is skipped on a turn's last round,
+so nothing stopped the text.
+
+Now a routine's run and a check-in get last-step notices of their own. If
+nothing is for the person, the answer is `say_nothing`, and the notice never
+asks for a note write. The reply reviewer also reads their last answer. If it
+sends that answer back, nothing is texted, because no round is left to
+rewrite it. A routine is told that `DONE:` is its only way to stop, whatever
+its words say about archiving. A Tex text that answers nothing of theirs stays
+in the rebuilt chat as Tex's own line (`ledgerConversation.js`). Undo any of
+these and `apps/mcp/test/scheduledLastRound.test.mjs` fails.
