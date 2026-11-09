@@ -60,6 +60,24 @@ async function anyWidens(privacy, moves, { folders = false } = {}) {
   });
 }
 
+/**
+ * Several facets as one widening, or null for none. `folderDefaultOnly` marks
+ * a call whose every facet is a note matching its team folder, or an ordinary
+ * write into another workspace: nothing the judge is asked about.
+ */
+function summed(facets, extra = {}) {
+  if (facets.length === 0) return null;
+  return {
+    audience: widest(facets.map((facet) => facet.audience)),
+    summary: facets.map((facet) => facet.summary).join(", and "),
+    publishes: facets.some((facet) => facet.publishes === true),
+    ...extra,
+    folderDefaultOnly:
+      facets.some((facet) => facet.folderDefault === true) &&
+      facets.every((facet) => facet.folderDefault === true || facet.elsewhere === true),
+  };
+}
+
 /** The widest of several audiences. */
 function widest(audiences) {
   return audiences.reduce((a, b) => (AUDIENCE_RANK[b] > AUDIENCE_RANK[a] ? b : a));
@@ -78,10 +96,12 @@ function widest(audiences) {
  *   slip through by being absent from the switch
  * @param {() => Promise<{rules: Array, overrides: Map}>} options.privacy the
  *   target workspace's manifest, loaded only for a move
- * @returns {Promise<{audience: string, summary: string, publishes?: boolean, elsewhereOnly?: boolean}|null>}
+ * @returns {Promise<{audience: string, summary: string, publishes?: boolean, elsewhereOnly?: boolean, folderDefaultOnly?: boolean}|null>}
  *   `elsewhereOnly` marks a call whose one widening is an ordinary write into
  *   another workspace the caller belongs to: no link, no publication, nobody
  *   named. The judge (`judge.js`) lets those run unjudged, as they ran with no gate.
+ *   `folderDefaultOnly` marks a call that only makes notes team-visible inside
+ *   folders that already read team; those run unjudged too (2026-11-09).
  */
 export async function wideningOf(name, args, { into = null, privacy, writes = false }) {
   const found = await classify(name, args, { into, privacy });
@@ -103,6 +123,19 @@ async function classify(name, args, { into, privacy }) {
   const nowReads = async (path) => {
     const { rules, overrides } = await privacy();
     return effectiveVisibility(normalizePath(path) ?? "", rules, overrides);
+  };
+  /**
+   * Making a note team-visible where its folder already reads team only
+   * matches the folder: the judge is not asked (`folderDefault`; the owner,
+   * 2026-11-09: "if the folder it's in is team view, then don't run the
+   * judge"). A note held private in a private folder, or in a private
+   * subfolder of a team one, is still judged, as is every other widening.
+   */
+  const toTeam = async (path) => {
+    if ((await nowReads(path)) === "team") return null;
+    const { rules } = await privacy();
+    const folderDefault = visibilityOf(normalizePath(path) ?? "", rules) === "team";
+    return { audience: "team", summary: `make ${path} visible to the team`, publishes: true, folderDefault };
   };
   switch (name) {
     case "create_link": {
@@ -146,17 +179,9 @@ async function classify(name, args, { into, privacy }) {
       // The ask is the flag: without it the tool refuses a publication itself,
       // and the gate supplies the flag only for a call that carried it, so an
       // approval given for an image address cannot publish the note as well.
-      if (a.visibility === "team" && a.confirm_team_publish === true && (await nowReads(a.path)) !== "team") {
-        facets.push({ audience: "team", summary: `make ${a.path} visible to the team`, publishes: true });
-      }
-      return facets.length === 0
-        ? null
-        : {
-            audience: widest(facets.map((facet) => facet.audience)),
-            summary: facets.map((facet) => facet.summary).join(", and "),
-            publishes: facets.some((facet) => facet.publishes === true),
-            elsewhereOnly: facets.every((facet) => facet.elsewhere === true),
-          };
+      const team = a.visibility === "team" && a.confirm_team_publish === true ? await toTeam(a.path) : null;
+      if (team) facets.push(team);
+      return summed(facets, { elsewhereOnly: facets.every((facet) => facet.elsewhere === true) });
     }
     // A request through Context goes to a site outside the workspace, and its
     // body or address can carry what the turn read, as an image address can.
@@ -174,18 +199,11 @@ async function classify(name, args, { into, privacy }) {
     */
     case "set_visibility": {
       const facets = [];
-      if (a.visibility === "team" && (await nowReads(a.path)) !== "team") {
-        facets.push({ audience: "team", summary: `make ${a.path} visible to the team`, publishes: true });
-      }
+      const team = a.visibility === "team" ? await toTeam(a.path) : null;
+      if (team) facets.push(team);
       const people = parsePeople(a.people);
       if (people !== null) facets.push({ audience: "outside", summary: `let ${describePeople(people)} open ${a.path}` });
-      return facets.length === 0
-        ? null
-        : {
-            audience: widest(facets.map((facet) => facet.audience)),
-            summary: facets.map((facet) => facet.summary).join(", and "),
-            publishes: facets.some((facet) => facet.publishes === true),
-          };
+      return summed(facets);
     }
     case "set_folder_visibility": {
       if (a.visibility !== "team" && a.visibility !== "inherit") return null;

@@ -193,7 +193,10 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
  *
  * An ordinary write into another workspace the caller belongs to
  * (`elsewhereOnly`) is not judged: it names no link, no publication and
- * nobody new, and it was the friction approvals were removed for.
+ * nobody new, and it was the friction approvals were removed for. Nor is a
+ * note made team-visible inside a folder that already reads team
+ * (`folderDefaultOnly`, the owner, 2026-11-09): it only matches the folder,
+ * and the judge's answers on it were a coin toss (10 of 20 identical yeses).
  */
 async function judgedGate(name, suppliedName, args, { store, session, target, targetStore, into, personSaid }) {
   const writes =
@@ -209,6 +212,14 @@ async function judgedGate(name, suppliedName, args, { store, session, target, ta
     },
   });
   if (widening === null || widening.elsewhereOnly === true) return null;
+  // A note made team-visible in a folder that already reads team matches the
+  // folder: no judge (the owner, 2026-11-09), and the publish flag the tool
+  // asks for is supplied as a judged yes would supply it.
+  if (widening.folderDefaultOnly === true) {
+    if (advertisesTeamConfirmation(name)) args.confirm_team_publish = true;
+    await recordChange(store, "judge_skip_folder_default", session.scope, [], { tool: suppliedName, summary: widening.summary });
+    return null;
+  }
   const ours = session.egress?.complete === true;
   const turn = session.egress?.turn;
   const own = turn ? turn.note ?? wordsOfTurn(turn.history ?? [], turn.question ?? "") : ours ? "" : null;

@@ -127,7 +127,24 @@ it as a move "into" the workspace refused Tex every move of a reorganize the
 owner asked for in their own shared workspace (2026-10-24); the owner said yes
 to this exception on 2026-10-25. A destination that reads wider there, a
 publish, or a move between two workspaces is judged as before
-(`apps/mcp/test/movesInsideAnotherWorkspace.test.mjs`). Without `SHARING_JUDGE`, or without an
+(`apps/mcp/test/movesInsideAnotherWorkspace.test.mjs`).
+
+**Nor a note made team-visible where its folder already reads team**
+(`folderDefaultOnly`; decided by the owner, 2026-11-09: "if the folder it's in
+is team view, then don't run the judge. You only need to run the judge if a
+note's private inside of a private … folder … and you want to make it team
+viewable"). `set_visibility` or `write_note` to `team` on a note held private
+inside a team folder only brings it back to its folder's default, so it runs
+with no words, the gateway supplies `confirm_team_publish` as a judged yes
+would, and a `judge_skip_folder_default` audit row records it. The judge had
+approved 10 and refused 10 of 20 notes given the same yes in one cleanup,
+which is what the exception removes. The folder is read by the folder rules
+alone (`visibilityOf`), so a note in a private folder, or in a private
+subfolder of a team one, is judged as before, and so is anything beside it in
+the same call (naming people, a link, a picture's address), a folder's own
+visibility, and every move (`apps/mcp/test/judgeFolderDefault.test.mjs`).
+
+Without `SHARING_JUDGE`, or without an
 AI gateway to ask, nothing is judged and such calls run at once as before.
 Tests: `apps/mcp/test/agentEgressJudge.test.mjs`, sabotage record in its
 header.

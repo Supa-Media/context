@@ -28,6 +28,8 @@
  *     → `a move inside another workspace runs without asking the judge` fails.
  *  7. `subject` left out of `judgedGate`'s judge call (2026-10-28). → `the
  *     judge is told which note the action acts on…` fails.
+ *  8. `folderDefaultOnly` ignored in `judgedGate` (2026-11-09). → `a note made
+ *     team-visible in a team folder runs with no words and no judge` fails.
  */
 
 import { ask, call, request, textOf, toolReplies, createEgressWorld } from "./agentEgressFixtures.mjs";
@@ -142,6 +144,40 @@ export async function runAgentEgressJudgeChecks(check) {
     check(
       "a move inside another workspace runs without asking the judge",
       moved.isError !== true && team.get("notes/moved/judged-elsewhere.md") !== undefined && model.requests.length === before,
+    );
+
+    // 2026-11-09: the judge approved 10 and refused 10 of 20 identical yeses
+    // for notes held private inside team folders. Matching the folder is not judged.
+    bucket.set("1-projects/held.md", { body: "# Held\n", etag: "gh1" });
+    bucket.set("1-projects/named.md", { body: "# Named\n", etag: "gh2" });
+    const held = await call(env, TOKEN_MCP, "set_visibility", { path: "1-projects/held.md", visibility: "private" });
+    await call(env, TOKEN_MCP, "set_visibility", { path: "1-projects/named.md", visibility: "private" });
+    before = model.requests.length;
+    const matched = await call(env, TOKEN_MCP, "set_visibility", { path: "1-projects/held.md", visibility: "team" });
+    check(
+      "a note made team-visible in a team folder runs with no words and no judge",
+      held.isError !== true && !teamVisible("1-projects/named.md") &&
+        matched.isError !== true && teamVisible("1-projects/held.md") && model.requests.length === before &&
+        objectsUnder(".context/audit/").some((key) =>
+          String(world.bucket.get(key)?.body ?? "").includes('"action":"judge_skip_folder_default"'),
+        ),
+    );
+    const namedEtag = /etag: (\S+)/.exec(textOf(await call(env, TOKEN_MCP, "read_note", { path: "1-projects/named.md" })))?.[1];
+    const writtenTeam = await call(env, TOKEN_MCP, "write_note", {
+      path: "1-projects/named.md",
+      expected_etag: namedEtag,
+      content: "# Named\n\nNow for the team.\n",
+      visibility: "team",
+      confirm_team_publish: true,
+    });
+    check(
+      "a note written team-visible in a team folder runs with no judge",
+      writtenTeam.isError !== true && teamVisible("1-projects/named.md") && model.requests.length === before,
+    );
+    const privateFolder = await call(env, TOKEN_MCP, "set_visibility", { path: "2-areas/fourth.md", visibility: "team" });
+    check(
+      "a note in a private folder made team-visible is still judged",
+      privateFolder.isError === true && /person_said/.test(textOf(privateFolder)) && !teamVisible("2-areas/fourth.md"),
     );
 
     model.install([verdict(true, "Asked for.")]);
