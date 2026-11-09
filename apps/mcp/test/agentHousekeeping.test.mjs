@@ -428,19 +428,25 @@ export async function runAgentHousekeepingChecks(check) {
     /* ---------------- a run that outlives its own end still logs ---------------- */
 
     // @seyi, 2026-11-05, 11-06 and 11-08: runs outlived the texting Worker's wait and left no log at all.
-    // Sabotage: race nothing against the turn in `handleHousekeeping` and this check fails (the run never answers).
+    // Sabotage: race nothing against the turn in `handleHousekeeping` and this check fails (the run waits for the
+    // model and its "too late" answer is logged). Whether the first move lands before the end depends on how fast
+    // the machine is, so the check asks only that what landed is logged, never that it landed.
     model.install([
       { toolCalls: [{ name: "move_note", args: { source: "2-areas/dentist.md", destination: "2-areas/health-dentist.md" } }] },
-      () => new Promise((resolve) => setTimeout(() => resolve({ text: "too late" }), 400)),
+      () => new Promise((resolve) => setTimeout(() => resolve({ text: "too late" }), 2_000)),
     ]);
-    const slow = await ask({ ...env, HOUSEKEEPING_WALL_MS: "150" }, TOKEN_HOUSE, run);
+    const slow = await ask({ ...env, HOUSEKEEPING_WALL_MS: "1000" }, TOKEN_HOUSE, run);
+    const slowLog = log();
+    const landed = slow.body?.changes === 1;
     check(
       "a run past its own end answers, keeps what it changed, and says it ran out of time in the day's log",
-      slow.status === 200 && slow.body?.outcome === "tidied" && slow.body?.changes === 1 &&
-        log().includes("ran out of time") && log().includes("Moved `2-areas/dentist.md` to `2-areas/health-dentist.md`"),
+      slow.status === 200 && (slow.body?.outcome === (landed ? "tidied" : "unchanged")) &&
+        slowLog.includes("ran out of time") && !slowLog.includes("too late") &&
+        (!landed || slowLog.includes("Moved `2-areas/dentist.md` to `2-areas/health-dentist.md`")),
       JSON.stringify(slow),
     );
-    await new Promise((resolve) => setTimeout(resolve, 450));
+    // The turn left running ends before the next run's script is installed.
+    await new Promise((resolve) => setTimeout(resolve, 2_100));
 
     /* ---------------- no model to run ---------------- */
 
