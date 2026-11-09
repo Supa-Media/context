@@ -220,6 +220,17 @@ beforeEach(() => {
   actions[fn("moveEntry")] = async (args: never) => {
     const move = args as unknown as { from: string; to: string; expectedEtag?: string };
     calls.push(`move ${move.from} → ${move.to} @${move.expectedEtag ?? "unchecked"}`);
+    const inside = [...bucket.keys()].filter((path) => path.startsWith(`${move.from}/`));
+    if (inside.length > 0) {
+      // A folder: every note under it, at its version (notes-by-id: a move renames rows).
+      for (const path of inside) {
+        const note = bucket.get(path)!;
+        bucket.delete(path);
+        const to = move.to + path.slice(move.from.length);
+        bucket.set(to, { ...note, path: to });
+      }
+      return { kind: "moved", from: move.from, to: move.to, paths: inside.map((path) => move.to + path.slice(move.from.length)) };
+    }
     const current = checkVersion(move.from, move.expectedEtag);
     const etag = `v${++version}`;
     bucket.delete(move.from);
@@ -229,6 +240,9 @@ beforeEach(() => {
   actions[fn("trashEntry")] = async (args: never) => {
     const trash = args as unknown as { path: string; expectedEtag?: string };
     calls.push(`trash ${trash.path} @${trash.expectedEtag ?? "unchecked"}`);
+    const inside = [...bucket.keys()].filter((path) => path.startsWith(`${trash.path}/`));
+    for (const path of inside) bucket.delete(path);
+    if (inside.length > 0) return { kind: "moved", from: trash.path, to: `.context/trash/x/${trash.path}`, paths: [] };
     checkVersion(trash.path, trash.expectedEtag);
     bucket.delete(trash.path);
     return { kind: "moved", from: trash.path, to: `.context/trash/x/${trash.path}`, paths: [] };
@@ -420,12 +434,51 @@ describe("renaming, moving and deleting on the train", () => {
     expect(calls).toEqual(["trash 0-inbox/old-notes.md @e2"]);
   });
 
-  test("a folder cannot be renamed offline, and says why", async () => {
+  test("a folder renamed offline is drawn at its new name, and renamed when the connection comes back", async () => {
     await onTheTrain();
-    browser.rename("2-areas", "areas");
+    browser.rename("1-projects", "work");
     await settle();
-    expect(browser.notice).toMatch(/folder needs a connection/);
+    expect(browser.notice).toBeNull();
+    expect(names("")).toContain("work");
+    expect(names("")).not.toContain("1-projects");
+    expect(names("work")).toContain("work/plan.md");
+    expect(browser.pending?.operations?.map((op) => op.text)).toEqual(["Rename folder projects → work"]);
+
+    setOnline(true);
+    await settle(60);
+    expect(calls).toEqual(["move 1-projects → work @unchecked"]);
+    expect(bucket.has("work/plan.md")).toBe(true);
     expect(browser.sync?.counts.pending).toBe(0);
+  });
+
+  test("a note edited inside a folder renamed offline is sent first, under the folder's old name", async () => {
+    await onTheTrain();
+    browser.rename("1-projects", "projects");
+    await settle();
+    browser.select("projects/plan.md");
+    await settle();
+    expect(browser.editor.draft).toBe("# Plan\n");
+    browser.setDraft("# Plan\n\nfrom the train\n");
+    await settle();
+    browser.save();
+    await settle();
+
+    setOnline(true);
+    await settle(80);
+    expect(calls).toEqual(["write 1-projects/plan.md @e1", "move 1-projects → projects @unchecked"]);
+    expect(bucket.get("projects/plan.md")?.text).toBe("# Plan\n\nfrom the train\n");
+  });
+
+  test("a folder deleted offline leaves the tree at once, and goes to the trash when the connection comes back", async () => {
+    await onTheTrain();
+    browser.destroy("1-projects");
+    await settle();
+    expect(names("")).not.toContain("1-projects");
+
+    setOnline(true);
+    await settle(60);
+    expect(calls).toEqual(["trash 1-projects @unchecked"]);
+    expect(bucket.has(PLAN)).toBe(false);
   });
 
   test("a new folder is drawn at once and created when the connection comes back", async () => {

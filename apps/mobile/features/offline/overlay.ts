@@ -1,5 +1,6 @@
 import { compareListingEntries } from "@context/shared/src/folderRoles.cjs";
 import { localPathOf, opsOf, type Outbox } from "./outbox";
+import { isFolderOp, within } from "./outboxPaths";
 import type { FileEntry, FolderListing } from "../console/files/types";
 
 /**
@@ -32,7 +33,9 @@ export function overlayListings(
   listings: Readonly<Record<string, FolderListing | undefined>>,
   outbox: Outbox,
 ): Record<string, FolderListing | undefined> {
-  const ops = [...opsOf(outbox)].sort((a, b) => a.queuedAt - b.queuedAt);
+  // In the order the drain sends them: folder moves and removals last, over what was queued inside them.
+  const folderLast = (op: Parameters<typeof isFolderOp>[0]) => (isFolderOp(op) ? 1 : 0);
+  const ops = [...opsOf(outbox)].sort((a, b) => folderLast(a) - folderLast(b) || a.queuedAt - b.queuedAt);
   const creates = outbox.writes.filter((write) => write.baseEtag === null);
   if (ops.length === 0 && creates.length === 0) return listings as Record<string, FolderListing | undefined>;
 
@@ -80,6 +83,33 @@ export function overlayListings(
           manifestUsable: parent?.manifestUsable ?? true,
         };
         touched.add(op.path);
+      }
+      continue;
+    }
+    if (isFolderOp(op)) {
+      const entry = take(op.path);
+      const moved = Object.keys(next).filter((folder) => within(folder, op.path));
+      for (const folder of moved) {
+        const listing = next[folder];
+        delete next[folder];
+        touched.delete(folder);
+        if (op.kind !== "folderMove" || op.to === undefined || listing === undefined) continue;
+        const to = op.to;
+        const rename = (path: string) => to + path.slice(op.path.length);
+        const key = rename(folder);
+        next[key] = {
+          ...listing,
+          path: key,
+          entries: listing.entries.map((one) => ({ ...one, path: rename(one.path), name: baseName(rename(one.path)) })),
+        };
+        touched.add(key);
+      }
+      if (op.kind === "folderMove" && op.to !== undefined) {
+        put(
+          entry === undefined
+            ? folderEntry(op.to, next[parentOf(op.to)])
+            : { ...entry, path: op.to, name: baseName(op.to) },
+        );
       }
       continue;
     }

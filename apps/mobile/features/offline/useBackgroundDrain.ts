@@ -4,7 +4,8 @@ import { currentEpoch } from "./epoch";
 import { useReachability } from "./reachability";
 import { openStore } from "./store";
 import { forgetMirroredNote } from "./mirror";
-import { moveMirroredBody } from "./mirrorMove";
+import { mirroredPathsWithin, moveMirroredBody } from "./mirrorMove";
+import { isFolderOp } from "./outboxPaths";
 import type { PendingOp } from "./outbox";
 import { neededEtags } from "./mirrorHolds";
 import { openMirrorStore } from "./mirrorStore";
@@ -108,13 +109,18 @@ export function useBackgroundDrain(options: {
         : { op: (workspaceId: string, op: PendingOp) => opRef.current!(workspaceId, op) }),
       onOpDone: (workspaceId, done) => {
         // The mirror of a context nobody is looking at: a renamed or removed
-        // note leaves its old name. The next sync files the rest.
+        // note, or folder, leaves its old name. The next sync files the rest.
         if (!mine() || done.kind === "folder") return;
         const epoch = epochRef.current;
         void (async () => {
           const mirror = await openMirrorStore();
           if (mirror === null || !mine()) return;
-          await forgetMirroredNote(mirror, epoch, workspaceId, done.path);
+          // A folder's op: every note under it, at every clearance.
+          const paths = isFolderOp(done) ? await mirroredPathsWithin(mirror, workspaceId, done.path) : [done.path];
+          for (const path of paths) {
+            if (!mine()) return;
+            await forgetMirroredNote(mirror, epoch, workspaceId, path);
+          }
         })().catch(() => {});
       },
       now: () => Date.now(),

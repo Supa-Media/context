@@ -1,3 +1,4 @@
+import { folderOpWaits, isFolderOp } from "./outboxPaths";
 import {
   drainUnits,
   findOp,
@@ -321,7 +322,10 @@ export async function drainOutbox(
     const op = findOp(current, unit.op.id);
     if (op === undefined || op.state !== "pending") continue;
 
-    if (op.kind !== "folder" && op.baseEtag === null) {
+    // A folder's move or removal waits, uncharged, for everything queued inside it (`outboxPaths.ts`).
+    if (isFolderOp(op)) {
+      if (folderOpWaits(current, op)) continue;
+    } else if (op.kind !== "folder" && op.baseEtag === null) {
       /*
         Waiting on a version this queue has yet to produce. If something ahead
         of it still can — an edit on this note, a rename landing on it — it

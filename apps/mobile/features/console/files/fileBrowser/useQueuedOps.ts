@@ -28,18 +28,6 @@ export function useQueuedOps(deps: QueuedOpsDeps) {
   /* ---------------------- offline: more than saving ---------------------- */
 
   /**
-   * Whether an operation on `path` goes into the queue rather than to the
-   * bucket: always offline, and online for a note the bucket does not have at
-   * that name yet (`routesThroughQueue`). Decided from the signal, never by
-   * trying and waiting — see `run`.
-   */
-  const viaQueue = useCallback(
-    (path: string) =>
-      offlineRef.current.reachability === "offline" || offlineRef.current.routesThroughQueue(path),
-    [],
-  );
-
-  /**
    * The version of a note this device holds, for an op to be checked against:
    * the open editor's if the note is open (what the person is looking at), the
    * mirror's otherwise. `null` when it has neither — and then the op is refused
@@ -88,6 +76,20 @@ export function useQueuedOps(deps: QueuedOpsDeps) {
       return known === null ? !isMarkdown(path) : known.kind === "folder";
     },
     [listings],
+  );
+
+  /**
+   * Whether an operation on `path` goes into the queue rather than to the
+   * bucket: always offline, and online for a note the bucket does not have at
+   * that name yet, or a folder with something queued inside it
+   * (`routesThroughQueue`). Decided from the signal, never by
+   * trying and waiting — see `run`.
+   */
+  const viaQueue = useCallback(
+    (path: string) =>
+      offlineRef.current.reachability === "offline" ||
+      offlineRef.current.routesThroughQueue(path, isFolderPath(path)),
+    [isFolderPath],
   );
 
   return { viaQueue, deviceEtag, queuedToast, isFolderPath };

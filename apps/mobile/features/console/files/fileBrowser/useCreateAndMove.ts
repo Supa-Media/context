@@ -24,6 +24,7 @@ import {
   parentPath,
 } from "../paths";
 import { findEntry, namesIn } from "../tree";
+import { within } from "../../../offline/outboxPaths";
 import { announceDid } from "../../map/live/announce";
 import {
   applyFolderCreate,
@@ -34,7 +35,7 @@ import {
   undoFolderCreate,
 } from "../optimistic";
 import {
-  FOLDER_NEEDS_CONNECTION,
+  FOLDER_WAITING,
   NOT_ON_DEVICE,
   claimedMessage,
   collision,
@@ -160,6 +161,47 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
   }, []);
 
   /**
+   * A folder renamed, moved, deleted or archived offline (owner, 2026-11-09:
+   * "every action works offline: … folders"). Queued whole and sent after
+   * everything queued inside it; its notes are drawn under the new name and
+   * queued under the old one (`outboxPaths.ts`). Refused only where it would
+   * nest with another folder's op still waiting, or land on a name the queue
+   * holds: a sentence, never a silent drop.
+   */
+  const queueFolderMoveOf = useCallback(
+    (path: string, to: string, message: string) => {
+      // What the timer holds is queued first, under the folder's old name, so the move carries it.
+      autosave.flush();
+      const queued = offlineRef.current.queueFolderMove({ from: path, to });
+      if (!queued.ok) return setNotice(FOLDER_WAITING);
+      const follow = (from: string, into: string) => {
+        noteRenamed(from, into);
+        const shown = selectedPathRef.current;
+        if (shown !== null && within(shown, from)) select(into + shown.slice(from.length));
+      };
+      follow(path, to);
+      queuedToast(`${message} Waiting to sync.`, queued.undo, () => follow(to, path));
+    },
+    [autosave, noteRenamed, queuedToast, select],
+  );
+
+  const queueFolderRemovalOf = useCallback(
+    (path: string, kind: "trash" | "archive") => {
+      autosave.flush();
+      const queued = offlineRef.current.queueFolderRemoval({ kind, path });
+      if (!queued.ok) return setNotice(FOLDER_WAITING);
+      const shown = selectedPathRef.current;
+      if (shown !== null && within(shown, path)) {
+        setSelectedPath(null);
+        dispatch({ type: "closed" });
+      }
+      const name = folderLabel(baseName(path));
+      queuedToast(kind === "trash" ? `Deleted ${name}. Waiting to sync.` : `Archived ${name}. Waiting to sync.`, queued.undo);
+    },
+    [autosave, queuedToast],
+  );
+
+  /**
    * Rename or move a note through the queue. Shared by `rename` and `move`,
    * which differ only in where the note ends up and what the toast says.
    */
@@ -167,7 +209,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
     (path: string, to: string, message: string) => {
       if (!options.canEdit) return;
       const offline = offlineRef.current;
-      if (isFolderPath(path)) return setNotice(FOLDER_NEEDS_CONNECTION);
+      if (isFolderPath(path)) return queueFolderMoveOf(path, to, message);
       if (offline.claims(to) && offline.serverPathOf(path) !== to) {
         return setNotice(claimedMessage(displayName(baseName(to))));
       }
@@ -192,14 +234,14 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
         });
       })();
     },
-    [autosave, deviceEtag, isFolderPath, noteRenamed, options.canEdit, queuedToast, select],
+    [autosave, deviceEtag, isFolderPath, noteRenamed, options.canEdit, queueFolderMoveOf, queuedToast, select],
   );
 
   /** Delete (to the trash) or archive a note through the queue. */
   const queueRemovalOf = useCallback(
     (path: string, kind: "trash" | "archive") => {
       if (!options.canEdit) return;
-      if (isFolderPath(path)) return setNotice(FOLDER_NEEDS_CONNECTION);
+      if (isFolderPath(path)) return queueFolderRemovalOf(path, kind);
       void (async () => {
         autosave.flush(path);
         const etag = await deviceEtag(path);
@@ -248,7 +290,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
         );
       })();
     },
-    [autosave, deviceEtag, isFolderPath, markTrashed, options.canEdit, queuedToast],
+    [autosave, deviceEtag, isFolderPath, markTrashed, options.canEdit, queueFolderRemovalOf, queuedToast],
   );
 
   const createFolder = useCallback(

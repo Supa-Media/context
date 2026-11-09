@@ -54,9 +54,9 @@ export function claimedMessage(name: string): string {
   return `${name} has a change waiting to sync. Choose another name, or use this one once it has synced.`;
 }
 
-/** A folder operation asked for offline. See the offline section of `rename`. */
-export const FOLDER_NEEDS_CONNECTION =
-  "Renaming, moving, archiving or deleting a folder needs a connection. A folder's notes can change on other devices while this one is offline, and there is no single version of a folder to check that against.";
+/** A folder op the queue cannot take yet: it would nest with another folder's op still waiting, or land on a held name. */
+export const FOLDER_WAITING =
+  "Another folder change here is still waiting to sync. Try this once it has synced.";
 
 /** A note whose version this device does not hold. */
 export const NOT_ON_DEVICE =

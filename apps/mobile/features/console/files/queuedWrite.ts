@@ -1,3 +1,4 @@
+import { isFolderOp } from "../../offline/outboxPaths";
 import type { Id } from "@context/convex/_generated/dataModel";
 import {
   classifyOpFailure,
@@ -134,7 +135,7 @@ export function queuedOpSender(actions: OpActions): QueuedOpSender {
   return async (workspaceId, op) => {
     // See `queuedWriteSender` for this cast.
     const workspace = workspaceId as Id<"workspaces">;
-    if (op.kind !== "folder" && op.baseEtag === null) {
+    if (op.kind !== "folder" && !isFolderOp(op) && op.baseEtag === null) {
       return {
         kind: "rejected",
         code: "NO_VERSION",
@@ -171,6 +172,23 @@ export function queuedOpSender(actions: OpActions): QueuedOpSender {
         case "folder":
           await actions.createDirectory({ workspaceId: workspace, path: op.path });
           return { kind: "done" };
+        /*
+          A whole folder: no version to check, as an online folder move has
+          none either. The drain sends it only after everything queued inside
+          it has landed (`outboxPaths.ts`).
+        */
+        case "folderMove": {
+          const moved = await actions.moveEntry({ workspaceId: workspace, from: op.path, to: op.to ?? op.path });
+          return { kind: "done", to: moved.to };
+        }
+        case "folderArchive": {
+          const archived = await actions.archiveEntry({ workspaceId: workspace, path: op.path });
+          return { kind: "done", to: archived.to };
+        }
+        case "folderTrash": {
+          const trashed = await actions.trashEntry({ workspaceId: workspace, path: op.path });
+          return { kind: "done", to: trashed.to };
+        }
       }
     } catch (error) {
       const failure = toFileError(error);
