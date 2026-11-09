@@ -62,15 +62,6 @@ export const FOLDER_WAITING =
 export const NOT_ON_DEVICE =
   "This note is not on this device, so it cannot be changed offline. Open it once with a connection and try again.";
 
-/**
- * Drawings are online-only to create. The drawing editor on a phone is never
- * kept offline (`drawingOffline.ts`), and on the web it is kept only once a
- * drawing has been opened online — so a drawing made offline could open as a
- * picture nobody can draw in. A note can be made now.
- */
-export const DRAWING_NEEDS_CONNECTION =
-  "A new drawing needs a connection, because its editor may not be on this device yet. A note can be made offline.";
-
 export const STALE_LISTING_MESSAGE =
   "That worked, but the file list did not reload. What you see may be out of date.";
 
