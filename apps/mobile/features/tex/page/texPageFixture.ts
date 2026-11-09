@@ -294,7 +294,7 @@ function meCopy(): Copy {
       advisor: { items: ADVISOR },
       mailcheck: { items: MAIL },
       routines: { items: ROUTINES },
-      checkins: { items: CHECKINS, looksAt: ["Gmail", "calendar", "notes", "Slack"], quietHours: "11 pm to 7 am" },
+      checkins: { items: CHECKINS, looksAt: ["Gmail", "calendar", "notes", "Slack"], quietHours: "11 pm to 7 am", switches: { housekeeping: true, dreams: true } },
       about: { items: ABOUT, total: 24 },
       settings: {
         items: [],
@@ -480,6 +480,13 @@ export function fixtureSource(): TexPageSource {
           c.lists.checkins = { ...c.lists.checkins, items: checkins.filter((x) => x.id !== action.id) };
           push(chat, { section: "checkins" });
           break;
+        case "switch.set": {
+          const list = c.lists.checkins;
+          if (!list?.switches) return { ok: false, error: "invalid" };
+          list.switches = { ...list.switches, [action.name]: action.on };
+          push(chat, { section: "checkins" });
+          break;
+        }
         case "checkin.add":
           checkins.unshift({ id: `c${Date.now()}`, when: action.when, what: action.what });
           push(chat, { section: "checkins" });

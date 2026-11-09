@@ -231,6 +231,14 @@ test("job page, list and acts: a stop reaches her inbox's job; settings go to th
     assert.deepEqual(jobs.body.items.map((item) => item.id), ["job2", "job1", "job0"]);
     const bad = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: "me", kind: "secrets" } });
     assert.equal(bad.status, 400);
+    // Her own Tex's switches (`notes.readSwitches`): on until she switches one off, and never a group chat's to flip.
+    const checkins = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: "me", kind: "checkins" } });
+    assert.deepEqual(checkins.body.switches, { housekeeping: true, dreams: true });
+    // Flipping one writes its note (`texPageNotes.test.mjs`); this world's tree can't take a write.
+    const inGroup = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: GROUP, action: { type: "switch.set", name: "dreams", on: true } } });
+    assert.deepEqual(inGroup.body, { ok: false, error: "invalid" });
+    const groupList = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: GROUP, kind: "checkins" } });
+    assert.equal(groupList.body.switches, undefined);
   } finally {
     world.restore();
   }

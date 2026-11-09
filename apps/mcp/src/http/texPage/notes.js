@@ -28,6 +28,7 @@ import {
   wallClock,
 } from "../../../../../packages/shared/src/routines.cjs";
 import { bodyStart, isAboutNotePath, itemOf } from "../../agent/aboutLines.js";
+import { DREAMS_SETTINGS_PATH, HOUSEKEEPING_SETTINGS_PATH, switchedOff } from "../../agent/texSwitches.js";
 
 /** Where routines live: Tex's own folder first, the older root still read and run. */
 const ROUTINE_ROOTS = Object.freeze(["tex/routines/", "routines/"]);
@@ -361,6 +362,37 @@ export async function routineToggle(call, id, on) {
   if (read === null) return fail("not_found");
   if (!read.etag) return fail("no_etag");
   return writeNote(call, target.path, withFrontKey(read.note, "paused", on === true ? "no" : "yes"), read.etag, target.slug);
+}
+
+/**
+ * Tex's own jobs the person can switch off (`agent/texSwitches.js`): the daily
+ * tidy and the nightly rewrite of About me, each on unless its note says
+ * `paused: yes`. The same switch Tex flips from a text.
+ */
+const SWITCH_PATHS = Object.freeze({ housekeeping: HOUSEKEEPING_SETTINGS_PATH, dreams: DREAMS_SETTINGS_PATH });
+
+/** `{ housekeeping, dreams }`, each true when on. A note that is missing or can't be read is on. */
+export async function readSwitches(call) {
+  const on = async (path) => !switchedOff((await readNote(call, path, null))?.note ?? "");
+  const [housekeeping, dreams] = await Promise.all([on(SWITCH_PATHS.housekeeping), on(SWITCH_PATHS.dreams)]);
+  return { housekeeping, dreams };
+}
+
+/** Switch one of Tex's own jobs on or off: `paused: no` or `yes` in its note, made when it is missing. */
+export async function switchSet(call, name, on) {
+  const path = Object.hasOwn(SWITCH_PATHS, name) ? SWITCH_PATHS[name] : null;
+  if (path === null || typeof on !== "boolean") return fail("invalid");
+  let result;
+  try {
+    result = await call("read_note", { path });
+  } catch {
+    return fail("failed");
+  }
+  const missing = result?.isError === true && /^not found\b/i.test(textOf(result).trim());
+  if (result?.isError === true && !missing) return fail("failed");
+  const read = missing ? { etag: null, note: "" } : await readNote(call, path, null);
+  if (read === null || (!missing && !read.etag)) return fail("no_etag");
+  return writeNote(call, path, withFrontKey(read.note, "paused", on ? "no" : "yes"), read.etag, null);
 }
 
 /** Remove a routine: archived, so it can be recovered, and it stops running. */

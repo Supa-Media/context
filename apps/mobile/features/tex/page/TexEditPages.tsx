@@ -7,7 +7,7 @@ import { Ghost, Hint, ListBox, ListRow, More, pageStyles, SubPage, T, useNow } f
 import { day, isWhenField, whenField } from "./texPageFormat";
 import type { ViewProps } from "./TexPageBody";
 import { useTexList } from "./useTexPage";
-import type { AboutLine, CheckIn, Routine } from "./texPageTypes";
+import type { AboutLine, CheckIn, Routine, TexSwitches } from "./texPageTypes";
 
 /**
  * The three pages a person edits from the Tex page: Routines, Check-ins and
@@ -22,6 +22,11 @@ const ROUTINES_HINT = "To add or change a routine, text Tex, like “every Monda
 const CHECKINS_LEAD = "When Tex looks in on you. Tap one to change or cancel it.";
 const GROUP_CHECKINS_EMPTY = 'None set. Text Tex in the chat, like "check on us Sunday at 6".';
 const CHANGE_HINT = `To change this, text Tex, like "don't check Slack".`;
+/** Tex's own jobs, each with its switch (`switch.set`); Tex flips the same switch from a text. */
+const SWITCH_ROWS = [
+  { name: "housekeeping", title: "Tidy my notes", sub: "Once a day, with a way to undo each change" },
+  { name: "dreams", title: "Update About me overnight", sub: "From what you texted that day" },
+] as const;
 const ABOUT_LEAD = "What Tex knows about you, the one copy it reads on every text. Tap a line to fix or remove it.";
 const ABOUT_EMPTY = "Tex hasn't saved anything yet.";
 const SAVE_FAILED = "Couldn't save that. Try again.";
@@ -128,15 +133,18 @@ export function RoutinesPage({ source, page, chat, group }: ViewProps) {
 type CheckinEdit = { when: string; what: string } | "gone";
 
 export function CheckinsPage({ source, page, chat, group }: ViewProps) {
+  const styles = useThemedStyles(makeStyles);
   const { read } = useTexList(source, chat, "checkins", page.changes);
   const [openId, setOpenId] = useState<string | null | undefined>(undefined);
   const [edits, setEdits] = useState<Record<string, CheckinEdit>>({});
   const [added, setAdded] = useState<CheckIn[]>([]);
   const [showHow, setShowHow] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [switchFlips, setSwitchFlips] = useState<Partial<TexSwitches>>({});
   useEffect(() => {
     setEdits({});
     setAdded([]);
+    setSwitchFlips({});
   }, [read]);
 
   const title = group ? `Check-ins in ${group}` : "Check-ins";
@@ -197,6 +205,16 @@ export function CheckinsPage({ source, page, chat, group }: ViewProps) {
       setAdded((a) => a.filter((x) => x.id !== id));
       setFailed(true);
       setOpenId("new");
+    }
+  };
+
+  const flipSwitch = async (name: keyof TexSwitches, on: boolean) => {
+    setFailed(false);
+    setSwitchFlips((f) => ({ ...f, [name]: on }));
+    const answer = await page.act({ type: "switch.set", name, on });
+    if (!answer.ok) {
+      setSwitchFlips((f) => without(f, name));
+      setFailed(true);
     }
   };
 
@@ -268,6 +286,33 @@ export function CheckinsPage({ source, page, chat, group }: ViewProps) {
           </ListBox>
           {showHow ? <Hint>{CHANGE_HINT}</Hint> : null}
         </>
+      ) : null}
+      {data.switches ? (
+        <ListBox>
+          {SWITCH_ROWS.map((row) => {
+            const on = switchFlips[row.name] ?? data.switches![row.name];
+            return (
+              <ListRow
+                key={row.name}
+                title={row.title}
+                sub={row.sub}
+                testID={`tex-switch-${row.name}`}
+                right={
+                  <Pressable
+                    accessibilityRole="switch"
+                    aria-checked={on}
+                    accessibilityLabel={row.title}
+                    onPress={() => void flipSwitch(row.name, !on)}
+                    style={[styles.tog, on ? styles.togOn : styles.togOff]}
+                    testID={`tex-switch-toggle-${row.name}`}
+                  >
+                    <View style={[styles.knob, on ? styles.knobOn : styles.knobOff]} />
+                  </Pressable>
+                }
+              />
+            );
+          })}
+        </ListBox>
       ) : null}
     </SubPage>
   );

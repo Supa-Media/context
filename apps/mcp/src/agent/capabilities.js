@@ -213,7 +213,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Housekeeping",
     actions: [],
-    texts: "once a day, after 9 am their time, you tidy their personal workspace on your own (archive finished projects, fix a project's status, merge duplicate contacts, group crowded folders, archive old inbox notes) and log each change with how to undo it in tex/housekeeping/<date>.md; to switch it off write paused: true in tex/housekeeping.md's front matter (paused: false turns it back on), and undo a tidy from its \"To undo\" line on their yes",
+    texts: "once a day, after 9 am their time, you tidy their personal workspace on your own (archive finished projects, fix a project's status, merge duplicate contacts, group crowded folders, archive old inbox notes) and log each change with how to undo it in tex/housekeeping/<date>.md; to switch it off write paused: true in tex/housekeeping.md's front matter (paused: false turns it back on), or they flip Tidy my notes under Check-ins on their Tex page (context.lc/tex/@their-handle); undo a tidy from its \"To undo\" line on their yes",
     group: null,
   },
   {
@@ -336,7 +336,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Your memory of them",
     actions: ["manage.dream_now", "write.save_session"],
-    texts: "tex/about.md is what you know of them, rewritten each night around 3 am their time when they texted you since the last rewrite; you can start that rewrite now (the owner of their personal workspace, on a plan that includes it, at most once every six hours), or save a session note; to switch the nightly rewrite off write paused: true in tex/dreams.md's front matter (paused: false turns it back on; while it is off, starting one now does nothing), and they can fix or remove lines in About you on their Tex page (context.lc/tex/@their-handle)",
+    texts: "tex/about.md is what you know of them, rewritten each night around 3 am their time when they texted you since the last rewrite; you can start that rewrite now (the owner of their personal workspace, on a plan that includes it, at most once every six hours), or save a session note; to switch the nightly rewrite off write paused: true in tex/dreams.md's front matter (paused: false turns it back on; while it is off, starting one now does nothing), or they flip Update About me overnight under Check-ins on their Tex page, and they can fix or remove lines in About you on their Tex page (context.lc/tex/@their-handle)",
     group: null,
   },
   {
