@@ -27,11 +27,19 @@ and is unchanged: server-first.
   it. Answers inside 400 ms never show the copy.
 - **The live note asks the device whether it is offline** (`knownOffline`),
   where it used to ask `navigator.onLine`, which React Native does not have.
+- **A dropped control-plane socket is offline** (`serverLink.ts`). The
+  network can say online on weak signal while nothing answers, and every
+  Convex action then hangs. Once the Convex client's socket has been down
+  `STALL_MS` (3 s), after having connected or after two failed attempts on a
+  cold start, `useReachability` says offline, so the queue and the copy are
+  used instead of a 30 or 45 second wait; the moment it is back, online
+  again and the queue drains. A slow request on a live socket never counts:
+  a meaning search or an AI answer may be slow and still arrive.
 
 Reversing it: `serverLists.test.ts` ("on the phone, a list is drawn from the
 device's copy"), `offlineMirrorConsole.test.ts` ("on the phone, the copy
-answers first"), `blendedSearchEarly.test.ts` and `offlineReachability.test.ts`
-("asking outside React") fail.
+answers first"), `blendedSearchEarly.test.ts`, `offlineReachability.test.ts`
+("asking outside React") and `serverLink.test.ts` fail.
 
 ### Offline is the desktop and phone apps; online, lists read the server
 

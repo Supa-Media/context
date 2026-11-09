@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useServerStalled } from "./serverLink";
 import NetInfo from "@react-native-community/netinfo";
 import type { Reachability } from "./copy";
 
@@ -25,6 +26,7 @@ import type { Reachability } from "./copy";
  * is fine, which is the one that teaches people to ignore it.
  */
 export function useReachability(): Reachability {
+  const stalled = useServerStalled();
   const [state, setState] = useState<Reachability>("unknown");
 
   useEffect(() => {
@@ -36,7 +38,8 @@ export function useReachability(): Reachability {
     return unsubscribe;
   }, []);
 
-  return state;
+  // A control plane that has stopped answering is offline, whatever the network says (`serverLink.ts`).
+  return stalled ? "offline" : state;
 }
 
 /*
