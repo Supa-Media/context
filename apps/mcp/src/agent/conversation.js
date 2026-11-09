@@ -25,8 +25,7 @@
  */
 
 import { eventKey, idOfKey, newExchange } from "./events.js";
-import { appendHistory, readHistory } from "./history.js";
-import { copiedIn, readLedgerConversation } from "./ledgerConversation.js";
+import { readLedgerConversation } from "./ledgerConversation.js";
 import { ONE_TO_ONE_CHAT, ledgerWriter, wordsEntry } from "./ledger.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isNoteSource, isReadSource, sourcesOf } from "./sources.js";
 
@@ -149,19 +148,18 @@ function newestExchanges(turns, entries) {
 /**
  * Read a conversation: the person's chat rebuilt from its ledger
  * (`ledgerConversation.js`; the owner, 2026-11-02: one record per chat), or
- * its newest `entries` exchanges when a caller needs only the last few. Only
- * a store that keeps no ledger for them still reads the old history record
- * (`history.js`), counted as `tex_history_from_record`. An unreadable history
- * is an empty conversation: this is a convenience, and a corrupt one must not
- * stop the person getting an answer.
+ * its newest `entries` exchanges when a caller needs only the last few. The
+ * ledger is the only copy: the old history record is retired (its last
+ * reader removed on 2026-11-09, a week after every chat was copied in), so a
+ * store that keeps no ledger has no conversation. An unreadable history is an
+ * empty conversation: this is a convenience, and a corrupt one must not stop
+ * the person getting an answer.
  */
 export async function readConversation(store, name, { entries } = {}) {
   if (conversationPath(name) === null) return [];
   try {
     const rebuilt = await readLedgerConversation(store);
-    if (rebuilt !== null) return newestExchanges(rebuilt, entries);
-    console.log(JSON.stringify({ event: "tex_history_from_record" })); // no ledger, or its old chat not copied in yet
-    return newestExchanges(keep(await readHistory(store, HISTORY)), entries);
+    return rebuilt === null ? [] : newestExchanges(rebuilt, entries);
   } catch (error) {
     console.log(JSON.stringify({ event: "tex_history_unread", reason: error?.code ?? error?.name ?? "error" }));
     return [];
@@ -234,15 +232,6 @@ export async function appendConversation(store, name, question, answer, { tainte
   if (conversationPath(name) === null) return null;
   const exchange = typeof chosen === "string" ? { at, id: chosen } : tag !== null ? { at, id: idOfKey(eventKey(at, tag)) } : newExchange(at);
   const id = exchange.id;
-  // The old record only while the chat's ledger does not hold its whole past: once it is copied in, the ledger is the one copy.
-  if (!(await copiedIn(store))) await appendHistory(
-    store,
-    [
-      keptTurn({ role: "user", text: question, id, at: exchange.at, ...(thread ? { thread } : {}), theirs }),
-      keptTurn({ role: "assistant", text: answer, tainted, tools, sources }),
-    ],
-    HISTORY,
-  );
   // A text Tex sent outside a chat turn (a check-in, a ping, a job's update, a settled yes) into the chat's one record too
   // (`ledger.js`); a chat turn writes its own steps and reply there, and passes `ledger: false`.
   if (ledger && name === "texts") await ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT)?.write(wordsEntry("note", answer, { at: exchange.at, about: String(question ?? "").slice(0, 2_000), ...(tainted ? { tainted: true } : {}), ...(theirs === true ? { theirs: true } : {}), ...(typeof thread === "string" && thread !== "" ? { thread } : {}), ...(sourcesOf(sources).length > 0 ? { sources: sourcesOf(sources) } : {}) }));

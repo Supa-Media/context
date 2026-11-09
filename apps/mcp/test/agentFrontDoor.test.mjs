@@ -23,7 +23,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { ask, createEgressWorld, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { mayAnswerAsk, readFrontDoor } from "../src/agent/frontDoor.js";
 import { textedAsk } from "../src/agent/textedApprovals.js";
 import { EVERY_CHAT, createPending, listPending } from "../src/tools/approvals.js";
@@ -103,9 +103,9 @@ test("the chat is still kept: the next text's turn sees the last one", async () 
   const world = await createEgressWorld();
   try {
     world.model.install([{ text: "Hey Seyi." }]);
-    await ask(world.env, TOKEN_TEXTS, "hi Tex");
+    await textTex(world.env, TOKEN_TEXTS, "hi Tex");
     world.model.install([{ text: "You said hi." }]);
-    await ask(world.env, TOKEN_TEXTS, "what did I just say?");
+    await textTex(world.env, TOKEN_TEXTS, "what did I just say?");
     assert.match(JSON.stringify(world.model.requests.at(-1).messages), /hi Tex/);
     assert.match(JSON.stringify(world.model.requests.at(-1).messages), /Hey Seyi\./);
   } finally {

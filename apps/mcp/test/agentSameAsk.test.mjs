@@ -32,7 +32,7 @@ import { test } from "node:test";
 
 import { SAME_ASK, shownAndNotTaken } from "../src/agent/sameAsk.js";
 import { withoutFlattery } from "../src/agent/pushback.js";
-import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { createEgressWorld, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 const SHORTER = { action: "move", title: "Sarah / Seyi", start: "2026-10-27T18:30:00-04:00", new_start: "2026-10-27T18:30:00-04:00", new_end: "2026-10-27T18:45:00-04:00" };
 // The model's second try differs in an argument the person never reads.
@@ -50,13 +50,13 @@ test("the same change after a pushback is not shown again, and the corrected one
     controlPlane.flags.calendarGuests = ["sarah@example.test"];
 
     model.install([{ toolCalls: [{ name: "calendar_event", args: SHORTER }] }, { text: "Sarah / Seyi today: 6:30 to 6:45 pm instead of 6:30 to 7." }]);
-    const first = await ask(env, TOKEN_TEXTS, "maybe make sarah's meeting 15 min");
+    const first = await textTex(env, TOKEN_TEXTS, "maybe make sarah's meeting 15 min");
     assert.match(sent(first), /Give it a 👍/, "the first change is put to them");
     const block = (first.body?.verbatim ?? []).find((text) => text.includes("Give it a 👍"));
     assert.ok(block, "the ask went out on its own");
 
     model.install([{ text: "Sarah's is still 6:30 to 7 because the change is waiting on your 👍." }]);
-    await ask(env, TOKEN_TEXTS, "but they're both still at 6:30");
+    await textTex(env, TOKEN_TEXTS, "but they're both still at 6:30");
 
     // The model tries the same change again, the way it did on 2026-10-27, then the right one.
     model.install([
@@ -64,7 +64,7 @@ test("the same change after a pushback is not shown again, and the corrected one
       { toolCalls: [{ name: "calendar_event", args: LATER }] },
       { text: "Sorry, I should have moved one of them. Moving Sarah's to 6:45 to 7, Austin stays at 6:30." },
     ]);
-    const third = await ask(env, TOKEN_TEXTS, "are you dumb, i need to meet with both of them, you have to move one of them to start at a different time");
+    const third = await textTex(env, TOKEN_TEXTS, "are you dumb, i need to meet with both of them, you have to move one of them to start at a different time");
     assert.ok(model.requests.some((req) => JSON.stringify(req.messages ?? []).includes(SAME_ASK.slice(0, 60))), "the model is told the repeat was not shown");
     const said = sent(third);
     assert.doesNotMatch(said, /6:30 to 6:45 pm\n/, "the change they pushed back on is not shown again");

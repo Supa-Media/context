@@ -13,8 +13,8 @@ import { BACKFILLED } from "../src/agent/ledgerBackfill.js";
 /** The person's chat rebuilt from their ledger as every reader now reads it (`ledgerConversation.js`), or null with none. */
 function ledgerTurns(bucket) {
   const entries = typeof bucket?.ledgerEntries === "function" ? bucket.ledgerEntries() : [];
-  // As the gateway: a ledger whose old chat is not copied in yet is not read (`readLedgerConversation`).
-  return entries.some((entry) => entry.id === BACKFILLED) ? HISTORY.keep(conversationFromLedger(entries)) : null;
+  // As the gateway: the ledger is the chat, marked or not (`readLedgerConversation`); a bucket with no ledger falls back below.
+  return entries.length > 0 ? HISTORY.keep(conversationFromLedger(entries)) : null;
 }
 
 export const OLD_CONVERSATION = ".context/agent/conversations/texts.json";

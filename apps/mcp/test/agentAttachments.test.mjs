@@ -39,7 +39,8 @@ import { test } from "node:test";
 import { anthropicMessages, openAiMessages } from "../src/agent/providers.js";
 import { hearVoiceMessages, readAttachments, withAttachmentImages } from "../src/agent/attachments.js";
 import { KEPT_PHOTOS_PATH } from "../src/agent/pictureMaker.js";
-import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { createEgressWorld, request, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { conversationFromLedger } from "../src/agent/ledgerConversation.js";
 
 // A 1x1 PNG.
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -60,7 +61,8 @@ const lastUser = (body) => body.messages.filter((message) => message.role === "u
  */
 const savedWords = (world, { except = () => false } = {}) => {
   const home = "person:ws_egress";
-  const inHome = world.tex.keysIn(home).map((key) => world.tex.textIn(home, key) ?? "");
+  // The chat's one record is its ledger; anything else the object keeps is read too.
+  const inHome = [...world.tex.keysIn(home).map((key) => world.tex.textIn(home, key) ?? ""), JSON.stringify(world.tex.ledgerIn(home))];
   const inBucket = world.objectsUnder(".context/").filter((key) => !except(key)).map((key) => String(world.bucket.get(key)?.body ?? ""));
   return [...inBucket, ...inHome].join("\n");
 };
@@ -96,16 +98,18 @@ test("the saved conversation names what was sent, never its bytes", async () => 
   const world = await createEgressWorld();
   try {
     world.model.install([{ text: "Nice." }]);
-    await request(world.env, TOKEN_TEXTS, "/agent", { question: "look", conversation: "texts", attachments: ATTACHED.slice(0, 1) });
+    await textTex(world.env, TOKEN_TEXTS, "look", { attachments: ATTACHED.slice(0, 1) });
     // The photo itself is kept apart, for a later "try again" (`pictureMaker.js`, KEPT_PHOTOS_PATH);
     // the conversation never carries it.
     const keys = world.objectsUnder(".context/");
     assert.ok(keys.includes(KEPT_PHOTOS_PATH));
-    // The conversation is the history record and what it names. The picture's stored file (`.context/assets/`,
+    // The conversation is the chat's ledger and what it names. The picture's stored file (`.context/assets/`,
     // the pictures note's image) is named by it, never copied into it; the kept photo (`KEPT_PHOTOS_PATH`) is apart.
     const saved = savedWords(world, { except: (key) => key === KEPT_PHOTOS_PATH || key.startsWith(".context/assets/") });
-    // The picture is named with the note that keeps it (`textedPictures.js`; the daily transcripts are no longer written), so a later text can look again.
-    assert.match(saved, /look\\n\[Sent with this text: meme\.png \(image upload-[0-9a-f]{16}\.png in tex\/pictures\/\d{4}-\d{2}\.md\)\. Seen only on that turn\. read_image with that note and image shows it again; to email one, attach takes the same words \(<image> in <note>\), never the browser\.\]/);
+    // The picture is named with the note that keeps it (`textedPictures.js`; the daily transcripts are no longer written), so a later text can look again:
+    // the next turn reads their text with it, as the chat is rebuilt from the ledger.
+    const next = JSON.stringify(conversationFromLedger(world.tex.ledgerIn("person:ws_egress")));
+    assert.match(next, /look\\n\[Sent with this text: meme\.png \(image upload-[0-9a-f]{16}\.png in tex\/pictures\/\d{4}-\d{2}\.md\)\. Seen only on that turn\. read_image with that note and image shows it again; to email one, attach takes the same words \(<image> in <note>\), never the browser\.\]/);
     assert.doesNotMatch(saved, new RegExp(PNG.slice(0, 40).replace(/[+/]/g, "\\$&")));
   } finally {
     world.restore();

@@ -133,7 +133,14 @@ export function texStoreNamespace() {
     const found = held.objects.get(key);
     return found?.body ? new TextDecoder().decode(found.body) : null;
   };
-  const api = { namespace, inner, calls, objects, object, old, oldObject, keysIn, textIn, before: null, beforeInner: null };
+  /** A chat's ledger entries in an object, newest first, or [] with none (`texStore/ledger.js`). */
+  const ledgerIn = (name, chat = "texts") => {
+    const held = objects.get(name);
+    if (!held) return [];
+    held.ready();
+    return held.objects?.ledger?.read(chat, { before: Number.MAX_SAFE_INTEGER, limit: 5_000 })?.entries ?? [];
+  };
+  const api = { namespace, inner, calls, objects, object, old, oldObject, keysIn, textIn, ledgerIn, before: null, beforeInner: null };
   return api;
 }
 

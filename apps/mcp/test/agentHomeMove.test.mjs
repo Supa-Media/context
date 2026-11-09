@@ -10,7 +10,7 @@ import { R2Store } from "../src/store/r2.js";
 import { storeForBinding } from "../src/store/factory.js";
 import { eventKey } from "../src/agent/events.js";
 import { moveAgentHome } from "../src/agent/agentHomeMove.js";
-import { readConversation } from "../src/agent/conversation.js";
+import { HISTORY_KEY } from "../src/agent/history.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 function world() {
@@ -43,7 +43,8 @@ test("the old log becomes the one record, turn records keep their verdict, and n
   await store.put(".context/agent/turns/turn-clean-0001.json", JSON.stringify({ clean: false }));
   const moved = await moveAgentHome(store);
   assert.deepEqual(moved, { history: "moved", turns: { copied: 1, kept: 1, would: 0 } });
-  assert.deepEqual((await readConversation(store, "texts")).map((turn) => turn.text), ["first", "one", "second", "two"]);
+  // The record the move makes (the chat's reads moved to its ledger since; the record is what the copy-in reads).
+  assert.deepEqual(JSON.parse(await (await store.get(HISTORY_KEY)).text()).turns.map((turn) => turn.text), ["first", "one", "second", "two"]);
   const verdict = async (turn) => JSON.parse(await (await store.get(`.context/agent/turns/${turn}.json`)).text()).clean;
   assert.equal(await verdict("turn-clean-0001"), false);
   assert.equal(await verdict("turn-dirty-0001"), false);

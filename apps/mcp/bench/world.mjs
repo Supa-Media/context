@@ -62,6 +62,8 @@ const BRAVE_SEARCH = "https://api.search.brave.com/";
 export const S3_ENDPOINT = "https://s3.bench.invalid";
 /** How much of a filed note's text a record keeps, for `containing` checks. */
 const MAX_FILED_TEXT = 2000;
+/** The line the bench's person texts on, as the texting Worker names a chat (`apps/agent/src/events.ts`). */
+const BENCH_CHAT = "sendblue:line:+15555550100";
 
 /** A note's front matter as `key → value`, lower-cased keys, quotes dropped. */
 export function frontOf(text) {
@@ -409,6 +411,23 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     }
     return { usage, usageByModel, model: reports.at(-1)?.model ?? null };
   };
+  // The chat's events as the texting Worker posts them (`/agent/events`): their texts and Tex's.
+  let texted = 0;
+  const textedEvent = (text) => {
+    const at = Date.now();
+    texted += 1;
+    return { id: `${String(at).padStart(13, "0")}-${String(texted).padStart(6, "0")}`, at, chat: BENCH_CHAT, from: { kind: "person" }, kind: "text", text: String(text).slice(0, 3_000), turn: `bench-turn-${String(texted).padStart(6, "0")}` };
+  };
+  const postEvents = async (events) => {
+    const { ctx, settle } = createWorkerCtx();
+    const posted = await worker.fetch(
+      new Request("https://mcp.bench.invalid/agent/events", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ conversation: "texts", events: events.map(({ turn, ...event }) => (event.from.kind === "tex" ? { ...event, turn } : event)) }) }),
+      env,
+      ctx,
+    );
+    await posted.text();
+    await settle();
+  };
   return {
     /** One texted message, answered with the conversation so far. */
     async text(message, attachments = [], { running = null } = {}) {
@@ -418,6 +437,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       // The real clock, not the world's: a turn's recorded time is how long it took.
       const started = realNow();
       const reportsBefore = controlPlane.builtinReports.length;
+      // Their text posted to the chat's ledger first, as the texting Worker does (`apps/agent/src/events.ts`): the ledger is
+      // the chat's one record, so the next text sees this one only through it.
+      const said = textedEvent(message);
+      await postEvents([said]);
       // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
       // plain JSON ask would measure the quick turn's 8 rounds instead.
@@ -427,7 +450,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
           // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
-          body: JSON.stringify({ question: message, conversation: "texts", ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
+          body: JSON.stringify({ question: message, conversation: "texts", turn: said.turn, ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
         }),
         env,
         ctx,
@@ -435,6 +458,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const { response, body, progress } = await readStream(streamed);
       const ms = realNow() - started;
       await settle();
+      // Tex's answer, as the Worker posts it once sent.
+      if (typeof body?.answer === "string" && body.answer !== "") await postEvents([{ ...textedEvent(body.answer), from: { kind: "tex" }, turn: said.turn, covers: [said.id], delivered: true }]);
       const turn = controlPlane.turnReports.at(-1) ?? {};
       const spent = spentSince(reportsBefore);
       return {

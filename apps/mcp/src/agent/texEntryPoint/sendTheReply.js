@@ -8,7 +8,6 @@ import { attachmentsLine } from "../attachments.js";
 import { QUIET_ACK, QUIET_ACK_LINE, QUIET_REPORT_LINE, reportReply, startedJobs } from "../background.js";
 import { canRunBuiltin } from "../builtin.js";
 import { chatHubUrl } from "../hubLinks.js";
-import { appendConversation } from "../conversation.js";
 import { keepGroupExchange } from "../groupTurn.js";
 import { jobFields, jobTurnFields } from "../jobCheck.js";
 import { wordsEntry } from "../ledger.js";
@@ -70,11 +69,8 @@ export async function sendTheReply(t) {
 
   if (group !== null && job === null && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
   const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (hushed ? QUIET_ACK_LINE : quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
-  const kept = { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources, thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID, ledger: false }; // addresses only (`sources.js`); the turn's steps and reply are in the ledger already
   if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
     try {
-      const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attached, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
-      await tex.step("append_chat", () => appendConversation(store, conversation, saved, said, kept));
       // A caller other than the texting Worker (which posts every text both ways itself, `/agent/events`) keeps its exchange in the ledger, in the gateway's words.
       if (session.actorClientId !== TEXTS_CLIENT_ID) { chatLog?.write(exchangeEntries([reactedLine(reacted), tapbackLine(quoted) || question, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"), said, { turn: ledgerTurn, asked: received })); await tex.step("ledger_texts", () => chatLog?.flush()); } if (conversation === "texts" && group === null) await tex.step("learn_desk_keys", () => learnDeskKeys(store, session.workspaceId)); // the desk's note keys, for the next turn (`texDesk.js`)
     } catch {
