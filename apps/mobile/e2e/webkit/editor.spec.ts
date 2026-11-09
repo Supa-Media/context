@@ -149,6 +149,30 @@ test("with Show Markdown off, a tap on bold words leaves its symbols hidden", as
   await expect(content).not.toContainText("**basil**");
 });
 
+test("holding a link opens its menu, and a tap on the page puts it away", async ({ page }) => {
+  // Owner, 2026-11-09: "for links can't it be a long hold to open a menu".
+  // The finger comes up still and late (`linkHold.ts`), so the menu opens and
+  // the link is not followed.
+  const link = page.locator(".cm-note-link").first();
+  await expect(link).toBeVisible();
+  const box = await settledBox(link);
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const before = await page.getByTestId("phone-back").getAttribute("aria-label");
+  await dispatchTouch(page, "touchstart", at);
+  await page.waitForTimeout(700);
+  await dispatchTouch(page, "touchend", at);
+
+  const menu = page.getByTestId("link-hold-menu");
+  await expect(menu).toBeVisible();
+  await expect(page.getByTestId("link-hold-open")).toBeVisible();
+  await expect(page.getByTestId("link-hold-edit")).toBeVisible();
+  await expect(page.getByTestId("link-hold-remove")).toBeVisible();
+  await expect(page.getByTestId("phone-back")).toHaveAttribute("aria-label", before ?? "");
+
+  await page.getByTestId("link-hold-scrim").click({ position: { x: 10, y: 10 } });
+  await expect(menu).toHaveCount(0);
+});
+
 test("back retraces the way in: the note's folder, then Notes", async ({ page }) => {
   // The note was reached Notes → areas (the folder row) → the note, and ‹ goes
   // back to the page before each time (Dev2, 2026-10-18: "it should take me to

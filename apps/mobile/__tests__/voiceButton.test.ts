@@ -160,6 +160,8 @@ function fakeControls() {
     undo: () => {},
     redo: () => {},
     blur: () => {},
+    editLink: () => {},
+    unlink: () => {},
     dictate: (t: string) => dictated.push(t),
     showInterim: (t: string) => ghosts.push(t),
     discardDictation: () => {

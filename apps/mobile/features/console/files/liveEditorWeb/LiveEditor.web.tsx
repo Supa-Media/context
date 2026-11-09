@@ -92,6 +92,7 @@ export function LiveEditor({
   accessibilityLabel,
   onOpenNote,
   onOpenTag,
+  onLinkHold,
   notePath,
   notePaths,
   onSubmitForm,
@@ -172,6 +173,7 @@ export function LiveEditor({
     onOpen: (path, mode, anchor) => onOpenNote?.(path, mode, anchor),
     onOpenUrl: openWebUrl,
     onOpenTag,
+    onHold: onLinkHold,
   };
 
   /*

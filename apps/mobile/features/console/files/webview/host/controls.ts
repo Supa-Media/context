@@ -28,6 +28,12 @@ export function bridgeControls(
     },
     applyLink: (link) => bridge.run({ name: "applyLink", link }),
     cancelLink: () => bridge.run({ name: "cancelLink" }),
+    // A held link's menu; the sheet's `ask` is held as `insertLink`'s is.
+    editLink: (ask) => {
+      askLink.current = ask;
+      bridge.run({ name: "editLink" });
+    },
+    unlink: () => bridge.run({ name: "unlink" }),
     undo: () => bridge.run({ name: "undo" }),
     redo: () => bridge.run({ name: "redo" }),
     blur: () => bridge.run({ name: "blur" }),

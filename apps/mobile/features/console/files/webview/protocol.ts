@@ -56,6 +56,7 @@
 
 import { decodeLinkTarget, type LinkTarget } from "../linkMarkdown";
 import type { LineState } from "../lineState";
+import type { HeldLink } from "../linkHold";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -108,6 +109,9 @@ export type EditorCommand =
   | { name: "applyLink"; link: LinkTarget }
   /** The sheet was dismissed: put the saved selection back as it was. */
   | { name: "cancelLink" }
+  /** A held link's menu (`linkHold.ts`): Edit link asks for the Link sheet; Remove link keeps the words. */
+  | { name: "editLink" }
+  | { name: "unlink" }
   | { name: "undo" }
   | { name: "redo" }
   /**
@@ -170,6 +174,9 @@ export function decodeCommand(value: unknown): EditorCommand | null {
     }
     case "cancelLink":
       return { name: "cancelLink" };
+    case "editLink":
+    case "unlink":
+      return { name: command.name };
     case "undo":
       return { name: "undo" };
     case "redo":
@@ -436,6 +443,8 @@ export type ToHost =
    * never left holding a request it cannot answer.
    */
   | { v: number; type: "link-request"; text: string }
+  /** A link was held: show its menu (`linkHold.ts`). */
+  | { v: number; type: "link-hold"; link: HeldLink }
   /** Focus, so the host can tell the keyboard layer the note is being typed into. */
   | { v: number; type: "focus"; focused: boolean }
   /**
@@ -654,6 +663,7 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "open-url",
   "open-tag",
   "link-request",
+  "link-hold",
   "form-submit",
   "form-responses",
   "form-vote",

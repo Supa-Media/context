@@ -34,6 +34,8 @@ interface SavedRange {
   readonly from: number;
   readonly to: number;
   readonly text: string;
+  /** The words the new link shows, when they are not `text`: a held link being edited (`linkHold.ts`). */
+  readonly label?: string;
 }
 
 interface Pending {
@@ -53,9 +55,9 @@ const pendingLink = StateField.define<Pending | null>({
       // `from` leans right and `to` left, so text typed at either edge is not
       // pulled inside the saved words — it would then fail the match below.
       ranges: value.ranges.map((range) => ({
+        ...range,
         from: tr.changes.mapPos(range.from, 1),
         to: tr.changes.mapPos(range.to, -1),
-        text: range.text,
       })),
       selection: value.selection.map(tr.changes),
     };
@@ -98,14 +100,32 @@ export function requestLink(view: EditorView, ask: (text: string) => void): bool
       .map((range) => ({ from: range.from, to: range.to, text: state.sliceDoc(range.from, range.to) })),
     selection: state.selection,
   };
+  save(view, saved);
+  ask(text);
+  return true;
+}
+
+/**
+ * Edit link, from a held link's menu (`linkHold.ts`): the whole link is saved
+ * with its words, and the pick replaces it as a link over those words.
+ */
+export function requestLinkEdit(
+  view: EditorView,
+  link: { from: number; to: number; label: string },
+  ask: (text: string) => void,
+): void {
+  const text = view.state.sliceDoc(link.from, link.to);
+  save(view, { ranges: [{ from: link.from, to: link.to, text, label: link.label }], selection: view.state.selection });
+  ask(link.label);
+}
+
+function save(view: EditorView, saved: Pending): void {
   // Two dispatches the first time: a field added by a transaction starts from
   // `create` and does not see that transaction's other effects.
-  if (state.field(pendingLink, false) === undefined) {
+  if (view.state.field(pendingLink, false) === undefined) {
     view.dispatch({ effects: StateEffect.appendConfig.of(pendingLink) });
   }
   view.dispatch({ effects: setPending.of(saved) });
-  ask(text);
-  return true;
 }
 
 /**
@@ -122,7 +142,7 @@ export function applyLink(view: EditorView, target: LinkTarget): void {
   const changes: ChangeSpec[] = kept.map((range) => ({
     from: range.from,
     to: range.to,
-    insert: linkMarkdown(range.text, target),
+    insert: linkMarkdown(range.label ?? range.text, target),
   }));
   if (changes.length === 0) {
     cancelLink(view);

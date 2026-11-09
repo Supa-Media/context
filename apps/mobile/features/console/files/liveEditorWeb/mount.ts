@@ -330,6 +330,8 @@ export function mountEditor({
     insertLink: (ask) => runCommand(created, { name: "insertLink" }, ask),
     applyLink: (link) => runCommand(created, { name: "applyLink", link }),
     cancelLink: () => runCommand(created, { name: "cancelLink" }),
+    editLink: (ask) => runCommand(created, { name: "editLink" }, ask),
+    unlink: () => runCommand(created, { name: "unlink" }),
     undo: () => runCommand(created, { name: "undo" }),
     redo: () => runCommand(created, { name: "redo" }),
     blur: () => runCommand(created, { name: "blur" }),

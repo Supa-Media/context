@@ -16,6 +16,8 @@ import { isPassphraseNote } from "../../encryption/envelope";
 import type { EditorControls } from "../LiveEditor";
 import { NoteAccessory } from "../NoteAccessory";
 import { LinkSheet } from "../LinkSheet";
+import { LinkHoldMenu, runLinkHold } from "../LinkHoldMenu";
+import type { HeldLink } from "../linkHold";
 import { useVoiceHost } from "../../../voice/VoiceHost";
 import { makeStyles } from "./styles";
 import { noteFoot } from "./statusLine";
@@ -290,6 +292,9 @@ export function NoteEditor({
   const [linkWords, setLinkWords] = useState<string | null>(null);
   // A different note is a different editor, which holds no saved selection.
   useEffect(() => setLinkWords(null), [state.path]);
+  /** A link held on a touch screen, whose menu is open (`linkHold.ts`). */
+  const [heldLink, setHeldLink] = useState<HeldLink | null>(null);
+  useEffect(() => setHeldLink(null), [state.path]);
   const frame = useFrame();
   const padding = useSurfacePadding();
   const barUp = accessoryUp({ compact, editable, focused });
@@ -457,7 +462,7 @@ export function NoteEditor({
     // Derived above, in the order the hooks require.
     styles, editable, passphraseLocked, drawing, activityList, pageView, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,
-    setDictateAsked, docWidth, setDocWidth, chipHost, addAsked, setAddAsked, controls, titleHint, setLineState, padding, barUp, voice, moving, settledAt,
+    setDictateAsked, setHeldLink, docWidth, setDocWidth, chipHost, addAsked, setAddAsked, controls, titleHint, setLineState, padding, barUp, voice, moving, settledAt,
     scroller, offset, frontmatter, body, titled, durability, canDiscard, explains, manualSave,
   };
 
@@ -536,6 +541,14 @@ export function NoteEditor({
         out answers the editor, which holds the selection until it is told
         what became of it (`linkSelection.ts`).
       */}
+      {heldLink === null ? null : (
+        <LinkHoldMenu
+          link={heldLink}
+          editable={editable}
+          onDismiss={() => setHeldLink(null)}
+          onRun={(action) => runLinkHold(action, heldLink, { controls: controls.current, openNote: onOpenLink, ask: setLinkWords })}
+        />
+      )}
       {linkWords === null ? null : (
         <LinkSheet
           words={linkWords}

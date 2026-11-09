@@ -1,4 +1,5 @@
 import type { LineState } from "../lineState";
+import type { HeldLink } from "../linkHold";
 import type { ScrollView } from "react-native";
 import type { useSurfacePadding } from "../../../app/Screen";
 import type { VoiceHost } from "../../../voice/VoiceHost";
@@ -49,6 +50,8 @@ export type NoteView = Omit<NoteEditorProps, "activityShared" | "activityEditabl
   titleHint: string | null;
   /** The caret line's style and list, which the Aa panel lights. */
   setLineState: (state: LineState) => void;
+  /** A link was held: open its menu (`LinkHoldMenu.tsx`). */
+  setHeldLink: (link: HeldLink) => void;
   padding: ReturnType<typeof useSurfacePadding>;
   barUp: boolean;
   voice: VoiceHost | null;
