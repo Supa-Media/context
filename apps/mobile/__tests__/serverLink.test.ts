@@ -32,8 +32,12 @@ import { useReachability } from "../features/offline/reachability.web";
 const up: LinkState = { isWebSocketConnected: true, hasEverConnected: true, connectionRetries: 0 };
 const dropped: LinkState = { isWebSocketConnected: false, hasEverConnected: true, connectionRetries: 1 };
 
-beforeEach(() => jest.useFakeTimers());
-afterEach(() => jest.useRealTimers());
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+afterEach(() => {
+  jest.useRealTimers();
+});
 
 describe("the stall rule", () => {
   test("a dropped socket is offline only after it stays down", () => {
