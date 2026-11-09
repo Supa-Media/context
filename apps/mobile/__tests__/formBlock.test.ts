@@ -87,13 +87,7 @@ function stateFor(
       ...(host === undefined ? [] : [formHost.of({ current: host })]),
     ],
   });
-  /*
-    A fresh state holds only what the parser finished inside its first time
-    budget, and on a loaded CI runner that can be nothing at all: the first
-    test in this file then saw no fence (CI, 2026-11-09). The editor itself
-    redraws as the parse moves on; a test reads once, so it parses the whole
-    document first.
-  */
+  // A fresh state holds only the parse its first time budget finished, on a loaded runner nothing (CI, 2026-11-09).
   ensureSyntaxTree(state, state.doc.length, 5_000);
   return state;
 }
