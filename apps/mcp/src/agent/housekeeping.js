@@ -49,6 +49,9 @@ import { HOUSEKEEPING_SETTINGS_PATH, isSwitchedOff } from "./texSwitches.js";
 
 export const HOUSEKEEPING_FOLDER = "tex/housekeeping";
 
+/** What the run's own end answers in place of the turn (`handleHousekeeping`). */
+const OUT_OF_TIME = Symbol("out of time");
+
 /**
  * Housekeeping's own first-party client, handed a short-lived grant on the
  * person's personal workspace by the control plane when the workspace
@@ -67,6 +70,14 @@ export const HOUSEKEEPING_CLIENT_ID = "context_housekeeping";
  */
 const HOUSEKEEPING_ROUNDS = 40;
 const HOUSEKEEPING_TOOL_BUDGET_MS = 180_000;
+/**
+ * The whole run's own end, inside the texting Worker's five-minute wait (`apps/agent/src/housekeeping.ts`).
+ * The tools' budget bounds only the tools: past it the model is still asked round after round, and a run
+ * that outlived the Worker's wait was cut off with nothing logged, so no `tex/housekeeping/` note said it
+ * ever ran (@seyi, 2026-11-05, 11-06 and 11-08). Past this the run stops waiting for the model and logs
+ * what it changed.
+ */
+export const HOUSEKEEPING_WALL_MS = 240_000;
 const MAX_WHY_CHARS = 4_000;
 const MAX_LINE_CHARS = 280;
 const HEALTH_TRIES = 3;
@@ -199,6 +210,8 @@ export async function healthOf(dispatch, tries = HEALTH_TRIES) {
  * routed to (`http/route.js`). The caller decides when; this decides what.
  */
 export async function handleHousekeeping(request, env, store, session, controlPlane) {
+  // `HOUSEKEEPING_WALL_MS` in the environment shortens it for a test; it is never longer than the Worker waits.
+  const wallMs = Math.min(HOUSEKEEPING_WALL_MS, Number(env?.HOUSEKEEPING_WALL_MS) > 0 ? Number(env.HOUSEKEEPING_WALL_MS) : HOUSEKEEPING_WALL_MS);
   if (session.actorClientId !== HOUSEKEEPING_CLIENT_ID) return json({ error: "invalid_request", error_description: "Only Tex's housekeeping keeps house." }, 403);
   let body = null;
   try {
@@ -246,9 +259,12 @@ export async function handleHousekeeping(request, env, store, session, controlPl
   const meter = builtinMeter(controlPlane, session, model, started);
 
   let turn = null;
+  let timedOut = false;
+  let broke = null;
+  let timer = null;
   try {
     const aboutMe = await readAboutMe(dispatch);
-    turn = await runTurn({
+    const running = runTurn({
       question: housekeepingQuestion({ health, today: dayOf(started, timeZone), instructions: setup?.prompt ?? null }),
       tools: housekeepingTools(offered),
       grants: HOUSEKEEPING_GRANTS,
@@ -272,6 +288,15 @@ export async function handleHousekeeping(request, env, store, session, controlPl
       roundCap: HOUSEKEEPING_ROUNDS,
       toolBudgetMs: HOUSEKEEPING_TOOL_BUDGET_MS,
     });
+    // Left running past the end, its answer is never read, but what it spent is still metered if it finishes;
+    // a rejection then must not surface unhandled.
+    running.then((late) => (timedOut ? meter(late.usage, false, late.model) : undefined)).catch(() => {});
+    const ended = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(OUT_OF_TIME), Math.max(0, wallMs - (Date.now() - started)));
+    });
+    const answered = await Promise.race([running, ended]);
+    if (answered === OUT_OF_TIME) timedOut = true;
+    else turn = answered;
   } catch (error) {
     await meter(null, true, error instanceof ProviderError ? error.model : model);
     console.log(
@@ -283,16 +308,26 @@ export async function handleHousekeeping(request, env, store, session, controlPl
         ...(error instanceof ProviderError ? { reason: error.reason, status: error.status } : {}),
       }),
     );
-    if (!(error instanceof ProviderError)) throw error;
+    // Anything else is logged as well, by its class only: a run that broke still leaves its line in the day's log.
+    if (!(error instanceof ProviderError)) broke = error?.name ?? "Error";
+  } finally {
+    clearTimeout(timer);
   }
   if (turn !== null) await meter(turn.usage, false, turn.model);
+  // A turn left running past the end changes nothing more: the log below is the whole record.
+  guard.stop();
 
   const changes = guard.changes;
   const after = changes.length > 0 ? chaosFrom(await healthOf(dispatch)) : before;
-  const outcome = changes.length > 0 ? "tidied" : turn === null ? "failed" : "unchanged";
+  const outcome = changes.length > 0 ? "tidied" : turn === null && !timedOut ? "failed" : "unchanged";
   const now = Date.now();
+  const why = timedOut
+    ? `This run ran out of time after ${Math.round(wallMs / 1000)} seconds and stopped; the changes above are what it made before then.`
+    : broke !== null
+    ? `This run stopped on an error in Context (${broke}) and changed only what is listed above.`
+    : turn?.answer ?? "";
   const entry = housekeepingEntry({
-    now, timeZone, model: turn?.model ?? null, changes, before, after, why: turn?.answer ?? "", events, dryRuns: guard.dryRuns, running: guard.running,
+    now, timeZone, model: turn?.model ?? (timedOut ? model : null), changes, before, after, why, events, dryRuns: guard.dryRuns, running: guard.running,
   });
   const logged = await appendLogEntry(dispatch, housekeepingPath(now, timeZone), entry, heading(now, timeZone));
   console.log(
@@ -302,6 +337,8 @@ export async function handleHousekeeping(request, env, store, session, controlPl
       grant: session.grantId,
       provider: BUILTIN_PROVIDER,
       outcome,
+      ...(timedOut ? { timedOut: true } : {}),
+      ...(broke !== null ? { broke } : {}),
       changes: changes.length,
       refusals: guard.refusals,
       running: guard.running,

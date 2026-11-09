@@ -399,3 +399,59 @@ test("a folder move whose control plane is unreachable (not timed out) still say
 
   assert.match(answer.content[0].text, /Nothing was changed/);
 });
+
+/**
+ * A batch in a workspace whose notes live in its object moves there, note by note, as `move_note` does: the
+ * control plane's batch compares each version with its own row, which carries the bucket's etag, so a batch
+ * versioned from the object's listing was refused as changed every time (@seyi's housekeeping, 2026-11-04 to
+ * 2026-11-08). Sabotage: drop `objectBatchMove` from `startKeyedBatchMove` and the first case fails (the
+ * control plane is asked).
+ */
+function inObject(files, answer) {
+  const made = keyedBatch(files, (moves) => ({ ok: true, moves: moves.map(({ from, to }) => ({ from, to })) }));
+  const sent = [];
+  Object.defineProperty(made.store, "objectReading", {
+    value: {
+      client: { write: { move: async (body) => { sent.push(body); return answer(body, sent.length); } } },
+      home: "object", behind: false, canWrite: true, scope: "private", names: new Set(), userId: "u1", workspaceId: "w1",
+      log: () => {},
+    },
+    configurable: true,
+  });
+  return { ...made, sent };
+}
+
+test("a batch in an object-home workspace moves each note in the object, with its version, and never asks the control plane", async () => {
+  const made = inObject(TWO_NOTES, (body) => ({ ok: true, files: [{ from: body.from, to: body.to }] }));
+
+  const answer = await toolMoveNotes(made.store, "private", [], new Map(), TWO_MOVES, false);
+
+  assert.notEqual(answer.isError, true, answer.content[0].text);
+  assert.match(answer.content[0].text, /^moved notes: 2\n- 1-projects\/a\.md → 2-areas\/a\.md\n- 1-projects\/b\.md → 2-areas\/b\.md/);
+  assert.deepEqual(made.sent.map((body) => [body.from, body.to, body.expectedEtag]), [
+    ["1-projects/a.md", "2-areas/a.md", "e1"],
+    ["1-projects/b.md", "2-areas/b.md", "e2"],
+  ]);
+  assert.deepEqual(made.batches, []);
+});
+
+test("a batch the object leaves to the control plane from the first note goes there whole, as before", async () => {
+  const made = inObject(TWO_NOTES, () => ({ ok: false, code: "DEFER" }));
+
+  const answer = await toolMoveNotes(made.store, "private", [], new Map(), TWO_MOVES, false);
+
+  assert.match(answer.content[0].text, /moved notes: 2/);
+  assert.equal(made.sent.length, 1);
+  assert.equal(made.batches.length, 1);
+});
+
+test("a batch the object stops part-way names every move that landed and sends nothing to the control plane", async () => {
+  const made = inObject(TWO_NOTES, (body, n) => (n === 1 ? { ok: true, files: [{ from: body.from, to: body.to }] } : { ok: false, code: "CHANGED" }));
+
+  const answer = await toolMoveNotes(made.store, "private", [], new Map(), TWO_MOVES, false);
+
+  assert.equal(answer.isError, true);
+  assert.match(answer.content[0].text, /^batch move partially applied: moved 1 of 2, then stopped at 1-projects\/b\.md: conflict/);
+  assert.match(answer.content[0].text, /\n- 1-projects\/a\.md → 2-areas\/a\.md$/);
+  assert.deepEqual(made.batches, []);
+});

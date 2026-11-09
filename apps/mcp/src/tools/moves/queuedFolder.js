@@ -24,7 +24,7 @@ import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { announceMoves } from "../../moves/keyedCollaboration.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
-import { startObjectMove } from "./objectMove.js";
+import { objectServesMoves, startObjectMove } from "./objectMove.js";
 
 /**
  * A keyed row move's open editors: each moved note's room is told where it went (`keyedCollaboration.js`).
@@ -182,6 +182,45 @@ export async function planKeyedBatchMove(store, scope, rules, overrides, moves) 
   return toolText(`preflight ok: ${moves.length} moves\n${lines.join("\n")}`);
 }
 
+/**
+ * A keyed batch in a workspace whose notes live in its object: each note moved there, one object transaction
+ * each, as `move_note` moves one (`objectMove.js`). The control plane's batch compares each version with its
+ * own row, which carries the bucket's etag, while a listing or a dry run here hands out the object's
+ * (`workspaceStore/rowVersions.js`), so every versioned batch it was sent answered "changed": @seyi's daily
+ * housekeeping moved 0 of 105 notes that way, run after run (2026-11-04 to 2026-11-08).
+ *
+ * `null` sends the whole batch to the control plane as before: the object does not serve this caller, or it
+ * left the first move to the control plane (`DEFER`), so nothing moved. Past the first, a move it refuses or
+ * leaves stops the batch, and the answer names every move that landed, so nothing moved goes unsaid.
+ */
+async function objectBatchMove(store, scope, moves, versions, privacy) {
+  if (!objectServesMoves(store, scope)) return null;
+  const made = [];
+  for (const [index, move] of moves.entries()) {
+    const result = await startObjectMove(store, scope, move.source, move.destination, versions[index], {
+      kind: "note",
+      action: "move_notes",
+      privacy,
+    });
+    if (result === null && made.length === 0) return null;
+    if (result === null || result.isError === true) {
+      const why = result === null ? "that note has to move on its own; move it with move_note" : textOf(result).split("\n")[0];
+      if (made.length === 0) return result;
+      return toolError(
+        `batch move partially applied: moved ${made.length} of ${moves.length}, then stopped at ${move.source}: ${why}\n` +
+          made.map((pair) => `- ${pair.from} → ${pair.to}`).join("\n"),
+      );
+    }
+    made.push({ from: move.source, to: move.destination });
+  }
+  return withActivityHint(
+    toolText(`moved notes: ${made.length}\n` + made.map((pair) => `- ${pair.from} → ${pair.to}`).join("\n") + FOLLOWING_LINE),
+    { moves: made },
+  );
+}
+
+const textOf = (result) => (Array.isArray(result?.content) ? result.content : []).map((part) => part?.text ?? "").join("\n");
+
 export async function startKeyedBatchMove(store, scope, rules, overrides, moves) {
   if (typeof store.startMoveBatch !== "function") {
     return toolError("moving several notes in one call is not available in this workspace yet; move them one at a time");
@@ -194,6 +233,8 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
     if (checked[index].conflict) return toolError(`conflict: ${move.source} changed since you read it; re-read and retry`);
     versions.push(checked[index].etag);
   }
+  const inObject = await objectBatchMove(store, scope, moves, versions, { rules, overrides });
+  if (inObject !== null) return inObject;
   let answer;
   try {
     answer = await store.startMoveBatch(

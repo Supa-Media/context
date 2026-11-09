@@ -305,6 +305,13 @@ function widened({ moves, left }, into) {
   };
 }
 
+/** The moves a batch that stopped part-way says landed (`batch move partially applied: …`, then `- a → b` lines). */
+function partlyMoved(result) {
+  const text = textOf(result);
+  if (!/^batch move partially applied: moved \d+/.test(text)) return [];
+  return [...text.matchAll(/^- (.+?) → (.+?)$/gm)].map((found) => ({ source: plain(found[1]), destination: plain(found[2]) }));
+}
+
 /** The etags a dry run's plan names, by source (`- a.md (etag X) → b.md`). */
 function plannedEtags(result) {
   const etags = new Map();
@@ -321,19 +328,28 @@ function plannedEtags(result) {
  */
 export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now, matchBudgetMs = MATCH_BUDGET_MS } = {}) {
   // Dry runs and changes still running are the gateway's to report, never the model's to guess.
-  const ledger = { changes: [], refusals: 0, dryRuns: 0, running: 0 };
+  const ledger = { changes: [], refusals: 0, dryRuns: 0, running: 0, stopped: false };
+  // A move by name that failed, by what it asked: sent again unchanged it fails again (`moveMatching`).
+  const failedMatches = new Map();
   const refuse = (text) => {
     ledger.refusals += 1;
     return refused(text);
   };
 
-  async function callTool(name, args) {
+  /**
+   * `planning` marks a dry run the gateway made for its own batch's versions (`moveMatching`): the run never
+   * asked for it, so it is not one of the run's dry runs. On 2026-11-04 a log said "2 dry runs" for two moves
+   * the model sent applied.
+   */
+  async function callTool(name, args, { planning = false } = {}) {
     const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     if (given.context !== undefined || given.source_context !== undefined || given.destination_context !== undefined) {
       return refuse("Housekeeping works in this workspace only.");
     }
     if (HOUSEKEEPING_READS.has(name)) return await dispatch(name, given);
     if (!HOUSEKEEPING_CHANGES.has(name)) return refuse(`Housekeeping can't use ${name}: it only moves, archives and tidies notes.`);
+    // The run's log is written: a change made after it would be in no log, with no undo line.
+    if (ledger.stopped) return refuse("This housekeeping run has ended: change nothing more.");
 
     if (name === "move_notes" && given.match !== undefined) return await moveMatching(given);
     const extra = Object.keys(given).filter((key) => given[key] !== undefined && !ALLOWED_ARGS[name].has(key));
@@ -376,13 +392,17 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
       }
     }
 
-    if (dryRun) ledger.dryRuns += 1;
-    else ledger.running += 1;
+    if (dryRun && !planning) ledger.dryRuns += 1;
+    else if (!dryRun) ledger.running += 1;
     let result;
     try {
       result = await dispatch(name, given);
     } finally {
       if (!dryRun) ledger.running -= 1;
+    }
+    if (!dryRun && result?.isError === true && name === "move_notes") {
+      // A batch that stopped part-way names the moves that landed: each is a change, logged with its undo.
+      for (const move of partlyMoved(result)) ledger.changes.push({ do: "moved", from: move.source, to: move.destination });
     }
     if (!dryRun && result?.isError !== true) {
       for (const change of changesOf(name, given)) {
@@ -417,6 +437,14 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
       return refuse("Moving by name needs folder (where the notes are), match (a name pattern like report-2026-09-*) and into (the folder they go to).");
     }
     if (into === folder) return refuse("into must be a different folder from folder.");
+    // The same move by name sent again after it failed: on 2026-11-04 a run sent one twice and it failed the same
+    // way twice, and run after run spent its rounds on it.
+    const asked = JSON.stringify([folder, String(given.match).trim(), into, given.dry_run === true]);
+    if (failedMatches.has(asked)) {
+      return refuse(
+        `That move already failed this run (${failedMatches.get(asked)}). Sending it again fails the same way: leave these notes where they are and go on to the next job.`,
+      );
+    }
     const matched = await matchedMoves(dispatch, folder, pattern, into);
     const { moves, left, family, joined } = widened(matched, into);
     const taken = family === null ? "" : `, and the ${joined} other ${family}* notes with them`;
@@ -450,7 +478,7 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
       const sent = now();
       let result = null;
       if (versions !== null && batch.some((move) => !versions.has(move.source))) {
-        const plan = await callTool("move_notes", { moves: moves.slice(start, start + PLAN_BATCH), dry_run: true });
+        const plan = await callTool("move_notes", { moves: moves.slice(start, start + PLAN_BATCH), dry_run: true }, { planning: true });
         if (plan?.isError === true) result = plan;
         else for (const [source, etag] of plannedEtags(plan)) versions.set(source, etag);
       }
@@ -468,6 +496,8 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
       }
       if (result?.isError === true) {
         const said = textOf(result).split("\n")[0];
+        moved += partlyMoved(result).length;
+        failedMatches.set(asked, said);
         return { isError: true, content: [{ type: "text", text: `moved ${moved} of ${moves.length} notes into ${into}/, then stopped: ${said}` }] };
       }
       moved += batch.length;
@@ -484,6 +514,10 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
 
   return {
     callTool,
+    /** Ends the run's changes: called before its log is written (`housekeeping.js`, a run past its own end). */
+    stop() {
+      ledger.stopped = true;
+    },
     get changes() {
       return ledger.changes;
     },

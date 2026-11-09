@@ -276,7 +276,11 @@ user id, and whether it may write), never by the tool call, and a caller that na
 to the control plane. `DEFER`, `UNKEYED`, an unreachable object or an unknown answer fall back to
 `/gateway/moves/start` unchanged; nothing moved in any of them. What the control plane's row move did beside the rows is
 done in the gateway: open editors are told, the change is recorded, and the forwarding ledger and folder icons follow
-behind the answer; links follow when the mirror takes the move. The tests are `apps/mcp/test/objectMove.test.mjs`.
+behind the answer; links follow when the mirror takes the move. The tests are `apps/mcp/test/objectMove.test.mjs`. A
+keyed `move_notes` batch takes it too, note by note (2026-11-09, `queuedFolder.js` `objectBatchMove`): sent to the
+control plane, its versions (the object's rows') never matched Convex's (the bucket's) and every batch was refused as
+changed. A batch whose first note defers goes to the control plane whole; one stopped part-way names what landed
+(`keyedNoteMove.test.mjs`).
 
 A move into Archive, `archive_note` included, is taken in the object too (2026-11-03): the tree mirror marks the
 Archive twins of the built-in folders on its way (`markArchiveTwins` in `lib/nodes/mirrorTree.ts`), as a row move into
