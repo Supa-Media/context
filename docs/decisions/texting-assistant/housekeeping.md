@@ -144,6 +144,15 @@ and that it ran out of time. A run that breaks on an error that is not the
 model's also logs a line now, rather than throwing before the log. Test: "a
 run past its own end…" in `apps/mcp/test/agentHousekeeping.test.mjs`.
 
+**Runs that moved dozens of notes still died before their log.** Real runs on
+2026-11-09 that moved many notes ended with no gateway log at all, while the
+same flush showed dozens of failed search and meaning follow-ups: each note an
+object batch moved was recorded on its own, re-writing `activity.md` and asking
+the search indexes once a note. An object batch now records once, for every
+note it moved, as the control plane's batch always did (`afterObjectMoves`,
+`apps/mcp/src/tools/moves/objectMove.js`). Test: "a batch in an object-home
+workspace is recorded once…" in `apps/mcp/test/keyedNoteMove.test.mjs`.
+
 ## An off switch, from a text (decided by the owner, 2026-11-08)
 
 Housekeeping stays on by default. `paused: true` in the front matter of

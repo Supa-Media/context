@@ -43,6 +43,32 @@ const REFUSALS = new Map([
 /** The line the keyed row move ends with: the links follow behind it. */
 const FOLLOWING_LINE = "\nreferences: updated in the background (old links forward to the new path meanwhile)";
 
+/**
+ * What a move the object made needs beside its rows, done once for every move in `pairs`: each moved note's open
+ * editor is told (`files`, every note moved), the change is recorded once (which also has search follow it), and,
+ * behind the answer, the forwarding ledger and the folder icons follow. One record per batch rather than per note: a
+ * housekeeping run that moved dozens of notes one record each re-wrote `activity.md` and asked the search indexes
+ * once per note, and the request died before its log was written (@seyi, 2026-11-09).
+ */
+export async function afterObjectMoves(store, scope, { action, kind, privacy, pairs, files }) {
+  // Each step after the object's answer is timed on its own (`phase:move_*`), so a move over 0.1 s says where.
+  await phase(store, "move_announce", () => announceMoves(store, files, privacy));
+  const paths = pairs.flatMap((pair) => [pair.from, pair.to]);
+  await phase(store, "move_record", () =>
+    recordChange(store, action, scope, paths, {
+      rowed: true,
+      object: true,
+      ...(kind === "folder" ? { count: files.length } : pairs.length > 1 ? { count: pairs.length } : {}),
+    }),
+  );
+  await phase(store, "move_behind", () => behind(store, async () => {
+    await Promise.all([
+      recordForwarding(store, pairs.map((pair) => ({ from: pair.from, to: pair.to, kind }))),
+      remapIcons(store, pairs),
+    ]);
+  }));
+}
+
 /** Whether this request's object would be asked a move for a caller of `scope` (it may still leave it to Convex). */
 export function objectServesMoves(store, scope) {
   return objectFor(store, scope) !== null;
@@ -100,7 +126,7 @@ async function behind(store, work) {
  *
  * @returns {Promise<object|null>} a tool result, or null to send the move to the control plane
  */
-export async function startObjectMove(store, scope, source, destination, expectedEtag, { kind, action, privacy, archive, onCode }) {
+export async function startObjectMove(store, scope, source, destination, expectedEtag, { kind, action, privacy, archive, onCode, quiet = false }) {
   const reading = objectFor(store, scope);
   if (reading === null) return null;
   let answer;
@@ -149,18 +175,10 @@ export async function startObjectMove(store, scope, source, destination, expecte
   // The object's answer names where the move went (an archive's own choice); a move it made is never sent on.
   if (typeof answer.to === "string" && answer.to !== "") destination = answer.to;
   const files = Array.isArray(answer.files) ? answer.files : [{ from: source, to: destination }];
-  // Each step after the object's answer is timed on its own (`phase:move_*`), so a move over 0.1 s says where.
-  await phase(store, "move_announce", () => announceMoves(store, files, privacy));
-  await phase(store, "move_record", () =>
-    recordChange(store, action, scope, [source, destination], { rowed: true, object: true, ...(kind === "folder" ? { count: files.length } : {}) }),
-  );
+  // A batch says what it moved once, for all its notes (`objectBatchMove`): `files` is what the caller passes on.
+  if (quiet) return { files, from: source, to: destination };
   const pair = [{ from: source, to: destination }];
-  await phase(store, "move_behind", () => behind(store, async () => {
-    await Promise.all([
-      recordForwarding(store, [{ from: source, to: destination, kind }]),
-      remapIcons(store, pair),
-    ]);
-  }));
+  await afterObjectMoves(store, scope, { action, kind, privacy, pairs: pair, files });
   const text =
     kind === "folder"
       ? `moved folder: ${source}/ → ${destination}/ (${files.length} objects)\nEvery app shows it at the new name now.`

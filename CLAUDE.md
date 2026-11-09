@@ -197,7 +197,7 @@ saving model; see [collaboration](./docs/decisions/collaboration.md). The second
 is `js-tiktoken`, loaded lazily behind the response to count Premium usage
 tokens ([token-usage](./docs/decisions/observability/token-usage.md)). It runs on the Workers runtime, so use
 Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
-an in-memory store stub: fast, offline, currently 4,629 checks. **Do not let it
+an in-memory store stub: fast, offline, currently 4,682 checks. **Do not let it
 regress** — change the test in the same commit as the behavior, and say why.
 
 The privacy engine (`canSee`, `effectiveVisibility`: the nearest folder or
