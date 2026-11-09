@@ -53,7 +53,12 @@ Reversing it: `serverLists.test.ts` ("on the phone, a list is drawn from the
 device's copy"), `offlineMirrorConsole.test.ts` ("on the phone, the copy
 answers first"), `blendedSearchEarly.test.ts`, `offlineReachability.test.ts`
 ("asking outside React"), `serverLink.test.ts` and `devicePictures.test.ts`
-fail.
+fail. `airplaneMode.test.ts` is the trip all of it makes together, through the
+real console on the phone's rules, run with every jest run in CI: a morning's
+work with the signal gone (notes opened and edited, a note, a drawing and a
+folder made, a picture pasted, a folder renamed, two notes moved into it at
+once, a note edited under the folder's new name), nothing sent, then the
+signal back and the bucket exactly where the device left it.
 
 ### Offline is the desktop and phone apps; online, lists read the server
 
