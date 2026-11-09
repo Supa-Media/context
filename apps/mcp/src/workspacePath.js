@@ -147,4 +147,17 @@ export const RESERVED_FIRST_SEGMENTS = new Set([
   // it read as the context called `machines`. Also in the control plane's
   // RESERVED_NAMES, for the reason `presence` is.
   "machines",
+  // The app's file operations, `POST /files/trash`, `/files/restore`, `/files/move`, `/files/copy` and
+  // `/files/duplicate` (`live/fileOpsRoute.js`). Fifth instance of the defect `meetings` above records, caught in
+  // production on 2026-11-09: every delete, rename and duplicate from the app answered "not there any more" because
+  // the address read as the context called `files` at `/trash`. The app now names its workspace in the address
+  // (`/@slug/files/trash`); this line keeps the bare address working for apps already open.
+  "files",
+  // The app's search bar, `POST /app/search` (`http/appSearch.js`): the same defect, found by the guard test
+  // `routeWords.test.mjs` the same day. The bar fell back to the control plane's search on every query.
+  "app",
+  // Routes the front door answers before it splits the address (`/internal/...`, `/api/image-upload`), reserved so
+  // the guard test can hold every route to one rule.
+  "internal",
+  "api",
 ]);

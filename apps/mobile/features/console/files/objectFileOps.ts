@@ -41,6 +41,13 @@ export interface ObjectMoveTarget {
   workspaceId: string;
   /** The gateway's origin; `null` when the endpoint is not a URL, which falls back. */
   origin: string | null;
+  /**
+   * The workspace's name, without its `@`, when the caller knows it: the request is addressed to the workspace
+   * (`/@slug/files/trash`), so the address says which workspace it acts on (decided by the owner, 2026-11-09, after
+   * the bare `/files/...` address was read by the gateway as a workspace called `files`). `null` sends the bare
+   * address, which the gateway also answers.
+   */
+  slug?: string | null;
   /** A console grant's bearer for the workspace. `rejected` names a token the gateway just refused. */
   mint: (rejected?: string) => Promise<string>;
   timeoutMs?: number;
@@ -108,12 +115,18 @@ interface Answer {
   body: unknown;
 }
 
+/** Where one operation is sent: `/@slug/files/...` on the gateway when the workspace's name is known. */
+export function objectFileOpUrl(target: Pick<ObjectMoveTarget, "origin" | "slug">, path: string): string {
+  const slug = typeof target.slug === "string" && /^[a-z0-9][a-z0-9-]*$/.test(target.slug) ? target.slug : null;
+  return new URL(slug === null ? path : `/@${slug}${path}`, target.origin!).toString();
+}
+
 /** One request with its deadline; `null` for a network failure or a timeout. */
 async function post(target: ObjectMoveTarget, path: string, body: unknown, token: string): Promise<Answer | null> {
   const abort = typeof AbortController === "function" ? new AbortController() : null;
   const deadline = setTimeout(() => abort?.abort(), target.timeoutMs ?? OBJECT_FILE_OP_TIMEOUT_MS);
   try {
-    const response = await fetch(new URL(path, target.origin!).toString(), {
+    const response = await fetch(objectFileOpUrl(target, path), {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify(body),
