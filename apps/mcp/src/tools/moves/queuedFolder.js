@@ -24,7 +24,7 @@ import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { announceMoves } from "../../moves/keyedCollaboration.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
-import { objectServesMoves, startObjectMove } from "./objectMove.js";
+import { afterObjectMoves, objectServesMoves, startObjectMove } from "./objectMove.js";
 
 /**
  * A keyed row move's open editors: each moved note's room is told where it went (`keyedCollaboration.js`).
@@ -196,23 +196,32 @@ export async function planKeyedBatchMove(store, scope, rules, overrides, moves) 
 async function objectBatchMove(store, scope, moves, versions, privacy) {
   if (!objectServesMoves(store, scope)) return null;
   const made = [];
+  const files = [];
+  // What landed is said once, however the batch ended (`afterObjectMoves`).
+  const settle = async () => {
+    if (made.length > 0) await afterObjectMoves(store, scope, { action: "move_notes", kind: "note", privacy, pairs: made, files });
+  };
   for (const [index, move] of moves.entries()) {
     const result = await startObjectMove(store, scope, move.source, move.destination, versions[index], {
       kind: "note",
       action: "move_notes",
       privacy,
+      quiet: true,
     });
     if (result === null && made.length === 0) return null;
     if (result === null || result.isError === true) {
       const why = result === null ? "that note has to move on its own; move it with move_note" : textOf(result).split("\n")[0];
       if (made.length === 0) return result;
+      await settle();
       return toolError(
         `batch move partially applied: moved ${made.length} of ${moves.length}, then stopped at ${move.source}: ${why}\n` +
           made.map((pair) => `- ${pair.from} → ${pair.to}`).join("\n"),
       );
     }
-    made.push({ from: move.source, to: move.destination });
+    made.push({ from: result.from, to: result.to });
+    files.push(...result.files);
   }
+  await settle();
   return withActivityHint(
     toolText(`moved notes: ${made.length}\n` + made.map((pair) => `- ${pair.from} → ${pair.to}`).join("\n") + FOLLOWING_LINE),
     { moves: made },

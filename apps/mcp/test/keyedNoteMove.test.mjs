@@ -455,3 +455,24 @@ test("a batch the object stops part-way names every move that landed and sends n
   assert.match(answer.content[0].text, /\n- 1-projects\/a\.md → 2-areas\/a\.md$/);
   assert.deepEqual(made.batches, []);
 });
+
+/**
+ * A batch the object moved is recorded once, for every note in it, as the control plane's batch is: one audit entry
+ * naming all its paths with its count. One record per note re-wrote `activity.md` and asked the search indexes once a
+ * note, and a housekeeping run that moved dozens of notes died before its log was written (@seyi, 2026-11-09).
+ * Sabotage: have `objectBatchMove` settle each note on its own and this sees one entry per note.
+ */
+test("a batch in an object-home workspace is recorded once, with every note it moved", async () => {
+  const made = inObject(TWO_NOTES, (body) => ({ ok: true, files: [{ from: body.from, to: body.to }] }));
+
+  const answer = await toolMoveNotes(made.store, "private", [], new Map(), TWO_MOVES, false);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.notEqual(answer.isError, true, answer.content[0].text);
+  const audits = made.writes.filter(([, key]) => key.startsWith(".context/audit/"));
+  assert.equal(audits.length, 1, `one audit entry, got ${audits.length}`);
+  const entry = JSON.parse(String(made.objects.get(audits[0][1])?.body ?? audits[0][2] ?? "{}"));
+  assert.equal(entry.action, "move_notes");
+  assert.deepEqual(entry.paths, ["1-projects/a.md", "2-areas/a.md", "1-projects/b.md", "2-areas/b.md"]);
+  assert.equal(entry.details.count, 2);
+});

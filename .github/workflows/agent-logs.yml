@@ -71,13 +71,33 @@ jobs:
           seconds=$(( (MINUTES > 15 ? 15 : (MINUTES < 1 ? 1 : MINUTES)) * 60 ))
           echo "Watching $SERVICE for $seconds seconds."
           # Only lines carrying a JSON log with an event code reach the filter; it prints the same fixed keys.
-          timeout "$seconds" npx --yes wrangler@4 tail "$SERVICE" --format pretty 2>/dev/null \
+          # json format: one invocation per line, its outcome and exception classes printed beside its log codes.
+          timeout "$seconds" npx --yes wrangler@4 tail "$SERVICE" --format json 2>/dev/null \
+            | node -e '
+              const code = (v) => { const t = String(v); return /^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t) ? t : "other"; };
+              let buf = "", depth = 0, inStr = false, esc = false;
+              const emit = (chunk) => {
+                let e; try { e = JSON.parse(chunk); } catch { return; }
+                const route = String(e?.event?.request?.url ?? "").replace(/^https?:\/\/[^/]+/, "").split("?")[0];
+                const ex = (e.exceptions ?? []).map((x) => code(x?.name)).join(",");
+                console.log(JSON.stringify({ event: "invocation", outcome: code(e.outcome), path: route === "/agent" ? "agent" : "other", ...(ex ? { name: ex } : {}), lines: (e.logs ?? []).length }));
+                for (const log of e.logs ?? []) for (const m of log.message ?? []) if (typeof m === "string" && m.startsWith("{\"event\"")) console.log(m);
+              };
+              process.stdin.setEncoding("utf8").on("data", (d) => {
+                for (const ch of d) {
+                  if (depth > 0) buf += ch;
+                  if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === "\"") inStr = false; continue; }
+                  if (ch === "\"") { inStr = depth > 0; continue; }
+                  if (ch === "{") { if (depth === 0) buf = "{"; depth += 1; }
+                  else if (ch === "}" && depth > 0) { depth -= 1; if (depth === 0) emit(buf); }
+                }
+              });' \
             | grep --line-buffered -o '{"event":.*}' \
             | node -e '
-              const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms", "path", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "where", "name", "job", "keys", "idKind", "from", "to", "cause", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "source", "cold", "waitedMs", "type", "method"];
+              const keep = ["event", "outcome", "reason", "status", "code", "lines", "service", "kind", "attempts", "ms", "path", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "where", "name", "job", "keys", "idKind", "from", "to", "cause", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "source", "cold", "waitedMs", "type", "method"];
               // Only a code the Worker chose is published; anything else is "other", never stripped down to a
               // readable remnant (scripts/log-codes.mjs, which this run page cannot import: no checkout here).
-              const NUMERIC = new Set(["attempts", "ms", "status", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "waitedMs"]);
+              const NUMERIC = new Set(["lines", "attempts", "ms", "status", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "waitedMs"]);
               const code = (v) => {
                 const t = String(v);
                 return /^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t) ? t : "other";
