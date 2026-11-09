@@ -22,14 +22,17 @@ import {
  * the workspace they act on. Each answers `null` when the caller should use the
  * Convex action instead (see `objectFileOps.ts`); the served check is read at
  * call time, from `objectServes`, so the answer is the one the object gave last.
+ * `slugOf` names a workspace by its id, so each request is addressed to it
+ * (`/@slug/files/...`); it must be stable across renders (a `useCallback`).
  */
-export function useObjectMoves() {
+export function useObjectMoves(slugOf: (workspaceId: string) => string | null = () => null) {
   const mintGrant = useConsoleGrant();
   const origin = gatewayOriginFrom(MCP_ENDPOINT);
   return useMemo(() => {
     const target = (workspaceId: string) => ({
       workspaceId,
       origin,
+      slug: slugOf(workspaceId),
       mint: (rejected?: string) =>
         mintGrant({ workspaceId: workspaceId as Id<"workspaces"> }, rejected === undefined ? false : { rejected })
           .then((grant) => grant.accessToken),
@@ -41,5 +44,5 @@ export function useObjectMoves() {
       copy: (workspaceId: string, body: ObjectCopyBody): Promise<ObjectMoved | null> => objectCopy(target(workspaceId), body),
       duplicate: (workspaceId: string, body: ObjectDuplicateBody): Promise<ObjectMoved | null> => objectDuplicate(target(workspaceId), body),
     };
-  }, [mintGrant, origin]);
+  }, [mintGrant, origin, slugOf]);
 }

@@ -38,6 +38,9 @@ const ROUTES = [
   ["/oauth", "oauth"],
   ["/.well-known/", "well-known"],
   ["/note/", "note"],
+  // The app's file operations and search bar (2026-11-09: a 404 on every delete hid under `other`).
+  ["/files/", "files"],
+  ["/app/", "app"],
 ];
 
 /** The route a request's path falls under, as a fixed name. */
@@ -47,7 +50,12 @@ export function routeName(pathname) {
     const matches = prefix.endsWith("/") ? pathname.startsWith(prefix) : pathname === prefix || pathname.startsWith(`${prefix}/`);
     if (matches) return name;
   }
-  if (pathname.startsWith("/@")) return "page";
+  if (pathname.startsWith("/@")) {
+    // A route addressed to a workspace (`/@name/files/trash`) counts as that route; anything else there is a page.
+    const rest = pathname.indexOf("/", 2);
+    const routed = rest > 0 ? routeName(pathname.slice(rest)) : "other";
+    return routed === "other" || routed === "page" ? "page" : routed;
+  }
   return "other";
 }
 

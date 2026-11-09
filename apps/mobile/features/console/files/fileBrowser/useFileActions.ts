@@ -119,7 +119,9 @@ export function useFileActions(deps: FileActionsDeps) {
     rethrows, as the bare action does.
   */
   // Trash, restore and moves go to the workspace's object when it serves the tree (`useObjectMoves`).
-  const objectMoves = useObjectMoves();
+  // Each file operation is addressed to its workspace by name, where that is the workspace on screen.
+  const slugOf = useCallback((id: string) => (id === workspaceId ? slug : null), [workspaceId, slug]);
+  const objectMoves = useObjectMoves(slugOf);
   const moveEntryAction = useAction(api.functions.files.moveEntry);
   const moveEntry = useCallback<typeof moveEntryAction>(
     async (args) => {

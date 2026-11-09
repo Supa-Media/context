@@ -103,6 +103,17 @@ describe("trash through the gateway", () => {
     expect(t.mint).toHaveBeenCalledTimes(1);
   });
 
+  test("a workspace named by the caller is in the address, so the gateway never reads files as a workspace", async () => {
+    // 2026-11-09: the bare `/files/trash` was read by the gateway as a workspace called `files`, and every delete,
+    // rename and duplicate answered "not there any more". The app now names its workspace in the address.
+    replies = [{ status: 200, body: MOVED }, { status: 200, body: MOVED }, { status: 200, body: MOVED }];
+    await objectTrash(target({ slug: "seyi" }), { path: "1-projects/a.md" });
+    await objectMove(target({ slug: "seyi" }), { from: "1-projects/a.md", to: "1-projects/b.md" });
+    // A name that is not a workspace name's shape is never put in the address: the bare one is sent.
+    await objectTrash(target({ slug: "../x" }), { path: "1-projects/a.md" });
+    expect(sent.map((call) => call.url)).toEqual([`${ORIGIN}/@seyi/files/trash`, `${ORIGIN}/@seyi/files/move`, TRASH_URL]);
+  });
+
   test("409 not_object falls back: null, not a refusal", async () => {
     replies = [{ status: 409, body: { error: "not_object" } }];
     await expect(objectTrash(target(), { path: "1-projects/a.md" })).resolves.toBeNull();

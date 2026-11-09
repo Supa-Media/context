@@ -357,6 +357,8 @@ test/writesTellTree.test.mjs
 test/moveWrites.test.mjs
 test/objectMove.test.mjs
 test/fileOpsRoute.test.mjs
+test/fileOpsFrontDoor.test.mjs
+test/routeWords.test.mjs
 test/fileCopy.test.mjs
 test/treeErase.test.mjs
 test/workspaceReaders.test.mjs

@@ -27,6 +27,12 @@ test("a route is named from a fixed list, never by what the path holds", () => {
   assert.equal(routeName("/presence/tree"), "presence/tree");
   assert.equal(routeName("/presence"), "presence");
   assert.equal(routeName("/@seyi/projects/secret plan.md"), "page");
+  // The app's file operations and search, bare or addressed to a workspace, are counted as themselves (2026-11-09).
+  assert.equal(routeName("/files/trash"), "files");
+  assert.equal(routeName("/@seyi/files/trash"), "files");
+  assert.equal(routeName("/app/search"), "app");
+  assert.equal(routeName("/@seyi/mcp"), "mcp");
+  assert.equal(routeName("/@seyi"), "page");
   assert.equal(routeName("/t/abc123token/mcp"), "other");
   assert.equal(routeName(undefined), "other");
 });
