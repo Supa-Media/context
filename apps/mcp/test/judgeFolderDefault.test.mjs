@@ -6,10 +6,15 @@
  *
  * ## Sabotage record
  *
+ * Applied, file run, named checks observed failing, reverted (2026-11-09).
+ *
  *   `toTeam` reading the note's own visibility instead of its folder's
  *     → "a note held private in a team folder only matches the folder" fails
  *   `folderDefault` true whatever the folder reads
- *     → "a private subfolder of a team folder is still judged" fails
+ *     → "a note in a private folder is still judged" and "a private subfolder
+ *       of a team folder is still judged" fail
+ *   `summed` marking a call folderDefaultOnly when any one facet is
+ *     → "naming people, a link or a picture beside it is still judged" fails
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
