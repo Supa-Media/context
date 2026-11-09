@@ -66,6 +66,13 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "cards",
   // A person's own computers, `/machines/pair` and the rest, on the gateway.
   "machines",
+  // The app's file operations, `/files/trash` and the rest, on the gateway.
+  "files",
+  // The app's search bar, `/app/search` on the gateway.
+  "app",
+  // Routes the gateway answers before it reads a context (`/internal/...`, `/api/image-upload`).
+  "internal",
+  "api",
 ]);
 
 /**
