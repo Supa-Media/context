@@ -327,3 +327,6 @@ export {
  * short names (`Status`, `Result`, `Tool`) would collide with others here.
  */
 export * as MachineProtocol from "./machineProtocol.generated";
+
+/** The stored name of a pasted picture, shared by the control plane and an offline phone. */
+export { PASTE_IMAGE_EXTENSIONS, PASTE_IMAGE_HASH_LENGTH, pasteImageLeafOf } from "./pasteImage";

@@ -41,8 +41,8 @@ import { memoryStore, type KeyValueStore } from "./memory";
  * sign-out wants.
  */
 
-/** A body slot: the note as the bucket last had it, or an ancestor held for a merge. */
-export type MirrorSlot = "current" | "base";
+/** A body slot: the note as the bucket last had it, an ancestor held for a merge, or a picture kept here (`devicePictures.ts`). */
+export type MirrorSlot = "current" | "base" | "pictures";
 
 export interface MirrorRoot {
   scope: CacheScope;

@@ -48,6 +48,7 @@ import {
   type Outbox,
 } from "../outbox";
 import { beforeFolderMoves } from "../outboxPaths";
+import { devicePicture, keepPicture, sendPendingPictures } from "../devicePictures";
 import type { DrainReport } from "../sync";
 import type { CacheScope } from "../keys";
 import type { Reachability } from "../copy";
@@ -404,6 +405,34 @@ export function buildOfflineNotesApi({
       const before = outboxRef.current;
       commit(next, true);
       return { ok: true, undo: undoTo(before, next) };
+    },
+    keepPicture: (leaf, src) => {
+      if (copies === null || !mine()) return;
+      const epoch = epochRef.current;
+      void (async () => {
+        const mirror = await openMirrorStore();
+        if (mirror === null) return;
+        await keepPicture(mirror, epoch, copies.scope, copies.workspaceId, { leaf, src }, Date.now());
+      })().catch(() => {});
+    },
+    devicePicture: async (leaf) => {
+      if (copies === null) return null;
+      const mirror = await openMirrorStore();
+      return mirror === null ? null : devicePicture(mirror, copies.scope, copies.workspaceId, leaf);
+    },
+    queuePicture: async ({ leaf, src, contentType }) => {
+      if (copies === null || !mine()) return false;
+      const epoch = epochRef.current;
+      const mirror = await openMirrorStore();
+      if (mirror === null) return false;
+      return keepPicture(mirror, epoch, copies.scope, copies.workspaceId, { leaf, src, pending: { contentType } }, Date.now());
+    },
+    sendPictures: async (send) => {
+      if (copies === null || !mine()) return { sent: 0, failed: false };
+      const epoch = epochRef.current;
+      const mirror = await openMirrorStore();
+      if (mirror === null) return { sent: 0, failed: false };
+      return sendPendingPictures(mirror, epoch, copies.scope, copies.workspaceId, send, mine);
     },
     dropOp: (id) => commit(dropOpFrom(outboxRef.current, id), true),
     retryOp: (id) => commit(retryOpIn(outboxRef.current, id), true),

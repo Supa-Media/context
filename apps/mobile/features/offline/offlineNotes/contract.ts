@@ -148,6 +148,21 @@ export interface OfflineNotes {
   queueFolderMove: (move: { from: string; to: string }) => QueuedOp;
   /** Queue a folder's delete or archive, sent after everything queued inside it. */
   queueFolderRemoval: (removal: { kind: "trash" | "archive"; path: string }) => QueuedOp;
+  /*
+    Pictures kept on this device (`devicePictures.ts`). A browser tab keeps
+    none: `keepPicture` and `queuePicture` answer `false` there, and
+    `devicePicture` `null`.
+  */
+  /** Keep a picture a note here has shown. */
+  keepPicture: (leaf: string, src: string) => void;
+  /** A picture this device keeps, at this session's clearance, or `null`. */
+  devicePicture: (leaf: string) => Promise<string | null>;
+  /** Keep a picture pasted offline, to be sent when the connection is back. */
+  queuePicture: (picture: { leaf: string; src: string; contentType: string }) => Promise<boolean>;
+  /** Send every picture pasted here offline; stops at the first failure. */
+  sendPictures: (
+    send: (picture: { bytes: ArrayBuffer; contentType: string }) => Promise<string>,
+  ) => Promise<{ sent: number; failed: boolean }>;
   /** Take an op back, or discard a parked one. */
   dropOp: (id: string) => void;
   /** A refused op, back in the queue because a person asked. */
