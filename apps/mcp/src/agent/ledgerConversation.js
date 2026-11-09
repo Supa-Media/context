@@ -43,6 +43,14 @@ const SKIPPED_EVENTS = new Set(["delivery", "ask_settled"]);
 const SAME_TOLD_MS = 10 * 60_000;
 
 const routineLine = (path) => `(Not a text from them. Your routine ${path} ran on its schedule and you texted them what follows.)`;
+/*
+  A Tex text that answers no text of theirs: a job's report, sent when the job
+  finished (Dev2, 2026-11-09: a job texted that a Google Maps change was made at
+  9:04 pm, and the hourly routine set up for the same change, never shown that
+  text, ran on and texted at 11 pm about a change it couldn't see was made).
+  Kept as a line Tex sent by itself, never dropped.
+*/
+const UNPROMPTED_LINE = "(Not a text from them. You texted them what follows on your own, when work you were doing for them reported back.)";
 const bySeq = (a, b) => (a.seq ?? 0) - (b.seq ?? 0);
 
 /** The turns of a ledger's entries (any order), oldest first, unbounded: `keep` bounds them. */
@@ -88,17 +96,16 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
     const onTheirLine = asked.some((entry) => entry.heard === "voice");
     const noted = typeof reply.attached === "string" ? reply.attached.split("\n").filter((line) => line !== "" && !(onTheirLine && line.startsWith("[Voice message "))).join("\n") : "";
     const extra = [noted !== "" ? noted : null].filter(Boolean);
-    const user = question(null, typeof reply.thread === "string" ? { thread: reply.thread } : {});
-    if (user !== null) {
-      if (extra.length > 0) user.text = [user.text, ...extra].join("\n");
-      turns.push(user, {
-        role: "assistant",
-        text: answering.texts.join("\n"),
-        ...(reply.clean !== true ? { tainted: true } : {}),
-        ...(tools.has(answering.turn) ? { tools: tools.get(answering.turn) } : {}),
-        ...(Array.isArray(reply.sources) && reply.sources.length > 0 ? { sources: reply.sources } : {}),
-      });
-    }
+    const thread = typeof reply.thread === "string" ? { thread: reply.thread } : {};
+    const user = question(null, thread) ?? { role: "user", text: UNPROMPTED_LINE, ...(Number.isSafeInteger(answering.at) ? { at: answering.at } : {}), ...thread };
+    if (extra.length > 0) user.text = [user.text, ...extra].join("\n");
+    turns.push(user, {
+      role: "assistant",
+      text: answering.texts.join("\n"),
+      ...(reply.clean !== true ? { tainted: true } : {}),
+      ...(tools.has(answering.turn) ? { tools: tools.get(answering.turn) } : {}),
+      ...(Array.isArray(reply.sources) && reply.sources.length > 0 ? { sources: reply.sources } : {}),
+    });
     answering = null;
   };
 
@@ -129,7 +136,7 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
         if (answering?.turn === turn) answering.texts.push(entry.text.trim());
         else {
           flush();
-          answering = { turn, texts: [entry.text.trim()] };
+          answering = { turn, texts: [entry.text.trim()], at: entry.at };
         }
       }
     } else if (entry.kind === "note" && entry.others !== true && entry.backfill === undefined && typeof entry.text === "string" && entry.text.trim() !== "") {

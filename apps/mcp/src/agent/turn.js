@@ -252,6 +252,7 @@ export async function runTurn(options) {
     answerCheck = null, // reads a final answer and the turn's messages, and may send one more round (`claimCheck.js`, `replyJudge.js`)
     endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
     sayNothing = false, // offers `say_nothing`: a call ends the turn with nothing texted (`sayNothing.js`)
+    scheduled = false, // a routine's run or a check-in, nobody waiting on it: its last steps end quiet, and its last answer is still reviewed (`lastRound.js`)
     roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
@@ -405,7 +406,7 @@ export async function runTurn(options) {
 
   let lastWords = ""; // what the model last said, answered if the bound is reached (`lastRound.js`)
   for (let round = 0; round < rounds; round += 1) {
-    const notice = roundNotice(round, rounds);
+    const notice = roundNotice(round, rounds, { scheduled });
     if (notice !== null && messages.at(-1)?.text !== notice) messages.push({ role: "user", text: notice });
     const jobNudge = typeof roundNote === "function" ? roundNote(round, clock() - began) : null;
     if (typeof jobNudge === "string" && jobNudge !== "") messages.push({ role: "user", text: jobNudge });
@@ -515,7 +516,13 @@ export async function runTurn(options) {
         messages.push({ role: "user", text: held.sendBack(typedCallNotice(typed), answer.text) });
         continue;
       }
-      const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text, { messages, mark: (entry) => trace.push({ ...entry, kind: "judge", at: clock() - began }), tell })) ?? null : null;
+      const lastRound = round === rounds - 1;
+      const recheck = !lastRound || scheduled ? (await answerCheck?.(answer.text, { messages, mark: (entry) => trace.push({ ...entry, kind: "judge", at: clock() - began }), tell })) ?? null : null;
+      // A scheduled run's last answer the reviewer sent back has no round left to be written again: nothing is texted (`lastRound.js`).
+      if (lastRound && recheck !== null) {
+        tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "sent back on a scheduled run's last step: nothing is texted" });
+        return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, live: liveTurn(prompt, messages) };
+      }
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
       if (late !== null) {

@@ -142,6 +142,7 @@ const RECENT_TEXTS_SHOWN = 8;
 const RECENT_TEXT_CHARS = 300;
 const ROUTINE_LINE = /^\(Not a text from them\. Your routine (\S+) ran/;
 const CHECK_IN_LINE = /^\(Not a text from them\. This was your own check-in/;
+const BY_ITSELF_LINE = /^\(Not a text from them\./;
 
 /** Who sent the assistant's text at `i`: a routine (this one or another), a check-in, or a reply. */
 function senderOf(turns, i, path) {
@@ -168,7 +169,7 @@ export function recentTextsSection(history, path, timeZone = null) {
     const turn = turns[i];
     if (turn?.role === "user") at = Number.isFinite(turn.at) ? turn.at : null;
     if (typeof turn?.text !== "string") continue;
-    if (turn.role === "user" && (ROUTINE_LINE.test(turn.text) || CHECK_IN_LINE.test(turn.text))) continue;
+    if (turn.role === "user" && BY_ITSELF_LINE.test(turn.text)) continue; // a routine's, a check-in's, a job's report: Tex's own, never theirs
     const who = turn.role === "user" ? "Them" : senderOf(turns, i, path);
     const when = at !== null && timeZone !== null ? `(${localStamp(at, timeZone)}) ` : "";
     lines.push(`${when}${who}: ${clip(turn.text.replace(/\s+/g, " ").trim(), RECENT_TEXT_CHARS)}`);
@@ -214,6 +215,8 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", re
   lines.push(
     `To stop this routine (its job is done, it can't be done, or they asked to stop it), start your answer with ${DONE_WORD}: ` +
       "it stops at once. Never send a change to it for approval. " +
+      // Dev2, 2026-11-09: a routine whose own words said "archive this note" tried a write no run is given, and texted that it failed.
+      "A run can't write, edit or archive notes, this routine's included: whatever its words say, starting with " + DONE_WORD + " is how it stops. " +
       "Say something worked only when a call in this run showed it working: an app listed as connected is not a read that worked.",
   );
   // A review, 2026-10-26: an hourly "retry adding Tabi's birthday" routine had no calendar and texted
