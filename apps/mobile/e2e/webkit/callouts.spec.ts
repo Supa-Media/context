@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openWeeklyReview } from "./helpers";
+import { openWeeklyReview, showMarkdown } from "./helpers";
 
 /**
  * A CALLOUT, IN A REAL ENGINE, BECAUSE THE BUG WAS A PICTURE.
@@ -108,6 +108,9 @@ test("an untitled callout is titled with its type, as Obsidian does", async ({ p
 });
 
 test("the marker comes back the moment the caret is in it", async ({ page }) => {
+  // A callout's source comes back only with Show Markdown on.
+  await showMarkdown(page);
+  await openWeeklyReview(page);
   await typeCallout(page, "> [!warning] Mind the gap");
   const editor = page.locator(".cm-content");
   // Off the callout: the marker is drawn as the card's head, not as source.
@@ -125,6 +128,9 @@ test("the marker comes back the moment the caret is in it", async ({ page }) => 
   edge says it is being edited.
 */
 test("clicking into the text shows the first line as Markdown", async ({ page }) => {
+  // A callout's source comes back only with Show Markdown on.
+  await showMarkdown(page);
+  await openWeeklyReview(page);
   await typeCallout(page, "> [!warning] Mind the gap", "and the door");
   const editor = page.locator(".cm-content");
   // The caret is at the end of the body line, inside the callout.
