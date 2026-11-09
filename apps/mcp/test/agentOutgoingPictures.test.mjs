@@ -37,7 +37,8 @@ const image = (data = PNG) => ({ type: "image", data, mimeType: "image/png" });
 /** What the person's saved conversation holds: the bucket's live `.context/` objects and the Tex object's keys (the history record, `store/texRouting.js`). */
 const savedWords = (world) => {
   const home = "person:ws_egress";
-  const inHome = world.tex.keysIn(home).map((key) => world.tex.textIn(home, key) ?? "");
+  // The chat's one record is its ledger; anything else the object keeps is read too.
+  const inHome = [...world.tex.keysIn(home).map((key) => world.tex.textIn(home, key) ?? ""), JSON.stringify(world.tex.ledgerIn(home))];
   return [...world.objectsUnder(".context/").map((key) => String(world.bucket.get(key)?.body ?? "")), ...inHome].join("\n");
 };
 
@@ -125,8 +126,10 @@ test("a picture read from their notes is texted back", async () => {
     assert.equal(asked.body.pictures[0].mediaType, "image/png");
     assert.match(asked.body.pictures[0].data, /^[A-Za-z0-9+/]{40,}={0,2}$/);
     assert.match(JSON.stringify(world.model.requests.at(-1).messages), /This is picture 1/, "the model was told the number");
+    // The chat's one record is its ledger: the turn's reply is kept there, and the texting Worker posts the picture it
+    // sent as its own event (`/agent/events`); nothing the gateway keeps holds the bytes.
     const history = savedWords(world);
-    assert.match(history, /Sent a picture with this answer/);
+    assert.ok(world.tex.ledgerIn("person:ws_egress").some((entry) => entry.kind === "reply" && entry.text === "Here's the frog."), "the reply is in the chat's ledger");
     assert.ok(!history.includes(asked.body.pictures[0].data), "the saved conversation never holds the bytes");
   } finally {
     world.restore();

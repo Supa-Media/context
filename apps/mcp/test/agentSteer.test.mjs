@@ -32,7 +32,6 @@ import { LOGICAL_DELETE_CONTENT_TYPE } from "../src/store/logicalDelete.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { conversationText } from "./agentConversationFixture.mjs";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-steer.test";
@@ -273,7 +272,8 @@ test("a text sent while Tex works reaches the model after its tool round, is ans
   assert.equal(second.role, "user");
   assert.deepEqual(second.content.map((block) => block.type), ["tool_result", "text"]);
   assert.match(second.content[1].text, /make it Friday/);
-  assert.match(conversationText(bucket), /make it Friday/, "kept in the conversation with its turn");
+  // Kept in the chat by the texting Worker, which posts every text it took in to the chat's ledger (`apps/agent/src/inbox.ts`):
+  // the old history record that kept it with the turn is retired.
   assert.deepEqual(steerKeys(), []);
 });
 

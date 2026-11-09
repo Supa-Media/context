@@ -97,7 +97,8 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
     const noted = typeof reply.attached === "string" ? reply.attached.split("\n").filter((line) => line !== "" && !(onTheirLine && line.startsWith("[Voice message "))).join("\n") : "";
     const extra = [noted !== "" ? noted : null].filter(Boolean);
     const thread = typeof reply.thread === "string" ? { thread: reply.thread } : {};
-    const user = question(null, thread) ?? { role: "user", text: UNPROMPTED_LINE, ...(Number.isSafeInteger(answering.at) ? { at: answering.at } : {}), ...thread };
+    // With no text of theirs, the gateway's line the turn was asked (a vault save, `sendTheReply.js`), or a report's.
+    const user = question(null, thread) ?? { role: "user", text: typeof reply.about === "string" && reply.about !== "" ? reply.about : UNPROMPTED_LINE, ...(Number.isSafeInteger(answering.at) ? { at: answering.at } : {}), ...thread };
     if (extra.length > 0) user.text = [user.text, ...extra].join("\n");
     turns.push(user, {
       role: "assistant",
@@ -160,39 +161,32 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
  * The person's one-to-one chat as turns, from their ledger: the desk's page
  * first (read with the rest of the turn's first reads, `texStore/desk.js`),
  * then older pages until the record's bounds are met. Null when the store
- * keeps no ledger for them (not a person's own texting session), or when the
- * whole ledger was read and their chat from before it began is not copied in
- * yet (no `BACKFILLED` mark, `ledgerBackfill.js`): the record is then the
- * fuller copy, until their next text copies it in. Throws when the ledger
- * can't be read.
+ * keeps no ledger for them (not a person's own texting session). Every chat's
+ * past is copied in (`ledgerBackfill.js`), so the ledger is the whole chat,
+ * marked or not. Throws when the ledger can't be read.
  */
 export async function readLedgerConversation(store) {
   const ledger = typeof store?.texLedger === "function" ? store.texLedger(null) : null;
   if (ledger === null || typeof ledger?.read !== "function") return null;
   const entries = [];
   let cursor = Number.MAX_SAFE_INTEGER;
-  let whole = false;
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const first = page === 0 ? await deskLedger(store) : null;
     const read = first ?? (await ledger.read(ONE_TO_ONE_CHAT, { ...DESK_LEDGER.options, before: cursor }));
     entries.push(...(read?.entries ?? []));
-    if (!Number.isSafeInteger(read?.before)) {
-      whole = true;
-      break;
-    }
+    if (!Number.isSafeInteger(read?.before)) break;
     const turns = conversationFromLedger(entries);
     if (turns.length >= MAX_HISTORY_TURNS || turns.reduce((sum, turn) => sum + turn.text.length, 0) >= MAX_HISTORY_CHARS) break;
     cursor = read.before;
   }
-  if (whole && !entries.some((entry) => entry?.id === BACKFILLED)) return null;
   return HISTORY.keep(conversationFromLedger(entries));
 }
 
 /**
  * Whether the person's chat from before their ledger began is copied in (its
- * `BACKFILLED` mark sits first): from then on the ledger is the chat's one copy
- * and the old history record is no longer written. False when the store keeps
- * no ledger for them, or the ledger can't be read: the record goes on.
+ * `BACKFILLED` mark sits first). The transcripts' move to the trash waits on
+ * it (`apps/convex/functions/texTranscriptsTrash.ts`). False when the store
+ * keeps no ledger for them, or the ledger can't be read.
  */
 export async function copiedIn(store) {
   const ledger = typeof store?.texLedger === "function" ? store.texLedger(null) : null;

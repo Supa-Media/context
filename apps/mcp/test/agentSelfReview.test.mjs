@@ -43,6 +43,8 @@
  *     before it answers…" fails.
  */
 
+import { texLedger } from "../src/texStore/ledger.js";
+import { durableSql } from "./texStoreFixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -61,8 +63,11 @@ const FULL_ANSWER = JSON.stringify({
 
 function memoryStore() {
   const objects = new Map();
+  // The person's chat ledger: the chat's one record, which the review reads (`readConversation`).
+  const ledger = texLedger(durableSql());
   return {
     objects,
+    texLedger: () => ledger,
     async get(key) {
       if (!objects.has(key)) return null;
       const body = objects.get(key);

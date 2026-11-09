@@ -26,8 +26,6 @@ import { eventsSupported, readEventTurns } from "./events.js";
 export const HISTORY_KEY = ".context/agent/history/texts.json";
 /** The old whole-file history, read only by the move. */
 const LEGACY_FILE = ".context/agent/conversations/texts.json";
-/** How many times an append re-reads after another writer won the race. */
-const APPEND_TRIES = 8;
 
 const isTurn = (value) => value !== null && typeof value === "object" && (value.role === "user" || value.role === "assistant") && typeof value.text === "string";
 
@@ -37,8 +35,6 @@ function parseRecord(text, etag) {
   const direct = parsed?.direct !== null && typeof parsed?.direct === "object" ? parsed.direct : undefined;
   return { turns: Array.isArray(parsed?.turns) ? parsed.turns.filter(isTurn) : [], ...(direct ? { direct } : {}), etag };
 }
-
-const bodyOf = (record, turns) => JSON.stringify({ v: 1, turns, ...(record?.direct ? { direct: record.direct } : {}) });
 
 /** The record as kept: `{turns, direct, etag}`, or null when the person has none yet. Throws when it can't be read. */
 async function readRecord(store) {
@@ -112,43 +108,6 @@ export async function moveHistoryIn(store, { keep, chars, dryRun = false, onlyIf
   if (record === null) throw new Error("the history record was written but cannot be read back");
   if (written !== null) log(JSON.stringify({ event: "tex_history_moved_in", turns: turns.length }));
   return { record, moved: written !== null, turns: turns.length };
-}
-
-/** The record through the desk when there is one, else read alone; null when the person has none. */
-async function deskRecord(store) {
-  const desk = openDesk(store);
-  const opened = desk === null ? undefined : (await desk)?.history;
-  return opened === undefined ? await readRecord(store) : opened === null ? null : parseRecord(opened.text, opened.etag);
-}
-
-/** The record's turns, moved in first when the person has none. Throws when it can't be read. */
-export async function readHistory(store, { keep, chars }) {
-  const held = await deskRecord(store);
-  if (held !== null) return held.turns;
-  return (await moveHistoryIn(store, { keep, chars })).record.turns;
-}
-
-/**
- * Add turns to the record: read, add, write back only if nobody wrote since
- * (the record's etag), and go again when somebody did. `keep` shapes and
- * bounds the result. Throws when it can't (the object unreachable, or it lost
- * every race): a caller keeps history as a convenience and catches it.
- */
-export async function appendHistory(store, added, { keep, chars }) {
-  for (let tried = 0; tried < APPEND_TRIES; tried += 1) {
-    // The first try reads through the desk (one call, with the notes this request will want); a retry reads the record alone.
-    const record = (tried === 0 ? await deskRecord(store) : await readRecord(store)) ?? (await moveHistoryIn(store, { keep, chars })).record;
-    const was = desks.get(store);
-    desks.delete(store);
-    const body = bodyOf(record, keep([...record.turns, ...added]));
-    const written = await store.put(HISTORY_KEY, body, { onlyIf: { etagMatches: record.etag } });
-    if (written !== null) {
-      // What this request wrote is what it reads next: the record as written, with the notes the desk already read.
-      if (typeof written?.etag === "string") desks.set(store, (was ?? Promise.resolve(null)).catch(() => null).then((desk) => ({ history: { etag: written.etag, text: body }, notes: desk?.notes ?? {} })));
-      return;
-    }
-  }
-  throw new Error("the history record changed under every append");
 }
 
 /** The keys of the notes the desk reads, kept by themselves: the record is retired, these are not (`texStore/desk.js`). */

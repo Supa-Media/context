@@ -534,7 +534,8 @@ export async function runAgentChecks(check) {
     check(
       "the conversation is kept in the person's Tex object, never in the customer's bucket",
       conversationTurns(bucket).length > 0 &&
-        tex.keysIn("person:ws_agent").includes("state/agent/history/texts.json") &&
+        tex.ledgerIn("person:ws_agent").length > 0 &&
+        !tex.keysIn("person:ws_agent").includes("state/agent/history/texts.json") &&
         !bucket.bucket.has(".context/agent/history/texts.json") &&
         ![...bucket.bucket.keys()].some((key) => key.startsWith(".context/agent/events/")),
     );

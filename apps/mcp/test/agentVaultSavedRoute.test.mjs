@@ -26,6 +26,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
+import { eventTurn } from "./agentEgressFixtures.mjs";
 import { VAULT_SAVED_QUESTION } from "../src/agent/vaultSaved.js";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
@@ -150,7 +151,7 @@ export async function runAgentVaultSavedChecks(check) {
 
     model.install([{ text: "I'm signed in to Instacart. Building your cart from past orders now." }]);
     const eventAt = model.requests.length;
-    const carried = await post(env, TOKEN_TEXTS, { question: "", event: "vault_saved", conversation: "texts" });
+    const carried = await eventTurn(env, TOKEN_TEXTS, { question: "", event: "vault_saved", conversation: "texts" }); // as the Worker sends it: the chat's ledger keeps it
     const asked = lastUserText(model.requests[eventAt]);
     check("the event is a turn of its own, with no text of theirs", carried.status === 200 && /Building your cart/.test(carried.body?.answer ?? ""));
     check("...asked as the gateway's fixed line", asked.includes("they just saved what you asked for") && asked.includes("Carry on with the task"));

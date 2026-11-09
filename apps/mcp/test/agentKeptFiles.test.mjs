@@ -29,7 +29,7 @@ import { test } from "node:test";
 
 import { anthropicAttachmentBlocks, attachmentsLine, carriesData, MAX_TEXT_CHARS } from "../src/agent/attachments.js";
 import { keepSentFiles, keptRef, readKeptFile, withKeptFiles } from "../src/agent/keptFiles.js";
-import { createEgressWorld, request, toolReplies, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { createEgressWorld, request, toolReplies, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 /** An in-memory store, enough for `downloads.js`. */
 function memoryStore() {
@@ -155,7 +155,7 @@ test("a texted CSV is read again on a later text, from the id the conversation k
   const world = await createEgressWorld();
   try {
     world.model.install([{ text: "Got it, starting on it." }]);
-    const first = await request(world.env, TOKEN_TEXTS, "/agent", { question: "here's my export", conversation: "texts", attachments: [CSV] });
+    const first = await textTex(world.env, TOKEN_TEXTS, "here's my export", { attachments: [CSV] });
     assert.equal(first.status, 200, JSON.stringify(first.body));
     const kept = world.objectsUnder(".context/agent/downloads/");
     assert.equal(kept.length, 1, "the file is kept in their own bucket");
@@ -168,7 +168,7 @@ test("a texted CSV is read again on a later text, from the id the conversation k
       },
       (req) => ({ text: toolReplies(req).some((reply) => /2026-10-03,Rent,-2100\.00/.test(reply)) ? "Rent was 2,100." : "I can't open it." }),
     ]);
-    const later = await request(world.env, TOKEN_TEXTS, "/agent", { question: "what was my rent?", conversation: "texts" });
+    const later = await textTex(world.env, TOKEN_TEXTS, "what was my rent?");
     assert.ok(id, "the saved conversation carries the file's id");
     assert.equal(later.body.answer, "Rent was 2,100.");
   } finally {

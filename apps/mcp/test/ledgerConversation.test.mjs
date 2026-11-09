@@ -95,13 +95,13 @@ test("an exchange the Worker logged none of is kept in the gateway's words, vouc
   assert.ok(entries.every((entry) => entry.kind !== "text" || /^\d{13}-\d{6}$/.test(entry.eid)), "event ids the chat's other views read");
 });
 
-test("a ledger whose old chat is not copied in yet is not read: the record is the fuller copy until it is", async () => {
+test("the ledger is read marked or not: every chat's past is copied in, and the old record is retired (2026-11-09)", async () => {
   const { readLedgerConversation } = await import("../src/agent/ledgerConversation.js");
   const { BACKFILLED } = await import("../src/agent/ledgerBackfill.js");
   const chat = at([person(0, 1, "hi"), reply("turnD1234", true), tex(1_000, 2, "Hey.", "turnD1234")]).reverse();
   const storeWith = (entries) => ({ texLedger: () => ({ read: async () => ({ entries }) }) });
-  assert.equal(await readLedgerConversation(storeWith(chat)), null);
+  assert.deepEqual((await readLedgerConversation(storeWith(chat))).map((turn) => turn.text), ["hi", "Hey."], "a new chat's first texts, before its mark");
   const marked = [...chat, { v: 1, id: BACKFILLED, at: 1, kind: "note", text: "(copied in)", backfill: "mark", seq: 0 }];
   assert.deepEqual((await readLedgerConversation(storeWith(marked))).map((turn) => turn.text), ["hi", "Hey."]);
-  assert.equal(await readLedgerConversation({}), null, "no ledger: the record");
+  assert.equal(await readLedgerConversation({}), null, "no ledger: no conversation");
 });

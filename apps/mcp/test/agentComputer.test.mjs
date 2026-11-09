@@ -30,6 +30,7 @@ import {
 import { DECISION_MODEL } from "../src/agent/decide.js";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 import { conversationText } from "./agentConversationFixture.mjs";
+import { textTex } from "./agentEgressFixtures.mjs";
 
 const S3_ENDPOINT = "https://s3.example-computer.test";
 const TOKEN_TEXTS = `cat_computer_texts_${"0".repeat(21)}`;
@@ -202,8 +203,9 @@ export async function runAgentComputerChecks(check) {
       chat("Pro is $12."),
       chat("From example.com's pricing page."),
     ]);
-    await ask(env, TOKEN_TEXTS, { question: "What does example.com/pricing charge?", conversation: "texts" });
-    await ask(env, TOKEN_TEXTS, { question: "where are you reading that from?", conversation: "texts" });
+    // As the texting Worker sends them (`textTex`): the chat's ledger is what the next text reads.
+    await textTex(env, TOKEN_TEXTS, "What does example.com/pricing charge?", {}, { logged: false });
+    await textTex(env, TOKEN_TEXTS, "where are you reading that from?", {}, { logged: false });
     // What the earlier answers used is said in the person's turn, not the system prompt (`turn.js`), so the whole request is read.
     const nextSystem = JSON.stringify(ai.calls[2]?.input?.messages ?? []);
     const kept = conversationText(bucket);

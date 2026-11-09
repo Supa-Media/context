@@ -31,6 +31,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { rmSync } from "node:fs";
 
 import { createWorkerCtx } from "../test/workerCtx.mjs";
+import { readStream, workerEvents } from "./workerWire.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
@@ -140,34 +141,6 @@ function bodyText(object) {
 
 function snapshot(bucket) {
   return new Map([...bucket].map(([key, object]) => [key, bodyText(object)]));
-}
-
-/**
- * Read a streamed `/agent` answer the way the texting Worker does
- * (`apps/agent/src/clients.ts` `askAgentStreaming`): each `{"progress"}` line
- * is a text sent, ticks are skipped, and the last `{status, body}` line is the
- * turn's own answer. A reply that is not a stream (refused before the turn
- * ran) is read as plain JSON; a stream with no final line is a failed turn.
- */
-export async function readStream(response) {
-  if (!(response.headers.get("content-type") ?? "").includes("application/x-ndjson")) {
-    return { response, body: await response.json().catch(() => null), progress: [] };
-  }
-  const progress = [];
-  const text = await response.text();
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line) continue;
-    let parsed;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (typeof parsed?.progress === "string" && parsed.progress.trim()) progress.push(parsed.progress.trim());
-    else if (typeof parsed?.status === "number") return { response: { status: parsed.status }, body: parsed.body ?? null, progress };
-  }
-  return { response: { status: 502 }, body: { error: "stream ended with no answer" }, progress };
 }
 
 /**
@@ -409,6 +382,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     }
     return { usage, usageByModel, model: reports.at(-1)?.model ?? null };
   };
+  const { textedEvent, postEvents } = workerEvents({ env, token });
   return {
     /** One texted message, answered with the conversation so far. */
     async text(message, attachments = [], { running = null } = {}) {
@@ -418,6 +392,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       // The real clock, not the world's: a turn's recorded time is how long it took.
       const started = realNow();
       const reportsBefore = controlPlane.builtinReports.length;
+      // Their text posted to the chat's ledger first, as the texting Worker does (`apps/agent/src/events.ts`): the ledger is
+      // the chat's one record, so the next text sees this one only through it.
+      const said = textedEvent(message);
+      await postEvents([said]);
       // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
       // plain JSON ask would measure the quick turn's 8 rounds instead.
@@ -427,7 +405,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
           // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
-          body: JSON.stringify({ question: message, conversation: "texts", ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
+          body: JSON.stringify({ question: message, conversation: "texts", turn: said.turn, ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
         }),
         env,
         ctx,
@@ -435,6 +413,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const { response, body, progress } = await readStream(streamed);
       const ms = realNow() - started;
       await settle();
+      // Tex's answer, as the Worker posts it once sent.
+      if (typeof body?.answer === "string" && body.answer !== "") await postEvents([{ ...textedEvent(body.answer), from: { kind: "tex" }, turn: said.turn, covers: [said.id], delivered: true }]);
       const turn = controlPlane.turnReports.at(-1) ?? {};
       const spent = spentSince(reportsBefore);
       return {

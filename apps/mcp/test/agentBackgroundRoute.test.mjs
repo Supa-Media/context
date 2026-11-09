@@ -50,6 +50,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
+import { eventTurn } from "./agentEgressFixtures.mjs";
 import { MAX_JOB_ATTEMPTS } from "../src/agent/background.js";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
@@ -363,7 +364,8 @@ export async function runAgentBackgroundRouteChecks(check) {
     const report = { title: "Agentic benchmarks", state: "done", texts: ["None of the three beat Haiku. https://context.lc/note/@maya/models.page.md", "I couldn't save the page update."] };
     model.install([{ text: "None of the three beat Haiku, notes here: https://context.lc/note/@maya/models.page.md" }]);
     const beforeReport = conversationTurns(bucket).length;
-    const coordinated = await post(env, TOKEN_TEXTS, "/agent", { question: "send the email to everyone", conversation: "texts", event: "job_report", jobReport: report, running: [] });
+    // As the Worker sends it (`eventTurn`): the chat's ledger is what keeps it.
+    const coordinated = await eventTurn(env, TOKEN_TEXTS, { question: "send the email to everyone", conversation: "texts", event: "job_report", jobReport: report, running: [] });
     const coordinator = model.requests.at(-1);
     check("a job's report to the chat's turn is off the daily cap too", controlPlane.builtinStarts.at(-1)?.background === true);
     check(
@@ -391,7 +393,7 @@ export async function runAgentBackgroundRouteChecks(check) {
       { toolCalls: [{ name: "send", args: { action: "steer_job", args: { title: "Trip plan", note: "Read the note back before you say it saved." } } }] },
       { text: "SKIP" },
     ]);
-    const noted = await post(env, TOKEN_TEXTS, "/agent", { conversation: "texts", event: "job_report", jobReport: { ...report, state: "running", texts: ["Saving now."] }, running });
+    const noted = await eventTurn(env, TOKEN_TEXTS, { conversation: "texts", event: "job_report", jobReport: { ...report, state: "running", texts: ["Saving now."] }, running });
     check(
       "the coordinator steers a running job with its own instruction",
       noted.status === 200 && JSON.stringify(noted.body?.steers) === JSON.stringify([{ id: "job-trip-plan-1", note: "Read the note back before you say it saved." }]),

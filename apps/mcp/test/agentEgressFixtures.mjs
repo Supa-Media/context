@@ -108,6 +108,45 @@ export async function call(env, token, name, args) {
 export const textOf = (result) => result?.content?.[0]?.text ?? "";
 export const ask = (env, token, question) => request(env, token, "/agent", { question, conversation: "texts" });
 
+/** The person's line the texting Worker names its chat by, in these tests. */
+export const TEXTED_CHAT = "sendblue:line:+15555550100";
+let texted = 0;
+
+/**
+ * A text and its answer as the texting Worker makes them: their text posted to `/agent/events`, the turn asked naming
+ * it as what it covers, and Tex's answer posted after. The chat's ledger is the one record the next turn reads, so a test
+ * of what a later turn sees goes through this rather than `ask` (the old history record, written beside it, is retired).
+ * `fields` are added to the turn's body (`attachments`, …). `logged: false` asks without naming the texts it covers, so the
+ * turn reads the chat rebuilt as turns (`readConversation`) rather than the day's transcript (`loggedTurn.js`). Answers
+ * the turn's response.
+ */
+export async function textTex(env, token, question, fields = {}, { logged = true } = {}) {
+  const at = Date.now();
+  const n = (texted += 1);
+  const id = (offset) => `${at + offset}-${String(n * 2 + offset).padStart(6, "0")}`;
+  const theirs = { id: id(0), at, chat: TEXTED_CHAT, from: { kind: "person" }, kind: "text", text: question };
+  const turn = `turn-texted-${String(n).padStart(4, "0")}`;
+  await request(env, token, "/agent/events", { conversation: "texts", events: [theirs] });
+  const answered = await request(env, token, "/agent", { question, conversation: "texts", ...(logged ? { covers: [theirs.id], chat: TEXTED_CHAT } : {}), turn, ...fields });
+  const said = typeof answered.body?.answer === "string" ? answered.body.answer : "";
+  if (said !== "") await request(env, token, "/agent/events", { conversation: "texts", events: [{ id: id(1), at: at + 1, chat: TEXTED_CHAT, from: { kind: "tex" }, kind: "text", text: said, turn, covers: [theirs.id], delivered: true }] });
+  return answered;
+}
+
+/**
+ * A turn no text of theirs asked (`event: "vault_saved"`, `"job_report"`), as the texting Worker makes it: asked under a
+ * turn of its own, and Tex's answer, when there is one, posted after. Answers the turn's response.
+ */
+export async function eventTurn(env, token, body) {
+  const n = (texted += 1);
+  const turn = `turn-event-${String(n).padStart(4, "0")}`;
+  const answered = await request(env, token, "/agent", { ...body, turn });
+  const said = typeof answered.body?.answer === "string" ? answered.body.answer : "";
+  const at = Date.now();
+  if (said !== "") await request(env, token, "/agent/events", { conversation: "texts", events: [{ id: `${at}-${String(n * 2 + 1).padStart(6, "0")}`, at, chat: TEXTED_CHAT, from: { kind: "tex" }, kind: "text", text: said, turn, delivered: true }] });
+  return answered;
+}
+
 export function toolReplies(request) {
   return (request?.messages ?? [])
     .flatMap((message) => (Array.isArray(message?.content) ? message.content : []))

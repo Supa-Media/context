@@ -58,6 +58,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationTurns, newestExchangeId } from "./agentConversationFixture.mjs"; import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
+import { textTex } from "./agentEgressFixtures.mjs";
 
 const S3_ENDPOINT = "https://s3.example-heartbeat.test";
 const TOKEN_BEAT = `cat_beat_heartbeat_${"0".repeat(20)}`;
@@ -663,7 +664,7 @@ export async function runAgentHeartbeatChecks(check) {
 
     // A text of theirs moments ago: the look reads nothing, runs no model, and says it is waiting for quiet.
     model.install([{ text: "Sure, Friday works." }]);
-    await ask(env, TOKEN_TEXTS, { question: "Can we move it to Friday?", conversation: "texts" });
+    await textTex(env, TOKEN_TEXTS, "Can we move it to Friday?", {}, { logged: false }); // as the Worker sends it: their text is in the chat's ledger
     await rpc(env, TOKEN_APP, "write_note", { path: "1-projects/quiet-check.md", content: "# Quiet check\n\nA change to look at.\n" });
     const beforeBusy = model.requests.length;
     const busy = await ask(env, TOKEN_BEAT, beat());

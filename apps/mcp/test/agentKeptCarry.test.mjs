@@ -37,7 +37,7 @@ import { CARRY_PDF_BYTES, CARRY_TEXTS, CARRY_TEXT_CHARS, carryKeptFiles, keepSen
 import { LESSONS_LINE, SAME_NAME_LINE, systemPrompt } from "../src/agent/prompt.js";
 import { sixToolsOver } from "../src/agent/sixTools.js";
 import { toolDefinitions } from "../src/tools/registry.js";
-import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { createEgressWorld, request, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 function memoryStore() {
   const objects = new Map();
@@ -69,7 +69,7 @@ test("the next text sees the PDF again, and a file shown again is not saved as s
   const world = await createEgressWorld();
   try {
     world.model.install([{ text: "Here's the pitch." }]);
-    const first = await request(world.env, TOKEN_TEXTS, "/agent", { question: "in 150 words why should we hire this person", conversation: "texts", attachments: [RESUME] });
+    const first = await textTex(world.env, TOKEN_TEXTS, "in 150 words why should we hire this person", { attachments: [RESUME] });
     assert.equal(first.status, 200, JSON.stringify(first.body));
     let seen = null;
     world.model.install([
@@ -78,20 +78,15 @@ test("the next text sees the PDF again, and a file shown again is not saved as s
         return { text: "Fixed: the referral is about Jordan Lee only." };
       },
     ]);
-    const later = await request(world.env, TOKEN_TEXTS, "/agent", { question: "Jordan Park is not Jordan Lee", conversation: "texts" });
+    const later = await textTex(world.env, TOKEN_TEXTS, "Jordan Park is not Jordan Lee");
     assert.equal(later.status, 200, JSON.stringify(later.body));
     assert.ok(seen.includes(PDF_DATA), "the kept PDF rides along on the later text");
     assert.match(seen, /a file they sent earlier in this chat, kept as download:/);
     assert.match(seen, /never say it won't open or load/);
-    // The second exchange's saved line names nothing as sent with it.
-    world.model.install([
-      (req) => {
-        seen = JSON.stringify(req.messages);
-        return { text: "ok" };
-      },
-    ]);
-    await request(world.env, TOKEN_TEXTS, "/agent", { question: "thanks", conversation: "texts" });
-    assert.equal((seen.match(/\[Sent with this text:/g) ?? []).length, 1, "only the text that came with it names the file");
+    // The second exchange's saved line names nothing as sent with it: in the chat's ledger, only the first turn's reply
+    // notes the file beside it, so the chat rebuilt for a later text names it once.
+    const noted = world.tex.ledgerIn("person:ws_egress").filter((entry) => entry.kind === "reply" && /\[Sent with this text:/.test(entry.attached ?? ""));
+    assert.deepEqual(noted.map((entry) => entry.turn), ["turn-texted-0001"], "only the text that came with it names the file");
   } finally {
     world.restore();
   }
