@@ -87,8 +87,9 @@ describe("every state object is still a single object", () => {
     const second = facade.livePreview();
     // 6 until the touch rule added `caretInput` and its `pointerdown` handler,
     // appended after `taskToggle` so every index below is unchanged; 9 since
-    // `wikiLinkKeys`, appended last for the same reason.
-    expect(first).toHaveLength(9);
+    // `wikiLinkKeys`, appended last for the same reason; 11 since Show
+    // Markdown's atomic marks and Backspace filter (`symbols.ts`), appended after it.
+    expect(first).toHaveLength(11);
     expect(first[6]).toBe(caretInput);
     expect(first[8]).toBe(wikiLinkKeys);
     expect(first[0]).toBe(editorEngaged);

@@ -246,12 +246,10 @@ export type ToGuest =
   | { v: number; type: "preview"; text: string }
   /** `false` for `privacy.md`, and for a member who may read but not write. */
   | { v: number; type: "editable"; editable: boolean }
-  /**
-   * The palette, as CSS custom-property values. Sent on mount and whenever the
-   * appearance changes — never by reloading the document, because a reload
-   * would cost the caret and the undo history.
-   */
+  /** The palette as CSS custom-property values, on mount and on every appearance change; never a reload, which costs the caret and undo. */
   | { v: number; type: "theme"; vars: Readonly<Record<string, string>> }
+  /** Show Markdown (Settings › Writing), on mount and when switched. See `livePreview/symbols.ts`. */
+  | { v: number; type: "symbols"; shown: boolean }
   /**
    * How much of the editor is covered by something else — the iOS keyboard, an
    * accessory bar. The guest pads its scroller by this so the caret can always
@@ -624,6 +622,7 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "preview",
   "editable",
   "theme",
+  "symbols",
   "inset",
   "command",
   "links",

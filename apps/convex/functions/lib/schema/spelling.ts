@@ -18,6 +18,8 @@ export const spellingTables = {
     enabled: v.boolean(),
     language: v.union(v.literal("en-US"), v.literal("en-GB")),
     words: v.array(v.string()),
+    /** Show Markdown in the editor (Settings › Writing). Missing means off. */
+    showMarkdown: v.optional(v.boolean()),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
 };

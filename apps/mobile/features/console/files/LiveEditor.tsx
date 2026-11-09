@@ -59,7 +59,7 @@
  *    below and `coveredBottom` in `editorSetup.ts`.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Keyboard,
   Platform,
@@ -86,6 +86,7 @@ import {
   themeVars,
 } from "./webview/host";
 import { listSink, useExtras } from "./webview/host/useExtras";
+import { getSpelling, subscribeSpelling } from "./spelling/store";
 import { ACCESSORY_HEIGHT, accessoryUp } from "./accessory";
 import type { EditorControls, LiveEditorProps } from "./LiveEditor.web";
 
@@ -475,6 +476,12 @@ export function LiveEditor({
   useEffect(() => {
     bridge.setTheme(themeVars(colors, fonts.mono, compact));
   }, [bridge, colors, compact]);
+
+  // Show Markdown (Settings › Writing), followed while the note is open.
+  const showMarkdown = useSyncExternalStore(subscribeSpelling, () => getSpelling().showMarkdown);
+  useEffect(() => {
+    bridge.setShowMarkdown(showMarkdown);
+  }, [bridge, showMarkdown]);
 
   /*
     Which note is open, so the guest can resolve `[[../beta/notes]]` against

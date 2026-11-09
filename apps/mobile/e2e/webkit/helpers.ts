@@ -203,3 +203,18 @@ export async function dispatchTouch(
     { type, x: point.x, y: point.y },
   );
 }
+
+/**
+ * Turn Show Markdown on for the next page load (Settings › Writing), for a test
+ * about the reveal rule itself: off, which is the default since 2026-11-08,
+ * the caret never brings a construct's symbols back (`livePreview/symbols.ts`).
+ * The device's copy of the setting is what the editor reads before an account answers.
+ */
+export async function showMarkdown(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "context.spelling.v1",
+      JSON.stringify({ enabled: true, language: "en-US", words: [], showMarkdown: true }),
+    );
+  });
+}

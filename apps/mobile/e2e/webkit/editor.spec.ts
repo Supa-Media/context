@@ -131,6 +131,24 @@ test("a list marker does not reveal under the caret", async ({ page }) => {
   await expect(page.getByText("- Keep this list", { exact: false })).toHaveCount(0);
 });
 
+test("with Show Markdown off, a tap on bold words leaves its symbols hidden", async ({ page }) => {
+  // The default since 2026-11-08 (`livePreview/symbols.ts`): a regular editor
+  // that supports Markdown. The word is still bold, and no `**` comes back.
+  const content = page.locator(".cm-content");
+  const end = await content.boundingBox();
+  if (end === null) throw new Error("the editor has no box");
+  await page.touchscreen.tap(end.x + 40, end.y + end.height - 8);
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("plant **basil** now");
+  const bold = page.locator(".cm-lp-strong", { hasText: "basil" }).first();
+  const box = await bold.boundingBox();
+  if (box === null) throw new Error("the bold word has no box");
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(content).toContainText("plant basil now");
+  await expect(content).not.toContainText("**basil**");
+});
+
 test("back retraces the way in: the note's folder, then Notes", async ({ page }) => {
   // The note was reached Notes → areas (the folder row) → the note, and ‹ goes
   // back to the page before each time (Dev2, 2026-10-18: "it should take me to

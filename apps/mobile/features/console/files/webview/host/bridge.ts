@@ -151,6 +151,8 @@ export interface HostBridge extends Pick<HostExtras, "setCommenter" | "setLists"
   setCrdtPreview: (text: string) => void;
   setEditable: (editable: boolean) => void;
   setTheme: (vars: Readonly<Record<string, string>>) => void;
+  /** Show Markdown (Settings › Writing); see `livePreview/symbols.ts`. */
+  setShowMarkdown: (shown: boolean) => void;
   /** How many points of the editor something else is covering. */
   setInset: (bottom: number) => void;
   /**
@@ -229,6 +231,7 @@ export function createHostBridge(sendRaw: (raw: string) => void, sink: HostSink)
   let doc = "";
   let editable = false;
   let vars: Readonly<Record<string, string>> = {};
+  let showMarkdown = false;
   let inset = 0;
   /**
    * What the guest is believed to hold.
@@ -357,6 +360,11 @@ export function createHostBridge(sendRaw: (raw: string) => void, sink: HostSink)
         editable: crdtMode && crdtSnapshot === null ? false : next,
       });
     },
+    setShowMarkdown: (next) => {
+      if (next === showMarkdown && ready) return;
+      showMarkdown = next;
+      post({ v: PROTOCOL_VERSION, type: "symbols", shown: next });
+    },
     setTheme: (next) => {
       vars = next;
       post({ v: PROTOCOL_VERSION, type: "theme", vars: next });
@@ -418,6 +426,7 @@ export function createHostBridge(sendRaw: (raw: string) => void, sink: HostSink)
             editable: crdtMode && crdtSnapshot === null ? false : editable,
           }));
           send(encode({ v: PROTOCOL_VERSION, type: "theme", vars }));
+          send(encode({ v: PROTOCOL_VERSION, type: "symbols", shown: showMarkdown }));
           send(encode({ v: PROTOCOL_VERSION, type: "inset", bottom: inset }));
           send(encode({ v: PROTOCOL_VERSION, type: "links", path: linkPath, paths: linkPaths }));
           send(encode({ v: PROTOCOL_VERSION, type: "suggest", available: suggesting }));

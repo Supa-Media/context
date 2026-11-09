@@ -14,7 +14,8 @@ import { RangeSet, StateField, type EditorState } from "@codemirror/state";
 import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { imageSelection } from "../imageBlock";
-import { decorationsFor } from "./decorations";
+import { decorationsFor, isHiddenMark } from "./decorations";
+import { hiddenRangesOf, markdownShown, symbolAtoms, symbolDeletes } from "./symbols";
 import {
   caretInput,
   editorEngaged,
@@ -142,7 +143,11 @@ export function livePreview() {
       */
       const inputChanged =
         transaction.startState.field(caretInput, false) !== transaction.state.field(caretInput, false);
+      // And Show Markdown, switched in Settings while a note is open (`symbols.ts`).
+      const shownChanged =
+        transaction.startState.field(markdownShown, false) !== transaction.state.field(markdownShown, false);
       if (
+        !shownChanged &&
         !transaction.docChanged &&
         !transaction.selection &&
         !readOnlyChanged &&
@@ -203,5 +208,11 @@ export function livePreview() {
     }),
     // Backspace beside a link drawn as its name steps into it: see the module.
     wikiLinkKeys,
+    /*
+      With Show Markdown off, the hidden marks are one object each and
+      Backspace deletes the letter on screen — see `symbols.ts`.
+    */
+    symbolAtoms((state) => state.field(decorations), isHiddenMark),
+    symbolDeletes((state) => hiddenRangesOf(state.field(decorations), state.doc.length, isHiddenMark)),
   ];
 }

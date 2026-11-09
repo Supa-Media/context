@@ -214,7 +214,15 @@ export function hiddenMarkRanges(
   selection: readonly TextRange[],
   docLength: number,
   doc?: { sliceString: (from: number, to: number) => string },
-  options: { quietHeadings?: boolean } = {},
+  options: {
+    quietHeadings?: boolean;
+    /**
+     * Show Markdown is off (`symbols.ts`): the caret brings a mark back only
+     * where there is nothing else to see yet, a heading being started, and a
+     * code block keeps the rule below so its fences can still be edited.
+     */
+    never?: boolean;
+  } = {},
 ): TextRange[] {
   const hidden: TextRange[] = [];
 
@@ -265,7 +273,7 @@ export function hiddenMarkRanges(
     than words, `imageBlock` replaces it with a widget, and hiding half of it
     here is how it came to read `![paste-1.png]`.
   */
-  const wiki = doc === undefined ? [] : wikiLinkSpans(doc.sliceString(0, docLength), selection);
+  const wiki = doc === undefined ? [] : wikiLinkSpans(doc.sliceString(0, docLength), options.never === true ? [] : selection);
   const insideWiki = (from: number, to: number): boolean =>
     wiki.some((span) => from >= span.from && to <= span.to);
 
@@ -286,7 +294,7 @@ export function hiddenMarkRanges(
       */
       if (node.name === "Escape") {
         if (node.to - node.from < 2) return;
-        if (selectionTouches({ from: node.from, to: node.to }, selection)) return;
+        if (options.never !== true && selectionTouches({ from: node.from, to: node.to }, selection)) return;
         hidden.push({ from: node.from, to: node.from + 1 });
         return;
       }
@@ -300,7 +308,9 @@ export function hiddenMarkRanges(
       // than a no-op.
       if (node.to <= node.from) return;
 
-      if (options.quietHeadings === true && node.name === "HeaderMark") {
+      if (options.never === true) {
+        if (revealsWhenHidden(node.node, selection, doc)) return;
+      } else if (options.quietHeadings === true && node.name === "HeaderMark") {
         // After a tap, a heading's marks answer only to work on the marks —
         // see `caretInput` in `engagement.ts`.
         if (headingMarksEngaged(node.node, selection, doc)) return;
@@ -328,6 +338,28 @@ export function hiddenMarkRanges(
     produce the right answer today and would stop being a check tomorrow.
   */
   return mergeOrdered(hidden, wiki.flatMap((span) => span.hides));
+}
+
+/**
+ * With Show Markdown off, whether this mark still comes back under the caret.
+ *
+ * Two cases only. A code block's fences follow the ordinary rule, because a
+ * block of code is edited as its source. And a construct with nothing but
+ * marks in it, `#` typed at the start of a line, shows them: hiding the only
+ * thing on the line would make the key look like it did nothing.
+ */
+function revealsWhenHidden(node: SyntaxNode, selection: readonly TextRange[], doc?: Doc): boolean {
+  let unit: SyntaxNode | null = node.parent;
+  while (unit !== null && !isRevealContainer(unit.name)) unit = unit.parent;
+  if (unit === null) return false;
+  if (!selectionTouches(unit, selection)) return false;
+  if (unit.name === "FencedCode") return true;
+  if (doc === undefined) return false;
+  let marks = 0;
+  for (let child = unit.firstChild; child !== null; child = child.nextSibling) {
+    if (HIDDEN_MARKS.has(child.name) || isHiddenPlumbing(child)) marks += child.to - child.from;
+  }
+  return doc.sliceString(unit.from, unit.to).trim().length <= marks;
 }
 
 /**

@@ -496,3 +496,34 @@ changed to just look more like our UI style".
 
 Reversing it: `noteAccessory.test.ts` ("words selected, the bar is bold,
 italic and underline") and `livePreview/underline.test.ts` fail.
+
+### Markdown's symbols stay hidden under the caret unless Show Markdown is on
+
+Owner, 2026-11-08: "instead of exposing a lot of markdown details, we make it
+a regular editor that supports markdown."
+
+- With **Show Markdown** off, which is the default, the reveal rule stops at
+  the caret: entering bold does not bring its `**` back, a heading never shows
+  its `#`, a link never shows its address, a wiki link stays its name
+  (`livePreview/symbols.ts`, `hiddenMarkRanges`' `never`). The buffer is the
+  same Markdown; nothing about the file changes.
+- Two things still come back: a code block's fences when the caret is in the
+  block, because code is edited as its source, and a construct with nothing but
+  marks in it (`#` just typed at the start of a line), or the key would look
+  like it did nothing. The frontmatter keeps its own rule.
+- Backspace and Delete act on the letter on screen: they skip hidden marks, a
+  construct's last letter takes its marks with it, and Backspace at the start
+  of a heading's words makes it a paragraph. A transaction filter, so the
+  phone keyboard's own deletes are covered too. Hidden marks are atomic, so a
+  caret cannot sit between two asterisks.
+- The switch is Settings › Writing (the page Spelling became), kept on the
+  account beside spelling (`spellingPreferences.showMarkdown`), so it follows
+  the person to every device. On, the editor reveals as it always did, the
+  touch rule for headings included.
+- Formatting is reached through the writing bar, the Aa panel, the context
+  menu and typed shortcuts, which turn into formatting the moment they close.
+  Editing a link's address needs Show Markdown on for now.
+
+Reversing it: `livePreview/markdownHidden.test.ts` fails (sabotaged: the
+setting ignored fails 10, the Backspace filter removed fails 7, the
+empty-construct check removed fails 1).
