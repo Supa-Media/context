@@ -97,7 +97,8 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
     const noted = typeof reply.attached === "string" ? reply.attached.split("\n").filter((line) => line !== "" && !(onTheirLine && line.startsWith("[Voice message "))).join("\n") : "";
     const extra = [noted !== "" ? noted : null].filter(Boolean);
     const thread = typeof reply.thread === "string" ? { thread: reply.thread } : {};
-    const user = question(null, thread) ?? { role: "user", text: UNPROMPTED_LINE, ...(Number.isSafeInteger(answering.at) ? { at: answering.at } : {}), ...thread };
+    // With no text of theirs, the gateway's line the turn was asked (a vault save, `sendTheReply.js`), or a report's.
+    const user = question(null, thread) ?? { role: "user", text: typeof reply.about === "string" && reply.about !== "" ? reply.about : UNPROMPTED_LINE, ...(Number.isSafeInteger(answering.at) ? { at: answering.at } : {}), ...thread };
     if (extra.length > 0) user.text = [user.text, ...extra].join("\n");
     turns.push(user, {
       role: "assistant",

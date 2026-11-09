@@ -31,6 +31,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { rmSync } from "node:fs";
 
 import { createWorkerCtx } from "../test/workerCtx.mjs";
+import { readStream, workerEvents } from "./workerWire.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
@@ -62,8 +63,6 @@ const BRAVE_SEARCH = "https://api.search.brave.com/";
 export const S3_ENDPOINT = "https://s3.bench.invalid";
 /** How much of a filed note's text a record keeps, for `containing` checks. */
 const MAX_FILED_TEXT = 2000;
-/** The line the bench's person texts on, as the texting Worker names a chat (`apps/agent/src/events.ts`). */
-const BENCH_CHAT = "sendblue:line:+15555550100";
 
 /** A note's front matter as `key → value`, lower-cased keys, quotes dropped. */
 export function frontOf(text) {
@@ -142,34 +141,6 @@ function bodyText(object) {
 
 function snapshot(bucket) {
   return new Map([...bucket].map(([key, object]) => [key, bodyText(object)]));
-}
-
-/**
- * Read a streamed `/agent` answer the way the texting Worker does
- * (`apps/agent/src/clients.ts` `askAgentStreaming`): each `{"progress"}` line
- * is a text sent, ticks are skipped, and the last `{status, body}` line is the
- * turn's own answer. A reply that is not a stream (refused before the turn
- * ran) is read as plain JSON; a stream with no final line is a failed turn.
- */
-export async function readStream(response) {
-  if (!(response.headers.get("content-type") ?? "").includes("application/x-ndjson")) {
-    return { response, body: await response.json().catch(() => null), progress: [] };
-  }
-  const progress = [];
-  const text = await response.text();
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line) continue;
-    let parsed;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (typeof parsed?.progress === "string" && parsed.progress.trim()) progress.push(parsed.progress.trim());
-    else if (typeof parsed?.status === "number") return { response: { status: parsed.status }, body: parsed.body ?? null, progress };
-  }
-  return { response: { status: 502 }, body: { error: "stream ended with no answer" }, progress };
 }
 
 /**
@@ -411,23 +382,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     }
     return { usage, usageByModel, model: reports.at(-1)?.model ?? null };
   };
-  // The chat's events as the texting Worker posts them (`/agent/events`): their texts and Tex's.
-  let texted = 0;
-  const textedEvent = (text) => {
-    const at = Date.now();
-    texted += 1;
-    return { id: `${String(at).padStart(13, "0")}-${String(texted).padStart(6, "0")}`, at, chat: BENCH_CHAT, from: { kind: "person" }, kind: "text", text: String(text).slice(0, 3_000), turn: `bench-turn-${String(texted).padStart(6, "0")}` };
-  };
-  const postEvents = async (events) => {
-    const { ctx, settle } = createWorkerCtx();
-    const posted = await worker.fetch(
-      new Request("https://mcp.bench.invalid/agent/events", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ conversation: "texts", events: events.map(({ turn, ...event }) => (event.from.kind === "tex" ? { ...event, turn } : event)) }) }),
-      env,
-      ctx,
-    );
-    await posted.text();
-    await settle();
-  };
+  const { textedEvent, postEvents } = workerEvents({ env, token });
   return {
     /** One texted message, answered with the conversation so far. */
     async text(message, attachments = [], { running = null } = {}) {

@@ -30,7 +30,7 @@
  *     judge is told which note the action acts on…` fails.
  */
 
-import { ask, call, request, textOf, toolReplies, createEgressWorld } from "./agentEgressFixtures.mjs";
+import { call, request, textOf, toolReplies, createEgressWorld, textTex } from "./agentEgressFixtures.mjs";
 import { TOKEN_MCP, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { teamNow } from "./accessRows.mjs";
 import { AI_GATEWAY_ENV } from "./agentModelFixture.mjs";
@@ -181,7 +181,7 @@ export async function runAgentEgressJudgeChecks(check) {
       { text: "Fifth is a short note. Do you want me to share it with the team?" },
     ]);
     before = model.requests.length;
-    const read = await ask(env, TOKEN_TEXTS, "what does fifth say?");
+    const read = await textTex(env, TOKEN_TEXTS, "what does fifth say?");
     const judged = model.requests[before + 2];
     check(
       "a texted turn is judged on the person's own text, never the model's report",
@@ -199,7 +199,7 @@ export async function runAgentEgressJudgeChecks(check) {
       { text: "Done, fifth is with the team." },
     ]);
     before = model.requests.length;
-    const yeah = await ask(env, TOKEN_TEXTS, "yeah go do it");
+    const yeah = await textTex(env, TOKEN_TEXTS, "yeah go do it");
     const answered = judgeText(model.requests[before + 2]);
     check(
       "a bare yeah is judged with the question it answers, and runs",

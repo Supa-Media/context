@@ -27,6 +27,7 @@ import { groupTimingLine, waitBefore } from "../turnLog.js";
 import { turnTiming } from "../turnTiming.js";
 import { heardWords, sentLine } from "../heardWords.js";
 import { jobChecked, startedJobEntries } from "../workEntries.js";
+import { VAULT_SAVED_QUESTION } from "../vaultSaved.js";
 import { typedCallOf } from "../sayNothing.js"; // a call typed out is never texted, the last stop before it goes
 
 /** Whether the history this turn was shown (and can read with earlier_texts) holds an answer from a turn that read from outside. */
@@ -57,9 +58,11 @@ export async function sendTheReply(t) {
   */
   const handoff = opened?.browser?.handoffLine() ?? null;
   const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
+  // A turn no text of theirs asked (a job's report, a vault save) keeps the gateway's line it was asked, so the chat rebuilt from the ledger shows what Tex answered.
+  const eventAsked = report !== null || question === VAULT_SAVED_QUESTION ? String(question).slice(0, 2_000) : null;
   // What the person's chat rebuilt from the ledger shows beside this answer (`ledgerConversation.js`): the files they sent and where a picture is kept, the pages it read, the thread it was typed in.
   const attached = attachmentsLine(attachments, attachments.length > 0 ? ((await tex.step("pictures_kept", keepPictures)) ?? []) : []), sources = turn.steps.flatMap((step) => step.sources ?? []);
-  chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), worker: body.worker, replyMs: Date.now() - received }), clean: ledger.untrusted !== true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`)
+  chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), worker: body.worker, replyMs: Date.now() - received }), clean: ledger.untrusted !== true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}), ...(eventAsked !== null ? { about: eventAsked } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`)
   // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
   const replaced = (job !== null && steer !== null && (await tex.step("steer_pending", () => steer.pending()))) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
   if (steer !== null) await tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));
@@ -72,6 +75,8 @@ export async function sendTheReply(t) {
   if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
     try {
       // A caller other than the texting Worker (which posts every text both ways itself, `/agent/events`) keeps its exchange in the ledger, in the gateway's words.
+      // An event turn that texted nothing is kept as that, a line beside the gateway's question, since the Worker posts no text of Tex's for it.
+      if (session.actorClientId === TEXTS_CLIENT_ID && eventAsked !== null && answer === "" && said !== "") { chatLog?.write([wordsEntry("note", said, { turn: ledgerTurn, about: eventAsked })]); await tex.step("ledger_texts", () => chatLog?.flush()); }
       if (session.actorClientId !== TEXTS_CLIENT_ID) { chatLog?.write(exchangeEntries([reactedLine(reacted), tapbackLine(quoted) || question, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"), said, { turn: ledgerTurn, asked: received })); await tex.step("ledger_texts", () => chatLog?.flush()); } if (conversation === "texts" && group === null) await tex.step("learn_desk_keys", () => learnDeskKeys(store, session.workspaceId)); // the desk's note keys, for the next turn (`texDesk.js`)
     } catch {
       // The answer is still owed. A history that failed to save costs the next turn some context, not this one its reply.

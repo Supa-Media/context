@@ -36,6 +36,7 @@ import {
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 import { conversationText } from "./agentConversationFixture.mjs";
+import { textTex } from "./agentEgressFixtures.mjs";
 
 const S3_ENDPOINT = "https://s3.example-transcript.test";
 const TOKEN_TEXTS = `cat_transcript_texts_${"0".repeat(19)}`;
@@ -165,12 +166,8 @@ export async function runAgentTranscriptChecks(check) {
 
     const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
     model.install([{ text: "Cute." }]);
-    const pictured = await ask(env, TOKEN_TEXTS, {
-      question: "look at this",
-      conversation: "texts",
-      timeZone: "UTC",
-      attachments: [{ name: "IMG_7.png", mediaType: "image/png", data: PNG }],
-    });
+    // As the Worker sends it (`textTex`): the chat's ledger is what a later text reads.
+    const pictured = await textTex(env, TOKEN_TEXTS, "look at this", { timeZone: "UTC", attachments: [{ name: "IMG_7.png", mediaType: "image/png", data: PNG }] }, { logged: false });
     const note = picturesPath(Date.now(), "UTC");
     const album = () => bucket.get(note)?.body ?? "";
     const leaf = /!\[\[(upload-[0-9a-f]{16}\.png)\|IMG_7\.png\]\]/.exec(album())?.[1];
@@ -186,7 +183,7 @@ export async function runAgentTranscriptChecks(check) {
 
     // "it took me here", a text later: the picture is looked at again, and the model is shown it.
     model.install([{ toolCalls: [{ name: "read_image", args: { note, image: leaf } }] }, { text: "Same page." }]);
-    const again = await ask(env, TOKEN_TEXTS, { question: "it took me here", conversation: "texts", timeZone: "UTC" });
+    const again = await textTex(env, TOKEN_TEXTS, "it took me here", { timeZone: "UTC" }, { logged: false });
     const shown = model.requests
       .at(-1)
       ?.messages?.flatMap((message) => (Array.isArray(message.content) ? message.content : []))

@@ -22,7 +22,7 @@
  */
 
 import { reportCopy } from "../src/tools/reportGate.js";
-import { ask, call, request, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { call, request, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS, textTex } from "./agentEgressFixtures.mjs";
 
 const REPORT = { message: "Search found nothing for a note I know exists.", share_texts: true };
 const report = (args) => ({ toolCalls: [{ name: "write", args: { action: "report_problem", args } }] });
@@ -35,10 +35,10 @@ export async function runReportGateChecks(check) {
   try {
     // Something to report about, in the conversation the texts come from.
     model.install([{ text: "I couldn't find a note about avocados." }]);
-    await ask(env, TOKEN_TEXTS, "find my avocado note");
+    await textTex(env, TOKEN_TEXTS, "find my avocado note");
 
     model.install([report(REPORT), { text: "I wrote it up." }]);
-    const asked = await ask(env, TOKEN_TEXTS, "that's a bug, can you file it");
+    const asked = await textTex(env, TOKEN_TEXTS, "that's a bug, can you file it");
     check(
       "a texted bug report is held, shown whole, and not sent",
       asked.status === 200 &&
@@ -55,16 +55,16 @@ export async function runReportGateChecks(check) {
 
     let before = model.requests.length;
     model.install([{ text: "Sure thing." }]);
-    await ask(env, TOKEN_TEXTS, "ok thanks");
+    await textTex(env, TOKEN_TEXTS, "ok thanks");
     check(
       "a courtesy to a bug report is not a yes, and the ask still stands (Dev2, 2026-10-22)",
       sent().length === 0 && model.requests.length > before && pending().length === 1,
     );
 
     model.install([report(REPORT), { text: "Here it is again." }]);
-    await ask(env, TOKEN_TEXTS, "file that bug please");
+    await textTex(env, TOKEN_TEXTS, "file that bug please");
     before = model.requests.length;
-    const yes = await ask(env, TOKEN_TEXTS, "YES");
+    const yes = await textTex(env, TOKEN_TEXTS, "YES");
     const filed = sent()[0];
     check(
       "a texted YES sends exactly that report with their recent texts, without a model",
@@ -79,28 +79,28 @@ export async function runReportGateChecks(check) {
     );
 
     model.install([report({ message: "The link in your last text did not open." }), { text: "Written up." }]);
-    const plain = await ask(env, TOKEN_TEXTS, "report the broken link, but don't send our chat");
+    const plain = await textTex(env, TOKEN_TEXTS, "report the broken link, but don't send our chat");
     check(
       "a report without texts says so, and its YES sends the message alone",
       /None of our texts go with it\./.test(plain.body?.verbatim?.[0] ?? "") && sent().length === 1,
     );
-    await ask(env, TOKEN_TEXTS, "yes");
+    await textTex(env, TOKEN_TEXTS, "yes");
     check("…and its YES sends the message alone", sent().length === 2 && sent()[1].texts === undefined);
 
     model.install([report({ message: "Something else broke." }), { text: "Written up." }]);
-    await ask(env, TOKEN_TEXTS, "file another one");
-    await ask(env, TOKEN_TEXTS, "no");
+    await textTex(env, TOKEN_TEXTS, "file another one");
+    await textTex(env, TOKEN_TEXTS, "no");
     check("a NO drops it", sent().length === 2);
 
     // Dev2, 2026-10-21: a 👍 that stayed on the ask is the yes, but only on the ask for what is waiting.
     const like = (words) => request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: words, tapback: "Liked", conversation: "texts" });
     model.install([report({ message: "Thumbs should work." }), { text: "Written up." }]);
-    const shown = (await ask(env, TOKEN_TEXTS, "file a thumbs one")).body?.verbatim?.[0] ?? "";
+    const shown = (await textTex(env, TOKEN_TEXTS, "file a thumbs one")).body?.verbatim?.[0] ?? "";
     model.install([{ text: "Glad you like it." }]);
     await like("Here's the bug report I'd send to the Context team:\n\nSomething else broke.\n\nNone of our texts go with it.");
     check("a 👍 on an older ask releases nothing", sent().length === 2);
     model.install([report({ message: "Thumbs should work." }), { text: "Written up." }]);
-    await ask(env, TOKEN_TEXTS, "file a thumbs one");
+    await textTex(env, TOKEN_TEXTS, "file a thumbs one");
     before = model.requests.length;
     const liked = await like(`${shown.slice(0, 60)}…`);
     check(
@@ -122,21 +122,21 @@ export async function runReportGateChecks(check) {
 
     model.install([report({ message: "x".repeat(2_001), share_texts: true }), { text: "Too long." }]);
     const pendingBefore = pending().length;
-    await ask(env, TOKEN_TEXTS, "file a long one");
+    await textTex(env, TOKEN_TEXTS, "file a long one");
     check("a report too long to read in one text is never put to the person", pending().length === pendingBefore && sent().length === 4);
 
     // Dev2, 2026-10-21: "do it for me, and if you can't do it, file a bug to the developers" was answered with a draft and a wait for 👍.
     const asks = "??? I told you to do it, don't add it to my todo list, do it for me, and if you can't do it, file a bug to the developers to give you the capability you need";
     model.install([report({ message: "Tex can't forward an email with its attachment." }), { text: "Filed it." }]);
     const pendingAsked = pending().length;
-    const filedNow = await ask(env, TOKEN_TEXTS, asks);
+    const filedNow = await textTex(env, TOKEN_TEXTS, asks);
     check(
       "a text that asks for a bug to be filed is the yes for a report without their texts: sent at once, nothing held",
       filedNow.status === 200 && sent().length === 5 && sent()[4].message === "Tex can't forward an email with its attachment." &&
         sent()[4].texts === undefined && pending().length === pendingAsked && filedNow.body?.verbatim === undefined,
     );
     model.install([report({ message: "Tex can't forward with attachments.", share_texts: true }), { text: "Wrote it up." }]);
-    await ask(env, TOKEN_TEXTS, asks);
+    await textTex(env, TOKEN_TEXTS, asks);
     check("…but their texts still go only on a yes to the report that says so", sent().length === 5 && pending().length === pendingAsked + 1);
   } finally {
     world.restore();

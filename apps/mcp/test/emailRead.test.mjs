@@ -31,7 +31,7 @@
  *     texted turn as having read from outside` fails.
  */
 
-import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_TEXTS, textTex } from "./agentEgressFixtures.mjs";
 import { parseEmailId } from "../src/tools/emailRead.js";
 import { translateFetch, translateSearch } from "../src/tools/v2/searchFetch.js";
 import { PRIVATE_TIER_ONLY_TOOLS } from "../src/tools/registry.js";
@@ -212,7 +212,7 @@ export async function runEmailReadChecks(check) {
       { toolCalls: [{ name: "fetch", args: { id: "email:me@example.com/18c0ffee" } }] },
       { text: "Jo sent the signed lease in March 2024." },
     ]);
-    const texted = await ask(env, TOKEN_TEXTS, "when did jo send the lease?");
+    const texted = await textTex(env, TOKEN_TEXTS, "when did jo send the lease?", {}, { logged: false });
     check(
       "Tex reads an email live in a texted turn",
       texted.status === 200 && controlPlane.mailReadCalls.some((entry) => entry.path === "/gateway/email/read"),
@@ -220,7 +220,8 @@ export async function runEmailReadChecks(check) {
     // The owner's receipt, 2026-10-22: found, offered, and gone a text later.
     model.install([{ text: "Yes, I can forward it." }]);
     const before2 = model.requests.length;
-    await ask(env, TOKEN_TEXTS, "can you forward that to my lawyer?");
+    // Asked as turns: a turn that names the texts it covers reads the day's transcript instead (`loggedTurn.js`).
+    await textTex(env, TOKEN_TEXTS, "can you forward that to my lawyer?", {}, { logged: false });
     // What the earlier answers used is said in the person's turn, not the system prompt (`turn.js`), so the whole request is read.
     const nextSystem = JSON.stringify(model.requests.slice(before2));
     check(
