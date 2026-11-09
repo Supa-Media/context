@@ -1,5 +1,6 @@
 import { CACHE_SCOPES } from "./keys";
-import { placeBody, updateIndex, type Needed } from "./mirror";
+import { placeBody, readIndex, updateIndex, type Needed } from "./mirror";
+import { within } from "./outboxPaths";
 import { publishMirrorNotesChanged } from "./mirrorEvents";
 import { utf8Length } from "./mirrorPath";
 import type { MirrorStore } from "./mirrorStoreCore";
@@ -70,4 +71,14 @@ export async function moveMirroredBody(
   }
   // Home's Recent and the folder lists read these entries: tell them, as a sync does.
   if (moved) publishMirrorNotesChanged(workspaceId);
+}
+
+/** Every note the mirror holds at `folder` or under it, at any clearance: what a folder's op carries. */
+export async function mirroredPathsWithin(store: MirrorStore, workspaceId: string, folder: string): Promise<string[]> {
+  const paths = new Set<string>();
+  for (const scope of CACHE_SCOPES) {
+    const index = await readIndex(store, scope, workspaceId);
+    for (const path of index?.entries.keys() ?? []) if (within(path, folder)) paths.add(path);
+  }
+  return [...paths];
 }

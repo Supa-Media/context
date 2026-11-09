@@ -119,8 +119,8 @@ export interface OfflineNotes {
    * everything waiting on the create.
    */
   landedQueued: (path: string, etag: string) => void;
-  /** Whether an action on this path has to go through the queue, even online. */
-  routesThroughQueue: (path: string) => boolean;
+  /** Whether an action on this path (a folder, with `folder`) has to go through the queue, even online. */
+  routesThroughQueue: (path: string, folder?: boolean) => boolean;
   /** Whether the queue is holding this name — see `claimedPaths`. */
   claims: (path: string) => boolean;
   /** The create waiting for this path, if the note exists only on this device. */
@@ -140,6 +140,14 @@ export interface OfflineNotes {
     etag: string | null;
   }) => QueuedOp & { dropped?: PendingWrite };
   queueFolder: (path: string) => QueuedOp;
+  /**
+   * Queue a folder's rename or move, sent after everything queued inside it.
+   * `false` when it would nest with another folder's op, or land on a name the
+   * queue holds — see `queueFolderMove` in `outbox.ts`.
+   */
+  queueFolderMove: (move: { from: string; to: string }) => QueuedOp;
+  /** Queue a folder's delete or archive, sent after everything queued inside it. */
+  queueFolderRemoval: (removal: { kind: "trash" | "archive"; path: string }) => QueuedOp;
   /** Take an op back, or discard a parked one. */
   dropOp: (id: string) => void;
   /** A refused op, back in the queue because a person asked. */

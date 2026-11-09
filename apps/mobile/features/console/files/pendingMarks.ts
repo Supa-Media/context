@@ -148,7 +148,7 @@ export function pendingMarks(
   const operations: OpRow[] = [];
   for (const op of [...ops].sort((a, b) => a.queuedAt - b.queuedAt)) {
     const state = markOf(op.state);
-    const shown = op.kind === "move" ? op.to : op.kind === "folder" ? op.path : undefined;
+    const shown = op.kind === "move" || op.kind === "folderMove" ? op.to : op.kind === "folder" ? op.path : undefined;
     if (shown !== undefined) mark(shown, state);
     const why = op.state === "conflicted" ? op.conflict?.message : op.state === "rejected" ? op.rejection?.message : undefined;
     operations.push({
@@ -197,6 +197,18 @@ export function describeOp(op: Pick<PendingOp, "kind" | "path" | "to">): string 
       return `Delete ${name}`;
     case "archive":
       return `Archive ${name}`;
+    case "folderTrash":
+      return `Delete folder ${name}`;
+    case "folderArchive":
+      return `Archive folder ${name}`;
+    case "folderMove": {
+      const to = op.to ?? op.path;
+      if (parentPath(op.path) === parentPath(to)) return `Rename folder ${name} → ${displayName(baseName(to))}`;
+      const folder = parentPath(to) === "" ? "the root of your context" : displayPath(parentPath(to));
+      return baseName(op.path) === baseName(to)
+        ? `Move folder ${name} → ${folder}`
+        : `Move folder ${name} → ${displayPath(parentPath(to))}/${displayName(baseName(to))}`;
+    }
     case "move": {
       const to = op.to ?? op.path;
       if (parentPath(op.path) === parentPath(to)) return `Rename ${name} → ${displayName(baseName(to))}`;

@@ -1,8 +1,10 @@
 import { getNote, putNote } from "../cache";
 import { forgetMirroredNote, mirroredNote, putMirroredNotes } from "../mirror";
-import { moveMirroredBody } from "../mirrorMove";
+import { isFolderOp } from "../outboxPaths";
+import { mirroredPathsWithin, moveMirroredBody } from "../mirrorMove";
 import { neededEtags } from "../mirrorHolds";
 import { openMirrorStore } from "../mirrorStore";
+import type { MirrorStore } from "../mirrorStoreCore";
 import type { KeyValueStore } from "../memory";
 import type { OpSent } from "../sync";
 import type { CacheScope } from "../keys";
@@ -72,14 +74,6 @@ export function rememberSentCopy(
     })().catch(() => {});
 }
 
-/**
- * Move this device's copy of a note onto where an op just put it in the
- * bucket: a renamed note's body to its new name (at the version the move
- * returned, where it said), and a deleted or archived one off the device —
- * the next sync brings the archived copy back where the archive put it.
- * Without this the tree drawn from the mirror shows the note under its old
- * name, beside the new one, until the next sync prunes it.
- */
 /** A note this device created, now in the bucket: into the mirror. See the drain. */
 export function rememberCreatedCopy(
   { workspaceId, scope, store, mine, epochRef }: CopyWriterInputs,
@@ -96,33 +90,60 @@ export function rememberCreatedCopy(
     })().catch(() => {});
 }
 
+/**
+ * Move this device's copy of a note onto where an op just put it in the
+ * bucket: a renamed note's body to its new name (at the version the move
+ * returned, where it said), and a deleted or archived one off the device —
+ * the next sync brings the archived copy back where the archive put it.
+ * Without this the tree drawn from the mirror shows the note under its old
+ * name, beside the new one, until the next sync prunes it.
+ */
 export function rememberOpDoneCopy(
   { workspaceId, scope, store, mine, epochRef }: CopyWriterInputs,
   done: OpSent,
 ): void {
-    if (workspaceId === null || scope === null || !mine()) return;
-    if (done.kind === "folder") return;
-    const epoch = epochRef.current;
-    void (async () => {
-      const mirror = await openMirrorStore();
-      if (mirror === null) return;
-      if (done.kind === "move" && done.to !== undefined) {
-        const copy = await mirroredNote(mirror, scope, workspaceId, done.path);
-        if (copy !== null && mine()) {
-          const needed = await neededEtags(store, workspaceId);
-          if (!mine()) return;
-          await putMirroredNotes(
-            mirror,
-            epoch,
-            scope,
-            workspaceId,
-            [{ ...copy.value, path: done.to, etag: done.etag ?? copy.value.etag }],
-            needed,
-            Date.now(),
-          );
-        }
+  if (workspaceId === null || scope === null || !mine()) return;
+  if (done.kind === "folder") return;
+  const epoch = epochRef.current;
+
+  /** One note's copy: to its new name where it moved, then off its old one. */
+  const follow = async (mirror: MirrorStore, path: string, to: string | undefined, etag: string | undefined) => {
+    if (to !== undefined) {
+      const copy = await mirroredNote(mirror, scope, workspaceId, path);
+      if (copy !== null && mine()) {
+        const needed = await neededEtags(store, workspaceId);
+        if (!mine()) return;
+        await putMirroredNotes(
+          mirror,
+          epoch,
+          scope,
+          workspaceId,
+          [{ ...copy.value, path: to, etag: etag ?? copy.value.etag }],
+          needed,
+          Date.now(),
+        );
       }
+    }
+    if (!mine()) return;
+    await forgetMirroredNote(mirror, epoch, workspaceId, path);
+  };
+
+  void (async () => {
+    const mirror = await openMirrorStore();
+    if (mirror === null) return;
+    if (!isFolderOp(done)) {
+      await follow(mirror, done.path, done.kind === "move" ? done.to : undefined, done.etag);
+      return;
+    }
+    /*
+      A folder's op: every note under it, the same way. Without it the tree
+      drawn from the mirror has the folder under its old name until the next
+      sync prunes it. A folder move keeps its notes' versions.
+    */
+    for (const path of await mirroredPathsWithin(mirror, workspaceId, done.path)) {
       if (!mine()) return;
-      await forgetMirroredNote(mirror, epoch, workspaceId, done.path);
-    })().catch(() => {});
+      const to = done.kind === "folderMove" && done.to !== undefined ? done.to + path.slice(done.path.length) : undefined;
+      await follow(mirror, path, to, undefined);
+    }
+  })().catch(() => {});
 }

@@ -78,10 +78,28 @@ is `enqueue`'s rule restated for ops. A parked op offers "Do it anyway", which i
 `forceMine`'s shape — re-based onto the version the conflict reported, still
 conditional — and "Discard"; a refused one offers "Try again" and "Discard".
 
-A folder rename, move, archive or delete is refused offline in a sentence.
-A folder has no version, its notes can change on other devices while this one
-is offline, and a folder-wide op sent hours later against a tree nobody
-re-checked is last-write-wins across a subtree.
+A folder rename, move, archive or delete is queued like a note's (owner,
+2026-11-09, approving the offline-first boards: "every action works offline:
+… folders, moving, renaming, deleting"). This reverses the refusal that stood
+here, which argued that a folder has no version and a folder-wide op sent
+hours later is last-write-wins across a subtree. It is the same op a person
+makes online against a tree they last looked at a moment ago, and a delete
+lands in the trash, so nothing it does is past undoing; what the queue owes is
+order, not a version. The rules (`outboxPaths.ts`, pinned in
+`__tests__/offlineFolderOps.test.ts`):
+
+- **A folder op is sent after everything queued inside it**, and waits,
+  uncharged, while anything there is parked or refused. Sent past a parked
+  edit, the edit would come back to a name the bucket no longer has.
+- **Everything queued inside a moved folder is queued under its old name**:
+  shown at the new name (`localPathOf`), sent at the bucket's (`serverPathOf`),
+  and the folder move carries it.
+- **Folder ops do not nest.** One inside, around or onto another still
+  waiting is refused in a sentence until that one syncs, so the two mappings
+  above stay one step each. Renaming a folder twice is one rename, renamed
+  back is none, and deleting a renamed folder deletes the original.
+- Online, a folder with anything queued inside it goes through the queue too,
+  for the same order (`routesThroughQueue`).
 
 #### Order, and what is coalesced
 

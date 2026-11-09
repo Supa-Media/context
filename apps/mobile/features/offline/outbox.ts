@@ -36,6 +36,8 @@
  * `__tests__/offlineSync.test.ts`, not an assumption made here.
  */
 
+import { claimedPaths, claimsWithin, folderOpBlocked, isFolderOp, serverPathOf } from "./outboxPaths";
+
 /** What a queued write is waiting on. */
 export type PendingState =
   /** Waiting for a connection. Retried automatically. */
@@ -80,7 +82,7 @@ export interface PendingWrite {
  * unrecoverable operation typed on a train and sent hours later is the one
  * thing no offline layer should ever do on somebody's behalf.
  */
-export type OpKind = "move" | "archive" | "trash" | "folder";
+export type OpKind = "move" | "archive" | "trash" | "folder" | "folderMove" | "folderTrash" | "folderArchive";
 
 /**
  * A rename, move, archive, delete or new folder that has not reached the
@@ -394,10 +396,11 @@ function isPendingOp(value: unknown): value is PendingOp {
   const op = value as Partial<PendingOp>;
   return (
     typeof op.id === "string" &&
-    (op.kind === "move" || op.kind === "archive" || op.kind === "trash" || op.kind === "folder") &&
+    (op.kind === "move" || op.kind === "archive" || op.kind === "trash" || op.kind === "folder" ||
+      op.kind === "folderMove" || op.kind === "folderTrash" || op.kind === "folderArchive") &&
     typeof op.path === "string" &&
     op.path !== "" &&
-    (op.kind !== "move" || (typeof op.to === "string" && op.to !== "")) &&
+    ((op.kind !== "move" && op.kind !== "folderMove") || (typeof op.to === "string" && op.to !== "")) &&
     (op.baseEtag === null || typeof op.baseEtag === "string") &&
     typeof op.queuedAt === "number" &&
     typeof op.updatedAt === "number" &&
@@ -459,78 +462,12 @@ function stamp(outbox: Outbox, now: number): number {
   return Math.max(now, latest + 1);
 }
 
-/**
- * Where a note is in the bucket while this device has renamed it.
- *
- * Followed through a chain — `a` renamed to `b` and then to `c` while the first
- * was still in flight is two moves, and the bucket has `a` until both land. An
- * edit typed into `c` is an edit of the bucket's `a`, and is queued there: the
- * drain sends the edit, then the rename, which carries the text with it. Sent
- * the other way round, the edit would be a write to a path the bucket has not
- * heard of.
- */
-export function serverPathOf(outbox: Outbox, local: string): string {
-  let path = local;
-  const ops = opsOf(outbox);
-  for (let guard = 0; guard <= ops.length; guard += 1) {
-    const move = ops.find((op) => op.kind === "move" && op.to === path);
-    if (move === undefined) return path;
-    path = move.path;
-  }
-  return path;
-}
-
-/** The inverse: where this device shows a bucket path it has renamed. */
-export function localPathOf(outbox: Outbox, server: string): string {
-  let path = server;
-  const ops = opsOf(outbox);
-  for (let guard = 0; guard <= ops.length; guard += 1) {
-    const move = ops.find((op) => op.kind === "move" && op.path === path);
-    if (move === undefined || move.to === undefined) return path;
-    path = move.to;
-  }
-  return path;
-}
-
-/**
- * Every path this queue has a claim on: what it will write, and every end of
- * every op.
- *
- * **A claimed path is not free to be reused as a *different* note until the
- * queue has drained**, and that one rule is what lets the drain treat each
- * note as independent of every other. Delete `plan` and make a new `plan`
- * offline, and the order becomes load-bearing across two notes — the create
- * sent first is a conflict with the note the delete had not removed yet. So
- * the console refuses the second `plan` with a sentence instead, which is rare
- * and says exactly what to do.
- */
-export function claimedPaths(outbox: Outbox): Set<string> {
-  const paths = new Set<string>();
-  for (const write of outbox.writes) paths.add(write.path);
-  for (const op of opsOf(outbox)) {
-    paths.add(op.path);
-    if (op.to !== undefined) paths.add(op.to);
-  }
-  return paths;
-}
-
-/**
- * Whether anything the console does to `local` has to go through this queue
- * rather than straight to the bucket — even online.
- *
- * A note created on this device, or renamed on it, is not at that path in the
- * bucket yet; an online `moveEntry` of it is a refusal about a file that does
- * not exist. And a note with an op waiting (or parked) on it has an order to
- * keep. Plain queued *edits* are not claims: those notes are in the bucket
- * where the console says they are, which is how an online save of a note with
- * a parked write has always worked.
- */
-export function routesThroughQueue(outbox: Outbox, local: string): boolean {
-  const server = serverPathOf(outbox, local);
-  if (server !== local) return true;
-  if (opOn(outbox, server) !== undefined) return true;
-  return find(outbox, server)?.baseEtag === null;
-}
+export {
+  claimedPaths,
+  localPathOf,
+  routesThroughQueue,
+  serverPathOf,
+} from "./outboxPaths";
 
 function newOp(
   outbox: Outbox,
@@ -718,6 +655,51 @@ export function queueFolder(outbox: Outbox, input: { id: string; path: string; n
   ]);
 }
 
+/**
+ * Rename or move a whole folder (`outboxPaths.ts` for the rules). `path` and
+ * `to` are as this device shows them. A second rename of a folder this queue
+ * is already renaming folds into the first; renaming it back drops both.
+ * `null` when it cannot be queued: it would nest with another folder op, the
+ * destination is claimed, or it would move a folder into itself.
+ */
+export function queueFolderMove(outbox: Outbox, input: { id: string; path: string; to: string; now: number; coalesce?: boolean }): Outbox | null {
+  const { path, to } = input;
+  if (path === to) return outbox;
+  if (to.startsWith(`${path}/`)) return null;
+  const earlier = opsOf(outbox).find((op) => op.kind === "folderMove" && op.to === path);
+  if (earlier !== undefined) {
+    if (!input.coalesce || folderOpBlocked(outbox, earlier.path, to, earlier.id)) return null;
+    if (to === earlier.path) return replaceOp(outbox, earlier.id, null);
+    if (claimsWithin(outbox, to, earlier.id)) return null;
+    return replaceOp(outbox, earlier.id, { ...earlier, to, state: "pending", rejection: undefined, updatedAt: input.now });
+  }
+  const from = serverPathOf(outbox, path);
+  if (from !== path || folderOpBlocked(outbox, from, to) || claimsWithin(outbox, to)) return null;
+  return withOps(outbox, [
+    ...opsOf(outbox),
+    newOp(outbox, { id: input.id, kind: "folderMove", path: from, to, baseEtag: null }, input.now),
+  ]);
+}
+
+/**
+ * Delete (to the trash) or archive a whole folder. Of a folder this queue is
+ * renaming, the original is removed instead, and the rename goes.
+ */
+export function queueFolderRemoval(
+  outbox: Outbox,
+  input: { id: string; path: string; kind: "trash" | "archive"; now: number; coalesce?: boolean },
+): Outbox | null {
+  const kind = input.kind === "trash" ? "folderTrash" : "folderArchive";
+  const earlier = opsOf(outbox).find((op) => op.kind === "folderMove" && op.to === input.path);
+  if (earlier !== undefined) {
+    if (!input.coalesce) return null;
+    return replaceOp(outbox, earlier.id, { ...earlier, kind, to: undefined, state: "pending", rejection: undefined, updatedAt: input.now });
+  }
+  const path = serverPathOf(outbox, input.path);
+  if (path !== input.path || folderOpBlocked(outbox, path, undefined)) return null;
+  return withOps(outbox, [...opsOf(outbox), newOp(outbox, { id: input.id, kind, path, baseEtag: null }, input.now)]);
+}
+
 /** The person took it back. Nothing about it reaches the bucket. */
 export function dropOp(outbox: Outbox, id: string): Outbox {
   return replaceOp(outbox, id, null);
@@ -828,11 +810,15 @@ export function drainUnits(outbox: Outbox): DrainUnit[] {
   const units = new Map<string, DrainUnit>();
   for (const write of outbox.writes) units.set(write.path, { path: write.path, write });
   for (const op of opsOf(outbox)) {
-    const unit = units.get(op.path) ?? { path: op.path };
+    // A folder's op is its own unit: no note shares it, and a new folder at the same name is sent before it.
+    const key = isFolderOp(op) ? `\u0000${op.id}` : op.path;
+    const unit = units.get(key) ?? { path: op.path };
     unit.op = op;
-    units.set(op.path, unit);
+    units.set(key, unit);
   }
   const first = (unit: DrainUnit) =>
     Math.min(unit.write?.queuedAt ?? Infinity, unit.op?.queuedAt ?? Infinity);
-  return [...units.values()].sort((a, b) => first(a) - first(b));
+  // A folder's move or removal goes after everything else, which is queued under its old name (`outboxPaths.ts`).
+  const folderLast = (unit: DrainUnit) => (unit.op !== undefined && isFolderOp(unit.op) ? 1 : 0);
+  return [...units.values()].sort((a, b) => folderLast(a) - folderLast(b) || first(a) - first(b));
 }

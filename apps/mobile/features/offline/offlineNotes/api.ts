@@ -34,6 +34,8 @@ import {
   opsOf,
   overrideOp as overrideOpIn,
   queueFolder as queueFolderIn,
+  queueFolderMove as queueFolderMoveIn,
+  queueFolderRemoval as queueFolderRemovalIn,
   queueMove as queueMoveIn,
   queueRemoval as queueRemovalIn,
   retry,
@@ -45,6 +47,7 @@ import {
   settle,
   type Outbox,
 } from "../outbox";
+import { beforeFolderMoves } from "../outboxPaths";
 import type { DrainReport } from "../sync";
 import type { CacheScope } from "../keys";
 import type { Reachability } from "../copy";
@@ -322,7 +325,7 @@ export function buildOfflineNotesApi({
       }
       commit(next, true);
     },
-    routesThroughQueue: (path) => routesThroughQueue(outboxRef.current, path),
+    routesThroughQueue: (path, folder) => routesThroughQueue(outboxRef.current, path, folder === true),
     claims: (path) => claimedPaths(outboxRef.current).has(path),
     pendingCreate: (path) => {
       const write = find(outboxRef.current, serverPathOf(outboxRef.current, path));
@@ -338,10 +341,11 @@ export function buildOfflineNotesApi({
       is the one thing here that depends on the drain rather than the queue.
     */
     queueMove: ({ from, to, etag }) => {
+      // A note inside a folder moved on this device is queued under the folder's old name (`outboxPaths.ts`).
       const next = queueMoveIn(outboxRef.current, {
         id: newOpId(),
-        path: from,
-        to,
+        path: beforeFolderMoves(outboxRef.current, from),
+        to: beforeFolderMoves(outboxRef.current, to),
         etag,
         now: Date.now(),
         coalesce: !draining.current,
@@ -356,7 +360,7 @@ export function buildOfflineNotesApi({
       const result = queueRemovalIn(outboxRef.current, {
         id,
         kind,
-        path,
+        path: beforeFolderMoves(outboxRef.current, path),
         etag,
         now: Date.now(),
         coalesce: !draining.current,
@@ -368,7 +372,34 @@ export function buildOfflineNotesApi({
       return { ok: true, undo: undoTo(before, result.outbox) };
     },
     queueFolder: (path) => {
-      const next = queueFolderIn(outboxRef.current, { id: newOpId(), path, now: Date.now() });
+      const at = beforeFolderMoves(outboxRef.current, path);
+      const next = queueFolderIn(outboxRef.current, { id: newOpId(), path: at, now: Date.now() });
+      if (next === null) return { ok: false };
+      const before = outboxRef.current;
+      commit(next, true);
+      return { ok: true, undo: undoTo(before, next) };
+    },
+    queueFolderMove: ({ from, to }) => {
+      const next = queueFolderMoveIn(outboxRef.current, {
+        id: newOpId(),
+        path: from,
+        to,
+        now: Date.now(),
+        coalesce: !draining.current,
+      });
+      if (next === null) return { ok: false };
+      const before = outboxRef.current;
+      commit(next, true);
+      return { ok: true, undo: undoTo(before, next) };
+    },
+    queueFolderRemoval: ({ kind, path }) => {
+      const next = queueFolderRemovalIn(outboxRef.current, {
+        id: newOpId(),
+        kind,
+        path,
+        now: Date.now(),
+        coalesce: !draining.current,
+      });
       if (next === null) return { ok: false };
       const before = outboxRef.current;
       commit(next, true);
