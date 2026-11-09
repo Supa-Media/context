@@ -20,6 +20,8 @@ import { findEntry, namesIn } from "../tree";
 import { announceDid } from "../../map/live/announce";
 import { countOf, folderLabel } from "./copy";
 import type { BatchStep } from "./types";
+import type { QueuedOp } from "../../../offline/offlineNotes/contract";
+import type { PendingWrite } from "../../../offline/outbox";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { CreateAndMoveValues } from "./useCreateAndMove";
 import type { FileActionsValues } from "./useFileActions";
@@ -39,17 +41,20 @@ type BatchDeps =
     | "trashEntry"
     | "workspaceId"
   >
-  & Pick<BrowserStateValues, "dispatch" | "editorRef" | "selectedPathRef" | "setNotice" | "setSelectedPath">
+  & Pick<BrowserStateValues, "autosave" | "dispatch" | "editorRef" | "selectedPathRef" | "setNotice" | "setSelectedPath">
   & Pick<OfflineQueueValues, "listings" | "offlineRef">
   & Pick<RunOperationValues, "run">
-  & Pick<QueuedOpsValues, "viaQueue">
+  & Pick<QueuedOpsValues, "deviceEtag" | "isFolderPath" | "queuedToast" | "viaQueue">
   & Pick<CreateAndMoveValues, "drawMove" | "move" | "moveResult">
   & Pick<RowCommandsValues, "archive" | "copyTo" | "destroy">
   & Pick<TrashedNoteValues, "clearTrashed" | "markTrashed" | "restoredInPlace" | "settleTrashed">;
 
+/** One item of a batch, as the offline queue takes it. */
+type QueuedStep = { kind: "move"; from: string; to: string } | { kind: "trash" | "archive"; path: string };
+
 export function useBatch(deps: BatchDeps) {
   const {
-    archive, archiveEntry, clearTrashed, copyEntry, copyTo, destroy, dispatch, drawMove, editorRef, listings, markTrashed, move,
+    archive, archiveEntry, autosave, clearTrashed, deviceEtag, isFolderPath, queuedToast, copyEntry, copyTo, destroy, dispatch, drawMove, editorRef, listings, markTrashed, move,
     moveEntry, moveResult, offlineRef, restoredInPlace, restoreTrashEntry, run, selectedPathRef, setNotice,
     setSelectedPath, settleTrashed, trashEntry, viaQueue, workspaceId,
   } = deps;
@@ -57,29 +62,6 @@ export function useBatch(deps: BatchDeps) {
   /* ------------------------------------------------------------------ */
   /*                    the multi-selection, as one operation             */
   /* ------------------------------------------------------------------ */
-
-  /**
-   * Whether a batch may go at all, said out loud when it may not.
-   *
-   * A path that routes through the offline queue is a note the bucket does not
-   * have at that name yet, or any note while offline. The queue takes one
-   * operation per note with its own toast and its own undo, and a batch built
-   * from those would be five toasts that each replace the last — so a batch
-   * that touches one refuses as a whole, before anything moves, and says how
-   * to get the same result.
-   */
-  const batchRefused = useCallback(
-    (paths: readonly string[]) => {
-      if (!paths.some(viaQueue)) return false;
-      setNotice(
-        offlineRef.current.reachability === "offline"
-          ? "Acting on several items at once needs a connection. Do them one at a time, or try again once you are back online."
-          : "One of these has not reached your bucket yet. Do them one at a time, or try again once it has synced.",
-      );
-      return true;
-    },
-    [viaQueue],
-  );
 
   /** Close the open note if it is one of `paths`, or inside one of them. */
   const closeIfWithin = useCallback((paths: readonly string[]) => {
@@ -89,6 +71,69 @@ export function useBatch(deps: BatchDeps) {
     setSelectedPath(null);
     dispatch({ type: "closed" });
   }, []);
+
+  /**
+   * A batch that touches anything the offline queue has to carry goes into
+   * the queue whole: always offline, and online when one of the picked items
+   * is not in the bucket at that name yet (`viaQueue`). Owner, 2026-11-09:
+   * "every action works offline", the multi-selection included.
+   *
+   * All or nothing, like every batch: each item is queued as its single
+   * action would be (a note with the version this device holds, a folder
+   * whole), and if the queue refuses one, the ones already queued are taken
+   * back and the refusal is said. Then one toast for the lot, whose Undo
+   * takes them all back while none has gone.
+   */
+  const queueMany = useCallback(
+    (steps: readonly QueuedStep[], message: string): void => {
+      autosave.flush();
+      void (async () => {
+        const offline = offlineRef.current;
+        const undos: (() => boolean)[] = [];
+        const takeBack = () => {
+          let all = true;
+          for (const undo of [...undos].reverse()) all = undo() && all;
+          return all;
+        };
+        for (const step of steps) {
+          const at = step.kind === "move" ? step.from : step.path;
+          const folder = isFolderPath(at);
+          const etag = folder ? null : await deviceEtag(at);
+          const queued: QueuedOp & { dropped?: PendingWrite } =
+            step.kind === "move"
+              ? folder
+                ? offline.queueFolderMove({ from: step.from, to: step.to })
+                : offline.queueMove({ from: step.from, to: step.to, etag })
+              : folder
+                ? offline.queueFolderRemoval({ kind: step.kind, path: step.path })
+                : offline.queueRemoval({ kind: step.kind, path: step.path, etag });
+          if (!queued.ok) {
+            takeBack();
+            const name = folderLabel(baseName(at));
+            setNotice(
+              !folder && etag === null
+                ? `${name} is not on this device, so it cannot be changed offline. Nothing was changed.`
+                : `${name} has a change waiting to sync. Nothing was changed; try again once it has synced.`,
+            );
+            return;
+          }
+          const dropped = queued.dropped;
+          if (dropped !== undefined) {
+            // A note made here and never sent: its undo is putting the create back.
+            undos.push(() => {
+              offlineRef.current.restoreCreate(dropped);
+              return true;
+            });
+          } else if (queued.undo !== undefined) {
+            undos.push(queued.undo);
+          }
+        }
+        closeIfWithin(steps.flatMap((step) => (step.kind === "move" ? [] : [step.path])));
+        queuedToast(`${message} Waiting to sync.`, takeBack);
+      })();
+    },
+    [closeIfWithin, deviceEtag, isFolderPath, queuedToast],
+  );
 
   /**
    * One `run` for a batch of single-path steps. See `moveMany` in
@@ -183,7 +228,7 @@ export function useBatch(deps: BatchDeps) {
       const elsewhere = picked.filter((path) => parentPath(path) !== destinationFolder);
       const paths = elsewhere.length === 0 ? picked : elsewhere;
       if (paths.length === 1) return move(paths[0]!, destinationFolder);
-      if (paths.length === 0 || batchRefused(paths)) return;
+      if (paths.length === 0) return;
       // `dnd.ts`'s rules, which are already the multi-path ones: all or
       // nothing, and two picked `notes.md` cannot both land in one folder.
       const plan = planDrop(
@@ -193,6 +238,12 @@ export function useBatch(deps: BatchDeps) {
         listings,
       );
       if (!plan.ok) return setNotice(plan.reason);
+      if (paths.some(viaQueue)) {
+        return queueMany(
+          plan.moves.map((step) => ({ kind: "move", from: step.from, to: step.to })),
+          `Moved ${countOf(plan.moves.length)} to ${folderLabel(destinationFolder)}.`,
+        );
+      }
       // Verdicts before drawings — see `moveResult`.
       const results = plan.moves.map((step) => moveResult(step.from, step.to));
       const drawn = plan.moves.map((step) => drawMove(step.from, step.to));
@@ -226,7 +277,7 @@ export function useBatch(deps: BatchDeps) {
         },
       );
     },
-    [batchRefused, drawMove, listings, move, moveEntry, moveResult, runBatch, workspaceId],
+    [drawMove, listings, move, moveEntry, moveResult, queueMany, runBatch, viaQueue, workspaceId],
   );
 
   const copyManyTo = useCallback(
@@ -269,7 +320,10 @@ export function useBatch(deps: BatchDeps) {
   const archiveMany = useCallback(
     (paths: readonly string[]) => {
       if (paths.length === 1) return archive(paths[0]!);
-      if (paths.length === 0 || batchRefused(paths)) return;
+      if (paths.length === 0) return;
+      if (paths.some(viaQueue)) {
+        return queueMany(paths.map((path) => ({ kind: "archive", path })), `Archived ${countOf(paths.length)}.`);
+      }
       runBatch(
         paths.map((path) => ({
           name: folderLabel(baseName(path)),
@@ -288,7 +342,7 @@ export function useBatch(deps: BatchDeps) {
       );
       closeIfWithin(paths);
     },
-    [archive, archiveEntry, batchRefused, closeIfWithin, moveEntry, runBatch, workspaceId],
+    [archive, archiveEntry, closeIfWithin, moveEntry, queueMany, runBatch, viaQueue, workspaceId],
   );
 
   const restoreMany = useCallback(
@@ -301,7 +355,6 @@ export function useBatch(deps: BatchDeps) {
       // not quietly left in the archive while the rest leave it.
       if (steps.length !== paths.length || steps.length === 0) return;
       if (steps.length === 1) return move(steps[0]!.from, parentPath(steps[0]!.to));
-      if (batchRefused(paths)) return;
       /*
         Each one checked against the folder it is going back to, grown as the
         plan is built — two archived `plan.md`s from the same folder cannot
@@ -315,6 +368,12 @@ export function useBatch(deps: BatchDeps) {
         if (problem !== null) return setNotice(`${step.from}: ${problem}`);
         names.add(baseName(step.to));
         taken.set(folder, names);
+      }
+      if (paths.some(viaQueue)) {
+        return queueMany(
+          steps.map((step) => ({ kind: "move", from: step.from, to: step.to })),
+          `Restored ${countOf(steps.length)}.`,
+        );
       }
       const results = steps.map((step) => moveResult(step.from, step.to));
       const drawn = steps.map((step) => drawMove(step.from, step.to));
@@ -346,13 +405,16 @@ export function useBatch(deps: BatchDeps) {
         },
       );
     },
-    [batchRefused, drawMove, listings, move, moveEntry, moveResult, runBatch, workspaceId],
+    [drawMove, listings, move, moveEntry, moveResult, queueMany, runBatch, viaQueue, workspaceId],
   );
 
   const destroyMany = useCallback(
     (paths: readonly string[]) => {
       if (paths.length === 1) return destroy(paths[0]!);
-      if (paths.length === 0 || batchRefused(paths)) return;
+      if (paths.length === 0) return;
+      if (paths.some(viaQueue)) {
+        return queueMany(paths.map((path) => ({ kind: "trash", path })), `Moved ${countOf(paths.length)} to trash.`);
+      }
       /*
         The open note, picked or inside a picked folder, stays on screen as a
         trashed note (`useTrashedNote`), as a single delete leaves it: marked
@@ -388,7 +450,7 @@ export function useBatch(deps: BatchDeps) {
       );
       if (holding === undefined) closeIfWithin(paths);
     },
-    [batchRefused, clearTrashed, closeIfWithin, destroy, markTrashed, restoredInPlace, restoreTrashEntry, runBatch, settleTrashed, trashEntry, workspaceId],
+    [clearTrashed, closeIfWithin, destroy, markTrashed, queueMany, restoredInPlace, restoreTrashEntry, runBatch, settleTrashed, trashEntry, viaQueue, workspaceId],
   );
 
   return { moveMany, copyManyTo, archiveMany, restoreMany, destroyMany };

@@ -41,10 +41,19 @@ already has for a note that did not exist, because a create has no ancestor.
 Renaming a parked create is also an answer — "call mine something else" — and
 is the one way a parked entry goes back into the queue without the resolver:
 because a person pressed it. Name collisions are refused locally against the
-listings as drawn, which include the queue's own new notes. New drawings stay
-online-only and say so: the phone's drawing editor is never kept offline
-(`drawingOffline.ts`) and the web's only once a drawing was opened online, so a
-drawing made offline could open as a picture nobody can draw in.
+listings as drawn, which include the queue's own new notes. A new drawing
+is made offline too, seeded as a drawing (owner, 2026-11-09: "every action
+works offline"), reversing the refusal that stood here. The phone's drawing
+editor is still fetched (`drawingOffline.ts`), so a drawing made or opened
+offline there shows read-only with "Drawing on this phone needs a
+connection", and the editor is tried again the moment the connection is back.
+The drawing is never lost or uneditable for good, which was the refusal's
+worry; keeping the editor itself on the phone is the remaining step.
+
+Several items picked at once go into the queue whole when any of them has to
+(`useBatch.ts` `queueMany`): each queued as its single action would be, all or
+nothing (a refusal takes back the ones already queued), and one toast whose
+Undo takes them all back.
 
 A new folder is `createDirectory` made later — the server makes a folder real by
 writing its `about.md`, so there is nothing to invent — and a

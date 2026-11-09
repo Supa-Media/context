@@ -7,6 +7,7 @@ import { useThemedStyles, useTheme, type Colors } from "../../design/theme";
 import { parseDrawing, serializeDrawing } from "@context/drawings";
 import { DrawingView } from "./DrawingView";
 import { consoleOrigin } from "./shareOrigin";
+import { useReachability } from "../../offline/reachability";
 import { useEffect } from "react";
 import {
   DRAWING_CHANNEL,
@@ -67,6 +68,16 @@ export function DrawingEditor({
   const { scheme } = useTheme();
   const view = useRef<WebView | null>(null);
   const [failed, setFailed] = useState(false);
+  /*
+    The editor is fetched, so offline it fails and the drawing is shown read
+    only. A drawing made offline (owner, 2026-11-09: "every action works
+    offline") opens that way, and the editor is tried again the moment the
+    connection is back rather than when somebody thinks to reopen it.
+  */
+  const reachability = useReachability();
+  useEffect(() => {
+    if (reachability === "online") setFailed(false);
+  }, [reachability]);
 
   const drawing = useMemo(() => parseDrawing(source, path), [source, path]);
   const splicable = serializeDrawing(source, drawing.elements ?? []) !== null;
@@ -245,7 +256,7 @@ function reasonFor({
   failed: boolean;
 }): string {
   if (failed) {
-    return "The drawing editor could not be loaded — editing a drawing on this device needs a connection. The file is unchanged.";
+    return "Drawing on this phone needs a connection. The drawing is saved, and you can draw in it as soon as you are back online.";
   }
   if (drawing.unreadable !== null) {
     return "This drawing cannot be edited here because its data could not be read. Open it in Excalidraw or Obsidian — the file is untouched.";

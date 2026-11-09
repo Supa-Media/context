@@ -355,12 +355,19 @@ describe("a note made on the train", () => {
     expect(calls).toEqual([]);
   });
 
-  test("a new drawing is refused offline, in a sentence, rather than made uneditable", async () => {
+  test("a new drawing is made offline, as a drawing, and created when the connection comes back", async () => {
     await onTheTrain();
     browser.createDrawing("1-projects", "sketch");
     await settle();
-    expect(browser.notice).toMatch(/drawing needs a connection/);
-    expect(browser.sync?.counts.pending).toBe(0);
+    expect(browser.notice).toBeNull();
+    expect(names("1-projects")).toContain("1-projects/sketch.excalidraw.md");
+    expect(browser.editor.path).toBe("1-projects/sketch.excalidraw.md");
+    expect(browser.editor.draft).toContain("excalidraw");
+
+    setOnline(true);
+    await settle(60);
+    expect(calls).toEqual(["write 1-projects/sketch.excalidraw.md @create"]);
+    expect(bucket.get("1-projects/sketch.excalidraw.md")?.text).toBe(browser.editor.draft);
   });
 });
 
@@ -479,6 +486,32 @@ describe("renaming, moving and deleting on the train", () => {
     await settle(60);
     expect(calls).toEqual(["trash 1-projects @unchecked"]);
     expect(bucket.has(PLAN)).toBe(false);
+  });
+
+  test("several picked at once are queued as one, sent each with its own version, and undone together", async () => {
+    await onTheTrain();
+    browser.destroyMany?.(["0-inbox/old-notes.md", PLAN]);
+    await settle();
+    expect(browser.notice).toBeNull();
+    expect(names("0-inbox")).not.toContain("0-inbox/old-notes.md");
+    expect(names("1-projects")).not.toContain(PLAN);
+    expect(browser.pending?.operations?.map((op) => op.text)).toEqual(["Delete old-notes", "Delete plan"]);
+    const toast = browser.toasts?.at(-1);
+    expect(toast?.message).toBe("Moved 2 items to trash. Waiting to sync.");
+
+    toast?.undo?.();
+    await settle();
+    expect(browser.pending?.operations ?? []).toEqual([]);
+    expect(names("1-projects")).toContain(PLAN);
+
+    browser.moveMany?.(["0-inbox/old-notes.md", PLAN], "2-areas");
+    await settle();
+    expect(names("0-inbox")).not.toContain("0-inbox/old-notes.md");
+    expect(names("1-projects")).not.toContain(PLAN);
+
+    setOnline(true);
+    await settle(80);
+    expect(calls).toEqual(["move 0-inbox/old-notes.md → 2-areas/old-notes.md @e2", "move 1-projects/plan.md → 2-areas/plan.md @e1"]);
   });
 
   test("a new folder is drawn at once and created when the connection comes back", async () => {

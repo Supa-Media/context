@@ -27,7 +27,7 @@ import { applyNoteCreate, undoNoteCreate } from "../optimistic";
 import { announceDid } from "../../map/live/announce";
 import { isUntitled, untitledName, type UntitledKind } from "../untitled";
 import type { OpenNote } from "../types";
-import { DRAWING_NEEDS_CONNECTION, claimedMessage, collision } from "./copy";
+import { claimedMessage, collision } from "./copy";
 import type { Listings, FileBrowserOptions } from "./types";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
@@ -122,9 +122,11 @@ export function useNoteCreate(deps: NoteCreateDeps) {
       */
       if (offlineRef.current.reachability === "offline") {
         if (!options.canEdit || workspaceId === null) return;
-        if (isDrawingPath(name)) return setNotice(DRAWING_NEEDS_CONNECTION);
         if (offlineRef.current.claims(path)) return setNotice(claimedMessage(displayName(name)));
-        const text = `# ${name.replace(/\.md$/i, "")}\n\n`;
+        // Seeded as online: a drawing as a drawing (owner, 2026-11-09: "every
+        // action works offline"; `DrawingEditor` draws in it once the editor
+        // can load), and an untitled note with an empty title.
+        const text = seedFor(name);
         offlineRef.current.queueSave({ path, text, baseEtag: null });
         setExpanded((current) => (folder === "" ? current : new Set([...current, folder])));
         select(path);
