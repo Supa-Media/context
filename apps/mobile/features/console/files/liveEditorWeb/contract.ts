@@ -24,6 +24,7 @@ import type {
 } from "../formBlock";
 import type { SpellingFix } from "./spelling";
 import type { LinkTarget } from "../linkMarkdown";
+import type { HeldLink } from "../linkHold";
 
 /**
  * The handful of things a *button* can ask the editor to do.
@@ -66,6 +67,10 @@ export interface EditorControls {
   applyLink(link: LinkTarget): void;
   /** The sheet closed without a pick: the saved selection comes back as it was. */
   cancelLink(): void;
+  /** A held link's Edit link: `ask` shows the Link sheet over its words, answered with `applyLink`. */
+  editLink(ask: (text: string) => void): void;
+  /** A held link's Remove link: its words stay. */
+  unlink(): void;
   undo(): void;
   redo(): void;
   blur(): void;
@@ -233,6 +238,8 @@ export interface LiveEditorProps {
   onOpenNote?: (path: string, mode: NoteLinkOpen, anchor?: string) => void;
   /** A drawn `#tag` was clicked or tapped (`NoteLinkContext.onOpenTag`). */
   onOpenTag?: (tag: string) => void;
+  /** A link was held on a touch screen: show its menu (`linkHold.ts`). Absent, a hold is a selection. */
+  onLinkHold?: (link: HeldLink) => void;
   /** The note being edited, so a relative link knows what it is relative to. */
   notePath?: string | null;
   /** Paths this surface knows of, for bare `[[name]]` links. Usually partial. */

@@ -522,8 +522,36 @@ a regular editor that supports markdown."
   touch rule for headings included.
 - Formatting is reached through the writing bar, the Aa panel, the context
   menu and typed shortcuts, which turn into formatting the moment they close.
-  Editing a link's address needs Show Markdown on for now.
+  A link's address is changed by holding the link (below).
 
 Reversing it: `livePreview/markdownHidden.test.ts` fails (sabotaged: the
 setting ignored fails 10, the Backspace filter removed fails 7, the
 empty-construct check removed fails 1).
+
+### Holding a link opens its menu (2026-11-09)
+
+Owner, 2026-11-09: "for links can't it be a long hold to open a menu". With
+Show Markdown off a link's address is never on screen, so holding a link is how
+it is changed.
+
+- A tap still follows the link. A hold opens a card with the link's words and
+  where it goes, and under it **Open**, **Edit link**, **Copy link** (web links)
+  and **Remove link**. A reader gets Open and Copy only. The look is the hold
+  menu's, with its lift haptic (`LinkHoldMenu.tsx`).
+- Edit link opens the same Link sheet that adds a link, over the link's words,
+  and the pick replaces the whole link, words kept (a wiki link keeps them as
+  its alias). Remove link leaves the words, caret after them. A bare address
+  has no words of its own, so it offers no Remove.
+- The hold is read from what the platform does, not by racing its recogniser:
+  a still finger lifted late, or, on iOS, the platform claiming the touch and
+  selecting inside the link's words shortly after (`linkHold.ts`). A finger
+  that moves is a scroll.
+- The held link is a mapped state field, so the menu's answer edits the link
+  that was held, or nothing if its text changed meanwhile. The host checks a
+  held link off the web view bridge before drawing it, and a web address must
+  pass `webUrl` as `open-url`'s does.
+
+Reversing it: `__tests__/linkHold.test.ts` fails (sabotaged: the late lift
+ignored fails 1, the iOS selection path removed fails 1, Edit link writing the
+selection instead of the words fails 2, the bridge skipping its check fails 1),
+and `e2e/webkit/editor.spec.ts`'s hold case fails in a real engine.

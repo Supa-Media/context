@@ -72,6 +72,7 @@ export function noteDocument(view: NoteView) {
     controls,
     titleHint,
     setLineState,
+    setHeldLink,
     moving,
     settledAt,
     setFocused,
@@ -488,6 +489,7 @@ export function noteDocument(view: NoteView) {
           */
           onOpenNote={onOpenLink === undefined ? undefined : onOpenLink}
           onOpenTag={onOpenTag}
+          onLinkHold={setHeldLink}
           onSuggest={onSuggest}
           onPickSuggestion={onPickSuggestion}
           /*

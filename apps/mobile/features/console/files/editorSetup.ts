@@ -52,7 +52,8 @@ import { emojiTyping } from "./emoji/emojiComplete";
 import { wrapOnType } from "./wrapOnType";
 import { dictationExtension, insertDictated } from "./dictate";
 import type { EditorCommand } from "./webview/protocol";
-import { applyLink, cancelLink, requestLink } from "./linkSelection";
+import { applyLink, cancelLink, requestLink, requestLinkEdit } from "./linkSelection";
+import { heldForEdit, unlinkHeld } from "./linkHold";
 import { lineStateOf, sameLineState, type LineState } from "./lineState";
 import { showTitleHint, untitledTitle } from "./untitledTitle";
 
@@ -430,6 +431,16 @@ export function runCommand(
     case "cancelLink":
       cancelLink(view);
       break;
+    // A held link's menu (`linkHold.ts`). Edit link hands over to the sheet,
+    // which takes the keyboard; Remove link should not raise it either.
+    case "editLink": {
+      const held = heldForEdit(view.state);
+      if (held !== null && askLink !== undefined) requestLinkEdit(view, held, askLink);
+      return;
+    }
+    case "unlink":
+      unlinkHeld(view);
+      return;
     case "undo":
       undo(view);
       break;

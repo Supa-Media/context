@@ -31,6 +31,7 @@ import {
 import { bytesFromBase64 } from "../../imageBytes";
 import { hostExtras, type ExtrasSink, type HostExtras } from "./extras";
 import { webUrl } from "../../webUrl";
+import { decodeHeldLink, type HeldLink } from "../../linkHold";
 import { isTagBody } from "../../../../../../mcp/src/lists/inlineTags.js";
 
 export { bytesFromBase64 };
@@ -75,6 +76,8 @@ export interface HostSink extends ExtrasSink {
   onOpenUrl?: (url: string) => void;
   /** A drawn `#tag` was tapped. See the `open-tag` case. */
   onOpenTag?: (tag: string) => void;
+  /** A link was held: its menu. See the `link-hold` case. */
+  onLinkHold?: (link: HeldLink) => void;
   /** The link key was pressed over these words. See the `link-request` case. */
   onLinkRequest?: (text: string) => void;
   /**
@@ -564,6 +567,12 @@ export function createHostBridge(sendRaw: (raw: string) => void, sink: HostSink)
           is an edit, and a guest that sent one for a note this viewer may only
           read has no business being answered.
         */
+        // Checked, as every payload from the guest is: the menu draws these words and may open the address.
+        case "link-hold": {
+          const link = decodeHeldLink(message.link);
+          if (link !== null) sink.onLinkHold?.(link);
+          return;
+        }
         case "link-request":
           if (typeof message.text !== "string" || !acceptsChange(editable)) return;
           sink.onLinkRequest?.(message.text);

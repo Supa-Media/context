@@ -321,6 +321,7 @@ export function mountGuest(
       onOpen: (path, mode, anchor) => bridge.post({ v: PROTOCOL_VERSION, type: "open-link", path, mode, anchor }),
       onOpenUrl: (url) => bridge.post({ v: PROTOCOL_VERSION, type: "open-url", url }),
       onOpenTag: (tag) => bridge.post({ v: PROTOCOL_VERSION, type: "open-tag", tag }),
+      onHold: (link) => bridge.post({ v: PROTOCOL_VERSION, type: "link-hold", link }),
     },
   };
 
@@ -886,7 +887,7 @@ export function mountGuest(
         if (!acceptsCommand(effectiveEditable(), command)) return;
         // Asked for by the host only when it has a Link sheet to answer with.
         const askLink =
-          command.name === "insertLink" && command.ask === true
+          (command.name === "insertLink" && command.ask === true) || command.name === "editLink"
             ? (text: string) => bridge.post({ v: PROTOCOL_VERSION, type: "link-request", text })
             : undefined;
         runCommand(view, command, askLink);

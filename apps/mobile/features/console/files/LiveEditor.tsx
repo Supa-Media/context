@@ -117,6 +117,7 @@ export function LiveEditor({
   accessibilityLabel,
   onOpenNote,
   onOpenTag,
+  onLinkHold,
   notePath,
   notePaths,
   onSubmitForm,
@@ -190,6 +191,7 @@ export function LiveEditor({
     onScrollBy,
     onOpenNote,
     onOpenTag,
+    onLinkHold,
     onSubmitForm,
     onReadFormResponses,
     onVoteForm,
@@ -213,6 +215,7 @@ export function LiveEditor({
     onScrollBy,
     onOpenNote,
     onOpenTag,
+    onLinkHold,
     onSubmitForm,
     onReadFormResponses,
     onVoteForm,
@@ -320,6 +323,7 @@ export function LiveEditor({
           */
           onOpenNote: (path, mode, anchor) => handlers.current.onOpenNote?.(path, mode, anchor),
           onOpenTag: (tag) => handlers.current.onOpenTag?.(tag),
+          onLinkHold: (link) => handlers.current.onLinkHold?.(link),
           /*
             A web link leaves the app, so it is asked about first, with the
             address shown. The host has already allow-listed the scheme; the
