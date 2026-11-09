@@ -273,8 +273,15 @@ export function useOpenNote(deps: OpenNoteDeps) {
                that turned out stale becomes an ordinary conflict with a real
                Merge, never an overwrite.
           */
+          /*
+            On the phone and desktop apps the copy does not wait at all
+            (owner, 2026-11-09: the phone's copy answers first). A read that
+            has already answered, such as the one asked for when the finger
+            came down on the row, still wins, so a fresh answer never
+            flickers through a copy.
+          */
           const quick = await raceTimeout(reading, {
-            ms: INSTANT_OPEN_MS,
+            ms: offline.deviceFirst === true ? 0 : INSTANT_OPEN_MS,
             schedule: (fn, ms) => setTimeout(fn, ms),
             cancel: (handle) => clearTimeout(handle),
           });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { knownOffline } from "../../offline/reachability";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { gatewayOriginFrom } from "../../meetings/gateway";
 import { onReturnToApp } from "../../app/returnToApp";
@@ -155,7 +156,7 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
       legacyDraft: options.legacyDraft?.(),
       ...(unshared.current === path ? { draftWaitMs: 0 } : {}),
       transport,
-      online: () => typeof navigator === "undefined" || navigator.onLine !== false,
+      online: () => !knownOffline(),
       canWrite: () => callbacks.current.editable,
       onRestart: () => {
         if (stopped) return;

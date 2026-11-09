@@ -48,3 +48,8 @@ function read(): Reachability {
   if (typeof navigator === "undefined" || typeof navigator.onLine !== "boolean") return "unknown";
   return navigator.onLine ? "online" : "offline";
 }
+
+/** True only when the browser says plainly that it has no connection. */
+export function knownOffline(): boolean {
+  return read() === "offline";
+}

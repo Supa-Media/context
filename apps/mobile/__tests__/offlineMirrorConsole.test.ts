@@ -30,8 +30,11 @@ import type { MirrorStore } from "../features/offline/mirrorStoreCore";
  */
 
 let mockMirror: MirrorStore;
+/** Whether this runtime keeps a copy, so the copy answers first (`deviceFirst.ts`). */
+let mockDeviceFirst = false;
 jest.mock("../features/offline/mirrorStore", () => ({
   openMirrorStore: async () => mockMirror,
+  mirrorSupported: () => mockDeviceFirst,
 }));
 
 const actions: Record<string, (args: never) => Promise<unknown>> = {};
@@ -324,6 +327,46 @@ describe("online, the mirror answers first when the bucket is slow", () => {
     expect(browser.editor.draft).toBe("Typed before the bucket answered.\n");
     // Still based on the version the copy was, so a save is checked against it.
     expect(browser.editor.etag).toBe("o1");
+  });
+});
+
+describe("on the phone, the copy answers first", () => {
+  // Owner, 2026-11-09: on the apps the copy does not wait for the bucket at all.
+  afterEach(() => {
+    mockDeviceFirst = false;
+  });
+
+  test("the copy is on screen before any wait, then the bucket's version replaces it", async () => {
+    mockDeviceFirst = true;
+    await settle();
+    await syncNow();
+    let answer: (note: OpenNote) => void = () => {};
+    actions[fn("readNote")] = () => new Promise((resolve) => (answer = resolve as (note: OpenNote) => void));
+    browser.select(OTHER);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    await settle(30);
+    expect(browser.editor.path).toBe(OTHER);
+    expect(browser.editor.draft).toBe("Nobody opened this on this device.\n");
+    expect(browser.editor.fromCache).toBe(true);
+
+    answer(noteAt(OTHER, "Edited elsewhere a moment ago.\n", "o2"));
+    await settle(30);
+    expect(browser.editor.draft).toBe("Edited elsewhere a moment ago.\n");
+    expect(browser.editor.fromCache).toBeUndefined();
+  });
+
+  test("in a browser tab the open still waits its glance for the bucket", async () => {
+    await settle();
+    await syncNow();
+    actions[fn("readNote")] = () => new Promise(() => {});
+    browser.select(OTHER);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    await settle(30);
+    expect(browser.editor.path).not.toBe(OTHER);
   });
 });
 

@@ -48,6 +48,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globa
  * | native: drop `isInternetReachable` from the check | **1** |
  * | native: never unsubscribe | **1** |
  * | web: treat a missing `onLine` as `offline` | **1** |
+ * | native: `knownOffline` never says offline | **1** |
  * | web: drop the effect's own `update()` | **0 — and it stays 0** |
  *
  * **That last row is left honest rather than papered over.** The effect calls
@@ -194,6 +195,23 @@ describe("reachability on a phone", () => {
     expect(mockUnsubscribed).toBe(0);
     view.unmount();
     expect(mockUnsubscribed).toBe(1);
+  });
+});
+
+describe("asking outside React, on a phone", () => {
+  test("knownOffline follows NetInfo, and says nothing until it has answered", () => {
+    // The live note's sender asks this when it is about to send. It used to
+    // ask `navigator.onLine`, which React Native lacks, so a phone always said
+    // yes (owner, 2026-11-09: the phone's copy answers first).
+    expect(native.knownOffline()).toBe(false);
+    const listener = mockListener;
+    if (listener === null) throw new Error("knownOffline never subscribed");
+    listener({ isConnected: true, isInternetReachable: false });
+    expect(native.knownOffline()).toBe(true);
+    listener({ isConnected: true, isInternetReachable: null });
+    expect(native.knownOffline()).toBe(false);
+    listener({ isConnected: false, isInternetReachable: null });
+    expect(native.knownOffline()).toBe(true);
   });
 });
 

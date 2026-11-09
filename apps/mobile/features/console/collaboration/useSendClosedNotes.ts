@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { knownOffline } from "../../offline/reachability";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { gatewayOriginFrom } from "../../meetings/gateway";
 import { currentEpoch } from "../../offline/epoch";
@@ -32,7 +33,7 @@ export function useSendClosedNotes(endpoint: string | null): void {
           return grant.accessToken;
         }),
       mine: () => epoch === currentEpoch(),
-      online: () => typeof navigator === "undefined" || navigator.onLine !== false,
+      online: () => !knownOffline(),
     })
       .catch(() => {
         // Whatever was not sent stays in its record for the next reconnection.

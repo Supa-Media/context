@@ -1,5 +1,38 @@
 # App and console — offline mirror and tree
 
+### In the apps, the device's copy answers first, and online stays live (2026-11-09)
+
+Decided by the owner, 2026-11-09, approving the offline-first boards ("yes"):
+on the phone and desktop apps, which keep a copy (`mirrorSupported`), the copy
+answers first and the server's answer and the live session replace it when
+they arrive. Online still shows everyone's changes as they happen; the copy
+only stops anything from waiting. This replaces the next section's "when
+connected, always use the server" for the apps. A browser tab keeps no copy
+and is unchanged: server-first.
+
+- **One switch,** `offline/deviceFirst.ts`, read as `offline.deviceFirst` by
+  the file browser and passed to the list source.
+- **A note opens from the copy with no wait** (`useOpenNote`: the glance is 0
+  instead of `INSTANT_OPEN_MS`). Every rule of the copy-first open still holds:
+  not when there is work to restore, a refusal closes it, typing is never
+  replaced by the bucket's answer.
+- **A List or Board is drawn from the copy at once** and the server's answer
+  replaces it when it lands (`folderListSource`'s `loadDeviceFirst`). The last
+  server answer is kept per list and served on a reload, asked again behind
+  it after `LIST_REFRESH_MS` or any write; only an answer that differs tells
+  the subscribers, so a reload never loops. A copy with no notes in it is not
+  drawn, because an empty list says "nothing here".
+- **Search draws the copy's answer after `EARLY_DEVICE_MS`** (400 ms) when
+  the server has not answered, with no notice, and the server's rows replace
+  it. Answers inside 400 ms never show the copy.
+- **The live note asks the device whether it is offline** (`knownOffline`),
+  where it used to ask `navigator.onLine`, which React Native does not have.
+
+Reversing it: `serverLists.test.ts` ("on the phone, a list is drawn from the
+device's copy"), `offlineMirrorConsole.test.ts` ("on the phone, the copy
+answers first"), `blendedSearchEarly.test.ts` and `offlineReachability.test.ts`
+("asking outside React") fail.
+
 ### Offline is the desktop and phone apps; online, lists read the server
 
 Decided by the owner, 2026-10-08: "when connected to the internet we should

@@ -59,7 +59,16 @@ export interface FolderListInputs {
   needed: (workspaceId: string) => Promise<Needed>;
   /** False only when the device is known to be offline: then the mirror answers. */
   online: () => boolean;
+  /**
+   * The phone and desktop apps (`deviceFirst.ts`): a list is drawn from this
+   * device's copy at once and the server's answer replaces it when it lands.
+   * Absent or false, online lists wait for the server, as a browser tab does.
+   */
+  deviceFirst?: boolean;
 }
+
+/** How long a server answer stands before a reload asks again behind it. */
+export const LIST_REFRESH_MS = 15_000;
 
 /**
  * After notes were created, moved or removed outside `setProperty` — a
@@ -73,13 +82,71 @@ export interface ListWriteBack {
   remember?(written: readonly string[], gone: readonly string[]): Promise<void>;
 }
 
-export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, needed, online }: FolderListInputs): FolderListSource & ListWriteBack {
+export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, needed, online, deviceFirst = false }: FolderListInputs): FolderListSource & ListWriteBack {
   const listeners = new Set<() => void>();
   const changed = () => {
     for (const listener of [...listeners]) listener();
   };
+  type Listed = Awaited<ReturnType<typeof tableListNotes>>;
+  /*
+    Device-first lists (owner, 2026-11-09: the phone's copy answers first).
+    The last server answer per list, and the request asking for the next one.
+    A reload is answered from here at once, and asks the server again behind
+    it once the answer is `LIST_REFRESH_MS` old or something was written; a
+    new answer that differs tells the subscribers, whose reload then reads it.
+    An answer equal to the one shown tells nobody, so a reload never loops.
+  */
+  const answered = new Map<string, { list: Listed; at: number }>();
+  const asking = new Map<string, Promise<Listed>>();
+  const stale = () => {
+    for (const each of answered.values()) each.at = 0;
+  };
+  const ask = (key: string, folder: string, subfolders: boolean): Promise<Listed> => {
+    const running = asking.get(key);
+    if (running !== undefined) return running;
+    const request = tableListNotes(io, folder, subfolders).then(
+      (list) => {
+        asking.delete(key);
+        const before = answered.get(key);
+        answered.set(key, { list, at: Date.now() });
+        if (before === undefined || JSON.stringify(before.list) !== JSON.stringify(list)) changed();
+        return list;
+      },
+      (error: unknown) => {
+        asking.delete(key);
+        throw error;
+      },
+    );
+    return request;
+  };
+  const loadDeviceFirst = async (folder: string, subfolders: boolean): Promise<Listed | null> => {
+    const key = JSON.stringify([folder, subfolders]);
+    const served = answered.get(key);
+    if (served !== undefined) {
+      if (Date.now() - served.at >= LIST_REFRESH_MS) void ask(key, folder, subfolders).catch(() => {});
+      return served.list;
+    }
+    const request = ask(key, folder, subfolders);
+    // Settled here only when nobody below waits on it, so a failure is never unhandled.
+    request.catch(() => {});
+    const store = await openMirror().catch(() => null);
+    const device = store === null ? null : await mirroredListNotes(store, scope, workspaceId, folder, subfolders).catch(() => null);
+    /*
+      A copy with nothing in it is not drawn: an empty list on screen reads as
+      "nothing here", which a list not yet downloaded is not. Those wait for
+      the server, and fall back to the copy if it fails.
+    */
+    if (device !== null && device.notes.length > 0) return device;
+    try {
+      return await request;
+    } catch (error) {
+      if (device !== null) return device;
+      throw error;
+    }
+  };
   return {
     load: async (folder, subfolders) => {
+      if (online() && deviceFirst) return loadDeviceFirst(folder, subfolders);
       if (online()) {
         try {
           // One query a page; where the server cannot answer yet the List is
@@ -157,7 +224,10 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
       };
       const stopListed = onMirrorListed(mine);
       const stopNotes = onMirrorNotesChanged(mine);
-      const stopWrites = onBucketWrite((write) => mine(write.workspaceId));
+      const stopWrites = onBucketWrite((write) => {
+        if (write.workspaceId === workspaceId) stale();
+        mine(write.workspaceId);
+      });
       listeners.add(listener);
       return () => {
         stopListed();
@@ -180,6 +250,7 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
           remember: async (written: readonly string[], gone: readonly string[]) => {
             for (const path of written) await remember(path).catch(() => {});
             if (gone.length > 0) await forget(gone).catch(() => {});
+            stale();
             changed();
           },
         }
@@ -227,6 +298,7 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
     });
     if (answer === null) {
       await remember(written).catch(() => {});
+      stale();
       changed();
     }
     return answer;

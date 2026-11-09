@@ -20,6 +20,7 @@ import {
 } from "../mirror";
 import { neededEtags } from "../mirrorHolds";
 import { openMirrorStore } from "../mirrorStore";
+import { deviceFirst } from "../deviceFirst";
 import { keptServerTree, serverTree } from "../serverTree";
 import type { KeyValueStore } from "../memory";
 import {
@@ -111,6 +112,7 @@ export function buildOfflineNotesApi({
   return {
     ready,
     durable: store.durable,
+    deviceFirst: deviceFirst(),
     reachability,
     outbox,
     counts: counts(outbox),

@@ -37,13 +37,13 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { raceTimeout } from "../storage/timeout";
 import type { Reachability } from "../../offline/copy";
-import type { DeviceSearchReason } from "../../offline/mirrorCopy";
 import type { DeviceSearchAnswer } from "../../offline/mirrorSearch";
 import type { MirrorStatus } from "../../offline/mirrorStatus";
 import {
   blendDeviceAnswers,
   deviceSearchPageNotice,
   type DeviceSearchContext,
+  type DeviceSearchPageReason,
   type DeviceSourceAnswer,
 } from "./deviceSearch";
 import {
@@ -69,6 +69,15 @@ export const PAGE_TIMEOUT_MS = 15_000;
 
 /** Long enough that typing a phrase does not fan out on its prefixes. */
 const DEBOUNCE_MS = 300;
+
+/**
+ * How long a phone or desktop waits for the control plane before drawing its
+ * own copy's answer in the meantime (the phone's copy answers first, owner,
+ * 2026-11-09). Short enough that a person does not stare at a spinner while
+ * the copy has the rows; long enough that a server answering in the usual
+ * time never flickers the device's rows in and out.
+ */
+export const EARLY_DEVICE_MS = 400;
 
 export interface BlendedSearchView {
   state: PageState;
@@ -281,7 +290,20 @@ export function useBlendedSearch(options: {
      * subscription that has nothing in it offline.
      */
     let sentAt = Date.now();
-    const fromDevice = async (local: BlendedDeviceSearch, reason: DeviceSearchReason) => {
+    /*
+      The early device answer and the server's answer race for the page. The
+      server's, once it has answered or given up, always wins: `serverAnswered`
+      says so to an early answer still reading the copies when it lands, and
+      `earlyTimer` is what lets an answer inside 400 ms never draw the copy.
+    */
+    let serverAnswered = false;
+    let earlyTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearEarly = () => {
+      if (earlyTimer === null) return;
+      clearTimeout(earlyTimer);
+      earlyTimer = null;
+    };
+    const fromDevice = async (local: BlendedDeviceSearch, reason: DeviceSearchPageReason) => {
       const inScope =
         slugs.length === 0
           ? local.contexts
@@ -306,19 +328,25 @@ export function useBlendedSearch(options: {
         }),
       );
       if (asked.current !== question) return;
-      setLoading(false);
       const noCopy = answers.length > 0 && answers.every((each) => each.answer === null);
-      if (noCopy && reason === "unreachable") {
-        // Nothing to fall back on: the request failed, and that is the page.
-        setResults([]);
-        setFailed(true);
-        return;
+      if (reason === "early") {
+        // Nothing on the device to show yet: the spinner stays until the
+        // server answers, which is what a browser with no copy gets anyway.
+        if (serverAnswered || noCopy || answers.length === 0) return;
+      } else {
+        setLoading(false);
+        if (noCopy && reason === "unreachable") {
+          // Nothing to fall back on: the request failed, and that is the page.
+          setResults([]);
+          setFailed(true);
+          return;
+        }
       }
       const blended = blendDeviceAnswers(answers);
-      setTook(Date.now() - sentAt);
+      if (reason !== "early") setTook(Date.now() - sentAt);
       setAnswer(blended);
       setResults(blended.results);
-      setNotice(deviceSearchPageNotice(reason, answers));
+      setNotice(reason === "early" ? null : deviceSearchPageNotice(reason, answers));
     };
 
     const timer = setTimeout(() => {
@@ -328,6 +356,12 @@ export function useBlendedSearch(options: {
         if (offline && local !== null) {
           await fromDevice(local, "offline");
           return;
+        }
+        if (local !== null) {
+          earlyTimer = setTimeout(() => {
+            earlyTimer = null;
+            void fromDevice(local, "early");
+          }, EARLY_DEVICE_MS);
         }
         /*
           The words and the meaning as two requests (the search tune-up,
@@ -342,6 +376,8 @@ export function useBlendedSearch(options: {
           const answered = await gateway(trimmed, inScope);
           if (asked.current !== question) return;
           if (answered !== null) {
+            serverAnswered = true;
+            clearEarly();
             setTook(Date.now() - sentAt);
             setLoading(false);
             setNotice(null);
@@ -354,6 +390,8 @@ export function useBlendedSearch(options: {
         const meaning = ask({ query: trimmed, ...scoped, half: "meaning" });
         const settled = await ask({ query: trimmed, ...scoped, half: "words" });
         if (asked.current !== question) return;
+        serverAnswered = true;
+        clearEarly();
         if (settled.kind === "value") {
           setTook(Date.now() - sentAt);
           setLoading(false);
@@ -381,7 +419,10 @@ export function useBlendedSearch(options: {
       })();
     }, DEBOUNCE_MS);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      clearEarly();
+    };
   }, [ask, query, question, scope, slugs, offline, contexts]);
 
   const loadMore = useCallback(() => {

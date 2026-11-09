@@ -31,14 +31,38 @@ export function useReachability(): Reachability {
     // `addEventListener` fires immediately with the current state, so there is
     // no separate initial fetch to race against the subscription.
     const unsubscribe = NetInfo.addEventListener((netInfo) => {
-      if (netInfo.isConnected === false || netInfo.isInternetReachable === false) {
-        setState("offline");
-        return;
-      }
-      setState(netInfo.isConnected === true ? "online" : "unknown");
+      setState(classify(netInfo));
     });
     return unsubscribe;
   }, []);
 
   return state;
+}
+
+/*
+  The same reading, outside React, for code that asks at the moment it acts
+  rather than rendering it: the live note's sender asks "may I send now?".
+  It used to ask `navigator.onLine`, which React Native does not have, so on
+  the phone the answer was always yes and a dead connection was found out by
+  a request timing out. One NetInfo subscription for the life of the app,
+  started by the first question; until NetInfo has answered, nothing is known
+  to be offline.
+*/
+let known: Reachability = "unknown";
+let watching = false;
+
+function classify(netInfo: { isConnected: boolean | null; isInternetReachable: boolean | null }): Reachability {
+  if (netInfo.isConnected === false || netInfo.isInternetReachable === false) return "offline";
+  return netInfo.isConnected === true ? "online" : "unknown";
+}
+
+/** True only when the device says plainly that it has no connection. */
+export function knownOffline(): boolean {
+  if (!watching) {
+    watching = true;
+    NetInfo.addEventListener((netInfo) => {
+      known = classify(netInfo);
+    });
+  }
+  return known === "offline";
 }

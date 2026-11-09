@@ -51,6 +51,14 @@ export interface DeviceSourceAnswer {
   status: MirrorStatus | undefined;
 }
 
+/**
+ * Why the page is showing the device's answer. `early` is the device answer
+ * drawn while the control plane is still working (the phone's copy answers
+ * first, owner, 2026-11-09): it has no notice, because nothing has failed.
+ * Kept here rather than on `DeviceSearchReason`, which the palette shares.
+ */
+export type DeviceSearchPageReason = DeviceSearchReason | "early";
+
 /** The constant in reciprocal-rank fusion — the control plane's own. */
 const RRF_K = 60;
 
@@ -122,9 +130,12 @@ function lowerFirst(text: string): string {
  * gets the palette's own sentence for that, so the two surfaces say it alike.
  */
 export function deviceSearchPageNotice(
-  reason: DeviceSearchReason,
+  reason: DeviceSearchPageReason,
   sources: readonly DeviceSourceAnswer[],
 ): string {
+  // An early answer says nothing: the server has not failed, and it will
+  // replace these rows when it lands.
+  if (reason === "early") return "";
   if (sources.length > 0 && sources.every((source) => source.answer === null)) {
     return DEVICE_SEARCH_UNAVAILABLE;
   }
