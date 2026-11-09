@@ -71,6 +71,7 @@ import { noteLinkCheck, unknownLinkNotice } from "./linkCheck.js";
 export { CAPTCHA_NOTICE, handsOverACaptcha } from "./browserWalls.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
+import { DREAMS_SETTINGS_PATH, HOUSEKEEPING_SETTINGS_PATH } from "./texSwitches.js";
 
 /** Words that say a change to their notes, list or calendar was made. */
 const CLAIMS = [
@@ -401,7 +402,7 @@ function isWrite(name) {
   return tool !== undefined && tool.annotations?.readOnlyHint !== true;
 }
 
-const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
+const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH, HOUSEKEEPING_SETTINGS_PATH, DREAMS_SETTINGS_PATH]);
 
 /**
  * The watcher for one texted turn: `wrap` the turn's dispatcher, then pass

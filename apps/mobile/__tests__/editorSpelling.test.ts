@@ -211,6 +211,7 @@ describe("right-click", () => {
       forget: async () => undefined,
       setEnabled: async () => undefined,
       setLanguage: async () => undefined,
+      setShowMarkdown: async () => undefined,
     });
     const m = await mount({ value: "ask Kayode today, Kayode's turn" });
     m.rightClick(6);

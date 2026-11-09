@@ -153,7 +153,14 @@ async function list(env, page, chat, call, kind, cursor) {
     const read = await settled(() => notes.readRoutines(call, chat.routines, { now, timeZone: page.timeZone }), { routines: [], checkins: [] });
     if (kind === "routines") return { items: read.routines };
     const extras = chat.kind === "me" ? await settled(() => notes.readCheckinSettings(call), {}) : {};
-    return { items: read.checkins, ...(extras.looksAt ? { looksAt: extras.looksAt } : {}), ...(extras.quietHours ? { quietHours: extras.quietHours } : {}) };
+    // The person's own Tex only: its daily tidy and nightly rewrite, each with a switch.
+    const switches = chat.kind === "me" ? await settled(() => notes.readSwitches(call), null) : null;
+    return {
+      items: read.checkins,
+      ...(extras.looksAt ? { looksAt: extras.looksAt } : {}),
+      ...(extras.quietHours ? { quietHours: extras.quietHours } : {}),
+      ...(switches ? { switches } : {}),
+    };
   }
   if (kind === "about") {
     if (!chat.about) return { items: [], total: 0 };
@@ -182,6 +189,7 @@ const ACT_SECTIONS = {
   "checkin.edit": ["checkins"],
   "checkin.cancel": ["checkins"],
   "checkin.add": ["checkins"],
+  "switch.set": ["checkins"],
   "about.fix": ["about"],
   "about.remove": ["about"],
   settings: ["settings"],
@@ -225,6 +233,9 @@ async function act(env, controlPlane, session, page, chat, call, action) {
     case "checkin.add":
       if (chat.kind !== "me") return { ok: false, error: "text_tex" };
       return await notes.checkinAdd(call, { when: action.when, what: action.what });
+    case "switch.set":
+      if (chat.kind !== "me") return { ok: false, error: "invalid" };
+      return await notes.switchSet(call, action.name, action.on);
     case "about.fix":
       if (!chat.about) return { ok: false, error: "not_found" };
       return await notes.aboutFix(call, chat.about, action.line, action.text);

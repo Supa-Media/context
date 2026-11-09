@@ -6,6 +6,7 @@
 
 import { ACCESS_OPS } from "./access.js";
 import { TEXTING_OPS } from "./personTexting.js";
+import { FLAGS_OPS } from "./personFlags.js";
 
 const TABLES = { reach: "reach", sharedToMe: "shared", connections: "connections" };
 
@@ -37,6 +38,11 @@ export function personAccessClient(ask, personalWorkspaceId) {
     put: async (record) => await call(TEXTING_OPS.PUT, { record }),
     get: async () => (await call(TEXTING_OPS.GET)).record ?? null,
     open: async ({ phoneHash, tokenHash, refreshHash, expiresAt, at }) => await call(TEXTING_OPS.OPEN, { phoneHash, tokenHash, refreshHash, expiresAt, at }),
+  };
+  // Feature flags (`personFlags.js`): the person's whole set, written by the control plane.
+  access.flags = {
+    put: async (record) => await call(FLAGS_OPS.PUT, { record }),
+    get: async () => (await call(FLAGS_OPS.GET)).record ?? null,
   };
   return access;
 }

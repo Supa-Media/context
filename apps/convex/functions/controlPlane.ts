@@ -47,6 +47,7 @@
 import { audienceOfNames } from "./lib/pinnedReaders";
 import { readsAsChat } from "./lib/nodes/chatFolders";
 import { TEX_SETUP_CLIENTS } from "./lib/texSetupRead";
+import { flagsFor } from "./lib/featureFlags";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, internalQuery } from "../_generated/server";
@@ -97,8 +98,13 @@ export const resolveGrantByAccessToken = internalQuery({
  */
 export const resolveGatewaySession = internalQuery({
   args: session.resolveGrantByAccessTokenArgs,
-  returns: v.object({ session: session.resolveGrantByAccessTokenReturns, touchDue: v.boolean() }),
-  handler: session.resolveGatewaySessionHandler,
+  returns: v.object({ session: session.resolveGrantByAccessTokenReturns, touchDue: v.boolean(), flags: v.array(v.string()) }),
+  handler: async (ctx, args) => {
+    const answer = await session.resolveGatewaySessionHandler(ctx, args);
+    // The acting person's feature flags, in the same read, for a person their object does not answer for yet
+    // (`flagObjects.ts`; one whose object does gets them there).
+    return { ...answer, flags: answer.session === null ? [] : await flagsFor(ctx, answer.session.actorUserId) };
+  },
 });
 
 export const startAuthorization = internalMutation({

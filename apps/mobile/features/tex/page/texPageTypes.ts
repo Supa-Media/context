@@ -194,6 +194,8 @@ export interface ListPage<K extends ListKind> {
   /** checkins */
   looksAt?: string[];
   quietHours?: string;
+  /** Tex's own jobs the person can switch off, on unless off (their own Tex only; Dev2, 2026-11-08). */
+  switches?: TexSwitches;
   /** about */
   total?: number;
   /** settings: the person's or the group's own instructions, the quick picks that add a line (Dev2, 2026-11-01), and a group's `answers`. */
@@ -205,6 +207,12 @@ export interface ListPage<K extends ListKind> {
   people?: string[];
 }
 
+/** The daily tidy (`housekeeping`) and the nightly rewrite of About me (`dreams`), each true when on. */
+export interface TexSwitches {
+  housekeeping: boolean;
+  dreams: boolean;
+}
+
 export type PageAction =
   | { type: "steer"; job: string; text: string }
   | { type: "stop"; job: string }
@@ -214,6 +222,7 @@ export type PageAction =
   | { type: "checkin.edit"; id: string; when?: string; what?: string }
   | { type: "checkin.cancel"; id: string }
   | { type: "checkin.add"; when: string; what: string }
+  | { type: "switch.set"; name: keyof TexSwitches; on: boolean }
   | { type: "about.fix"; line: string; text: string }
   | { type: "about.remove"; line: string }
   | { type: "settings"; values: Record<string, string | number> }

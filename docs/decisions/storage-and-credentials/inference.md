@@ -15,8 +15,7 @@ teams"), screens, cron, Jev features (`organizer`, `whatChanged`) and the
 Worker's `/extract` route are gone. What stays of this decision is the seam
 itself, which the features below still use: owner suggestions and the icon
 picker's suggested emoji ask Clef through `/decide`. The `organizerSettings`
-table keeps its definition only until it is emptied
-(`functions/retiredTables.ts`); the old `.context/organizer/state.json` in
+table was emptied and its definition removed on 2026-11-08; the old `.context/organizer/state.json` in
 customer buckets is the customer's and is left where it is. Usage rows under
 the two feature names still read in the AI costs report, labelled as removed
 (`RETIRED_JEV_FEATURE_LABELS`).

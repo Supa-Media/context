@@ -122,11 +122,15 @@ describe("what the Aa panel lights", () => {
     ["1. first", { style: "body", list: "number" }],
     ["#hashtag", { style: "body", list: null }],
   ])("%s", (text, expected) => {
-    expect(lineStateOf(text)).toEqual(expected);
+    expect(lineStateOf(text)).toEqual({ ...expected, selected: false });
+    expect(lineStateOf(text, true)).toEqual({ ...expected, selected: true });
   });
 
   test("only those shapes cross the bridge", () => {
-    expect(decodeLineState({ style: "title", list: "task" })).toEqual({ style: "title", list: "task" });
+    expect(decodeLineState({ style: "title", list: "task", selected: true })).toEqual({ style: "title", list: "task", selected: true });
+    // A web view bundle from before the field: nothing selected.
+    expect(decodeLineState({ style: "title", list: "task" })).toEqual({ style: "title", list: "task", selected: false });
+    expect(decodeLineState({ style: "body", list: null, selected: "yes" })).toEqual({ style: "body", list: null, selected: false });
     expect(decodeLineState({ style: "huge", list: null })).toBeNull();
     expect(decodeLineState({ style: "body", list: "<b>" })).toBeNull();
     expect(decodeLineState(null)).toBeNull();

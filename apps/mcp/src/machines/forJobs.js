@@ -75,7 +75,7 @@ const plain = (value) => (typeof value === "string" ? value.trim().toLowerCase()
 export function pickMachine(machines, ask) {
   const named = plain(ask?.name);
   const owned = machines;
-  if (owned.length === 0) return { error: ask?.group === true ? "Nobody has lent this chat a computer. Run it in the cloud instead, or tell them a computer's owner can lend it here in Tex's settings." : "They have no computer paired with Tex. Run it in the cloud instead, or tell them they can pair one in Tex's settings." };
+  if (owned.length === 0) return { error: ask?.group === true ? "Nobody has lent this chat a computer. Run it in the cloud instead; a computer's owner here can lend theirs by saying \"Tex, lend my computer here\" (send action computers)." : "They have no computer paired with Tex. Run it in the cloud instead, or set one up for them with send action computers, do setup_prompt." };
   const found = named === "" ? (owned.length === 1 ? owned[0] : null) : (owned.find((machine) => plain(machine.name) === named || machine.id === ask.name) ?? owned.find((machine) => plain(machine.name).includes(named)) ?? null);
   const names = owned.map((machine) => `"${machine.name}"${machine.online ? "" : " (offline)"}`).join(", ");
   if (found === null) return { error: `Name one of their computers: ${names}.` };

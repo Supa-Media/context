@@ -22,6 +22,7 @@ import {
   isAccessHome,
 } from "./access.js";
 import { personTexting, TEXTS_CLIENT_ID } from "./personTexting.js";
+import { personFlags } from "./personFlags.js";
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS access_rows (tbl TEXT NOT NULL, key TEXT NOT NULL, row TEXT, at INTEGER NOT NULL, gone INTEGER NOT NULL DEFAULT 0, token_hash TEXT, refresh_hash TEXT, PRIMARY KEY (tbl, key))`,
@@ -260,6 +261,7 @@ export function personRows(sql) {
     },
   };
   self.texting = personTexting(sql, self);
+  self.flags = personFlags(sql);
   return self;
 }
 
@@ -320,5 +322,7 @@ export function sessionFor(store, tokenHash, now = Date.now()) {
     // A text's session carries who is texting, from the record this object keeps (`personTexting.js`), so Tex is told
     // without asking Convex.
     ...(connection.clientId === TEXTS_CLIENT_ID ? { texterIdentity: store.texting?.get()?.identity ?? null } : {}),
+    // The person's feature flags (`personFlags.js`), read here so no request asks for them.
+    flags: store.flags?.ids() ?? [],
   };
 }

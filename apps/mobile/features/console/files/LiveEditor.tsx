@@ -59,7 +59,7 @@
  *    below and `coveredBottom` in `editorSetup.ts`.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Keyboard,
   Platform,
@@ -86,6 +86,7 @@ import {
   themeVars,
 } from "./webview/host";
 import { listSink, useExtras } from "./webview/host/useExtras";
+import { getSpelling, subscribeSpelling } from "./spelling/store";
 import { ACCESSORY_HEIGHT, accessoryUp } from "./accessory";
 import type { EditorControls, LiveEditorProps } from "./LiveEditor.web";
 
@@ -116,6 +117,7 @@ export function LiveEditor({
   accessibilityLabel,
   onOpenNote,
   onOpenTag,
+  onLinkHold,
   notePath,
   notePaths,
   onSubmitForm,
@@ -189,6 +191,7 @@ export function LiveEditor({
     onScrollBy,
     onOpenNote,
     onOpenTag,
+    onLinkHold,
     onSubmitForm,
     onReadFormResponses,
     onVoteForm,
@@ -212,6 +215,7 @@ export function LiveEditor({
     onScrollBy,
     onOpenNote,
     onOpenTag,
+    onLinkHold,
     onSubmitForm,
     onReadFormResponses,
     onVoteForm,
@@ -319,6 +323,7 @@ export function LiveEditor({
           */
           onOpenNote: (path, mode, anchor) => handlers.current.onOpenNote?.(path, mode, anchor),
           onOpenTag: (tag) => handlers.current.onOpenTag?.(tag),
+          onLinkHold: (link) => handlers.current.onLinkHold?.(link),
           /*
             A web link leaves the app, so it is asked about first, with the
             address shown. The host has already allow-listed the scheme; the
@@ -475,6 +480,12 @@ export function LiveEditor({
   useEffect(() => {
     bridge.setTheme(themeVars(colors, fonts.mono, compact));
   }, [bridge, colors, compact]);
+
+  // Show Markdown (Settings › Writing), followed while the note is open.
+  const showMarkdown = useSyncExternalStore(subscribeSpelling, () => getSpelling().showMarkdown);
+  useEffect(() => {
+    bridge.setShowMarkdown(showMarkdown);
+  }, [bridge, showMarkdown]);
 
   /*
     Which note is open, so the guest can resolve `[[../beta/notes]]` against

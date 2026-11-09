@@ -292,7 +292,7 @@ export async function runFileOperationHandler(
   if (args.operation.kind === "googleForwardSync") {
     forwardSyncJob = await ctx.runQuery(
       internal.functions.googleSync.googleForwardSyncJob,
-      { workspaceId: args.workspaceId, connectionId: args.operation.connectionId },
+      { workspaceId: args.workspaceId, connectionId: args.operation.connectionId, only: args.operation.only },
     );
     if (forwardSyncJob === null) {
       /*

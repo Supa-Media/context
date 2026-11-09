@@ -36,6 +36,7 @@ import {
   type EditorHandlers,
   type HandlerRef,
 } from "../editorSetup";
+import { markdownShown, setMarkdownShown } from "../livePreview/symbols";
 import type { NoteLinkRef } from "../noteLinks";
 import type { FormHostRef } from "../formBlock";
 import type { ImageHostRef } from "../imageBlock";
@@ -320,6 +321,7 @@ export function mountGuest(
       onOpen: (path, mode, anchor) => bridge.post({ v: PROTOCOL_VERSION, type: "open-link", path, mode, anchor }),
       onOpenUrl: (url) => bridge.post({ v: PROTOCOL_VERSION, type: "open-url", url }),
       onOpenTag: (tag) => bridge.post({ v: PROTOCOL_VERSION, type: "open-tag", tag }),
+      onHold: (link) => bridge.post({ v: PROTOCOL_VERSION, type: "link-hold", link }),
     },
   };
 
@@ -669,7 +671,7 @@ export function mountGuest(
       carets.request();
     },
     onSave: () => bridge.post({ v: PROTOCOL_VERSION, type: "save" }),
-    onLineState: (state) => bridge.post({ v: PROTOCOL_VERSION, type: "line-state", style: state.style, list: state.list }),
+    onLineState: (state) => bridge.post({ v: PROTOCOL_VERSION, type: "line-state", style: state.style, list: state.list, selected: state.selected }),
   };
 
   const apply = (message: ToGuest): void => {
@@ -724,6 +726,9 @@ export function mountGuest(
         configureEditable();
         return;
       }
+      case "symbols":
+        if (view.state.field(markdownShown, false) !== message.shown) view.dispatch({ effects: setMarkdownShown.of(message.shown) });
+        return;
       case "theme": {
         applyTheme(documentElement ?? root, message.vars);
         // The palette carries the *measure* too — type size, leading, the note's
@@ -882,7 +887,7 @@ export function mountGuest(
         if (!acceptsCommand(effectiveEditable(), command)) return;
         // Asked for by the host only when it has a Link sheet to answer with.
         const askLink =
-          command.name === "insertLink" && command.ask === true
+          (command.name === "insertLink" && command.ask === true) || command.name === "editLink"
             ? (text: string) => bridge.post({ v: PROTOCOL_VERSION, type: "link-request", text })
             : undefined;
         runCommand(view, command, askLink);

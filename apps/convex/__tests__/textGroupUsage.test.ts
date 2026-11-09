@@ -123,12 +123,26 @@ describe("per-person usage in a group chat", () => {
     expect(boRow.percent + adaRow.percent).toBeCloseTo(100, 6);
   });
 
+  test("a turn whose token a newer turn replaced still records its usage, against its tagger", async () => {
+    const t = setupTest();
+    const { ada } = await crew(t);
+    const report = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    await turn(t, ADA, [ADA, BO, CY, LINE]);
+    expect(await finish(t, report.accessToken as string, 1000, 200)).toBe(true);
+    const chat = await theChat(t);
+    const shares = await t.query(internal.functions.textGroupUsage.shares, { groupId: chat!._id as Id<"textGroups"> });
+    expect(shares.map((row) => row.who)).toEqual([`user:${ada.userId}`]);
+  });
+
   test("an unknown or dead grant records nothing", async () => {
     const t = setupTest();
     await crew(t);
     const first = await turn(t, ADA, [ADA, BO, CY, LINE]);
-    // A second turn from the same tagger replaces the first token, so the first is dead now.
+    // A second turn from the same tagger replaces the first token, which lives on only until its own expiry.
     await turn(t, ADA, [ADA, BO, CY, LINE]);
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("textsEarlierTokens").collect()) await ctx.db.patch(row._id, { expiresAt: Date.now() - 1 });
+    });
     expect(await finish(t, first.accessToken as string, 1000, 200)).toBe(false);
     expect(await finish(t, "not-a-grant-anybody-minted", 1000, 200)).toBe(false);
     const chat = await theChat(t);

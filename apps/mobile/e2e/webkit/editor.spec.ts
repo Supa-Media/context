@@ -131,6 +131,48 @@ test("a list marker does not reveal under the caret", async ({ page }) => {
   await expect(page.getByText("- Keep this list", { exact: false })).toHaveCount(0);
 });
 
+test("with Show Markdown off, a tap on bold words leaves its symbols hidden", async ({ page }) => {
+  // The default since 2026-11-08 (`livePreview/symbols.ts`): a regular editor
+  // that supports Markdown. The word is still bold, and no `**` comes back.
+  const content = page.locator(".cm-content");
+  const end = await content.boundingBox();
+  if (end === null) throw new Error("the editor has no box");
+  await page.touchscreen.tap(end.x + 40, end.y + end.height - 8);
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("plant **basil** now");
+  const bold = page.locator(".cm-lp-strong", { hasText: "basil" }).first();
+  const box = await bold.boundingBox();
+  if (box === null) throw new Error("the bold word has no box");
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(content).toContainText("plant basil now");
+  await expect(content).not.toContainText("**basil**");
+});
+
+test("holding a link opens its menu, and a tap on the page puts it away", async ({ page }) => {
+  // Owner, 2026-11-09: "for links can't it be a long hold to open a menu".
+  // The finger comes up still and late (`linkHold.ts`), so the menu opens and
+  // the link is not followed.
+  const link = page.locator(".cm-note-link").first();
+  await expect(link).toBeVisible();
+  const box = await settledBox(link);
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const before = await page.getByTestId("phone-back").getAttribute("aria-label");
+  await dispatchTouch(page, "touchstart", at);
+  await page.waitForTimeout(700);
+  await dispatchTouch(page, "touchend", at);
+
+  const menu = page.getByTestId("link-hold-menu");
+  await expect(menu).toBeVisible();
+  await expect(page.getByTestId("link-hold-open")).toBeVisible();
+  await expect(page.getByTestId("link-hold-edit")).toBeVisible();
+  await expect(page.getByTestId("link-hold-remove")).toBeVisible();
+  await expect(page.getByTestId("phone-back")).toHaveAttribute("aria-label", before ?? "");
+
+  await page.getByTestId("link-hold-scrim").click({ position: { x: 10, y: 10 } });
+  await expect(menu).toHaveCount(0);
+});
+
 test("back retraces the way in: the note's folder, then Notes", async ({ page }) => {
   // The note was reached Notes → areas (the folder row) → the note, and ‹ goes
   // back to the page before each time (Dev2, 2026-10-18: "it should take me to

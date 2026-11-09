@@ -12,6 +12,7 @@ import { indexByName, linkAnchor, parseLinks, resolveLink, styleOf } from "@cont
 
 import { webUrl } from "./webUrl";
 import { tagUnder } from "./tagUnder";
+import { linkHoldGesture, type HeldLink } from "./linkHold";
 
 export { webUrl } from "./webUrl";
 export {
@@ -154,6 +155,8 @@ export interface NoteLinkContext {
    * them, and the tag takes the caret like any other text.
    */
   onOpenTag?: (tag: string) => void;
+  /** A link was held on a touch screen: show its menu. Absent means a hold is the platform's selection. */
+  onHold?: (link: HeldLink) => void;
 }
 
 /**
@@ -571,7 +574,8 @@ export function noteLinks(ref: NoteLinkRef): Extension {
     },
   });
 
-  return [decorations, tooltip, events, linkTheme];
+  // A hold on a link's words opens the host's link menu (`linkHold.ts`).
+  return [decorations, tooltip, events, linkTheme, linkHoldGesture(targetUnder, () => ref.current.onHold)];
 }
 
 /**

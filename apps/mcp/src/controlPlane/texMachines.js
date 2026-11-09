@@ -96,6 +96,24 @@ export function createTexMachineMethods({ post }) {
         return { refused: APPROVE_REFUSALS[status] ?? "REFUSED" };
       }
     },
+    /**
+     * A code the person texted Tex, approved with their own 1:1 texting token (`texMachineTexts.ts`): a full computer
+     * in that grant's own workspace. `{ approved: { name, os, workspaceId } }`, or `{ refused: code }`.
+     */
+    async texMachinePairApproveFromTexts(accessToken, code) {
+      try {
+        return { approved: await post("/gateway/machines/pair/approve-texts", { accessToken, code }) };
+      } catch (error) {
+        const status = refusalOf(error);
+        if (status === null) throw error;
+        return { refused: APPROVE_REFUSALS[status] ?? "REFUSED" };
+      }
+    },
+    /** A person's own active computers, `[{ machineId, workspaceId }]`, by the id resolved from their grant. */
+    async texMachinesOwned(userId) {
+      const answer = await call("/gateway/machines/owned", { userId });
+      return answer.ok && Array.isArray(answer.value?.machines) ? answer.value.machines : [];
+    },
     /** A machine giving its own grant back (`/machines/leave`): `{ machineId, workspaceId }`, or null for a dead grant. */
     async texMachineLeave(grant) {
       const answer = await call("/gateway/machines/leave", { grant });

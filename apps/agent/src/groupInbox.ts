@@ -438,7 +438,11 @@ export async function answerInline(storage: InboxStorage, entries: GroupEntry[],
 
 /** A turn given up on (`reason` as logged): a routine nobody asked for just now fails quietly; anyone else is told what broke, and the chat is scored (`watchFailed`). */
 export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, reason: string | undefined): Promise<void> {
-  if (message.routine !== undefined) await routineDone(deps, message, "failed");
+  if (message.jobReport !== undefined) {
+    // Never lost in silence: the chat hears that news is waiting, and the job list holds it for the next tag (`chatJobs`).
+    log("job_report_failed");
+    await say(storage, deps, message, GROUP_LINES.jobReportRefused, { system: true, reason: "failed" }).catch(() => {});
+  } else if (message.routine !== undefined) await routineDone(deps, message, "failed");
   else await say(storage, deps, message, failedLine(reason), { system: true, reason: reason === "gateway:504" ? "timed_out" : "failed" }).catch(() => {}).then(() => watchFailed(storage, deps, message));
 }
 
@@ -466,6 +470,8 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const question = command === null && !item.engagement && !item.setting;
   if (members === null && !routine && (app.senderOnlyWebhook || question || command?.kind === "status")) throw new ServiceError(app.senderOnlyWebhook ? "whapi" : "sendblue", null);
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
+  // A job's report waits for the members it could not read, as a question does, rather than being dropped unread.
+  if (routine && members === null && message.jobReport !== undefined) throw new ServiceError(app.senderOnlyWebhook ? "whapi" : "sendblue", null);
   if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
   const people = peopleOf(message.line, message.participants, members);
   // A plain tag from the same person, with the same people, reuses the last token and asks the control plane behind the turn (`groupKept.ts`).

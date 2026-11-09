@@ -37,6 +37,8 @@ function runsHtml(runs: readonly Inline[], pictures: DesignPictures): string {
           return `<s>${escapeHtml(run.text)}</s>`;
         case "mark":
           return `<mark>${escapeHtml(run.text)}</mark>`;
+        case "underline":
+          return `<u>${escapeHtml(run.text)}</u>`;
         case "code":
           return `<code>${escapeHtml(run.text)}</code>`;
         case "kbd":

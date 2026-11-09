@@ -21,6 +21,7 @@ import {
   type SelectionRange,
 } from "@codemirror/state";
 import { GFM, parser as markdownParser } from "@lezer/markdown";
+import { isRunMarker, planTagToggle } from "./tagToggle";
 
 /**
  * The marker pairs, named once.
@@ -89,8 +90,8 @@ export function wordAround(doc: string, range: SelectionRange): SelectionRange {
  *
  * Every marker this module knows is a run of one repeated character — `*`,
  * `**`, `~~`, `` ` `` — and that is what makes the rule below expressible at
- * all. A marker that was not (`<u>`…`</u>`, say) would need a different
- * question asked, and this is the assumption to revisit first if one is added.
+ * all. A marker that is not (`<u>`…`</u>`) is asked a different question,
+ * in `tagToggle.ts`, before anything here runs.
  */
 function runBefore(doc: string, at: number, char: string): number {
   let count = 0;
@@ -284,6 +285,8 @@ export function planToggle(
   after: string,
   mode: ToggleMode = "toggle",
 ): RangePlan {
+  // A pair of tags (`<u>`…`</u>`) is not a run to count: see `tagToggle.ts`.
+  if (!isRunMarker(before)) return planTagToggle(doc, original, before, after, mode);
   if (original.empty) return planCaret(doc, original.head, before, after, mode);
 
   const segments = segmentsOf(doc, original.from, original.to);

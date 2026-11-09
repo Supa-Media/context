@@ -6,7 +6,9 @@ import { Icon, type IconName } from "../../design/components/Icon";
 import { KeyboardSticky, dismissKeyboard } from "../../design/keyboardSticky";
 import { fonts, layout, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
+import { SketchBox } from "../../design/components/sketch/SketchBox";
 import { ACCESSORY_GAP } from "./accessory";
+import { AccessoryGlyph, type AccessoryGlyphName } from "./AccessoryGlyph";
 import type { EditorControls } from "./LiveEditor";
 import { BODY_LINE, type LineState } from "./lineState";
 
@@ -99,7 +101,7 @@ interface AccessoryKey {
    * for a bar with even less room for a caption.
    */
   label: string;
-  icon: IconName | { text: string; style: "bold" | "italic" | "strike" | "plain" };
+  icon: IconName | { drawn: AccessoryGlyphName } | { text: string; style: "bold" | "italic" | "underline" | "strike" | "plain" };
   run: (controls: EditorControls, askLink: ((words: string) => void) | undefined) => void;
 }
 
@@ -118,10 +120,34 @@ interface AccessoryKey {
   could do before is gone; it is one press further.
 */
 
+/*
+  DRAWN, AND B I U OVER A SELECTION (owner, 2026-11-08: "let's do checklist,
+  bullet list, Aa, microphone, bold italic, underline when a word is
+  highlighted"). The keys are drawn in Context's own brush (`AccessoryGlyph`),
+  and while words are selected the list keys and the microphone give way to
+  bold, italic and underline, the three a selection is made for. Underline is
+  `<u>`…`</u>`, the one tag Markdown readers already draw
+  (`livePreview/underlineGrammar.ts`).
+*/
+
 /** The bar itself: what a thumb reaches for while writing. */
 const BAR_KEYS: readonly AccessoryKey[] = [
-  { id: "task", label: "Checklist", icon: "checkCircle", run: (c) => c.toggleLinePrefix("- [ ] ") },
-  { id: "bullet", label: "Bulleted list", icon: "bulletList", run: (c) => c.toggleLinePrefix("- ") },
+  { id: "task", label: "Checklist", icon: { drawn: "checklist" }, run: (c) => c.toggleLinePrefix("- [ ] ") },
+  { id: "bullet", label: "Bulleted list", icon: { drawn: "bullets" }, run: (c) => c.toggleLinePrefix("- ") },
+];
+
+const UNDERLINE: AccessoryKey = {
+  id: "underline",
+  label: "Underline",
+  icon: { text: "U", style: "underline" },
+  run: (c) => c.wrap("<u>", "</u>"),
+};
+
+/** The bar while words are selected. */
+const SELECTION_KEYS: readonly AccessoryKey[] = [
+  { id: "bold", label: "Bold", icon: { text: "B", style: "bold" }, run: (c) => c.wrap("**", "**") },
+  { id: "italic", label: "Italic", icon: { text: "I", style: "italic" }, run: (c) => c.wrap("*", "*") },
+  UNDERLINE,
 ];
 
 /** The Aa panel, row by row, as board 3 draws it. */
@@ -133,6 +159,7 @@ const STYLE_KEYS: readonly AccessoryKey[] = [
 const MARK_KEYS: readonly AccessoryKey[] = [
   { id: "bold", label: "Bold", icon: { text: "B", style: "bold" }, run: (c) => c.wrap("**", "**") },
   { id: "italic", label: "Italic", icon: { text: "I", style: "italic" }, run: (c) => c.wrap("*", "*") },
+  UNDERLINE,
   { id: "strike", label: "Strikethrough", icon: { text: "S", style: "strike" }, run: (c) => c.wrap("~~", "~~") },
   /*
     With words selected, the editor saves them and calls `askLink`, and the
@@ -215,7 +242,7 @@ export function NoteAccessory({
     <KeyboardSticky style={styles.sticky}>
       <View style={styles.row} testID="note-accessory" {...KEEP_CARET}>
         <View style={styles.pill} role="toolbar" aria-label="Writing">
-          {keys(BAR_KEYS, styles.target)}
+          {keys(active.selected ? SELECTION_KEYS : BAR_KEYS, styles.target)}
           <AccessoryButton
             id="format"
             label={formatting ? "Hide formatting" : "Formatting"}
@@ -224,13 +251,13 @@ export function NoteAccessory({
             style={styles.target}
             on={formatting}
           />
-          {onDictate === undefined ? null : (
-            <AccessoryButton id="mic" label="Dictate" icon="mic" onPress={onDictate} style={styles.target} />
+          {onDictate === undefined || active.selected ? null : (
+            <AccessoryButton id="mic" label="Dictate" icon={{ drawn: "mic" }} onPress={onDictate} style={styles.target} />
           )}
         </View>
 
         {/*
-          Done: its own object, after a gap, and the one filled key. See the
+          Done: its own object, after a gap. See the
           file comment: this is the only key here that acts on the keyboard
           rather than on the note, and it is the way out of the keyboard.
 
@@ -255,7 +282,10 @@ export function NoteAccessory({
           style={({ pressed }) => [styles.done, pressed && styles.donePressed]}
           testID="note-accessory-dismiss"
         >
-          <Text style={[styles.doneLabel, { color: colors.ink }]}>Done</Text>
+          {/* Words circled in pencil, the app's "this one" mark (`LoopChoice`). */}
+          <SketchBox look="loop" color={colors.text} seed="accessory:done" style={styles.doneLoop}>
+            <Text style={[styles.doneLabel, { color: colors.text }]}>Done</Text>
+          </SketchBox>
         </Pressable>
       </View>
 
@@ -308,6 +338,8 @@ function AccessoryButton({
       <View style={[styles.face, on && !fill && styles.keyOn]}>
         {typeof icon === "string" ? (
           <Icon name={icon} size={20} color={ink} />
+        ) : "drawn" in icon ? (
+          <AccessoryGlyph name={icon.drawn} size={22} color={ink} />
         ) : (
           <Text style={[styles.keyText, styles[icon.style], { color: ink }]}>{icon.text}</Text>
         )}
@@ -371,7 +403,9 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
 
   /**
-   * Done: a filled accent capsule, the one filled key (board 3).
+   * Done: its own object on the bar's own raised grey, the word circled in
+   * pencil (owner, 2026-11-08: "the done button can be changed to just look
+   * more like our UI style"). It was the one filled accent key (board 3).
    *
    * `flexShrink: 0` so a narrow screen squeezes the editing keys rather than
    * this one. This is the only route out of the keyboard on this surface — see
@@ -383,15 +417,16 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     flexShrink: 0,
     minWidth: 76,
     height: layout.minTouchTarget,
-    paddingHorizontal: space.x4,
+    paddingHorizontal: space.x2 + 2,
     borderRadius: radii.pill,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.accent,
+    backgroundColor: colors.cardSurface,
     boxShadow: shadows.floating,
   },
-  donePressed: { opacity: 0.8 },
-  doneLabel: { fontFamily: fonts.body, fontSize: touchType.ui, fontWeight: "700" },
+  donePressed: { opacity: 0.6 },
+  doneLoop: { paddingHorizontal: space.x3, paddingVertical: space.x1 },
+  doneLabel: { fontFamily: fonts.body, fontSize: touchType.ui, fontWeight: "600" },
 
   /** Aa's panel, under the bar and over the keyboard: three rows of keys on the bar's own fill. */
   panel: {
@@ -417,6 +452,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   plain: {},
   bold: { fontWeight: "700" },
   italic: { fontStyle: "italic", fontFamily: "Georgia" },
+  underline: { textDecorationLine: "underline" },
   strike: { textDecorationLine: "line-through" },
 
   /**

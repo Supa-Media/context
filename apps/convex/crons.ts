@@ -79,6 +79,9 @@ crons.interval(
  */
 // A share follows its note by id (`lib/shares/entryNote.ts`). Fills the id on shares minted before it existed,
 // and on any a mint could not stamp because its note was not in the tree yet.
+// Each person's feature flags in their person object, pushed again only where the set moved (`functions/flagObjects.ts`):
+// a failed push, a person switched since, a new account, a flag launched or removed in code.
+crons.interval("reconcile feature flags in person objects", { hours: 1 }, internal.functions.flagObjects.reconcile, {});
 crons.interval("stamp share links with their note's id", { hours: 24 }, internal.functions.shares.stampEntryNoteIds, {});
 
 /**
@@ -526,7 +529,13 @@ crons.interval(
  * (`googleSync.sweepDueGoogleSyncs`) is kept, unscheduled, so a kind can be
  * added back on purpose; `__tests__/copiesStopped.test.ts` fails if anything
  * schedules it again.
+ *
+ * The one exception: a person with the `mail.in-notes` feature flag gets their
+ * Gmail copied again (owner, 2026-11-08; `lib/googleSync/mailCopy.ts`). Each
+ * minute it starts a Gmail-only pass on their due connections, and nobody
+ * else's; the pass asks the flag again before it opens a credential.
  */
+crons.interval("copy mail into notes for flagged people", { minutes: 1 }, internal.functions.mailCopy.startFlagged, {});
 
 /**
  * Custom domains: restart a check run whose next check went missing, re-read

@@ -42,6 +42,7 @@ import { MARKERS, toggleWrap, type MarkerName } from "./markdownFormat";
 import { editorCompletion } from "./linkComplete";
 import { formHost, type FormHostRef } from "./formBlock";
 import { diagramHost, type DiagramHost } from "./livePreview/diagram";
+import { markdownShown } from "./livePreview/symbols";
 import { imageBlock, type ImageHostRef } from "./imageBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
 import { titleLock } from "./titleLock";
@@ -51,7 +52,8 @@ import { emojiTyping } from "./emoji/emojiComplete";
 import { wrapOnType } from "./wrapOnType";
 import { dictationExtension, insertDictated } from "./dictate";
 import type { EditorCommand } from "./webview/protocol";
-import { applyLink, cancelLink, requestLink } from "./linkSelection";
+import { applyLink, cancelLink, requestLink, requestLinkEdit } from "./linkSelection";
+import { heldForEdit, unlinkHeld } from "./linkHold";
 import { lineStateOf, sameLineState, type LineState } from "./lineState";
 import { showTitleHint, untitledTitle } from "./untitledTitle";
 
@@ -429,6 +431,16 @@ export function runCommand(
     case "cancelLink":
       cancelLink(view);
       break;
+    // A held link's menu (`linkHold.ts`). Edit link hands over to the sheet,
+    // which takes the keyboard; Remove link should not raise it either.
+    case "editLink": {
+      const held = heldForEdit(view.state);
+      if (held !== null && askLink !== undefined) requestLinkEdit(view, held, askLink);
+      return;
+    }
+    case "unlink":
+      unlinkHeld(view);
+      return;
     case "undo":
       undo(view);
       break;
@@ -440,15 +452,16 @@ export function runCommand(
 }
 
 /**
- * The caret line's style and list, told to the host when either changes, so
- * the Aa panel lights Title, Heading or Body and the list it is in (board 3).
+ * The caret line's style and list, and whether words are selected, told to the
+ * host when any of them changes, so the Aa panel lights Title, Heading or Body
+ * and the list it is in (board 3), and the bar shows B I U over a selection.
  */
 function lineStateReporter(handlers: HandlerRef) {
   let last: LineState | null = null;
   return EditorView.updateListener.of((update) => {
     if (!update.selectionSet && !update.docChanged && last !== null) return;
     const line = update.state.doc.lineAt(update.state.selection.main.head);
-    const next = lineStateOf(line.text);
+    const next = lineStateOf(line.text, !update.state.selection.main.empty);
     if (last !== null && sameLineState(last, next)) return;
     last = next;
     handlers.current.onLineState?.(next);
@@ -639,6 +652,8 @@ export function editorExtensions(options: {
    * fence then stays a code block. See `livePreview/diagram.ts`.
    */
   diagrams?: DiagramHost;
+  /** Show Markdown (Settings › Writing) as the note opens; off when absent. See `livePreview/symbols.ts`. */
+  showMarkdown?: boolean;
 }): Extension[] {
   const {
     editable,
@@ -656,6 +671,7 @@ export function editorExtensions(options: {
   return [
     markdownLanguage(),
     livePreview(),
+    markdownShown.init(() => options.showMarkdown === true),
     codeHighlighting(),
     /*
       Dictation's two pieces of state: the guess drawn at the caret, and the

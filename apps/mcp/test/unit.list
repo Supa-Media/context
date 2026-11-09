@@ -150,7 +150,8 @@ test/vaultLinkStub.test.mjs
 test/visibleKeysBranches.test.mjs
 test/calendarKeyedDelete.test.mjs
 test/keyedNoteIdAt.test.mjs
-test/featureSwitches.test.mjs
+test/vaultLaunched.test.mjs
+test/personFlags.test.mjs
 bench/test/calibrate.test.mjs
 bench/test/review.test.mjs
 bench/test/context.test.mjs
@@ -172,6 +173,7 @@ test/workspaceInvite.test.mjs
 test/dreamNow.test.mjs
 bench/test/promote.test.mjs
 test/attention.test.mjs
+test/quietHours.test.mjs
 test/vaultSharing.test.mjs
 test/pinnedTeamWords.test.mjs
 test/privacy/readsAsGuest.test.mjs
@@ -452,6 +454,7 @@ test/machineRoutes.test.mjs
 test/machineJobs.test.mjs
 test/machineRunSettings.test.mjs
 test/machineApp.test.mjs
+test/machineTexActions.test.mjs
 test/machineGroupAsk.test.mjs
 test/machineForJobs.test.mjs
 test/agentPlanBigAsk.test.mjs
@@ -482,6 +485,7 @@ test/texCalendarCache.test.mjs
 test/texDaySummaries.test.mjs
 test/texFadedHistory.test.mjs
 test/texArchitecture.test.mjs
+test/capabilities.test.mjs
 test/typedCall.test.mjs
 test/conversationThreads.test.mjs
 test/agentThreadsTurn.test.mjs

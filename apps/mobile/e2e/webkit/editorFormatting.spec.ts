@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { showMarkdown } from "./helpers";
 
 /**
  * Formatting a note with a pointer, in a real browser.
@@ -37,6 +38,8 @@ test.use({ viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: fa
  * `defaultSelection`) is.
  */
 test.beforeEach(async ({ page }) => {
+  // Every case here reads the Markdown a command wrote, so the symbols are shown (`showMarkdown`).
+  await showMarkdown(page);
   await page.goto("/e2e-fixture");
   await page.locator(".cm-content").waitFor();
   await expect(page.locator(".cm-content")).toContainText("Tenancy");

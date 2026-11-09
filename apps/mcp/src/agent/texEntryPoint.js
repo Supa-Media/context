@@ -19,8 +19,8 @@ import { texEntry } from "./texTiming.js";
 import * as steps from "./texEntryPoint/steps.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call or one step of the turn: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
-export async function texEntryPoint(request, env, store, session, controlPlane, { progress = null, step = null, stages = null, tex = texEntry(env) }, outcome) {
-  const t = { request, env, store, session, controlPlane, outcome, progress, step, stages, tex };
+export async function texEntryPoint(request, env, store, session, controlPlane, { progress = null, step = null, answered = null, stages = null, tex = texEntry(env) }, outcome) {
+  const t = { request, env, store, session, controlPlane, outcome, progress, step, answered, stages, tex };
 
   const early =
     (await steps.readTheText(t)) ?? // who is asking, from which chat, and what

@@ -153,11 +153,14 @@ const TEX_PART_ICONS = Object.freeze({
   chats: contextPartMarker("tex_chats"),
   "attention.md": contextPartMarker("tex_attention"),
   dreams: contextPartMarker("tex_dreams"),
+  // The off switch beside its folder (`apps/mcp/src/agent/texSwitches.js`), as heartbeat.md is beside heartbeat/.
+  "dreams.md": contextPartMarker("tex_dreams"),
   groups: contextPartMarker("tex_groups"),
   handbacks: contextPartMarker("tex_handbacks"),
   heartbeat: contextPartMarker("tex_heartbeat"),
   "heartbeat.md": contextPartMarker("tex_heartbeat"),
   housekeeping: contextPartMarker("tex_housekeeping"),
+  "housekeeping.md": contextPartMarker("tex_housekeeping"),
   // Their next seven days, a copy Tex keeps (`apps/mcp/src/agent/calendarCache.js`): the inbox's calendar.
   "calendar.md": contextPartMarker("inbox_calendar"),
   "jobs.md": contextPartMarker("tex_jobs"),

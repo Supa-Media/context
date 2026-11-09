@@ -56,6 +56,7 @@
 
 import { decodeLinkTarget, type LinkTarget } from "../linkMarkdown";
 import type { LineState } from "../lineState";
+import type { HeldLink } from "../linkHold";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -108,6 +109,9 @@ export type EditorCommand =
   | { name: "applyLink"; link: LinkTarget }
   /** The sheet was dismissed: put the saved selection back as it was. */
   | { name: "cancelLink" }
+  /** A held link's menu (`linkHold.ts`): Edit link asks for the Link sheet; Remove link keeps the words. */
+  | { name: "editLink" }
+  | { name: "unlink" }
   | { name: "undo" }
   | { name: "redo" }
   /**
@@ -170,6 +174,9 @@ export function decodeCommand(value: unknown): EditorCommand | null {
     }
     case "cancelLink":
       return { name: "cancelLink" };
+    case "editLink":
+    case "unlink":
+      return { name: command.name };
     case "undo":
       return { name: "undo" };
     case "redo":
@@ -246,12 +253,10 @@ export type ToGuest =
   | { v: number; type: "preview"; text: string }
   /** `false` for `privacy.md`, and for a member who may read but not write. */
   | { v: number; type: "editable"; editable: boolean }
-  /**
-   * The palette, as CSS custom-property values. Sent on mount and whenever the
-   * appearance changes — never by reloading the document, because a reload
-   * would cost the caret and the undo history.
-   */
+  /** The palette as CSS custom-property values, on mount and on every appearance change; never a reload, which costs the caret and undo. */
   | { v: number; type: "theme"; vars: Readonly<Record<string, string>> }
+  /** Show Markdown (Settings › Writing), on mount and when switched. See `livePreview/symbols.ts`. */
+  | { v: number; type: "symbols"; shown: boolean }
   /**
    * How much of the editor is covered by something else — the iOS keyboard, an
    * accessory bar. The guest pads its scroller by this so the caret can always
@@ -438,6 +443,8 @@ export type ToHost =
    * never left holding a request it cannot answer.
    */
   | { v: number; type: "link-request"; text: string }
+  /** A link was held: show its menu (`linkHold.ts`). */
+  | { v: number; type: "link-hold"; link: HeldLink }
   /** Focus, so the host can tell the keyboard layer the note is being typed into. */
   | { v: number; type: "focus"; focused: boolean }
   /**
@@ -475,7 +482,7 @@ export type ToHost =
    * on an edit — coalesced to one message a frame, like every other.
    */
   | { v: number; type: "caret"; top: number; bottom: number }
-  | { v: number; type: "line-state"; style: LineState["style"]; list: LineState["list"] } // Aa lights it
+  | { v: number; type: "line-state"; style: LineState["style"]; list: LineState["list"]; selected?: boolean } // Aa lights it; B I U over a selection
   /** The guest failed to start. Surfaced rather than left as a blank rectangle. */
   | { v: number; type: "failed"; message: string }
   /**
@@ -624,6 +631,7 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "preview",
   "editable",
   "theme",
+  "symbols",
   "inset",
   "command",
   "links",
@@ -655,6 +663,7 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "open-url",
   "open-tag",
   "link-request",
+  "link-hold",
   "form-submit",
   "form-responses",
   "form-vote",

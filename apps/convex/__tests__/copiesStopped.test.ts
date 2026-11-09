@@ -43,4 +43,16 @@ describe("copying stopped", () => {
     // A pass's own drain kept passes in flight at the stop starting each other, a day later (2026-10-22).
     expect(schedulers).toEqual([]);
   });
+
+  test("the only other starter of a pass is the flagged mail look, and it asks for Gmail only", () => {
+    // Owner, 2026-11-08: mail comes back into notes for people with the `mail.in-notes` flag
+    // (`lib/googleSync/mailCopy.ts`). Sabotage: dropping `only: "gmail"` there fails this.
+    const starters = sources(join(ROOT, "functions"))
+      .filter((path) => /operation:\s*\{\s*kind:\s*"googleForwardSync"/.test(readFileSync(path, "utf8")))
+      .map((path) => relative(ROOT, path))
+      .sort();
+    expect(starters).toEqual(["functions/googleSync.ts", "functions/lib/googleSync/mailCopy.ts"]);
+    const look = readFileSync(join(ROOT, "functions/lib/googleSync/mailCopy.ts"), "utf8");
+    expect(look).toMatch(/kind: "googleForwardSync", connectionId: row\._id, only: "gmail"/);
+  });
 });

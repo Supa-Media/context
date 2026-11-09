@@ -215,6 +215,7 @@ import type * as functions_lib_textingRefresh from "../functions/lib/textingRefr
 import type * as functions_textingObjects from "../functions/textingObjects.js";
 import type * as functions_texMachines from "../functions/texMachines.js";
 import type * as functions_texMachineDevices from "../functions/texMachineDevices.js";
+import type * as functions_texMachineTexts from "../functions/texMachineTexts.js";
 import type * as functions_textGroupUsage from "../functions/textGroupUsage.js";
 import type * as functions_textGroupsMarked from "../functions/textGroupsMarked.js";
 import type * as functions_textGroupNames from "../functions/textGroupNames.js";
@@ -227,7 +228,6 @@ import type * as functions_texHome from "../functions/texHome.js";
 import type * as functions_texDashboard from "../functions/texDashboard.js";
 import type * as functions_texSpend from "../functions/texSpend.js";
 import type * as functions_routines from "../functions/routines.js";
-import type * as functions_retiredTables from "../functions/retiredTables.js";
 import type * as functions_dreams from "../functions/dreams.js";
 import type * as functions_heartbeats from "../functions/heartbeats.js";
 import type * as functions_mailHealth from "../functions/mailHealth.js";
@@ -257,7 +257,8 @@ import type * as functions_connectionClients from "../functions/connectionClient
 import type * as functions_connectionConsent from "../functions/connectionConsent.js";
 import type * as functions_connectionSettings from "../functions/connectionSettings.js";
 import type * as functions_connections from "../functions/connections.js";
-import type * as functions_featureSwitches from "../functions/featureSwitches.js";
+import type * as functions_featureFlags from "../functions/featureFlags.js";
+import type * as functions_flagObjects from "../functions/flagObjects.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_waitlistStatus from "../functions/waitlistStatus.js";
 import type * as functions_waitlistText from "../functions/waitlistText.js";
@@ -488,6 +489,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/textingRefresh": typeof functions_lib_textingRefresh;
   "functions/textingObjects": typeof functions_textingObjects;
   "functions/texMachineDevices": typeof functions_texMachineDevices;
+  "functions/texMachineTexts": typeof functions_texMachineTexts;
   "functions/texMachines": typeof functions_texMachines;
   "functions/textGroupUsage": typeof functions_textGroupUsage;
   "functions/textGroupsMarked": typeof functions_textGroupsMarked;
@@ -500,7 +502,6 @@ declare const fullApi: ApiFromModules<{
   "functions/texDashboard": typeof functions_texDashboard;
   "functions/texSpend": typeof functions_texSpend;
   "functions/routines": typeof functions_routines;
-  "functions/retiredTables": typeof functions_retiredTables;
   "functions/dreams": typeof functions_dreams;
   "functions/heartbeats": typeof functions_heartbeats;
   "functions/mailHealth": typeof functions_mailHealth;
@@ -533,7 +534,8 @@ declare const fullApi: ApiFromModules<{
   "functions/connectionConsent": typeof functions_connectionConsent;
   "functions/connectionSettings": typeof functions_connectionSettings;
   "functions/connections": typeof functions_connections;
-  "functions/featureSwitches": typeof functions_featureSwitches;
+  "functions/featureFlags": typeof functions_featureFlags;
+  "functions/flagObjects": typeof functions_flagObjects;
   "functions/waitlist": typeof functions_waitlist;
   "functions/waitlistStatus": typeof functions_waitlistStatus;
   "functions/waitlistText": typeof functions_waitlistText;

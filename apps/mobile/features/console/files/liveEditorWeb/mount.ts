@@ -32,6 +32,8 @@ import { commentRail } from "../comments/rail";
 import { commentSheet } from "../comments/sheet";
 import { DIAGRAM_FRAME_PATH } from "../livePreview/diagram";
 import { spelling } from "../spelling/extension";
+import { getSpelling } from "../spelling/store";
+import { followShowMarkdown } from "./showMarkdown";
 import { pageStyleNonce } from "./styleNonce";
 
 export function mountEditor({
@@ -169,6 +171,7 @@ export function mountEditor({
         emoji,
         // Mermaid fences, drawn by the frame page this origin serves beside the drawing editor.
         diagrams: { frameUrl: DIAGRAM_FRAME_PATH },
+        showMarkdown: getSpelling().showMarkdown,
         ...(onImageProblem === undefined ? {} : { reportImage: onImageProblem }),
         /*
           A plugin's in-editor suggestions.
@@ -256,6 +259,8 @@ export function mountEditor({
         (`spelling/extension.ts`).
       */
       spelling(),
+      // Show Markdown, switched in Settings while the note is open.
+      followShowMarkdown,
     ],
   });
 
@@ -325,6 +330,8 @@ export function mountEditor({
     insertLink: (ask) => runCommand(created, { name: "insertLink" }, ask),
     applyLink: (link) => runCommand(created, { name: "applyLink", link }),
     cancelLink: () => runCommand(created, { name: "cancelLink" }),
+    editLink: (ask) => runCommand(created, { name: "editLink" }, ask),
+    unlink: () => runCommand(created, { name: "unlink" }),
     undo: () => runCommand(created, { name: "undo" }),
     redo: () => runCommand(created, { name: "redo" }),
     blur: () => runCommand(created, { name: "blur" }),

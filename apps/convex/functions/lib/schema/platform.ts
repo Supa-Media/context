@@ -35,16 +35,58 @@ export const platformTables = {
    * happens to need somewhere to sit.
    */
   /**
-   * The staff console's feature switches (Features tab,
-   * `functions/featureSwitches.ts`): one row per switched feature, keyed by a
-   * name from `lib/featureSwitches.ts`. A missing row is off.
+   * Feature flags (`functions/featureFlags.ts`, ids in `packages/shared/src/flags.cjs`): one row per flag staff
+   * have set a mode on. A missing row is off. Who has a flag in `people` mode is `featureFlagPeople`.
    */
-  featureSwitches: defineTable({
-    key: v.string(),
-    on: v.boolean(),
+  featureFlags: defineTable({
+    flagId: v.string(),
+    mode: v.union(v.literal("off"), v.literal("people"), v.literal("everyone")),
     updatedAt: v.number(),
     updatedBy: v.id("users"),
-  }).index("by_key", ["key"]),
+  }).index("by_flag", ["flagId"]),
+
+  /** One person on one flag's list. Kept while the flag is off or open to everyone, so a list survives a switch. */
+  featureFlagPeople: defineTable({
+    flagId: v.string(),
+    userId: v.id("users"),
+    addedAt: v.number(),
+    addedBy: v.id("users"),
+  })
+    .index("by_flag", ["flagId"])
+    .index("by_user", ["userId"])
+    .index("by_flag_user", ["flagId", "userId"]),
+
+  /**
+   * Saved groups of testers (the owner, 2026-11-08: "a dog food or friends and family group"): staff add a group to
+   * a flag in one step, and a person joining the group gets every flag it is on.
+   */
+  testerGroups: defineTable({
+    name: v.string(),
+    createdAt: v.number(),
+    createdBy: v.id("users"),
+  }).index("by_name", ["name"]),
+
+  testerGroupPeople: defineTable({
+    groupId: v.id("testerGroups"),
+    userId: v.id("users"),
+    addedAt: v.number(),
+    addedBy: v.id("users"),
+  })
+    .index("by_group", ["groupId"])
+    .index("by_user", ["userId"])
+    .index("by_group_user", ["groupId", "userId"]),
+
+  /** One tester group on one flag's list, in `people` mode beside the people listed by name. */
+  featureFlagGroups: defineTable({
+    flagId: v.string(),
+    groupId: v.id("testerGroups"),
+    addedAt: v.number(),
+    addedBy: v.id("users"),
+  })
+    .index("by_flag", ["flagId"])
+    .index("by_group", ["groupId"])
+    .index("by_flag_group", ["flagId", "groupId"]),
+
 
   renderAssets: defineTable({
     kind: v.literal("resvgWasm"),

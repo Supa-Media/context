@@ -31,6 +31,7 @@ export function useSpellingSync(): void {
       forget: (word) => forget({ word }),
       setEnabled: (enabled) => set({ enabled }),
       setLanguage: (language) => set({ language }),
+      setShowMarkdown: (showMarkdown) => set({ showMarkdown }),
     });
     return () => setSpellingSaver(null);
   }, [me, learn, forget, set]);
@@ -38,6 +39,11 @@ export function useSpellingSync(): void {
   useEffect(() => {
     // `null` is an account that never changed anything: the device's copy stands.
     if (me === null || remote === undefined || remote === null) return;
-    applyAccountSpelling({ enabled: remote.enabled, language: remote.language, words: remote.words });
+    applyAccountSpelling({
+      enabled: remote.enabled,
+      language: remote.language,
+      words: remote.words,
+      showMarkdown: remote.showMarkdown === true,
+    });
   }, [me, remote]);
 }

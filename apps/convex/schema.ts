@@ -21,7 +21,6 @@ import { oauthTables } from "./functions/lib/schema/oauth";
 import { platformTables } from "./functions/lib/schema/platform";
 import { billingTables } from "./functions/lib/schema/billing";
 import { domainTables } from "./functions/lib/schema/domains";
-import { organizerTables } from "./functions/lib/schema/organizer";
 import { jevTables } from "./functions/lib/schema/jev";
 import { faceTables } from "./functions/lib/schema/faces";
 import { waitlistTables } from "./functions/lib/schema/waitlist";
@@ -125,7 +124,6 @@ const schema = defineSchema({
   ...platformTables,
   ...billingTables,
   ...domainTables,
-  ...organizerTables,
   ...jevTables,
   ...faceTables,
   ...waitlistTables,

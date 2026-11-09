@@ -35,6 +35,8 @@ import {
   readRoutines,
   routineRemove,
   routineToggle,
+  readSwitches,
+  switchSet,
   slugOf,
 } from "../src/http/texPage/notes.js";
 import { call as mcpCall, createEgressWorld, TOKEN_MCP, textOf } from "./agentEgressFixtures.mjs";
@@ -170,6 +172,25 @@ test("toggle writes paused yes and then no, passing the etag it read", async () 
   assert.equal(ws.calls.filter((entry) => entry.name === "write_note").at(-1).args.expected_etag, pausedEtag);
   assert.match(ws.text(`|${DAILY}`), /^paused: no$/m);
   assert.doesNotMatch(ws.text(`|${DAILY}`), /paused: yes/);
+});
+
+// Dev2, 2026-11-08: an off switch for the daily tidy and the nightly rewrite, from a text and from the page.
+test("Tex's own switches read as on until a note says paused, and flip by writing it, made when missing", async () => {
+  const ws = fakeWorkspace({ "|tex/dreams.md": "---\npaused: yes\n---\nThey asked.\n" });
+  assert.deepEqual(await readSwitches(ws.call), { housekeeping: true, dreams: false });
+
+  assert.deepEqual(await switchSet(ws.call, "housekeeping", false), { ok: true });
+  assert.equal(ws.text("|tex/housekeeping.md"), "---\npaused: yes\n---\n");
+  const etag = ws.etag("|tex/dreams.md");
+  assert.deepEqual(await switchSet(ws.call, "dreams", true), { ok: true });
+  assert.equal(ws.calls.filter((entry) => entry.name === "write_note").at(-1).args.expected_etag, etag, "an existing note is written with the etag read");
+  assert.equal(ws.text("|tex/dreams.md"), "---\npaused: no\n---\nThey asked.\n", "their words stay");
+  assert.deepEqual(await readSwitches(ws.call), { housekeeping: false, dreams: true });
+
+  const writes = ws.calls.filter((entry) => entry.name === "write_note").length;
+  assert.deepEqual(await switchSet(ws.call, "heartbeat", false), { ok: false, error: "invalid" }, "only the two switches");
+  assert.deepEqual(await switchSet(ws.call, "dreams", "off"), { ok: false, error: "invalid" });
+  assert.equal(ws.calls.filter((entry) => entry.name === "write_note").length, writes, "and nothing else is written");
 });
 
 test("a routine note with no front matter gains paused: yes", async () => {

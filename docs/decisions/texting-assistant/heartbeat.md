@@ -30,6 +30,11 @@ attention pings). Looks started by mail come at most an hour after the last
 look started, since each runs the model, and none once today's texts are used
 up. It only ever moves a look earlier, and the look is the ordinary check-in:
 the model still decides whether the mail is worth a text.
+Since copying stopped (2026-10-21) no pass ran, so this never fired; on
+2026-11-07 an airline email that needed action waited for the next slot while
+another assistant texted about it. Passes come back only for people with the
+`mail.in-notes` flag (owner, 2026-11-08;
+[live-not-copied](../communications/live-not-copied.md)).
 
 Each claim asks again whether the phone is linked and not paused and whether
 the person still owns the personal workspace, mints a 15-minute grant for the
@@ -195,3 +200,26 @@ again silences every slot after two failures. Tests:
 `apps/mcp/test/lookTree.test.mjs`, `apps/convex/__tests__/heartbeats.test.ts`,
 `apps/convex/__tests__/nodes/gatewayManifest.test.ts`,
 `apps/agent/src/heartbeats.test.ts`.
+
+## Their quiet hours are kept (decided by the owner, 2026-11-08)
+
+The Tex page showed a `quiet-hours:` line from `tex/heartbeat.md` as a
+setting, and nothing kept it. Asked for a default, the owner said go on
+"enforce them in code". Now the gateway reads the line (`11 pm to 7 am`,
+`22:00-07:00`; `apps/mcp/src/agent/quietHours.js`). Inside the window a look
+reads nothing and runs no model, and a delivery of their agents' pings texts
+only emergencies. Each answers `until`, the window's end. The texting Worker
+passes `until` to the control plane. There, a look comes back at the first
+slot after it (`quiet_hours` is not a looked outcome, so the same changes are
+read then), and the pings come back at `until` itself. An `until` more than a
+day away is ignored. Routines and reminders still go at the time they were
+set for, because the person chose that time.
+
+**What a simplification would cost:** reading the window only on the Tex page
+puts the setting back to decoration. Counting `quiet_hours` as a look loses
+what changed overnight. Dropping the emergency exception holds "prod is
+down" until morning. Tests: `apps/mcp/test/quietHours.test.mjs`,
+`apps/mcp/test/attention.test.mjs` ("in their quiet hours…"),
+`apps/mcp/test/agentHeartbeat.test.mjs`,
+`apps/convex/__tests__/heartbeats.test.ts`,
+`apps/convex/__tests__/attention.test.ts`, `apps/agent/src/heartbeats.test.ts`.

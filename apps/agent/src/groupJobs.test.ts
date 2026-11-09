@@ -8,6 +8,9 @@
  *  2. `answerGroup` not starting `answer.jobs` → "a tagged message can start a job beside the chat".
  *  3. `groupTurn` dropping `mail` from the job's group → "a job is told the mail shared with the chat".
  *  4. `groupTurn` not passing `jobReport` (2026-10-30) → "runs the job with a grant issued again, and hands the result to the chat's own turn".
+ *  5. `groupModelTurn` back to ending a refused report as a routine (2026-11-08) → "a report the chat's turn was refused for is tried again on a fresh grant".
+ *  6. `turnFailed` back to `routineDone` for a report → "and refused on every try, the chat still hears there is news".
+ *  7. `groupModelTurn` ending a capped report as a routine → "and out of today's turns, it is not tried again but still not silent".
  */
 
 import { describe, expect, it } from "vitest";
@@ -145,6 +148,67 @@ describe("background jobs in a group chat", () => {
     await acceptJob(storage, groupRun(), NOW);
     await runJob(storage, { ...d, report: async () => true });
     expect(world.asks[0]).toMatchObject({ group: { from: "ada", mail, people: ["ada", "bo"] } });
+  });
+
+  /*
+    A finished job's report in a Tex Devs chat was refused a model (2026-11-08): another of its asker's turns had replaced
+    the grant's token mid-turn, and the report ended as a routine does, quietly, so the job showed done and its result
+    was never said. A refused report now fails like any turn, is tried again on a newly minted grant, and is never silent.
+  */
+  async function reportQueued(world: World) {
+    const inbox = new MemoryStorage();
+    await acceptGroup(inbox, tagged, NOW);
+    await drainGroup(inbox, deps(world, { answer: "On it.", jobs: [{ title: "Competitor research", brief: "b" }] }));
+    const [entry] = await chatJobs(inbox, NOW);
+    const update: JobUpdate = { id: entry.id, state: "done", texts: ["Wrote @band 1-projects/competitors.md."], asked: { from: ADA, text: tagged.text } } as JobUpdate;
+    expect(await jobUpdate(inbox, { ...deps(world, {}), linqApiKey: "" }, update)).toBe(true);
+    return inbox;
+  }
+
+  function refusing(world: World, refusals: number, answer: string): GroupDeps {
+    const base = deps(world, { answer });
+    let mints = 0;
+    let models = 0;
+    const fetcher = (async (url: string, init: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path === "/agent-texts/group") mints++;
+      if (path === "/agent" && models++ < refusals) return Response.json({ error: "no model" }, { status: 409 });
+      return base.fetch(url, init);
+    }) as unknown as Fetch;
+    return Object.assign({ ...base, fetch: fetcher }, { counts: () => ({ mints, models }) });
+  }
+
+  it("a report the chat's turn was refused for is tried again on a fresh grant, and said", async () => {
+    const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
+    const inbox = await reportQueued(world);
+    const d = refusing(world, 1, "Competitors are up in @band 1-projects/competitors.md.") as GroupDeps & { counts: () => { mints: number; models: number } };
+    await drainGroup(inbox, d);
+    expect(world.sends.at(-1)?.content).toBe("On it.");
+    await drainGroup(inbox, d);
+    expect(d.counts()).toEqual({ mints: 2, models: 2 });
+    expect(world.sends.at(-1)?.content).toBe("Competitors are up in @band 1-projects/competitors.md.");
+  });
+
+  it("and refused on every try, the chat still hears there is news", async () => {
+    const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
+    const inbox = await reportQueued(world);
+    const d = refusing(world, 99, "never said");
+    for (let tries = 0; tries < 5; tries++) await drainGroup(inbox, d);
+    expect(world.sends.map((send) => send.content)).toEqual(["On it.", GROUP_LINES.jobReportRefused]);
+  });
+
+  it("and out of today's turns, it is not tried again but still not silent", async () => {
+    const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
+    const inbox = await reportQueued(world);
+    const base = deps(world, { answer: "never said" });
+    let models = 0;
+    const capped = (async (url: string, init: RequestInit) => {
+      if (new URL(url).pathname === "/agent") return (models++, Response.json({ error: "limit" }, { status: 429 }));
+      return base.fetch(url, init);
+    }) as unknown as Fetch;
+    for (let tries = 0; tries < 3; tries++) await drainGroup(inbox, { ...base, fetch: capped });
+    expect(models).toBe(1);
+    expect(world.sends.map((send) => send.content)).toEqual(["On it.", GROUP_LINES.jobReportRefused]);
   });
 
   it("holds the result when somebody joined while it ran", async () => {

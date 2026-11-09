@@ -409,6 +409,10 @@ export function readList<K extends ListKind>(kind: K, v: unknown): ListPage<K> {
   const looksAt = arr(r.looksAt).filter((x): x is string => typeof x === "string");
   if (looksAt.length) page.looksAt = looksAt;
   if (str(r.quietHours)) page.quietHours = str(r.quietHours);
+  const switches = rec(r.switches);
+  if (switches && typeof switches.housekeeping === "boolean" && typeof switches.dreams === "boolean") {
+    page.switches = { housekeeping: switches.housekeeping, dreams: switches.dreams };
+  }
   if (num(r.total) !== undefined) page.total = num(r.total);
   const values = rec(r.values);
   if (values) {

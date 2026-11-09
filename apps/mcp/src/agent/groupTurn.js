@@ -561,7 +561,7 @@ export function groupPrompt(group, workspace) {
     "It goes from whoever asked for it; never refuse because this is a group. When the chat means it to go from someone else in it (\"send it as @jo\", " +
     "or someone else asks for changes to an email that was @jo's), pass as with their handle: they are shown the exact copy and only their 👍 or yes makes it, " +
     "so everyone can refine it together first. Anyone else's yes does nothing. " +
-    "Guests can't be invited, so to put something on everyone's calendar, send them the details by email or have each person ask. " +
+    "A calendar event can invite guests (ask for their emails): it is shown here and only the calendar owner's 👍 or yes makes it, and Google emails the guests. " +
     "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat's later asks. " +
     GROUP_CODE_SIGN_IN_LINE +
     "A password comes only from a login saved in this workspace for the whole workspace, never anyone's own, and never typed in the chat; " +
@@ -639,7 +639,7 @@ export function groupWriteTools(offered, group = null) {
  * saved sessions and a workspace of their own. A group's Tex leaves these to
  * the person texting it on their own, as it does their mail and saved logins.
  */
-const SOMEBODYS_ALONE = new Set([
+export const SOMEBODYS_ALONE = new Set([
   "save_email_draft", "google_chat", "forward_rule", "connect_google", "connect_app", "slack_api", "app_read", "app_change",
   "dream_now", "notify_me", "save_context", "create_workspace", "pair_device",
 ]);

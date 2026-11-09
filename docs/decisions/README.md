@@ -388,6 +388,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The mobile app and the console](./app-and-console.md)
 
+- [Each unfinished feature has its own flag, and every flag expires](./app-and-console/feature-flags.md#each-unfinished-feature-has-its-own-flag-and-every-flag-expires-2026-11-08) (2026-11-08)
+- [Vault key use is launched, and the old switches are gone](./app-and-console/feature-flags.md#vault-key-use-is-launched-and-the-old-switches-are-gone-2026-11-08) (2026-11-08)
 - [The phone's account sheet is its own sheet, not the file menu](./app-and-console/native-app-shell.md#the-phones-account-sheet-is-its-own-sheet-not-the-file-menu-2026-11-06)
 - The note count is measured, stamped, and allowed to be a floor
 - One runtime version, pinned, and native deps gated behind it
@@ -764,6 +766,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex's rules are module notes, and the setup names which ones each kind of turn gets (2026-11-06)](./texting-assistant/prompt-modules.md)
 - [Tex keeps a short copy of the next seven days, and says it is a copy (2026-11-06)](./texting-assistant/calendar-cache.md)
 - [One drawing of Tex, changed with every architecture change (2026-11-05)](./texting-assistant/architecture-diagram.md)
+- [One list of what Tex can do, and where (2026-11-08)](./texting-assistant/capabilities.md)
 - [Every Tex turn reads its setup, whoever the person is (2026-11-02)](./texting-assistant/setup-read.md)
 - [Tex answers directly, or says what it is doing as it works, never that it is done (2026-11-01)](./texting-assistant/interleaved-updates.md)
 - [Every reaction in a chat is input, a reaction on Tex's question its answer (2026-11-01)](./texting-assistant/reactions-as-input.md)
@@ -889,6 +892,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A person's own computer becomes more minion slots, run by one Rust runner (2026-11-03, 2026-11-04)](./texting-assistant/machines.md)
 - [A run is plain Claude Code in the person's folder (owner, 2026-11-04)](./texting-assistant/machines.md)
 - [Credentials on a device: the machine grant and the run grant (2026-11-04)](./texting-assistant/machines.md)
+- [Tex sets things up itself, and hands back only what a person must do (2026-11-08)](./texting-assistant/computer-setup.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it

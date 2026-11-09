@@ -32,7 +32,7 @@ export async function gatewaySessionHandler(
   const accessToken = stringField(body, "accessToken");
   if (accessToken === null) return json({ session: null });
 
-  const { session, touchDue } = await ctx.runQuery(
+  const { session, touchDue, flags } = await ctx.runQuery(
     internal.functions.controlPlane.resolveGatewaySession,
     { hashedAccessToken: await hashToken(accessToken) },
   );
@@ -89,6 +89,8 @@ export async function gatewaySessionHandler(
       workspaces: session.workspaces,
       // A group chat's own key, on its turn's grant only (`liveGrants.ts` `texChatIdOf`): the chat whose Tex notes it reaches.
       ...(session.texChatId === undefined ? {} : { texChatId: session.texChatId }),
+      // The acting person's feature flags (`lib/featureFlags.ts`): ids only.
+      flags,
     },
   });
 }

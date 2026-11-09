@@ -1,3 +1,4 @@
+import { keepEarlierToken } from "./lib/controlPlane/earlierTokens";
 import { getAuthUserId } from "./lib/signedIn";
 import { phoneSignInPaused, requireProofForPhone } from "./lib/emailProof";
 import { ConvexError, v } from "convex/values";
@@ -465,18 +466,6 @@ export const consumeLinkCode = internalMutation({
     return { status: "linked" as const, handle: workspace.slug };
   },
 });
-
-/** Keep the token a mint is about to replace, while it has time left, and sweep this grant's expired ones. */
-async function keepEarlierToken(ctx: MutationCtx, grant: Doc<"oauthGrants">): Promise<void> {
-  const now = Date.now();
-  const kept = await ctx.db
-    .query("textsEarlierTokens")
-    .withIndex("by_grant", (q) => q.eq("grantId", grant._id))
-    .collect();
-  for (const row of kept) if (row.expiresAt <= now) await ctx.db.delete(row._id);
-  if (grant.hashedAccessToken === undefined || grant.accessTokenExpiresAt === undefined || grant.accessTokenExpiresAt <= now) return;
-  await ctx.db.insert("textsEarlierTokens", { grantId: grant._id, hashedAccessToken: grant.hashedAccessToken, expiresAt: grant.accessTokenExpiresAt });
-}
 
 /**
  * Mint a grant for whoever linked `phone`, on their personal workspace. The

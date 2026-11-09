@@ -471,3 +471,87 @@ keeps its label instead of swapping to the number when the notes land
 (`repeatsFolderName`); a heading in somebody's own words is kept. The folder's
 own front note is read by name ahead of the rest (`loadFront`), so the
 description no longer waits for every note the List and Board need.
+
+### The phone's writing bar is drawn, and swaps to B I U over a selection
+
+Owner, 2026-11-08, after "I don't love the icons on top of the keyboard … can
+we do context style?" and "let's do checklist, bullet list, Aa, microphone,
+bold italic, underline when a word is highlighted and the done button can be
+changed to just look more like our UI style".
+
+- The bar's keys are drawn in Context's own brush (`AccessoryGlyph.tsx`, the
+  folder icons' strokes), not system glyphs.
+- While words are selected the bar is bold, italic, underline and Aa; the list
+  keys and the microphone come back when the selection goes. The editor reports
+  `selected` with the caret line's state (`lineState.ts`); a web view bundle
+  older than the field reads as "nothing selected".
+- Underline is `<u>`…`</u>`. Markdown has none, and `<u>` is the one form
+  Obsidian, GitHub and browsers already draw, so the file stays readable
+  everywhere. The editor parses it as its own construct
+  (`livePreview/underlineGrammar.ts`, tags hidden under the reveal rule), the
+  share page and website draw it, and `tagToggle.ts` toggles it, because the
+  run-counting rule in `markerToggle.ts` cannot count a tag.
+- Done is no longer the one filled accent key: it sits on the bar's own grey
+  with the word circled in pencil, the app's "this one" mark.
+
+Reversing it: `noteAccessory.test.ts` ("words selected, the bar is bold,
+italic and underline") and `livePreview/underline.test.ts` fail.
+
+### Markdown's symbols stay hidden under the caret unless Show Markdown is on
+
+Owner, 2026-11-08: "instead of exposing a lot of markdown details, we make it
+a regular editor that supports markdown."
+
+- With **Show Markdown** off, which is the default, the reveal rule stops at
+  the caret: entering bold does not bring its `**` back, a heading never shows
+  its `#`, a link never shows its address, a wiki link stays its name
+  (`livePreview/symbols.ts`, `hiddenMarkRanges`' `never`). The buffer is the
+  same Markdown; nothing about the file changes.
+- Two things still come back: a code block's fences when the caret is in the
+  block, because code is edited as its source, and a construct with nothing but
+  marks in it (`#` just typed at the start of a line), or the key would look
+  like it did nothing. The frontmatter keeps its own rule.
+- Backspace and Delete act on the letter on screen: they skip hidden marks, a
+  construct's last letter takes its marks with it, and Backspace at the start
+  of a heading's words makes it a paragraph. A transaction filter, so the
+  phone keyboard's own deletes are covered too. Hidden marks are atomic, so a
+  caret cannot sit between two asterisks.
+- The switch is Settings › Writing (the page Spelling became), kept on the
+  account beside spelling (`spellingPreferences.showMarkdown`), so it follows
+  the person to every device. On, the editor reveals as it always did, the
+  touch rule for headings included.
+- Formatting is reached through the writing bar, the Aa panel, the context
+  menu and typed shortcuts, which turn into formatting the moment they close.
+  A link's address is changed by holding the link (below).
+
+Reversing it: `livePreview/markdownHidden.test.ts` fails (sabotaged: the
+setting ignored fails 10, the Backspace filter removed fails 7, the
+empty-construct check removed fails 1).
+
+### Holding a link opens its menu (2026-11-09)
+
+Owner, 2026-11-09: "for links can't it be a long hold to open a menu". With
+Show Markdown off a link's address is never on screen, so holding a link is how
+it is changed.
+
+- A tap still follows the link. A hold opens a card with the link's words and
+  where it goes, and under it **Open**, **Edit link**, **Copy link** (web links)
+  and **Remove link**. A reader gets Open and Copy only. The look is the hold
+  menu's, with its lift haptic (`LinkHoldMenu.tsx`).
+- Edit link opens the same Link sheet that adds a link, over the link's words,
+  and the pick replaces the whole link, words kept (a wiki link keeps them as
+  its alias). Remove link leaves the words, caret after them. A bare address
+  has no words of its own, so it offers no Remove.
+- The hold is read from what the platform does, not by racing its recogniser:
+  a still finger lifted late, or, on iOS, the platform claiming the touch and
+  selecting inside the link's words shortly after (`linkHold.ts`). A finger
+  that moves is a scroll.
+- The held link is a mapped state field, so the menu's answer edits the link
+  that was held, or nothing if its text changed meanwhile. The host checks a
+  held link off the web view bridge before drawing it, and a web address must
+  pass `webUrl` as `open-url`'s does.
+
+Reversing it: `__tests__/linkHold.test.ts` fails (sabotaged: the late lift
+ignored fails 1, the iOS selection path removed fails 1, Edit link writing the
+selection instead of the words fails 2, the bridge skipping its check fails 1),
+and `e2e/webkit/editor.spec.ts`'s hold case fails in a real engine.

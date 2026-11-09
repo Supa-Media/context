@@ -55,6 +55,22 @@ describe("the caller's own settings", () => {
     expect(await asUser(t, seyi).query(read, {})).toMatchObject({ enabled: true, language: "en-US", words: ["Togather"] });
   });
 
+  test("Show Markdown starts off, and switching it keeps everything else", async () => {
+    const t = setupTest();
+    const seyi = await createUser(t, "seyi@example.invalid");
+    await asUser(t, seyi).mutation(learn, { word: "Togather" });
+    expect(await asUser(t, seyi).query(read, {})).toMatchObject({ showMarkdown: false });
+    await asUser(t, seyi).mutation(set, { showMarkdown: true });
+    expect(await asUser(t, seyi).query(read, {})).toMatchObject({
+      enabled: true,
+      language: "en-US",
+      words: ["Togather"],
+      showMarkdown: true,
+    });
+    await asUser(t, seyi).mutation(set, { enabled: false });
+    expect(await asUser(t, seyi).query(read, {})).toMatchObject({ enabled: false, showMarkdown: true });
+  });
+
   test("switching off and changing language keep the words", async () => {
     const t = setupTest();
     const seyi = await createUser(t, "seyi@example.invalid");

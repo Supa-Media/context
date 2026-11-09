@@ -34,10 +34,6 @@ What stays, and why:
   `organizer` and `whatChanged` until they age out; the AI costs report lists
   them under "(removed)" labels so its features add up to its total
   (`RETIRED_JEV_FEATURE_LABELS`).
-- **The `organizerSettings` table's definition**, only until a deployment has
-  emptied it with `functions/retiredTables:drainOrganizerSettings`: a schema
-  push that drops a table still holding documents is refused, and a broken
-  deploy is worse than a dead definition. Then the definition goes.
 - **`.context/organizer/state.json`** in customer buckets. It is the
   customer's, it is harmless, and nothing reads it; export is unchanged.
 

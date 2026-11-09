@@ -10,6 +10,7 @@ import {
   SPELLING_LANGUAGES,
   forgetWord,
   getSpelling,
+  setShowMarkdown,
   setSpellingEnabled,
   setSpellingLanguage,
   subscribeSpelling,
@@ -17,7 +18,9 @@ import {
 import { settingsSectionLabel } from "../sections";
 
 /**
- * Settings › Spelling (Dev2, 2026-10-27, board 4): one switch for spelling
+ * Settings › Writing. Show Markdown first (owner, 2026-11-08: a regular editor
+ * that supports Markdown, so the symbols stay hidden unless asked for; see
+ * `livePreview/symbols.ts`), then spelling (Dev2, 2026-10-27, board 4): one switch for spelling
  * fixes, the dictionary's language, and the words the person added with
  * a way to take each back.
  *
@@ -36,16 +39,32 @@ export function SpellingSettings() {
         {settingsSectionLabel("spelling")}
       </Text>
       <Text variant="paneSub" style={styles.sub}>
-        Fixes for misspelled words, on every device you sign in on. Right-click a word to
-        see them. Nothing is underlined.
+        How notes look while you write, on every device you sign in on.
       </Text>
+
+      <Card style={styles.card}>
+        <Row>
+          <Grow>
+            <Text variant="rowTitle">Show Markdown</Text>
+            <Text variant="rowSub" style={styles.rowSub}>
+              Show symbols like ** and # where you are typing. Off, bold is just bold.
+            </Text>
+          </Grow>
+          <Switch
+            value={spelling.showMarkdown}
+            onValueChange={setShowMarkdown}
+            label="Show Markdown"
+            testID="writing-show-markdown"
+          />
+        </Row>
+      </Card>
 
       <Card>
         <Row>
           <Grow>
             <Text variant="rowTitle">Check spelling</Text>
             <Text variant="rowSub" style={styles.rowSub}>
-              Turn off to stop spelling fixes everywhere.
+              Fixes for misspelled words: right-click a word to see them. Nothing is underlined.
             </Text>
           </Grow>
           <Switch
@@ -126,6 +145,7 @@ const makeStyles = (colors: Colors) =>
     head: { marginBottom: 4 },
     sub: { marginBottom: space.x3, maxWidth: 546 },
     rowSub: { marginTop: 2, maxWidth: 520 },
+    card: { marginBottom: space.x3 },
     wordsRow: { alignItems: "flex-start" },
     track: {
       flexDirection: "row",
