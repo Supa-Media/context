@@ -110,6 +110,40 @@ guard's protected paths lets a tidy move routines (which stop running) or the
 website (which unpublishes). Dropping the log loses the undo. Tests:
 `apps/mcp/test/agentHousekeeping.test.mjs` and `apps/convex/__tests__/housekeeping.test.ts`, each with its sabotage record; `apps/agent/src/housekeeping.test.ts` for the Worker.
 
+## Runs that always failed, and runs that left no log (2026-11-09)
+
+Dev asked for the flaky runs to stop burning tokens. Two things made @seyi's
+daily run fail every time or vanish.
+
+**A move by name always conflicted.** In a workspace whose notes live in its
+object, `move_note` and `move_folder` already moved there, but `move_notes`
+still sent its batch to the control plane. The batch's versions come from the
+object's rows (the object's own body etags, `workspaceStore/rowVersions.js`),
+and the control plane compared them with its rows, which still carry the
+bucket's etags, so every batch answered "That note changed somewhere else":
+0 of 105 notes moved, run after run. A keyed batch now moves each note in the
+object, one transaction each, as `move_note` does (`queuedFolder.js`
+`objectBatchMove`); a batch the object leaves to the control plane from its
+first note goes there whole as before, and one it stops part-way names every
+move that landed, which the guard logs with its undo. Tests: the
+object-home cases in `apps/mcp/test/keyedNoteMove.test.mjs`.
+
+**The same failure was retried, and plans were called dry runs.** The guard
+now refuses a move by name sent again unchanged after it failed in the same
+run, and the dry runs it makes itself to fetch versions no longer count as the
+run's dry runs (a log said "2 dry runs" for two applied moves). Tests:
+`apps/mcp/test/housekeepingByName.test.mjs`.
+
+**A run that outlived the Worker's wait left nothing.** The tools' 3-minute
+budget does not bound the model's rounds after it, and the texting Worker
+gives up at 5 minutes, so on 2026-11-05, 11-06 and 11-08 no
+`tex/housekeeping/` note said a run had happened. A run now has its own end,
+`HOUSEKEEPING_WALL_MS` (4 minutes): past it the gateway stops waiting for the
+model, refuses any further change (`guard.stop()`), and logs what was changed
+and that it ran out of time. A run that breaks on an error that is not the
+model's also logs a line now, rather than throwing before the log. Test: "a
+run past its own end…" in `apps/mcp/test/agentHousekeeping.test.mjs`.
+
 ## An off switch, from a text (decided by the owner, 2026-11-08)
 
 Housekeeping stays on by default. `paused: true` in the front matter of

@@ -165,7 +165,8 @@ test("a batch that asks for versions is planned first and sent again with the ve
   assert.deepEqual(session.moves().map((call) => call.args.dry_run === true), [false, true, false]);
   assert.deepEqual(session.moves()[2].args.moves.map((move) => move.expected_source_etag), ["v0", "v1", "v2"]);
   assert.equal(guard.changes.length, 3);
-  assert.equal(guard.dryRuns, 1);
+  // The plan was the gateway's own, for the versions: the run asked for no dry run, so its log names none.
+  assert.equal(guard.dryRuns, 0);
 });
 
 test("once a batch asks for versions, the notes are planned a hundred at a time and every later batch carries them", async () => {
@@ -190,7 +191,7 @@ test("once a batch asks for versions, the notes are planned a hundred at a time 
     ["move 50", "plan 100", "move 50", "move 50", "plan 100", "move 50", "move 50", "plan 30", "move 30"],
   );
   assert.equal(guard.changes.length, 230);
-  assert.equal(guard.dryRuns, 3);
+  assert.equal(guard.dryRuns, 0);
 });
 
 test("a dry run by name moves nothing and says so; a protected folder, a bad pattern or the same folder is refused", async () => {
@@ -361,4 +362,60 @@ test("a slice of one family takes the whole family; a pattern across families is
   const asWritten = housekeepingCallTool(across.dispatch);
   await asWritten.callTool("move_notes", { folder: FOLDER, match: "*-{2026-10-01,560}*", into: "mixed" });
   assert.equal(asWritten.changes.length, 2, "one coverage note and one log: no widening");
+});
+
+test("a move by name that failed is not sent again unchanged in the same run", async () => {
+  const session = sessionOver(PATHS.slice(0, 3), () => ({
+    isError: true,
+    content: [{ type: "text", text: "conflict: That note changed somewhere else after this was asked for." }],
+  }));
+  const guard = housekeepingCallTool(session.dispatch);
+  const ask = { folder: FOLDER, match: "*", into: `${FOLDER}/coverage` };
+
+  const first = await guard.callTool("move_notes", ask);
+  assert.equal(first.isError, true);
+  assert.match(first.content[0].text, /moved 0 of 3 notes/);
+  const sent = session.moves().length;
+
+  const again = await guard.callTool("move_notes", { ...ask });
+  assert.equal(again.isError, true);
+  assert.match(again.content[0].text, /already failed this run/);
+  assert.equal(session.moves().length, sent, "the same failed move was sent again");
+  // A different move is still made.
+  await guard.callTool("move_notes", { ...ask, into: `${FOLDER}/other` });
+  assert.ok(session.moves().length > sent);
+});
+
+test("a batch that stopped part-way logs every move that landed", async () => {
+  const session = sessionOver(PATHS.slice(0, 3), (args) => ({
+    isError: true,
+    content: [{
+      type: "text",
+      text: `batch move partially applied: moved 2 of 3, then stopped at ${args.moves[2].source}: not found\n` +
+        args.moves.slice(0, 2).map((move) => `- ${move.source} → ${move.destination}`).join("\n"),
+    }],
+  }));
+  const guard = housekeepingCallTool(session.dispatch);
+
+  const result = await guard.callTool("move_notes", { folder: FOLDER, match: "*", into: `${FOLDER}/coverage` });
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /moved 2 of 3 notes/);
+  assert.deepEqual(guard.changes.map((change) => change.from), PATHS.slice(0, 2));
+});
+
+test("a run that has ended changes nothing more, though it may still read", async () => {
+  const session = sessionOver(PATHS.slice(0, 3));
+  const guard = housekeepingCallTool(session.dispatch);
+  guard.stop();
+
+  const moved = await guard.callTool("move_notes", { folder: FOLDER, match: "*", into: `${FOLDER}/coverage` });
+  const one = await guard.callTool("move_note", { source: PATHS[0], destination: `${FOLDER}/x.md` });
+  const read = await guard.callTool("list_notes", { prefix: `${FOLDER}/` });
+
+  assert.equal(moved.isError, true);
+  assert.equal(one.isError, true);
+  assert.notEqual(read.isError, true);
+  assert.deepEqual(session.moves(), []);
+  assert.equal(guard.changes.length, 0);
 });

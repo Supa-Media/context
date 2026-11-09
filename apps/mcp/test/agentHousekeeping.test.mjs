@@ -70,7 +70,7 @@ function fakeModel() {
       requests.push(JSON.parse(init.body));
       const step = script.shift();
       if (!step) throw new Error("fake model: the script ran out");
-      const next = typeof step === "function" ? step(JSON.stringify(requests.at(-1))) : step;
+      const next = await (typeof step === "function" ? step(JSON.stringify(requests.at(-1))) : step);
       const content = [];
       if (next.text) content.push({ type: "text", text: next.text });
       for (const [i, call] of (next.toolCalls ?? []).entries()) {
@@ -424,6 +424,23 @@ export async function runAgentHousekeepingChecks(check) {
       "a run gets more rounds than a texted turn's eight",
       long.status === 200 && long.body?.outcome === "unchanged" && model.requests.length - sent === 13 && log().includes("already in order"),
     );
+
+    /* ---------------- a run that outlives its own end still logs ---------------- */
+
+    // @seyi, 2026-11-05, 11-06 and 11-08: runs outlived the texting Worker's wait and left no log at all.
+    // Sabotage: race nothing against the turn in `handleHousekeeping` and this check fails (the run never answers).
+    model.install([
+      { toolCalls: [{ name: "move_note", args: { source: "2-areas/dentist.md", destination: "2-areas/health-dentist.md" } }] },
+      () => new Promise((resolve) => setTimeout(() => resolve({ text: "too late" }), 400)),
+    ]);
+    const slow = await ask({ ...env, HOUSEKEEPING_WALL_MS: "150" }, TOKEN_HOUSE, run);
+    check(
+      "a run past its own end answers, keeps what it changed, and says it ran out of time in the day's log",
+      slow.status === 200 && slow.body?.outcome === "tidied" && slow.body?.changes === 1 &&
+        log().includes("ran out of time") && log().includes("Moved `2-areas/dentist.md` to `2-areas/health-dentist.md`"),
+      JSON.stringify(slow),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 450));
 
     /* ---------------- no model to run ---------------- */
 
