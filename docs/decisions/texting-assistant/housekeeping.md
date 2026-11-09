@@ -117,5 +117,7 @@ Housekeeping stays on by default. `paused: true` in the front matter of
 nothing, and answers `unchanged`, so tomorrow's run asks again
 (`apps/mcp/src/agent/texSwitches.js`). Tex writes the note when the person
 asks ("Tex, stop tidying my notes"), and `paused: false` turns it back on.
-It is an ordinary note, so they can edit it in the app too. Test:
+It is an ordinary note, so they can edit it in the app too, and the
+Check-ins page of their Tex page has the same switch, "Tidy my notes", which
+writes that note (`switch.set`, `apps/mcp/src/http/texPage/notes.js`). Test:
 `apps/mcp/test/agentHousekeeping.test.mjs` ("switched off…").

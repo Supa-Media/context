@@ -147,5 +147,7 @@ front matter of `tex/dreams.md` switches it off. A dream then leaves
 `tex/about.md` as it is and runs no model, but the summaries of their
 finished days still run, because the conversation history needs them
 (`apps/mcp/src/agent/texSwitches.js`). Tex writes the note when they ask. A
-dream started now while the switch is off does nothing either. Test:
+dream started now while the switch is off does nothing either. The
+Check-ins page of their Tex page has the same switch, "Update About me
+overnight", which writes that note (`switch.set`). Test:
 `apps/mcp/test/agentDream.test.mjs` ("switched off…").
