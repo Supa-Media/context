@@ -43,6 +43,7 @@ import { useNoteCreate } from "./fileBrowser/useNoteCreate";
 import { useContextMoves } from "./fileBrowser/useContextMoves";
 import { useRowCommands } from "./fileBrowser/useRowCommands";
 import { useBatch } from "./fileBrowser/useBatch";
+import { useDevicePictures } from "./fileBrowser/useDevicePictures";
 import { useVisibility } from "./fileBrowser/useVisibility";
 import { useShares } from "./fileBrowser/useShares";
 import { useShareScope } from "./fileBrowser/useShareScope";
@@ -78,7 +79,9 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
   };
   const withBrowserState = { ...bound, ...useBrowserState(bound.workspaceGenerationRef) };
   const withWritesAndImages = { ...withBrowserState, ...useWritesAndImages(withBrowserState) };
-  const withOfflineQueue = { ...withWritesAndImages, ...useOfflineQueue(withWritesAndImages) };
+  const withQueue = { ...withWritesAndImages, ...useOfflineQueue(withWritesAndImages) };
+  // Pictures shown and pasted offline, now that the queue exists.
+  const withOfflineQueue = { ...withQueue, ...useDevicePictures(withQueue) };
   const withNoteReads = { ...withOfflineQueue, ...useNoteReads(withOfflineQueue) };
   const withListings = { ...withNoteReads, ...useListings(withNoteReads) };
   // "Add a folder" needs the listings to refresh the root, and nothing after it.

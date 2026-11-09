@@ -36,10 +36,24 @@ and is unchanged: server-first.
   again and the queue drains. A slow request on a live socket never counts:
   a meaning search or an AI answer may be slow and still arrive.
 
+- **Pictures are kept on the device** (`devicePictures.ts`, owner 2026-11-09:
+  "pictures kept on the phone"). A picture a note here shows is kept in the
+  mirror's own store, in a `pictures` slot at the clearance that read it, and
+  shown from there offline; past `PICTURE_BUDGET` (150 MB per clearance and
+  workspace) the least recently shown go. A picture pasted offline is named
+  as the server will name it, `paste-<SHA-256>.<ext>` of its bytes by the one
+  rule in `@context/shared` (`pasteImageLeafOf`), so the note embeds it at once
+  and nothing is rewritten when the upload lands; it is sent as soon as the
+  connection is back and is never evicted before. **Online, the device copy is
+  never read**: a picture the server refuses (the note was unshared, the
+  picture deleted) stays refused. Clearing the mirror clears the pictures.
+  A browser tab keeps none, as it keeps no notes.
+
 Reversing it: `serverLists.test.ts` ("on the phone, a list is drawn from the
 device's copy"), `offlineMirrorConsole.test.ts` ("on the phone, the copy
 answers first"), `blendedSearchEarly.test.ts`, `offlineReachability.test.ts`
-("asking outside React") and `serverLink.test.ts` fail.
+("asking outside React"), `serverLink.test.ts` and `devicePictures.test.ts`
+fail.
 
 ### Offline is the desktop and phone apps; online, lists read the server
 

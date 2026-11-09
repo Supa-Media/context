@@ -6,6 +6,7 @@
  */
 
 import { WORKSPACE_ICON_EXTENSIONS } from "@context/shared/src/workspaceIcon";
+import { PASTE_IMAGE_EXTENSIONS, pasteImageLeafOf } from "@context/shared/src/pasteImage";
 import { IMAGE_PREFIX, legacyStorageKey } from "@context/shared/src/storageLayout.cjs";
 import {
   MAX_SCENE_SOUND_BYTES,
@@ -253,25 +254,16 @@ export async function readImage(store: FileStore, leaf: string): Promise<ArrayBu
  * where an object came from, and because `writeImage`'s leaf rule wants an
  * alphanumeric first character.
  */
-const PASTE_EXTENSIONS = new Map<string, string>([
-  ["image/png", "png"],
-  ["image/jpeg", "jpg"],
-  ["image/gif", "gif"],
-  ["image/webp", "webp"],
-  ["image/heic", "heic"],
-  ["image/heif", "heif"],
-]);
-
 export function pasteImageLeaf(options: { hash: string; contentType: string }): string {
-  const extension = PASTE_EXTENSIONS.get(options.contentType);
-  if (extension === undefined) {
+  if (!PASTE_IMAGE_EXTENSIONS.has(options.contentType)) {
     throw new FileOpError("PATH_INVALID", "That is not an image type this store accepts.");
   }
-  const hash = options.hash.toLowerCase().replace(/[^a-f0-9]/g, "").slice(0, 16);
-  if (hash.length < 8) {
+  // The rule itself is `@context/shared`'s: an offline phone names the picture first, the same way.
+  const leaf = pasteImageLeafOf(options.hash, options.contentType);
+  if (leaf === null) {
     throw new FileOpError("PATH_INVALID", "A stored image needs a content hash for its name.");
   }
-  return `paste-${hash}.${extension}`;
+  return leaf;
 }
 
 /**
@@ -287,7 +279,7 @@ export function pasteImageLeaf(options: { hash: string; contentType: string }): 
  * same photo on two workspaces writes one object, a retried upload overwrites
  * itself, and a picker result with no filename needs no invented one.
  *
- * **The type list is narrower than `PASTE_EXTENSIONS`** and that is the
+ * **The type list is narrower than `PASTE_IMAGE_EXTENSIONS`** and that is the
  * difference worth stating: `WORKSPACE_ICON_EXTENSIONS` drops `gif`, `heic` and
  * `heif`, because an icon has to draw in a browser and two of those do not. It
  * is imported from `@context/shared` rather than restated, because the picker
