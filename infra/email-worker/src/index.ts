@@ -24,6 +24,12 @@
  *     destination there is nothing for it to select, and a sender naming any
  *     part of a destination is a write primitive.
  *
+ * One other kind of address exists, and only one: a Tex group chat's own
+ * `group-<three words>@` (decided by the owner, 2026-11-08), which files into
+ * that chat's sealed home and nowhere a workspace's roles open. It is asked about
+ * by the same route, and `assertRecipientContext` holds the answer to the kind
+ * the name asks for (`apps/convex/functions/lib/groupMailIngest.ts`).
+ *
  * All the decisions live in ./ingest.ts, ./auth.ts, ./mime.ts, ./html.ts and
  * ./note.ts as pure functions, tested without a runtime. This module does the
  * I/O: drain a stream, ask the control plane, build a store, write two objects,
@@ -88,7 +94,7 @@
  */
 
 import {
-  assertPersonalContext,
+  assertRecipientContext,
   createIngestControlPlane,
   ControlPlaneError,
   type IngestControlPlane,
@@ -449,7 +455,8 @@ export async function handleEmail(
 
   // A username, and therefore the path of exactly one personal context. There
   // is no other kind of destination this Worker can produce.
-  const username = recipient.username;
+  // A person's username, or a group chat's `group-<words>`: the one name the control plane is asked about.
+  const username = recipient.kind === "group" ? recipient.localPart : recipient.username;
 
   const hardCap = Math.min(
     Number(env.MAX_MESSAGE_BYTES) > 0 ? Number(env.MAX_MESSAGE_BYTES) : HARD_MAX_MESSAGE_BYTES,
@@ -525,7 +532,7 @@ export async function handleEmail(
   // replaced client must not be able to hand this Worker a shared context.
   // Note where it sits: *before* the credential call, so a control plane that
   // answered wrongly still causes no decrypt.
-  if (!assertPersonalContext(resolution.context, username)) {
+  if (!assertRecipientContext(resolution.context, username)) {
     return refuse("not_a_personal_context", username);
   }
 
@@ -535,6 +542,7 @@ export async function handleEmail(
     {
       recipient: `${username}@${(env.INGEST_DOMAIN || "").toLowerCase()}`,
       owner: resolution.context.path,
+      ...(recipient.kind === "group" ? { recipientKind: "group" as const } : {}),
       raw,
       now,
       fenceNonce: nonce,
@@ -606,7 +614,10 @@ export async function handleEmail(
       });
     }
     await store.put(decision.key, decision.note);
-    await recordAudit(store, now, [decision.key, ...decision.attachments.map((a) => a.key)], {
+    // A group chat's mail sits in its sealed home inside the pinned workspace, whose audit files the people who
+    // run that workspace can read: a line naming the home and the sender there would show them what the seal hides.
+    // The control plane's own audit row (`record` below) carries no path and no sender, and is the one kept.
+    if (recipient.kind !== "group") await recordAudit(store, now, [decision.key, ...decision.attachments.map((a) => a.key)], {
       source: "email",
       sender: decision.log.sender,
       // `none` when nothing passed, plus the reason. The audit trail is read

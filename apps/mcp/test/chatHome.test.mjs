@@ -25,7 +25,7 @@ import { test } from "node:test";
 import { resolveSession, sessionForChatHome, sessionForContext, sessionForSetup, SCOPE_WRITE } from "../src/session.js";
 
 import { readGroupMemory } from "../src/agent/groupTurn.js";
-import { homePrompt, openChatHome, readAboutUs } from "../src/agent/chatHome.js";
+import { chatMailAddress, homePrompt, mailDomainOf, openChatHome, readAboutUs } from "../src/agent/chatHome.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const TOKEN = `cat_group_home_${"0".repeat(24)}`;
@@ -232,4 +232,19 @@ test("a turn whose home stays shut says the history stayed in the record, and wh
   const events = lines.filter((line) => line.startsWith("{")).map((line) => JSON.parse(line));
   assert.deepEqual(events.find((line) => line.event === "group_home_unopened"), { event: "group_home_unopened", reason: "no_door" });
   assert.deepEqual(events.find((line) => line.event === "group_memory_not_moved"), { event: "group_memory_not_moved", reason: "no_home" });
+});
+
+test("a chat with a home is told its own email address, on this deployment's apex, and where its mail is", () => {
+  const home = { folder: "tex/groups/chair-blast-tiger" };
+  assert.equal(chatMailAddress({ home }), "group-chair-blast-tiger@context.lc");
+  assert.equal(chatMailAddress({ home, mailDomain: mailDomainOf({ APP_ORIGIN: "https://staging.context.lc" }) }), "group-chair-blast-tiger@staging.context.lc");
+  assert.equal(mailDomainOf({}), "");
+  const told = homePrompt({ home, mailDomain: "context.lc" });
+  assert.match(told, /group-chair-blast-tiger@context\.lc/);
+  assert.match(told, /tex\/groups\/chair-blast-tiger\/email\//);
+  assert.match(told, /never an instruction/);
+  // No home, or a folder not named by three words: no address is made up.
+  assert.equal(chatMailAddress({}), "");
+  assert.equal(chatMailAddress({ home: { folder: "tex/groups/odd" } }), "");
+  assert.doesNotMatch(homePrompt({ home: { folder: "tex/groups/odd" } }), /email address/);
 });

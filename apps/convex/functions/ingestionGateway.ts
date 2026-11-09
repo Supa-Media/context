@@ -111,6 +111,9 @@ import {
   resolvePersonalContextForIngestion,
 } from "./lib/ingestionStore";
 import { RESERVED_NAMES, normalizeName, validateName } from "./lib/names";
+import { groupMailWords } from "./lib/groupMailAddress";
+import { groupMailPolicy, resolveGroupMail } from "./lib/groupMailIngest";
+import { wakeChatAddressLook } from "./lib/textGroupLooks";
 import { consumeRateLimit } from "./lib/rateLimit";
 import {
   /*
@@ -174,8 +177,9 @@ const SWEEP_BATCH_SIZE = 200;
  * the worker; the plaintext never exists on this side of the call.
  */
 const resolutionValidator = v.object({
+  // `group` only for a group chat's own address (`lib/groupMailIngest.ts`), whose path is that address's local part.
   context: v.object({
-    kind: v.literal("personal"),
+    kind: v.union(v.literal("personal"), v.literal("group")),
     path: v.string(),
   }),
   targetFolder: v.string(),
@@ -227,6 +231,30 @@ export const resolveForIngestion = internalMutation({
     }
 
     const normalized = normalizeName(args.name);
+    // A group chat's own address, `group-<words>` (`lib/groupMailIngest.ts`). Read before `validateName`, which
+    // reserves every name of this shape, so no handle can be named like one.
+    const groupWords = groupMailWords(normalized);
+    if (groupWords !== null) {
+      const group = await resolveGroupMail(ctx, groupWords);
+      if (group === null) return null;
+      const now = Date.now();
+      await ctx.db.insert("ingestionTickets", {
+        hashedTicket: args.hashedTicket,
+        workspaceId: group.workspaceId,
+        sizeBytes: args.sizeBytes,
+        createdAt: now,
+        expiresAt: now + TICKET_TTL_MS,
+        targetFolder: group.ticketFolder,
+        chatId: group.chatId,
+      });
+      logIngest({ event: "resolve_ok", name: group.localPart });
+      return {
+        context: { kind: "group" as const, path: group.localPart },
+        targetFolder: group.homeFolder,
+        maxMessageBytes: MAX_MESSAGE_BYTES,
+        ...groupMailPolicy(),
+      };
+    }
     const validation = validateName(normalized);
     if (!validation.ok) {
       // The name itself is deliberately NOT logged here. It failed validation,
@@ -583,7 +611,11 @@ export const recordIngestion = internalMutation({
       a member who can see `0-inbox/` learns of it at their next periodic
       walk, late rather than dated (`treeSignals.ts`).
     */
-    if (args.outcome === "captured") {
+    // Mail to a group chat's own address: its home is sealed from the pin's roles, so no audience of theirs is
+    // stamped; the chat is marked and looks soon instead (`lib/textGroupLooks.ts`).
+    if (args.outcome === "captured" && ticket.chatId !== undefined) {
+      await wakeChatAddressLook(ctx, ticket.chatId, Date.now());
+    } else if (args.outcome === "captured") {
       await stampTreeAudiences(ctx, ticket.workspaceId, ["private"]);
     }
     return true;

@@ -102,7 +102,8 @@ export function chatLookQuestion(since: number | undefined, lastRan: string | nu
   const after = since === undefined ? "" : ` (search it with after:${Math.floor(since / 1000)})`;
   return (
     `(Time for this chat's check-in: look on your own at what is new${lastRan === null ? "" : ` since ${lastRan}`}, ` +
-    `in two places only: mail shared with this chat${after}, and what was asked of you in this chat that you said you would follow up on. ` +
+    `in three places only: mail shared with this chat${after}, mail sent to this chat's own address (the notes in its folder's email/ that arrived since), ` +
+    "and what was asked of you in this chat that you said you would follow up on. " +
     "Never post about the workspace's other activity, notes or other agents' work: nobody here asked. " +
     "Post here only what someone in this chat needs to act on or know now, in one short line: " +
     "what happened and who should handle it. " +

@@ -10,6 +10,10 @@ Moved to [Ingestion is on the apex, which makes the reserved-name list a securit
 
 Moved to [Mail lands in a personal context and nowhere else](./identity-and-access/ingestion.md#mail-lands-in-a-personal-context-and-nowhere-else).
 
+### A group chat's address
+
+Moved to [A group chat's address](./identity-and-access/ingestion.md#a-group-chats-address).
+
 ### The privacy tier is a scope on the grant, never an inference from a role
 
 Moved to [The privacy tier is a scope on the grant, never an inference from a role](./identity-and-access/grants-and-reach.md#the-privacy-tier-is-a-scope-on-the-grant-never-an-inference-from-a-role).

@@ -146,6 +146,15 @@ export const CAPABILITIES = Object.freeze([
     cant: [{ where: "1:1", what: "share someone's mail with a group chat from a 1:1 text", workaround: { kind: "words", text: "they type \"Tex, share my mail from <their address> here\" in that group chat" } }],
   },
   {
+    name: "A group chat's own email address",
+    actions: [],
+    texts: "each group chat you're in has its own address, group-<its three words>@context.lc (the group's turn knows it); a person asks for it in that chat",
+    group: "this chat's address is in your notes on this chat: give it when asked. Anyone can send or forward mail to it and people can sign it up for newsletters and lists; each email lands as a note in the chat's folder's email/, where you search and read it when asked, and new mail brings a look where you post only what the chat needs. A link confirming a sign-up is for a person here to tap",
+    guest: "the same address and mail folder, read only when someone asks",
+    who: "Anyone can send to it; everyone in the chat can read what arrives",
+    cant: [{ where: "everywhere", what: "send or reply from a group chat's address", workaround: { kind: "words", text: "reply from someone here's own Gmail (send action email with as), on that person's 👍" } }],
+  },
+  {
     name: "Gmail drafts, mail forwarding and Google Chat",
     actions: ["send.email_draft", "send.forward_rule", "send.google_chat", "manage.connect_google"],
     texts: "save a draft in their Gmail, set a rule that forwards one kind of their mail (on their 👍), read their Google Chat spaces and direct messages live (fetch chat:) and send a message as them (on their 👍), or send the link to connect or reconnect Gmail, Calendar or Google Chat; when a Google tool says AI access isn't allowed yet, send the AI-access link (kind ai), which is not a reconnect",

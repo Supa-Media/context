@@ -161,7 +161,9 @@ breaking one, stop and say so rather than working around it.
    ([agent-egress](./docs/decisions/privacy-and-sharing/agent-egress.md)).
 
 Only a *personal* context has an ingestion alias; a shared context has no capture
-address at all ([identity-and-access](./docs/decisions/identity-and-access.md)).
+address at all, and a Tex group chat's own `group-<words>@` files into its sealed
+home (decided by the owner, 2026-11-08;
+[identity-and-access](./docs/decisions/identity-and-access.md)).
 
 ## Architecture
 

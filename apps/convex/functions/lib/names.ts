@@ -12,6 +12,7 @@
  */
 
 import { VENDORED_BLOCKLIST } from "./reservedNames.generated";
+import { groupMailWords } from "./groupMailAddress";
 
 /** Shortest allowed name. Two characters, so `@lk` and `@ab` are claimable. */
 export const NAME_MIN_LENGTH = 2;
@@ -568,6 +569,12 @@ export function validateName(
     return { ok: false, reason: "reserved_label_form", normalized };
   }
   if ((options.reserved ?? RESERVED_NAMES).has(normalized)) {
+    return { ok: false, reason: "reserved", normalized };
+  }
+  // `group-<three listed words>` is a group chat's mail address (`groupMailAddress.ts`), so as a handle or a slug it
+  // would take that chat's mail. Only that exact shape: `group-home` and other names that merely start with the word
+  // stay free, as workspaces already hold some. Held to the handle list only: a group label is `<slug>-<label>`.
+  if (options.reserved === undefined && groupMailWords(normalized) !== null) {
     return { ok: false, reason: "reserved", normalized };
   }
   return { ok: true, normalized };

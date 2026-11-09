@@ -80,7 +80,7 @@ job, job report and routine run takes this path.
 <!-- tex-diagram: steps begin -->
 ```mermaid
 flowchart TB
-  readTheText["readTheText<br/>who is asking, which chat, a group's chat"]:::step
+  readTheText["readTheText<br/>who is asking, which chat, a group's chat<br/>and the apex its own email address is on"]:::step
   runARoutine["runARoutine<br/>a routine's run: paused, or nothing to do"]:::step
   checkTheQuestion["checkTheQuestion<br/>the question, its files, what it replies to"]:::step
   settleAYesOrNo["settleAYesOrNo<br/>a yes or 👍 to a waiting send, in code, no model"]:::rail
@@ -193,6 +193,7 @@ What each model costs is `jev/meter.ts`.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-08: a group chat has its own email address, `group-<its home's three words>@context.lc`: anyone may send or forward to it, each email is filed as a note in the home's `email/` (the email Worker, `groupMailIngest.ts`), a capture brings the chat's check-in forward (a chat that reaches no workspace looks in its home), the check-in reads that mail, and a group turn is told the address and where its mail is (`readTheText.js`, `chatHome.js`, `groupRoutines.ts`). Receive only: nothing is sent from the address.
 - 2026-11-08: the housekeeping and overnight About me switches are also on the Tex page's Check-ins, for a person's own Tex (`switch.set`, `http/texPage/notes.js`); the capability list names them. No box changes.
 - 2026-11-08: a job's part no longer runs again from nothing when the gateway fails after it answered (Dev2, "All three"): `sendTheReply` streams the part's answer as an `answered` line before the advisor's check (`answer_early`, `progress.js`), and the Worker keeps it if the stream then dies or ends failed (`clients.ts`); a part cut off before any answer hands its streamed steps to the next part, which reads them back first (`cutOff`, `jobRun.ts`, `background.js`); the Worker logs why each part carried on; the gateway's own log lines go to Workers Logs (`wrangler.toml` `[observability]`, invocation lines off).
 - 2026-11-08: overlapping turns no longer cut each other off: a group chat's grant (and its home-only one) keeps a token a newer mint replaced until that token's own expiry, as a 1:1 texting grant already did (`earlierTokens.ts`, `liveGrants.ts`), so a person's job pass, its report and their next tag run at once; a job's report refused a model in a group is tried again on a fresh grant like any failed turn, and refused every time, or out of the day's background turns, the chat hears there is news, never silence (`groupModelTurn.ts`, `groupInbox.ts`). No box changes.
