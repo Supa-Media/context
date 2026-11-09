@@ -53,7 +53,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Who sees a note",
     actions: ["manage.visibility", "manage.folder_visibility", "manage.share_link", "manage.revoke_link"],
-    texts: "make a note or folder private or team, name people who may open it, make or turn off a link to it, or read which links are on (fetch links:); anything that lets more people see runs only when their own words asked for it",
+    texts: "make a note or folder private or team, name people who may open it, make or turn off a link to it, or read which links are on (fetch links:); anything that lets more people see runs only when their own words asked for it, except bringing a note back to its team folder's default, which just runs",
     group: "a note's link sent here opens for the chat's members; a share link for people outside the workspace is the owner's to make by texting you on their own",
     guest: "you can't publish, share or change who sees anything from here",
   },

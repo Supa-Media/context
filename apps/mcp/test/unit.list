@@ -494,3 +494,4 @@ test/agentThreadsTurn.test.mjs
 test/threadsBackfill.test.mjs
 test/scheduledReview.test.mjs
 test/scheduledLastRound.test.mjs
+test/judgeFolderDefault.test.mjs
