@@ -172,7 +172,7 @@ apps/convex/     control plane: accounts, workspaces, usernames, storage
                  bindings, OAuth clients + grants, audit events, the file
                  tree (names only) and privacy rules
 apps/mobile/     Expo (iOS/Android/web): the one app UI, also hosted by desktop
-apps/desktop/    Electron shell for macOS: menu bar, meeting capture
+apps/desktop/    Electron shell for macOS and Linux: menu bar, meeting capture
 apps/agent/      Cloudflare Worker: the assistant people text (Sendblue iMessage
                  webhook → per-sender queue → gateway /agent)
 apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
