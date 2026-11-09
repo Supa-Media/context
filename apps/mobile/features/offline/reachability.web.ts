@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useServerStalled } from "./serverLink";
 import type { Reachability } from "./copy";
 
 /**
@@ -25,6 +26,7 @@ import type { Reachability } from "./copy";
  * people stop seeing.
  */
 export function useReachability(): Reachability {
+  const stalled = useServerStalled();
   const [state, setState] = useState<Reachability>(() => read());
 
   useEffect(() => {
@@ -41,10 +43,16 @@ export function useReachability(): Reachability {
     };
   }, []);
 
-  return state;
+  // A control plane that has stopped answering is offline, whatever the network says (`serverLink.ts`).
+  return stalled ? "offline" : state;
 }
 
 function read(): Reachability {
   if (typeof navigator === "undefined" || typeof navigator.onLine !== "boolean") return "unknown";
   return navigator.onLine ? "online" : "offline";
+}
+
+/** True only when the browser says plainly that it has no connection. */
+export function knownOffline(): boolean {
+  return read() === "offline";
 }

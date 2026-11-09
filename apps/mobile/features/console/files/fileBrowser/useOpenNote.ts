@@ -273,8 +273,9 @@ export function useOpenNote(deps: OpenNoteDeps) {
                that turned out stale becomes an ordinary conflict with a real
                Merge, never an overwrite.
           */
+          // In the apps the copy does not wait (owner, 2026-11-09); a read already answered still wins.
           const quick = await raceTimeout(reading, {
-            ms: INSTANT_OPEN_MS,
+            ms: offline.deviceFirst === true ? 0 : INSTANT_OPEN_MS,
             schedule: (fn, ms) => setTimeout(fn, ms),
             cancel: (handle) => clearTimeout(handle),
           });

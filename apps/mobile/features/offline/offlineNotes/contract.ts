@@ -19,6 +19,11 @@ export interface OfflineNotes {
   ready: boolean;
   /** Whether anything here survives the app closing. */
   durable: boolean;
+  /**
+   * Whether this device's copy answers first (`deviceFirst.ts`): the phone and
+   * desktop apps. Absent means server-first, as a browser tab is.
+   */
+  deviceFirst?: boolean;
   reachability: Reachability;
   outbox: Outbox;
   counts: OutboxCounts;

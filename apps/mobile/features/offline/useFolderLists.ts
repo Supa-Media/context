@@ -9,6 +9,7 @@ import { neededEtags } from "./mirrorHolds";
 import { openMirrorStore } from "./mirrorStore";
 import { openStore } from "./store";
 import { useReachability } from "./reachability";
+import { deviceFirst } from "./deviceFirst";
 import { READ_TIMEOUT_MS, withTimeout } from "./useMirrorSync";
 import type { FolderListSource } from "../console/files/listBlock/model";
 import { visibilityTierForRole } from "../console/visibility";
@@ -65,6 +66,7 @@ export function useFolderLists(
       openMirror: openMirrorStore,
       needed: (workspace) => neededEtags(openStore(), workspace),
       online: () => !offline.current,
+      deviceFirst: deviceFirst(),
       io: {
         readNote: (path) => readNote({ workspaceId: id, path }),
         folderNotes: (folder, subfolders, cursor) =>

@@ -151,6 +151,82 @@ describe("folderListSource reads the server online and the device only offline",
   });
 });
 
+describe("on the phone, a list is drawn from the device's copy and the server replaces it", () => {
+  // Owner, 2026-11-09: the phone's copy answers first.
+  const live = { "1-projects/web/overview.md": note("1-projects/web/overview.md", "---\nstatus: done\n---\n# Web\n", "e-new") };
+  let store: MirrorStore;
+
+  beforeEach(async () => {
+    store = memoryMirrorStore();
+    await putMirroredNotes(store, currentEpoch(), "private", W, [note("1-projects/web/overview.md", "---\nstatus: active\n---\n# Web\n", "e-old")], () => new Set(), 1);
+  });
+
+  function source(io: ServerListIO, mirror: MirrorStore | null = store) {
+    return folderListSource({
+      workspaceId: W,
+      scope: "private",
+      canEdit: true,
+      io: { ...io, readNote: async () => Promise.reject(new Error("unused")), writeNote: async (path) => ({ path }) },
+      openMirror: async () => mirror,
+      needed: async () => () => new Set(),
+      online: () => true,
+      deviceFirst: true,
+    });
+  }
+
+  /** A server that answers only when told to. */
+  function heldServer() {
+    const { io, calls } = server(live);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const held: ServerListIO = { ...io, folderNotes: async (...args) => (await gate, io.folderNotes(...args)) };
+    return { io: held, calls, release };
+  }
+
+  test("the copy is drawn without waiting, then the server's answer is announced and served", async () => {
+    const { io, calls, release } = heldServer();
+    const lists = source(io);
+    let heard = 0;
+    const stop = lists.subscribe!(() => (heard += 1));
+    const first = await lists.load("1-projects/web", false);
+    expect(first!.notes.map((each) => each.properties.status)).toEqual(["active"]);
+    expect(calls.folderNotes).toBe(0);
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(heard).toBe(1);
+    const second = await lists.load("1-projects/web", false);
+    expect(second!.notes.map((each) => each.properties.status)).toEqual(["done"]);
+    // The reload is answered from the server's answer, and asks nothing new: no loop.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(heard).toBe(1);
+    expect(calls.folderNotes).toBe(1);
+    stop();
+  });
+
+  test("a list with nothing on the device waits for the server rather than drawing empty", async () => {
+    const result = await source(server(live).io, memoryMirrorStore()).load("1-projects/web", false);
+    expect(result!.notes.map((each) => each.properties.status)).toEqual(["done"]);
+  });
+
+  test("a server that fails leaves the copy, and with no copy the failure is the answer", async () => {
+    const down: ServerListIO = { folderNotes: async () => Promise.reject(new Error("down")), readNotes: async () => [] };
+    const copy = await source(down).load("1-projects/web", false);
+    expect(copy!.notes.map((each) => each.properties.status)).toEqual(["active"]);
+    await expect(source(down, null).load("1-projects/web", false)).rejects.toThrow("down");
+  });
+
+  test("a write makes the next reload ask the server again", async () => {
+    const { io, calls } = server(live);
+    const lists = source(io);
+    await lists.load("1-projects/web", false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls.folderNotes).toBe(1);
+    await lists.remember!([], []);
+    await lists.load("1-projects/web", false);
+    expect(calls.folderNotes).toBe(2);
+  });
+});
+
 describe("serverFrontNotes", () => {
   test("reads the front notes of the folders above by name, without walking them", async () => {
     const bucket = {
