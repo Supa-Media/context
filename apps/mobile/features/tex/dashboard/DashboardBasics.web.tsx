@@ -143,7 +143,7 @@ function ReadyFigures({ stats }: { stats: Ready }) {
         </div>
       </div>
       <p className="td-pain-meta">
-        People are counted by an id, never a number. Texts, people and notes were first counted on Nov 11, 2026 (UTC), so earlier hours read zero; cost includes staging's Tex. Charts are in UTC {per}s.
+        People are counted by an id, never a number. Texts, people and notes have been counted only since this card shipped (Nov 10, 2026, late UTC), so earlier hours read zero; cost includes staging's Tex. Charts are in UTC {per}s.
       </p>
     </>
   );
