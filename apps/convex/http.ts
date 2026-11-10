@@ -789,6 +789,7 @@ http.route({ path: "/gateway/builtin-model/usage", method: "POST", handler: gate
 http.route({ path: "/gateway/meeting-summary", method: "POST", handler: gatewayMeetingSummary });
 http.route({ path: "/gateway/meeting-summary/usage", method: "POST", handler: gatewayMeetingSummaryUsage });
 http.route({ path: "/gateway/agent-turn", method: "POST", handler: gatewayAgentTurn });
+http.route({ path: "/gateway/tool-failures", method: "POST", handler: gatewayRoute(agentTurns.gatewayToolFailuresHandler) });
 http.route({ path: "/gateway/search-index/progress", method: "POST", handler: gatewaySearchIndexProgress });
 http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
 http.route({ path: "/gateway/moves", method: "POST", handler: gatewayMoves });
