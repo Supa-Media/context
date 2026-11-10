@@ -19,20 +19,26 @@
  * reason; the size of the whole is trimmed server-side by context editing
  * (`aiGateway.js` `CONTEXT_EDITS`).
  *
- * Stubbed, never replayed (`docs/decisions/texting-assistant/turn-trust.md`):
+ * A turn that read from outside (a page, an email, a kept file, a job's
+ * report: its reply's `outside`) is replayed like any other, and replaying any
+ * of its results marks the new turn untrusted exactly as if it had read that
+ * content itself (the owner, 2026-11-10; `docs/decisions/texting-assistant/turn-trust.md`):
+ * its sends wait for the person's yes and reflect never writes from it.
+ * Only `outside` counts, never `clean`: a group's turn is never `clean` (its
+ * chat's own words), and those words are no outsider's (`markChatWords`).
+ *
+ * Stubbed, never replayed:
  * - a result read from another workspace (the ledger never kept it);
- * - every result of a turn that read from outside (its reply not `clean`):
- *   outside words never reach a later turn, so a later turn is not untrusted
- *   by what an earlier one read;
  * - in a group, every result of a turn asked by anyone but who asks now: one
  *   member's mail or notes never reach a turn for someone else;
- * - every result read under a grant other than this turn's (a grant changed,
- *   narrowed or revoked mid-stretch), or under none recorded.
+ * - every result read under a carry key other than this turn's (`carryKey`:
+ *   the person, workspace or scopes changed mid-stretch), or under none recorded.
  * A stubbed call keeps its name and loses its arguments too: a query, an
  * address or a recipient is as private as what came back.
  */
 
 import { conversationFromLedger } from "./ledgerConversation.js";
+import { TEXTS_CLIENT_ID } from "./texEntryPoint/clients.js";
 
 export const STRETCH_GAP_MS = 3_600_000;
 /** A carried result longer than this is cut, the same way in every text of the stretch. */
@@ -41,10 +47,36 @@ export const MAX_CARRIED_RESULT_CHARS = 8_000;
 export const MAX_CARRIED_CALLS = 60;
 
 const ACTIVITY = new Set(["text", "reply", "note"]);
-export const STUB_OUTSIDE = "(Not carried: this turn read from outside their notes. Call it again if you need it.)";
 export const STUB_OTHER = "(Not carried: asked by someone else in the chat. Call it again if you need it.)";
 export const STUB_WITHHELD = "(Not carried: read from another workspace.)";
 export const STUB_GRANT = "(Not carried: read under another grant. Call it again if you need it.)";
+const STUBS = new Map([[STUB_OTHER, "stubOther"], [STUB_GRANT, "stubGrant"], [STUB_WITHHELD, "stubWorkspace"]]);
+
+/**
+ * What a tool entry is recorded under and replayed only under (`ledger.js` `toolEntry` `grant`). The Texts client's
+ * token, and so its grant id, is new every text (`personTexting.js`, fifteen minutes), so it keys on the person, the
+ * workspace and the scopes it reads with; every other client, a group's included, keeps its grant id, stable per
+ * person per chat.
+ */
+export function carryKey(session) {
+  if (session?.actorClientId !== TEXTS_CLIENT_ID) return typeof session?.grantId === "string" ? session.grantId : null;
+  return `${session.actorUserId}:${session.workspaceId}:${[...(session.scopes ?? [])].sort().join(",")}`;
+}
+
+/** The per-turn counts of a carried stretch, codes and counts only (`readTheHistory.js` logs them). */
+export function carryCounts(turns) {
+  const counts = { carried: 0, stubOther: 0, stubGrant: 0, stubWorkspace: 0, outside: false, stretch: turns.length };
+  for (const turn of turns) {
+    for (const call of turn.calls ?? []) {
+      const stub = STUBS.get(call.result);
+      if (stub === undefined) {
+        counts.carried += 1;
+        if (turn.outside === true) counts.outside = true;
+      } else counts[stub] += 1;
+    }
+  }
+  return counts;
+}
 
 /** When the stretch holding the chat's newest activity began, or null with no activity. */
 export function stretchSince(entries) {
@@ -74,7 +106,8 @@ function callOf(entry, stub, grant) {
  * are the chat's slim ledger entries, `tools` its full `tool` entries since
  * `since`, `covered` the event ids this turn answers (left out: they are the
  * question). `asker` is who asks now in a group (null in a one-to-one chat),
- * `grant` the grant id this turn runs under.
+ * `grant` the carry key this turn runs under (`carryKey`). A
+ * turn keeps `outside` when its reply's turn read from outside.
  */
 export function stretchTurns(entries, tools, { since, covered = new Set(), group = false, asker = null, grant = null, question = undefined } = {}) {
   if (!Number.isSafeInteger(since)) return [];
@@ -90,7 +123,7 @@ export function stretchTurns(entries, tools, { since, covered = new Set(), group
     const { turn: _id, askers: asked, ...kept } = turn;
     if (!used) return kept;
     const other = group && (asker === null || asked?.length !== 1 || asked[0] !== asker);
-    const stub = turn.tainted ? STUB_OUTSIDE : other ? STUB_OTHER : null;
+    const stub = other ? STUB_OTHER : null;
     return { ...kept, calls: used.map((entry) => callOf(entry, stub, grant)) };
   });
 }

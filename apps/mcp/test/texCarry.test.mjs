@@ -4,12 +4,13 @@
  *
  * Through the real `/agent` route, with the texts named as the Worker names them (`covers`, the rendered-log path
  * production takes): text 2 carries text 1's `tool_use` and `tool_result`; a gap over an hour drops them; the
- * prefix up to the history's end stays the same bytes from one text to the next. Then the stubs, on `stretchTurns`:
- * a turn that read from outside, another group member's reads, another workspace's.
+ * prefix up to the history's end stays the same bytes from one text to the next. Then, on `stretchTurns`: a turn that
+ * read from outside is replayed and flagged (the owner, 2026-11-10: it marks the new turn, `texCarryGating.test.mjs`),
+ * and the stubs: another group member's reads, another workspace's, another carry key's.
  *
  * Sabotage these and a test here fails:
  *  1. `stretch.js` `STRETCH_GAP_MS` raised to a day → "an hour quiet".
- *  2. `stretch.js` dropping the `turn.tainted` stub → "a turn that read from outside".
+ *  2. `stretch.js` `carryCounts` ignoring `turn.outside` → "a turn that read from outside".
  *  3. `stretch.js` replaying another member's results (`other` forced false) → "a group".
  *  4. `loggedTurn.js` rendering the stretch into the log block too (`all` unfiltered) → "byte-stable".
  *  6. `stretch.js` replaying a result whatever grant read it, or a stubbed call's arguments → "another grant".
@@ -21,7 +22,7 @@ import { after, before, test } from "node:test";
 
 import { createEgressWorld, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { gatewayBody, CONTEXT_BETA } from "../src/agent/aiGateway.js";
-import { STUB_GRANT, STUB_OTHER, STUB_OUTSIDE, STUB_WITHHELD, stretchSince, stretchTurns } from "../src/agent/stretch.js";
+import { STUB_GRANT, STUB_OTHER, STUB_WITHHELD, carryCounts, stretchSince, stretchTurns } from "../src/agent/stretch.js";
 
 let world;
 const realNow = Date.now;
@@ -96,13 +97,16 @@ test("the stretch is the run with no gap over an hour", () => {
   assert.equal(stretchSince([]), null);
 });
 
-test("a turn that read from outside is carried with its results stubbed", () => {
+test("a turn that read from outside is replayed, and flagged so the new turn is marked", () => {
   const entries = [text("1", 10, A, "read the page"), tool("t1", 11), text("2", 12, "tex", "It says hi", "t1"), reply("t1", 13, false)];
-  const turns = stretchTurns(entries, [tool("t1", 11)], { since: 0, ...G });
-  assert.equal(turns[1].calls[0].result, STUB_OUTSIDE);
-  assert.deepEqual(turns[1].calls[0].args, {}, "a stubbed call keeps no arguments");
-  const clean = stretchTurns([...entries.slice(0, 3), reply("t1", 13, true)], [tool("t1", 11)], { since: 0, ...G });
-  assert.equal(clean[1].calls[0].result, "secret plans");
+  const outside = stretchTurns(entries, [tool("t1", 11)], { since: 0, ...G });
+  assert.equal(outside[1].calls[0].result, "secret plans");
+  assert.deepEqual(outside[1].calls[0].args, { path: "a.md" });
+  assert.equal(carryCounts(outside).outside, true, "a reply from before `outside` was kept is judged by `clean`");
+  const group = [...entries.slice(0, 3), { ...reply("t1", 13, false), outside: false }];
+  assert.equal(carryCounts(stretchTurns(group, [tool("t1", 11)], { since: 0, ...G })).outside, false, "a group's unclean reply that read nothing from outside");
+  const stubbed = stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: B, ...G });
+  assert.deepEqual(carryCounts(stubbed), { carried: 0, stubOther: 1, stubGrant: 0, stubWorkspace: 0, outside: false, stretch: 2 }, "nothing replayed, nothing marked");
 });
 
 test("a group: another member's reads are stubbed, the asker's own are carried", () => {
