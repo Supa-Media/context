@@ -69,7 +69,8 @@ export function turnPrompt(place, answering, o) {
         workspacesPrompt(o.workspaces),
     },
     preamble: turnFacts([
-      o.localNow === null ? "" : localNowPrompt(o.localNow.now, o.localNow.timeZone),
+      // Always the day: a caller with no clock of its own (the memory nudge, a reflection) gets now, in the routines' default zone, named (Dev2, 2026-11-10).
+      o.localNow == null ? localNowPrompt(Date.now(), null) : localNowPrompt(o.localNow.now, o.localNow.timeZone),
       parts.volatile,
       o.plan === null ? "" : answering === o.plan.think ? PLANNER_PROMPT : DRIVER_PROMPT, // `modelPlan.js`
       o.nudge, // said last, beside the question

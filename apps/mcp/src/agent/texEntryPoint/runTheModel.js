@@ -70,10 +70,10 @@ export async function runTheModel(t) {
   const doIt = !gated && chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
   // The setup's reply reviewer, after `claimCheck.js`: one Haiku call reads the reply against every action this turn took and the kind of turn it is, and sends it back with feedback only for a problem they would notice, at most twice (`replyJudge.js`; Dev2, 2026-11-06). A job's report turn shows it the report.
   const askedNow = (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)); // what the reviewers read as their text
-  const judge = gated ? replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, report, scheduled, question: askedNow, history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
+  const judge = gated ? replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, report, scheduled, timeZone, question: askedNow, history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
   // A progress line goes to them mid-turn, so the reviewer reads each one too, as a line and not an answer (`progress.js`).
   if (judge !== null && channel?.offered) {
-    const lineJudge = replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, scheduled: "progress", question: askedNow, history: logged?.history ?? shown });
+    const lineJudge = replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, scheduled: "progress", timeZone, question: askedNow, history: logged?.history ?? shown });
     channel.review = (text, turn) => lineJudge.check(text, turn);
   }
   if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });

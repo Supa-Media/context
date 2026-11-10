@@ -83,6 +83,14 @@ describe("the history's lines", () => {
     ]);
   });
 
+  test("Tex's own check-in reads as a check-in, never as answered in another app (2026-11-09)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "n2", at: at(2, 10, 0), kind: "note", text: "Your benefits deadline is today.", about: "(Not a text from them. This was your own check-in: you looked through their workspace on your own and texted them what follows.) It went as a reply under your earlier text \"Reminder\"." },
+    ];
+    const lines = historyDays(entries, NOW).flatMap((d) => d.turns.flatMap((t) => t.lines));
+    expect(lines.map((l) => l.text)).toEqual(["check-in · Your benefits deadline is today."]);
+  });
+
   test("a group names who sent each text, and says what a reply answers, a reaction and a picture", () => {
     const entries: LedgerEntry[] = [
       { id: "c3", at: at(2, 18, 15), kind: "text", event: "reaction", from: { kind: "person", name: "@mom" }, text: "👍" },

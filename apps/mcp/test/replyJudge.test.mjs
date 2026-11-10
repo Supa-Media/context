@@ -292,3 +292,27 @@ test("a draft the reviewer passed that a late text then holds is in the history 
   const judged = told.filter((event) => event.kind === "judge");
   assert.deepEqual(judged.map((event) => [event.by, event.draft, event.went]), [["review", "one", true], ["late", "one", false], ["review", "two", true]]);
 });
+
+// 2026-11-09: never told the day, the reviewer took it for Tuesday, October 27 and sent back a correct
+// "Reminder set for 3pm today." twice, as the wrong day. Sabotage record (2026-11-10, applied, run, failing,
+// reverted): `check` not passing `now` to `judgeState`, and `judgeState` dropping the earlier texts' times.
+test("the reviewer is told today's date in their zone, and when each earlier text was sent", async () => {
+  const sunday = Date.UTC(2026, 10, 8, 17, 46); // Sun 12:46 pm New York
+  const monday = Date.UTC(2026, 10, 9, 14, 25); // Mon 9:25 am
+  const dated = [
+    { role: "user", text: "how many brackets for 13 players?", at: sunday },
+    { role: "assistant", text: "The tournament is today." },
+    { role: "user", text: "remind me again at 3pm", at: monday },
+  ];
+  const review = reviewer([pass]);
+  const judge = replyJudge({ setting: { model: REVIEW_MODEL }, question: "remind me again at 3pm", history: dated, timeZone: "America/New_York", request: review.request, clock: () => monday, log: () => {} });
+  assert.equal(await judge.check("Will do. Reminder set for 3pm today.", { messages: [] }), null);
+  const read = review.asked[0].call.messages[0].text;
+  assert.ok(read.startsWith("It is now Monday, November 9, 2026, 9:25 am (America/New_York) where they are."), read.slice(0, 200));
+  assert.ok(read.includes("(Sun 2026-11-08 12:46) Person: how many brackets for 13 players?"));
+  assert.ok(read.includes("(Sun 2026-11-08 12:46) Tex: The tournament is today."));
+  assert.ok(read.includes("(Mon 2026-11-09 09:25) Person: remind me again at 3pm"));
+  // A turn with no zone of its own still gets a day, in the routines' default zone, named.
+  assert.ok(judgeState({ question: "q", answer: "a", now: monday }).startsWith("It is now Monday, November 9, 2026, 9:25 am (America/New_York)"));
+  assert.ok(!judgeState({ question: "q", answer: "a" }).startsWith("It is now"), "no clock, no line");
+});

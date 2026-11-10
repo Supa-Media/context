@@ -146,6 +146,9 @@ function whoOf(e: LedgerEntry, group: boolean): string {
   return name || "Someone";
 }
 
+/** How the gateway opens a check-in's line (`heartbeat.js` `CHECK_IN_QUESTION`). */
+const CHECK_IN_LINE = "(Not a text from them. This was your own check-in";
+
 /** What a text was beside its words: a picture, a file, a link, a reaction. */
 const EVENT_WORDS: Record<string, string> = { picture: "sent a picture", file: "sent a file", link: "sent a link", reaction: "reacted" };
 
@@ -216,6 +219,8 @@ function lineOfKind(e: LedgerEntry, group: boolean): HistoryLine {
       if (typeof e.routine === "string") return quiet(`routine · ${short(e.routine.replace(/\.md$/, ""), 60)} · ${oneLine(e.text)}`);
       // A message another of their agents asked Tex to pass on: that agent's words, never Tex's.
       if (typeof e.about === "string" && /another of their agents asked you/i.test(e.about)) return quiet(`passed on from another agent · ${oneLine(e.text)}`);
+      // Tex's own check-in (`heartbeat.js` `checkInAbout`): what it texted, never "answered in another app" (2026-11-09).
+      if (typeof e.about === "string" && e.about.startsWith(CHECK_IN_LINE)) return quiet(`check-in · ${oneLine(e.text)}`);
       if (typeof e.about === "string" && e.about) return quiet(`answered in another app · ${short(e.about, 80)} · ${oneLine(e.text)}`);
       return quiet(oneLine(e.text));
     default:

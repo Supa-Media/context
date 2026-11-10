@@ -111,7 +111,7 @@ may leave the turn (`privacy/egress.js`).
 
 ```mermaid
 flowchart TB
-  Q([The question, the chat, About me, the setup,<br/>the capability list: what Tex can do, and where<br/>capabilities.js]):::you --> CL
+  Q([The question, the chat, About me, the setup,<br/>the capability list: what Tex can do, and where<br/>capabilities.js<br/>today's date for every model below, at its door,<br/>and every earlier text with its day and time<br/>localNow.js withToday · stamped]):::you --> CL
   CL["Conversation classifier<br/>Haiku 5.5 · effort low · before the model<br/>which open thread the text continues, or a new one<br/>finishes a thread only on evidence, never on silence<br/>kept in the chat's threads ledger, chat.threads<br/>conversationThreads.js · threadedTurn.js"]:::judge
   CL -->|thread list, suggested thread, last 24 hours| FD
   FD["Front door<br/>Haiku 5.5 · effort high · up to 24 rounds<br/>turn.js runTurn"]:::haiku
@@ -193,6 +193,7 @@ What each model costs is `jev/meter.ts`.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-10: every model Tex calls is told today's date and time at the door (`withToday` in `requestViaGateway` and `requestBuiltin`; Dev2: "Agents should ALWAYS know today's date"), and every earlier text a model reads carries its day and time: a turn's history, the check-in's last texts, the reviewer's, the planner's, `earlier_texts`, and a threaded chat's lines (date, not the weekday alone). The reviewer is told the day itself (it took Monday, November 9 for Tuesday, October 27). A check-in keeps, above its text, the text it went under, its last thinking and its day's log, so a later turn can say why it texted (`heartbeat.js` `checkInAbout`). Decision: `docs/decisions/texting-assistant/dates-everywhere.md`.
 - 2026-11-10: a note's date properties fill themselves, and the owner can fill the empty ones once with `manage.fill_dates`; the capability list names it. No box changes.
 - 2026-11-09: the old history record is retired: nothing reads or writes it. A turn reads its chat from the ledger alone, marked as copied in or not (`ledgerConversation.js`), and sendTheReply no longer appends to the record. Nothing drawn changes: every reader already read the ledger.
 - 2026-11-09: a routine's run or a check-in that reaches its last steps is told silence is the answer when nothing is for the person (never to write a note it can't, never to answer in words), and the reply reviewer reads its last answer too; one sent back there is not texted (`lastRound.js`, `turn.js`). A job's report, which answers no text of theirs, stays in the chat a routine reads, as Tex's own text (`ledgerConversation.js`): an hourly routine ran on after its job had texted that the work was done.

@@ -66,3 +66,84 @@ test("a turn is told the time where they are", async () => {
   assert.match(asked, /It is now Tuesday, October 13, 2026, 11:35 pm/);
   assert.match(asked, /remind me to sleep in 2 minutes$/);
 });
+
+/*
+ * EVERY MODEL TEX CALLS KNOWS THE DAY, AND EVERY TEXT IT READS HAS ONE (Dev2, 2026-11-10: "Whenever we are
+ * showing texts to any llm agent we should ALWAYS be showing the date, and Agents should ALWAYS know today's
+ * date"). The reviewer, told no day, took Monday, November 9 for Tuesday, October 27 and sent back a correct
+ * reminder twice; a check-in read Sunday's "the tournament is today" on Monday as its own mistake.
+ *
+ * Sabotage record (2026-11-10, applied, run, observed failing, reverted):
+ *   `requestViaGateway` not calling `withToday` → "a one-off agent at the gateway's door is told the day" fails.
+ *   `requestBuiltin` not calling `withToday` → "a Workers AI model is told the day too" fails.
+ *   `turnPrompt` keeping its old `localNow === null ? ""` alone fails nothing: `requestBuiltin`'s `withToday` still
+ *   tells that turn the day, which is the point of one door. Both together → "a turn with no clock of its own…" fails.
+ *   `turn.js` sending history as it was kept → "a turn's earlier texts carry their day" fails.
+ */
+import { localStamp, nowLine, stamped, withToday } from "../src/agent/localNow.js";
+import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
+import { requestBuiltin } from "../src/agent/builtin.js";
+import { DAY_TIME } from "../src/agent/threadedTurn.js";
+
+const MONDAY = Date.UTC(2026, 10, 9, 14, 25); // Mon 9:25 am New York
+const SUNDAY = Date.UTC(2026, 10, 8, 17, 46); // Sun 12:46 pm New York
+const nows = (text) => (String(text).match(/It is now (?:Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day, /g) ?? []).length;
+
+test("withToday puts the day in front of a call once, and leaves a call that has it alone", () => {
+  const asked = withToday({ system: "You review texts.", messages: [{ role: "user", text: "Reply: Will do." }] }, { now: MONDAY, timeZone: "America/New_York" });
+  assert.equal(asked.system, "You review texts.", "the system prompt stays the same, so its cache does");
+  assert.match(asked.messages[0].text, /^It is now Monday, November 9, 2026, 9:25 am \(America\/New_York\) where they are\./);
+  assert.match(asked.messages[0].text, /Reply: Will do\.$/);
+  assert.equal(withToday(asked, { now: MONDAY + 60_000 }), asked, "told once");
+  const layered = withToday({ system: { stable: "rules", context: "about" }, messages: [{ role: "user", content: [{ type: "text", text: "x" }] }] }, { now: MONDAY });
+  assert.match(layered.system.context, /It is now Monday, November 9, 2026/);
+  assert.equal(layered.system.stable, "rules");
+  // A person who typed "it is now 5" has not told the model the day.
+  assert.equal(nows(JSON.stringify(withToday({ system: "s", messages: [{ role: "user", text: "It is now 5pm here" }] }, { now: MONDAY }))), 1);
+  assert.equal(nowLine(MONDAY, null), "Monday, November 9, 2026, 9:25 am (America/New_York)", "no zone: the default, named");
+});
+
+test("a one-off agent at the gateway's door is told the day", async () => {
+  const sent = [];
+  const fetchImpl = async (_url, init) => {
+    sent.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const config = aiGatewayConfig({ AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef", AI_GATEWAY_ID: "fixture-gateway", AI_GATEWAY_TOKEN: "fixture-token-not-real-0000" });
+  await requestViaGateway({ model: "anthropic/claude-haiku-5-5", system: "Classify the text.", messages: [{ role: "user", text: "[Sun] Them: the tournament is today" }], tools: [] }, config, { fetchImpl, now: () => MONDAY, timeZone: "America/New_York" });
+  assert.equal(sent.length, 1);
+  assert.match(JSON.stringify(sent[0].messages), /It is now Monday, November 9, 2026, 9:25 am/);
+});
+
+test("a Workers AI model is told the day too", async () => {
+  const calls = [];
+  const ai = { async run(_model, input) { calls.push(input); return { choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }; } };
+  await requestBuiltin({ model: MODEL, system: "Judge it.", messages: [{ role: "user", text: "draft" }], tools: [] }, ai, {});
+  assert.equal(nows(JSON.stringify(calls[0].messages)), 1);
+});
+
+test("a turn with no clock of its own is still told the day, once; a turn's earlier texts carry their day", async () => {
+  const calls = [];
+  const ai = { async run(_model, input) { calls.push(input); return { choices: [{ message: { content: "Noted." } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }; } };
+  const base = { credential: { provider: BUILTIN_PROVIDER, apiKey: null }, tools: [], callTool: async () => ({ content: [] }), env: { AI: ai, AGENT_BUILTIN_MODEL: MODEL }, providerOptions: { ai }, texting: true };
+  await runTurn({ ...base, question: "what should I remember?" });
+  assert.equal(nows(JSON.stringify(calls[0].messages)), 1, "no localNow: still the day, and only once");
+  await runTurn({
+    ...base,
+    question: "the message you threaded to has nothing to do with the bracket?",
+    localNow: { now: MONDAY, timeZone: "America/New_York" },
+    history: [
+      { role: "user", text: "how many brackets for 13 players?", at: SUNDAY },
+      { role: "assistant", text: "The tournament is today: byes or a group stage?" },
+    ],
+  });
+  const said = JSON.stringify(calls[1].messages);
+  assert.equal(nows(said), 1);
+  assert.ok(said.includes("[Sun 2026-11-08 12:46] how many brackets for 13 players?"), said.slice(0, 600));
+  assert.equal(stamped("hi", null, "UTC"), "hi", "no time known: the words as they are");
+  assert.equal(localStamp(SUNDAY, null), "Sun 2026-11-08 12:46");
+});
+
+test("a threaded chat line has its date, not only a weekday", () => {
+  assert.match(DAY_TIME("America/New_York").format(new Date(SUNDAY)), /^Sun, Nov 8, 12:46\s?PM$/);
+});

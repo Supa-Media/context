@@ -46,6 +46,9 @@ import {
   heartbeatQuestion,
   recentTextLines,
   recentTexts,
+  checkInAbout,
+  isCheckInLine,
+  lastThinking,
   continuesFrom,
   textedLines,
   calendarLooked,
@@ -259,6 +262,46 @@ function unitChecks(check) {
   );
   check("a marked SKIP is still a quiet look", checkInText(continuesFrom("[continues 1] SKIP", shown).answer) === null);
   check("the day's log is dated in their zone", heartbeatPath(Date.UTC(2026, 9, 17, 3, 0), "America/New_York") === "tex/heartbeat/2026-10-16.md");
+
+  // 2026-11-09: a Monday 10 am look was shown Sunday's "the tournament is today" with no day, took it for a
+  // mistake and texted "Correction to my last text" under it. Sabotage record (applied, run, observed failing,
+  // reverted, 2026-11-10): `recentTexts` ignoring its zone fails the first check; `heartbeatQuestion` without the
+  // day-words line fails it too; `recentTexts` comparing the check-in line by equality fails the second.
+  const sunday = Date.UTC(2026, 10, 8, 17, 46); // Sun 12:46 pm New York
+  const monday = Date.UTC(2026, 10, 9, 14, 25); // Mon 9:25 am
+  const dated = recentTextLines([
+    { role: "user", text: "how many brackets for 13 players?", at: sunday },
+    { role: "assistant", text: "The tournament is today: with 13 players, want byes or a group stage?" },
+    { role: "user", text: "remind me again at 3pm", at: monday },
+    { role: "assistant", text: "Will do. Reminder set for 3pm today." },
+  ], "America/New_York");
+  check(
+    "a look sees when each of the last texts was sent, in their time, and is told a text's today is its own day",
+    dated[0] === "[1] Them (Sun 2026-11-08 12:46): how many brackets for 13 players?" &&
+      dated[1] === "[2] You (Sun 2026-11-08 12:46): The tournament is today: with 13 players, want byes or a group stage?" &&
+      dated[3] === "[4] You (Mon 2026-11-09 09:25): Will do. Reminder set for 3pm today." &&
+      heartbeatQuestion({ changed: [{ key: "todo.md", at: since }], now: since + 60_000, texted: [], recent: dated }).includes(
+        "a text that was right on the day it was sent is never a mistake to correct",
+      ),
+  );
+  const about = checkInAbout({
+    continues: "The tournament is today: with 13 players, want byes or a group stage?",
+    reason: "The FIFA project was archived,\n so the bracket question is moot.",
+    log: "tex/heartbeat/2026-11-09.md",
+  });
+  const later = recentTextLines([{ role: "user", text: about, at: monday }, { role: "assistant", text: "The bracket question is moot." }], "America/New_York");
+  check(
+    "the chat keeps why a check-in texted, the text it went under and where its log is, and it still reads as a check-in",
+    isCheckInLine(about) && about.includes('reply under your earlier text "The tournament is today') &&
+      about.includes('"The FIFA project was archived, so the bracket question is moot."') && about.includes("tex/heartbeat/2026-11-09.md") &&
+      later.length === 1 && later[0].startsWith("[1] You (a check-in) (Mon 2026-11-09 09:25)") &&
+      checkInAbout() === CHECK_IN_QUESTION && checkInAbout({ reason: "x".repeat(2_000) }).length < 1_000,
+  );
+  check(
+    "the reason is the look's last thinking before its answer",
+    lastThinking([{ kind: "thinking", text: "first" }, { kind: "tool", name: "read_note" }, { kind: "thinking", text: "last" }, { kind: "thinking", text: " " }]) === "last" &&
+      lastThinking([]) === "",
+  );
 }
 
 async function toolRefusals(check) {
@@ -431,7 +474,8 @@ export async function runAgentHeartbeatChecks(check) {
     const conversation = { turns: conversationTurns(bucket) };
     check(
       "a texted check-in joins the texting conversation, so a reply has it in front of it",
-      conversation.turns?.at(-2)?.text === CHECK_IN_QUESTION &&
+      conversation.turns?.at(-2)?.text?.startsWith(CHECK_IN_QUESTION) &&
+        conversation.turns?.at(-2)?.text?.includes(`The whole look, what it read and every step, is in ${heartbeatPath(Date.now(), "UTC")}.`) &&
         conversation.turns?.at(-1)?.text?.includes("tex-chaos-scale.png") && // with the notes it read, by path (2026-10-25: "what whatsapp note")
         JSON.stringify(conversation.turns?.at(-1)?.sources) === JSON.stringify([`read:${today}`, `read:${brandingNote}`]),
     );

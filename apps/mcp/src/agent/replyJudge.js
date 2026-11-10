@@ -31,6 +31,7 @@
 import { requestViaGateway } from "./aiGateway.js";
 import { isControlWord } from "./jobReport.js";
 import { withArchitecture } from "./texArchitecture.js";
+import { datedTurns, localStamp, nowLine, readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
 
 /** The reviewer's model, effort and limits. */
 export const REVIEW_MODEL = "anthropic/claude-haiku-5-5";
@@ -125,12 +126,16 @@ const SCHEDULED_LEAD = {
 };
 
 /** What the reviewer reads: the ask and the reply first, then a job's report when the turn is one, every action, then the earlier texts. */
-export function judgeState({ question, history = [], messages = [], answer, report = null, scheduled = null }) {
+export function judgeState({ question, history = [], messages = [], answer, report = null, scheduled = null, now = null, timeZone = null }) {
   const actions = actionsOf(messages);
-  const earlier = (Array.isArray(history) ? history : [])
+  const zone = readTimeZone(timeZone) ?? DEFAULT_TIME_ZONE;
+  const earlier = datedTurns(history)
     .slice(-6)
-    .map((turn) => `${turn?.role === "assistant" ? "Tex" : "Person"}: ${clip(String(turn?.text ?? ""), 600)}`);
+    .map(({ turn, at }) => `${at === null ? "" : `(${localStamp(at, zone)}) `}${turn?.role === "assistant" ? "Tex" : "Person"}: ${clip(String(turn?.text ?? ""), 600)}`);
   return [
+    // Without the day, the reviewer guessed one (2026-11-09: "today is Tuesday, October 27") and sent back a correct
+    // 3 pm reminder for "today" twice, as the wrong day (`docs/decisions/texting-assistant/dates-everywhere.md`).
+    ...(Number.isFinite(now) ? [`It is now ${nowLine(now, zone)} where they are. Each earlier text below shows when it was sent; its "today" means that day.`, ""] : []),
     ...(scheduled === "progress" || !scheduled
       ? [`Their text now: ${clip(String(question ?? ""), 3_000)}`]
       : [`Nobody texted. ${SCHEDULED_LEAD[scheduled] ?? SCHEDULED_LEAD.routine} What Tex was asked to do this run: ${clip(String(question ?? ""), 6_000)}`]),
@@ -223,7 +228,7 @@ export async function reviewReply({ state, earlier = [], request = requestViaGat
  * all (Dev2, 2026-11-07: a routine texted "the say_nothing action isn't
  * available to me in this session").
  */
-export function replyJudge({ setting, question, history = [], inner = null, report = null, scheduled = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = REVIEW_TIMEOUT_MS, clock = Date.now, log = console.log }) {
+export function replyJudge({ setting, question, history = [], inner = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = REVIEW_TIMEOUT_MS, clock = Date.now, log = console.log }) {
   const on = Boolean(setting) && (config !== null || request !== requestViaGateway);
   const verdicts = [];
   const feedbackSoFar = [];
@@ -246,7 +251,7 @@ export function replyJudge({ setting, question, history = [], inner = null, repo
         turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: true, reason: "sent back twice already, so it goes as it is" }));
         return null;
       }
-      const state = judgeState({ question, history, messages: turn.messages, answer, report, scheduled });
+      const state = judgeState({ question, history, messages: turn.messages, answer, report, scheduled, now: clock(), timeZone });
       const started = clock();
       const review = await reviewReply({ state, earlier: feedbackSoFar, request, config, metadata, timeoutMs }).catch(() => null);
       const ms = clock() - started;

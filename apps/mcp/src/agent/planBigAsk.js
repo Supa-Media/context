@@ -23,6 +23,7 @@
  * (`bench/ai/tests/splitting.md`) says it should.
  */
 
+import { datedTurns, stamped } from "./localNow.js";
 import { advisorThinking } from "./advisor.js";
 import { withArchitecture } from "./texArchitecture.js";
 
@@ -162,8 +163,9 @@ export function holdsNotes(listed, folder) {
 
 /** The conversation as the planner reads it: earlier texts, newest kept. */
 function conversationText(history, question) {
-  const lines = (Array.isArray(history) ? history : [])
-    .map((entry) => (typeof entry?.text === "string" && entry.text.trim() ? `${entry.role === "assistant" ? "Tex" : "Them"}: ${entry.text.trim()}` : ""))
+  // Each with its day and time (`localNow.js` `stamped`), so a "today" in an old text is that day's.
+  const lines = datedTurns(history)
+    .map(({ turn: entry, at }) => (typeof entry?.text === "string" && entry.text.trim() ? stamped(`${entry.role === "assistant" ? "Tex" : "Them"}: ${entry.text.trim()}`, at, null) : ""))
     .filter(Boolean);
   if (typeof question === "string" && question.trim()) lines.push(`Them: ${question.trim()}`);
   const body = lines.join("\n");

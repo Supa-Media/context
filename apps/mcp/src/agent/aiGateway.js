@@ -40,6 +40,7 @@
  */
 
 import { ProviderError, THINKING_REFUSED, anthropicMessages } from "./providers.js";
+import { withToday } from "./localNow.js";
 
 /** The Anthropic API version this build is written against. */
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -379,7 +380,8 @@ export async function requestViaGateway(call, config, options = {}) {
   const fetchImpl = options.fetchImpl || ((...args) => globalThis.fetch(...args));
   const now = options.now || Date.now;
   const wait = options.wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  let body = gatewayBody(call);
+  // Every model told the day, whichever agent asks (`localNow.js` `withToday`).
+  let body = gatewayBody(withToday(call, { now: now(), timeZone: options.timeZone ?? null }));
   if (hourMarksRefused) body = withoutHourMarks(body);
   // A 400 on a body with one-hour marks is resent once without them; when that
   // goes through, the refusal is remembered for this isolate, so an unaccepted

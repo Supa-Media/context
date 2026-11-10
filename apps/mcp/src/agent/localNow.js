@@ -33,6 +33,70 @@ export function readTimeZone(value) {
   }
 }
 
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Sat 2026-10-31 21:00", in their zone: when an earlier text went, so its day words have a day. */
+export function localStamp(ms, timeZone) {
+  const w = wallClock(ms, readTimeZone(timeZone) ?? DEFAULT_TIME_ZONE);
+  const date = `${w.year}-${String(w.month).padStart(2, "0")}-${String(w.day).padStart(2, "0")}`;
+  return `${WEEKDAY_SHORT[w.weekday]} ${date} ${String(w.hour).padStart(2, "0")}:${String(w.minute).padStart(2, "0")}`;
+}
+
+/** "Monday, November 9, 2026, 9:25 am (America/New_York)": now, for a reader that is told nothing else about the day. */
+export function nowLine(now, timeZone) {
+  const zone = readTimeZone(timeZone) ?? DEFAULT_TIME_ZONE;
+  const w = wallClock(now, zone);
+  return `${WEEKDAYS[w.weekday]}, ${MONTHS[w.month - 1]} ${w.day}, ${w.year}, ${twelveHour(w.hour, w.minute)} (${zone})`;
+}
+
+/**
+ * Each turn of a history with when it was sent: a person's side is kept with
+ * its time, and Tex's answer goes with the question it answers
+ * (`conversation.js` `keptTurn`). Null where nothing says.
+ */
+export function datedTurns(history) {
+  let at = null;
+  return (Array.isArray(history) ? history : []).map((turn) => {
+    if (turn?.role === "user") at = Number.isFinite(turn.at) ? turn.at : null;
+    return { turn, at };
+  });
+}
+
+/** A text as a model reads it: `[Sun 2026-11-08 12:46] ` before its words when its time is known (Dev2, 2026-11-10: "ALWAYS be showing the date"). */
+export function stamped(text, at, timeZone) {
+  return Number.isFinite(at) ? `[${localStamp(at, timeZone)}] ${text}` : text;
+}
+
+/** How every "now" line Tex's models are shown begins: `localNowPrompt`, `nowLine` and `withToday` all start so. */
+export const NOW_WORDS = "It is now ";
+/** A call already told the day: a now line with its weekday, as every one of ours writes it. */
+const TOLD_NOW = /It is now (?:Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day, /;
+
+/**
+ * A model call with today's date and time in front of it, unless it already
+ * has one. Every model Tex calls goes through `requestViaGateway` or
+ * `requestBuiltin`, and both call this, so no agent (the reviewer, the thread
+ * classifier, the checkers, the planner, a job's check) is ever asked about
+ * someone's texts without knowing the day (Dev2, 2026-11-10: "Agents should
+ * ALWAYS know today's date, we are literally a personal assistant AI"; the
+ * reviewer, never told it, took Monday, November 9 for Tuesday, October 27).
+ * The line goes at the start of the first message when that is plain words,
+ * so a cached system prompt stays the same; otherwise at the end of the system.
+ */
+export function withToday(call, { now = Date.now(), timeZone = null } = {}) {
+  const system = call?.system;
+  const messages = Array.isArray(call?.messages) ? call.messages : [];
+  if (TOLD_NOW.test(JSON.stringify([system ?? "", messages]))) return call;
+  const line = `${NOW_WORDS}${nowLine(now, timeZone)} where they are. Every date you read or write is worked out from this.`;
+  const first = messages[0];
+  if (first?.role === "user" && typeof first.text === "string" && first.content === undefined) {
+    return { ...call, messages: [{ ...first, text: `${line}\n\n${first.text}` }, ...messages.slice(1)] };
+  }
+  if (typeof system === "string" || system === undefined || system === null) return { ...call, system: `${system ?? ""}\n\n${line}`.trimStart() };
+  if (typeof system === "object") return { ...call, system: { ...system, context: `${system.context ?? ""}\n\n${line}` } };
+  return call;
+}
+
 /** "11:35 pm", the way a routine's `at:` line writes a time. */
 function twelveHour(hour, minute) {
   const h = hour % 12 === 0 ? 12 : hour % 12;
@@ -50,7 +114,7 @@ export function localNowPrompt(now, timeZone) {
   const date = `${w.year}-${String(w.month).padStart(2, "0")}-${String(w.day).padStart(2, "0")}`;
   const time = twelveHour(w.hour, w.minute);
   return (
-    `\n\nIt is now ${WEEKDAYS[w.weekday]}, ${MONTHS[w.month - 1]} ${w.day}, ${w.year}, ${time} where they are (${zone}); ` +
+    `\n\n${NOW_WORDS}${WEEKDAYS[w.weekday]}, ${MONTHS[w.month - 1]} ${w.day}, ${w.year}, ${time} where they are (${zone}); ` +
     `as a routine's at: line that is ${date} ${time}. ` +
     `Work out today, tomorrow, "in 2 minutes" and every date you write from this. You always know the time: never ask them for it.` +
     dayWordsPrompt(now, zone) // the day words worked out (`dayWords.js`)

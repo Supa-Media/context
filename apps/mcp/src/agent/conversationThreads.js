@@ -166,12 +166,12 @@ export function verdictEntries(verdict, threads, covered, at = Date.now()) {
 /** One classifier call: the verdict, or null when it failed, was late or said nothing usable. */
 // No `maxTokens`: it caps the thinking and the answer together (`aiGateway.js`), and a 400 cap cut the verdict off
 // often enough that about 4 turns in 10 of the 2026-11-07 backfill came back unsorted.
-export async function classifyText({ threads, lines, question, replying, config, metadata, request = requestViaGateway, timeoutMs = THREADS_TIMEOUT_MS }) {
+export async function classifyText({ threads, lines, question, replying, config, metadata, timeZone = null, request = requestViaGateway, timeoutMs = THREADS_TIMEOUT_MS }) {
   if (!config) return null;
   const call = request(
     { model: THREADS_MODEL, system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying }) }], tools: [], effort: THREADS_EFFORT },
     config,
-    { metadata },
+    { metadata, timeZone }, // told today in their zone (`localNow.js` `withToday`)
   );
   let timer;
   const reply = await Promise.race([
