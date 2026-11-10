@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroup, addressesTex, drainGroup, GROUP_LINES, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
 import { parseSendblueGroup, reactInGroup, readGroupMembers, type GroupMessage } from "./sendblueGroups";
-import { ackEmoji } from "./ackEmoji";
 import { parseSendblueInbound } from "./sendblue";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { CHAT_FOR_MS, MAX_CHAT_LINES } from "./groupChat";
@@ -362,10 +361,8 @@ describe("a group's queue", () => {
     expect(asked.group.key).toMatch(/^[0-9a-f]{64}$/);
     expect([asked.conversation, asked.arrivedAt]).toEqual([undefined, 0]); // when the message came in (0), not when the turn ran (1,000)
     expect(JSON.stringify(asked)).not.toContain(ADA.slice(1));
-    expect(w.reactions).toBe(1);
-    // The tapback fits the words, as in a 1:1, not 👀 on every tag (Dev2, 2026-10-25).
-    expect(w.reacted).toEqual([ackEmoji("Tex, what's on the setlist?")]);
-    expect(["🤔", "🧐"]).toContain(w.reacted[0]);
+    // No tapback beside the answer (Dev2, 2026-11-10: "uses emojis way too much").
+    expect(w.reactions).toBe(0);
     expect((await storage.list({ prefix: "gpending:" })).size).toBe(0);
   });
 
@@ -440,8 +437,8 @@ describe("a group's queue", () => {
       await acceptGroup(storage, message("Tex, hi"), 0);
       await drainGroup(storage, deps(w, { control }));
       expect(w.sends).toEqual([]);
-      // Muted is the chat's, so a muted chat gets no tapback; an unknown tagger gets the same one as everyone.
-      expect(w.reactions).toBe(control.status === "muted" ? 0 : 1);
+      // No working-on-it tapback for anyone (Dev2, 2026-11-10).
+      expect(w.reactions).toBe(0);
     }
   });
 

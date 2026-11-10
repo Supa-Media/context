@@ -1,7 +1,8 @@
 /**
  * Decide's reaction and wait in a group (Dev2, 2026-11-01; `chatState.ts`).
- * Reacting is its own decision: decide's emoji goes at once with silence, an
- * answer or a wait, once per message, and then the turn adds no ack tapback.
+ * Decide's emoji goes only with `react`, in place of words: never beside an
+ * answer or a wait, and the turn adds no tapback of its own (Dev2, 2026-11-10:
+ * "uses emojis way too much").
  * A wait holds an untagged burst for the seconds decide chose, decided again
  * when it ends or at once when a new message lands, at most `MAX_CHAT_WAITS`
  * times and never past `BURST_DEADLINE_MS` after the burst's first message;
@@ -11,7 +12,7 @@
  *  - `reactionFor` returning decide's emoji unchecked: "an emoji outside the 64" fails;
  *  - `canWait` ignoring `MAX_CHAT_WAITS`: "answers after MAX_CHAT_WAITS waits" fails;
  *  - `step` "wait" ignoring the deadline: "the burst is answered by its deadline" fails;
- *  - the `!item.reacted` check dropped from the ack: "an answer with decide's emoji" fails.
+ *  - decide's emoji sent with an answer again (`groupTurn.ts`): "an answer with decide's emoji sends no tapback" fails.
  */
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
@@ -55,13 +56,13 @@ for (const { name, groupId } of LINES) {
       expect(w.reactions).toEqual([ackEmoji("we got the venue")]);
     });
 
-    it("an answer with decide's emoji reacts at once and answers, with no second tapback", async () => {
+    it("an answer with decide's emoji sends no tapback: the answer is the reply", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: (body) => ({ ...(answerAll(body) as object), emoji: "🎉" }) as Answer, control: STYLE });
       await bound(storage, w);
       await acceptGroup(storage, w.message("we got the venue, what now?"), 10);
       await drainGroup(storage, w.deps);
-      expect(w.reactions).toEqual(["🎉"]);
+      expect(w.reactions).toEqual([]);
       expect(w.asks.map((ask) => ask.question)).toEqual(["we got the venue, what now?"]);
     });
 

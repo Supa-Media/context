@@ -318,7 +318,7 @@ const RESTART_TOOL = {
 export function resumedLine(titles) {
   const named = titles.map((title) => `"${line(title, MAX_TITLE)}"`);
   const list = named.length < 3 ? named.join(" and ") : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`;
-  return `On it: picking ${list} back up where ${titles.length === 1 ? "it" : "they"} stopped. I'll text you when ${titles.length === 1 ? "it's" : "they're"} done.\n[card threads]`;
+  return `On it: picking ${list} back up.`;
 }
 
 const STATUS_TOOL = {
@@ -380,12 +380,12 @@ export const SLOW_TURN_NOTE =
 export const QUIET_ACK = "[[tex:quiet-ack]]";
 export const QUIET_ACK_LINE = "(You texted them nothing: they asked not to hear from you until it's done.)";
 
-/** What they're texted when a job starts: at once, by the gateway, not another model round. */
+/** What they're texted when a job starts, at once, by the gateway: one short line, no link (Dev2, 2026-11-10: "Tex spams"). */
 export function ackLine(title) {
   const titles = (Array.isArray(title) ? title : [title]).map((each) => line(each, MAX_TITLE)).filter(Boolean);
-  if (titles.length <= 1) return `On it: ${titles[0] ?? ""}. I'll text you when it's done.\n[card threads]`;
+  if (titles.length <= 1) return `On it: ${titles[0] ?? ""}.`;
   // Several parts started together (a split ask, `planBigAsk.js`): one text names them all.
-  return `On it, in ${titles.length} parts at once: ${titles.join("; ")}. I'll text you when it's done.\n[card threads]`;
+  return `On it, in ${titles.length} parts at once: ${titles.join("; ")}.`;
 }
 
 const text = (words, isError = false) => ({ content: [{ type: "text", text: words }], ...(isError ? { isError: true } : {}) });
@@ -466,8 +466,8 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
     justStarted.push(title);
     return text(
-      `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result, ` +
-        "with [card threads] on its own line so they can watch it; don't do the work in this turn.",
+      `Started in the background as "${title}". Tell them in one short line that you're on it, with no link or card; ` +
+        "don't do the work in this turn.",
     );
   };
   const live = running.filter((entry) => entry.state === "running");

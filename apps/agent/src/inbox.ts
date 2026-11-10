@@ -310,17 +310,13 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     // Only "ok", "thanks", tapbacks: read, and no bubble until decide picks an answer (`answerTexts` starts it then).
     const acksOnly = pending.every(([, item]) => item.message.chatId !== first.chatId || (!item.force && pureAck(item.message)));
     const read = acksOnly ? line?.markRead(first.chatId, first.messageId) : undefined; // never blocks decide (Dev, 2026-11-04)
-    const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first, { aimLater: true });
+    const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first);
     try {
       const choice = await chooseTurn(storage, deps, pending);
       for (const [key] of choice.drop) await storage.delete(key);
       if (choice.answer.length === 0) await presence?.stop();
-      // One tapback per text: decide's, or else presence's on the text being answered.
-      if (choice.react !== undefined) {
-        await acknowledgeText(deps, choice.react, choice.emoji);
-        presence?.dropTapback();
-      }
-      if (choice.answer.length > 0) presence?.aim(choice.answer.at(-1)![1].message);
+      // Decide's tapback, in place of words for that text (`inboxTurn.ts`).
+      if (choice.react !== undefined) await acknowledgeText(deps, choice.react, choice.emoji);
       if (choice.answer.length > 0 && !(await answerTurn(storage, deps, choice.answer, presence))) return;
     } finally {
       await presence?.stop();
@@ -491,7 +487,7 @@ function lineDeps(deps: InboxDeps): LineDeps {
   return { fetch, linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, whapi: deps.whapi, hostPicture: deps.hostPicture, appCard: deps.appCard, noteCardPicture: noteCardDrawer(fetch, deps.controlPlaneOrigin, deps.workerSecret) };
 }
 
-export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./presence";
+export { TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./presence";
 
 /**
  * Work out the reply with the typing bubble showing (`presence.ts`, started
