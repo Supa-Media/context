@@ -227,6 +227,7 @@ import type * as functions_transcriptionConsent from "../functions/transcription
 import type * as functions_texHome from "../functions/texHome.js";
 import type * as functions_texDashboard from "../functions/texDashboard.js";
 import type * as functions_texSpend from "../functions/texSpend.js";
+import type * as functions_texStats from "../functions/texStats.js";
 import type * as functions_routines from "../functions/routines.js";
 import type * as functions_dreams from "../functions/dreams.js";
 import type * as functions_heartbeats from "../functions/heartbeats.js";
@@ -501,6 +502,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texHome": typeof functions_texHome;
   "functions/texDashboard": typeof functions_texDashboard;
   "functions/texSpend": typeof functions_texSpend;
+  "functions/texStats": typeof functions_texStats;
   "functions/routines": typeof functions_routines;
   "functions/dreams": typeof functions_dreams;
   "functions/heartbeats": typeof functions_heartbeats;

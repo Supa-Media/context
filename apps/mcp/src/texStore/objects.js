@@ -106,13 +106,15 @@ function passes(meta, onlyIf) {
  * The objects over one Durable Object's `sql`.
  *
  * @param {{exec: (query: string, ...binds: unknown[]) => {toArray(): object[]}}} sql
- * @param {{now?: () => number, guard?: () => void, tables?: {objects: string, chunks: string}}} [options] `guard` runs
+ * @param {{now?: () => number, guard?: () => void, tables?: {objects: string, chunks: string}, onPut?: (key: string, change: {created: boolean, changed: boolean}) => void}} [options] `guard` runs
  *   synchronously right before every write, and throws to stop it: an object
  *   that has moved (`move.js`) keeps no write. `tables` names the two tables,
  *   so a workspace object can keep its person's Tex notes (`TEX_TABLES`) apart
  *   from its own notes in the same SQLite (`workspaceStore/texHost.js`).
+ *   `onPut` is told of every put that landed: whether the key is new, and whether its bytes changed (a workspace
+ *   object counts its notes created and edited with it, `observability/callCounts.js`). It never stops a write.
  */
-export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEFAULT_TABLES } = {}) {
+export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEFAULT_TABLES, onPut = null } = {}) {
   if (!TABLE.test(tables?.objects ?? "") || !TABLE.test(tables?.chunks ?? "") || tables.objects === tables.chunks) throw new TypeError("not a pair of table names");
   for (const statement of schemaFor(tables)) sql.exec(statement);
   const O = tables.objects;
@@ -190,6 +192,13 @@ export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEF
         custom,
         count,
       );
+      if (typeof onPut === "function") {
+        try {
+          onPut(key, { created: existing === null, changed: existing === null || existing.etag !== etag });
+        } catch {
+          // Counting never fails a write.
+        }
+      }
       return metaOf({ key, etag, size: bytes.byteLength, uploaded, content_type: contentType, custom });
     },
 

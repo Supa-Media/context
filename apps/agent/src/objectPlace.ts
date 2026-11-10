@@ -49,3 +49,17 @@ export function inboxByName(namespace: DurableObjectNamespace, name: string): { 
     },
   };
 }
+
+/**
+ * The id of the inbox `inboxByName` reaches for `name`, as text, without making a stub: a person's key for counting
+ * (`textCounts.ts`). Cloudflare derives it with a key we do not hold, so it can't be turned back into the name.
+ * Empty when there is no name or the namespace refuses it.
+ */
+export function inboxIdOf(namespace: DurableObjectNamespace, name: unknown): string {
+  if (typeof name !== "string" || name === "") return "";
+  try {
+    return namespace.idFromName(`enam:${name}`).toString();
+  } catch {
+    return "";
+  }
+}

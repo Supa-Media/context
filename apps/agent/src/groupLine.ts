@@ -18,6 +18,7 @@
 import { ServiceError, type Fetch } from "./clients";
 import { isRefusal } from "./carousel";
 import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
+import { counted, type CountDataset } from "./textCounts";
 import type { Picture } from "./line";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import type { SendblueKeys } from "./sendblue";
@@ -64,10 +65,20 @@ export type GroupLineDeps = {
   hostPicture?: (picture: Picture) => Promise<string>;
   /** Draws a note link's picture (`noteCards.ts`), sent before the link on iMessage, as in a 1:1 chat. */
   noteCardPicture?: NoteCardDrawer;
+  /** Where each message Tex sends is counted (`textCounts.ts`); absent, nowhere. */
+  textCounts?: CountDataset;
 };
 
 export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
-  return isWhapiGroup(groupId) ? whapiGroupLine(deps) : sendblueGroupLine(deps);
+  const line = isWhapiGroup(groupId) ? whapiGroupLine(deps) : sendblueGroupLine(deps);
+  const dataset = deps.textCounts;
+  if (dataset === undefined) return line;
+  // Every message Tex sends in a group, counted once the app took it (`textCounts.ts`).
+  return {
+    ...line,
+    sendText: (place, text, replyTo) => counted(dataset, "group", "text", () => line.sendText(place, text, replyTo)),
+    sendMedia: (place, url, replyTo) => counted(dataset, "group", "media", () => line.sendMedia(place, url, replyTo)),
+  };
 }
 
 function sendblueGroupLine(deps: GroupLineDeps): GroupLine {

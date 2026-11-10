@@ -47,7 +47,7 @@ import { accessSockets } from "./workspaceStore/accessSockets.js";
 import { watchMembers, watchPerson } from "./workspaceStore/accessWatch.js";
 import { createControlPlane } from "./controlPlane/index.js";
 import { isTexCall, texHost } from "./workspaceStore/texHost.js";
-import { countObjectCall, objectCaller } from "./observability/callCounts.js";
+import { countNoteWrite, countObjectCall, objectCaller } from "./observability/callCounts.js";
 import { mirrorOutbox } from "./workspaceStore/mirrorOutbox.js";
 import { flushMirror } from "./workspaceStore/mirrorFlush.js";
 import { indexBuilder } from "./workspaceStore/indexBuild.js";
@@ -103,7 +103,8 @@ export class WorkspaceStore {
   ready() {
     if (this.store !== null) return this.store;
     const sql = this.state.storage.sql;
-    const objects = texObjects(sql);
+    // Each note saved here counted as created or edited, by its id (`observability/callCounts.js`), for tex.lc/admin.
+    const objects = texObjects(sql, { onPut: (key, change) => countNoteWrite(this.env, this.state.id?.toString?.(), key, change) });
     const rows = workspaceRows(sql);
     const log = (event, fields) => console.log(JSON.stringify({ event, ...fields }));
     const store = {
