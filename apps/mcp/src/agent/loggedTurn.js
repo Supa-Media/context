@@ -97,7 +97,7 @@ export async function turnHistory(store, session, body, { runner, group, dispatc
 }
 
 /** The log's history and question for a turn that names what it covers, or null for today's turn. */
-export async function loggedTurn(store, body, { group = null, timeZone = "UTC", warm = null, record = null, ledger = null, grant = null } = {}) {
+export async function loggedTurn(store, body, { group = null, timeZone = "UTC", warm = null, record = null, ledger = null, grant = null, home = null } = {}) {
   const covers = body?.covers;
   if (!Array.isArray(covers) || covers.length === 0 || covers.length > MAX_COVERS || !covers.every((id) => typeof id === "string" && EVENT_ID.test(id))) return null;
   if (!isChatKey(body.chat)) return null;
@@ -122,7 +122,7 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   if (question === "") return null;
   // A group is shown its whole log, whoever has joined or left since (the owner, 2026-11-02): no cut by the people a text was said in front of.
   // The stretch's earlier turns, carried as messages with their tool calls and results (`stretch.js`), and left out of the rendered log.
-  const carried = await carriedStretch(read, covered, group, grant);
+  const carried = await carriedStretch(read, covered, group, grant, home);
   const before = (event) => carried.since === null || event.at < carried.since;
   const shown = events.filter((event) => !wanted.has(event.id));
   // Days are aged from the newest text it answers: that day and the one before whole, older ones faded (`faded`).
@@ -164,7 +164,7 @@ export function turnReads(store, session, body, { runner, group, dispatch, warm,
   const started = job ? null : chatLedger(store, session);
   // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
   const ledger = started === null ? null : time.ledger(() => started);
-  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: session?.grantId ?? null }))]);
+  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: session?.grantId ?? null, home: session?.setupReach?.chatHome ? { folder: session.setupReach.chatHome, slug: session.setupReach.slug } : null }))]);
 }
 
 /** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */
@@ -180,14 +180,14 @@ function chatLedger(store, session) {
  * The chat's current stretch (`stretch.js`): when it began and its earlier turns as history, each answer with the
  * calls it made, read whole (the turn's own read is slim). None after an hour quiet, or when the ledger can't be read.
  */
-async function carriedStretch(read, covered, group, grant) {
+async function carriedStretch(read, covered, group, grant, home) {
   const none = { since: null, turns: [] };
   const since = stretchSince(read?.entries);
   if (since === null || typeof read?.ledger?.read !== "function") return none;
   try {
     const tools = (await read.ledger.read(read.chat, { kinds: ["tool"], since, limit: MAX_CARRIED_CALLS }))?.entries ?? [];
     const askedNow = [...new Set(covered.filter((event) => event.from?.kind === "person").map((event) => event.from?.who ?? event.from?.name ?? ""))];
-    const turns = stretchTurns(read.entries, tools, { since, covered: new Set(covered.map((event) => event.id)), group: group !== null, asker: askedNow.length === 1 ? askedNow[0] : null, grant, ...(group !== null ? { question: groupQuestion } : {}) });
+    const turns = stretchTurns(read.entries, tools, { since, covered: new Set(covered.map((event) => event.id)), group: group !== null, asker: askedNow.length === 1 ? askedNow[0] : null, grant, home, ...(group !== null ? { question: groupQuestion } : {}) });
     return turns.length === 0 ? none : { since, turns };
   } catch (error) {
     console.log(JSON.stringify({ event: "tex_stretch_unread", reason: String(error?.name ?? "error").slice(0, 40) }));
