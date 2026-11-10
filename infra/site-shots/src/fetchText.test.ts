@@ -242,7 +242,7 @@ describe("fromMarkdown", () => {
 describe("banners and dates", () => {
   // GitHub's /releases/latest for a release without notes, signed out, trimmed
   // (2026-11-10). Its session banner alone passed the threshold.
-  const RELEASE = readFileSync(new URL("./fixtures/github-release-no-notes.html", import.meta.url), "utf8");
+  const RELEASE = readFileSync("src/fixtures/github-release-no-notes.html", "utf8");
   const NOTES = `<div><p>${"Notes for this release, with the changes listed in order. ".repeat(5)}</p></div>`;
   const AT = "https://github.com/cli/cli/releases/latest";
 
