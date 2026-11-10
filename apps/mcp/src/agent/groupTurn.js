@@ -544,10 +544,8 @@ export function groupPrompt(group, workspace) {
   if (group.guestChat) return guestPrompt(group, workspace);
   const reach = Array.isArray(group.reach) ? group.reach : [];
   const where = reach.length > 0 ? reach.map((slug) => `@${slug}`).join(" and ") : workspace ? `@${workspace}` : "one shared workspace";
-  const who = group.from ? `${taggerLabel(group)} tagged you` : "Someone tagged you";
   return (
-    `\n\nTHIS IS AN IMESSAGE GROUP CHAT. ${who}, and everyone in the chat reads your answer. ` +
-    (group.guestTagger ? INVITED_TAGGER_LINE : "") +
+    "\n\nTHIS IS AN IMESSAGE GROUP CHAT. Someone tagged you (who is said with each text), and everyone in the chat reads your answer. " +
     (reach.length > 0
       ? `You can read only ${where}, the shared ${reach.length === 1 ? "workspace" : "workspaces"} every person here is a member of, and only what the whole team can see; ` +
         `where a person here can only read, so can you. Name the one you mean with context: "@${reach[0]}"` +
@@ -583,6 +581,12 @@ export function groupPrompt(group, workspace) {
     playbookPrompt(group) +
     voicePrompt(group)
   );
+}
+
+/** Who tagged Tex this time, said in their turn (`turnPrompt.js` preamble), never the cached system prompt: it changes with the tagger. */
+export function taggedLine(group) {
+  if (group.guestChat) return group.from ? `@${group.from} tagged you.` : "A guest in this chat tagged you.";
+  return (group.from ? `${taggerLabel(group)} tagged you.` : "Someone tagged you.") + (group.guestTagger ? ` ${INVITED_TAGGER_LINE.trim()}` : "");
 }
 
 /** Where the chat's memory is kept, for the prompt: its home's page, or with the chat until it has a home (`groupMemoryCarry.js`). */

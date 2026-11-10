@@ -39,11 +39,10 @@ export function isGuestChat(session) {
 /** What a chat's turn is told, after the built-in words. `group.home` is the chat's home, or null. */
 export function guestPrompt(group, workspace) {
   const where = workspace ? `@${workspace}` : "one workspace";
-  const who = group.from ? `@${group.from} tagged you` : "A guest in this chat tagged you";
   const folder = group.home ? `${group.home.folder}/` : "this chat's folder";
   const members = group.people.length > 0 ? group.people.map((handle) => `@${handle}`).join(", ") : "nobody";
   return (
-    `\n\nTHIS IS AN IMESSAGE GROUP CHAT WITH PEOPLE WHO AREN'T ALL ON CONTEXT. ${who}, and everyone in the chat reads your answer. ` +
+    `\n\nTHIS IS AN IMESSAGE GROUP CHAT WITH PEOPLE WHO AREN'T ALL ON CONTEXT. Someone tagged you (who is said with each text), and everyone in the chat reads your answer. ` +
     "Some people here aren't on Context; they can ask you for things like anyone else. " +
     `You can read only what is shared with this chat in ${where}: its folder ${folder} and whatever someone shared with the chat. ` +
     "Nothing else there exists for you, so never guess at it; someone can share a note with the chat for you to read. " +

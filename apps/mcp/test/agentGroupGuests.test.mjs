@@ -124,7 +124,8 @@ test("a guest chat reads only what is shared with the chat, and is told so", asy
   assert.doesNotMatch(budget, /BUDGET-MARKER/, "a note not shared with the chat doesn't exist for it");
   const system = JSON.stringify(world.model.requests[0].system);
   assert.match(system, /PEOPLE WHO AREN'T ALL ON CONTEXT/);
-  assert.match(system, /A guest in this chat tagged you/);
+  assert.doesNotMatch(system, /A guest in this chat tagged you/, "who tagged is per text, never in the cached system prompt");
+  assert.match(JSON.stringify(world.model.requests[0].messages), /A guest in this chat tagged you/);
 });
 
 test("a note shared to view is read, never changed; the chat's folder is written; nothing is published or moved out", async () => {

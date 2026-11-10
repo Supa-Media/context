@@ -63,7 +63,7 @@ test("an invited person's tag reads the whole workspace and is told sends go fro
   const system = JSON.stringify(world.model.requests[0].system);
   assert.match(system, /THIS IS AN IMESSAGE GROUP CHAT/);
   assert.doesNotMatch(system, /WITH GUESTS/);
-  assert.match(system, /invited to this workspace and not on Context yet/);
+  assert.match(JSON.stringify(world.model.requests[0].messages), /invited to this workspace and not on Context yet/, "said with the text that tagged, not in the cached system prompt");
 });
 
 test("an invited person's email goes only from a member, on that member's yes", async () => {

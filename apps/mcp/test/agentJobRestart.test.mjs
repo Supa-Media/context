@@ -37,7 +37,7 @@ const DONE = job("Trip plan", "done");
 test("restart with no titles picks up every job that stopped, in one call, and the turn ends at once", async () => {
   const background = backgroundSession({ running: [A16Z, YC, TOLL, DONE], job: null, now: NOW });
   assert.ok(background.tools.some((tool) => tool.name === RESTART_JOB_TOOL));
-  assert.match(background.prompt, /a call to send with action restart_job, all of them in one call/);
+  assert.match(background.runningNow, /a call to send with action restart_job, all of them in one call/);
   const dispatch = withBackground(background, async () => ({ content: [] }));
   assert.match(words(await dispatch(RESTART_JOB_TOOL, {})), /Picking "a16z Speedrun application", "Y Combinator application", "Total toll charges paid" back up/);
   assert.equal(
@@ -78,8 +78,12 @@ test("no more than three run at once, counting the ones picked up", async () => 
   assert.deepEqual(startedJobs(full, false), {});
 });
 
-test("nothing to restart: no tool offered, and a job's own turn never gets it", () => {
-  assert.ok(!backgroundSession({ running: [job("Logo", "running"), DONE], job: null, now: NOW }).tools.some((tool) => tool.name === RESTART_JOB_TOOL));
+test("nothing to restart: offered but refused in code, and a job's own turn never gets it", async () => {
+  const none = backgroundSession({ running: [job("Logo", "running"), DONE], job: null, now: NOW });
+  assert.ok(none.tools.some((tool) => tool.name === RESTART_JOB_TOOL), "offered every text, so the cached tool list never changes");
+  const refused = await withBackground(none, async () => ({ content: [] }))(RESTART_JOB_TOOL, {});
+  assert.equal(refused.isError, true);
+  assert.match(words(refused), /No background job stopped before finishing/);
   assert.deepEqual(backgroundSession({ running: [A16Z], job: { id: "job-x-0001", title: "x" }, now: NOW }).tools, []);
 });
 
