@@ -89,8 +89,20 @@ wide card of its title and drawing
 - *Let the frame write the note.* Any page could rewrite its own front matter,
   comments or another note.
 
-**Not built yet.** The native app opens a page as text (`PageView.tsx`); the
-page view is the web app's. Publishing a page as a website page.
+**On a phone** (owner, 2026-11-10: pages should "open up seamlessly"), the
+app draws a page in a web view with the same runtime (`PageView.tsx`), loaded
+from the console's own origin and never the sites domain, whose other paths
+are a customer's website. A web view has no parent frame to check, so the
+view puts a random key in the page's main frame before it runs; the runtime
+deletes it from `window` and signs every message with it, and the app drops
+anything unsigned. A box frame may reach the bridge (Android gives it to
+every frame) but never the key, and only the app can call the runtime's
+`__contextPageFromApp`. What a signed message asks then goes through the same
+`answerPage` checks as on web. The view loads that page and its box page and
+nothing else; links open outside it. Offline, the page shows as its
+Markdown. Tests: `apps/mobile/__tests__/pageNative.test.ts`.
+
+**Not built yet.** Publishing a page as a website page.
 
 **Tests that fail if it is reversed.** `apps/mobile/__tests__/pageHost.test.ts`
 (messages, stale copies, edit ranges, frame address order);

@@ -53,8 +53,26 @@ function fromParent(event) {
   return event.source === window.parent && event.data && event.data.channel === CHANNEL;
 }
 
+/*
+  The phone app (react-native-webview) shows this page as the whole document,
+  not as a frame, so there is no parent to talk to. Before any of this page
+  runs, the app puts a key in it (`PageView.tsx`, main frame only), and every
+  message this page sends carries the key. A ```box frame may see the bridge
+  (Android hands it to every frame) but never the key, so it can't speak for
+  the page; and only the app can call `__contextPageFromApp`, because a box is
+  another origin.
+*/
+const appKey = typeof window.__contextPageKey === "string" && window.__contextPageKey.length >= 32 ? window.__contextPageKey : null;
+const bridge = appKey !== null && window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === "function" ? window.ReactNativeWebView : null;
+try {
+  delete window.__contextPageKey;
+} catch {
+  window.__contextPageKey = undefined;
+}
+
 function tell(message) {
-  window.parent.postMessage({ channel: CHANNEL, ...message }, "*");
+  if (bridge) bridge.postMessage(JSON.stringify({ channel: CHANNEL, key: appKey, ...message }));
+  else window.parent.postMessage({ channel: CHANNEL, ...message }, "*");
 }
 
 /* ------------------------------- drawing -------------------------------- */
@@ -318,31 +336,41 @@ function mountBox(slot, node) {
   boxFrames.set(frame.contentWindow, { frame, node, slot });
 }
 
-window.addEventListener("message", (event) => {
-  if (fromParent(event)) {
-    const message = event.data;
-    if (message.type === "render" && typeof message.source === "string") {
-      const next = {
-        source: message.source,
-        dark: message.dark === true,
-        editable: message.editable === true,
-        canComment: message.canComment === true,
-        me: typeof message.me === "string" ? message.me.slice(0, 60) : null,
-      };
-      // The app's floating chrome over the page's top, in pixels: a cover with no photo starts its words below it (`css.cjs`).
-      const inset = Number.isFinite(message.inset) ? Math.max(0, Math.min(200, Math.round(message.inset))) : 0;
-      document.documentElement.style.setProperty("--pg-top", `${inset}px`);
-      if (editing() && state.source !== "") {
-        pending = next;
-        return;
-      }
-      state = next;
-      draw();
-    } else if (message.type === "image" && typeof message.src === "string") {
-      const data = typeof message.data === "string" && /^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,/.test(message.data) ? message.data : null;
-      images.set(message.src, data);
-      for (const img of root.querySelectorAll("img[data-src]")) if (img.dataset.src === message.src && data) img.src = data;
+/** What the app said: draw this note, or here is a picture it asked for. */
+function fromApp(message) {
+  if (message.type === "render" && typeof message.source === "string") {
+    const next = {
+      source: message.source,
+      dark: message.dark === true,
+      editable: message.editable === true,
+      canComment: message.canComment === true,
+      me: typeof message.me === "string" ? message.me.slice(0, 60) : null,
+    };
+    // The app's floating chrome over the page's top, in pixels: a cover with no photo starts its words below it (`css.cjs`).
+    const inset = Number.isFinite(message.inset) ? Math.max(0, Math.min(200, Math.round(message.inset))) : 0;
+    document.documentElement.style.setProperty("--pg-top", `${inset}px`);
+    if (editing() && state.source !== "") {
+      pending = next;
+      return;
     }
+    state = next;
+    draw();
+  } else if (message.type === "image" && typeof message.src === "string") {
+    const data = typeof message.data === "string" && /^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,/.test(message.data) ? message.data : null;
+    images.set(message.src, data);
+    for (const img of root.querySelectorAll("img[data-src]")) if (img.dataset.src === message.src && data) img.src = data;
+  }
+}
+
+if (bridge) {
+  window.__contextPageFromApp = (message) => {
+    if (message && typeof message === "object" && message.channel === CHANNEL) fromApp(message);
+  };
+}
+
+window.addEventListener("message", (event) => {
+  if (!bridge && fromParent(event)) {
+    fromApp(event.data);
     return;
   }
   const box = boxFrames.get(event.source);

@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useScheme } from "../../../design/theme";
-import { webUrl } from "../webUrl";
-import { dialUrl } from "./pageHost";
+import { answerPage } from "./pageAnswer";
 import type { PageViewProps } from "./props";
-import { PAGE_CHANNEL, pageChange, pageFrameUrls, readPageMessage } from "./pageHost";
+import { PAGE_CHANNEL, pageFrameUrls, readPageMessage } from "./pageHost";
 
 /** How long the sites-domain copy of the runtime has to say it is alive before the deployment's own copy is used. */
 const READY_TIMEOUT_MS = 8_000;
@@ -77,38 +76,20 @@ export function PageView({ source, editable, author, onEdit, onOpenNote, onLoadI
       if (frame.current === null || event.source !== frame.current.contentWindow) return;
       const message = readPageMessage(event.data);
       if (message === null) return;
-      const now = latest.current;
-      switch (message.type) {
-        case "ready":
+      answerPage(message, latest.current, shown.current ?? "", {
+        post,
+        render,
+        height: setHeight,
+        ready: () => {
           ready.current = true;
           render();
-          return;
-        case "height":
-          setHeight(Math.max(120, message.height));
-          return;
-        case "open":
+        },
+        open: (href, kind) => {
           if (typeof window === "undefined") return;
-          if (webUrl(message.href) === message.href) window.open(message.href, "_blank", "noopener,noreferrer");
-          // A contact's Call and Text buttons: handed to the phone or the system, which never leaves the page.
-          else if (dialUrl(message.href) === message.href) window.location.assign(message.href);
-          return;
-        case "note":
-          now.onOpenNote?.(message.target);
-          return;
-        case "image":
-          void now.onLoadImage?.(message.src).then(
-            (data) => post({ type: "image", src: message.src, data }),
-            () => post({ type: "image", src: message.src, data: null }),
-          );
-          return;
-        default: {
-          if (!now.editable || now.onEdit === undefined) return;
-          const seen = shown.current ?? "";
-          const error = now.onEdit((current) => pageChange(current, seen, message, now.author) ?? { text: current });
-          // Refused or stale: draw the note as it is now, so the reader sees what it holds.
-          if (error !== null) render();
-        }
-      }
+          if (kind === "web") window.open(href, "_blank", "noopener,noreferrer");
+          else window.location.assign(href);
+        },
+      });
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
