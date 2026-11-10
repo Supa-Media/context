@@ -75,6 +75,7 @@ export const DASHBOARD_CSS = `
 .td-alert.crit{background:${C.badWash}}
 .td-alert.crit>span{color:${C.bad}}
 .td-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.td-date{border:1.5px solid ${C.hair};background:#fff;border-radius:999px;padding:0 14px;height:36px;font:500 14px var(--sans);color:${C.ink}}
 .td-select{position:relative}
 .td-select>button,.td-select select{appearance:none;-webkit-appearance:none;border:1.5px solid ${C.hair};background-color:#fff;border-radius:999px;padding:0 32px 0 14px;height:36px;font:500 14px var(--sans);color:${C.ink};cursor:pointer;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background-image:linear-gradient(45deg,transparent 50%,${C.ink3} 50%),linear-gradient(135deg,${C.ink3} 50%,transparent 50%);background-position:calc(100% - 17px) 15px,calc(100% - 12px) 15px;background-size:5px 5px;background-repeat:no-repeat}
 .td-select>button:hover,.td-select select:hover{border-color:${C.ink}}

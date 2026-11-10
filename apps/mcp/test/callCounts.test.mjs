@@ -133,3 +133,33 @@ test("a control-plane call through the door is counted with its caller's label",
   assert.equal(response.status, 200);
   assert.deepEqual(CALL_COUNTS.points, [{ indexes: ["w1"], blobs: ["door", "get", "file:maintainIndex"], doubles: [1] }]);
 });
+
+// Notes created and edited, for tex.lc/admin's basics (`apps/convex/functions/lib/adminFns/texStats.ts`).
+// Sabotage: drop `onPut` from `src/workspaceStore.js`'s `texObjects` call, or the `changed` check in `countNoteWrite`
+// → this test fails.
+test("a workspace object counts a note created, then edited, by its id only, and skips a save of the same text", async () => {
+  const { countNoteWrite } = await import("../src/observability/callCounts.js");
+  const CALL_COUNTS = dataset();
+  const { sql, transact } = durableSqlite();
+  const state = {
+    id: { toString: () => "object-id-2" },
+    storage: { sql, transactionSync: transact, getAlarm: async () => null, setAlarm: async () => {} },
+    getWebSockets: () => [],
+    acceptWebSocket() {},
+    setWebSocketAutoResponse() {},
+  };
+  const object = new WorkspaceStore(state, { CALL_COUNTS });
+  const objects = object.ready().objects;
+  await objects.put("notes/abc-1.md", "# Plan\n");
+  await objects.put("notes/abc-1.md", "# Plan\n");
+  await objects.put("notes/abc-1.md", "# Plan\nmore\n");
+  await objects.put(".context/collaboration/abc-1.bin", "x");
+  assert.deepEqual(CALL_COUNTS.points, [
+    { indexes: ["object-id-2"], blobs: ["note", "created", "abc-1"], doubles: [1] },
+    { indexes: ["object-id-2"], blobs: ["note", "edited", "abc-1"], doubles: [1] },
+  ]);
+  // Never a path or a name, and a binding that throws never fails the write.
+  countNoteWrite({ CALL_COUNTS: { writeDataPoint: () => { throw new Error("full"); } } }, "o", "notes/a.md", { created: true, changed: true });
+  countNoteWrite({ CALL_COUNTS }, "o", "projects/secret plan.md", { created: true, changed: true });
+  assert.equal(CALL_COUNTS.points.length, 2);
+});

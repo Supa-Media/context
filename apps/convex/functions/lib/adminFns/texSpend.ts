@@ -34,8 +34,8 @@ const SPAN_DAYS = 30;
 const KEPT_DAYS = 60;
 
 /** The gateway labels that are Tex's own work; `benchmark` is the test suites, counted apart. */
-const TEX_FEATURES = new Set(["assistant", "image", "self-review", "handback-judge", "handback-miner", "egress-judge", "mail-checker"]);
-const TESTS = "benchmark";
+export const TEX_FEATURES = new Set(["assistant", "image", "self-review", "handback-judge", "handback-miner", "egress-judge", "mail-checker"]);
+export const TESTS = "benchmark";
 
 const QUERY = `query($a:String!,$s:Time!,$e:Time!){viewer{accounts(filter:{accountTag:$a}){
 gw:aiGatewayRequestsAdaptiveGroups(limit:5000,filter:{datetime_geq:$s,datetime_lt:$e}){count sum{cost freshInputTokens cacheReadTokens cacheWriteTokens tokensOut} dimensions{date model feature:metadataValue(key:"feature") job:metadataValue(key:"client")}}

@@ -29,6 +29,7 @@ import { logged } from "./agentError";
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
+import { countInbound, type CountDataset } from "./textCounts";
 import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
 import type { Message } from "./reply";
@@ -69,7 +70,7 @@ import { noteCardDrawer } from "./noteCards";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 import type { TimingDataset } from "./textTiming";
-import { inboxByName, objectById, objectByName } from "./objectPlace";
+import { inboxByName, inboxIdOf, objectById, objectByName } from "./objectPlace";
 import { movedAlarm, placeGate, type MoveStorage } from "./inboxMove";
 export { GroupTurnWorkflow } from "./groupTurnWorkflow";
 export { JobRunWorkflow } from "./jobWorkflow";
@@ -107,6 +108,8 @@ export interface Env {
   IMAGES?: ImagesBinding;
   /** Each answered text's wait, arrival to first bubble (`textTiming.ts`); absent when self-hosting. */
   TEX_TEXTS?: TimingDataset;
+  /** Each text in and out, and who texted, for the staff dashboard (`textCounts.ts`); absent when self-hosting. */
+  TEX_COUNTS?: CountDataset;
   /** "on" sends Context cards to every chat, "app" only to chats that have shown the app (`appCards.ts`, `cardChats.ts`). */
   APP_CARDS?: string;
   APP_CARD_EXTENSION_ID?: string;
@@ -513,6 +516,7 @@ export class SenderInbox implements DurableObject {
           whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
           now: () => Date.now(),
           simulator: simulatorEnabled(this.env.SIMULATOR),
+          textCounts: this.env.TEX_COUNTS,
         },
       );
       return Response.json({ status });
@@ -526,6 +530,7 @@ export class SenderInbox implements DurableObject {
         sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
         whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
         now: () => Date.now(),
+        textCounts: this.env.TEX_COUNTS,
       });
       return Response.json({ told });
     }
@@ -537,6 +542,10 @@ export class SenderInbox implements DurableObject {
       await this.keepWhere(sent);
       const message = await heardInGroup(sent, { fetch: (input, init) => fetch(input, init), gateway: this.env.GATEWAY_TEXTS });
       const outcome = await acceptGroup(this.state.storage, message, Date.now());
+      // Counted under the sender's own inbox id, so one person is one person in a group and 1:1 (`textCounts.ts`).
+      if ((outcome === "kept" || outcome === "queued") && message.routine === undefined && !message.reaction) {
+        countInbound(this.env.TEX_COUNTS, "group", outcome === "queued" ? "for_tex" : "heard", inboxIdOf(this.env.SENDER_INBOX, message.from));
+      }
       // What the chat just said goes to its ledger now, not at Tex's next turn, so its history keeps up (`chatRead.ts`).
       if (outcome === "kept" || outcome === "queued") this.handOff(flushWithReader(this.state.storage, message.groupId, () => Date.now()));
       // The group-typing experiment: ask Whapi for this group's presences once a day (`whapi.ts`); never blocks a message.
@@ -590,6 +599,7 @@ export class SenderInbox implements DurableObject {
     await this.keepOrigin(request);
     const message = (await request.json()) as Message;
     const outcome = await accept(this.state.storage, message, Date.now());
+    if (outcome === "queued" && message.channel !== "simulator" && !message.tapback) countInbound(this.env.TEX_COUNTS, "one", "text", inboxIdOf(this.env.SENDER_INBOX, message.from));
     return Response.json({ outcome });
   }
 
@@ -664,6 +674,7 @@ export class SenderInbox implements DurableObject {
       appCard: appCardConfig(this.env),
       waitUntil: (promise) => this.handOff(promise),
       textTiming: this.env.TEX_TEXTS,
+      textCounts: this.env.TEX_COUNTS,
       ...(this.env.GATEWAY_TEXTS ? { texts: textsSessionDeps(this.env.GATEWAY_TEXTS, this.state.storage) } : {}),
       noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
       hostPicture: async (picture: Picture) =>

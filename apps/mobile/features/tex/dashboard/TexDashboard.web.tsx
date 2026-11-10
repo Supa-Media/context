@@ -19,6 +19,7 @@ import { useAction, useQuery } from "convex/react";
 import { Tex } from "../../chaos/Tex";
 import { api } from "@context/convex/_generated/api";
 import { DASHBOARD_CSS } from "./dashboardCss";
+import { BasicsPanel } from "./DashboardBasics.web";
 import { useTriageDesk } from "./useTriageDesk";
 import { BugsPanel, NoteReader } from "./DashboardBugs.web";
 import { DashboardExplore } from "./DashboardExplore.web";
@@ -93,6 +94,7 @@ export function TexDashboard() {
             </div>
           </header>
           <main className="td-body">
+            <BasicsPanel enabled={isAdmin === true} />
             {report === undefined || report === null ? (
               <section className="td-card" aria-busy>
                 <p className="td-empty">Loading…</p>
