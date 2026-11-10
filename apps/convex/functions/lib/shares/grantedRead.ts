@@ -45,6 +45,7 @@ import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { parseFormBlocks } from "../../../../mcp/src/forms.js";
 import { personalNameFor } from "../filesFns/access";
+import { PERSONAL_HISTORY_FILE, takesOwnVisibility } from "../filesFns/visibility";
 import type { OperationResult } from "../filesFns/operationTypes";
 import { authorizeGrant, visibleGrantedPaths } from "../grants/outsider";
 import { grantFormRefused, notAuthenticated, shareUnavailable } from "./errors";
@@ -143,7 +144,7 @@ export async function visibleGrantedPathsHandler(
   return await visibleGrantedPaths(ctx, args);
 }
 
-/** Read one granted note. A folder, or anything that is not markdown, is refused. */
+/** Read one granted note, or a granted Tex history file. A folder, or any other file that is not markdown, is refused. */
 export async function readGrantedNoteHandler(
   ctx: ActionCtx,
   args: ObjectType<typeof readGrantedNoteArgs>,
@@ -155,14 +156,18 @@ export async function readGrantedNoteHandler(
     ...(args.noteId === undefined ? {} : { noteId: args.noteId }),
     ...(args.path === undefined ? {} : { path: args.path }),
   });
-  if (grant === null || grant.kind !== "file" || !grant.path.toLowerCase().endsWith(".md")) {
+  // A note, or the person's own Tex history file, the one other file a row may be shared by (`takesOwnVisibility`).
+  if (grant === null || grant.kind !== "file" || !takesOwnVisibility(grant.path)) {
     throw shareUnavailable();
   }
+  // The history file is the chat's ledger as JSON, read only: never written through a grant, and nothing in it is a
+  // Markdown comment to strip.
+  const history = grant.path === PERSONAL_HISTORY_FILE;
   // Scope `team` with the caller's names: the one path `authorizeGrant` has just decided, and no other.
   const note = await readThroughShare(ctx, args.workspaceId, grant.path, userId, false, "team", grant.names, {
-    keepComments: grant.canEdit,
+    keepComments: grant.canEdit || history,
   });
-  const canEdit = grant.canEdit && note.editable;
+  const canEdit = grant.canEdit && !history && note.editable;
   return { path: grant.path, text: note.text, canEdit, etag: canEdit ? note.etag : null };
 }
 

@@ -522,4 +522,46 @@ describe("shared with me shots", () => {
       },
     );
   }, 120_000);
+
+  test("08 a Tex history shared by name, open as the chat", async () => {
+    const t = (min: number) => NOW - min * 60_000;
+    const ledger = {
+      manifest: { schema: "context.tex.ledger", version: 1, count: 4, created: t(90), updated: t(5) },
+      view: { shown: 4, older: false },
+      entries: [
+        { id: "h1", kind: "text", at: t(60), from: { kind: "person", name: "Shy Test" }, text: "can you move my dentist appointment to friday afternoon" },
+        { id: "h2", kind: "tool", at: t(59), name: "calendar_update", ok: true, ms: 840 },
+        { id: "h3", kind: "text", at: t(58), from: { kind: "tex" }, text: "Done, it is Friday at 3:30 PM now. I left the reminder the day before." },
+        { id: "h4", kind: "text", at: t(5), from: { kind: "person", name: "Shy Test" }, text: "thanks!" },
+      ],
+    };
+    const item = grant("n-history", {
+      title: "Tex history",
+      entryPath: "tex/history.ledger.json",
+      itemKind: "file",
+      sharedBy: "user-shytest",
+      sharedByHandle: "shytest",
+      sharedByName: null,
+      createdAt: NOW - HOUR,
+    }) as never;
+    await board(
+      "08-shared-history",
+      (viewport) =>
+        shell(
+          createElement(SharedGrantView, {
+            target: { workspaceId: GRANT_WORKSPACE, ref: { by: "id" as const, noteId: "n-history" }, folder: false },
+            item,
+            phone: viewport.name === "phone",
+            now: NOW,
+            onList: () => {},
+            onGo: () => {},
+          }),
+          sidebarFor(grantItemKey(GRANT_WORKSPACE, "n-history")),
+          viewport,
+        ),
+      {
+        readGrantedNote: async () => ({ path: "tex/history.ledger.json", text: JSON.stringify(ledger), canEdit: false, etag: null }),
+      },
+    );
+  }, 120_000);
 });

@@ -15,6 +15,7 @@ import { v, type Infer } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { outsiderGrantsFor } from "../grants/outsider";
+import { PERSONAL_HISTORY_FILE } from "../filesFns/visibility";
 import { handleForUser } from "../identities";
 import { sharerName, titleFromProps, type TitleAsk } from "./inboxTitle";
 
@@ -46,8 +47,10 @@ export function itemKey(workspaceId: Id<"workspaces">, path: string): string {
   return `${workspaceId}\u0000${path}`;
 }
 
-/** A path's last segment, without `.md`: what a note is called when it has no title. */
+/** A path's last segment, without `.md`: what a note is called when it has no title. The Tex history file is "Tex history". */
 export function fallbackTitle(path: string, kind: "file" | "folder"): string {
+  // The person's own chat with Tex, shared by name (`PERSONAL_HISTORY_FILE`): called what it is, never its file name.
+  if (kind === "file" && path === PERSONAL_HISTORY_FILE) return "Tex history";
   const name = path.slice(path.lastIndexOf("/") + 1);
   return kind === "file" ? name.replace(/\.md$/i, "") : name;
 }

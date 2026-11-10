@@ -12,6 +12,7 @@ import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { baseName, displayName } from "../files/paths";
 import { SharedNoteShown, type Loaded } from "./SharedNoteView";
+import { SHARED_HISTORY_PATH, SharedHistoryView } from "./SharedHistoryView";
 import { grantQuery, type GrantTarget } from "./sharedGrant";
 import { useGrantEditor, type EditableNote } from "./useGrantEditor";
 import { itemTitle, SHARED_HREF, type SharedItem } from "./sharedInbox";
@@ -99,6 +100,11 @@ function GrantedNote({
   }, [read, workspaceId, by, ref]);
 
   const editing = useGrantEditor(workspaceId, editable);
+
+  // Someone's Tex history, shared by name: drawn as their chat with Tex, never as the file's text.
+  if (loaded.kind === "note" && loaded.path === SHARED_HISTORY_PATH) {
+    return <SharedHistoryView text={loaded.text} item={item} phone={phone} onList={onList} />;
+  }
 
   return (
     <SharedNoteShown

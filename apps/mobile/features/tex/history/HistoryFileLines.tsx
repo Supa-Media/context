@@ -38,6 +38,7 @@ export function HistoryFileLines({
   phone = false,
   initial,
   look,
+  live = true,
   testID = "history-file-lines",
 }: {
   source: TexPageSource;
@@ -53,10 +54,12 @@ export function HistoryFileLines({
   initial?: HistoryChoice;
   /** How each line is drawn; by default the file's, or the phone's on a phone. */
   look?: Look;
+  /** New lines as the chat goes on; off for a copy that does not move (a history shared with you, `SharedHistoryView`). */
+  live?: boolean;
   testID?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const history = useHistoryRead({ source, chat, group, live: true, initial, timing: useSeesTurnTiming() });
+  const history = useHistoryRead({ source, chat, group, live, initial, timing: useSeesTurnTiming() });
   const scroller = useRef<ScrollView>(null);
   // At the newest line until the reader scrolls up: then new lines and a filter's answer leave them where they are.
   const atEnd = useRef(true);
@@ -134,7 +137,7 @@ export function HistoryFileLines({
           <View style={styles.upToDate} testID="history-file-up-to-date">
             <View style={styles.dot} />
             <T size={12} tone="muted">
-              Up to date · new lines appear here
+              {live ? "Up to date · new lines appear here" : "The chat as it was when you opened it"}
             </T>
           </View>
         ) : null}
