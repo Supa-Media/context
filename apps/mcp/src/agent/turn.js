@@ -32,6 +32,7 @@
  * engine decides, rather than being handed something the clamp never saw.
  */
 
+import { datedTurns, stamped } from "./localNow.js";
 import { attachmentsLine } from "./attachments.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, liveTurn, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError, THINKING_REFUSED } from "./providers.js";
@@ -350,7 +351,8 @@ export async function runTurn(options) {
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
-  const messages = [...history.map(({ role, text }) => ({ role, text })), questionMessage];
+  // Each of their earlier texts with its day and time, so "today" in one is that day's (Dev2, 2026-11-10; `localNow.js` `stamped`).
+  const messages = [...datedTurns(history).map(({ turn: { role, text }, at }) => ({ role, text: role === "user" ? stamped(text, at, localNow?.timeZone ?? null) : text })), questionMessage];
   /*
     What the turn did, by name only. The arguments a tool was called with can
     carry a path and a query — facts about what somebody is looking for in their

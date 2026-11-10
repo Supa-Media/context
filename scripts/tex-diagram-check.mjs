@@ -39,8 +39,8 @@ const NAMED_FOLDERS = ["apps/mcp/src", "apps/agent/src", "apps/convex/functions/
 const MODEL_ID = /["'`](?:anthropic\/claude-[a-z0-9.-]+|@cf\/[a-z0-9._-]+\/[a-z0-9._-]+|gemini-[a-z0-9.-]+)["'`]/;
 /** Where a Tex agent's prompt is written: each file here that gives a model a system prompt puts the drawing ahead of it (`texArchitecture.js`). */
 const AGENT_FOLDER = "apps/mcp/src/agent";
-/** Files that carry a system prompt without writing one: the transport, the turn that sends runTheModel's prompt, and a card template's field named system. */
-const PROMPT_CARRIERS = new Set(["aiGateway.js", "builtin.js", "turn.js", "turnPrompt.js", "visuals/index.js", "texArchitecture.js"]);
+/** Files that carry a system prompt without writing one: the transport, the day told at its door (`withToday`), the turn that sends runTheModel's prompt, and a card template's field named system. */
+const PROMPT_CARRIERS = new Set(["aiGateway.js", "builtin.js", "turn.js", "turnPrompt.js", "visuals/index.js", "texArchitecture.js", "localNow.js"]);
 const GIVES_A_PROMPT = /\bsystem:\s*(?!\[)/;
 const WITH_MAP = /\b(?:withArchitecture|architectureFor)\(/;
 const UNCHANGED = /^\s*Tex diagram: unchanged because \S.{3,}/im;

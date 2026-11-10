@@ -20,6 +20,7 @@
 
 import { ProviderError, openAiMessages, openAiTools, readChatCompletion, parseArguments } from "./providers.js";
 import { aiGatewayConfig, gatewayMetadata, isGatewayModel, requestViaGateway } from "./aiGateway.js";
+import { withToday } from "./localNow.js";
 
 /** The provider name a built-in turn carries through the loop and the response. */
 export const BUILTIN_PROVIDER = "builtin";
@@ -129,7 +130,9 @@ export function liveTurn(prompt, messages) {
  *   for a gateway model: the gateway (`aiGatewayConfig`) and the labels its
  *   cost is filed under
  */
-export async function requestBuiltin({ model, system, messages, tools, effort, display, cachedThrough }, ai, options = {}) {
+export async function requestBuiltin(asked, ai, options = {}) {
+  // Every model told the day, whichever agent asks (`localNow.js` `withToday`); the gateway's door does the same.
+  const { model, system, messages, tools, effort, display, cachedThrough } = withToday(asked, { timeZone: options.timeZone ?? null });
   if (isGatewayModel(model)) {
     return await requestViaGateway({ model, system, messages, tools, effort, display, cachedThrough }, options.gateway ?? null, options);
   }

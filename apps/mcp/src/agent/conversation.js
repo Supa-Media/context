@@ -25,6 +25,7 @@
  */
 
 import { eventKey, idOfKey, newExchange } from "./events.js";
+import { datedTurns, stamped } from "./localNow.js";
 import { readLedgerConversation } from "./ledgerConversation.js";
 import { ONE_TO_ONE_CHAT, ledgerWriter, wordsEntry } from "./ledger.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isNoteSource, isReadSource, sourcesOf } from "./sources.js";
@@ -194,13 +195,13 @@ export const EARLIER_TEXTS_DEFINITION = {
  */
 export function earlierTextsResult(history) {
   if (history.length === 0) return { content: [{ type: "text", text: "There are no earlier texts." }] };
-  const lines = history.map((turn) => {
+  const lines = datedTurns(history).map(({ turn, at }) => {
     const read = turn.role === "assistant" ? sourcesOf(turn.sources) : [];
     const notes = read.filter(isNoteSource);
     const looked = read.filter(isReadSource);
     const pages = read.filter((source) => !isNoteSource(source) && !isReadSource(source));
     return [
-      `${turn.role === "user" ? "They" : "You"}: ${turn.text}`,
+      stamped(`${turn.role === "user" ? "They" : "You"}: ${turn.text}`, at, null), // with its day (`localNow.js`)
       ...(pages.length > 0 ? [`(Web pages you read for this: ${pages.join(", ")})`] : []),
       ...(notes.length > 0 ? [`(Notes you wrote for this: ${notes.map((note) => note.slice(NOTE_SOURCE_PREFIX.length)).join(", ")})`] : []),
       ...(looked.length > 0 ? [`(Notes you read for this: ${looked.map((note) => note.slice(READ_SOURCE_PREFIX.length)).join(", ")})`] : []),

@@ -37,6 +37,8 @@
 
 import { CONTACTS_FOLDER, asInboxKey } from "../../../../packages/communications/src/protocol.js";
 import { readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
+import { CHECK_IN_QUESTION, RECENT_TEXTS_SHOWN, checkInAbout, continuesFrom, lastThinking, recentTexts } from "./checkInTexts.js";
+export { CHECK_IN_QUESTION, checkInAbout, continuesFrom, isCheckInLine, lastThinking, recentTextLines, recentTexts } from "./checkInTexts.js";
 import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH, HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 import { deliverAttention } from "./attention.js";
 import { quietHoursEnd, readSettings } from "./quietHours.js";
@@ -103,10 +105,6 @@ const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeepi
 const OWN_NOTES = new Set([ABOUT_ME_PATH, OLD_ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
 
 export { HEARTBEAT_READS };
-
-/** The words a check-in's text is kept under in the texting conversation, in place of a question. */
-export const CHECK_IN_QUESTION =
-  "(Not a text from them. This was your own check-in: you looked through their workspace on your own and texted them what follows.)";
 
 /** Today's log: `tex/heartbeat/2026-10-17.md`, dated in their zone. */
 export function heartbeatPath(now, timeZone) {
@@ -250,61 +248,6 @@ export const HEARTBEAT_INSTRUCTIONS = [
  * What the check-in is asked to do: the setup's words (`instructions`) or the
  * built-in ones, then this look's facts, then the one answer the gateway reads.
  */
-/** How many of the last texts with them a look is shown, and how much of each. */
-const RECENT_TEXTS_SHOWN = 10;
-const RECENT_TEXT_CHARS = 400;
-
-/**
- * The last texts with them (the `texts` conversation the texting assistant
- * answers from), as a look reads them: their words, and yours, with your own
- * check-ins marked. Dev, 2026-10-19, nudged at 3:02 pm about a hold Tex had
- * flagged at 1:12 and talked through with them at 1:23: "does it not check?
- * ... why isn't there continuity in the chat".
- */
-export function recentTextLines(history) {
-  return recentTexts(history).map((shown) => shown.line);
-}
-
-/**
- * The same last texts, each with its line as shown (numbered from 1, so the
- * look can say which one it continues) and the turn's whole text, which goes
- * back to the texting Worker as `continues` so the check-in is sent as a
- * reply under that text in the person's iMessage chat (Dev, 2026-10-19:
- * "even if it should be in the same thread, why isn't there continuity").
- */
-export function recentTexts(history) {
-  const shown = [];
-  const turns = Array.isArray(history) ? history.slice(-RECENT_TEXTS_SHOWN * 2) : [];
-  for (let i = 0; i < turns.length; i += 1) {
-    const turn = turns[i];
-    if (typeof turn?.text !== "string") continue;
-    if (turn.role === "user" && turn.text === CHECK_IN_QUESTION) continue;
-    const checkIn = turn.role === "assistant" && turns[i - 1]?.text === CHECK_IN_QUESTION;
-    const said = turn.text.replace(/\s+/g, " ").trim();
-    const clipped = said.length > RECENT_TEXT_CHARS ? `${said.slice(0, RECENT_TEXT_CHARS - 1)}…` : said;
-    shown.push({ who: turn.role === "user" ? "Them" : checkIn ? "You (a check-in)" : "You", said: clipped, text: turn.text });
-  }
-  return shown.slice(-RECENT_TEXTS_SHOWN).map((item, index) => ({ line: `[${index + 1}] ${item.who}: ${item.said}`, text: item.text }));
-}
-
-/** How a look names the text it continues: `[continues 3]` at the very start of its answer. */
-const CONTINUES_MARKER = /^\s*\[\s*continues\s+(\d{1,3})\s*\]\s*/i;
-/** The Worker matches on a text's opening words, so this much of it is enough. */
-const MAX_CONTINUES_CHARS = 1_000;
-
-/**
- * The look's answer with its `[continues N]` marker taken off (it is never
- * sent, logged or kept), and the whole text of the shown line it names, or
- * null: no marker, or a number that names no shown line.
- */
-export function continuesFrom(answer, recent) {
-  const said = String(answer ?? "");
-  const match = CONTINUES_MARKER.exec(said);
-  if (match === null) return { answer: said, continues: null };
-  const picked = Array.isArray(recent) ? recent[Number(match[1]) - 1] : undefined;
-  return { answer: said.slice(match[0].length), continues: typeof picked?.text === "string" ? picked.text.slice(0, MAX_CONTINUES_CHARS) : null };
-}
-
 export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "", mail = "", sources = "", muted = [] }) {
   const shown = changed.slice(0, MAX_CHANGED_SHOWN);
   const more = changed.length - shown.length;
@@ -322,7 +265,8 @@ export function heartbeatQuestion({ changed, now, texted, recent = [], instructi
       ? `What your check-ins already texted them lately. Never send any of these again, or anything that says the same:\n${texted.map((line) => `- ${line}`).join("\n")}`
       : "",
     recent.length > 0
-      ? "Your last texts with them, oldest first. Anything already said here is not news: never text it again. " +
+      ? "Your last texts with them, oldest first, each with when it was sent in their time. Anything already said here is not news: never text it again. " +
+        "\"Today\", \"tomorrow\" or \"tonight\" in one of them means that text's day, not today: a text that was right on the day it was sent is never a mistake to correct. " +
         "If what you found continues one of these, pick up from where it was left (what they asked, what you offered), never start it over with a new offer, " +
         "and start your answer with [continues N], N being that text's number, so your text goes as a reply under it; the marker is never shown to them.\n" +
         recent.join("\n")
@@ -535,7 +479,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const model = chosen ?? builtinModel(env);
   const meter = builtinMeter(controlPlane, session, model, started);
 
-  const shownRecent = recentTexts(conversation);
+  const shownRecent = recentTexts(conversation, timeZone);
   const question = heartbeatQuestion({
     changed,
     now: started,
@@ -552,7 +496,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   // `reply_judge:` when it has one, else the texting setup's: one switch for every text Tex sends (`replyJudge.js`).
   const reviewing = setup?.replyJudge || (await readProductionSetup(store, session, { texting: true }).catch(() => null))?.replyJudge;
   const judge = reviewing && aiGatewayConfig(env) !== null
-    ? replyJudge({ setting: reviewing, scheduled: "check-in", question, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" } })
+    ? replyJudge({ setting: reviewing, scheduled: "check-in", timeZone, question, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" } })
     : null;
   let turn = null;
   let failure = "other";
@@ -639,7 +583,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
       // Tainted when it was shown mail, an invite, Slack or Chat, or opened one: a stranger's words (`HEARTBEAT_READS`).
-      await appendConversation(store, "texts", CHECK_IN_QUESTION, text, {
+      await appendConversation(store, "texts", checkInAbout({ continues: marked.continues, reason: lastThinking(events), log: logged ? path : null }), text, {
         tainted: mail.length > 0 || calendar !== null || slack.length > 0 || chat.length > 0 || session.egress.ledger.untrusted === true,
         tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
         sources: (turn?.steps ?? []).flatMap((step) => step.sources ?? []), // the notes and emails it read, by name only

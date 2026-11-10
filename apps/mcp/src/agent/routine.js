@@ -27,6 +27,7 @@ import { readMailHealth, routineMailSection } from "./mailHealth.js";
 import { QUIET_WORD, saysQuiet, spokenToThem } from "./checkInGuards.js";
 import { readConversation } from "./conversation.js";
 import { SAY_NOTHING } from "./sayNothing.js";
+import { localStamp } from "./localNow.js";
 
 /** The routine runner's first-party client (`apps/convex`). Decided by the grant. */
 export const ROUTINES_CLIENT_ID = "context_routines";
@@ -118,13 +119,8 @@ export function routineTimeZone(settings, fallback) {
   return isTimeZone(fallback) ? fallback : "UTC";
 }
 
-const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-/** "Sat 2026-10-31 21:00", in their zone: when an earlier text went, so its day words have a day. */
-export function localStamp(ms, timeZone) {
-  const w = wallClock(ms, timeZone);
-  return `${WEEKDAY_SHORT[w.weekday]} ${localTime(ms, timeZone).replace(/ \(.*\)$/, "")}`;
-}
+/** "Sat 2026-10-31 21:00", in their zone (`localNow.js`). */
+export { localStamp };
 
 function localTime(ms, timeZone) {
   const w = wallClock(ms, timeZone);
