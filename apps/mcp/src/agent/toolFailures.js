@@ -100,6 +100,25 @@ export function logToolFailure(failure, { client = null, workspace = null } = {}
   }
 }
 
+/**
+ * `runTurn`'s recorder: each failure pushed onto `list` (the turn's `timing.failures`) and logged
+ * at once, with the model the turn is on when it happened (`model()`).
+ */
+export function failureRecorder(list, providerOptions, model) {
+  const where = { client: providerOptions?.metadata?.client ?? null, workspace: providerOptions?.metadata?.workspace ?? null };
+  return (details) => {
+    const failure = toolFailure({ model: model(), ...details });
+    list.push(failure);
+    logToolFailure(failure, where);
+  };
+}
+
+/** A failed call's cause from what it threw, if anything: a timeout is `timed_out` and its own words are ours, so no error is kept. */
+export function causeOf(thrown, Timeout) {
+  if (thrown instanceof Timeout) return { cause: "timed_out" };
+  return thrown !== null && thrown !== undefined ? { cause: "threw", error: thrown } : { cause: "refused" };
+}
+
 /** A turn's failures as the control plane takes them: the codes and the shaped line, at most `MAX_FAILURES_PER_TURN`. */
 export function wireFailures(failures) {
   if (!Array.isArray(failures)) return [];
