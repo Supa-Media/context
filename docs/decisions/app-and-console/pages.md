@@ -316,3 +316,26 @@ What a "simplification" would cost: drawing the scene in the frame from the
 markup lets a page's own script restyle Tex's ink; sharing ids makes the
 second drawing reuse the first one's roughness and hatch. Tests:
 `apps/mcp/test/pageInkDrawings.test.mjs`.
+
+### Pages start from a template
+
+A page starts from a template: a page whose parts, order and drawing are
+already decided, with gaps for the facts (owner, 2026-11-10: pages "were
+supposed to have templates"). Six are built in
+(`packages/shared/src/pages/templates.cjs`): decision, research brief, plan,
+status, review, and trip or event. The page skill names them, and
+`orient about: "template <name>"` hands one out with the current stamp, so an
+agent decides the facts and not the layout. A gap is `[in brackets]` and an
+unknown `?`; where a block needs a number to draw, the template holds a 0 to
+replace, so every template is itself a page that draws.
+
+A person's own templates come first: `.page.md` notes in `tex/templates/` in
+their personal workspace, and in a shared workspace's `templates/`, which
+everyone there gets. "Keep this as a template" is a copy written there with
+the facts of the one case turned back into gaps. They are ordinary notes, so
+they are edited, shared and exported like any other, and no new store or
+setting holds them.
+
+What a "simplification" would cost: templates the gateway keeps somewhere
+other than notes can't be edited or taken away; templates that don't draw
+teach agents broken blocks. Tests: `apps/mcp/test/pageTemplates.test.mjs`.

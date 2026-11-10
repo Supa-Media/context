@@ -18,10 +18,19 @@
  */
 
 import { BLOCK_KINDS } from "../../../packages/shared/src/pages/blocks.cjs";
+import { templateLines } from "../../../packages/shared/src/pages/templates.cjs";
 
 const DESIGN = `# Page design skill
 
 Read all of this before you write any \`.page.md\`. A page is what people open from a text or a link to decide something or see where things stand. It should look like a real page somebody designed, not a document. You write words and rows of facts; the page draws the photos, map, colors and layout from them.
+
+## 0. Start from a template
+
+Pick the shape before you write. Their own templates come first: list \`tex/templates/\` in their personal workspace, and \`templates/\` in a shared workspace you are writing in; a \`.page.md\` there is a page to copy and fill. Otherwise read the built-in that fits with \`orient about: "template <name>"\`:
+
+${templateLines().join("\n")}
+
+Fill every \`[gap]\`, put real numbers where a template holds 0 or \`?\`, drop a part the facts don't need, and add one they do. A page with a \`[bracket]\` left in it isn't finished. When they ask to keep a page as a template, copy it to \`tex/templates/<name>.page.md\` in their personal workspace (a shared workspace's page goes to its \`templates/\`, so everyone there gets it), with every fact that belongs to this one case turned back into a \`[gap]\`, its photos and \`drawing\` lines dropped, and the stamp kept.
 
 ## 1. Lead with the answer
 

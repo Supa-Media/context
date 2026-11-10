@@ -273,6 +273,15 @@ export const CAPABILITIES = Object.freeze([
     group: null,
   },
   {
+    name: "Pages",
+    // Written with write.save as any note (`.page.md`); the line says what a page holds and where templates live.
+    actions: [],
+    texts:
+      "write a designed page (a .page.md note: photos, places, prices, votes, timelines, Tex ink drawings) from one of six templates (decision, research brief, plan, status, review, trip or event; orient about: \"template <name>\") or from one of their own in tex/templates/ (a shared workspace's templates/ is everyone's there); \"keep this as a template\" copies a page there with its facts turned back into gaps; a page's link opens straight to the page on a phone, in the browser or the Context app",
+    group: "the same, in the shared workspaces everyone here is in; a template kept here goes to that workspace's templates/",
+    guest: "write a page in this chat's folder from a built-in template",
+  },
+  {
     name: "Pictures and cards",
     actions: ["send.draw_visual", "send.draw_picture", "send.make_picture"],
     texts: "draw a designed card (options, places, a day, a plan, a chart), a graphic or a photo and text it",
