@@ -436,6 +436,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A page is a Markdown note named `<name>.page.md`, with blocks and sealed code boxes](./app-and-console/pages.md) (2026-10-27)
 - [Tex draws a picture for every page that has none](./app-and-console/page-drawings.md) (2026-11-03)
 - [A page link opens the page](./app-and-console/pages.md#a-page-link-opens-the-page) (2026-11-10)
+- [Tex draws inside a page, not only on its cover](./app-and-console/pages.md#tex-draws-inside-a-page-not-only-on-its-cover) (2026-11-10)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate

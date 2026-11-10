@@ -20,8 +20,12 @@
 import type { Env } from "./env";
 
 export const PAGE_VIEWER_PREFIX = "/p/";
-/** Where the web export carries the viewer. */
-export const PAGE_VIEWER_ASSET = "/drawing-assets/viewer/index.html";
+/**
+ * Where the web export carries the viewer: its folder, because static assets
+ * answer a path naming `index.html` with a redirect to the folder, which the
+ * marker check would read as "no viewer here" and send every link to the app.
+ */
+export const PAGE_VIEWER_ASSET = "/drawing-assets/viewer/";
 /** A marker only the viewer's page carries (`VIEWER_MARKER` in `scripts/build-page-frame.mjs`). */
 const MARKER = '<div id="context-page-viewer"';
 

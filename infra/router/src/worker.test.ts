@@ -432,7 +432,13 @@ describe("a linked page unfurls with its cover", () => {
 describe("a page link opens the page viewer", () => {
   const VIEWER = '<!doctype html><div id="context-page-viewer" class="bar"></div>';
   function withAssets(body: string, status = 200) {
-    const assets = vi.fn((request: Request) => new Response(body, { status, headers: { "X-Asked": request.url } }));
+    // As Workers Static Assets answers by default (`html_handling: auto-trailing-slash`):
+    // a path naming `index.html` is redirected to its folder, never served.
+    const assets = vi.fn((request: Request) =>
+      new URL(request.url).pathname.endsWith("/index.html")
+        ? new Response(null, { status: 307, headers: { Location: new URL(request.url).pathname.replace(/index\.html$/, "") } })
+        : new Response(body, { status, headers: { "X-Asked": request.url } }),
+    );
     return { assets, env: { ...ENV, ASSETS: { fetch: assets } as unknown as Fetcher } };
   }
   async function open(path: string, env: unknown, userAgent = BROWSER_UA): Promise<Response> {
@@ -448,7 +454,7 @@ describe("a page link opens the page viewer", () => {
     expect(one.headers.get("Cache-Control")).toBe("no-store");
     expect(one.headers.get("X-Robots-Tag")).toContain("noindex");
     expect(await one.text()).toBe(await two.text());
-    expect((assets.mock.calls[0][0] as Request).url).toBe("https://context.lc/drawing-assets/viewer/index.html");
+    expect((assets.mock.calls[0][0] as Request).url).toBe("https://context.lc/drawing-assets/viewer/");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

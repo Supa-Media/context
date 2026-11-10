@@ -284,3 +284,23 @@ marker check, a plain note to the app, the crawler's card);
 link, the stored sign-in's keys and margin);
 `apps/mcp/test/agentNoteLinks.test.mjs` ("a page's link opens the page
 viewer, a plain note's the app", "a page link they text is read as the note").
+
+### Tex draws inside a page, not only on its cover
+
+A page can hold a Tex ink drawing anywhere in its body: a fenced `drawing`
+block whose body is the same scene markup `draw_visual` takes, with an
+optional caption after the word (owner, 2026-11-10: "pages were supposed to
+have drawings using Tex styling"). The parser reads it with the one scene
+reader (`packages/shared/src/ink/drawing.cjs`, `readScene`), and the renderer
+draws it with `drawingSvg`, both inks inline, cropped to the drawing's safe
+area, with the light or dark ink shown by the page's own tokens. Each
+drawing's filter and pattern ids carry its own suffix, so two drawings on a
+page never share a filter. A drawing that can't be read is shown as its
+markup with the reason, never dropped, and the gateway refuses it at write
+like any other broken block. The page skill names the block, so its stamp
+changed and every agent reads it again before its next page.
+
+What a "simplification" would cost: drawing the scene in the frame from the
+markup lets a page's own script restyle Tex's ink; sharing ids makes the
+second drawing reuse the first one's roughness and hatch. Tests:
+`apps/mcp/test/pageInkDrawings.test.mjs`.
