@@ -43,9 +43,9 @@ describe("appLinkFor", () => {
 
 describe("the stored sign-in", () => {
   test("uses the keys the app's sign-in writes for this control plane", () => {
-    expect(authKeys("https://clean-ptarmigan-116.convex.cloud")).toEqual({
-      jwt: "__convexAuthJWT_httpscleanptarmigan116convexcloud",
-      refresh: "__convexAuthRefreshToken_httpscleanptarmigan116convexcloud",
+    expect(authKeys("https://example-deployment.convex.cloud")).toEqual({
+      jwt: "__convexAuthJWT_httpsexampledeploymentconvexcloud",
+      refresh: "__convexAuthRefreshToken_httpsexampledeploymentconvexcloud",
     });
   });
 
