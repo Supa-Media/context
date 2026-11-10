@@ -22,7 +22,7 @@
 
 import { PAGE_CHANNEL, dialUrl, pageFrameUrls, readPageMessage } from "../features/console/files/pageView/pageWire";
 import { webUrl } from "../features/console/files/webUrl";
-import { appLinkFor, authKeys, pageAddressFrom, pageTitle, pictureDataUrl, tokenLasts } from "./viewerCore";
+import { appLinkFor, authKeys, callBody, pageAddressFrom, pageTitle, pictureDataUrl, tokenLasts } from "./viewerCore";
 
 declare const VIEWER_CONVEX_URL: string;
 
@@ -54,7 +54,7 @@ async function call(kind: CallKind, path: string, args: Record<string, unknown>,
   const response = await fetch(`${VIEWER_CONVEX_URL}/api/${kind}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(token === null ? {} : { Authorization: `Bearer ${token}` }) },
-    body: JSON.stringify({ path, args, format: "json" }),
+    body: callBody(path, args),
   });
   if (!response.ok) throw new Error(`${path}: ${response.status}`);
   const body = (await response.json()) as { status?: string; value?: unknown };
