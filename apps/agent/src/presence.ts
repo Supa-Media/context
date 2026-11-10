@@ -1,11 +1,12 @@
 /**
  * Showing a person their text landed while Tex works on it: read, then the
- * typing bubble, renewed, and after a while a tapback that fits the text.
+ * typing bubble, renewed. No tapback beside the answer: the bubble says Tex is
+ * on it, and a tapback goes only in place of a text (Dev2, 2026-11-10: "uses
+ * emojis way too much"; the after-10-seconds tapback of 2026-10-19 is gone).
  * Moved out of `inbox.ts` whole, and started before decide is asked
  * (`inboxTurn.ts`), so a slow decide never leaves a text sitting unread.
  */
 
-import { ackEmoji } from "./ackEmoji";
 import type { Line } from "./line";
 import type { Message } from "./reply";
 
@@ -18,42 +19,26 @@ export const TYPING_REFRESH_MS = 55_000;
  * receipt has.
  */
 export const TYPING_AGAIN_MS = 1_500;
-/**
- * A text still being worked on this long gets a tapback that fits it (`ackEmoji.ts`), so the
- * person knows it landed even if the typing bubble never showed. Sendblue
- * sends the bubble on a best-effort basis, and on 2026-10-19 Dev saw "Read"
- * and nothing else for two minutes: "no typing indicator or thumbs up react
- * ... not acceptable". A quick answer needs no tapback; it is the answer.
- */
-export const ACKNOWLEDGE_AFTER_MS = 10_000;
 
 export type Presence = {
   /** The bubble again, as after a progress line (sending a text clears it). */
   typing: () => Promise<void>;
   /** The read receipt and the first bubble, in that order: started at once, waited for only before Tex's first text goes. */
   ready: Promise<void>;
-  /** Stop renewing and cancel a tapback not yet sent; waits for any still in flight. */
+  /** Stop renewing; waits for the read receipt and any bubble still in flight. */
   stop: () => Promise<void>;
-  /** The tapback, if it still goes, goes on `message`: the text decide chose to answer, not merely the first waiting. */
-  aim: (message: Message) => void;
-  /** Cancel the tapback not yet sent (decide's `react` already sent one); the bubble stays. */
-  dropTapback: () => void;
 };
 
 /**
- * Mark `message` read, show the bubble, and arm the renewals and the tapback.
- * `aimLater`: several texts wait and decide has not yet said which one is answered,
- * so a tapback due before `aim` waits for it and then goes on the aimed text
- * (CI 2026-10-28: a decide slower than the timer tapped the first waiting text).
- * Neither blocks the turn (Dev, 2026-11-04: "read receipts and typing
- * indicator should never block"; awaited, the two Sendblue round trips held
- * every text up before the gateway was asked). They run beside the turn as
- * `ready`, read first and then the bubble, as a person would; anything Tex
- * texts waits for `ready` (`stop`, and the progress lines in `inbox.ts`), so
- * a bubble still cannot land after a fast reply and hang in the chat. Both
- * never throw.
+ * Mark `message` read, show the bubble, and arm the renewals. Neither blocks
+ * the turn (Dev, 2026-11-04: "read receipts and typing indicator should never
+ * block"; awaited, the two Sendblue round trips held every text up before the
+ * gateway was asked). They run beside the turn as `ready`, read first and then
+ * the bubble, as a person would; anything Tex texts waits for `ready` (`stop`,
+ * and the progress lines in `inbox.ts`), so a bubble still cannot land after a
+ * fast reply and hang in the chat. Both never throw.
  */
-export async function startPresence(line: Line, message: Message, options: { aimLater?: boolean } = {}): Promise<Presence> {
+export async function startPresence(line: Line, message: Message): Promise<Presence> {
   const typing = () => line.startTyping(message.chatId);
   const ready = line.markRead(message.chatId, message.messageId).then(typing);
   let renewal: Promise<void> = Promise.resolve();
@@ -63,44 +48,16 @@ export async function startPresence(line: Line, message: Message, options: { aim
   const timer = setInterval(() => {
     renewal = typing();
   }, TYPING_REFRESH_MS);
-  let target = message;
-  let aimed = options.aimLater !== true;
-  /** Due before decide aimed it: sent by `aim`, once, unless dropped first. */
-  let due = false;
-  let acknowledged: Promise<void> = Promise.resolve();
-  const send = () => {
-    due = false;
-    // A tapback goes on the text itself, so not on a tapback, and only on a text the line can name.
-    if (target.tapback || !target.messageId) return;
-    // A tapback is a message of ours, which can clear the bubble; the task is still going.
-    acknowledged = line.acknowledge(target.chatId, target.messageId, ackEmoji(target.text)).then(typing);
-  };
-  const acknowledge = setTimeout(() => {
-    if (aimed) send();
-    else due = true;
-  }, ACKNOWLEDGE_AFTER_MS);
   let stopped: Promise<void> | undefined;
   return {
     typing,
     ready,
-    aim: (next) => {
-      target = next;
-      aimed = true;
-      if (due && stopped === undefined) send();
-    },
-    dropTapback: () => {
-      clearTimeout(acknowledge);
-      due = false;
-    },
     stop: () =>
       (stopped ??= (async () => {
         clearTimeout(again);
         clearInterval(timer);
-        clearTimeout(acknowledge);
-        due = false;
         await ready;
         await renewal;
-        await acknowledged;
       })()),
   };
 }

@@ -23,16 +23,13 @@
  *     fails.
  * 12. `drain` starting presence for a burst of pure acks (W16) → "only
  *     'ok', decide silent…" fails.
- * 13. `presence.aim` not called (W17) → "decide react with an answer…"
- *     fails (tapback on the dropped "thanks"); `dropTapback` a no-op →
- *     "presence's tapback, once dropped…" fails.
+ * 13. the presence tapback timer put back (Dev2, 2026-11-10 removed it) →
+ *     "decide react with an answer over 10s: no tapback…" fails.
  */
 
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDLE_DECIDE_MS } from "./decide";
-import { ACKNOWLEDGE_AFTER_MS, startPresence } from "./presence";
-import type { Line } from "./line";
 import { accept, drain, MAX_ANSWER_ATTEMPTS, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import type { Fetch } from "./clients";
@@ -294,7 +291,7 @@ describe("decide in a person's own chat", () => {
     expect(w.asks).toHaveLength(1);
   });
 
-  it("decide react with an answer over 10s: exactly one tapback, on the text being answered", async () => {
+  it("decide react with an answer over 10s: no tapback beside the answer (Dev2, 2026-11-10)", async () => {
     vi.useFakeTimers();
     try {
       const storage = new MemoryStorage();
@@ -303,29 +300,29 @@ describe("decide in a person's own chat", () => {
       await accept(storage, msg(LINES[0].chatId, "e2", "what's on today", { quoted: "x" }), 1_000);
       await drainedUnderFakeTimers(drain(storage, w.deps));
       expect(w.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
-      expect(w.reactedOn).toEqual(["m_e2"]);
+      expect(w.reactedOn).toEqual([]);
     } finally {
       vi.useRealTimers();
     }
   }, FAKE_TIME_TEST_MS);
 
-  it("decide slower than the tapback timer: the one tapback still lands on the text being answered, never the first waiting", async () => {
+  it("a slow decide: the text is answered, with no tapback beside it", async () => {
     // CI 2026-10-28: on a slow runner the 10s timer fired before decide aimed it, and tapped "thanks" (m_e1).
     vi.useFakeTimers();
     try {
       const storage = new MemoryStorage();
-      const w = world(act("react"), { decideTakes: ACKNOWLEDGE_AFTER_MS + 2_000, agentTakes: 1_000 });
+      const w = world(act("react"), { decideTakes: 12_000, agentTakes: 1_000 });
       await accept(storage, msg(LINES[0].chatId, "e1", "thanks"), 1_000);
       await accept(storage, msg(LINES[0].chatId, "e2", "what's on today", { quoted: "x" }), 1_000);
       await drainedUnderFakeTimers(drain(storage, w.deps));
       expect(w.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
-      expect(w.reactedOn).toEqual(["m_e2"]);
+      expect(w.reactedOn).toEqual([]);
     } finally {
       vi.useRealTimers();
     }
   }, FAKE_TIME_TEST_MS);
 
-  it("decide slower than the tapback timer, with real-clock work slow too (a loaded runner): the turn still finishes and taps the text answered", async () => {
+  it("a slow decide, with real-clock work slow too (a loaded runner): the turn still finishes, with no tapback", async () => {
     // Production deploy 2026-11-02: Web Crypto's digest runs on the real clock; slow, it outlasted a fixed number of fake steps and the test hung.
     vi.useFakeTimers();
     // The file's in-step hash (beforeEach), slowed on the real clock: real work the fake steps do not wait for.
@@ -336,35 +333,18 @@ describe("decide in a person's own chat", () => {
     });
     try {
       const storage = new MemoryStorage();
-      const w = world(act("react"), { decideTakes: ACKNOWLEDGE_AFTER_MS + 2_000, agentTakes: 1_000 });
+      const w = world(act("react"), { decideTakes: 12_000, agentTakes: 1_000 });
       await accept(storage, msg(LINES[0].chatId, "e1", "thanks"), 1_000);
       await accept(storage, msg(LINES[0].chatId, "e2", "what's on today", { quoted: "x" }), 1_000);
       await drainedUnderFakeTimers(drain(storage, w.deps));
       expect(slow).toHaveBeenCalled();
       expect(w.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
-      expect(w.reactedOn).toEqual(["m_e2"]);
+      expect(w.reactedOn).toEqual([]);
     } finally {
       vi.useRealTimers();
     }
   }, FAKE_TIME_TEST_MS);
 
-  it("presence's tapback, once dropped (decide's react went), never goes; aimed, it goes on the aimed text", async () => {
-    vi.useFakeTimers();
-    try {
-      const acks: string[] = [];
-      const line = { markRead: async () => {}, startTyping: async () => {}, acknowledge: async (_chat: string, id: string) => void acks.push(id) } as unknown as Line;
-      const dropped = await startPresence(line, msg("c", "e1", "thanks"));
-      dropped.dropTapback();
-      const aimed = await startPresence(line, msg("c", "e2", "thanks"));
-      aimed.aim(msg("c", "e3", "what's on"));
-      await vi.advanceTimersByTimeAsync(ACKNOWLEDGE_AFTER_MS + 100);
-      await dropped.stop();
-      await aimed.stop();
-      expect(acks).toEqual(["m_e3"]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 
   it("silent never leaves a real question unanswered in a person's own chat", async () => {
     const storage = new MemoryStorage();

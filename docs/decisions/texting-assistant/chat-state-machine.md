@@ -17,9 +17,9 @@ asked of the small decision model through Jev:
   carries the seconds the model chose, 1 to 8 (`wait_seconds`, a score
   question).
 - **Reaction:** a separate yes or no (`also_react`) with an emoji from the 64.
-  It goes with any of the above: "react with 🎉 and answer", "react only",
-  "wait and react". The reaction is sent at once, once per message, and then
-  the turn adds no ack tapback of its own.
+  Since 2026-11-10 it is sent only with "react only", in place of words; beside
+  an answer or a wait it is dropped (Dev2: "uses emojis way too much"), and the
+  turn adds no tapback of its own.
 - **Mid-turn**, when Tex is already writing: fold, queue or restart (redraft).
 
 ## The state machine (`apps/agent/src/chatState.ts`)

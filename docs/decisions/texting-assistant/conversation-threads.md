@@ -152,6 +152,31 @@ ask), `apps/mcp/bench/test/respond.test.mjs`,
 `apps/agent/src/groupDecideBeside.test.ts` (the tapback sent, the reply
 placed).
 
+## A tapback only in place of a text (Dev2, 2026-11-10)
+
+Dev2, an hour after the respond verdict went live: "Tex spams and uses emojis
+way too much". The proof (Tex Devs ledger and the agent Worker's logs,
+15:20 to 17:01 UTC) showed the classifier's react never fired; the emojis were
+the working-on-it tapback the Worker put on every text it answered (every
+group tag, `groupInbox.ts`; a 1:1 turn past 10 seconds, `presence.ts`), about
+seven beside eight texts in 46 minutes, and half of those texts were job
+starts ("On it: … I'll text you when it's done." plus a live link). Dev2 chose
+"Emoji only instead of a text":
+
+- A tapback goes only in place of words: the classifier's react, decide's
+  react, a pure acknowledgement decided while a turn runs. Nothing taps a text
+  Tex is about to answer, and decide's emoji beside an answer or a wait is
+  dropped (`groupTurn.ts`). A 1:1 keeps the read receipt and typing bubble.
+- A job's start (and restart) is one short line, "On it: <title>.", with no
+  live link or card and no promise to text back (`background.js` `ackLine`,
+  `resumedLine`); the live view goes when they ask what Tex is working on.
+
+Reversing it brings back an emoji beside most answers. Tests:
+`apps/agent/src/acknowledge.test.ts` (no tapback on a long 1:1 turn, the
+bubble renewed), `groupInbox.test.ts` and `groupDecideEmojiWait.test.ts` (no
+tapback beside a group answer), `apps/mcp/test/agentJobRestart.test.mjs` and
+`agentBackground.test.mjs` (the one-line start).
+
 ## Undo and reversal cost
 
 `CONVERSATION_THREADS=off` on the gateway shows the chat as before (faded

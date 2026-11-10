@@ -127,8 +127,8 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
 }
 
 /**
- * `react`/`emoji`: a reaction on the newest message, sent at once, with an answer, a wait or alone (reacting is its
- * own decision, Dev2 2026-11-01; `reactionFor` checks the emoji). `wait`: untagged messages held for the rest of
+ * `react`/`emoji`: a reaction on the newest message in place of an answer (decide's `react`; Dev2, 2026-11-10: a
+ * tapback only instead of words, never beside them; `reactionFor` checks the emoji). `wait`: untagged messages held for the rest of
  * the burst, `waitSeconds` as decide chose; the chat's state caps it (`chatState.ts`).
  */
 export type GroupChoice = { answer: GroupEntry[]; chat: GroupEntry[]; drop: GroupEntry[]; react?: GroupEntry; emoji?: string; wait?: GroupEntry[]; waitSeconds?: number };
@@ -175,9 +175,9 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
   }
   // A wait holds only a real burst, and only while the chat's state allows one more (`canWait`): otherwise an answer.
   const act = decision.act === "wait" && !(waitAllowed && burstStillTyped(burst.map(([, item]) => item))) ? "answer" : decision.act;
-  // One reaction per message: decide's, at once, whatever it decided about words.
   const newest = burst.at(-1)!;
-  const react = (act === "react" || decision.emoji !== undefined) && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
+  // A tapback only in place of words, never beside an answer or a wait (Dev2, 2026-11-10: "uses emojis way too much").
+  const react = act === "react" && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
   if (act === "wait") return { answer: [], chat: [], drop: [], wait: burst, waitSeconds: decision.waitSeconds ?? 1, ...react };
   if (act !== "answer") return { answer: [], chat: burst, drop: [], ...react };
   // Left out before the answer: chat (`gatherTheTurn.ts`). Everything here is untagged (`addressedTurn` took the rest), so nothing jumps the order.

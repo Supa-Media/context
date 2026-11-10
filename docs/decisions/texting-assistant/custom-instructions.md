@@ -195,7 +195,8 @@ update levels, the quick picks by number) or acts (clear).
   text, and a model that writes paragraphs anyway sends several. A check-in
   still posts one bubble.
 - Emoji no longer gates the quick acknowledgement tapback: everyone gets it,
-  including people who had emoji at less.
+  including people who had emoji at less. (Since 2026-11-10 nobody gets one
+  beside an answer: a tapback goes only in place of a text.)
 - One bubble no longer turns the progress texts off; progress updates `off`
   does (the migration sets it for those rows). Enforced at the tool now only
   as far as is trivial: `off` offers no progress tool, `planOnly` sends the

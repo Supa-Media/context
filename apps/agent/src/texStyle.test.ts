@@ -145,12 +145,12 @@ for (const { name, groupId } of LINES) {
       expect(w.texts).toEqual(['Got it, Quiet (set by bo). To change it later, text "Tex, settings".']);
     });
 
-    it("no switch in code: an emoji line keeps the tapback, a one-bubble line sends what the model wrote", async () => {
+    it("no switch in code: a one-bubble line sends what the model wrote, with no tapback beside it", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { control: { instructions: "Use no emoji.\nSend each answer as one text, with no blank lines." }, agent: () => ({ answer: "One.\n\nTwo.\n\nThree." }) });
       await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
       await drainGroup(storage, w.deps);
-      expect(w.reactions).toHaveLength(1);
+      expect(w.reactions).toHaveLength(0);
       expect(w.texts).toEqual(["One.", "Two.", "Three."]);
     });
   });

@@ -42,7 +42,7 @@ test("restart with no titles picks up every job that stopped, in one call, and t
   assert.match(words(await dispatch(RESTART_JOB_TOOL, {})), /Picking "a16z Speedrun application", "Y Combinator application", "Total toll charges paid" back up/);
   assert.equal(
     background.endsTurn(RESTART_JOB_TOOL),
-    'On it: picking "a16z Speedrun application", "Y Combinator application" and "Total toll charges paid" back up where they stopped. I\'ll text you when they\'re done.\n[card threads]',
+    'On it: picking "a16z Speedrun application", "Y Combinator application" and "Total toll charges paid" back up.',
   );
   assert.equal(background.endsTurn(RESTART_JOB_TOOL), null, "said once");
   assert.deepEqual(startedJobs(background, false), { steers: [A16Z, YC, TOLL].map((entry) => ({ id: entry.id, resume: true })) }, "a finished job is not picked up; no new job starts");
@@ -54,7 +54,8 @@ test("named titles pick up only those, and a running or finished one is refused"
   assert.equal((await dispatch(RESTART_JOB_TOOL, { titles: ["Trip plan", "Logo"] })).isError, true);
   await dispatch(RESTART_JOB_TOOL, { titles: ["y combinator application"] });
   assert.deepEqual(startedJobs(background, false), { steers: [{ id: YC.id, resume: true }] });
-  assert.equal(resumedLine(["Y Combinator application"]), 'On it: picking "Y Combinator application" back up where it stopped. I\'ll text you when it\'s done.\n[card threads]');
+  // One short line, no live link or card (Dev2, 2026-11-10: "Tex spams").
+  assert.equal(resumedLine(["Y Combinator application"]), 'On it: picking "Y Combinator application" back up.');
 });
 
 test("a new job named like one that stopped picks that one up instead", async () => {

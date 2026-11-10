@@ -174,7 +174,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     check("an ordinary text is on the daily cap", controlPlane.builtinStarts.at(-1)?.background === undefined && controlPlane.builtinStarts.length > 0 && controlPlane.builtinReports.at(-1)?.background === undefined);
     check(
       "a job that starts answers the text at once, with no model round after it",
-      model.requests.length === 1 && /^On it: Competitor research\. I'll text you when it's done\./.test(started.body?.answer ?? ""),
+      model.requests.length === 1 && (started.body?.answer ?? "") === "On it: Competitor research.",
     );
     check("a texted turn is told to start a task's job first, before reading", /as your FIRST call: before reading notes/.test(systemOf(first)));
     check("a text from a Worker that runs jobs is offered background, under send", /background: Hand a long task/.test(sendTool(first)?.description ?? ""));

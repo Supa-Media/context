@@ -177,8 +177,12 @@ Tests: `apps/mcp/test/agentMemoryNudge.test.mjs`.
 Sendblue sends the typing bubble on a best-effort basis: it answers `QUEUED`
 and may never show it. On 2026-10-19 Dev saw "Read" under a text and nothing
 else for two minutes: "no typing indicator or thumbs up react ... not
-acceptable". So the bubble is still asked for at once, and a turn still
-running after `ACKNOWLEDGE_AFTER_MS` (10 s) also puts a 👍 tapback on the
+acceptable". So the bubble is still asked for at once, and renewed. A turn still
+running after 10 s also put a tapback on the person's text until 2026-11-10,
+when Dev2 removed it ("Tex spams and uses emojis way too much": every slow
+answer came with an emoji beside it); a tapback now goes only in place of a
+text (`conversation-threads.md`, "A tapback only in place of a text"). What
+follows describes the removed tapback: it went on the
 person's text (`/api/send-reaction`, `apps/agent/src/inbox.ts`), then asks for
 the bubble again, since a message of ours can clear it. A quick answer gets
 no tapback, a tapback is never tapped back, and a refused tapback is logged

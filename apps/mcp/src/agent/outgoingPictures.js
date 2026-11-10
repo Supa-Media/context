@@ -83,7 +83,7 @@ export const PICTURES_LINE =
 export const DATA_CARDS_LINE =
   "Asking when they're free, add [card times] on its own line; asked to go through their email, add [card inbox]. A phone with " +
   "the Context app gets a card to tap from (their free times, their newest mail); keep your words whole without it, never mention it. " +
-  "When you start a background job, or they ask what you're working on, add [card threads]: it sends a live view of every job and its steps.";
+  "When they ask what you're working on, add [card threads]: it sends a live view of every job and its steps. Never add it when a job starts.";
 
 /**
  * One tool result's words, with every address this same call carried in cut
