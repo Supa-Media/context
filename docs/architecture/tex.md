@@ -89,7 +89,7 @@ flowchart TB
   readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn<br/>a reply shows the full words it answers<br/>starts the conversation classifier"]:::step
   openTheWeb["openTheWeb<br/>write tools and the browser"]:::step
   readTheSetup["readTheSetup<br/>prompt, skills, models, fallback"]:::step
-  prepareBookkeeping["prepareBookkeeping<br/>usage, turn log, the chat's ledger"]:::step
+  prepareBookkeeping["prepareBookkeeping<br/>usage, turn log, failed tool calls, the chat's ledger"]:::step
   prepareTheAnswer["prepareTheAnswer<br/>side reads, answer checks, pictures"]:::step
   runTheModel["runTheModel<br/>THE ANSWER MAKER, section 3"]:::model
   finishARoutine["finishARoutine<br/>a routine's run ends here"]:::step
@@ -120,6 +120,7 @@ flowchart TB
   HU --> SEND
   FD["Front door<br/>Haiku 5.5 · effort high · up to 24 rounds<br/>turn.js runTurn"]:::haiku
   FD <-->|tools| T["Tools: notes, search, web, browser,<br/>vault, email, calendar, apps,<br/>their texts (1:1 only, Mac backup)<br/>the one dispatcher, callToolForSession"]:::tool
+  T -. a call fails .-> TF["Failed tool calls kept, every model with tools<br/>tool, cause code, reason with its values taken out<br/>logged at once, then rows naming nobody<br/>tex.lc/admin: Why tools fail<br/>toolFailures.js · texToolFailures.ts"]:::tool
   FD <-->|ask_advisor, when stuck or weighing| ADV["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js"]:::opus
   FD -. model down .-> FB["Fallback<br/>GLM-4.7 Flash, @cf/zai-org/glm-4.7-flash<br/>builtin.js"]:::off
   FD -. off in production .-> RT["Router<br/>Clef picks Haiku or Opus<br/>router.js"]:::off

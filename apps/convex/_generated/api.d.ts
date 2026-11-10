@@ -32,6 +32,7 @@ import type * as functions_texGroupLogShape from "../functions/texGroupLogShape.
 import type * as functions_texReviewScoresRebuild from "../functions/texReviewScoresRebuild.js";
 import type * as functions_texTriageWatch from "../functions/texTriageWatch.js";
 import type * as functions_texTurnTiming from "../functions/texTurnTiming.js";
+import type * as functions_texToolFailures from "../functions/texToolFailures.js";
 import type * as functions_accessObjects from "../functions/accessObjects.js";
 import type * as functions_accessObjectsExpected from "../functions/accessObjectsExpected.js";
 import type * as functions_accessObjectsRows from "../functions/accessObjectsRows.js";
@@ -307,6 +308,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texReviewScoresRebuild": typeof functions_texReviewScoresRebuild;
   "functions/texTriageWatch": typeof functions_texTriageWatch;
   "functions/texTurnTiming": typeof functions_texTurnTiming;
+  "functions/texToolFailures": typeof functions_texToolFailures;
   "functions/accessObjects": typeof functions_accessObjects;
   "functions/accessObjectsExpected": typeof functions_accessObjectsExpected;
   "functions/accessObjectsRows": typeof functions_accessObjectsRows;

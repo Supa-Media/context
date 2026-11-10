@@ -98,6 +98,9 @@ export const DASHBOARD_CSS = `
 .td-table td .v{font-weight:600;display:block}
 .td-table td .n{font-size:12px;color:${C.ink3}}
 .td-table td.thin{opacity:.45}
+.td-failures td{min-width:0;border-bottom:1px solid ${C.line};border-radius:0}
+.td-failures td.row{text-align:left}
+.td-failures td.why{min-width:240px;color:${C.ink2}}
 .td-trends{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
 .td-trend{border:1px solid ${C.line};border-radius:20px;padding:16px 18px;background:#fff;display:flex;flex-direction:column;gap:4px;min-width:0}
 .td-trend-head{display:flex;justify-content:space-between;align-items:center;gap:8px}

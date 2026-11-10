@@ -50,6 +50,7 @@ import { ABOUT_ME_PATH, OLD_ABOUT_ME_PATH } from "./aboutMe.js";
 import { readTexNotes } from "./jobs.js";
 import { LEARNED_SKILLS_FOLDER } from "./learnedSkills.js";
 import { openProvider, runTurn } from "./turn.js";
+import { reportToolFailures } from "./toolFailures.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { PRODUCTION_HEARTBEAT_PATH, readJobSetup, readProductionSetup } from "./production.js";
 import { replyJudge } from "./replyJudge.js";
@@ -500,6 +501,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     : null;
   let turn = null;
   let failure = "other";
+  let failedBefore = [];
   try {
     turn = await runTurn({
       question,
@@ -531,6 +533,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       maxRounds: HEARTBEAT_ROUNDS,
     });
   } catch (error) {
+    failedBefore = error?.timing?.failures ?? [];
     failure = error instanceof ProviderError ? providerFailure(error) : failure;
     await meter(null, true, error instanceof ProviderError ? error.model : model);
     console.log(
@@ -545,6 +548,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     if (!(error instanceof ProviderError)) throw error;
   }
   if (turn !== null) await meter(turn.usage, false, turn.model);
+  // Its failed tool calls, kept with the rest of Tex's (`toolFailures.js`): a thrown turn carries the ones before it.
+  await reportToolFailures(controlPlane, session, "check_in", turn?.timing?.failures ?? failedBefore);
 
   const finished = turn !== null && !turn.exhausted;
   // `[continues N]` comes off before anything reads the answer: never texted, logged or kept.

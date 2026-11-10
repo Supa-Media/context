@@ -191,6 +191,18 @@ function report() {
       ],
       tools: [{ tool: "browse", p50: 6_000 }],
     },
+    toolFailures: {
+      truncated: false,
+      total: 4,
+      byDay: [
+        { day: "2026-10-23", failures: 1 },
+        { day: "2026-10-24", failures: 3 },
+      ],
+      reasons: [
+        { tool: "browse", cause: "timed_out", why: "That call took too long and was stopped.", count: 3, last: SCORED - 3_600_000, kinds: ["job", "one"] },
+        { tool: "read_note", cause: "refused", why: "No note at <path>.", count: 1, last: SCORED - 7_200_000, kinds: ["check_in"] },
+      ],
+    },
     reviewsTruncated: false,
     reviews: [
       review({ at: SCORED - 3_600_000 }),
@@ -274,6 +286,19 @@ describe("tex.lc/admin", () => {
     act(() => button!.click());
     await settle();
     expect(mockArgs.get(ACT)).toEqual({ path: OPEN_THEME, action: "triage" });
+  });
+
+  test("why tools fail: each reason with its tool, cause, count and where it ran, most first", async () => {
+    asStaff();
+    await settle();
+    const panel = find("tex-dashboard-tool-failures")?.textContent ?? "";
+    expect(panel).toContain("4 failed calls");
+    const rows = [...(find("tex-dashboard-tool-failure-reasons")?.querySelectorAll("tbody tr") ?? [])].map((row) => row.textContent);
+    expect(rows[0]).toContain("browse");
+    expect(rows[0]).toContain("too slow");
+    expect(rows[0]).toContain("That call took too long and was stopped.");
+    expect(rows[1]).toContain("No note at <path>.");
+    expect(rows[1]).toContain("Check-in");
   });
 
   test("every number has its target and the window before, and says when there are too few to call", async () => {
