@@ -32,6 +32,7 @@
 
 import pages from "@context/shared/src/pages/index.cjs";
 import { bindComments } from "./comments.js";
+import { bindEnlarge, drawLayout } from "./layout.js";
 
 const CHANNEL = "context-page";
 const BOX_CHANNEL = "context-page-box";
@@ -81,13 +82,15 @@ function draw() {
   page = pages.parsePage(state.source);
   const threads = commentsLayer.threads(state.source);
   const open = new Set(threads.filter((thread) => thread.status === "open").map((thread) => thread.id));
-  const { html, boxes: found, css } = pages.renderPage(page, { open, me: state.me });
+  const { html, boxes: found, css, layout, parts } = pages.renderPage(page, { open, me: state.me });
   const { vars, dark } = pages.pageTokens(page.fields, state.dark);
   tokens.textContent = `:root{${vars}}`;
   document.documentElement.dataset.theme = dark ? "dark" : "light";
-  userStyle.textContent = css.join("\n");
   const caret = saveCaret();
-  root.innerHTML = html;
+  // A page with a layout of its own (`layout.js`) has its parts placed by it; its CSS comes after the layout's, so the note's own ```css still wins.
+  const layoutCss = layout === null ? "" : drawLayout(root, layout, parts);
+  if (layout === null) root.innerHTML = html;
+  userStyle.textContent = [layoutCss, ...css].join("\n");
   originals.clear();
   owned.clear();
   for (const span of root.querySelectorAll("[data-f]")) originals.set(span, span.textContent);
@@ -412,5 +415,7 @@ const commentsLayer = bindComments({
   page: () => page,
   reportHeight,
 });
+
+bindEnlarge(root, reportHeight);
 
 tell({ type: "ready" });

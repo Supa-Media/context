@@ -243,6 +243,11 @@ const BLOCKS_CSS = `
 .pg-ink-figure svg{width:100%;height:auto;border-radius:16px}
 .pg-ink-figure svg.pg-ink-light{display:var(--pg-ink-light,block)}
 .pg-ink-figure svg.pg-ink-dark{display:var(--pg-ink-dark,none)}
+.pg-img,.pg-ink-figure,.pg-exhibit{cursor:zoom-in}
+.pg-enlarged{cursor:zoom-out;position:relative;z-index:5;border-radius:0}
+.pg-enlarged svg,img.pg-enlarged{border-radius:0}
+.pg-layout{display:block}
+.pg-lead{padding-block:8px}
 .pg-ink-figure figcaption{font-size:13px;line-height:1.45;color:var(--pg-muted);margin-top:6px}
 .pg-box{width:100%;border:0;display:block;margin:4px 0 20px;border-radius:20px;background:var(--pg-accent-soft);overflow:hidden}
 .pg-box iframe{width:100%;height:100%;border:0;display:block}

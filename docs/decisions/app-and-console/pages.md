@@ -363,3 +363,36 @@ check does, lets a list of findings through as the short form; keeping a
 separate list of pages drifts from the notes. Tests:
 `apps/mcp/test/agentWorkPage.test.mjs`, `apps/mcp/test/texPagePages.test.mjs`,
 `apps/mobile/__tests__/texPagesRead.test.ts`.
+
+### A page can have a layout of its own
+
+For work that needs to look designed, a page can carry its own HTML and CSS
+(owner, 2026-11-10: pages "extensible enough for custom Ui using html css",
+"similar to instinct", whose roast set numbered findings beside exhibits in
+an editorial grid). A ```` ```layout ```` fence holds the HTML, and each
+`data-from` in it names a part the runtime puts there: `cover` (the title,
+opening line, cover and anything before the first `##`), a `##` section by
+its heading (case and spacing ignored), or `rest`. The words stay in the
+note as Markdown, so editing, comments, search, export and covers all work
+as before; delete the fence and the page reads as it did. A section the
+layout doesn't place goes into `rest`, or after the layout, and an unplaced
+cover before it: a layout never hides a word.
+
+It is checked twice. At write, `packages/shared/src/pages/layout.cjs`
+refuses, with what to fix, anything that runs, loads, embeds, submits or
+names an address (script, frames, forms, svg, `on...=`, `src=`/`href=`,
+`javascript:`, `@import`, `url(`), a slot that names no section, a layout
+that places nothing, and a second layout. In the frame,
+`apps/mobile/page-frame/layout.js` reads it with `DOMParser` and keeps only
+an allow-list of elements and attributes (no ids, no `data-*` but
+`data-from`, so it can't pose as the runtime's own markers), and its
+`<style>` joins the page's stylesheet only if it loads nothing; the frame's
+CSP loads nothing anyway. A layout with problems is left out and the page
+draws as it would without one. Pictures and drawings in any page enlarge to
+the frame's width when tapped.
+
+What a "simplification" would cost: letting the layout hold words splits a
+page's text between Markdown and HTML, and edits, comments and export lose
+the half in HTML; trusting the write check alone lets a layout written past
+the gateway (an old version, a synced file) run in the frame. Tests:
+`apps/mcp/test/pageLayouts.test.mjs`, `apps/mobile/__tests__/pageLayout.test.ts`.
