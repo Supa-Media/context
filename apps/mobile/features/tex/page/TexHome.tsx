@@ -13,6 +13,7 @@ import {
 import { TexSelect } from "./TexSelect";
 import { TexHistoryLines } from "../history/TexHistoryLines";
 import { ConversationsPeek } from "../conversations/ConversationsPage";
+import { PagesPeek } from "../pages/PagesPeek";
 import type { ViewProps } from "./TexPageBody";
 import { MachineAskCard } from "./TexMachineAsk";
 import { EarlierRow, MinionPool } from "./TexMinionPool";
@@ -123,6 +124,8 @@ export function TexHome({
       )}
 
       <ConversationsPeek source={source} chat={chat} go={go} />
+
+      <PagesPeek source={source} chat={chat} />
 
       <View>
         <SectionHead>History</SectionHead>

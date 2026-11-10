@@ -339,3 +339,27 @@ setting holds them.
 What a "simplification" would cost: templates the gateway keeps somewhere
 other than notes can't be edited or taken away; templates that don't draw
 teach agents broken blocks. Tests: `apps/mcp/test/pageTemplates.test.mjs`.
+
+### Work Tex shows is a page, and the Tex page lists them
+
+Work Tex looked up for someone is a page, not a text (owner, 2026-11-10:
+pages are "the default for all work output done through Tex that would be
+shown to the user"). A new note was already a page (`pageNotice.js`) and a
+job already delivered one; what still came back as bubbles was a turn that
+searched, opened sites or browsed and texted its findings. Such an answer,
+over 110 words or four list lines of findings, is sent back once to be a
+page from a template, with one line and the link texted
+(`apps/mcp/src/agent/workPage.js`). A quick answer stays a text, and so does
+a turn that only read their notes, already made a page or picture, wrote
+words to copy, or was asked for as a text.
+
+The Tex page lists them: under Pages, every `.page.md` the chat's turns and
+jobs wrote, newest first, each once, read from the chat's own ledger
+(`view: "pages"`, `http/texPage/pages.js`), each opening in the app. Nothing
+new is kept; a page the reader can no longer open says so, as its link would.
+
+What a "simplification" would cost: counting only sentences, as the wordy
+check does, lets a list of findings through as the short form; keeping a
+separate list of pages drifts from the notes. Tests:
+`apps/mcp/test/agentWorkPage.test.mjs`, `apps/mcp/test/texPagePages.test.mjs`,
+`apps/mobile/__tests__/texPagesRead.test.ts`.
