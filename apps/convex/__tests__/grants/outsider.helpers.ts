@@ -78,7 +78,8 @@ export async function attachEmail(t: TestConvex, userId: Id<"users">, email: str
   await t.run((ctx) => ctx.db.insert("signInEmails", { userId, email, addedAt: Date.now() }));
 }
 
-export async function world(): Promise<World> {
+/** `extra`: more files to seed in "acme"'s bucket before its tree is copied, by path. */
+export async function world(extra: Record<string, string> = {}): Promise<World> {
   const t = setupTest();
   const owner = await createUser(t, "owner@example.invalid");
   const kola = await createUser(t, "kola@example.invalid");
@@ -99,6 +100,7 @@ export async function world(): Promise<World> {
   backend.seed(GONE, `# Gone\n\n${GONE_MARKER}\n`);
   backend.seed(SALARIES, `# Salaries\n\n${SALARIES_MARKER}\n`);
   backend.seed(TEAM_NOTE, `# Team\n\n${TEAM_MARKER}\n`);
+  for (const [path, body] of Object.entries(extra)) backend.seed(path, body);
   vi.stubGlobal("fetch", backend.fetchImpl);
 
   const encryptedSecretAccessKey = await encryptSecret(FAKE_STORAGE.secretAccessKey, requireKeyset(), { workspaceId: ws });
