@@ -210,6 +210,7 @@ const PART_EMOJI = Object.freeze({
   tex_handbacks: "↩️",
   tex_routines: "🔁",
   tex_skills: "🧠",
+  tex_templates: "📐",
   tex_transcripts: "💬",
   cadence_once: "📌",
   cadence_minute: "⏱️",
