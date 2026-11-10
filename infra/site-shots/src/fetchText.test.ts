@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { MAX_PDF_BYTES, MAX_REDIRECTS, fetchPage, fetchRead, fromMarkdown, htmlToText } from "./fetchText";
+import { MAX_PDF_BYTES, MAX_REDIRECTS, fetchPage, fetchRead, fromHtml, fromMarkdown, htmlToText } from "./fetchText";
 import { MAX_IMAGES, MAX_LINKS, MAX_TEXT_CHARS, keepImages } from "./read";
 
 type Reply = { status?: number; type?: string; body?: string; location?: string; throws?: boolean };
@@ -235,5 +236,37 @@ describe("fromMarkdown", () => {
     expect(page.links.length).toBe(MAX_LINKS);
     expect(page.text.length).toBe(MAX_TEXT_CHARS);
     expect(page.truncated).toBe(true);
+  });
+});
+
+describe("banners and dates", () => {
+  // GitHub's /releases/latest for a release without notes, signed out, trimmed
+  // (2026-11-10). Its session banner alone passed the threshold.
+  const RELEASE = readFileSync("src/fixtures/github-release-no-notes.html", "utf8");
+  const NOTES = `<div><p>${"Notes for this release, with the changes listed in order. ".repeat(5)}</p></div>`;
+  const AT = "https://github.com/cli/cli/releases/latest";
+
+  it("a page that is only banners once they go is thin, so the next rung reads it", async () => {
+    expect(await fromHtml(AT, RELEASE)).toBeNull();
+  });
+
+  it("the same page with notes reads them, without the banner", async () => {
+    const page = await fromHtml(AT, RELEASE.replace(`<div data-view-component="true" class="Box-footer">`, `${NOTES}$&`));
+    expect(page?.text).toContain("Notes for this release");
+    expect(page?.text).not.toContain("another tab");
+  });
+
+  it("strips alerts and consent banners on any site, and keeps an ordinary time element's year", async () => {
+    const body = `<!doctype html><html><body>
+      <div role="alert">${"Your session has expired, sign in again to continue. ".repeat(3)}</div>
+      <div id="cookie-consent-banner">${"We use cookies to measure how this site is used. ".repeat(3)}</div>
+      <article class="flash-sale"><h1>Notes</h1><p>Posted <time datetime="2025-03-01">March 1</time>. ${"A real paragraph of content for the reader. ".repeat(8)}</p></article>
+    </body></html>`;
+    const page = await fromHtml("https://example.com/notes", body);
+    expect(page?.text).toContain("2025-03-01");
+    expect(page?.text).toContain("A real paragraph");
+    expect(page?.text).not.toContain("session has expired");
+    expect(page?.text).not.toContain("cookies");
+    expect(await fromHtml("https://example.com/notes", body.replace(/<article[\s\S]*<\/article>/, ""))).toBeNull();
   });
 });

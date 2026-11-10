@@ -234,6 +234,16 @@ export async function fromHtml(url: string, html: string): Promise<PageRead | nu
     return found?.getAttribute("href") || found?.getAttribute("content") || "";
   });
   const logo = pickLogo(logos, url);
+  // Banners are not the page: GitHub's "signed in with another tab" alert
+  // alone passed the threshold, so the browser never ran (2026-11-10).
+  for (const banner of document.querySelectorAll(BANNERS)) banner.remove();
+  // A relative date ("26 Oct") loses its year; the attribute keeps it. Plain
+  // text and the day only: the extractor drops <time>, and a line holding a
+  // full timestamp, as metadata.
+  for (const time of document.querySelectorAll("time[datetime], relative-time[datetime]")) {
+    const day = /^\d{4}-\d{2}-\d{2}/.exec(time.getAttribute("datetime") ?? "");
+    if (day) time.replaceWith(document.createTextNode(day[0]));
+  }
   // Not `markdown: true`: its converter (turndown) needs a DOM parser the
   // Workers runtime does not have, and fails there while passing in Node.
   const result = await Defuddle(document as unknown as Parameters<typeof Defuddle>[0], url, {
@@ -254,6 +264,21 @@ export async function fromHtml(url: string, html: string): Promise<PageRead | nu
     via: "html",
   };
 }
+
+/** Alerts, flashes and consent banners: chrome around a page, never its content. */
+const BANNERS = [
+  "[role=alert]",
+  "[role=alertdialog]",
+  "[aria-live=assertive]",
+  ".flash",
+  "[class*=flash-alert]",
+  "[id*=cookie-banner i]",
+  "[class*=cookie-banner i]",
+  "[id*=cookie-consent i]",
+  "[class*=cookie-consent i]",
+  "[id*=consent-banner i]",
+  "[class*=consent-banner i]",
+].join(", ");
 
 const BLOCK_END = /<\/(?:p|h[1-6]|li|tr|div|section|article|header|footer|pre|blockquote|ul|ol|table|figure|dl|dt|dd)\s*>|<br\s*\/?>/gi;
 
