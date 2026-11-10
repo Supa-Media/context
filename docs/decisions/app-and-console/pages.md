@@ -396,3 +396,33 @@ page's text between Markdown and HTML, and edits, comments and export lose
 the half in HTML; trusting the write check alone lets a layout written past
 the gateway (an old version, a synced file) run in the frame. Tests:
 `apps/mcp/test/pageLayouts.test.mjs`, `apps/mobile/__tests__/pageLayout.test.ts`.
+
+### A page always has a picture, and its people and links show
+
+Owner, 2026-11-10, on a background job's page of new NYC churches: "no
+photos of church logos, no photos of the lead pastors, no buildings, WE NEED
+TO MAKE VISUAL PAGES", and "there are no hyperlinks either". The job put the
+churches in a timeline and their pastors in a people block, which no photo
+hunt read; it skipped the cover call as "optional", so the page got no
+drawing; and its sources were bare addresses, drawn as words.
+
+- A turn that saves a page with no picture of any kind (no cover photo, no
+  option's or person's photo, no image, no map, no drawing) and makes no
+  cover call after it is sent back once to make one
+  (`apps/mcp/src/agent/pageCoverFloor.js`, a reply check). The cover call
+  draws the picture (`visuals/pageDrawing.js`), so the floor is code, not
+  the reviewer's judgement or the model's choice.
+- The page-photo hunt reads people (searched by name with their role, so it
+  finds that person) and timeline rows that name something (two capitalised
+  words, or a `source:`), after the options, within the write's ten
+  pictures. A person shows their photo in place of initials; a row shows a
+  thumbnail; both show their `source:` as a link.
+- A bare `https://` address in a page's words is a link, drawn as its site
+  and path, and not editable as words.
+- The page skill says so: addressed things (churches, offices) are places,
+  every person and row carries `source:`, and the cover call is never
+  optional.
+
+What a "simplification" would cost: leaving the cover to the prompt is what
+failed; hunting people by name alone finds someone else of that name.
+Tests: `apps/mcp/test/pageVisual.test.mjs`.

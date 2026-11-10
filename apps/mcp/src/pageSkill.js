@@ -46,7 +46,7 @@ Order, top to bottom:
 ## 2. Pick the part that fits the facts
 
 - A choice someone has to make: \`vote\` (2 to 6 options). Budgets or packages: \`tiers\` (2 to 4).
-- Places (venues, restaurants, stops to visit): \`places\`, with price, seats and facts under each. One to six get photo spreads; seven or more become a shortlist on their own.
+- Places (venues, restaurants, churches, offices, stops to visit: anything with an address): \`places\`, with price, seats and facts under each. One to six get photo spreads; seven or more become a shortlist on their own.
 - The same kind of price from several sellers: \`prices\`, with \`per\` and \`for\` so the group total is worked out for you. Never a table of prices.
 - A day or a night out: \`itinerary\`, with a \`walk\` under each stop. Deadlines or milestones: \`timeline\`, with \`state: done\` or \`now\`.
 - Numbers over time: \`chart\`. One number against a goal: a status page's \`number\`, or \`progress\`.
@@ -60,7 +60,8 @@ Order, top to bottom:
 - Labels short, names exact, numbers real and from what you read. A price you did not find is \`?\` (or Ask), drawn as one to ask about. Never 0, never a guess.
 - Facts as \`key: yes|no|?|word\` under a place (\`on the L: yes; kitchen: ?\`), the same keys on every place so they line up.
 - Photos make the page. For every place, dish or stop, use the real pictures you found on its own pages (or a picture search): pass each in the write's \`images\` as \`{ name: "stand-1.jpg", url: "<the picture's address>" }\` and name it in a field (\`photo: stand-1.jpg\`, \`photos: stand-1.jpg, stand-2.jpg\`, \`cover:\`). They are saved with the note and exported with it. Every option compared (a place, dish, country, hotel, product) gets a real picture: when its pages have none, search_web with pictures: true for its name, or open its page in your browser; never save a comparison page with no pictures because the first try found none. Give a place two to four photos (\`photos: a.jpg, b.jpg, c.jpg\`): they swipe as a carousel. A wrong photo is worse than none, so check the name matches.
-- Every option, place, price and stop gets \`source: <the page you read it on>\`, drawn as a link out to that site. Facts with no source are guesses.
+- Every option, place, price, stop, person and timeline row gets \`source: <the page you read it on>\`, drawn as a link out to that site. Facts with no source are guesses. A web address written in the words is a link too.
+- A page is visual: people get their photo (\`photo:\` under each, or one is found for them), named things in a timeline get theirs, organisations their logo or building. A page with no picture at all is sent back for its drawing; the cover call is never optional.
 - A map: draw the places with \`draw_visual\` (template map) and keep that picture as the block's \`map: map.png\`, passing \`images: [{ name: "map.png", data: "picture:N" }]\`. Without one, each place still opens in a map app.
 - One idea per section. Five sections at most; move the rest to a linked note.
 - \`accent\` only if the subject has a color of its own; otherwise leave it.

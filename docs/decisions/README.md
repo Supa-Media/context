@@ -440,6 +440,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Pages start from a template](./app-and-console/pages.md#pages-start-from-a-template) (2026-11-10)
 - [Work Tex shows is a page, and the Tex page lists them](./app-and-console/pages.md#work-tex-shows-is-a-page-and-the-tex-page-lists-them) (2026-11-10)
 - [A page can have a layout of its own](./app-and-console/pages.md#a-page-can-have-a-layout-of-its-own) (2026-11-10)
+- [A page always has a picture, and its people and links show](./app-and-console/pages.md#a-page-always-has-a-picture-and-its-people-and-links-show) (2026-11-10)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate

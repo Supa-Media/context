@@ -77,7 +77,8 @@ test("length set to detailed lets the long form go", () => {
 test("a page written with no cover drawn still counts as the result", async () => {
   const watch = claimCheck({ question: "research the four frameworks" });
   const call = watch.wrap(async () => ({ content: [{ type: "text", text: "saved" }] }));
-  await call("write_note", { path: "projects/frameworks.page.md", content: "# Frameworks" });
+  // A page with its drawing: one with no picture at all is sent back for its cover first (`pageVisual.test.mjs`).
+  await call("write_note", { path: "projects/frameworks.page.md", content: "---\ndrawing: d.png\n---\n\n# Frameworks" });
   assert.equal(watch.check(DESCRIBES_THE_PAGE.replace("\n[picture 1]", "")), RESULT_NOTICE);
 });
 
