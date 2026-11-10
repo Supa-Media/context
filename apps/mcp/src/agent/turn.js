@@ -229,7 +229,7 @@ export async function runTurn(options) {
     // Gateway words saying the history is one iMessage thread's (`threadView.js`).
     threadNote = "",
     turnNote = "", // per-text words said in their turn, never the system prompt (`turnPrompt.js`)
-    // A history rebuilt as one block every text (the rendered log) is never read back by the next text: no hour mark on it (`aiGateway.js`).
+    // A history rebuilt as one block every text (the threaded log) is never read back by the next text: no hour mark on it (`aiGateway.js`).
     historyCached = true,
     // Texts sent while it works, taken after each tool round (`steer.js`).
     steer = null,
@@ -355,7 +355,13 @@ export async function runTurn(options) {
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
   // Each of their earlier texts with its day and time, so "today" in one is that day's (Dev2, 2026-11-10; `localNow.js` `stamped`).
-  const messages = [...datedTurns(history).map(({ turn: { role, text }, at }) => ({ role, text: role === "user" ? stamped(text, at, localNow?.timeZone ?? null) : text })), questionMessage];
+  // An answer in the chat's current stretch carries its calls and their results, then its words (`stretch.js`).
+  const historyMessages = datedTurns(history).flatMap(({ turn: { role, text, calls }, at }) => role === "user"
+    ? [{ role, text: stamped(text, at, localNow?.timeZone ?? null) }]
+    : Array.isArray(calls) && calls.length > 0
+      ? [{ role, text: "", toolCalls: calls.map(({ id, name, args }) => ({ id, name, args })) }, ...calls.map(({ id, name, result, isError }) => ({ role: "tool", id, name, text: result, ...(isError ? { isError: true } : {}) })), { role, text }]
+      : [{ role, text }]);
+  const messages = [...historyMessages, questionMessage];
   /*
     What the turn did, by name only. The arguments a tool was called with can
     carry a path and a query — facts about what somebody is looking for in their
@@ -429,7 +435,7 @@ export async function runTurn(options) {
     try {
       answer = await requestBuiltin(
         // `cachedThrough`: the history is the cached stretch; the question and what follows it are not (`aiGateway.js`).
-        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: historyCached ? history.length : 0, ...(observe ? { display: "summarized" } : {}) },
+        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: historyCached ? historyMessages.length : 0, ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
       );
@@ -642,7 +648,7 @@ export async function runTurn(options) {
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
       if (failedCall(result)) escalate = true;
-      tell({ kind: "tool", name: call.name, args: call.args, ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result), ...(typeof result?.thinking === "string" && result.thinking ? { thinking: result.thinking } : {}) }); // the result, for the chat's ledger (`ledger.js`)
+      tell({ kind: "tool", name: call.name, args: call.args, ...(made.name !== call.name ? { as: { name: made.name, args: made.args } } : {}), ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result), ...(typeof result?.thinking === "string" && result.thinking ? { thinking: result.thinking } : {}) }); // the result, for the chat's ledger (`ledger.js`)
       messages.push({
         role: "tool",
         id: call.id,

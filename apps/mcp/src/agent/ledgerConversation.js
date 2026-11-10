@@ -51,10 +51,12 @@ const routineLine = (path) => `(Not a text from them. Your routine ${path} ran o
   Kept as a line Tex sent by itself, never dropped.
 */
 const UNPROMPTED_LINE = "(Not a text from them. You texted them what follows on your own, when work you were doing for them reported back.)";
+/** Who sent a run of texts: their `who` (or name), once each. */
+export const askers = (entries) => [...new Set(entries.filter((entry) => entry.kind === "text" && entry.from?.kind === "person").map((entry) => entry.from?.who ?? entry.from?.name ?? ""))];
 const bySeq = (a, b) => (a.seq ?? 0) - (b.seq ?? 0);
 
 /** The turns of a ledger's entries (any order), oldest first, unbounded: `keep` bounds them. */
-export function conversationFromLedger(entries, { question: asQuestion = null } = {}) {
+export function conversationFromLedger(entries, { question: asQuestion = null, marked = false } = {}) {
   const list = (Array.isArray(entries) ? entries : []).filter((entry) => entry !== null && typeof entry === "object").sort(bySeq);
   const replies = new Map();
   const tools = new Map();
@@ -93,6 +95,7 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
     if (answering === null) return;
     const reply = replies.get(answering.turn);
     // A voice message heard onto their own line is not repeated from what the gateway noted beside the answer.
+    const askedBy = marked ? askers(asked) : null;
     const onTheirLine = asked.some((entry) => entry.heard === "voice");
     const noted = typeof reply.attached === "string" ? reply.attached.split("\n").filter((line) => line !== "" && !(onTheirLine && line.startsWith("[Voice message "))).join("\n") : "";
     const extra = [noted !== "" ? noted : null].filter(Boolean);
@@ -106,6 +109,8 @@ export function conversationFromLedger(entries, { question: asQuestion = null } 
       ...(reply.clean !== true ? { tainted: true } : {}),
       ...(tools.has(answering.turn) ? { tools: tools.get(answering.turn) } : {}),
       ...(Array.isArray(reply.sources) && reply.sources.length > 0 ? { sources: reply.sources } : {}),
+      // `marked`: its turn and who asked it, for the stretch's carried calls (`stretch.js`).
+      ...(marked ? { turn: answering.turn, askers: askedBy } : {}),
     });
     answering = null;
   };

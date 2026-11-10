@@ -236,6 +236,27 @@ function markLastBlock(wire, index, mark = { type: "ephemeral" }) {
   wire[index] = { ...message, content: blocks };
 }
 
+/*
+  Context editing (platform.claude.com/docs/en/build-with-claude/context-editing,
+  read 2026-11-10): on a texted turn, which carries the stretch's tool results
+  (`stretch.js`), the oldest results are cleared server-side once the prompt is
+  long, keeping the newest few. Clearing invalidates the cached prefix from the
+  first cleared block, so it waits for a long prompt and clears a good amount at
+  once. Beta: sent with its header, and dropped for the isolate after a 400
+  naming it (`contextEditsRefused`).
+*/
+export const CONTEXT_BETA = "context-management-2025-06-27";
+export const CONTEXT_EDITS = Object.freeze({
+  edits: [{ type: "clear_tool_uses_20250919", trigger: { type: "input_tokens", value: 100_000 }, keep: { type: "tool_uses", value: 6 }, clear_at_least: { type: "input_tokens", value: 20_000 } }],
+});
+let contextEditsRefused = false;
+/** For tests: forget a remembered refusal of context editing. */
+export function resetContextEdits() {
+  contextEditsRefused = false;
+}
+const namesContextEdits = (answer) => answer.status === 400 && /context_management|context-management/i.test(answer.text ?? "");
+const withoutContextEdits = ({ context_management: _edits, ...body }) => body;
+
 export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display, cachedThrough = null }) {
   const layered = Number.isInteger(cachedThrough) && cachedThrough >= 0;
   // A texted turn's prefix (tools, system, history) is kept an hour, since people reply minutes apart and a five-minute
@@ -275,6 +296,7 @@ export function gatewayBody({ model, system, messages, tools, maxTokens, toolCho
       : {}),
     ...(EFFORTS.has(effort) ? { output_config: { effort } } : {}),
     ...(DISPLAYS.has(display) && THINKS_BY_DEFAULT.test(model) ? { thinking: { type: "adaptive", display } } : {}),
+    ...(layered ? { context_management: CONTEXT_EDITS } : {}),
   };
 }
 
@@ -320,6 +342,7 @@ async function send(config, body, { withKey, metadata }, fetchImpl) {
           "cf-aig-authorization": `Bearer ${config.token}`,
           "cf-aig-collect-log": "false",
           ...metadataHeader(metadata),
+          ...(body.context_management ? { "anthropic-beta": CONTEXT_BETA } : {}),
           // The plan's key appears here and nowhere else.
           ...(withKey ? { "x-api-key": config.creditKey } : {}),
         },
@@ -383,11 +406,19 @@ export async function requestViaGateway(call, config, options = {}) {
   // Every model told the day, whichever agent asks (`localNow.js` `withToday`).
   let body = gatewayBody(withToday(call, { now: now(), timeZone: options.timeZone ?? null }));
   if (hourMarksRefused) body = withoutHourMarks(body);
+  if (contextEditsRefused) body = withoutContextEdits(body);
   // A 400 on a body with one-hour marks is resent once without them; when that
   // goes through, the refusal is remembered for this isolate, so an unaccepted
   // field never fails a turn.
   const sendIt = async (withKey) => {
-    const answer = await sendWithRetry(config, body, { withKey, metadata: options.metadata }, fetchImpl, wait);
+    let answer = await sendWithRetry(config, body, { withKey, metadata: options.metadata }, fetchImpl, wait);
+    // A gateway or API that refuses context editing: once more without it, remembered for the isolate, never a failed turn.
+    if (namesContextEdits(answer) && body.context_management) {
+      console.log(JSON.stringify({ event: "tex_context_edits_refused", code: "context_management_400" }));
+      contextEditsRefused = true;
+      body = withoutContextEdits(body);
+      answer = await sendWithRetry(config, body, { withKey, metadata: options.metadata }, fetchImpl, wait);
+    }
     if (answer.status !== 400 || !hasHourMarks(body) || saysCreditSpent(answer.text) || namesThinking(answer)) return answer; // a thinking 400 is the turn's to strip (`turn.js`)
     const plain = withoutHourMarks(body);
     const again = await sendWithRetry(config, plain, { withKey, metadata: options.metadata }, fetchImpl, wait);

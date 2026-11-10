@@ -19,7 +19,7 @@
  * - `text`: `{from: {kind: "person"|"tex"|"system", name?, who?}, text, covers?, delivered?, reason?, told?, replyTo?, event?}`
  * - `thinking`: `{text, ms?, output?}`, the model's thinking in words, as it came back, with its model round's milliseconds and output tokens
  * - `said`: `{text}`, what the model said between its tools
- * - `tool`: `{name, args, ok, ms, held?, reason?, result?, cut?, withheld?}`
+ * - `tool`: `{name, args, as?, ok, ms, held?, reason?, result?, cut?, withheld?}`; `as` is `{name, args}` as the model wrote the call, when that differs; `grant` is the grant id the call ran under, which a later text replays its result only under (`stretch.js`)
  * - `reply`: `{text, ms, model?, timing?}`, the turn's answer as it left the gateway; `timing` is where its time went (`turnTiming.js`)
  * - `advisor`: `{question, answer, ms, steps?}` / `mail_check`: `{to, subject, verdict, why, ref?}` / `job`: `{job, title?, state}`
  * - `note`: `{text}`, anything else worth keeping (a routine's text, a check-in)
@@ -72,9 +72,11 @@ export function readsOtherWorkspace(args, ownSlug) {
 }
 
 /** A tool call's entry. `result` is the text the model was shown. */
-export function toolEntry({ name, args, ok, ms, held = false, reason = null, result = null, thinking = null }, { ownSlug, turn = null, at = Date.now() } = {}) {
-  const entry = { v: 1, id: newId(), at, kind: "tool", ...(turn ? { turn } : {}), name: String(name ?? "").slice(0, 64), args: keptArgs(args ?? {}), ok: ok === true, ms: Number.isFinite(ms) ? Math.round(ms) : 0 };
+export function toolEntry({ name, args, as = null, ok, ms, held = false, reason = null, result = null, thinking = null }, { ownSlug, turn = null, grant = null, at = Date.now() } = {}) {
+  const entry = { v: 1, id: newId(), at, kind: "tool", ...(turn ? { turn } : {}), ...(typeof grant === "string" && grant !== "" ? { grant: grant.slice(0, 80) } : {}), name: String(name ?? "").slice(0, 64), args: keptArgs(args ?? {}), ok: ok === true, ms: Number.isFinite(ms) ? Math.round(ms) : 0 };
   if (held) entry.held = true;
+  // The name and arguments the model wrote, when it called one of the six (`sixTools.js`): what a later text replays (`stretch.js`).
+  if (as && typeof as.name === "string" && as.name !== entry.name) entry.as = { name: as.name.slice(0, 64), args: keptArgs(as.args ?? {}) };
   if (typeof reason === "string" && reason !== "") entry.reason = reason.slice(0, 400);
   if (readsOtherWorkspace(args, ownSlug)) entry.withheld = "other_workspace";
   else if (typeof result === "string") {
@@ -205,14 +207,14 @@ function roundCost(event) {
  * whatever else watches them (`then`): thinking, the words between tools, and
  * every tool call with its result.
  */
-export function ledgerObserver(writer, then = null, { turn = null, ownSlug = null } = {}) {
+export function ledgerObserver(writer, then = null, { turn = null, ownSlug = null, grant = null } = {}) {
   if (writer === null) return then;
   const at = { turn: typeof turn === "string" && turn !== "" ? turn : null };
   return (event) => {
     if (typeof then === "function") then(event);
     if (event?.kind === "thinking" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("thinking", event.text, { ...at, ...roundCost(event) }));
     else if (event?.kind === "say" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("said", event.text, at));
-    else if (event?.kind === "tool") writer.write(toolEntry(event, { ownSlug, turn: at.turn }));
+    else if (event?.kind === "tool") writer.write(toolEntry(event, { ownSlug, turn: at.turn, grant }));
     else if (event?.kind === "judge") writer.write(judgeEntry(event, at));
   };
 }
