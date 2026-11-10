@@ -42,6 +42,7 @@ Order, top to bottom:
 - A day or a night out: \`itinerary\`, with a \`walk\` under each stop. Deadlines or milestones: \`timeline\`, with \`state: done\` or \`now\`.
 - Numbers over time: \`chart\`. One number against a goal: a status page's \`number\`, or \`progress\`.
 - Who does what this week: \`board\`. Who to call or write: \`contacts\`, with phone, email or site fields.
+- How something works, flows or fits together (a route, a floor plan, who hands what to whom, the steps of a setup): a \`drawing\`, your simple line drawing of it in Tex's ink, beside the words that explain it. One per section at most; never a drawing of words you could write.
 - Two things compared row by row: \`versus\`. Anything no block draws (a calculator, a bill splitter): a \`box\` of your own HTML and CSS.
 - Plain prose only for what is really prose. A paragraph that lists options, prices or times is a block you have not written yet.
 
@@ -95,6 +96,7 @@ const FORMAT = [
   "",
   ...KIND_LINES,
   "",
+  "- **Drawings**: a ```` ```drawing <caption> ```` fence holds SVG shapes on a 1200 x 900 canvas (`rect`, `circle`, `ellipse`, `line`, `path`, `polyline`, `polygon`, `text` of a few words, `g`, and one `<tex x y size>` for Tex himself). Fills are `none`, `ink`, `paper` or `hatch`; every stroke is Tex's ink, in light and dark. No colours, styles, links or images: anything else is refused with what to fix.",
   "- **Look**: a ```` ```css ```` fence restyles the page (`--pg-accent`, `.pg-nums`, `h1`); it can load nothing from the network.",
   "- **Code boxes**: a ```` ```box height=320 ```` fence holds HTML and script for something no block draws (a calculator, a quiz, a custom chart). It runs sealed in its own frame, loads nothing, and reads the page's blocks as `window.page.blocks`. Prefer a block; reach for a box only when none fits.",
   "- A write with a block that cannot be drawn is refused with the line to fix. A `choose`, `vote` or `tiers` block's decision comes back as its `chosen:` line, and votes as `votes:` under each option: read the note again to see them.",

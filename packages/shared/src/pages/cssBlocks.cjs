@@ -239,6 +239,11 @@ const BLOCKS_CSS = `
 .pg-broken{border:1px dashed var(--pg-warn);border-radius:12px;padding:10px 12px}
 .pg-problem{color:var(--pg-warn);font-size:13px}
 .pg-broken pre{margin:0;white-space:pre-wrap;font:12px/1.5 var(--pg-mono)}
+.pg-ink-figure{margin:6px 0 22px}
+.pg-ink-figure svg{width:100%;height:auto;border-radius:16px}
+.pg-ink-figure svg.pg-ink-light{display:var(--pg-ink-light,block)}
+.pg-ink-figure svg.pg-ink-dark{display:var(--pg-ink-dark,none)}
+.pg-ink-figure figcaption{font-size:13px;line-height:1.45;color:var(--pg-muted);margin-top:6px}
 .pg-box{width:100%;border:0;display:block;margin:4px 0 20px;border-radius:20px;background:var(--pg-accent-soft);overflow:hidden}
 .pg-box iframe{width:100%;height:100%;border:0;display:block}
 @media (prefers-reduced-motion:no-preference){.pg-btn,.pg-vopt,.pg-option{transition:transform .15s,background .15s,box-shadow .15s}.pg-btn:hover{transform:translateY(-1px)}}

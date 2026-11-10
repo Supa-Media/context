@@ -20,6 +20,7 @@ const { esc, runsHtml, plain } = require("./html.cjs");
 const { DRAW } = require("./draw.cjs");
 const { RICH } = require("./drawRich.cjs");
 const { coverHtml } = require("./cover.cjs");
+const { drawingSvg } = require("../ink/drawing.cjs");
 
 const DRAWN = { ...DRAW, ...RICH };
 
@@ -30,6 +31,29 @@ function blockHtml(block, ctx) {
   }
   return `<div class="pg-block pg-${block.kind}-block" data-node="${block.from}">${caption}${DRAWN[block.kind](block, ctx)}</div>`;
 }
+
+/**
+ * A ```` ```drawing ```` block: Tex's ink, drawn from the shapes `parse.cjs`
+ * read, in both inks so the page's own theme picks one (`--pg-ink-light`,
+ * `--pg-ink-dark`), cropped to the scene. Inline, so its words are set in the
+ * page's face; each copy's ids are its own, so two drawings never share a
+ * hatch. Nothing the writer typed reaches it but numbers and escaped words.
+ */
+function drawingFigure(node, ctx) {
+  if (node.scene === null) return `<pre class="pg-code" data-node="${node.from}"><code>${esc(node.problems?.[0]?.message ?? "")}</code></pre>`;
+  ctx.drawings = (ctx.drawings ?? 0) + 1;
+  const one = (dark) => {
+    const id = `d${ctx.drawings}${dark ? "n" : "l"}-`;
+    return drawingSvg(node.scene, { dark, seed: `${node.from}` })
+      .replace(/\bink-(rough|paper|hatch)\b/g, `${id}$1`)
+      .replace(/^<svg [^>]*>/, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${DRAWING_CROP}" role="img" aria-label="${esc(node.caption || "A drawing")}" class="${dark ? "pg-ink-dark" : "pg-ink-light"}">`);
+  };
+  const caption = node.caption ? `<figcaption>${esc(node.caption)}</figcaption>` : "";
+  return `<figure class="pg-ink-figure" data-node="${node.from}">${one(false)}${one(true)}${caption}</figure>`;
+}
+
+/** The part of a drawing the scene is in (`SAFE` in `ink/drawing.cjs`), with room for Tex at its foot. */
+const DRAWING_CROP = "90 110 1020 820";
 
 /** One node as HTML. `boxes` collects the code boxes, which the runtime fills. */
 function nodeHtml(node, ctx, boxes) {
@@ -68,6 +92,8 @@ function nodeHtml(node, ctx, boxes) {
       return `<pre class="pg-code" data-node="${node.from}"><code>${esc(node.text)}</code></pre>`;
     case "block":
       return blockHtml(node, ctx);
+    case "drawing":
+      return drawingFigure(node, ctx);
     case "box":
       boxes.push(node);
       return `<div class="pg-box" data-box="${boxes.length - 1}" data-node="${node.from}" style="height:${node.height ?? 240}px"></div>`;

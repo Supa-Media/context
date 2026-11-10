@@ -27,6 +27,7 @@
 
 const { inlineRuns } = require("./inline.cjs");
 const { BLOCK_KINDS, checkBlock } = require("./blocks.cjs");
+const { readScene } = require("../ink/drawing.cjs");
 
 const PAGE_SUFFIX = ".page.md";
 
@@ -262,6 +263,17 @@ function fenced(source, info, bodyLines, where) {
   if (word === "box") {
     const height = /(?:^|\s)height=(\d{2,4})(?:\s|$)/.exec(rest);
     return { type: "box", html: body, height: height ? Math.min(2000, Math.max(80, Number(height[1]))) : null, ...where };
+  }
+  if (word === "drawing") {
+    // Tex's ink inside the page (`ink/drawing.cjs`): shapes only, read here so a scene that can't be drawn is a problem the write is refused for.
+    const read = readScene(body);
+    return {
+      type: "drawing",
+      caption: rest,
+      scene: read.error ? null : read,
+      problems: read.error ? [{ message: `This drawing can't be drawn: ${read.error}` }] : [],
+      ...where,
+    };
   }
   if (!Object.hasOwn(BLOCK_KINDS, word)) return { type: "code", lang: word, text: body, ...where };
 
