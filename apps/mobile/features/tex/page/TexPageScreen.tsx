@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { Redirect, router, useLocalSearchParams, useNavigation } from "expo-router";
+import { noteHref } from "../../console/nav";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -144,6 +145,7 @@ export function TexPageScreen() {
         computer={showsComputer ? computer : null}
         openComputer={() => go({ chat: place.chat, view: "computer", full: true })}
         exit={exit}
+        openNote={(context, path) => router.push(noteHref(context, path) as never)}
       />
     </Screen>
   );

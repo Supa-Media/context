@@ -41,6 +41,7 @@ export function TexHome({
   group,
   overview,
   pickChat,
+  openNote,
 }: ViewProps & { overview: Overview; pickChat: (chatKey: string) => void }) {
   const wide = useWide();
   const now = useNow();
@@ -125,7 +126,7 @@ export function TexHome({
 
       <ConversationsPeek source={source} chat={chat} go={go} />
 
-      <PagesPeek source={source} chat={chat} />
+      <PagesPeek source={source} chat={chat} openNote={openNote} />
 
       <View>
         <SectionHead>History</SectionHead>

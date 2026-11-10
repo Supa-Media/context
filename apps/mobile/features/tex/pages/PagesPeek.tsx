@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
-import { router } from "expo-router";
-import { noteHref } from "../../console/nav";
 import { ListBox, ListRow, More, SectionHead, T, useNow } from "../page/TexPageParts";
 import { ago } from "../page/texPageFormat";
 import type { TexPageSource } from "../page/texPageSource";
@@ -16,7 +14,7 @@ export const PAGES_PEEK = 5;
  * wrote, newest first, each opening as its page in the app. Draws nothing
  * while it reads, when it can't, or when there are none.
  */
-export function PagesPeek({ source, chat }: { source: TexPageSource; chat: string }) {
+export function PagesPeek({ source, chat, openNote }: { source: TexPageSource; chat: string; openNote?: (context: string, path: string) => void }) {
   const [pages, setPages] = useState<TexMadePage[] | null>(null);
   const [all, setAll] = useState(false);
   const now = useNow();
@@ -47,7 +45,7 @@ export function PagesPeek({ source, chat }: { source: TexPageSource; chat: strin
                 {page.at > 0 ? `${ago(page.at, now)} ›` : "›"}
               </T>
             }
-            onPress={() => router.push(noteHref(page.context, page.path) as never)}
+            onPress={openNote ? () => openNote(page.context, page.path) : undefined}
             testID={`tex-page-${page.path}`}
           />
         ))}
