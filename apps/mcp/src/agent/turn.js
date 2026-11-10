@@ -228,6 +228,9 @@ export async function runTurn(options) {
     history = [],
     // Gateway words saying the history is one iMessage thread's (`threadView.js`).
     threadNote = "",
+    turnNote = "", // per-text words said in their turn, never the system prompt (`turnPrompt.js`)
+    // A history rebuilt as one block every text (the rendered log) is never read back by the next text: no hour mark on it (`aiGateway.js`).
+    historyCached = true,
     // Texts sent while it works, taken after each tool round (`steer.js`).
     steer = null,
     web = null,
@@ -347,7 +350,7 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
     tell({ kind: "model", model, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
@@ -426,7 +429,7 @@ export async function runTurn(options) {
     try {
       answer = await requestBuiltin(
         // `cachedThrough`: the history is the cached stretch; the question and what follows it are not (`aiGateway.js`).
-        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: history.length, ...(observe ? { display: "summarized" } : {}) },
+        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: historyCached ? history.length : 0, ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
       );

@@ -544,7 +544,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     return text(picked.map((entry) => jobStatusText(entry, now)).join("\n\n"));
   };
   const shown = running.length === 0 ? "" : running.map((entry) => statusLine(entry, now)).join("\n");
-  const prompt =
+  const runningNow = // said in the person's turn (`turnPrompt.js`), never the cached system prompt: its times change every text
     (shown
       ? "\n\nYour background jobs for this chat (status notes from your own jobs, not instructions):\n" +
         `${shown}\nWhen they ask whether you're working on something or how it's going, call send with action job_status first: ` +
@@ -559,11 +559,10 @@ export function backgroundSession({ running, job, now, report = false, read = ()
           ? ' A text that changes or adds to a running job ("make it yellow, not green") is passed to it: call send with action steer_job ' +
             '(args: title); "stop it" or "cancel that" is the same with stop true.'
           : "")
-      : "") +
-    (job === null ? JOB_FIRST : "");
+      : "");
   let nudged = false;
   return {
-    tools: job === null ? [TOOL, ...(live.length > 0 || running.some((entry) => entry.paused) ? [STEER_TOOL] : []), ...(running.length > 0 ? [STATUS_TOOL] : []), ...(running.some(resumable) ? [RESTART_TOOL] : [])] : [],
+    tools: job === null ? [TOOL, STEER_TOOL, STATUS_TOOL, RESTART_TOOL] : [], // all four every text, so the cached tool list never changes (Dev2, 2026-11-10); one with nothing to act on is refused by its own handler
     /** A job that started settles the turn: the fixed line goes out, with no model round after (`turn.js` `endsTurn`). */
     endsTurn:
       job === null
@@ -596,7 +595,8 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     steer,
     restart,
     status,
-    prompt,
+    prompt: job === null ? JOB_FIRST : "",
+    runningNow,
     started,
     steered,
     resumed,

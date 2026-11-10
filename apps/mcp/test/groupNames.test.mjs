@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { groupOf, groupPrompt } from "../src/agent/groupTurn.js";
+import { groupOf, groupPrompt, taggedLine } from "../src/agent/groupTurn.js";
 import { cleanName, namesOf } from "../src/agent/groupNames.js";
 
 test("the tagger is named by handle and name, and only people in the chat are named", () => {
@@ -31,7 +31,7 @@ test("the tagger is named by handle and name, and only people in the chat are na
   });
   assert.deepEqual(group.names, [{ handle: "jo", name: "Jo Rivers" }, { handle: "sam", name: "Sam O'Neil-Park" }]);
   const prompt = groupPrompt(group, "acme");
-  assert.match(prompt, /@jo \(Jo Rivers\) tagged you/);
+  assert.match(taggedLine(group), /@jo \(Jo Rivers\) tagged you/);
   assert.match(prompt, /@sam is Sam O'Neil-Park/);
   assert.doesNotMatch(prompt, /Eve/);
   assert.match(prompt, /never tell them they would know/);

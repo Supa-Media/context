@@ -183,7 +183,8 @@ test("a group turn is offered note writes but none of the tagger's own tools", a
   assert.match(JSON.stringify(sent.tools), /chat: reads this group chat's earlier messages/, "but it can read back its own chat");
   const system = JSON.stringify(sent.system);
   assert.match(system, /GROUP CHAT/);
-  assert.match(system, /@ada tagged you/);
+  assert.doesNotMatch(system, /@ada tagged you/);
+  assert.match(JSON.stringify(sent.messages), /@ada tagged you/);
   assert.match(system, /@band/);
   // The texts conversation, the transcript and the tagger's own tex/ notes are untouched: only the chat's own note.
   assert.deepEqual(live(world.team, ".context/agent/conversations/"), []);

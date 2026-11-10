@@ -125,6 +125,10 @@ const lastText = (request) => JSON.stringify(request?.messages?.at(-1)?.content 
 const systemOf = (request) =>
   Array.isArray(request?.system) ? request.system.map((block) => block?.text ?? "").join("\n") : String(request?.system ?? "");
 
+/** The system prompt and the words of every message: a per-text line is said in the person's turn (`turnPrompt.js`). */
+const toldOf = (request) =>
+  [systemOf(request), ...(request?.messages ?? []).flatMap((message) => (Array.isArray(message.content) ? message.content : [{ text: message.content }]).map((block) => block?.text ?? ""))].join("\n");
+
 export async function runAgentBackgroundRouteChecks(check) {
   const previousFetch = globalThis.fetch;
   const s3 = createS3Backend(S3_ENDPOINT);
@@ -180,7 +184,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     check("a text from a Worker that runs jobs is offered background, under send", /background: Hand a long task/.test(sendTool(first)?.description ?? ""));
     check(
       "the turn is shown what's running, with its status",
-      /"Trip plan": running, started 5 min ago; latest: Comparing hotels/.test(systemOf(first)),
+      /"Trip plan": running, started 5 min ago; latest: Comparing hotels/.test(toldOf(first)) && !/Trip plan/.test(systemOf(first)), // per text, never the cached system prompt
     );
     check(
       "the answer names the job for the Worker to run",
@@ -221,7 +225,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     );
     model.install([{ text: "Hi." }]);
     await post(env, TOKEN_TEXTS, "/agent", { question: "hello", conversation: "texts", running: [] });
-    check("nothing running, nothing to steer", !/steer_job:/.test(sendTool(model.requests.at(-1))?.description ?? ""));
+    check("nothing running: steer_job is still listed, so the cached tool list never changes", /steer_job:/.test(sendTool(model.requests.at(-1))?.description ?? ""));
 
     model.install([{ text: "Hi." }]);
     await post(env, TOKEN_TEXTS, "/agent", { question: "hello", conversation: "texts" });
@@ -232,18 +236,18 @@ export async function runAgentBackgroundRouteChecks(check) {
 
     /* ---------------- a paired computer is named to the turn (`machines/forTurn.js`) ---------------- */
 
-    check("a turn with no computer paired is told of none", !/paired with Tex/.test(systemOf(first)));
+    check("a turn with no computer paired is told of none", !/paired with Tex/.test(toldOf(first)));
     const studio = { id: "mch_bench", name: "Studio Mac", online: true, tools: ["claude", "codex"], folders: ["~/code"], ownerId: "user_maya", limits: { slots: 3 } };
     const machineStore = { idFromName: (name) => name, get: () => ({ fetch: async () => Response.json({ ok: true, machines: [studio], machine: studio }) }) };
     model.install([{ text: "Hi." }]);
     await post({ ...env, MACHINE_STORE: machineStore }, TOKEN_TEXTS, "/agent", { question: "hello", conversation: "texts", running: [] });
     check(
       "a texted turn with a paired computer is told it by name",
-      /They have a computer paired with Tex: "Studio Mac" \(online; Claude Code, Codex; 3 slots\)/.test(systemOf(model.requests.at(-1))),
+      /They have a computer paired with Tex: "Studio Mac" \(online; Claude Code, Codex; 3 slots\)/.test(toldOf(model.requests.at(-1))) && !/paired with Tex/.test(systemOf(model.requests.at(-1))),
     );
     model.install([{ text: "Hi." }]);
     await post({ ...env, MACHINE_STORE: machineStore }, TOKEN_APP, "/agent", { question: "hello", running: [] });
-    check("an app turn is never told of a computer", !/paired with Tex/.test(systemOf(model.requests.at(-1))));
+    check("an app turn is never told of a computer", !/paired with Tex/.test(toldOf(model.requests.at(-1))));
 
     /* ---------------- the job's own turn ---------------- */
 
