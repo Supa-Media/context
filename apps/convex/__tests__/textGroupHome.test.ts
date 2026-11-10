@@ -105,7 +105,7 @@ function sorted(ids: Id<"users">[]) {
 }
 
 /** Every folder a person's Tex has (`HOME_FOLDERS`), written out so a dropped name fails here. */
-const PERSON_TEX_FOLDERS = ["skills", "routines", "heartbeat", "attention", "dreams", "handbacks", "housekeeping", "pictures"];
+const PERSON_TEX_FOLDERS = ["skills", "routines", "heartbeat", "attention", "dreams", "handbacks", "housekeeping", "pictures", "templates"];
 
 describe("a chat's home", () => {
   test("holds every folder a person's Tex has but the person-only ones, from one list", () => {
