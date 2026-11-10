@@ -10,6 +10,7 @@ import { action, internalAction, internalQuery, query } from "../_generated/serv
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import {
   myTimeZoneHandler,
+  ownerTimeZoneHandler,
   routineForNoteHandler,
   routineRunsHandler,
   runRoutineNowHandler,
@@ -190,4 +191,11 @@ export const routineRuns = action({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.array(v.object({ at: v.number(), outcome: v.string(), text: v.string() })),
   handler: async (ctx, args) => await routineRunsHandler(ctx, args),
+});
+
+/** A workspace owner's zone, for the gateway's date properties (`/gateway/time-zone`). */
+export const ownerTimeZone = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.string(), v.null()),
+  handler: ownerTimeZoneHandler,
 });

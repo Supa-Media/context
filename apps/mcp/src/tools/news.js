@@ -40,6 +40,15 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-10",
+    newTool: true,
+    text:
+      "A note's date created and date modified (and created, modified, updated, date_created, date_modified, created_at, updated_at) now fill " +
+      "themselves on every save once the note has the key: write the key empty and Context fills it, in the note's own date format and the owner's " +
+      "time zone; modified moves only when the content changes. manage action fill_dates (owner only; args { after? }) fills the empty ones across " +
+      "the context once, from each note's history, and says how many it filled.",
+  },
+  {
     date: "2026-11-06",
     text:
       "read_note (and fetch) of tex/history.ledger.json takes `before` (a seq) to page back past the newest entries, and `job` (a " +
@@ -410,7 +419,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "7e2038d9";
+export const TOOL_SHAPE = "a829a86d";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

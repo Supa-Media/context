@@ -205,7 +205,8 @@ export async function runTreeHintChecks(check) {
     const storedText = stored ? await stored.text() : "";
     check(
       "a missing opening --- is put back, and the stored note opens with its front matter again",
-      !dropped?.isError && storedText.startsWith("---\nupdated: 2026-10-07\nstatus: finished\n"),
+      // `updated:` is a date property, so this content save moves it to today (`notes/dateProperties.js`).
+      !dropped?.isError && /^---\nupdated: \d{4}-\d{2}-\d{2}\nstatus: finished\n/.test(storedText),
     );
     check("the writer is told it was put back", /opening --- line was missing/.test(droppedText));
     check("and the status change it carried reaches the consoles", hints().length === 1);

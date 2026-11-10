@@ -32,6 +32,7 @@ import { probeWithLegacyFallback } from "../notes/storage.js";
 import { projectWrittenNoteAfterResponse } from "../search/writeProjection.js";
 import { frontMatterChanged } from "../activity/changes.js";
 import { recordChange } from "../activity/record.js";
+import { stampAfterQuiet } from "../notes/dateStamp.js";
 
 export async function handleCollaboration(request, store, session, origin) {
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -246,5 +247,7 @@ export async function handleCollaboration(request, store, session, origin) {
     });
   }
   await announceCommittedToPresence(store, effectivePath, result);
+  // Date properties the note asked for are set once the typing pauses, never per keystroke (`notes/dateStamp.js`).
+  if (result.text !== storedText) stampAfterQuiet(store, effectivePath, result, storedText, Date.now());
   return json(result);
 }

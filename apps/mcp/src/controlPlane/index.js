@@ -28,6 +28,7 @@ import { createTexCommandMethods } from "./texCommands.js";
 import { createTexPageMethods } from "./texPage.js";
 import { createTexChatHomeMethods } from "./texChatHome.js";
 import { createTexMachineMethods } from "./texMachines.js";
+import { createTimeZoneMethods } from "./timeZone.js";
 
 export { ControlPlaneError, sha256Hex, isLoopbackHost };
 
@@ -72,5 +73,6 @@ export function createControlPlane(env, options = {}) {
     ...createTexPageMethods({ post }),
     ...createTexChatHomeMethods({ post }),
     ...createTexMachineMethods({ post }),
+    ...createTimeZoneMethods({ post }),
   };
 }

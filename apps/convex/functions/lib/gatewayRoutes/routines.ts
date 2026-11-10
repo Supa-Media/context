@@ -6,12 +6,15 @@
  *  - `POST /agent-texts/routines/due` (texting Worker's secret): the runs due
  *    now, each with a short-lived grant.
  *  - `POST /agent-texts/routines/result` (same): how one went, as a code.
+ *  - `POST /gateway/time-zone` (gateway secret and the person's token): the workspace owner's zone, which the
+ *    gateway writes a note's date properties in.
  *
  * None of them carries note text in either direction.
  */
 
 import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
+import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
@@ -118,4 +121,23 @@ export async function agentRoutinesResultHandler(
   if (runId === null || runId.length > 128 || !isRoutineOutcome(outcome)) return badRequest();
   const status = await ctx.runMutation(internal.functions.routines.recordRoutineResult, { runId, outcome });
   return json({ status });
+}
+
+/**
+ * `POST /gateway/time-zone` — `{ accessToken, expectedWorkspaceId }` → `{ timeZone }`: the zone of the workspace's
+ * owner, for the date properties the gateway fills (`apps/mcp/src/notes/dateStamp.js`). The two proofs, like every
+ * gateway route: the workspace must be one the token's live grant reaches, and `{ timeZone: null }` is the one
+ * answer for a token or workspace that does not clear, and for an owner who never set a zone.
+ */
+export async function gatewayTimeZoneHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  if (accessToken === null || expected === null || expected.length > 256) return json({ timeZone: null });
+  const session = await ctx.runQuery(internal.functions.controlPlane.resolveGrantByAccessToken, {
+    hashedAccessToken: await hashToken(accessToken),
+  });
+  const entry = session?.workspaces.find((workspace) => workspace.workspaceId === expected);
+  if (!entry) return json({ timeZone: null });
+  const timeZone = await ctx.runQuery(internal.functions.routines.ownerTimeZone, { workspaceId: entry.workspaceId as Id<"workspaces"> });
+  return json({ timeZone });
 }

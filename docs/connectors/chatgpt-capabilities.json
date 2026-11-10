@@ -73,6 +73,7 @@
     "connect_google",
     "connect_app",
     "run_context_reflection",
+    "fill_dates",
     "pair_device",
     "set_folder_job",
     "get_website_status",
@@ -322,6 +323,12 @@
       "capability": "manage.dream_now",
       "tools": [
         "run_context_reflection"
+      ]
+    },
+    {
+      "capability": "manage.fill_dates",
+      "tools": [
+        "fill_dates"
       ]
     },
     {

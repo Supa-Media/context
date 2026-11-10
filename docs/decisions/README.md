@@ -424,6 +424,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Built-in folders are found by their job, not their name](./app-and-console/folder-jobs.md) (2026-10-18)
 - [Archive keeps the workspace's shape](./app-and-console/folder-jobs.md#archive-keeps-the-workspaces-shape) (2026-10-18)
 - [Built-in folders have no number in front](./app-and-console/folder-jobs.md#built-in-folders-have-no-number-in-front) (2026-10-21)
+- [Context fills a note's date created and date modified itself](./app-and-console/date-properties.md) (2026-11-10)
 - [Each folder has a Sort setting, shared by everyone in the workspace](./app-and-console/folder-sort.md) (2026-11-04)
 - [Experiments, case groups and how sure a score is](./app-and-console/admin-ai.md#experiments-case-groups-and-how-sure-a-score-is-boards-17-22) (2026-10-16)
 - [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)

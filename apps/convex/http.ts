@@ -808,6 +808,7 @@ http.route({ path: "/gateway/note-ids/adopt", method: "POST", handler: gatewayRo
 http.route({ path: "/gateway/note-ids/removed", method: "POST", handler: gatewayRoute(gatewayNoteIdsRemovedHandler) });
 http.route({ path: "/gateway/website", method: "POST", handler: gatewayWebsite });
 http.route({ path: "/gateway/routines", method: "POST", handler: gatewayRoutines });
+http.route({ path: "/gateway/time-zone", method: "POST", handler: gatewayRoute(routines.gatewayTimeZoneHandler) }); // the owner's zone for date properties
 http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });
 http.route({ path: "/gateway/jobs/create", method: "POST", handler: gatewayJobsCreate });
 http.route({ path: "/gateway/jobs/open", method: "POST", handler: gatewayJobsOpen });
