@@ -167,6 +167,13 @@ export function attachLinkCalls(store, session, controlPlane, env) {
       configurable: true,
     });
   }
+  // The workspace owner's zone, which a note's date properties are written in (`notes/dateStamp.js`).
+  Object.defineProperty(store, "ownerTimeZone", {
+    value: () => controlPlane.ownerTimeZone(session.accessToken, session.workspaceId),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // `report_problem`: filed as this connection's person, resolved from its own
   // token by the control plane. Not tied to a workspace, so the same call on
   // every store a request touches. `texts` only from `tools/reportGate.js`.

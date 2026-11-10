@@ -12,16 +12,23 @@ import { createMailHealthRoutes } from "./mailHealth.mjs";
  * Also answers `/gateway/attention/ask` (`attention.mjs`, as `.attention`): the
  * other owner-only Tex ask, kept here so the stub's router stays under 1,000 lines.
  * And the person's mailboxes (`mailHealth.mjs`, as `.mailHealth`), owner-only too.
+ * And `/gateway/time-zone`, the workspace owner's zone for date properties: `state.timeZone` (null unless a test sets
+ * it), and every ask kept in `zoneAsks`.
  */
 export function createDreamRoutes(clearedOwner) {
   const asks = [];
-  const state = { answer: { status: "started" } };
+  const state = { answer: { status: "started" }, timeZone: null };
+  const zoneAsks = [];
   const attention = createAttentionRoutes(clearedOwner);
   const mailHealth = createMailHealthRoutes(clearedOwner);
 
   async function handle(path, body) {
     if (path === "/gateway/attention/ask") return await attention.handle(path, body);
     if (path.startsWith("/gateway/mail-health")) return await mailHealth.handle(path, body);
+    if (path === "/gateway/time-zone") {
+      zoneAsks.push({ workspaceId: body.expectedWorkspaceId });
+      return { timeZone: state.timeZone };
+    }
     if (path !== "/gateway/dreams/start") return undefined;
     const cleared = await clearedOwner(body);
     if (!cleared) return { dream: null };
@@ -29,5 +36,5 @@ export function createDreamRoutes(clearedOwner) {
     return { dream: state.answer };
   }
 
-  return { handle, asks, state, attention, mailHealth };
+  return { handle, asks, state, zoneAsks, attention, mailHealth };
 }

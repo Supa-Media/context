@@ -25,6 +25,7 @@ import {
   readDocument as readCollaborationDocument,
 } from "@context/collaboration";
 import { replaceNoteText } from "./replaceInObject.js";
+import { datedForWrite } from "../../notes/dateStamp.js";
 import mail from "../../../../../packages/shared/src/mail.cjs";
 import {
   effectiveVisibility,
@@ -378,6 +379,11 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
     content = stampAboutLines(content, storedBody, Date.now());
     const stampedTooLong = aboutMeTooLong(path, content);
     if (stampedTooLong) return toolError(stampedTooLong);
+  }
+  // Date properties the note asked for (`date created:`, `date modified:`) are filled in this same save, so the etag
+  // handed back covers them and the change log gets one entry (`notes/dateStamp.js`).
+  if (!(storedBody !== null && isEncryptedNote(storedBody))) {
+    content = await phase(store, "write_dates", () => datedForWrite(store, path, content, storedBody));
   }
   // A link anyone can open is never minted over an encrypted note
   // (`docs/decisions/encryption.md`, "Sharing"). Refused here, before the

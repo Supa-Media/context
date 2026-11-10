@@ -180,6 +180,7 @@ const MANAGE = [
   ["connect_google", "connect_google", { kind: "gmail" }],
   ["connect", "connect_app", { app: "slack" }],
   ["dream_now", "dream_now", {}],
+  ["fill_dates", "fill_dates", { after: "a.md" }],
   ["pair_device", "pair_device", { code: "KQ7-4MP" }],
 ];
 

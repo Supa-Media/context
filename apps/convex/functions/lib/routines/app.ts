@@ -165,3 +165,19 @@ export async function myTimeZoneHandler(ctx: QueryCtx): Promise<string | null> {
     .first();
   return row?.timeZone ?? null;
 }
+
+/**
+ * A workspace owner's own zone, for the gateway's date properties (`apps/mcp/src/notes/dateStamp.js`, Dev2
+ * 2026-11-10): the zone of the account that made the workspace (a personal workspace's person; a shared one's
+ * owner), or null when they never set one. Asked only by `/gateway/time-zone` for a workspace the caller's live grant
+ * reaches.
+ */
+export async function ownerTimeZoneHandler(ctx: QueryCtx, args: { workspaceId: Id<"workspaces"> }): Promise<string | null> {
+  const workspace = await ctx.db.get(args.workspaceId);
+  if (workspace === null) return null;
+  const row = await ctx.db
+    .query("accountTimeZones")
+    .withIndex("by_user", (q) => q.eq("userId", workspace.createdBy))
+    .first();
+  return row?.timeZone ?? null;
+}

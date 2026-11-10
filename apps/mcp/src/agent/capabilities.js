@@ -349,6 +349,12 @@ export const CAPABILITIES = Object.freeze([
     group: null,
   },
   {
+    name: "Date properties",
+    actions: ["manage.fill_dates"],
+    texts: "a note's date created and date modified (and created, modified, updated and the like) fill themselves on every save once the note has the key, in the note's own date format and their time zone; you can fill the empty ones across their whole workspace once from each note's history (the owner only), and say how many were filled",
+    group: null,
+  },
+  {
     name: "Their account",
     actions: [],
     texts: "a new person sets up by texting you the handle they want (like @ada); storage is then connected in the Context app (Settings → Storage)",
