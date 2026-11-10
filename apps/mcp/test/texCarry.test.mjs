@@ -14,6 +14,8 @@
  *  4. `loggedTurn.js` rendering the stretch into the log block too (`all` unfiltered) → "byte-stable".
  *  6. `stretch.js` replaying a result whatever grant read it, or a stubbed call's arguments → "another grant".
  *  5. `turn.js` mapping history turns to `{role, text}` only → "carries text 1's".
+ *  7. `stretch.js` `sharedHomeRead` returning false → "the chat's home"; returning true for any note read, or for
+ *     a mail read → "private reads"; true with no home or for a path beside it → "unclear".
  */
 
 import assert from "node:assert/strict";
@@ -21,7 +23,7 @@ import { after, before, test } from "node:test";
 
 import { createEgressWorld, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { gatewayBody, CONTEXT_BETA } from "../src/agent/aiGateway.js";
-import { STUB_GRANT, STUB_OTHER, STUB_OUTSIDE, STUB_WITHHELD, stretchSince, stretchTurns } from "../src/agent/stretch.js";
+import { STUB_GRANT, STUB_OTHER, STUB_OUTSIDE, STUB_WITHHELD, sharedHomeRead, stretchSince, stretchTurns } from "../src/agent/stretch.js";
 
 let world;
 const realNow = Date.now;
@@ -160,4 +162,43 @@ test("a result read under another grant, or none recorded, is stubbed, arguments
   const same = stretchTurns(entries, [tool("t1", 11)], { since: 0, ...G })[1].calls[0];
   assert.equal(same.result, "secret plans");
   assert.deepEqual(same.args, { path: "a.md" });
+});
+
+// Dev2, 2026-11-10: the chat's own home carries for every member; a member's private reads stay theirs.
+const HOME = "tex/groups/blue-river";
+const asked = [text("1", 10, A, "what did we plan?"), text("2", 12, "tex", "The picnic.", "t1"), reply("t1", 13)];
+const forBo = (entry, home = HOME) => stretchTurns(asked, [entry], { since: 0, group: true, asker: B, grant: "grant_bo", home })[1].calls[0];
+
+test("a group: a read of the chat's home by Ada carries for Bo, under Bo's own grant", () => {
+  const shared = forBo(tool("t1", 11, { args: { path: `${HOME}/about.md`, context: "@context-lc" }, result: "We are the river club.", grant: "grant_ada" }));
+  assert.equal(shared.result, "We are the river club.");
+  assert.deepEqual(shared.args, { path: `${HOME}/about.md`, context: "@context-lc" });
+  assert.equal(forBo(tool("t1", 11, { name: "list_notes", args: { prefix: HOME }, grant: "grant_ada" })).result, "secret plans", "the home folder itself");
+  assert.equal(forBo(tool("t1", 11, { args: { path: `${HOME}/about.md` }, grant: undefined })).result, STUB_GRANT, "still never under no grant recorded");
+});
+
+test("a group: Ada's private reads stay stubbed for Bo, arguments and all", () => {
+  for (const entry of [
+    tool("t1", 11, { name: "read_email", args: { id: "m1", context: "@context-lc" }, grant: "grant_ada" }),
+    tool("t1", 11, { name: "search_email", args: { query: "rent", prefix: HOME }, grant: "grant_ada" }),
+    tool("t1", 11, { name: "calendar_events", args: { prefix: HOME }, grant: "grant_ada" }),
+    tool("t1", 11, { args: { path: `${HOME}/about.md`, mail: true }, grant: "grant_ada" }),
+  ]) {
+    const call = forBo(entry);
+    assert.equal(call.result, STUB_OTHER, entry.name);
+    assert.deepEqual(call.args, {}, `${entry.name} keeps no arguments`);
+  }
+});
+
+test("a group: a read whose scope is unclear is stubbed", () => {
+  for (const [args, home] of [
+    [{ path: `${HOME}/about.md` }, null],
+    [{ path: "tex/groups/blue-riverbank/about.md" }, HOME],
+    [{ path: `${HOME}/../other-chat/about.md` }, HOME],
+    [{ path: "notes/plans.md" }, HOME],
+    [{}, HOME],
+    [{ path: `${HOME}/about.md`, context: "@shared-team" }, HOME],
+  ]) assert.equal(forBo(tool("t1", 11, { args, grant: "grant_ada" }), home).result, STUB_OTHER, JSON.stringify(args));
+  assert.equal(forBo(tool("t1", 11, { args: { query: "picnic" }, name: "search_notes", grant: "grant_ada" })).result, STUB_OTHER, "a search with no folder");
+  assert.equal(sharedHomeRead(tool("t1", 11, { args: { path: `${HOME}/a.md` }, withheld: "other_workspace" }), HOME), false, "another workspace's");
 });
