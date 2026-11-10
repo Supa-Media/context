@@ -118,9 +118,9 @@ test("an empty key copies the note's own format first, then the workspace's", ()
 });
 
 test("quotes, spacing, CRLF and a byte-order mark are kept", () => {
-  const text = "﻿---\r\nupdated_at: \"\"\r\ncreated:   ''\r\n---\r\nBody\r\n";
+  const text = "\uFEFF---\r\nupdated_at: \"\"\r\ncreated:   ''\r\n---\r\nBody\r\n";
   const out = stampDates(text, { previous: null, modifiedAt: NOV9, createdAt: NOV9, timeZone: ZONE });
-  assert.equal(out, "﻿---\r\nupdated_at: \"2026-11-09T21:34:00-05:00\"\r\ncreated:   '2026-11-09T21:34:00-05:00'\r\n---\r\nBody\r\n");
+  assert.equal(out, "\uFEFF---\r\nupdated_at: \"2026-11-09T21:34:00-05:00\"\r\ncreated:   '2026-11-09T21:34:00-05:00'\r\n---\r\nBody\r\n");
 });
 
 test("a value that is not a date, a block list, or an unknown created time is left alone", () => {

@@ -42,7 +42,7 @@ export function roleOfKey(key) {
 /** The front matter's lines: `{bom, lines: [{text, end}], close}` with `close` the closing fence's index, or null. */
 function frontMatter(text) {
   if (typeof text !== "string") return null;
-  const bom = text.startsWith("﻿") ? "﻿" : "";
+  const bom = text.startsWith("\uFEFF") ? "\uFEFF" : "";
   const source = text.slice(bom.length);
   if (!/^---\r?\n/.test(source)) return null;
   const lines = [];
