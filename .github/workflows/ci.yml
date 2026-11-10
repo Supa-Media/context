@@ -125,6 +125,7 @@ jobs:
           - 'apps/mcp/src/activity/**'
           - 'apps/mcp/src/agent/agentHomeMove.js'
           - 'apps/mcp/src/agent/conversation.js'
+          - 'apps/mcp/src/agent/dayWords.js'
           - 'apps/mcp/src/agent/events.js'
           - 'apps/mcp/src/agent/groupPageCopy.js'
           - 'apps/mcp/src/agent/groupPageFormat.js'
@@ -133,6 +134,7 @@ jobs:
           - 'apps/mcp/src/agent/ledger.js'
           - 'apps/mcp/src/agent/ledgerBackfill.js'
           - 'apps/mcp/src/agent/ledgerConversation.js'
+          - 'apps/mcp/src/agent/localNow.js'
           - 'apps/mcp/src/agent/log.js'
           - 'apps/mcp/src/agent/logRender.js'
           - 'apps/mcp/src/agent/sources.js'
@@ -751,6 +753,7 @@ jobs:
             apps/mcp/src/activity/**
             apps/mcp/src/agent/agentHomeMove.js
             apps/mcp/src/agent/conversation.js
+            apps/mcp/src/agent/dayWords.js
             apps/mcp/src/agent/events.js
             apps/mcp/src/agent/groupPageCopy.js
             apps/mcp/src/agent/groupPageFormat.js
@@ -759,6 +762,7 @@ jobs:
             apps/mcp/src/agent/ledger.js
             apps/mcp/src/agent/ledgerBackfill.js
             apps/mcp/src/agent/ledgerConversation.js
+            apps/mcp/src/agent/localNow.js
             apps/mcp/src/agent/log.js
             apps/mcp/src/agent/logRender.js
             apps/mcp/src/agent/sources.js
