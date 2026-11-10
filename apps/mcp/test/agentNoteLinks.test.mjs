@@ -20,12 +20,19 @@
  *     → "a read keeps its header and body, with the link after path:" fails.
  *  6. `NOTE_LINK_LINE` dropped from the texting prompt.
  *     → "a texted turn is told to send a note's link, production setup or not" fails.
+ *
+ * Applied, suite run, named test observed failing, reverted (2026-11-10).
+ *
+ *  7. `noteLinkUrl` sending a page to `/note/` as before.
+ *     → "a page's link opens the page viewer, a plain note's the app" fails.
+ *  8. `sentNoteLinks` reading only `/note/` links.
+ *     → "a page link they text is read as the note" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { appOriginOf, NOTE_LINK_LINE, noteLinkUrl, withNoteLinks } from "../src/agent/noteLinks.js";
+import { appOriginOf, NOTE_LINK_LINE, noteLinkUrl, sentNoteLinks, withNoteLinks } from "../src/agent/noteLinks.js";
 import { systemPrompt } from "../src/agent/prompt.js";
 
 const ORIGIN = "https://app.example";
@@ -50,6 +57,17 @@ test("a write that names another context links into that one", async () => {
 
 test("a name with spaces and a # is encoded, segment by segment", () => {
   assert.equal(noteLinkUrl(ORIGIN, "maya", "a b/c#d?.md"), "https://app.example/note/@maya/a%20b/c%23d%3F.md");
+});
+
+test("a page's link opens the page viewer, a plain note's the app", () => {
+  assert.equal(noteLinkUrl(ORIGIN, "maya", "trips/june trip.page.md"), "https://app.example/p/@maya/trips/june%20trip.page.md");
+  assert.equal(noteLinkUrl(ORIGIN, "maya", "trips/page.md"), "https://app.example/note/@maya/trips/page.md");
+  assert.equal(noteLinkUrl(ORIGIN, "maya", "trips/plan.PAGE.md"), "https://app.example/p/@maya/trips/plan.PAGE.md");
+});
+
+test("a page link they text is read as the note", () => {
+  assert.deepEqual(sentNoteLinks("see https://app.example/p/@maya/trips/june%20trip.page.md", ORIGIN), [{ slug: "maya", path: "trips/june trip.page.md" }]);
+  assert.deepEqual(sentNoteLinks("see https://app.example/p/@maya/../x.page.md", ORIGIN), []);
 });
 
 test("a failed write gets no link", async () => {

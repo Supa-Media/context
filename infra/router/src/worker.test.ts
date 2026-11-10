@@ -417,3 +417,71 @@ describe("a linked page unfurls with its cover", () => {
     expect(previewForShortLink("Trip plan", "seyi", "trip", "0a1b2c3d").imageSize).toBeUndefined();
   });
 });
+
+/**
+ * A page link opens the page viewer, not the app (owner, 2026-11-10: pages
+ * should "open up seamlessly"; `pageViewer.ts`). The viewer is one file of the
+ * web export, served for every page alike; a crawler still gets the note
+ * link's card; an address the viewer can't serve goes to the app as before.
+ *
+ * Sabotage record (applied, suite run, named test observed failing, reverted):
+ *  1. `pageViewerResponse` without the marker check → "serves the app's own page as the viewer? never".
+ *  2. `noteLinkFrom` without `p` → "a crawler gets the note card for a page link".
+ *  3. `pageViewerAddress` taking a plain note for a page → "an address the viewer can't serve goes to the app".
+ */
+describe("a page link opens the page viewer", () => {
+  const VIEWER = '<!doctype html><div id="context-page-viewer" class="bar"></div>';
+  function withAssets(body: string, status = 200) {
+    const assets = vi.fn((request: Request) => new Response(body, { status, headers: { "X-Asked": request.url } }));
+    return { assets, env: { ...ENV, ASSETS: { fetch: assets } as unknown as Fetcher } };
+  }
+  async function open(path: string, env: unknown, userAgent = BROWSER_UA): Promise<Response> {
+    return (await worker.fetch(new Request(`https://context.lc${path}`, { headers: { "User-Agent": userAgent } }), env as never, CTX)) as Response;
+  }
+
+  it("serves the viewer, the same bytes for every page, asking nobody about the note", async () => {
+    const { assets, env } = withAssets(VIEWER);
+    const one = await open("/p/@seyi/projects/trip/plan.page.md", env);
+    const two = await open("/p/@someone/x.page.md", env);
+    expect(one.status).toBe(200);
+    expect(one.headers.get("Content-Type")).toContain("text/html");
+    expect(one.headers.get("Cache-Control")).toBe("no-store");
+    expect(one.headers.get("X-Robots-Tag")).toContain("noindex");
+    expect(await one.text()).toBe(await two.text());
+    expect((assets.mock.calls[0][0] as Request).url).toBe("https://context.lc/drawing-assets/viewer/index.html");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("serves the app's own page as the viewer? never: without the viewer, the link goes to the app", async () => {
+    const { env } = withAssets("<html>the app's index</html>");
+    const response = await open("/p/@seyi/projects/trip/plan.page.md", env);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/note/@seyi/projects/trip/plan.page.md");
+  });
+
+  it("an address the viewer can't serve goes to the app", async () => {
+    const { assets, env } = withAssets(VIEWER);
+    for (const [path, to] of [
+      ["/p/@seyi/plain-note.md", "/note/@seyi/plain-note.md"],
+      ["/p/@seyi/..%2Fx.page.md", "/app"],
+      ["/p/@seyi/a%2Fb.page.md", "/app"],
+      ["/p/seyi/x.page.md", "/app"],
+      ["/p/@BAD!/x.page.md", "/app"],
+    ] as const) {
+      const response = await open(path, env);
+      expect(response.status, path).toBe(302);
+      expect(response.headers.get("Location"), path).toBe(to);
+    }
+    expect(assets).not.toHaveBeenCalled();
+  });
+
+  it("a crawler gets the note card for a page link", async () => {
+    fetchSpy.mockImplementation(async () => Response.json({ title: "Trip plan" }));
+    const response = await get("/p/@seyi/1-projects/trip.page.md", CRAWLER_UAS.Slackbot);
+    const html = await response.text();
+    expect(html).toContain('<meta property="og:title" content="Trip plan — Context">');
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://example-deployment.convex.site/share/note");
+    expect(JSON.parse(String(init.body))).toEqual({ slug: "seyi", path: "1-projects/trip.page.md" });
+  });
+});

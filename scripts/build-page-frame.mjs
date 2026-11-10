@@ -33,6 +33,9 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE = path.join(ROOT, "apps", "mobile", "page-frame");
 const OUT = path.join(ROOT, "apps", "mobile", "public", "drawing-assets", "page");
+/** The page viewer a page link opens (`/p/@slug/<path>`, `apps/mobile/page-viewer/`), served by the router. */
+const VIEWER_SOURCE = path.join(ROOT, "apps", "mobile", "page-viewer");
+const VIEWER_OUT = path.join(ROOT, "apps", "mobile", "public", "drawing-assets", "viewer");
 
 export const PAGE_CSP =
   "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-src 'self'; base-uri 'none'; form-action 'none'";
@@ -93,6 +96,79 @@ function pageHtml(fonts) {
 `;
 }
 
+/**
+ * The viewer's CSP. It talks to one host, the control plane it was built for,
+ * and frames only the page runtime (the deployment's own copy, or the sites
+ * domain's in production). Its one script is its own file.
+ */
+export function viewerCsp(convexUrl) {
+  // A deployment's control plane, or a local one for development.
+  const origin = /^(?:https:\/\/[a-z0-9.-]+|http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?)$/i.test(convexUrl) ? convexUrl : "";
+  return (
+    `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; ` +
+    `connect-src ${origin === "" ? "'none'" : origin}; frame-src 'self' https://*.ctxlc.site; base-uri 'none'; form-action 'none'`
+  );
+}
+
+/** A marker only the viewer's page carries, which the router checks before serving it. */
+export const VIEWER_MARKER = '<div id="context-page-viewer"';
+
+function viewerHtml(convexUrl) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="${viewerCsp(convexUrl)}" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Context</title>
+    <style>
+      :root{--bg:#FFFDF9;--ink:#1A1714;--muted:#635C52;--line:#E9E4DB;--accent:#2A45CF;color-scheme:light}
+      @media (prefers-color-scheme: dark){:root{--bg:#191715;--ink:#F4F0E8;--muted:#A79F94;--line:#36312B;--accent:#8A9BF2;color-scheme:dark}}
+      html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+      .bar{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:12px;
+        padding:calc(env(safe-area-inset-top,0px) + 10px) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));
+        background:var(--bg);border-bottom:1px solid var(--line);font-size:13px}
+      .bar b{font-weight:650;letter-spacing:-.01em}
+      .bar a{color:var(--accent);font-weight:600;text-decoration:none}
+      #status{padding:48px 16px;text-align:center;color:var(--muted)}
+      .drawn #status{display:none}
+      .frame{display:block;width:100%;height:100vh;border:0;background:transparent}
+    </style>
+  </head>
+  <body>
+    <div id="context-page-viewer" class="bar"><b>Context</b><a id="open" href="/app">Open in Context</a></div>
+    <div id="status" role="status">Opening the page…</div>
+    <div id="page"></div>
+    <script src="/drawing-assets/viewer/viewer.js"></script>
+  </body>
+</html>
+`;
+}
+
+/** The viewer, built for the control plane this export talks to (`EXPO_PUBLIC_CONVEX_URL`). */
+async function buildViewer() {
+  const convexUrl = (process.env.EXPO_PUBLIC_CONVEX_URL ?? "").replace(/\/$/, "");
+  await rm(VIEWER_OUT, { recursive: true, force: true });
+  await mkdir(VIEWER_OUT, { recursive: true });
+  await build({
+    entryPoints: [path.join(VIEWER_SOURCE, "viewer.ts")],
+    bundle: true,
+    format: "iife",
+    minify: true,
+    sourcemap: false,
+    target: ["es2020"],
+    define: { VIEWER_CONVEX_URL: JSON.stringify(convexUrl) },
+    outfile: path.join(VIEWER_OUT, "viewer.js"),
+    logLevel: "warning",
+  });
+  await writeFile(path.join(VIEWER_OUT, "index.html"), viewerHtml(convexUrl));
+  const bytes = (await stat(path.join(VIEWER_OUT, "viewer.js"))).size;
+  console.log(`built the page viewer: ${(bytes / 1024).toFixed(0)}KB of script${convexUrl === "" ? " (no EXPO_PUBLIC_CONVEX_URL: it hands every link to the app)" : ""}`);
+}
+
 function boxHtml() {
   return `<!doctype html>
 <html lang="en">
@@ -133,6 +209,7 @@ export async function buildPageFrame() {
   await writeFile(path.join(OUT, "box.html"), boxHtml());
   const bytes = (await stat(path.join(OUT, "frame.js"))).size;
   console.log(`built the page runtime: ${(bytes / 1024).toFixed(0)}KB of script, into apps/mobile/public/drawing-assets/page`);
+  await buildViewer();
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

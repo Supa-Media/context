@@ -35,6 +35,7 @@ import connectSlackCard from "./og-connect-slack.png";
 import googleConnectGuide from "./og-google-connect.png"; // Tex texts it with a Google link (og-google-connect.source.html)
 import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
 import { ingestResponse } from "./analyticsIngest";
+import { pageViewerResponse } from "./pageViewer";
 import { withSecurityHeaders } from "./securityHeaders";
 import { assetsWithStyleNonce } from "./styleNonce";
 import { cspReportResponse, isCspReportPath } from "./cspReport";
@@ -253,6 +254,9 @@ async function respond(
 
       case "download": return downloadResponse(decision.location);
       case "ingest": return ingestResponse(request, decision.target);
+      case "page-viewer":
+        return await pageViewerResponse(request, new URL(request.url), env);
+
       case "proxy": {
         if (decision.upstream === "expo" && env.ASSETS) {
           // Static Assets and Worker code are one version. Passing the original

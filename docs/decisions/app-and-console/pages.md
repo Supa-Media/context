@@ -224,3 +224,63 @@ as text").
 Not built yet: the "N changes since you looked" line, and drawing a map from
 the addresses on the server without the agent asking (the skill has the agent
 draw one with `draw_visual` and keep it as `map:`).
+
+### A page link opens the page
+
+*Decided by the owner, 2026-11-10*, choosing "finish today's pages, then HTML
+layouts" after an audit that started from "it's supposed to open up
+seamlessly, right now it doesn't really do any of this".
+
+**Why.** The link Tex texted for a page was the app's `/note/@slug/<path>`
+link. Tapping it loaded the whole app (a 2.5 MB script, the console, the file
+tree, then a redirect to the console address) before the note was asked for.
+A page someone is waiting on should be on screen at once.
+
+**What it does.** A page's link is `/p/@slug/<path>.page.md`
+(`noteLinkUrl` in `apps/mcp/src/agent/noteLinks.js`; a plain note keeps
+`/note/…`). For a person the router answers it with the page viewer
+(`infra/router/src/pageViewer.ts`): one small page from the web export
+(`apps/mobile/page-viewer/`, about 7 KB of script, built by
+`scripts/build-page-frame.mjs` into `/drawing-assets/viewer/`). The viewer
+asks the control plane for the note at once and draws it in the same sealed
+page runtime as the app, read only, with one "Open in Context" link. A
+crawler gets the note link's card for it, as before.
+
+**Why it grants nothing.** The viewer has no session of its own and no
+ticket in its address. It is on the app's own origin and reads with the
+sign-in the browser already holds for the app: the stored token, refreshed
+exactly as the app refreshes it and under the app's own lock
+(`__convexAuthRefreshToken`), so a tab of the app and the viewer never rotate
+the refresh token at once. It reads through the calls the app makes
+(`names:resolveMyName`, which answers only for a member, and
+`files:readNote`, which runs the note's own permission check), so it opens
+exactly what the app would. The router looks nothing up for it and serves the
+same bytes for every address, so it says nothing about whether a note exists.
+Its CSP lets it talk to the control plane only, and frame only the page
+runtime.
+
+**Never worse than before.** Anything the viewer can't do goes to the
+`/note/…` link, which is where the link went before: no sign-in in this
+browser (so a signed-out guest still gets the guest page), a workspace it
+isn't a member of, an encrypted note, a link to another note, a vote, a pick
+or an edit. An export without the viewer (its marker missing) does the same,
+at the router.
+
+**What a simplification would cost.**
+
+- *A bearer ticket in the link so it opens with no sign-in.* A forwarded
+  text, or a group chat, would open a private page for whoever taps first;
+  only a share row the owner mints may do that (non-negotiable 5).
+- *Serve the page's HTML from the router.* The router would read notes, and
+  a private note would leave the app's own permission path.
+- *Keep `/note/…` and make the app faster.* Worth doing too, but the app has
+  to load before it can ask for anything, so it can't be as fast as a page
+  that asks first.
+
+**Tests that fail if it is reversed.** `infra/router/src/worker.test.ts`
+("a page link opens the page viewer": the same bytes for every page, the
+marker check, a plain note to the app, the crawler's card);
+`apps/mobile/__tests__/pageViewer.test.ts` (the address grammar, the app
+link, the stored sign-in's keys and margin);
+`apps/mcp/test/agentNoteLinks.test.mjs` ("a page's link opens the page
+viewer, a plain note's the app", "a page link they text is read as the note").

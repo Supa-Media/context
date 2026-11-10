@@ -92,7 +92,8 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
 /**
  * The note link Tex texts and the app opens: `/note/@seyi/1-projects/plan.md`
  * (`apps/mcp/src/agent/noteLinks.js`), which the app redirects to the console
- * link above.
+ * link above, or `/p/@seyi/1-projects/plan.page.md` for a page, which opens
+ * in the page viewer. A crawler gets the same card for both.
  *
  * `null` when the URL is not that shape. Otherwise `note` is what
  * `consoleNoteFrom` makes of the same address, `null` when it refuses it, so
@@ -100,7 +101,8 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
  */
 export function noteLinkFrom(url: URL): { note: { slug: string; path: string } | null } | null {
   const segments = normalisePath(url.pathname).split("/").filter(Boolean);
-  if (segments.length < 3 || segments[0] !== "note") return null;
+  // `/p/@slug/<path>` is the same link for a page, opened in the page viewer (`pageViewer.ts`).
+  if (segments.length < 3 || (segments[0] !== "note" && segments[0] !== "p")) return null;
   const handle = decodeSafely(segments[1]);
   if (!handle.startsWith("@")) return null;
   const address = new URL(`${ORIGIN}/console/${encodeURIComponent(handle)}`);
