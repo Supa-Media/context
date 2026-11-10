@@ -47,6 +47,7 @@ export declare const PART_EMOJI: Readonly<{
   tex_handbacks: string;
   tex_routines: string;
   tex_skills: string;
+  tex_templates: string;
   tex_transcripts: string;
   cadence_once: string;
   cadence_minute: string;
