@@ -193,9 +193,7 @@ export function createControlPlaneStub(options = {}) {
     // `apps/convex/functions/lib/controlPlane/liveGrants.ts`).
     grantedNames,
     expiresAt,
-    toolsListedAt,
-    // The chat a group chat's grant is minted for (`liveGrants.ts` `texChatIdOf`).
-    texChatId,
+    toolsListedAt, texChatId, // `texChatId`: the chat a group chat's grant is minted for (`liveGrants.ts` `texChatIdOf`)
   }) {
     const grantId = `grant_${++grantCounter}`;
     grants.set(grantId, {
@@ -211,8 +209,7 @@ export function createControlPlaneStub(options = {}) {
       grantedNames,
       status: "active",
       expiresAt: expiresAt ?? Date.now() + 3_600_000,
-      toolsListedAt,
-      texChatId,
+      toolsListedAt, texChatId,
     });
     accessTokens.set(await sha256Hex(accessToken), grantId);
     if (refreshToken) refreshTokens.set(await sha256Hex(refreshToken), grantId);
@@ -341,8 +338,7 @@ export function createControlPlaneStub(options = {}) {
             expiresAt: grant.expiresAt,
             defaultWorkspaceId: grant.workspaceId,
             workspaces: coveredContexts(grant),
-            ...(grant.toolsListedAt === undefined ? {} : { toolsListedAt: grant.toolsListedAt }),
-            ...(grant.texChatId === undefined ? {} : { texChatId: grant.texChatId }),
+            ...(grant.toolsListedAt === undefined ? {} : { toolsListedAt: grant.toolsListedAt }), ...(grant.texChatId === undefined ? {} : { texChatId: grant.texChatId }),
           },
         });
       }

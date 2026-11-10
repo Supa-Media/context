@@ -19,8 +19,7 @@
 export const STAGES = ["provider", "tools", "history", "web", "setup", "skills", "pictures", "ready"];
 
 /**
- * blobs: kind, outcome, the bucket calls by stage (`callsLine`), the turn's id, what it carried of its stretch
- * (`carry`, counts and codes, empty when none was read). doubles, in order: waitMs, then one per `STAGES`
+ * blobs: kind, outcome, the bucket calls by stage (`callsLine`), the turn's id. doubles, in order: waitMs, then one per `STAGES`
  * entry, then modelMs, toolMs, otherTurnMs (the turn's own time outside the
  * model and tools), afterMs, totalMs, rounds, retriedRounds, slowestRoundMs.
  */
@@ -44,7 +43,7 @@ export function turnStages(env, now = Date.now) {
     set turn(value) {
       if (typeof value === "string") turn = value.slice(0, 64);
     },
-    /** What the turn carried of its stretch (`stretch.js` `carryCounts`, logged by `readTheHistory.js`): blob5, and on the log line. */
+    /** What the turn carried of its stretch (`stretch.js` `carryCounts`, logged by `readTheHistory.js`): on the `turn_stages` log line. */
     set carry(value) {
       carry = value && typeof value === "object" ? value : null;
     },
@@ -83,7 +82,7 @@ export function turnStages(env, now = Date.now) {
       if (flushed) return null;
       flushed = true;
       const point = stagesOf({ start, marks, end: now(), report });
-      point.blobs.push(callsLine(calls), turn, carry === null ? "" : Object.entries(carry).map(([key, value]) => `${key}=${value}`).join(" "));
+      point.blobs.push(callsLine(calls), turn);
       // The same numbers in the Worker's log, for a live tail (`wrangler tail`).
       if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "turn_stages", kind: point.blobs[0], outcome: point.blobs[1], ...(carry ?? {}), ...Object.fromEntries(COLUMNS.map((name, i) => [name, Math.round(point.doubles[i])])) }));
       const perCall = callPoints(point.blobs[0], rounds ?? report?.trace ?? [], turn);

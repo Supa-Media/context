@@ -488,6 +488,7 @@ test/texPromptNames.test.mjs
 test/texCalendarCache.test.mjs
 test/texStablePrefix.test.mjs
 test/texCarry.test.mjs
+test/texCarryGating.test.mjs
 test/texDaySummaries.test.mjs
 test/texFadedHistory.test.mjs
 test/texArchitecture.test.mjs
