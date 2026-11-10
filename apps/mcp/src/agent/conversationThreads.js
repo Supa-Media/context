@@ -35,6 +35,7 @@
 import { requestViaGateway } from "./aiGateway.js";
 import { ledgerPlace, ledgerWriter } from "./ledger.js";
 import { firstObject } from "./replyJudge.js";
+import { readRespond, RESPOND_RULES } from "./respond.js";
 import { withArchitecture } from "./texArchitecture.js";
 import { DESCRIPTION_CHARS, foldThreads, listedThreads, MAX_LISTED, THREADS_SUFFIX, TITLE_CHARS } from "./threadsFold.js";
 
@@ -56,13 +57,14 @@ const MAX_PAGES = 20;
 
 export const THREADS_SYSTEM = `You sort a text chat with Tex (an assistant people text) into conversation threads. A thread is one subject: a question and its answer, a task, a plan, a debate, a run of jokes about one thing. Several can be open at once and interleave. Time apart does not split a thread; a new subject does.
 
-You are given the chat's threads (id, open or finished, title, description, its last lines), the chat's last lines, and the NEW TEXT. Decide:
+You are given whether the chat is a group chat or a 1:1 with Tex (CHAT), the chat's threads (id, open or finished, title, description, its last lines), the chat's last lines, and the NEW TEXT. In the lines "You" is Tex and a person is "@name". Decide:
 1. thread: the id of the thread the new text continues, or "new". A text "replying to" an old message is a hint, not the answer: people often reply under an old bubble while changing subject, so go by what the text is about. A finished thread the text clearly picks up again is that thread (it reopens). A short reaction ("lol", "thanks", a tapback) belongs to the thread it reacts to.
 2. title: for "new", a 3 to 6 word title in plain words; otherwise the thread's title, kept unless it is now wrong.
 3. description: that thread's one or two sentences as they now stand, with the new text in it: what it is about and where it stands (what is asked, what is waiting on whom). At most 240 characters.
 4. finished: ids of OTHER open threads the chat's last lines show are done. Only on evidence: the ask was answered and they acknowledged it or moved on from it by saying so, the task was done, or someone dropped it. Silence never finishes a thread. A question of theirs that Tex has not answered keeps its thread open. When unsure, leave it open.
+${RESPOND_RULES}
 
-Answer with JSON only: {"thread":"t3"|"new","title":"...","description":"...","finished":["t1"]}`;
+Answer with JSON only: {"thread":"t3"|"new","title":"...","description":"...","finished":["t1"],"respond":"reply"|"react"|"quiet","emoji":"👍","place":"under"|"plain","why":"..."}`;
 
 /** The threads ledger's chat name for a chat. */
 export const threadsChat = (chat) => `${chat}${THREADS_SUFFIX}`;
@@ -107,9 +109,9 @@ const oneLine = (text, max = LINE_CHARS) => {
 };
 
 /** The classifier's message: the candidate threads with their last lines, the chat's last lines, the new text. */
-export function threadsMessage({ threads, lines, question, replying = [] }) {
+export function threadsMessage({ threads, lines, question, replying = [], group = false }) {
   const candidates = listedThreads(threads, CANDIDATES);
-  const parts = ["THREADS"];
+  const parts = [`CHAT: ${group ? "a group chat" : "a 1:1 with Tex"}`, "", "THREADS"];
   if (candidates.length === 0) parts.push("(none yet)");
   for (const thread of candidates) {
     parts.push(`${thread.id} · ${thread.status} · ${thread.title}: ${thread.description}`);
@@ -120,7 +122,7 @@ export function threadsMessage({ threads, lines, question, replying = [] }) {
   return parts.join("\n");
 }
 
-/** The classifier's answer, checked: `{thread, title, description, finished}`, or null when it isn't one. */
+/** The classifier's answer, checked: `{thread, title, description, finished, respond, emoji?, place?, why?}` (`respond.js`), or null when it isn't one. */
 export function readVerdict(text, threads) {
   const found = firstObject(String(text ?? ""));
   if (found === null) return null;
@@ -131,7 +133,7 @@ export function readVerdict(text, threads) {
   const description = oneLine(found.description, DESCRIPTION_CHARS);
   if (thread === "new" && title === "") return null;
   const finished = (Array.isArray(found.finished) ? found.finished : []).filter((id) => typeof id === "string" && known.has(id) && id !== thread);
-  return { thread, title, description, finished: [...new Set(finished)] };
+  return { thread, title, description, finished: [...new Set(finished)], ...readRespond(found) };
 }
 
 /** The next new thread's id. */
@@ -166,10 +168,10 @@ export function verdictEntries(verdict, threads, covered, at = Date.now()) {
 /** One classifier call: the verdict, or null when it failed, was late or said nothing usable. */
 // No `maxTokens`: it caps the thinking and the answer together (`aiGateway.js`), and a 400 cap cut the verdict off
 // often enough that about 4 turns in 10 of the 2026-11-07 backfill came back unsorted.
-export async function classifyText({ threads, lines, question, replying, config, metadata, timeZone = null, request = requestViaGateway, timeoutMs = THREADS_TIMEOUT_MS }) {
+export async function classifyText({ threads, lines, question, replying, group = false, config, metadata, timeZone = null, request = requestViaGateway, timeoutMs = THREADS_TIMEOUT_MS }) {
   if (!config) return null;
   const call = request(
-    { model: THREADS_MODEL, system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying }) }], tools: [], effort: THREADS_EFFORT },
+    { model: THREADS_MODEL, system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying, group }) }], tools: [], effort: THREADS_EFFORT },
     config,
     { metadata, timeZone }, // told today in their zone (`localNow.js` `withToday`)
   );

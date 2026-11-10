@@ -102,6 +102,56 @@ The approved canvas, built with the Tex page's own parts, not a new look (Dev2: 
 Tests: `apps/mcp/test/conversationsView.test.mjs`,
 `apps/mobile/__tests__/texConversations.test.ts`.
 
+## Reply, react or quiet, and where the reply goes (Dev2, 2026-11-10)
+
+Dev2: "i'm thinking that the thread classifier could probably do this for us,
+have an output based on examples that's a 'no response'", then picked "the
+classifier decides, before the model" over advice only and over replacing
+decide.
+
+Why: in Tex Devs, Nov 5 to 9, Tex texted on 59 turns and about 16 should have
+been silence (people talking to each other, a question to a named person,
+"oops uploaded wrong order" answered "No problem.", a tapback answered with a
+text, an app link with 👀🥹 answered with a summary). In a 1:1, a thanks with
+words after it ("thanks ill look at it at work today") never matches the
+Worker's exact acknowledgement list, so decide is never asked and the model
+answered "Anytime." The model rarely calls `say_nothing`, and the reviewer
+reads what a reply says, never whether one is needed. Proof:
+`@supa projects/tex-reliability/2026-11-10-when-to-talk.md`.
+
+What runs (`agent/respond.js`):
+
+- The same classifier call also answers `respond` (`reply`, `react` with an
+  emoji, or `quiet`), `place` for a reply (`under` the text it answers, or
+  `plain`) and `why`. It is shown labelled examples taken from real chats with
+  the names changed (`RESPOND_EXAMPLES`); the bench holds more
+  (`apps/mcp/bench/respond/`, `pnpm ai respond`, dispatched by hand on the AI
+  Reviewer workflow), with two bars: at least 80% of should-be-quiet texts get
+  no text back, at most 5% of must-answer texts are hushed.
+- `react` and `quiet` end the turn before the model (`runTheModel.js`): the
+  gateway answers `quiet` with `react` when there is one, and the history keeps
+  a `say_nothing` with the classifier's reason. A silence costs one small call,
+  not a whole turn.
+- **Code's floor, never the model's** (`mayHush`): a question in a 1:1 or
+  typed under one of Tex's texts, a group text naming Tex, a text straight after a question of Tex's (a bare
+  "ok" can be the yes), a tapback that reached a turn, and a file in a 1:1
+  always reach the model. A classifier that failed or was late hushes nothing.
+  Decide (Clef) stays the Worker's cheap first filter for group chatter.
+- The Worker sends the tapback (`inbox.ts`, `groupModelTurn.ts`) and places the
+  reply: in a 1:1 `place` replaces the quiet-spell guess of 2026-10-20
+  (`sendParts.ts` `threadFor`); in a group `plain` sends into the chat instead
+  of always under the message (`groupSay.ts`). A text typed under another, or
+  overtaken by a newer one, is still answered under it.
+
+Reversal cost: without it, every 1:1 text with words reaches the model and a
+group's addressed or decide-passed chatter is answered whenever the model
+doesn't think to be quiet. Tests: `apps/mcp/test/agentRespond.test.mjs` (the
+turn hushed before the model, the floor holding a question and an ok after an
+ask), `apps/mcp/bench/test/respond.test.mjs`,
+`apps/agent/src/sendblueThreads.test.ts` and
+`apps/agent/src/groupDecideBeside.test.ts` (the tapback sent, the reply
+placed).
+
 ## Undo and reversal cost
 
 `CONVERSATION_THREADS=off` on the gateway shows the chat as before (faded

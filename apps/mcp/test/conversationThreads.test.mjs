@@ -62,7 +62,7 @@ test("a verdict naming a thread that doesn't exist, or a new one with no title, 
   const threads = [{ id: "t1", status: "open" }];
   assert.equal(readVerdict('{"thread":"t9","title":"x","description":"y","finished":[]}', threads), null);
   assert.equal(readVerdict('{"thread":"new","title":"","description":"y"}', threads), null);
-  assert.deepEqual(readVerdict('Here: {"thread":"new","title":"Hotel","description":"Lisbon hotel","finished":["t1","t7"]}', threads), { thread: "new", title: "Hotel", description: "Lisbon hotel", finished: ["t1"] });
+  assert.deepEqual(readVerdict('Here: {"thread":"new","title":"Hotel","description":"Lisbon hotel","finished":["t1","t7"]}', threads), { thread: "new", title: "Hotel", description: "Lisbon hotel", finished: ["t1"], respond: "reply" });
 });
 
 test("a verdict finishes only open threads, and reopens a finished one it continues", () => {

@@ -34,6 +34,7 @@ import { reactionLine, type Tapback } from "./reactions";
 import { onTexText } from "./thumbs";
 import type { SendPart } from "./outgoing";
 import type { InboxStorage } from "./inbox";
+import type { ReplyPlace } from "./clients";
 
 /**
  * `reply` was one string before a reply could be several texts; both are read.
@@ -63,6 +64,8 @@ export type Pending = {
   system?: true;
   /** A turn's draft for it was held by `lookAgain` once already: the next answer is sent. */
   rechecked?: true;
+  /** Where the conversation classifier put the reply: under the text, or plain (`sendParts.ts` `threadFor`). */
+  place?: ReplyPlace;
 };
 export type Entry = [string, Pending];
 

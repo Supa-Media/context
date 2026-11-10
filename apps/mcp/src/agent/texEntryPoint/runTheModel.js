@@ -20,6 +20,7 @@ import { withKeptFiles } from "../keptFiles.js";
 import { learnedSkillsLine, withLearnedSkills } from "../learnedSkills.js";
 import { setupPromptFor, turnKind } from "../promptModules.js";
 import { ledgerObserver } from "../ledger.js";
+import { hushedToolEvent, hushedTurn, mayHush } from "../respond.js";
 import { meterEach, meterParts } from "../modelPlan.js";
 import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
 import { withDrawnImages, withPictureMaker } from "../pictureMaker.js";
@@ -44,7 +45,7 @@ import { chatHubUrl, hubPrompt } from "../hubLinks.js";
 import { withVaultWatch } from "../vaultSaved.js";
 import { doItChecks } from "../doItChecks.js";
 import { replyJudge } from "../replyJudge.js";
-import { threadsWrite } from "../conversationThreads.js";
+import { THREADS_MODEL, threadsWrite } from "../conversationThreads.js";
 import { withArchitecture } from "../texArchitecture.js";
 
 /** The setup's rules with the drawing ahead, the box named for this kind of turn (`texArchitecture.js`). */
@@ -83,7 +84,10 @@ export async function runTheModel(t) {
   // The chat by conversation, when the classifier ran: the thread list, the suggested thread, the last 24 hours (`threadedTurn.js`). Its verdict is kept after the answer.
   const threaded = threadsRun ? await tex.wait("threads", threadsRun) : null;
   if (threaded?.entries?.length > 0) tex.after("threads_write", () => threadsWrite(store, session, threaded.entries));
-  stages?.ready(); const turn = await tex.step("model", () => runTurn({
+  // Reply, react or quiet, from the classifier's verdict, with code's floor under it (`respond.js`): a hushed text ends here, before the model.
+  const hush = threaded?.respond && chatTurn && job === null && !runner && report === null && mayHush({ verdict: threaded.respond, text: logged?.question ?? question, group: group !== null, tapback: Boolean(quoted?.tapback), files: attachments.length, lastTex: threaded.respond.lastTex, between: threaded.respond.between, repliesToTex: threaded.respond.repliesToTex });
+  if (hush) ledgerObserver(chatLog, null, ledgerAt)?.(hushedToolEvent(threaded.respond)); // kept in the history as a say_nothing, with the classifier's reason
+  stages?.ready(); const turn = hush ? await tex.step("hushed", () => hushedTurn(threaded.respond, THREADS_MODEL)) : await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
     place: body.place ?? null,
@@ -156,6 +160,6 @@ export async function runTheModel(t) {
   outcome.clean = ledger.untrusted !== true;
   // Cancelled by the Worker (`steer.js`), in a round or after the last: its asks are withdrawn, nothing is kept as said, and nothing is texted.
   if (turn.cancelled || (steer !== null && (await tex.step("cancel_check", () => steer.endCancelled())))) return await tex.step("cancelled", () => begun.catch(() => {}).then(() => cancelledTurn(store, session, { ledger, steer, steps: turn.steps })));
-  Object.assign(t, { turn });
+  Object.assign(t, { turn, replyPlace: threaded?.respond?.place ?? null }); // where the reply goes: under the text it answers, or plain (`respond.js`)
 }
 // TEX ENTRY POINT: end

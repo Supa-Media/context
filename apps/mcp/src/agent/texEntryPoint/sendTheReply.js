@@ -37,7 +37,7 @@ export function showsOutsideWords(history) {
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function sendTheReply(t) {
-  const { answered, askChat, attachments, background, begun, body, builtinUsed, chatLog, claims, controlPlane, conversation, dispatch, env, front, group, history, hot, inThread, job, keepPictures, learned, ledger, ledgerTurn, meter, offered, opened, outgoing, production, question, quoted, reacted, received, report, router, runner, session, setAside, steer, store, tex, textingWriting, timeZone, turn } = t;
+  const { answered, askChat, attachments, background, begun, body, builtinUsed, chatLog, claims, controlPlane, conversation, dispatch, env, front, group, history, hot, inThread, job, keepPictures, learned, ledger, ledgerTurn, meter, offered, opened, outgoing, production, replyPlace, question, quoted, reacted, received, report, router, runner, session, setAside, steer, store, tex, textingWriting, timeZone, turn } = t;
   // The ask goes out in the gateway's own words, after whatever the model
   // said: a person can allow only what they were told about, and the model
   // relaying it is a courtesy rather than the mechanism.
@@ -89,6 +89,8 @@ export async function sendTheReply(t) {
   if (!turn.exhausted) await tex.after("self_review", () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
   const reply = {
     answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
+    ...(turn.hushed?.respond === "react" && sent === "" ? { react: turn.hushed.emoji ?? "" } : {}), // a tapback in place of a text: the classifier's (`respond.js`); the Worker checks the emoji (`reactEmoji.ts`)
+    ...(replyPlace === "under" || replyPlace === "plain" ? { place: replyPlace } : {}), // under the text it answers, or plain in the chat (`respond.js`)
     // How many held calls the answer's last line asks about, so a caller that
     // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
     asked: ledger.asked.length,

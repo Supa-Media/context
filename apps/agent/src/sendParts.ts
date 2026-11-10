@@ -10,6 +10,7 @@ import { kindOf, type TexEvent } from "./events";
 import type { Line } from "./line";
 import { PICTURE_FAILED, type Media, type SendPart } from "./outgoing";
 import type { Message } from "./reply";
+import type { ReplyPlace } from "./clients";
 
 /** The event for one part Tex sent: a picture it could not upload is one that never went. */
 export function partEvent(part: SendPart): Omit<TexEvent, "id" | "at" | "chat" | "from"> {
@@ -26,14 +27,21 @@ export function partEvent(part: SendPart): Omit<TexEvent, "id" | "at" | "chat" |
  * answered there; a plain text that starts a topic (`newTopic`: the first
  * after a quiet spell) opens a thread under it; any other plain text is
  * answered plainly, unless a newer text overtook it, when its thread keeps
- * the answer next to its question. Answering every text in its own thread
+ * the answer next to its question. Where the conversation classifier placed
+ * the answer (`place`, Dev2 2026-11-10) it decides in place of the quiet-spell
+ * guess; a text typed in a thread, or overtaken, is still answered under it.
+ * Answering every text in its own thread
  * (2026-10-19) put a whole conversation under an unrelated check-in, because
  * each answer landed in whatever thread its text was in.
  */
-export function threadFor(message: Message, overtaken = false): string | undefined {
+export function threadFor(message: Message, overtaken = false, place?: ReplyPlace): string | undefined {
   // A tapback's answer goes plain: under the tapback it would read as a reply to an emoji.
   if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
-  return message.threaded || message.newTopic || overtaken ? message.messageId : undefined;
+  if (message.threaded || overtaken) return message.messageId;
+  // The conversation classifier read the chat and says where the answer goes (Dev2, 2026-11-10; `apps/mcp/src/agent/respond.js`):
+  // it replaces the quiet-spell guess. A turn it didn't place keeps that guess.
+  if (place !== undefined) return place === "under" ? message.messageId : undefined;
+  return message.newTopic ? message.messageId : undefined;
 }
 
 const MAX_CAPTION = 100;

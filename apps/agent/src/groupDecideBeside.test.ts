@@ -174,5 +174,28 @@ for (const { name, groupId } of LINES) {
       expect(logged(logs)).toContain('"outcome":"silent"');
       expect(logged(logs)).not.toContain('"outcome":"answered"');
     });
+
+    it("a quiet answer with the classifier's react sends that tapback and no text (respond.js)", async () => {
+      const storage = new MemoryStorage();
+      const logs = vi.spyOn(console, "log");
+      const w = setup(groupId, { agent: () => ({ answer: "", quiet: true, react: "🎉" }) });
+      await acceptGroup(storage, w.message("Tex, we shipped it!"), 0);
+      await drainGroup(storage, w.deps);
+      expect(w.texts).toEqual([]);
+      expect(w.reactions.at(-1)).toBe("🎉");
+      expect(logged(logs)).toContain('"outcome":"reacted"');
+    });
+
+    it("an answer the classifier placed plain goes straight into the chat; any other goes under the message", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { agent: (body) => ({ answer: `answer to ${body.question}`, ...(String(body.question).includes("plain") ? { place: "plain" } : {}) }) });
+      await acceptGroup(storage, w.message("Tex, plain please"), 0);
+      await drainGroup(storage, w.deps);
+      await acceptGroup(storage, w.message("Tex, and under"), 10);
+      await drainGroup(storage, w.deps);
+      expect(answers(w.texts)).toHaveLength(2);
+      expect(w.under[0]).toBeUndefined();
+      expect(w.under[1]).toBeTruthy();
+    });
   });
 }

@@ -32,7 +32,7 @@ export async function readTheHistory(t) {
   // The new text sorted into the chat's conversations, started now and waited for just before the model (`threadedTurn.js`).
   const place = ledgerPlace(session);
   const threadsRun = chatTurn && job === null && !runner && logged !== null && place !== null && threadsOn(env) && typeof store?.texLedger === "function"
-    ? tex.ahead("threads", () => threadedTurn({ logged, ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "threads" } }), null).catch(() => null)
+    ? tex.ahead("threads", () => threadedTurn({ logged, ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, group: group !== null, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "threads" } }), null).catch(() => null)
     : null;
   if (group !== null) markChatWords(ledger); if (job?.tainted || report !== null) markUntrusted(ledger); // a chat's own words are no stranger's (`chatSkills.js`); a job planned after a read from outside still carries it, and a job's report is what it read
   // The computers a chat turn may name, read beside the rest so the turn is told they're there (`machines/forTurn.js`); a job's own turn names none.
