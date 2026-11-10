@@ -111,6 +111,13 @@ const BLOCKS_CSS = `
 .pg-person small{display:block;font-size:13px;color:var(--pg-muted)}
 .pg-person .pg-faces i{width:40px;height:40px;font-size:13px;margin:0}
 .pg-person .pg-faces{padding:0}
+.pg-person .pg-face{width:52px;height:52px;flex:none;border-radius:50%;overflow:hidden;margin:0}
+.pg-person .pg-face img{width:100%;height:100%;object-fit:cover}
+.pg-rail-t.pictured{display:flex;gap:12px;align-items:flex-start}
+.pg-rail-t .pg-ph{width:64px;height:64px;flex:none;border-radius:12px;overflow:hidden;margin:0}
+.pg-rail-t .pg-ph img{width:100%;height:100%;object-fit:cover}
+.pg-out{color:var(--pg-accent);text-decoration:none;font-weight:500;overflow-wrap:anywhere}
+.pg-person .pg-src,.pg-rail-t .pg-src{display:inline-block;margin-top:4px;font-size:13px}
 
 .pg-vs{border-top:1px solid var(--pg-line)}
 .pg-vs-head,.pg-vs-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:10px 0;border-bottom:1px solid var(--pg-line)}

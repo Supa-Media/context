@@ -11,7 +11,8 @@
  *
  * What it reads is the common, unambiguous part of Markdown that notes use:
  * `**strong**`, `*em*` / `_em_`, `~~struck~~`, `` `code` ``, `[words](url)`,
- * `[[a note]]`, `![alt](src)` / `![[picture.png]]`, backslash escapes, and the
+ * `[[a note]]`, `![alt](src)` / `![[picture.png]]`, a bare `https://` address,
+ * backslash escapes, and the
  * comment anchors `<!--c:id-->…<!--/c:id-->`, which are zero-width here and
  * mark the runs between them as commented. Any other HTML comment is hidden.
  * Anything it does not read stays as the text it is, so nothing is lost.
@@ -31,6 +32,8 @@ const MARKER = /^<!--(\/?)c:([A-Za-z0-9_-]{1,40})-->/;
 const HTML_COMMENT = /^<!--[\s\S]*?-->/;
 const CODE_SPAN = /^(`+)([\s\S]*?[^`])\1(?!`)/;
 const WIKI = /^(!?)\[\[([^\]\n|]{1,300})(?:\|([^\]\n]{1,300}))?\]\]/;
+/** A web address written out in the words, up to a space or a bracket. */
+const BARE_URL = /^https?:\/\/[^\s<>()[\]"']{3,500}/i;
 
 /**
  * The runs of the source between `from` and `to`.
@@ -145,6 +148,15 @@ function inlineRuns(source, from = 0, to = source.length) {
         marks[toggled.mark] = !marks[toggled.mark];
         i += toggled.width;
         textFrom = i;
+        continue;
+      }
+    }
+    // A bare web address is a link too (owner, 2026-11-10: "no ability to click on a link to learn more"), drawn by its site's name.
+    if ((c === "h" || c === "H") && (i === from || /[\s(]/.test(source[i - 1]))) {
+      const bare = BARE_URL.exec(source.slice(i, to));
+      if (bare) {
+        const url = bare[0].replace(/[.,;:!?'"]+$/, "");
+        push({ text: url, from: i, to: i + url.length, editable: false, href: url, bare: true }, i + url.length);
         continue;
       }
     }
