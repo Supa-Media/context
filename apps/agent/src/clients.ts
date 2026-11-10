@@ -235,7 +235,7 @@ export type AgentAnswer =
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
   /** `heard`, `sent`: what the person said aloud this turn, and the gateway's line naming the files they sent: jobs it starts, changes or restarts get them beside their typed words (`jobs.ts` `jobQuestion`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -377,6 +377,7 @@ function readVerbatim(value: unknown, answer: string): string[] {
     .slice(0, 5);
 }
 
+export type ReplyPlace = "under" | "plain";
 export function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
   if (status === 200 && body.cancelled === true) return { kind: "cancelled" };
@@ -396,6 +397,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(readChoices(body.choices).length > 0 ? { choices: readChoices(body.choices) } : {}),
       ...(readOffers(body.offers).length > 0 ? { offers: readOffers(body.offers), ...(readHub(body.hub) !== null ? { hub: readHub(body.hub)! } : {}) } : {}), // `hub`: the chat's Tex page the view points to (`jobs.ts` `readHub`)
       ...(verbatim.length > 0 ? { verbatim } : {}), ...(body.quiet === true ? { quiet: true as const } : {}),
+      ...(body.quiet === true && typeof body.react === "string" && body.react.length <= 8 ? { react: body.react } : {}), ...(body.place === "under" || body.place === "plain" ? { place: body.place } : {}), // the classifier's tapback instead of a text (checked again in `reactEmoji.ts`), and where a reply goes (`apps/mcp/src/agent/respond.js`)
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),
       ...(steers.length > 0 ? { steers } : {}),

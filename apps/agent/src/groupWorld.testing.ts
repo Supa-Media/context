@@ -60,6 +60,8 @@ export function setup(
   const stale: Record<string, unknown>[] = [];
   const texts: string[] = [];
   const reactions: string[] = [];
+  /** What each text went under: the answered message's handle, or undefined when it went plain (`groupSay.ts`). */
+  const under: (string | undefined)[] = [];
   let reads = 0;
   let release = () => {};
   const held = new Promise<void>((resolve) => (release = resolve));
@@ -78,6 +80,7 @@ export function setup(
     }
     if (path === "/api/send-group-message") {
       texts.push(body.content ?? body.media_url);
+      under.push(body.reply_to?.message_handle);
       return Response.json({ message_handle: `h_out_${texts.length}` });
     }
     if (path === "/api/send-reaction") {
@@ -96,6 +99,7 @@ export function setup(
       }
       if (path.startsWith("/messages/") && init?.method === "POST") { // a GET is the quoted message read, never a send
         texts.push(body.body ?? body.media);
+        under.push(body.quoted);
         return Response.json({ sent: true, message: { id: `wa_out_${texts.length}` } });
       }
     }
@@ -203,7 +207,7 @@ export function setup(
     text,
     ...extra,
   });
-  return { deps, decided, rechecks, asks, control, engagement, styles, sharing, events, posted, steers, cancels, stale, texts, reactions, release, running, message };
+  return { deps, decided, rechecks, asks, control, engagement, styles, sharing, events, posted, steers, cancels, stale, texts, reactions, under, release, running, message };
 }
 
 /** The chat as it was logged: what the gateway took, and this object's outbox, oldest first (`chatRead.ts`). */

@@ -112,8 +112,12 @@ may leave the turn (`privacy/egress.js`).
 ```mermaid
 flowchart TB
   Q([The question, the chat, About me, the setup,<br/>the capability list: what Tex can do, and where<br/>capabilities.js<br/>today's date for every model below, at its door,<br/>and every earlier text with its day and time<br/>localNow.js withToday · stamped]):::you --> CL
-  CL["Conversation classifier<br/>Haiku 5.5 · effort low · before the model<br/>which open thread the text continues, or a new one<br/>finishes a thread only on evidence, never on silence<br/>kept in the chat's threads ledger, chat.threads<br/>conversationThreads.js · threadedTurn.js"]:::judge
-  CL -->|thread list, suggested thread, last 24 hours| FD
+  CL["Conversation classifier<br/>Haiku 5.5 · effort low · before the model<br/>which open thread the text continues, or a new one<br/>finishes a thread only on evidence, never on silence<br/>reply, react or quiet, learned from labelled real chats<br/>and where a reply goes: under the text, or plain<br/>kept in the chat's threads ledger, chat.threads<br/>conversationThreads.js · threadedTurn.js · respond.js"]:::judge
+  CL -->|reply: thread list, suggested thread, last 24 hours| FD
+  CL -->|react or quiet| HF{{"Code's floor, never the model<br/>a question in a 1:1 or under a text of Tex's,<br/>Tex named in a group, straight after Tex asked,<br/>a tapback, a 1:1 file:<br/>always reaches the model<br/>respond.js mayHush"}}:::rail
+  HF -->|passes the floor| HU["Hushed, before the model<br/>a tapback or nothing; kept as a say_nothing<br/>with the classifier's reason<br/>respond.js hushedTurn"]:::judge
+  HF -->|held by the floor| FD
+  HU --> SEND
   FD["Front door<br/>Haiku 5.5 · effort high · up to 24 rounds<br/>turn.js runTurn"]:::haiku
   FD <-->|tools| T["Tools: notes, search, web, browser,<br/>vault, email, calendar, apps,<br/>their texts (1:1 only, Mac backup)<br/>the one dispatcher, callToolForSession"]:::tool
   FD <-->|ask_advisor, when stuck or weighing| ADV["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js"]:::opus
@@ -193,6 +197,7 @@ What each model costs is `jev/meter.ts`.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-10: the conversation classifier also says whether Tex answers at all (Dev2: "the thread classifier could probably do this for us, have an output based on examples that's a 'no response'"): reply, react (a tapback, no text) or quiet, learned from labelled examples taken from real chats, and for a reply whether it goes under the text it answers or plain in the chat. React and quiet end the turn before the model runs, kept in the history as a say_nothing with the classifier's reason, unless code's floor holds the text for the model (a question in a 1:1 or typed under a text of Tex's, a group text naming Tex, a text straight after Tex asked something, a tapback, a file in a 1:1). The Worker sends the tapback, and places the reply as told: in a 1:1 in place of the quiet-spell guess, in a group in place of always under the message; a text typed under another is still answered under it. Bench: `pnpm ai respond` (`bench/respond/`). Decision: `docs/decisions/texting-assistant/conversation-threads.md`.
 - 2026-11-10: every model Tex calls is told today's date and time at the door (`withToday` in `requestViaGateway` and `requestBuiltin`; Dev2: "Agents should ALWAYS know today's date"), and every earlier text a model reads carries its day and time: a turn's history, the check-in's last texts, the reviewer's, the planner's, `earlier_texts`, and a threaded chat's lines (date, not the weekday alone). The reviewer is told the day itself (it took Monday, November 9 for Tuesday, October 27). A check-in keeps, above its text, the text it went under, its last thinking and its day's log, so a later turn can say why it texted (`checkInTexts.js` `checkInAbout`). Decision: `docs/decisions/texting-assistant/dates-everywhere.md`.
 - 2026-11-10: a note's date properties fill themselves, and the owner can fill the empty ones once with `manage.fill_dates`; the capability list names it. No box changes.
 - 2026-11-09: the old history record is retired: nothing reads or writes it. A turn reads its chat from the ledger alone, marked as copied in or not (`ledgerConversation.js`), and sendTheReply no longer appends to the record. Nothing drawn changes: every reader already read the ledger.

@@ -15,6 +15,8 @@ import { prepareAttachments } from "./attachments";
 import { textsWithExact } from "./format";
 import type { InboxStorage } from "./inbox";
 import { groupLineFor } from "./groupLine";
+import { ackEmoji } from "./ackEmoji";
+import { reactionFor } from "./reactEmoji";
 import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
@@ -170,7 +172,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     return "cancelled";
   }
   // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
-  if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return log("silent");
+  if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
+    // Answered with a tapback and no words: the conversation classifier's (`apps/mcp/src/agent/respond.js`), the emoji checked against the list.
+    if (answer.react !== undefined && message.reaction === undefined) await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(answer.react || undefined, ackEmoji(message.text))).catch(() => {});
+    return log(answer.react !== undefined ? "reacted" : "silent");
+  }
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);
   // An answer that asks for a yes leaves it open for the one person it asks: the
@@ -199,6 +205,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     return void (await say(storage, deps, message, now === null ? GROUP_LINES.failed : GROUP_LINES.joined, { system: true, ...(now === null ? { reason: "failed" as const } : {}) }));
   }
   await chatEvent(storage, "send", routine ? "routine" : "turn", { now: deps.now() });
+  // Plain in the chat when the classifier says the answer reads as one to this text anyway; a text typed under another is answered under it (`respond.js`).
+  if (!routine && answer.place === "plain" && message.replyTo === undefined) meta.plain = true;
   // Every bubble under the message it answers, not only the first (Dev2's bug report, 2026-10-21).
   let firstSent: number | undefined; // when the person's wait ended (`textTiming.ts`)
   for (const text of texts) {

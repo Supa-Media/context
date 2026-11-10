@@ -1,3 +1,6 @@
+# With bench "respond", scores the conversation classifier's reply-or-quiet
+# call instead (apps/mcp/src/agent/respond.js, apps/mcp/bench/respond/).
+#
 # Scores the reply reviewer (apps/mcp/src/agent/replyJudge.js, one Haiku
 # call) on every labelled case in apps/mcp/bench/review/, against the real
 # model through the AI gateway, so it clears one bar for the whole reviewer
@@ -16,6 +19,12 @@ name: AI Reviewer
 on:
   workflow_dispatch:
     inputs:
+      bench:
+        description: "review: the reply reviewer; respond: the classifier's reply-or-quiet call"
+        required: false
+        default: review
+        type: choice
+        options: [review, respond]
       gate:
         description: "Case sets to score, comma-separated; empty means all"
         required: false
@@ -39,6 +48,7 @@ jobs:
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
       AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
       SETS: ${{ inputs.gate }}
+      BENCH: ${{ inputs.bench }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -51,7 +61,13 @@ jobs:
         run: |
           set -euo pipefail
           [[ -z "$SETS" || "$SETS" =~ ^[a-z_]+(,[a-z_]+)*$ ]] || { echo "::error::sets are names like chat,sourced"; exit 1; }
+      - name: Score the classifier's reply-or-quiet call
+        if: inputs.bench == 'respond'
+        run: |
+          set -euo pipefail
+          pnpm --silent ai respond | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Score
+        if: inputs.bench != 'respond'
         run: |
           set -euo pipefail
           args=()

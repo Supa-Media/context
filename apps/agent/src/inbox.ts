@@ -72,6 +72,7 @@ import { rememberText } from "./threads";
 import { noteHandle } from "./replyQuote";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
+import type { ReplyPlace } from "./clients";
 import { closeMenu, menuState, openMenu } from "./texStyle";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
@@ -382,7 +383,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   for (const [other] of entries.slice(0, -1)) await storage.delete(other);
   // One of the Worker's own texts (a failure, a limit, setup) is the system's: no turn the gateway recorded wrote it.
   const by = turn.fixed ? { system: true as const } : { covers: covers.slice(-MAX_CANDIDATES), turn: turn.turn };
-  const ready: Pending = { message, reply, attempts: 0, ...by, ...(turn.asks.length > 0 ? { asks: turn.asks, askText: turn.askText } : {}) };
+  const ready: Pending = { message, reply, attempts: 0, ...by, ...(turn.asks.length > 0 ? { asks: turn.asks, askText: turn.askText } : {}), ...(turn.place ? { place: turn.place } : {}) };
   await storage.put<Pending>(key, ready);
   return await sendReply(storage, deps, [key, ready], timing);
 }
@@ -415,7 +416,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
     const overtaken = [...(await storage.list<Pending>({ prefix: "pending:" }))].some(
       ([other, waiting]) => other !== key && waiting.message.chatId === item.message.chatId,
     );
-    const thread = threadFor(item.message, overtaken);
+    const thread = threadFor(item.message, overtaken, item.place);
     let carousels = true;
     if (timing) timing.sendStart = deps.now();
     for (const [index, part] of reply.entries()) {
@@ -507,7 +508,7 @@ export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./pres
  * `fixed`: the reply is one of the Worker's own texts (a failure, a limit,
  * setup), never the model's: the gateway recorded no turn for it.
  */
-type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean; token?: string };
+type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean; token?: string; place?: ReplyPlace };
 
 async function answering(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, covers: string[], presence: Presence | undefined, timing: TurnTiming): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
@@ -516,6 +517,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   let asks: string[] = [];
   let askText = "";
   let modelWrote = false;
+  let place: ReplyPlace | undefined, react: string | undefined;
   // The fixed texts sent since the last turn, named to this one for today's history too (`told.ts`); read before the session writes the events.
   const told = await owedTold(storage);
   // Setup started their bucket: Tex owes this chat a text once it is ready (`ready.ts`).
@@ -556,6 +558,8 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
       onOffers: (offered, named) => void ((offers = offered), (hub = named)),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
+      onPlace: (placed) => void (place = placed),
+      onReact: (emoji) => void (react = emoji), // a hushed turn's tapback, sent once its answer is in (`apps/mcp/src/agent/respond.js`)
       // "Tex, settings" (`texStyle.ts`).
       settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
       warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
@@ -566,13 +570,15 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
     presence,
     timing,
   ).finally(end);
-  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote, token: live.accessToken });
+  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote, token: live.accessToken, ...(place ? { place } : {}) });
   if (live.cancelled) {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (asks.length > 0 && live.accessToken !== undefined) await staleAsks(deps, live.accessToken, asks);
     return done([]);
   }
   await clearReactions(storage, reacted);
+  // Answered with a tapback and no words: the classifier's, the emoji checked against the list (`reactEmoji.ts`).
+  if (react !== undefined && texts.length === 0) await acknowledgeText(deps, message, react || undefined).catch(() => {});
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
   if (texts.length > 0 && message.channel !== "simulator") await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).

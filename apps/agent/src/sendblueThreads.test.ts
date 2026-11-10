@@ -43,6 +43,7 @@ function fake(
   agent: Record<string, unknown>[] = [],
   status: (body: Record<string, unknown>) => number = () => 200,
   decided: (init: RequestInit) => Response = coverNewest,
+  extra: Record<string, unknown> = {},
 ): Fetch {
   return (async (url: string, init: RequestInit) => {
     const parsed = new URL(url);
@@ -59,7 +60,7 @@ function fake(
     if (parsed.pathname === "/agent/events") return Response.json({ written: [] });
     if (parsed.pathname === "/agent") {
       agent.push(body);
-      return Response.json({ answer: `answer to ${body.question}` });
+      return Response.json({ answer: extra.quiet === true ? "" : `answer to ${body.question}`, ...extra });
     }
     throw new Error(`unexpected ${url}`);
   }) as unknown as Fetch;
@@ -297,5 +298,42 @@ describe("Tex answers inside iMessage threads", () => {
     expect(parseSendblueInbound(base)).toMatchObject({ kind: "reaction", reaction: { how: "Liked", words: "Want me to put Friday on your calendar?" } });
     expect(parseSendblueInbound({ ...base, content: "Le encantó “x”" })).toMatchObject({ kind: "reaction", reaction: { how: "Loved", words: "x" } });
     expect(parseSendblueInbound({ ...base, content: "Le gustó la película" })).toMatchObject({ kind: "message" });
+  });
+});
+
+describe("the conversation classifier places the answer and may answer with a tapback (respond.js, Dev2 2026-11-10)", () => {
+  it("plain, after a quiet spell: the classifier's call replaces the new-topic guess", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(CHAT_KEY, { chatId: CHAT, at: 1_000 - NEW_TOPIC_AFTER_MS });
+    await accept(storage, message("mh_q", "what time is the game"), 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fake(calls, [], () => 200, coverNewest, { place: "plain" })));
+    expect(answers(calls).map((c) => c.body.reply_to)).toEqual([undefined]);
+  });
+
+  it("under, in a running conversation: answered under the text", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(CHAT_KEY, { chatId: CHAT, at: 1_000 - NEW_TOPIC_AFTER_MS + 1 });
+    await accept(storage, message("mh_u", "which florist was cheapest"), 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fake(calls, [], () => 200, coverNewest, { place: "under" })));
+    expect(answers(calls).map((c) => c.body.reply_to)).toEqual([{ message_handle: "mh_u" }]);
+  });
+
+  it("a text typed inside a thread is answered there, whatever the classifier says", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, message("mh_i", "try again", { threaded: true, quoted: "The price isn't in your notes." }), 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fake(calls, [], () => 200, coverNewest, { place: "plain" })));
+    expect(answers(calls).map((c) => c.body.reply_to)).toEqual([{ message_handle: "mh_i" }]);
+  });
+
+  it("a hushed turn's react sends the tapback and no text", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, message("mh_k", "thanks ill look at it at work today"), 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fake(calls, [], () => 200, coverNewest, { quiet: true, react: "👍" })));
+    expect(answers(calls)).toEqual([]);
+    expect(calls.filter((c) => c.path !== "/api/send-message" && c.path !== "/api/v2/contact-sharing/state").map((c) => c.path)).toContain("/api/send-reaction");
   });
 });

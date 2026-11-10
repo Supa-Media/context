@@ -38,6 +38,7 @@ import {
   unlinkPhone,
   type AgentAnswer,
   type Fetch,
+  type ReplyPlace,
   type SessionAnswer,
   type TextsBinding,
 } from "./clients";
@@ -97,6 +98,9 @@ export type ReplyDeps = {
   onPictures?: (pictures: OutgoingPicture[], choices: Choice[]) => void;
   /** Handed the data cards an answer offers (`dataCards.ts`); absent, none go. */
   onOffers?: (offers: Offer[], hub?: string) => void; // `hub`: the chat's Tex page, when the gateway named one (`jobs.ts` `readHub`)
+  /** Handed where the reply goes (`threadFor`) and the tapback a hushed turn answers with instead of words (`apps/mcp/src/agent/respond.js`). */
+  onPlace?: (place: ReplyPlace) => void;
+  onReact?: (emoji: string) => void;
   /**
    * Not the last try (`inbox.ts`): a turn that could not be started (the
    * control plane unreachable, or the gateway answering 503 before the turn
@@ -334,6 +338,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
       if (answer.offers) deps.onOffers?.(answer.offers, answer.hub);
+      if (answer.place) deps.onPlace?.(answer.place);
+      if (answer.react !== undefined) deps.onReact?.(answer.react);
       const after = [notStarted, notResumed].filter((line): line is string => typeof line === "string" && line !== "");
       // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`): the gateway's flag, never a word; a bare control word is never a text either.
       if (!answer.text || answer.quiet || isControlWord(answer.text)) return after;

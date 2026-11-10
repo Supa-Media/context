@@ -129,7 +129,8 @@ export async function timedReply<T>(storage: InboxStorage, arrivedAt: number, ha
  * How a text Tex sends is logged (`events.ts`): a turn's, with its turn and
  * what it covers; a fixed line (`system`), with no turn, as the system's.
  */
-export type SayMeta = { turn?: string; covers?: string[]; people?: string; system?: true; reason?: EventReason };
+/** `plain`: sent straight into the chat, not under the message it answers (the conversation classifier's call, `apps/mcp/src/agent/respond.js`). */
+export type SayMeta = { turn?: string; covers?: string[]; people?: string; system?: true; reason?: EventReason; plain?: true };
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex, and logged. */
 export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta = {}): Promise<void> {
@@ -163,7 +164,7 @@ async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<G
 function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, meta: SayMeta): PartLine<OutgoingPicture> {
   const place: GroupPlace = { line: message.line, groupId: message.groupId };
   return {
-    sendText: (text) => groupLineFor(deps, message.groupId).sendText(place, text, message.messageId),
+    sendText: (text) => groupLineFor(deps, message.groupId).sendText(place, text, meta.plain ? undefined : message.messageId),
     sendPicture: async (picture) => {
       let url: string;
       try {
@@ -174,7 +175,7 @@ function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<
         log("picture_failed", "host");
         return null;
       }
-      await groupLineFor(deps, message.groupId).sendMedia(place, url, message.messageId);
+      await groupLineFor(deps, message.groupId).sendMedia(place, url, meta.plain ? undefined : message.messageId);
       return url;
     },
     // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and
