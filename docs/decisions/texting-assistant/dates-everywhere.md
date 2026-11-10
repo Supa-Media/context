@@ -35,7 +35,7 @@ On Monday, November 9, 2026, in one person's 1:1 chat:
 2. **Every earlier text a model reads carries its day and time.** A person's
    side keeps its time and Tex's answer goes with it (`datedTurns`). Shown as
    `[Sun 2026-11-08 12:46]` (`stamped`, `localStamp`): a turn's history
-   messages (`turn.js`), the check-in's last texts (`heartbeat.js`), the
+   messages (`turn.js`), the check-in's last texts (`checkInTexts.js`), the
    reviewer's earlier texts and its "It is now" line (`replyJudge.js`), the
    planner's (`planBigAsk.js`), `earlier_texts` (`conversation.js`), routines
    (`routine.js`, since 2026-11-01), and a threaded chat's lines with the date,
