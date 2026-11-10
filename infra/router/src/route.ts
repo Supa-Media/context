@@ -67,6 +67,7 @@ import {
 } from "./preview";
 import { handleSiteFrom, siteCardFrom } from "./preview/sites";
 import { downloadFor } from "./download";
+import { PAGE_VIEWER_PREFIX } from "./pageViewer";
 export { downloadResponse } from "./download";
 import { iconFor, ROBOTS_PATH, type IconName } from "./icons";
 import { isTexHost, TEX_APEX, TEX_CARD_PATH, TEX_WWW_HOST, texPreviewFor } from "./texHost";
@@ -142,7 +143,9 @@ export type RouteDecision =
   //
   // `cache: "immutable"` marks content-hashed build output that is safe to
   // cache at the edge forever; index.ts turns it into a `cf` cache hint.
-  | { kind: "proxy"; upstream: Upstream; path: string; cache?: "immutable" };
+  | { kind: "proxy"; upstream: Upstream; path: string; cache?: "immutable" }
+  // A page link, `/p/@slug/<path>.page.md`, for a person: the page viewer (`pageViewer.ts`).
+  | { kind: "page-viewer" };
 
 export const APEX = "context.lc";
 export const WWW_HOST = "www.context.lc";
@@ -372,6 +375,10 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
     }
     return { kind: "preview", meta: previewFor(pathname) };
   }
+
+  // A page link opens the page viewer, not the app (`pageViewer.ts`). After
+  // the crawler branch: a crawler gets the note link's card for it.
+  if (pathname.startsWith(PAGE_VIEWER_PREFIX)) return { kind: "page-viewer" };
 
   return { kind: "proxy", upstream: "expo", path };
 }

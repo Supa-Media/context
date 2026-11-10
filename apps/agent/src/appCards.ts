@@ -40,8 +40,8 @@ export type AppCard = {
 
 const BUNDLE_ID = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 const TEAM_ID = /^[A-Z0-9]{10}$/;
-/** `https://<host>/note/@<slug>/<path>.md`, as the gateway builds it (`apps/mcp/src/agent/noteLinks.js`), and nothing else. */
-const NOTE_LINK = /^https:\/\/(?:[a-z0-9-]+\.)*context\.lc\/note\/@([^/\s]+)\/(\S+)$/;
+/** `https://<host>/note/@<slug>/<path>.md`, or `/p/@<slug>/<path>.page.md` for a page, as the gateway builds them (`apps/mcp/src/agent/noteLinks.js`), and nothing else. */
+const NOTE_LINK = /^https:\/\/(?:[a-z0-9-]+\.)*context\.lc\/(?:note|p)\/@([^/\s]+)\/(\S+)$/;
 const MAX_CAPTION = 100;
 
 /** The card settings from the Worker's environment, or null while cards are off. */

@@ -24,8 +24,8 @@ import { claimCheck } from "../src/agent/claimCheck.js";
 
 const ORIGIN = "https://context.lc";
 const PAGE = "tex/groups/kite-willow-rocket/last-7-days-oct-27-to-nov-3.page.md";
-const GIVEN = `${ORIGIN}/note/@supa/tex/groups/kite-willow-rocket/last-7-days-oct-27-to-nov-3.page.md`;
-const SHORTENED = `${ORIGIN}/note/@supa/tex/groups/kite-willow-rocket/last-7-days.page.md`;
+const GIVEN = `${ORIGIN}/p/@supa/tex/groups/kite-willow-rocket/last-7-days-oct-27-to-nov-3.page.md`;
+const SHORTENED = `${ORIGIN}/p/@supa/tex/groups/kite-willow-rocket/last-7-days.page.md`;
 const written = (path, link) => ({ content: [{ type: "text", text: `written: ${path} (etag e1)\nvisibility: team${link ? `\nlink: ${link} (text this on its own line so they can open the note)` : ""}` }] });
 
 test("a shortened page name is sent back once, and the link it was given is named", () => {

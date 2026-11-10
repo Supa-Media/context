@@ -58,10 +58,18 @@ export function appOriginOf(env) {
   return /^https:\/\/[^/]+$/.test(origin) ? origin : null;
 }
 
-/** `<origin>/note/@slug/<path>`, every segment encoded and the `@` left readable. */
+/**
+ * `<origin>/note/@slug/<path>`, every segment encoded and the `@` left
+ * readable; a page's is `<origin>/p/@slug/<path>`, which opens the page
+ * viewer rather than the app (owner, 2026-11-10: a page should open
+ * "seamlessly"; `infra/router/src/pageViewer.ts`). The viewer grants nothing
+ * either: it reads with the browser's own sign-in, and hands anything it can't
+ * open to the `/note/…` link.
+ */
 export function noteLinkUrl(origin, slug, path) {
   const encoded = path.split("/").map(encodeURIComponent).join("/");
-  return `${origin}/note/@${encodeURIComponent(slug)}/${encoded}`;
+  const route = /\.page\.md$/i.test(path) ? "p" : "note";
+  return `${origin}/${route}/@${encodeURIComponent(slug)}/${encoded}`;
 }
 
 /** The context a call named (`context: "@name"`), else the turn's own. */
@@ -113,8 +121,8 @@ export function withNoteLinks(callTool, { origin, contexts }) {
  * Dev pasted the context.lc link of yesterday's meeting note after Tex said
  * it had no notes from the call, and Tex answered about the link's preview
  * picture ("just a hashtag icon", "the Context banner") before it read the
- * note. So a link of this deployment's own to a note, in either shape the app
- * opens (`/note/@slug/<path>`, `/console/@slug?note=<path>`), is named to the
+ * note. So a link of this deployment's own to a note, in any shape it opens
+ * (`/note/@slug/<path>`, `/p/@slug/<page>`, `/console/@slug?note=<path>`), is named to the
  * turn as the note it points at, to be read with the turn's own tools. It
  * grants nothing: the read goes through the dispatcher and `canSee` like any
  * other, so a link to a note they cannot see reads as one that is not there.
@@ -139,7 +147,7 @@ export function sentNoteLinks(text, origin, { limit = MAX_SENT_LINKS } = {}) {
     let slug = null;
     let path = null;
     try {
-      if (segments[0] === "note" && segments[1]?.startsWith("@")) {
+      if ((segments[0] === "note" || segments[0] === "p") && segments[1]?.startsWith("@")) {
         slug = decodeURIComponent(segments[1].slice(1));
         path = segments.slice(2).map(decodeURIComponent).join("/");
       } else if (segments[0] === "console" && segments[1]?.startsWith("@") && url.searchParams.has("note")) {
