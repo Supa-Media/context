@@ -124,7 +124,7 @@ function isInboxPart(path, inboxPath) {
  * Context's icons (`folderIcons.cjs`), and a person adds notes and folders of
  * their own beside them.
  */
-const TEX_PARTS = Object.freeze(["attention", "chats", "dreams", "groups", "handbacks", "heartbeat", "housekeeping", "pictures", "routines", "skills", "transcripts"]);
+const TEX_PARTS = Object.freeze(["attention", "chats", "dreams", "groups", "handbacks", "heartbeat", "housekeeping", "pictures", "routines", "skills", "templates", "transcripts"]);
 
 /**
  * The folders a person's Tex has that a group chat's home cannot: `chats` and

@@ -168,6 +168,8 @@ export const PARTS: Readonly<Record<ContextPart, Drawing>> = {
   // An arrow turning back around a clock's hands: the chat's history file.
   tex_history: [[...arc(50, 50, 37, 37, 180, -90, 16), [36, 14], [22, 22], [13, 33]], [[13, 13], [13, 33], [33, 33]], [[50, 28], [50, 50], [66, 58]]],
   tex_handbacks: [[[84, 20], [84, 54], [26, 54]], [[42, 38], [26, 54], [42, 70]], [[26, 84], [74, 84]]],
+  // A page laid out with its parts and no words yet: their page templates.
+  tex_templates: [rect(20, 12, 60, 76), rect(30, 22, 40, 18), [[30, 52], [70, 52]], rect(30, 62, 16, 16), rect(54, 62, 16, 16)],
   inbox_calendar: SET["calendar"],
   inbox_contacts: [rect(14, 22, 72, 58), circle(36, 46, 9, -100, 375, 10), arc(36, 76, 14, 12, 180, 360, 6), [[58, 42], [76, 42]], [[58, 56], [72, 56]], [[30, 14], [30, 26]], [[70, 14], [70, 26]]],
   inbox_email: SET["mail"],

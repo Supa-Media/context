@@ -11,6 +11,8 @@
 // Each file by itself: Node's ESM import sees a CommonJS file's names only when it lists them plainly.
 import { frontMatter, isPagePath, parsePage } from "../../../packages/shared/src/pages/parse.cjs";
 import { PAGE_SKILL, PAGE_SKILL_STAMP } from "./pageSkill.js";
+import { templateLines, templateSource } from "../../../packages/shared/src/pages/templates.cjs";
+import { toolError, toolText } from "./tools/results.js";
 
 export { isPagePath };
 
@@ -74,3 +76,22 @@ export const PAGE_JOB_LINE =
   "Write the deliverable as a page: a note named `<name>.page.md`. Read the page design skill first (orient about: \"pages\"): " +
   "it says what goes first (the answer, then your pick as a vote), which block fits which facts (places, prices, tiers, itinerary, stats, timeline, contacts), " +
   "and the stamp a page must carry; a page without it, or with a block that cannot be drawn, is refused with what to fix.";
+
+/**
+ * What `orient about: "template <name>"` answers: one built-in page template
+ * with the current stamp in it, ready to fill
+ * (`packages/shared/src/pages/templates.cjs`), or the names when it isn't one.
+ */
+export function pageTemplateAnswer(name) {
+  const source = templateSource(name, PAGE_SKILL_STAMP);
+  if (source === null) {
+    return toolError(`There is no built-in page template "${String(name).slice(0, 40)}". The templates:\n${templateLines().join("\n")}`);
+  }
+  return toolText(
+    [
+      `The ${String(name).trim().toLowerCase()} page template. Copy it, fill every [gap], put real numbers where it holds 0 or ?, drop a part the facts don't need, and write it as a .page.md note. Its stamp is current.`,
+      "",
+      source,
+    ].join("\n")
+  );
+}

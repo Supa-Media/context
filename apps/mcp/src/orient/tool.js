@@ -19,7 +19,7 @@ import { normalizePath } from "../notes/paths.js";
 import { firstParagraphOf, readFrontPage, readIndexText, readSaveProcedure } from "./frontPage.js";
 import { GLOBAL_ORIENT_PATH, PINNED_CONTEXT_NAME, readGlobalOrientNote } from "./globalNote.js";
 import { WEBSITE_GUIDE, hasWebsiteFolder } from "./websiteGuide.js";
-import { PAGE_GUIDE } from "../pages.js";
+import { PAGE_GUIDE, pageTemplateAnswer } from "../pages.js";
 import { scopeInfoText } from "../privacy/scopeInfo.js";
 import { inV2Names } from "../tools/v2/speak.js";
 import { toolNewsSection } from "../tools/news.js";
@@ -120,6 +120,9 @@ async function healthAnswer(store, scope, rules, overrides) {
 
 /** Every `about` answer, each for the one thing it names. */
 async function aboutAnswer(store, scope, rules, overrides, about) {
+  // A built-in page template, named in the page skill (`orient about: "template decision"`).
+  const template = /^templates?[\s:]+(.+)$/i.exec(about.trim());
+  if (template) return pageTemplateAnswer(template[1]);
   if (store.explicitToolContract) {
     const answer = await store.explicitToolContract.manual(about);
     if (answer) return answer;
