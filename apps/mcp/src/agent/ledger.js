@@ -19,7 +19,7 @@
  * - `text`: `{from: {kind: "person"|"tex"|"system", name?, who?}, text, covers?, delivered?, reason?, told?, replyTo?, event?}`
  * - `thinking`: `{text, ms?, output?}`, the model's thinking in words, as it came back, with its model round's milliseconds and output tokens
  * - `said`: `{text}`, what the model said between its tools
- * - `tool`: `{name, args, ok, ms, held?, reason?, result?, cut?, withheld?}`
+ * - `tool`: `{name, args, as?, ok, ms, held?, reason?, result?, cut?, withheld?}`; `as` is `{name, args}` as the model wrote the call, when that differs
  * - `reply`: `{text, ms, model?, timing?}`, the turn's answer as it left the gateway; `timing` is where its time went (`turnTiming.js`)
  * - `advisor`: `{question, answer, ms, steps?}` / `mail_check`: `{to, subject, verdict, why, ref?}` / `job`: `{job, title?, state}`
  * - `note`: `{text}`, anything else worth keeping (a routine's text, a check-in)
@@ -72,9 +72,11 @@ export function readsOtherWorkspace(args, ownSlug) {
 }
 
 /** A tool call's entry. `result` is the text the model was shown. */
-export function toolEntry({ name, args, ok, ms, held = false, reason = null, result = null, thinking = null }, { ownSlug, turn = null, at = Date.now() } = {}) {
+export function toolEntry({ name, args, as = null, ok, ms, held = false, reason = null, result = null, thinking = null }, { ownSlug, turn = null, at = Date.now() } = {}) {
   const entry = { v: 1, id: newId(), at, kind: "tool", ...(turn ? { turn } : {}), name: String(name ?? "").slice(0, 64), args: keptArgs(args ?? {}), ok: ok === true, ms: Number.isFinite(ms) ? Math.round(ms) : 0 };
   if (held) entry.held = true;
+  // The name and arguments the model wrote, when it called one of the six (`sixTools.js`): what a later text replays (`stretch.js`).
+  if (as && typeof as.name === "string" && as.name !== entry.name) entry.as = { name: as.name.slice(0, 64), args: keptArgs(as.args ?? {}) };
   if (typeof reason === "string" && reason !== "") entry.reason = reason.slice(0, 400);
   if (readsOtherWorkspace(args, ownSlug)) entry.withheld = "other_workspace";
   else if (typeof result === "string") {

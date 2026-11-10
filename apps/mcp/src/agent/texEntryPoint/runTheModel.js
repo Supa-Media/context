@@ -124,8 +124,9 @@ export async function runTheModel(t) {
       },
     },
     web: steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
-    history: threaded?.history ?? logged?.history ?? shown,
-    historyCached: !threaded?.history && !logged?.history, // the rendered log is one block rebuilt every text (`loggedTurn.js`)
+    history: threaded?.history ? [...threaded.history, ...(logged?.carried ?? [])] : logged?.history ?? shown, // the stretch's turns after it (`stretch.js`)
+    // The rendered log leaves the current stretch out, so it holds still from text to text within it (`loggedTurn.js`); the threaded one is rebuilt every text.
+    historyCached: !threaded?.history,
     // Per text, so said in their turn after the cached prefix (`turnPrompt.js`): who tagged it, the thread, the jobs running now, whether their computers are online.
     turnNote: [group !== null ? taggedLine(group) : "", threadPrompt(logged ? { thread: null } : inThread), background?.runningNow ?? "", job === null ? computersLine(computers, { planning }) : ""].map((part) => part.trim()).filter(Boolean).join("\n\n"),
     threadNote: (group !== null ? groupPrompt(group, home) : "") + learnedSkillsLine(learned) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobAdvisorLine(job, advising) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,

@@ -31,6 +31,8 @@ import { dayFromLedger, earlierFromLedger, faded, readLedger, summaryLines } fro
 import { ledgerPlace } from "./ledger.js";
 import { deskLedger } from "./history.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
+import { MAX_CARRIED_CALLS, stretchSince, stretchTurns } from "./stretch.js";
+import { groupQuestion } from "./groupLedgerHistory.js";
 
 const MAX_COVERS = 32;
 export const TURNS_PREFIX = ".context/agent/turns/";
@@ -119,23 +121,26 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
     .join("\n");
   if (question === "") return null;
   // A group is shown its whole log, whoever has joined or left since (the owner, 2026-11-02): no cut by the people a text was said in front of.
+  // The stretch's earlier turns, carried as messages with their tool calls and results (`stretch.js`), and left out of the rendered log.
+  const carried = await carriedStretch(read, covered, group);
+  const before = (event) => carried.since === null || event.at < carried.since;
   const shown = events.filter((event) => !wanted.has(event.id));
   // Days are aged from the newest text it answers: that day and the one before whole, older ones faded (`faded`).
   const answering = Math.max(...covered.map((event) => event.at));
   // Everything before the day the turn holds, from the chat's ledger (`ledgerHistory.js`).
-  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: Math.max(0, READ_CHARS - shown.reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)), fade: true, fadeFrom: answering }) : { events: [], tools: new Map(), summaries: [] }; // older days faded by age (`ledgerHistory.js` `faded`)
+  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: Math.max(0, READ_CHARS - shown.filter(before).reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)), fade: true, fadeFrom: answering }) : { events: [], tools: new Map(), summaries: [] }; // older days faded by age (`ledgerHistory.js` `faded`)
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
   const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [] };
   const all = withSentByItself([...earlier.events, ...shown.map((event) => faded(event, answering))], own.shown);
-  const transcript = renderEvents(all, { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
+  const transcript = renderEvents(all.filter(before), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools });
   // What the texts it answers were typed under, quoted in full as the transcript shows that message (`logRender.js` `replyingTo`).
   const byId = new Map([...earlier.events, ...events].map((event) => [event.id, event]));
   const replying = covered.map((event) => replyingTo(event, byId, TIME_OF(timeZone))).filter((line) => line !== "");
   // Days older than every text shown come first as their night-after summaries (`daySummaries.js`).
   const told = [summaryLines(earlier.summaries), transcript].filter((part) => part !== "").join("\n\n");
   // The pieces the conversation threads re-show the chat from (`threadedTurn.js`).
-  const parts = { shown: all, answeredBy: [...earlier.events, ...events], tools: earlier.tools, summaries: earlier.summaries, answering, timeZone, byId };
-  return { covered, history: told === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${told}` }], question, replying, parts };
+  const parts = { shown: all, since: carried.since, answeredBy: [...earlier.events, ...events], tools: earlier.tools, summaries: earlier.summaries, answering, timeZone, byId };
+  return { covered, history: [...(told === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${told}` }]), ...carried.turns], carried: carried.turns, question, replying, parts };
 }
 
 /**
@@ -168,5 +173,24 @@ function chatLedger(store, session) {
   const ledger = place !== null && typeof store?.texLedger === "function" ? store.texLedger(place.owner.chat ?? null) : null;
   if (ledger === null) return null;
   const first = place.chat === DESK_LEDGER.chat && place.owner.person ? deskLedger(store) : Promise.resolve(null); // a person's: the desk's page, read with their record
-  return first.then((page) => readLedger(ledger, place.chat, { first: page })).then((entries) => ({ entries, chat: place.chat }));
+  return first.then((page) => readLedger(ledger, place.chat, { first: page })).then((entries) => ({ entries, chat: place.chat, ledger }));
+}
+
+/**
+ * The chat's current stretch (`stretch.js`): when it began and its earlier turns as history, each answer with the
+ * calls it made, read whole (the turn's own read is slim). None after an hour quiet, or when the ledger can't be read.
+ */
+async function carriedStretch(read, covered, group) {
+  const none = { since: null, turns: [] };
+  const since = stretchSince(read?.entries);
+  if (since === null || typeof read?.ledger?.read !== "function") return none;
+  try {
+    const tools = (await read.ledger.read(read.chat, { kinds: ["tool"], since, limit: MAX_CARRIED_CALLS }))?.entries ?? [];
+    const askedNow = [...new Set(covered.filter((event) => event.from?.kind === "person").map((event) => event.from?.who ?? event.from?.name ?? ""))];
+    const turns = stretchTurns(read.entries, tools, { since, covered: new Set(covered.map((event) => event.id)), group: group !== null, asker: askedNow.length === 1 ? askedNow[0] : null, ...(group !== null ? { question: groupQuestion } : {}) });
+    return turns.length === 0 ? none : { since, turns };
+  } catch (error) {
+    console.log(JSON.stringify({ event: "tex_stretch_unread", reason: String(error?.name ?? "error").slice(0, 40) }));
+    return none;
+  }
 }

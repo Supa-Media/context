@@ -9,7 +9,7 @@
  * a mark moves to the newest history, the bytes before it do not).
  *
  * Covers the memory history (`conversation.js`, `readGroupMemory`). Not covered: a turn shown the rendered log
- * (`loggedTurn.js`), which is one block rebuilt every text; it carries no hour mark (`historyCached`, checked below
+ * (`loggedTurn.js`), held by `texCarry.test.mjs`, and the threaded log, one block rebuilt every text, which carries no hour mark (`historyCached`, checked below
  * on `gatewayBody`).
  *
  * Sabotage these and a test here fails:
@@ -132,7 +132,7 @@ test("a group: tools, system and history read back across texts while the tagger
   assert.match(JSON.stringify(second.messages.at(-1)), /@bo tagged you/);
 });
 
-test("a history rebuilt every text (the rendered log) carries no hour mark", () => {
+test("a history rebuilt every text (the threaded log) carries no hour mark", () => {
   const messages = [{ role: "user", text: "(The chat so far) ..." }, { role: "user", text: "now" }];
   const body = gatewayBody({ model: "anthropic/claude-sonnet-5", system: { stable: "s", context: "c" }, messages, tools: [], cachedThrough: 0 });
   assert.doesNotMatch(JSON.stringify(body.messages), /"ttl":"1h"/);

@@ -50,7 +50,7 @@ export async function threadedTurn({ logged, ledger, chat, group = false, config
   const cutoff = parts.answering - RECENT_MS;
   // The last day, and whatever no thread holds (older than the chat's first thread, or a group text Tex never answered,
   // which no verdict sorted); the rest is in its threads.
-  const kept = parts.shown.filter((event) => event.at >= cutoff || event.at < start || !tags.has(event.id));
+  const kept = parts.shown.filter((event) => (event.at >= cutoff || event.at < start || !tags.has(event.id)) && !(Number.isSafeInteger(parts.since) && event.at >= parts.since)); // the stretch is carried as messages (`stretch.js`)
   const suggested = written === null ? null : threads.find((thread) => thread.id === written.id) ?? null;
   const older = suggested === null ? [] : parts.shown.filter((event) => event.at < cutoff && event.at >= start && tags.get(event.id) === suggested.id).map((event) => lineOf(event, format));
   const listed = threadsPrompt({ threads, suggested, fresh: verdict?.thread === "new", older, when: (at) => format.format(new Date(at)).replace(/ /g, " ") });

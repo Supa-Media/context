@@ -11,7 +11,9 @@
  *
  * Only the words go in: what the person asked and what was answered. Never a
  * tool's result, which can quote a note the next turn's grant might no longer
- * reach. The next turn re-reads what it needs through its own tools.
+ * reach. The next turn re-reads what it needs through its own tools. (A texted
+ * turn shown the chat's log carries the current stretch's results, within the
+ * hour: `stretch.js`.)
  *
  * An answer also keeps the names of the tools it used, and nothing else about
  * them: without them the next turn saw its own earlier answer with no lookup
