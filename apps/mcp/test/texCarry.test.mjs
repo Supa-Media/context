@@ -12,6 +12,7 @@
  *  2. `stretch.js` dropping the `turn.tainted` stub → "a turn that read from outside".
  *  3. `stretch.js` replaying another member's results (`other` forced false) → "a group".
  *  4. `loggedTurn.js` rendering the stretch into the log block too (`all` unfiltered) → "byte-stable".
+ *  6. `stretch.js` replaying a result whatever grant read it, or a stubbed call's arguments → "another grant".
  *  5. `turn.js` mapping history turns to `{role, text}` only → "carries text 1's".
  */
 
@@ -20,7 +21,7 @@ import { after, before, test } from "node:test";
 
 import { createEgressWorld, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { gatewayBody, CONTEXT_BETA } from "../src/agent/aiGateway.js";
-import { STUB_OTHER, STUB_OUTSIDE, STUB_WITHHELD, stretchSince, stretchTurns } from "../src/agent/stretch.js";
+import { STUB_GRANT, STUB_OTHER, STUB_OUTSIDE, STUB_WITHHELD, stretchSince, stretchTurns } from "../src/agent/stretch.js";
 
 let world;
 const realNow = Date.now;
@@ -84,7 +85,8 @@ test("text 2 carries text 1's tool_use and tool_result; the prefix is byte-stabl
 const H = 3_600_000; // the hour, written out: a test that read the constant would move with it
 const text = (id, at, who, words, turn) => ({ kind: "text", seq: at, at, eid: id, id: `ev${id}`, event: "text", from: who === "tex" ? { kind: "tex" } : { kind: "person", who }, text: words, ...(turn ? { turn, delivered: true } : {}) });
 const reply = (turn, at, clean = true) => ({ kind: "reply", seq: at, at, turn, clean });
-const tool = (turn, at, extra = {}) => ({ kind: "tool", seq: at, at, id: `t${at}`, turn, name: "read_note", args: { path: "a.md" }, ok: true, result: "secret plans", ...extra });
+const tool = (turn, at, extra = {}) => ({ kind: "tool", seq: at, at, id: `t${at}`, turn, name: "read_note", args: { path: "a.md" }, ok: true, result: "secret plans", grant: "grant_1", ...extra });
+const G = { grant: "grant_1" };
 const A = "a".repeat(64);
 const B = "b".repeat(64);
 
@@ -96,22 +98,25 @@ test("the stretch is the run with no gap over an hour", () => {
 
 test("a turn that read from outside is carried with its results stubbed", () => {
   const entries = [text("1", 10, A, "read the page"), tool("t1", 11), text("2", 12, "tex", "It says hi", "t1"), reply("t1", 13, false)];
-  const turns = stretchTurns(entries, [tool("t1", 11)], { since: 0 });
+  const turns = stretchTurns(entries, [tool("t1", 11)], { since: 0, ...G });
   assert.equal(turns[1].calls[0].result, STUB_OUTSIDE);
-  const clean = stretchTurns([...entries.slice(0, 3), reply("t1", 13, true)], [tool("t1", 11)], { since: 0 });
+  assert.deepEqual(turns[1].calls[0].args, {}, "a stubbed call keeps no arguments");
+  const clean = stretchTurns([...entries.slice(0, 3), reply("t1", 13, true)], [tool("t1", 11)], { since: 0, ...G });
   assert.equal(clean[1].calls[0].result, "secret plans");
 });
 
 test("a group: another member's reads are stubbed, the asker's own are carried", () => {
   const entries = [text("1", 10, A, "what's in my notes?"), text("2", 12, "tex", "Plans.", "t1"), reply("t1", 13)];
-  assert.equal(stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: B })[1].calls[0].result, STUB_OTHER);
-  assert.equal(stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: A })[1].calls[0].result, "secret plans");
-  assert.equal(stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: null })[1].calls[0].result, STUB_OTHER, "an unknown asker is someone else");
+  const other = stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: B, ...G })[1].calls[0];
+  assert.equal(other.result, STUB_OTHER);
+  assert.deepEqual(other.args, {}, "another member's query is not carried either");
+  assert.equal(stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: A, ...G })[1].calls[0].result, "secret plans");
+  assert.equal(stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: null, ...G })[1].calls[0].result, STUB_OTHER, "an unknown asker is someone else");
 });
 
 test("another workspace's read is never carried, and the call keeps a stable id", () => {
   const entries = [text("1", 10, A, "q"), text("2", 12, "tex", "a", "t1"), reply("t1", 13)];
-  const [, answer] = stretchTurns(entries, [tool("t1", 11, { withheld: "other_workspace", result: undefined })], { since: 0 });
+  const [, answer] = stretchTurns(entries, [tool("t1", 11, { withheld: "other_workspace", result: undefined })], { since: 0, ...G });
   assert.equal(answer.calls[0].result, STUB_WITHHELD);
   assert.equal(answer.calls[0].id, "toolu_t11");
 });
@@ -143,4 +148,16 @@ test("a 400 naming context_management is sent once more without it, beta header 
   await requestViaGateway(call, config, { fetchImpl, wait: async () => {} });
   assert.equal(sent.length, 3, "remembered: the next body goes without it");
   resetContextEdits();
+});
+
+test("a result read under another grant, or none recorded, is stubbed, arguments and all", () => {
+  const entries = [text("1", 10, A, "q"), text("2", 12, "tex", "a", "t1"), reply("t1", 13)];
+  const narrower = stretchTurns(entries, [tool("t1", 11)], { since: 0, grant: "grant_2" })[1].calls[0];
+  assert.equal(narrower.result, STUB_GRANT);
+  assert.deepEqual(narrower.args, {});
+  assert.equal(stretchTurns(entries, [tool("t1", 11, { grant: undefined })], { since: 0, ...G })[1].calls[0].result, STUB_GRANT, "an entry with no grant");
+  assert.equal(stretchTurns(entries, [tool("t1", 11)], { since: 0 })[1].calls[0].result, STUB_GRANT, "a turn with no grant");
+  const same = stretchTurns(entries, [tool("t1", 11)], { since: 0, ...G })[1].calls[0];
+  assert.equal(same.result, "secret plans");
+  assert.deepEqual(same.args, { path: "a.md" });
 });
