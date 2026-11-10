@@ -84,6 +84,8 @@ export function toolEntry({ name, args, as = null, ok, ms, held = false, reason 
     entry.result = kept.text;
     if (kept.cut !== undefined) entry.cut = kept.cut;
   }
+  // The workspace a kept call ran in, by handle: never another (that is withheld above), so the turn's own. What `stretch.js` checks a home read against.
+  if (entry.withheld === undefined && typeof ownSlug === "string" && ownSlug !== "") entry.workspace = ownSlug.toLowerCase().slice(0, 80);
   // The advisor's thinking, beside its answer (`advisor.js`): what the tool thought, never Tex's own.
   if (typeof thinking === "string" && thinking.trim() !== "" && entry.withheld === undefined) entry.thinking = cutText(thinking, MAX_WORDS_CHARS).text;
   return entry;

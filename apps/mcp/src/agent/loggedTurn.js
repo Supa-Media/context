@@ -164,7 +164,7 @@ export function turnReads(store, session, body, { runner, group, dispatch, warm,
   const started = job ? null : chatLedger(store, session);
   // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
   const ledger = started === null ? null : time.ledger(() => started);
-  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: session?.grantId ?? null, home: session?.setupReach?.chatHome ?? null }))]);
+  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: session?.grantId ?? null, home: session?.setupReach?.chatHome ? { folder: session.setupReach.chatHome, slug: session.setupReach.slug } : null }))]);
 }
 
 /** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */

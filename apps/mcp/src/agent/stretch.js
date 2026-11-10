@@ -69,19 +69,21 @@ const HOME_READS = new Set(["read_note", "list_notes", "search_notes"]);
 
 /**
  * Whether a tool entry read the chat's own home (`chatHome.js`), from what the ledger kept of the call that ran
- * (never the model's words in `as`): a note read, in the pin or the turn's own workspace, whose path or folder is
- * the home or beneath it, with no mail asked for. `home` is the grant's own folder (`session.setupReach.chatHome`).
- * Anything else, or no home, is not shared.
+ * (never the model's words in `as`): a note read that ran in the home's workspace (the `workspace` the ledger
+ * recorded at call time, `ledger.js` `toolEntry`), whose path or folder is the home or beneath it, with no mail asked
+ * for. `home` is the grant's own `{ folder, slug }` (`session.setupReach`). Anything else, no home, or an entry from
+ * before `workspace` was recorded, is not shared.
  */
 export function sharedHomeRead(entry, home) {
-  if (typeof home !== "string" || home === "" || entry.withheld !== undefined || !HOME_READS.has(entry.name)) return false;
+  if (typeof home?.folder !== "string" || home.folder === "" || typeof home.slug !== "string" || home.slug === "") return false;
+  if (entry.withheld !== undefined || entry.workspace !== home.slug.toLowerCase() || !HOME_READS.has(entry.name)) return false;
   const args = entry.args && typeof entry.args === "object" ? entry.args : {};
   if (args.mail !== undefined && args.mail !== false) return false;
   if (args.context !== undefined && String(args.context).trim().replace(/^@*/, "@").toLowerCase() !== PINNED_CONTEXT_NAME) return false;
   const target = entry.name === "read_note" ? args.path : args.prefix;
   if (typeof target !== "string") return false;
   const path = target.trim().replace(/^\/+|\/+$/g, "");
-  return !path.split("/").includes("..") && (path === home || path.startsWith(`${home}/`));
+  return !path.split("/").includes("..") && (path === home.folder || path.startsWith(`${home.folder}/`));
 }
 
 /** A tool entry as a replayed call: `{id, name, args, result, isError}`. */
@@ -100,7 +102,7 @@ function callOf(entry, stub, grant, shared = false) {
  * are the chat's slim ledger entries, `tools` its full `tool` entries since
  * `since`, `covered` the event ids this turn answers (left out: they are the
  * question). `asker` is who asks now in a group (null in a one-to-one chat),
- * `grant` the grant id this turn runs under, `home` a group's home folder.
+ * `grant` the grant id this turn runs under, `home` a group's home as `{ folder, slug }`.
  */
 export function stretchTurns(entries, tools, { since, covered = new Set(), group = false, asker = null, grant = null, home = null, question = undefined } = {}) {
   if (!Number.isSafeInteger(since)) return [];
