@@ -32,7 +32,7 @@ function slotKey(name) {
 
 /** The layout's elements with everything not allowed taken out, and its CSS. */
 export function cleanLayout(html, doc = document) {
-  const parsed = new DOMParser().parseFromString(`<!doctype html><body>${String(html ?? "")}</body>`, "text/html");
+  const parsed = new window.DOMParser().parseFromString(`<!doctype html><body>${String(html ?? "")}</body>`, "text/html");
   const css = [];
   const walk = (el) => {
     for (const child of [...el.children]) {
@@ -103,7 +103,7 @@ export function drawLayout(root, layoutHtml, parts) {
 /** Tap a picture or a drawing to see it across the page, and again to put it back. */
 export function bindEnlarge(root, changed) {
   root.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target.closest("img.pg-img, .pg-ink-figure, .pg-exhibit") : null;
+    const target = event.target instanceof window.Element ? event.target.closest("img.pg-img, .pg-ink-figure, .pg-exhibit") : null;
     if (!target || target.closest("a")) return;
     // Across the frame's whole width, from wherever it sits: a picture in a layout's narrow column too.
     const on = !target.classList.contains("pg-enlarged");
