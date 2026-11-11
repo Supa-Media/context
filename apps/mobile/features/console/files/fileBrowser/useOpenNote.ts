@@ -311,12 +311,8 @@ export function useOpenNote(deps: OpenNoteDeps) {
               // The copy stays, and from here it is plainly a copy: the bucket did not answer.
               dispatch({ type: "checked", path });
               // A read that could not finish keeps the copy the person may be typing in, and says so.
-              if (!refusesOpen(error)) {
-                if (isServerRefusal(error) && openRun.current === mine) setNotice(toFileError(error).message);
-                return;
-              }
-              if (await shownTrashed(error, path, () => openRun.current === mine)) return;
-              if (openRun.current === mine) refuse(error, path);
+              if (!refusesOpen(error)) return void (isServerRefusal(error) && openRun.current === mine && setNotice(toFileError(error).message));
+              if (!(await shownTrashed(error, path, () => openRun.current === mine)) && openRun.current === mine) refuse(error, path);
               return;
             }
             const cached = refusesOpen(error) ? null : await offline.cachedNote(source);
