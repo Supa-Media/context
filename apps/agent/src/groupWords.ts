@@ -4,23 +4,17 @@
  */
 
 import { sharingWords, type Sharing } from "./reviewSharing";
-import { styleWords, type Ask } from "./texStyle";
-import type { GroupStyle } from "./decide";
 
 export type Command =
-  /** "Tex, stop": when Tex speaks up is off. "Tex, be quiet" is a level (`speaks_up`), Dev2, 2026-11-01. */
+  /** "Tex, stop": Tex is muted here until "Tex, start". */
   | { kind: "stop" }
   | { kind: "start" }
-  | { kind: "speaks_up"; level: GroupStyle }
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string }
   | { kind: "status" }
-  | { kind: "settings" }
   /** "Tex, share my chats with the devs", or stop, or ask: the sender's own switch (`reviewSharing.ts`). */
-  | { kind: "review_sharing"; sharing: Sharing }
-  /** Plain words for a quick pick, an undo or a clear ("Tex, no emoji", "Tex, undo the change"; `texStyle.ts`). */
-  | { kind: "style"; ask: Ask };
+  | { kind: "review_sharing"; sharing: Sharing };
 
 const NAME = "(?:tex|context)";
 /** The name, not "Tex-Mex" or "Texas". */
@@ -36,7 +30,7 @@ export function unquoted(text: string): string {
 }
 
 /**
- * A group command, said to Tex by name ("Tex, stop", "Tex settings"): code's to answer, never the judge's. Whether
+ * A group command, said to Tex by name ("Tex, stop", "Tex start"): code's to answer, never the judge's. Whether
  * anything else is for Tex is the one judge's (`textDecide.cjs`; Dev2, 2026-11-11): no word rule here decides that.
  * Its name is required, so nobody's bare "stop" mutes a chat.
  */
@@ -76,14 +70,10 @@ export function groupCommand(text: string): Command | null {
     .replace(/[.!]+$/, "")
     .toLowerCase();
   if (/^(?:stop|mute|shush|shh+)$/.test(rest)) return { kind: "stop" };
-  if (/^be quiet$/.test(rest)) return { kind: "speaks_up", level: "quiet" };
   if (/^(?:start|unmute|come back)$/.test(rest)) return { kind: "start" };
   if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
   const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
   if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };
-  if (/^settings\??$/.test(rest)) return { kind: "settings" };
-  const ask = styleWords(rest);
-  if (ask) return { kind: "style", ask };
   const sharing = sharingWords(rest);
   if (sharing) return { kind: "review_sharing", sharing };
   const shared = SHARE_MAIL.exec(rest);

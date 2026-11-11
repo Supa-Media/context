@@ -83,6 +83,8 @@ describe("a group's commands as tools", () => {
     expect(await command(t, token, { kind: "updates", updates: "planOnly" })).toMatchObject({ status: "done", updates: "planOnly" });
     expect(await command(t, token, { kind: "settings" })).toMatchObject({ status: "done", instructions: "Call the group the crew.\nUse no emoji.", updates: "planOnly", engagementChosen: false });
     expect(await command(t, token, { kind: "instructions", action: "remove", text: "Use no emoji." })).toMatchObject({ status: "done", instructions: "Call the group the crew." });
+    // "Tex, undo the change" through the tool (2026-11-11): the removed line comes back, and a second undo has nothing left.
+    expect(await command(t, token, { kind: "instructions", action: "undo" })).toMatchObject({ status: "done", instructions: "Call the group the crew.\nUse no emoji." });
   });
 
   test("a change off its rules is refused whole, and changes nothing", async () => {

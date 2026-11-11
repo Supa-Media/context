@@ -47,7 +47,6 @@ import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
 import type { Steer } from "./steer";
 import { textsWithExact } from "./format";
-import { saveTextsStyle, textSettings, type MenuState, type SettingStep } from "./texStyle";
 import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
@@ -61,7 +60,7 @@ import type { WarmDeps } from "./warm";
  * replies are written to its log instead of sent (simulator.ts); a Linq
  * delivery never carries it.
  */
-/** `setting`: a "Tex, settings" text or a reply to its menu, answered by code and never put to decide (`texStyle.ts`). */
+/** `setting`: a yes or no to sharing chats with the devs, answered by code and never put to decide (`reviewSharing.ts`). */
 /** `askYes`: a like, love or dislike held as the answer to an ask (`thumbs.ts`), set only by `react`; answered by code, never put to decide. */
 export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true; askYes?: true };
 
@@ -134,8 +133,6 @@ export type ReplyDeps = {
   onJobs?: (jobs: StartedJob[], said?: JobSaid) => Promise<string | undefined | void>; // `said`: what they said aloud and the files they sent, part of the jobs' question (`jobs.ts` `jobQuestion`)
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
   onSteers?: (asks: JobSteerAsk[], said?: JobSaid) => Promise<string | undefined | void>;
-  /** "Tex, settings" (`texStyle.ts`): where the open menu is kept. Absent, settings texts go to the model like any other. */
-  settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
   /** A texted yes to sharing with the devs: file what this chat keeps, once (`reviewWatch.ts` `watchShared`). */
   onShared?: () => Promise<void>;
   /**
@@ -285,11 +282,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     }
 
     if (message.sms) return COPY.sms;
-    // "Tex, settings", a reply to its menu, or "no emoji": set by the person, never the model (`texStyle.ts`).
-    const settings = deps.settings && !message.event
-      ? await textSettings(message.text, session.settings ?? {}, deps.settings, (ask) => saveTextsStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, ask))
-      : null;
-    if (settings !== null) return settings;
+    // How Tex talks changes only by asking it in words (`tex_instructions_set`); the "Tex, settings" menu is retired (2026-11-11).
     // "Tex, share my chats with the devs", or stop: the person's own words, never the model's (`reviewSharing.ts`).
     const sharing = message.event ? null : sharingWords(message.text);
     if (sharing !== null) {

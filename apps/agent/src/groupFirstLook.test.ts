@@ -29,7 +29,7 @@ async function bound(storage: MemoryStorage, w: ReturnType<typeof setup>): Promi
 }
 
 describe("the one judge in a group", () => {
-  it("a bound chat's message goes to the judge at every speak-up level, with the chat's ledger key", async () => {
+  it("a bound chat's message goes to the judge, told follow-along whatever level the chat once chose, with the chat's ledger key", async () => {
     for (const engagement of ["quiet", "attentive", "followAlong", "helpful"]) {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: fakeJudge, control: { engagement, engagementChosen: true } });
@@ -38,7 +38,7 @@ describe("the one judge in a group", () => {
       expect(await acceptGroup(storage, w.message("anyone up for tacos?"), 10)).toBe("kept");
       await drainGroup(storage, w.deps);
       expect(w.decided.length, engagement).toBe(before + 1);
-      expect(w.decided.at(-1), engagement).toMatchObject({ style: engagement, ledger: await sha256Hex(`${LINE}:${groupId}`) });
+      expect(w.decided.at(-1), engagement).toMatchObject({ style: "followAlong", ledger: await sha256Hex(`${LINE}:${groupId}`) });
       expect(w.asks.map((ask) => ask.question), engagement).toEqual(["Tex, hi"]);
     }
   });

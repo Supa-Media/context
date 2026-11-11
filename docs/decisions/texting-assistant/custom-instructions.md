@@ -3,6 +3,9 @@
 Decided by Dev2, 2026-11-01, with 2026-11-02 additions (Tex's name anywhere
 reaches decide; forgetting a chat held, below).
 Replaces the seven style dials of [tex-settings](./tex-settings.md).
+The menu, quick picks, progress updates and speak-up levels below were
+retired on 2026-11-11 ([retire-settings](./retire-settings.md)); the
+instructions text stays.
 
 Seven dials (tone, warmth, enthusiasm, emoji, length, bubbles, humor) were
 each a closed set, said to the model as fixed lines and read by code in four

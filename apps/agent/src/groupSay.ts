@@ -94,7 +94,7 @@ export async function fixedTimings(storage: InboxStorage): Promise<{ fixed?: Fix
 export type ReplyClock = { mark(stage: "members" | "control"): void; path(name: string): void };
 
 /**
- * Where every group reply's time went, fixed lines such as "Tex, settings" included (a model turn adds
+ * Where every group reply's time went, fixed lines such as "Tex, what can you see" included (a model turn adds
  * `group_turn_timing` for its own part): `queueMs` from the first message in to the hand-off (the pause, a
  * turn ahead of it, decide), `startMs` from the hand-off to answering (the workflow starting, its retries),
  * then the member list, the control plane's check, and the reply itself. Milliseconds and a path name only.

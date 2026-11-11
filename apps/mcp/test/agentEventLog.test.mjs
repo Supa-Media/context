@@ -410,3 +410,7 @@ test("a turn writes no turn record, and prunes old marks on every exit", async (
     Date.now = realNow;
   }
 });
+
+test("the setup line owes a new person's first text an answer (Dev2, 2026-11-11: it was dropped by the handle question)", () => {
+  assert.match(TOLD.setup, /first text.*still unanswered: answer it soon/);
+});

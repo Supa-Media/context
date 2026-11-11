@@ -234,3 +234,27 @@ told to offer Google), `apps/mcp/test/workspaceSetup.test.mjs` (the link's steps
 and picture), `apps/agent/src/ready.test.ts` (the ready text's guide and
 picture), `infra/router/src/texHost.test.ts` (the picture is served) and
 `apps/convex/__tests__/mailHealth.test.ts` (`readOnly`).
+
+### A new person's first text is answered, and their mail is read live (2026-11-11)
+
+Decided by the owner (Dev2), 2026-11-11 ("go ahead" on the onboarding fixes in
+the group-chat architecture review). Two promises in onboarding were not kept:
+
+- **The first text was dropped.** Setup answers an unlinked phone's first text
+  with the handle question and sends only one word of it out of the Worker,
+  so whatever that text asked was never answered. The text is already in the
+  chat's event outbox and reaches the history once the phone is linked (within
+  a day), so the gateway's `setup` line (`TOLD.setup`,
+  `apps/mcp/src/agent/conversation.js`) now says it is still unanswered, and
+  the onboarding skill's step 0 answers it.
+- **"I'm reading your mail" read an empty folder.** Step 2 of the onboarding
+  skill searched `0-inbox/email`, but mail has not been copied into notes
+  since 2026-10-21 ([live-not-copied](../communications/live-not-copied.md)),
+  and the first-connect import of 50 runs only inside a mail pass, which only
+  people with the `mail.in-notes` flag get. Step 2 now reads Gmail live
+  (search with `email: true`). The skill is a note
+  (`@context-lc ai/production/skills/onboarding.md`), so that half shipped
+  as an edit to it.
+
+Reversing the first costs a new person's first question; `apps/mcp/test/agentEventLog.test.mjs`
+fails if the setup line stops saying so.

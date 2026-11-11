@@ -6,8 +6,7 @@
  * texReviews.ts`), so who a review may keep words for is still decided there
  * and only there.
  *
- * Read from the whole text with no model, like "Tex, settings"
- * (`texStyle.ts`): a yes that lets people read someone's messages is theirs
+ * Read from the whole text with no model, like "Tex, stop": a yes that lets people read someone's messages is theirs
  * to say in words, never a model's reading of what they might have meant.
  * Both name what they are about (chats, history, the devs): a bare "stop
  * sharing" or "opt out" may mean a note or an email list, and goes to the model.

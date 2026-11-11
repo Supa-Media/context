@@ -40,16 +40,16 @@ function recorder(answer) {
 
 test("each surface is offered its own command tools", () => {
   const run = async () => ({ status: "done" });
-  assert.deepEqual(names(commandTools({ run, group: null })), ["review_sharing_set", "tex_instructions_set", "tex_settings_get", "tex_updates_set"]);
+  assert.deepEqual(names(commandTools({ run, group: null })), ["review_sharing_set", "tex_instructions_set", "tex_settings_get"]);
   assert.deepEqual(names(commandTools({ run, group: { key: "k" } })), [
-    "chat_engagement_set", "chat_mute", "chat_share_mail", "chat_status", "chat_unshare_mail", "tex_instructions_set", "tex_settings_get", "tex_updates_set",
+    "chat_mute", "chat_share_mail", "chat_status", "chat_unshare_mail", "tex_instructions_set", "tex_settings_get",
   ]);
   assert.deepEqual(commandTools({ run: null, group: null }), []);
 });
 
 test("a guest's tag is offered no tool that acts as a person", () => {
   const tools = commandTools({ run: async () => ({ status: "done" }), group: { key: "k", guestTagger: true } });
-  assert.deepEqual(names(tools), ["chat_engagement_set", "chat_mute", "chat_status", "tex_instructions_set", "tex_settings_get", "tex_updates_set"]);
+  assert.deepEqual(names(tools), ["chat_mute", "chat_status", "tex_instructions_set", "tex_settings_get"]);
 });
 
 test("changing the instructions sends only the change; a group is told to say who made it and how to undo", async () => {
@@ -63,8 +63,9 @@ test("changing the instructions sends only the change; a group is told to say wh
   assert.deepEqual(sent.at(-1), { kind: "instructions", action: "clear" });
   assert.match(words(own), /^Saved\. Their instructions are now: "Call the group the crew\."\. Tell them in a line what you wrote\.$/);
   assert.match(set.tool.description, /Only for a clear, lasting request/);
-  const updates = await byName(commandTools({ run: async () => ({ status: "done", updates: "planOnly" }), group: null }), "tex_updates_set").call({ level: "planOnly" });
-  assert.equal(words(updates), "Saved: progress updates are plan only here.");
+  // "Tex, undo the change" is the tool's undo since the fixed words were retired (2026-11-11): no line needed.
+  await byName(commandTools({ run, group: null, consent: async () => true }), "tex_instructions_set").call({ action: "undo" });
+  assert.deepEqual(sent.at(-1), { kind: "instructions", action: "undo" });
 });
 
 test("the arguments never name who acts", async () => {
@@ -72,7 +73,6 @@ test("the arguments never name who acts", async () => {
   const tools = commandTools({ run, group: { key: "k" }, consent: async () => true });
   await byName(tools, "chat_share_mail").call({ address: "a@b.example", userId: "users:x", phone: "+1555" });
   await byName(tools, "chat_unshare_mail").call({ address: "a@b.example", as: "someone" });
-  await byName(tools, "chat_engagement_set").call({ style: "quiet", setBy: "forged" });
   await byName(tools, "chat_mute").call({ chat: "another" });
   for (const command of sent) for (const key of Object.keys(command)) assert.ok(["kind", "address", "query", "engagement"].includes(key), key);
 });
@@ -108,12 +108,12 @@ test("the instructions change only on the turn's own words asking for it", async
   assert.equal(sent.length, 2);
 });
 
-test("the settings answer lists the options, and mail sharing keeps its safety line", async () => {
+test("the settings answer shows the instructions and says there is no menu (2026-11-11), and mail sharing keeps its safety line", async () => {
   const tools = commandTools({ run: async (command) => (command.kind === "settings" ? { status: "done", instructions: "Use no emoji.", updates: "off", engagementChosen: true, engagement: "helpful" } : { status: "done", address: "a@b.example", narrowed: true }), group: { key: "k" }, consent: async () => true });
   const settings = words(await byName(tools, "tex_settings_get").call({}));
-  assert.match(settings, /^Instructions: "Use no emoji\."\. Progress updates: off\./);
-  assert.match(settings, /When Tex speaks up here: helpful\. Personal instructions don't apply in groups\./);
-  assert.match(settings, /Quick picks \(each adds one line\)/);
+  assert.match(settings, /^Instructions: "Use no emoji\."\. Personal instructions don't apply in groups\./);
+  assert.match(settings, /There is no menu: they change how you talk by telling you, in their own words\./);
+  assert.doesNotMatch(settings, /Quick picks|Progress updates|speaks up/);
   assert.match(words(await byName(tools, "chat_share_mail").call({ address: "a@b.example" })), /Replies go from it only when they say yes\./);
 });
 
@@ -126,7 +126,7 @@ test("the six tools show them as send actions only when the turn holds them, and
   assert.match(send.description, /- tex_settings:/);
   assert.doesNotMatch(send.description, /- chat_mute:/, "a 1:1 turn holds no group tools");
   assert.deepEqual(six.resolve("send", { action: "tex_instructions", args: { action: "add", text: "Be brief." } }), { name: "tex_instructions_set", args: { action: "add", text: "Be brief." } });
-  assert.equal(Object.keys(COMMAND_SEND_ACTIONS).length, 9);
+  assert.equal(Object.keys(COMMAND_SEND_ACTIONS).length, 7);
   assert.equal(sixToolsOver([]).tools.find((tool) => tool.name === "send"), undefined, "nothing held, nothing shown");
 });
 

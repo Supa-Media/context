@@ -15,7 +15,6 @@
 import { gatherTheTurn } from "./gatherTheTurn";
 import { noteHandle, replyFields } from "./replyQuote";
 import { chatEvent } from "./chatState";
-import type { SettingReply } from "./texStyle";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, kindOf, markStale, renderTranscript, waitingAsks, type TexEvent } from "./events";
 import { chatEvents } from "./chatRead";
@@ -34,7 +33,7 @@ import type { InboxStorage } from "./inbox";
  * before it. `ev` its event id. `soft`: the judge's to answer or not; left
  * unanswered it becomes a chat line. `force`: answered by the next turn
  * whatever the judge says. `byCode`: never put to the judge (a command, a
- * style choice, a thumb). `engagement`: the style it chooses. `look`: from a
+ * thumb). `look`: from a
  * chat Tex is not set up in (or an SMS), unlogged until the judge answers it.
  */
 export type GroupPending = {
@@ -45,13 +44,8 @@ export type GroupPending = {
   soft?: true;
   force?: true;
   byCode?: true;
-  engagement?: GroupStyle;
-  /** A reply to the open "Tex, settings" menu (`texStyle.ts`), answered by code. */
-  setting?: SettingReply;
   /** On a turn kept for a retry: the events it answers besides its own. */
   covers?: string[];
-  /** The message the style question held: never asked about again. */
-  styleAsked?: true;
   /** What the chat said up to here is the turn's context (somebody else's lines decide covered with it). */
   contextUntil?: number;
   /** Sent by the tagger a moment after their own waiting tag (`followsOwnTag`): it goes with that tag. */
@@ -99,7 +93,7 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
  * there as a `judge` entry (the gateway writes it, `textsDecide.js`).
  */
 async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: GroupMessage, candidates: string[], running: boolean, look?: string): Promise<Decision> {
-  const style = (await groupStyle(storage)).style;
+  const style = (await groupStyle()).style;
   const decision = await decide(
     deps,
     {
