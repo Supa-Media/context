@@ -28,6 +28,7 @@
 const { inlineRuns } = require("./inline.cjs");
 const { BLOCK_KINDS, checkBlock } = require("./blocks.cjs");
 const { readScene } = require("../ink/drawing.cjs");
+const { layoutProblems } = require("./layout.cjs");
 
 const PAGE_SUFFIX = ".page.md";
 
@@ -215,6 +216,14 @@ function parsePage(source) {
     nodes.push({ type: "paragraph", runs: runsOf(from, lines[i - 1].to), from: lines[start].from, to: lines[i - 1].to });
   }
 
+  // A layout names sections by their `##` headings, so it is checked once the whole page is read (`layout.cjs`).
+  const sectionNames = nodes.filter((node) => node.type === "heading" && node.level === 2).map((node) => node.runs.map((run) => run.text ?? "").join("").trim());
+  nodes
+    .filter((node) => node.type === "layout")
+    .forEach((node, k) => {
+      node.problems = k > 0 ? [{ message: "A page has one layout; this is a second ```layout fence." }] : layoutProblems(node.html, sectionNames);
+    });
+
   const firstHeading = nodes.find((node) => node.type === "heading" && node.level === 1);
   return {
     fields: front.fields,
@@ -260,6 +269,7 @@ function fenced(source, info, bodyLines, where) {
   const body = source.slice(where.bodyFrom, where.bodyTo);
   if (word === "comments") return null;
   if (word === "css") return { type: "css", text: body, ...where };
+  if (word === "layout") return { type: "layout", html: body, problems: [], ...where };
   if (word === "box") {
     const height = /(?:^|\s)height=(\d{2,4})(?:\s|$)/.exec(rest);
     return { type: "box", html: body, height: height ? Math.min(2000, Math.max(80, Number(height[1]))) : null, ...where };

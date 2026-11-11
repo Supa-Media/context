@@ -147,6 +147,8 @@ export const TRY_CLAIM_NOTICE =
   "Never say you tried something you didn't call, and never promise to keep trying later.";
 
 import { RESULT_NOTICE, WORDY_NOTICE, restatesTheResult, tooWordy } from "./wordy.js";
+import { WORK_PAGE_NOTICE, workForAPage } from "./workPage.js";
+import { bareCoverMissing, bareCoverNotice } from "./pageCoverFloor.js";
 import { CHECK_IN_ANSWER_NOTICE, IMPOSSIBLE_NIGHT_NOTICE, THEIR_FIGURE_NOTICE, disownsTheirFigure, dropsCheckInAnswer, impossibleNight } from "./timeLog.js";
 
 /**
@@ -168,6 +170,10 @@ export function replyChecks({ question, waiting = false, pictures = false, histo
     ["check-in", (answer, steps) => dropsCheckInAnswer(answer, { question, history, steps }), CHECK_IN_ANSWER_NOTICE],
     ["prompt", (answer) => repeatsUnarrivedPrompt(question, answer), NO_PROMPT_NOTICE],
     ["goal", (answer) => dropsTheGoal(question, answer), GOAL_NOTICE],
+    // A page saved with no picture and no cover call draws its cover before the link goes (`pageCoverFloor.js`).
+    ["cover", (answer, steps) => bareCoverMissing(steps) !== "", (answer, steps) => bareCoverNotice(bareCoverMissing(steps))],
+    // Work looked up on the web and texted as a wall of findings is a page (`workPage.js`), before it is cut.
+    ["work", (answer, steps) => workForAPage(answer, { question, steps }), WORK_PAGE_NOTICE],
     // Last, so a fix above is made before the answer is cut (`wordy.js`).
     ["result", (answer, steps) => restatesTheResult(answer, { question, steps, detailed }), RESULT_NOTICE],
     ["wordy", (answer, steps) => tooWordy(answer, { question, steps, detailed }), WORDY_NOTICE],
@@ -176,7 +182,7 @@ export function replyChecks({ question, waiting = false, pictures = false, histo
     for (const [kind, fails, notice] of checks) {
       if (given.has(kind) || !fails(answer, steps)) continue;
       given.add(kind);
-      return notice;
+      return typeof notice === "function" ? notice(answer, steps) : notice;
     }
     return null;
   };

@@ -58,13 +58,14 @@ const DRAW = {
       })
       .join("")}</div>`,
 
-  timeline: (block, { open }) =>
+  timeline: (block, ctx, open = ctx.open) =>
     `<ol class="pg-rail">${block.items
       .map((item, i) => {
         const state = (fieldOf(item, "state", "status")?.value.text ?? "").trim().toLowerCase();
         const cls = /^(done|yes|✓)$/.test(state) ? "done" : /^(now|doing|in progress)$/.test(state) ? "now" : "";
         const last = i === block.items.length - 1;
-        return `<li class="${cls}">${part(item, -1, open, "time")}<div class="pg-rail-mark"><i></i>${last ? "" : "<s></s>"}</div><div class="pg-rail-t">${part(item, 0, open, "b")}${part(item, 1, open, "span")}</div></li>`;
+        const pic = photosOf(item)[0];
+        return `<li class="${cls}">${part(item, -1, open, "time")}<div class="pg-rail-mark"><i></i>${last ? "" : "<s></s>"}</div><div class="pg-rail-t${pic ? " pictured" : ""}">${pic ? photo(pic, ctx, { name: plain(item.parts[0]?.runs ?? []) }) : ""}<div>${part(item, 0, open, "b")}${part(item, 1, open, "span")}${sourceLink(item)}</div></div></li>`;
       })
       .join("")}</ol>`,
 
@@ -108,9 +109,12 @@ const DRAW = {
       .join("")}</div>`;
   },
 
-  people: (block, { open }) =>
+  people: (block, ctx, open = ctx.open) =>
     `<div class="pg-people">${block.items
-      .map((item) => `<div class="pg-person">${faces([itemName(item)])}<div>${part(item, -1, open, "b")}${part(item, 0, open, "small")}${part(item, 1, open, "small")}</div></div>`)
+      .map((item) => {
+        const pic = photosOf(item)[0];
+        return `<div class="pg-person">${pic ? photo(pic, ctx, { name: itemName(item), cls: "pg-face" }) : faces([itemName(item)])}<div>${part(item, -1, open, "b")}${part(item, 0, open, "small")}${part(item, 1, open, "small")}${sourceLink(item)}</div></div>`;
+      })
       .join("")}</div>`,
 
   versus: (block, { open }) => {

@@ -77,6 +77,18 @@ export function pageTitle(source: string, path: string): string {
   return (path.split("/").pop() ?? path).replace(/\.page\.md$/i, "");
 }
 
+/**
+ * The body of a call to the control plane's HTTP API. `convex_encoded_json`
+ * is the encoding the app's own client asks for: in it a picture's bytes come
+ * back as `{ $bytes: base64 }`, which `pictureDataUrl` reads. The plain `json`
+ * format sends bytes as a bare string, and every picture on a page then drew
+ * as an empty slot (owner, 2026-11-10: a page's drawing missing in the viewer
+ * and there in the app).
+ */
+export function callBody(path: string, args: Record<string, unknown>): string {
+  return JSON.stringify({ path, args, format: "convex_encoded_json" });
+}
+
 /** A picture's bytes from the control plane (`{ $bytes: base64 }` in its JSON) as a data URL, or null. */
 export function pictureDataUrl(read: unknown): string | null {
   if (typeof read !== "object" || read === null) return null;

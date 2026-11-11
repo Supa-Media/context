@@ -9,7 +9,7 @@
  *  3. `tokenLasts` ignoring the margin → "a token about to run out is refreshed, not used".
  */
 import { describe, expect, test } from "@jest/globals";
-import { appLinkFor, authKeys, pageAddressFrom, pageTitle, pictureDataUrl, tokenLasts } from "../page-viewer/viewerCore";
+import { appLinkFor, authKeys, callBody, pageAddressFrom, pageTitle, pictureDataUrl, tokenLasts } from "../page-viewer/viewerCore";
 
 function jwt(expiresInMs: number, now: number): string {
   const encode = (value: object) => btoa(JSON.stringify(value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -63,6 +63,17 @@ describe("pageTitle", () => {
   test("is the first heading, past the front matter, else the file's name", () => {
     expect(pageTitle("---\nskill: x\n---\n\n# Linq fixes the previews\n\nWords", "a/b.page.md")).toBe("Linq fixes the previews");
     expect(pageTitle("No heading here", "a/trip-plan.page.md")).toBe("trip-plan");
+  });
+});
+
+describe("callBody", () => {
+  // Sabotage: send format "json" and pictures come back as bare strings, which pictureDataUrl refuses; this fails.
+  test("asks for the encoding pictures come back in as { $bytes }", () => {
+    expect(JSON.parse(callBody("functions/files:readNoteImage", { leaf: "a.png" }))).toEqual({
+      path: "functions/files:readNoteImage",
+      args: { leaf: "a.png" },
+      format: "convex_encoded_json",
+    });
   });
 });
 

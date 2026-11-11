@@ -23,6 +23,12 @@ const SAFE_HREF = /^(https?:\/\/|mailto:|tel:|sms:)[^\s"'<>]*$/i;
  */
 const SAFE_SRC = /^(?!\s)(?!(?:javascript|data|vbscript|file):)[^"'<>\s][^"'<>]{0,299}$/i;
 
+/** A written-out address as a reader wants to see it: the site and the start of its path, "redeemerbk.com/who-we-are". */
+function shortAddress(href) {
+  const bare = String(href).replace(/^https?:\/\/(?:www\.)?/i, "").replace(/[?#].*$/, "").replace(/\/$/, "");
+  return bare.length > 42 ? `${bare.slice(0, 40)}…` : bare;
+}
+
 /** Runs as HTML. `open` is the set of comment threads still open, whose words are highlighted. */
 function runsHtml(runs, open) {
   let out = "";
@@ -40,6 +46,7 @@ function runsHtml(runs, open) {
     if (run.em) html = `<em>${html}</em>`;
     if (run.strong) html = `<strong>${html}</strong>`;
     if (run.note) html = `<a class="pg-note" href="#" data-note="${esc(run.note)}">${html}</a>`;
+    else if (run.bare && SAFE_HREF.test(run.href)) html = `<a class="pg-out" href="${esc(run.href)}" data-href="${esc(run.href)}" title="${esc(run.href)}">${esc(shortAddress(run.href))} ↗</a>`;
     else if (run.href) html = SAFE_HREF.test(run.href) ? `<a href="${esc(run.href)}" data-href="${esc(run.href)}">${html}</a>` : html;
     out += html;
   }

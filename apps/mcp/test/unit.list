@@ -261,6 +261,8 @@ test/agentKeptCarry.test.mjs
 test/agentKeptFiles.test.mjs
 test/agentReplyChecks.test.mjs
 test/agentWordy.test.mjs
+test/agentWorkPage.test.mjs
+test/texPagePages.test.mjs
 test/agentTimeLog.test.mjs
 test/agentFolderFit.test.mjs
 test/agentBrowserUntried.test.mjs
@@ -307,6 +309,8 @@ test/agentPhotoHunt.test.mjs
 test/agentPagePictures.test.mjs
 test/pagesPhone.test.mjs
 test/pageInkDrawings.test.mjs
+test/pageLayouts.test.mjs
+test/pageVisual.test.mjs
 test/pageTemplates.test.mjs
 test/agentSilentSubmit.test.mjs
 test/staleEtagWrite.test.mjs

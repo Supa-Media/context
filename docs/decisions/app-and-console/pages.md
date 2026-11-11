@@ -339,3 +339,90 @@ setting holds them.
 What a "simplification" would cost: templates the gateway keeps somewhere
 other than notes can't be edited or taken away; templates that don't draw
 teach agents broken blocks. Tests: `apps/mcp/test/pageTemplates.test.mjs`.
+
+### Work Tex shows is a page, and the Tex page lists them
+
+Work Tex looked up for someone is a page, not a text (owner, 2026-11-10:
+pages are "the default for all work output done through Tex that would be
+shown to the user"). A new note was already a page (`pageNotice.js`) and a
+job already delivered one; what still came back as bubbles was a turn that
+searched, opened sites or browsed and texted its findings. Such an answer,
+over 110 words or four list lines of findings, is sent back once to be a
+page from a template, with one line and the link texted
+(`apps/mcp/src/agent/workPage.js`). A quick answer stays a text, and so does
+a turn that only read their notes, already made a page or picture, wrote
+words to copy, or was asked for as a text.
+
+The Tex page lists them: under Pages, every `.page.md` the chat's turns and
+jobs wrote, newest first, each once, read from the chat's own ledger
+(`view: "pages"`, `http/texPage/pages.js`), each opening in the app. Nothing
+new is kept; a page the reader can no longer open says so, as its link would.
+
+What a "simplification" would cost: counting only sentences, as the wordy
+check does, lets a list of findings through as the short form; keeping a
+separate list of pages drifts from the notes. Tests:
+`apps/mcp/test/agentWorkPage.test.mjs`, `apps/mcp/test/texPagePages.test.mjs`,
+`apps/mobile/__tests__/texPagesRead.test.ts`.
+
+### A page can have a layout of its own
+
+For work that needs to look designed, a page can carry its own HTML and CSS
+(owner, 2026-11-10: pages "extensible enough for custom Ui using html css",
+"similar to instinct", whose roast set numbered findings beside exhibits in
+an editorial grid). A ```` ```layout ```` fence holds the HTML, and each
+`data-from` in it names a part the runtime puts there: `cover` (the title,
+opening line, cover and anything before the first `##`), a `##` section by
+its heading (case and spacing ignored), or `rest`. The words stay in the
+note as Markdown, so editing, comments, search, export and covers all work
+as before; delete the fence and the page reads as it did. A section the
+layout doesn't place goes into `rest`, or after the layout, and an unplaced
+cover before it: a layout never hides a word.
+
+It is checked twice. At write, `packages/shared/src/pages/layout.cjs`
+refuses, with what to fix, anything that runs, loads, embeds, submits or
+names an address (script, frames, forms, svg, `on...=`, `src=`/`href=`,
+`javascript:`, `@import`, `url(`), a slot that names no section, a layout
+that places nothing, and a second layout. In the frame,
+`apps/mobile/page-frame/layout.js` reads it with `DOMParser` and keeps only
+an allow-list of elements and attributes (no ids, no `data-*` but
+`data-from`, so it can't pose as the runtime's own markers), and its
+`<style>` joins the page's stylesheet only if it loads nothing; the frame's
+CSP loads nothing anyway. A layout with problems is left out and the page
+draws as it would without one. Pictures and drawings in any page enlarge to
+the frame's width when tapped.
+
+What a "simplification" would cost: letting the layout hold words splits a
+page's text between Markdown and HTML, and edits, comments and export lose
+the half in HTML; trusting the write check alone lets a layout written past
+the gateway (an old version, a synced file) run in the frame. Tests:
+`apps/mcp/test/pageLayouts.test.mjs`, `apps/mobile/__tests__/pageLayout.test.ts`.
+
+### A page always has a picture, and its people and links show
+
+Owner, 2026-11-10, on a background job's page of new NYC churches: "no
+photos of church logos, no photos of the lead pastors, no buildings, WE NEED
+TO MAKE VISUAL PAGES", and "there are no hyperlinks either". The job put the
+churches in a timeline and their pastors in a people block, which no photo
+hunt read; it skipped the cover call as "optional", so the page got no
+drawing; and its sources were bare addresses, drawn as words.
+
+- A turn that saves a page with no picture of any kind (no cover photo, no
+  option's or person's photo, no image, no map, no drawing) and makes no
+  cover call after it is sent back once to make one
+  (`apps/mcp/src/agent/pageCoverFloor.js`, a reply check). The cover call
+  draws the picture (`visuals/pageDrawing.js`), so the floor is code, not
+  the reviewer's judgement or the model's choice.
+- The page-photo hunt reads people (searched by name with their role, so it
+  finds that person) and timeline rows that name something (two capitalised
+  words, or a `source:`), after the options, within the write's ten
+  pictures. A person shows their photo in place of initials; a row shows a
+  thumbnail; both show their `source:` as a link.
+- A bare `https://` address in a page's words is a link, drawn as its site
+  and path, and not editable as words.
+- The page skill says so: addressed things (churches, offices) are places,
+  every person and row carries `source:`, and the cover call is never
+  optional.
+
+What a "simplification" would cost: leaving the cover to the prompt is what
+failed; hunting people by name alone finds someone else of that name.
+Tests: `apps/mcp/test/pageVisual.test.mjs`.

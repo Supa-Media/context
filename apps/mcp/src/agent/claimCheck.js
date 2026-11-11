@@ -59,6 +59,7 @@ import { selfRepairNotice } from "./lookFirst.js";
 import { mayAsk } from "./handbackJudge.js";
 import { pageNotice, turnNoteWrite, wantsAPage } from "./pageNotice.js";
 import { replyChecks } from "./replyChecks.js";
+import { barePageWritten } from "./pageCoverFloor.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
 import { confessionNotice, contradictedConfession } from "./confession.js";
 import { noteStep, saveAccountCheck } from "./saveAccount.js";
@@ -503,7 +504,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         if (result?.isError !== true) links.read(result);
         const images = args?.images ?? args?.args?.images;
         // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
-        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...noteStep(name, args, isWrite(name)) });
+        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...(result?.isError !== true && isWrite(name) && barePageWritten(args) ? { bare: barePageWritten(args) } : {}), ...noteStep(name, args, isWrite(name)) });
         if (result?.held === true) held = true;
         if (result?.checkerRefused === true) checkerRefused = true;
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;

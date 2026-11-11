@@ -15,6 +15,7 @@ import { cardsOn, noteCard, type AppCard, type AppCardConfig } from "./appCards"
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import { isRefusal } from "./carousel";
 import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
+import { counted, type CountDataset } from "./textCounts";
 import {
   isSendblueChat,
   parseSendblueChat,
@@ -85,11 +86,26 @@ export type LineDeps = {
   noteCardPicture?: NoteCardDrawer;
   /** A new link to this chat's live view of its jobs (`jobs.ts` `mintThreadsLink`); absent, the view is never offered. */
   threadsLink?: () => Promise<string>;
+  /** Where each message Tex sends is counted (`textCounts.ts`); absent, nowhere. */
+  textCounts?: CountDataset;
 };
 
 export function lineFor(deps: LineDeps, chatId: string): Line {
-  if (isWhapiChat(chatId)) return whapiLine(deps);
-  return isSendblueChat(chatId) ? sendblueLine(deps) : linqLine(deps);
+  const line = isWhapiChat(chatId) ? whapiLine(deps) : isSendblueChat(chatId) ? sendblueLine(deps) : linqLine(deps);
+  return countedLine(line, deps.textCounts);
+}
+
+/** The line with every message it sends counted once the line took it (`textCounts.ts`). */
+function countedLine(line: Line, dataset: CountDataset | undefined): Line {
+  if (dataset === undefined) return line;
+  const { sendAppCard, sendCarousel } = line;
+  return {
+    ...line,
+    sendText: (chatId, text, key, replyTo) => counted(dataset, "one", "text", () => line.sendText(chatId, text, key, replyTo)),
+    sendMedia: (chatId, media, key, replyTo) => counted(dataset, "one", "media", () => line.sendMedia(chatId, media, key, replyTo)),
+    ...(sendAppCard ? { sendAppCard: (chatId: string, card: AppCard, replyTo?: string) => counted(dataset, "one", "card", () => sendAppCard(chatId, card, replyTo)) } : {}),
+    ...(sendCarousel ? { sendCarousel: (chatId: string, urls: string[], replyTo?: string) => counted(dataset, "one", "carousel", () => sendCarousel(chatId, urls, replyTo)) } : {}),
+  };
 }
 
 function linqLine(deps: LineDeps): Line {

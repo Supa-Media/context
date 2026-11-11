@@ -10,6 +10,7 @@
  *    shown it, rendered by the turn's own code (`agent/ledgerHistory.js`, `agent/logRender.js`).
  *  - `{handle, chat, view: "conversations"}` and `{…, view: "conversation", thread}`: the chat's
  *    conversations, and one of them with its texts (`conversations.js`).
+ *  - `{handle, chat, view: "pages"}` → `{pages}`: the pages the chat's turns and jobs wrote (`pages.js`).
  *
  * Who may, and which chat: `page.js`, as every Tex page route; a group's
  * ledger only for the chat's own people. Nothing here is logged but the
@@ -21,8 +22,9 @@ import { earlierFromLedger, readLedger } from "../../agent/ledgerHistory.js";
 import { renderEvents } from "../../agent/logRender.js";
 import { READ_CHARS } from "../../agent/log.js";
 import { LEDGER_KINDS } from "../../texStore/ledger.js";
-import { startOfDay } from "./page.js";
+import { handleOf, startOfDay } from "./page.js";
 import { conversationsView, conversationView } from "./conversations.js";
+import { pagesView } from "./pages.js";
 
 /** Entries one raw page answers. */
 export const RAW_PAGE = 100;
@@ -58,6 +60,8 @@ export async function ledgerView(env, page, chat, body, { now = Date.now() } = {
   // The chat's conversations, and one of them (`conversations.js`).
   if (body?.view === "conversations") return await conversationsView(ledger, place.name);
   if (body?.view === "conversation") return await conversationView(ledger, place.name, body?.thread);
+  // The pages its turns and jobs wrote (`pages.js`): a call that named no workspace wrote in the chat's own.
+  if (body?.view === "pages") return await pagesView(ledger, place.name, chat.kind === "me" ? handleOf(body?.handle) : handleOf(chat.about?.context ?? null));
   const kinds = Array.isArray(body?.kinds) ? body.kinds.filter((kind) => LEDGER_KINDS.has(kind)) : null;
   const range = dayRange(body?.day, page.timeZone);
   const before = seqOf(body?.before);

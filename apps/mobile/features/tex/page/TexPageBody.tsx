@@ -44,6 +44,8 @@ export interface ViewProps {
   machine?: string;
   /** The day and kinds the History page opens with. */
   history?: HistoryChoice;
+  /** A note opened in the app, as a page Tex made is; omitted where there is no app to open it in. */
+  openNote?: (context: string, path: string) => void;
 }
 
 /**
@@ -59,6 +61,7 @@ export function TexPageBody({
   computer,
   openComputer,
   exit,
+  openNote,
   now,
   wide: forceWide,
 }: {
@@ -74,6 +77,7 @@ export function TexPageBody({
    * otherwise has no way out inside the app (Dev2, 2026-11-06). Omitted, no link.
    */
   exit?: () => void;
+  openNote?: (context: string, path: string) => void;
   now?: () => number;
   /** Overrides the measured width (the screenshot pass, where jsdom never lays out). */
   wide?: boolean;
@@ -91,6 +95,7 @@ export function TexPageBody({
     go: (to) => go({ chat: place.chat, ...to }),
     ...(place.machine ? { machine: place.machine } : {}),
     ...(place.history ? { history: place.history } : {}),
+    ...(openNote ? { openNote } : {}),
   };
   const home = () => go({ chat: place.chat });
 

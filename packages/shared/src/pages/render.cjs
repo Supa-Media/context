@@ -21,6 +21,7 @@ const { DRAW } = require("./draw.cjs");
 const { RICH } = require("./drawRich.cjs");
 const { coverHtml } = require("./cover.cjs");
 const { drawingSvg } = require("../ink/drawing.cjs");
+const { slotKey } = require("./layout.cjs");
 
 const DRAWN = { ...DRAW, ...RICH };
 
@@ -107,7 +108,8 @@ function nodeHtml(node, ctx, boxes) {
  * before anything else, a status line, photos or a number by the page's
  * kind), then the rest of the words before the first `##`, then one section
  * per `##`. With `layout: tabs` in the front matter, the sections are tabs.
- * Returns the HTML, the boxes to fill, and the note's CSS.
+ * Returns the HTML, the boxes to fill, the note's CSS, and its layout with the parts
+ * that fill it (`layout.cjs`), or null for both.
  *
  * `images` (src → data URL) hands a cover the pictures it cannot ask the app
  * for; `me` is the reader's name, so their own vote shows as theirs.
@@ -116,7 +118,10 @@ function renderPage(page, { open = new Set(), cover = false, images = null, me =
   const ctx = { open, images, me };
   const boxes = [];
   const css = page.nodes.filter((node) => node.type === "css").map((node) => node.text);
-  const nodes = page.nodes.filter((node) => node.type !== "css");
+  const nodes = page.nodes.filter((node) => node.type !== "css" && node.type !== "layout");
+  // The page's own layout (`layout.cjs`), drawn by the runtime around the parts below; one that can't be drawn is left out, and the page reads as it would without it.
+  const layoutNode = page.nodes.find((node) => node.type === "layout");
+  const layout = layoutNode && layoutNode.problems.length === 0 ? layoutNode.html : null;
   const firstSection = nodes.findIndex((node) => node.type === "heading" && node.level === 2);
   const head = firstSection === -1 ? nodes : nodes.slice(0, firstSection);
   const body = firstSection === -1 ? [] : nodes.slice(firstSection);
@@ -145,23 +150,29 @@ function renderPage(page, { open = new Set(), cover = false, images = null, me =
       sections.push(current);
     } else current.nodes.push(node);
   }
-  const tabs = /^tabs$/i.test(page.fields.layout ?? "") && sections.length > 1;
-  const sectionHtml = sections
-    .map((section, i) => {
+  const tabs = layout === null && /^tabs$/i.test(page.fields.layout ?? "") && sections.length > 1;
+  const sectionParts = sections.map((section, i) => {
       // The words right under a section's heading are its dek, drawn under it in the heading's quieter voice.
       const [lead, ...after] = section.nodes;
       const dekOf = lead && lead.type === "paragraph" ? `<p class="pg-dek" data-edit data-node="${lead.from}">${runsHtml(lead.runs, open)}</p>` : "";
       const restOf = dekOf ? after : section.nodes;
-      return `<section class="pg-section" data-section="${i}"${tabs && i > 0 ? " hidden" : ""}><div class="pg-sec-h">${nodeHtml(section.heading, ctx, boxes)}${dekOf}</div>${restOf.map((node) => nodeHtml(node, ctx, boxes)).join("")}</section>`;
-    })
-    .join("");
+      return {
+        key: slotKey(plain(section.heading.runs)),
+        html: `<section class="pg-section" data-section="${i}"${tabs && i > 0 ? " hidden" : ""}><div class="pg-sec-h">${nodeHtml(section.heading, ctx, boxes)}${dekOf}</div>${restOf.map((node) => nodeHtml(node, ctx, boxes)).join("")}</section>`,
+      };
+    });
+  const sectionHtml = sectionParts.map((part) => part.html).join("");
   const tabBar = tabs
     ? `<nav class="pg-tabs" role="tablist">${sections.map((section, i) => `<button type="button" role="tab" data-tab="${i}" aria-selected="${i === 0}">${esc(plain(section.heading.runs))}</button>`).join("")}</nav>`
     : "";
+  const lead = rest.map((node) => nodeHtml(node, ctx, boxes)).join("");
   return {
-    html: `${top}<div class="pg-in pg-body">${rest.map((node) => nodeHtml(node, ctx, boxes)).join("")}${tabBar}${sectionHtml}</div>`,
+    html: `${top}<div class="pg-in pg-body">${lead}${tabBar}${sectionHtml}</div>`,
     boxes,
     css,
+    layout,
+    // What a layout's `data-from` slots are filled with: the cover with the words before the first `##`, and each section by its heading.
+    parts: layout === null ? null : { cover: `${top}${lead ? `<div class="pg-in pg-lead">${lead}</div>` : ""}`, sections: sectionParts },
   };
 }
 

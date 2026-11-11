@@ -15,6 +15,7 @@ import { openLive, type Live, type PatchFrame } from "./texPageLive";
 import { readLedgerPage, readLedgerSees } from "./texPageLedger";
 import { readMachinesPage } from "./texMachineRead";
 import { readConversationDetail, readConversations } from "../conversations/conversationsRead";
+import { readPages, type TexMadePage } from "../pages/pagesRead";
 import type { MachinesPage } from "./texMachineTypes";
 import type { Conversation, ConversationDetail, JobDetail, LedgerPage, LedgerQuery, LedgerSees, ListKind, ListPage, Overview, PageAction } from "./texPageTypes";
 
@@ -51,6 +52,8 @@ export interface TexPageSource {
   conversations?(chat: string): Promise<Read<Conversation[]>>;
   /** One conversation with its lines. */
   conversation?(chat: string, id: string): Promise<Read<ConversationDetail>>;
+  /** The pages the chat's turns and jobs wrote, newest first; absent where a source has none (`pages/`). */
+  pages?(chat: string): Promise<Read<TexMadePage[]>>;
   /**
    * The person's machines, as this chat sees them (`/tex/page/machines`). A
    * gateway that does not know machines answers 404, read as `notYours`, and
@@ -160,6 +163,10 @@ export function gatewaySource(options: GatewaySourceOptions): TexPageSource {
     async conversation(chat, id) {
       const a = await post("ledger", { chat, view: "conversation", thread: id });
       return a === null ? { kind: "failed" } : readAnswer(a.status, a.body, readConversationDetail);
+    },
+    async pages(chat) {
+      const a = await post("ledger", { chat, view: "pages" });
+      return a === null ? { kind: "failed" } : readAnswer(a.status, a.body, readPages);
     },
     live(chat, onPatch, onLive) {
       if (origin === null || typeof WebSocket === "undefined") return null;

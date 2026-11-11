@@ -20,6 +20,9 @@
  *  7. **Explore's filters still narrow the table.**
  *  8. **Somebody who is not staff sees "Staff only"**, and nothing is asked
  *     for.
+ *  9. **The basics** show people, texts, cost and notes for their own window,
+ *     and the window picked (24 hours, 7 days, a custom range) reaches the
+ *     action as exact times.
  *
  * Every value here is obviously fake. This repository is public.
  *
@@ -30,6 +33,7 @@
  *   `texReport` asked without the staff check ("skip" removed)      1
  *   `painRowsOf` sorting shipped problems first                     2
  *   `NoteReader` sending "triage" for Retire                        1
+ *   (2026-11-10) `windowOf` ignoring the custom days                1
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -391,5 +395,47 @@ describe("tex.lc/admin", () => {
     expect(find("tex-dashboard-staff-only")?.textContent).toContain("Staff only");
     expect(mockArgs.get(TEX)).toBe("skip");
     expect(mockArgs.get(TRIAGE)).toBe("skip");
+  });
+
+  test("the basics show their own window's figures, and the window reaches the action as exact times", async () => {
+    const STATS = "functions/texStats:report";
+    mockAnswers.set(STATS, {
+      configured: true,
+      from: NOW - 86_400_000,
+      to: NOW,
+      bucket: "hour",
+      errors: { texts: null, notes: null, cost: null },
+      people: { one: 3, group: 2, any: 4 },
+      dailyActive: 4,
+      texts: { inOne: 30, inGroup: 10, heardGroup: 90, outOne: 41, outGroup: 9 },
+      notes: { created: 6, edited: 12, saves: 40 },
+      cost: { totalUsd: 2, testsUsd: 0 },
+      costPerTextUsd: 0.05,
+      series: [{ at: NOW - 3_600_000, people: 4, textsIn: 40, textsOut: 50, usd: 2, notesCreated: 6, notesEdited: 12 }],
+    });
+    asStaff();
+    await settle();
+    expect(mockArgs.get(STATS)).toEqual({ from: NOW - 86_400_000, to: NOW });
+    expect(find("tex-dashboard-basics-received")?.textContent).toContain("40");
+    expect(find("tex-dashboard-basics-sent")?.textContent).toContain("50");
+    expect(find("tex-dashboard-basics-per-text")?.textContent).toContain("$0.05");
+    expect(find("tex-dashboard-basics-cost")?.textContent).toContain("$2.00");
+    expect(find("tex-dashboard-basics-created")?.textContent).toContain("6");
+    expect(find("tex-dashboard-basics-edited")?.textContent).toContain("12");
+    expect(find("tex-dashboard-basics-dau")?.textContent).toContain("4 people in all");
+    pick("tex-dashboard-basics-window", "7d");
+    await settle();
+    expect(mockArgs.get(STATS)).toEqual({ from: NOW - 7 * 86_400_000, to: NOW });
+    pick("tex-dashboard-basics-window", "custom");
+    const start = find("tex-dashboard-basics-from") as HTMLInputElement;
+    act(() => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      set.call(start, "2026-10-20");
+      start.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await settle();
+    const asked = mockArgs.get(STATS) as { from: number; to: number };
+    expect(asked.from).toBe(new Date(2026, 9, 20).getTime());
+    expect(asked.to).toBe(NOW);
   });
 });

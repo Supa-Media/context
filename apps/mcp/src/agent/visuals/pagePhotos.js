@@ -57,13 +57,30 @@ import { huntPicture, within } from "./hunt.js";
  */
 export const PICTURED_KINDS = new Set(["places", "vote", "prices", "itinerary", "choose"]);
 /**
+ * Blocks whose rows show a photo once they have one, hunted after the
+ * options above (owner, 2026-11-10, on a page of new churches and their
+ * pastors: "no photos of church logos, no photos of the lead pastors, no
+ * buildings, WE NEED TO MAKE VISUAL PAGES"). A person's photo is searched by
+ * their name with their role ("Rev. David Lee Senior Pastor, Redeemer
+ * Brooklyn"), so the search finds that person and not another of the name; a
+ * timeline row only when it names something (two capitalised words, or a
+ * `source:`), so "Book the venue" is never searched.
+ */
+export const ROW_KINDS = new Set(["people", "timeline", "contacts"]);
+
+/** Whether a row's words name a thing: two capitalised words in a row ("Harlem Community Church", "Redeemer Brooklyn"). */
+const NAMES_A_THING = /\b[A-Z][\w'’.-]+\s+(?:(?:of|the|and|&)\s+)?[A-Z][\w'’.-]+/;
+
+const hasSource = (item) => (item.fields ?? []).some((field) => ["source", "sources", "link", "url", "site"].includes(field.key));
+
+/**
  * Photos hunted for each place, for its carousel (owner, 2026-10-28: "show
  * more images of the different options"). Every option gets its first
  * picture before any gets a second, within the write's ten.
  */
 export const PHOTOS_PER_PLACE = 3;
 /** The most options hunted for one page write. */
-export const MAX_PAGE_HUNTS = 8;
+export const MAX_PAGE_HUNTS = 10;
 /**
  * How long the hunt may take, all options side by side. Under the note
  * write's own limit (`turn.js`), so a slow site never makes a saved page
@@ -107,7 +124,21 @@ function fileName(name, n, type) {
  */
 export function unpictured(content) {
   const wanted = [];
+  const rows = [];
   for (const block of blocksIn(parsePage(content).nodes)) {
+    if (ROW_KINDS.has(block.kind)) {
+      for (const item of block.items ?? []) {
+        if (hasPhoto(item)) continue;
+        const first = item.parts?.[0]?.text?.trim() ?? "";
+        const name = block.kind === "timeline" ? first.split(/\s[|·•]\s|[;(]/)[0].trim() : item.label?.text?.trim() || first;
+        if (name.length < 2 || !(NAMES_A_THING.test(name) || hasSource(item))) continue;
+        const lineStart = content.lastIndexOf("\n", item.from - 1) + 1;
+        const indent = /^[ \t]*/.exec(content.slice(lineStart))[0];
+        const query = block.kind === "timeline" ? name : `${name} ${first}`.slice(0, 100);
+        rows.push({ name, query, at: item.to, indent, want: 1 });
+      }
+      continue;
+    }
     if (!PICTURED_KINDS.has(block.kind)) continue;
     for (const item of block.items ?? []) {
       const name = nameOf(block.kind, item);
@@ -119,7 +150,8 @@ export function unpictured(content) {
       wanted.push({ name, query: where ? `${name} ${where.slice(0, 60)}` : name, at: item.to, indent, want: block.kind === "places" ? PHOTOS_PER_PLACE : 1 });
     }
   }
-  return wanted;
+  // Options first, so a page's places never lose their photos to its people.
+  return [...wanted, ...rows];
 }
 
 /**

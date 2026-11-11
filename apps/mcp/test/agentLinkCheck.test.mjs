@@ -64,7 +64,8 @@ test("links elsewhere, and a deployment with no origin, are not checked", () => 
 test("claimCheck sends the shortened link back, once", async () => {
   const claims = claimCheck({ question: "write up the last 7 days as a page", origin: ORIGIN });
   const call = claims.wrap(async () => written(PAGE, GIVEN));
-  await call("write_note", { path: PAGE, content: "# Last 7 days" });
+  // A page with its drawing, so the bare-page check (`pageCoverFloor.js`) has nothing to say first.
+  await call("write_note", { path: PAGE, content: "---\ndrawing: d.png\n---\n\n# Last 7 days" });
   const answer = `It's saved as a page.\n\nLink: ${SHORTENED}`;
   const notice = await claims.check(answer);
   assert.match(String(notice), /no tool gave you that link/);

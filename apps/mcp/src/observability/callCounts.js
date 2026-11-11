@@ -10,6 +10,10 @@
  *   the door, `socket` for an upgrade, `tex` for a person's Tex), indexed by the object's own id, the one Cloudflare's
  *   Durable Object analytics name.
  *
+ * - A workspace object writes `note` for every note whose text it saved: `created` for a new note, `edited` for a
+ *   changed one (a save of the same bytes is not counted), and the note's id (`notes/<id>.md`, never its name or
+ *   path), so the staff dashboard counts notes created and edited (tex.lc/admin, `apps/convex/.../texStats.ts`).
+ *
  * - The door writes `door` for every control-plane call it lets through: the op and the caller's own fixed label
  *   (`x-door-caller`: `file:<operation>`, `tree`, `facts`, or the calling module's name), indexed by workspace.
  *
@@ -134,5 +138,24 @@ export function countDoorCall(env, workspaceId, op, caller) {
     });
   } catch {
     // Counting never fails a call.
+  }
+}
+
+const NOTE_KEY = /^notes\/([A-Za-z0-9-]{1,128})\.md$/;
+
+/** A workspace object's point for one note saved: created or edited, by the note's id alone. A non-note key is skipped. */
+export function countNoteWrite(env, objectId, key, { created, changed }) {
+  try {
+    const dataset = env?.CALL_COUNTS;
+    if (!dataset || typeof dataset.writeDataPoint !== "function") return;
+    const note = typeof key === "string" ? NOTE_KEY.exec(key) : null;
+    if (note === null || changed !== true) return;
+    dataset.writeDataPoint({
+      indexes: [typeof objectId === "string" ? objectId.slice(0, 96) : "unknown"],
+      blobs: ["note", created === true ? "created" : "edited", note[1]],
+      doubles: [1],
+    });
+  } catch {
+    // Counting never fails a write.
   }
 }
