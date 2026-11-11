@@ -109,6 +109,8 @@ export function isTransportPath(path) {
     path === "/files/move" ||
     path === "/files/copy" ||
     path === "/files/duplicate" ||
+    // The app opening a note (`live/noteReadRoute.js`): it answers a note's words.
+    path === "/files/read" ||
     // Authenticated and read by the console from a browser. It changes
     // nothing, but it names notes, so a page on another origin must not be
     // able to ask it with somebody else's token.

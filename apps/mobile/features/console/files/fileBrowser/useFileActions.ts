@@ -19,6 +19,7 @@ import { objectServes } from "./objectServes";
 import { useConsoleGrant } from "../../../agent/useConsoleGrant";
 import { MCP_ENDPOINT } from "../../placeholderData";
 import { appSearchUrl, searchThroughGateway } from "../../search/gatewaySearch";
+import { noteReadUrl, readNoteThroughGateway } from "../gatewayNoteRead";
 
 type FileActionsDeps = { options: FileBrowserOptions; folderIcons: FolderIconsValues };
 
@@ -58,14 +59,36 @@ export function useFileActions(deps: FileActionsDeps) {
     },
     [listFilesAction],
   );
-  const readNote = useAction(api.functions.files.readNote);
+  const readNoteAction = useAction(api.functions.files.readNote);
   const readNotesAction = useAction(api.functions.files.readNotes);
   const searchContextAction = useAction(api.functions.files.searchContext);
+  const mintGrant = useConsoleGrant();
+  /*
+    A note is opened by the gateway, read in its workspace's object by the one copy of the editing-history engine
+    (`gatewayNoteRead.ts`, Dev2 2026-11-11). The control plane's `readNote` answers only what the gateway hands back
+    to it: a workspace not on its object yet, a picture, a Tex note, an old address to follow.
+  */
+  // Read through a ref, so `readNote` keeps one identity: effects that list it (`useOfflineQueue`) must not re-run
+  // because a grant minter or a name was rebuilt.
+  const noteReading = useRef({ readNoteAction, mintGrant, slug, workspaceId });
+  noteReading.current = { readNoteAction, mintGrant, slug, workspaceId };
+  const readNote = useCallback<typeof readNoteAction>(async (args) => {
+    const now = noteReading.current;
+    const url = typeof globalThis.fetch === "function" ? noteReadUrl(MCP_ENDPOINT, args.workspaceId === now.workspaceId ? now.slug : null) : null;
+    if (url !== null) {
+      const answer = await readNoteThroughGateway({
+        url,
+        token: async (refresh) => (await now.mintGrant({ workspaceId: args.workspaceId }, refresh)).accessToken,
+        path: args.path,
+      });
+      if (answer !== null) return answer as Awaited<ReturnType<typeof readNoteAction>>;
+    }
+    return await now.readNoteAction(args);
+  }, []);
   /*
     The bar asks the gateway first, the same search an AI client runs (`search/gatewaySearch.ts`), and the
     control plane's `searchContext` only when no answer came back from it (the search revamp, 2026-11-04).
   */
-  const mintGrant = useConsoleGrant();
   const searchContext = useCallback<typeof searchContextAction>(
     async (args) => {
       const url = appSearchUrl(MCP_ENDPOINT);

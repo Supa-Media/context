@@ -291,15 +291,16 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
 
   /**
    * A note's Markdown and its editing history's text in one call (`workspaceStore/collabRead.js`), for `read_note` in
-   * an object-home workspace the object holds whole: `{markdown, collaboration|error, took}`. `null` when the object
+   * an object-home workspace the object holds whole: `{markdown, collaboration|error, took}`. `start` starts the
+   * note's editing history if nothing has yet (the app's open, `live/noteReadRoute.js`). `null` when the object
    * did not serve it, and the caller reads the Markdown and the history through this store, as before.
    */
   if (typeof client.collab?.read === "function") {
-    wrapped.readInObject = async ({ path, key, noteId }) => {
+    wrapped.readInObject = async ({ path, key, noteId, start = false }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
       // Only a workspace note's own key: a Tex note's (`tex/…`) lives in Tex's store, so asking would be a wasted trip.
       if (typeof key !== "string" || !OBJECT_NOTE_KEY.test(key)) return null;
-      const answer = await client.collab.read({ path, key, noteId });
+      const answer = await client.collab.read({ path, key, noteId, ...(start === true ? { start: true } : {}) });
       await copyHandedBack(answer);
       const markdown = answer?.markdown;
       if (answer?.served === true && typeof markdown?.etag === "string" && typeof markdown.text === "string") return answer;

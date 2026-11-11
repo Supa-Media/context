@@ -79,6 +79,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note that turns shared under the person typing keeps taking typing
 - A closed shared note's unsent typing is sent without opening it
 - A save keeps one current copy of its history, and a version when the person goes idle
+- The app opens a note through the gateway, read by the object's one engine
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 

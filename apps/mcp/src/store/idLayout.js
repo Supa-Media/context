@@ -393,11 +393,11 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     // The keyed note at `path`, its Markdown and its editing history's text in one call to the workspace object
     // (`workspaceRouting.js` `readInObject`), from this read's one lookup; `null` where that is not how it is read.
     if (typeof store.readInObject === "function") {
-      define("readInObject", async (path) => {
+      define("readInObject", async (path, { start = false } = {}) => {
         if (!mirroredPath(path)) return null;
         const { entry } = await resolveWith(ask, path);
         if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
-        return await store.readInObject({ path, key: entry.key, noteId: entry.noteId });
+        return await store.readInObject({ path, key: entry.key, noteId: entry.noteId, ...(start === true ? { start: true } : {}) });
       });
     }
     // A read that hands its view on (`read_notes` to `read_note`) keeps the one it has.

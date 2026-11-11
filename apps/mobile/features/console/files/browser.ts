@@ -17,4 +17,4 @@
 export type { FileBrowser } from "./browser/contract";
 export { loadedFolders } from "./browser/contract";
 export type { SearchAnswer, MoveDestination, ContextMoveProgress, TrashedNote } from "./browser/supportingTypes";
-export { toFileError, isServerRefusal } from "./browser/errors";
+export { toFileError, isServerRefusal, refusesOpen } from "./browser/errors";

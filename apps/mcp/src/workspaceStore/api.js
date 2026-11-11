@@ -119,8 +119,9 @@ export function workspaceStub(env, workspaceId) {
  * - `mail.since({path, name, readThrough, scope, groups, audience})` → `{served, found, path, fresh}` and
  *   `mail.wait({path, from, to, since, timeoutMs, scope, groups, audience})` → `{served, found, answers}`: a note's mail,
  *   read in the object (`workspaceStore/mailOps.js`)
- * - `collab.read({path, key, noteId})` → `{served: true, markdown, collaboration|error, writes, deletes}` or
- *   `{served: false}`: a note's Markdown and its editing history's text, for a read (`collabRead.js`)
+ * - `collab.read({path, key, noteId, start?})` → `{served: true, markdown, collaboration|error, writes, deletes}` or
+ *   `{served: false}`: a note's Markdown and its editing history's text, for a read (`collabRead.js`); `start: true`
+ *   starts the history of a note nothing has edited together yet
  * - `open(userId)` → `{home, backfilledAt, encryption, accessHome, member, rules, binding: {sealed, at}|null, epoch}`:
  *   what a request's store is built from, in one call; `open(userId, {setupRead: true})`, Tex's setup read: the member
  *   rules narrowed to the setup's folders (`setupRules.js`) and the binding, `setupRead: true` when it could answer;
