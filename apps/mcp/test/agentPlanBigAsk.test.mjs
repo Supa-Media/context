@@ -33,7 +33,7 @@ import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
-import { MAX_RUNNING_JOBS, backgroundSession, withBackground } from "../src/agent/background.js";
+import { MAX_RUNNING_JOBS, QUIET_ACK, backgroundSession, withBackground } from "../src/agent/background.js";
 import { PLAN_DEFINITION, PLAN_TOOL, holdsNotes, parsePlan, planCall, planFolder, readPlanSetting, splitFirst } from "../src/agent/planBigAsk.js";
 import { parseSetup } from "../src/agent/production.js";
 
@@ -99,7 +99,7 @@ const planner = (background, answer, extra = {}) => {
   return fake;
 };
 
-test("two starts in one round both start, and the turn texts one line naming both", async () => {
+test("two starts in one round both start, and the turn texts nothing", async () => {
   const ai = scripted([
     chat("", [
       ["send", { action: "background", args: { title: "Find flights", brief: "Flights.", mail: { path: "1-projects/lisbon/overview.md", name: "flights" } } }],
@@ -119,7 +119,7 @@ test("two starts in one round both start, and the turn texts one line naming bot
   });
   assert.deepEqual(background.started.map((job) => job.title), ["Find flights", "Find a flat"]);
   assert.equal(ai.calls.length, 1, "no model round after the starts");
-  assert.match(result.answer, /^On it, in 2 parts at once: Find flights; Find a flat\./);
+  assert.equal(result.answer, QUIET_ACK, "both start, and nothing is texted (Dev2, 2026-11-11)");
   assert.equal(result.settled, "start_background_job");
 });
 
@@ -174,7 +174,7 @@ test("a big ask is planned, its notes written, and one job per part started on t
   assert.deepEqual(background.started.map((job) => job.mail.name), ["flights", "stay", "days"]);
   assert.match(background.started[0].brief, /Your task note: 1-projects\/lisbon-trip\/flights\.md/);
   assert.match(fake.asked[0].messages[0].text, /Free job slots now: 3 \(3 in the cloud\)\./);
-  assert.match(background.endsTurn(PLAN_TOOL), /^On it, in 3 parts at once: Find flights; Find a flat; Plan the days\./);
+  assert.equal(background.endsTurn(PLAN_TOOL), QUIET_ACK);
   const again = await call(PLAN_TOOL, { ask: "again", folder: "1-projects/other" });
   assert.equal(again.isError, true, "one plan a turn");
 });

@@ -140,8 +140,8 @@ all three answered "it's running again" eight times before they stopped.
 - **Restart resumes, never copies.** `send { action: "restart_job" }`
   (`restart_background_job`, `background.js`) picks every stopped job back up
   in one call, or the ones named, within the three-at-once limit, and the turn
-  ends at once with a fixed line. A new job named like one that stopped picks
-  that one up instead. The Worker sends `resume` to the job's object
+  ends at once, texting nothing. A new job named like one that stopped is a
+  new job with its own brief (2026-11-11, below). The Worker sends `resume` to the job's object
   (`resumeJobs`, `resumeJob`), which starts a new workflow for it; its limit
   starts again, and its first part starts on its last answer and the advice.
   One it can't pick up (finished, older than two hours, no room) is said so.
@@ -438,3 +438,37 @@ Dev2 chose this on the 2026-11-05 bug hunt. A part refused at the daily limit sa
 - **The words promise only that:** "I'll pick it back up by myself as soon as the limit resets, and tell you when it's done." A pause for no model keeps its two hours and waits to be asked.
 
 What a simplification would cost: keeping the two-hour window breaks the promise every time; resuming from the job's own object skips the chat's slot count. Tests: `apps/agent/src/jobPause.test.ts`.
+
+## A job's start texts nothing, and a new brief is always a new job (decided by Dev2, 2026-11-11)
+
+In the Tex Devs group on 2026-11-11 Tex texted 'On it: picking "Summarize
+post, research Tex improvements" back up.' three times in 70 seconds. The job
+had started on a computer without the link to the post, which came as a
+second text; it ended stuck. Each report turn started a new job, with the link
+in its brief and a new title ("… (retry with link)"), but `start_background_job`
+matched any title sharing 60% of its words with a stopped job and picked that
+job back up instead, dropping the new brief. The old job ran again without the
+link, stuck again, reported, and each restart texted "On it". A fourth title
+different enough finally started a fresh job, which finished in 2.5 minutes.
+Dev2 then asked why Tex reports what it is doing at all: "No one actually
+cares". Dev2 chose "Silent starts + loop fix":
+
+- **A start is always a new job.** `start_background_job` starts what it is
+  given, even named like a job that stopped (`background.js` `call`); a job
+  still running is still refused as already running. Picking a stopped job up
+  as it was is `restart_job`'s alone.
+- **A start or restart texts nothing.** The turn ends with `QUIET_ACK`, kept in
+  the chat as `QUIET_ACK_LINE`; the text that asked gets a tapback instead
+  (`react: ""`, the Worker's own pick from their words, `ackEmoji.ts`), and a
+  job's report turn, which has no text of theirs, sends nothing. They hear the
+  job's result and nothing before it. The `quiet` argument is gone: it always
+  is. A group turn that texts nothing still starts and resumes its jobs
+  (`groupModelTurn.ts` `handOff`), where before a quiet answer returned first.
+
+What a simplification would cost: matching a new start to a stopped job again
+drops the brief that would unstick it and loops; an "On it" text comes back
+beside every start. Tests: `apps/mcp/test/agentJobRestart.test.mjs` ("a new job
+named like one that stopped is a new job, with its own brief", "a start or
+restart texts nothing, ever"), `apps/mcp/bench/test/world.test.mjs` (the
+tapback), `apps/agent/src/groupJobs.test.ts` ("a job's start texts nothing: the
+ask gets a tapback and the job still runs").
