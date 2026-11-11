@@ -11,6 +11,7 @@
  *  5. `groupModelTurn` back to ending a refused report as a routine (2026-11-08) → "a report the chat's turn was refused for is tried again on a fresh grant".
  *  6. `turnFailed` back to `routineDone` for a report → "and refused on every try, the chat still hears there is news".
  *  7. `groupModelTurn` ending a capped report as a routine → "and out of today's turns, it is not tried again but still not silent".
+ *  8. `groupModelTurn` returning on a quiet answer before `handOff` (2026-11-11) → "a job's start texts nothing: the ask gets a tapback and the job still runs".
  */
 
 import { describe, expect, it } from "vitest";
@@ -40,7 +41,7 @@ const tagged: GroupMessage = {
   text: "Tex, research our competitors and write it up",
 };
 
-type World = { sends: { content: string; reply_to?: unknown }[]; asks: Record<string, unknown>[]; members: string[][] };
+type World = { sends: { content: string; reply_to?: unknown }[]; asks: Record<string, unknown>[]; members: string[][]; reactions?: Record<string, unknown>[] };
 
 function deps(world: World, agent: unknown, ready: Record<string, unknown> = {}): GroupDeps & { spawned: Array<[string, JobRun]> } {
   let read = 0;
@@ -56,7 +57,7 @@ function deps(world: World, agent: unknown, ready: Record<string, unknown> = {})
       world.sends.push(body);
       return Response.json({ message_handle: `h_out_${world.sends.length}` });
     }
-    if (path === "/api/send-reaction") return Response.json({});
+    if (path === "/api/send-reaction") return world.reactions?.push(body), Response.json({});
     if (path === "/agent-texts/group") {
       return Response.json({ status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "cat_group", ...ready });
     }
@@ -100,6 +101,20 @@ describe("background jobs in a group chat", () => {
     expect(world.sends.map((send) => send.content)).toEqual(["On it, I'll post it here when it's done."]);
     expect(d.spawned).toHaveLength(1);
     expect(d.spawned[0][1]).toMatchObject({ inbox: `sendblue-group:${GROUP}`, tainted: true, origin: { kind: "group", message: { messageId: "h_ask" } } });
+    expect((await chatJobs(storage, NOW))[0]).toMatchObject({ title: "Competitor research", state: "running" });
+  });
+
+  it("a job's start texts nothing: the ask gets a tapback and the job still runs", async () => {
+    // Dev2, 2026-11-11: "why does tex report back to us what its doing? No one actually cares". The gateway answers a
+    // start with nothing to text and a tapback (`apps/mcp/src/agent/texEntryPoint/sendTheReply.js`).
+    const storage = new MemoryStorage();
+    const world: World = { sends: [], asks: [], members: [[ADA, BO]], reactions: [] };
+    const d = deps(world, { answer: "", quiet: true, react: "", jobs: [{ title: "Competitor research", brief: "Five." }] });
+    expect(await acceptGroup(storage, tagged, NOW)).toBe("queued");
+    await drainGroup(storage, d);
+    expect(world.sends).toEqual([]);
+    expect(world.reactions).toHaveLength(1);
+    expect(d.spawned).toHaveLength(1);
     expect((await chatJobs(storage, NOW))[0]).toMatchObject({ title: "Competitor research", state: "running" });
   });
 
