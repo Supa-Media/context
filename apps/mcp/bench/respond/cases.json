@@ -46,7 +46,7 @@
     { "id": "o-never-mind", "chat": "one", "lines": ["You: Want me to email Dana the draft? 👍 or 👎"], "text": "nah never mind, i'll call her", "want": "reply" },
     { "id": "g-at-tex-mid", "chat": "group", "lines": ["@ben: need the march invoice for taxes"], "text": "@ben: could @Tex find the invoice from march", "want": "reply", "must": true },
     { "id": "g-at-tex-start", "chat": "group", "lines": [], "text": "@maya: @Tex what's on the calendar tomorrow", "want": "reply", "must": true },
-    { "id": "g-at-tex-bidi", "chat": "group", "lines": [], "text": "@priya: @⁨Tex⁩ summarize the doc Dev sent", "want": "reply", "must": true },
+    { "id": "g-at-tex-bidi", "chat": "group", "lines": [], "text": "@priya: @\u2068Tex\u2069 summarize the doc Dev sent", "want": "reply", "must": true },
     { "id": "g-native-mention", "chat": "group", "lines": ["@dev: the pricing doc is up"], "text": "@priya: Tex can you summarize the pricing doc", "want": "reply", "must": true },
     { "id": "g-native-mention-mid", "chat": "group", "lines": ["@ben: we keep going back and forth on this"], "text": "@dev: ok Tex what did we decide about pricing", "want": "reply", "must": true },
     { "id": "g-closing-name", "chat": "group", "lines": [], "text": "@ben: what's the wifi password at the office tex", "want": "reply", "must": true },

@@ -50,7 +50,7 @@ describe("the one judge in a group", () => {
       expect(await acceptGroup(storage, w.message(text), 0), text).toBe("ignored");
     }
     expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
-    for (const text of ["@Tex what's 2+2", "can Tex check the weather", "@⁨Tex⁩ summarize this", "what time is it tex"]) {
+    for (const text of ["@Tex what's 2+2", "can Tex check the weather", "@\u2068Tex\u2069 summarize this", "what time is it tex"]) {
       expect(await acceptGroup(storage, w.message(text), 0), text).toBe("queued");
     }
     await drainGroup(storage, w.deps);

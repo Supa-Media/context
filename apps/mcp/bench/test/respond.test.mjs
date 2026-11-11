@@ -28,7 +28,7 @@ test("the @Tex set covers every way Tex is called on, and each must be answered"
   const has = (pattern) => must.some((item) => pattern.test(item.text));
   assert.ok(has(/: .+@Tex/), "an @Tex mid-message");
   assert.ok(has(/: @Tex/), "an @Tex opening it");
-  assert.ok(has(/@⁨Tex⁩/), "an iMessage mention wrapped in bidi marks");
+  assert.ok(has(/@\u2068Tex\u2069/), "an iMessage mention wrapped in bidi marks");
   assert.ok(has(/: Tex [a-z]/), "a native mention, the bare name");
   assert.ok(has(/: Tex,/), "Tex, then the ask");
   assert.ok(has(/ tex\??$/i), "Tex's name closing it");
