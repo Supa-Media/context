@@ -500,6 +500,7 @@ test/texArchitecture.test.mjs
 test/capabilities.test.mjs
 test/typedCall.test.mjs
 test/conversationThreads.test.mjs
+test/groupTime.test.mjs
 test/agentThreadsTurn.test.mjs
 test/agentRespond.test.mjs
 test/threadsBackfill.test.mjs

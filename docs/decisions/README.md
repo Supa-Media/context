@@ -813,6 +813,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A decision model judges each texted reply before it goes (2026-11-04)](./texting-assistant/reply-judge.md)
 - [One Haiku reviewer in place of the reply gates (2026-11-06)](./texting-assistant/reply-judge.md#one-haiku-reviewer-in-place-of-the-gates-dev2-2026-11-06)
 - [Conversation threads: a chat shown by subject, not as one long scroll (2026-11-07)](./texting-assistant/conversation-threads.md)
+- [Group time awareness: ages in code, old moments offered with how they landed, Tex chooses (2026-11-11)](./texting-assistant/group-time-awareness.md)
 - [A person's Tex folder and a group chat's home use the same names (2026-11-01)](./texting-assistant/tex-folders.md)
 - [The advisor's asks, the Mail checker's verdicts and jobs go in the chat's ledger (2026-11-02)](./texting-assistant/ledger-asks.md)
 - [A guest in a group chat opens a shared note with a texted code, and the code makes an account (2026-10-27, 2026-10-31)](./texting-assistant/guest-phone-pass.md)
