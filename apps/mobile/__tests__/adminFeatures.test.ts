@@ -63,10 +63,14 @@ test("each flag shows its words, expiry and testers, and its controls send its i
   mockListed = LISTED;
   act(() => root.render(createElement(FeaturesSection)));
   expect(container.textContent).toContain("Sample feature");
-  expect(container.textContent).toContain("Expires in 7 days (2026-11-15)");
+  expect(container.textContent).toContain("Expires Nov 15, 2026, in 7 days");
   expect(container.textContent).toContain("@ada");
   await click("admin-flag-tex.sample-everyone");
-  await click("admin-flag-tex.sample-add-group-Dogfood");
+  // The field opens only on "+ Add", and offers the groups the flag does not have yet.
+  expect(container.querySelector('[data-testid="admin-flag-tex.sample-list-field"]')).toBeNull();
+  await click("admin-flag-tex.sample-list-open");
+  expect(container.querySelector('[data-testid="admin-flag-tex.sample-list-field"]')).not.toBeNull();
+  await click("admin-flag-tex.sample-list-pick-Dogfood");
   await click("admin-flag-tex.sample-list-remove-@ada");
   await click("admin-flag-retired-tex.gone-clear");
   expect(mockSent).toEqual([
@@ -84,6 +88,22 @@ test("with no flags in code, the tab says where one is added", () => {
   expect(container.textContent).toContain("Dogfood");
 });
 
+test("with no groups, the groups section is one line, and its field opens only on + New group", async () => {
+  mockListed = { ...LISTED, groups: [] };
+  act(() => root.render(createElement(FeaturesSection)));
+  expect(container.querySelector('[data-testid="admin-groups-empty"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="admin-group-create-field"]')).toBeNull();
+  await click("admin-group-create-open");
+  expect(container.querySelector('[data-testid="admin-group-create-field"]')).not.toBeNull();
+});
+
+test("on for everyone, the testers are counted and kept rather than listed", () => {
+  mockListed = { ...LISTED, flags: [{ ...LISTED.flags[0], mode: "everyone" }] };
+  act(() => root.render(createElement(FeaturesSection)));
+  expect(container.textContent).toContain("On for everyone. Its testers, 1 person, are kept for if you switch back.");
+  expect(container.querySelector('[data-testid="admin-flag-tex.sample-list"]')).toBeNull();
+});
+
 test("while the list loads nothing is clickable", () => {
   mockListed = undefined;
   act(() => root.render(createElement(FeaturesSection)));
@@ -91,8 +111,8 @@ test("while the list loads nothing is clickable", () => {
 });
 
 test("the expiry line counts down, then says what to do", () => {
-  expect(expiryLine(2, "2026-11-10")).toBe("Expires in 2 days (2026-11-10)");
-  expect(expiryLine(1, "2026-11-09")).toBe("Expires tomorrow (2026-11-09)");
-  expect(expiryLine(0, "2026-11-08")).toBe("Expires today (2026-11-08)");
-  expect(expiryLine(-3, "2026-11-05")).toBe("Expired 3 days ago (2026-11-05): launch it or remove it");
+  expect(expiryLine(2, "2026-11-10")).toBe("Expires Nov 10, 2026, in 2 days");
+  expect(expiryLine(1, "2026-11-09")).toBe("Expires tomorrow, Nov 9, 2026");
+  expect(expiryLine(0, "2026-11-08")).toBe("Expires today, Nov 8, 2026");
+  expect(expiryLine(-3, "2026-11-05")).toBe("Expired 3 days ago, Nov 5, 2026: launch it or remove it");
 });
