@@ -124,3 +124,19 @@ export function isServerRefusal(error: unknown): boolean {
   if (payload === null) return false;
   return !(typeof payload.code === "string" && OVERRIDABLE_STORAGE_CODES.has(payload.code));
 }
+
+/**
+ * Whether an open's failure closes the note: a refusal (`isServerRefusal`) that is about the note or the reader, not
+ * a read the server could not finish just now.
+ *
+ * `STORAGE_UNSAFE` on a read is raised only after this reader has passed the note's access check (the control
+ * plane's `fileOps/reading.ts`, and the gateway's `/files/read` answering 503 `unavailable`): the editing history
+ * could not give its text at that moment, typically because a save was landing. Closing the editor for it blanked a
+ * note the person was typing in (Dev2, 2026-11-11). So an open keeps what it shows and says so, and a copy from the
+ * device may stand in, as for a bucket that could not be reached. Every other refusal still closes, unknown codes
+ * included.
+ */
+export function refusesOpen(error: unknown): boolean {
+  if (!isServerRefusal(error)) return false;
+  return serverPayload(error)?.code !== "STORAGE_UNSAFE";
+}

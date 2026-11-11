@@ -328,6 +328,42 @@ describe("online, the mirror answers first when the bucket is slow", () => {
     // Still based on the version the copy was, so a save is checked against it.
     expect(browser.editor.etag).toBe("o1");
   });
+
+  /*
+    Dev2, 2026-11-11: typing in a note, "This note cannot be opened safely for collaborative editing right now"
+    appeared and the note went blank. The read answered STORAGE_UNSAFE while a save of the typing was landing, and the
+    open closed the editor for it as for a refusal. It is raised only after the reader passed the note's access check,
+    so the copy and the typing stay, with the reason said. Sabotage: `refusesOpen` answering `isServerRefusal` fails
+    this case (the editor closes).
+  */
+  test("a read that could not finish keeps the copy the person is typing in", async () => {
+    await settle();
+    await syncNow();
+    const read = slowRead();
+    browser.select(OTHER);
+    await pastTheGlance();
+    browser.setDraft("Typed before the bucket answered.\n");
+    await settle();
+    read.refuse("STORAGE_UNSAFE");
+    await settle(30);
+    expect(browser.editor.path).toBe(OTHER);
+    expect(browser.editor.draft).toBe("Typed before the bucket answered.\n");
+    expect(browser.notFound).toBeNull();
+    expect(browser.notice).not.toBeNull();
+  });
+
+  test("a refusal about access still takes the copy away, typing or not", async () => {
+    await settle();
+    await syncNow();
+    const read = slowRead();
+    browser.select(OTHER);
+    await pastTheGlance();
+    browser.setDraft("Typed before the bucket answered.\n");
+    await settle();
+    read.refuse("FORBIDDEN");
+    await settle(30);
+    expect(browser.editor.path).toBeNull();
+  });
 });
 
 describe("on the phone, the copy answers first", () => {
@@ -422,7 +458,8 @@ describe("never losing the merge", () => {
     setOnline(true);
     await settle(30);
     browser.select(PATH);
-    await settle(30);
+    // Longer than the rest: the open asks the gateway before the control plane (`gatewayNoteRead.ts`).
+    await settle(80);
     expect(browser.editor.status).toBe("conflict");
     expect(browser.conflict?.merge?.text).toBe(MERGED);
   });

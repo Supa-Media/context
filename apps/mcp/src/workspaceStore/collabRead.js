@@ -16,13 +16,17 @@
  * there, and asks only then. The object checks that the live row at the path is still the note the gateway resolved
  * (same key and note id), so a move or trash in between answers `{served: false}`, never another note's words.
  *
+ * With `start: true` (the app opening a note to edit it, `live/noteReadRoute.js`) a note nothing has edited together
+ * yet has its editing history started here, as the engine's `readDocument` starts one, so the editor gets the
+ * document's version and edits it live from the first keystroke. Without it a read starts nothing, as `read_note` asks.
+ *
  * Served only where the object holds everything the engine may read (home `object`, backfilled). Anything else, the
  * Markdown missing here, or a saved version this object no longer keeps, answers `{served: false}` and the gateway
  * reads as before. A password-encrypted note or one collaboration does not cover is answered with its Markdown alone,
  * as the gateway would never have asked the engine for it.
  */
 
-import { CollaborationError, eligible, readDocumentIfStarted } from "@context/collaboration";
+import { CollaborationError, eligible, readDocument, readDocumentIfStarted } from "@context/collaboration";
 import { isEncryptedNote } from "../encryption/format.js";
 import { HOMES } from "./api.js";
 import { engineStore, notHeldHere } from "./collabReplace.js";
@@ -74,11 +78,13 @@ export async function serveCollabRead(store, fields) {
   const engine = engineStore(objects, { path, key, noteId });
   const handedBack = () => ({ writes: engine.writes, deletes: engine.deletes });
   try {
-    const document = await readDocumentIfStarted(engine.store, path);
+    const document = fields.start === true ? await readDocument(engine.store, path) : await readDocumentIfStarted(engine.store, path);
     // A read that finished a pending save wrote the Markdown: the answer carries what is there now.
     const current = engine.writes.some((write) => write.key === key) ? markdownAt(objects, key) : markdown;
     if (current === null) return timed({ served: false, reason: "not_held", ...handedBack() });
-    const collaboration = document === null ? null : { documentId: document.documentId, etag: document.etag, text: document.text };
+    // `whole: true` (the editor's live read, `live/collaborationRoute.js`) carries the document as the engine answers
+    // it, its snapshot included, which the editor merges from; any other read only its identity, version and text.
+    const collaboration = document === null ? null : fields.whole === true ? document : { documentId: document.documentId, etag: document.etag, text: document.text };
     return timed({ served: true, markdown: current, collaboration, ...handedBack() });
   } catch (error) {
     if (notHeldHere(error)) return timed({ served: false, reason: "not_held", ...handedBack() });

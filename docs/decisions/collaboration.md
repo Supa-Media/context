@@ -409,3 +409,45 @@ a version that cannot be kept fail the save, or rebuilding a marker without wind
 fail `packages/collaboration/test/versions.mjs`; it also fails if the markers grow past 4 KB on a long history.
 Handing back or copying every intermediate write sends the document state twice:
 `apps/mcp/test/collabReplaceInObject.test.mjs` "a save hands back and copies each key once" fails.
+
+## The app opens a note through the gateway, read by the object's one engine (2026-11-11)
+
+**What happened.** Typing in a note in the app, "This note cannot be opened safely for collaborative editing right
+now" appeared and the note went blank until a refresh (Dev2, 2026-11-11). Since 2026-11-09 the apps show the device's
+copy at once and let the person type while the server's read is still out. That read went to the control plane's
+`files.readNote`, which ran its own copy of the editing-history engine against the workspace object, one storage call
+at a time over the network, while the gateway saved the person's typing into the same history with another copy. A
+read caught between two saves (or behind an update still waiting on an earlier one, `DEPENDENCY_PENDING`) gave up,
+the control plane reported every such failure as `STORAGE_UNSAFE`, and the open treated that as a refusal and closed
+the editor. Dev2 asked why the control plane is involved at all; it is not needed for a note's text once the note
+lives in its object.
+
+**Decision.** The app opens a note with the gateway's `POST /files/read` (`apps/mcp/src/live/noteReadRoute.js`). The
+gateway judges the reader with the session's own scope and names, as `/collaboration` does, and only then asks the
+object to read the note and start its history if nothing has yet (`ws.collab.read` with `start: true`), in one call
+the object runs to the end before taking another. The control plane's `readNote` answers only what the gateway hands
+back with 409 `not_object`: a workspace whose notes are not in its object yet, a file that is not a Markdown note, a
+Tex note, and a name with no note this reader may open (missing and held back alike, so the control plane can follow
+a renamed note's old address). A read the engine cannot finish is 503 `unavailable`, which the app reads as
+`STORAGE_UNSAFE`. An open no longer closes the note for `STORAGE_UNSAFE` (`refusesOpen` in the app's
+`browser/errors.ts`): it is raised only after the reader passed the note's access check, so the copy on screen and
+the person's typing stay, with the reason said, and the live editing session catches the note up. Every other
+refusal still closes it.
+
+The editor's live session goes the same way (`apps/mcp/src/live/collaborationInObject.js`): its read
+(`ws.collab.read` with `start` and `whole`), each edit (`ws.collab.commit`) and its whole-text replacement
+(`ws.collab.replace` with `onlyCurrent: false`, which keeps the console's exact-base merge) each run in the object in
+one call. Where the object does not hold the note whole, the gateway runs the engine through its store as before. A
+commit that failed on the way is run again from the gateway, which is safe because a Yjs update applied twice is the
+same document; a replacement is not, and is left to the editor's own retry.
+
+Still to move: the mirror's batch read (`files.readNotes`) and whole-note saves of notes outside the live session
+(`files.writeNote`) still go to the control plane.
+
+**What a simplification would cost.** Sending the open back to the control plane puts the second engine back beside
+the first. Closing the editor on `STORAGE_UNSAFE` blanks a note under the person's fingers again:
+`apps/mobile/__tests__/offlineMirrorConsole.test.ts` "a read that could not finish keeps the copy the person is
+typing in" fails. Asking the object before the gateway's own `canSee` fails `apps/mcp/test/noteReadRoute.test.mjs`
+"the gateway judges the reader itself"; reading without `start` fails its "opens ready to edit live" case. Committing
+typing from the gateway again fails its "typing is committed inside the object"; a replacement with `onlyCurrent`
+fails "the editor's whole-text replacement keeps its merge".

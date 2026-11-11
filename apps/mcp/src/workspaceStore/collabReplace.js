@@ -25,7 +25,7 @@
  * and the gateway reports the version as before.
  */
 
-import { CollaborationError, replaceText } from "@context/collaboration";
+import { CollaborationError, commitUpdate, replaceText } from "@context/collaboration";
 import { HOMES, isRevisionKey } from "./api.js";
 import { liveRowByPath } from "./rowsByPath.js";
 import { objectRowId } from "./treeOps.js";
@@ -166,18 +166,39 @@ const wantsRecord = (fields) => typeof fields.workspaceId === "string" && Number
 
 /**
  * Serve one replacement. `store` is the object's ready store (`{rows, sql, objects}`); `fields` is
- * `{path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text, record?}`: the row's version and its old name, as the
- * id layer resolved them, and `record: {at}` to record the new version here too.
+ * `{path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text, onlyCurrent?, record?}`: the row's version and its
+ * old name, as the id layer resolved them, and `record: {at}` to record the new version here too. `onlyCurrent`
+ * defaults to true (an agent's whole-note write); the app's exact-base replacement (`/collaboration`) sends false and
+ * keeps its merge.
  */
 export async function serveCollabReplace(store, fields) {
+  const { expectedEtag, text } = fields ?? {};
+  if (typeof expectedEtag !== "string" || typeof text !== "string") return { served: false, reason: "bad_call" };
+  const onlyCurrent = fields.onlyCurrent !== false;
+  return await serveInObject(store, fields, (engine, path) => replaceText(engine, path, { expectedEtag, onlyCurrent, text }));
+}
+
+/**
+ * Serve one live edit: a Yjs update the app's editor sent (`/collaboration`), committed by the engine here, so typing
+ * and every read of the note's history run in this object one call at a time (Dev2, 2026-11-11). `fields` is
+ * `{path, key, noteId, documentId, update, record?}`.
+ */
+export async function serveCollabCommit(store, fields) {
+  const { documentId, update } = fields ?? {};
+  if (typeof documentId !== "string" || documentId === "" || typeof update !== "string" || update === "") return { served: false, reason: "bad_call" };
+  return await serveInObject(store, fields, (engine, path) => commitUpdate(engine, path, { documentId, update }));
+}
+
+/** One engine call over this object's own storage for the note `fields` names, with what it wrote handed back. */
+async function serveInObject(store, fields, run) {
   // The object's own clock, which moves only across its awaits (a digest, a read): the call's time inside, without the trip.
   const started = Date.now();
   // How long the call waited before it ran: queued behind the object's other work, and on the way here. By two
   // clocks, the gateway's and this object's, so a rough figure; a negative one is clock skew and reads as 0.
   const waited = Number.isFinite(fields?.sentAt) ? Math.max(0, Math.min(started - fields.sentAt, 600_000)) : null;
   const timed = (answer) => ({ ...answer, took: Date.now() - started, ...(waited === null ? {} : { waited }) });
-  const { path, key, noteId, expectedEtag, text } = fields ?? {};
-  if (typeof path !== "string" || typeof key !== "string" || !NOTE_KEY.test(key) || typeof noteId !== "string" || !NOTE_ID.test(noteId) || typeof expectedEtag !== "string" || typeof text !== "string") {
+  const { path, key, noteId } = fields ?? {};
+  if (typeof path !== "string" || typeof key !== "string" || !NOTE_KEY.test(key) || typeof noteId !== "string" || !NOTE_ID.test(noteId)) {
     return { served: false, reason: "bad_call" };
   }
   const { rows, sql, objects } = store;
@@ -191,7 +212,7 @@ export async function serveCollabReplace(store, fields) {
   // Only where each key ended goes back: a save writes its document state twice, and the bucket keeps the last.
   const handedBack = () => ({ writes: lastWriteEach(engine.writes), deletes: engine.deletes });
   try {
-    const result = await replaceText(engine.store, path, { expectedEtag, onlyCurrent: true, text });
+    const result = await run(engine.store, path);
     const markdown = engine.writes.filter((write) => write.key === key).at(-1) ?? null;
     const recorded = markdown !== null && wantsRecord(fields) && recordVersion(store, fields, markdown);
     return timed({ served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, sizes: sizesOf(engine.writes, key), ...handedBack() });

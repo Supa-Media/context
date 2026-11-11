@@ -59,6 +59,7 @@ import { APP_SEARCH_PATH, handleAppSearch } from "./appSearch.js";
 import { handleTexPageLive, TEX_PAGE_SOCKET_PATH } from "./texPage/live.js";
 import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
+import { handleNoteRead, NOTE_READ_PATH } from "../live/noteReadRoute.js";
 import { handleLiveTicket, LIVE_TICKET_PATH } from "../live/ticket.js";
 import { FILE_OP_PATHS, handleFileOp } from "../live/fileOpsRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
@@ -245,6 +246,8 @@ export async function route(request, env, ctx) {
     const messagesBackupRoute = isMessagesBackupPath(path);
     // The app's trash and restore, answered by the workspace's object (`live/fileOpsRoute.js`).
     const fileOpRoute = FILE_OP_PATHS.has(path);
+    // The app opening a note, read in the workspace's object (`live/noteReadRoute.js`).
+    const noteReadRoute = path === NOTE_READ_PATH;
     if (
       summaryRoute ||
       path === "/inbox" ||
@@ -257,6 +260,7 @@ export async function route(request, env, ctx) {
       path === "/agent/review" ||
       path === "/collaboration" ||
       fileOpRoute ||
+      noteReadRoute ||
       appRoute ||
       texPageRoute ||
       messagesBackupRoute ||
@@ -361,6 +365,7 @@ export async function route(request, env, ctx) {
         return handleCollaboration(request, store, session, origin);
       }
       if (fileOpRoute) return handleFileOp(request, path, store, session);
+      if (noteReadRoute) return handleNoteRead(request, store, session);
 
       // Capture is anchored to the context its grant was approved for, so the
       // inbox store is built without the opener at all rather than with one

@@ -14,7 +14,7 @@ import { trackEvent } from "../../../observability/client";
    arrive through `deps` instead of from a `useRef`, `useState` or `useReducer`
    in the same function, so the rule can no longer see they are stable. */
 import { useCallback, useRef } from "react";
-import { isServerRefusal, toFileError } from "../browser";
+import { isServerRefusal, refusesOpen, toFileError } from "../browser";
 import { guardLeaving } from "../editor";
 import { isMarkdown, parentPath } from "../paths";
 import { isHistoryView } from "../ledgerDownload";
@@ -310,11 +310,12 @@ export function useOpenNote(deps: OpenNoteDeps) {
               if (openRun.current !== mine) return;
               // The copy stays, and from here it is plainly a copy: the bucket did not answer.
               dispatch({ type: "checked", path });
-              if (!isServerRefusal(error) || (await shownTrashed(error, path, () => openRun.current === mine))) return;
-              if (openRun.current === mine) refuse(error, path);
+              // A read that could not finish keeps the copy the person may be typing in, and says so.
+              if (!refusesOpen(error)) return void (isServerRefusal(error) && openRun.current === mine && setNotice(toFileError(error).message));
+              if (!(await shownTrashed(error, path, () => openRun.current === mine)) && openRun.current === mine) refuse(error, path);
               return;
             }
-            const cached = isServerRefusal(error) ? null : await offline.cachedNote(source);
+            const cached = refusesOpen(error) ? null : await offline.cachedNote(source);
             if (cached === null) {
               // Superseded: do not put a *different* request's failure into
               // the notice line, and do not close whatever is open now on its

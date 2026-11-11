@@ -25,7 +25,7 @@ import { BINDING_OPS, BindingRowRefused, serveBindingCall } from "./bindingRows.
 import { accessCall, applyAccess } from "./serveAccess.js";
 import { isWriteOp, serveWrites } from "./serveWrites.js";
 import { serveCollabRead } from "./collabRead.js";
-import { serveCollabReplace } from "./collabReplace.js";
+import { serveCollabCommit, serveCollabReplace } from "./collabReplace.js";
 import { serveCreateNote } from "./createNote.js";
 import { withOpen } from "./sessionOpen.js";
 import { treeRows } from "./treeRows.js";
@@ -419,6 +419,9 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
       case "ws.collab.replace":
         // A whole-note save's editing history in one call (`collabReplace.js`); `{served: false}` sends it back.
         return Response.json(await serveCollabReplace(store, fields));
+      case "ws.collab.commit":
+        // A live edit from the app's editor, committed here in one call (`collabReplace.js`); `{served: false}` sends it back.
+        return Response.json(await serveCollabCommit(store, fields));
       case "ws.collab.read":
         // A note's Markdown and its editing history's text in one call (`collabRead.js`); `{served: false}` sends it back.
         return Response.json(await serveCollabRead(store, fields));

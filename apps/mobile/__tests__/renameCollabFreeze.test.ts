@@ -177,7 +177,9 @@ describe("renaming the open note it turns shared", () => {
       minted += 1;
       return { accessToken: `grant-${minted}`, expiresAt: Date.now() + 3_600_000, scopes: [] };
     });
-    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      // The open (`gatewayNoteRead.ts`): this workspace is not served by its object here, so the control plane reads it.
+      if (String(url).endsWith("/files/read")) return { ok: false, status: 409, json: async () => ({ error: "not_object" }) } as Response;
       const body = JSON.parse(String(init?.body ?? "{}")) as { path: string; update?: string; replacement?: { expectedEtag: string; text: string } };
       if (server.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, server.delayMs));
       if (body.path !== server.path) return { ok: false, status: 404, json: async () => ({ error: "not_found" }) } as Response;

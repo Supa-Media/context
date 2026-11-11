@@ -9,10 +9,9 @@ import { canSee, effectiveVisibility, isPlumbing } from "../privacy/engine.js";
 import {
   eligible as collaborationEligible,
   supported as collaborationSupported,
-  commitUpdate as commitCollaborationUpdate,
   readDocument as readCollaborationDocument,
-  replaceText as replaceCollaborationText,
 } from "@context/collaboration";
+import { commitLiveUpdate, readLiveDocument, replaceLiveText } from "./collaborationInObject.js";
 import {
   collaborationErrorResponse,
   collaborationDocumentPath,
@@ -192,7 +191,8 @@ export async function handleCollaboration(request, store, session, origin) {
   if (!isUpdate) {
     let current;
     try {
-      current = await readCollaborationDocument(store, effectivePath);
+      // Read by the engine in the note's workspace object, one call, where it holds the note (`collaborationInObject.js`).
+      current = await readLiveDocument(store, effectivePath);
     } catch {
       return json({ error: "collaboration_unavailable" }, 503);
     }
@@ -205,12 +205,13 @@ export async function handleCollaboration(request, store, session, origin) {
 
   let result;
   try {
+    // Run by the engine in the note's workspace object, one call, where it holds the note (`collaborationInObject.js`).
     result = isReplacement
-      ? await replaceCollaborationText(store, effectivePath, {
+      ? await replaceLiveText(store, effectivePath, {
           expectedEtag: body.replacement.expectedEtag,
           text: body.replacement.text,
         })
-      : await commitCollaborationUpdate(store, effectivePath, {
+      : await commitLiveUpdate(store, effectivePath, {
           documentId: body.documentId,
           update: body.update,
         });

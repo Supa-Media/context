@@ -115,12 +115,15 @@ export function workspaceStub(env, workspaceId) {
  * - `state()` → `{home, backfilledAt, encryption, rows, objects, accessVersion, members: {home, members, invites, reachPending}}`; `setHome(home)`; `setEncryption("none"|"keyed")`; `markBackfilled(at)`
  * - `members.*`, `invites.*`: who belongs to the workspace (`workspaceStore/members.js`): see `membershipClient`.
  * - `collab.replace({path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text})` → `{served: true, result|error, markdown, writes, deletes}`
- *   or `{served: false, writes?, deletes?}`: a whole-note save's editing history run in the object (`collabReplace.js`)
+ *   or `{served: false, writes?, deletes?}`: a whole-note save's editing history run in the object (`collabReplace.js`);
+ *   `onlyCurrent: false` keeps the exact-base merge the app's replacement asks for
+ * - `collab.commit({path, key, noteId, documentId, update, record?})` → the same answer: a live edit committed there
  * - `mail.since({path, name, readThrough, scope, groups, audience})` → `{served, found, path, fresh}` and
  *   `mail.wait({path, from, to, since, timeoutMs, scope, groups, audience})` → `{served, found, answers}`: a note's mail,
  *   read in the object (`workspaceStore/mailOps.js`)
- * - `collab.read({path, key, noteId})` → `{served: true, markdown, collaboration|error, writes, deletes}` or
- *   `{served: false}`: a note's Markdown and its editing history's text, for a read (`collabRead.js`)
+ * - `collab.read({path, key, noteId, start?})` → `{served: true, markdown, collaboration|error, writes, deletes}` or
+ *   `{served: false}`: a note's Markdown and its editing history's text, for a read (`collabRead.js`); `start: true`
+ *   starts the history of a note nothing has edited together yet
  * - `open(userId)` → `{home, backfilledAt, encryption, accessHome, member, rules, binding: {sealed, at}|null, epoch}`:
  *   what a request's store is built from, in one call; `open(userId, {setupRead: true})`, Tex's setup read: the member
  *   rules narrowed to the setup's folders (`setupRules.js`) and the binding, `setupRead: true` when it could answer;
@@ -179,6 +182,8 @@ export function workspaceClient(env, workspaceId) {
     // A whole-note save's editing history, run in the object (`workspaceStore/collabReplace.js`).
     collab: {
       replace: async (fields) => await ask("ws.collab.replace", fields),
+      // A live edit from the app's editor, committed in the object (`workspaceStore/collabReplace.js` `serveCollabCommit`).
+      commit: async (fields) => await ask("ws.collab.commit", fields),
       // A note's Markdown and its editing history's text, for a read (`workspaceStore/collabRead.js`).
       read: async (fields) => await ask("ws.collab.read", fields),
       create: async (fields) => await ask("ws.create", fields),

@@ -26,6 +26,7 @@
  * Built only from the Web APIs, no Node modules, as the rest of the gateway is.
  */
 
+import { commitInObjectDoor } from "./idLayoutCommit.js";
 import { isIdKey, isPlumbing } from "../privacy/engine.js";
 import { idKeyFor, newNoteId } from "./noteIdKeys.js";
 import { texKeyFor } from "./texRouting.js";
@@ -393,11 +394,11 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     // The keyed note at `path`, its Markdown and its editing history's text in one call to the workspace object
     // (`workspaceRouting.js` `readInObject`), from this read's one lookup; `null` where that is not how it is read.
     if (typeof store.readInObject === "function") {
-      define("readInObject", async (path) => {
+      define("readInObject", async (path, { start = false, whole = false } = {}) => {
         if (!mirroredPath(path)) return null;
         const { entry } = await resolveWith(ask, path);
         if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
-        return await store.readInObject({ path, key: entry.key, noteId: entry.noteId });
+        return await store.readInObject({ path, key: entry.key, noteId: entry.noteId, ...(start === true ? { start: true } : {}), ...(whole === true ? { whole: true } : {}) });
       });
     }
     // A read that hands its view on (`read_notes` to `read_note`) keeps the one it has.
@@ -563,7 +564,7 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
   if (typeof store.replaceInObject === "function") {
     wrapped.replaceInObject = async (path, input) => {
       if (!mirroredPath(path)) return null;
-      const [{ expectedEtag, text }, ask] = remembered(input);
+      const [{ expectedEtag, text, onlyCurrent }, ask] = remembered(input);
       const { entry } = await resolveWith(ask, path);
       if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
       const answer = await store.replaceInObject({
@@ -573,6 +574,7 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
         ...(typeof entry.legacyEtag === "string" ? { legacyEtag: entry.legacyEtag, rowEtag: entry.etag } : {}),
         expectedEtag,
         text,
+        ...(onlyCurrent === false ? { onlyCurrent: false } : {}),
         // The version report would go to the object anyway (`objectLookup.js` `wrote`): it is recorded in this call.
         ...(wrote.inObject === true ? { record: { at: now() } } : {}),
       });
@@ -585,6 +587,8 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
       return answer;
     };
   }
+
+  if (typeof store.commitInObject === "function") wrapped.commitInObject = commitInObjectDoor({ store, mirroredPath, resolve, keyedEntry, wrote, report, now });
 
   if (typeof store.delete === "function") {
     wrapped.delete = async (path, ...rest) => {
