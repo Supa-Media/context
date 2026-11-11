@@ -124,6 +124,7 @@ jobs:
           # Gateway Contracts instead.
           - 'apps/mcp/src/activity/**'
           - 'apps/mcp/src/agent/agentHomeMove.js'
+          - 'apps/mcp/src/agent/chatTime.js'
           - 'apps/mcp/src/agent/conversation.js'
           - 'apps/mcp/src/agent/dayWords.js'
           - 'apps/mcp/src/agent/events.js'
@@ -753,6 +754,7 @@ jobs:
           paths: |
             apps/mcp/src/activity/**
             apps/mcp/src/agent/agentHomeMove.js
+            apps/mcp/src/agent/chatTime.js
             apps/mcp/src/agent/conversation.js
             apps/mcp/src/agent/dayWords.js
             apps/mcp/src/agent/events.js
