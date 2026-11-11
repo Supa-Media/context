@@ -7,7 +7,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
-import { fonts, radii, space, useColors, useThemedStyles, Text, type Colors } from "../design";
+import { fonts, leading, radii, space, useColors, useThemedStyles, Text, type Colors } from "../design";
 import { pointerType } from "../design/tokens";
 import { useFieldFont } from "../design/fieldFont";
 import { useCompact } from "./AdminKit";
@@ -172,7 +172,7 @@ export function ChipLine({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const fieldFont = useFieldFont(pointerType.meta + 1);
+  const fieldFont = useFieldFont(pointerType.ui);
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const words = typed.trim().toLowerCase();
@@ -256,7 +256,7 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     section: { marginBottom: space.x5 * 2, minWidth: 0 },
     sectionHead: { flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", justifyContent: "space-between", columnGap: space.x4, rowGap: 2, paddingBottom: space.x2 },
-    sectionTitle: { fontSize: 17, lineHeight: 24, fontWeight: "700" },
+    sectionTitle: { fontSize: pointerType.lede, lineHeight: leading(pointerType.lede, 1.4), fontWeight: "700" },
     rows: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
     row: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, paddingVertical: space.x4, gap: space.x3, minWidth: 0 },
     link: { paddingHorizontal: 4, paddingVertical: 2, borderRadius: radii.sm },
@@ -278,7 +278,7 @@ const makeStyles = (colors: Colors) =>
     chipText: { color: colors.text, flexShrink: 1 },
     chipX: { width: 20, height: 20, borderRadius: radii.pill, alignItems: "center", justifyContent: "center" },
     chipXHover: { backgroundColor: colors.surface3 },
-    chipXText: { color: colors.muted, fontSize: 14, lineHeight: 16 },
+    chipXText: { color: colors.muted, fontSize: pointerType.ui, lineHeight: 16 },
     addChip: { height: CHIP, paddingHorizontal: 10, justifyContent: "center", borderWidth: 1, borderStyle: "dashed", borderColor: colors.lineStrong, borderRadius: radii.pill },
     addWrap: { position: "relative", zIndex: 5, flexShrink: 1, minWidth: 0 },
     addRow: { flexDirection: "row", alignItems: "center", gap: space.x1, height: CHIP },
@@ -292,7 +292,7 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.accent,
       borderRadius: 7,
       fontFamily: fonts.body,
-      fontSize: pointerType.meta + 1,
+      fontSize: pointerType.ui,
       color: colors.text,
       outlineStyle: "none",
     } as object,

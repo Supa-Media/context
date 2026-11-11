@@ -18,7 +18,7 @@ type Group = { groupId: string; name: string; people: { userId: string; name: st
 export function TesterGroupsPanel({ groups }: { groups: Group[] }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const fieldFont = useFieldFont(pointerType.meta + 1);
+  const fieldFont = useFieldFont(pointerType.ui);
   const create = useMutation(api.functions.featureFlags.createTesterGroup);
   const { busy, problem, act } = useAct();
   const [naming, setNaming] = useState(false);
@@ -117,7 +117,7 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.accent,
       borderRadius: 7,
       fontFamily: fonts.body,
-      fontSize: pointerType.meta + 1,
+      fontSize: pointerType.ui,
       color: colors.text,
       outlineStyle: "none",
     } as object,
