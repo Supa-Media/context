@@ -18,6 +18,7 @@
  *     Tex is judged with the chat's ledger key" fails.
  * Records 1, 2, 3, 5, 6 and 7 tested `addressesTex` and `decideBeside`, both
  * deleted on 2026-11-11.
+ * 10. (2026-11-11) `judgeDownAnswer` without `callsTex` → "judge down: ... \"Tex make a poster\"" fails.
  */
 
 import { describe, expect, it, vi, afterEach } from "vitest";
@@ -81,15 +82,19 @@ for (const { name, groupId } of LINES) {
     });
 
     // The judge down falls back to a waiting question only (`decideDownAnswer`): a tag with no question mark is a known gap.
-    it("judge down: a waiting question is answered; a tag with no question mark is not", async () => {
+    it("judge down: a waiting question is answered, and so is \"Tex make a poster\", a tag that asks nothing", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: () => ({ ok: false, reason: "unavailable" }) });
       await acceptGroup(storage, w.message("Tex, what's 15% of 80?"), 0);
       await drainGroup(storage, w.deps);
       expect(answers(w.texts)).toEqual(["answer to Tex, what's 15% of 80?"]);
-      await acceptGroup(storage, w.message("Tex turn this guy into a cat"), 10);
+      await acceptGroup(storage, w.message("Tex make a poster"), 10);
       await drainGroup(storage, w.deps);
-      expect(answers(w.texts)).toHaveLength(1);
+      expect(answers(w.texts)).toEqual(["answer to Tex, what's 15% of 80?", "answer to Tex make a poster"]);
+      // Chatter that does not call Tex is still not answered with the judge down.
+      await acceptGroup(storage, w.message("running late, save me a seat", { from: "+15555550102" }), 20);
+      await drainGroup(storage, w.deps);
+      expect(answers(w.texts)).toHaveLength(2);
     });
 
     it("no turn starts before a slow judge answers, and it goes once the judge says answer", async () => {

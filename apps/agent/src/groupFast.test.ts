@@ -54,9 +54,9 @@ function handed(groupId: string, opts: Parameters<typeof setup>[1] = {}) {
 for (const { name, groupId } of LINES) {
   describe(`a group answered fast, ${name}`, () => {
     // Dev2, 2026-11-11 (one judge): no word rule starts a turn, so the judge is asked first and the turn runs on its answer.
-    // The judge never answering (down, capped, past GROUP_DECIDE_MS), only a waiting question is answered: a known ceiling
-    // of the "@Tex must still work" guarantee, named in the pull request, not a rail added back silently.
-    it("a named message is judged first; the judge never answering, a question still goes and a tag that asks nothing does not", async () => {
+    // The judge never answering (down, capped, past GROUP_DECIDE_MS), a waiting question or a message calling Tex is
+    // answered (`judgeDownAnswer`; Dev2, 2026-11-11, chosen after the pull request named the gap).
+    it("a named message is judged first; the judge never answering, a question and a tag that asks nothing both still go", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decideWait: () => new Promise<void>(() => {}), agent: (body) => ({ answer: `answer to ${body.question}` }), control: { engagement: "helpful", engagementChosen: true } });
       await acceptGroup(storage, w.message("Tex what's on tonight?"), 0);
@@ -66,7 +66,7 @@ for (const { name, groupId } of LINES) {
       await acceptGroup(storage, w.message("Tex make a poster", { messageId: "h_poster", eventId: "sendblue:poster" }), 10);
       await drainGroup(storage, w.deps);
       expect(w.decided).toHaveLength(2);
-      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex what's on tonight?"]);
+      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex what's on tonight?", "answer to Tex make a poster"]);
     }, 15_000);
 
     it("Tex, settings is answered while another turn runs, and that turn still answers after", async () => {

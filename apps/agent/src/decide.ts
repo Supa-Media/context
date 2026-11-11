@@ -9,8 +9,8 @@
  * held, guests never approve, a newcomer never sees earlier lines.
  *
  * Every call here fails soft. The judge unreachable or malformed is
- * `{ ok: false }` and the caller falls back: a group answers only a waiting
- * question (`decideDownAnswer`), a person's own chat always answers.
+ * `{ ok: false }` and the caller falls back: a group answers a waiting
+ * question or a message calling Tex (`judgeDownAnswer`), a person's own chat always answers.
  */
 
 import { post, record, type Fetch } from "./clients";

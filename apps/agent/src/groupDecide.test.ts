@@ -110,7 +110,7 @@ for (const { name, groupId } of LINES) {
       expect(await decidedWords(storage, w, groupId)).toHaveLength(23);
     });
 
-    it("judge down: only a waiting question is answered, one at a time; a tag with no question mark is not", async () => {
+    it("judge down: a waiting question or a message calling Tex is answered, one at a time; other chatter is not", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: () => ({ ok: false, reason: "capped" }), control: { engagement: "helpful", engagementChosen: true } });
       await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
@@ -118,7 +118,7 @@ for (const { name, groupId } of LINES) {
       await acceptGroup(storage, w.message("is it raining", { from: BO }), 10);
       await acceptGroup(storage, w.message("Tex and tomorrow?"), 11);
       await drainGroup(storage, w.deps);
-      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex and tomorrow?"]);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what's on tonight", "Tex and tomorrow?"]);
     });
 
     it("decide down: an untagged question its style reads is answered, never dropped silently", async () => {

@@ -5,8 +5,8 @@
  * two questions"). Every message that is not code's reaches it, whatever the
  * speak-up setting, which it reads; no word rule says what is for Tex. A
  * message from a chat Tex is not set up in is judged alone, unlogged
- * (`firstLook`). The judge down, a group answers only a waiting question
- * (`decideDownAnswer`). Kept as code: only the asker's yes releases what was
+ * (`firstLook`). The judge down, a group answers a waiting question or a
+ * message calling Tex (`judgeDownAnswer`). Kept as code: only the asker's yes releases what was
  * held, a style choice and the commands are never put to the judge, and a
  * newcomer's transcript starts where they joined (`renderTranscript` with
  * `people`).
@@ -24,6 +24,7 @@ import { eventPeople, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
 import { burstStillTyped, decideDownAnswer } from "./groupPolicy";
+import { callsTex } from "./groupWords";
 import { groupStyle } from "./groupStyle";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
@@ -164,7 +165,7 @@ function withJoins(burst: GroupEntry[], head: GroupEntry): GroupEntry[] {
  * of them an answer covers. A message the judge already chose to answer
  * (`force`) is answered with what joined it (`addressedTurn`). Messages from a
  * chat Tex is not set up in are judged first, alone (`firstLook`). The judge
- * down: a waiting question is answered (`decideDownAnswer`), so a follow-up is
+ * down: a waiting question, or a message calling Tex, is answered (`judgeDownAnswer`), so a follow-up is
  * never dropped silently; the rest become chat lines.
  */
 export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps & { now: () => number }, burst: GroupEntry[], waitAllowed = false): Promise<GroupChoice> {
@@ -176,7 +177,7 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
   if (ids.length === 0) console.log(JSON.stringify({ event: "group_decide", outcome: "unavailable", reason: "no_events" }));
   const decision = ids.length === 0 ? ({ ok: false, reason: "unavailable" } as const) : await ask(storage, deps, burst.at(-1)![1].message, ids, false);
   if (!decision.ok) {
-    const question = decideDownAnswer(burst.map(([, item]) => item));
+    const question = judgeDownAnswer(burst);
     return question === -1 ? { answer: [], chat: burst, drop: [] } : { answer: [burst[question]], chat: burst.filter((_, index) => index !== question), drop: [] };
   }
   // A wait holds only a real burst, and only while the chat's state allows one more (`canWait`): otherwise an answer.
@@ -189,6 +190,16 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
   // Left out before the answer: chat (`gatherTheTurn.ts`). Nothing here is forced (`addressedTurn` took those), so nothing jumps the order.
   const { answer, left } = gatherTheTurn(burst, (entry) => entry[1].ev !== undefined && decision.covers.includes(entry[1].ev), (entry) => !soft(entry));
   return { answer, chat: left, drop: [], ...react };
+}
+
+/**
+ * The judge down (past its time, failed, or capped): the newest waiting question, or the newest message that tags or
+ * names Tex or replies under its text (`callsTex`), whichever came later; -1 for neither (Dev2, 2026-11-11: "@Tex"
+ * must still work when the judge cannot answer). A muted chat never gets here: only its commands are read, by code.
+ */
+export function judgeDownAnswer(waiting: GroupEntry[]): number {
+  const called = waiting.map(([, item]) => callsTex(item.message.text || item.message.heard || "", item.message.replyTo !== undefined)).lastIndexOf(true);
+  return Math.max(decideDownAnswer(waiting.map(([, item]) => item)), called);
 }
 
 /** The id a first look shows a line under: the contract's event id shape, never one the chat's log holds. */
@@ -215,7 +226,7 @@ export async function firstLook(storage: InboxStorage, deps: ControlDeps & { now
   const decision = await ask(storage, deps, looks.at(-1)![1].message, ids, false, lines.join("\n"));
   let chosen: GroupEntry[];
   if (!decision.ok) {
-    const question = decideDownAnswer(looks.map(([, item]) => item));
+    const question = judgeDownAnswer(looks);
     chosen = question === -1 ? [] : [looks[question]!];
   } else if (decision.act === "answer") chosen = looks.filter((_, index) => decision.covers.includes(ids[index]!));
   // A first look never waits: nothing is kept to wait with, so a wait answers the newest now.

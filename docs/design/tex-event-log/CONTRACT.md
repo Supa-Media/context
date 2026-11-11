@@ -103,8 +103,9 @@ Tex; the speak-up level is told to the judge, never a gate. With `ledger`,
 the gateway appends `{ kind: "judge", by: "moment", verdict, why, event,
 confidence, ms }` to that group's ledger behind the answer.
 
-`ok:false` means the Worker falls back: a group answers only a waiting
-question (`decideDownAnswer`), 1:1 always answers.
+`ok:false` means the Worker falls back: a group answers the newest waiting
+question or message that tags or names Tex or replies under its text
+(`judgeDownAnswer`), 1:1 always answers.
 
 ## 3b. Convex: `POST /agent-texts/recheck`
 

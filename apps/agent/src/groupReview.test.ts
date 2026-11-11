@@ -90,9 +90,8 @@ for (const { name, groupId } of LINES) {
       expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA, BO]);
     });
 
-    // 2026-11-11: the judge down, only a waiting question is answered (`decideDownAnswer`); a tag with no "?" is not.
-    // A known gap of the one-judge design, reported to the owner rather than closed with a word rule.
-    it("judge down: a waiting question is answered alone; a tag that asks nothing is not", async () => {
+    // 2026-11-11 (Dev2's pick): the judge down, a waiting question or a message calling Tex is answered (`judgeDownAnswer`).
+    it("judge down: a waiting question is answered alone; so is a tag that asks nothing, without the link a chat not set up never reads", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: down });
       await acceptGroup(storage, w.message("Tex file this screenshot as a bug?"), 0);
@@ -106,7 +105,7 @@ for (const { name, groupId } of LINES) {
       await acceptGroup(other, v.message("Tex check this link"), 0);
       await acceptGroup(other, v.message("https://reasonmachines.example/page"), 1_000);
       await drainGroup(other, v.deps);
-      expect(v.asks).toEqual([]);
+      expect(v.asks.map((ask) => ask.question)).toEqual(["Tex check this link"]);
     });
 
     it("a webhook redelivered while decide is slow is a duplicate, never decided twice", async () => {
