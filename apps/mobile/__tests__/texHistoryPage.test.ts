@@ -87,7 +87,7 @@ async function type(id: string, value: string) {
   await tick();
 }
 
-const SHOWN_KINDS = ["text", "tool", "judge", "note", "advisor", "mail_check", "job"];
+const SHOWN_KINDS = ["text", "tool", "judge", "classify", "note", "advisor", "mail_check", "job"];
 
 describe("the chat's history file", () => {
   test("is one tap from the hub's history, one line a message, the turn in the order it happened", async () => {
@@ -170,7 +170,7 @@ describe("the chat's history file", () => {
     await press("tex-history-show-thinking");
     expect(text()).toContain("advisor thinking · They want cost first. The blog is old.");
     expect(byTestId("tex-history-job-steps-maritime")?.textContent).toContain("Read their docs, then compare pricing.");
-    expect(asked.at(-1)!.kinds).toEqual(["text", "tool", "judge", "thinking", "said", "note", "advisor", "mail_check", "job"]);
+    expect(asked.at(-1)!.kinds).toEqual(["text", "tool", "judge", "classify", "thinking", "said", "note", "advisor", "mail_check", "job"]);
     expect(asked.at(-1)!.jobs).toBeUndefined();
     // Folded away on a tap.
     await press("tex-history-entry-job:2026-11-02:maritime");

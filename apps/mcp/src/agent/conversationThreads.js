@@ -61,10 +61,11 @@ You are given whether the chat is a group chat or a 1:1 with Tex (CHAT), the cha
 1. thread: the id of the thread the new text continues, or "new". A text "replying to" an old message is a hint, not the answer: people often reply under an old bubble while changing subject, so go by what the text is about. A finished thread the text clearly picks up again is that thread (it reopens). A short reaction ("lol", "thanks", a tapback) belongs to the thread it reacts to.
 2. title: for "new", a 3 to 6 word title in plain words; otherwise the thread's title, kept unless it is now wrong.
 3. description: that thread's one or two sentences as they now stand, with the new text in it: what it is about and where it stands (what is asked, what is waiting on whom). At most 240 characters.
-4. finished: ids of OTHER open threads the chat's last lines show are done. Only on evidence: the ask was answered and they acknowledged it or moved on from it by saying so, the task was done, or someone dropped it. Silence never finishes a thread. A question of theirs that Tex has not answered keeps its thread open. When unsure, leave it open.
+4. thread_why: a few words on why the text belongs in that thread, or why it starts a new one.
+5. finished: ids of OTHER open threads the chat's last lines show are done. Only on evidence: the ask was answered and they acknowledged it or moved on from it by saying so, the task was done, or someone dropped it. Silence never finishes a thread. A question of theirs that Tex has not answered keeps its thread open. When unsure, leave it open.
 ${RESPOND_RULES}
 
-Answer with JSON only: {"thread":"t3"|"new","title":"...","description":"...","finished":["t1"],"respond":"reply"|"react"|"quiet","emoji":"👍","place":"under"|"plain","why":"..."}`;
+Answer with JSON only: {"thread":"t3"|"new","title":"...","description":"...","thread_why":"...","finished":["t1"],"respond":"reply"|"react"|"quiet","emoji":"👍","place":"under"|"plain","why":"..."}`;
 
 /** The threads ledger's chat name for a chat. */
 export const threadsChat = (chat) => `${chat}${THREADS_SUFFIX}`;
@@ -122,7 +123,10 @@ export function threadsMessage({ threads, lines, question, replying = [], group 
   return parts.join("\n");
 }
 
-/** The classifier's answer, checked: `{thread, title, description, finished, respond, emoji?, place?, why?}` (`respond.js`), or null when it isn't one. */
+/** How long a reason the classifier gives is kept (`thread_why`, and `why` in `respond.js`). */
+const WHY_CHARS = 160;
+
+/** The classifier's answer, checked: `{thread, title, description, threadWhy?, finished, respond, emoji?, place?, why?}` (`respond.js`), or null when it isn't one. */
 export function readVerdict(text, threads) {
   const found = firstObject(String(text ?? ""));
   if (found === null) return null;
@@ -133,7 +137,8 @@ export function readVerdict(text, threads) {
   const description = oneLine(found.description, DESCRIPTION_CHARS);
   if (thread === "new" && title === "") return null;
   const finished = (Array.isArray(found.finished) ? found.finished : []).filter((id) => typeof id === "string" && known.has(id) && id !== thread);
-  return { thread, title, description, finished: [...new Set(finished)], ...readRespond(found) };
+  const threadWhy = oneLine(found.thread_why, WHY_CHARS);
+  return { thread, title, description, ...(threadWhy ? { threadWhy } : {}), finished: [...new Set(finished)], ...readRespond(found) };
 }
 
 /** The next new thread's id. */

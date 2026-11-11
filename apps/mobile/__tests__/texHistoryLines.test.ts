@@ -171,6 +171,15 @@ describe("the history's lines", () => {
     expect(kindsFor(DEFAULT_SHOWN)).toContain("judge");
   });
 
+  test("the conversation classifier's decision shows its thread and reasons, under Tool calls (Dev2, 2026-11-11)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "c1", at: at(2, 9, 1), kind: "classify", turn: "t", thread: "t3", respond: "quiet", text: "t3 Roast the app: the same roast · quiet: people talking to each other" },
+    ];
+    const lines = historyDays(entries, NOW)[0]!.turns[0]!.lines;
+    expect(lines.map((l) => l.text)).toEqual(["classifier · t3 Roast the app: the same roast · quiet: people talking to each other"]);
+    expect(kindsFor(DEFAULT_SHOWN)).toContain("classify");
+  });
+
   test("a review by the Haiku reviewer names the kind of turn and the problems it sent back (2026-11-06)", () => {
     const entries: LedgerEntry[] = [
       { id: "r2", at: at(2, 9, 3), kind: "judge", turn: "t", by: "review", round: 1, went: true, text: "Added it to Friday.", turnKind: "task", judges: [], failed: [] },
@@ -230,7 +239,7 @@ describe("the history's lines", () => {
   });
 
   test("days and kinds as the gateway is asked for them", () => {
-    expect(kindsFor(DEFAULT_SHOWN)).toEqual(["text", "tool", "judge", "note", "advisor", "mail_check", "job"]);
+    expect(kindsFor(DEFAULT_SHOWN)).toEqual(["text", "tool", "judge", "classify", "note", "advisor", "mail_check", "job"]);
     expect(kindsFor({ texts: false, tools: false, thinking: true, background: false })).toEqual(["thinking", "said"]);
     expect(dayAsked("today", "", NOW)).toBe("2026-11-02");
     expect(dayAsked("yesterday", "", new Date(2026, 10, 1, 9))).toBe("2026-10-31");

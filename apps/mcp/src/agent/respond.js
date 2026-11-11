@@ -30,6 +30,7 @@
  * hushed. A classifier that failed or was late hushes nothing.
  */
 
+import { wordsEntry } from "./ledger.js";
 import { SAID_NOTHING, SAY_NOTHING_TOOL } from "./sayNothing.js";
 
 export const RESPONSES = ["reply", "react", "quiet"];
@@ -75,12 +76,12 @@ export function examplesText(examples = RESPOND_EXAMPLES) {
 }
 
 /** The classifier's rules for the respond part, appended to its system prompt. */
-export const RESPOND_RULES = `5. respond: what Tex does about the NEW TEXT. "reply": Tex texts back. "react": a tapback only, no text (give emoji). "quiet": nothing at all.
+export const RESPOND_RULES = `6. respond: what Tex does about the NEW TEXT. "reply": Tex texts back. "react": a tapback only, no text (give emoji). "quiet": nothing at all.
 In a 1:1 chat every text is to Tex: reply, unless it is only thanks, an ok or a laugh that asks nothing and changes nothing, which gets react (a thanks or an ok: 👍) or quiet.
 In a group chat, reply only when the text is for Tex: it names Tex, replies to Tex, answers a question Tex asked, or carries on an ask Tex is working on. People talking to each other, a question to a named person, news, jokes and remarks between them are quiet; news, a win or thanks shared with the chat may get react.
 Never quiet or react on a question or request to Tex, an answer to Tex's question, a correction of Tex, or something Tex must act on. When unsure, reply.
-6. place, only with reply: "under" when Tex's reply could be read as answering a different text (other texts came after it, several conversations are interleaving, or it picks up an older subject), else "plain".
-7. why: a few words on why.
+7. place, only with reply: "under" when Tex's reply could be read as answering a different text (other texts came after it, several conversations are interleaving, or it picks up an older subject), else "plain".
+8. why: a few words on why Tex replies, reacts or stays quiet.
 
 Examples (names invented):
 ${examplesText()}`;
@@ -107,15 +108,22 @@ const ASKS = /\?/;
  * 👎" is a yes). `lastTex` is Tex's last text before this one, `between` the
  * number of other people's texts since it.
  */
-export function mayHush({ verdict, text, group = false, tapback = false, files = 0, lastTex = null, between = 0, repliesToTex = false }) {
+export function mayHush({ verdict, ...text }) {
   if (verdict?.respond !== "quiet" && verdict?.respond !== "react") return false;
+  return floorHolds(text) === null;
+}
+
+/** Why code's floor keeps a text for the model whatever the classifier said, in a few words; null when it doesn't. */
+export function floorHolds({ text, group = false, tapback = false, files = 0, lastTex = null, between = 0, repliesToTex = false }) {
   const words = String(text ?? "");
-  if (tapback || words.trim() === "") return false;
-  if (!group && (files > 0 || ASKS.test(words))) return false;
-  if (group && NAMES_TEX.test(words)) return false;
-  if (repliesToTex && ASKS.test(words)) return false;
-  if (typeof lastTex === "string" && ASKS.test(lastTex) && between === 0) return false;
-  return true;
+  if (tapback) return "a tapback that reached a turn";
+  if (words.trim() === "") return "no words to judge";
+  if (!group && files > 0) return "a file in a 1:1";
+  if (!group && ASKS.test(words)) return "a question in a 1:1";
+  if (group && NAMES_TEX.test(words)) return "a group text naming Tex";
+  if (repliesToTex && ASKS.test(words)) return "a question typed under Tex's text";
+  if (typeof lastTex === "string" && ASKS.test(lastTex) && between === 0) return "straight after Tex asked something";
+  return null;
 }
 
 /** Tex's last text in the shown events before the new ones, and how many people's texts came after it. */
@@ -153,4 +161,39 @@ export function hushedTurn(verdict, model) {
 export function hushedToolEvent(verdict) {
   const said = verdict.respond === "react" ? `a ${verdict.emoji ?? "tapback"} instead of a text` : "nothing";
   return { kind: "tool", name: SAY_NOTHING_TOOL, args: { why: `conversation classifier: ${verdict.why || verdict.respond}`, by: "classifier" }, ok: true, ms: 0, result: `Answered with ${said}, before the model ran.` };
+}
+
+/**
+ * The classifier's decision as a `classify` entry in the chat's history, every turn it ran (Dev2, 2026-11-11: "why put
+ * it in what thread ... why it chooses not to respond or why it chooses to respond"): the thread and why, reply, react
+ * or quiet and why, where a reply goes, and `held` when code's floor kept a quiet or react for the model. `text` is the
+ * one line a reader shows. A classifier that failed or was late is kept too, as `verdict: "none"`.
+ */
+export function classifyEntry(decision, { held = null, model = null, turn = null, at = Date.now() } = {}) {
+  const verdict = decision?.verdict ?? null;
+  const ms = Number.isFinite(decision?.ms) ? { ms: Math.round(decision.ms) } : {};
+  if (verdict === null) return wordsEntry("classify", "no verdict: the classifier failed or was late, so Tex answered as usual", { turn, at, verdict: "none", ...(model ? { model } : {}), ...ms });
+  const thread = typeof decision.thread === "string" ? decision.thread : null;
+  const title = typeof decision.title === "string" && decision.title ? decision.title : null;
+  const said = [
+    thread ? `${thread}${verdict.thread === "new" ? " (new)" : ""}${title ? ` ${title}` : ""}${verdict.threadWhy ? `: ${verdict.threadWhy}` : ""}` : null,
+    `${verdict.respond}${verdict.emoji ? ` ${verdict.emoji}` : ""}${verdict.place ? ` ${verdict.place}` : ""}${verdict.why ? `: ${verdict.why}` : ""}`,
+    held ? `kept for the model: ${held}` : null,
+  ].filter(Boolean).join(" · ");
+  return wordsEntry("classify", said, {
+    turn,
+    at,
+    verdict: verdict.thread === "new" ? "new" : "continued",
+    ...(model ? { model } : {}),
+    ...ms,
+    ...(thread ? { thread } : {}),
+    ...(title ? { title } : {}),
+    ...(verdict.threadWhy ? { threadWhy: verdict.threadWhy } : {}),
+    ...(Array.isArray(verdict.finished) && verdict.finished.length > 0 ? { finished: verdict.finished } : {}),
+    respond: verdict.respond,
+    ...(verdict.emoji ? { emoji: verdict.emoji } : {}),
+    ...(verdict.place ? { place: verdict.place } : {}),
+    ...(verdict.why ? { why: verdict.why } : {}),
+    ...(held ? { held } : {}),
+  });
 }

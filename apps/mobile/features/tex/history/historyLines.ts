@@ -30,7 +30,7 @@ export const SHOW_LABEL: Record<Show, string> = { texts: "Texts", tools: "Tool c
  */
 export const SHOW_KINDS: Record<Show, LedgerKind[]> = {
   texts: ["text"],
-  tools: ["tool", "judge"],
+  tools: ["tool", "judge", "classify"],
   thinking: ["thinking", "said"],
   background: ["note", "advisor", "mail_check", "job"],
 };
@@ -213,6 +213,9 @@ function lineOfKind(e: LedgerEntry, group: boolean): HistoryLine {
       return quiet(`mail checker · email to ${short(e.to, 60)} · ${str(e.verdict) || "checked"}${oneLine(e.why) ? ` · ${short(e.why, 120)}` : ""}`);
     case "judge":
       return quiet(judgeWords(e));
+    case "classify":
+      // The conversation classifier's decision and its reasons (`apps/mcp/src/agent/respond.js` `classifyEntry`).
+      return quiet(`classifier · ${short(e.text, 400)}`);
     case "job":
       return quiet(`job · ${oneLine(e.title) || str(e.job)} · ${str(e.state).replace(/_/g, " ")}`);
     case "note":

@@ -20,7 +20,7 @@ import { withKeptFiles } from "../keptFiles.js";
 import { learnedSkillsLine, withLearnedSkills } from "../learnedSkills.js";
 import { setupPromptFor, turnKind } from "../promptModules.js";
 import { ledgerObserver } from "../ledger.js";
-import { hushedToolEvent, hushedTurn, mayHush } from "../respond.js";
+import { classifyEntry, floorHolds, hushedToolEvent, hushedTurn } from "../respond.js";
 import { meterEach, meterParts } from "../modelPlan.js";
 import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
 import { withDrawnImages, withPictureMaker } from "../pictureMaker.js";
@@ -85,7 +85,11 @@ export async function runTheModel(t) {
   const threaded = threadsRun ? await tex.wait("threads", threadsRun) : null;
   if (threaded?.entries?.length > 0) tex.after("threads_write", () => threadsWrite(store, session, threaded.entries));
   // Reply, react or quiet, from the classifier's verdict, with code's floor under it (`respond.js`): a hushed text ends here, before the model.
-  const hush = threaded?.respond && chatTurn && job === null && !runner && report === null && mayHush({ verdict: threaded.respond, text: logged?.question ?? question, group: group !== null, tapback: Boolean(quoted?.tapback), files: attachments.length, lastTex: threaded.respond.lastTex, between: threaded.respond.between, repliesToTex: threaded.respond.repliesToTex });
+  const silent = threaded?.respond?.respond === "quiet" || threaded?.respond?.respond === "react";
+  const held = !silent ? null : report !== null ? "a job's report" : floorHolds({ text: logged?.question ?? question, group: group !== null, tapback: Boolean(quoted?.tapback), files: attachments.length, lastTex: threaded.respond.lastTex, between: threaded.respond.between, repliesToTex: threaded.respond.repliesToTex });
+  const hush = silent && chatTurn && job === null && !runner && held === null;
+  // The decision and its reasons, kept in the history every turn the classifier ran (Dev2, 2026-11-11), before what follows from it.
+  if (threaded?.decision) chatLog?.write(classifyEntry(threaded.decision, { held, model: THREADS_MODEL, turn: ledgerAt?.turn ?? null }));
   if (hush) ledgerObserver(chatLog, null, ledgerAt)?.(hushedToolEvent(threaded.respond)); // kept in the history as a say_nothing, with the classifier's reason
   stages?.ready(); const turn = hush ? await tex.step("hushed", () => hushedTurn(threaded.respond, THREADS_MODEL)) : await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
@@ -130,7 +134,7 @@ export async function runTheModel(t) {
     // Per text, so said in their turn after the cached prefix (`turnPrompt.js`): who tagged it, the thread, the jobs running now, whether their computers are online.
     turnNote: [group !== null ? taggedLine(group) : "", threadPrompt(logged ? { thread: null } : inThread), background?.runningNow ?? "", job === null ? computersLine(computers, { planning }) : ""].map((part) => part.trim()).filter(Boolean).join("\n\n"),
     threadNote: (group !== null ? groupPrompt(group, home) : "") + learnedSkillsLine(learned) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobAdvisorLine(job, advising) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
-    local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(threaded ? [threaded.read_thread] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && job === null && !routine ? computerTools({ env, session, controlPlane, group, words: question, judge: judgeFor(env) }) : []), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
+    local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(threaded?.read_thread ? [threaded.read_thread] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && job === null && !routine ? computerTools({ env, session, controlPlane, group, words: question, judge: judgeFor(env) }) : []), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
     localNow: { now: Date.now(), timeZone },

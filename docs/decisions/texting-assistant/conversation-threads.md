@@ -177,6 +177,32 @@ bubble renewed), `groupInbox.test.ts` and `groupDecideEmojiWait.test.ts` (no
 tapback beside a group answer), `apps/mcp/test/agentJobRestart.test.mjs` and
 `agentBackground.test.mjs` (the one-line start).
 
+## The classifier's reasons, kept every turn (Dev2, 2026-11-11)
+
+Dev2: "Does the threading agent currently output its reasoning into the history
+ledger? ... why put it in what thread and or why it chooses not to respond or
+why it chooses to respond". It did not: only a hushed text left a reason (its
+say_nothing), a reply's verdict was dropped, the floor's overrides went
+unrecorded, and the threads ledger keeps no reason for a thread choice. Dev2
+chose "Every turn, both reasons":
+
+- The classifier also answers `thread_why`, a few words on why the text is in
+  that thread or starts a new one (`conversationThreads.js`).
+- Every turn it ran writes one `classify` entry to the chat's history ledger
+  (`respond.js` `classifyEntry`, written in `runTheModel.js` before anything
+  that follows from it): thread, title, `threadWhy`, threads it finished,
+  `respond`, emoji, place, `why`, and `held` with the floor's reason
+  (`floorHolds`) when code kept a quiet or react for the model. A classifier
+  that failed or was late is kept as `verdict: "none"`. A hushed text still
+  also gets its say_nothing, which the next turn reads.
+- No model reads a `classify` entry: the history a turn is shown takes texts,
+  notes and tool calls only (`ledgerHistory.js`). The History page shows it
+  under Tool calls as "classifier · …".
+
+Tests: `apps/mcp/test/agentRespond.test.mjs` (a react, a held quiet and a reply
+each leave one entry with their reasons),
+`apps/mobile/__tests__/texHistoryLines.test.ts`.
+
 ## Undo and reversal cost
 
 `CONVERSATION_THREADS=off` on the gateway shows the chat as before (faded
