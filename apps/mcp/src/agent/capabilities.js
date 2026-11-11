@@ -366,12 +366,12 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Their account",
     actions: [],
-    texts: "a new person sets up by texting you the handle they want (like @ada); storage is then connected in the Context app (Settings → Storage)",
+    texts: "a new person sets up by texting you the handle they want (like @ada); their notes' storage is made for them, and you text when it is ready",
     group: null,
     cant: [
       { where: "everywhere", what: "change the phone or emails they sign in with, sign out their other devices, or pause phone sign-in", workaround: { kind: "app_path", text: "Context app → Settings → Profile (each needs a code sent to them)" } },
       { where: "everywhere", what: "block or unblock someone", workaround: { kind: "app_path", text: "Report or block beside the note or invitation they sent, or Context app → Settings → Profile → Blocked people to unblock" } },
-      { where: "everywhere", what: "connect storage, rotate its key or disconnect it", workaround: { kind: "app_path", text: "Context app → Settings → Storage" } },
+      { where: "everywhere", what: "see or manage where their notes are stored", workaround: { kind: "app_path", text: "Context app → Settings → Storage" } },
     ],
   },
   {
