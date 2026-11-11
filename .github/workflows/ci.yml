@@ -424,6 +424,7 @@ jobs:
           node --test scripts/convex-tests.test.mjs
           node --test scripts/deploy-plan.test.mjs
           node --test scripts/worker-secrets.test.mjs
+          node --test scripts/sendblue-status-url.test.mjs
           node --test scripts/ci-performance-report.test.mjs
           node --test scripts/mcp-speed-budgets.test.mjs
           node --test scripts/release-communication-evidence.test.mjs
