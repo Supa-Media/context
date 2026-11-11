@@ -26,6 +26,7 @@
  * Built only from the Web APIs, no Node modules, as the rest of the gateway is.
  */
 
+import { commitInObjectDoor } from "./idLayoutCommit.js";
 import { isIdKey, isPlumbing } from "../privacy/engine.js";
 import { idKeyFor, newNoteId } from "./noteIdKeys.js";
 import { texKeyFor } from "./texRouting.js";
@@ -587,32 +588,7 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     };
   }
 
-  /**
-   * A live edit committed in the workspace object in one call (`workspaceRouting.js` `commitInObject`), for a keyed
-   * note: the object is told the key and note id this layer resolved and refuses if its row says otherwise. The new
-   * Markdown version is reported as a replacement's is. `null` where there is no such door or it did not serve.
-   */
-  if (typeof store.commitInObject === "function") {
-    wrapped.commitInObject = async (path, { documentId, update }) => {
-      if (!mirroredPath(path)) return null;
-      const { entry } = await resolveWith(lookup, path);
-      if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
-      const answer = await store.commitInObject({
-        path,
-        key: entry.key,
-        noteId: entry.noteId,
-        documentId,
-        update,
-        ...(wrote.inObject === true ? { record: { at: now() } } : {}),
-      });
-      if (answer === null || answer.served !== true) return answer;
-      const markdown = answer.markdown;
-      if (typeof markdown?.etag === "string" && answer.recorded !== true) {
-        await report({ path, key: entry.key, etag: markdown.etag, ...(Number.isFinite(markdown.size) ? { size: markdown.size } : {}), at: now(), keyed: true });
-      }
-      return answer;
-    };
-  }
+  if (typeof store.commitInObject === "function") wrapped.commitInObject = commitInObjectDoor({ store, mirroredPath, resolve, keyedEntry, wrote, report, now });
 
   if (typeof store.delete === "function") {
     wrapped.delete = async (path, ...rest) => {
