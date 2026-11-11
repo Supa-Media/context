@@ -46,6 +46,18 @@ The warm copy no longer carries turns' clean marks, and turn records
 (`.context/agent/turns/`) are no longer written or read; old ones and stray
 running and cancel marks are pruned after 48h (`loggedTurn.js` `pruneTurns`).
 
+## Carried results (the owner, 2026-11-10)
+
+Within a chat's stretch (`apps/mcp/src/agent/stretch.js`) an earlier turn's
+tool results are replayed to the next text. A result read from outside is
+replayed too, and replaying it marks the new turn untrusted exactly as if it
+had read that content itself (`markUntrusted`): it is not an earlier answer
+shown, it is the outside content again. Whether a turn read from outside is its
+reply's `outside`, never `clean`: a group's turn is never clean, for its own
+chat's words, and those are no outsider's. Another member's reads in a group,
+another workspace's, and any read under another carry key stay stubbed, with no
+arguments. Test: `apps/mcp/test/texCarryGating.test.mjs`.
+
 ## Why this is safe enough
 
 The risk the spreading guarded against is a planted instruction in an email

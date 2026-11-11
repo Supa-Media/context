@@ -47,3 +47,20 @@ began when this shipped, so earlier hours read zero.
 
 Tests: `apps/agent/src/textCounts.test.ts`, `apps/mcp/test/callCounts.test.mjs` (the note test),
 `apps/convex/__tests__/texStats.test.ts`, and `apps/mobile/__tests__/texDashboardRender.test.ts` (the basics).
+
+## Past days, and where the card lives (2026-11-11)
+
+Dev2 asked to see past stats, and asked for the card on context.lc/admin.
+
+- **Past days** come from records that were already kept (`texStatsBefore.ts`). They cover the part of a window
+  before `COUNTS_BEGAN`, which is 2026-11-10 23:55 UTC, when #3166 went live.
+  - Texts are `tex_text_timing` (since 2026-10-31): one point per text Tex answered, plus the parts it sent. Several
+    texts answered together count as one.
+  - People are the personal workspaces with a 1:1 turn in `tex_entry` (since 2026-11-01). That dataset is still
+    written, so it is read across the whole window. The higher of it and the new count is kept, never their sum.
+  - Notes created are the workspace objects' `ws.create` calls (since 2026-11-06).
+  - Notes edited before counting began are unknown.
+  - Cost already reached back about 60 days.
+  - The card says all of this whenever a window starts before counting began.
+- **The card** sits at the top of the staff console's Growth tab, context.lc/admin, as well as on tex.lc/admin
+  (`features/admin/TexBasics.web.tsx`). Its stylesheet is added to the document head once, scoped under `.td-embed`.

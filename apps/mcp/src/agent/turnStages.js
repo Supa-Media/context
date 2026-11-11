@@ -36,11 +36,16 @@ export function turnStages(env, now = Date.now) {
   let flushed = false;
   let rounds = null;
   let turn = "";
+  let carry = null;
   const calls = {};
   return {
     /** The turn's id (the chat ledger's `turn`): the last blob of every point, so one turn can be found. */
     set turn(value) {
       if (typeof value === "string") turn = value.slice(0, 64);
+    },
+    /** What the turn carried of its stretch (`stretch.js` `carryCounts`, logged by `readTheHistory.js`): on the `turn_stages` log line. */
+    set carry(value) {
+      carry = value && typeof value === "object" ? value : null;
     },
     /**
      * Count the bucket calls this turn makes, by where in the turn (b before the
@@ -79,7 +84,7 @@ export function turnStages(env, now = Date.now) {
       const point = stagesOf({ start, marks, end: now(), report });
       point.blobs.push(callsLine(calls), turn);
       // The same numbers in the Worker's log, for a live tail (`wrangler tail`).
-      if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "turn_stages", kind: point.blobs[0], outcome: point.blobs[1], ...Object.fromEntries(COLUMNS.map((name, i) => [name, Math.round(point.doubles[i])])) }));
+      if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "turn_stages", kind: point.blobs[0], outcome: point.blobs[1], ...(carry ?? {}), ...Object.fromEntries(COLUMNS.map((name, i) => [name, Math.round(point.doubles[i])])) }));
       const perCall = callPoints(point.blobs[0], rounds ?? report?.trace ?? [], turn);
       for (const call of perCall) if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "model_call", kind: call.blobs[0], model: call.blobs[1], ...Object.fromEntries(CALL_COLUMNS.map((name, i) => [name, call.doubles[i]])) }));
       write(env?.TEX_CALLS, perCall);

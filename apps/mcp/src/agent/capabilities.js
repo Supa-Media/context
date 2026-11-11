@@ -228,7 +228,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Background jobs",
     actions: ["send.background", "send.steer_job", "send.restart_job", "send.job_status", "send.mail_agent", "send.plan", "write.mail"],
-    texts: "hand a long task to background jobs that run side by side, in the cloud or on one of their paired computers (on_computer: code and heavy work go there, with Claude Code or Codex on its owner's plan); steer, stop or restart them, a voice memo steering like typed words; read how they're going; a big ask can be split by your advisor into one job per part (plan), where that is on for them; a job paused at their plan's daily limit picks itself back up after the reset; each job has a note whose mail you, the job and your advisor share",
+    texts: "hand a long task to background jobs that run side by side (starting or restarting one texts nothing: their text gets a tapback and they hear only its result), in the cloud or on one of their paired computers (on_computer: code and heavy work go there, with Claude Code or Codex on its owner's plan); steer, stop or restart them, a voice memo steering like typed words; read how they're going; a big ask can be split by your advisor into one job per part (plan), where that is on for them; a job paused at their plan's daily limit picks itself back up after the reset; each job has a note whose mail you, the job and your advisor share",
     group: "the same, on a computer only if its owner lent it to this chat; the chat hears the result; name the job to steer or stop it, since a bare \"Tex, stop\" mutes you instead",
   },
   {

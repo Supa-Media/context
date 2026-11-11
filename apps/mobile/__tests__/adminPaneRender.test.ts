@@ -390,6 +390,14 @@ describe("growth is what the page opens on", () => {
     expect(text).toContain("$10 a month");
   });
 
+  test("Tex's basics sit above Growth, the card tex.lc/admin draws (Dev2, 2026-11-11)", () => {
+    // Sabotage: drop `<TexBasics />` from `AdminPane.tsx` → this fails.
+    const container = mount();
+    const card = container.querySelector('[data-testid="admin-tex-basics"]');
+    expect(card?.textContent).toContain("The basics");
+    expect(container.querySelector('[data-testid="tex-dashboard-basics-window"]')).not.toBeNull();
+  });
+
   test("the period comparison is absolute, not a percentage", () => {
     const container = mount();
     const text = container.textContent ?? "";

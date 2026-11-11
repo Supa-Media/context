@@ -59,11 +59,6 @@ export const TOOL = {
           repo: { type: "string" },
         },
       },
-      quiet: {
-        type: "boolean",
-        description:
-          "True when they asked not to hear from you until it's done (\"don't come back to me until you're done\"): nothing is texted now, only its result.",
-      },
     },
     required: ["title", "brief"],
   },

@@ -13,6 +13,10 @@ export const DASHBOARD_CSS = `
 .td{--sans:"Instrument Sans",ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;--serif:"Libron",ui-serif,Georgia,serif;
   position:relative;height:100vh;height:100dvh;overflow-x:hidden;overflow-y:auto;background:${C.page};color:${C.ink};font-family:var(--sans);-webkit-font-smoothing:antialiased;color-scheme:light}
 .td *{box-sizing:border-box}
+.td-embed{--sans:"Instrument Sans",ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;color:${C.ink};font-family:var(--sans);-webkit-font-smoothing:antialiased;color-scheme:light;margin-bottom:24px}
+.td-embed *{box-sizing:border-box}
+:where(.td-embed) :where(h1,h2,h3,p){margin:0}
+.td-embed .num{font-variant-numeric:tabular-nums}
 :where(.td) :where(h1,h2,h3,p){margin:0}
 .td .num{font-variant-numeric:tabular-nums}
 .td a{color:inherit}
