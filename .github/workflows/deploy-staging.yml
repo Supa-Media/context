@@ -301,7 +301,17 @@ jobs:
               # scripts/worker-secrets.mjs. `!` ones warn when unset (the
               # texting assistant stays inert until they are); WhatsApp
               # (Whapi.Cloud, `?`) is optional, and absent that line is off.
-              node scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=CONTROL_PLANE_URL '!AGENT_WORKER_SECRET' '!LINQ_API_KEY' '!LINQ_WEBHOOK_SECRET' '!SENDBLUE_API_KEY_ID' '!SENDBLUE_API_SECRET' '!SENDBLUE_WEBHOOK_SECRET' '?WHAPI_TOKEN' '?WHAPI_LINE' '?WHAPI_WEBHOOK_SECRET' \
+              # Sendblue's delivery receipts, as production works them out
+              # (scripts/sendblue-status-url.mjs); masked, never printed.
+              sub="$(curl --fail-with-body --silent --show-error \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+                | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).result?.subdomain??""))')"
+              if [ -n "$sub" ]; then echo "::add-mask::$sub"; fi
+              SENDBLUE_STATUS_URL="$(node scripts/sendblue-status-url.mjs context-agent-staging "$sub")"
+              if [ -n "$SENDBLUE_STATUS_URL" ]; then echo "::add-mask::$SENDBLUE_STATUS_URL"; fi
+              export SENDBLUE_STATUS_URL
+              node scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=CONTROL_PLANE_URL '!AGENT_WORKER_SECRET' '!LINQ_API_KEY' '!LINQ_WEBHOOK_SECRET' '!SENDBLUE_API_KEY_ID' '!SENDBLUE_API_SECRET' '!SENDBLUE_WEBHOOK_SECRET' '!SENDBLUE_STATUS_URL' '?WHAPI_TOKEN' '?WHAPI_LINE' '?WHAPI_WEBHOOK_SECRET' \
                 | pnpm --dir apps/agent exec wrangler secret bulk --env staging
               ;;
             mcp)
@@ -354,7 +364,7 @@ jobs:
               console.error("The texting assistant is misconfigured: " + JSON.stringify({ ok: d.ok, controlPlane: d.controlPlane, gatewayOrigin: d.gatewayOrigin }));
               process.exit(1);
             }
-            for (const [key, name, off] of [["sendblueWebhook", "SENDBLUE_WEBHOOK_SECRET", "answers no texts"], ["sendblueReplies", "SENDBLUE_API_KEY_ID and SENDBLUE_API_SECRET", "answers no texts"], ["workerSecret", "AGENT_WORKER_SECRET", "answers no texts"], ["whapiWebhook", "WHAPI_WEBHOOK_SECRET", "keeps WhatsApp off"], ["whapiReplies", "WHAPI_TOKEN and WHAPI_LINE", "keeps WhatsApp off"]]) {
+            for (const [key, name, off] of [["sendblueWebhook", "SENDBLUE_WEBHOOK_SECRET", "answers no texts"], ["sendblueReplies", "SENDBLUE_API_KEY_ID and SENDBLUE_API_SECRET", "answers no texts"], ["sendblueReceipts", "SENDBLUE_STATUS_URL", "gets no delivery receipts"], ["workerSecret", "AGENT_WORKER_SECRET", "answers no texts"], ["whapiWebhook", "WHAPI_WEBHOOK_SECRET", "keeps WhatsApp off"], ["whapiReplies", "WHAPI_TOKEN and WHAPI_LINE", "keeps WhatsApp off"]]) {
               if (d[key] !== true) console.log("::warning::The texting assistant has no " + name + " yet, so it " + off + ".");
             }
             require("fs").writeFileSync("/tmp/agent-gateway", d.gatewayOrigin);

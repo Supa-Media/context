@@ -121,12 +121,23 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
+          # Sendblue's delivery receipts: the status address is worked out
+          # from the webhook secret (scripts/sendblue-status-url.mjs), so it
+          # needs no secret of its own; masked, and never printed.
+          sub="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).result?.subdomain??""))')"
+          if [ -n "$sub" ]; then echo "::add-mask::$sub"; fi
+          SENDBLUE_STATUS_URL="$(node ../../scripts/sendblue-status-url.mjs "$WORKER_NAME" "$sub")"
+          if [ -n "$SENDBLUE_STATUS_URL" ]; then echo "::add-mask::$SENDBLUE_STATUS_URL"; fi
+          export SENDBLUE_STATUS_URL
           # One request and one new version for every secret; see
           # scripts/worker-secrets.mjs. `!` ones warn when unset (the texting
           # assistant stays inert until they are), `?` ones are simply off:
           # APPLE_TEAM_ID names the Messages extension on a note's card
           # (src/appCards.ts), and the WHAPI_* trio is Tex's WhatsApp line.
-          node ../../scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=CONTROL_PLANE_URL '?APPLE_TEAM_ID' '!AGENT_WORKER_SECRET' '!LINQ_API_KEY' '!LINQ_WEBHOOK_SECRET' '!SENDBLUE_API_KEY_ID' '!SENDBLUE_API_SECRET' '!SENDBLUE_WEBHOOK_SECRET' '?WHAPI_TOKEN' '?WHAPI_LINE' '?WHAPI_WEBHOOK_SECRET' \
+          node ../../scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=CONTROL_PLANE_URL '?APPLE_TEAM_ID' '!AGENT_WORKER_SECRET' '!LINQ_API_KEY' '!LINQ_WEBHOOK_SECRET' '!SENDBLUE_API_KEY_ID' '!SENDBLUE_API_SECRET' '!SENDBLUE_WEBHOOK_SECRET' '!SENDBLUE_STATUS_URL' '?WHAPI_TOKEN' '?WHAPI_LINE' '?WHAPI_WEBHOOK_SECRET' \
             | pnpm exec wrangler secret bulk
 
       # The same check staging runs: /health reports which settings the Worker
@@ -156,7 +167,7 @@ jobs:
               console.error("The texting assistant is misconfigured: " + JSON.stringify({ ok: d.ok, controlPlane: d.controlPlane, gatewayOrigin: d.gatewayOrigin }));
               process.exit(1);
             }
-            for (const [key, name, off] of [["sendblueWebhook", "SENDBLUE_WEBHOOK_SECRET", "answers no texts"], ["sendblueReplies", "SENDBLUE_API_KEY_ID and SENDBLUE_API_SECRET", "answers no texts"], ["workerSecret", "AGENT_WORKER_SECRET", "answers no texts"], ["whapiWebhook", "WHAPI_WEBHOOK_SECRET", "keeps WhatsApp off"], ["whapiReplies", "WHAPI_TOKEN and WHAPI_LINE", "keeps WhatsApp off"]]) {
+            for (const [key, name, off] of [["sendblueWebhook", "SENDBLUE_WEBHOOK_SECRET", "answers no texts"], ["sendblueReplies", "SENDBLUE_API_KEY_ID and SENDBLUE_API_SECRET", "answers no texts"], ["sendblueReceipts", "SENDBLUE_STATUS_URL", "gets no delivery receipts"], ["workerSecret", "AGENT_WORKER_SECRET", "answers no texts"], ["whapiWebhook", "WHAPI_WEBHOOK_SECRET", "keeps WhatsApp off"], ["whapiReplies", "WHAPI_TOKEN and WHAPI_LINE", "keeps WhatsApp off"]]) {
               if (d[key] !== true) console.log("::warning::The texting assistant has no " + name + " yet, so it " + off + ".");
             }
             require("fs").writeFileSync("/tmp/agent-gateway", d.gatewayOrigin);
