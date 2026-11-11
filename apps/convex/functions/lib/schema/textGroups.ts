@@ -142,8 +142,11 @@ export const textGroupTables = {
    * A mailbox its owner shares with one chat (`lib/textGroupMail.ts`, decided by
    * the owner, 2026-10-27; `docs/decisions/texting-assistant/chat-mail.md`):
    * the chat's turns may search and open that Gmail, narrowed by `query`, while
-   * the chat is bound to `workspaceId` and the sharer still writes there. The
-   * address is the sharer's own; no message is ever kept here.
+   * the sharer is still one of the chat's people. The share is the chat's, not a
+   * workspace's (2026-11-11); `workspaceId` is where it is audited: the sharer's
+   * personal workspace (rows written before then name the workspace the chat
+   * was bound to, and nothing reads it as a rule). The address is the sharer's
+   * own; no message is ever kept here.
    */
   chatMailShares: defineTable({
     groupKey: v.string(),
