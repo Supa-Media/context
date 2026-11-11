@@ -35,14 +35,14 @@ flowchart LR
     Q["Shared step: the chat's queue<br/>each text waits in its chat's object, in order<br/>1:1 up to 20, a group up to 10<br/>chatQueue.ts"]:::shared
     W1 --- Q
     W2 --- Q
-    FT["Shared step: isItForTex<br/>only whether code answers it, never the model:<br/>a command said to Tex by name, a setting, a style choice, an SMS<br/>whether anything else is for Tex is the judge's<br/>isItForTex.ts"]:::shared
+    FT["Shared step: isItForTex<br/>only whether code answers it, never the model:<br/>a command said to Tex by name, sharing chats with the devs, an SMS<br/>whether anything else is for Tex is the judge's<br/>isItForTex.ts"]:::shared
     W1 --- FT
     W2 --- FT
     GT["Shared step: gatherTheTurn<br/>what decide named is answered, an older must-answer first<br/>1:1 drops what's left, a group keeps it as chat<br/>gatherTheTurn.ts"]:::shared
     W1 --- GT
     W2 --- GT
   end
-  D["The one judge · recheck, in the gateway<br/>Clef, @cf/cloudflare/clef, few-shot examples<br/>respond, react or quiet, with a why, every moment<br/>reads the speak-up setting; a judge entry in the group's ledger<br/>textDecide.cjs · textsDecide.js · decideGateway.ts"]:::judge
+  D["The one judge · recheck, in the gateway<br/>Clef, @cf/cloudflare/clef, few-shot examples<br/>respond, react or quiet, with a why, every moment<br/>told follow-along in every group; a judge entry in the group's ledger<br/>textDecide.cjs · textsDecide.js · decideGateway.ts"]:::judge
   subgraph Control["Control plane · Convex"]
     CAP["decide's daily cap and usage rows<br/>asked now and then, written after<br/>textDecideMeter.ts · jev/models.ts"]:::judge
   end
@@ -258,3 +258,4 @@ Newest first. One line per pull request that changed the drawing.
 - 2026-11-05: the reply judge becomes ten parallel Clef Flash gates, each
   tuned on its own set, sent back at most twice; still off in production.
 - 2026-11-05: first drawing, from main at `d88e2bc` (Dev2's ask).
+- 2026-11-11: Tex settings retired (Dev2, `docs/decisions/texting-assistant/retire-settings.md`). Gone from the Worker: the "Tex, settings" menu (1:1 and group), quick-pick words ("Tex, no emoji"), progress-updates and speak-up choices, the group's first-tag style question and its held message (`groupChoose.ts`, `gengask`), and the Worker's style copy (`gstyle`): `isItForTex` marks only commands and sharing-with-the-devs words as code's, and the judge is told follow-along in every group (`groupStyle.ts`). Gone from the gateway: `tex_updates_set` and `chat_engagement_set`; `tex_instructions_set` gains `undo`, so "undo the change" is the model's. A new person's first text, answered by setup with the handle question, is named as still unanswered in the `setup` told line (onboarding skill step 0), and the skill reads mail live.

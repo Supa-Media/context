@@ -7,7 +7,6 @@ import { useFieldFont } from "../../design/fieldFont";
 import type { TexComputerState } from "../useTexComputer";
 import type { ViewProps } from "./TexPageBody";
 import { ListBox, ListRow, SubPage, T, pageStyles } from "./TexPageParts";
-import { TexSelect, type SelectOption } from "./TexSelect";
 import { useTexList, useTexMachines } from "./useTexPage";
 import { GroupMachines } from "./TexGroupMachines";
 import { Switch } from "../../design/components/Switch";
@@ -18,17 +17,12 @@ import type { MachinesPage } from "./texMachineTypes";
 /** The control plane's limit on the text (`apps/convex/functions/lib/texInstructions.ts` `MAX_INSTRUCTIONS`). */
 const MAX_INSTRUCTIONS = 1_500;
 
-const ANSWERS: readonly SelectOption[] = [
-  { key: "named", label: "When named or asked" },
-  { key: "every", label: "Every message" },
-];
-
 /**
  * How Tex talks, in their own words (Dev2, 2026-11-01; custom-instructions.md): the text as the list read gave it,
- * saved when the box loses focus and only when it changed, and the quick picks, each of which adds its line there.
- * The control plane keeps the catalog and writes the line; the next read shows it.
+ * saved when the box loses focus and only when it changed. It is the same text Tex changes when asked in a text;
+ * the quick picks that added lines to it are retired (Dev2, 2026-11-11; retire-settings.md).
  */
-function Instructions({ text, picks, save, testID }: { text: string; picks: readonly { id: string; label: string }[]; save: (values: Record<string, string>) => void; testID: string }) {
+function Instructions({ text, save, testID }: { text: string; save: (values: Record<string, string>) => void; testID: string }) {
   const colors = useColors();
   const field = useFieldFont(texPageType.field);
   const [draft, setDraft] = useState(text);
@@ -46,11 +40,6 @@ function Instructions({ text, picks, save, testID }: { text: string; picks: read
         accessibilityLabel="How Tex talks"
         style={[pageStyles(colors).input, field, { minHeight: 88, paddingVertical: 10 }]}
         testID={`${testID}-instructions`}
-      />
-      <ListRow
-        title="Quick picks"
-        testID={`${testID}-row-picks`}
-        right={<TexSelect look="sel" label="Add a quick pick" options={picks.map(({ id, label }) => ({ key: id, label }))} selected="" onPick={(pick) => save({ pick })} testID={`${testID}-picks`} />}
       />
     </ListBox>
   );
@@ -70,8 +59,8 @@ export function SettingsPage({ source, page, chat, go }: ViewProps) {
   const [confirming, setConfirming] = useState(false);
 
   return (
-    <SubPage title="Tex settings" lead="How Tex talks to you. Changes apply to the next text." testID="tex-settings">
-      <Instructions text={value?.instructions ?? ""} picks={value?.picks ?? []} save={(values) => void page.act({ type: "settings", values })} testID="tex-settings" />
+    <SubPage title="Tex settings" lead="How Tex talks to you, or just tell Tex in a text. Changes apply to the next text." testID="tex-settings">
+      <Instructions text={value?.instructions ?? ""} save={(values) => void page.act({ type: "settings", values })} testID="tex-settings" />
       <ListBox>
         {number ? (
           <ListRow
@@ -153,27 +142,11 @@ export function GroupSettingsPage({ source, page, chat, group, go }: ViewProps) 
   const value = read?.kind === "ok" ? read.value : undefined;
   const approver = value?.approver;
   const people = value?.people ?? [];
-  const [answers, setAnswers] = useState<string | null>(null);
-  useEffect(() => setAnswers(null), [value]);
   const save = (values: Record<string, string>) => void page.act({ type: "group.settings", values });
 
   return (
     <SubPage title="Group settings" lead={`How Tex behaves in ${group ?? "this chat"}.`} testID="tex-group-settings">
       <ListBox>
-        <ListRow
-          title="When Tex answers"
-          testID="tex-group-row-answers"
-          right={
-            <TexSelect
-              look="sel"
-              label="When Tex answers"
-              options={ANSWERS}
-              selected={answers ?? String(value?.values?.answers ?? "named")}
-              onPick={(key) => (setAnswers(key), save({ answers: key }))}
-              testID="tex-group-answers"
-            />
-          }
-        />
         <ListRow
           title="Who approves sends"
           sub="Emails and invites wait for their yes"
@@ -187,7 +160,7 @@ export function GroupSettingsPage({ source, page, chat, group, go }: ViewProps) 
           }
         />
       </ListBox>
-      <Instructions text={value?.instructions ?? ""} picks={value?.picks ?? []} save={save} testID="tex-group" />
+      <Instructions text={value?.instructions ?? ""} save={save} testID="tex-group" />
       <GroupMachines source={source} page={page} chat={chat} group={group} go={go} />
       <ListBox>
         <ListRow

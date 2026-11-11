@@ -212,19 +212,20 @@ test("job page, list and acts: a stop reaches her inbox's job; settings go to th
     const stop = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "stop", job: "job2" } } });
     assert.deepEqual(stop.body, { ok: true });
     assert.deepEqual(world.texting.steered.at(-1), { chat: { phone: ALICE_PHONE }, id: "job2", stop: true });
-    const settings = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "settings", values: { pick: "emoji_none" } } } });
+    const settings = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "settings", values: { instructions: "Be brief.", pick: "emoji_none" } } } });
     assert.deepEqual(settings.body, { ok: true });
-    assert.deepEqual(world.settings.at(-1), { accessToken: T.alice, chat: "me", values: { pick: "emoji_none" } });
+    // Only the words go: a quick pick from an old page is dropped (quick picks retired, Dev2 2026-11-11).
+    assert.deepEqual(world.settings.at(-1), { accessToken: T.alice, chat: "me", values: { instructions: "Be brief." } });
     // A group's settings are not the person's.
     const crossed = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "group.settings", values: { answers: "every" } } } });
     assert.deepEqual(crossed.body, { ok: false, error: "invalid" });
     const values = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: "me", kind: "settings" } });
-    // Their own words and the quick picks, no dials (Dev2, 2026-11-01).
+    // Their own words only: no dials (Dev2, 2026-11-01), no quick picks (2026-11-11).
     assert.equal(values.body.instructions, "Be friendly.\nKeep answers short.");
-    assert.deepEqual(values.body.picks, [{ id: "emoji_none", label: "No emoji" }]);
+    assert.equal(values.body.picks, undefined);
     assert.equal(values.body.values, undefined);
     const group = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: GROUP, kind: "settings" } });
-    assert.deepEqual(group.body.values, { answers: "named" });
+    assert.equal(group.body.values, undefined, "when Tex answers is no longer a choice");
     assert.equal(group.body.instructions, "");
     assert.equal(group.body.approver, "alice");
     const jobs = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: "me", kind: "jobs" } });

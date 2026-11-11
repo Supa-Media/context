@@ -830,6 +830,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A busy group is answered fast, and only with a reply that still fits (2026-10-30)](./texting-assistant/group-turn-workflow.md#a-busy-group-is-answered-fast-and-only-with-a-reply-that-still-fits-2026-10-30)
 - [How Tex talks: settings per person and per group (Dev2, 2026-10-28)](./texting-assistant/tex-settings.md)
 - [How Tex talks: custom instructions and two switches (Dev2, 2026-11-01)](./texting-assistant/custom-instructions.md)
+- [Tex settings retired: people tell Tex in words (Dev2, 2026-11-11)](./texting-assistant/retire-settings.md)
 - [How Tex sounds in each chat: mirror, language, group voice note, a text not an essay (Dev2, 2026-10-28, 2026-10-29)](./texting-assistant/tex-voice.md)
 - [Tex's chat commands are tools the agent calls (2026-10-31)](./texting-assistant/command-tools.md)
 - [One conversation state per chat, and decide picks when and how Tex replies (2026-11-01)](./texting-assistant/chat-state-machine.md)

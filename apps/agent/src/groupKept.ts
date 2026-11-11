@@ -7,7 +7,7 @@
  * its chat must still share what it reads), so a kept answer never reaches more than a fresh one would. What it can
  * get wrong is a name, a guest label or the style for one message: the control plane is asked again behind the turn
  * (without minting), its answer replaces the kept one, and any answer but "ready" drops it, so the next tag asks first.
- * Only a plain tag reuses: a command, a style choice, a setting or a routine always asks, as does another sender, a
+ * Only a plain tag reuses: a command or a routine always asks, as does another sender, a
  * change of who is in the chat, or a token past `REUSE_MS` (it lives `TEXTS_GROUP_GRANT_TTL_MS`, 15 minutes, and a
  * turn may run a few of them).
  */
@@ -28,7 +28,7 @@ export async function keptAnswer(storage: InboxStorage, line: string, sender: st
   const kept = await storage.get<Kept>(KEPT_KEY);
   if (kept === undefined || kept.sender !== sender || now - kept.at < 0 || now - kept.at >= REUSE_MS) return null;
   if (kept.people !== (await peopleHash(line, people))) return null;
-  if (kept.answer.accessToken === undefined || kept.answer.engagementChosen === false) return null;
+  if (kept.answer.accessToken === undefined) return null;
   // The introduction is one-shot and was given with the answer that minted this token.
   return { ...kept.answer, intro: false };
 }

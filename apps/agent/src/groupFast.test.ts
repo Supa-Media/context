@@ -1,7 +1,7 @@
 /**
  * How fast a group is answered, and that the answer still fits (the group
  * review of 2026-10-30, "Speed up Tex replies in groups"): a named message
- * waits only on the judge (2026-11-11), a fixed line such as "Tex, settings" never waits
+ * waits only on the judge (2026-11-11), a fixed line such as "Tex, what can you see" never waits
  * behind another turn, and a reply drafted for an older ask is looked at
  * again before it sends.
  *
@@ -9,7 +9,7 @@
  *  1. (2026-11-11, one judge) `firstLook` answering without the judge's
  *     verdict → "a named message is judged first" fails.
  *  2. `drainOnce` returning on a handed turn without `answerBesideTurn` →
- *     "Tex, settings is answered while another turn runs" fails.
+ *     "Tex, what can you see is answered while another turn runs" fails.
  *  3. `answeredByCode` true for anything `byCode` → "a yes, a 👍, a
  *     routine's run…" fails.
  *  4. `once` in `groupSay.ts` scoping every part to the handed turn, as
@@ -69,16 +69,16 @@ for (const { name, groupId } of LINES) {
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex what's on tonight?", "answer to Tex make a poster"]);
     }, 15_000);
 
-    it("Tex, settings is answered while another turn runs, and that turn still answers after", async () => {
+    it("Tex, what can you see is answered while another turn runs, and that turn still answers after", async () => {
       const { storage, w, deps, run } = handed(groupId, { hold: true, decide: untaggedSilent });
       await acceptGroup(storage, w.message("Tex make a poster"), 0);
       await drainGroup(storage, deps);
       const turn = run();
       await w.running;
-      expect(await acceptGroup(storage, w.message("tex, settings", { from: BO }), 10)).toBe("queued");
+      expect(await acceptGroup(storage, w.message("tex, what can you see", { from: BO }), 10)).toBe("queued");
       await drainGroup(storage, deps);
-      // The menu went while the poster turn is still held, and only the poster went to the model.
-      expect(w.texts.some((text) => text.includes("1"))).toBe(true);
+      // The fixed line went while the poster turn is still held, and only the poster went to the model.
+      expect(w.texts.length).toBeGreaterThan(0);
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual([]);
       expect(w.control.at(-1)).toMatchObject({ sender: BO });
       expect(w.control.at(-1)!.mint).toBeUndefined();
@@ -89,7 +89,7 @@ for (const { name, groupId } of LINES) {
       expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
     });
 
-    it("the menu sent beside a turn is never taken for that turn's part: a retry of the turn still sends its answer", async () => {
+    it("a fixed line sent beside a turn is never taken for that turn's part: a retry of the turn still sends its answer", async () => {
       let fail = true;
       const { storage, w, deps, run } = handed(groupId, {
         hold: true,
@@ -103,7 +103,7 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, deps);
       const turn = run();
       await w.running;
-      await acceptGroup(storage, w.message("tex, settings"), 10);
+      await acceptGroup(storage, w.message("tex, what can you see"), 10);
       await drainGroup(storage, deps);
       const menu = w.texts.length;
       expect(menu).toBeGreaterThan(0);
@@ -119,13 +119,12 @@ for (const { name, groupId } of LINES) {
       const item = (text: string, extra: Record<string, unknown> = {}) => ({ message: w.message(text), attempts: 0, byCode: true as const, ...extra });
       expect(answeredByCode(item("yes"))).toBe(false);
       expect(answeredByCode({ ...item("Loved it"), message: { ...w.message("Loved it"), reaction: { how: "like", words: "x" } } } as never)).toBe(false);
-      expect(answeredByCode({ ...item("Tex settings"), message: { ...w.message("Tex settings"), routine: { runId: "r", path: "p" } } } as never)).toBe(false);
+      expect(answeredByCode({ ...item("Tex stop"), message: { ...w.message("Tex stop"), routine: { runId: "r", path: "p" } } } as never)).toBe(false);
       expect(answeredByCode({ message: w.message("Tex what's on"), attempts: 0 })).toBe(false);
-      // Answered by code alone: the commands, a menu reply, a style choice, an SMS group's line.
-      expect(answeredByCode(item("tex, settings"))).toBe(true);
+      // Answered by code alone: the commands and an SMS group's line. "Tex, settings" is no longer one (2026-11-11).
+      expect(answeredByCode(item("tex, what can you see"))).toBe(true);
       expect(answeredByCode(item("Tex stop"))).toBe(true);
-      expect(answeredByCode(item("2", { setting: { kind: "menu" } }))).toBe(true);
-      expect(answeredByCode(item("3", { engagement: "helpful" }))).toBe(true);
+      expect(answeredByCode(item("tex, settings"))).toBe(false);
       expect(answeredByCode(item("Tex hi", { message: w.message("Tex hi", { sms: true }) }))).toBe(true);
     });
 
@@ -213,7 +212,7 @@ for (const { name, groupId } of LINES) {
       const storage = new MemoryStorage();
       const w = setup(groupId);
       const mine = w.message("Tex make a poster");
-      const other = w.message("tex, settings", { from: BO });
+      const other = w.message("tex, what can you see", { from: BO });
       sendingFor(storage, "turn-1", [mine.messageId]);
       await say(storage, w.deps, mine, "Here's the poster.");
       await say(storage, w.deps, other, "Settings menu");

@@ -3,7 +3,7 @@
  * (`isItForTex.ts`, Dev2's one-door plan, 2026-11-05, "Chat's queue, same steps").
  *
  * Sabotage record (applied, run, observed failing, reverted):
- *  3. the 1:1's settings check without `!message.sms` → "an SMS never sets a setting" fails.
+ *  3. the 1:1's sharing check without `!message.sms` → "an SMS never sets a setting" fails.
  *  4. (2026-11-11) `commandTo` without its name check → "a command said to Tex by name is code's" fails.
  */
 
@@ -27,13 +27,15 @@ describe("isItForTex, a 1:1 chat", () => {
   it("every text is for Tex, and only code's texts are code's", async () => {
     const storage = new MemoryStorage();
     expect(await isItForTexAlone(storage, text("find us a dinner spot"), NOW)).toMatchObject({ forTex: true, byCode: false });
-    const settings = await isItForTexAlone(storage, text("settings"), NOW);
-    expect(settings).toMatchObject({ forTex: true, byCode: true });
-    expect(settings.message.setting).toBe(true);
+    // "settings" is the model's since the menu was retired (2026-11-11); sharing chats with the devs is still code's.
+    expect(await isItForTexAlone(storage, text("settings"), NOW)).toMatchObject({ forTex: true, byCode: false });
+    const sharing = await isItForTexAlone(storage, text("share my chats with the devs"), NOW);
+    expect(sharing).toMatchObject({ forTex: true, byCode: true });
+    expect(sharing.message.setting).toBe(true);
   });
 
   it("an SMS never sets a setting, and is code's all the same", async () => {
-    const out = await isItForTexAlone(new MemoryStorage(), text("settings", { sms: true }), NOW);
+    const out = await isItForTexAlone(new MemoryStorage(), text("share my chats with the devs", { sms: true }), NOW);
     expect(out.message.setting).toBeUndefined();
     expect(out.byCode).toBe(true);
   });
@@ -50,7 +52,8 @@ describe("isItForTex, a group (Dev2, 2026-11-11: whether a message is for Tex is
 
   it("a command said to Tex by name is code's; the same words without the name are not", async () => {
     expect(await isItForTexInGroup(new MemoryStorage(), group("Tex stop"), NOW)).toMatchObject({ forTex: true, byCode: true });
-    expect(await isItForTexInGroup(new MemoryStorage(), group("@Tex, settings"), NOW)).toMatchObject({ forTex: true, byCode: true });
+    expect(await isItForTexInGroup(new MemoryStorage(), group("@Tex, start"), NOW)).toMatchObject({ forTex: true, byCode: true });
+    expect(await isItForTexInGroup(new MemoryStorage(), group("@Tex, settings"), NOW)).toMatchObject({ forTex: false, byCode: false });
     expect(await isItForTexInGroup(new MemoryStorage(), group("stop"), NOW)).toMatchObject({ forTex: false, byCode: false });
   });
 

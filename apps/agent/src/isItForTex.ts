@@ -13,23 +13,20 @@
 
 import { sha256Hex } from "./groupChat";
 import { SENT_KEY } from "./groupSay";
-import { groupSettingReply } from "./groupSettings";
-import { engagementChoice, questionOpen } from "./groupStyle";
 import { commandTo } from "./groupWords";
-import type { GroupStyle } from "./decide";
 import type { InboxStorage } from "./inbox";
 import { decidedByCode } from "./inboxTurn";
 import type { Message } from "./reply";
 import type { GroupMessage } from "./sendblueGroups";
-import { isSettingsText, type SettingReply } from "./texStyle";
+import { sharingWords } from "./reviewSharing";
 
 /** What the step found: whether code answers the text (`forTex`: it is queued as code's, never judged), and whether code alone does. */
 export type ForTex = { forTex: boolean; byCode: boolean };
 
-/** A 1:1 text: always for Tex. A settings text is marked so code answers it before decide (`texStyle.ts`). */
-export async function isItForTexAlone(storage: InboxStorage, message: Message, now: number): Promise<ForTex & { message: Message }> {
+/** A 1:1 text: always for Tex. Sharing chats with the devs is marked so code answers it before decide (`reviewSharing.ts`). */
+export async function isItForTexAlone(_storage: InboxStorage, message: Message, _now: number): Promise<ForTex & { message: Message }> {
   // An SMS never sets a setting: anyone can send one that shows their number.
-  if (!message.sms && !message.tapback && (await isSettingsText(storage, message.text, now))) message = { ...message, setting: true };
+  if (!message.sms && !message.tapback && sharingWords(message.text) !== null) message = { ...message, setting: true };
   return { forTex: true, byCode: decidedByCode(message), message };
 }
 
@@ -45,21 +42,17 @@ export async function isAsker(storage: InboxStorage, message: GroupMessage, now:
 }
 
 /**
- * A group text: code's when it is a style choice, a settings reply or a command said to Tex by name; anything else
- * goes to the judge (`forTex` false). `repliesToTex`: it was typed under one of Tex's texts here, which the judge reads.
+ * A group text: code's when it is a command said to Tex by name; anything else goes to the judge (`forTex` false).
+ * `repliesToTex`: it was typed under one of Tex's texts here, which the judge reads.
  */
 export async function isItForTexInGroup(
   storage: InboxStorage,
   message: GroupMessage,
-  now: number,
-): Promise<ForTex & { repliesToTex: boolean; engagement: GroupStyle | null; setting: SettingReply | null }> {
+  _now: number,
+): Promise<ForTex & { repliesToTex: boolean }> {
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   const repliesToTex = message.replyTo !== undefined && sent.includes(message.replyTo);
-  // An SMS never sets the style: anyone can send one that shows a member's number.
-  const engagement = !message.sms && (await questionOpen(storage, now)) ? engagementChoice(message.text) : null;
-  const setting = !message.sms && engagement === null ? await groupSettingReply(storage, message.text, now) : null;
-  const command = message.reaction === undefined && commandTo(message.text) !== null;
-  const forTex = command || engagement !== null || setting !== null;
-  // Never the model's: an SMS (anyone can fake its sender), a style choice, a setting, a command.
-  return { forTex, byCode: forTex, repliesToTex, engagement, setting };
+  const forTex = message.reaction === undefined && commandTo(message.text) !== null;
+  // Never the model's: a command.
+  return { forTex, byCode: forTex, repliesToTex };
 }
