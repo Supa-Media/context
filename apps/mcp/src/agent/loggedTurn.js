@@ -31,7 +31,7 @@ import { dayFromLedger, earlierFromLedger, faded, readLedger, summaryLines } fro
 import { ledgerPlace } from "./ledger.js";
 import { deskLedger } from "./history.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
-import { MAX_CARRIED_CALLS, stretchSince, stretchTurns } from "./stretch.js";
+import { carryKey, MAX_CARRIED_CALLS, stretchSince, stretchTurns } from "./stretch.js";
 import { groupQuestion } from "./groupLedgerHistory.js";
 
 const MAX_COVERS = 32;
@@ -164,7 +164,7 @@ export function turnReads(store, session, body, { runner, group, dispatch, warm,
   const started = job ? null : chatLedger(store, session);
   // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
   const ledger = started === null ? null : time.ledger(() => started);
-  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: session?.grantId ?? null }))]);
+  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: carryKey(session) }))]);
 }
 
 /** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */

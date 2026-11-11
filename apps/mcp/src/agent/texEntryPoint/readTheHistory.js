@@ -2,6 +2,7 @@
 
 import { transcriptionForwarder } from "../../ingestion/transcription.js";
 import { markChatWords, markUntrusted } from "../../privacy/egress.js";
+import { carryCounts } from "../stretch.js";
 import { addressedTo } from "../../tools/offerFor.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { hearVoiceMessages } from "../attachments.js";
@@ -34,7 +35,9 @@ export async function readTheHistory(t) {
   const threadsRun = chatTurn && job === null && !runner && logged !== null && place !== null && threadsOn(env) && typeof store?.texLedger === "function"
     ? tex.ahead("threads", () => threadedTurn({ logged, ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, group: group !== null, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "threads" } }), null).catch(() => null)
     : null;
-  if (group !== null) markChatWords(ledger); if (job?.tainted || report !== null) markUntrusted(ledger); // a chat's own words are no stranger's (`chatSkills.js`); a job planned after a read from outside still carries it, and a job's report is what it read
+  // A carried result read from outside marks this turn as if it had read it itself (the owner, 2026-11-10; `stretch.js`).
+  const carry = carryCounts(logged?.carried ?? []); if (logged !== null) { const line = { carried: carry.carried, stubOther: carry.stubOther, stubGrant: carry.stubGrant, stubWorkspace: carry.stubWorkspace, carriedOutside: carry.outside ? "yes" : "no", stretch: carry.stretch }; console.log(JSON.stringify({ event: "tex_carry", ...line })); if (stages) stages.carry = line; }
+  if (group !== null) markChatWords(ledger); if (job?.tainted || report !== null || carry.outside) markUntrusted(ledger); // a chat's own words are no stranger's (`chatSkills.js`); a job planned after a read from outside still carries it, and a job's report is what it read
   // The computers a chat turn may name, read beside the rest so the turn is told they're there (`machines/forTurn.js`); a job's own turn names none.
   const computersRead = chatTurn && job === null && (group !== null || session.actorClientId === TEXTS_CLIENT_ID) ? tex.ahead("computers", () => machinesFor(env, session, controlPlane), []).catch(() => []) : null;
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group !== null || session.actorClientId === TEXTS_CLIENT_ID ? () => computersRead ?? machinesFor(env, session, controlPlane) : null, inGroup: group !== null }) : null;

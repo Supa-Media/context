@@ -94,10 +94,10 @@ jobs:
               });' \
             | grep --line-buffered -o '{"event":.*}' \
             | node -e '
-              const keep = ["event", "outcome", "reason", "status", "code", "lines", "service", "kind", "attempts", "ms", "path", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "where", "name", "job", "keys", "idKind", "from", "to", "cause", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "source", "cold", "waitedMs", "type", "method"];
+              const keep = ["event", "outcome", "reason", "status", "code", "lines", "service", "kind", "attempts", "ms", "path", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "where", "name", "job", "keys", "idKind", "from", "to", "cause", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "source", "cold", "waitedMs", "type", "method", "carried", "stubOther", "stubGrant", "stubWorkspace", "carriedOutside", "stretch"];
               // Only a code the Worker chose is published; anything else is "other", never stripped down to a
               // readable remnant (scripts/log-codes.mjs, which this run page cannot import: no checkout here).
-              const NUMERIC = new Set(["lines", "attempts", "ms", "status", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "waitedMs"]);
+              const NUMERIC = new Set(["lines", "attempts", "ms", "status", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "waitedMs", "carried", "stubOther", "stubGrant", "stubWorkspace", "stretch"]);
               const code = (v) => {
                 const t = String(v);
                 return /^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t) ? t : "other";
@@ -131,10 +131,10 @@ jobs:
           const prefix = process.env.EVENT_PREFIX ?? "";
           const to = Date.now();
           const from = to - minutes * 60_000;
-          const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms", "path", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "where", "name", "job", "keys", "idKind", "from", "to", "cause", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "source", "cold", "waitedMs", "type", "method"];
+          const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms", "path", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "where", "name", "job", "keys", "idKind", "from", "to", "cause", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "source", "cold", "waitedMs", "type", "method", "carried", "stubOther", "stubGrant", "stubWorkspace", "carriedOutside", "stretch"];
           // Only a code the Worker chose is published; anything else is "other", never stripped down to a
           // readable remnant (scripts/log-codes.mjs, which this run page cannot import: no checkout here).
-          const NUMERIC = new Set(["attempts", "ms", "status", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "waitedMs"]);
+          const NUMERIC = new Set(["attempts", "ms", "status", "queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs", "round", "input", "cacheRead", "output", "modelMs", "toolMs", "rounds", "waitMs", "gatewayMs", "sendMs", "wordsWaiting", "meaningWaiting", "waitedMs", "carried", "stubOther", "stubGrant", "stubWorkspace", "stretch"]);
           const code = (v) => {
             const t = String(v);
             return /^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t) ? t : "other";
