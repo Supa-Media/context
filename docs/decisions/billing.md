@@ -386,14 +386,11 @@ second current-generation index.
 ## Production CUJ account
 
 `agentseyi@agentmail.to` is the dedicated production journey-test identity.
-Its fixed code runs through a separate exact-email provider contributed to
+It signs in through a separate exact-email provider contributed to
 `@supa-media/convex`; the ordinary email provider is unchanged for every other
-address. The code is the deployment's `TEST_ACCOUNT_SIGNIN_CODE`, kept in the
-vault and never in this repository; it was a public `000000` until the owner
-moved it on 2026-10-25, ahead of Google's CASA assessment, because a code in a
-public repository signs anybody in to a production account. Unset, the account
-signs in by a code mailed to its inbox (`reviewerAccount.test.ts` pins that
-`auth.ts` holds no code). The same verified identity may own more than the ordinary workspace
+address. It has no fixed code (2026-11-11, CASA 1.2.1): it takes only a code
+staff issue (`functions/signInCodes.ts`), single-use, expiring and
+attempt-limited like any customer's (`issuedSignInCodes.test.ts`). The same verified identity may own more than the ordinary workspace
 cap and activate its selected Premium entitlements without opening Stripe.
 
 This is test infrastructure, not a comped customer plan: the exception is

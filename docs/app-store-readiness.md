@@ -35,9 +35,14 @@ Do not describe push delivery as working until those exist.
 ## Review account
 
 Current sign-in includes phone authentication, with email as an alternative.
-The dedicated reviewer email provider already exists. It gets its fixed code
-from deployment configuration and its exact identity is exempt from the phone
-check. The production CUJ account is also exempt. Prefer the dedicated reviewer
+The dedicated reviewer email (`connector-review@supa.media`) signs in with a
+code staff issue for each submission: run **Actions → Issue a sign-in code**
+(production, that account, days to cover the review), take the code from the
+team inbox, and put it with the email in the App Store Connect review fields.
+It works once, expires within fourteen days and dies after ten wrong tries, so
+issue a fresh one for each submission. The old review phone `+12025550123` and
+its fixed code are retired (2026-11-11). The reviewer's exact identity is exempt
+from the phone check. The production CUJ account is also exempt. Prefer the dedicated reviewer
 identity: the CUJ account has test-only provisioning and cleanup powers.
 
 Verify reviewer sign-in, waitlist/admission, a synthetic workspace with storage,

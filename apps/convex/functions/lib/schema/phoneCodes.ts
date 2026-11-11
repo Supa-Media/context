@@ -12,7 +12,7 @@ export const phoneCodeTables = {
   phoneCodes: defineTable({
     /** E.164. */
     phone: v.string(),
-    /** SHA-256 of `<phone>:<code>`, hex. */
+    /** Keyed hash of `<phone>:<code>` (`lib/oneTimeCodes.ts`), hex. */
     codeHash: v.string(),
     expiresAt: v.number(),
     /** Wrong codes typed against this one. */

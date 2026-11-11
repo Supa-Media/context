@@ -37,6 +37,9 @@ jobs:
     env:
       APP_ENV: staging
       STAGING_CONVEX_DEPLOYMENT: ${{ vars.STAGING_CONVEX_DEPLOYMENT }}
+      # Issues each persona's sign-in code (scripts/staging-sign-in-code.mjs);
+      # the fixed 000000 is gone (CASA 1.2.1, 2026-11-11).
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
       AGENTMAIL_INBOX: ${{ secrets.AGENTMAIL_INBOX }}
     steps:

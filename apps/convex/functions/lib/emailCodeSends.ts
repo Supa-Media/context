@@ -3,6 +3,7 @@ import { internal } from "../../_generated/api";
 import { type MutationCtx } from "../../_generated/server";
 import { internalMutation } from "./rowWatch/mutations";
 import { tryConsumeRateLimit, windowEndsAt, type RateLimitPolicy } from "./rateLimit";
+import { afterVerification } from "./issuedSignInCodes";
 
 /**
  * How many email sign-in codes one address may be sent.
@@ -40,7 +41,7 @@ import { tryConsumeRateLimit, windowEndsAt, type RateLimitPolicy } from "./rateL
  * the window to end. Fifteen minutes keeps that wait short while allowing a
  * person several resends.
  *
- * Only the ordinary `email` provider is counted. The fixed-code providers
+ * Only the ordinary `email` provider is counted. The issued-code providers
  * (`test-email*`) mail nothing, and the invitation link's code
  * (`magic-link`, `functions/invitationEmail.ts`) has its own limits.
  */
@@ -98,7 +99,10 @@ export function limitEmailCodeSends() {
       if (call?.type === "createVerificationCode" && call.provider === COUNTED_PROVIDER && typeof call.email === "string") {
         await spendEmailCodeSend(ctx, call.email);
       }
-      return await ctx.runMutation(internal.auth.libraryStore, { args });
+      const result = await ctx.runMutation(internal.auth.libraryStore, { args });
+      // An issued code's own attempt limit (`lib/issuedSignInCodes.ts`).
+      await afterVerification(ctx, args as never, result);
+      return result;
     },
   });
 }

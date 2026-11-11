@@ -1,6 +1,6 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
-import { APP_REVIEW_PHONE, appReviewPhoneCodeMatches, googleReviewTestEmail, reviewerTestEmail, directoryReviewTestEmail } from "./functions/lib/reviewerAccount";
+import { APP_REVIEW_PHONE, googleReviewTestEmail, reviewerTestEmail, directoryReviewTestEmail } from "./functions/lib/reviewerAccount";
 import { testAccountEmail } from "./functions/lib/testAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
 import { limitEmailCodeSends } from "./functions/lib/emailCodeSends";
@@ -67,7 +67,8 @@ const supaAuth = createSupaAuth({
     // A ten-digit code comes only from opening a link Tex texted
     // (`functions/textSignIn.ts`) and is checked against those alone.
     check: async (phone, code, ctx) => {
-      if (phone === APP_REVIEW_PHONE) return appReviewPhoneCodeMatches(code) ? "approved" : "wrong";
+      // The retired App Store review alias takes no code at all (`lib/reviewerAccount.ts`).
+      if (phone === APP_REVIEW_PHONE) return "wrong";
       if (code.length === SIGN_IN_CODE_LENGTH) return await checkLinkCode(ctx as never, phone, code);
       return await checkCode(ctx as never, phone, code);
     },
@@ -107,14 +108,11 @@ const supaAuth = createSupaAuth({
   // life for it. Seven days here would lengthen only that code and would buy
   // the invitation link nothing at all.
   magicLink: { maxAge: 60 * 60 },
-  // Dedicated production CUJ identity. The framework registers a separate
-  // provider that refuses every other address; this is not the global dev
-  // bypass and cannot change the ordinary customer email provider. The
-  // connector-directory reviewer gets a provider of its own the same way, and
-  // so does Google's verification reviewer. Every code lives only in the
-  // deployment's environment (`TEST_ACCOUNT_SIGNIN_CODE`,
-  // `REVIEWER_SIGNIN_CODE`, `GOOGLE_REVIEW_SIGNIN_CODE`); unset, that provider
-  // does not exist.
+  // The CUJ account and the outside reviewers' accounts each get a provider
+  // of their own that refuses every other address. None has a fixed code: the
+  // only codes they accept are ones staff issue (`functions/signInCodes.ts`),
+  // single-use, expiring and attempt-limited like any customer's, and starting
+  // a sign-in through one mints nothing (`patches/@convex-dev__auth.patch`).
   testEmail: [...testAccountEmail(), ...reviewerTestEmail(), ...googleReviewTestEmail(), ...directoryReviewTestEmail()],
   // The framework honours `DEV_OTP_BYPASS` — which changes what the ORDINARY
   // customer provider mints, for every address — unless this is truthy and
