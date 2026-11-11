@@ -26,7 +26,7 @@ in regex in the texting Worker, and the model had no say and no tools.
   rules (`functions/lib/texChatRules.ts`, `lib/textGroupMail.ts`,
   `texReviews.ts` `setSharing`): anyone in the chat mutes Tex and sets the
   style and when it speaks up; only the mailbox's own person shares or stops
-  sharing their mail, in a chat on a shared workspace they can edit; a person's
+  sharing their mail, in a chat they are in; a person's
   review sharing is set in their own chat only.
 - **Acting for the person needs their own words.** Sharing or unsharing
   their mail and their review sharing run only when the turn's own message,
