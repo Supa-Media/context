@@ -12,7 +12,7 @@ import {
   TEST_EMAIL_WORKER_SECRET,
   TEST_GATEWAY_SECRET,
 } from "./fixtures.helpers";
-import { hashToken } from "../functions/lib/crypto";
+import { hashOneTimeCode } from "../functions/lib/oneTimeCodes";
 import { CODE_TTL_MS, MAX_WRONG_TRIES, TEXTS_CLIENT_ID } from "../functions/textLinks";
 
 /**
@@ -143,7 +143,7 @@ describe("linking", () => {
     const { code } = await startLink(t, userId);
     const rows = await t.run(async (ctx) => await ctx.db.query("phoneLinkCodes").collect());
     expect(JSON.stringify(rows)).not.toContain(code);
-    expect(rows[0]!.hashedCode).toBe(await hashToken(code));
+    expect(rows[0]!.hashedCode).toBe(await hashOneTimeCode("text-link", code));
   });
 
   test("a malformed number is refused when the code is asked for", async () => {

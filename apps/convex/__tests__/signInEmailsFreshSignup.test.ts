@@ -5,7 +5,7 @@ import {
   FRESH_SIGNUP_WINDOW_MS,
   isFreshSingleEmailAccount,
 } from "../functions/lib/freshSignup";
-import { hashToken } from "../functions/lib/crypto";
+import { hashOneTimeCode } from "../functions/lib/oneTimeCodes";
 import type { Id } from "../_generated/dataModel";
 
 /**
@@ -28,7 +28,7 @@ async function start(t: TestConvex, userId: Id<"users">, email: string) {
   const phone = await asPhoneOnly(t, userId);
   const started = await phone.view.action(api.functions.signInEmails.startAddEmail, { email });
   if (started.status === "sent") {
-    const hashed = await hashToken(CODE);
+    const hashed = await hashOneTimeCode("sign-in-email", CODE);
     await t.run(async (ctx) => {
       const row = await ctx.db
         .query("signInEmailCodes")
