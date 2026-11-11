@@ -119,6 +119,8 @@ answered "Anytime." The model rarely calls `say_nothing`, and the reviewer
 reads what a reply says, never whether one is needed. Proof:
 `@supa projects/tex-reliability/2026-11-10-when-to-talk.md`.
 
+_Superseded 2026-11-11 by [one-judge-one-record](./one-judge-one-record.md) (PR 1): the Haiku respond classifier, `respond.js` and code's floor `mayHush` are deleted; whether Tex answers is the Worker's one Clef judge's, taught by the same kind of labelled examples, and this classifier now only sorts threads and places a reply._
+
 What runs (`agent/respond.js`):
 
 - The same classifier call also answers `respond` (`reply`, `react` with an

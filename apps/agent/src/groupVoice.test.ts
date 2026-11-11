@@ -9,7 +9,8 @@
 
 import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
-import { acceptGroup } from "./groupInbox";
+import { acceptGroup, drainGroup } from "./groupInbox";
+import { fakeJudge, setup } from "./groupWorld.testing";
 import { HEAR_URL, heardInGroup, onlyVoice } from "./groupVoice";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { GroupMessage } from "./sendblueGroups";
@@ -63,18 +64,27 @@ describe("a group's voice message", () => {
     expect(JSON.stringify(w.heard[0])).not.toContain(ADA.slice(1));
   });
 
-  it("a voice message that says Tex's name is queued for Tex, as the same words typed are", async () => {
-    const storage = new MemoryStorage();
-    expect(await acceptGroup(storage, message("Tex, find us a dinner spot for Friday", { messageId: "t1" }), 0)).toBe("queued");
-    const said = await heardInGroup(message("", { messageId: "v1", attachments: [VOICE] }), world("Okay so Tex, can you find us a dinner spot for Friday?"));
-    expect(await acceptGroup(new MemoryStorage(), said, 1)).toBe("queued");
-    // Without its words, as before: never for Tex.
-    expect(await acceptGroup(new MemoryStorage(), message("", { messageId: "v2", attachments: [VOICE] }), 1)).not.toBe("queued");
+  // Dev2, 2026-11-11 (one judge): what a voice message says is read by the judge, as typed words are; no word rule routes it.
+  it("a voice message's words are what the judge reads: said to Tex, it is answered; about something else, it is not", async () => {
+    for (const [words, answered] of [["Okay so Tex, can you find us a dinner spot for Friday?", true], ["running ten minutes late, save me a seat", false]] as const) {
+      const storage = new MemoryStorage();
+      const w = setup(GROUP, { decide: fakeJudge });
+      const said = await heardInGroup(message("", { messageId: "v1", attachments: [VOICE] }), world(words));
+      // In a chat Tex is not set up in, only words that call Tex are read at all (fail closed), then judged alone.
+      expect(await acceptGroup(storage, said, 1)).toBe(answered ? "queued" : "ignored");
+      await drainGroup(storage, w.deps);
+      if (answered) expect(w.decided.at(-1)?.transcript, words).toContain(words);
+      expect(w.asks.length > 0, words).toBe(answered);
+    }
   });
 
-  it("a voice message about something else is not for Tex", async () => {
-    const said = await heardInGroup(message("", { messageId: "v3", attachments: [VOICE] }), world("running ten minutes late, save me a seat"));
-    expect(await acceptGroup(new MemoryStorage(), said, 1)).not.toBe("queued");
+  it("a voice message with no words heard is never read in a chat Tex is not set up in", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(GROUP, { decide: fakeJudge });
+    expect(await acceptGroup(storage, message("", { messageId: "v2", attachments: [VOICE] }), 1)).toBe("ignored");
+    await drainGroup(storage, w.deps);
+    expect(w.decided).toEqual([]);
+    expect(w.asks).toEqual([]);
   });
 
   it("a message with words, a picture, an SMS or a reaction is never sent to be heard", async () => {

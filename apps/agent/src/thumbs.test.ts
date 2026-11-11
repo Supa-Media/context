@@ -26,6 +26,7 @@ import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, drainGroup, type GroupDeps } from "./groupInbox";
 import { holdsAsYes, onTheAsk, rememberAskReply, THUMB_HOLD_MS } from "./thumbs";
 import type { Fetch } from "./clients";
+import { fakeJudge } from "./groupWorld.testing";
 
 const NOW = 1_800_000_000_000;
 const ASK = "Here's the email I'd send:\n\nTo: jo@example.com\nSubject: Thursday\n\nThursday works.\n\nGive it a 👍 and I'll send it.";
@@ -196,6 +197,7 @@ describe("a thumbs up on an ask, in a group", () => {
       const path = new URL(url).pathname;
       if (path.startsWith("/api/v2/groups/")) return Response.json({ participants: [{ number: ADA }, { number: BO }] });
       const body = JSON.parse(String(init.body));
+      if (path === "/agent-texts/decide") return Response.json(fakeJudge(body));
       if (path === "/agent-texts/group") return Response.json({ status: "ready", slug: "band", intro: false, handle: "ada", accessToken: "cat" });
       if (path === "/agent") {
         asks.push(body);
@@ -243,13 +245,14 @@ describe("a thumbs up on an ask, in a group", () => {
     await acceptGroup(storage, msg("Tex, email Jo that Thursday works"), 0);
     await drainGroup(storage, groupDeps(asks, clock, { answer: groupAsk, verbatim: [groupAsk] }));
     const dislike = (from: string, id: string) => msg(`Disliked “${groupAsk}”`, { from, messageId: id, reaction: { how: "Disliked", words: groupAsk } });
-    // Somebody else's 👎 is a line of the chat, never the asker's no (only the asker's is held).
-    expect(await acceptGroup(storage, dislike(BO, "bo"), 1_000)).not.toBe("queued");
+    // Somebody else's 👎 is a line for the judge, never the asker's no (only the asker's is held).
+    await acceptGroup(storage, dislike(BO, "bo"), 1_000);
     expect(await storage.get("gthumb")).toBeUndefined();
     expect(await acceptGroup(storage, dislike(ADA, "ada"), 1_000)).toBe("queued");
     clock.now = 1_000;
     await drainGroup(storage, groupDeps(asks, clock, { answer: "OK, dropped." }));
-    expect(asks[1]).toMatchObject({ question: "👎", quoted: groupAsk, tapback: "Disliked" });
+    // Only the asker's 👎 reaches the gateway as a tapback; Bo's line may get a turn of its own (the judge's), never as one.
+    expect(asks.filter((ask) => ask.tapback !== undefined)).toEqual([expect.objectContaining({ question: "👎", quoted: groupAsk, tapback: "Disliked" })]);
   });
 
   it("only the asker's like goes, at once, with the ask's words", async () => {
@@ -260,14 +263,14 @@ describe("a thumbs up on an ask, in a group", () => {
     await drainGroup(storage, groupDeps(asks, clock, { answer: groupAsk, verbatim: [groupAsk] }));
     const like = (from: string, id: string, removed = false) =>
       msg(`Liked “${groupAsk}”`, { from, messageId: id, reaction: { how: "Liked", words: groupAsk, ...(removed ? { removed: true as const } : {}) } });
-    // Somebody else's 👍 is a line of the chat, never the asker's yes: nothing is held for it.
-    expect(await acceptGroup(storage, like(BO, "bo"), 1_000)).not.toBe("queued");
+    // Somebody else's 👍 is a line for the judge, never the asker's yes: nothing is held for it.
+    await acceptGroup(storage, like(BO, "bo"), 1_000);
     expect(await storage.get("gthumb")).toBeUndefined();
     expect(await acceptGroup(storage, like(ADA, "ada"), 1_000)).toBe("queued");
     clock.now = 1_000;
     await drainGroup(storage, groupDeps(asks, clock, { answer: "Sent." }));
-    expect(asks).toHaveLength(2);
-    expect(asks[1]).toMatchObject({ question: "👍", quoted: groupAsk, tapback: "Liked" });
+    // Only the asker's 👍 reaches the gateway as a tapback; Bo's line may get a turn of its own (the judge's), never as one.
+    expect(asks.filter((ask) => ask.tapback !== undefined)).toEqual([expect.objectContaining({ question: "👍", quoted: groupAsk, tapback: "Liked" })]);
   });
 
   it("a like taken back in time sends nothing", async () => {

@@ -3,15 +3,15 @@
  * (`isItForTex.ts`, Dev2's one-door plan, 2026-11-05, "Chat's queue, same steps").
  *
  * Sabotage record (applied, run, observed failing, reverted):
- *  1. the group's `byCode` without `message.sms` → "an SMS tag is code's" fails.
- *  2. the group's yes without `isAsker` → "somebody else's yes is chat" fails.
  *  3. the 1:1's settings check without `!message.sms` → "an SMS never sets a setting" fails.
+ *  4. (2026-11-11) `commandTo` without its name check → "a command said to Tex by name is code's" fails.
  */
 
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "./groupChat";
 import { ASK_KEY, isItForTexAlone, isItForTexInGroup, type OpenAsk } from "./isItForTex";
 import { MemoryStorage } from "./memoryStorage.testing";
+import { SENT_KEY } from "./groupSay";
 import type { Message } from "./reply";
 import type { GroupMessage } from "./sendblueGroups";
 
@@ -39,29 +39,25 @@ describe("isItForTex, a 1:1 chat", () => {
   });
 });
 
-describe("isItForTex, a group", () => {
-  it("chatter is not for Tex; a tag is, and is the model's", async () => {
-    const storage = new MemoryStorage();
-    expect(await isItForTexInGroup(storage, group("anyone up for tacos?"), NOW, false)).toMatchObject({ forTex: false, byCode: false });
-    expect(await isItForTexInGroup(storage, group("Tex, find us a dinner spot for Friday"), NOW, false)).toMatchObject({ forTex: true, byCode: false });
-  });
-
-  it("a command after Tex's name is code's", async () => {
-    expect(await isItForTexInGroup(new MemoryStorage(), group("Tex stop"), NOW, false)).toMatchObject({ forTex: true, byCode: true });
-  });
-
-  it("an SMS tag is code's: anyone can fake its sender", async () => {
-    expect(await isItForTexInGroup(new MemoryStorage(), group("Tex, find us a dinner spot", { sms: true }), NOW, false)).toMatchObject({ forTex: true, byCode: true });
-  });
-
-  it("the asker's bare yes is for Tex and code's; somebody else's yes is chat", async () => {
+describe("isItForTex, a group (Dev2, 2026-11-11: whether a message is for Tex is the one judge's, never a word rule)", () => {
+  it("chatter, a tag, a bare yes and a voice message naming Tex are all the judge's, not code's", async () => {
     const storage = new MemoryStorage();
     await storage.put<OpenAsk>(ASK_KEY, { from: await sha256Hex(ADA), at: NOW - 1_000 });
-    expect(await isItForTexInGroup(storage, group("yes"), NOW, false)).toMatchObject({ forTex: true, byCode: true });
-    expect(await isItForTexInGroup(storage, group("yes", { from: BO }), NOW, false)).toMatchObject({ forTex: false, byCode: false });
+    for (const message of [group("anyone up for tacos?"), group("Tex, find us a dinner spot for Friday"), group("@Tex what's 2+2"), group("yes"), group("", { heard: "hey Tex can you book us a table" })]) {
+      expect(await isItForTexInGroup(storage, message, NOW), message.text || "voice").toMatchObject({ forTex: false, byCode: false });
+    }
   });
 
-  it("a voice message that says Tex's name is for Tex", async () => {
-    expect(await isItForTexInGroup(new MemoryStorage(), group("", { heard: "hey Tex can you book us a table" }), NOW, false)).toMatchObject({ forTex: true });
+  it("a command said to Tex by name is code's; the same words without the name are not", async () => {
+    expect(await isItForTexInGroup(new MemoryStorage(), group("Tex stop"), NOW)).toMatchObject({ forTex: true, byCode: true });
+    expect(await isItForTexInGroup(new MemoryStorage(), group("@Tex, settings"), NOW)).toMatchObject({ forTex: true, byCode: true });
+    expect(await isItForTexInGroup(new MemoryStorage(), group("stop"), NOW)).toMatchObject({ forTex: false, byCode: false });
+  });
+
+  it("a reply under one of Tex's texts is marked for the judge, and stays the judge's", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(SENT_KEY, ["h_out_1"]);
+    expect(await isItForTexInGroup(storage, group("and saturday?", { replyTo: "h_out_1" }), NOW)).toMatchObject({ forTex: false, repliesToTex: true });
+    expect(await isItForTexInGroup(storage, group("and saturday?", { replyTo: "h_other" }), NOW)).toMatchObject({ repliesToTex: false });
   });
 });

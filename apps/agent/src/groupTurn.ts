@@ -1,14 +1,15 @@
 /**
- * Which of a group's waiting messages one turn answers, decided by the
- * control plane (`decide.ts`, the group's style) instead of by hand (Dev2,
- * 2026-10-26, reversing "two people's texts are two questions"). What
- * reaches decide at all is the style's (`groupStyle.ts`); decide unreachable,
- * a group answers what `addressesTex` accepted, one at a time, with what
- * its sender sent right after it (`withJoins`), as before. Addressed, its turn
- * starts at once and decide is asked beside it; decide's silent drops the
- * answer unsent (`decideBeside`, Dev2, 2026-11-01). Kept as code: only the asker's yes releases what was held, a
- * style choice and the commands are never put to decide, and a newcomer's
- * transcript starts where they joined (`renderTranscript` with `people`).
+ * Which of a group's waiting messages one turn answers, and whether any is
+ * answered at all: the one judge's (Clef, `decide.ts`, `textDecide.cjs`;
+ * Dev2, 2026-11-11, one judge; 2026-10-26, reversing "two people's texts are
+ * two questions"). Every message that is not code's reaches it, whatever the
+ * speak-up setting, which it reads; no word rule says what is for Tex. A
+ * message from a chat Tex is not set up in is judged alone, unlogged
+ * (`firstLook`). The judge down, a group answers only a waiting question
+ * (`decideDownAnswer`). Kept as code: only the asker's yes releases what was
+ * held, a style choice and the commands are never put to the judge, and a
+ * newcomer's transcript starts where they joined (`renderTranscript` with
+ * `people`).
  */
 
 import { gatherTheTurn } from "./gatherTheTurn";
@@ -16,24 +17,24 @@ import { noteHandle, replyFields } from "./replyQuote";
 import { chatEvent } from "./chatState";
 import type { SettingReply } from "./texStyle";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
-import { addEvent, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
+import { addEvent, kindOf, markStale, renderTranscript, waitingAsks, type TexEvent } from "./events";
 import { chatEvents } from "./chatRead";
 import { decide, GROUP_DECIDE_MS, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
 import { eventPeople, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
 import { burstStillTyped, decideDownAnswer } from "./groupPolicy";
-import { groupStyle, movedOn } from "./groupStyle";
-import { addressesTex } from "./groupWords";
+import { groupStyle } from "./groupStyle";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
 
 /**
  * `at`: when it was accepted, so its turn is handed only what the chat said
- * before it. `ev` its event id. `soft`: not addressed, put to decide by the
- * style; left unanswered it becomes a chat line. `force`: answered by the
- * next turn whatever decide says. `byCode`: never put to decide (a command,
- * a yes, a style choice, a thumb). `engagement`: the style it chooses.
+ * before it. `ev` its event id. `soft`: the judge's to answer or not; left
+ * unanswered it becomes a chat line. `force`: answered by the next turn
+ * whatever the judge says. `byCode`: never put to the judge (a command, a
+ * style choice, a thumb). `engagement`: the style it chooses. `look`: from a
+ * chat Tex is not set up in (or an SMS), unlogged until the judge answers it.
  */
 export type GroupPending = {
   message: GroupMessage;
@@ -58,6 +59,8 @@ export type GroupPending = {
   reacted?: true;
   /** A turn's draft for it was held by `recheckDraft` once already: the next answer is sent. */
   rechecked?: true;
+  /** Waiting on the judge's first look: nothing of it is kept or logged unless the judge answers it (`firstLook`). */
+  look?: true;
 };
 export type GroupEntry = [string, GroupPending];
 
@@ -79,7 +82,8 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
     chat: message.groupId,
     from: { kind: "person", who, ...(name ? { name } : {}) },
     kind: message.reaction ? "reaction" : kindOf(message.text, message.attachments),
-    text: message.text,
+    // A voice message's words, as heard before the judge reads it (`groupVoice.ts`): the judge cannot hear the recording.
+    text: message.text.trim() === "" && message.heard ? `(voice message) ${message.heard}` : message.text,
     people: await eventPeople(storage, message),
     // A reply under an earlier message, found by the handle the webhook names: its id and full words (`replyQuote.ts`).
     ...(message.reaction || message.replyTo === undefined ? {} : await replyFields(storage, message.groupId, { handle: message.replyTo })),
@@ -88,7 +92,12 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
   return id;
 }
 
-async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: GroupMessage, candidates: string[], running: boolean, addressed = false): Promise<Decision> {
+/**
+ * Ask the judge about the newest of `candidates`. `look`: a chat Tex is not set up in, judged on these lines alone
+ * (`firstLook`), with no ledger to keep its verdict; otherwise the chat's log from its ledger, and the verdict kept
+ * there as a `judge` entry (the gateway writes it, `textsDecide.js`).
+ */
+async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: GroupMessage, candidates: string[], running: boolean, look?: string): Promise<Decision> {
   const style = (await groupStyle(storage)).style;
   const decision = await decide(
     deps,
@@ -98,30 +107,30 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       sender: newest.from,
       style,
       // The chat's whole log, whoever has joined or left since (the owner, 2026-11-02).
-      transcript: renderTranscript(await chatEvents(storage, newest.groupId)),
+      transcript: look ?? renderTranscript(await chatEvents(storage, newest.groupId)),
       candidates,
       running,
       // Only the sender's own asks: nobody else's "nah forget it" can end somebody's ask.
-      waitingAsks: await waitingAsks(storage, deps.now(), await sha256Hex(newest.from)),
+      waitingAsks: look !== undefined ? [] : await waitingAsks(storage, deps.now(), await sha256Hex(newest.from)),
       newest: candidates.at(-1) ?? "",
-      // It looks addressed (`addressesTex`): decide is told, so a real ask is not read as chatter.
-      ...(addressed ? { addressed: true as const } : {}),
+      // The chat's ledger, where the verdict is kept: the control plane's key for it (`groupKeyOf`), never for a first look.
+      ...(look !== undefined ? {} : { ledger: await sha256Hex(`${newest.line}:${newest.groupId}`) }),
     },
     running ? RUNNING_DECIDE_MS : GROUP_DECIDE_MS,
   );
-  // Codes only: the act, or why decide could not answer.
+  // Codes only: the act and its why, or why the judge could not answer.
   console.log(
     JSON.stringify({
       event: "group_decide",
       outcome: decision.ok ? decision.act : decision.reason,
+      ...(decision.ok && decision.why ? { why: decision.why } : {}),
       ...(!decision.ok && decision.cause ? { reason: decision.cause } : {}),
       ...(decision.ms !== undefined ? { ms: decision.ms } : {}),
-      ...(running ? { kind: "running" } : addressed ? { kind: "addressed" } : {}),
+      ...(running ? { kind: "running" } : look !== undefined ? { kind: "first_look" } : {}),
     }),
   );
   if (decision.ok) {
     await markStale(storage, decision.stale);
-    if (decision.movedOn) await movedOn(storage);
   }
   return decision;
 }
@@ -151,24 +160,21 @@ function withJoins(burst: GroupEntry[], head: GroupEntry): GroupEntry[] {
 
 /**
  * What the next turn answers out of `burst` (waiting messages, none code's,
- * oldest first). A message addressed to Tex (its name opening or closing it, an @-tag, a reply to Tex)
- * starts its turn at once, with what joined it, so a burst holding one is
- * chosen by code (`addressedTurn`), never waiting on decide: decide is asked
- * beside the turn, and only its silent keeps the answer from going
- * (`decideBeside`; Dev2, 2026-11-01, ending the floor of 2026-10-27). Decide chooses only for
- * a burst of untagged messages: whether they are answered, and which of
- * them an answer covers. Decide down: an untagged question that reached
- * decide (its style reads it) is answered, so a follow-up is never dropped
- * silently; other untagged ones become chat lines.
+ * oldest first), as the judge chooses: whether they are answered, and which
+ * of them an answer covers. A message the judge already chose to answer
+ * (`force`) is answered with what joined it (`addressedTurn`). Messages from a
+ * chat Tex is not set up in are judged first, alone (`firstLook`). The judge
+ * down: a waiting question is answered (`decideDownAnswer`), so a follow-up is
+ * never dropped silently; the rest become chat lines.
  */
 export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps & { now: () => number }, burst: GroupEntry[], waitAllowed = false): Promise<GroupChoice> {
-  // Addressed: its turn starts now, and decide is asked beside it (`decideBeside`), never waited on (up to GROUP_DECIDE_MS) first.
-  const named = addressedTurn(burst);
-  if (named !== null) return named;
+  const forced = addressedTurn(burst);
+  if (forced !== null) return forced;
+  const looks = burst.filter(([, item]) => item.look === true);
+  if (looks.length > 0) return await firstLook(storage, deps, looks);
   const ids = burst.flatMap(([, item]) => (item.ev ? [item.ev] : []));
   if (ids.length === 0) console.log(JSON.stringify({ event: "group_decide", outcome: "unavailable", reason: "no_events" }));
   const decision = ids.length === 0 ? ({ ok: false, reason: "unavailable" } as const) : await ask(storage, deps, burst.at(-1)![1].message, ids, false);
-  // Nothing here is addressed (`addressedTurn` took those): every message is one decide reads.
   if (!decision.ok) {
     const question = decideDownAnswer(burst.map(([, item]) => item));
     return question === -1 ? { answer: [], chat: burst, drop: [] } : { answer: [burst[question]], chat: burst.filter((_, index) => index !== question), drop: [] };
@@ -180,20 +186,59 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
   const react = act === "react" && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
   if (act === "wait") return { answer: [], chat: [], drop: [], wait: burst, waitSeconds: decision.waitSeconds ?? 1, ...react };
   if (act !== "answer") return { answer: [], chat: burst, drop: [], ...react };
-  // Left out before the answer: chat (`gatherTheTurn.ts`). Everything here is untagged (`addressedTurn` took the rest), so nothing jumps the order.
+  // Left out before the answer: chat (`gatherTheTurn.ts`). Nothing here is forced (`addressedTurn` took those), so nothing jumps the order.
   const { answer, left } = gatherTheTurn(burst, (entry) => entry[1].ev !== undefined && decision.covers.includes(entry[1].ev), (entry) => !soft(entry));
   return { answer, chat: left, drop: [], ...react };
 }
 
+/** The id a first look shows a line under: the contract's event id shape, never one the chat's log holds. */
+const lookId = (at: number, index: number): string => `${String(at).padStart(13, "0")}-${String(900_000 + index).padStart(6, "0")}`;
+
 /**
- * A burst holding a message addressed to Tex, chosen without decide (the
- * group review of 2026-10-30: a named message waited up to 15s on a decide
- * whose answer could not change that it is answered). Every addressed
- * message is answered with what joined it (`ownTurn` then keeps the first
- * one's sender's). That sender's own untagged lines before it are chat, so
- * the turn reads them; anybody else's untagged line, and any after it, stays
- * waiting, decided on the next pass as decide would have had it, for its own
- * sender. Null when nothing is addressed.
+ * Messages from a chat Tex is not set up in, or SMS (`look`), judged on their own words alone: nothing of the chat is
+ * kept, so the judge reads only these, and its verdict is kept nowhere. What it answers is logged now, as any message
+ * Tex answers is (an SMS never is, and is code's fixed line); the rest is dropped, never kept as chat. The judge down,
+ * a waiting question is answered, as in a bound chat.
+ */
+export async function firstLook(storage: InboxStorage, deps: ControlDeps & { now: () => number }, looks: GroupEntry[]): Promise<GroupChoice> {
+  const names = (await storage.get<Record<string, string>>(NAMES_KEY)) ?? {};
+  const ids = looks.map(([, item], index) => lookId(item.at ?? deps.now(), index));
+  const lines = await Promise.all(
+    looks.map(async ([, item], index) => {
+      const name = names[await sha256Hex(item.message.from)];
+      const event: TexEvent = { id: ids[index]!, at: item.at ?? deps.now(), chat: item.message.groupId, from: { kind: "person", ...(name ? { name } : {}) }, kind: kindOf(item.message.text, item.message.attachments), text: item.message.text || item.message.heard || "" };
+      // The day header off; `replyTo` is kept only on a reply under one of Tex's own texts (`enqueue`).
+      const line = renderTranscript([event]).split("\n").slice(1).join(" ");
+      return item.message.replyTo === undefined ? line : line.replace(/^(<[^>]+> \[[^\]]*\] @[^:]*:)/, "$1 (replying to You)");
+    }),
+  );
+  const decision = await ask(storage, deps, looks.at(-1)![1].message, ids, false, lines.join("\n"));
+  let chosen: GroupEntry[];
+  if (!decision.ok) {
+    const question = decideDownAnswer(looks.map(([, item]) => item));
+    chosen = question === -1 ? [] : [looks[question]!];
+  } else if (decision.act === "answer") chosen = looks.filter((_, index) => decision.covers.includes(ids[index]!));
+  // A first look never waits: nothing is kept to wait with, so a wait answers the newest now.
+  else chosen = decision.act === "wait" ? [looks.at(-1)!] : [];
+  const answer: GroupEntry[] = [];
+  for (const [key, item] of chosen) {
+    const { look: _look, ...rest } = item;
+    // An SMS is never logged, and code answers it (`answerGroup`'s fixed line); anything else is logged as it is answered.
+    const kept: GroupPending = item.message.sms === true ? { ...rest, byCode: true } : { ...rest, force: true, ev: await logGroupInbound(storage, item.message, item.at ?? deps.now()) };
+    await storage.put<GroupPending>(key, kept);
+    answer.push([key, kept]);
+  }
+  const newest = looks.at(-1)!;
+  const react = decision.ok && decision.act === "react" && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
+  return { answer, chat: [], drop: looks.filter((entry) => !chosen.includes(entry)), ...react };
+}
+
+/**
+ * A burst holding a message the judge already chose to answer, or a turn
+ * marked to answer it (`force`): answered without asking again, with what its
+ * sender sent right after it (`withJoins`). That sender's own waiting lines
+ * before it are chat, so the turn reads them; anybody else's, and any after
+ * it, stays waiting for the judge on the next pass. Null when nothing is.
  */
 export function addressedTurn(burst: GroupEntry[]): GroupChoice | null {
   const first = burst.findIndex((entry) => !soft(entry));
@@ -201,29 +246,6 @@ export function addressedTurn(burst: GroupEntry[]): GroupChoice | null {
   const answer = [...new Set(burst.filter((entry) => !soft(entry)).flatMap((entry) => withJoins(burst, entry)))];
   const asker = burst[first][1].message.from;
   return { answer, chat: burst.slice(0, first).filter((entry) => entry[1].message.from === asker), drop: [] };
-}
-
-/**
- * Decide on a turn that started because it looked addressed, asked beside it
- * (Dev2, 2026-11-01: decide judges every group message, and an addressed one
- * is not held for it). True when decide says Tex stays silent (a react
- * included: the turn already put its ack on the message); down, slow
- * (`GROUP_DECIDE_MS`) or anything else, false, and the answer goes, as it did
- * before decide. Undefined when nothing in the turn's words is addressed: a
- * command, a yes or a retried turn is code's (`byCode`), decide already chose
- * an untagged one, and a reaction answering Tex's question is never left
- * silent (`reactions-as-input.md`). Metered as any group decide, on the
- * chat's workspace.
- */
-export function decideBeside(storage: InboxStorage, deps: ControlDeps & { now: () => number }, entries: GroupEntry[]): Promise<boolean> | undefined {
-  const head = entries.filter(([, item]) => !item.soft && !item.byCode && addressesTex(item.message.text, item.message.replyTo !== undefined)).at(-1);
-  // Up to the newest addressed message, so decide judges that one, not a picture that joined it.
-  const ids = head === undefined ? [] : entries.slice(0, entries.indexOf(head) + 1).flatMap(([, item]) => (item.ev ? [item.ev] : []));
-  if (head === undefined || ids.length === 0) return undefined;
-  return ask(storage, deps, head[1].message, ids, false, true).then(
-    (decision) => decision.ok && (decision.act === "silent" || decision.act === "react"),
-    () => false,
-  );
 }
 
 /** Several messages as the one a turn answers: words in order, files first-sent first, the newest's sender and place. */

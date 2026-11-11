@@ -1,14 +1,16 @@
 /**
- * Whether, and how, Tex answers: asked of the control plane
- * (`POST /agent-texts/decide`, CONTRACT.md section 3) instead of decided here
- * by hand. The Worker still chooses which messages are put to it (a group's
- * style, `groupStyle.ts`), and still keeps every rule that is code, never the
- * model: only the asker's yes releases what was held, guests never approve,
- * a newcomer never sees earlier lines.
+ * Whether, and how, Tex answers: Tex's one judge, Clef with labelled examples
+ * (`packages/shared/src/textDecide.cjs`; Dev2, 2026-11-11), asked in the
+ * gateway (`POST /texts/decide`) or the control plane's own route
+ * (`POST /agent-texts/decide`, CONTRACT.md section 3), never decided here by a
+ * word rule. Every message in a group that is not code's is put to it, whatever
+ * the chat's speak-up setting, which it reads. The Worker still keeps every
+ * rule that is code, never the model: only the asker's yes releases what was
+ * held, guests never approve, a newcomer never sees earlier lines.
  *
- * Every call here fails soft. Decide unreachable or malformed is `{ ok: false }`
- * and the caller falls back to today's rules: a group answers only when
- * addressed (`addressesTex`), a person's own chat always answers.
+ * Every call here fails soft. The judge unreachable or malformed is
+ * `{ ok: false }` and the caller falls back: a group answers only a waiting
+ * question (`decideDownAnswer`), a person's own chat always answers.
  */
 
 import { post, record, type Fetch } from "./clients";
@@ -34,6 +36,8 @@ export type Decision =
       emoji?: string;
       /** With `wait`: the seconds decide chose; the chat's state caps the burst (`chatState.ts`). */
       waitSeconds?: number;
+      /** Why the judge chose it: one of its labels (`textDecide.cjs` `WHY`), logged as a code. */
+      why?: string;
     }
   /** `cause`: why it was unavailable, a code for the logs (timeout, unreachable, http_<status>, bad_answer, or Convex's reason). */
   | { ok: false; reason: "capped" | "off" | "unavailable"; cause?: string; ms?: number };
@@ -50,8 +54,8 @@ export type DecideAsk = {
   running: boolean;
   waitingAsks: string[];
   newest: string;
-  /** The newest message looks addressed (its name opens or closes it, an @-tag, a reply to Tex): its turn already runs, and decide may still hold its answer (`decideBeside`). */
-  addressed?: true;
+  /** A group's ledger key (`chat:<groupKey>`, `groupKeyOf`): the gateway keeps the judge's verdict there as a `judge` entry. */
+  ledger?: string;
 };
 
 /** `texts`: the gateway's binding, where decide asks Clef itself (`decideGateway.ts`); without it, the control plane's route. */
@@ -129,6 +133,7 @@ function readDecision(json: Record<string, unknown>, candidates: readonly string
     ms,
     // Checked against the allowlist where it is sent (`reactionFor`); here only its type.
     ...(typeof json.emoji === "string" ? { emoji: json.emoji.slice(0, 16) } : {}),
+    ...(typeof json.why === "string" && /^[a-z_]{1,40}$/.test(json.why) ? { why: json.why } : {}),
     ...(json.act === "wait" && typeof json.waitSeconds === "number" && Number.isFinite(json.waitSeconds) ? { waitSeconds: Math.min(8, Math.max(1, Math.round(json.waitSeconds))) } : {}),
   };
 }

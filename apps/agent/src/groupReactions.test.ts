@@ -11,8 +11,10 @@
  *  1. `acceptReaction` holding anybody's 👍 on the ask (no `asker` check).
  *     → "somebody else's 👍 never releases the asker's email" and "a guest's
  *     👍 never approves" fail.
- *  2. `answersTex` always false. → "a 👍 on Tex's settings question is
- *     answered as yes" and "a 👎 is answered as no" fail.
+ *  2. (2026-11-11, one judge) a reaction's line not logged for the judge
+ *     → "a 👍 on Tex's settings question is answered as yes" and "a 👎 is
+ *     answered as no" fail. Whether it is answered is the judge's, taught by
+ *     its examples; here a stand-in judge answers it.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +25,7 @@ import { parseWhapiWebhook } from "./whapiInbound";
 import type { GroupMessage } from "./sendblueGroups";
 import type { Reaction } from "./reactions";
 import type { Fetch } from "./clients";
+import { answerAll, fakeJudge, newestLine, type Decide } from "./groupWorld.testing";
 
 const LINE = "+15555550199";
 const ADA = "+15555550101";
@@ -46,7 +49,11 @@ const reacted = (from: string, id: string, reaction: Reaction) => msg(`${reactio
 
 type Answer = { answer: string; verbatim?: string[] };
 
-/** A bound chat whose decide stays silent on everything untagged, so only what code answers or a tag gets a turn; a tag's answer goes. */
+/**
+ * A bound chat whose stand-in judge answers what names Tex (`fakeJudge`) and a reaction that answers Tex's own question,
+ * as the real judge's examples teach it (`textDecide.cjs`), and stays silent on the rest.
+ */
+const judge = (body: Decide) => (/on Tex's message/.test(newestLine(body)) ? answerAll(body) : fakeJudge(body));
 /** Each test's chat ledger, by its asks list: what was posted to the gateway (`chatRead.ts`). */
 const ledgers = new WeakMap<Record<string, unknown>[], TexEvent[]>();
 const ledgerOf = (asks: Record<string, unknown>[]) => (ledgers.has(asks) ? ledgers.get(asks)! : (ledgers.set(asks, []), ledgers.get(asks)!));
@@ -62,7 +69,7 @@ function groupDeps(asks: Record<string, unknown>[], answer: Answer, control: Rec
     if (path.startsWith("/api/v2/groups/")) return Response.json({ participants: [{ number: ADA }, { number: BO }] });
     const body = JSON.parse(String(init.body));
     if (path === "/agent-texts/group") return Response.json({ status: "ready", slug: "band", intro: false, bound: true, handle: "ada", accessToken: "cat", ...control });
-    if (path === "/agent-texts/decide") return Response.json({ ok: true, act: body.addressed ? "answer" : "silent", covers: body.addressed ? body.candidates : [], stale: [], movedOn: false, confidence: 0.9 });
+    if (path === "/agent-texts/decide") return Response.json(judge(body));
     if (path === "/agent/events") return ledgerOf(asks).push(...body.events), Response.json({ written: body.events.map((event: { id: string }) => event.id) });
     if (path === "/agent/chat") return Response.json({ events: ledgerOf(asks) });
     if (path === "/agent") {
@@ -84,11 +91,11 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("a reaction in a group", () => {
   for (const [how, emoji, answer] of [["Liked", "👍", "yes"], ["Disliked", "👎", "no"]] as const) {
-    it(`a ${emoji} on Tex's settings question is answered as ${answer}, whatever decide says`, async () => {
+    it(`a ${emoji} on Tex's settings question is a line the judge answers as ${answer}`, async () => {
       const storage = new MemoryStorage();
       const asks: Record<string, unknown>[] = [];
       await texSaid(storage, asks, SETTINGS);
-      expect(await acceptGroup(storage, reacted(ADA, "r1", { how, words: SETTINGS }), 1_000)).toBe("queued");
+      expect(await acceptGroup(storage, reacted(ADA, "r1", { how, words: SETTINGS }), 1_000)).toBe("kept");
       await drainGroup(storage, groupDeps(asks, { answer: "Done." }));
       expect(asks).toHaveLength(2);
       expect(asks[1].question).toBe(`${emoji} (${answer}) on Tex's message "${SETTINGS}"`);

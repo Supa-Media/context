@@ -1,7 +1,6 @@
 /**
- * The words a group message is read by, with no model: whether it is meant
- * for Tex, and whether it is one of the fixed commands a chat gives it
- * ("Tex, stop", "Tex, add everyone here to @name"). Answered in `groupInbox.ts`.
+ * The fixed commands a chat gives Tex by name ("Tex, stop", "Tex, add everyone
+ * here to @name"), read with no model and answered by code in `groupInbox.ts`.
  */
 
 import { sharingWords, type Sharing } from "./reviewSharing";
@@ -26,66 +25,35 @@ export type Command =
 const NAME = "(?:tex|context)";
 /** The name, not "Tex-Mex" or "Texas". */
 const WORD = `@?${NAME}(?![\\w-])`;
-/** Words a message to Tex starts with after its name, unpunctuated ("Tex what's on"), where "Tex got that wrong" is about it. */
-const ASKING =
-  "(?:what|what's|whats|who|who's|when|when's|where|where's|why|how|which|can|could|would|will|is|are|do|does|did|should|please|pls|" +
-  "find|check|make|add|save|remember|note|tell|show|look|search|use|stop|start|write|help|list|summarize|summarise|remind|give|get|pull|read|share|unshare)\\b";
-/** "Tex ^ do this", "Tex ↑": the message above is the ask. */
-const POINTS_UP = "(?:\\^+|↑|⬆️?|☝️?|👆)";
-/*
-  Any other word after the name is an ask too ("Tex turn this guy into a cat",
-  2026-10-23, went unanswered because "turn" was not on the list above),
-  unless it reads as talking about Tex: a past or third-person verb, or a word
-  people use about it ("Tex got that wrong lol", "Tex was down", "Tex sucks").
-*/
-const ABOUT = "(?:was|were|got|gets|has|had|have|said|says|just|keeps|kept|always|never|really|seems|thinks|lol|lmao|haha|too|again|isn't|wasn't|can't|won't|didn't|doesn't|[a-z]+ed|[a-z]+s)\\b";
-const OPENS = new RegExp(
-  `^\\s*(?:(?:(?:hey|hi|yo|ok|okay)\\s+${WORD})|(?:${WORD}(?:\\s*[,:;!?.-]|\\s*$|\\s*${POINTS_UP}|\\s+${ASKING}|\\s+(?!${ABOUT})[a-z])))`,
-  "i",
-);
-const CLOSES = new RegExp(`(?:^|[\\s,])${WORD}[\\s?!.]*$`, "i");
-/** "can @Tex check this for us?": an @-tag anywhere addresses it (Dev2, 2026-11-01); a bare "Tex" mid-message does not. */
-const TAGGED = new RegExp(`(?:^|[^\\w@-])@${NAME}(?![\\w-])`, "i");
 const STARTS_WITH_NAME = new RegExp(`^\\s*(?:(?:hey|hi|yo|ok|okay)\\s+)?${WORD}`, "i");
-/** A reply to Tex that needs no answer. */
-const NOTHING_TO_SAY = /^(?:thanks|thank you|thx|ty|ok|okay|cool|nice|lol|haha|got it|great|perfect)[\s.!]*$/i;
-const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Component}\s]+$/u;
 
 /**
- * Whether a group message looks meant for Tex. Read from the words alone, with
- * no model: its name opening or closing it, an @-tag of it anywhere, or an
- * inline reply to Tex that says more than thanks (Dev2, 2026-11-01, a reply
- * again starting its turn at once). Its bare name inside a question is not (Dev2, 2026-11-01:
- * "Instinct, can you do a speed test with Tex ... can you test it?" was
- * answered as Tex's); decide reads that one first, as any untagged message.
- */
-export function addressesTex(text: string, repliesToTex: boolean): boolean {
-  const words = unquoted(text);
-  if (words === "") return false;
-  if (OPENS.test(words) || CLOSES.test(words) || TAGGED.test(words)) return true;
-  // "Tex settings", "Tex stop": a command after the name is for Tex, though "settings" reads like a verb about it (2026-11-01).
-  if (STARTS_WITH_NAME.test(words) && groupCommand(words) !== null) return true;
-  return repliesToTex && !NOTHING_TO_SAY.test(words) && !EMOJI_ONLY.test(words);
-}
-
-/**
- * The words without the quotes a person may type around them ("“Tex use @supa”"), and without the bidi isolates
+ * The words without the quotes a person may type around them ("“Tex stop”"), and without the bidi isolates
  * iMessage wraps a mention in ("@\u2068Tex\u2069"), so a mention reads as the name.
  */
 export function unquoted(text: string): string {
   return text.replace(/[\u2066-\u2069]/g, "").trim().replace(/^["“”'‘’`]+/, "").replace(/["“”'‘’`]+$/, "").trim();
 }
 
-/** Tex's name as a word anywhere ("can Tex tell us what 7 times 8 is?"), never "Texas" or "Tex-Mex". */
+/**
+ * A group command, said to Tex by name ("Tex, stop", "Tex settings"): code's to answer, never the judge's. Whether
+ * anything else is for Tex is the one judge's (`textDecide.cjs`; Dev2, 2026-11-11): no word rule here decides that.
+ * Its name is required, so nobody's bare "stop" mutes a chat.
+ */
+export function commandTo(text: string): Command | null {
+  return STARTS_WITH_NAME.test(unquoted(text)) ? groupCommand(text) : null;
+}
+
+/** Tex's name as a word anywhere, or an @-tag of it ("can Tex tell us what 7 times 8 is?"), never "Texas" or "Tex-Mex". */
 const NAMED = new RegExp(`(?<![\\w-])${WORD}`, "i");
 
 /**
- * Whether a message names Tex anywhere (Dev2, 2026-11-02): iMessage sends a native mention as the bare name, with no
- * "@" and no mention data, so "can Tex tell us what 7 times 8 is?" was kept as chat. Such a message reaches decide
- * whatever the speak-up level but off, and is still not addressed: decide judges it and may stay silent.
+ * A privacy gate, not a judgment (security review, 2026-11-11): in a chat Tex is not set up in, or from an SMS,
+ * nothing is read, not even by the judge, unless it tags or names Tex (iMessage sends a native mention as the bare
+ * name) or replies under one of Tex's own texts. Whether such a message is for Tex is still the judge's.
  */
-export function namesTex(text: string): boolean {
-  return NAMED.test(unquoted(text));
+export function callsTex(text: string, repliesToTex: boolean): boolean {
+  return repliesToTex || NAMED.test(unquoted(text));
 }
 
 /** "Tex, share my mail from me@work.example here", optionally "matching <a Gmail search>" (`chat-mail.md`). */
@@ -97,8 +65,8 @@ const SHARE_MAIL = new RegExp(`^${SHARED_BY}(?:from |at |in )?([^\\s@]{1,64}@[^\
 const UNSHARE_MAIL = new RegExp(`^(?:stop sharing|unshare) ${MAILBOX}(?: (?:from |at |in )?([^\\s@]{1,64}@[^\\s@]{1,190}))?${HERE}$`);
 
 /**
- * The words after Tex's name, when they are one of the group commands. Tex's name is optional here because the caller
- * has already decided the message is for Tex (`acceptGroup`). ("Tex, use @slug" and a bare workspace name are gone:
+ * The words after Tex's name, when they are one of the group commands. Tex's name is optional here: `commandTo` is
+ * what requires it of a message in the chat. ("Tex, use @slug" and a bare workspace name are gone:
  * a chat is bound to no workspace, 2026-10-31.)
  */
 export function groupCommand(text: string): Command | null {

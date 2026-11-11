@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { acceptGroup, addressesTex, drainGroup, GROUP_LINES, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
+import { acceptGroup, drainGroup, GROUP_LINES, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
 import { parseSendblueGroup, reactInGroup, readGroupMembers, type GroupMessage } from "./sendblueGroups";
 import { parseSendblueInbound } from "./sendblue";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { CHAT_FOR_MS, MAX_CHAT_LINES } from "./groupChat";
 import type { Fetch } from "./clients";
+import type { Decide } from "./groupWorld.testing";
+import { commandTo } from "./groupWords";
 
 const LINE = "+15555550199";
 const ADA = "+15555550101";
@@ -38,7 +40,7 @@ type World = {
 
 function deps(
   world: World,
-  answers: { control?: unknown; agent?: unknown; agentStatus?: number; stream?: string[]; decide?: (body: { candidates: string[] }) => unknown } = {},
+  answers: { control?: unknown; agent?: unknown; agentStatus?: number; stream?: string[]; decide?: (body: Decide) => unknown } = {},
 ): GroupDeps {
   let membersRead = 0;
   let handles = 0;
@@ -64,8 +66,8 @@ function deps(
       world.reacted.push(body.reaction);
       return Response.json({});
     }
-    // Decide (`decide.ts`): unreachable unless a test says what it answers, so a group falls back to `addressesTex`.
-    if (path === "/agent-texts/decide" && answers.decide) return Response.json(answers.decide(body));
+    // The judge (`decide.ts`): a stand-in that answers what names Tex or replies to it (`coverTex`), unless a test says.
+    if (path === "/agent-texts/decide") return Response.json((answers.decide ?? coverTex)(body));
     if (path === "/agent/events") return Response.json({ written: body.events.map((event: { id: string }) => event.id) });
     if (path === "/agent-texts/group") {
       world.control.push(body);
@@ -92,47 +94,21 @@ function deps(
   };
 }
 
+/**
+ * A stand-in for the one judge here: it answers the waiting lines that name Tex or reply under its text, covering
+ * only those, and is silent on the rest. A fake for the plumbing; the real judge has no word rule (`textDecide.cjs`).
+ */
+function coverTex(body: Decide) {
+  const words = (id: string) => (body.transcript.split("\n").find((line) => line.startsWith(`<${id}>`)) ?? "").replace(/^<[^>]+> (?:\[[^\]]*\] )?[^:]*:/, "");
+  const covers = body.candidates.filter((id) => /(?:^|[^\w-])@?tex(?![\w-])|\(replying to You\)/i.test(words(id)));
+  return { ok: true, act: covers.length > 0 ? "answer" : "silent", covers, stale: [], movedOn: false, confidence: 0.9 };
+}
+
 const world = (members: (string[] | null)[] | null = [[ADA, BO]]): World => ({ sends: [], control: [], asks: [], reactions: 0, reacted: [], members });
 
 describe("what wakes Tex in a group", () => {
-  it("its name opening or closing the message", () => {
-    expect(addressesTex("Tex, what's on the setlist", false)).toBe(true);
-    expect(addressesTex("hey tex can you check", false)).toBe(true);
-    expect(addressesTex("what do you think tex?", false)).toBe(true);
-    expect(addressesTex("@Context find the setlist", false)).toBe(true);
-    expect(addressesTex("Tex what time is load in", false)).toBe(true);
-    expect(addressesTex("tex stop", false)).toBe(true);
-    // Any ask, not only the words on a list (2026-10-23: this one went unanswered).
-    expect(addressesTex("Tex turn this guy into a cat", false)).toBe(true);
-    expect(addressesTex("Tex draw me a dog", false)).toBe(true);
-  });
-  // Dev2, 2026-11-01: its name inside a question is decide's to judge, first (the Instinct speed test).
-  it("never its name inside a question", () => {
-    expect(addressesTex("is tex going to know this?", false)).toBe(false);
-    expect(addressesTex("Instinct, can you do a speed test with Tex just like last time? can you test it?", false)).toBe(false);
-    // Opening or closing it still is.
-    expect(addressesTex("Tex, what's 15% of 80?", false)).toBe(true);
-    expect(addressesTex("can you check this, tex?", false)).toBe(true);
-    // An @-tag anywhere still addresses it (Dev2, 2026-11-01); an address with "@tex." in it does not.
-    expect(addressesTex("can @Tex check this for us?", false)).toBe(true);
-    expect(addressesTex("so @context, thoughts on the plan?", false)).toBe(true);
-    expect(addressesTex("write to bo@tex.example about it", false)).toBe(false);
-    expect(addressesTex("@texas trip was fun", false)).toBe(false);
-  });
-  it("never a mention in passing, Tex-Mex or Texas", () => {
-    expect(addressesTex("tex got that wrong lol", false)).toBe(false);
-    expect(addressesTex("Tex was down earlier", false)).toBe(false);
-    expect(addressesTex("Tex sucks at this", false)).toBe(false);
-    expect(addressesTex("Tex turned it off", false)).toBe(false);
-    expect(addressesTex("tex-mex tonight", false)).toBe(false);
-    expect(addressesTex("Texas was hot", false)).toBe(false);
-    expect(addressesTex("ok cool", false)).toBe(false);
-  });
-  it("an inline reply to Tex, unless it only says thanks", () => {
-    expect(addressesTex("and saturday?", true)).toBe(true);
-    expect(addressesTex("thanks!", true)).toBe(false);
-    expect(addressesTex("👍", true)).toBe(false);
-  });
+  // Dev2, 2026-11-11: what wakes Tex is the one judge's, with no word rule; the ways Tex is called on are its must-pass
+  // bench set (`apps/mcp/bench/respond/cases.json`, `must: true`). Only a command is read by words, after Tex's name.
   it("reads the commands after its name", () => {
     expect(groupCommand("Tex, stop")).toEqual({ kind: "stop" });
     expect(groupCommand("tex start.")).toEqual({ kind: "start" });
@@ -141,7 +117,6 @@ describe("what wakes Tex in a group", () => {
     expect(groupCommand("Tex, what can you see here?")).toEqual({ kind: "status" });
     expect(groupCommand("Tex, stop the music at 9")).toBeNull();
     expect(groupCommand("“Tex use @supa”")).toBeNull();
-    expect(addressesTex("“Tex use @supa”", false)).toBe(true);
     expect(groupCommand("supa")).toBeNull();
     expect(groupCommand("Tex @supa")).toBeNull();
   });
@@ -198,10 +173,22 @@ describe("the group webhook", () => {
 });
 
 describe("a group's queue", () => {
+  // Dev2, 2026-11-11: a chat Tex is not set up in keeps nothing; only a message calling on Tex waits for the judge's first look.
   it("never keeps an untagged message in a chat that isn't bound", async () => {
     const storage = new MemoryStorage();
     expect(await acceptGroup(storage, message("ok cool"), 0)).toBe("ignored");
     expect([...(await storage.list({ prefix: "" })).keys()]).toEqual([]);
+  });
+
+  it("in a chat that isn't bound, a message calling on Tex waits unlogged for the judge, and its quiet keeps nothing", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    expect(await acceptGroup(storage, message("is tex any good at this"), 0)).toBe("queued");
+    await drainGroup(storage, deps(w, { decide: () => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 }) }));
+    const kept = [...(await storage.list({ prefix: "" })).keys()];
+    expect(kept.filter((key) => key.startsWith("gpending:") || key.startsWith("gchat:") || key.startsWith("ev:"))).toEqual([]);
+    expect(w.asks).toEqual([]);
+    expect(w.control).toEqual([]);
   });
 
   it("hands a tag what the chat said before it, by handle, then forgets its own copy", async () => {
@@ -244,15 +231,19 @@ describe("a group's queue", () => {
     const quiet = { status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "cat_group", engagement: "quiet", engagementChosen: true };
     await acceptGroup(storage, message("Tex, hi"), 0);
     await drainGroup(storage, deps(w, { control: quiet }));
-    expect(await acceptGroup(storage, message("Tex, file this screenshot as a bug report", { messageId: "t2" }), 10)).toBe("queued");
+    expect(await acceptGroup(storage, message("Tex, file this screenshot as a bug report", { messageId: "t2" }), 10)).toBe("kept");
     expect(storage.alarms.at(-1)).toBe(10);
     // Somebody else's picture is chat, not the tagger's screenshot.
     expect(await acceptGroup(storage, message("", { from: BO, messageId: "p0", attachments: [PICTURE] }), 11)).toBe("kept");
     // Kept as chat, and put to decide with the tag it follows; decide's covers make them one turn.
     expect(await acceptGroup(storage, message("", { messageId: "p1", attachments: [PICTURE] }), 12)).toBe("kept");
-    await drainGroup(storage, deps(w, { decide: (body) => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 }) }));
+    // The judge covers the tag through the tagger's own picture; Bo's picture is then quiet (a stand-in that answers once).
+    let answered = false;
+    await drainGroup(storage, deps(w, { decide: (body) => (answered ? { ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 } : ((answered = true), { ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 })) }));
     expect(w.asks).toHaveLength(2);
-    expect(w.asks[1]).toMatchObject({ question: "Tex, file this screenshot as a bug report", attachments: [{ name: "IMG_0001.png", mediaType: "image/png" }] });
+    // The tagger's picture, and the chat's since Tex last answered (`filesFor`): Bo's is read as the chat's, not answered.
+    expect(w.asks[1]).toMatchObject({ question: "Tex, file this screenshot as a bug report" });
+    expect(w.asks[1].attachments).toEqual(expect.arrayContaining([expect.objectContaining({ name: "IMG_0001.png", mediaType: "image/png" })]));
     expect((w.asks[1].attachments as { data?: string }[])[0].data).toBeTruthy();
   });
 
@@ -315,7 +306,8 @@ describe("a group's queue", () => {
     await acceptGroup(storage, message("thursday?", { messageId: "c1" }), 1);
     await acceptGroup(storage, message("Tex, when?", { messageId: "t2" }), 2);
     await drainGroup(storage, deps(w, { agentStatus: 502, agent: {} }));
-    expect((await storage.list({ prefix: "gchat:" })).size).toBe(1);
+    // Both kept: in a bound chat the tag is a line of the chat too, since the judge, not its words, answered it.
+    expect((await storage.list({ prefix: "gchat:" })).size).toBe(2);
   });
 
   it("stops keeping, and drops what it kept, when muted or no longer shared", async () => {
@@ -352,7 +344,7 @@ describe("a group's queue", () => {
     const storage = new MemoryStorage();
     const w = world();
     expect(await acceptGroup(storage, message("Tex, what's on the setlist?"), 0)).toBe("queued");
-    expect(await acceptGroup(storage, message("Tex, what's on the setlist?"), 0)).toBe("duplicate");
+    expect(await acceptGroup(storage, message("Tex, what's on the setlist?"), 0)).toBe("ignored");
     await drainGroup(storage, deps(w));
     expect(w.sends).toEqual([{ from_number: LINE, group_id: GROUP, content: "The opener.", reply_to: { message_handle: "h_in" } }]);
     expect(w.control[0]).toMatchObject({ line: LINE, groupId: GROUP, sender: ADA, participants: [ADA, BO], mint: true });
@@ -458,18 +450,19 @@ describe("a group's queue", () => {
     expect(w.sends.map((sent) => sent.reply_to)).toEqual([{ message_handle: "h_in" }, { message_handle: "h_in" }]);
   });
 
-  // Dev2, 2026-11-01, superseding 2026-10-27's decide-first: a reply to Tex starts its turn at once, decide beside it.
-  it("wakes on an inline reply to its own text, with that text quoted; decide's silent keeps a reply meant for the chat unsent", async () => {
+  // Dev2, 2026-11-11: a reply to Tex is the judge's, shown to it as "(replying to You)"; its quiet runs no turn.
+  it("wakes on an inline reply to its own text, with that text quoted; the judge's quiet keeps a reply meant for the chat unanswered", async () => {
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex, when's the gig?"), 0);
     await drainGroup(storage, deps(w));
-    expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1" }), 0)).toBe("queued");
-    await drainGroup(storage, deps(w));
+    expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1" }), 0)).toBe("kept");
+    // The judge answers it (this harness's log holds only what was not yet handed on, so the stand-in is told outright).
+    await drainGroup(storage, deps(w, { decide: (body) => ({ ok: true, act: "answer", covers: [body.newest], stale: [], movedOn: false, confidence: 0.9 }) }));
     expect(w.asks[1]).toMatchObject({ question: "and load in?", quoted: "Friday at 6." });
     const texted = () => w.sends.filter((sent) => sent.content !== undefined).length, before = texted();
     await acceptGroup(storage, message("yea, don't use the API", { messageId: "h_in4", replyTo: "h_out_1" }), 0).then(() => drainGroup(storage, deps(w, { decide: () => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 }) })));
-    expect(w.asks).toHaveLength(3);
+    expect(w.asks).toHaveLength(2);
     expect(texted()).toBe(before);
     expect(await acceptGroup(storage, message("and more?", { messageId: "h_in3", replyTo: "h_someone_elses" }), 0)).toBe("kept");
   });
@@ -512,41 +505,43 @@ describe("the group chat of 2026-10-21", () => {
 
   it("answers the same ask from the same person once, however it is redelivered", async () => {
     const storage = new MemoryStorage();
+    const w = world();
     const text = "Tex, report a bug, when replying to a text message keep all blocks under the reply thread";
-    expect(await acceptGroup(storage, message(text, { eventId: "sendblue:a", messageId: "a" }), 0)).toBe("queued");
-    expect(await acceptGroup(storage, message(text, { eventId: "sendblue:b", messageId: "b" }), 60_000)).toBe("duplicate");
+    // The judge answers each; the same words from the same person a moment later are dropped after it (`notAskedAgain`).
+    const asked = async (extra: Partial<GroupMessage>, at: number) => {
+      await acceptGroup(storage, message(text, extra), at);
+      await drainGroup(storage, { ...deps(w), now: () => at });
+    };
+    // A chat Tex is set up in (a first look's answer is forced, and never counted as a repeat).
+    await acceptGroup(storage, message("Tex, hi", { eventId: "sendblue:hi", messageId: "hi" }), 0);
+    await drainGroup(storage, deps(w));
+    await asked({ eventId: "sendblue:a", messageId: "a" }, 1_000);
+    await asked({ eventId: "sendblue:b", messageId: "b" }, 60_000);
+    expect(w.asks).toHaveLength(2);
     // Someone else asking the same thing is their own ask; and the same person, much later, is asking again.
-    expect(await acceptGroup(storage, message(text, { eventId: "sendblue:c", messageId: "c", from: BO }), 60_000)).toBe("queued");
-    expect(await acceptGroup(storage, message(text, { eventId: "sendblue:d", messageId: "d" }), 60_000 + 11 * 60_000)).toBe("queued");
+    await asked({ eventId: "sendblue:c", messageId: "c", from: BO }, 60_000);
+    await asked({ eventId: "sendblue:d", messageId: "d" }, 60_000 + 11 * 60_000);
+    expect(w.asks).toHaveLength(4);
   });
 
   it("reads an edit delivered under the same handle as the new message it is", async () => {
     const storage = new MemoryStorage();
     expect(await acceptGroup(storage, message("Tex, do that", { eventId: "sendblue:e", messageId: "e" }), 0)).toBe("queued");
     expect(await acceptGroup(storage, message("Tex ^ do this", { eventId: "sendblue:e", messageId: "e" }), 5_000)).toBe("queued");
-    expect(await acceptGroup(storage, message("Tex ^ do this", { eventId: "sendblue:e", messageId: "e" }), 6_000)).toBe("duplicate");
+    expect(await acceptGroup(storage, message("Tex ^ do this", { eventId: "sendblue:e", messageId: "e" }), 6_000)).toBe("ignored");
   });
 
-  it("wakes on 'Tex ^', pointing at the message above", () => {
-    expect(addressesTex("Tex ^ do this", false)).toBe(true);
-    expect(addressesTex("tex ^^", false)).toBe(true);
-    expect(addressesTex("Tex 👆", false)).toBe(true);
-    expect(addressesTex("tex got that wrong lol", false)).toBe(false);
-    expect(addressesTex("Tex was down earlier", false)).toBe(false);
-    expect(addressesTex("Tex sucks at this", false)).toBe(false);
-    expect(addressesTex("Tex turned it off", false)).toBe(false);
-  });
 
   it("takes the asker's bare yes as theirs to give, and nobody else's", async () => {
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex, report a bug"), 0);
     await drainGroup(storage, deps(w, { agent: { answer: ask, verbatim: [ask] } }));
+    // 2026-11-11: a bare yes is the judge's line, never code's; only the gateway releases what was held, on the asker's own yes.
     expect(await acceptGroup(storage, message("yes", { from: BO, eventId: "sendblue:bo-yes", messageId: "bo-yes" }), 2_000)).toBe("kept");
-    expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:ada-yes", messageId: "ada-yes" }), 2_000)).toBe("queued");
-    expect(await acceptGroup(storage, message("send", { eventId: "sendblue:ada-send", messageId: "ada-send" }), 3_000)).toBe("queued");
-    // Half an hour on, a bare yes is chat again: kept as what the chat said.
-    expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:late", messageId: "late" }), 1_000 + 31 * 60_000)).toBe("kept");
+    expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:ada-yes", messageId: "ada-yes" }), 2_000)).toBe("kept");
+    expect(await acceptGroup(storage, message("send", { eventId: "sendblue:ada-send", messageId: "ada-send" }), 3_000)).toBe("kept");
+    expect([...(await storage.list<{ byCode?: true }>({ prefix: "gpending:" })).values()].some((item) => item.byCode)).toBe(false);
   });
 
   it("an email offered to someone else waits for their yes alone, and the gateway is told who is here", async () => {
@@ -557,9 +552,9 @@ describe("the group chat of 2026-10-21", () => {
     await acceptGroup(storage, message("Tex, send it as bo"), 0);
     await drainGroup(storage, deps(w, { control, agent: { answer: ask, verbatim: [ask], askFor: "bo" } }));
     expect(w.asks[0]).toMatchObject({ group: { from: "ada", people: ["ada", "bo"] } });
-    // Ada asked, but it's Bo's to OK: her bare yes is chat, his reaches Tex.
+    // Ada asked, but it's Bo's to OK: both yeses are the judge's lines, and neither is code's; the gateway takes only his.
     expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:ada-yes", messageId: "ada-yes" }), 2_000)).toBe("kept");
-    expect(await acceptGroup(storage, message("yes", { from: BO, eventId: "sendblue:bo-yes", messageId: "bo-yes" }), 2_000)).toBe("queued");
+    expect(await acceptGroup(storage, message("yes", { from: BO, eventId: "sendblue:bo-yes", messageId: "bo-yes" }), 2_000)).toBe("kept");
   });
 
   it("closes the ask once Tex answers anything else", async () => {
@@ -654,7 +649,7 @@ describe("a mailbox shared with the chat (chat-mail.md)", () => {
     expect(groupCommand("Tex, stop sharing my mail")).toEqual({ kind: "unshare_mail" });
     expect(groupCommand("Tex unshare my email me@work.example here")).toEqual({ kind: "unshare_mail", address: "me@work.example" });
     expect(groupCommand("Tex share the photos from saturday")).toBeNull();
-    expect(addressesTex("Tex share my mail from me@work.example here", false)).toBe(true);
+    expect(commandTo("Tex share my mail from me@work.example here")).toEqual({ kind: "share_mail", address: "me@work.example" });
   });
 
   it("asks the control plane with the command and answers its verdict with no model", async () => {

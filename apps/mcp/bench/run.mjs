@@ -526,7 +526,7 @@ const USAGE = [
   "       pnpm ai summary <result file>",
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
   "       pnpm ai review [--set a,b] [--concurrency <n>] [--fake]   score the reply reviewer on its labelled cases",
-  "       pnpm ai respond [--concurrency <n>] [--fake]   score the classifier's reply-or-quiet call on its labelled cases",
+  "       pnpm ai respond [--concurrency <n>] [--fake]   score the one judge's respond-or-quiet call (Clef) on its held-out cases",
   "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai check <dream|heartbeat|meeting-summaries|meeting-transcription|connected-ais> [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai connect [--endpoint <url>]           once, by a person: the runner's grant on Context",

@@ -78,7 +78,8 @@ Auth: `AGENT_WORKER_SECRET` bearer, as `/agent-texts/session`. Body:
   candidates: string[];  // the newest event ids it may cover, <= 32
   running: boolean;      // a turn is in flight
   waitingAsks: string[]; // ask event ids still waiting for a yes, <= 8
-  newest: string }       // the event id that triggered this decision
+  newest: string;        // the event id that triggered this decision
+  ledger?: string }      // a group's ledger key (64 hex, `groupKeyOf`): the gateway keeps the verdict there (2026-11-11)
 ```
 
 Runs Clef through `withJev(ctx, { feature: "textDecide", workspaceId }, …)`
@@ -89,12 +90,21 @@ workspace per day). Typed questions only. Returns:
 { ok: true; act: "silent" | "react" | "answer" | "wait"; covers: string[];
   midTurn?: "fold" | "queue" | "restart"; stale: string[]; movedOn: boolean; confidence: number;
   emoji?: string;        // with any act when Tex also reacts (2026-11-01); "react" is silent plus a reaction
-  waitSeconds?: number } // with "wait": 1 to 8; the Worker caps the burst (chat-state-machine.md)
+  waitSeconds?: number;  // with "wait": 1 to 8; the Worker caps the burst (chat-state-machine.md)
+  why?: string }         // one of the judge's labels (`textDecide.cjs` `WHY`), 2026-11-11
 | { ok: false; reason: "capped" | "off" | "unavailable" }
 ```
 
-`ok:false` means the Worker falls back: groups answer only when addressed
-(today's `addressesTex`), 1:1 always answers.
+Since 2026-11-11 (Dev2's one-judge design) this is Tex's one judge: the
+state opens with labelled `<examples>` (`textDecide.cjs` `JUDGE_EXAMPLES`),
+then the chat, and Clef's `act` options are `respond`, `quiet` and `wait`
+(read back as `answer`, `silent` and `wait`). No word rule says what is for
+Tex; the speak-up level is told to the judge, never a gate. With `ledger`,
+the gateway appends `{ kind: "judge", by: "moment", verdict, why, event,
+confidence, ms }` to that group's ledger behind the answer.
+
+`ok:false` means the Worker falls back: a group answers only a waiting
+question (`decideDownAnswer`), 1:1 always answers.
 
 ## 3b. Convex: `POST /agent-texts/recheck`
 
@@ -124,14 +134,14 @@ Neither the draft nor the transcript is returned, stored or logged.
 ## 4. Worker
 
 - Every inbound message → an `Event`, buffered, then `POST /agent/events`.
-- Which inbound events reach decide is the group's style (`textGroups.engagement`,
-  default `followAlong`): `quiet` only addressed messages; `attentive` adds the
-  asker's texts while their ask waits; `followAlong` adds untagged texts after
-  Tex speaks until decide returns `movedOn: true` or 20 texts; `helpful` every
-  text. 1:1 chats use `style: "direct"`: every text is decided, and `silent`
-  is only allowed for a pure acknowledgement (a tapback, "ok", "thanks").
-- A group message addressed to Tex is never put to decide: it is answered
-  (code's floor), with what joined it. Decide reads only untagged messages.
+- Every group message that is not code's (a command said to Tex by name, a
+  settings reply, a style choice) reaches the judge, whatever the group's
+  style (`textGroups.engagement`, default `followAlong`), which the judge is
+  told (2026-11-11, replacing the style gate and the addressed floor). In a
+  chat Tex is not set up in, or from an SMS, nothing is logged: the judge
+  reads those lines alone (no `ledger`), and only an answered one is logged.
+  1:1 chats use `style: "direct"`: every text is judged, and quiet is only
+  for a pure acknowledgement (a tapback, "ok", "thanks").
 - `answer` → `/agent` with `covers`; `react` → a tapback; `silent` → nothing.
 - A text while a turn runs → decide with `running: true`: `fold` → today's
   steer injection (any kind of message now); `queue` → held, answered next;

@@ -29,6 +29,8 @@ const CHAT_PREFIX = "gchat:";
 const CHAT_SEQ = "gchatseq";
 /** Who was in the chat, hashed, when it last resolved to a workspace; nothing is kept without it, or for anyone else. */
 const BOUND_KEY = "gbound";
+/** Set while the chat is muted ("Tex, stop"): nothing but a command said to Tex by name is read, not even by the judge. */
+const MUTED_KEY = "gmuted";
 export const MAX_CHAT_LINES = 400;
 export const CHAT_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -95,6 +97,16 @@ export async function isBound(storage: InboxStorage, message: GroupMessage): Pro
   return (await storage.get<string>(BOUND_KEY)) === (await peopleKey(message));
 }
 
+/** Whether the chat muted Tex and has not started it again. */
+export async function isMuted(storage: InboxStorage): Promise<boolean> {
+  return (await storage.get<boolean>(MUTED_KEY)) === true;
+}
+
+/** Started again ("Tex, start"): the next message that calls Tex is read as in any chat Tex is not set up in. */
+export async function unmute(storage: InboxStorage): Promise<void> {
+  await storage.delete(MUTED_KEY);
+}
+
 /** Keep one untagged message, when the chat is bound. Whether it was kept. */
 export async function keepChatLine(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
   if (message.sms) return false;
@@ -125,9 +137,16 @@ export async function dropChatLines(storage: InboxStorage, keys: readonly string
   for (const key of keys) await storage.delete(key);
 }
 
-/** Bound and answering for the people `message` was sent in front of, or not: unbinding drops every line kept. */
-export async function setChatBound(storage: InboxStorage, bound: GroupMessage | null): Promise<void> {
-  if (bound !== null) return void (await storage.put(BOUND_KEY, await peopleKey(bound)));
+/**
+ * Bound and answering for the people `message` was sent in front of, or not: unbinding drops every line kept.
+ * `muted`: unbound because the chat muted Tex, so nothing is read until it is started again (`isMuted`).
+ */
+export async function setChatBound(storage: InboxStorage, bound: GroupMessage | null, muted = false): Promise<void> {
+  if (bound !== null) {
+    await storage.delete(MUTED_KEY);
+    return void (await storage.put(BOUND_KEY, await peopleKey(bound)));
+  }
+  if (muted) await storage.put(MUTED_KEY, true);
   await storage.delete(BOUND_KEY);
   await dropChatLines(storage, [...(await storage.list<ChatLine>({ prefix: CHAT_PREFIX })).keys()]);
 }

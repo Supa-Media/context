@@ -1,6 +1,6 @@
 # One record per chat, one judge per moment (design, 2026-11-11)
 
-_Part of [the texting assistant](../texting-assistant.md). Status: design. The decisions are Dev2's (2026-11-10 and 2026-11-11). None of it is built yet. Builds on [chat-ledger](./chat-ledger.md) and [conversation-threads](./conversation-threads.md)._
+_Part of [the texting assistant](../texting-assistant.md). Status: PR 1 (one judge) built 2026-11-11; the rest is design. The decisions are Dev2's (2026-11-10 and 2026-11-11). Builds on [chat-ledger](./chat-ledger.md) and [conversation-threads](./conversation-threads.md)._
 
 ## The problem
 

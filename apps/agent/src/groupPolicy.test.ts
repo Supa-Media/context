@@ -1,20 +1,10 @@
 /** The group reply rules (`groupPolicy.ts`), checked as plain functions. */
 import { describe, expect, it } from "vitest";
-import { BURST_WINDOW_MS, burstStillTyped, decideDownAnswer, styleReaches } from "./groupPolicy";
+import { BURST_WINDOW_MS, burstStillTyped, decideDownAnswer } from "./groupPolicy";
 
 const msg = (from: string, text: string, at: number) => ({ message: { from, text }, at });
 
 describe("group reply rules", () => {
-  it("style says which untagged messages reach decide", async () => {
-    const never = async () => false;
-    expect(styleReaches("helpful", false, never)).toBe(true);
-    expect(styleReaches("quiet", true, never)).toBe(false);
-    expect(styleReaches("attentive", true, never)).toBe(true);
-    expect(styleReaches("attentive", false, never)).toBe(false);
-    expect(await styleReaches("followAlong", false, async () => true)).toBe(true);
-    expect(await styleReaches("followAlong", false, never)).toBe(false);
-  });
-
   it("a wait holds only a real burst (how often is the chat's state's: chatState.test.ts)", () => {
     expect(burstStillTyped([msg("ada", "what time is the gig tonight?", 0)])).toBe(false);
     expect(burstStillTyped([msg("ada", "what time", 0), msg("ada", "is the gig", 1_000)])).toBe(true);

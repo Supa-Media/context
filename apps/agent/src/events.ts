@@ -321,6 +321,7 @@ const speaker = (name: string | undefined): string => `@${oneLine(name ?? "").re
  */
 export function renderTranscript(events: readonly TexEvent[], options: { timeZone?: string; limit?: number } = {}): string {
   const shown = events;
+  const byId = new Map(shown.map((event) => [event.id, event]));
   const answered = new Set(shown.filter((event) => event.from.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
   const newestAnswered = shown.reduce((newest, event) => (answered.has(event.id) ? Math.max(newest, event.at) : newest), -Infinity);
   const zone = options.timeZone ?? "UTC";
@@ -338,8 +339,10 @@ export function renderTranscript(events: readonly TexEvent[], options: { timeZon
     const said = event.told ? (TOLD_WORDS[event.told] ?? "") : oneLine(event.text ?? "").trim();
     const words = said || (event.kind === "delivery" ? `(your message <${event.replyTo ?? "unknown"}> did not reach them)` : event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
     const unanswered = event.from.kind === "person" && event.at >= newestAnswered && !answered.has(event.id) ? "   (not answered)" : "";
+    // A reply under an earlier message says so: under one of Tex's own, the judge reads it as said to Tex.
+    const under = event.from.kind === "person" && event.replyTo !== undefined ? (byId.get(event.replyTo)?.from.kind === "tex" ? " (replying to You)" : ` (replying to <${event.replyTo}>)`) : "";
     // Each line carries its event id, so what decide is asked about by id is grounded in the line it reads.
-    lines.push(`<${event.id}> [${time(event.at)}] ${who}: ${words}${unanswered}`);
+    lines.push(`<${event.id}> [${time(event.at)}] ${who}:${under} ${words}${unanswered}`);
     if (event.from.kind === "tex" && event.delivered === false) lines.push(`           (not delivered: ${NOT_DELIVERED[event.reason ?? "failed"]})`);
   }
   const limit = options.limit ?? TRANSCRIPT_CHARS;

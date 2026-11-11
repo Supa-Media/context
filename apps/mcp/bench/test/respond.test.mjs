@@ -1,15 +1,18 @@
 /**
- * THE REPLY-OR-QUIET CASES AND THEIR SCORING (`bench/respond.mjs`; Dev2 2026-11-10: the classifier says "no response").
+ * THE ONE JUDGE'S HELD-OUT CASES AND THEIR SCORING (`bench/respond.mjs`; Dev2, 2026-11-11: one Clef judge, taught by
+ * examples, and "@Tex" must still work).
  *
- * Sabotage record (2026-11-10), each applied, suite run, named test failing, reverted:
- *  1. `hushed` skipping `mayHush` → "code's floor is applied as in production".
- *  2. `passes` ignoring `MAX_DROPPED` → "a dropped ask is the tight bar".
+ * Sabotage record (2026-11-11), each applied, suite run, named test failing, reverted:
+ *  1. `passes` ignoring the @Tex set → "a missed @Tex case fails the bench, whatever the rates" fails.
+ *  2. a case's text copied into the judge's examples → "the cases are held out" fails.
+ *  3. `caseBody` showing the judge an older line as the newest → "a case reaches the judge as the Worker sends a moment" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { hushed, loadCases, MAX_DROPPED, MIN_HUSHED, passes, rates, respondCommand } from "../respond.mjs";
+import { decideRequest, JUDGE_EXAMPLES, readDecideBody } from "../../../../packages/shared/src/textDecide.cjs";
+import { caseBody, hushed, loadCases, MAX_DROPPED, MIN_HUSHED, passes, rates, respondCommand } from "../respond.mjs";
 
 test("the cases have unique ids, both labels in both kinds of chat, and lines and words on each", async () => {
   const cases = await loadCases();
@@ -19,23 +22,65 @@ test("the cases have unique ids, both labels in both kinds of chat, and lines an
   for (const item of cases) assert.ok(Array.isArray(item.lines) && typeof item.text === "string");
 });
 
-test("code's floor is applied as in production: a quiet verdict on a question to Tex is not a hush", () => {
-  assert.equal(hushed({ chat: "one", lines: [], text: "is it at 5?" }, { respond: "quiet" }), false);
-  assert.equal(hushed({ chat: "one", lines: ["You: Want it? 👍 or 👎"], text: "ok" }, { respond: "quiet" }), false);
-  assert.equal(hushed({ chat: "one", lines: ["You: Done."], text: "ok" }, { respond: "react" }), true);
+test("the @Tex set covers every way Tex is called on, and each must be answered", async () => {
+  const must = (await loadCases()).filter((item) => item.must === true);
+  for (const item of must) assert.equal(item.want, "reply", item.id);
+  const has = (pattern) => must.some((item) => pattern.test(item.text));
+  assert.ok(has(/: .+@Tex/), "an @Tex mid-message");
+  assert.ok(has(/: @Tex/), "an @Tex opening it");
+  assert.ok(has(/@⁨Tex⁩/), "an iMessage mention wrapped in bidi marks");
+  assert.ok(has(/: Tex [a-z]/), "a native mention, the bare name");
+  assert.ok(has(/: Tex,/), "Tex, then the ask");
+  assert.ok(has(/ tex\??$/i), "Tex's name closing it");
+  assert.ok(has(/\(replying to You\)/), "a reply under one of Tex's texts");
+  assert.ok(has(/: approve$/), "an approve to Tex's question");
+  assert.ok(has(/👍 \(yes\) on Tex's message/), "a thumbs-up on Tex's question");
+  assert.ok(must.some((item) => item.setting === "quiet"), "a tag in a quiet group");
+  assert.ok(must.length >= 20);
+});
+
+test("the cases are held out: no case's text is one of the judge's examples", async () => {
+  const shown = new Set(JUDGE_EXAMPLES.map((item) => item.text));
+  for (const item of await loadCases()) assert.ok(!shown.has(item.text), item.id);
+});
+
+test("a case reaches the judge as the Worker sends a moment: a body the boundary takes, its text the newest line", async () => {
+  for (const item of await loadCases()) {
+    const body = caseBody(item);
+    assert.ok(readDecideBody(body), item.id);
+    const { state } = decideRequest(body);
+    assert.ok(state.endsWith(`<${body.newest}> ${item.text}\n</chat>`), item.id);
+  }
 });
 
 test("a dropped ask is the tight bar", () => {
-  const row = (hushedRate, droppedRate) => ({ hushedRate, droppedRate });
+  const row = (hushedRate, droppedRate, mustDropped = 0) => ({ hushedRate, droppedRate, mustDropped });
   assert.equal(passes(row(MIN_HUSHED, MAX_DROPPED)), true);
   assert.equal(passes(row(1, MAX_DROPPED + 0.01)), false);
   assert.equal(passes(row(MIN_HUSHED - 0.01, 0)), false);
   assert.deepEqual(rates([{ want: "hush", hushed: true }, { want: "reply", hushed: true }]).dropped, 1);
 });
 
+test("a missed @Tex case fails the bench, whatever the rates", () => {
+  const scored = [...Array.from({ length: 40 }, () => ({ want: "reply", hushed: false, verdict: { ok: true } })), { want: "reply", must: true, hushed: true, verdict: { ok: true } }];
+  assert.ok(rates(scored).droppedRate <= MAX_DROPPED);
+  assert.equal(passes({ ...rates(scored), hushedRate: 1 }), false);
+  // No verdict at all is a miss too: the judge down drops the tag.
+  assert.equal(rates([{ want: "reply", must: true, hushed: false, verdict: null }]).mustDropped, 1);
+});
+
+test("quiet and a tapback are hushes; an answer, a wait or no verdict is not", () => {
+  assert.equal(hushed({ ok: true, act: "silent" }), true);
+  assert.equal(hushed({ ok: true, act: "react" }), true);
+  assert.equal(hushed({ ok: true, act: "answer" }), false);
+  assert.equal(hushed({ ok: true, act: "wait" }), false);
+  assert.equal(hushed(null), false);
+});
+
 test("the fake run passes and writes its report", async () => {
   const written = [];
   const all = await respondCommand({ fake: true }, { write: (text) => written.push(text) });
   assert.ok(passes(all));
-  assert.match(written.join(""), /Reply or quiet ✅ passes/);
+  assert.equal(all.mustDropped, 0);
+  assert.match(written.join(""), /the one judge ✅ passes/);
 });

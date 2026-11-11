@@ -39,28 +39,45 @@ import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { AlarmStorage, MemoryStorage } from "./memoryStorage.testing";
 import { ENGAGEMENT_QUESTION, QUESTION_OPEN_MS } from "./groupStyle";
-import { ADA, answerAll, BO, CY, decidedWords, LINES, setup, silent, untaggedSilent, type Answer, chatLog } from "./groupWorld.testing";
+import { ADA, answerAll, BO, CY, decidedWords, LINES, newestLine, setup, silent, type Answer, type Decide, chatLog } from "./groupWorld.testing";
 
 const PICTURE = { attachments: [{ url: "https://cdn.example.test/shot.png", filename: "shot.png", mimeType: "image/png", size: null }] };
 const ASK_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 const down = (): Answer => ({ ok: false, reason: "unavailable" });
+const namesTex = (words: string) => /(?:^|[^\w-])@?tex(?![\w-])/i.test(words);
+/** A stand-in judge: it answers, covering only them, the waiting lines that name Tex; quiet on the rest. A fake, never the real judge's rule. */
+const coverTex = (body: Decide): Answer => {
+  const words = (id: string) => newestLine({ transcript: body.transcript, newest: id });
+  const covers = body.candidates.filter((id) => namesTex(words(id)));
+  return covers.length > 0 ? ({ ok: true, act: "answer", covers, stale: [], movedOn: false, confidence: 0.9 } as Answer) : silent();
+};
 
 for (const { name, groupId } of LINES) {
   describe(`a group's turns after review, ${name}`, () => {
-    it("a message addressed to Tex starts its turn, with the link after it, and decide's silent keeps the answer unsent", async () => {
+    // Dev2, 2026-11-11: no word rule starts a turn; the judge does. In a bound chat its answer covers the link after the tag.
+    it("the judge's answer takes the link after the tag in one turn; its quiet runs no turn at all", async () => {
       const storage = new MemoryStorage();
-      const w = setup(groupId, { decide: silent });
-      await acceptGroup(storage, w.message("Tex check this link"), 0);
-      expect(await acceptGroup(storage, w.message("https://reasonmachines.example/page"), 1_000)).toBe("queued");
+      const w = setup(groupId, { decide: answerAll });
+      await acceptGroup(storage, w.message("Tex hi"), 0);
       await drainGroup(storage, w.deps);
-      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex check this link\nhttps://reasonmachines.example/page"]);
-      expect(w.asks[0].covers).toHaveLength(2);
-      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual([]);
+      await acceptGroup(storage, w.message("Tex check this link"), 10);
+      expect(await acceptGroup(storage, w.message("https://reasonmachines.example/page"), 1_000)).toBe("kept");
+      await drainGroup(storage, w.deps);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "Tex check this link\nhttps://reasonmachines.example/page"]);
+      expect(w.asks[1].covers).toHaveLength(2);
+
+      const other = new MemoryStorage();
+      const v = setup(groupId, { decide: silent });
+      await acceptGroup(other, v.message("Tex check this link"), 0);
+      await drainGroup(other, v.deps);
+      expect(v.asks).toEqual([]);
+      expect(v.texts).toEqual([]);
     });
 
-    it("addressed while a turn runs, Ada's and Bo's are answered after it even when decide says silent", async () => {
+    // 2026-11-11: no code floor mid-turn either; the judge queues them, and they are answered after it.
+    it("while a turn runs, Ada's and Bo's are answered after it when the judge queues them", async () => {
       const storage = new MemoryStorage();
-      const w = setup(groupId, { hold: true, decide: (body) => (body.running ? silent() : answerAll(body)) });
+      const w = setup(groupId, { hold: true, decide: (body) => (body.running ? { ...answerAll(body), midTurn: "queue" } : answerAll(body)) });
       await acceptGroup(storage, w.message("Tex make a graphic"), 0);
       const draining = drainGroup(storage, w.deps);
       await w.running;
@@ -73,24 +90,23 @@ for (const { name, groupId } of LINES) {
       expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA, BO]);
     });
 
-    it("decide down: the link after the tag is read with it, as before decide", async () => {
+    // 2026-11-11: the judge down, only a waiting question is answered (`decideDownAnswer`); a tag with no "?" is not.
+    // A known gap of the one-judge design, reported to the owner rather than closed with a word rule.
+    it("judge down: a waiting question is answered alone; a tag that asks nothing is not", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: down });
-      await acceptGroup(storage, w.message("Tex check this link"), 0);
-      await acceptGroup(storage, w.message("https://reasonmachines.example/page"), 1_000);
-      await drainGroup(storage, w.deps);
-      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex check this link\nhttps://reasonmachines.example/page"]);
-    });
-
-    it("decide down: a picture after the tag joins the tagger's waiting tag: one turn", async () => {
-      const storage = new MemoryStorage();
-      const w = setup(groupId, { decide: down });
-      await acceptGroup(storage, w.message("Tex file this screenshot as a bug"), 0);
+      await acceptGroup(storage, w.message("Tex file this screenshot as a bug?"), 0);
       await acceptGroup(storage, w.message("", PICTURE), 1_000);
       await drainGroup(storage, w.deps);
       expect(w.asks).toHaveLength(1);
-      expect(w.asks[0].question).toBe("Tex file this screenshot as a bug");
-      expect(w.asks[0].covers).toHaveLength(2);
+      expect(w.asks[0].question).toBe("Tex file this screenshot as a bug?");
+
+      const other = new MemoryStorage();
+      const v = setup(groupId, { decide: down });
+      await acceptGroup(other, v.message("Tex check this link"), 0);
+      await acceptGroup(other, v.message("https://reasonmachines.example/page"), 1_000);
+      await drainGroup(other, v.deps);
+      expect(v.asks).toEqual([]);
     });
 
     it("a webhook redelivered while decide is slow is a duplicate, never decided twice", async () => {
@@ -105,7 +121,7 @@ for (const { name, groupId } of LINES) {
       const late = w.message("Tex and a poster", { from: BO });
       const first = acceptGroup(storage, late, 10);
       while (!w.decided.some((body) => body.running)) await new Promise((resolve) => setTimeout(resolve, 1));
-      expect(await acceptGroup(storage, late, 11)).toBe("duplicate");
+      expect(await acceptGroup(storage, late, 11)).toBe("ignored");
       open();
       expect(await first).toBe("queued");
       w.release();
@@ -151,7 +167,7 @@ for (const { name, groupId } of LINES) {
       const storage = new MemoryStorage();
       const w = setup(groupId, {
         control: { engagement: "helpful", engagementChosen: true },
-        decide: (body) => (body.addressed ? answerAll(body) : ({ ...silent(), stale: body.waitingAsks } as Answer)),
+        decide: (body) => (namesTex(newestLine(body)) ? answerAll(body) : ({ ...silent(), stale: body.waitingAsks } as Answer)),
         agent: (body) =>
           String(body.question).startsWith("Tex draft")
             ? { answer: "Here's the email. Give it a 👍 and I'll send it.", verbatim: ["Give it a 👍 and I'll send it."], askIds: [ASK_ID] }
@@ -161,8 +177,8 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, w.deps);
       await acceptGroup(storage, w.message("nah forget it", { from: BO }), 10);
       await drainGroup(storage, w.deps);
-      // The untagged texts' decides (each tag's is asked beside its turn).
-      const judged = () => w.decided.filter((body) => !body.addressed);
+      // The judge's verdicts on the lines that do not name Tex.
+      const judged = () => w.decided.filter((body) => !namesTex(newestLine(body)));
       expect(judged()[0].waitingAsks).toEqual([]);
       // Ada's own words are shown her ask.
       await acceptGroup(storage, w.message("actually wait"), 20);
@@ -188,7 +204,7 @@ for (const { name, groupId } of LINES) {
       expect(w.engagement).toEqual([]);
 
       const other = new MemoryStorage();
-      const v = setup(groupId, { decide: down });
+      const v = setup(groupId, { decide: coverTex });
       await acceptGroup(other, v.message("Tex check this link"), 0);
       expect(await acceptGroup(other, v.message("https://phish.example/x", { sms: true }), 1_000)).toBe("ignored");
       await drainGroup(other, v.deps);
@@ -198,7 +214,7 @@ for (const { name, groupId } of LINES) {
     it("the two-person burst: Bo's untagged complaint after Ada's ask gets its own decide, and silent means one answer", async () => {
       const storage = new MemoryStorage();
       // Tags never wait on decide: Ada's turn starts at once (decide, beside it, answers), and Bo's complaint, after it, is decided on its own.
-      const w = setup(groupId, { control: { engagement: "helpful", engagementChosen: true }, decide: untaggedSilent });
+      const w = setup(groupId, { control: { engagement: "helpful", engagementChosen: true }, decide: coverTex });
       await acceptGroup(storage, w.message("Tex hi"), 0);
       await drainGroup(storage, w.deps);
       await acceptGroup(storage, w.message("Tex make the poster"), 10);

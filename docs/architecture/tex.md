@@ -25,7 +25,7 @@ flowchart LR
   P2([Group text]):::you --> W2
   subgraph Worker["Texting Worker · apps/agent"]
     W1["1:1 lane<br/>inbox.ts · inboxTurn.ts<br/>queue, which texts, steer"]:::pipe
-    W2["Group lane<br/>groupInbox.ts · groupTurn.ts<br/>style, chatter kept"]:::pipe
+    W2["Group lane<br/>groupInbox.ts · groupTurn.ts<br/>every message to the judge, chatter kept<br/>a chat Tex is not set up in: first look, nothing kept"]:::pipe
     H["Hear a group voice memo first<br/>groupVoice.ts"]:::pipe
     W2 --- H
     LA["Shared step: lookAgain<br/>their newer words may change the answer<br/>a tapback never holds a reply<br/>lookAgain.ts"]:::shared
@@ -35,20 +35,20 @@ flowchart LR
     Q["Shared step: the chat's queue<br/>each text waits in its chat's object, in order<br/>1:1 up to 20, a group up to 10<br/>chatQueue.ts"]:::shared
     W1 --- Q
     W2 --- Q
-    FT["Shared step: isItForTex<br/>1:1: always; group: a tag, the asker's yes, a setting<br/>and whether code answers it, never the model<br/>isItForTex.ts"]:::shared
+    FT["Shared step: isItForTex<br/>only whether code answers it, never the model:<br/>a command said to Tex by name, a setting, a style choice, an SMS<br/>whether anything else is for Tex is the judge's<br/>isItForTex.ts"]:::shared
     W1 --- FT
     W2 --- FT
     GT["Shared step: gatherTheTurn<br/>what decide named is answered, an older must-answer first<br/>1:1 drops what's left, a group keeps it as chat<br/>gatherTheTurn.ts"]:::shared
     W1 --- GT
     W2 --- GT
   end
-  D["decide · recheck, in the gateway<br/>Clef, @cf/cloudflare/clef<br/>textsDecide.js · decideGateway.ts"]:::judge
+  D["The one judge · recheck, in the gateway<br/>Clef, @cf/cloudflare/clef, few-shot examples<br/>respond, react or quiet, with a why, every moment<br/>reads the speak-up setting; a judge entry in the group's ledger<br/>textDecide.cjs · textsDecide.js · decideGateway.ts"]:::judge
   subgraph Control["Control plane · Convex"]
     CAP["decide's daily cap and usage rows<br/>asked now and then, written after<br/>textDecideMeter.ts · jev/models.ts"]:::judge
   end
   D -. cap kept 5 min, usage after .-> CAP
   W1 -. which texts, wait or answer .-> D
-  W2 -. which texts .-> D
+  W2 -. respond, react or quiet, which texts .-> D
   E -. draft, before it sends .-> LA
   LA -. still fits? .-> D
   W1 -->|POST /agent| E
@@ -112,12 +112,8 @@ may leave the turn (`privacy/egress.js`).
 ```mermaid
 flowchart TB
   Q([The question, the chat, About me, the setup,<br/>the capability list: what Tex can do, and where<br/>capabilities.js<br/>today's date for every model below, at its door,<br/>and every earlier text with its day and time<br/>localNow.js withToday · stamped]):::you --> CL
-  CL["Conversation classifier<br/>Haiku 5.5 · effort low · before the model<br/>which open thread the text continues, or a new one<br/>finishes a thread only on evidence, never on silence<br/>reply, react or quiet, learned from labelled real chats<br/>and where a reply goes: under the text, or plain<br/>kept in the chat's threads ledger, chat.threads<br/>conversationThreads.js · threadedTurn.js · respond.js"]:::judge
-  CL -->|reply: thread list, suggested thread, last 24 hours| FD
-  CL -->|react or quiet| HF{{"Code's floor, never the model<br/>a question in a 1:1 or under a text of Tex's,<br/>Tex named in a group, straight after Tex asked,<br/>a tapback, a 1:1 file:<br/>always reaches the model<br/>respond.js mayHush"}}:::rail
-  HF -->|passes the floor| HU["Hushed, before the model<br/>a tapback or nothing; kept as a say_nothing<br/>with the classifier's reason<br/>respond.js hushedTurn"]:::judge
-  HF -->|held by the floor| FD
-  HU --> SEND
+  CL["Conversation classifier<br/>Haiku 5.5 · effort low · before the model<br/>which open thread the text continues, or a new one<br/>finishes a thread only on evidence, never on silence<br/>and where a reply goes: under the text, or plain<br/>whether to answer at all is the Worker's one judge's<br/>kept in the chat's threads ledger, chat.threads<br/>conversationThreads.js · threadedTurn.js"]:::judge
+  CL -->|thread list, suggested thread, last 24 hours| FD
   FD["Front door<br/>Haiku 5.5 · effort high · up to 24 rounds<br/>turn.js runTurn"]:::haiku
   FD <-->|tools| T["Tools: notes, search, web, browser,<br/>vault, email, calendar, apps,<br/>their texts (1:1 only, Mac backup)<br/>the one dispatcher, callToolForSession"]:::tool
   FD <-->|ask_advisor, when stuck or weighing| ADV["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js"]:::opus
@@ -196,6 +192,8 @@ What each model costs is `jev/meter.ts`.
 
 ## Change log
 Newest first. One line per pull request that changed the drawing.
+
+- 2026-11-11: one judge (Dev2's one-judge design, PR 1): Clef with labelled few-shot examples (`textDecide.cjs` `JUDGE_EXAMPLES`, in `<examples><example>` tags) decides respond, react or quiet, with a why from a fixed set, for every group message that is not code's, whatever the speak-up setting, which it reads; the gateway keeps each group verdict as a `judge` entry (`by: "moment"`) in the chat's ledger (`textsDecide.js`). Deleted: the word rails (`addressesTex`, `namesTex`, the asker's bare-yes routing `ANSWERS_ASK`, the style gate `reachesDecide`/`styleReaches` and its follow-along counter), decide beside an addressed turn (`decideBeside`), and the Haiku respond classifier with code's floor (`respond.js`, `mayHush`, `hushedTurn`); the conversation classifier only sorts threads and places a reply. A chat Tex is not set up in keeps nothing: its messages wait unlogged for the judge's first look at those lines alone (`firstLook`), and only an answered one is logged. A command still needs Tex's name first (`commandTo`). Bench: `pnpm ai respond` scores the judge on held-out cases, with a must-pass "@Tex" set. Decision: `docs/decisions/texting-assistant/one-judge-one-record.md`.
 
 - 2026-11-10: the stretch's carried calls replay in production (owner-approved fix of #3156, which replayed nothing): a group reply is no longer stubbed as outside for being a chat's own words, since replies now record `outside` beside `clean` (`sendTheReply.js`, `ledgerConversation.js`); a 1:1 text keys its carried results on the person, workspace and scopes (`stretch.js` `carryKey`), not the per-text token's grant id; and a result read from outside (a page, a listing, a kept file, a job's report) is replayed, not stubbed, and marks the new turn untrusted as if it had read it itself (`readTheHistory.js`). Each turn logs `tex_carry` (carried, stubbed by reason, whether carried outside content marked it, stretch size), also on the `turn_stages` line (`turnStages.js`). No box changes. Test: `apps/mcp/test/texCarryGating.test.mjs`.
 - 2026-11-11: a job's start or restart texts nothing; the text that asked gets a tapback and they hear only the result (Dev2: "No one actually cares"), and `start_background_job` always starts a new job with its brief, never picking up a stopped job named like it (a stuck job's report turn added the missing link three times, each dropped, each texting "On it: picking … back up"). A quiet group turn still starts its jobs (`groupModelTurn.ts`). No box changes. Decision: `docs/decisions/texting-assistant/background-jobs.md`.

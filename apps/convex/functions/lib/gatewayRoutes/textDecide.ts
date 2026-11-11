@@ -21,7 +21,7 @@ export { agentTextsRecheckHandler } from "./textRecheck";
 export { agentTextsDecideGateHandler, agentTextsDecideUsageHandler } from "./textDecideMeter";
 
 export {
-  ADDRESSED_RULE,
+  FOR_TEX_RULE,
   decideRequest,
   MAX_CANDIDATES,
   MAX_TRANSCRIPT,

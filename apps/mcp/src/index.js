@@ -188,7 +188,7 @@ export const TexTexts = {
       if (new URL(request.url).pathname === TEXTS_HEAR_PATH) return await hearForTexts(request, env);
       // Decide and the last look, asked of Clef here; the cap and usage rows stay in the control plane (`agent/textsDecide.js`).
       const path = new URL(request.url).pathname;
-      if (path === TEXTS_DECIDE_PATH || path === TEXTS_RECHECK_PATH) return await decideForTexts(request, env);
+      if (path === TEXTS_DECIDE_PATH || path === TEXTS_RECHECK_PATH) return await decideForTexts(request, env, { waitUntil: (work) => ctx?.waitUntil?.(work) });
       return await openTextsSession(request, env, ctx);
     } catch {
       // The Worker reads anything but a linked answer as "ask Convex".

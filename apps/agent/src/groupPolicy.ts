@@ -3,11 +3,11 @@
  * Pure functions over the waiting messages; the callers (`groupInbox.ts`,
  * `groupTurn.ts`, `groupStyle.ts`) read storage and act on the answer.
  *
- * - Addressed (its name, a reply the menu reads, a command): code's floor,
- *   always answered, never waited on (`groupWords.ts` reads the words).
- * - Untagged: the chat's style says whether decide reads it (`styleReaches`).
- * - Decide down: an untagged question that reached decide is answered
- *   (`decideDownAnswer`), so a follow-up is never dropped silently.
+ * - Code's (a command said to Tex by name, a reply the menu reads, a style
+ *   choice): always answered by code, never put to the judge.
+ * - Everything else is the one judge's, whatever the speak-up setting.
+ * - The judge down: a waiting question is answered (`decideDownAnswer`), so
+ *   a follow-up is never dropped silently.
  * - Decide's `wait` is believed only on a real burst (`burstStillTyped`); how
  *   often and how long is the chat's state's to cap (`chatState.ts`).
  *
@@ -15,21 +15,11 @@
  * approving) are not here: they stay where the turn runs.
  */
 
-import type { GroupStyle } from "./decide";
-
 /** Another message from the same sender this close before the newest makes it a burst. */
 export const BURST_WINDOW_MS = 20_000;
 
 /** One waiting message as the rules see it. */
 export type Waiting = { message: { from: string; text: string }; at?: number };
-
-/** Whether an untagged message reaches decide in this style; `asker`: its sender's ask is open; `following`: followAlong still reads. */
-export function styleReaches(style: GroupStyle, asker: boolean, following: () => Promise<boolean>): Promise<boolean> | boolean {
-  if (style === "helpful") return true;
-  if (style === "quiet") return false;
-  if (asker) return true;
-  return style === "followAlong" && following();
-}
 
 /** Words that read as cut off: a trailing comma, a joining word, an ellipsis, or a short fragment with no end punctuation. */
 export function looksUnfinished(text: string): boolean {

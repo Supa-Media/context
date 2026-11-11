@@ -22,11 +22,10 @@ import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, jobQuestion, resumeJobs, startJobs, steerJobs, viewLink, withThreadsLine } from "./jobs";
 import { addEvent, kindOf, logAsk, recentEvents } from "./events";
-import { cancelTurn, staleAsks } from "./decide";
+import { staleAsks } from "./decide";
 import { startTurn } from "./steer";
 import { recheckDraft } from "./groupRecheck";
 import type { GroupPending } from "./groupTurn";
-import { texSpoke } from "./groupStyle";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
 
 export type TurnInput = {
@@ -41,12 +40,10 @@ export type TurnInput = {
   people: string[];
   asked: Extract<ControlAnswer, { status: "ready" }>;
   accessToken: string;
-  /** Decide on an addressed turn, asked beside it (`decideBeside`): true, nothing of the turn is sent. */
-  silenced?: Promise<boolean>;
 };
 
 /** The model's turn on a group message, its answer sent only to the people it was written for. */
-export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken, silenced }: TurnInput): Promise<"cancelled" | void> {
+export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
   const app = groupLineFor(deps, message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
@@ -78,11 +75,6 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers));
   await steer.onSession(accessToken);
   const meta: SayMeta = { turn: steer.turn, covers, people: group.members };
-  // Decide said silent (Dev2, 2026-11-01): the turn is cancelled if it still runs, so nothing of it is kept as said either.
-  const vetoed = silenced?.then(async (silent) => {
-    if (silent && (await cancelTurn(deps, accessToken, steer.turn))) live.cancelled = true;
-    return silent;
-  });
   /*
     Asked for as a stream, as a person's own text is (the owner, 2026-10-23:
     "group Tex should literally be the same exact as DM Tex"): a long ask
@@ -99,7 +91,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const readTwice = async () => (await app.readMembers(chat)) ?? (await app.readMembers(chat));
   let paused = false;
   const progress = async (text: string) => {
-    if (routine || (await vetoed)) return; // no line before decide's verdict
+    if (routine) return;
     try {
       if (!(await isBound(storage, message))) return log("progress_unbound");
       if (!paused) {
@@ -143,11 +135,6 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     end();
   }
   const answered = deps.now();
-  // Never sent before decide's verdict, nor after its silent: Tex never spoke, so follow-along and the open ask stay as they were.
-  if (await vetoed) {
-    if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
-    return log("decide_vetoed");
-  }
   if (live.cancelled || answer.kind === "cancelled") {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
@@ -240,7 +227,6 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
   const askedWho = await sha256Hex(asks ?? message.from);
   for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));
-  await texSpoke(storage);
   log("answered");
   logTiming({ arrivedAt, asking, answered, firstSent, sent: deps.now(), parts: texts.length, turn: meta.turn ?? "" }, deps.textTiming);
   await routineDone(deps, message, "answered", texts.length > 0 ? 1 : 0);

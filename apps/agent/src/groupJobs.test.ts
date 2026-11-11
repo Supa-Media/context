@@ -16,6 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
+import { fakeJudge } from "./groupWorld.testing";
 import { acceptGroup, drainGroup, GROUP_LINES, type GroupDeps } from "./groupInbox";
 import { acceptJob, runJob } from "./jobRun";
 import { chatJobs, type JobRun, type JobUpdate } from "./jobs";
@@ -58,6 +59,7 @@ function deps(world: World, agent: unknown, ready: Record<string, unknown> = {})
       return Response.json({ message_handle: `h_out_${world.sends.length}` });
     }
     if (path === "/api/send-reaction") return world.reactions?.push(body), Response.json({});
+    if (path === "/agent-texts/decide") return Response.json(fakeJudge(JSON.parse(String(init.body))));
     if (path === "/agent-texts/group") {
       return Response.json({ status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "cat_group", ...ready });
     }

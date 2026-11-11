@@ -478,6 +478,8 @@ What a simplification would cost: caching the reach on the grant and trusting it
 Dev2 chose this on the 2026-11-05 bug hunt: "Tex, find us a dinner spot for Friday" said as a voice message in a group got no answer, and the same words typed did. Whether a group message is for Tex is decided from its words (`groupInbox.ts` `acceptGroup`), and a voice message has none: its words were only made inside the gateway's turn, after that decision.
 
 - **A message that is only a voice recording is heard first** (`apps/agent/src/groupVoice.ts`): the group's object downloads it and asks the gateway's `TexTexts` entrypoint (`/texts/hear`, `apps/mcp/src/agent/textsHear.js`) for its words. That is the transcription a turn uses (`hearVoiceMessages`), reached over the service binding, so no new secret or service hears the audio; the caller is the chat's hash.
+_Superseded 2026-11-11 by [one-judge-one-record](./one-judge-one-record.md) (PR 1): a voice message's heard words are logged as its line ("(voice message) ...") and judged like typed words; no name rule decides it._
+
 - **Said aloud, Tex's name anywhere is the tag** (`addressesTex` or `namesTex` on `heard`): decide cannot hear a recording, so leaving a named voice message to it would leave it unanswered as before.
 - **`heard` only decides whether a turn runs.** The turn still gets the recording and hears it as before; the chat's log and decide are unchanged. `heard` is set only by the object, from the recording: `/group-accept` drops any `heard` a request names.
 - **Best effort, bounded at 12 s.** No binding, a failed download or transcription, or silence leaves the message as it came, never worse than before. A message with words, a picture, an SMS group or a reaction is never sent to be heard.

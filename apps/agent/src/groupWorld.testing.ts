@@ -17,13 +17,23 @@ export const LINES = [
   { name: "WhatsApp (Whapi)", groupId: whapiGroupId(JID) },
 ];
 
-export type Decide = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; line?: string; waitingAsks: string[]; addressed?: true };
+export type Decide = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; line?: string; waitingAsks: string[]; ledger?: string };
 export type Answer = { ok: true; act: "silent" | "react" | "answer" | "wait"; covers: string[]; midTurn?: string; stale: string[]; movedOn: boolean; confidence: number; emoji?: string; waitSeconds?: number } | { ok: false; reason: string };
 
 export const answerAll = (body: Decide): Answer => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
 export const silent = (): Answer => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 });
-/** Decide answering what looks addressed to Tex (asked beside its turn, `decideBeside`) and silent on everything else. */
-export const untaggedSilent = (body: Decide): Answer => (body.addressed ? answerAll(body) : silent());
+/** The newest line the judge is asked about, its words after the speaker (`renderTranscript`'s shape). */
+export const newestLine = (body: { transcript: string; newest: string }): string =>
+  (body.transcript.split("\n").find((line) => line.startsWith(`<${body.newest}>`)) ?? "").replace(/^<[^>]+> (?:\[[^\]]*\] )?[^:]*:/, "").trim();
+
+/**
+ * A stand-in for the one judge in tests: it answers a newest line that names Tex or replies under one of Tex's
+ * texts, and is silent on the rest. A fake for the plumbing only: the real judge has no word rule
+ * (`textDecide.cjs`), and its judgment is scored by `apps/mcp/bench/respond`.
+ */
+export const fakeJudge = (body: Decide): Answer => (/(?:^|[^\w-])@?tex(?![\w-])|\(replying to You\)/i.test(newestLine(body)) ? answerAll(body) : silent());
+/** The same stand-in, kept under its older name. */
+export const untaggedSilent = fakeJudge;
 
 export function setup(
   groupId: string,
@@ -217,9 +227,9 @@ export async function chatLog(storage: MemoryStorage, w: { posted: () => TexEven
   return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/** The words of each candidate decide was shown at the drain (not mid-turn, nor beside an addressed turn). */
+/** The words of each candidate the judge was shown at the drain (not mid-turn, nor a first look, which logs nothing). */
 export async function decidedWords(storage: MemoryStorage, w: ReturnType<typeof setup>, groupId: string): Promise<string[]> {
   const byId = new Map((await chatLog(storage, w, groupId)).map((event) => [event.id, event.text ?? ""]));
-  return w.decided.filter((body) => !body.running && !body.addressed).flatMap((body) => body.candidates.map((id) => byId.get(id) ?? "?"));
+  return w.decided.filter((body) => !body.running && body.ledger !== undefined).flatMap((body) => body.candidates.map((id) => byId.get(id) ?? "?"));
 }
 
