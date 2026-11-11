@@ -420,6 +420,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       return {
         ok: response.status === 200 && typeof body?.answer === "string",
         answer: body?.answer ?? "",
+        // Nothing to text, and the tapback the Worker sends instead (`texEntryPoint/sendTheReply.js`).
+        quiet: body?.quiet === true,
+        react: typeof body?.react === "string" ? body.react : null,
         // Lines the turn texted while it worked: each is a text the person got,
         // sent before the answer, as the texting Worker sends them (`apps/agent/src/inbox.ts`).
         progress,

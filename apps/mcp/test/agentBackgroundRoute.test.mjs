@@ -28,7 +28,7 @@
  *  7. `jobReportQuestion` not replacing the body's question.
  *     → "the coordinator's turn is asked the gateway's own line, never the body's" fails.
  *  8. `endsTurn` returning null (2026-10-31, acknowledge first).
- *     → "a job that starts answers the text at once, with no model round after it" fails.
+ *     → "a job that starts answers the text at once, with no model round after it: a tapback, no text (Dev2, 2026-11-11)" fails.
  *  9. `roundNote` told on every round.
  *     → "a turn with no job after two rounds of tools is told once to hand the rest to one" fails.
  * 10. The answer leaving out a job part's `untrusted`.
@@ -177,8 +177,8 @@ export async function runAgentBackgroundRouteChecks(check) {
     const first = model.requests[0];
     check("an ordinary text is on the daily cap", controlPlane.builtinStarts.at(-1)?.background === undefined && controlPlane.builtinStarts.length > 0 && controlPlane.builtinReports.at(-1)?.background === undefined);
     check(
-      "a job that starts answers the text at once, with no model round after it",
-      model.requests.length === 1 && (started.body?.answer ?? "") === "On it: Competitor research.",
+      "a job that starts answers the text at once, with no model round after it: a tapback, no text (Dev2, 2026-11-11)",
+      model.requests.length === 1 && (started.body?.answer ?? "") === "" && started.body?.quiet === true && started.body?.react === "",
     );
     check("a texted turn is told to start a task's job first, before reading", /as your FIRST call: before reading notes/.test(systemOf(first)));
     check("a text from a Worker that runs jobs is offered background, under send", /background: Hand a long task/.test(sendTool(first)?.description ?? ""));

@@ -43,7 +43,7 @@ export async function sendTheReply(t) {
   // relaying it is a courtesy rather than the mechanism.
   // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
   // A flattering opener ("You're so right!") comes off first (`pushback.js`).
-  const hushed = turn.answer === QUIET_ACK; // a start or restart they asked to hear nothing about until it's done (`background.js`)
+  const hushed = turn.answer === QUIET_ACK; // a job's start or restart texts nothing; their text gets a tapback instead (`background.js`)
   const { answer: replied, quiet } = hushed ? { answer: "", quiet: true } : reportReply(report, turn.answer), silent = job === null && (((group !== null || turn.settled === "say_nothing") && /^\W*SKIP\W*$/.test(String(replied ?? ""))) || typedCallOf(replied) !== null), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet || silent ? "" : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP, or any say_nothing (`sayNothing.js`), is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct)
   // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
   const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
@@ -89,7 +89,7 @@ export async function sendTheReply(t) {
   if (!turn.exhausted) await tex.after("self_review", () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
   const reply = {
     answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
-    ...(turn.hushed?.respond === "react" && sent === "" ? { react: turn.hushed.emoji ?? "" } : {}), // a tapback in place of a text: the classifier's (`respond.js`); the Worker checks the emoji (`reactEmoji.ts`)
+    ...(turn.hushed?.respond === "react" && sent === "" ? { react: turn.hushed.emoji ?? "" } : hushed && report === null && sent === "" ? { react: "" } : {}), // a tapback in place of a text: the classifier's (`respond.js`), or a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)
     ...(replyPlace === "under" || replyPlace === "plain" ? { place: replyPlace } : {}), // under the text it answers, or plain in the chat (`respond.js`)
     // How many held calls the answer's last line asks about, so a caller that
     // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
