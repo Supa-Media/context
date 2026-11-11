@@ -25,25 +25,41 @@ control plane with no model (`textGroups.applyGroupTurn`,
 ## The rules, and the test that fails if each is dropped
 
 - **Only its own person shares it**, only a Gmail connected to their own
-  personal workspace, and only into a chat bound to a shared workspace where
-  they are an owner or editor. Never a personal workspace's chat. Each
-  refusal reads the same ("mail_refused"). A guest chat too, since
-  2026-10-29 (the owner: "it should work even in guest mode if I'm sharing
-  my email explicitly"): the sharer chose who sees it by sharing it there. A
-  guest chat reads it only when someone asks; it has no looks, and the
-  sharer's own check-in does not count it as watching that mail.
+  personal workspace, and only into a chat they are one of the people of
+  (the accounts its home names, `textGroups.homeUsers`). Each refusal reads
+  the same ("mail_refused"). The share is the chat's, not a workspace's
+  (the owner, 2026-11-11: "Chats don't have a bound workspace anymore. All
+  chats have their own durable object now"); it is audited on the sharer's
+  own workspace. A chat from before homes, bound to one workspace (as a
+  deployment with no pinned workspace still runs), keeps the old rule: the
+  sharer edits that shared workspace, never a personal one. A guest chat
+  too, since 2026-10-29 (the owner: "it should work even in guest mode if
+  I'm sharing my email explicitly"): the sharer chose who sees it by sharing
+  it there. A guest chat reads it only when someone asks; it has no looks,
+  and the sharer's own check-in does not count it as watching that mail.
   `apps/convex/__tests__/textGroupMail.test.ts`: "only the mailbox's own
-  person", "never into a chat on a personal workspace".
+  person", "never into a chat on a personal workspace";
+  `textGroupMailHomes.test.ts`: "only one of the chat's people".
+- **Any call on the chat's own grant reads it**, whichever of the grant's
+  workspaces it names: the chat's home, where its calls go by default, or a
+  workspace it reaches; never one the grant does not cover. Until
+  2026-11-11 the read had to name the one workspace `chatWorkspace` picked,
+  so in the Crystal Care chat 48 of 48 reads on the home were refused
+  ("cannot read the person's email") while the 3 that named
+  `@crystal-care` went through, and Tex told the chat its mail wasn't
+  there. `textGroupMailHomes.test.ts`: "reads from the chat's home", "never
+  through a workspace the grant does not cover".
 - **Read live, narrowed, kept nowhere.** Each search is sent to Gmail as
   `(<share's search>) (<query>)`; a read opens a message only if the share's
   search, asked by that message's own Message-ID, still finds it. Nothing of
   a message is stored. "every search is narrowed", "a message outside the
   share is not found". "a guest chat reads it too";
   `apps/agent/src/groupJobs.test.ts` "a job is told the mail shared".
-- **Asked again at every read.** The share counts only while the chat is
-  bound to the same workspace and not muted, the sharer still writes there,
-  and the Gmail is still connected. "losing edit, or disconnecting the Gmail,
-  ends it".
+- **Asked again at every read.** The share counts only while the chat is not
+  muted, the sharer is still one of its people (for a chat from before
+  homes: still writes in its workspace), and the Gmail is still connected.
+  "leaving the chat ends the reads", "losing edit, or disconnecting the
+  Gmail, ends it".
 - **Only the sharer stops it.** "stopping sharing ends the reads, and only
   the sharer can".
 - **Each read counts against the sharer's own hourly mail reads**, the same

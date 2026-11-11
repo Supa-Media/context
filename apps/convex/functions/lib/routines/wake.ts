@@ -12,6 +12,8 @@
 import type { Doc } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { wakeChatMailLooks } from "../textGroupLooks";
+import { chatWorkspace } from "../textGroupReach";
+import { pinnedContextWorkspace } from "../pinnedContext";
 
 /** How long after a notification the look starts, so the mail that came with it has landed. */
 export const MAIL_WAKE_DELAY_MS = 60_000;
@@ -30,13 +32,25 @@ export async function wakeMailRoutines(ctx: MutationCtx, row: Doc<"googleConnect
   );
   // The chat's own look, which needs no routine (`textGroupLooks.ts`).
   let woken = await wakeChatMailLooks(ctx, owner, address, now);
+  const pin = await pinnedContextWorkspace(ctx);
   for (const share of shares) {
     // A routine's `chat:` is the first 16 hex of its chat's key (`chats.ts`).
     const chat = share.groupKey.slice(0, 16);
-    const routines = await ctx.db
-      .query("routines")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", share.workspaceId))
-      .take(ROUTINES_READ);
+    // A share is the chat's, not a workspace's (2026-11-11): its routines live in its home (the pin) or in the
+    // workspace it reaches, never where the share is audited.
+    const group = await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", share.groupKey)).first();
+    const reached = group === null ? null : await chatWorkspace(ctx, group);
+    const routines = reached === null ? [] : await ctx.db.query("routines").withIndex("by_workspace_path", (q) => q.eq("workspaceId", reached._id)).take(ROUTINES_READ);
+    if (pin !== null && group?.homeWords) {
+      // The pin holds every chat's home: read this chat's own routines folder, not the whole pin.
+      const home = `tex/groups/${group.homeWords}/`;
+      routines.push(
+        ...(await ctx.db
+          .query("routines")
+          .withIndex("by_workspace_path", (q) => q.eq("workspaceId", pin._id).gte("path", home).lt("path", `${home}\uffff`))
+          .take(ROUTINES_READ)),
+      );
+    }
     for (const routine of routines) {
       if (routine.chat !== chat || routine.wake !== "mail" || routine.paused || routine.nextRunAt === null) continue;
       const due = Math.max(now + MAIL_WAKE_DELAY_MS, (routine.lastRunAt ?? 0) + MAIL_WAKE_GAP_MS);

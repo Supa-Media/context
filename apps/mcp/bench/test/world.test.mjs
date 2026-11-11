@@ -465,7 +465,9 @@ test("a text sent with running jobs can start jobs, and a planned split writes i
     const turn = await world.text("plan the lisbon week", [], { running: [] });
     assert.ok(offered.at(-1).includes("your advisor plans it"), "offered under send");
     assert.deepEqual(turn.jobs.map((job) => [job.name, job.mail]), [["dinners", "projects/lisbon-week/overview.md"], ["trip", "projects/lisbon-week/overview.md"]]);
-    assert.match(turn.answer, /^On it, in 2 parts at once/);
+    assert.equal(turn.answer, "", "a start texts nothing (Dev2, 2026-11-11)");
+    assert.equal(turn.quiet, true);
+    assert.equal(turn.react, "", "their text gets a tapback, the Worker's pick from their words");
     const written = world.changes().filter((change) => change.kind === "written").map((change) => change.path);
     assert.deepEqual(written.filter((path) => path.startsWith("projects/lisbon-week/")).sort(), ["projects/lisbon-week/dinners.md", "projects/lisbon-week/overview.md", "projects/lisbon-week/trip.md"]);
   } finally {

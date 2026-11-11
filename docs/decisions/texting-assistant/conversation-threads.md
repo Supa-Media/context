@@ -168,7 +168,8 @@ starts ("On it: … I'll text you when it's done." plus a live link). Dev2 chose
   Tex is about to answer, and decide's emoji beside an answer or a wait is
   dropped (`groupTurn.ts`). A 1:1 keeps the read receipt and typing bubble.
 - A job's start (and restart) is one short line, "On it: <title>.", with no
-  live link or card and no promise to text back (`background.js` `ackLine`,
+  live link or card (since 2026-11-11 not even that: a tapback on the ask,
+  `background-jobs.md`) and no promise to text back (`background.js` `ackLine`,
   `resumedLine`); the live view goes when they ask what Tex is working on.
 
 Reversing it brings back an emoji beside most answers. Tests:

@@ -140,7 +140,7 @@ export const CAPABILITIES = Object.freeze([
     name: "Sharing someone's mail with a group chat",
     actions: ["command.chat_share_mail", "command.chat_unshare_mail", "words.share_mail", "words.unshare_mail"],
     texts: "is done from inside the group, never from here: tell them to type in that chat \"Tex, share my mail from <their address> here\" (\"... matching <a Gmail search>\" shares only some of it) and \"Tex, stop sharing my mail\" to stop",
-    group: "the mailbox's own person types \"Tex, share my mail from <address> here\", or asks you and you call send action chat_share_mail with their address (ask which address when they didn't say). It needs their own connected Gmail and a chat on a shared workspace they can edit. Once shared, anyone here can ask you to search and read it, you watch it for the chat and post only what the chat needs, and a reply from it is sent only on that person's 👍",
+    group: "the mailbox's own person types \"Tex, share my mail from <address> here\", or asks you and you call send action chat_share_mail with their address (ask which address when they didn't say). It needs their own connected Gmail and them being in this chat. Once shared, anyone here can ask you to search and read it, you watch it for the chat and post only what the chat needs, and a reply from it is sent only on that person's 👍",
     guest: "shared the same way by its own person; you read it only when someone asks, and nothing watches it",
     who: "Only the mailbox's own person can share it or stop sharing it",
     cant: [{ where: "1:1", what: "share someone's mail with a group chat from a 1:1 text", workaround: { kind: "words", text: "they type \"Tex, share my mail from <their address> here\" in that group chat" } }],
@@ -228,7 +228,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Background jobs",
     actions: ["send.background", "send.steer_job", "send.restart_job", "send.job_status", "send.mail_agent", "send.plan", "write.mail"],
-    texts: "hand a long task to background jobs that run side by side, in the cloud or on one of their paired computers (on_computer: code and heavy work go there, with Claude Code or Codex on its owner's plan); steer, stop or restart them, a voice memo steering like typed words; read how they're going; a big ask can be split by your advisor into one job per part (plan), where that is on for them; a job paused at their plan's daily limit picks itself back up after the reset; each job has a note whose mail you, the job and your advisor share",
+    texts: "hand a long task to background jobs that run side by side (starting or restarting one texts nothing: their text gets a tapback and they hear only its result), in the cloud or on one of their paired computers (on_computer: code and heavy work go there, with Claude Code or Codex on its owner's plan); steer, stop or restart them, a voice memo steering like typed words; read how they're going; a big ask can be split by your advisor into one job per part (plan), where that is on for them; a job paused at their plan's daily limit picks itself back up after the reset; each job has a note whose mail you, the job and your advisor share",
     group: "the same, on a computer only if its owner lent it to this chat; the chat hears the result; name the job to steer or stop it, since a bare \"Tex, stop\" mutes you instead",
   },
   {

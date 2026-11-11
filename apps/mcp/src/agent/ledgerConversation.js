@@ -110,7 +110,8 @@ export function conversationFromLedger(entries, { question: asQuestion = null, m
       ...(tools.has(answering.turn) ? { tools: tools.get(answering.turn) } : {}),
       ...(Array.isArray(reply.sources) && reply.sources.length > 0 ? { sources: reply.sources } : {}),
       // `marked`: its turn and who asked it, for the stretch's carried calls (`stretch.js`).
-      ...(marked ? { turn: answering.turn, askers: askedBy } : {}),
+      // `outside`: its turn read from outside (`sendTheReply.js`); a reply from before it was kept is judged by `clean`.
+      ...(marked ? { turn: answering.turn, askers: askedBy, ...(reply.outside === true || (reply.outside === undefined && reply.clean !== true) ? { outside: true } : {}) } : {}),
     });
     answering = null;
   };

@@ -57,7 +57,7 @@ const REFUSALS = {
   not_allowed: "Not allowed for the person asking here, so nothing was changed. Say so plainly; never say it was done.",
   bad_request: "That value isn't one of the options, so nothing was changed. Offer the valid options.",
   mail_refused:
-    "Not shared: only the mailbox's own person can share it, from a connected Gmail, in a chat on a shared workspace they can edit. Nothing was changed.",
+    "Not shared: only the mailbox's own person can share it, from a connected Gmail, in a chat they are in. Nothing was changed.",
   too_long: "Not saved: the instructions can hold at most 1,500 characters. Nothing was changed; say so and offer to shorten them.",
   nothing_to_undo: "There's nothing to undo. Nothing was changed.",
 };
@@ -242,7 +242,7 @@ export function commandTools({ run, group, consent = async () => false }) {
       name: "chat_share_mail",
       description:
         "Share the asking person's own connected Gmail with this group chat, optionally narrowed by a Gmail search (query). Only the mailbox's own " +
-        "person can, in a chat on a shared workspace they can edit; anything else is refused and changes nothing.",
+        "person can, in a chat they are in; anything else is refused and changes nothing.",
       inputSchema: { type: "object", properties: { address: { type: "string" }, query: { type: "string" } }, required: ["address"] },
     },
     call: async (args) =>

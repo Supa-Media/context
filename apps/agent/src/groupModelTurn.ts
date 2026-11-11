@@ -171,10 +171,30 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     if (answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
     return "cancelled";
   }
+  // Long asks it handed off, and jobs it picked back up, also on a turn that texts nothing: a job's start is a tapback, never
+  // a text (Dev2, 2026-11-11), and a quiet turn that returned first left the job never run.
+  const ready = answer; // narrowed to an answer, for the closure
+  const handOff = async () => {
+    // Long asks it handed off run beside the chat (`jobs.ts`), each re-checking who is here when it answers.
+    if (ready.jobs && deps.spawnJob) {
+      await startJobs(storage, ready.jobs, {
+        now: deps.now(),
+        inbox: groupInboxName(message.groupId),
+        origin: { kind: "group", message: { ...message, text: jobQuestion(message.text, ready) }, at: acceptedAt }, // typed, said aloud, and the files sent
+        place: { line: message.line, groupId: message.groupId, messageId: message.messageId },
+        spawn: deps.spawnJob,
+      });
+    }
+    // A change to a job still running is handed to it, in the words of whoever texted it.
+    const theirWords = { id: message.eventId, text: message.jobReport ? "" : jobQuestion(message.text, ready) }; // with a voice message's words and the files sent // a report's turn passes only its own notes
+    if (ready.steers && deps.steerJob) await steerJobs(storage, ready.steers, theirWords, deps.steerJob, deps.now());
+    if (ready.steers && deps.steerJob) await resumeJobs(storage, ready.steers, theirWords, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped, with their words
+  };
   // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
   if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
     // Answered with a tapback and no words: the conversation classifier's (`apps/mcp/src/agent/respond.js`), the emoji checked against the list.
     if (answer.react !== undefined && message.reaction === undefined) await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(answer.react || undefined, ackEmoji(message.text))).catch(() => {});
+    await handOff();
     return log(answer.react !== undefined ? "reacted" : "silent");
   }
   // Filed in the chat's memory by that turn: this object's copy goes.
@@ -192,7 +212,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // turn's people would run the other way, and this is the only thing standing
   // between an answer drawn from the bound workspace and somebody who is not a
   // member of it. So a list unread twice holds the answer, as a joiner does.
-  if (routine && (answer.quiet || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
+  if (routine && (answer.quiet || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
+    await handOff();
+    return void (await routineDone(deps, message, "skipped"));
+  }
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
   const toSend = textsWithExact(answer.text, answer.verbatim, checkIn);
   const texts = checkIn ? toSend : await withThreadsLine(toSend, answer.offers, viewLink(answer.hub, deps.threadsLink), answer.verbatim); // the live view rides in the first text (`jobs.ts`)
@@ -223,20 +246,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   await routineDone(deps, message, "answered", texts.length > 0 ? 1 : 0);
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
   await watchConversation(storage, { kind: "group", message, people }, deps.now());
-  // Long asks it handed off run beside the chat (`jobs.ts`), each re-checking who is here when it answers.
-  if (answer.jobs && deps.spawnJob) {
-    await startJobs(storage, answer.jobs, {
-      now: deps.now(),
-      inbox: groupInboxName(message.groupId),
-      origin: { kind: "group", message: { ...message, text: jobQuestion(message.text, answer) }, at: acceptedAt }, // typed, said aloud, and the files sent
-      place: { line: message.line, groupId: message.groupId, messageId: message.messageId },
-      spawn: deps.spawnJob,
-    });
-  }
-  // A change to a job still running is handed to it, in the words of whoever texted it.
-  const theirWords = { id: message.eventId, text: message.jobReport ? "" : jobQuestion(message.text, answer) }; // with a voice message's words and the files sent // a report's turn passes only its own notes
-  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now());
-  if (answer.steers && deps.steerJob) await resumeJobs(storage, answer.steers, theirWords, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped, with their words
+  await handOff();
 }
 
 /** The chat's people with a name on their account, by handle. */

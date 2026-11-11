@@ -149,7 +149,7 @@ describe("sharing a mailbox with the chat", () => {
   test("its own person shares it; the chat's turns are told, and every search is narrowed", async () => {
     const queries = gmail();
     const t = setupTest();
-    const { care } = await family(t);
+    const { care, seyi } = await family(t);
     expect(await turn(t, SEYI, share(WORK.toUpperCase(), "to:clients@work.example"))).toEqual({ status: "mail_shared", address: WORK, narrowed: true });
     const ready = await turn(t, DAD);
     expect(ready.mail).toEqual([{ handle: "seyi", address: WORK }]);
@@ -158,7 +158,8 @@ describe("sharing a mailbox with the chat", () => {
     // Never the personal "outside the synced notes" window: the chat holds none of this mail.
     expect(queries[0]).toBe("(to:clients@work.example) (intake)");
     const audit = await t.run(async (ctx) => await ctx.db.query("auditEvents").collect());
-    expect(audit.filter((row) => row.action === "mail.shared_with_chat").map((row) => row.workspaceId)).toEqual([care]);
+    // Audited where the mailbox lives, the sharer's own workspace: the share is the chat's, never a workspace's.
+    expect(audit.filter((row) => row.action === "mail.shared_with_chat").map((row) => row.workspaceId)).toEqual([seyi.workspaceId]);
   });
 
   test("only the mailbox's own person shares it, and only a connected Gmail", async () => {
