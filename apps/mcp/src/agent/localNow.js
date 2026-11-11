@@ -73,6 +73,21 @@ export const NOW_WORDS = "It is now ";
 const TOLD_NOW = /It is now (?:Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day, /;
 
 /**
+ * The one channel a notice comes from: a message's `preamble`, which
+ * `turnPrompt.js` builds and `providers.js` renders as its own block before
+ * their words. Nothing else is read. Not a message's text or content, and not
+ * the system prompt either: `system.context` carries about-me, a group's
+ * notes, their voice note and the calendar copy, and even the stable half
+ * names the place and the person. A caller whose now line sits in their words
+ * instead, as the reply reviewer's does, says so with `toldNow` on the call.
+ */
+function noticesOf(call) {
+  return (Array.isArray(call?.messages) ? call.messages : [])
+    .map((message) => (typeof message?.preamble === "string" ? message.preamble : ""))
+    .join("\n");
+}
+
+/**
  * A model call with today's date and time in front of it, unless it already
  * has one. Every model Tex calls goes through `requestViaGateway` or
  * `requestBuiltin`, and both call this, so no agent (the reviewer, the thread
@@ -86,14 +101,18 @@ const TOLD_NOW = /It is now (?:Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day, /;
 export function withToday(call, { now = Date.now(), timeZone = null } = {}) {
   const system = call?.system;
   const messages = Array.isArray(call?.messages) ? call.messages : [];
-  if (TOLD_NOW.test(JSON.stringify([system ?? "", messages]))) return call;
+  // Only the gateway's own notices can say the day was already told: text a
+  // stranger wrote — a text, a note, an email into `0-inbox/` — once suppressed
+  // this line by carrying a now line of its own, and left every model below
+  // reading that forged day as the only one it had (`noticesOf`).
+  if (call?.toldNow === true || TOLD_NOW.test(noticesOf(call))) return call;
   const line = `${NOW_WORDS}${nowLine(now, timeZone)} where they are. Every date you read or write is worked out from this.`;
   const first = messages[0];
   if (first?.role === "user" && typeof first.text === "string" && first.content === undefined) {
-    return { ...call, messages: [{ ...first, text: `${line}\n\n${first.text}` }, ...messages.slice(1)] };
+    return { ...call, toldNow: true, messages: [{ ...first, text: `${line}\n\n${first.text}` }, ...messages.slice(1)] };
   }
-  if (typeof system === "string" || system === undefined || system === null) return { ...call, system: `${system ?? ""}\n\n${line}`.trimStart() };
-  if (typeof system === "object") return { ...call, system: { ...system, context: `${system.context ?? ""}\n\n${line}` } };
+  if (typeof system === "string" || system === undefined || system === null) return { ...call, toldNow: true, system: `${system ?? ""}\n\n${line}`.trimStart() };
+  if (typeof system === "object") return { ...call, toldNow: true, system: { ...system, context: `${system.context ?? ""}\n\n${line}` } };
   return call;
 }
 

@@ -132,9 +132,13 @@ export function liveTurn(prompt, messages) {
  */
 export async function requestBuiltin(asked, ai, options = {}) {
   // Every model told the day, whichever agent asks (`localNow.js` `withToday`); the gateway's door does the same.
-  const { model, system, messages, tools, effort, display, cachedThrough } = withToday(asked, { timeZone: options.timeZone ?? null });
+  // `toldNow` is carried to the gateway's own door below, which calls `withToday`
+  // again: without it a call told the day here, in the first message's words,
+  // would be told a second time there (nothing in the call says so any more,
+  // now that a notice is only read from the gateway's own channels).
+  const { model, system, messages, tools, effort, display, cachedThrough, toldNow } = withToday(asked, { timeZone: options.timeZone ?? null });
   if (isGatewayModel(model)) {
-    return await requestViaGateway({ model, system, messages, tools, effort, display, cachedThrough }, options.gateway ?? null, options);
+    return await requestViaGateway({ model, system, messages, tools, effort, display, cachedThrough, toldNow }, options.gateway ?? null, options);
   }
   if (typeof ai?.run !== "function") throw new ProviderError("built-in model not configured");
   const catalog = isCatalogModel(model);
