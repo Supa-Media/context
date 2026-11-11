@@ -2,6 +2,7 @@ import { CollaborationFixture } from "./collaboration/Fixture";
 import { CHECKOUT_PARAM, checkoutOutcomeFrom } from "@context/shared";
 import { AppFrameFixture } from "./AppFrameFixture";
 import { AiLibraryFixture } from "./AiLibraryFixture";
+import { FeaturesFixture } from "./FeaturesFixture";
 import { DomainFixture } from "./DomainFixture";
 import { MailFixture } from "./MailFixture";
 import { AppFrameVisualFixture, fixtureTabs } from "./AppFrameVisualFixture";
@@ -94,6 +95,8 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "collaboration") return <CollaborationFixture user={first(params.user)} note={first(params.note)} />;
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
   if (first(params.screen) === "ai") return <AiLibraryFixture at={first(params.at)} />;
+  // The staff console's Features tab on invented flags and groups; `at=empty` draws it with no groups.
+  if (first(params.screen) === "features") return <FeaturesFixture empty={first(params.at) === "empty"} />;
   // A projects folder's List, Board and side peek on an in-memory folder. See its own header.
   if (first(params.screen) === "projects") {
     const slow = Number(first(params.slow) ?? "0");
