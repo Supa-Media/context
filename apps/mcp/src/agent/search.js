@@ -81,6 +81,8 @@ function braveSearcher(env, fetchImpl) {
           title: plain(result?.title),
           url: typeof result?.url === "string" ? result.url : "",
           description: plain(result?.description).slice(0, MAX_DESCRIPTION_CHARS),
+          // Brave's `page_age`, the page's own date as ISO (`2026-07-08T15:55:18`), kept as the day when there is one.
+          ...(/^\d{4}-\d{2}-\d{2}/.test(result?.page_age ?? "") ? { published: result.page_age.slice(0, 10) } : {}),
         }))
         .filter((result) => result.url !== "")
         .slice(0, RESULTS_PER_SEARCH);

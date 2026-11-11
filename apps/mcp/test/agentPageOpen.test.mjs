@@ -45,12 +45,34 @@ test("one slow page comes back as could not be opened while the others return, l
   assert.doesNotMatch(said, /SLOW-PAGE-TEXT/);
   assert.equal(result.isError, undefined);
   assert.match(said, /FAST-PAGE-TEXT/);
-  assert.ok(said.includes(`${SLOW} could not be opened.`));
-  assert.ok(said.includes(`${BROKEN} could not be opened.`));
+  // Each failure says why (Instinct test, 2026-11-11), and never more than its code's reason.
+  assert.ok(said.includes(`${SLOW} could not be opened: it took longer than a minute to load.`));
+  assert.ok(said.includes(`${BROKEN} could not be opened: the browser got no readable text from it.`));
   assert.deepEqual(result.sources, [FAST]);
   const codes = logged.map((line) => JSON.parse(line)).filter((line) => line.event === "open_page_failed").map((line) => line.code).sort();
   assert.deepEqual(codes, ["timeout", "unreadable"]);
   assert.ok(!logged.join("\n").includes("example.com"), "no address in the log");
+});
+
+test("a page the address rule refused says so, and nothing of the refusal's internals", async () => {
+  const computer = {
+    async readPage() {
+      throw Object.assign(new Error("page unreadable at 10.0.0.1 token=secret"), { code: "refused" });
+    },
+  };
+  const url = "https://refused.example.com/";
+  const log = console.log;
+  console.log = () => {};
+  let result;
+  try {
+    result = await webSession(computer, url).call(OPEN_PAGE_TOOL, { urls: [url] });
+  } finally {
+    console.log = log;
+  }
+  const said = result.content[0].text;
+  assert.equal(result.isError, true);
+  assert.ok(said.startsWith("That page could not be opened: the browser opens only public https addresses, and this is not one."));
+  assert.doesNotMatch(said, /10\.0\.0\.1|secret/);
 });
 
 test("the tool's limit covers a call's pages and the one guessed after them, and the route gives open_page its own limit", () => {

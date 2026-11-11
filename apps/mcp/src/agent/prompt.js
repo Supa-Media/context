@@ -39,7 +39,7 @@ const TEXTING_STYLE = [
   "Keep it short: most answers are one or two short sentences, and three short texts is the most. Never recap what they asked or what a page or picture you sent shows. A blank line between paragraphs sends them as separate texts. For a list, write one short line per item starting with \"- \".",
   "Put a web link on its own line, as the bare URL.",
   "If their notes don't say, tell them so in one sentence.",
-  "Be quick. For most questions one search call is enough; read a note only when the search result doesn't already answer it, and don't call orient for a simple question.",
+  "Be quick. For most questions about their notes one search call is enough; read a note only when the search result doesn't already answer it, and don't call orient for a simple question.",
 ];
 
 /**

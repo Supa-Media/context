@@ -141,7 +141,8 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
       const response = await post(binding, "/read", { url });
       const body = await response.json().catch(() => null);
       if (!response.ok || !body?.page || typeof body.page.text !== "string") {
-        throw new Error("page unreadable");
+        // 400: the screenshot Worker's address rule refused it (not a public https address, `infra/site-shots` `parseReadRequest`).
+        throw Object.assign(new Error("page unreadable"), { code: response.status === 400 ? "refused" : "unreadable" });
       }
       return body.page.file ? await pdfPage(env?.AI, body.page) : body.page;
     },
