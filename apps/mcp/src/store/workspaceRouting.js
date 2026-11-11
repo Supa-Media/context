@@ -267,7 +267,7 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
   };
 
   if (typeof client.collab?.replace === "function") {
-    wrapped.replaceInObject = async ({ path, key, noteId, legacyEtag = null, rowEtag = null, expectedEtag, text, record = null }) => {
+    wrapped.replaceInObject = async ({ path, key, noteId, legacyEtag = null, rowEtag = null, expectedEtag, text, onlyCurrent = true, record = null }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
       // `sentAt` lets the object say how long the call waited before it ran (`collabReplace.js` `waited`).
       const sentAt = now();
@@ -275,6 +275,7 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
         path, key, noteId,
         ...(typeof legacyEtag === "string" && typeof rowEtag === "string" ? { legacyEtag, rowEtag } : {}),
         expectedEtag, text,
+        ...(onlyCurrent === false ? { onlyCurrent: false } : {}),
         ...(Number.isFinite(record?.at) ? { record: { at: record.at } } : {}),
         sentAt,
       });
@@ -290,17 +291,37 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
   }
 
   /**
+   * A live edit from the app's editor committed in the object in one call (`workspaceStore/collabReplace.js`
+   * `serveCollabCommit`), handed back and copied to the bucket as a replacement is. `null` where the object does not
+   * hold the note whole, and the caller commits through this store as before.
+   */
+  if (typeof client.collab?.commit === "function") {
+    wrapped.commitInObject = async ({ path, key, noteId, documentId, update, record = null }) => {
+      if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
+      if (typeof key !== "string" || !OBJECT_NOTE_KEY.test(key)) return null;
+      const sentAt = now();
+      const answer = await client.collab.commit({ path, key, noteId, documentId, update, ...(Number.isFinite(record?.at) ? { record: { at: record.at } } : {}), sentAt });
+      const trip = Math.max(0, now() - sentAt);
+      await copyHandedBack(answer);
+      if (answer?.served === true) return { ...answer, trip };
+      const reason = typeof answer?.reason === "string" && /^[a-z_]{1,32}$/.test(answer.reason) ? answer.reason : null;
+      log("workspace_object_collab_not_served", { workspaceId, reason });
+      return { served: false, reason };
+    };
+  }
+
+  /**
    * A note's Markdown and its editing history's text in one call (`workspaceStore/collabRead.js`), for `read_note` in
    * an object-home workspace the object holds whole: `{markdown, collaboration|error, took}`. `start` starts the
    * note's editing history if nothing has yet (the app's open, `live/noteReadRoute.js`). `null` when the object
    * did not serve it, and the caller reads the Markdown and the history through this store, as before.
    */
   if (typeof client.collab?.read === "function") {
-    wrapped.readInObject = async ({ path, key, noteId, start = false }) => {
+    wrapped.readInObject = async ({ path, key, noteId, start = false, whole = false }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
       // Only a workspace note's own key: a Tex note's (`tex/…`) lives in Tex's store, so asking would be a wasted trip.
       if (typeof key !== "string" || !OBJECT_NOTE_KEY.test(key)) return null;
-      const answer = await client.collab.read({ path, key, noteId, ...(start === true ? { start: true } : {}) });
+      const answer = await client.collab.read({ path, key, noteId, ...(start === true ? { start: true } : {}), ...(whole === true ? { whole: true } : {}) });
       await copyHandedBack(answer);
       const markdown = answer?.markdown;
       if (answer?.served === true && typeof markdown?.etag === "string" && typeof markdown.text === "string") return answer;

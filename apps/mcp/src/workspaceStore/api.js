@@ -115,7 +115,9 @@ export function workspaceStub(env, workspaceId) {
  * - `state()` → `{home, backfilledAt, encryption, rows, objects, accessVersion, members: {home, members, invites, reachPending}}`; `setHome(home)`; `setEncryption("none"|"keyed")`; `markBackfilled(at)`
  * - `members.*`, `invites.*`: who belongs to the workspace (`workspaceStore/members.js`): see `membershipClient`.
  * - `collab.replace({path, key, noteId, legacyEtag?, rowEtag?, expectedEtag, text})` → `{served: true, result|error, markdown, writes, deletes}`
- *   or `{served: false, writes?, deletes?}`: a whole-note save's editing history run in the object (`collabReplace.js`)
+ *   or `{served: false, writes?, deletes?}`: a whole-note save's editing history run in the object (`collabReplace.js`);
+ *   `onlyCurrent: false` keeps the exact-base merge the app's replacement asks for
+ * - `collab.commit({path, key, noteId, documentId, update, record?})` → the same answer: a live edit committed there
  * - `mail.since({path, name, readThrough, scope, groups, audience})` → `{served, found, path, fresh}` and
  *   `mail.wait({path, from, to, since, timeoutMs, scope, groups, audience})` → `{served, found, answers}`: a note's mail,
  *   read in the object (`workspaceStore/mailOps.js`)
@@ -180,6 +182,8 @@ export function workspaceClient(env, workspaceId) {
     // A whole-note save's editing history, run in the object (`workspaceStore/collabReplace.js`).
     collab: {
       replace: async (fields) => await ask("ws.collab.replace", fields),
+      // A live edit from the app's editor, committed in the object (`workspaceStore/collabReplace.js` `serveCollabCommit`).
+      commit: async (fields) => await ask("ws.collab.commit", fields),
       // A note's Markdown and its editing history's text, for a read (`workspaceStore/collabRead.js`).
       read: async (fields) => await ask("ws.collab.read", fields),
       create: async (fields) => await ask("ws.create", fields),

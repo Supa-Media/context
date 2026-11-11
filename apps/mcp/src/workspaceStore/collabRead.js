@@ -82,7 +82,9 @@ export async function serveCollabRead(store, fields) {
     // A read that finished a pending save wrote the Markdown: the answer carries what is there now.
     const current = engine.writes.some((write) => write.key === key) ? markdownAt(objects, key) : markdown;
     if (current === null) return timed({ served: false, reason: "not_held", ...handedBack() });
-    const collaboration = document === null ? null : { documentId: document.documentId, etag: document.etag, text: document.text };
+    // `whole: true` (the editor's live read, `live/collaborationRoute.js`) carries the document as the engine answers
+    // it, its snapshot included, which the editor merges from; any other read only its identity, version and text.
+    const collaboration = document === null ? null : fields.whole === true ? document : { documentId: document.documentId, etag: document.etag, text: document.text };
     return timed({ served: true, markdown: current, collaboration, ...handedBack() });
   } catch (error) {
     if (notHeldHere(error)) return timed({ served: false, reason: "not_held", ...handedBack() });

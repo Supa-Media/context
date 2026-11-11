@@ -35,6 +35,7 @@ import { splitWorkspacePath } from "../src/workspacePath.js";
 import { handleNoteRead, NOTE_READ_PATH } from "../src/live/noteReadRoute.js";
 import { PRE_PARSED_RULES, PrivacyOverrides } from "../src/privacy/engine.js";
 import { renderEncryptedNote } from "../src/encryption/format.js";
+import * as Y from "yjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 
 let DatabaseSync = null;
@@ -105,7 +106,7 @@ const SLUG = "alice";
 
 function answerFor(workspaceId, notesHome = "object") {
   return {
-    binding: { workspaceId, provider: "r2", endpoint: "https://s3.example-fileops.test", bucket: `bucket-${workspaceId}`, accessKeyId: `key-${workspaceId}`, secretAccessKey: `secret-${workspaceId}`, capabilities: { conditionalWrite: true }, notesHome, notesBackfilledAt: 1, status: "active" },
+    binding: { workspaceId, provider: "r2", endpoint: "https://s3.example-fileops.test", bucket: `bucket-${workspaceId}`, accessKeyId: `key-${workspaceId}`, secretAccessKey: `secret-${workspaceId}`, capabilities: { conditionalWrite: true, conditionalCreate: true }, notesHome, notesBackfilledAt: 1, status: "active" },
     searchIndex: null,
     meaningIndex: null,
     encryptionKey: null,
@@ -291,3 +292,87 @@ test("the gateway judges the reader itself: a note its rules hold back is never 
   assert.deepEqual([response.status, await response.json()], [409, { error: "not_object" }]);
   assert.equal(asked, false, "the object was asked for a note this reader may not see");
 });
+
+/**
+ * The workspace's bucket, as far as these cases reach it: the backup copies and the activity log written behind a
+ * save. An in-memory S3 that keeps what is put, so a save's bookkeeping runs as it does in production.
+ */
+function withBucket(run) {
+  return async () => {
+    const real = globalThis.fetch;
+    const kept = new Map();
+    globalThis.fetch = async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (!url.hostname.endsWith("example-fileops.test")) return await real(input, init);
+      const key = url.pathname;
+      if (request.method === "PUT") {
+        kept.set(key, new Uint8Array(await request.arrayBuffer()));
+        return new Response(null, { status: 200, headers: { etag: `"${kept.size}"` } });
+      }
+      if (request.method === "DELETE") {
+        kept.delete(key);
+        return new Response(null, { status: 204 });
+      }
+      if (!kept.has(key)) return new Response("<Error><Code>NoSuchKey</Code></Error>", { status: 404 });
+      return new Response(request.method === "HEAD" ? null : kept.get(key), { status: 200, headers: { etag: `"${kept.size}"`, "content-length": String(kept.get(key).byteLength) } });
+    };
+    try {
+      await run();
+    } finally {
+      globalThis.fetch = real;
+    }
+  };
+}
+
+// The editor's live session on the same note (`live/collaborationRoute.js`, `live/collaborationInObject.js`): its read
+// and its typing are run by the object's engine, one call each, so nothing edits the history from outside the object.
+//
+// Sabotage, confirmed: `commitLiveUpdate` going straight to the engine fails "typing is committed inside the object"
+// (no `ws.collab.commit`, and the gateway reads the history key by key).
+test("typing is committed inside the object, and the next open reads it", { skip }, withBucket(async () => {
+  const w = await world();
+  const live = async (body) => {
+    const response = await post(w, `/@${SLUG}/collaboration`, body);
+    return { status: response.status, body: await response.json() };
+  };
+  const first = await live({ path: "todo.md" });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(typeof first.body.update, "string", "the editor's read carries the snapshot it merges from");
+  assert.ok(w.ns.ops.includes("ws.collab.read"));
+
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, Buffer.from(first.body.update, "base64"));
+  const before = Y.encodeStateVector(doc);
+  doc.getText("note").insert(doc.getText("note").length, "Call the bank.\n");
+  const update = Buffer.from(Y.encodeStateAsUpdate(doc, before)).toString("base64");
+
+  w.ns.ops.length = 0;
+  const committed = await live({ path: "todo.md", documentId: first.body.documentId, update });
+  assert.equal(committed.status, 200, JSON.stringify(committed.body));
+  assert.equal(committed.body.text, "# Todo\n\nBuy milk.\nCall the bank.\n");
+  assert.ok(w.ns.ops.includes("ws.collab.commit"), `the object did not commit it: ${w.ns.ops.join(", ")}`);
+  assert.ok(!w.ns.ops.includes("put"), `the gateway wrote the history itself: ${w.ns.ops.join(", ")}`);
+
+  const opened = await (await open(w, "todo.md")).json();
+  assert.equal(opened.text, "# Todo\n\nBuy milk.\nCall the bank.\n");
+  assert.equal(opened.etag, committed.body.etag);
+}));
+
+test("the editor's whole-text replacement keeps its merge inside the object", { skip }, withBucket(async () => {
+  const w = await world();
+  const first = await (await post(w, `/@${SLUG}/collaboration`, { path: "todo.md" })).json();
+  w.ns.ops.length = 0;
+  const response = await post(w, `/@${SLUG}/collaboration`, { path: "todo.md", replacement: { expectedEtag: first.etag, text: "# Todo\n\nBuy oat milk.\n" } });
+  const body = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.text, "# Todo\n\nBuy oat milk.\n");
+  assert.ok(w.ns.ops.includes("ws.collab.replace"), w.ns.ops.join(", "));
+
+  // Typed on a phone against the first version while that save landed: merged, never refused as an agent's would be.
+  // Sabotage, confirmed: `onlyCurrent: false` dropped from `replaceLiveText` fails here with 409.
+  const stale = await post(w, `/@${SLUG}/collaboration`, { path: "todo.md", replacement: { expectedEtag: first.etag, text: "# Todo\n\nBuy milk.\n\nAnd bread.\n" } });
+  const merged = await stale.json();
+  assert.equal(stale.status, 200, JSON.stringify(merged));
+  assert.equal(merged.text, "# Todo\n\nBuy oat milk.\n\nAnd bread.\n");
+}));

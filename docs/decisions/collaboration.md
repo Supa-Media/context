@@ -434,12 +434,20 @@ a renamed note's old address). A read the engine cannot finish is 503 `unavailab
 the person's typing stay, with the reason said, and the live editing session catches the note up. Every other
 refusal still closes it.
 
-Still to move, in this order: the gateway's `/collaboration` route runs the engine from outside the object for
-typing saves and live reads, and the mirror's batch read (`files.readNotes`) and whole-note saves of notes outside the
-live session (`files.writeNote`) still go to the control plane.
+The editor's live session goes the same way (`apps/mcp/src/live/collaborationInObject.js`): its read
+(`ws.collab.read` with `start` and `whole`), each edit (`ws.collab.commit`) and its whole-text replacement
+(`ws.collab.replace` with `onlyCurrent: false`, which keeps the console's exact-base merge) each run in the object in
+one call. Where the object does not hold the note whole, the gateway runs the engine through its store as before. A
+commit that failed on the way is run again from the gateway, which is safe because a Yjs update applied twice is the
+same document; a replacement is not, and is left to the editor's own retry.
+
+Still to move: the mirror's batch read (`files.readNotes`) and whole-note saves of notes outside the live session
+(`files.writeNote`) still go to the control plane.
 
 **What a simplification would cost.** Sending the open back to the control plane puts the second engine back beside
 the first. Closing the editor on `STORAGE_UNSAFE` blanks a note under the person's fingers again:
 `apps/mobile/__tests__/offlineMirrorConsole.test.ts` "a read that could not finish keeps the copy the person is
 typing in" fails. Asking the object before the gateway's own `canSee` fails `apps/mcp/test/noteReadRoute.test.mjs`
-"the gateway judges the reader itself"; reading without `start` fails its "opens ready to edit live" case.
+"the gateway judges the reader itself"; reading without `start` fails its "opens ready to edit live" case. Committing
+typing from the gateway again fails its "typing is committed inside the object"; a replacement with `onlyCurrent`
+fails "the editor's whole-text replacement keeps its merge".

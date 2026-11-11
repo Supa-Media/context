@@ -393,11 +393,11 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     // The keyed note at `path`, its Markdown and its editing history's text in one call to the workspace object
     // (`workspaceRouting.js` `readInObject`), from this read's one lookup; `null` where that is not how it is read.
     if (typeof store.readInObject === "function") {
-      define("readInObject", async (path, { start = false } = {}) => {
+      define("readInObject", async (path, { start = false, whole = false } = {}) => {
         if (!mirroredPath(path)) return null;
         const { entry } = await resolveWith(ask, path);
         if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
-        return await store.readInObject({ path, key: entry.key, noteId: entry.noteId, ...(start === true ? { start: true } : {}) });
+        return await store.readInObject({ path, key: entry.key, noteId: entry.noteId, ...(start === true ? { start: true } : {}), ...(whole === true ? { whole: true } : {}) });
       });
     }
     // A read that hands its view on (`read_notes` to `read_note`) keeps the one it has.
@@ -563,7 +563,7 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
   if (typeof store.replaceInObject === "function") {
     wrapped.replaceInObject = async (path, input) => {
       if (!mirroredPath(path)) return null;
-      const [{ expectedEtag, text }, ask] = remembered(input);
+      const [{ expectedEtag, text, onlyCurrent }, ask] = remembered(input);
       const { entry } = await resolveWith(ask, path);
       if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
       const answer = await store.replaceInObject({
@@ -573,10 +573,38 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
         ...(typeof entry.legacyEtag === "string" ? { legacyEtag: entry.legacyEtag, rowEtag: entry.etag } : {}),
         expectedEtag,
         text,
+        ...(onlyCurrent === false ? { onlyCurrent: false } : {}),
         // The version report would go to the object anyway (`objectLookup.js` `wrote`): it is recorded in this call.
         ...(wrote.inObject === true ? { record: { at: now() } } : {}),
       });
       // Not served: said as the object said it, and the save runs the engine through the store.
+      if (answer === null || answer.served !== true) return answer;
+      const markdown = answer.markdown;
+      if (typeof markdown?.etag === "string" && answer.recorded !== true) {
+        await report({ path, key: entry.key, etag: markdown.etag, ...(Number.isFinite(markdown.size) ? { size: markdown.size } : {}), at: now(), keyed: true });
+      }
+      return answer;
+    };
+  }
+
+  /**
+   * A live edit committed in the workspace object in one call (`workspaceRouting.js` `commitInObject`), for a keyed
+   * note: the object is told the key and note id this layer resolved and refuses if its row says otherwise. The new
+   * Markdown version is reported as a replacement's is. `null` where there is no such door or it did not serve.
+   */
+  if (typeof store.commitInObject === "function") {
+    wrapped.commitInObject = async (path, { documentId, update }) => {
+      if (!mirroredPath(path)) return null;
+      const { entry } = await resolveWith(lookup, path);
+      if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
+      const answer = await store.commitInObject({
+        path,
+        key: entry.key,
+        noteId: entry.noteId,
+        documentId,
+        update,
+        ...(wrote.inObject === true ? { record: { at: now() } } : {}),
+      });
       if (answer === null || answer.served !== true) return answer;
       const markdown = answer.markdown;
       if (typeof markdown?.etag === "string" && answer.recorded !== true) {
