@@ -64,6 +64,7 @@ import { useCompact } from "./AdminKit";
 import { ConsoleHeader } from "./ConsoleHeader";
 import { EstateSection } from "./EstateSection";
 import { GrowthSection } from "./GrowthSection";
+import { TexBasics } from "./TexBasics";
 import { PeopleSection } from "./PeopleSection";
 import { ReportsSection } from "./ReportsSection";
 import { FeaturesSection } from "./FeaturesSection";
@@ -182,6 +183,7 @@ function Console(props: AdminPaneProps) {
         unsetCount={unsetCount}
       />
       <View style={compact ? styles.bodyCompact : styles.body}>
+        {tab === "growth" ? <TexBasics /> : null}
         {tab === "growth" ? (
           <GrowthSection
             days={days}

@@ -35,6 +35,10 @@ jest.mock("../features/admin/useReportOnce", () => ({
     (jest.requireMock("convex/react") as { useQuery: (q: never, a: never) => unknown }).useQuery(query, args),
 }));
 
+// Tex's basics on Growth ask Cloudflare through an action of their own (`adminPaneRender.test.ts` covers them);
+// this file is about another tab, so they are left out of its calls.
+jest.mock("../features/admin/TexBasics", () => ({ TexBasics: () => null }));
+
 jest.mock("convex/react", () => {
   const { getFunctionName } = jest.requireActual<
     typeof import("convex/server")

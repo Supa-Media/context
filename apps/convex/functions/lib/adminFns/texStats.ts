@@ -28,6 +28,7 @@
 import { v, type Infer } from "convex/values";
 import { CLOUDFLARE_GRAPHQL_URL, type CloudflareEnv } from "./aiCostsCloudflare";
 import { TESTS, TEX_FEATURES } from "./texSpend";
+import { COUNTS_BEGAN, beforeNames, beforeQueries } from "./texStatsBefore";
 
 const ACCOUNT_ID = /^[0-9a-f]{32}$/;
 const HOUR_MS = 3_600_000;
@@ -82,6 +83,11 @@ export const texStatsValidator = v.union(
     cost: v.object({ totalUsd: v.number(), testsUsd: v.number() }),
     /** Total cost over texts people sent Tex (1:1 and group messages for Tex); null with none. */
     costPerTextUsd: v.union(v.number(), v.null()),
+    /**
+     * When the basics' own counts began; a window starting earlier has that part read from older, coarser sources
+     * (`texStatsBefore.ts`): answered texts, 1:1 people only, notes created on the one-call path, no edits.
+     */
+    countedSince: v.number(),
     series: v.array(point),
   }),
 );
@@ -218,6 +224,9 @@ export async function texStats(env: TexStatsEnv, window: { from: number; to: num
     sql(fetchImpl, token, accountId, queries.notesAll),
     costGroups(fetchImpl, token, accountId, from, to, bucket),
   ]);
+  const older = beforeQueries(beforeNames(env.APP_ENV?.trim().toLowerCase() === "staging"), from, to, bucket);
+  const [oldTexts, oldCreated, oldPeopleBySlot, oldPeopleByDay, oldPeopleAll] =
+    older === null ? [[], [], [], [], []] : await Promise.all([older.texts, older.created, older.peopleBySlot, older.peopleByDay, older.peopleAll].map((query) => sql(fetchImpl, token, accountId, query)));
   const rows = (answer: Row[] | string): Row[] => (typeof answer === "string" ? [] : answer);
   const firstError = (...answers: Array<Row[] | string>) => (answers.find((a) => typeof a === "string") as string | undefined) ?? null;
 
@@ -246,18 +255,40 @@ export async function texStats(env: TexStatsEnv, window: { from: number; to: num
       if (slot) slot.textsOut += n;
     }
   }
-  for (const row of rows(peopleBySlot)) {
+  // Before counting began: each text Tex answered, and the parts it sent (`texStatsBefore.ts`).
+  for (const row of rows(oldTexts)) {
+    const n = num(row.n);
+    const parts = num(row.parts);
     const slot = slotOf(slotMs(row.slot));
-    if (slot) slot.people = num(row.n);
+    if (row.chat === "one") (tally.inOne += n), (tally.outOne += parts);
+    else if (row.chat === "group") (tally.inGroup += n), (tally.outGroup += parts);
+    else continue;
+    if (slot) (slot.textsIn += n), (slot.textsOut += parts);
   }
-  const days = rows(peopleByDay).map((row) => num(row.n));
+  // People: the higher of the new count and the 1:1 turns' workspaces, slot by slot and day by day.
+  for (const answer of [peopleBySlot, oldPeopleBySlot]) {
+    for (const row of rows(answer)) {
+      const slot = slotOf(slotMs(row.slot));
+      if (slot) slot.people = Math.max(slot.people, num(row.n));
+    }
+  }
+  const byDay = new Map<number, number>();
+  for (const answer of [peopleByDay, oldPeopleByDay]) {
+    for (const row of rows(answer)) {
+      const at = slotMs(row.slot);
+      if (Number.isFinite(at)) byDay.set(at, Math.max(byDay.get(at) ?? 0, num(row.n)));
+    }
+  }
   const dayCount = Math.max(1, Math.ceil((to - Math.floor(from / DAY_MS) * DAY_MS) / DAY_MS));
-  const dailyActive = days.reduce((sum, n) => sum + n, 0) / dayCount;
+  const dailyActive = [...byDay.values()].reduce((sum, n) => sum + n, 0) / dayCount;
   const people = { one: 0, group: 0, any: num(rows(peopleAll)[0]?.n) };
   for (const row of rows(peopleByChat)) {
     if (row.chat === "one") people.one = num(row.n);
     if (row.chat === "group") people.group = num(row.n);
   }
+  const oldPeople = num(rows(oldPeopleAll)[0]?.n);
+  people.one = Math.max(people.one, oldPeople);
+  people.any = Math.max(people.any, people.one);
 
   for (const row of rows(notes)) {
     const slot = slotOf(slotMs(row.slot));
@@ -270,6 +301,12 @@ export async function texStats(env: TexStatsEnv, window: { from: number; to: num
     if (row.what === "created") noteTally.created = num(row.notes);
     if (row.what === "edited") noteTally.edited = num(row.notes);
     noteTally.saves += num(row.saves);
+  }
+  for (const row of rows(oldCreated)) {
+    const n = num(row.n);
+    noteTally.created += n;
+    const slot = slotOf(slotMs(row.slot));
+    if (slot) slot.notesCreated += n;
   }
 
   let totalUsd = 0;
@@ -294,8 +331,8 @@ export async function texStats(env: TexStatsEnv, window: { from: number; to: num
     to,
     bucket,
     errors: {
-      texts: firstError(texts, peopleBySlot, peopleByDay, peopleByChat, peopleAll),
-      notes: firstError(notes, notesAll),
+      texts: firstError(texts, peopleBySlot, peopleByDay, peopleByChat, peopleAll, oldTexts, oldPeopleBySlot, oldPeopleByDay, oldPeopleAll),
+      notes: firstError(notes, notesAll, oldCreated),
       cost: typeof cost === "string" ? cost : null,
     },
     people,
@@ -304,6 +341,7 @@ export async function texStats(env: TexStatsEnv, window: { from: number; to: num
     notes: noteTally,
     cost: { totalUsd, testsUsd },
     costPerTextUsd: asked > 0 && typeof cost !== "string" ? totalUsd / asked : null,
+    countedSince: COUNTS_BEGAN,
     series,
   };
 }
