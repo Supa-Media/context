@@ -58,7 +58,7 @@ import { benchFolder } from "./folder.mjs";
 const MAX_PERSON_TEXTS = 4;
 
 /** How many texts the played person may send for this question. */
-export const personTextLimit = (question) => Math.max(MAX_PERSON_TEXTS, (question.ifAsked?.length ?? 0) + 2);
+export const personTextLimit = (question) => Math.max(MAX_PERSON_TEXTS, (question.ifAsked?.length ?? 0) + 2, (question.then?.length ?? 0) + 2);
 
 function parseArgs(argv) {
   // `pnpm ai search --fake` names no job: a first word that is a flag is one.
@@ -186,7 +186,10 @@ export async function converse(world, question, person, mode = null, background 
   const conversation = [];
   // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count already (`benchRunning`).
   const running = background ? benchRunning(question.running ?? 0) : null;
-  const totals = { ms: 0, personMs: 0, tools: [], jobs: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
+  // What each text's turn called and which pages it opened, for the `call again` and `reopen` checks (`checks.mjs`).
+  const byText = [];
+  let then = 0;
+  const totals = { ms: 0, personMs: 0, tools: [], byText, jobs: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
   let message = question.personStarts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
@@ -196,6 +199,10 @@ export async function converse(world, question, person, mode = null, background 
     const turn = await world.text(message, pictures, { running });
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
+    byText.push({
+      tools: turn.tools.filter((call) => call.ok !== false).map((call) => call.tool),
+      pages: world.browser().slice(seen).filter((event) => /^(open|read) /.test(event)).map((event) => event.slice(5)),
+    });
     totals.traces.push(turn.trace ?? []);
     totals.jobs.push(...(turn.jobs ?? []));
     for (const key of Object.keys(totals.usage)) totals.usage[key] += turn.usage[key];
@@ -220,7 +227,12 @@ export async function converse(world, question, person, mode = null, background 
     message =
       personAnswers(turn, question) ??
       handOffAnswer(turn, question, world.browser().slice(seen)) ??
-      (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
+      // A fixed follow-up is sent whatever Tex said, and the conversation ends after the last one.
+      (question.then?.length > 0
+        ? (question.then[then++] ?? null)
+        : question.personStarts !== null || question.ifAsked.length > 0
+          ? await playPerson(person, question.body, conversation)
+          : null);
     totals.personMs += realNow() - personStarted;
   }
   return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };

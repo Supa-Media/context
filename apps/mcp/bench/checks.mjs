@@ -38,6 +38,15 @@
  *                                    to the same note's mail (a split ask), and
  *                                    `on a computer` or `in the cloud` counts only
  *                                    the jobs that ran there
+ *   - must not call again: read_note
+ *                                    the tool called (and not failed) in a later
+ *                                    text after an earlier text called it: the
+ *                                    follow-up re-fetched what the first turn
+ *                                    already had (`tests/follow-ups.md`)
+ *   - must not reopen: releases.example/brightkit
+ *                                    a page under that prefix opened or read in a
+ *                                    later text after an earlier text opened one
+ *                                    under it
  *   - must file: tomas/1-projects/kitchen/overview.md under tomas/4-archive/
  *                                    where the note that was at that path is
  *                                    after the run (housekeeping moves notes,
@@ -53,7 +62,7 @@
 
 import { cadenceFromFolder, parseTime, parseWeekdays } from "../../../packages/shared/src/routines.cjs";
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach|start|link):\s*(.+)$/;
+const CHECK = /^- (must|must not) (call again|call|reach|reopen|hand off|type|choose|set|publish|connect|write|file|forward|download|attach|start|link):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
@@ -92,6 +101,9 @@ function linked(conversation, value) {
   return false;
 }
 
+/** Whether a text after the first one that `did` it did it again. */
+const again = (texts, did) => texts.filter(did).length > 1;
+
 /** Whether the answer did what the check names. */
 function happened(check, answer) {
   const events = answer.browser ?? [];
@@ -99,6 +111,10 @@ function happened(check, answer) {
   switch (check.what) {
     case "call":
       return called(answer.tools ?? [], check.value);
+    case "call again":
+      return again(answer.byText ?? [], (text) => called(text.tools ?? [], check.value));
+    case "reopen":
+      return again(answer.byText ?? [], (text) => (text.pages ?? []).some((page) => page.toLowerCase().startsWith(value)));
     case "link":
       return linked(answer.conversation ?? [], check.value);
     case "reach":

@@ -85,6 +85,9 @@ function readQuestion(sec) {
     // brief, so a case can push back on one instead of the automatic YES.
     answersAsks: false,
     ifAsked: [],
+    // "- person then:" texts sent in order, one after each answer, whatever Tex
+    // said (a fixed follow-up, `tests/follow-ups.md`); none means the person is played.
+    then: [],
     must: [],
     mustNot: [],
     judge: [],
@@ -122,6 +125,7 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
     else if ((m = line.match(/^- person sends picture:\s*(.*)$/))) q.sendsPicture = pictureName(m[1].trim());
     else if (/^- person answers asks\s*$/.test(line)) q.answersAsks = true;
+    else if ((m = line.match(/^- person then:\s*(.*)$/))) q.then.push(unquote(m[1]));
     else if ((m = line.match(/^- if asked (.+?):\s*(.*)$/))) q.ifAsked.push({ when: m[1], say: unquote(m[2]) });
     else if ((m = line.match(/^- must not:\s*(.*)$/))) q.mustNot.push(m[1].trim());
     else if ((m = line.match(/^- must:\s*(.*)$/))) q.must.push(m[1].trim());

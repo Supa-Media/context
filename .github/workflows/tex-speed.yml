@@ -1,0 +1,57 @@
+# Tex's speed and cache report, per day and per chat kind, from the gateway's `tex_model_calls` (one point
+# per model call) and `tex_timing` (one point per turn) (`apps/mcp/src/agent/turnStages.js`): the cache read
+# share, first round against later rounds, the median and 95th percentile milliseconds per call, and each
+# turn's total. The SQL and the tables are `apps/mcp/bench/texSpeed.mjs`. Kinds, models and numbers only:
+# no turn id is read and no workspace is printed. `tex_carry` is in no dataset (texSpeed.mjs says how to
+# read it from the Worker's logs). Read-only, manual only.
+name: Tex speed
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to read."
+        type: choice
+        options: [production, staging]
+        default: production
+      days:
+        description: "How far back to read, in days (1 to 90)."
+        required: true
+        default: "7"
+
+permissions:
+  contents: read
+
+jobs:
+  speed:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Read the calls and turns
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DAYS: ${{ inputs.days }}
+          CALLS: ${{ inputs.environment == 'staging' && 'tex_model_calls_staging' || 'tex_model_calls' }}
+          TURNS: ${{ inputs.environment == 'staging' && 'tex_timing_staging' || 'tex_timing' }}
+        run: |
+          set -euo pipefail
+          case "$DAYS" in ''|*[!0-9]*) echo "days must be a number" >&2; exit 1 ;; esac
+          speed="apps/mcp/bench/texSpeed.mjs"
+          # The API's own error (a bad query, never data) goes to the log, so a refusal says why.
+          sql() {
+            if ! curl -sS --fail-with-body -X POST \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/analytics_engine/sql" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data "$1" -o "$2"; then
+              head -c 600 "$2" >&2; echo >&2; return 1
+            fi
+          }
+          sql "$(node "$speed" query calls "$CALLS" "$DAYS" first)" first.json
+          sql "$(node "$speed" query calls "$CALLS" "$DAYS" later)" later.json
+          sql "$(node "$speed" query turns "$TURNS" "$DAYS")" turns.json
+          node "$speed" report first.json later.json turns.json | tee -a "$GITHUB_STEP_SUMMARY"

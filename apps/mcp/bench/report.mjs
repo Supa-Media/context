@@ -293,6 +293,8 @@ function runBlock(run, setup) {
   if (run.mail?.length) lines.push(`Mail: ${run.mail.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
   // Where housekeeping left each note a `file` check names, and what it holds: one JSON line, read back by the checks.
   if (Object.keys(run.where ?? {}).length) lines.push(`Filed: ${JSON.stringify(run.where)}`, "");
+  // What each text's turn called and opened, when there was more than one text: read back by the `call again` and `reopen` checks.
+  if ((run.byText?.length ?? 0) > 1) lines.push(`By text: ${JSON.stringify(run.byText)}`, "");
   // The background jobs it started (`checks.mjs` `start`): one JSON line, read back by the checks.
   if (run.jobs?.length) lines.push(`Jobs: ${JSON.stringify(run.jobs)}`, "");
   if (run.changes?.length) {

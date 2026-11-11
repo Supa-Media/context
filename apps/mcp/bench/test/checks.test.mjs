@@ -175,3 +175,15 @@ test("a start check can count only the jobs on a computer, or only those in the 
   assert.equal(grade("- must start: 2+ jobs on one note's mail on a computer", [job("a", "Studio Mac"), job("b", "Studio Mac")]), true);
   assert.equal(grade("- must start: 2+ jobs on one note's mail on a computer", [job("a", "Studio Mac"), job("b")]), false, "one of the two ran in the cloud");
 });
+
+test("a follow-up that re-fetches what an earlier text read fails call again and reopen; one that reuses it passes", () => {
+  const lines = ["- must not call again: read_note", "- must not reopen: codehub.example/brightkit/releases"].map(readCheck);
+  assert.deepEqual(lines.map((check) => check.what), ["call again", "reopen"]);
+  const grade = (byText) => checkVerdicts({ checks: lines }, { tools: [], browser: [], byText }).map((v) => v.pass);
+  const first = { tools: ["read_note", "open_page"], pages: ["codehub.example/brightkit/releases"] };
+  assert.deepEqual(grade([first, { tools: [], pages: [] }, { tools: [], pages: [] }]), [true, true], "carried");
+  assert.deepEqual(grade([first, { tools: ["read_note"], pages: ["codehub.example/brightkit/releases"] }]), [false, false], "fetched again");
+  assert.deepEqual(grade([first, { tools: ["search_notes"], pages: ["teamnotes.example/pricing"] }]), [true, true], "another tool and another page");
+  assert.deepEqual(grade([first]), [true, true], "one text cannot repeat itself");
+  assert.deepEqual(grade([]), [true, true], "an older record with no per-text line");
+});

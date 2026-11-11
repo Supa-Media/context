@@ -74,6 +74,23 @@ this folder: it is public, like the rest of the repository.
   `computer: Studio Mac (claude, codex) 3 slots` gives every case the same
   paired computer, and `on a computer` / `in the cloud` on a start check
   counts only the jobs that ran there: code goes to the computer.
+- `tests/follow-ups.md` (decided by the owner 2026-11-10, the fixed eval
+  that gates Tex changes): three stretches where a later text depends on
+  what Tex looked up in the first (a release, then the one before; a pricing
+  page, then which plan is cheaper for 5; a note, then one item in it). The
+  texts are fixed (`- person then:`, sent in order whatever Tex said), and a
+  later text that fetches the same page or calls the same read again fails
+  `must not reopen` or `must not call again` (`bench/checks.mjs`), read from
+  the `By text:` line the run records. Run it with `--test follow-ups`, or
+  the AI Benchmark Action with `test: follow-ups`.
+- `bench/webExact.mjs` (not a test file here): twenty questions with one exact
+  value each on a live web page, asked through Tex's real turn and scored on
+  the exact value, the cited source and whether it used the browser. It runs
+  outside the Action, since it reads the real web and has no setups, judge or
+  result note: `node apps/mcp/bench/webExact.mjs --out web.json` with the AI
+  gateway keys and `BRAVE_SEARCH_API_KEY` set (`--dry` spends nothing). Gold
+  values drift: recheck each against its page before a run (the file says when
+  each was checked).
 - `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
   2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
   messy workspace, graded by `must file: <note> under <folder>/` lines, which

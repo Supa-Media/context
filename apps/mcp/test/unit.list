@@ -14,6 +14,7 @@ bench/test/handback.test.mjs
 bench/test/sites.test.mjs
 bench/test/tasks.test.mjs
 bench/test/warm.test.mjs
+bench/test/webExact.test.mjs
 bench/test/world.test.mjs
 test/agentAboutMe.test.mjs
 test/agentAttachments.test.mjs
@@ -160,6 +161,7 @@ bench/test/folder.test.mjs
 bench/test/improve.test.mjs
 bench/test/search.test.mjs
 bench/test/summary.test.mjs
+bench/test/texSpeed.test.mjs
 test/v2Actions.test.mjs
 test/v2SearchFetch.test.mjs
 test/orientV2.test.mjs

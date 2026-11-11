@@ -165,3 +165,12 @@ test("the jobs an answer started are written as one line and read back for the s
   assert.deepEqual(read.find((list) => list.length > 0), jobs);
   assert.deepEqual(read.find((list) => list.length === 0), [], "an answer that started none reads none");
 });
+
+test("a By text line reads back as the run recorded it, and a one-text answer writes none", () => {
+  const byText = [{ tools: ["open_page"], pages: ["codehub.example/brightkit/releases"] }, { tools: [], pages: [] }];
+  const two = { ...RESULT, runs: [{ ...RESULT.runs[0], byText }, { ...RESULT.runs[1], byText: [byText[0]] }] };
+  const note = resultMarkdown(two);
+  assert.equal(note.split("\n").filter((line) => line.startsWith("By text: ")).length, 1);
+  const zebra = parseResult(note).answers.find((a) => a.byText.length > 0);
+  assert.deepEqual(zebra.byText, byText);
+});

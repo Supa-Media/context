@@ -83,6 +83,8 @@ function readBlock(id, lines) {
   const mailLine = tail.find((line) => line.startsWith("Mail: "));
   // Where housekeeping left each note a `file` check names (`checks.mjs`).
   const filedLine = tail.find((line) => line.startsWith("Filed: "));
+  // What each text's turn called and opened (`checks.mjs` `call again`, `reopen`).
+  const byTextLine = tail.find((line) => line.startsWith("By text: "));
   // The background jobs it started (`checks.mjs` `start`).
   const jobsLine = tail.find((line) => line.startsWith("Jobs: "));
   let time = null;
@@ -99,6 +101,7 @@ function readBlock(id, lines) {
     browser: browserLine ? browserLine.slice("Browser: ".length).split(" | ").filter(Boolean) : [],
     mail: mailLine ? mailLine.slice("Mail: ".length).split(" | ").filter(Boolean) : [],
     where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
+    byText: byTextLine ? byTextOf(byTextLine.slice("By text: ".length)) : [],
     jobs: jobsLine ? readJobsLine(jobsLine.slice("Jobs: ".length)) : [],
     time,
     error: errorLine ? errorLine.slice("Error: ".length) : null,
@@ -250,6 +253,16 @@ export function parseJudgedSections(raw) {
     }
   }
   return sections;
+}
+
+/** A `By text:` line read back: one `{ tools, pages }` per text, or none when it does not parse. */
+function byTextOf(line) {
+  try {
+    const parsed = JSON.parse(line);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 /** A `Filed:` line read back: note → `{ at, front, text }`, or null where it was gone. */

@@ -589,3 +589,19 @@ test("a calendar with guests may be changed, and its moves tell the guests", asy
   });
   assert.deepEqual(calendarWrites([{ date: "2026-10-08", address: "a@example.invalid", text: "### 07:00 · Pilates" }]), {}, "no guests, no calendar to change");
 });
+
+test("person then lines are the fixed follow-ups, in order", () => {
+  const raw = "---\nruns: 1\n---\n\n## 1. Release\n\n- kind: task\n- person starts: \"latest?\"\n- person then: \"and the one before?\"\n- person then: how far apart\n- must not reopen: codehub.example/x\n";
+  const [q] = parseTest(raw).questions;
+  assert.deepEqual(q.then, ["and the one before?", "how far apart"]);
+  assert.deepEqual(q.checks.map((c) => c.what), ["reopen"]);
+});
+
+test("the follow-ups test parses, every case sends fixed follow-ups and checks a reuse", async () => {
+  const parsed = parseTest(await readFile(new URL("../ai/tests/follow-ups.md", import.meta.url), "utf8"));
+  assert.equal(parsed.questions.length, 3);
+  for (const q of parsed.questions) {
+    assert.ok(q.then.length >= 1, `q${q.n}`);
+    assert.ok(q.checks.some((c) => c.kind === "must not" && (c.what === "reopen" || c.what === "call again")), `q${q.n}`);
+  }
+});

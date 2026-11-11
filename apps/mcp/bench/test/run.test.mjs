@@ -286,3 +286,21 @@ test("a test's computer line is read strictly", async () => {
   assert.throws(() => readComputer("Studio Mac with claude"), /is not/);
   assert.throws(() => readComputer("Studio Mac (vim) 2 slots"), /is not/);
 });
+
+test("fixed follow-ups are sent in order whatever Tex said, then the conversation ends, and each text's calls and pages are kept", async () => {
+  const { converse, personTextLimit } = await import("../run.mjs");
+  const question = { ...STREAMLY, ifAsked: [], personStarts: "latest?", then: ["and the one before?", "how far apart"] };
+  const world = scriptedWorld([
+    { answer: "v3.2.0, Nov 3.", tools: [{ tool: "open_page", ok: true }], browser: ["read codehub.example/brightkit/releases"] },
+    { answer: "v3.1.4, Oct 14." },
+    { answer: "20 days." },
+  ]);
+  const result = await converse(world, question, { fake: true });
+  assert.deepEqual(result.conversation.filter((t) => t.from === "person").map((t) => t.text), ["latest?", "and the one before?", "how far apart"]);
+  assert.deepEqual(result.byText, [
+    { tools: ["open_page"], pages: ["codehub.example/brightkit/releases"] },
+    { tools: [], pages: [] },
+    { tools: [], pages: [] },
+  ]);
+  assert.equal(personTextLimit({ ifAsked: [], then: ["a", "b", "c", "d"] }), 6);
+});
