@@ -143,7 +143,10 @@ function ReadyFigures({ stats }: { stats: Ready }) {
         </div>
       </div>
       <p className="td-pain-meta">
-        People are counted by an id, never a number. Texts, people and notes have been counted only since this card shipped (Nov 10, 2026, late UTC), so earlier hours read zero; cost includes staging's Tex. Charts are in UTC {per}s.
+        People are counted by an id, never a number. Cost includes staging's Tex. Charts are in UTC {per}s.
+        {stats.from < stats.countedSince
+          ? ` Before ${new Date(stats.countedSince).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC these come from older records: texts are the ones Tex answered (back to Oct 31), people are those who texted 1:1 (back to Nov 1), notes created are those made in one step (back to Nov 6), and edits were not counted.`
+          : ""}
       </p>
     </>
   );
