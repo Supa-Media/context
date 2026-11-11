@@ -41,7 +41,7 @@ import { runDueHousekeeping } from "./housekeeping";
 import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
-import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
+import { parseSendblueInbound, repliedToText, sendblueKeys, statusPath, threadContext, verifySendblueSecret } from "./sendblue";
 import { noteSendStatus, sendblueStatus, type SendStatus } from "./sendblueStatus";
 import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
 import { heardInGroup } from "./groupVoice";
@@ -134,6 +134,7 @@ function health(env: Env): Record<string, unknown> {
     replies: set(env.LINQ_API_KEY),
     sendblueWebhook: set(env.SENDBLUE_WEBHOOK_SECRET),
     sendblueReplies: sendblueKeys(env.SENDBLUE_API_KEY_ID, env.SENDBLUE_API_SECRET) !== null,
+    sendblueReceipts: statusPath(env.SENDBLUE_STATUS_URL) !== null,
     whapiWebhook: set(env.WHAPI_WEBHOOK_SECRET),
     whapiReplies: whapiKeys(env.WHAPI_TOKEN, env.WHAPI_LINE) !== null,
     workerSecret: set(env.AGENT_WORKER_SECRET),

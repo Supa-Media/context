@@ -30,6 +30,7 @@
  */
 
 import { TOLD } from "./conversation.js";
+import { dayAgo, LULL_MS, spanWords } from "./chatTime.js";
 
 const NOTE_INDENT = " ".repeat("[12:00 PM] ".length);
 const INBOUND = new Set(["text", "picture", "file", "link"]);
@@ -94,7 +95,7 @@ export function newestAt(events, answered) {
  * tools it used (`ledgerHistory.js`): its names follow Tex's first line of
  * that turn, names only.
  */
-export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null, tags = null } = {}) {
+export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null, tags = null, now = null } = {}) {
   const day = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "short", day: "numeric" });
   const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true });
   const all = [...answeredBy, ...events];
@@ -104,13 +105,19 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
   const lines = [];
   const named = new Set();
   let lastDay = null;
+  let lastAt = null;
+  // With `now` (a history rebuilt every text, `threadedTurn.js`): each day says how long ago it was, and a quiet
+  // stretch of four hours or more is marked where it happened (`chatTime.js`).
+  const aged = Number.isFinite(now);
   for (const event of events) {
     const date = new Date(event.at);
     const thisDay = day.format(date);
+    if (aged && lastAt !== null && event.at - lastAt >= LULL_MS) lines.push(`(quiet for ${spanWords(event.at - lastAt)})`);
     if (thisDay !== lastDay) {
-      lines.push(`--- ${thisDay} ---`);
+      lines.push(aged ? `--- ${thisDay} (${dayAgo(event.at, now, timeZone)}) ---` : `--- ${thisDay} ---`);
       lastDay = thisDay;
     }
+    if (event.kind !== "reaction" && event.kind !== "delivery") lastAt = event.at;
     let line = `[${time.format(date).replace(/ /g, " ")}] ${speaker(event.from)}: ${words(event)}`;
     if (event.from?.kind === "person" && INBOUND.has(event.kind) && event.at >= newestAnswered && !answered.has(event.id)) line += "   (not answered)";
     const tag = tags?.get(event.id);

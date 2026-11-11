@@ -206,7 +206,11 @@ export function sendBackNotice(feedback) {
 /** One review: `{ kind, send, problems, feedback }`, or null when there is no verdict in time. */
 export async function reviewReply({ state, earlier = [], request = requestViaGateway, config, metadata, timeoutMs = REVIEW_TIMEOUT_MS }) {
   const call = request(
-    { model: REVIEW_MODEL, system: withArchitecture(REVIEW_SYSTEM, "reviewer"), messages: [{ role: "user", text: reviewMessage(state, earlier) }], tools: [], maxTokens: REVIEW_MAX_TOKENS, effort: REVIEW_EFFORT },
+    // `toldNow`: the state's first line is this reviewer's own now line
+    // (`judgeState`), so the door does not write a second one. It is said here
+    // because the line sits in their words, which the door never reads a
+    // notice out of (`localNow.js` `noticesOf`).
+    { model: REVIEW_MODEL, system: withArchitecture(REVIEW_SYSTEM, "reviewer"), messages: [{ role: "user", text: reviewMessage(state, earlier) }], tools: [], maxTokens: REVIEW_MAX_TOKENS, effort: REVIEW_EFFORT, toldNow: true },
     config,
     { metadata },
   );

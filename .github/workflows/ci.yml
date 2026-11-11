@@ -124,6 +124,7 @@ jobs:
           # Gateway Contracts instead.
           - 'apps/mcp/src/activity/**'
           - 'apps/mcp/src/agent/agentHomeMove.js'
+          - 'apps/mcp/src/agent/chatTime.js'
           - 'apps/mcp/src/agent/conversation.js'
           - 'apps/mcp/src/agent/dayWords.js'
           - 'apps/mcp/src/agent/events.js'
@@ -424,6 +425,7 @@ jobs:
           node --test scripts/convex-tests.test.mjs
           node --test scripts/deploy-plan.test.mjs
           node --test scripts/worker-secrets.test.mjs
+          node --test scripts/sendblue-status-url.test.mjs
           node --test scripts/ci-performance-report.test.mjs
           node --test scripts/mcp-speed-budgets.test.mjs
           node --test scripts/release-communication-evidence.test.mjs
@@ -752,6 +754,7 @@ jobs:
           paths: |
             apps/mcp/src/activity/**
             apps/mcp/src/agent/agentHomeMove.js
+            apps/mcp/src/agent/chatTime.js
             apps/mcp/src/agent/conversation.js
             apps/mcp/src/agent/dayWords.js
             apps/mcp/src/agent/events.js
