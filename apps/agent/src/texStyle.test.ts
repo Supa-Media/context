@@ -19,7 +19,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
-import { addressesTex, groupCommand, namesTex } from "./groupWords";
+import { commandTo, groupCommand } from "./groupWords";
 import { BO, LINES, setup } from "./groupWorld.testing";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { menuReply, PICKS, readSettings, settingsMenu, settingSaid, styleWords, textSettings, type Ask, type MenuState, type SettingStep } from "./texStyle";
@@ -63,11 +63,9 @@ describe("the words", () => {
     expect(groupCommand("Tex, no emoji")).toEqual({ kind: "style", ask: { pick: "emoji_none" } });
   });
 
-  it("a mention wrapped in bidi isolates reads as the name", () => {
-    expect(namesTex("hey @\u2068Tex\u2069 what's 7 times 8")).toBe(true);
-    expect(addressesTex("@\u2068Tex\u2069 what's 7 times 8", false)).toBe(true);
-    expect(namesTex("so in this case can Tex help")).toBe(true);
-    expect(namesTex("Texas or Tex-Mex")).toBe(false);
+  it("a mention wrapped in bidi isolates reads as the name for a command", () => {
+    expect(commandTo("@\u2068Tex\u2069 stop")).toEqual({ kind: "stop" });
+    expect(commandTo("Texas stop")).toBeNull();
   });
 
   it("the menu shows the switches and the full text", () => {

@@ -155,6 +155,9 @@ a group turn gets the group's alone, never a member's.
 
 ## Tex's name anywhere reaches decide
 
+_Superseded 2026-11-11 by [one-judge-one-record](./one-judge-one-record.md) (PR 1): `namesTex` is deleted: every group message reaches the one judge, whatever the speak-up level, which the judge reads._
+
+
 Decided by Dev2, 2026-11-02. iMessage sends a native mention as the bare name,
 with no "@" and no mention data, so "can Tex tell us what 7 times 8 is?" was
 kept as chat and never reached decide. Now any group message that names Tex as

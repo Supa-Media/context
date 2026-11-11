@@ -3,6 +3,7 @@ import { acceptGroup, drainGroup, type GroupDeps } from "./groupInbox";
 import type { GroupMessage } from "./sendblueGroups";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Fetch } from "./clients";
+import { fakeJudge } from "./groupWorld.testing";
 
 /**
  * A WhatsApp group's webhook names only the sender (`whapiInbound.ts`), so a turn whose member list can't be read
@@ -38,6 +39,7 @@ function deps(reads: (string[] | null)[], control: Record<string, unknown>[]): G
     if (path.startsWith("/messages")) return Response.json({ sent: true, message: { id: "wa_out_1" } });
     if (path.startsWith("/presences")) return Response.json({});
     if (path === "/agent/events") return Response.json({ written: JSON.parse(String(init.body)).events.map((event: { id: string }) => event.id) });
+    if (path === "/agent-texts/decide") return Response.json(fakeJudge(JSON.parse(String(init.body))));
     if (path === "/agent-texts/group") {
       control.push(JSON.parse(String(init.body)));
       return Response.json({ status: "ready", slug: "crystal-care", intro: false, bound: true, timeZone: "UTC", handle: "ada" });

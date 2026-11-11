@@ -19,7 +19,8 @@ import type { InboxStorage } from "./inbox";
 /** Whether code answers this waiting message alone, with no model turn (`answerGroup` returns before it asks the gateway). */
 export function answeredByCode(item: GroupPending): boolean {
   if (item.message.routine !== undefined || item.message.reaction !== undefined || item.message.jobReport !== undefined) return false;
-  if (item.message.sms === true || item.setting !== undefined || item.engagement !== undefined) return true;
+  // An SMS still waiting on the judge's first look is not code's yet (`groupTurn.ts` `firstLook`).
+  if ((item.message.sms === true && item.look !== true) || item.setting !== undefined || item.engagement !== undefined) return true;
   return item.byCode === true && groupCommand(item.message.text) !== null;
 }
 

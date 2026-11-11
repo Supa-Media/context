@@ -10,9 +10,12 @@
  * needs: questions asked and characters Clef read, never words.
  *
  * The transcript and the draft are answered on, never kept or logged here: the one log line carries counts and codes.
+ * The judge's verdict on a group's moment is kept in that chat's ledger as a `judge` entry (`judgeVerdictEntry`), when
+ * the Worker names the chat's ledger key: what it chose, the why, the event it judged, never a word of the chat.
  */
 
-import { decisionEngine } from "./decide.js";
+import { DECISION_MODEL, decisionEngine } from "./decide.js";
+import { ledgerFor, ledgerWriter } from "./ledger.js";
 import { decideRequest, readDecideAnswers, readDecideBody, readRecheckAnswers, readRecheckBody, recheckRequest } from "../../../../packages/shared/src/textDecide.cjs";
 
 /** The paths the Worker posts to on the `TexTexts` binding. */
@@ -37,7 +40,7 @@ async function readJson(request) {
  * `{ ...decide's answer, meter: { questions, chars, ms } }`; a model that fails or answers off the set is
  * `{ ok: false, reason: "unavailable", cause }`, as the control plane answered it. `engine` is for tests.
  */
-export async function decideForTexts(request, env, { engine = decisionEngine(env?.AI) } = {}) {
+export async function decideForTexts(request, env, { engine = decisionEngine(env?.AI), ledger = (key) => ledgerFor(env, { chat: key }), waitUntil = null } = {}) {
   const path = new URL(request.url).pathname;
   const recheck = path === TEXTS_RECHECK_PATH;
   const raw = await readJson(request);
@@ -66,5 +69,36 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
       ...(result.ok ? (recheck ? { fits: result.fits } : { act: result.act, covers: result.covers.length }) : { cause: result.cause }),
     }),
   );
+  // The verdict in the group's ledger, behind the answer: never on the text's path.
+  if (!recheck && result.ok && body.ledger) {
+    const written = ledgerWriter(ledger(body.ledger), body.ledger)?.write(judgeVerdictEntry(body, result, meter.ms)) ?? Promise.resolve();
+    if (typeof waitUntil === "function") waitUntil(written);
+  }
   return Response.json({ ...result, meter: { ...meter, answered: answers !== null } });
+}
+
+/** The verdict words the design names (`one-judge-one-record.md`) for the contract's acts. */
+const VERDICT = { answer: "respond", react: "react", silent: "quiet", wait: "wait" };
+
+/**
+ * One judging of a moment as a `judge` entry (`agent/ledger.js`): `by: "moment"`, the verdict, its why (one of the
+ * judge's labels), the event judged, and when a turn ran, what that text does to it. Names and codes only.
+ */
+export function judgeVerdictEntry(body, result, ms) {
+  return {
+    v: 1,
+    id: `judge${body.newest.replace(/[^0-9]/g, "")}${body.running ? "r" : ""}${Date.now().toString(36)}`,
+    at: Date.now(),
+    kind: "judge",
+    by: "moment",
+    model: DECISION_MODEL,
+    verdict: VERDICT[result.act],
+    went: result.act === "answer",
+    event: body.newest,
+    ...(result.why ? { why: result.why } : {}),
+    ...(result.emoji ? { emoji: result.emoji } : {}),
+    ...(result.midTurn ? { midTurn: result.midTurn } : {}),
+    confidence: result.confidence,
+    ms,
+  };
 }

@@ -69,7 +69,10 @@ for (const { name, groupId } of LINES) {
       const w = setup(groupId, { control: { engagement: "followAlong", engagementChosen: true } });
       await acceptGroup(storage, w.message("Tex, file a bug: the menu is slow"), 0);
       await drainGroup(storage, w.deps);
-      expect(await acceptGroup(storage, w.message("Tex, file a bug: the menu is slow"), 60_000)).toBe("duplicate");
+      // Dev2, 2026-11-11: the repeat reaches the judge like any message, and is dropped after it (`notAskedAgain`).
+      await acceptGroup(storage, w.message("Tex, file a bug: the menu is slow"), 60_000);
+      await drainGroup(storage, w.deps);
+      expect(w.asks).toHaveLength(1);
     });
   });
 }

@@ -20,7 +20,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
 import { utcDay } from "../functions/lib/jev/meter";
-import { ADDRESSED_RULE, OTHER_ASSISTANT_RULE, decideRequest, readDecideBody } from "../functions/lib/gatewayRoutes/textDecide";
+import { FOR_TEX_RULE, OTHER_ASSISTANT_RULE, decideRequest, readDecideBody } from "../functions/lib/gatewayRoutes/textDecide";
 import { groupKeyOf } from "../functions/textGroups";
 import { addMember, asUser, createUser, createWorkspace, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
 
@@ -98,7 +98,7 @@ function clef(answers: Record<string, unknown> | null) {
 }
 
 const ANSWER = {
-  act: { type: "choice", choice: "answer", confidence: 0.83, probabilities: { silent: 0.1, react: 0.07, answer: 0.83 } },
+  act: { type: "choice", choice: "respond", confidence: 0.83, probabilities: { quiet: 0.17, respond: 0.83 } },
   start: { type: "choice", choice: id(2), confidence: 0.6, probabilities: { [id(1)]: 0.3, [id(2)]: 0.6, [NEWEST]: 0.1 } },
   moved_on: { type: "noul", noul: 0.2 },
 };
@@ -162,7 +162,7 @@ describe("the decision", () => {
     expect(response.json).toEqual({ ok: true, act: "answer", covers: [id(2), NEWEST], stale: [], movedOn: false, confidence: 0.83 });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.state).toContain(SECRET_WORDS);
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "also_react", "wait_seconds", "start", "moved_on", "emoji"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "also_react", "wait_seconds", "start", "moved_on", "emoji", "why"]);
     expect(Object.keys(sent[0]!.questions.start!.criteria)).toEqual([id(1), id(2), NEWEST]);
     // Never the transcript in the answer or the log.
     expect(response.text).not.toContain("pineapple");
@@ -175,7 +175,7 @@ describe("the decision", () => {
   test("not answering: covers nothing", async () => {
     const t = setupTest();
     await boundGroup(t);
-    clef({ ...ANSWER, act: { type: "choice", choice: "silent", confidence: 0.9 } });
+    clef({ ...ANSWER, act: { type: "choice", choice: "quiet", confidence: 0.9 } });
     expect((await decide(t)).json).toMatchObject({ ok: true, act: "silent", covers: [], confidence: 0.9 });
   });
 
@@ -208,7 +208,7 @@ describe("the decision", () => {
     });
     const response = await decide(t, { running: true, waitingAsks: asks });
     expect(response.json).toMatchObject({ ok: true, midTurn: "restart", stale: [id(20), id(22)], movedOn: true });
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "also_react", "wait_seconds", "start", "mid_turn", "stale_0", "stale_1", "stale_2", "moved_on", "emoji"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "also_react", "wait_seconds", "start", "mid_turn", "stale_0", "stale_1", "stale_2", "moved_on", "emoji", "why"]);
     expect(Object.keys(sent[0]!.questions.mid_turn!.criteria)).toEqual(["fold", "queue", "restart"]);
   });
 
@@ -218,7 +218,7 @@ describe("the decision", () => {
     const sent = clef(ANSWER);
     const response = await decide(t, { chat: ADA, line: undefined, sender: ADA, style: "direct" });
     expect(response.json).toMatchObject({ ok: true, act: "answer" });
-    expect(JSON.stringify(sent[0]!.questions.act)).toContain("pure acknowledgement");
+    expect(JSON.stringify(sent[0]!.questions.act)).toContain("one-to-one chat with Tex: every text is to Tex");
     const rows = await t.run((ctx) => ctx.db.query("jevUsage").collect());
     expect(rows.map((row) => row.workspaceId)).toEqual([ada.workspaceId]);
   });
@@ -313,9 +313,9 @@ test("every request it builds passes the inference Worker's request rules", () =
   const NAME = /^[a-z][a-z0-9_]{0,39}$/;
   const OPTION = /^[a-z0-9][a-z0-9_-]{0,59}$/;
   const ids = Array.from({ length: 3 }, (_, n) => `1761619442000-00000${n}`);
-  for (const [running, addressed] of [[false, false], [true, false], [false, true]] as const) {
+  for (const running of [false, true]) {
     for (const candidates of [ids.slice(0, 1), ids]) {
-      const { state, questions } = decideRequest({ chat: GROUP, line: LINE, style: "helpful", transcript: "x", running, waitingAsks: ids.slice(0, 2), candidates, newest: candidates.at(-1)!, ...(addressed ? { addressed: true as const } : {}) });
+      const { state, questions } = decideRequest({ chat: GROUP, line: LINE, style: "helpful", transcript: "x", running, waitingAsks: ids.slice(0, 8), candidates, newest: candidates.at(-1)! });
       expect(state.length).toBeGreaterThan(0);
       const entries = Object.entries(questions as Record<string, { type: string; instructions: string; criteria: Record<string, string> }>);
       expect(entries.length).toBeLessThanOrEqual(16);
@@ -341,28 +341,26 @@ test("every style tells decide a message for another assistant is silent, never 
   }
 });
 
-// Dev2, 2026-11-01: an addressed message's turn runs while decide judges it, so decide is told it looks addressed.
-test("decide is told when the newest message looks addressed to Tex, and only then", () => {
-  const body = { chat: GROUP, line: LINE, style: "followAlong", transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" };
-  const act = (read: Record<string, unknown>) => (decideRequest(readDecideBody(read)!).questions as Record<string, { instructions: string }>).act!.instructions;
-  expect(act({ ...body, addressed: true })).toContain(ADDRESSED_RULE);
-  expect(act(body)).not.toContain(ADDRESSED_RULE);
-  expect(act({ ...body, addressed: "yes" })).not.toContain(ADDRESSED_RULE);
+// Dev2, 2026-11-11 (one judge): no word rule says what is for Tex. The judge is told, whatever the speak-up level,
+// that a tag, Tex's name as the one asked, a reply to Tex or an answer to its question is answered; the examples teach it.
+test("every speak-up level tells the judge that what is plainly for Tex is answered, and shows it the examples", () => {
+  const transcript = "<1761619442000-000003> @ada: Tex, what's 2+2?";
+  for (const style of ["quiet", "attentive", "followAlong", "helpful", "direct"] as const) {
+    const { state, questions } = decideRequest({ chat: GROUP, line: LINE, style, transcript, running: false, waitingAsks: [], candidates: ["1761619442000-000003"], newest: "1761619442000-000003" });
+    const act = (questions as Record<string, { instructions: string }>).act!.instructions;
+    expect(act, style).toContain(FOR_TEX_RULE);
+    expect(act.length, style).toBeLessThanOrEqual(1_000);
+    expect(state.startsWith("<examples>"), style).toBe(true);
+    expect(state.endsWith(`${transcript}\n</chat>`), style).toBe(true);
+  }
 });
 
-// Dev2, 2026-11-03: decide vetoed "Tex, what's 2+2?" in a quiet chat and a repeated ask with progress updates off.
-// For an addressed message the group's level is not shown as a reason to stay silent; the rule says to answer anyway.
-test("an addressed message is answered whatever the group's level, progress updates or a repeat", () => {
-  const transcript = "<1761619440000-000001> @ada: Tex, compare the pricing pages of Notion and Coda\n<1761619441000-000002> Context: Progress updates are off.\n<1761619442000-000003> @ada: Tex, compare the pricing pages of Notion and Coda";
-  for (const style of ["quiet", "attentive", "followAlong", "helpful"] as const) {
-    const { questions } = decideRequest({ chat: GROUP, line: LINE, style, transcript, running: true, waitingAsks: [], candidates: ["1761619442000-000003"], newest: "1761619442000-000003", addressed: true });
-    const act = (questions as Record<string, { instructions: string }>).act!.instructions;
-    expect(act, style).toContain(ADDRESSED_RULE);
-    expect(act, style).not.toContain("This group chose");
-    expect(act, style).not.toContain("Anything else is silent");
-    expect(act.length, style).toBeLessThanOrEqual(1_000);
-  }
-  for (const words of ["quiet", "progress-updates", "repeats an earlier ask", "\"thanks\""]) expect(ADDRESSED_RULE).toContain(words);
+// The judge's verdict is kept in a group's ledger, named by its key; anything else there is dropped at the boundary.
+test("the body keeps a group's ledger key only when it is one", () => {
+  const body = { chat: GROUP, line: LINE, style: "followAlong", transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" };
+  expect(readDecideBody({ ...body, ledger: "a".repeat(64) })).toMatchObject({ ledger: "a".repeat(64) });
+  expect(readDecideBody({ ...body, ledger: "chat:../x" })).not.toHaveProperty("ledger");
+  expect(readDecideBody({ ...body, addressed: true })).not.toHaveProperty("addressed");
 });
 
 // 2026-11-01: in a chat that reaches no shared workspace (home-only, like Tex Devs), every decide was refused as no_group,

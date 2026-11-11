@@ -30,12 +30,12 @@ describe("the reaction emoji", () => {
   test("reacting is its own decision: it comes with silence (a react), an answer or a wait, and only when chosen", () => {
     const yes = { type: "noul", noul: 0.9 };
     const no = { type: "noul", noul: 0.1 };
-    expect(readDecideAnswers(BODY, { act: act("silent"), also_react: yes, emoji: act("party") })).toMatchObject({ ok: true, act: "react", emoji: "🎉" });
-    expect(readDecideAnswers(BODY, { act: act("answer"), also_react: yes, emoji: act("party") })).toMatchObject({ ok: true, act: "answer", emoji: "🎉" });
+    expect(readDecideAnswers(BODY, { act: act("quiet"), also_react: yes, emoji: act("party") })).toMatchObject({ ok: true, act: "react", emoji: "🎉" });
+    expect(readDecideAnswers(BODY, { act: act("respond"), also_react: yes, emoji: act("party") })).toMatchObject({ ok: true, act: "answer", emoji: "🎉" });
     expect(readDecideAnswers(BODY, { act: act("wait"), also_react: yes, emoji: act("party") })).toMatchObject({ ok: true, act: "wait", emoji: "🎉" });
-    for (const other of ["answer", "silent", "wait"]) {
-      const read = readDecideAnswers(BODY, { act: act(other), also_react: no, emoji: act("party") });
-      expect(read).toMatchObject({ ok: true, act: other });
+    for (const [other, read_as] of [["respond", "answer"], ["quiet", "silent"], ["wait", "wait"]]) {
+      const read = readDecideAnswers(BODY, { act: act(other!), also_react: no, emoji: act("party") });
+      expect(read).toMatchObject({ ok: true, act: read_as });
       expect(read).not.toHaveProperty("emoji");
     }
   });
@@ -44,12 +44,12 @@ describe("the reaction emoji", () => {
     expect(readDecideAnswers(BODY, { act: act("wait"), wait_seconds: { type: "score", score: 2, confidence: 0.8 } })).toMatchObject({ act: "wait", waitSeconds: 3 });
     expect(readDecideAnswers(BODY, { act: act("wait"), wait_seconds: { type: "score", score: 40, confidence: 0.8 } })).toMatchObject({ waitSeconds: 8 });
     expect(readDecideAnswers(BODY, { act: act("wait") })).toMatchObject({ waitSeconds: 1 });
-    expect(readDecideAnswers(BODY, { act: act("answer"), wait_seconds: { type: "score", score: 2, confidence: 0.8 } })).not.toHaveProperty("waitSeconds");
+    expect(readDecideAnswers(BODY, { act: act("respond"), wait_seconds: { type: "score", score: 2, confidence: 0.8 } })).not.toHaveProperty("waitSeconds");
   });
 
   test("an emoji outside the 64 is no emoji, never a guess", () => {
     for (const choice of ["unicorn", "toString", "__proto__"]) {
-      expect(readDecideAnswers(BODY, { act: act("silent"), also_react: { type: "noul", noul: 0.9 }, emoji: act(choice) })).not.toHaveProperty("emoji");
+      expect(readDecideAnswers(BODY, { act: act("quiet"), also_react: { type: "noul", noul: 0.9 }, emoji: act(choice) })).not.toHaveProperty("emoji");
     }
   });
 });

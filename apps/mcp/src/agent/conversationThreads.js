@@ -35,7 +35,6 @@
 import { requestViaGateway } from "./aiGateway.js";
 import { ledgerPlace, ledgerWriter } from "./ledger.js";
 import { firstObject } from "./replyJudge.js";
-import { readRespond, RESPOND_RULES } from "./respond.js";
 import { withArchitecture } from "./texArchitecture.js";
 import { DESCRIPTION_CHARS, foldThreads, listedThreads, MAX_LISTED, THREADS_SUFFIX, TITLE_CHARS } from "./threadsFold.js";
 
@@ -62,9 +61,12 @@ You are given whether the chat is a group chat or a 1:1 with Tex (CHAT), the cha
 2. title: for "new", a 3 to 6 word title in plain words; otherwise the thread's title, kept unless it is now wrong.
 3. description: that thread's one or two sentences as they now stand, with the new text in it: what it is about and where it stands (what is asked, what is waiting on whom). At most 240 characters.
 4. finished: ids of OTHER open threads the chat's last lines show are done. Only on evidence: the ask was answered and they acknowledged it or moved on from it by saying so, the task was done, or someone dropped it. Silence never finishes a thread. A question of theirs that Tex has not answered keeps its thread open. When unsure, leave it open.
-${RESPOND_RULES}
+5. place: "under" when Tex's reply could be read as answering a different text (other texts came after it, several conversations are interleaving, or it picks up an older subject), else "plain".
 
-Answer with JSON only: {"thread":"t3"|"new","title":"...","description":"...","finished":["t1"],"respond":"reply"|"react"|"quiet","emoji":"👍","place":"under"|"plain","why":"..."}`;
+Answer with JSON only: {"thread":"t3"|"new","title":"...","description":"...","finished":["t1"],"place":"under"|"plain"}`;
+
+/** Where a reply goes: under the text it answers, or plain in the chat; anything else is none, and the Worker decides. */
+export const PLACES = ["under", "plain"];
 
 /** The threads ledger's chat name for a chat. */
 export const threadsChat = (chat) => `${chat}${THREADS_SUFFIX}`;
@@ -122,7 +124,7 @@ export function threadsMessage({ threads, lines, question, replying = [], group 
   return parts.join("\n");
 }
 
-/** The classifier's answer, checked: `{thread, title, description, finished, respond, emoji?, place?, why?}` (`respond.js`), or null when it isn't one. */
+/** The classifier's answer, checked: `{thread, title, description, finished, place?}`, or null when it isn't one. */
 export function readVerdict(text, threads) {
   const found = firstObject(String(text ?? ""));
   if (found === null) return null;
@@ -133,7 +135,7 @@ export function readVerdict(text, threads) {
   const description = oneLine(found.description, DESCRIPTION_CHARS);
   if (thread === "new" && title === "") return null;
   const finished = (Array.isArray(found.finished) ? found.finished : []).filter((id) => typeof id === "string" && known.has(id) && id !== thread);
-  return { thread, title, description, finished: [...new Set(finished)], ...readRespond(found) };
+  return { thread, title, description, finished: [...new Set(finished)], ...(PLACES.includes(found.place) ? { place: found.place } : {}) };
 }
 
 /** The next new thread's id. */

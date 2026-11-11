@@ -5,6 +5,8 @@
 // Sabotage record (applied, run, observed failing, reverted):
 //  1. the route not mounted on TexTexts → "reached through the TexTexts entrypoint" fails.
 //  2. a failed model read as "silent" instead of unavailable → "a model that fails is unavailable" fails.
+//  3. (2026-11-11) the judge entry not written → "the judge's verdict is kept in the group's ledger" fails.
+//  4. (2026-11-11) the judge's state cut from its newest end → "a long chat's judge still reads the examples and the newest line" fails.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -30,7 +32,7 @@ const ask = (path, payload) => new Request(`https://gateway${path}`, { method: "
 
 test("asks the control plane's questions and reads the answer as it did", async () => {
   let seen = null;
-  const engine = async (state, questions) => ((seen = { state, questions }), { act: { choice: "answer", confidence: 0.9 }, start: { choice: id(1) }, also_react: { noul: 0.1 } });
+  const engine = async (state, questions) => ((seen = { state, questions }), { act: { choice: "respond", confidence: 0.9 }, start: { choice: id(1) }, also_react: { noul: 0.1 } });
   const logs = [];
   const log = console.log;
   console.log = (line) => logs.push(String(line));
@@ -83,7 +85,7 @@ test("a malformed body is refused before any model call", async () => {
 });
 
 test("reached through the TexTexts entrypoint", async () => {
-  const env = { AI: { run: async () => ({ answers: { act: { choice: "silent", confidence: 0.8 } } }) } };
+  const env = { AI: { run: async () => ({ answers: { act: { choice: "quiet", confidence: 0.8 } } }) } };
   const response = await TexTexts.fetch(ask(TEXTS_DECIDE_PATH, body()), env, {});
   const answer = await response.json();
   assert.equal(answer.ok, true);
@@ -101,4 +103,57 @@ test("a long chat's last look still shows the model the draft: the transcript gi
   assert.match(asked.state, /^<e\d+> /);
   const short = recheckRequest({ transcript: "<e1> @a: hi", draft, draftFor: "e1", newest: "e1", style: "direct" });
   assert.ok(short.state.startsWith("<e1> @a: hi"));
+});
+
+const GROUP_KEY = "ab".repeat(32);
+const groupBody = (extra = {}) => body({ chat: "group-1", sender: undefined, line: "+15555550199", style: "quiet", ledger: GROUP_KEY, ...extra });
+
+test("the judge's verdict is kept in the group's ledger: what, why and the event, never a word of the chat", async () => {
+  const appended = [];
+  const ledger = (key) => ({ append: async (chat, entries) => appended.push({ key, chat, entries }) });
+  const pending = [];
+  const engine = async () => ({ act: { choice: "respond", confidence: 0.92 }, why: { choice: "tags_tex" } });
+  const answer = await (await decideForTexts(ask(TEXTS_DECIDE_PATH, groupBody()), {}, { engine, ledger, waitUntil: (work) => pending.push(work) })).json();
+  await Promise.all(pending);
+  assert.equal(answer.why, "tags_tex");
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].key, GROUP_KEY);
+  assert.equal(appended[0].chat, GROUP_KEY);
+  const [entry] = appended[0].entries;
+  assert.equal(entry.kind, "judge");
+  assert.equal(entry.by, "moment");
+  assert.equal(entry.verdict, "respond");
+  assert.equal(entry.why, "tags_tex");
+  assert.equal(entry.event, id(2));
+  assert.equal(entry.went, true);
+  assert.ok(!JSON.stringify(entry).includes("pineapple"));
+  // A 1:1 names no ledger key, and a last look is no verdict: neither writes one.
+  await decideForTexts(ask(TEXTS_DECIDE_PATH, body()), {}, { engine, ledger, waitUntil: (work) => pending.push(work) });
+  await decideForTexts(ask(TEXTS_RECHECK_PATH, { ...groupBody(), draft: "Hi.", draftFor: id(1) }), {}, { engine: async () => ({ draft_fits: { noul: 0.9 } }), ledger, waitUntil: (work) => pending.push(work) });
+  await Promise.all(pending);
+  assert.equal(appended.length, 1);
+});
+
+test("a ledger that fails never fails the verdict", async () => {
+  const ledger = () => ({ append: async () => { throw new Error("down"); } });
+  const logs = [];
+  const log = console.log;
+  console.log = (line) => logs.push(String(line));
+  const pending = [];
+  try {
+    const answer = await (await decideForTexts(ask(TEXTS_DECIDE_PATH, groupBody()), {}, { engine: async () => ({ act: { choice: "quiet", confidence: 0.8 } }), ledger, waitUntil: (work) => pending.push(work) })).json();
+    await Promise.all(pending);
+    assert.equal(answer.act, "silent");
+  } finally {
+    console.log = log;
+  }
+  assert.ok(logs.some((line) => line.includes("ledger_write_failed")));
+});
+
+test("a long chat's judge still reads the examples and the newest line", () => {
+  const lines = Array.from({ length: 2_000 }, (_, i) => `<${id(i + 1)}> @a: message number ${i}`).join("\n").slice(-23_990);
+  const asked = decideRequest({ ...body(), transcript: lines, candidates: [id(2000)], newest: id(2000) });
+  assert.ok(asked.state.length <= MAX_DECISION_STATE_CHARS);
+  assert.ok(asked.state.startsWith("<examples>"));
+  assert.ok(asked.state.includes(`<${id(2000)}> @a: message number 1999`));
 });

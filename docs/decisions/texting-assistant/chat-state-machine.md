@@ -53,6 +53,8 @@ test it?" was taken as Tex's, because Tex's name in a question addressed it;
 the model rightly said nothing, and the gateway texted "Sorry, my answer to
 that one got lost" and kept it in the chat's memory as Tex's reply.
 
+_Superseded 2026-11-11 by [one-judge-one-record](./one-judge-one-record.md) (PR 1): no word rule addresses Tex any more (`addressesTex` and `decideBeside` are deleted); every group message that is not a command goes to the one judge, which is taught by examples to answer a tag, Tex's name as the one asked, a reply to Tex and an answer to its question._
+
 - **Its bare name in a question no longer addresses Tex** (`groupWords.ts`
   `addressesTex`): such a message is untagged, so decide reads it first.
   Tex's name opening or closing a message still addresses it, and so does an

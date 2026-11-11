@@ -1,14 +1,13 @@
 /**
  * How fast a group is answered, and that the answer still fits (the group
  * review of 2026-10-30, "Speed up Tex replies in groups"): a named message
- * never waits on decide, a fixed line such as "Tex, settings" never waits
+ * waits only on the judge (2026-11-11), a fixed line such as "Tex, settings" never waits
  * behind another turn, and a reply drafted for an older ask is looked at
  * again before it sends.
  *
  * Sabotage record (applied, run, observed failing, reverted):
- *  1. `chooseGroupTurn` without `addressedTurn` (decide asked first, as
- *     before) → "a named message never waits on decide" fails (its turn
- *     starts only after decide's time is up).
+ *  1. (2026-11-11, one judge) `firstLook` answering without the judge's
+ *     verdict → "a named message is judged first" fails.
  *  2. `drainOnce` returning on a handed turn without `answerBesideTurn` →
  *     "Tex, settings is answered while another turn runs" fails.
  *  3. `answeredByCode` true for anything `byCode` → "a yes, a 👍, a
@@ -54,18 +53,21 @@ function handed(groupId: string, opts: Parameters<typeof setup>[1] = {}) {
 
 for (const { name, groupId } of LINES) {
   describe(`a group answered fast, ${name}`, () => {
-    // Dev2, 2026-11-01: decide is asked beside the turn; slower than `GROUP_DECIDE_MS`, the answer goes (fail open).
-    it("a named message never waits on decide: its turn starts at once, and with decide never answering its answer still goes", async () => {
+    // Dev2, 2026-11-11 (one judge): no word rule starts a turn, so the judge is asked first and the turn runs on its answer.
+    // The judge never answering (down, capped, past GROUP_DECIDE_MS), a waiting question or a message calling Tex is
+    // answered (`judgeDownAnswer`; Dev2, 2026-11-11, chosen after the pull request named the gap).
+    it("a named message is judged first; the judge never answering, a question and a tag that asks nothing both still go", async () => {
       const storage = new MemoryStorage();
-      const started = Date.now();
-      let askedAfter = Infinity;
-      const w = setup(groupId, { decideWait: () => new Promise<void>(() => {}), agent: (body) => ((askedAfter = Date.now() - started), { answer: `answer to ${body.question}` }), control: { engagement: "helpful", engagementChosen: true } });
-      await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
+      const w = setup(groupId, { decideWait: () => new Promise<void>(() => {}), agent: (body) => ({ answer: `answer to ${body.question}` }), control: { engagement: "helpful", engagementChosen: true } });
+      await acceptGroup(storage, w.message("Tex what's on tonight?"), 0);
       await drainGroup(storage, w.deps);
-      expect(askedAfter).toBeLessThan(1_000); // the turn was asked at once, never after decide's 3 s
-      expect(w.decided).toEqual([expect.objectContaining({ addressed: true })]);
-      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex what's on tonight"]);
-    });
+      expect(w.decided).toHaveLength(1);
+      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex what's on tonight?"]);
+      await acceptGroup(storage, w.message("Tex make a poster", { messageId: "h_poster", eventId: "sendblue:poster" }), 10);
+      await drainGroup(storage, w.deps);
+      expect(w.decided).toHaveLength(2);
+      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex what's on tonight?", "answer to Tex make a poster"]);
+    }, 15_000);
 
     it("Tex, settings is answered while another turn runs, and that turn still answers after", async () => {
       const { storage, w, deps, run } = handed(groupId, { hold: true, decide: untaggedSilent });

@@ -89,8 +89,8 @@ export async function sendTheReply(t) {
   if (!turn.exhausted) await tex.after("self_review", () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
   const reply = {
     answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
-    ...(turn.hushed?.respond === "react" && sent === "" ? { react: turn.hushed.emoji ?? "" } : hushed && report === null && sent === "" ? { react: "" } : {}), // a tapback in place of a text: the classifier's (`respond.js`), or a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)
-    ...(replyPlace === "under" || replyPlace === "plain" ? { place: replyPlace } : {}), // under the text it answers, or plain in the chat (`respond.js`)
+    ...(hushed && report === null && sent === "" ? { react: "" } : {}), // a tapback in place of a text: a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)
+    ...(replyPlace === "under" || replyPlace === "plain" ? { place: replyPlace } : {}), // under the text it answers, or plain in the chat (`conversationThreads.js`)
     // How many held calls the answer's last line asks about, so a caller that
     // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
     asked: ledger.asked.length,

@@ -5,6 +5,7 @@ import { acceptGroup, drainGroup, type GroupDeps } from "./groupInbox";
 import type { GroupMessage } from "./sendblueGroups";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Fetch } from "./clients";
+import { fakeJudge } from "./groupWorld.testing";
 import { KEPT_KEY, REUSE_MS } from "./groupKept";
 
 const LINE = "+15555550199";
@@ -32,6 +33,7 @@ function deps(w: World): GroupDeps {
     if (path === "/api/send-group-message") return w.sent.push(String(body.content)), Response.json({ message_handle: `h_out_${++handles}` });
     if (path === "/api/send-reaction") return Response.json({});
     if (path === "/agent/events") return Response.json({ written: body.events.map((event: { id: string }) => event.id) });
+    if (path === "/agent-texts/decide") return Response.json(fakeJudge(JSON.parse(String(init.body))));
     if (path === "/agent-texts/group") {
       w.control.push(body);
       const next = w.answers.length > 1 ? w.answers.shift() : w.answers[0];

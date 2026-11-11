@@ -1,33 +1,26 @@
 /**
  * When Tex speaks up in a group without being named: the group's style
  * (`textGroups.engagement`, CONTRACT.md section 4), chosen by a member the
- * first time Tex is addressed there, and which untagged messages it lets
- * reach decide (`decide.ts`):
- * - quiet: answers when someone says "Tex": messages `addressesTex` accepts, and any that names Tex (`namesTex`), which
- *   reaches decide at every level but off;
- * - attentive: also the asker's texts while their ask (`gask`) is open;
- * - followAlong (the default, and until a style is chosen): also untagged
- *   texts after Tex last spoke, until decide says the chat moved on or 20 went by;
- * - helpful: every text.
- * Whatever does not reach decide stays a chat line (`groupChat.ts`).
+ * first time Tex answers there. It is the one judge's to read, never a gate in
+ * code (Dev2, 2026-11-11): every message reaches the judge, which is told the
+ * level (`textDecide.cjs` `STYLE_RULES`):
+ * - quiet: only what is for Tex (a tag, its name, a reply to it, an answer to its question);
+ * - attentive: also the asker's follow-ups while Tex waits on their ask;
+ * - followAlong (the default, and until a style is chosen): also follow-ups to what Tex just said;
+ * - helpful: also where Tex can genuinely help, and a react to news.
  *
  * What it keeps, never text: `gstyle` the style and whether it was chosen,
- * as the control plane last said; `gfollow` how many untagged texts went by
- * since Tex last spoke; `gengask` while the style question is open, the
- * message it held back (answered once someone chooses, or when half an hour
- * passes with no choice).
+ * as the control plane last said; `gengask` while the style question is open,
+ * the message it held back (answered once someone chooses, or when half an
+ * hour passes with no choice).
  */
 
 import type { GroupStyle } from "./decide";
 import { armBy } from "./events";
 import type { InboxStorage } from "./inbox";
-import { styleReaches } from "./groupPolicy";
 
 const STYLE_KEY = "gstyle";
-const FOLLOW_KEY = "gfollow";
 const QUESTION_KEY = "gengask";
-/** Untagged texts after Tex spoke that followAlong still reads. */
-export const FOLLOW_TEXTS = 20;
 /** How long the style question stays open for a bare "1"-"4". */
 export const QUESTION_OPEN_MS = 30 * 60_000;
 
@@ -81,28 +74,7 @@ export async function keepStyle(storage: InboxStorage, style: GroupStyle, chosen
   await storage.put<Kept>(STYLE_KEY, { style: chosen ? style : "followAlong", chosen });
 }
 
-/** Tex just answered: followAlong reads the next texts again. */
-export async function texSpoke(storage: InboxStorage): Promise<void> {
-  await storage.put(FOLLOW_KEY, { count: 0 });
-}
 
-/** Decide said the chat moved on from Tex's last answer. */
-export async function movedOn(storage: InboxStorage): Promise<void> {
-  await storage.put(FOLLOW_KEY, { count: FOLLOW_TEXTS });
-}
-
-/** Whether followAlong still reads untagged texts, counting this one. */
-export async function followingAlong(storage: InboxStorage): Promise<boolean> {
-  const follow = await storage.get<{ count: number }>(FOLLOW_KEY);
-  if (follow === undefined || follow.count >= FOLLOW_TEXTS) return false;
-  await storage.put(FOLLOW_KEY, { count: follow.count + 1 });
-  return true;
-}
-
-/** Whether an untagged message reaches decide in this style; `asker`: it is from the person whose ask is open. */
-export async function reachesDecide(storage: InboxStorage, style: GroupStyle, asker: boolean): Promise<boolean> {
-  return await styleReaches(style, asker, () => followingAlong(storage));
-}
 
 export type HeldOriginal<T> = { item: T; at: number };
 

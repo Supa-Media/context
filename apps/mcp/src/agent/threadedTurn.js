@@ -14,7 +14,6 @@
 import { classifyText, foldThreads, readThreadTool, readThreads, RECENT_MS, threadOfEvents, threadsPrompt, verdictEntries } from "./conversationThreads.js";
 import { summaryLines } from "./ledgerHistory.js";
 import { renderEvents, speaker, words } from "./logRender.js";
-import { lastTexBefore } from "./respond.js";
 import { timeNote } from "./chatTime.js";
 import { callbacksPrompt, pickCallbacks } from "./callbacks.js";
 
@@ -46,7 +45,7 @@ export async function threadedTurn({ logged, ledger, chat, group = false, config
   const written = verdict === null || covered.length === 0 ? null : verdictEntries(verdict, read.threads, covered, now);
   const entries = written?.entries ?? [];
   const { threads, start } = entries.length > 0 ? foldThreads([...read.entries, ...entries]) : read;
-  log(JSON.stringify({ event: "tex_threads", verdict: verdict === null ? "none" : verdict.thread === "new" ? "new" : "continued", respond: verdict?.respond ?? "none", ...(verdict?.place ? { place: verdict.place } : {}), reopened: entries[0]?.reopened === true, finished: Math.max(0, entries.length - 1), threads: threads.length, open: threads.filter((thread) => thread.status === "open").length, ms: Date.now() - began }));
+  log(JSON.stringify({ event: "tex_threads", verdict: verdict === null ? "none" : verdict.thread === "new" ? "new" : "continued", ...(verdict?.place ? { place: verdict.place } : {}), reopened: entries[0]?.reopened === true, finished: Math.max(0, entries.length - 1), threads: threads.length, open: threads.filter((thread) => thread.status === "open").length, ms: Date.now() - began }));
   if (start === null) return null; // no thread yet, none made: the chat as it was shown
   const tags = threadOfEvents(threads, parts.shown);
   const cutoff = parts.answering - RECENT_MS;
@@ -72,9 +71,8 @@ export async function threadedTurn({ logged, ledger, chat, group = false, config
   const moments = group ? callbacksPrompt(pickCallbacks({ pool, live, all: parts.shown, tags, suggested: suggested?.id ?? null, now: parts.answering }), { now: parts.answering, timeZone: parts.timeZone }) : "";
   const told = [listed, pastSummaries, moments, transcript].filter((part) => part !== "").join("\n\n");
   const render = (id) => parts.shown.filter((event) => tags.get(event.id) === id).map((event) => lineOf(event, format)).join("\n");
-  // Whether to answer at all, and where (`respond.js`): the verdict's part, with Tex's last text before these for code's floor.
-  const respond = verdict === null ? null : { respond: verdict.respond, ...(verdict.emoji ? { emoji: verdict.emoji } : {}), ...(verdict.place ? { place: verdict.place } : {}), ...(verdict.why ? { why: verdict.why } : {}), ...lastTexBefore(parts.shown, covered), repliesToTex: (logged.covered ?? []).some((event) => typeof event.replyTo === "string" && parts.byId?.get(event.replyTo)?.from?.kind === "tex") };
+  // Where the reply goes (under the text it answers, or plain); whether Tex answers at all is the Worker's judge's (`textDecide.cjs`).
   // How long the chat was quiet before this text, and an old text it replies to, said in the person's turn (`chatTime.js`).
   const time = timeNote({ covered: logged.covered ?? [], shown: parts.shown, byId: parts.byId ?? new Map(), timeZone: parts.timeZone });
-  return { history: [{ role: "user", text: `${THREADED_PREFACE}\n\n${told}` }], entries, threads, suggested: suggested?.id ?? null, read_thread: readThreadTool({ threads, render }), respond, timeNote: time };
+  return { history: [{ role: "user", text: `${THREADED_PREFACE}\n\n${told}` }], entries, threads, suggested: suggested?.id ?? null, read_thread: readThreadTool({ threads, render }), place: verdict?.place ?? null, timeNote: time };
 }

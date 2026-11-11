@@ -10,7 +10,11 @@ export declare const STALE_AT: number;
 export declare const MAX_DRAFT: number;
 export declare const FITS_AT: number;
 export declare const OTHER_ASSISTANT_RULE: string;
-export declare const ADDRESSED_RULE: string;
+export declare const FOR_TEX_RULE: string;
+export declare const WHY: Readonly<Record<string, string>>;
+export type JudgeExample = { chat: "group" | "one"; setting?: string; lines: string[]; text: string; verdict: "respond" | "react" | "quiet" | "wait"; emoji?: string; why: string };
+export declare const JUDGE_EXAMPLES: readonly JudgeExample[];
+export declare const EXAMPLES_TEXT: string;
 export declare const REACT_EMOJI: Readonly<Record<string, { readonly emoji: string; readonly when: string }>>;
 
 /** `{ state, questions }`: what the decision model reads and the typed questions it answers. */
@@ -32,8 +36,8 @@ export interface DecideBody {
   line?: string;
   /** 1:1: the person's number, so their personal workspace is metered. */
   sender?: string;
-  /** Groups: the newest message looks addressed to Tex, so its turn already runs. */
-  addressed?: true;
+  /** Groups: the chat's ledger key (`chat:<groupKey>`), where the gateway keeps the judge's verdict. */
+  ledger?: string;
 }
 
 export type DecideResult =
@@ -47,6 +51,8 @@ export type DecideResult =
       confidence: number;
       emoji?: string;
       waitSeconds?: number;
+      /** One of `WHY`'s keys: why the judge chose what it did. */
+      why?: string;
     }
   | { ok: false; reason: "capped" | "off" | "unavailable"; cause: string };
 

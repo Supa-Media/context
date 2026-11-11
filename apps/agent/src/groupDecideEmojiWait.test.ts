@@ -6,7 +6,8 @@
  * A wait holds an untagged burst for the seconds decide chose, decided again
  * when it ends or at once when a new message lands, at most `MAX_CHAT_WAITS`
  * times and never past `BURST_DEADLINE_MS` after the burst's first message;
- * only a real burst (`burstStillTyped`) is held, and never an addressed message.
+ * only a real burst (`burstStillTyped`) is held; since 2026-11-11 whether a
+ * burst that names Tex waits is the judge's, never a word rule's.
  *
  * Sabotage (temporary local edits, reverted):
  *  - `reactionFor` returning decide's emoji unchecked: "an emoji outside the 64" fails;
@@ -20,11 +21,14 @@ import { AlarmStorage, MemoryStorage } from "./memoryStorage.testing";
 import { ackEmoji } from "./ackEmoji";
 import { looksUnfinished } from "./groupTurn";
 import { BURST_DEADLINE_MS, MAX_CHAT_WAITS } from "./chatState";
-import { answerAll, LINES, setup, type Answer, type Decide } from "./groupWorld.testing";
+import { answerAll, LINES, newestLine, setup, type Answer, type Decide } from "./groupWorld.testing";
 
 const react = (emoji?: string): Answer => ({ ok: true, act: "react", covers: [], stale: [], movedOn: false, confidence: 0.9, ...(emoji ? { emoji } : {}) });
 const wait = (seconds = 3): Answer => ({ ok: true, act: "wait", covers: [], stale: [], movedOn: false, confidence: 0.9, waitSeconds: seconds });
 const STYLE = { engagement: "helpful", engagementChosen: true };
+
+/** The judge under test, with a chat's first look (no ledger key yet) answered so the chat is bound, as a real first tag is. */
+const bindsFirst = (judge: (body: Decide) => Answer) => (body: Decide): Answer => (body.ledger === undefined ? answerAll(body) : judge(body));
 
 /** A tagged message first binds the chat to its people, as a real chat's first tag does; untagged ones follow. */
 async function bound(storage: MemoryStorage, w: ReturnType<typeof setup>) {
@@ -39,7 +43,7 @@ for (const { name, groupId } of LINES) {
   describe(`decide's emoji and wait, ${name}`, () => {
     it("a react uses decide's emoji", async () => {
       const storage = new MemoryStorage();
-      const w = setup(groupId, { decide: () => react("🎉"), control: STYLE });
+      const w = setup(groupId, { decide: bindsFirst(() => react("🎉")), control: STYLE });
       await bound(storage, w);
       await acceptGroup(storage, w.message("we got the venue"), 10);
       await drainGroup(storage, w.deps);
@@ -49,7 +53,7 @@ for (const { name, groupId } of LINES) {
 
     it("an emoji outside the 64 is never sent: the words pick it", async () => {
       const storage = new MemoryStorage();
-      const w = setup(groupId, { decide: () => react("🦄"), control: STYLE });
+      const w = setup(groupId, { decide: bindsFirst(() => react("🦄")), control: STYLE });
       await bound(storage, w);
       await acceptGroup(storage, w.message("we got the venue"), 10);
       await drainGroup(storage, w.deps);
@@ -110,7 +114,7 @@ for (const { name, groupId } of LINES) {
 
     it("answers after MAX_CHAT_WAITS waits, however often decide says wait", async () => {
       const storage = new AlarmStorage();
-      const w = setup(groupId, { decide: () => wait(1), control: STYLE });
+      const w = setup(groupId, { decide: bindsFirst(() => wait(1)), control: STYLE });
       await bound(storage, w);
       await acceptGroup(storage, w.message("so about friday"), 100);
       for (let i = 0; i <= MAX_CHAT_WAITS; i += 1) {
@@ -124,7 +128,7 @@ for (const { name, groupId } of LINES) {
 
     it("the burst is answered by its deadline, however long decide asks to wait", async () => {
       const storage = new AlarmStorage();
-      const w = setup(groupId, { decide: () => wait(8), control: STYLE });
+      const w = setup(groupId, { decide: bindsFirst(() => wait(8)), control: STYLE });
       await bound(storage, w);
       await acceptGroup(storage, w.message("so about friday"), 100);
       w.deps.now = () => 6_100;
@@ -140,7 +144,7 @@ for (const { name, groupId } of LINES) {
 
     it("a single complete message is never held, whatever decide says", async () => {
       const storage = new MemoryStorage();
-      const w = setup(groupId, { decide: () => wait(), control: STYLE });
+      const w = setup(groupId, { decide: bindsFirst(() => wait()), control: STYLE });
       await bound(storage, w);
       await acceptGroup(storage, w.message("Which parts of about.md are out of date?"), 100);
       await drainGroup(storage, w.deps);
@@ -148,9 +152,10 @@ for (const { name, groupId } of LINES) {
       expect(w.asks.map((ask) => ask.question)).toEqual(["Which parts of about.md are out of date?"]);
     });
 
-    it("never delays a message addressed to Tex", async () => {
+    // Since 2026-11-11 no word rule exempts a tag from a wait: the judge reads the burst, and its answer is not held.
+    it("a burst ending in an ask the judge answers is not held", async () => {
       const storage = new MemoryStorage();
-      const w = setup(groupId, { decide: () => wait(), control: STYLE });
+      const w = setup(groupId, { decide: (body) => (/Tex/.test(newestLine(body)) ? { ...answerAll(body), covers: [body.newest] } : wait()), control: STYLE });
       await bound(storage, w);
       await acceptGroup(storage, w.message("so about friday"), 100);
       await acceptGroup(storage, w.message("Tex what time is dinner?"), 101);
