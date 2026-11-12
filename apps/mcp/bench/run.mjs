@@ -37,6 +37,7 @@ import { summaryCommand } from "./summary.mjs";
 import { calibrateCommand } from "./calibrate.mjs";
 import { reviewCommand } from "./review.mjs";
 import { respondCommand } from "./respond.mjs";
+import { jobstartCommand } from "./jobstart.mjs";
 import { searchCommand } from "./search.mjs";
 import { benchLedger, ledgerFileName, ledgerNote, ledgersFolderFor } from "./modelLog.mjs";
 import { checkCommand } from "./check.mjs";
@@ -540,6 +541,7 @@ const USAGE = [
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
   "       pnpm ai review [--set a,b] [--concurrency <n>] [--fake]   score the reply reviewer on its labelled cases",
   "       pnpm ai respond [--concurrency <n>] [--fake]   score the one judge's respond-or-quiet call (Clef) on its held-out cases",
+  "       pnpm ai jobstart [--concurrency <n>] [--fake]  score whether a job's start gets a line or only a tapback (Haiku) on held-out chats",
   "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai check <dream|heartbeat|meeting-summaries|meeting-transcription|connected-ais> [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai connect [--endpoint <url>]           once, by a person: the runner's grant on Context",
@@ -561,6 +563,7 @@ const COMMANDS = new Map([
   ["calibrate", calibrateCommand],
   ["review", reviewCommand],
   ["respond", respondCommand],
+  ["jobstart", jobstartCommand],
   ["search", searchCommand],
   ["check", checkCommand],
   ["connect", connectCommand],

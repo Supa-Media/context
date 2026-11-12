@@ -26,6 +26,7 @@
 import { datedTurns, stamped } from "./localNow.js";
 import { advisorThinking } from "./advisor.js";
 import { withArchitecture } from "./texArchitecture.js";
+import { SAY_FIELD } from "./jobStart.js";
 
 export const PLAN_TOOL = "plan_big_ask";
 /** A part's name in the overview's mail: the mail's own name rule (`packages/shared/src/mail.cjs`). */
@@ -50,6 +51,7 @@ export const PLAN_DEFINITION = {
     properties: {
       ask: { type: "string", description: "The whole ask in their words, with every fact you already found that the parts need." },
       folder: { type: "string", description: "The new project's folder in their workspace, following its index (\"1-projects/lisbon-trip/\")." },
+      say: SAY_FIELD,
     },
     required: ["ask", "folder"],
   },

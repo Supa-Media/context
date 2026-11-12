@@ -8,12 +8,14 @@
 export const PICTURE_LINE = "(sent a picture or file)";
 /** The fixed lines, sent with no model. */
 export const GROUP_LINES = {
+  // One short line at the end of Tex's first answer in a chat, never a bubble of its own ahead of it (Dev2, 2026-11-12:
+  // in the Nov Babies chat the old bubble went first, told Seyi to start with "Tex" when he had, and the answer came 70 s later).
   intro: (reach: string[]) =>
-    `Hi, I'm Tex. Start a message with "Tex" and I'll answer here. ` +
+    "I'm Tex. " +
     (reach.length > 0
-      ? `I can use ${reach.map((slug) => `@${slug}`).join(" and ")}, the ${reach.length === 1 ? "workspace" : "workspaces"} everyone in this chat shares, and only what everyone there can open. `
-      : "I keep what I learn here in this chat's own home, which only the people here open. ") +
-    `I follow the chat so you can just say "Tex, write this up". "Tex, stop" mutes me and "Tex, start" brings me back.`,
+      ? `Here I use ${reach.map((slug) => `@${slug}`).join(" and ")}, only what everyone in this chat can open`
+      : "I keep what I learn here in this chat's own home, which only the people here open") +
+    ', and "Tex, stop" mutes me.',
   unknown: "I answer people who've set me up. Text me on your own to start.",
   noShared:
     "I can only use notes everyone in this chat can open, and not everyone here shares a workspace with me. Text me on your own instead.",

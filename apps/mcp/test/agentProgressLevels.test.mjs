@@ -144,12 +144,14 @@ test("plan only: the level said up front, the plan line and the link go, the sec
   assert.ok(later.includes(PLAN_ONLY_NOTICE.slice(0, 40)), "the model is told why the second line did not go");
 });
 
-test("normal: the level said up front, the plan line, the link and the next line go in order", async () => {
+test("normal: the level said up front; a line the model sends, the link and the next line go in order", async () => {
+  // Since 2026-11-12 (Nov Babies 6d) the normal level asks for no plan line: a line goes only for something to act on
+  // or a change outside their notes (`progress.js`). One the model sends anyway still goes, in order.
   const { told, bubbles } = await turnAt(undefined);
   assert.ok(told.includes(NORMAL_LEAD));
   assert.ok(!told.includes(PLAN_ONLY_LEAD));
-  assert.match(told, /more than about a minute/);
-  assert.match(told, /fewer the longer it runs/);
+  assert.doesNotMatch(told, /more than about a minute/);
+  assert.match(told, /Never to narrate a search/);
   assert.deepEqual([bubbles[0], bubbles[2]], [PLAN, SECOND]);
   assert.ok(bubbles[1].includes(LINK));
   assert.equal(bubbles.length, 3);

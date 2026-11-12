@@ -195,6 +195,24 @@ export async function runAgentBackgroundRouteChecks(check) {
         started.body.jobs[0].tainted === undefined,
     );
 
+    /* ---------------- a start Tex judges needs a line texts it, still with no model round after ---------------- */
+
+    const saidBefore = model.requests.length;
+    model.install([
+      { toolCalls: [{ name: "send", args: { action: "background", args: { title: "Birthday ideas", brief: "Twenty people in NYC, not only karaoke.", say: "On it. I'll put a page together with photos and send it here in a few minutes." } } }] },
+      { text: "never sent: no round after a start" },
+    ]);
+    const lined = await post(env, TOKEN_TEXTS, "/agent", { question: "do some research and put it in a page for us", conversation: "texts", running });
+    check(
+      "a start with a say texts that line and no tapback, with no model round after it (Dev2, 2026-11-12)",
+      model.requests.length === saidBefore + 1 &&
+        lined.body?.answer === "On it. I'll put a page together with photos and send it here in a few minutes." &&
+        lined.body?.react === undefined &&
+        lined.body?.quiet === undefined &&
+        lined.body?.jobs?.[0]?.title === "Birthday ideas",
+    );
+    check("the front door is taught by the job-start examples, not told never to text", /Some starts need a line, some don't/.test(systemOf(model.requests.at(-1))) && !/never a text: they hear only its result/.test(systemOf(model.requests.at(-1))));
+
     /* ---------------- a turn still reading after two rounds is told to hand it over ---------------- */
 
     const before = model.requests.length;
