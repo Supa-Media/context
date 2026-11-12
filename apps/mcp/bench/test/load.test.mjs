@@ -589,3 +589,8 @@ test("a calendar with guests may be changed, and its moves tell the guests", asy
   });
   assert.deepEqual(calendarWrites([{ date: "2026-10-08", address: "a@example.invalid", text: "### 07:00 · Pilates" }]), {}, "no guests, no calendar to change");
 });
+
+test("a group test's other members' lines are read with the text they come before", () => {
+  const { questions } = parseTest('---\njob: texting-assistant\ngroup: band\n---\n\n## 1. Ask\n\n- person starts: "tex hi"\n- @priya before text 2: "I can do Tuesday"\n');
+  assert.deepEqual(questions[0].others, [{ from: "priya", before: 2, text: "I can do Tuesday" }]);
+});

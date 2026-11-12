@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createWorld, manifest } from "../world.mjs";
+import { THREADS_SYSTEM } from "../../src/agent/conversationThreads.js";
 
 const SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
 
@@ -508,6 +509,34 @@ test("a conversation keeps every model call and the chat's own ledger, for its l
     assert.deepEqual(read.args, { path: "health/dentist.md" });
     assert.ok(String(read.result).includes("DENTIST-MARK"));
     assert.ok(chat.some((entry) => entry.kind === "reply"));
+  } finally {
+    world.close();
+  }
+});
+
+// Group mode (`group:` in a test, `world.mjs`): a text goes as the group grant with the chat's hashes, the other
+// members' texts go to the chat's ledger first, and the turn runs the threaded history as a group turn does in production.
+// Sabotage: send `conversation: "texts"` instead of `group` from `world.text`, or drop `texChatId` from the group grant,
+// and the classifier never runs, so this fails.
+test("a group test's texts run the threaded history, with the other members' texts in it", async () => {
+  const sent = [];
+  const gatewayFetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const system = JSON.stringify(body.system ?? "");
+    sent.push({ classifier: system.includes(THREADS_SYSTEM.slice(0, 60)), body });
+    const text = system.includes(THREADS_SYSTEM.slice(0, 60)) ? '{"thread":"new","title":"Gig","description":"the gig","finished":[]}' : "On it.";
+    return new Response(JSON.stringify({ content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, ledgerTurns: true, group: "brand" });
+  try {
+    assert.ok((await world.text("tex when is the shoot?")).ok);
+    const second = await world.text("tex and who brings the lights?", [], { others: [{ from: "priya", text: "I can bring the reflector" }] });
+    assert.ok(second.ok, second.error ?? "");
+    assert.ok(sent.some((call) => call.classifier), "the thread sorter ran, as it does for a group");
+    const front = JSON.stringify(sent.filter((call) => !call.classifier).at(-1).body.messages);
+    assert.match(front, /The chat's last 24 hours of texts/, "the model reads the threaded history");
+    assert.match(front, /@priya: I can bring the reflector/, "another member's text is in the chat");
+    assert.match(front, /@maya tagged you/, "the tagger is the test's person");
   } finally {
     world.close();
   }

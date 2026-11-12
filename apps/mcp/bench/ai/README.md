@@ -74,6 +74,14 @@ this folder: it is public, like the rest of the repository.
   `computer: Studio Mac (claude, codex) 3 slots` gives every case the same
   paired computer, and `on a computer` / `in the cloud` on a start check
   counts only the jobs that ran there: code goes to the computer.
+- `tests/group-stretch.md` (Dev2, 2026-11-11): one group chat, several
+  texts minutes apart. `group: <shared workspace>` runs the test in that
+  workspace's group chat (`bench/world.mjs`): each text goes as the group
+  grant with the chat's hashes, every person `people.md` puts in the
+  workspace is a member, the test's person tags Tex, and
+  `- @<member> before text <n>: "..."` posts another member's text to the
+  chat before the person's nth. The turn reads the threaded history and the
+  stretch's carried turns as a production group turn does.
 - `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
   2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
   messy workspace, graded by `must file: <note> under <folder>/` lines, which
