@@ -504,6 +504,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (routine && members === null && message.jobReport !== undefined) throw new ServiceError(app.senderOnlyWebhook ? "whapi" : "sendblue", null);
   if (routine && (members === null || !members.includes(message.from))) return void (await cannotRun(storage, deps, message, null));
   const people = peopleOf(message.line, message.participants, members);
+  logPeople(message, members, people);
   // A plain tag from the same person, with the same people, reuses the last token and asks the control plane behind the turn (`groupKept.ts`).
   const plain = command === null && !routine && members !== null;
   const kept = plain ? await keptAnswer(storage, message.line, message.from, people, deps.now()) : null;
@@ -566,4 +567,21 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {
   const seen = await storage.list<number>({ prefix: "gseen:" });
   for (const [key, at] of seen) if (now - at > SEEN_FOR_MS) await storage.delete(key);
+}
+
+/**
+ * How many people each list names (Dev2, 2026-11-12: Tex counted someone who had left the chat). Counts only, never a
+ * number: the webhook's list, the app's, how many only one of them has, and the people a turn is given (both together).
+ */
+function logPeople(message: GroupMessage, members: string[] | null, people: string[]): void {
+  const webhook = peopleOf(message.line, message.participants);
+  const app = members === null ? null : peopleOf(message.line, members);
+  console.log(JSON.stringify({
+    event: "group_people",
+    webhook: webhook.length,
+    app: app === null ? null : app.length,
+    onlyWebhook: app === null ? null : webhook.filter((person) => !app.includes(person)).length,
+    onlyApp: app === null ? null : app.filter((person) => !webhook.includes(person)).length,
+    people: people.length,
+  }));
 }

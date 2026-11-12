@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { acceptGroup, drainGroup, GROUP_LINES, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
 import { parseSendblueGroup, reactInGroup, readGroupMembers, type GroupMessage } from "./sendblueGroups";
 import { parseSendblueInbound } from "./sendblue";
@@ -341,6 +341,22 @@ describe("a group's queue", () => {
     await acceptGroup(storage, message("fresh", { messageId: "fresh" }), 2 * CHAT_FOR_MS);
     const after = [...(await storage.list<{ text: string }>({ prefix: "gchat:" })).values()].map((line) => line.text);
     expect(after).toEqual(["fresh"]);
+  });
+
+  it("logs how many people each list names, never a number (Dev2, 2026-11-12: Tex counted someone who had left)", async () => {
+    const storage = new MemoryStorage();
+    const w = world([[ADA, BO, CY]]);
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: unknown) => void logged.push(String(line)));
+    try {
+      await acceptGroup(storage, message("Tex, who is here?"), 0);
+      await drainGroup(storage, deps(w));
+    } finally {
+      spy.mockRestore();
+    }
+    const line = logged.find((entry) => entry.includes('"group_people"'));
+    expect(JSON.parse(line ?? "{}")).toEqual({ event: "group_people", webhook: 2, app: 3, onlyWebhook: 0, onlyApp: 1, people: 3 });
+    expect(line).not.toContain(CY.slice(1));
   });
 
   it("answers a tagged message in the chat, threaded, with only hashes about the chat", async () => {
