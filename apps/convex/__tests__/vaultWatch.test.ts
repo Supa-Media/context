@@ -15,6 +15,8 @@ import { createWorkspace, setupTest, type TestConvex } from "./fixtures.helpers"
  *   `savedSince` not filtering by `since`                                1
  *   `savedSince` treating an expired link as still waiting               1
  *   the index queried without `userId`                                   1
+ *   `links` looks ignoring which link (any save of theirs counts)         1
+ *   `links` looks not checking the row is theirs                          1
  */
 
 const PHONE = "+15555550100";
@@ -82,5 +84,26 @@ describe("POST /agent-texts/vault-saved", () => {
     expect((await ask(t, { phone: PHONE })).status).toBe(400);
     expect((await ask(t, { phone: PHONE, since: 0 }, null)).status).toBe(401);
     expect((await ask(t, { phone: PHONE, since: 0 }, "wrong-secret")).status).toBe(401);
+  });
+
+  test("a look for named links counts only those links, and only the phone's own (Dev2, 2026-11-12)", async () => {
+    const t = setupTest();
+    const ada = await linkedPhone(t, PHONE, "ada");
+    const bob = await linkedPhone(t, OTHER, "bob");
+    const groupLink = "a".repeat(64);
+    const directLink = "b".repeat(64);
+    const bobLink = "c".repeat(64);
+    const live = Date.now() + 30 * 60_000;
+    const groupRow = await t.run((ctx) => ctx.db.insert("vaultRequests", { hashedToken: groupLink, workspaceId: ada.workspaceId, userId: ada.userId, kind: "add", expiresAt: live }));
+    await t.run((ctx) => ctx.db.insert("vaultRequests", { hashedToken: directLink, workspaceId: ada.workspaceId, userId: ada.userId, kind: "add", expiresAt: live, usedAt: Date.now() }));
+    await t.run((ctx) => ctx.db.insert("vaultRequests", { hashedToken: bobLink, workspaceId: bob.workspaceId, userId: bob.userId, kind: "add", expiresAt: live, usedAt: Date.now() }));
+    // The 1:1 link was used, but the group chat watches its own link: still waiting.
+    expect((await ask(t, { phone: PHONE, since: 0, links: [groupLink] })).body).toEqual({ status: "waiting" });
+    // Somebody else's used link named by a chat is nothing of theirs.
+    expect((await ask(t, { phone: PHONE, since: 0, links: [bobLink] })).body).toEqual({ status: "gone" });
+    const usedAt = Date.now();
+    await t.run((ctx) => ctx.db.patch(groupRow, { usedAt }));
+    expect((await ask(t, { phone: PHONE, since: 0, links: [groupLink] })).body).toEqual({ status: "saved", savedAt: usedAt });
+    expect((await ask(t, { phone: PHONE, since: 0, links: ["not-a-hash"] })).status).toBe(400);
   });
 });

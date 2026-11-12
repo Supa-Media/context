@@ -230,12 +230,12 @@ export type AgentAnswer =
    */
   /** `steered`: the event ids of texts sent while it ran that the turn took in (`inbox.ts`). */
   /** `jobs`: background jobs the turn started (`jobs.ts`); `steers`: running jobs this text is handed to; `exhausted`: it ran out of steps; `unfinished`: a job's answer stopped short of the ask. */
-  /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save (`vaultWatch.ts`). */
+  /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save; `vaultLinks`: those links' hashed tokens, the chat watching only them (`vaultWatch.ts`). */
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
   /** `heard`, `sent`: what the person said aloud this turn, and the gateway's line naming the files they sent: jobs it starts, changes or restarts get them beside their typed words (`jobs.ts` `jobQuestion`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -403,7 +403,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
       ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(body.untrusted === true ? { untrusted: true as const } : {}), ...(body.idle === true ? { idle: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`apps/mcp/src/agent/jobCheck.js`); `untrusted`: it read from outside (`route.js`)
-      ...(body.vaultWatch === true ? { vaultWatch: true as const } : {}),
+      ...(body.vaultWatch === true ? { vaultWatch: true as const, ...(vaultLinks(body.vaultLinks).length > 0 ? { vaultLinks: vaultLinks(body.vaultLinks) } : {}) } : {}),
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
@@ -697,3 +697,8 @@ export async function runRoutine(
 
 /** The words an ask showed: the parts texted exactly as written (the ask itself), or the whole answer. */
 export const askLine = (answer: { text: string; verbatim?: string[] }): string => answer.verbatim?.join("\n") || answer.text;
+
+/** The hashed tokens of the save links a turn texted (`vaultWatch.ts`): hex SHA-256s, at most five. */
+function vaultLinks(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((hash): hash is string => typeof hash === "string" && /^[0-9a-f]{64}$/.test(hash)).slice(0, 5) : [];
+}

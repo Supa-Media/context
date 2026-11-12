@@ -102,7 +102,7 @@ type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: s
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
-  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; untrusted?: true; vaultWatch?: true; verdict?: JobVerdict; advice?: string; idle?: true }
+  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; untrusted?: true; vaultWatch?: true; vaultLinks?: string[]; verdict?: JobVerdict; advice?: string; idle?: true }
   /** Nothing ran: try the same turn again later. `why` is kept for the job's last word if no try is left. */
   | { kind: "retry"; why?: string }
   /** It ran and broke: carry on in a new turn, if one is left. */
@@ -325,7 +325,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     return { kind: "after", ms: RETRY_MS * 2 ** run.tries };
   }
   // It texted a link to save a login: the chat's inbox watches for the save, to carry the task on (`vaultWatch.ts`).
-  const watch = outcome.kind === "answer" && outcome.vaultWatch && run.origin.kind === "phone" ? { vaultWatch: run.origin.phone } : {};
+  // In a group chat too, as its asker's tag (Dev2, 2026-11-12), on the links it texted.
+  const asker = run.origin.kind === "phone" ? run.origin.phone : run.origin.message.from;
+  const watch = outcome.kind === "answer" && outcome.vaultWatch ? { vaultWatch: asker, ...(outcome.vaultLinks ? { vaultLinks: outcome.vaultLinks } : {}) } : {};
   // A text that came after the turn's last look changes the job: it is not texted the old way. So does an ask or an
   // interrupt mailed to it; a plain note mailed to it is shown to a next part if there is one, and is in the note anyway.
   const changed = outcome.kind === "answer" && left.some((steer) => steer.mail === undefined || steer.mail.kind !== "note");
@@ -524,7 +526,7 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
       steered: answer.steered ?? [],
       // It read from outside: every part after it is built on its words, so they carry the same mark (`ask`'s `tainted`).
       ...(answer.untrusted ? { untrusted: true as const } : {}),
-      ...(answer.vaultWatch ? { vaultWatch: true as const } : {}),
+      ...(answer.vaultWatch ? { vaultWatch: true as const, ...(answer.vaultLinks ? { vaultLinks: answer.vaultLinks } : {}) } : {}),
       ...(answer.verdict ? { verdict: answer.verdict, ...(answer.advice ? { advice: answer.advice } : {}) } : {}),
       ...(answer.idle ? { idle: true as const } : {}),
     };

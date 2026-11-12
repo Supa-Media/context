@@ -13,12 +13,21 @@
  *
  * Kept: the phone (this object is already named after it) and times, never
  * the link or what was saved. Given up after the link's life.
+ *
+ * The watch is the chat's that texted the link, a group chat's included, and
+ * names that link by its hashed token (`links`), as the control plane keys
+ * it: a save on a link sent in a group wakes that group, as its asker's tag,
+ * and never their 1:1 (Dev2, 2026-11-12, the Crystal Care chat's Gusto login:
+ * "Tex should know when I've filled out a vault item and continue on from
+ * there"). A watch from before links were named looks by phone and time.
  */
 
 import { post, record as asRecord, ServiceError, type Fetch } from "./clients";
 import type { InboxStorage } from "./inbox";
 
 export const VAULT_KEY = "vault-watch";
+/** A group's saved-login turn's routine path: it runs as a job's report does (no ack, no binding, SKIP), and no run waits on it. */
+export const VAULT_SAVED_PATH = "(vault saved)";
 /** Opening the link, signing in to Context and typing a password takes a little while. */
 export const VAULT_FIRST_MS = 15_000;
 export const VAULT_EVERY_MS = 10_000;
@@ -34,7 +43,12 @@ export const VAULT_GIVE_UP_MS = 32 * 60_000;
  */
 export const VAULT_SLACK_MS = 15 * 60_000;
 
-type Watch = { phone: string; since: number; nextAt: number };
+/** A group chat's turn to queue once the save lands: its asker's tag, under the message that asked (`inbox.ts` `carryOnAfterSave`). */
+export type WatchedGroup = { groupId: string; line: string; messageId: string; text: string };
+/** What the chat that texted the link watches: the link's hashed token, and the group it was texted in. */
+export type WatchFor = { links?: string[]; group?: WatchedGroup };
+type Watch = { phone: string; since: number; nextAt: number } & WatchFor;
+export type Saved = { phone: string; savedAt: number; group?: WatchedGroup };
 
 export type VaultWatchDeps = {
   fetch: Fetch;
@@ -44,9 +58,10 @@ export type VaultWatchDeps = {
 };
 
 /** Called when a turn texted a link to save a login: watch for the save. A watch already running starts over. */
-export async function watchForSave(storage: InboxStorage, phone: string, now: number): Promise<void> {
+export async function watchForSave(storage: InboxStorage, phone: string, now: number, watching: WatchFor = {}): Promise<void> {
   const nextAt = now + VAULT_FIRST_MS;
-  await storage.put<Watch>(VAULT_KEY, { phone, since: now, nextAt });
+  const links = (watching.links ?? []).filter((hash) => /^[0-9a-f]{64}$/.test(hash)).slice(0, 5);
+  await storage.put<Watch>(VAULT_KEY, { phone, since: now, nextAt, ...(links.length > 0 ? { links } : {}), ...(watching.group ? { group: watching.group } : {}) });
   await armBy(storage, nextAt);
 }
 
@@ -54,7 +69,7 @@ export async function watchForSave(storage: InboxStorage, phone: string, now: nu
  * From the alarm: look once if a look is due, and keep the alarm for the
  * next. Returns the phone and when a login was saved, once, or null.
  */
-export async function checkVaultSaved(storage: InboxStorage, deps: VaultWatchDeps): Promise<{ phone: string; savedAt: number } | null> {
+export async function checkVaultSaved(storage: InboxStorage, deps: VaultWatchDeps): Promise<Saved | null> {
   const watch = await storage.get<Watch>(VAULT_KEY);
   if (watch === undefined) return null;
   const now = deps.now();
@@ -68,7 +83,7 @@ export async function checkVaultSaved(storage: InboxStorage, deps: VaultWatchDep
   }
   let answer: SavedAnswer = { status: "waiting" };
   try {
-    answer = await fetchSaved(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, watch.phone, watch.since - VAULT_SLACK_MS);
+    answer = await fetchSaved(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, watch.phone, watch.since - VAULT_SLACK_MS, watch.links);
   } catch (error) {
     if (!(error instanceof ServiceError)) throw error;
   }
@@ -83,14 +98,14 @@ export async function checkVaultSaved(storage: InboxStorage, deps: VaultWatchDep
     logVaultWatch("gone");
     return null;
   }
-  return { phone: watch.phone, savedAt: answer.savedAt };
+  return { phone: watch.phone, savedAt: answer.savedAt, ...(watch.group ? { group: watch.group } : {}) };
 }
 
 type SavedAnswer = { status: "saved"; savedAt: number } | { status: "waiting" } | { status: "gone" };
 
 /** `POST /agent-texts/vault-saved`. Anything unexpected is a reason to look again. */
-export async function fetchSaved(fetcher: Fetch, origin: string, secret: string, phone: string, since: number): Promise<SavedAnswer> {
-  const { status, json } = await post(fetcher, "control_plane", `${origin}/agent-texts/vault-saved`, secret, { phone, since });
+export async function fetchSaved(fetcher: Fetch, origin: string, secret: string, phone: string, since: number, links?: string[]): Promise<SavedAnswer> {
+  const { status, json } = await post(fetcher, "control_plane", `${origin}/agent-texts/vault-saved`, secret, { phone, since, ...(links?.length ? { links } : {}) });
   if (status === 404) return { status: "waiting" };
   if (status !== 200) throw new ServiceError("control_plane", status);
   const body = asRecord(json);
@@ -99,7 +114,7 @@ export async function fetchSaved(fetcher: Fetch, origin: string, secret: string,
 }
 
 /** One line per outcome, never the phone. */
-export function logVaultWatch(outcome: "queued" | "gone" | "no_chat" | "texted_since"): void {
+export function logVaultWatch(outcome: "queued" | "gone" | "no_chat" | "texted_since" | "group_queued" | "group_full"): void {
   console.log(JSON.stringify({ event: "vault_saved_watch", outcome }));
 }
 

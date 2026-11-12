@@ -102,7 +102,7 @@ export async function sendTheReply(t) {
     ...(offerText ? { askFor: ledger.offered.who } : {}), // the Worker takes only their 👍 or yes
     ...startedJobs(background, ledger.untrusted === true, { heard: heardWords(attachments), sent: sentLine(attachments, attached), asked: openAskBefore(history, question, { now: Date.now() }) }), // the Worker runs these (`background.js`), asked their words, voice and files included (`heardWords.js`)
     ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), ...(offers.length > 0 ? { offers, ...hubField(offers, chatHubUrl(env, session, group)) } : {}), // choices, offers: `outgoingPictures.js`; `hub`: where "what I'm working on" points (`hubLinks.js`)
-    ...(ledger.vaultLink === true && group === null ? { vaultWatch: true } : {}), // the Worker watches for the save (`vaultSaved.js`)
+    ...(ledger.vaultLink === true ? { vaultWatch: true, ...(ledger.vaultLinks?.length ? { vaultLinks: ledger.vaultLinks } : {}) } : {}), // the Worker watches for the save, in a group too, on the links this chat texted (`vaultSaved.js`)
     provider: turn.provider,
     model: turn.model,
     steps: turn.steps,

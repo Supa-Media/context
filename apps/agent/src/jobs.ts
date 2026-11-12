@@ -80,7 +80,7 @@ export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
 /** `asked`: who asked for the job and their words, so the chat's turn on its report can start it again (`jobTexts.ts`). */
 /** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
-export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number };
+export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; vaultLinks?: string[]; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -518,7 +518,7 @@ function resultOf(update: JobUpdate): { result?: string } {
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, pass, asked, verdict, advice, ask, resumeAt } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, vaultLinks, pass, asked, verdict, advice, ask, resumeAt } = value as Record<string, unknown>;
   const by = asked && typeof asked === "object" ? (asked as Record<string, unknown>) : {};
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || typeof state !== "string" || !STATES.has(state)) return null;
@@ -529,6 +529,7 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(typeof status === "string" ? { status } : {}),
     ...(typeof step === "string" ? { step, ...(stepFailed === true ? { stepFailed: true as const, ...(typeof stepWhy === "string" ? { stepWhy } : {}) } : {}) } : {}),
     ...(typeof vaultWatch === "string" && vaultWatch !== "" ? { vaultWatch } : {}),
+    ...(Array.isArray(vaultLinks) && vaultLinks.length > 0 ? { vaultLinks: vaultLinks.filter((hash): hash is string => typeof hash === "string" && /^[0-9a-f]{64}$/.test(hash)).slice(0, 5) } : {}),
     ...(typeof ask === "string" && ask.trim() !== "" ? { ask: ask.slice(0, MAX_ASK) } : {}),
     ...(typeof pass === "string" && ID.test(pass) ? { pass } : {}),
     ...(typeof by.from === "string" && /^\+[1-9]\d{6,14}$/.test(by.from) && typeof by.text === "string" ? { asked: { from: by.from, text: by.text.slice(0, MAX_ASKED) } } : {}),

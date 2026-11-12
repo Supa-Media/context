@@ -69,7 +69,7 @@ export async function readTheText(t) {
   // A delegated job's supervisor (`supervise.js`): what this run is for, decided before any model.
   let supervision = null;
   // A saved login's turn (`vaultSaved.js`) and a job's report are asked the gateway's own line, never the body's.
-  let question = vaultSavedQuestion(body, { texting: session.actorClientId === TEXTS_CLIENT_ID && group === null, job }) ?? (report !== null ? jobReportQuestion(report) : null) ?? (typeof body.question === "string" ? body.question.trim() : "");
+  let question = vaultSavedQuestion(body, { texting: (session.actorClientId === TEXTS_CLIENT_ID && group === null) || group !== null, job }) ?? (report !== null ? jobReportQuestion(report) : null) ?? (typeof body.question === "string" ? body.question.trim() : "");
   Object.assign(t, { body, chatTurn, dispatch, group, hot, job, question, received, report, routine, runner, runs, setupRead, supervision });
 }
 // TEX ENTRY POINT: end
