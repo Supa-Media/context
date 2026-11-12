@@ -3,7 +3,8 @@ import { acceptGroup, drainGroup, type GroupDeps } from "./groupInbox";
 import type { GroupMessage } from "./sendblueGroups";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Fetch } from "./clients";
-import { fakeJudge } from "./groupWorld.testing";
+import { fakeJudge, setup } from "./groupWorld.testing";
+import { membersChanged } from "./groupMembers";
 
 /**
  * A WhatsApp group's webhook names only the sender (`whapiInbound.ts`), so a turn whose member list can't be read
@@ -69,5 +70,61 @@ describe("a WhatsApp group whose members can't be read", () => {
     await drainGroup(storage, deps([[ADA, BO, LINE]], control));
     expect(control).toHaveLength(1);
     expect([...(control[0].participants as string[])].sort()).toEqual([ADA, BO].sort());
+  });
+});
+
+/**
+ * Everyone's words reach Tex, not only the last tagger's. WhatsApp names only the sender, so until 2026-11-12 the
+ * chat was bound to the hash of whoever last tagged Tex and every other member's untagged line was dropped as
+ * "said in front of other people", and Tex told the next asker it couldn't see a line everyone else had read. A WhatsApp message now carries the group's kept member list (`groupMembers.ts`).
+ */
+describe("a WhatsApp group's untagged lines", () => {
+  const GROUP_ID = `whapi:${JID}`;
+  const CY = "+15555550103";
+  const said = (w: ReturnType<typeof setup>, from: string, text: string) => w.message(text, { from, participants: [from] });
+
+  it("keeps another member's line and hands it to the next tag", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE]] });
+    await acceptGroup(storage, said(w, ADA, "Tex, when is the party?"), 1);
+    await drainGroup(storage, w.deps);
+    expect(w.asks).toHaveLength(1);
+
+    expect(await acceptGroup(storage, said(w, BO, "The poster should say Saturday, not Sunday"), 2)).toBe("kept");
+    await drainGroup(storage, w.deps); // the judge leaves it as chat
+    expect(w.asks).toHaveLength(1);
+    await acceptGroup(storage, said(w, ADA, "Tex, draft an email asking for this fix"), 3);
+    await drainGroup(storage, w.deps);
+    expect(w.asks).toHaveLength(2);
+    expect(JSON.stringify(w.asks.at(-1))).toContain("say Saturday, not Sunday");
+  });
+
+  it("drops a line before any member list was read, as it always did: nothing says who is here", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE]] });
+    expect(await acceptGroup(storage, said(w, BO, "Saturday, not Sunday"), 1)).toBe("ignored");
+  });
+
+  it("drops a newcomer's line the kept list does not name, and a line after the app said the people changed", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE]] });
+    await acceptGroup(storage, said(w, ADA, "Tex, hi"), 1);
+    await drainGroup(storage, w.deps);
+    expect(await acceptGroup(storage, said(w, CY, "who are you all"), 2)).toBe("ignored");
+    await membersChanged(storage, 2_000); // after the read, which the world clocks at 1,000
+    expect(await acceptGroup(storage, said(w, BO, "Saturday, not Sunday"), 4)).toBe("ignored");
+  });
+
+  it("never hands a turn lines said before someone joined, even when the join event was missed", async () => {
+    const storage = new MemoryStorage();
+    // The second read (the next tag's) finds Cy, whose join Whapi never reported.
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE], [ADA, BO, LINE], [ADA, BO, CY, LINE]] });
+    await acceptGroup(storage, said(w, ADA, "Tex, hi"), 1);
+    await drainGroup(storage, w.deps);
+    expect(await acceptGroup(storage, said(w, BO, "the secret plan for Cy's party"), 2)).toBe("kept");
+    await acceptGroup(storage, said(w, ADA, "Tex, what did Bo say?"), 3);
+    await drainGroup(storage, w.deps);
+    expect(w.asks.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(w.asks.at(-1))).not.toContain("secret plan");
   });
 });
