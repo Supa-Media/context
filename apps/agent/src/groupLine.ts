@@ -55,6 +55,11 @@ export interface GroupLine {
    * the sender were alone (the Crystal Care chat, 2026-10-29: bound on one person, then refused the family).
    */
   readonly senderOnlyWebhook?: true;
+  /**
+   * True when the app tells Tex, by webhook, that a group's people changed (WhatsApp, Whapi's `groups` events), so
+   * the list a turn read can be kept and trusted before sending until a change or `KEPT_FRESH_MS` (`groupMembers.ts`).
+   */
+  readonly membershipEvents?: true;
 }
 
 export type GroupLineDeps = {
@@ -129,6 +134,7 @@ function whapiGroupLine(deps: GroupLineDeps): GroupLine {
   };
   return {
     senderOnlyWebhook: true,
+    membershipEvents: true,
     sendText: async (place, text, replyTo) => {
       // A note's link carries its own preview, as in a 1:1 chat (`noteCards.ts`); one Whapi refuses goes plain.
       const preview = await whapiNotePreview(text, deps.noteCardPicture, deps.hostPicture);

@@ -6,7 +6,6 @@ import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { hashToken } from "./lib/crypto";
 import { foldIn, ownsAnything } from "./lib/account/foldIn";
 import { leaveDroppedDomains } from "./lib/domainMembership";
 import { parseInvitee } from "./lib/invitees";
@@ -15,6 +14,7 @@ import { accountsForEmail, attachedEmailsOf, MAX_EMAILS_PER_ACCOUNT } from "./li
 import { confirmedEmailsOf, requireEmailProof } from "./lib/emailProof";
 import { isFreshSingleEmailAccount } from "./lib/freshSignup";
 import { isReservedReviewer } from "./lib/reviewerAccount";
+import { hashOneTimeCode } from "./lib/oneTimeCodes";
 
 /**
  * Several sign-in emails on one account (Dev2, 2026-10-09).
@@ -202,7 +202,7 @@ export const startAddEmail = action({
       prepared = await ctx.runMutation(internal.functions.signInEmails.prepareCode, {
         userId,
         email,
-        hashedCode: await hashToken(code),
+        hashedCode: await hashOneTimeCode("sign-in-email", code),
       });
     } catch (error) {
       if (error instanceof ConvexError && (error.data as { code?: string }).code === "RATE_LIMITED") {
@@ -405,7 +405,7 @@ export const confirmAddEmail = action({
     const status = await ctx.runMutation(internal.functions.signInEmails.consumeCode, {
       userId,
       email: pending.email,
-      hashedCode: await hashToken(code),
+      hashedCode: await hashOneTimeCode("sign-in-email", code),
     });
     return { status };
   },

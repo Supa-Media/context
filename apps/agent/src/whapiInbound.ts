@@ -77,6 +77,30 @@ export function whapiGroupNames(payload: unknown): Map<string, string> {
   return names;
 }
 
+/**
+ * The groups a `groups` delivery says changed (people added, removed or left; a group's settings), by the id each is
+ * queued under. The shape is not relied on: every string anywhere in it that is a group's id counts, so a change is
+ * never missed for a field Whapi moved. Read only to mark the group's kept member list changed (`groupMembers.ts`).
+ */
+export function whapiGroupChanges(payload: unknown): string[] {
+  if (!isRecord(payload) || rec(payload.event)?.type !== "groups") return [];
+  const found = new Set<string>();
+  const walk = (value: unknown, depth: number): void => {
+    if (found.size >= READ_LIMIT || depth > 6) return;
+    if (typeof value === "string") {
+      if (GROUP_JID.test(value)) found.add(whapiGroupId(value));
+    } else if (Array.isArray(value)) {
+      for (const item of value.slice(0, 64)) walk(item, depth + 1);
+    } else if (isRecord(value)) {
+      for (const [key, item] of Object.entries(value).slice(0, 64)) {
+        if (key !== "event") walk(item, depth + 1);
+      }
+    }
+  };
+  walk(payload, 0);
+  return [...found];
+}
+
 /** Every message in one delivery, read; `line` is Tex's own WhatsApp number (E.164). */
 export function parseWhapiWebhook(payload: unknown, line: string): WhapiEvent[] {
   if (!isRecord(payload)) {

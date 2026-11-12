@@ -120,9 +120,13 @@ never be the only copy of vital information.
 
 ## Seeded personas
 
-Use the normal email login at `https://staging.context.lc` and enter `000000`.
-Only these exact five addresses get this behavior, only on the isolated staging
-backend; normal email delivery is suppressed for these fixture logins.
+Sign in at `https://staging.context.lc` with a code issued for the persona:
+`CONVEX_DEPLOY_KEY=<staging deploy key> node scripts/staging-sign-in-code.mjs alpha`
+prints one, or run **Actions → Issue a sign-in code** for staging to have it
+mailed to the team inbox. Type the address and the code; do not press "send me
+a code" first, which replaces it. Each code works once and lasts ten minutes.
+The old fixed `000000` is gone (CASA 1.2.1, 2026-11-11), and only these five
+addresses can be issued codes this way, only on the isolated staging backend.
 They have ordinary workspace permissions, with no admin or production privileges.
 
 | Email | Persona | Personal workspace | Lumio | Maison Solenne | Common Ground |
@@ -159,11 +163,11 @@ cross-workspace reads, owner-only notes, a read-only write refusal, an editor sa
 and invitation acceptance. It restores Epsilon to an unjoined account with a new
 pending invitation before finishing, and signs out the verification sessions.
 
-The auth patch namespaces the fixed code by email before storage/verification:
-Convex Auth indexes verification codes globally, so storing the same hash five
-times would break simultaneous logins. Expiry, single use and verification rate
-limits remain in effect. Tests cover production/mismatched deployment rejection,
-non-allowlisted addresses, concurrent outstanding codes and cross-address misuse.
+Each persona's code is random and issued for it alone
+(`apps/convex/functions/signInCodes.ts`), so all five can be outstanding at
+once. Expiry, single use and verification rate limits are the ordinary ones.
+`issuedSignInCodes.test.ts` covers production/mismatched deployment rejection,
+non-allowlisted addresses, concurrent outstanding codes and single use.
 
 The operator seed claims the reserved `@alpha` name for its staging persona.
 Ordinary registration and production reservation rules stay in effect.

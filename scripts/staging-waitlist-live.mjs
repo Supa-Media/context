@@ -38,9 +38,9 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
+import { stagingSignInCode } from "./staging-sign-in-code.mjs";
 
 const STAFF = "alpha@supa.media";
-const STAFF_CODE = "000000";
 const AGENTMAIL = "https://api.agentmail.to/v0";
 const MAIL_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -158,8 +158,7 @@ const accounts = [];
 
 try {
   staff = client();
-  await staff.action(ref("auth:signIn"), { provider: "email", params: { email: STAFF } });
-  const signed = await staff.action(ref("auth:signIn"), { provider: "email", params: { email: STAFF, code: STAFF_CODE } });
+  const signed = await staff.action(ref("auth:signIn"), { provider: "email", params: { email: STAFF, code: stagingSignInCode(STAFF) } });
   assert.ok(signed.tokens?.token, "the staff persona could not sign in; run Seed Staging Personas");
   staff.setAuth(signed.tokens.token);
   assert.equal(

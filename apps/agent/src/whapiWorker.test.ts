@@ -7,13 +7,15 @@ const PHONE = "+15555550100";
 const GROUP = "120363012345678901@g.us";
 const SECRET = "a-webhook-secret-long-enough";
 
-function env(): { env: Env; routed: { to: string; body: Record<string, unknown> }[] } {
-  const routed: { to: string; body: Record<string, unknown> }[] = [];
+function env(): { env: Env; routed: { to: string; body: Record<string, unknown>; path?: string }[] } {
+  const routed: { to: string; body: Record<string, unknown>; path?: string }[] = [];
   const namespace = {
     idFromName: (name: string) => ({ name: name.replace(/^enam:/, "") }), // inboxes live under `enam:<name>` (`inboxByName`); kept here by name
     get: (id: { name: string }) => ({
-      fetch: async (_url: string, init?: RequestInit) => {
-        routed.push({ to: id.name, body: JSON.parse(String(init?.body ?? "{}")) });
+      fetch: async (url: string, init?: RequestInit) => {
+        const path = new URL(url).pathname;
+        // A group's members changed (`groupMembers.ts`) is named by its path; every other route by its body, as before.
+        routed.push({ to: id.name, body: JSON.parse(String(init?.body ?? "{}")), ...(path === "/group-members-changed" ? { path } : {}) });
         return Response.json({ outcome: "queued" });
       },
     }),
@@ -207,13 +209,28 @@ describe("whapi events that are not new messages", () => {
       const lines: string[] = [];
       vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
       expect((await worker.fetch(deliver(type, method, body), e)).status).toBe(200);
-      expect(routed).toEqual([]);
+      // A groups event queues nothing, and marks the group's kept member list changed (`groupMembers.ts`).
+      expect(routed).toEqual(type === "groups" ? [{ to: `sendblue-group:whapi:${GROUP}`, path: "/group-members-changed", body: {} }] : []);
       const shape = lines.map((line) => JSON.parse(line)).find((entry) => entry.event === "whapi_event_shape");
       expect(shape).toMatchObject({ outcome: "not_a_message", type, method });
       expect(shape.shape).toEqual(expect.arrayContaining([expect.stringMatching(/^event\.type:string$/)]));
       expect(lines.join("\n")).not.toMatch(VALUES);
     });
   }
+
+  it("marks every group a groups event names, wherever Whapi puts its id, and none for one that names no group", async () => {
+    const { env: e, routed } = env();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const OTHER = "120363099999999999@g.us";
+    await worker.fetch(deliver("groups", "patch", { changes: [{ deep: { deeper: { chat: GROUP } } }, { group_id: OTHER }, { id: GROUP }] }), e);
+    expect(routed.map((entry) => entry.to).sort()).toEqual([`sendblue-group:whapi:${GROUP}`, `sendblue-group:whapi:${OTHER}`].sort());
+    routed.length = 0;
+    await worker.fetch(deliver("groups", "patch", { changes: [{ id: "15555550100@s.whatsapp.net" }] }), e);
+    expect(routed).toEqual([]);
+    // A message delivery that names a group is never read as a change to its people.
+    await worker.fetch(deliver("chats", "post", { chats: [{ id: GROUP }] }), e);
+    expect(routed).toEqual([]);
+  });
 
   it("never treats an edit with the same message id as a new message, after the original was queued", async () => {
     const { env: e, routed } = env();

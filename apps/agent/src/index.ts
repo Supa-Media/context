@@ -46,6 +46,7 @@ import { noteSendStatus, sendblueStatus, type SendStatus } from "./sendblueStatu
 import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
 import { heardInGroup } from "./groupVoice";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
+import { membersChanged } from "./groupMembers";
 import { flushWithReader } from "./chatRead";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { sha256Hex } from "./groupChat";
@@ -63,7 +64,7 @@ import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } fro
 import { SIMULATOR_PAGE } from "./simulatorPage";
 import { appCardConfig } from "./appCards";
 import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, watchGroupPresenceDaily, whapiKeys, type WhapiKeys } from "./whapi";
-import { parseWhapiWebhook, whapiGroupNames } from "./whapiInbound";
+import { parseWhapiWebhook, whapiGroupChanges, whapiGroupNames } from "./whapiInbound";
 import { logEventShape, logSendblueShape } from "./webhookShape";
 import { groupLineFor } from "./groupLine";
 import { noteCardDrawer } from "./noteCards";
@@ -344,6 +345,13 @@ async function whapiWebhook(request: Request, env: Env, origin: string): Promise
     return new Response(null, { status: 200 });
   }
   let failed = false;
+  // A group's people changed: its kept member list is read from the app before its next answer goes out (`groupMembers.ts`).
+  const changed = whapiGroupChanges(payload);
+  for (const groupId of changed) {
+    const result = await inboxByName(env.SENDER_INBOX, groupInboxName(groupId)).fetch("https://inbox/group-members-changed", { method: "POST" });
+    if (!result.ok) failed = true;
+  }
+  if (changed.length > 0) console.log(JSON.stringify({ event: "whapi_group_change", groups: changed.length, outcome: failed ? "failed" : "marked" }));
   for (const event of parseWhapiWebhook(payload, keys.line)) {
     const response = await whapiEvent(env, keys, event, origin, whapiGroupNames(payload)); // names beside, never in, messages
     if (response.status >= 500) failed = true;
@@ -553,6 +561,11 @@ export class SenderInbox implements DurableObject {
       const whapi = whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE);
       if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, (input, init) => fetch(input, init), whapi, message.groupId, Date.now());
       return Response.json({ outcome });
+    }
+    // Whapi said this group's people changed (`index.ts` whapiWebhook): only this Worker's webhook reaches it.
+    if (path === "/group-members-changed") {
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      return Response.json({ marked: await membersChanged(this.state.storage, Date.now()) });
     }
     // A group turn's workflow (`groupTurnWorkflow.ts`): only this Worker's workflow reaches these.
     if (path === "/group-answer" || path === "/group-failed") {

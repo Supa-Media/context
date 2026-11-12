@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { asUser, createUser, createWorkspace, drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
-import { hashToken } from "../functions/lib/crypto";
+import { hashOneTimeCode } from "../functions/lib/oneTimeCodes";
 
 /**
  * SIGNING IN WITH A PHONE, THROUGH THE REAL SIGN-IN.
@@ -287,7 +287,7 @@ describe("a phone that has changed hands", () => {
     expect(
       await t.mutation(internal.functions.textLinks.consumeLinkCode, {
         phone: KAYLA_PHONE,
-        hashedCode: await hashToken(code),
+        hashedCode: await hashOneTimeCode("text-link", code),
       }),
     ).toMatchObject({ status: "linked" });
 
@@ -305,7 +305,7 @@ describe("a phone that has changed hands", () => {
     const { code } = await asUser(t, holder).action(api.functions.textLinks.startPhoneLink, { phone: KAYLA_PHONE });
     await t.mutation(internal.functions.textLinks.consumeLinkCode, {
       phone: KAYLA_PHONE,
-      hashedCode: await hashToken(code),
+      hashedCode: await hashOneTimeCode("text-link", code),
     });
     await t.run(async (ctx) => {
       const stale = await ctx.db.get(first);
@@ -344,95 +344,42 @@ describe("limits", () => {
 });
 
 
-describe("the App Store review phone", () => {
+/**
+ * The App Store review phone took a fixed code, once public in this
+ * repository. Retired 2026-11-11 (CASA 1.2.1, 1.3.x): Apple's reviewer signs in
+ * to the reviewer's email with a code staff issue (`issuedSignInCodes.test.ts`).
+ * The old variables are set below to prove nothing reads them any more.
+ */
+describe("the retired App Store review phone", () => {
   const phone = "+12025550123";
-  const REVIEW_CODE = "482913";
+  const OLD_CODE = "482913";
   beforeEach(() => {
-    vi.stubEnv("REVIEWER_SIGNIN_CODE", REVIEW_CODE);
-    vi.stubEnv("APP_REVIEW_SIGNIN_CODE", "");
-  });
-
-  test("keeps a separately configured submitted code scoped to the review alias", async () => {
+    vi.stubEnv("REVIEWER_SIGNIN_CODE", OLD_CODE);
     vi.stubEnv("APP_REVIEW_SIGNIN_CODE", "000000");
-    const t = setupTest();
-    const reviewer = await createUser(t, "connector-review@supa.media");
-    await kayla(t);
-    expect(await start(t, phone)).toEqual({ status: "sent", phone });
-    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
-    expect((await signIn(t, phone, "000000")).tokens).toBeTruthy();
-    expect(calls).toEqual([]);
-    expect((await signIn(t, KAYLA_PHONE, "000000")).tokens).toBeNull();
-    expect(await sessionUsers(t)).toEqual([reviewer]);
   });
 
-  test("opens only the existing reviewer account without SMS or an email gate", async () => {
-    const t = setupTest();
-    const reviewer = await createUser(t, "connector-review@supa.media");
-    const other = await kayla(t);
-    expect(await start(t, "+1 (202) 555-0123")).toEqual({ status: "sent", phone });
-    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeTruthy();
-    expect(await sessionUsers(t)).toEqual([reviewer]);
-    expect(await sessionUsers(t)).not.toContain(other);
-    expect(calls).toEqual([]);
-    expect(await asUser(t, reviewer).query(api.functions.phoneCheck.myPhoneCheck, {})).toMatchObject({ needsEmail: false, required: false });
-  });
-
-  test("refuses the old public 000000", async () => {
+  test("is texted nothing and says sign-in by phone is unavailable", async () => {
     const t = setupTest();
     await createUser(t, "connector-review@supa.media");
-    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
-    expect(await sessionUsers(t)).toEqual([]);
-  });
-
-  test("refuses other codes even if Twilio would approve them", async () => {
-    const t = setupTest();
-    await createUser(t, "connector-review@supa.media");
-    expect((await signIn(t, phone, goodCode)).tokens).toBeNull();
+    expect(await start(t, "+1 (202) 555-0123")).toEqual({ status: "unavailable", phone });
     expect(calls).toEqual([]);
   });
 
-  test("the fixed code never authenticates another phone", async () => {
+  test("no code opens it, the old configured ones included", async () => {
     const t = setupTest();
-    await kayla(t);
-    expect((await signIn(t, KAYLA_PHONE, REVIEW_CODE)).tokens).toBeNull();
+    await createUser(t, "connector-review@supa.media");
+    for (const code of [OLD_CODE, "000000", goodCode]) {
+      expect((await signIn(t, phone, code)).tokens).toBeNull();
+    }
     expect(await sessionUsers(t)).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
-  test("never creates a reviewer or signs in to an account holding the fictional phone", async () => {
+  test("an account holding the fictional number is not signed in through it", async () => {
     const t = setupTest();
     const other = await kayla(t);
     await t.run(ctx => ctx.db.patch(other, { phone, phoneVerificationTime: 1 }));
-    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
+    expect((await signIn(t, phone, OLD_CODE)).tokens).toBeNull();
     expect(await sessionUsers(t)).toEqual([]);
-    expect(await t.run(ctx => ctx.db.query("users").collect())).toHaveLength(1);
-  });
-
-  test("fails closed when disabled or the reviewer email is unverified", async () => {
-    const t = setupTest();
-    const reviewer = await createUser(t, "connector-review@supa.media");
-    vi.stubEnv("REVIEWER_SIGNIN_CODE", "");
-    expect((await start(t, phone)).status).toBe("unavailable");
-    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
-    vi.stubEnv("REVIEWER_SIGNIN_CODE", REVIEW_CODE);
-    await t.run(ctx => ctx.db.patch(reviewer, { emailVerificationTime: undefined }));
-    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
-    expect(calls).toEqual([]);
-  });
-
-  test("a conflicting phone holder cannot inherit the reviewer code", async () => {
-    const t = setupTest();
-    await createUser(t, "connector-review@supa.media");
-    const other = await kayla(t);
-    await t.run(ctx => ctx.db.insert("phoneLinks", { userId: other, phone, linkedAt: 1 }));
-    expect((await start(t, phone)).status).toBe("paused");
-    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
-    expect(await sessionUsers(t)).toEqual([]);
-  });
-
-  test("keeps the ten-check limit for the fixed code", async () => {
-    const t = setupTest();
-    await createUser(t, "connector-review@supa.media");
-    for (let i = 0; i < 10; i++) expect((await signIn(t, phone, "999999")).tokens).toBeNull();
-    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
   });
 });

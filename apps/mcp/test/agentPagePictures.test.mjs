@@ -39,7 +39,7 @@ const PAGE = [
   "  price: $$",
   "- Shukette: 230 9th Ave | Middle Eastern",
   "- Markette: 64 W 10th St | Modern European",
-  "  photo: markette.jpg",
+  "  photo: upload-0123456789abcdef.jpg",
   "```",
   "",
 ].join("\n");
@@ -81,7 +81,7 @@ test("a place with no photo gets one: a photo field under it and the picture in 
   const { args, found } = await withPagePictures({ path: "projects/dinner.page.md", content: PAGE, images: [] }, { web: w.call, download });
   assert.deepEqual(found, ["Shukette"]);
   assert.deepEqual(args.images, [{ name: "shukette-1.jpg", data: "data:image/jpeg;base64,/9j/4A==" }]);
-  assert.deepEqual(fieldsOf(args.content), [{ price: "$$" }, { photo: "shukette-1.jpg" }, { photo: "markette.jpg" }]);
+  assert.deepEqual(fieldsOf(args.content), [{ price: "$$" }, { photo: "shukette-1.jpg" }, { photo: "upload-0123456789abcdef.jpg" }]);
   assert.deepEqual(parsePage(args.content).problems, [], "the page still draws");
   assert.equal(args.content.replace("\n  photo: shukette-1.jpg", ""), PAGE, "nothing else changed");
 });

@@ -1,5 +1,5 @@
 diff --git a/dist/react/client.js b/dist/react/client.js
-index 99b4651583f7045c86fd89d878b695f66bb635d5..9e1ef79d2bee7a045412809f353e09edeeac0c9e 100644
+index 818636ce0729004ac3c61e45b491f8b53695046a..c789f82781503db8091aa21265717f95e413a4a9 100644
 --- a/dist/react/client.js
 +++ b/dist/react/client.js
 @@ -172,6 +172,10 @@ export function AuthProvider({ client, serverState, onChange, shouldHandleCode,
@@ -55,7 +55,7 @@ index 99b4651583f7045c86fd89d878b695f66bb635d5..9e1ef79d2bee7a045412809f353e09ed
      const signingInWithCodeFromURL = useRef(false);
      useEffect(() => {
          // Has to happen in useEffect to avoid SSR.
-@@ -304,6 +330,22 @@ function useInMemoryStorage() {
+@@ -307,6 +333,22 @@ function useInMemoryStorage() {
          },
      });
  }
@@ -78,85 +78,160 @@ index 99b4651583f7045c86fd89d878b695f66bb635d5..9e1ef79d2bee7a045412809f353e09ed
  // In the browser, executes the callback as the only tab / frame at a time.
  async function browserMutex(key, callback) {
      const lockManager = window?.navigator?.locks;
+diff --git a/dist/server/implementation/mutations/createVerificationCode.js b/dist/server/implementation/mutations/createVerificationCode.js
+index 5ea1066f51b4d947bbb85a06313a9193c96e4b98..a3aee5c5a662894d43184947cd51163aab1b014c 100644
+--- a/dist/server/implementation/mutations/createVerificationCode.js
++++ b/dist/server/implementation/mutations/createVerificationCode.js
+@@ -1,7 +1,7 @@
+ import { v } from "convex/values";
+ import { getAccountOrThrow, upsertUserAndAccount } from "../users.js";
+ import { getAuthSessionId } from "../sessions.js";
+-import { LOG_LEVELS, logWithLevel, sha256 } from "../utils.js";
++import { LOG_LEVELS, logWithLevel, hashVerificationCode } from "../utils.js";
+ export const createVerificationCodeArgs = v.object({
+     accountId: v.optional(v.id("authAccounts")),
+     provider: v.string(),
+@@ -53,7 +53,7 @@ async function generateUniqueVerificationCode(ctx, accountId, provider, code, ex
+     await ctx.db.insert("authVerificationCodes", {
+         accountId,
+         provider,
+-        code: await sha256(code),
++        code: await hashVerificationCode(code),
+         expirationTime,
+         emailVerified: email,
+         phoneVerified: phone,
+diff --git a/dist/server/implementation/mutations/userOAuth.js b/dist/server/implementation/mutations/userOAuth.js
+index 7b3ded410b085966b9fe1048e35194ff6cc369ec..cd57f905ecfac561710a1206752c94df79884de6 100644
+--- a/dist/server/implementation/mutations/userOAuth.js
++++ b/dist/server/implementation/mutations/userOAuth.js
+@@ -1,6 +1,6 @@
+ import { v } from "convex/values";
+ import { upsertUserAndAccount } from "../users.js";
+-import { generateRandomString, logWithLevel, maybeRedact, sha256, } from "../utils.js";
++import { generateRandomString, logWithLevel, maybeRedact, hashVerificationCode, } from "../utils.js";
+ const OAUTH_SIGN_IN_EXPIRATION_MS = 1000 * 60 * 2; // 2 minutes
+ export const userOAuthArgs = v.object({
+     provider: v.string(),
+@@ -37,7 +37,7 @@ export async function userOAuthImpl(ctx, args, getProviderOrThrow, config) {
+         await ctx.db.delete(existingVerificationCode._id);
+     }
+     await ctx.db.insert("authVerificationCodes", {
+-        code: await sha256(code),
++        code: await hashVerificationCode(code),
+         accountId,
+         provider,
+         expirationTime: Date.now() + OAUTH_SIGN_IN_EXPIRATION_MS,
+diff --git a/dist/server/implementation/mutations/verifyCodeAndSignIn.js b/dist/server/implementation/mutations/verifyCodeAndSignIn.js
+index 7fe5cfa07ec47b11b4c8b8d95ee77282e09d72da..1c6292665968a227d4bf0b4c3a3e0341c49f3f21 100644
+--- a/dist/server/implementation/mutations/verifyCodeAndSignIn.js
++++ b/dist/server/implementation/mutations/verifyCodeAndSignIn.js
+@@ -2,7 +2,7 @@ import { v } from "convex/values";
+ import { isSignInRateLimited, recordFailedSignIn, resetSignInRateLimit, } from "../rateLimit.js";
+ import * as Provider from "../provider.js";
+ import { createNewAndDeleteExistingSession, getAuthSessionId, maybeGenerateTokensForSession, } from "../sessions.js";
+-import { LOG_LEVELS, logWithLevel, sha256 } from "../utils.js";
++import { LOG_LEVELS, logWithLevel, hashVerificationCode, sha256 } from "../utils.js";
+ import { upsertUserAndAccount } from "../users.js";
+ export const verifyCodeAndSignInArgs = v.object({
+     params: v.any(),
+@@ -62,11 +62,26 @@ async function verifyCodeOnly(ctx, args,
+  */
+ methodProviderId, getProviderOrThrow, allowExtraProviders, config, sessionId) {
+     const { params, verifier } = args;
+-    const codeHash = await sha256(params.code);
+-    const verificationCode = await ctx.db
++    const codeHash = await hashVerificationCode(params.code);
++    let verificationCode = await ctx.db
+         .query("authVerificationCodes")
+         .withIndex("code", (q) => q.eq("code", codeHash))
+         .unique();
++    // PATCH(context.lc): an invitation link minted before codes were keyed is
++    // still in someone's mailbox for up to seven days. Its token is 32 random
++    // characters (~190 bits), so its plain SHA-256 is not reversible; only a
++    // `magic-link` row is ever read this way, never a six-digit one. Remove
++    // after 2026-11-19, when the last such link has expired.
++    if (verificationCode === null && params.code.length >= 32) {
++        const legacyHash = await sha256(params.code);
++        const legacy = await ctx.db
++            .query("authVerificationCodes")
++            .withIndex("code", (q) => q.eq("code", legacyHash))
++            .unique();
++        if (legacy !== null && legacy.provider === "magic-link") {
++            verificationCode = legacy;
++        }
++    }
+     if (verificationCode === null) {
+         // Expected: user supplied a wrong/already-consumed code, or reused a magic link.
+         // Normal sign-in failure, not a server error.
 diff --git a/dist/server/implementation/signIn.js b/dist/server/implementation/signIn.js
+index 9b763107d094b5cf585c13fb4d8678d91657f04e..0f98560816f40caec000973dcdf8b240e76d10cb 100644
 --- a/dist/server/implementation/signIn.js
 +++ b/dist/server/implementation/signIn.js
-@@ -38,6 +38,44 @@
+@@ -38,6 +38,30 @@ export async function signInImpl(ctx, provider, args, options) {
      throw new Error(`Provider type ${provider.type} is not supported yet`);
  }
  async function handleEmailAndPhoneProvider(ctx, provider, args, options) {
-+    // PATCH(context.lc): five disposable personas, only on the isolated staging.
-+    const stagingEmail = typeof args.params?.email === "string"
-+        ? args.params.email.trim().toLowerCase() : "";
-+    const stagingPersona = provider.id === "email" &&
-+        process.env.APP_ENV === "staging" &&
-+        process.env.APP_ORIGIN === "https://staging.context.lc" &&
-+        Boolean(process.env.STAGING_CONVEX_DEPLOYMENT) &&
-+        process.env.CONVEX_CLOUD_URL === `https://${process.env.STAGING_CONVEX_DEPLOYMENT}.convex.cloud` &&
-+        ["alpha@supa.media", "beta@supa.media", "gamma@supa.media",
-+            "delta@supa.media", "epsilon@supa.media"].includes(stagingEmail);
-+    // Codes are globally indexed. Bind these fixed digits to the address before
-+    // hashing so simultaneous persona logins cannot collide with each other/CUJ.
-+    const stagingCode = `context-staging:${stagingEmail}:000000`;
-+    if (stagingPersona) {
-+        args = { ...args, params: { ...args.params, email: stagingEmail,
-+            ...(args.params?.code === "000000" ? { code: stagingCode } : {}) } };
-+    }
-+    // PATCH(context.lc): a fixed-code provider mints the same digits every
-+    // time, and `authVerificationCodes` is indexed on the hash of a code alone
-+    // — across every address and every provider. Two outstanding rows for one
-+    // such provider are two rows under one key, and the lookup that redeems a
-+    // code reads that key with `.unique()`.
++    // PATCH(context.lc): issued-code providers. Each `test-email*` provider
++    // belongs to one named account (the CUJ account, a reviewer) whose codes
++    // are never mailed: staff issue them, one at a time, with an expiry of
++    // their own (`apps/convex/functions/signInCodes.ts`). Each code is
++    // single-use and rate-limited under the address like any customer's.
 +    //
-+    // Starting a sign-in is unauthenticated, and the address check that makes
-+    // these providers exclusive runs in `sendVerificationRequest`, after the
-+    // row has been written by a mutation that a later throw does not roll
-+    // back. So bind the digits to the address before they are hashed, exactly
-+    // as the staging personas above do: a stranger's refused start then lands
-+    // under a key of its own instead of on top of the one this account's own
-+    // code has to read. The framework refuses any fixed-code provider id that
-+    // does not begin with `test-email`, so this covers all of them.
-+    const fixedCodeProvider = provider.id === "test-email" || provider.id.startsWith("test-email-");
-+    const fixedCodeEmail = typeof args.params?.email === "string"
++    // `authVerificationCodes` is indexed on the hash of a code alone, across
++    // every address and provider, so the digits are bound to the provider and
++    // address before they are hashed: six digits typed for one account can
++    // never meet a row of another's.
++    //
++    // Starting a sign-in through one of these providers mints nothing. The
++    // library keeps one code per account, so a start would replace the code
++    // staff issued — and the address is public, so anybody could. There is no
++    // fixed or default code behind it either (CASA 1.2.1 / 1.3.x, 2026-11-11).
++    const issuedCodeProvider = provider.id === "test-email" || provider.id.startsWith("test-email-");
++    const issuedCodeEmail = typeof args.params?.email === "string"
 +        ? args.params.email.trim().toLowerCase() : "";
-+    const scopeFixedCode = (digits) => `${provider.id}:${fixedCodeEmail}:${digits}`;
-+    if (fixedCodeProvider && typeof args.params?.code === "string") {
-+        args = { ...args, params: { ...args.params, code: scopeFixedCode(args.params.code) } };
++    if (issuedCodeProvider && typeof args.params?.code === "string") {
++        args = { ...args, params: { ...args.params, code: `${provider.id}:${issuedCodeEmail}:${args.params.code}` } };
++    }
++    if (issuedCodeProvider && args.params?.code === undefined) {
++        return { kind: "started", started: true };
 +    }
      if (args.params?.code !== undefined) {
          const result = await callVerifyCodeAndSignIn(ctx, {
              params: args.params,
-@@ -54,9 +92,32 @@
-         };
-     }
-     const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
--    const code = provider.generateVerificationToken
-+    let code = provider.generateVerificationToken
-         ? await provider.generateVerificationToken()
-         : generateRandomString(32, alphabet);
-+    // PATCH(context.lc): one env-named test account gets a fixed code, so
-+    // automated sign-ins need no mailbox read. Inert unless BOTH vars are set
-+    // on the deployment, scoped to exactly one address, and only for the
-+    // email OTP provider — verification below is unchanged, so the code is
-+    // still bound to this address, rate-limited under it, and expiring on
-+    // the provider's normal clock.
-+    const testOtpEmail = process.env.TEST_OTP_EMAIL;
-+    const testOtpCode = process.env.TEST_OTP_CODE;
-+    if (testOtpEmail &&
-+        testOtpCode &&
-+        provider.type === "email" &&
-+        typeof args.params?.email === "string" &&
-+        args.params.email.trim().toLowerCase() === testOtpEmail.trim().toLowerCase()) {
-+        code = testOtpCode;
+diff --git a/dist/server/implementation/utils.js b/dist/server/implementation/utils.js
+index f9a42fbfefd3784f364cf92c9697a6fe7bcc592a..53dd1d21558322607efe94c8ffc66b0e9ad11d4a 100644
+--- a/dist/server/implementation/utils.js
++++ b/dist/server/implementation/utils.js
+@@ -9,6 +9,32 @@ export function stringToNumber(value) {
+ export async function sha256(input) {
+     return encodeHexLowerCase(rawSha256(new TextEncoder().encode(input)));
+ }
++/**
++ * PATCH(context.lc): how a sign-in code is kept in `authVerificationCodes`.
++ *
++ * Upstream stores an unsalted SHA-256 of the code. A six-digit code is one of a
++ * million, so a copy of that table gives every live code back in well under a
++ * second (CASA 1.1.3, 2026-11-11). This is an HMAC under a key that lives only
++ * in the deployment's environment, never in the database: `AUTH_CODE_HASH_KEY`
++ * when set, otherwise the auth signing key every deployment already has. A
++ * leaked table without the environment recovers nothing, and with the
++ * environment the signing key is already lost, which is worse than any code.
++ *
++ * Deterministic on purpose: the library finds a code by this value through an
++ * index. A per-row salt would make that lookup impossible; the key does the
++ * job a salt cannot here. Context's own code stores use the same scheme
++ * (`apps/convex/functions/lib/oneTimeCodes.ts`, purpose `convex-auth`).
++ */
++export async function hashVerificationCode(input) {
++    const material = process.env.AUTH_CODE_HASH_KEY?.trim() || process.env.JWT_PRIVATE_KEY?.trim();
++    if (!material) {
++        throw new Error("Sign-in codes need AUTH_CODE_HASH_KEY or JWT_PRIVATE_KEY on the deployment.");
 +    }
-+    if (stagingPersona) {
-+        code = stagingCode;
-+        // Keep normal expiry, single-use verification and rate limits; no mail.
-+        provider = { ...provider, sendVerificationRequest: async () => {} };
-+    }
-+    if (fixedCodeProvider) {
-+        code = scopeFixedCode(code);
-+    }
-     const expirationTime = Date.now() +
-         (provider.maxAge ?? DEFAULT_EMAIL_VERIFICATION_CODE_DURATION_S) * 1000;
-     const identifier = await callCreateVerificationCode(ctx, {
++    const encoder = new TextEncoder();
++    const key = await crypto.subtle.importKey("raw", encoder.encode(material), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
++    const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(`context-one-time-code:v1:convex-auth:${input}`));
++    return encodeHexLowerCase(new Uint8Array(mac));
++}
+ export function generateRandomString(length, alphabet) {
+     const random = {
+         read(bytes) {

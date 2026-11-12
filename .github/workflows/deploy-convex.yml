@@ -206,19 +206,6 @@ jobs:
           # state: the Domain section says the deployment does not offer them.
           CUSTOM_DOMAINS_ZONE_ID: ${{ secrets.CUSTOM_DOMAINS_ZONE_ID }}
           CUSTOM_DOMAINS_TARGET: ${{ secrets.CUSTOM_DOMAINS_TARGET }}
-          # The six-digit code the Claude and ChatGPT directory reviewers sign
-          # in with (`functions/lib/reviewerAccount.ts`). Absent is a working
-          # state: no reviewer provider is registered.
-          REVIEWER_SIGNIN_CODE: ${{ secrets.REVIEWER_SIGNIN_CODE }}
-          DIRECTORY_REVIEW_SIGNIN_CODE: ${{ secrets.DIRECTORY_REVIEW_SIGNIN_CODE }}
-          # The code already supplied to App Store review can remain stable
-          # independently of the directory reviewer's email code.
-          APP_REVIEW_SIGNIN_CODE: ${{ secrets.APP_REVIEW_SIGNIN_CODE }}
-          # The production CUJ account's six-digit code
-          # (`functions/lib/testAccount.ts`). Never committed: a code in this
-          # public repository signs anybody in. Absent is a working state: the
-          # account signs in by a code mailed to its inbox.
-          TEST_ACCOUNT_SIGNIN_CODE: ${{ secrets.TEST_ACCOUNT_SIGNIN_CODE }}
           # Where in-app feedback reports go (`functions/feedback.ts`): the
           # app's own Sentry DSN, now read by the control plane, which checks
           # a report and counts it against the day's ten before sending it on.
@@ -293,11 +280,27 @@ jobs:
             STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
             TURNSTILE_SECRET_KEY \
             CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
-            REVIEWER_SIGNIN_CODE DIRECTORY_REVIEW_SIGNIN_CODE APP_REVIEW_SIGNIN_CODE TEST_ACCOUNT_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
+            FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
             META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
             POSTHOG_PERSONAL_API_KEY POSTHOG_PROJECT_ID \
             BROWSERBASE_API_KEY BROWSERBASE_PROJECT_ID \
             STORAGE_MOVER_ORIGIN REPORTS_EMAIL SIGNUP_ALERTS_EMAIL
+
+      # The fixed sign-in codes the CUJ and reviewer accounts used, and the
+      # older TEST_OTP_* pair, failed the CASA assessment (1.2.1, 1.3.x;
+      # 2026-11-11). No function reads them any more; delete the values from
+      # the deployment too, so a retired code is gone rather than dormant.
+      # Those accounts sign in with codes staff issue
+      # (.github/workflows/issue-sign-in-code.yml). Only names are printed.
+      - name: Remove retired fixed sign-in codes
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          set -uo pipefail
+          for name in REVIEWER_SIGNIN_CODE DIRECTORY_REVIEW_SIGNIN_CODE APP_REVIEW_SIGNIN_CODE \
+            GOOGLE_REVIEW_SIGNIN_CODE TEST_ACCOUNT_SIGNIN_CODE TEST_OTP_EMAIL TEST_OTP_CODE DEV_OTP_BYPASS; do
+            if npx convex env remove "$name" >/dev/null 2>&1; then echo "removed or absent: $name"; else echo "could not remove: $name"; fi
+          done
 
       # A deployed control plane that cannot decrypt a storage credential, or
       # cannot recognize its own gateway, is broken in a way no test catches and

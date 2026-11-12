@@ -110,7 +110,60 @@ function whereIn(text) {
   return first.length >= 3 && first.length <= 40 ? first : "";
 }
 
-const hasPhoto = (item) => (item.fields ?? []).some((field) => field.key === "photo" || field.key === "photos");
+const PHOTO_KEYS = new Set(["photo", "photos"]);
+const hasPhoto = (item) => (item.fields ?? []).some((field) => PHOTO_KEYS.has(field.key));
+
+/**
+ * Whether a `photo:` name points at a picture the page can show: one attached
+ * to this write by that name, one the note already stores (the save names
+ * each stored copy `upload-<hash>.<ext>`, `notes/uploadedImages.js`), a page
+ * cover's own leaf, a web address, or a path, which this code does not judge.
+ * Anything else is a name with nothing behind it.
+ *
+ * Nov Babies, 2026-11-11: a job wrote `photo: kims-cover.png`,
+ * `muses-cover.png`, `pop-cover.png` and attached none of them. Each option
+ * read as pictured, so the hunt skipped it, the page showed none, and the
+ * write's answer still said pictures were found.
+ */
+export function heldPicture(name, attached) {
+  const value = String(name ?? "").trim().replace(/^<|>$/g, "").replace(/^\.\//, "");
+  if (value === "") return false;
+  if (attached.has(value)) return true;
+  if (/^(?:upload|cover)-[a-z0-9-]+\.[a-z0-9]{2,5}$/i.test(value)) return true;
+  return /^https?:\/\//i.test(value) || value.includes("/");
+}
+
+/**
+ * The page with every photo name that has nothing behind it taken out, so the
+ * option it was under is hunted like one with no photo, and a missing picture
+ * never shows as a broken one. A line naming only such names goes; one that
+ * also names a real picture keeps that one. `dead` names each option and the
+ * names it lost, for the write's answer.
+ */
+export function withoutDeadPhotos(content, attached = new Set()) {
+  const edits = [];
+  const dead = [];
+  for (const block of blocksIn(parsePage(content).nodes)) {
+    if (!PICTURED_KINDS.has(block.kind) && !ROW_KINDS.has(block.kind)) continue;
+    for (const item of block.items ?? []) {
+      const lost = [];
+      for (const field of item.fields ?? []) {
+        if (!PHOTO_KEYS.has(field.key) || !field.line) continue;
+        const names = field.value.text.split(",").map((part) => part.trim()).filter(Boolean);
+        const kept = names.filter((name) => heldPicture(name, attached));
+        if (kept.length === names.length) continue;
+        lost.push(...names.filter((name) => !kept.includes(name)));
+        // Its whole line, with the line break before it, or only its value.
+        edits.push(kept.length === 0 ? { from: field.line.from - 1, to: field.line.to, text: "" } : { from: field.value.from, to: field.value.to, text: kept.join(", ") });
+      }
+      const name = PICTURED_KINDS.has(block.kind) ? nameOf(block.kind, item) : item.label?.text?.trim() || item.parts?.[0]?.text?.trim() || "";
+      if (lost.length > 0) dead.push({ option: name.slice(0, 40), names: lost });
+    }
+  }
+  let next = content;
+  for (const edit of edits.sort((a, b) => b.from - a.from)) next = next.slice(0, edit.from) + edit.text + next.slice(edit.to);
+  return { content: next, dead };
+}
 
 /** A file name for an option's picture: its name in plain letters, numbered so two never clash. */
 function fileName(name, n, type) {
@@ -161,12 +214,16 @@ export function unpictured(content) {
 export async function withPagePictures(args, deps, { timeoutMs = PAGE_HUNT_TIMEOUT_MS } = {}) {
   const path = typeof args?.path === "string" ? args.path.trim() : "";
   const content = typeof args?.content === "string" ? args.content : "";
-  if (!isPagePath(path) || content === "") return { args, found: [] };
+  if (!isPagePath(path) || content === "") return { args, found: [], dead: [] };
   const images = Array.isArray(args.images) ? args.images : [];
+  const attached = new Set(images.map((image) => (typeof image?.name === "string" ? image.name.trim() : "")).filter(Boolean));
+  const cleaned = withoutDeadPhotos(content, attached);
+  const dead = cleaned.dead;
+  const base = dead.length === 0 ? args : { ...args, content: cleaned.content };
   const room = Math.min(MAX_PAGE_HUNTS, MAX_IMAGES_PER_WRITE - images.length);
-  if (room <= 0) return { args, found: [] };
-  const wanted = unpictured(content).slice(0, room);
-  if (wanted.length === 0) return { args, found: [] };
+  if (room <= 0) return { args: base, found: [], dead };
+  const wanted = unpictured(base.content).slice(0, room);
+  if (wanted.length === 0) return { args: base, found: [], dead };
   // A picture the write would refuse counts as none, so the hunt tries the next one (a search's next hit, then a screenshot).
   const download = async (address) => {
     const data = await deps.download(address);
@@ -192,9 +249,27 @@ export async function withPagePictures(args, deps, { timeoutMs = PAGE_HUNT_TIMEO
   const lines = wanted
     .map((option, i) => ({ at: option.at, name: option.name, text: names[i].length === 0 ? "" : `\n${option.indent}  ${names[i].length > 1 ? "photos" : "photo"}: ${names[i].join(", ")}` }))
     .filter((line) => line.text !== "");
-  if (added.length === 0) return { args, found: [] };
+  if (added.length === 0) return { args: base, found: [], dead };
   // From the end, so each offset still points where it did.
-  let next = content;
+  let next = base.content;
   for (const line of [...lines].sort((a, b) => b.at - a.at)) next = next.slice(0, line.at) + line.text + next.slice(line.at);
-  return { args: { ...args, content: next, images: [...images, ...added] }, found: lines.map((line) => line.name.slice(0, 40)) };
+  return { args: { ...base, content: next, images: [...images, ...added] }, found: lines.map((line) => line.name.slice(0, 40)), dead };
+}
+
+/**
+ * What a page write's answer adds about its pictures, so the writer (and a
+ * job's done check, which reads it) knows what is really on the page: a
+ * "Pictures found" line only for pictures that went in, and the photo names
+ * that had nothing behind them said plainly.
+ */
+export function pageWriteNotes({ found = [], dead = [], kept = [], dropped = [] } = {}) {
+  const notes = [];
+  if (kept.length > 0) notes.push(`Photos saved from addresses you read: ${kept.join(", ")}.`);
+  if (dropped.length > 0) notes.push(`These photo addresses gave no picture a page can keep, so they were left out: ${dropped.join(", ")}.`);
+  if (dead.length > 0) {
+    const named = dead.map((entry) => `${entry.option} (${entry.names.join(", ")})`).join("; ");
+    notes.push(`These photo names were not attached to the write, so they were taken off the page and pictures were looked for instead: ${named}. Attach a picture in the same write as the name, or leave the field out.`);
+  }
+  if (found.length > 0) notes.push(`Pictures found and added to the page for: ${found.join(", ")}.`);
+  return notes;
 }

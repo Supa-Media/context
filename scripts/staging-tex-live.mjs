@@ -22,11 +22,11 @@ import assert from "node:assert/strict";
 import { randomBytes, randomInt } from "node:crypto";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
+import { stagingSignInCode } from "./staging-sign-in-code.mjs";
 
 const PERSONA = "alpha@supa.media";
 /** "visuals" runs only the visual-answer checks (`tex-live-staging.yml`); anything else runs the whole set. */
 const SUITE = process.env.TEX_LIVE_SUITE ?? "";
-const CODE = "000000";
 const deployment = process.env.STAGING_CONVEX_DEPLOYMENT;
 const origin = (process.env.TEX_SIMULATOR_ORIGIN ?? "").replace(/\/+$/, "");
 assert.equal(process.env.APP_ENV, "staging", "APP_ENV must be staging");
@@ -77,8 +77,7 @@ async function text(message, { timeoutMs = 3 * 60_000 } = {}) {
 }
 
 const convex = new ConvexHttpClient(`https://${deployment}.convex.cloud`, { logger: false });
-await convex.action(ref("auth:signIn"), { provider: "email", params: { email: PERSONA } });
-const signedIn = await convex.action(ref("auth:signIn"), { provider: "email", params: { email: PERSONA, code: CODE } });
+const signedIn = await convex.action(ref("auth:signIn"), { provider: "email", params: { email: PERSONA, code: stagingSignInCode(PERSONA) } });
 assert.ok(signedIn.tokens?.token, "persona sign-in failed");
 convex.setAuth(signedIn.tokens.token);
 pass("signed in as the alpha persona");
