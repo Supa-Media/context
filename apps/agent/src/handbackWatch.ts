@@ -17,7 +17,8 @@
  */
 
 import { post, record as asRecord, ServiceError, type Fetch } from "./clients";
-import type { InboxStorage } from "./inbox";
+import { CHAT_KEY, queueByCode, type InboxDeps, type InboxStorage, type RememberedChat } from "./inbox";
+import type { Message } from "./reply";
 import { queueGroupByCode } from "./groupInbox";
 import type { GroupMessage } from "./sendblueGroups";
 import type { WatchedGroup } from "./vaultWatch";
@@ -106,4 +107,17 @@ export async function queueHandedBackInGroup(storage: InboxStorage, back: Handed
 async function armBy(storage: InboxStorage, at: number): Promise<void> {
   const current = storage.getAlarm === undefined ? null : await storage.getAlarm();
   if (current === null || current === undefined || current > at) await storage.setAlarm(at);
+}
+
+/** Once someone pressed Done on the browser Tex handed over (`handbackWatch.ts`): the same, with `event: "browser_handed_back"`. */
+export async function carryOnAfterHandback(storage: InboxStorage, deps: Pick<InboxDeps, "fetch" | "controlPlaneOrigin" | "workerSecret" | "now">): Promise<void> {
+  const back = await checkHandedBack(storage, deps);
+  if (back === null) return;
+  if (back.group !== undefined) return queueHandedBackInGroup(storage, { ...back, group: back.group }, deps.now());
+  const chat = await storage.get<RememberedChat>(CHAT_KEY);
+  if (chat === undefined) return logHandbackWatch("no_chat");
+  if (chat.at > back.doneAt) return logHandbackWatch("texted_since");
+  const channel = chat.channel === "simulator" ? { channel: "simulator" as const } : {};
+  const message: Message = { kind: "message", eventId: `handed-back:${back.doneAt}`, chatId: chat.chatId, from: back.phone, messageId: "", text: "", event: "browser_handed_back", ...channel };
+  if (await queueByCode(storage, message, deps.now())) logHandbackWatch("queued");
 }
