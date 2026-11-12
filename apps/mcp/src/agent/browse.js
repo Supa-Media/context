@@ -48,6 +48,7 @@ import { addressesIn, canonicalUrl } from "./computer.js";
 import { keptLine } from "./downloads.js";
 import { captchaLadder } from "./captchaLadder.js";
 import { NOT_THEIRS, handoffIsTheirs } from "./handoffGate.js";
+import { NO_HANDOFF_SENTENCE, NO_LINK_LINE, NO_LINK_RESULT } from "./handoffWords.js";
 import { silentSubmits } from "./silentSubmit.js";
 import { waitsOnThem } from "./browserHold.js";
 import { notAStep } from "./browseNotAStep.js";
@@ -141,8 +142,7 @@ export const BROWSE_TIMED_OUT =
   "Read the page (a read step) to see which steps took, then run the rest again in smaller calls. " +
   "Never tell the person the page won't open, or to do it themselves in the app, after one slow call.";
 
-/** The gateway's line when a handoff was asked for and no link could be made. */
-export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so that step is yours to do on the site.";
+export { NO_LINK_LINE, NO_LINK_RESULT } from "./handoffWords.js";
 
 /** What the description says about handing the browser over, when this browser can be. */
 const HANDOFF_SENTENCE =
@@ -175,11 +175,6 @@ export function handoffRefusedIn(theirWords) {
   const said = String(theirWords ?? "").replace(/[‘’]/g, "'");
   return REFUSES_BROWSER.some((pattern) => pattern.test(said));
 }
-
-/** And when it cannot: a model told a link is coming says so, and none comes. */
-const NO_HANDOFF_SENTENCE =
-  "This browser can't be handed to the person, so when they must do something themselves (a payment, or a sign-in only they can finish), say exactly what to do on the site; never promise them a link to it. " +
-  "A one-time code a site sends them is theirs to text you: ask for it, then type it here yourself. ";
 
 /** What an upload step takes, said only when this question can read the person's files. */
 const UPLOAD_SENTENCE =
@@ -507,7 +502,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         } else if (step.do === "handoff") {
           if (handoffRefused) return textResult(REFUSED_HANDOFF, true);
           if (computer.canHandOff?.() !== true) {
-            return textResult("This browser can't be handed to the person. Tell them what to do on the site themselves.", true);
+            return textResult(NO_LINK_RESULT, true);
           }
           handoff = true;
         } else if (step.do === "goto") {
@@ -608,7 +603,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           : handoff && handoffLink !== null
           ? "\n\nA link to this browser will be added to your reply. Tell the person to open it, finish there, and text you when done."
           : handoff
-            ? "\n\nThe link to this browser could not be made. Tell the person what to do on the site themselves."
+            ? `\n\nThe link to this browser could not be made. ${NO_LINK_RESULT}`
             : "";
       shownElements = done.reading.elements;
       const kept = done.file ? await keepFile(done.file) : "";
@@ -635,6 +630,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
 
     /** The take-over link a handoff made this question and has not texted yet, for the gateway's reply. */
     handoffLink: () => (handoffSaid ? null : handoffLink),
+    /** The tag of the browser a take-over link went out for this question, said or appended, for Done to be watched by (`handback.js`). */
+    handedOverTag: () => (handoffLink !== null ? (computer.tag?.() ?? null) : null),
     /**
      * The gateway's own sentence for a link it is about to append, or null.
      * When a handoff was asked for and no link was ever made, the sentence

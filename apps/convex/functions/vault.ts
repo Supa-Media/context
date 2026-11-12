@@ -58,10 +58,11 @@ import { savedPin } from "../../mcp/src/vault/proxy.js";
 import { cardInputValidator, checkedCard } from "./lib/vaultCard";
 import { deleteKey, editEntry } from "./lib/vaultEdit";
 import { allowClient, cutClients, giveKey, listFor, takeKey } from "./lib/vaultPeople";
+import { requestChatValidator, shareChoiceValidator, type ShareChoice } from "./lib/vaultChat";
 import {
-  fieldSummaryValidator,
   fieldValuesValidator,
   kindValidator,
+  describedValidator,
   metaValidator,
   operationValidator,
   proxyClientValidator,
@@ -115,6 +116,8 @@ export const issueVaultRequest = internalMutation({
     entryId: v.optional(v.string()),
     handle: v.optional(v.string()),
     hashedToken: v.string(),
+    /** An add link texted in a group chat: the chat, from the grant, and its people (`lib/vaultChat.ts`). */
+    chat: v.optional(requestChatValidator),
   },
   returns: v.union(v.literal("issued"), v.literal("refused")),
   handler: async (ctx, args): Promise<"issued" | "refused"> => {
@@ -144,6 +147,7 @@ export const issueVaultRequest = internalMutation({
       kind: args.kind,
       ...(args.kind === "share" ? { entryId: args.entryId, granteeUserId } : {}),
       ...(args.kind === "view" ? { entryId: args.entryId } : {}),
+      ...(args.kind === "add" && args.chat !== undefined ? { chat: args.chat } : {}),
       expiresAt: Date.now() + VAULT_LINK_TTL_MS,
     });
     return "issued";
@@ -236,7 +240,7 @@ export const checkVaultRequest = internalMutation({
       entryId = args.candidateEntryId as string;
       await ctx.db.patch(row._id, { entryId });
     }
-    return { workspaceId: row.workspaceId, entryId, granteeUserId: row.granteeUserId ?? null };
+    return { workspaceId: row.workspaceId, entryId, granteeUserId: row.granteeUserId ?? null, ...(row.chat ? { chat: row.chat } : {}) };
   },
 });
 
@@ -413,6 +417,7 @@ export const runVaultOperation = internalAction({
         ...(op.proxy === undefined ? {} : { proxy: op.proxy }),
         ...(op.type === "card" && op.card ? { card: op.card } : {}),
         people: [op.userId],
+        ...(op.shares !== undefined && op.shares.length > 0 ? { shares: op.shares } : {}),
         createdBy: op.userId,
         createdAt: now,
         updatedAt: now,
@@ -486,21 +491,7 @@ export async function runVault(
 /** What `/vault/<token>` shows before the person does anything. Never a value. */
 export const describeVaultRequest = action({
   args: { token: v.string() },
-  returns: v.object({
-    kind: kindValidator,
-    workspace: v.object({ handle: v.string(), name: v.string(), kind: v.union(v.literal("personal"), v.literal("shared")) }),
-    grantee: v.union(v.null(), v.string()),
-    entry: v.union(
-      v.null(),
-      v.object({
-        type: v.union(v.literal("login"), v.literal("secret"), v.literal("card")),
-        name: v.string(),
-        sites: v.array(v.string()),
-        fields: v.array(fieldSummaryValidator),
-      }),
-    ),
-    expiresAt: v.number(),
-  }),
+  returns: describedValidator,
   handler: async (ctx, args): Promise<Described> => {
     const userId = await signedIn(ctx);
     checkToken(args.token);
@@ -524,7 +515,11 @@ export const describeVaultRequest = action({
       if (opened === null || !mayUse(opened.meta, userId, groups)) throw dead();
       entry = { type: opened.meta.type, name: opened.meta.name, sites: opened.meta.sites, fields: opened.meta.fields };
     }
-    return { kind: row.kind, workspace: labels.workspace, grantee: labels.grantee, entry, expiresAt: row.expiresAt };
+    // A link texted in a group chat: the chat to offer, with who in it is in the workspace now (`lib/vaultChat.ts`).
+    const chat = row.kind === "add" && row.chat !== undefined
+      ? await ctx.runQuery(internal.functions.vaultChatLinks.chatForPage, { workspaceId: row.workspaceId, userId, hashedToken: row.hashedToken })
+      : null;
+    return { kind: row.kind, workspace: labels.workspace, grantee: labels.grantee, entry, expiresAt: row.expiresAt, chat };
   },
 });
 
@@ -546,9 +541,11 @@ export const saveVaultLogin = action({
     proxy: v.optional(proxyPinValidator),
     /** A card, as the person typed it: checked and kept as fixed fields (`apps/mcp/src/vault/card.js`). */
     card: v.optional(cardInputValidator),
+    /** Who may use it (Dev2, 2026-11-12); absent: the chat a link came from, else only its saver (`lib/vaultChat.ts`). */
+    share: v.optional(shareChoiceValidator),
   },
-  returns: v.object({ name: v.string(), site: v.string() }),
-  handler: async (ctx, args): Promise<{ name: string; site: string }> => {
+  returns: v.object({ name: v.string(), site: v.string(), sharedWith: v.union(v.literal("chat"), v.literal("workspace"), v.literal("me")) }),
+  handler: async (ctx, args): Promise<{ name: string; site: string; sharedWith: ShareChoice }> => {
     const userId = await signedIn(ctx);
     checkToken(args.token);
     const type: EntryKind = args.type ?? "login";
@@ -586,10 +583,12 @@ export const saveVaultLogin = action({
       candidateEntryId: newEntryId(),
     });
     if (live.entryId === null) throw dead();
+    const { choice, shares } = await ctx.runQuery(internal.functions.vaultChatLinks.sharesForSave, { workspaceId: live.workspaceId, userId, now: Date.now(), ...(live.chat ? { chat: live.chat } : {}), ...(args.share ? { share: args.share } : {}) });
+    if (shares === null) throw fail("INVALID_ARGUMENT", choice === "chat" ? "This link wasn't sent from a group chat." : "Only a shared workspace has other people to give it to.");
     const saved = await openVault(
       ctx,
       live.workspaceId,
-      { kind: "add", entryId: live.entryId, userId, type, name, sites: site ? [site] : [], username, password, fields, ...(proxy ? { proxy } : {}), ...(card ? { card: card.summary } : {}) },
+      { kind: "add", entryId: live.entryId, userId, type, name, sites: site ? [site] : [], username, password, fields, ...(proxy ? { proxy } : {}), ...(card ? { card: card.summary } : {}), ...(shares.length > 0 ? { shares } : {}) },
       "That wasn't saved: your workspace's storage didn't take it.",
     );
     if (saved === null) throw fail("KEY_UNAVAILABLE", "This workspace's vault can't be opened right now.");
@@ -599,8 +598,9 @@ export const saveVaultLogin = action({
       actorUserId: userId,
       action: "vault.saved",
       entryId: saved.entryId,
+      ...(choice === "me" ? {} : { changed: choice === "chat" ? "a group chat, use" : "everyone, use" }),
     });
-    return { name, site };
+    return { name, site, sharedWith: choice };
   },
 });
 
@@ -696,3 +696,4 @@ export const confirmVaultShare = action({
     return { name: shared.meta.name, grantee: labels.grantee };
   },
 });
+

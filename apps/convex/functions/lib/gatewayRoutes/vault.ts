@@ -32,6 +32,10 @@ export async function gatewayVaultRequestHandler(ctx: ActionCtx, body: Record<st
   const token = randomOpaqueToken(24);
   const entryId = stringField(body, "entryId");
   const handle = stringField(body, "handle");
+  // Texted in a group chat: the chat and its people are the grant's own, never the body's (`lib/vaultChat.ts`).
+  const chat = kind === "add" && cleared.texChatId !== undefined
+    ? await ctx.runQuery(internal.functions.vaultChatLinks.chatOfGrant, { hashedAccessToken: await hashToken(accessToken) })
+    : null;
   // A rate-limited caller is answered like any refusal, not with a 500.
   const status = await ctx
     .runMutation(internal.functions.vault.issueVaultRequest, {
@@ -40,6 +44,7 @@ export async function gatewayVaultRequestHandler(ctx: ActionCtx, body: Record<st
       kind,
       ...(entryId === null ? {} : { entryId }),
       ...(handle === null ? {} : { handle }),
+      ...(chat === null ? {} : { chat }),
       hashedToken: await hashToken(token),
     })
     .catch(() => "refused" as const);
@@ -48,3 +53,4 @@ export async function gatewayVaultRequestHandler(ctx: ActionCtx, body: Record<st
 
 /** Tex's browser sign-ins, kept in a saved Browserbase profile beside the sealed jar. */
 export { gatewayBrowserProfileHandler } from "./browserProfile";
+export { AGENT_CARRY_ON_ROUTES, BROWSER_GATEWAY_ROUTES } from "./browserHandback";

@@ -47,7 +47,9 @@ test("a browser that can be handed over is described as one, and its link ends t
 test("a browser that cannot be handed over never promises a link", () => {
   const web = webSession(fakeComputer({ canHandOff: false }), "sign in on shop.example.com");
   assert.doesNotMatch(description(web), /a link to this browser is added/);
-  assert.match(description(web), /never promise them a link/);
+  assert.match(description(web), /never promise one/);
+  // No link is never a reason to hand the work back (the owner, 2026-11-12).
+  assert.doesNotMatch(description(web), /say exactly what to do on the site/);
 });
 
 test("a handoff that made no link ends the reply with the gateway's line saying so", async () => {
@@ -98,7 +100,7 @@ test("the handoff text is short: their own /tex/<handle> page and the site, neve
   await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://chatgpt.com/" }, { do: "handoff" }] });
   assert.equal(
     web.browser.handoffLine(),
-    "Open this to take over the browser on chatgpt.com, then text me when you're done: https://context.lc/tex/@seyi?view=computer",
+    "Open this to take over the browser on chatgpt.com, then text me when you're done: https://context.lc/tex/@seyi?view=computer&full=1",
   );
   assert.ok(!web.browser.handoffLine().includes("browserbase"));
   resetBrowserbaseProbe();
@@ -129,7 +131,7 @@ test("the handle is the personal workspace the person owns, never one they are o
   assert.equal(ownHandle(SEYI), "seyi");
   assert.equal(ownHandle({ workspaces: [personal("bola", "editor"), personal("kemi", "member")] }), null);
   assert.equal(ownHandle({ workspaces: [{ workspaceId: "ws_s", slug: "shared-one", role: "owner", kind: "shared" }] }), null);
-  assert.equal(texViewerUrl({ APP_ORIGIN: "https://staging.context.lc/" }, SEYI), "https://staging.context.lc/tex/@seyi?view=computer");
+  assert.equal(texViewerUrl({ APP_ORIGIN: "https://staging.context.lc/" }, SEYI), "https://staging.context.lc/tex/@seyi?view=computer&full=1");
   assert.equal(texViewerUrl({}, SEYI), null, "a self-hosted gateway with no app origin texts no link");
   assert.equal(texViewerUrl({ APP_ORIGIN: "http://context.lc" }, SEYI), null);
   assert.equal(texViewerUrl({ APP_ORIGIN: "https://context.lc/app" }, SEYI), null);

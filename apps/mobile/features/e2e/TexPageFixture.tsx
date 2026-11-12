@@ -9,6 +9,7 @@ const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v
 import { useTexPage } from "../tex/page/useTexPage";
 import type { TexComputerState } from "../tex/useTexComputer";
 import { FIXTURE_FRAME } from "./texComputerFrame";
+import { TexComputerBody } from "../tex/TexComputerScreen";
 
 /** Tex's browser, live on a made-up docs page, so the job page and the computer page draw as the mock does. */
 const COMPUTER: TexComputerState = {
@@ -17,6 +18,7 @@ const COMPUTER: TexComputerState = {
   busy: false,
   send: () => {},
   stop: () => {},
+  handBack: async () => true,
 };
 
 /**
@@ -36,6 +38,8 @@ export function TexPageFixture({ params }: { params: Record<string, string | str
   );
   const [place, setPlace] = useState<Place>(() => readPlace(params));
   const page = useTexPage(source, place.chat);
+  // `full=1`: the take-over screen a handoff's "Take over" opens, as `TexPageScreen` draws it.
+  if (place.view === "computer" && place.full) return <TexComputerBody view={{ kind: "ready", handle: "fixture", workspaceId: "ws_fixture" }} computer={COMPUTER} />;
   return (
     <Screen testID="tex-page-fixture">
       <TexPageBody
@@ -44,7 +48,7 @@ export function TexPageFixture({ params }: { params: Record<string, string | str
         place={place}
         go={setPlace}
         computer={COMPUTER}
-        openComputer={() => setPlace({ chat: place.chat, view: "computer" })}
+        openComputer={() => setPlace({ chat: place.chat, view: "computer", full: true })}
         now={fixtureNow}
       />
     </Screen>

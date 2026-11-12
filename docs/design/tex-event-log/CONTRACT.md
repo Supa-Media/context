@@ -71,6 +71,15 @@ and reports `{ calls, failed, refused, questions, chars, ms }` to
 does and return no workspace id. The routes below are the fallback when the
 gateway cannot be reached.
 
+Since 2026-11-12 (Dev2: "a judge should have all information and facts needed
+to correctly have a verdict") a group's decide also names its ledger key
+(`ledger`), and the gateway adds what Tex is doing in that chat now (its running
+jobs, by title, and the chat's open conversation threads, by title and newest
+line ids) to the judge's state as `<now>`. A Worker that holds no token
+for a group reads the chat's last day for the transcript over the same binding,
+`POST /texts/chat` with `{ ledger, chat }`, answered `{ events }` as
+`/agent/chat` answers, so the judge never reads the newest texts alone.
+
 Auth: `AGENT_WORKER_SECRET` bearer, as `/agent-texts/session`. Body:
 
 ```ts

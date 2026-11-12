@@ -110,6 +110,25 @@ export interface RevealedEntry {
   fields: RevealedField[];
 }
 
+/** Who may use a saved login: the chat the link came from, every member of the workspace, or its saver alone. */
+export type ShareChoice = "chat" | "workspace" | "me";
+
+/** One person in the chat a link was texted in, and whether they are in the workspace. */
+export interface ChatPerson {
+  name: string;
+  /** Their handle, so "Add" can invite them; null for somebody invited by number who hasn't joined. */
+  handle: string | null;
+  status: "you" | "member" | "invited" | "not_member";
+}
+
+/** The group chat an add link was texted in (Dev2, 2026-11-12): its name and its people. */
+export interface VaultChat {
+  label: string;
+  people: ChatPerson[];
+  /** Whether this person may invite the chat's others into the workspace (an owner). */
+  canInvite: boolean;
+}
+
 /** `describeVaultRequest`'s answer. */
 export interface VaultRequest {
   kind: "add" | "share" | "view";
@@ -117,6 +136,18 @@ export interface VaultRequest {
   grantee: string | null;
   entry: VaultEntrySummary | null;
   expiresAt: number;
+  /** An add link texted in a group chat; null or absent for any other. */
+  chat?: VaultChat | null;
+}
+
+/** Where the picker starts: the chat a link came from, else the person alone. */
+export function defaultShare(chat: VaultChat | null): ShareChoice {
+  return chat === null ? "me" : "chat";
+}
+
+/** The choices a link offers: the chat only from a chat, the workspace only when it has others. */
+export function shareChoices(chat: VaultChat | null, workspace: VaultWorkspace): ShareChoice[] {
+  return [...(chat === null ? [] : (["chat"] as const)), ...(workspace.kind === "shared" ? (["workspace"] as const) : []), "me"];
 }
 
 export type Described =
@@ -133,7 +164,7 @@ export type Outcome =
   | { kind: "idle" }
   | { kind: "revealed"; entry: RevealedEntry }
   | { kind: "busy" }
-  | { kind: "saved"; name: string; site: string; type?: EntryType }
+  | { kind: "saved"; name: string; site: string; type?: EntryType; sharedWith?: ShareChoice }
   | { kind: "shared"; name: string; grantee: string | null }
   | { kind: "declined" }
   | { kind: "failed"; error: unknown };
@@ -148,7 +179,15 @@ export type VaultLinkView =
   | { kind: "wait" }
   | { kind: "signIn"; href: string }
   | { kind: "loading" }
-  | { kind: "add"; workspace: VaultWorkspace; prefill: VaultPrefill; busy: boolean; problem: FormProblem | null }
+  | {
+      kind: "add";
+      workspace: VaultWorkspace;
+      prefill: VaultPrefill;
+      busy: boolean;
+      problem: FormProblem | null;
+      /** The group chat the link was texted in, or null. */
+      chat: VaultChat | null;
+    }
   | {
       kind: "share";
       workspace: VaultWorkspace;
@@ -166,7 +205,15 @@ export type VaultLinkView =
       busy: boolean;
       problem: FormProblem | null;
     }
-  | { kind: "saved"; name: string; site: string; type: EntryType }
+  | {
+      kind: "saved";
+      name: string;
+      site: string;
+      type: EntryType;
+      /** Who it was given to, and the chat's name when it was the chat. */
+      sharedWith: ShareChoice;
+      chatLabel: string | null;
+    }
   | { kind: "shared"; name: string; grantee: string | null; type: EntryType }
   | { kind: "declined" }
   | {
@@ -202,7 +249,16 @@ function resolveView(inputs: Parameters<typeof resolveVaultLinkView>[0]): VaultL
   if (!auth.isAuthenticated) return { kind: "signIn", href: loginHref(vaultLinkHref(token, prefill)) };
 
   if (outcome.kind === "saved") {
-    return { kind: "saved", name: outcome.name, site: outcome.site, type: outcome.type ?? "login" };
+    const chat = described.kind === "shown" ? (described.request.chat ?? null) : null;
+    const sharedWith = outcome.sharedWith ?? "me";
+    return {
+      kind: "saved",
+      name: outcome.name,
+      site: outcome.site,
+      type: outcome.type ?? "login",
+      sharedWith,
+      chatLabel: sharedWith === "chat" && chat !== null ? chat.label : null,
+    };
   }
   if (outcome.kind === "shared") {
     const type = described.kind === "shown" ? (described.request.entry?.type ?? "login") : "login";
@@ -239,7 +295,7 @@ function resolveView(inputs: Parameters<typeof resolveVaultLinkView>[0]): VaultL
       problem,
     };
   }
-  return { kind: "add", workspace: request.workspace, prefill: parsed, busy, problem };
+  return { kind: "add", workspace: request.workspace, prefill: parsed, busy, problem, chat: request.chat ?? null };
 }
 
 /**

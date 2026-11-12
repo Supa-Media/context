@@ -65,9 +65,10 @@ handle only, in Context's paper and ink.
   added; a line of About is fixed or removed; Tex settings are the same
   choices as Settings › Tex.
 - **The address keeps the place**: `?chat=&view=&job=`, so back and reload
-  work and a link can open any view. A handoff texts `?view=computer`, the
-  browser one tap from taking over; `&full=1` is the full-screen remote
-  screen the page used to be.
+  work and a link can open any view. A handoff texts `?view=computer&full=1`,
+  the full-screen remote screen itself, since whoever opens it came to do one
+  step there (2026-11-12); without `full=1` it is the computer page, the
+  browser one tap from taking over.
 - **Live.** One socket per open page (`/tex/page/live`, the console grant as
   a subprotocol as `/presence/tree` does) pushes a patch whenever anything
   the page shows changes, a change somebody else makes in a group included;
@@ -112,7 +113,10 @@ of random thread pages, and maybe link to sub pages".
   and `/tex/group/<words>[/<view>|/job/<id>]` (`features/tex/page/texPlace.ts`),
   with `?full=1` for the full-screen computer. Moving around the page writes
   these paths; the older `?chat=&view=&job=` query is still read, so links
-  texted before keep working. A handoff texts `/tex/@<handle>?view=computer`.
+  texted before keep working. A handoff texts `/tex/@<handle>?view=computer&full=1`,
+  and a group chat's `/tex/group/<words>/computer?full=1` (2026-11-12). The
+  take-over screen starts in touch mode, a tap clicking where it lands, as a
+  captcha's pictures or a code box need; trackpad is the toggle.
 - **A group's address grants nothing.** The words only find a chat among the
   ones the gateway already lists for the signed-in person (`pickerOf`, off
   their live grant); words that name none of theirs show the same page as

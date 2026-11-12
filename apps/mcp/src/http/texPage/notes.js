@@ -382,6 +382,16 @@ export async function readSwitches(call) {
 export async function switchSet(call, name, on) {
   const path = Object.hasOwn(SWITCH_PATHS, name) ? SWITCH_PATHS[name] : null;
   if (path === null || typeof on !== "boolean") return fail("invalid");
+  return await frontSet(call, path, "paused", on ? "no" : "yes");
+}
+
+/**
+ * One front matter key of one of Tex's own settings notes in the person's `tex/` folder (`tex/heartbeat.md`,
+ * `tex/attention.md`, ...), set to `value` or removed with null; the note is made when it is missing. For the Tex page's
+ * switches and for a setting changed by text (`agent/settingsTools.js`).
+ */
+export async function frontSet(call, path, key, value) {
+  if (typeof path !== "string" || !/^tex\/[a-z-]+\.md$/.test(path)) return fail("invalid");
   let result;
   try {
     result = await call("read_note", { path });
@@ -392,7 +402,7 @@ export async function switchSet(call, name, on) {
   if (result?.isError === true && !missing) return fail("failed");
   const read = missing ? { etag: null, note: "" } : await readNote(call, path, null);
   if (read === null || (!missing && !read.etag)) return fail("no_etag");
-  return writeNote(call, path, withFrontKey(read.note, "paused", on ? "no" : "yes"), read.etag, null);
+  return writeNote(call, path, withFrontKey(read.note, key, value), read.etag, null);
 }
 
 /** Remove a routine: archived, so it can be recovered, and it stops running. */

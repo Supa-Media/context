@@ -15,7 +15,7 @@ export type VaultLevel = "use" | "see";
 /** One person, group or the whole workspace a key is given to; the saver first. */
 export type VaultShareRow = {
   to: string;
-  kind: "person" | "group" | "everyone";
+  kind: "person" | "group" | "everyone" | "chat";
   name: string;
   handle: string | null;
   /** How many people a group or the workspace reaches; null for a person. */

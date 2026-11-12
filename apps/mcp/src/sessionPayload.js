@@ -94,6 +94,8 @@ export function normalizeSession(raw) {
     setupReach: setup === undefined ? null : (({ setupOnly, ...entry }) => entry)(setup),
     defaultWorkspaceId,
     ...(texChatId === null ? {} : { texChatId }),
+    // The account whose own tag this turn is (`session.ts` `texTaggerId`): only beside a chat, never on its own.
+    ...(texChatId !== null && typeof raw.texTaggerId === "string" && raw.texTaggerId !== "" ? { texTaggerId: raw.texTaggerId } : {}),
     expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : undefined,
     // Optional for the reason `clientName` is: it decides nothing, it only
     // chooses which tool news `orient` shows. A control plane older than the

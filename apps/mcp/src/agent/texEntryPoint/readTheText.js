@@ -12,6 +12,7 @@ import { ROUTINES_CLIENT_ID } from "../routine.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { turnKind } from "../turnLog.js";
 import { vaultSavedQuestion } from "../vaultSaved.js";
+import { handedBackQuestion } from "../handback.js";
 import { warmTurn } from "../warmCopy.js";
 import { chatLedger, reportEntry } from "../workEntries.js";
 
@@ -69,7 +70,8 @@ export async function readTheText(t) {
   // A delegated job's supervisor (`supervise.js`): what this run is for, decided before any model.
   let supervision = null;
   // A saved login's turn (`vaultSaved.js`) and a job's report are asked the gateway's own line, never the body's.
-  let question = vaultSavedQuestion(body, { texting: session.actorClientId === TEXTS_CLIENT_ID && group === null, job }) ?? (report !== null ? jobReportQuestion(report) : null) ?? (typeof body.question === "string" ? body.question.trim() : "");
+  const chatEvent = { texting: (session.actorClientId === TEXTS_CLIENT_ID && group === null) || group !== null, job }; // a saved login's or a handed-back browser's turn, a chat's own only
+  let question = vaultSavedQuestion(body, chatEvent) ?? handedBackQuestion(body, chatEvent) ?? (report !== null ? jobReportQuestion(report) : null) ?? (typeof body.question === "string" ? body.question.trim() : "");
   Object.assign(t, { body, chatTurn, dispatch, group, hot, job, question, received, report, routine, runner, runs, setupRead, supervision });
 }
 // TEX ENTRY POINT: end

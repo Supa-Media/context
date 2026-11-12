@@ -246,6 +246,7 @@ export async function resolveSession(token, slug, controlPlane, transport = null
     setupReach: session.setupReach,
     // The group chat whose Tex notes this turn may reach, from the grant (`sessionStore.js`); absent for every other turn.
     texChatId: session.texChatId,
+    ...(typeof session.texTaggerId === "string" ? { texTaggerId: session.texTaggerId } : {}),
     expiresAt: session.expiresAt,
     // When this client last fetched our tool list; `orient` names what
     // changed since (`tools/news.js`). A time, and nothing about the tools.

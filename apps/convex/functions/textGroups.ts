@@ -350,6 +350,9 @@ async function singleWorkspaceTurn(
       hashedRefreshToken: args.hashedRefreshToken,
       expiresAt: args.expiresAt,
       participants: others.length,
+      // The sender's own account holds this grant, so the turn is their own tag: a login they kept for themselves, and
+      // changing who has one by text, count here as on the invited path (`ownTagToken`; missed in #3205, 2026-11-12).
+      ownTag: true,
     });
     if (!ok) return { status: "no_shared" };
   }
@@ -405,6 +408,7 @@ async function invitedTurn(
         invitationIds: [...invited.invited.values()].map((row) => row._id),
         ...(taggerInvitation !== undefined ? { taggerRole: taggerInvitation.role } : {}),
       },
+      ownTag: taggerUser !== null,
     });
     if (!ok) return null;
   }
@@ -450,6 +454,8 @@ async function mintGroupGrant(
     participants: number;
     /** Invited family (`lib/textGroupInvited.ts`): the invitations counted, and the invited tagger's role when one tagged. */
     invited?: { invitationIds: Id<"workspaceInvitations">[]; taggerRole?: "editor" | "member" };
+    /** The grant's own person tagged Tex: their turn's token may use a login they saved for themselves (`ownTagToken`). */
+    ownTag?: boolean;
   },
 ): Promise<boolean> {
   const membership = await ctx.db
@@ -476,7 +482,7 @@ async function mintGroupGrant(
     input.invited === undefined
       ? {}
       : { coInvitationIds: input.invited.invitationIds, ...(taggerRole !== undefined ? { invitedTaggerRole: taggerRole } : {}) };
-  const texGroup = { groupId: input.group._id, coViewerIds: input.coViewerIds, meterWorkspaceId, ...invited };
+  const texGroup = { groupId: input.group._id, coViewerIds: input.coViewerIds, meterWorkspaceId, ...invited, ...(input.ownTag === true && taggerRole === undefined ? { ownTagToken: input.hashedAccessToken } : {}) };
   const token = {
     scopes,
     texGroup,

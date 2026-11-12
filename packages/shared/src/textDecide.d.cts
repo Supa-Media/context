@@ -9,7 +9,7 @@ export declare const WAIT_SECOND_LEVELS: number;
 export declare const STALE_AT: number;
 export declare const MAX_DRAFT: number;
 export declare const FITS_AT: number;
-export declare const OTHER_ASSISTANT_RULE: string;
+export declare const CHAT_MARKS: string;
 export declare const FOR_TEX_RULE: string;
 export declare const WHY: Readonly<Record<string, string>>;
 export type JudgeExample = { chat: "group" | "one"; setting?: string; lines: string[]; text: string; verdict: "respond" | "react" | "quiet" | "wait"; emoji?: string; why: string };
@@ -63,7 +63,8 @@ export interface RecheckBody extends DecideBody {
 export type RecheckResult = { ok: true; fits: boolean; confidence: number } | { ok: false; reason: "capped" | "off" | "unavailable"; cause: string };
 
 export declare function readDecideBody(body: Record<string, unknown>): DecideBody | null;
-export declare function decideRequest(body: DecideBody): DecisionRequest;
+/** `facts`: lines the gateway knows about the chat now (its running jobs), shown to the judge as `<now>`. */
+export declare function decideRequest(body: DecideBody, options?: { facts?: readonly string[] }): DecisionRequest;
 export declare function readDecideAnswers(body: DecideBody, answers: DecisionAnswers): DecideResult;
 export declare function readRecheckBody(body: Record<string, unknown>): RecheckBody | null;
 export declare function recheckRequest(body: RecheckBody): DecisionRequest;

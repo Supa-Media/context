@@ -106,6 +106,7 @@ import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import * as vault from "./functions/lib/gatewayRoutes/vault";
+import * as vaultText from "./functions/lib/gatewayRoutes/vaultText";
 import * as personEmail from "./functions/lib/gatewayRoutes/personEmail";
 import * as personMail from "./functions/lib/gatewayRoutes/personMail";
 import * as personCalendar from "./functions/lib/gatewayRoutes/personCalendar";
@@ -849,7 +850,9 @@ http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLink
 export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler);
 
 http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
-http.route({ path: "/gateway/browser-profile", method: "POST", handler: gatewayRoute(vault.gatewayBrowserProfileHandler) });
+export const gatewayVaultText = gatewayRoute(vaultText.gatewayVaultTextHandler); // who each vault login is for, by text (`vaultByText.ts`)
+http.route({ path: "/gateway/vault/text", method: "POST", handler: gatewayVaultText });
+for (const [path, handler] of vault.BROWSER_GATEWAY_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) }); // a browser's profile, and "Done" on its take-over screen
 
 // A connector: a link for the person to connect an app, and one call through it.
 export const gatewayConnectRequest = gatewayRoute(connections.gatewayConnectRequestHandler);
@@ -972,7 +975,7 @@ export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandle
 http.route({ path: "/agent-texts/setup", method: "POST", handler: agentTextsSetup });
 http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsReadyHandler) });
 http.route({ path: "/agent-texts/gmail", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsGmailHandler) });
-http.route({ path: "/agent-texts/vault-saved", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsVaultSavedHandler) });
+for (const [path, handler] of vault.AGENT_CARRY_ON_ROUTES) http.route({ path, method: "POST", handler: agentWorkerRoute(handler) }); // a login saved, a browser handed back
 http.route({ path: "/agent-texts/phones", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsPhonesHandler) });
 // The picture Tex texts beside a note's link (`apps/agent/src/noteCards.ts`).
 http.route({ path: "/agent-texts/note-card", method: "POST", handler: agentWorkerRoute(noteCard.agentTextsNoteCardHandler) });

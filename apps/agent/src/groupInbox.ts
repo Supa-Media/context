@@ -48,7 +48,8 @@
 
 import { GROUP_QUEUE, queueFull, queueItem } from "./chatQueue";
 import { ASK_KEY, isAsker, isItForTexInGroup, type OpenAsk } from "./isItForTex";
-import { reportRoutineResult, ServiceError, type Fetch, type RoutineOutcome } from "./clients";
+import { ServiceError, type Fetch } from "./clients";
+import { reportRoutineResult, type RoutineOutcome } from "./routineClients";
 import { chatRoutineMessage, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer } from "./groupControl";
 import { dropKept, keepAnswer, keptAnswer, refreshKept } from "./groupKept";
@@ -222,7 +223,9 @@ async function enqueue(storage: InboxStorage, message: GroupMessage, extra: Part
   await storage.put(seen, now);
   // Whether it replies to Tex is decided now, against the handles Tex sent; the turn reads the words it quotes.
   // A reaction goes on as its line alone: only a held one (`holdThumb`) reaches the gateway as a tapback, which can be a yes.
-  await queueItem<Pending>(storage, GROUP_QUEUE, { message: { ...message, reaction: undefined, ...(repliesToTex ? {} : { replyTo: undefined }) }, attempts: 0, at: now, ...extra });
+  // Its answer never threads under the tapback itself, which Sendblue fails to deliver (`answersTapback`).
+  const tapback = message.reaction !== undefined ? { answersTapback: repliesToTex && message.replyTo !== undefined ? { on: message.replyTo } : {} } : {};
+  await queueItem<Pending>(storage, GROUP_QUEUE, { message: { ...message, reaction: undefined, ...(repliesToTex ? {} : { replyTo: undefined }), ...tapback }, attempts: 0, at: now, ...extra });
   // The chat moved (a wait that began before this decides again: `stillGathering`), and the burst Tex owes an answer to
   // starts with its first waiting message: its deadline counts from here. A line kept only as chat changes neither.
   if (!extra.byCode) await chatEvent(storage, "message", "queued", { now, burst: true }); // a command is no part of a burst
@@ -252,7 +255,7 @@ export async function queueGroupByCode(storage: InboxStorage, message: GroupMess
 export async function routineDone(deps: GroupDeps, message: GroupMessage, outcome: RoutineOutcome, texted = 0): Promise<void> {
   if (message.routine === undefined) return;
   log(`routine_${outcome}`);
-  if (message.jobReport !== undefined) return; // a job's report runs as a routine's turn does, but no run waits on it
+  if (message.jobReport !== undefined || message.event !== undefined) return; // a job's report and a saved login's turn run as a routine's turn does, but no run waits on them
   await reportRoutineResult(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, { runId: message.routine.runId, outcome, texted }).catch(() => log("routine_unreported"));
 }
 
@@ -501,6 +504,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (routine && members === null && message.jobReport !== undefined) throw new ServiceError(app.senderOnlyWebhook ? "whapi" : "sendblue", null);
   if (routine && (members === null || !members.includes(message.from))) return void (await cannotRun(storage, deps, message, null));
   const people = peopleOf(message.line, message.participants, members);
+  logPeople(message, members, people);
   // A plain tag from the same person, with the same people, reuses the last token and asks the control plane behind the turn (`groupKept.ts`).
   const plain = command === null && !routine && members !== null;
   const kept = plain ? await keptAnswer(storage, message.line, message.from, people, deps.now()) : null;
@@ -536,7 +540,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (!routine) {
     await setChatBound(storage, message);
   }
-  await keepNames(storage, asked.names ?? []);
+  await keepNames(storage, asked.names ?? [], asked.guests ?? []);
   if (command?.kind === "status") return clock?.path("status"), void (await fixed(GROUP_LINES.status(asked.reach ?? [asked.slug])));
   // "Tex, share my chats with the devs" (`groupSettings.ts`).
   if (command?.kind === "review_sharing") return clock?.path(command.kind), await groupReviewSharing(storage, deps, message, command.sharing);
@@ -563,4 +567,21 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {
   const seen = await storage.list<number>({ prefix: "gseen:" });
   for (const [key, at] of seen) if (now - at > SEEN_FOR_MS) await storage.delete(key);
+}
+
+/**
+ * How many people each list names (Dev2, 2026-11-12: Tex counted someone who had left the chat). Counts only, never a
+ * number: the webhook's list, the app's, how many only one of them has, and the people a turn is given (both together).
+ */
+function logPeople(message: GroupMessage, members: string[] | null, people: string[]): void {
+  const webhook = peopleOf(message.line, message.participants);
+  const app = members === null ? null : peopleOf(message.line, members);
+  console.log(JSON.stringify({
+    event: "group_people",
+    webhook: webhook.length,
+    app: app === null ? null : app.length,
+    onlyWebhook: app === null ? null : webhook.filter((person) => !app.includes(person)).length,
+    onlyApp: app === null ? null : app.filter((person) => !webhook.includes(person)).length,
+    people: people.length,
+  }));
 }

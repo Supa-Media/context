@@ -325,8 +325,16 @@ const speaker = (name: string | undefined): string => `@${oneLine(name ?? "").re
  * history, as the gateway's transcript shows it (`apps/mcp/src/agent/logRender.js`, 2026-11-03). A group's is the whole
  * log, whoever has joined or left since (the owner, 2026-11-02).
  */
-export function renderTranscript(events: readonly TexEvent[], options: { timeZone?: string; limit?: number } = {}): string {
+export function renderTranscript(events: readonly TexEvent[], options: { timeZone?: string; limit?: number; names?: ReadonlyMap<string, string> } = {}): string {
   const shown = events;
+  // A person whose event carries no name is called what the chat's turn calls them (a handle, or a guest's label),
+  // never "@someone": two unnamed people, or another assistant and a guest, would read as one (Dev2, 2026-11-12).
+  const nameOf = (from: TexEvent["from"]) => from.name ?? (from.who !== undefined ? options.names?.get(from.who) : undefined);
+  const whoSaid = (event: TexEvent) => (event.from.kind === "tex" ? "You" : event.from.kind === "system" ? "Context" : speaker(nameOf(event.from)));
+  // Tex's newest text, when it asks something, is marked as Tex's question: an answer to it after (a tapback, "the
+  // 10th") reads as said to Tex (Battle of the Bots, 2026-11-12). A fact for the judge, never a rule in code.
+  const lastTex = [...shown].reverse().find((event) => event.from.kind === "tex" && event.kind === "text");
+  const open = lastTex !== undefined && (lastTex.text ?? "").includes("?") ? lastTex.id : undefined;
   const byId = new Map(shown.map((event) => [event.id, event]));
   const answered = new Set(shown.filter((event) => event.from.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
   const newestAnswered = shown.reduce((newest, event) => (answered.has(event.id) ? Math.max(newest, event.at) : newest), -Infinity);
@@ -341,14 +349,17 @@ export function renderTranscript(events: readonly TexEvent[], options: { timeZon
     const today = day(event.at);
     if (today !== lastDay) lines.push(`--- ${today} ---`);
     lastDay = today;
-    const who = event.from.kind === "tex" ? "You" : event.from.kind === "system" ? "Context" : speaker(event.from.name);
+    const who = whoSaid(event);
     const said = event.told ? (TOLD_WORDS[event.told] ?? "") : oneLine(event.text ?? "").trim();
     const words = said || (event.kind === "delivery" ? `(your message <${event.replyTo ?? "unknown"}> did not reach them)` : event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
     const unanswered = event.from.kind === "person" && event.at >= newestAnswered && !answered.has(event.id) ? "   (not answered)" : "";
-    // A reply under an earlier message says so: under one of Tex's own, the judge reads it as said to Tex.
-    const under = event.from.kind === "person" && event.replyTo !== undefined ? (byId.get(event.replyTo)?.from.kind === "tex" ? " (replying to You)" : ` (replying to <${event.replyTo}>)`) : "";
+    // A reply under an earlier message says whose it is: under one of Tex's own, the judge reads it as said to Tex;
+    // under a person's, as said to that person (an assistant's reply under Seyi's text read as one to Tex, 2026-11-12).
+    const target = event.replyTo !== undefined ? byId.get(event.replyTo) : undefined;
+    const under = event.from.kind === "person" && event.replyTo !== undefined ? (target === undefined ? ` (replying to <${event.replyTo}>)` : ` (replying to ${whoSaid(target)})`) : "";
+    const asking = event.id === open ? "   (your newest question)" : "";
     // Each line carries its event id, so what decide is asked about by id is grounded in the line it reads.
-    lines.push(`<${event.id}> [${time(event.at)}] ${who}:${under} ${words}${unanswered}`);
+    lines.push(`<${event.id}> [${time(event.at)}] ${who}:${under} ${words}${unanswered}${asking}`);
     if (event.from.kind === "tex" && event.delivered === false) lines.push(`           (not delivered: ${NOT_DELIVERED[event.reason ?? "failed"]})`);
   }
   const limit = options.limit ?? TRANSCRIPT_CHARS;

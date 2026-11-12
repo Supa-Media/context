@@ -81,12 +81,15 @@ export function shareRowLine(row: VaultShareRow, saver: boolean, now: Date = new
   const given = `Shared ${vaultDay(row.at, now)}`;
   if (row.kind === "everyone") return `${given} · ${people(row.count ?? 0)}, and anyone who joins later`;
   if (row.kind === "group") return `${given} · ${people(row.count ?? 0)}`;
+  // Given to one Tex group chat from the link Tex texted there: Tex uses it there, for whoever asks.
+  if (row.kind === "chat") return `${given} · Tex uses it in this chat`;
   return given;
 }
 
 /** What Remove says, once, before it happens. */
 export function takeBackLine(row: VaultShareRow): string {
   if (row.kind === "person") return `${row.name} and ${row.name}'s AIs lose the key now.`;
+  if (row.kind === "chat") return `Tex stops using it in ${row.name} now.`;
   return `${row.kind === "everyone" ? "Everyone here" : `Everyone in ${row.name}`} who has it no other way, and their AIs, lose it now.`;
 }
 

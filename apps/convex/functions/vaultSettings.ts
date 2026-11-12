@@ -20,7 +20,7 @@ import { workspaceNotFound } from "./lib/workspaceAuth";
 import { MAX_NAME, MAX_SECRET, isEntryId, siteHost } from "../../mcp/src/vault/entries.js";
 import { savedPin } from "../../mcp/src/vault/proxy.js";
 import { normalizeFields } from "../../mcp/src/vault/fields.js";
-import { EVERYONE, accessOf, belongsTo, ownerOf } from "../../mcp/src/vault/access.js";
+import { CHAT_SHARE_PREFIX, EVERYONE, accessOf, belongsTo, ownerOf } from "../../mcp/src/vault/access.js";
 import { mayManage, newlyReached } from "./lib/vaultPeople";
 import {
   cardSummaryValidator,
@@ -52,7 +52,7 @@ const useValidator = v.object({
 /** One row of a key's People: a person, a group, or the whole workspace. */
 const shareRowValidator = v.object({
   to: v.string(),
-  kind: v.union(v.literal("person"), v.literal("group"), v.literal("everyone")),
+  kind: v.union(v.literal("person"), v.literal("group"), v.literal("everyone"), v.literal("chat")),
   name: v.string(),
   handle: v.union(v.string(), v.null()),
   /** How many people a group or the workspace reaches; null for a person. */
@@ -115,7 +115,7 @@ function namedIn(metas: ShownMeta[]): { userIds: string[]; groups: string[] } {
     for (const share of meta.shares ?? []) {
       userIds.add(share.by);
       if (share.to.startsWith("@")) groups.add(share.to);
-      else if (share.to !== EVERYONE) userIds.add(share.to);
+      else if (share.to !== EVERYONE && !share.to.startsWith(CHAT_SHARE_PREFIX)) userIds.add(share.to);
     }
     for (const list of [meta.proxy?.clients, meta.proxy?.uses, meta.proxy?.refused]) {
       for (const record of list ?? []) userIds.add(ownerOf(record, meta) ?? meta.createdBy);
@@ -151,12 +151,13 @@ function entryFrom(entryId: string, meta: ShownMeta, caller: Caller, labels: Vau
       people.push({ to: person, kind: "person", name: personName(person), handle: labels.people[person]?.handle ?? null, count: null, level: "see", at: meta.createdAt, isYou: person === userId });
     }
     for (const share of shares) {
-      const kind = share.to === EVERYONE ? "everyone" : share.to.startsWith("@") ? "group" : "person";
+      const kind = share.to === EVERYONE ? "everyone" : share.to.startsWith("@") ? "group" : share.to.startsWith(CHAT_SHARE_PREFIX) ? "chat" : "person";
       const group = labels.groups[share.to];
       people.push({
         to: share.to,
         kind,
-        name: kind === "everyone" ? "Everyone in this workspace" : kind === "group" ? group?.label ?? share.to.slice(1) : personName(share.to),
+        // A key given to one Tex group chat from its link (`lib/vaultChat.ts`): named by its people.
+        name: kind === "everyone" ? "Everyone in this workspace" : kind === "group" ? group?.label ?? share.to.slice(1) : kind === "chat" ? share.label ?? "A group chat" : personName(share.to),
         handle: kind === "person" ? labels.people[share.to]?.handle ?? null : null,
         count: kind === "everyone" ? labels.members : kind === "group" ? group?.count ?? 0 : null,
         level: share.level,
@@ -208,7 +209,7 @@ async function signedInMember(ctx: ActionCtx, workspaceId: Id<"workspaces">): Pr
 }
 
 /** Keys as Settings shows them, with every name they mention read once. */
-async function shownEntries(ctx: ActionCtx, workspaceId: Id<"workspaces">, caller: Caller, metas: { entryId: string; meta: ShownMeta; waiting?: number }[]) {
+export async function shownEntries(ctx: ActionCtx, workspaceId: Id<"workspaces">, caller: Caller, metas: { entryId: string; meta: ShownMeta; waiting?: number }[]) {
   const named = namedIn(metas.map((entry) => entry.meta));
   const labels = await ctx.runQuery(internal.functions.vaultPeople.labels, { workspaceId, ...named });
   return metas.map((entry) => entryFrom(entry.entryId, entry.meta, caller, labels, entry.waiting ?? 0));
@@ -294,7 +295,7 @@ export const allowVaultAI = action({
   },
 });
 
-const kindOf = (to: string) => (to === EVERYONE ? "the workspace" : to.startsWith("@") ? "a group" : "a person");
+const kindOf = (to: string) => (to === EVERYONE ? "the workspace" : to.startsWith("@") ? "a group" : to.startsWith(CHAT_SHARE_PREFIX) ? "a group chat" : "a person");
 
 /**
  * Give a key to a person, a group or the whole workspace (`to`: a user id,

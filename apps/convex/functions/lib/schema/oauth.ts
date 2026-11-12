@@ -204,6 +204,14 @@ export const oauthTables = {
          * Tex, so the grant is the binder's, clamped to that role, and acts for nobody's own account.
          */
         coInvitationIds: v.optional(v.array(v.id("workspaceInvitations"))),
+        /**
+         * The hashed access token of the newest turn an account holder tagged Tex for themselves (the grant's person, or a
+         * home-only grant's `taggerId`) (Dev2, 2026-11-12: a login
+         * they saved for themselves, "only me", is used in the chat on their own tag). Compared with the token a
+         * session presents, so a guest's or invited person's turn on the same grant, which acts through it, never
+         * counts as its person's own (`lib/controlPlane/session.ts` `texOwnTag`).
+         */
+        ownTagToken: v.optional(v.string()),
         invitedTaggerRole: v.optional(v.union(v.literal("editor"), v.literal("member"))),
         /**
          * A home-only grant (`lib/textGroupHomeOnly.ts`, decided by the owner, 2026-10-31): minted on the pinned

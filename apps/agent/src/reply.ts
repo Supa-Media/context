@@ -92,7 +92,9 @@ export type ReplyDeps = {
   /** Told when the reply is the model's answer, not one of the Worker's own fixed texts. */
   onAnswered?: () => void;
   /** Told when the turn texted a link to save a login (`vaultWatch.ts`); absent, nothing watches for the save. */
-  onVaultLink?: () => Promise<void>;
+  onVaultLink?: (links?: string[]) => Promise<void>;
+  /** Told when the turn texted a take-over link for its browser (`handbackWatch.ts`); absent, nothing watches for Done. */
+  onHandedOver?: (browser: string) => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[], choices: Choice[]) => void;
   /** Handed the data cards an answer offers (`dataCards.ts`); absent, none go. */
@@ -325,7 +327,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       await deps.warm?.keep(answer.warm);
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
-      if (answer.vaultWatch) await deps.onVaultLink?.();
+      if (answer.vaultWatch) await deps.onVaultLink?.(answer.vaultLinks);
+      if (answer.handbackWatch) await deps.onHandedOver?.(answer.handbackWatch);
       const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs, answer) : undefined;
       const notResumed = answer.steers ? await deps.onSteers?.(answer.steers, answer) : undefined;
       if (answer.steered) await deps.steer?.onSteered(answer.steered);

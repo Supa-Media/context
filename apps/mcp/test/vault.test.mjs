@@ -157,6 +157,33 @@ test("vault_list shows only the logins this person may use", async () => {
   assert.doesNotMatch(resultText(await toolVaultList(store)), /Netflix/);
 });
 
+test("vault_list shows every vault the connection reaches, each under its name, and only what may be used there", async () => {
+  // Dev2, 2026-11-12: a group chat's own home has no vault, and its list said "Nothing saved here yet" over a login
+  // saved in the chat's workspace, so Tex told the chat the login was never saved.
+  const home = memoryStore();
+  Object.defineProperty(home, "encryptionKey", { value: KEYS, enumerable: false });
+  home.actor = { workspaceId: "ws_home", userId: "user_a", workspaceKind: "shared" };
+  const team = await vaultWith();
+  const strangers = await vaultWith({ people: ["user_z"], userId: "user_b" });
+  const opened = [];
+  home.contexts = [{ name: "@home", current: true }, { name: "@team", current: false }, { name: "@strangers", current: false }, { name: "@gone", current: false }];
+  home.openContext = async (name) => {
+    opened.push(name);
+    if (name === "@team") return { store: team.store };
+    if (name === "@strangers") return { store: strangers.store };
+    throw new Error("not a member");
+  };
+  const listed = resultText(await toolVaultList(home));
+  assert.match(listed, /1 saved entry this person may use/);
+  assert.match(listed, /In @team:/);
+  assert.match(listed, new RegExp(team.id));
+  assert.doesNotMatch(listed, new RegExp(strangers.id), "another workspace's entry this person may not use stays unlisted");
+  assert.doesNotMatch(listed, /@strangers/);
+  assert.deepEqual(opened.sort(), ["@gone", "@strangers", "@team"], "only workspaces the grant lists are opened, never the current one again");
+  // A store opened for one named workspace has no openContext: it lists that vault alone, as before.
+  assert.doesNotMatch(resultText(await toolVaultList(team.store)), /In @/);
+});
+
 test("a personal workspace's logins are never offered for sharing", async () => {
   const { store, id } = await vaultWith({ workspaceKind: "personal" });
   let asked = false;

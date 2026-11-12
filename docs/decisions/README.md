@@ -392,6 +392,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The mobile app and the console](./app-and-console.md)
 
+- [Settings is one scrolling page, each row one line and one action](./app-and-console/settings-one-page.md#settings-is-one-scrolling-page-each-row-one-line-and-one-action-2026-11-12) (2026-11-12)
 - [Each unfinished feature has its own flag, and every flag expires](./app-and-console/feature-flags.md#each-unfinished-feature-has-its-own-flag-and-every-flag-expires-2026-11-08) (2026-11-08)
 - [Vault key use is launched, and the old switches are gone](./app-and-console/feature-flags.md#vault-key-use-is-launched-and-the-old-switches-are-gone-2026-11-08) (2026-11-08)
 - [The phone's account sheet is its own sheet, not the file menu](./app-and-console/native-app-shell.md#the-phones-account-sheet-is-its-own-sheet-not-the-file-menu-2026-11-06)
@@ -805,6 +806,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
 - [Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)](./texting-assistant/groups.md)
 - [A group's voice message is heard before the chat decides it is for Tex (2026-11-05)](./texting-assistant/groups.md)
+- [A group turn sees the numbers of the people in that chat (2026-11-12)](./texting-assistant/groups.md#a-group-turn-sees-the-numbers-of-the-people-in-that-chat-dev2-2026-11-12)
+- [Who is here is the message's own list (2026-11-12)](./texting-assistant/groups.md#who-is-here-is-the-messages-own-list-dev2-2026-11-12)
 - [A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)](./texting-assistant/group-guests.md)
 - [Group Tex keeps each chat's home in @context-lc, sealed from the people who run it (2026-10-31)](./texting-assistant/chat-homes.md)
 - [A group chat's history has one copy: the memory page in its home, kept in its Durable Object (2026-11-01)](./texting-assistant/group-memory-one-copy.md)

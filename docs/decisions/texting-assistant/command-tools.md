@@ -56,9 +56,13 @@ in regex in the texting Worker, and the model had no say and no tools.
   through the `tex_instructions` action, a note is never the settings, and it says
   only what a tool's answer says happened (`chatVoice.js` `SETTINGS_LINE`).
   The voice note says it is not the settings.
-- **A message for another assistant is not Tex's.** Named to another assistant
-  or bot (Instinct is in Tex Devs), and not to Tex: decide is told silent,
-  never a react (`textDecide.ts` `OTHER_ASSISTANT_RULE`), and so is the agent.
+- **Who a message is for is judged, never ruled by who sent it.** The rule
+  that a line another assistant wrote is not Tex's (`OTHER_ASSISTANT_RULE`) was
+  removed on 2026-11-12 (Dev2: "making a hard rule that tex shouldnt reply to a
+  bot is absurd"; it kept Tex out of a quiz Dev2 asked Instinct to give it).
+  The judge reads whose message a reply is under, Tex's open question and what
+  Tex is doing now (`textDecide.cjs` `CHAT_MARKS`), and learns the line from
+  invented examples on both sides of it.
 
 ## What a simplification would cost
 

@@ -29,6 +29,7 @@ import { logged } from "./agentError";
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
+import { carryOnAfterHandback } from "./handbackWatch";
 import { countInbound, type CountDataset } from "./textCounts";
 import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
@@ -42,7 +43,7 @@ import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, statusPath, threadContext, verifySendblueSecret } from "./sendblue";
-import { noteSendStatus, sendblueStatus, type SendStatus } from "./sendblueStatus";
+import { noteSendStatus, resendPlain, sendblueStatus, type SendStatus } from "./sendblueStatus";
 import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
 import { heardInGroup } from "./groupVoice";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
@@ -50,7 +51,7 @@ import { membersChanged } from "./groupMembers";
 import { flushWithReader } from "./chatRead";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { sha256Hex } from "./groupChat";
-import type { DueRoutine } from "./clients";
+import type { DueRoutine } from "./routineClients";
 import { textsSessionDeps, type TextsBinding } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
@@ -597,7 +598,10 @@ export class SenderInbox implements DurableObject {
     }
     if (path === "/page-jobs") return Response.json(await pageJobsOf(this.state.storage, Date.now()));
     if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
-    if (path === "/send-status") return Response.json({ outcome: await noteSendStatus(this.state.storage, (await request.json()) as SendStatus, Date.now()) });
+    if (path === "/send-status") {
+      const status = (await request.json()) as SendStatus;
+      return Response.json({ outcome: await noteSendStatus(this.state.storage, status, Date.now(), resendPlain(this.state.storage, this.deps(), Date.now)) });
+    }
     if (path === "/react") {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
@@ -630,6 +634,7 @@ export class SenderInbox implements DurableObject {
     await logged("alarm_ready", () => checkReady(this.state.storage, this.deps()));
     await logged("alarm_gmail", () => checkGmail(this.state.storage, this.deps()));
     await logged("alarm_carry_on", () => carryOnAfterSave(this.state.storage, this.deps()));
+    await logged("alarm_handed_back", () => carryOnAfterHandback(this.state.storage, this.deps()));
     // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
     await logged("alarm_review", () => checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) }));
     // A job's object has only `jobrun`; every other object finds nothing to run.

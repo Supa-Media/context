@@ -21,12 +21,12 @@ export { agentTextsRecheckHandler } from "./textRecheck";
 export { agentTextsDecideGateHandler, agentTextsDecideUsageHandler } from "./textDecideMeter";
 
 export {
+  CHAT_MARKS,
   FOR_TEX_RULE,
   decideRequest,
   MAX_CANDIDATES,
   MAX_TRANSCRIPT,
   MAX_WAITING_ASKS,
-  OTHER_ASSISTANT_RULE,
   readDecideAnswers,
   readDecideBody,
   STALE_AT,

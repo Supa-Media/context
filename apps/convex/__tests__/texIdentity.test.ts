@@ -133,6 +133,15 @@ describe("who is texting Tex", () => {
     expect(await identity(t, await grant(t, workspaceId, userId, "context_texts_group"), workspaceId)).toBeNull();
   });
 
+  test("the group asker route answers no one-person grant: it is a group chat's own tag alone", async () => {
+    const t = setupTest();
+    const { userId, workspaceId } = await person(t, "ada");
+    for (const client of [TEXTS_CLIENT_ID, "context_texts_group", "mcp_client_someone_else"]) {
+      const response = await gatewayPost(t, "/gateway/agent/identity", { accessToken: await grant(t, workspaceId, userId, client), asker: true });
+      expect(((await response.json()) as { identity: unknown }).identity).toBeNull();
+    }
+  });
+
   test("a grant on a shared workspace learns nobody", async () => {
     const t = setupTest();
     const { userId } = await person(t, "ada");

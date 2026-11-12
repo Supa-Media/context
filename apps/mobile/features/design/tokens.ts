@@ -32,6 +32,7 @@ export {
   pointerType,
   siteType,
   texPageType,
+  settingsHomeType,
   castKeyboardType,
   type TypeScale,
   touchType,

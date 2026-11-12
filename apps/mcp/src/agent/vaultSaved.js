@@ -20,21 +20,57 @@ export const VAULT_SAVED_QUESTION =
   "Carry on with the task you needed it for straight away, using it (check fetch vault: for its id); don't ask whether they saved it or wait for them to text. " +
   "Text them what you did or found, as you would have once they said it was saved.)";
 
-/** The question for a turn the body names as the vault event, or null for any other turn. */
+/**
+ * The question for a turn the body names as the vault event, or null for any
+ * other turn. `texting` is a person's own 1:1 turn or a group chat's (Dev2,
+ * 2026-11-12: a save on a link Tex sent in the Crystal Care chat carried
+ * nothing on): both come only from the texting Worker's own grants.
+ */
 export function vaultSavedQuestion(body, { texting, job }) {
   if (!texting || job !== null) return null;
   return body?.event === "vault_saved" ? VAULT_SAVED_QUESTION : null;
 }
 
+/** Most links one turn asks the Worker to watch. */
+export const MAX_WATCHED_LINKS = 5;
+
 /**
  * Marks the turn's ledger (`vaultLink`) when it minted a link to save
- * something, so its answer can ask the Worker to watch for the save. A flag
- * only: the link itself stays in the answer the model wrote.
+ * something, so its answer can ask the Worker to watch for the save, and
+ * keeps each link's token hashed (`vaultLinks`), as the control plane keys
+ * it: the chat that texted a link watches that link alone, so a save wakes
+ * the chat that asked for it (Dev2, 2026-11-12). Never the token itself:
+ * the link stays in the answer the model wrote.
  */
 export function withVaultWatch(ledger, callTool) {
   return async (name, args) => {
     const result = await callTool(name, args);
-    if (name === "vault_add_link" && result?.isError !== true) ledger.vaultLink = true;
+    if (name === "vault_add_link" && result?.isError !== true) {
+      ledger.vaultLink = true;
+      const hashed = await linkHash(result);
+      if (hashed !== null && !(ledger.vaultLinks ??= []).includes(hashed) && ledger.vaultLinks.length < MAX_WATCHED_LINKS) ledger.vaultLinks.push(hashed);
+    }
     return result;
   };
+}
+
+/** The SHA-256 of the `/vault/<token>` link in a tool's answer, hex, as the control plane hashes it; null when none. */
+export async function linkHash(result) {
+  const text = (Array.isArray(result?.content) ? result.content : []).map((part) => (typeof part?.text === "string" ? part.text : "")).join("\n");
+  const token = /\/vault\/([0-9a-f]{32,128})(?=[?#\s]|$)/.exec(text)?.[1];
+  if (token === undefined) return null;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * In a group chat whose grant reads its home and reaches one shared workspace, a link to save something goes to
+ * that workspace's vault without asking which (Dev2, 2026-11-12: Tex asked "which vault?" in the Crystal Care chat;
+ * "you should've just assumed"). A call that names a context keeps it; with several in reach the model picks, and
+ * asks only when the chat's words don't say. Every other turn is untouched.
+ */
+export function withGroupVault(group, callTool) {
+  const reach = Array.isArray(group?.reach) ? group.reach : [];
+  if (reach.length !== 1) return callTool;
+  return (name, args) => (name === "vault_add_link" && (args?.context === undefined || args.context === "") ? callTool(name, { ...args, context: `@${reach[0]}` }) : callTool(name, args));
 }

@@ -85,6 +85,7 @@ describe("the gateway's answer", () => {
   test("the routes are on the gateway's origin", () => {
     expect(texComputerEndpoint("https://mcp.context.lc/mcp", "frame")).toBe("https://mcp.context.lc/tex/computer");
     expect(texComputerEndpoint("https://mcp.context.lc/mcp", "input")).toBe("https://mcp.context.lc/tex/computer/input");
+    expect(texComputerEndpoint("https://mcp.context.lc/mcp", "done")).toBe("https://mcp.context.lc/tex/computer/done");
     expect(texComputerEndpoint("https://mcp.context.lc/mcp", "stop")).toBe("https://mcp.context.lc/tex/computer/stop");
     expect(texComputerEndpoint("not a url", "frame")).toBeNull();
     expect(texHref("seyi")).toBe("/tex/@seyi");

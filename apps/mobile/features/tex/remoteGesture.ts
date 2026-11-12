@@ -2,10 +2,13 @@
  * What a finger on `/tex/<handle>`'s remote screen means, as Chrome Remote
  * Desktop on a phone reads it. Two modes, chosen from the top bar:
  *
- *  - **trackpad** (the default): one finger drags the cursor by how far it
- *    moves, not to where it is; a tap clicks wherever the cursor is.
- *  - **touch**: a tap clicks where it lands and puts the cursor there; one
- *    finger dragged pans the zoomed picture.
+ *  - **touch** (the default since 2026-11-12): a tap clicks where it lands
+ *    and puts the cursor there; one finger dragged pans the zoomed picture.
+ *    What a person handed the browser does there is tap: a captcha's
+ *    pictures, a code box, a button (the owner: "make sure the browser page
+ *    is actually useful and easy to use on a phone").
+ *  - **trackpad**: one finger drags the cursor by how far it moves, not to
+ *    where it is; a tap clicks wherever the cursor is.
  *
  * In both, two fingers either pinch, zooming the picture about their
  * midpoint, or drag together, scrolling the page under the cursor. Which one

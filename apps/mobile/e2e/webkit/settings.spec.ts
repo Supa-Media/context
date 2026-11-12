@@ -103,6 +103,15 @@ const ACCOUNT_MENU = "@seyi — account menu";
 /** `MenuItem.testID` for the Settings row in that menu, Sheet and Popover alike. */
 const ACCOUNT_SETTINGS = "account-settings";
 
+/**
+ * Opens a section's "More" on the settings home, where the pages people
+ * rarely open are folded (the one-page home, 2026-11-12). A pushed section
+ * unmounts the home, so a test coming Back opens it again.
+ */
+async function openMore(page: Page, section: string): Promise<void> {
+  await page.getByTestId(`settings-more-${section}`).click();
+}
+
 async function openConsole(page: Page): Promise<void> {
   await page.goto("/e2e-fixture");
   /*
@@ -161,6 +170,7 @@ test("a phone opens settings on its list, and a row pushes its page", async ({ p
   await expect(page.getByTestId("overview-identity")).toHaveCount(0);
 
   // General is a row like the rest, and Back from it is the list again.
+  await openMore(page, "workspace");
   await page.getByTestId("settings-section-workspace").tap();
   await expect(page.getByRole("heading", { name: "General", exact: true })).toBeVisible();
   // The kind is a row in the facts card under the name, matched by testID
@@ -173,6 +183,7 @@ test("a phone opens settings on its list, and a row pushes its page", async ({ p
 
   // And a row from the list draws its own section, which is the `onSelect`
   // wiring the fixture stands in for `router.setParams({ settings })` with.
+  await openMore(page, "workspace");
   await page.getByTestId("settings-section-storage").tap();
   await expect(page.getByText(/Plain files in storage you own/)).toBeVisible();
   await expect(page.getByTestId("settings-sections")).toHaveCount(0);
@@ -201,6 +212,7 @@ test("the phone's section labels are left-aligned, not centred", async ({ page }
     it, so a centring bug cannot show on them. The rows that break are exactly
     the ones with nothing to absorb it.
   */
+  await openMore(page, "workspace");
   const rows = page.locator('[data-testid^="settings-section-"]');
   const count = await rows.count();
   // The list is the account sections plus the open context's own, which is
@@ -247,8 +259,9 @@ test("the plugins search box is not squeezed by its filters on a phone", async (
     row is here for the reason a real user's would be — `pluginsInUse`, not the
     experiment flag, which this build deliberately leaves unset. If this line
     ever fails to find the row, check the fixture's plugin views before
-    changing the selector.
+    changing the selector. It sits under the workspace's "More".
   */
+  await openMore(page, "workspace");
   await page.getByTestId("settings-section-plugins").tap();
 
   const field = page.getByTestId("plugins-query");
@@ -273,35 +286,29 @@ test("the plugins search box is not squeezed by its filters on a phone", async (
 test.describe("at a pointer width", () => {
   test.use({ viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false });
 
-  test("the list and the panel are on screen together", async ({ page }) => {
+  test("opened plainly it is the one-page home, and a row pushes its page", async ({ page }) => {
     await openConsole(page);
     /*
       The switcher's own menu, which is where the rail's gear went. Two presses
       — open it, then choose — and `hasTouch: false` above rules the coordinate
       helper out, so both are plain clicks.
 
-      See the header for the two controls this replaces and why each was right
-      when it was written.
+      No sidebar since the one-page home (Dev2, 2026-11-12): a wide window
+      opens on the home, the way a phone does, and a section is a page over it
+      with the way back named in the bar.
     */
     await page.getByTestId("account-switcher").click();
     await page.getByTestId("switcher-settings").click();
 
-    // Both at once, which is the whole difference from the phone: no Back,
-    // because there is no level to pop.
     await expect(page.getByTestId("settings-sections")).toBeVisible();
-    await expect(page.getByTestId("overview-identity")).toBeVisible();
+    await expect(page.getByTestId("overview-identity")).toHaveCount(0);
     await expect(page.getByTestId("settings-overlay-back")).toHaveCount(0);
 
-    // The list really is beside the panel rather than above it — the sidebar
-    // ends before the panel's content begins.
-    const list = await page.getByTestId("settings-sections").boundingBox();
-    const panel = await page.getByTestId("overview-identity").boundingBox();
-    if (list === null || panel === null) throw new Error("no box for the list or the panel");
-    expect(panel.x).toBeGreaterThan(list.x + list.width);
-
-    // A section from the list swaps the panel and leaves the list standing.
+    await openMore(page, "workspace");
     await page.getByTestId("settings-section-storage").click();
     await expect(page.getByText(/Plain files in storage you own/)).toBeVisible();
+    await expect(page.getByTestId("settings-sections")).toHaveCount(0);
+    await page.getByTestId("settings-overlay-back").click();
     await expect(page.getByTestId("settings-sections")).toBeVisible();
   });
 
@@ -336,9 +343,10 @@ test.describe("at a pointer width", () => {
 
     // And the section list starts at the very left, rather than at the edge
     // of a floating card — the cheapest way to tell the two apart by eye.
-    const list = await page.getByTestId("settings-sections").boundingBox();
-    if (list === null) throw new Error("no box for the list");
-    expect(list.x).toBeLessThan(24);
+    // The page's one column sits in the middle of the window, not in a corner.
+    const title = await page.getByTestId("settings-home-title").boundingBox();
+    if (title === null) throw new Error("no box for the title");
+    expect(title.x).toBeGreaterThan(viewport.width / 4);
   });
 });
 
@@ -367,6 +375,7 @@ test.describe("back from Stripe", () => {
     await tap(page, ACCOUNT_MENU);
     await page.getByTestId(ACCOUNT_SETTINGS).tap();
     await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    await openMore(page, "workspace");
     await page.getByTestId("settings-section-premium").tap();
 
     const notice = page.getByTestId("premium-checkout-return");
@@ -393,6 +402,7 @@ test.describe("back from Stripe", () => {
     await page.getByTestId("note-scroll").waitFor();
     await tap(page, ACCOUNT_MENU);
     await page.getByTestId(ACCOUNT_SETTINGS).tap();
+    await openMore(page, "workspace");
     await page.getByTestId("settings-section-premium").tap();
 
     const notice = page.getByTestId("premium-checkout-return");
@@ -408,6 +418,7 @@ test.describe("back from Stripe", () => {
     await tap(page, ACCOUNT_MENU);
     await page.getByTestId(ACCOUNT_SETTINGS).tap();
     await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    await openMore(page, "workspace");
     await expect(page.getByTestId("settings-section-storage")).toBeVisible();
     await expect(page.getByTestId("settings-section-premium")).toHaveCount(0);
     await expect(page.getByTestId("premium-checkout-return")).toHaveCount(0);

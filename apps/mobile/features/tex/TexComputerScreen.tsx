@@ -14,7 +14,8 @@ import { HAND_BACK_NOTICE, hostOf, resolveTexPage, texHref, type TexAction, type
 import { useTexComputer, type TexComputerState } from "./useTexComputer";
 import type { InputMode } from "./remoteGesture";
 import { TexRemoteStage } from "./TexRemoteStage";
-import { SendTextBar, TexToolbar, type TexMenuId } from "./TexRemoteChrome";
+import { SendTextBar, TexBottomBar, TexToolbar, type TexMenuId } from "./TexRemoteChrome";
+import { DoneButton, TexTakesOver, type HandBack } from "./TexHandBack";
 
 /**
  * `/tex/<handle>`: Tex's browser, as Chrome Remote Desktop shows a computer on
@@ -58,20 +59,35 @@ function TexComputerPage({ view, computer }: { view: TexPageView; computer: TexC
   const styles = useThemedStyles(makeStyles);
   const [control, setControl] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [mode, setMode] = useState<InputMode>("trackpad");
+  // Touch first: a tap lands where the finger is, as a captcha's pictures need (`remoteGesture.ts`).
+  const [mode, setMode] = useState<InputMode>("touch");
   const [keyboard, setKeyboard] = useState(true);
   const [focus, setFocus] = useState(false);
+  const [handBack, setHandBack] = useState<HandBack>("idle");
   const { send } = computer;
 
-  // Any touch that does something takes control: there is no button for it.
+  // Any touch that does something takes control: there is no button for it. A touch after Done takes it back.
   const act = useCallback(
     (action: TexAction) => {
       setControl(true);
       setNotice(null);
+      setHandBack("idle");
       send(action);
     },
     [send],
   );
+
+  // Done tells Tex at once, in the chat that asked (`apps/mcp/src/http/texComputer.js`); failing that, text it "done".
+  const done = useCallback(() => {
+    setControl(false);
+    setNotice(null);
+    setHandBack("sending");
+    dismissKeyboard();
+    void computer.handBack().then((ok) => {
+      setHandBack(ok ? "back" : "idle");
+      if (!ok) setNotice(HAND_BACK_NOTICE);
+    });
+  }, [computer]);
 
   if (view.kind === "wait" || view.kind === "signIn") return <View style={styles.ground} />;
   if (view.kind === "notFound" || view.kind === "notYours" || computer.phase === "notYours") {
@@ -91,7 +107,9 @@ function TexComputerPage({ view, computer }: { view: TexPageView; computer: TexC
 
   const frame = computer.frame?.running ? computer.frame : null;
   const status =
-    frame !== null
+    frame !== null && handBack === "back"
+      ? { tone: "ok" as const, label: "Tex is driving", where: hostOf(frame.url) || null }
+      : frame !== null
       ? { tone: control ? ("warn" as const) : ("ok" as const), label: control ? "You're in control" : "Live", where: hostOf(frame.url) || null }
       : computer.phase === "loading"
         ? { tone: "neutral" as const, label: "Looking for Tex's browser", where: null }
@@ -100,7 +118,7 @@ function TexComputerPage({ view, computer }: { view: TexPageView; computer: TexC
   const onMenu = (id: TexMenuId) => {
     setControl(false);
     dismissKeyboard();
-    if (id === "handBack") setNotice(HAND_BACK_NOTICE);
+    if (id === "handBack") done();
     else computer.stop();
   };
 
@@ -122,9 +140,15 @@ function TexComputerPage({ view, computer }: { view: TexPageView; computer: TexC
       />
       {frame !== null ? (
         <View style={styles.body} testID={control ? "tex-control" : "tex-live"}>
-          <TexRemoteStage frame={frame} mode={mode} onAction={act} />
-          {notice !== null ? <Notice text={notice} /> : null}
-          {keyboard ? <SendTextBar send={act} focus={focus} /> : null}
+          <View style={styles.body}>
+            <TexRemoteStage frame={frame} mode={mode} onAction={act} />
+            {handBack === "back" ? <TexTakesOver /> : null}
+            {notice !== null ? <Notice text={notice} /> : null}
+          </View>
+          <TexBottomBar>
+            <DoneButton state={handBack} onPress={done} />
+            {keyboard ? <SendTextBar send={act} focus={focus} /> : null}
+          </TexBottomBar>
         </View>
       ) : computer.phase === "loading" ? (
         <View style={styles.centre}>
@@ -145,7 +169,7 @@ function Off({ failed, notice }: { failed: boolean; notice: string | null }) {
         body={
           failed
             ? "Try again in a moment. Nothing on it was changed."
-            : "When Tex needs you to sign in somewhere, it texts you this page. Open it then to see its browser and take over."
+            : "When Tex needs you for a step only you can do, like a sign-in or a picture check, it texts you this page. Open it then to see its browser and take over."
         }
       />
       {notice !== null ? <Notice text={notice} /> : null}

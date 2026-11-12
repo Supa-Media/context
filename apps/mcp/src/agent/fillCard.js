@@ -20,6 +20,7 @@ import { isEntryId, readMeta, siteMatches } from "../vault/entries.js";
 import { CARD_PARTS, cardLabel, cardPartValue } from "../vault/card.js";
 import { payAllowed, payTotal } from "../vault/pay.js";
 import { actorMayUse } from "../vault/access.js";
+import { vaultHolding } from "../vault/reach.js";
 
 export const FILL_CARD_TOOL = "fill_card";
 
@@ -48,7 +49,7 @@ export const FILL_CARD_DEFINITION = {
       cvc_ref: { type: "integer", description: "The security code (CVC) box." },
       name_ref: { type: "integer", description: "The name-on-card box, when the page has one." },
       postal_code_ref: { type: "integer", description: "The billing ZIP or postcode box, when the page has one." },
-      context: { type: "string", description: "The workspace the card is saved in, like @team, when it is not the person's own." },
+      context: { type: "string", description: "The workspace the card is saved in, like @team; left out, the card is found in whichever workspace's vault holds it." },
     },
     required: ["entry", "total", "number_ref"],
   },
@@ -98,15 +99,10 @@ export function fillCardTool(browser, store, { asks = null } = {}) {
       if (origin === null || !origin.startsWith("https://")) return text("Open the checkout's payment page with send action browse first.", true);
       const host = new URL(origin).hostname;
 
-      let vault = store;
-      if (typeof args.context === "string" && args.context.trim() !== "") {
-        try {
-          vault = (await store.openContext(args.context.trim())).store;
-        } catch {
-          vault = null;
-        }
-        if (!vault) return text(REFUSED.not_found, true);
-      }
+      // Whichever vault the turn reaches holds it, the named one first (`vault/reach.js`): a login saved in the group's
+      // shared workspace was "no such login" from the chat's own home (Dev2, 2026-11-12).
+      const vault = await vaultHolding(store, args.entry, args.context);
+      if (!vault) return text(REFUSED.not_found, true);
       const meta = vault?.encryptionKey ? await readMeta(vault, vault.encryptionKey, vault.actor?.workspaceId, args.entry) : null;
       if (meta === null || meta.type !== "card" || !actorMayUse(meta, vault.actor)) return text(REFUSED.not_found, true);
       // A card saved for its sites is never asked about anywhere else; `fill.js` checks again as it opens.

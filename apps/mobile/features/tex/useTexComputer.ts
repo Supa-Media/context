@@ -20,6 +20,8 @@ export interface TexComputerState {
   /** One action, sent after every action sent before it has answered: text, then its Enter. */
   send: (action: TexAction) => void;
   stop: () => void;
+  /** Done on the take-over screen: tells Tex its browser is handed back, so it carries on. True once the gateway took it. */
+  handBack: () => Promise<boolean>;
 }
 
 /**
@@ -53,7 +55,7 @@ export function useTexComputer(options: {
   const pending = useRef(0);
 
   const request = useCallback(
-    async (route: "frame" | "input" | "stop", extra: Record<string, unknown> = {}) => {
+    async (route: "frame" | "input" | "stop" | "done", extra: Record<string, unknown> = {}) => {
       const url = endpoint === null ? null : texComputerEndpoint(endpoint, route);
       if (url === null || workspaceId === null || handle === null) return null;
       const call = async (refresh: boolean | { rejected: string }) => {
@@ -158,5 +160,12 @@ export function useTexComputer(options: {
     });
   }, [request]);
 
-  return { phase, frame, busy, send, stop };
+  // Done waits on every action before it, so the last tap has landed before Tex looks again.
+  const handBack = useCallback(async () => {
+    await queue.current;
+    const answer = await request("done");
+    return answer?.status === 200 && (answer.body as { handedBack?: unknown } | null)?.handedBack === true;
+  }, [request]);
+
+  return { phase, frame, busy, send, stop, handBack };
 }

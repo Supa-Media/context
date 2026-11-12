@@ -152,3 +152,17 @@ test("a failed browser step is the retry notice's, not a reason to try other sit
   const notice = claims.check("I can't tell you whether the order went through yet.");
   assert.notEqual(notice, otherSitesNotice({ sites: 1, canBrowse: true }));
 });
+
+test("a web call missing its words says what it needs, never that none were written", async () => {
+  // Nov Babies, 2026-11-12: "Write a short search query." answered a call whose query had been dropped on the way.
+  const searched = [];
+  const session = webSession({ async readPage() { return null; } }, "plans", { search: { async search(query) { searched.push(query); return []; } } });
+  const empty = await session.call("search_web", {});
+  assert.equal(empty.isError, true);
+  assert.match(empty.content[0].text, /args: \{ query:/);
+  const long = await session.call("search_web", { query: "x".repeat(400) });
+  assert.match(long.content[0].text, /too long/);
+  assert.deepEqual(searched, []);
+  const noUrls = await session.call("open_page", {});
+  assert.match(noUrls.content[0].text, /args: \{ urls:/);
+});

@@ -15,6 +15,11 @@ import { withEmailFiles } from "../emailFiles.js";
 import { withFolderFit } from "../folderFit.js";
 import { chatLines, commandTools, consentForTurn, groupAwareCallTool, groupPrompt, settingsChanged, taggedLine } from "../groupTurn.js";
 import { computerTools } from "../../machines/texActions.js";
+import { settingsSnapshot, settingsTools } from "../settingsTools.js";
+import { personalTexTool } from "../askPersonalTex.js";
+
+/** A group turn's ask of the tagger's personal Tex (`askPersonalTex.js`), when it has one. */
+const personalTex = (tool) => (tool === null ? [] : [tool]);
 import { judgeFor } from "../../privacy/judge.js";
 import { withKeptFiles } from "../keptFiles.js";
 import { learnedSkillsLine, withLearnedSkills } from "../learnedSkills.js";
@@ -42,7 +47,7 @@ import { threadPrompt } from "../threadView.js";
 import { sleepLineNote } from "../timeLog.js";
 import { agentTools, runTurn } from "../turn.js";
 import { chatHubUrl, hubPrompt } from "../hubLinks.js";
-import { withVaultWatch } from "../vaultSaved.js";
+import { withGroupVault, withVaultWatch } from "../vaultSaved.js";
 import { doItChecks } from "../doItChecks.js";
 import { replyJudge } from "../replyJudge.js";
 import { threadsSortAndWrite } from "../conversationThreads.js";
@@ -99,12 +104,12 @@ export async function runTheModel(t) {
     // A group turn's tool start goes down the stream as a step line: the Worker taps the asked message once on the first (`groupModelTurn.ts`).
     ...(group !== null && job === null && typeof step === "function" ? { onToolStart: (name) => void Promise.resolve(step(name)).catch(() => {}) } : {}),
     answerCheck: judge?.check ?? doIt?.check ?? claims?.check ?? tries?.check ?? null, endsTurn: background?.endsTurn ?? null, sayNothing: job === null && group?.tagged !== true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
-    callTool: allowedFirst(tex.lean ? allowedRead : null, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
+    callTool: allowedFirst(tex.lean ? allowedRead : null, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
         withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), groupWriting, { store, group, outside: () => ledger.outside === true }) : textingAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
       ))),
-    ))))))),
+    )))))))),
     pictures: texted || group !== null,
     attachments,
     env,
@@ -125,7 +130,7 @@ export async function runTheModel(t) {
     // Per text, so said in their turn after the cached prefix (`turnPrompt.js`): who tagged it, the thread, the jobs running now, whether their computers are online.
     turnNote: [group !== null ? taggedLine(group) : "", threaded?.note ?? "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), background?.runningNow ?? "", job === null ? computersLine(computers, { planning }) : ""].map((part) => part.trim()).filter(Boolean).join("\n\n"),
     threadNote: (group !== null ? groupPrompt(group, home) : "") + learnedSkillsLine(learned) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobAdvisorLine(job, advising) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
-    local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(threaded?.read_thread ? [threaded.read_thread] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && job === null && !routine ? computerTools({ env, session, controlPlane, group, words: question, judge: judgeFor(env) }) : []), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
+    local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(threaded?.read_thread ? [threaded.read_thread] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env), snapshot: () => settingsSnapshot({ session, controlPlane, group, dispatch }) }) : []), ...(chatTurn && job === null && !routine ? computerTools({ env, session, controlPlane, group, words: question, judge: judgeFor(env) }) : []), ...(chatTurn && job === null && !routine ? settingsTools({ session, controlPlane, group, dispatch, words: question, judge: judgeFor(env), onInvite: (invite) => void (ledger.chatInvite = invite) }) : []), ...personalTex(chatTurn && job === null && !routine ? personalTexTool({ group, ledger, say: channel ? (line) => channel.say(line) : null, asker: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }) : null), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
     localNow: { now: Date.now(), timeZone },
