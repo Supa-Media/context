@@ -30,6 +30,17 @@ import { readHub, readStartedJobs, readSteers, type JobAsk, type StepHow, type J
 import type { TexEvent } from "./events";
 import { watchedLinks } from "./vaultWatch";
 
+/** A group's people invited to a workspace after the answer (`groupInvite.ts`, the gateway's `chat_add_everyone`). */
+export type ChatInvite = { slug: string; role: "editor" | "member" };
+
+/** The answer's `invite`, or null for anything else. */
+export function readInvite(value: unknown): ChatInvite | null {
+  if (value === null || typeof value !== "object") return null;
+  const { slug, role } = value as { slug?: unknown; role?: unknown };
+  if (typeof slug !== "string" || !/^[a-z0-9][a-z0-9-]{1,63}$/.test(slug)) return null;
+  return { slug, role: role === "member" ? "member" : "editor" };
+}
+
 /** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
 export const MAX_WARM_CHARS = 1_500_000;
 
@@ -236,7 +247,7 @@ export type AgentAnswer =
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
   /** `heard`, `sent`: what the person said aloud this turn, and the gateway's line naming the files they sent: jobs it starts, changes or restarts get them beside their typed words (`jobs.ts` `jobQuestion`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; invite?: ChatInvite; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -404,6 +415,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
       ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(body.untrusted === true ? { untrusted: true as const } : {}), ...(body.idle === true ? { idle: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`apps/mcp/src/agent/jobCheck.js`); `untrusted`: it read from outside (`route.js`)
+      ...(readInvite(body.invite) !== null ? { invite: readInvite(body.invite)! } : {}), // a group's people invited to a workspace, after the answer (`groupInvite.ts`)
       ...(body.vaultWatch === true ? { vaultWatch: true as const, ...(watchedLinks(body.vaultLinks).length > 0 ? { vaultLinks: watchedLinks(body.vaultLinks) } : {}) } : {}),
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),

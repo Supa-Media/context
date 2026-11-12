@@ -139,3 +139,20 @@ test("send tex_settings reads the instructions and every other setting together"
   assert.match(answer.content[0].text, /Instructions: "no emoji"\. Sharing their finished chats with the Context team: on\./);
   assert.match(answer.content[0].text, /Check-ins: on; quiet hours: none\./);
 });
+
+test("in a group, \"share @studio with everyone here\" queues the invitation for after the answer, on their own words", async () => {
+  const queued = [];
+  const tools = (words, judge = null) => settingsTools({ session, controlPlane: null, group: { key: "k" }, dispatch: null, words, judge, onInvite: (invite) => queued.push(invite) });
+  const quiet = byName(tools("what's for dinner"), "chat_add_everyone");
+  assert.equal((await quiet.call({ workspace: "@studio" })).isError, true);
+  assert.deepEqual(queued, []);
+  const judged = byName(tools("share @studio with everyone here", async () => ({ allow: false })), "chat_add_everyone");
+  assert.equal((await judged.call({ workspace: "@studio" })).isError, true, "the judge's no holds");
+  const asked = byName(tools("share @studio with everyone here, read only"), "chat_add_everyone");
+  assert.equal((await asked.call({ workspace: "@../evil" })).isError, true);
+  assert.equal((await asked.call({ workspace: "@Studio", as: "members" })).isError, undefined);
+  assert.equal((await asked.call({ workspace: "@other" })).isError, true, "one workspace a turn");
+  assert.deepEqual(queued, [{ slug: "studio", role: "member" }]);
+  assert.equal(byName(settingsTools({ session, controlPlane: null, group: null, dispatch: null, words: "share @studio with everyone", onInvite: () => {} }), "chat_add_everyone"), undefined, "never in a 1:1");
+  assert.equal(byName(settingsTools({ session, controlPlane: null, group: { key: "k", guestTagger: true }, dispatch: null, words: "share @studio with everyone", onInvite: () => {} }), "chat_add_everyone"), undefined, "never on a guest's tag");
+});

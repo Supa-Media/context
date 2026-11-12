@@ -40,7 +40,7 @@ type World = {
 
 function deps(
   world: World,
-  answers: { control?: unknown; agent?: unknown; agentStatus?: number; stream?: string[]; decide?: (body: Decide) => unknown } = {},
+  answers: { control?: unknown | ((body: Record<string, unknown>, ready: unknown) => unknown); agent?: unknown; agentStatus?: number; stream?: string[]; decide?: (body: Decide) => unknown } = {},
 ): GroupDeps {
   let membersRead = 0;
   let handles = 0;
@@ -71,7 +71,8 @@ function deps(
     if (path === "/agent/events") return Response.json({ written: body.events.map((event: { id: string }) => event.id) });
     if (path === "/agent-texts/group") {
       world.control.push(body);
-      return Response.json(answers.control ?? { status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" });
+      const ready = { status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" };
+      return Response.json(typeof answers.control === "function" ? answers.control(body, ready) : answers.control ?? ready);
     }
     if (path === "/agent") {
       world.asks.push(body);
@@ -640,6 +641,33 @@ describe("adding everyone here (invited family)", () => {
     expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.invited("crystal-care", 2, "editor")]);
     expect(GROUP_LINES.invited("crystal-care", 2, "editor")).toContain("invited 2 people here to @crystal-care as editors");
     expect(w.asks).toEqual([]);
+  });
+
+  // Dev2, 2026-11-12: "hey share x workspace with everyone here" in any words: the turn asks for it, and the
+  // invitation goes as its asker once the answer has (`groupInvite.ts`).
+  it("an invitation the turn asked for goes as its asker after the answer, and its line follows", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    const control = (body: Record<string, unknown>, ready: unknown) =>
+      (body.command as { kind?: string } | undefined)?.kind === "invite" ? { status: "invited", slug: "studio", count: 1, role: "member" } : ready;
+    await acceptGroup(storage, message("Tex can you share @studio with everyone here, read only"), 0);
+    await drainGroup(storage, deps(w, { control, agent: { answer: "Adding everyone here to @studio.", invite: { slug: "studio", role: "member" } } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual(["Adding everyone here to @studio.", GROUP_LINES.invited("studio", 1, "member")]);
+    const asked = w.control.at(-1)!;
+    expect(asked).toMatchObject({ sender: ADA, command: { kind: "invite", slug: "studio", role: "member" } });
+  });
+
+  it("an invitation the asker can't make is said, and a bad one is never sent", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    const control = (body: Record<string, unknown>, ready: unknown) => ((body.command as { kind?: string } | undefined)?.kind === "invite" ? { status: "not_allowed", slug: "studio" } : ready);
+    await acceptGroup(storage, message("Tex share @studio with everyone", { from: BO }), 0);
+    await drainGroup(storage, deps(w, { control, agent: { answer: "On it.", invite: { slug: "studio" } } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual(["On it.", GROUP_LINES.notOwner("studio")]);
+    const v = world();
+    await acceptGroup(storage, message("Tex share it", { messageId: "h_2" }), 0);
+    await drainGroup(storage, deps(v, { control, agent: { answer: "Hm.", invite: { slug: "../evil" } } }));
+    expect(v.control.some((body) => body.command !== undefined)).toBe(false);
   });
 
   it("tells a non-owner only an owner can add people", async () => {
