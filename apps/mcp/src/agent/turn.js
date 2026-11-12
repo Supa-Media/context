@@ -91,8 +91,8 @@ function roundsFor(maxRounds, cap = MAX_ROUNDS) {
 // refused: 215 times in one benchmark run (2026-10-09).
 const WITHHELD_FROM_AGENT = new Set(["rotate_encryption_keys", "search", "fetch"]);
 
-/** The longest question this route accepts. */
-export const MAX_QUESTION_LENGTH = 8000;
+/** The longest question this route accepts: above a text the log keeps whole (`log.js` `MAX_EVENT_TEXT`), with room for what the Worker adds. */
+export const MAX_QUESTION_LENGTH = 24_000;
 
 /**
  * How long one tool call may take before the model is told it failed.
