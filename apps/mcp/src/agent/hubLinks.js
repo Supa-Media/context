@@ -35,6 +35,17 @@ export function groupHubUrl(env, folder) {
   return origin !== null && words !== undefined ? `${origin}/tex/group/${words}` : null;
 }
 
+/**
+ * The page a group chat's browser is handed over on: its Tex page's computer
+ * view, full screen as a person's own handoff opens (`texViewerUrl`), where anyone in the chat signed in to Context watches and drives the
+ * chat's own browser (`http/texComputer.js` with `chat`). Null with no home,
+ * and then nothing is handed over (`canHandOff`).
+ */
+export function groupViewerUrl(env, group) {
+  const hub = group === null || group === undefined ? null : groupHubUrl(env, group.home?.folder);
+  return hub === null ? null : `${hub}/computer?full=1`;
+}
+
 /** The hub for this turn's chat: the group's when it is a group turn, else the person's own. */
 export function chatHubUrl(env, session, group) {
   if (group !== null && group !== undefined) return groupHubUrl(env, group.home?.folder);

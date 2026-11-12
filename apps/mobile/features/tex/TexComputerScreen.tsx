@@ -58,7 +58,8 @@ function TexComputerPage({ view, computer }: { view: TexPageView; computer: TexC
   const styles = useThemedStyles(makeStyles);
   const [control, setControl] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [mode, setMode] = useState<InputMode>("trackpad");
+  // Touch first: a tap lands where the finger is, as a captcha's pictures need (`remoteGesture.ts`).
+  const [mode, setMode] = useState<InputMode>("touch");
   const [keyboard, setKeyboard] = useState(true);
   const [focus, setFocus] = useState(false);
   const { send } = computer;
@@ -145,7 +146,7 @@ function Off({ failed, notice }: { failed: boolean; notice: string | null }) {
         body={
           failed
             ? "Try again in a moment. Nothing on it was changed."
-            : "When Tex needs you to sign in somewhere, it texts you this page. Open it then to see its browser and take over."
+            : "When Tex needs you for a step only you can do, like a sign-in or a picture check, it texts you this page. Open it then to see its browser and take over."
         }
       />
       {notice !== null ? <Notice text={notice} /> : null}

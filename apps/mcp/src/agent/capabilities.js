@@ -117,7 +117,7 @@ export const CAPABILITIES = Object.freeze([
       {
         where: "everywhere",
         what: "type a code you weren't texted, solve a captcha you can't get past, pass a passkey only their own device holds, or pay without them",
-        workaround: { kind: "link", text: "add a handoff step in browse: they get a link to your browser and do only that step, then you carry on; if they've said they won't take the browser, say exactly the one step they do" },
+        workaround: { kind: "link", text: "add a handoff step in browse: they get a link to your browser (in a group chat, the chat's own Tex page, for anyone here signed in to Context) and do only that step, then you carry on; with no link, or if they've said they won't take the browser, keep the browser where it got to and say the one step left, never the whole form again" },
       },
     ],
   },
@@ -126,7 +126,7 @@ export const CAPABILITIES = Object.freeze([
     actions: ["send.search_web", "send.open_page", "send.browse", "send.travel_time"],
     texts: "search the web, read pages, drive a real browser (sign in, fill forms, book, buy on their yes), attach a file from their notes, a picture they texted or an email's attachment to a page, save a file a site offers into their notes, get travel times from Google Maps, and sign your browser out of every site when they ask (it forgets every sign-in it kept)",
     group: "the same, with this chat's own browser: whatever is signed in to here stays signed in for the chat; signing out signs out only the chat's browser",
-    cant: [{ where: "everywhere", what: "show them your browser inside a text", workaround: { kind: "link", text: "they watch or take over your browser live at context.lc/tex/@their-handle?view=computer, or at the handoff link browse sends" } }],
+    cant: [{ where: "everywhere", what: "show them your browser inside a text", workaround: { kind: "link", text: "they watch or take over your browser live at context.lc/tex/@their-handle?view=computer&full=1 (a group chat's at context.lc/tex/group/<its words>/computer?full=1), or at the handoff link browse sends" } }],
   },
   {
     name: "Sending email",

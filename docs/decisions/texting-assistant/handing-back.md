@@ -127,6 +127,38 @@ the link and solve it" in its own words without asking for a handoff.
 
 Each guard was sabotage-tested; the record is in the gateway test's header.
 
+## A group chat hands its browser over on its own page (2026-11-12)
+
+In a group chat Tex filled a party request form, met an image captcha, and
+was asked for a link to do it. Group turns were built with no take-over page
+(`turnWeb.js` passed no `viewer`), so `canHandOff` was false in every group
+chat, the handoff step was refused, and the refusal itself told the model to
+"tell them what to do on the site themselves". Tex texted the whole form back
+to be filled in by hand while its browser was still open where it got to.
+The owner picked the fix (option A on the thread "Let Dev2 finish captchas in
+Tex's browser").
+
+- **The link.** A group turn's viewer is its own Tex page's computer view,
+  `<app>/tex/group/<words>/computer` (`hubLinks.js` `groupViewerUrl`), where
+  anyone in the chat signed in to Context watches and drives the chat's
+  browser (`http/texComputer.js` with `chat`). The page opens only for a
+  signed-in person in that chat now, so a forwarded link opens nothing for
+  anyone else. A chat with no home has no page, and nothing is handed over.
+- **No link is never a hand-back.** Every line that says no link can be made
+  (`NO_HANDOFF_SENTENCE`, `NO_LINK_RESULT`, `NO_LINK_LINE` in `browse.js`)
+  says the browser is kept where it got to and never tells anyone to fill in
+  or redo on the site what Tex already did there.
+
+**What a simplification would cost.** Dropping the group viewer brings back
+the refusal in every group chat. Wording the no-link case as "tell them what
+to do on the site" makes the gateway itself push the work back, whatever the
+hand-back judge would have said about the model's own words.
+
+**Tests.** `apps/mcp/test/agentGroupSignIn.test.mjs` (a group turn's handoff
+link is its page's computer view; with no page, the refusal keeps the
+browser and never hands the form back; sabotaged by dropping the viewer, the
+first fails), `apps/mcp/test/agentHandoff.test.mjs`.
+
 ## What went out is read again each night
 
 The judge reads an answer before it goes, and may send it back once, so

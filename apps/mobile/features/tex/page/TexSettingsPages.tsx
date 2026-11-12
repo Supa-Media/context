@@ -196,7 +196,7 @@ export function ComputerPage({
   } else if (computer.phase === "failed" || computer.phase === "notYours") {
     lead = "Tex's browser can't be reached right now.";
   } else {
-    lead = "Nothing running right now. When Tex needs you to sign in somewhere, it texts you this page.";
+    lead = "Nothing running right now. When Tex needs you for a step only you can do, like a sign-in or a picture check, it texts you this page.";
   }
 
   return (
