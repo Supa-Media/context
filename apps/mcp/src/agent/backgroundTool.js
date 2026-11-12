@@ -3,6 +3,8 @@
  * answers it). Kept apart so the session's logic stays readable.
  */
 
+import { SAY_FIELD } from "./jobStart.js";
+
 export const START_JOB_TOOL = "start_background_job";
 
 export const TOOL = {
@@ -25,6 +27,7 @@ export const TOOL = {
         type: "string",
         description: "Your plan for it: what to find or do, which workspace and folder, what to write and where, anything they said that matters.",
       },
+      say: SAY_FIELD,
       done_when: {
         type: "string",
         description:

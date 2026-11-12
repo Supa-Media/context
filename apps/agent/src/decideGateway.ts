@@ -18,6 +18,8 @@ export const GATEWAY_RECHECK_URL = "https://gateway/texts/recheck";
 export const GATE_FOR_MS = 5 * 60_000;
 /** A refusal is kept for less: a chat whose plan changes is let back in soon. */
 export const REFUSED_FOR_MS = 60_000;
+/** The refusal's cause for a group whose row the control plane has not made yet: never kept. */
+export const NOT_SET_UP = "no_group";
 
 export type MeterDeps = {
   fetch: Fetch;
@@ -68,7 +70,10 @@ async function gateFor(deps: MeterDeps, who: Metered, timeoutMs: number): Promis
   const kept = gates.get(key);
   if (kept !== undefined && kept.until > now) return kept;
   const fresh = askGate(deps, who, now, timeoutMs).then((gate) => {
-    if (gate !== null) gates.set(key, gate);
+    // A group not set up yet (`no_group`) is being set up by the turn this text starts: never kept, so its next text
+    // asks again and gets the judge (2026-11-12: every new group's first texts got no tapback for a minute).
+    if (gate !== null && !(gate.ok === false && gate.cause === NOT_SET_UP)) gates.set(key, gate);
+    else if (gate !== null) gates.delete(key);
     return gate;
   });
   if (kept !== undefined) {

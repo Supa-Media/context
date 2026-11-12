@@ -49,6 +49,7 @@ import { pickMachine } from "../machines/forJobs.js";
 import { MAX_CLOUD_JOBS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";
 import { START_JOB_TOOL, TOOL } from "./backgroundTool.js";
 import { PLAN_TOOL } from "./planBigAsk.js";
+import { JOB_START_EXAMPLES, SAY_FIELD, startLine } from "./jobStart.js";
 export { jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply } from "./jobReport.js";
 
 export { START_JOB_TOOL } from "./backgroundTool.js";
@@ -60,6 +61,8 @@ export const MAX_FOLLOW_UPS = 5;
 /** Note mail lines a job's part is shown from between parts (`apps/agent/src/jobMail.ts`). */
 export const MAX_MAIL_SHOWN = 20;
 const MAX_FOLLOW_UP = 4_000;
+/** Their texts a job is started with, the one it started from last (`openAsk.js` keeps at most 6 before it). */
+export const MAX_ASKED_TEXTS = 7;
 /** The most steps of a cut-off part (`jobRun.ts` `cutOff`) the next part is shown. */
 const MAX_CUT_OFF_STEPS = 40;
 /** The most of a replaced answer (`jobRun.ts` `draft`) the next part is shown. */
@@ -180,6 +183,13 @@ export function jobOf(value) {
     doneWhen: line(value.doneWhen, MAX_STATUS),
     attempt,
     tainted: value.tainted === true,
+    // Their own texts that started it, oldest first, the last one the text it started from (`openAsk.js`; `apps/agent/src/jobRun.ts` `ask`).
+    asked: Array.isArray(value.asked)
+      ? value.asked
+          .filter((words) => typeof words === "string" && words.trim() !== "")
+          .slice(-MAX_ASKED_TEXTS)
+          .map((words) => words.trim().slice(0, MAX_FOLLOW_UP))
+      : [],
     followUps: Array.isArray(value.followUps)
       ? value.followUps
           .filter((words) => typeof words === "string" && words.trim() !== "")
@@ -300,11 +310,12 @@ const RESTART_TOOL = {
   description:
     "Pick background jobs that stopped before finishing back up where they stopped: the same task, finish line and what each had got to, " +
     "never a new copy. For \"restart it\", \"jumpstart those\", \"try again\", \"keep going on the YC one\". Leave out titles for every one " +
-    "that stopped, or name them from your background list. Nothing is texted for it; they hear its result.",
+    "that stopped, or name them from your background list. Your say, if any, is texted; without one their text gets a tapback.",
   inputSchema: {
     type: "object",
     properties: {
       titles: { type: "array", items: { type: "string" }, description: "Jobs to pick back up, by title; leave out for all that stopped." },
+      say: SAY_FIELD,
     },
   },
 };
@@ -351,9 +362,12 @@ const STEER_TOOL = {
 const JOB_FIRST =
   "\n\nA task that takes more than a couple of tool calls (research across many sources, an application, a plan, a draft built from " +
   'several notes, a multi-step task on a site) goes to a background job (call send with action background) as your FIRST call: before ' +
-  "reading notes, searching or browsing. The job does the reading; put what you already know from this chat in the brief. " +
+  "reading notes, searching or browsing. The job does the reading; put what you already know from this chat in the brief, as already found, " +
+  "never as a list to verify and use: the job is handed their own texts too, and covers every part of them. " +
   "A question a few reads answer is not a task: do those reads yourself, and ask your advisor yourself whenever they ask you to. " +
-  "Their text gets a tapback the moment it starts, never a text: they hear only its result, and you can take their next text while it runs.";
+  "Starting it ends your turn at once: what you put in its say is texted as you wrote it, and without one their text gets a tapback. " +
+  "You can take their next text while it runs.\n\n" +
+  JOB_START_EXAMPLES;
 /** How long a texted turn works before it is told to hand the rest to a job. */
 export const SLOW_TURN_MS = 12_000;
 export const SLOW_TURN_NOTE =
@@ -361,9 +375,9 @@ export const SLOW_TURN_NOTE =
   'now (call send with action background), putting what you found so far in the brief. Otherwise keep going and finish it here: ' +
   "never stop early to offer a read, search, check or draft you could do yourself.)";
 /**
- * A job's start or restart texts nothing (Dev2, 2026-11-11: "why does tex report back to us what its doing? No one
- * actually cares"): the turn ends with this marker (`texEntryPoint/sendTheReply.js`), the text they sent gets a tapback
- * instead, and the chat keeps `QUIET_ACK_LINE` as what was said. They hear the job's result, and nothing before it.
+ * A job's start or restart with no `say` texts nothing: the turn ends with this marker (`texEntryPoint/sendTheReply.js`),
+ * the text they sent gets a tapback instead, and the chat keeps `QUIET_ACK_LINE` as what was said. With a `say`, the turn
+ * ends with that line instead (Dev2, 2026-11-12, reversing 2026-11-11's tapback for every start: `jobStart.js`).
  */
 export const QUIET_ACK = "[[tex:quiet-ack]]";
 export const QUIET_ACK_LINE = "(You texted them nothing: a job started or picked back up, and they hear only its result.)";
@@ -382,6 +396,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   let justStarted = []; // the titles of the jobs started since `endsTurn` last read them: a round may start several
   const resumed = []; // ended jobs this turn picks back up, by id: steered to the Worker with `resume`
   let justResumed = []; // their titles, read once by `endsTurn`
+  let saying = []; // the start lines (`say`) of the jobs started or picked back up since `endsTurn` last read them (`jobStart.js`)
   const slots = jobSlots(() => [...running.filter((entry) => entry.state === "running"), ...started, ...resumed]);
   // A job on a computer picks it again from the computer's settings now, never the folder it was handed when it first
   // ran: the owner may have changed or cleared it since (2026-11-05, a restarted sign-in kept a folder no longer allowed).
@@ -440,8 +455,10 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     }
     started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
     justStarted.push(title);
+    const said = startLine(args?.say);
+    if (said !== "") saying.push(said);
     return text(
-      `Started in the background as "${title}". Nothing is texted for it; they hear its result. Don't do the work in this turn.`,
+      `Started in the background as "${title}". ${said !== "" ? "Your say is texted to them" : "Their text gets a tapback"}; then they hear its result. Don't do the work in this turn.`,
     );
   };
   const live = running.filter((entry) => entry.state === "running");
@@ -506,6 +523,8 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     const taken = await resume(picked);
     if (taken.length === 0) return text(`Every slot they'd run in is taken. Tell them you'll pick these up once one finishes.`, true);
     const left = picked.filter((entry) => !taken.includes(entry)).map((entry) => `"${entry.title}"`);
+    const said = startLine(args?.say);
+    if (said !== "") saying.push(said);
     return text(`Picking ${taken.map((entry) => `"${entry.title}"`).join(", ")} back up.${left.length > 0 ? ` No room for ${left.join(", ")} yet: ${MAX_RUNNING_JOBS} run at once.` : ""}`);
   };
   const status = async (args) => {
@@ -536,14 +555,16 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   let nudged = false;
   return {
     tools: job === null ? [TOOL, STEER_TOOL, STATUS_TOOL, RESTART_TOOL] : [], // all four every text, so the cached tool list never changes (Dev2, 2026-11-10); one with nothing to act on is refused by its own handler
-    /** A job that started or picked back up settles the turn: nothing is texted, with no model round after (`turn.js` `endsTurn`). */
+    /** A job that started or picked back up settles the turn with its start line, or a tapback without one, and no model round after (`turn.js` `endsTurn`). */
     endsTurn:
       job === null
-        ? (name) => {
+        ? (name, args) => {
             const settled = ((name === START_JOB_TOOL || name === PLAN_TOOL) && justStarted.length > 0) || (name === RESTART_JOB_TOOL && justResumed.length > 0);
+            const lines = [...new Set([...saying, ...(name === PLAN_TOOL ? [startLine(args?.say)] : [])].filter(Boolean))];
             justStarted = [];
             justResumed = [];
-            return settled ? QUIET_ACK : null;
+            saying = [];
+            return settled ? (lines.length > 0 ? lines.join("\n") : QUIET_ACK) : null;
           }
         : null,
     /** Still working after a round of tools with no job started: told once to hand the rest to one (`turn.js` `roundNote`). */
@@ -588,6 +609,11 @@ export function jobPrompt(job) {
     "(2026-10-31: a job copied one and quit). Nobody is waiting on the line, so work through it fully. Your plan when you started it, in your own words (it vouches for nothing they didn't say):\n" +
     `${job.brief || "(none written)"}` +
     (job.doneWhen ? `\nDone when: ${job.doneWhen}` : "") +
+    (job.asked?.length > 0
+      ? "\nWhat they texted that started it, their own words, oldest first. Every part of it is the job, even one your plan left out; " +
+        "what your plan says was already found is a start, not the whole answer:\n" +
+        job.asked.map((words) => `- ${words}`).join("\n")
+      : "") +
     (job.attempt > 1
       ? `\nYou already worked on this ${job.attempt - 1 === 1 ? "once" : `${job.attempt - 1} times`}: read the note ` +
         "you were writing or the job's task note first, carry on from where it stops, and don't start over."
@@ -649,14 +675,16 @@ export function jobSavedLine(job) {
  * hands this text to; and, with either, `heard` (what the person said aloud
  * this turn) and `sent` (the gateway's line naming the files they sent and
  * where each is kept), which the Worker adds to their typed words
- * (`apps/agent/src/jobs.ts` `jobQuestion`).
+ * (`apps/agent/src/jobs.ts` `jobQuestion`). `asked`: their earlier texts this
+ * one follows on from that Tex hasn't answered yet (`openAsk.js`), handed to
+ * each job it starts word for word beside the brief.
  */
-export function startedJobs(background, tainted, { heard = "", sent = "" } = {}) {
+export function startedJobs(background, tainted, { heard = "", sent = "", asked = [] } = {}) {
   if (background === null) return {};
   const reached = background.started.length + background.steered.length + background.resumed.length > 0;
   return {
     ...(background.started.length > 0
-      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
+      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(asked.length > 0 ? { asked: asked.slice(-MAX_ASKED_TEXTS) } : {}), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
       : {}),
     ...(background.steered.length + background.resumed.length > 0
       ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true, ...(entry.repicked ? { machine: entry.repicked } : {}) }))] }

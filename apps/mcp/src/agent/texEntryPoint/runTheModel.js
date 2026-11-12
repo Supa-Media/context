@@ -45,7 +45,7 @@ import { chatHubUrl, hubPrompt } from "../hubLinks.js";
 import { withVaultWatch } from "../vaultSaved.js";
 import { doItChecks } from "../doItChecks.js";
 import { replyJudge } from "../replyJudge.js";
-import { threadsWrite } from "../conversationThreads.js";
+import { threadsSortAndWrite } from "../conversationThreads.js";
 import { withArchitecture } from "../texArchitecture.js";
 
 /** The setup's rules with the drawing ahead, the box named for this kind of turn (`texArchitecture.js`). */
@@ -77,10 +77,10 @@ export async function runTheModel(t) {
   if (planning) splitFirst(background); // a lone job is offered the planner once
   // The advisor, when the setup names one this deployment can run: offered on every chat turn, a job's included (`advisor.js`).
   const advising = chatTurn && productionModel !== null && Boolean(production.advisor) && canRunBuiltin(production.advisor, env);
-  // The chat by conversation, when the classifier ran: the thread list, the suggested thread, the last 24 hours (`threadedTurn.js`). Its verdict is kept after the answer.
-  // A group's turn is shown its chat by thread, so it waits for the sort. A 1:1 text is not held for it (Dev2, 2026-11-11, one-judge PR 3: it held a simple ask about 0.9 s):
-  // the model reads the chat as the log shows it, and the sort, run beside the model, still says where the reply goes and is kept.
-  const threaded = threadsRun && group !== null ? await tex.wait("threads", threadsRun) : null;
+  // The chat by conversation: the thread list as it stood after the text before, then the last 24 hours (`threadedTurn.js`), in 1:1 and in groups.
+  // The new text is sorted only after the answer has gone, and its verdict kept for the next turn (Dev2, 2026-11-12: "Never wait for it").
+  const threaded = threadsRun ? await tex.wait("threads", threadsRun) : null;
+  if (threaded?.sort) tex.after("threads_sort", () => threadsSortAndWrite(threaded.sort, store, session));
   // Whether Tex answers at all was the Worker's one judge's, before this turn was asked for (`textDecide.cjs`).
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
@@ -125,7 +125,7 @@ export async function runTheModel(t) {
     // Per text, so said in their turn after the cached prefix (`turnPrompt.js`): who tagged it, the thread, the jobs running now, whether their computers are online.
     turnNote: [group !== null ? taggedLine(group) : "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), background?.runningNow ?? "", job === null ? computersLine(computers, { planning }) : ""].map((part) => part.trim()).filter(Boolean).join("\n\n"),
     threadNote: (group !== null ? groupPrompt(group, home) : "") + learnedSkillsLine(learned) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobAdvisorLine(job, advising) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
-    local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(threaded ? [threaded.read_thread] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && job === null && !routine ? computerTools({ env, session, controlPlane, group, words: question, judge: judgeFor(env) }) : []), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
+    local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(threaded?.read_thread ? [threaded.read_thread] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && job === null && !routine ? computerTools({ env, session, controlPlane, group, words: question, judge: judgeFor(env) }) : []), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
     localNow: { now: Date.now(), timeZone },
@@ -159,8 +159,6 @@ export async function runTheModel(t) {
   outcome.clean = ledger.untrusted !== true;
   // Cancelled by the Worker (`steer.js`), in a round or after the last: its asks are withdrawn, nothing is kept as said, and nothing is texted.
   if (turn.cancelled || (steer !== null && (await tex.step("cancel_check", () => steer.endCancelled())))) return await tex.step("cancelled", () => begun.catch(() => {}).then(() => cancelledTurn(store, session, { ledger, steer, steps: turn.steps })));
-  const sorted = threaded ?? (threadsRun ? await tex.wait("threads", threadsRun) : null);
-  if (sorted?.entries?.length > 0) tex.after("threads_write", () => threadsWrite(store, session, sorted.entries));
-  Object.assign(t, { turn, replyPlace: sorted?.place ?? null }); // where the reply goes: under the text it answers, or plain (`conversationThreads.js`)
+  Object.assign(t, { turn, replyPlace: null }); // the classifier no longer runs before the reply, so it places none (`threadedTurn.js`)
 }
 // TEX ENTRY POINT: end

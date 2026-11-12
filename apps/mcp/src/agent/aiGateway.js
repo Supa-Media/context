@@ -186,6 +186,8 @@ export function metadataHeader(metadata) {
  * hard it thinks. An older model that thinks only when asked is never sent it.
  */
 const THINKS_BY_DEFAULT = /^anthropic\/claude-(?:haiku|sonnet|opus|fable|mythos)-5(?:-\d+)?$/;
+/** The models that accept `thinking: {type: "disabled"}` (at effort high or below): Haiku 5.5. Elsewhere `thinking: "off"` is ignored. */
+const THINKING_OFF_OK = /^anthropic\/claude-haiku-5(?:-\d+)?$/;
 
 /** `thinking.display`: "summarized" returns the thinking in words (`transcript.js`); the default leaves it empty. */
 const DISPLAYS = new Set(["summarized"]);
@@ -257,7 +259,7 @@ export function resetContextEdits() {
 const namesContextEdits = (answer) => answer.status === 400 && /context_management|context-management/i.test(answer.text ?? "");
 const withoutContextEdits = ({ context_management: _edits, ...body }) => body;
 
-export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display, cachedThrough = null }) {
+export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display, thinking, cachedThrough = null }) {
   const layered = Number.isInteger(cachedThrough) && cachedThrough >= 0;
   // A texted turn's prefix (tools, system, history) is kept an hour, since people reply minutes apart and a five-minute
   // mark made the first round of almost every text rewrite ~80% of its prompt (owner, 2026-11-05: "just set it").
@@ -296,6 +298,8 @@ export function gatewayBody({ model, system, messages, tools, maxTokens, toolCho
       : {}),
     ...(EFFORTS.has(effort) ? { output_config: { effort } } : {}),
     ...(DISPLAYS.has(display) && THINKS_BY_DEFAULT.test(model) ? { thinking: { type: "adaptive", display } } : {}),
+    // A short sorting call that only answers JSON asks for no thinking at all (Dev2, 2026-11-12): Haiku 5.5 takes it at effort high or below.
+    ...(thinking === "off" && THINKING_OFF_OK.test(model) && effort !== "xhigh" && effort !== "max" ? { thinking: { type: "disabled" } } : {}),
     ...(layered ? { context_management: CONTEXT_EDITS } : {}),
   };
 }

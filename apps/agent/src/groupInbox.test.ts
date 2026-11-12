@@ -434,20 +434,20 @@ describe("a group's queue", () => {
     }
   });
 
-  it("names what the chat reaches in its introduction, or its home alone", () => {
+  it("names what the chat reaches in its introduction, or its home alone, and never tells them to start with Tex", () => {
     expect(GROUP_LINES.intro(["a", "b"])).toContain("@a and @b");
     expect(GROUP_LINES.intro([])).toContain("own home");
     expect(GROUP_LINES.intro(["a"])).toContain("Tex, stop");
+    expect(GROUP_LINES.intro([])).not.toMatch(/Start a message/); // Nov Babies, 2026-11-11
   });
 
-  it("introduces itself the first time, then answers", async () => {
+  it("introduces itself at the end of its first answer, in one text, never a bubble ahead of it (Dev2, 2026-11-12)", async () => {
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex, hi"), 0);
     await drainGroup(storage, deps(w, { control: { status: "ready", slug: "band", intro: true, reach: ["band"], bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" } }));
-    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.intro(["band"]), "The opener."]);
-    // Under the message it answers, like everything else Tex says to it.
-    expect(w.sends.map((sent) => sent.reply_to)).toEqual([{ message_handle: "h_in" }, { message_handle: "h_in" }]);
+    expect(w.sends.map((sent) => sent.content)).toEqual([`The opener.\n\n${GROUP_LINES.intro(["band"])}`]);
+    expect(w.sends.map((sent) => sent.reply_to)).toEqual([{ message_handle: "h_in" }]);
   });
 
   // Dev2, 2026-11-11: a reply to Tex is the judge's, shown to it as "(replying to You)"; its quiet runs no turn.
