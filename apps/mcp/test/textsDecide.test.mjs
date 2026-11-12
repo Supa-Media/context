@@ -9,6 +9,7 @@
 //  4. (2026-11-11) the judge's state cut from its newest end → "a long chat's judge still reads the examples and the newest line" fails.
 //  5. (2026-11-12) `/texts/chat` not mounted on TexTexts → "a group's judge reads the chat's day by its ledger key" fails.
 //  6. (2026-11-12) `nowFacts` keeping a finished job → "the judge is told what Tex is doing now" fails.
+//  7. (2026-11-12) `threadFacts` keeping a finished thread → "the judge is told which conversations are open" fails.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -213,4 +214,20 @@ test("what Tex is doing reaches the judge's state for a group decide", async () 
   const ledger = () => ({ read: async () => ({ entries: [{ v: 1, id: "j1", at: Date.now() - 1_000, kind: "job", job: "a", state: "started", title: "Plan the trip" }] }), append: async () => {} });
   await decideForTexts(ask(TEXTS_DECIDE_PATH, groupBody()), {}, { engine, ledger, waitUntil: () => {} });
   assert.match(seen, /<now>\nTex is working on a job in this chat: "Plan the trip"/);
+});
+
+test("the judge is told which conversations are open, by title and newest lines, never a finished one (Dev2, 2026-11-12)", async () => {
+  const thread = (at, id, status, title, texts) => ({ v: 1, id: `th${at}`, at: T0 - at, kind: "thread", thread: id, status, title, description: "words never shown", texts });
+  const reads = [];
+  const store = {
+    read: async (chat, options) => {
+      reads.push({ chat, kinds: options.kinds });
+      if (chat.endsWith(".threads")) return { entries: [thread(1_000, "t2", "open", "Quiz for Tex", [id(5), id(6), id(7)]), thread(2_000, "t1", "finished", "Dinner plans", [id(1)]), thread(3_000, "t1", "open", "Dinner plans", [id(1)])] };
+      return { entries: [] };
+    },
+  };
+  const facts = await nowFacts(store, GROUP_KEY, { now: T0 });
+  assert.deepEqual(facts, [`Open conversation "Quiz for Tex", its newest lines <${id(6)}> <${id(7)}>.`]);
+  assert.deepEqual(reads.map((read) => read.chat).sort(), [GROUP_KEY, `${GROUP_KEY}.threads`]);
+  assert.ok(!facts.join("").includes("words never shown"));
 });

@@ -17,6 +17,7 @@
 import { DECISION_MODEL, decisionEngine } from "./decide.js";
 import { ledgerFor, ledgerWriter } from "./ledger.js";
 import { dayFromLedger } from "./ledgerHistory.js";
+import { foldThreads, THREADS_SUFFIX } from "./threadsFold.js";
 import { decideRequest, readDecideAnswers, readDecideBody, readRecheckAnswers, readRecheckBody, recheckRequest } from "../../../../packages/shared/src/textDecide.cjs";
 
 /** The paths the Worker posts to on the `TexTexts` binding. */
@@ -149,9 +150,24 @@ const RUNNING = new Set(["started", "keep_going"]);
  */
 export async function nowFacts(store, key, { now = Date.now(), timeoutMs = FACTS_MS } = {}) {
   if (store === null || typeof store?.read !== "function") return [];
-  const read = store.read(key, { before: Number.MAX_SAFE_INTEGER, kinds: ["job"], limit: 200, since: now - JOB_FRESH_MS }).catch(() => null);
-  const result = await Promise.race([read, new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs))]);
-  const entries = Array.isArray(result?.entries) ? result.entries : [];
+  const within = (read) => Promise.race([read.catch(() => null), new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs))]);
+  // Both reads at once, from the same object, under the one wait.
+  const [result, threaded] = await Promise.all([
+    within(Promise.resolve().then(() => store.read(key, { before: Number.MAX_SAFE_INTEGER, kinds: ["job"], limit: 200, since: now - JOB_FRESH_MS }))),
+    within(Promise.resolve().then(() => store.read(`${key}${THREADS_SUFFIX}`, { before: Number.MAX_SAFE_INTEGER, kinds: ["thread"], limit: 200, since: now - THREAD_FRESH_MS }))),
+  ]);
+  return [...jobFacts(Array.isArray(result?.entries) ? result.entries : []), ...threadFacts(Array.isArray(threaded?.entries) ? threaded.entries : [])];
+}
+
+/** The conversation threads the classifier keeps for this chat that are open, newest first: a title and its newest lines' ids. */
+const THREAD_FRESH_MS = 3 * 24 * 60 * 60 * 1000;
+const MAX_THREADS = 6;
+function threadFacts(entries) {
+  const open = foldThreads(entries).threads.filter((thread) => thread.status === "open" && thread.title !== "").sort((a, b) => b.last - a.last).slice(0, MAX_THREADS);
+  return open.map((thread) => `Open conversation "${thread.title.replace(/["\n]/g, " ")}", its newest lines ${thread.texts.slice(-2).map((id) => `<${id}>`).join(" ")}.`);
+}
+
+function jobFacts(entries) {
   // Newest first: a job's first entry seen is its latest state; its start is its oldest.
   const latest = new Map();
   const startedAt = new Map();
