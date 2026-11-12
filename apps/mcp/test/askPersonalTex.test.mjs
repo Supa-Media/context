@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ASK_PERSONAL_TEX, personalTexTool } from "../src/agent/askPersonalTex.js";
+import { ASK_PERSONAL_TEX, PERSONAL_TEX_LINE, personalTexTool } from "../src/agent/askPersonalTex.js";
 import { ASSISTANT_SEND_ACTIONS } from "../src/agent/sixTools.js";
-import { PERSONAL_TEX_LINE, groupPrompt } from "../src/agent/groupTurn.js";
+import { groupPrompt } from "../src/agent/groupTurn.js";
 import { addressedTo, offerLine } from "../src/tools/offerFor.js";
 import { createIdentityMethods } from "../src/controlPlane/identity.js";
 

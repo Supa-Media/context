@@ -33,6 +33,11 @@ export const PERSONAL_TEX_SEND_ACTIONS = {
   },
 };
 
+/** What a group turn is told of it (`groupTurn.js` `groupPrompt`). */
+export const PERSONAL_TEX_LINE =
+  "When a form, booking or sign-in someone here asked for needs their own name, phone number or email, get them with send action ask_personal_tex " +
+  "(their personal Tex knows them) rather than asking; for somebody else here, pass as and they OK it first. ";
+
 const MAX_WHAT = 200;
 
 function text(words, isError = false) {

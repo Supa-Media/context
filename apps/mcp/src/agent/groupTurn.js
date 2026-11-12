@@ -60,6 +60,7 @@ import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.
 import { playbookPrompt, readPlaybook, withPlaybookGate } from "./groupPlaybook.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { guestsOf, namesOf, sizeOf, taggerLabel, whoIsWhoLine } from "./groupNames.js";
+import { PERSONAL_TEX_LINE } from "./askPersonalTex.js";
 
 /** The group texting client (`apps/convex/functions/textGroups.ts`). */
 export const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -531,14 +532,6 @@ export function keepGroupSettled(store, group, dispatch = null) {
 export const GROUP_CODE_SIGN_IN_LINE =
   "A site that signs in with an email and a one-time code needs no saved login: type the email you were given, ask for the code it sends, " +
   "and when someone in the chat texts it, type it into the same browser right away. Never refuse it for want of a vault login. ";
-
-/*
-  Who is asking, for a form (the owner, 2026-11-12: asked to fill a venue's form in a group, Tex asked him for his own
-  name, email and phone). Their personal Tex knows them (`askPersonalTex.js`).
-*/
-export const PERSONAL_TEX_LINE =
-  "When a form, booking or sign-in someone here asked for needs their own name, phone number or email, get them with send action ask_personal_tex " +
-  "(their personal Tex knows them) rather than asking; for somebody else here, pass as and they OK it first. ";
 
 /** What a group turn is told, after the built-in words. */
 /** An invited person's tag: an email or calendar change only with `as` naming a member here, as a guest's. */
