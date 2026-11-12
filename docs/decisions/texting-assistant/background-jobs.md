@@ -439,7 +439,7 @@ Dev2 chose this on the 2026-11-05 bug hunt. A part refused at the daily limit sa
 
 What a simplification would cost: keeping the two-hour window breaks the promise every time; resuming from the job's own object skips the chat's slot count. Tests: `apps/agent/src/jobPause.test.ts`.
 
-## A job's start texts nothing, and a new brief is always a new job (decided by Dev2, 2026-11-11)
+## A new brief is always a new job (decided by Dev2, 2026-11-11; its silent start reversed 2026-11-12, below)
 
 In the Tex Devs group on 2026-11-11 Tex texted 'On it: picking "Summarize
 post, research Tex improvements" back up.' three times in 70 seconds. The job
@@ -469,6 +469,45 @@ What a simplification would cost: matching a new start to a stopped job again
 drops the brief that would unstick it and loops; an "On it" text comes back
 beside every start. Tests: `apps/mcp/test/agentJobRestart.test.mjs` ("a new job
 named like one that stopped is a new job, with its own brief", "a start or
-restart texts nothing, ever"), `apps/mcp/bench/test/world.test.mjs` (the
+restart with no say texts nothing: their text gets a tapback"), `apps/mcp/bench/test/world.test.mjs` (the
 tapback), `apps/agent/src/groupJobs.test.ts` ("a job's start texts nothing: the
 ask gets a tapback and the job still runs").
+
+## A job's start is Tex's call: a line or a tapback, judged from example chats (decided by Dev2, 2026-11-12)
+
+In the Nov Babies group chat (2026-11-11), Seyi asked Tex to "do some research
+and put it in a page for us". The start got a 🤝 and nothing else, by code,
+and eleven minutes later Seyi asked how it was going. Dev2: "it's kind of just
+reacting and then disappearing. That's kind of annoying." A fixed rule the
+other way ("one line per job") was proposed and turned down: "some jobs don't
+need it, some jobs do need it ... we need specific examples of conversations
+and what the response was. And then ... the regular agent should do that."
+
+- **The front door decides each time.** `start_background_job`,
+  `restart_background_job` and `plan_big_ask` take an optional `say`
+  (`jobStart.js` `SAY_FIELD`). With one, the turn ends with that line, texted
+  as written (one plain line, at most `MAX_START_LINE` characters, never a
+  control marker: `startLine`). Without one, the turn ends with `QUIET_ACK` and
+  their text gets a tapback, as before. Several jobs started in one round share
+  their lines. A refused start says nothing.
+- **No model round is added.** The line is written in the call that starts the
+  job, so the turn still ends the moment the job starts (`turn.js` `endsTurn`).
+- **Taught by examples, not counted.** `JOB_START_EXAMPLES` (real chats where
+  they exist, the rest made up) go with the job rules in the front door's
+  prompt, 1:1 and group alike. There is no count, no "once per job" and no
+  timer. Held-out cases are scored by `pnpm ai jobstart`
+  (`apps/mcp/bench/jobstart/cases.json`).
+- **The 2026-11-11 loop stays fixed.** A new brief is still always a new job.
+  The "On it: picking back up" texts came from a stopped job matched to a new
+  brief, not from texting at a start.
+
+What a simplification would cost: a code rule either way (always a tapback, or
+always a line) misfires on the case it didn't foresee, which is what Dev2
+turned down. Moving the line to a second model round after the start brings
+back the wait the 2026-10-31 "acknowledge first" change removed. Tests:
+`apps/mcp/test/agentJobRestart.test.mjs` ("a start or restart with a say ends
+the turn with that line, judged by Tex, not a rule", "a start line is one plain
+line, never a control marker, never too long"),
+`apps/mcp/test/agentBackgroundRoute.test.mjs` ("a start with a say texts that
+line and no tapback, with no model round after it"),
+`apps/mcp/bench/test/jobstart.test.mjs`.

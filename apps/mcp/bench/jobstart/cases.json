@@ -1,0 +1,15 @@
+{
+  "about": "Does a job's start get a line of Tex's own (`say`) or only a tapback? Held-out cases for the front door's job-start examples (`src/agent/jobStart.js`), never the same chats as the examples. Every case starts a job; the bench asks only what Tex says as it does. `want: line` needs a line (they'd otherwise be left guessing); `want: tap` is better as a tapback (a line would be noise). Names and details are made up. \"You\" is Tex.",
+  "cases": [
+    { "id": "g-trip-page", "chat": "group", "lines": ["@ana: we still need a plan for lisbon in march", "@raf: yeah 4 days, 6 of us"], "text": "@ana: Tex can you research neighbourhoods and put together a page with where to stay", "want": "line" },
+    { "id": "1-grant-draft", "chat": "1:1", "lines": [], "text": "start on the NEA grant application, deadline is friday", "want": "line" },
+    { "id": "1-redo-after-complaint", "chat": "1:1", "lines": ["You: Here's the page with 5 caterers: [link]", "(two hours pass)"], "text": "these are all way over budget, I said under $40 a head. try again", "want": "line" },
+    { "id": "g-assumed-date", "chat": "group", "lines": ["@kemi: dinner for mum's birthday?"], "text": "@kemi: Tex find a few places for 8 people that do a private room", "want": "line" },
+    { "id": "1-slow-compare", "chat": "1:1", "lines": [], "text": "compare the three health plans in my inbox and tell me which is cheapest for us", "want": "line" },
+    { "id": "1-restart-asked", "chat": "1:1", "lines": ["You: The visa research stopped halfway: the consulate site timed out."], "text": "try again", "want": "tap" },
+    { "id": "1-small-add", "chat": "1:1", "lines": ["You: Packing list is up: [link]"], "text": "add sunscreen and the kids' passports to it too", "want": "tap" },
+    { "id": "g-restart-both", "chat": "group", "lines": ["You: Both the venue search and the menu one stopped: the sites timed out."], "text": "@raf: Tex restart both", "want": "tap" },
+    { "id": "1-keep-going", "chat": "1:1", "lines": ["You: The competitor research stopped after two of the five."], "text": "keep going on that", "want": "tap" },
+    { "id": "1-rerun-same", "chat": "1:1", "lines": ["You: Here's this week's spending summary: [link]"], "text": "run that again but for last week", "want": "tap" }
+  ]
+}
