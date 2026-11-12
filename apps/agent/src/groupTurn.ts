@@ -23,7 +23,7 @@ import { eventPeople, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
 import { burstStillTyped, decideDownAnswer } from "./groupPolicy";
-import { callsTex } from "./groupWords";
+import { callsTex, tagsTex } from "./groupWords";
 import { groupStyle } from "./groupStyle";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
@@ -181,6 +181,8 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
   // A tapback only in place of words, never beside an answer or a wait (Dev2, 2026-11-10: "uses emojis way too much").
   const react = act === "react" && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
   if (act === "wait") return { answer: [], chat: [], drop: [], wait: burst, waitSeconds: decision.waitSeconds ?? 1, ...react };
+  const tagged = act === "answer" ? -1 : taggedIndex(burst);
+  if (tagged !== -1) return { answer: [burst[tagged]!], chat: burst.filter((_, index) => index !== tagged), drop: [] };
   if (act !== "answer") return { answer: [], chat: burst, drop: [], ...react };
   // Left out before the answer: chat (`gatherTheTurn.ts`). Nothing here is forced (`addressedTurn` took those), so nothing jumps the order.
   const { answer, left } = gatherTheTurn(burst, (entry) => entry[1].ev !== undefined && decision.covers.includes(entry[1].ev), (entry) => !soft(entry));
@@ -195,6 +197,16 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
 export function judgeDownAnswer(waiting: GroupEntry[]): number {
   const called = waiting.map(([, item]) => callsTex(item.message.text || item.message.heard || "", item.message.replyTo !== undefined)).lastIndexOf(true);
   return Math.max(decideDownAnswer(waiting.map(([, item]) => item)), called);
+}
+
+/**
+ * The newest message tagging Tex with "@Tex" (`tagsTex`), -1 for none: the judge said silent or react, and a literal
+ * tag is answered all the same, in place of the tapback (Dev2, 2026-11-12). Logged as `group_decide` `tag_override`.
+ */
+function taggedIndex(burst: GroupEntry[]): number {
+  const index = burst.map(([, item]) => tagsTex(item.message.text || item.message.heard || "")).lastIndexOf(true);
+  if (index !== -1) console.log(JSON.stringify({ event: "group_decide", outcome: "answer", reason: "tag_override" }));
+  return index;
 }
 
 /** The id a first look shows a line under: the contract's event id shape, never one the chat's log holds. */
@@ -225,7 +237,11 @@ export async function firstLook(storage: InboxStorage, deps: ControlDeps & { now
     chosen = question === -1 ? [] : [looks[question]!];
   } else if (decision.act === "answer") chosen = looks.filter((_, index) => decision.covers.includes(ids[index]!));
   // A first look never waits: nothing is kept to wait with, so a wait answers the newest now.
-  else chosen = decision.act === "wait" ? [looks.at(-1)!] : [];
+  else if (decision.act === "wait") chosen = [looks.at(-1)!];
+  else {
+    const tagged = taggedIndex(looks);
+    chosen = tagged === -1 ? [] : [looks[tagged]!];
+  }
   const answer: GroupEntry[] = [];
   for (const [key, item] of chosen) {
     const { look: _look, ...rest } = item;
@@ -235,7 +251,7 @@ export async function firstLook(storage: InboxStorage, deps: ControlDeps & { now
     answer.push([key, kept]);
   }
   const newest = looks.at(-1)!;
-  const react = decision.ok && decision.act === "react" && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
+  const react = decision.ok && decision.act === "react" && chosen.length === 0 && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
   return { answer, chat: [], drop: looks.filter((entry) => !chosen.includes(entry)), ...react };
 }
 

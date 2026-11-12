@@ -22,6 +22,7 @@
     { "id": "g-thats-crazy", "chat": "group", "lines": ["@dev: oh shoot", "@ben: goofed i think"], "text": "@dev: that's crazy", "want": "hush" },
     { "id": "g-mine-lol", "chat": "group", "lines": ["@dev: I changed the skip word to a tool call"], "text": "@ben: ohh was it u? i thought it was me lol", "want": "hush" },
     { "id": "g-tex-provider", "chat": "group", "lines": [], "text": "@dev: Tex which texting provider did we choose?", "want": "reply", "must": true },
+    { "id": "g-tex-tag-percent", "chat": "group", "lines": [], "text": "@dev: @Tex what's 18% of 250?", "want": "reply", "must": true },
     { "id": "g-tex-alone", "chat": "group", "lines": ["@dev: can you redo the comparison as a page, with pricing", "@ben: lol"], "text": "@dev: Tex", "want": "reply", "must": true },
     { "id": "g-yes-to-tex", "chat": "group", "lines": ["You: Want me to file it as a bug? 👍 or 👎"], "text": "@priya: yes", "want": "reply", "must": true },
     { "id": "g-talk-too-much", "chat": "group", "lines": ["You: Fair, I took a while to get back to you."], "text": "@priya: Tex u talk too much", "want": "reply", "must": true },
