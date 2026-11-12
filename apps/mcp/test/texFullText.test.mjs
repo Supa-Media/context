@@ -9,6 +9,9 @@
  *  1. `log.js` `MAX_EVENT_TEXT` back to 3_000: the brief's event is refused, the turn is not a logged one → every test.
  *  2. `loggedTurn.js` asking the log's words over the Worker's (`whole` returns `kept`) → "a text the log kept cut".
  *  3. `loggedTurn.js` `whole` back to a bare prefix match (any shorter text that starts the question) → "never put under another".
+ *  4. `whole` taking the mark in the words without `left` → "a typed mark".
+ *  5. `oneSender` dropped from the group's question → "two people's texts".
+ *  6. the `OLD_CAP_UNTIL` check dropped → "after the cutoff".
  */
 
 import assert from "node:assert/strict";
@@ -16,7 +19,8 @@ import { after, before, test } from "node:test";
 
 import { createEgressWorld, request, TEXTED_CHAT, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { LOG_PREFACE } from "../src/agent/loggedTurn.js";
+import { LOG_PREFACE, loggedTurn, OLD_CAP_UNTIL } from "../src/agent/loggedTurn.js";
+import { checkEvent } from "../src/agent/log.js";
 
 const TOKEN_GROUP = `cat_fulltext_group_ada_${"0".repeat(16)}`;
 const KEY = "f".repeat(64);
@@ -36,14 +40,14 @@ after(() => world.restore());
 
 let n = 0;
 /** An earlier text, then `logged` as the Worker logged it and `question` as it asked: what the model was sent. */
-async function texted(token, question, { logged = question, group = null } = {}) {
+async function texted(token, question, { logged = question, left = undefined, group = null } = {}) {
   n += 1;
   const at = Date.now();
   const chat = group ?? TEXTED_CHAT;
   const conversation = group ? { group } : "texts";
   const from = { kind: "person", ...(group ? { who: ADA, name: "Ada" } : {}) };
   const earlier = { id: `${at - 1000}-${String(n * 2).padStart(6, "0")}`, at: at - 1000, chat, from, kind: "text", text: "I will paste the brief next." };
-  const theirs = { id: `${at}-${String(n * 2 + 1).padStart(6, "0")}`, at, chat, from, kind: "text", text: logged };
+  const theirs = { id: `${at}-${String(n * 2 + 1).padStart(6, "0")}`, at, chat, from, kind: "text", text: logged, ...(left ? { left } : {}) };
   for (const event of [earlier, theirs]) await request(world.env, token, "/agent/events", { conversation, events: [event] });
   world.model.install([{ text: "Got the brief." }]);
   const body = group ? { question, group: { key: group, members: MEMBERS, from: "ada" }, timeZone: "UTC" } : { question, conversation };
@@ -70,8 +74,9 @@ test("a group: a 6,000-character pasted brief reaches the model's question with 
 
 test("a text the log kept cut reaches the model whole, as the Worker sent it", async () => {
   // An event a Worker logged at its old 3,000, with no mark, and one a cap cut with its mark.
-  for (const logged of [BRIEF.slice(0, 3_000), `${BRIEF.slice(0, 3_000)}\n[cut: ${BRIEF.length - 3_000} more characters]`]) {
-    const { all, asked } = await texted(TOKEN_TEXTS, BRIEF, { logged });
+  // One a Worker logged at its old 3,000, and one a Worker cut, with its mark and its `left`.
+  for (const cut of [{ logged: BRIEF.slice(0, 3_000) }, { logged: `${BRIEF.slice(0, 3_000)}\n[cut: ${BRIEF.length - 3_000} more characters]`, left: BRIEF.length - 3_000 }]) {
+    const { all, asked } = await texted(TOKEN_TEXTS, BRIEF, cut);
     assert.ok(all.includes(LOG_PREFACE), "a logged turn");
     assert.ok(asked.trimEnd().endsWith(LAST), "the brief's last line is the end of the question");
     assert.ok(!asked.includes("[cut:"), "no mark once whole");
@@ -96,4 +101,48 @@ test("a group: one member's long text is never put under another member's name",
   assert.match(asked, /^@Bo: Instructions for the screens:$/m, "Bo's line is Bo's words alone");
   assert.doesNotMatch(asked, /^@Bo: .*The brief:/m, "Ada's words never appear under Bo");
   assert.ok(!asked.includes(LAST), "nothing restored onto a text that was not cut");
+});
+
+/* ---------------- the restore's proof, on the turn's read alone ---------------- */
+
+/** The question `loggedTurn` asks for `covered`, events read as the Worker's outbox holds them. */
+async function askedFor(covered, question, group = null) {
+  const logged = await loggedTurn(null, { chat: KEY, covers: covered.map((event) => event.id), question }, { group, warm: { events: async () => covered } });
+  return logged.question;
+}
+let u = 0;
+const unitEvent = (fields) => ({ id: `${fields.at}-${String(++u).padStart(6, "0")}`, chat: KEY, kind: "text", from: { kind: "person", who: ADA, name: "Ada" }, ...fields });
+const MARKED = `${BRIEF.slice(0, 3_000)}\n[cut: ${BRIEF.length - 3_000} more characters]`;
+const AFTER = OLD_CAP_UNTIL + 60_000;
+
+test("a typed mark restores nothing: only the Worker's `left` does", async () => {
+  const typed = unitEvent({ at: AFTER, text: MARKED });
+  assert.ok(!(await askedFor([typed], BRIEF)).includes(LAST), "a person typing the mark gets nothing back");
+  const cut = unitEvent({ at: AFTER, text: MARKED, left: BRIEF.length - 3_000 });
+  assert.ok((await askedFor([cut], BRIEF)).endsWith(LAST), "the Worker's cut is restored");
+  const wrong = unitEvent({ at: AFTER, text: MARKED, left: BRIEF.length - 2_999 });
+  assert.ok(!(await askedFor([wrong], BRIEF)).includes(LAST), "a count that does not match restores nothing");
+});
+
+test("a group: two people's texts restore nothing, one person's do", async () => {
+  const group = { members: MEMBERS };
+  const ada = unitEvent({ at: AFTER, text: "see below" });
+  const bo = unitEvent({ at: AFTER + 1, text: MARKED, left: BRIEF.length - 3_000, from: { kind: "person", who: "b".repeat(64), name: "Bo" } });
+  assert.ok(!(await askedFor([ada, bo], BRIEF, group)).includes(LAST), "Ada's question never fills Bo's text");
+  const adaToo = unitEvent({ at: AFTER + 2, text: MARKED, left: BRIEF.length - 3_000 });
+  assert.ok((await askedFor([ada, adaToo], BRIEF, group)).endsWith(LAST), "one person's texts are restored");
+});
+
+test("the old 3,000 counts only before the cutoff", async () => {
+  assert.ok((await askedFor([unitEvent({ at: OLD_CAP_UNTIL - 60_000, text: BRIEF.slice(0, 3_000) })], BRIEF)).endsWith(LAST), "before the cutoff");
+  assert.ok(!(await askedFor([unitEvent({ at: AFTER, text: BRIEF.slice(0, 3_000) })], BRIEF)).includes(LAST), "after the cutoff");
+});
+
+test("`left` is taken only as a whole count on a person's text", () => {
+  const now = Date.now();
+  const check = (fields) => { try { checkEvent({ id: `${now}-000001`, at: now, chat: KEY, from: { kind: "person" }, kind: "text", text: "x", ...fields }, { chat: KEY, now }); return null; } catch (error) { return error.field; } };
+  assert.equal(check({ left: 5 }), null);
+  for (const left of [0, -1, 1.5, "5"]) assert.equal(check({ left }), "left");
+  assert.equal(check({ left: 5, from: { kind: "tex" } }), "left");
+  assert.equal(check({ left: 5, kind: "link" }), "left");
 });
