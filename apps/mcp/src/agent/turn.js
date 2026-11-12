@@ -612,6 +612,8 @@ export async function runTurn(options) {
       // Which model made this call, for the usage breakdown. Per call, because
       // routing and fallback can change the model mid-turn.
       options.onModel?.(model);
+      // A tool starting, for a group's one early tapback (`apps/agent/src/groupModelTurn.ts`): a progress line or silence is not one.
+      if (call.name !== PROGRESS_TOOL && call.name !== SAY_NOTHING_TOOL) try { options.onToolStart?.(call.name); } catch { /* a failed tapback never costs the turn */ }
       try {
         const viaMcp = !(progress && call.name === PROGRESS_TOOL) && !localCalls.has(call.name) && !webNames.has(call.name);
         result = viaMcp && isPlainNoteWrite(call.name, call.args)

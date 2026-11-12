@@ -10,7 +10,6 @@ import { askAgentStream, askLine, ServiceError, type AgentAnswer } from "./clien
 import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
 import type { ControlAnswer } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
-import { tappedBy } from "./groupSlowTap";
 import { fixedTimings, log, logTiming, say, sayProgress, sendPicture, type SayMeta } from "./groupSay";
 import { prepareAttachments } from "./attachments";
 import { textsWithExact } from "./format";
@@ -97,6 +96,20 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // read retried at once: a blip is not a reason to hold (2026-11-02, 2026-11-12; `groupMembers.ts`).
   const readTwice = () => membersBeforeSend(storage, app, chat, deps.now);
   let paused = false;
+  // One tapback on a slow ask, never with a text (Dev2, 2026-11-12): the first tool the turn starts taps the asked
+  // message, at most once an answer and not after a progress line; a turn with no tool gets none.
+  let acked = false;
+  const toolStarted = async () => {
+    if (acked || routine || message.jobReport !== undefined || message.reaction !== undefined) return;
+    acked = true;
+    try {
+      if (!(await isBound(storage, message))) return;
+      await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(undefined, ackEmoji(message.text)));
+      log("tool_tap");
+    } catch {
+      log("tool_tap_failed");
+    }
+  };
   const progress = async (text: string) => {
     if (routine) return;
     try {
@@ -104,7 +117,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
       if (!paused) {
         const now = await readTwice();
         paused = now !== null && now.some((phone) => phone !== message.line && !people.includes(phone));
-        if (now !== null && !paused) return await sayProgress(storage, deps, message, text, meta);
+        if (now !== null && !paused) return void (acked = true, await sayProgress(storage, deps, message, text, meta));
       }
       await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
     } catch {
@@ -137,6 +150,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
               : {}),
       },
       progress,
+      toolStarted,
     );
   } finally {
     end();
@@ -187,8 +201,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
   if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
     // Answered with a tapback and no words: the conversation classifier's (`apps/mcp/src/agent/respond.js`), the emoji checked against the list.
-    if (answer.react !== undefined && message.reaction === undefined) await tappedBy(storage, message.messageId);
-    if (answer.react !== undefined && message.reaction === undefined) await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(answer.react || undefined, ackEmoji(message.text))).catch(() => {});
+    if (answer.react !== undefined && message.reaction === undefined && !acked) await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(answer.react || undefined, ackEmoji(message.text))).catch(() => {});
     await handOff();
     return log(answer.react !== undefined ? "reacted" : "silent");
   }

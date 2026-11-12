@@ -25,7 +25,6 @@
  */
 
 import { jobRoute } from "./jobRoutes";
-import { SLOW_TAP_MS, slowTap, slowTapArmed } from "./groupSlowTap";
 import { logged } from "./agentError";
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
@@ -558,11 +557,6 @@ export class SenderInbox implements DurableObject {
       }
       // What the chat just said goes to its ledger now, not at Tex's next turn, so its history keeps up (`chatRead.ts`).
       if (outcome === "kept" || outcome === "queued") this.handOff(flushWithReader(this.state.storage, message.groupId, () => Date.now()));
-      // A message naming Tex that nothing of Tex's reaches soon gets a tapback from code (`groupSlowTap.ts`).
-      if (await slowTapArmed(this.state.storage, message.messageId)) {
-        const deps = this.deps();
-        this.handOff(new Promise((done) => setTimeout(done, SLOW_TAP_MS + 50)).then(() => slowTap(this.state.storage, deps, message.messageId, Date.now())).catch(() => {}));
-      }
       // The group-typing experiment: ask Whapi for this group's presences once a day (`whapi.ts`); never blocks a message.
       const whapi = whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE);
       if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, (input, init) => fetch(input, init), whapi, message.groupId, Date.now());

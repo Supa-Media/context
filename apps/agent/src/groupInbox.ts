@@ -73,7 +73,6 @@ import { isBound, isMuted, keepChatLine, peopleOf, setChatBound, sha256Hex, unmu
 import type { GroupMessage } from "./sendblueGroups";
 import { watchFailed } from "./reviewWatch";
 import { callsTex, groupCommand, type Command } from "./groupWords";
-import { armSlowTap, tappedBy } from "./groupSlowTap";
 import type { JobRun, JobSteer } from "./jobs";
 import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
 import { rememberChatReader } from "./chatRead";
@@ -154,8 +153,6 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const { repliesToTex, forTex: tagged, byCode } = await isItForTexInGroup(storage, message, now);
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
-  // A message naming Tex gets a tapback from code if nothing of Tex's reaches the chat soon (`groupSlowTap.ts`).
-  if (message.reaction === undefined && message.sms !== true && (tagged || callsTex(message.heard ?? message.text, repliesToTex))) await armSlowTap(storage, message, now);
   // A chat Tex is not set up in keeps nothing it is told, nor does an SMS (its sender vouches for nothing). Fail closed
   // (security review, 2026-11-11): only a message that tags or names Tex, or replies under its text, is read at all,
   // and then by the judge alone, on its own words, logged only if answered (`firstLook`). A muted chat, and a reaction
@@ -189,7 +186,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     let how: Awaited<ReturnType<typeof whileRunning>>;
     try {
       how = await whileRunning(storage, message, ev, running, tagged, () => now, (emoji) =>
-        tappedBy(storage, message.messageId).then(() => groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(emoji, ackEmoji(message.text)))),
+        groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(emoji, ackEmoji(message.text))),
       );
     } catch {
       // It is seen already: a throw here must not lose it, so it is queued as when no turn runs.
@@ -389,7 +386,6 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       // Decide's reaction goes at once, whatever it decided about words, and only once per message.
       if (choice.react) {
         const [key, item] = choice.react;
-        await tappedBy(storage, item.message.messageId);
         await groupLineFor(deps, item.message.groupId).react({ line: item.message.line, groupId: item.message.groupId }, item.message.messageId, reactionFor(choice.emoji, ackEmoji(item.message.text)));
         await storage.put<Pending>(key, { ...item, reacted: true });
         for (const list of [choice.answer, choice.wait ?? []]) for (const entry of list) if (entry[0] === key) entry[1] = { ...entry[1], reacted: true };
