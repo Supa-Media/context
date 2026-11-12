@@ -59,12 +59,13 @@ this folder: it is public, like the rest of the repository.
   where it raises a goal or trade-off once, stays quiet, makes a small change
   with the cost beside it, gives an honest take, or agrees without flattery.
   Run it with `--test pushback`. Maya's goals are in her `tex/about.md`.
-- `tests/web-facts.md` (2026-11-11, after the Instinct test): nine
-  version and release-date questions whose exact answer is on the
-  project's own release page and in no search snippet, on scripted copies
-  of those pages (`sites/github.com.md`, `sites/npmjs.com.md`,
-  `sites/devblogs.microsoft.com.md`). `must reach` lines check the owning
-  page was opened. Run it with `--test web-facts`.
+- `tests/web-facts.md` (2026-11-11, after the Instinct test, made general
+  the same day): twelve changing facts (versions, prices, an office holder,
+  a record, a timetable, company facts), each with a stale or secondary
+  snippet beside the page that owns the answer, and three where credible
+  sources disagree. Invented `.example` sites, plus copies of the TypeScript
+  release pages. `must reach` lines check the owning page was opened. Run
+  it with `--test web-facts`.
 - `tests/advisor.md` (decided at the Tex Devs meeting, 2026-10-30): the
   two-agent rebuild, where Haiku answers every text and may consult Opus
   through `ask_advisor`: two hard asks that must call the advisor, two easy
