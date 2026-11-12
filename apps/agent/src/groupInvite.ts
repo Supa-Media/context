@@ -14,8 +14,7 @@ import { say } from "./groupSay";
 import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
 
-export type { ChatInvite } from "./clients";
-import type { ChatInvite } from "./clients";
+import type { ChatInvite } from "./chatInvite";
 
 /** Run the invitation as the message's sender and say how it went; a refusal is said too, never dropped. */
 export async function inviteEveryone(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, people: string[], invite: ChatInvite): Promise<void> {

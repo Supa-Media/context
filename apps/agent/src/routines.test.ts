@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { runRoutine, type Fetch } from "./clients";
+import type { Fetch } from "./clients";
+import { runRoutine } from "./routineClients";
 import { accept, CHAT_KEY } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
