@@ -40,6 +40,13 @@ Tex could not say which a login had, nor change it.
   their own tag in a group chat (`ownTagOf`); a widening runs only when their own
   words ask for it (the judge every widening uses). People given a login use it
   through their AIs and never see the password. Tex says back who has it now.
+- **"Share @studio with everyone here", in any words** (Dev2, same day: "I
+  should be able to say to Tex, hey share x workspace with everyone here"): in a
+  group, `send chat_add_everyone` (their own words, judged) puts `invite` on the
+  answer, and the texting Worker, which alone holds the chat's numbers, runs the
+  same command as "Tex, add everyone here to @studio" as the asker once the
+  answer has gone (`apps/agent/src/groupInvite.ts`); only an owner there
+  invites anyone, and the chat hears how it went either way.
 - Still app-only, each named on its row: deleting a saved login, cutting off one
   particular AI, disconnecting an app, and early features (the Context team's).
 

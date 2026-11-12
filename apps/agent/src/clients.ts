@@ -29,6 +29,7 @@ import { MAX_HEARD, refusalOf } from "./agentRefusal";
 import { readHub, readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
 import type { TexEvent } from "./events";
 import { watchedLinks } from "./vaultWatch";
+import { readInvite, type ChatInvite } from "./chatInvite";
 
 /** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
 export const MAX_WARM_CHARS = 1_500_000;
@@ -37,7 +38,7 @@ export type Fetch = typeof fetch;
 
 const TIMEOUT_MS = 30_000;
 /** A turn that calls several tools can take a while; the gateway caps it too. */
-const AGENT_TIMEOUT_MS = 120_000;
+export const AGENT_TIMEOUT_MS = 120_000;
 
 export class ServiceError extends Error {
   constructor(
@@ -236,7 +237,7 @@ export type AgentAnswer =
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
   /** `heard`, `sent`: what the person said aloud this turn, and the gateway's line naming the files they sent: jobs it starts, changes or restarts get them beside their typed words (`jobs.ts` `jobQuestion`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; invite?: ChatInvite; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -404,6 +405,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
       ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(body.untrusted === true ? { untrusted: true as const } : {}), ...(body.idle === true ? { idle: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`apps/mcp/src/agent/jobCheck.js`); `untrusted`: it read from outside (`route.js`)
+      ...(readInvite(body.invite) !== null ? { invite: readInvite(body.invite)! } : {}), // a group's people invited to a workspace, after the answer (`groupInvite.ts`)
       ...(body.vaultWatch === true ? { vaultWatch: true as const, ...(watchedLinks(body.vaultLinks).length > 0 ? { vaultLinks: watchedLinks(body.vaultLinks) } : {}) } : {}),
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
@@ -554,146 +556,6 @@ export async function unlinkPhone(
   const body = record(json);
   if (body.status === "unlinked" || body.status === "not_linked") return body.status;
   throw new ServiceError("control_plane", status);
-}
-
-// ── Routines ──────────────────────────────────────────────────────────────
-//
-// A routine is a note the control plane says is due (`docs/decisions/
-// routines.md`). The control plane hands this Worker the runs and a grant for
-// each; the gateway runs it; the answer comes back here and goes out as texts.
-// The answer never passes through the control plane: what this Worker reports
-// back is an outcome code and a count.
-
-/** How a routine's run ended, as the control plane records it. */
-export type RoutineOutcome =
-  | "answered"
-  | "skipped"
-  | "finished"
-  | "failed"
-  | "paused"
-  | "routine_gone"
-  | "not_a_routine"
-  | "daily_limit"
-  | "no_provider"
-  | "no_chat";
-
-export type RoutineSend = "text" | "note" | "both";
-
-export type DueRoutine = {
-  runId: string;
-  /** "" for a chat routine's run: the chat's own turn mints its grant (`groupRoutines.ts`). */
-  accessToken: string;
-  path: string;
-  timeZone: string;
-  send: RoutineSend;
-  phones: string[];
-  /** A chat routine's chat, by its key: answered into that group, never a phone. */
-  chat?: string;
-  /** A chat routine's last run, in ms: what "new" means to it (`wake: new mail`). */
-  since?: number;
-  /** When this routine runs next after this run (`null` when paused). */
-  nextRunAt?: number | null;
-};
-
-/** Most runs one tick takes on; the rest are still due on the next. */
-export const MAX_DUE_RUNS = 100;
-const E164 = /^\+[1-9]\d{6,14}$/;
-
-const isSend = (value: unknown): value is RoutineSend => value === "text" || value === "note" || value === "both";
-const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.length > 0;
-
-/** The runs due now (the cron's), or with `scope` the one routine an alarm asks for. A malformed run is dropped, never guessed at. */
-export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: string, scope?: { workspaceId: string; path: string }): Promise<DueRoutine[]> {
-  const { status, json } = await post(fetcher, "control_plane", `${origin}/agent-texts/routines/due`, secret, scope ? { scope } : {});
-  if (status !== 200) throw new ServiceError("control_plane", status);
-  const runs = record(json).runs;
-  if (!Array.isArray(runs)) throw new ServiceError("control_plane", status);
-  const due: DueRoutine[] = [];
-  for (const value of runs.slice(0, MAX_DUE_RUNS)) {
-    const run = record(value);
-    const chat = typeof run.chat === "string" && /^[0-9a-f]{64}$/.test(run.chat) ? run.chat : undefined;
-    if (!nonEmpty(run.runId) || (chat === undefined && !nonEmpty(run.accessToken)) || !nonEmpty(run.path) ||
-        typeof run.timeZone !== "string" || !isSend(run.send) || !Array.isArray(run.phones)) {
-      continue;
-    }
-    // A phone names a Durable Object, so only a well-formed number is one.
-    const phones = [...new Set(run.phones.filter((phone): phone is string => typeof phone === "string" && E164.test(phone)))];
-    due.push({
-      runId: run.runId,
-      accessToken: chat === undefined ? (run.accessToken as string) : "",
-      path: run.path,
-      timeZone: run.timeZone,
-      send: run.send,
-      phones,
-      ...(chat === undefined ? {} : { chat }),
-      ...(chat !== undefined && Number.isSafeInteger(run.since) && (run.since as number) > 0 ? { since: run.since as number } : {}),
-      ...(typeof run.nextRunAt === "number" || run.nextRunAt === null ? { nextRunAt: run.nextRunAt as number | null } : {}),
-    });
-  }
-  return due;
-}
-
-/** What became of a run: a code and a count, never its text. */
-export async function reportRoutineResult(
-  fetcher: Fetch,
-  origin: string,
-  secret: string,
-  result: { runId: string; outcome: RoutineOutcome; texted: number },
-): Promise<void> {
-  const { status } = await post(fetcher, "control_plane", `${origin}/agent-texts/routines/result`, secret, {
-    runId: result.runId,
-    outcome: result.outcome,
-    texted: result.texted,
-  });
-  if (status < 200 || status >= 300) throw new ServiceError("control_plane", status);
-}
-
-export type RoutineAnswer = {
-  outcome: Exclude<RoutineOutcome, "no_chat">;
-  /** The text to send, when the outcome is one that has something to say. */
-  answer: string;
-  /** The routine's `send:` as the gateway read it just now, when it said. */
-  send: RoutineSend | null;
-  /** What the gateway wrote to their texts for it, sealed for the next text (`warm.ts` `keepBeside`). */
-  beside?: string;
-};
-
-const GATEWAY_OUTCOMES = new Set(["answered", "skipped", "finished", "failed", "paused"]);
-
-/**
- * Run one routine on the gateway's `/agent` with its own grant. The gateway
- * re-reads the note and decides whether it runs; this only reads the result.
- * Never throws: anything it cannot read is `failed`.
- */
-export async function runRoutine(
-  fetcher: Fetch,
-  gatewayOrigin: string,
-  accessToken: string,
-  routine: { path: string; timeZone: string },
-): Promise<RoutineAnswer> {
-  const failed: RoutineAnswer = { outcome: "failed", answer: "", send: null };
-  let result: { status: number; json: unknown };
-  try {
-    result = await post(fetcher, "gateway", `${gatewayOrigin}/agent`, accessToken, { routine: { path: routine.path, timeZone: routine.timeZone } }, AGENT_TIMEOUT_MS);
-  } catch {
-    return failed;
-  }
-  const body = record(result.json);
-  if (result.status === 200) {
-    if (typeof body.outcome !== "string" || !GATEWAY_OUTCOMES.has(body.outcome)) return failed;
-    const outcome = body.outcome as RoutineAnswer["outcome"];
-    const speaks = outcome === "answered" || outcome === "finished";
-    return {
-      outcome,
-      answer: speaks && typeof body.answer === "string" ? body.answer.trim() : "",
-      send: isSend(body.send) ? body.send : null, ...(typeof body.beside === "string" ? { beside: body.beside } : {}), // what it wrote to their texts, sealed (`warm.ts` `keepBeside`)
-    };
-  }
-  if (result.status === 404) return { ...failed, outcome: "routine_gone" };
-  if (result.status === 400 && body.error === "not_a_routine") return { ...failed, outcome: "not_a_routine" };
-  if (result.status === 409) return { ...failed, outcome: "no_provider" };
-  if (result.status === 429) return { ...failed, outcome: "daily_limit" };
-  return failed;
 }
 
 /** The words an ask showed: the parts texted exactly as written (the ask itself), or the whole answer. */

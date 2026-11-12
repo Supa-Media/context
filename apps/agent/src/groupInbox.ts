@@ -48,7 +48,8 @@
 
 import { GROUP_QUEUE, queueFull, queueItem } from "./chatQueue";
 import { ASK_KEY, isAsker, isItForTexInGroup, type OpenAsk } from "./isItForTex";
-import { reportRoutineResult, ServiceError, type Fetch, type RoutineOutcome } from "./clients";
+import { ServiceError, type Fetch } from "./clients";
+import { reportRoutineResult, type RoutineOutcome } from "./routineClients";
 import { chatRoutineMessage, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer } from "./groupControl";
 import { dropKept, keepAnswer, keptAnswer, refreshKept } from "./groupKept";

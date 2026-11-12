@@ -156,8 +156,10 @@ const VAULT_WORDS = /\b(shar\w*|give|let|access|use|everyone|everybody|workspace
  * `send setting` and `send vault_access` for a texted turn. `consent(kind)` is the turn's own-words check
  * (`consentForTurn`), asked only before a widening.
  */
-export function settingsTools({ session, controlPlane, group, dispatch, words = "", judge = null }) {
+export function settingsTools({ session, controlPlane, group, dispatch, words = "", judge = null, onInvite = null }) {
   const tools = [];
+  const invite = chatInviteTool({ group, words, judge, onInvite });
+  if (invite !== null) tools.push(invite);
   if (group === null && typeof dispatch === "function") {
     tools.push({
       tool: {
@@ -229,6 +231,45 @@ export function settingsTools({ session, controlPlane, group, dispatch, words = 
     });
   }
   return tools;
+}
+
+/** The words an invitation needs in the turn's own message before the judge is asked. */
+const INVITE_WORDS = /\b(add|invite|share|bring|let|give|everyone|everybody|all of (?:us|you|them)|whole (?:chat|group))\b/i;
+
+/**
+ * "Share @studio with everyone here", in any words (Dev2, 2026-11-12): invite everyone in this group chat to a shared
+ * workspace, as the fixed "Tex, add everyone here to @studio" does. The chat's numbers are only ever the texting
+ * Worker's, so this tool only asks for it (`onInvite`, carried on the answer as `invite`), and the Worker runs the same
+ * command as the person who asked, once the answer has gone (`apps/agent/src/groupInvite.ts`): only an owner there
+ * invites anyone, checked by the control plane against their own number. Their own words must ask for it.
+ */
+function chatInviteTool({ group, words, judge, onInvite }) {
+  if (group === null || group?.guestTagger === true || typeof onInvite !== "function") return null;
+  let asked = false;
+  return {
+    tool: {
+      name: "chat_add_everyone",
+      description:
+        "Invite everyone in this group chat to one of the asker's shared workspaces, when they ask in any words (\"share @studio with everyone here\", " +
+        "\"add the group to my team workspace\"), so you can use all of it here. workspace: its @handle; as: editors (default) or members (read only). " +
+        "Only an owner there can; the invitations go after your answer, and a line with the result follows it, so say only that you're adding them.",
+      inputSchema: { type: "object", properties: { workspace: { type: "string" }, as: { type: "string", enum: ["editors", "members"] } }, required: ["workspace"] },
+    },
+    call: async (args) => {
+      const slug = typeof args?.workspace === "string" ? args.workspace.trim().replace(/^@/, "").toLowerCase() : "";
+      if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(slug)) return text("Pass workspace, its @handle. Nothing was changed.", true);
+      if (asked) return text("Only one workspace a turn. Nothing more was changed.", true);
+      const said = typeof words === "string" ? words : "";
+      let allowed = INVITE_WORDS.test(said);
+      if (allowed && typeof judge === "function") {
+        allowed = await judge({ words: said, action: `invite everyone in this group chat to the workspace @${slug}` }).then((answer) => answer?.allow === true, () => false);
+      }
+      if (!allowed) return text("They have to ask for that in their own words. Nothing was changed; tell them so.", true);
+      asked = true;
+      onInvite({ slug, role: args?.as === "members" ? "member" : "editor" });
+      return text(`Queued: after your answer, everyone here is invited to @${slug} if the asker owns it, and a line with the result follows. Say in a few words that you're adding them.`);
+    },
+  };
 }
 
 export { SETTINGS_SEND_ACTIONS } from "./settingsActions.js";
