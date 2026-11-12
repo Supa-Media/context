@@ -145,7 +145,7 @@ Tex's browser").
   signed-in person in that chat now, so a forwarded link opens nothing for
   anyone else. A chat with no home has no page, and nothing is handed over.
 - **No link is never a hand-back.** Every line that says no link can be made
-  (`NO_HANDOFF_SENTENCE`, `NO_LINK_RESULT`, `NO_LINK_LINE` in `browse.js`)
+  (`NO_HANDOFF_SENTENCE`, `NO_LINK_RESULT`, `NO_LINK_LINE` in `handoffWords.js`)
   says the browser is kept where it got to and never tells anyone to fill in
   or redo on the site what Tex already did there.
 
