@@ -229,8 +229,6 @@ export async function runTurn(options) {
     // Gateway words saying the history is one iMessage thread's (`threadView.js`).
     threadNote = "",
     turnNote = "", // per-text words said in their turn, never the system prompt (`turnPrompt.js`)
-    // A history rebuilt as one block every text (the threaded log) is never read back by the next text: no hour mark on it (`aiGateway.js`).
-    historyCached = true,
     // Texts sent while it works, taken after each tool round (`steer.js`).
     steer = null,
     web = null,
@@ -435,7 +433,7 @@ export async function runTurn(options) {
     try {
       answer = await requestBuiltin(
         // `cachedThrough`: the history is the cached stretch; the question and what follows it are not (`aiGateway.js`).
-        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: historyCached ? historyMessages.length : 0, ...(observe ? { display: "summarized" } : {}) },
+        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: historyMessages.length, ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
       );

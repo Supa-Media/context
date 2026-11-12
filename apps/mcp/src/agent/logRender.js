@@ -95,7 +95,7 @@ export function newestAt(events, answered) {
  * tools it used (`ledgerHistory.js`): its names follow Tex's first line of
  * that turn, names only.
  */
-export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null, tags = null, now = null } = {}) {
+export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null, tags = null, now = null, lulls = Number.isFinite(now) } = {}) {
   const day = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "short", day: "numeric" });
   const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true });
   const all = [...answeredBy, ...events];
@@ -106,13 +106,14 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
   const named = new Set();
   let lastDay = null;
   let lastAt = null;
-  // With `now` (a history rebuilt every text, `threadedTurn.js`): each day says how long ago it was, and a quiet
-  // stretch of four hours or more is marked where it happened (`chatTime.js`).
+  // With `now`: each day says how long ago it was. With `lulls` (on with `now`): a quiet stretch of four hours or more
+  // is marked where it happened, which never changes, so the threaded log keeps it and says the days' ages in the
+  // person's turn instead (`threadedTurn.js`, `chatTime.js`).
   const aged = Number.isFinite(now);
   for (const event of events) {
     const date = new Date(event.at);
     const thisDay = day.format(date);
-    if (aged && lastAt !== null && event.at - lastAt >= LULL_MS) lines.push(`(quiet for ${spanWords(event.at - lastAt)})`);
+    if (lulls && lastAt !== null && event.at - lastAt >= LULL_MS) lines.push(`(quiet for ${spanWords(event.at - lastAt)})`);
     if (thisDay !== lastDay) {
       lines.push(aged ? `--- ${thisDay} (${dayAgo(event.at, now, timeZone)}) ---` : `--- ${thisDay} ---`);
       lastDay = thisDay;
