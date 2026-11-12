@@ -373,8 +373,7 @@ export async function runTurn(options) {
   const steps = [];
   /*
     Where the time went, in milliseconds and counts only: what a slow answer
-    is diagnosed from (the owner, 2026-10-07: "it was EXTREMELY slow"), and
-    nothing a log line could leak a note or a question through.
+    is diagnosed from (the owner, 2026-10-07: "it was EXTREMELY slow"); no note or question in it.
   */
   const timing = { rounds: 0, modelMs: 0, toolMs: 0, failures: [] }; // `failures`: each failed tool call, logged as it happens (`toolFailures.js`)
   const failed = failureRecorder(timing.failures, providerOptions, () => model);
@@ -475,9 +474,8 @@ export async function runTurn(options) {
         error.timing = {
           rounds: timing.rounds + 1,
           modelMs: timing.modelMs + ms,
-          toolMs: timing.toolMs,
+          toolMs: timing.toolMs, failures: timing.failures,
           trace: [...trace, { kind: "model", model, ok: false, at: asked - began, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
-          failures: timing.failures,
         };
       }
       throw error;
