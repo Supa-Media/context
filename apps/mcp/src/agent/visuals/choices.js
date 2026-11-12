@@ -78,7 +78,7 @@ export function gallery(data) {
     body = `${hero ? photo(hero.photo, { height: 270, radius: 10, tone: TONES[0], extra: `${hero.pick === true ? chip(hero.tag || "Tex's pick") : ""}<div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 16px; border-radius: 0 0 10px 10px; background: rgba(26,23,20,0.82); color: #FFFDF9; display: flex; justify-content: space-between; align-items: baseline; gap: 12px"><div style="display: flex; flex-direction: column; min-width: 0"><div style="font-size: 24px; font-weight: 600">${esc(hero.name, 28)}</div><div style="font-size: 14px; color: #D8D2C9">${esc(hero.note, 40)}</div></div><div style="font-family: ${s.font}; font-size: 34px; font-weight: 600; flex-shrink: 0">${esc(hero.price, 12)}</div></div>` }) : ""}
 <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">${rest
       .map(
-        (item, i) => `<div style="display: flex; flex-direction: column; gap: 8px">${photo(item.photo, { height: 150, tone: TONES[(i + 4) % TONES.length], label: source(item) })}
+        (item, i) => `<div style="display: flex; flex-direction: column; gap: 8px">${photo(item.photo, { name: item.name, height: 150, tone: TONES[(i + 4) % TONES.length], label: source(item) })}
 <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px"><div style="font-size: 20px; font-weight: 600">${esc(item.name, 22)}</div><div style="font-family: ${s.font}; font-size: 26px; font-weight: 600">${esc(item.price, 12)}</div></div>
 <div style="font-size: 15px; color: ${s.muted}">${esc(item.note, 40)}</div></div>`,
       )
@@ -88,7 +88,7 @@ export function gallery(data) {
     body = `<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 22px; flex-grow: 1; padding-top: 6px">${items
       .map(
         (item, i) => `<div style="background: #FFFDF9; padding: 10px 10px 12px; border-radius: 4px; transform: rotate(${tilts[i]}); display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 14px rgba(26,23,20,0.14)">
-${photo(item.photo, { height: items.length > 2 ? 160 : 300, radius: 0, tone: TONES[i % TONES.length], label: source(item), extra: item.price ? `<div style="position: absolute; right: 8px; top: 8px; font-size: 16px; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: #1A1714; color: #FFFDF9">${esc(item.price, 12)}</div>` : "" })}
+${photo(item.photo, { name: item.name, height: items.length > 2 ? 160 : 300, radius: 0, tone: TONES[i % TONES.length], label: source(item), extra: item.price ? `<div style="position: absolute; right: 8px; top: 8px; font-size: 16px; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: #1A1714; color: #FFFDF9">${esc(item.price, 12)}</div>` : "" })}
 <div style="font-family: Caveat, cursive; font-size: 27px; font-weight: 600; line-height: 1">${esc(item.name, 26)}</div>
 <div style="font-size: 14px; color: ${s.muted}">${esc(item.note, 40)}</div></div>`,
       )
@@ -99,7 +99,7 @@ ${photo(item.photo, { height: items.length > 2 ? 160 : 300, radius: 0, tone: TON
       .slice(0, 3)
       .map(
         (item, i) => `<div style="display: flex; flex-direction: column; gap: 10px">
-${photo(item.photo, { height: 330, tone: TONES[i % TONES.length], label: source(item), style: item.pick === true ? `outline: 3px solid ${s.chip}; outline-offset: -3px;` : "", extra: item.pick === true ? chip(item.tag || "Tex's pick") : "" })}
+${photo(item.photo, { name: item.name, height: 330, tone: TONES[i % TONES.length], label: source(item), style: item.pick === true ? `outline: 3px solid ${s.chip}; outline-offset: -3px;` : "", extra: item.pick === true ? chip(item.tag || "Tex's pick") : "" })}
 <div style="font-family: ${s.font}; font-size: 30px; font-weight: 600">${esc(item.price, 12)}</div>
 <div style="font-size: 16px; font-weight: 600; line-height: 1.25">${esc(item.name, 40)}</div>
 <div style="font-size: 14px; color: ${s.muted}; line-height: 1.35">${esc(item.note, 60)}</div></div>`,
@@ -126,6 +126,7 @@ export function versus(data, theme) {
 <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">${sides
       .map(
         (side, i) => `<div style="display: flex; flex-direction: column; gap: 8px">${photo(side.photo, {
+          name: side.name,
           height: 180,
           tone: TONES[i + 1],
           label: side.source ? `photo · ${esc(side.source, 20)}` : "",
