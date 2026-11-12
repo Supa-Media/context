@@ -209,7 +209,7 @@ async function signedInMember(ctx: ActionCtx, workspaceId: Id<"workspaces">): Pr
 }
 
 /** Keys as Settings shows them, with every name they mention read once. */
-async function shownEntries(ctx: ActionCtx, workspaceId: Id<"workspaces">, caller: Caller, metas: { entryId: string; meta: ShownMeta; waiting?: number }[]) {
+export async function shownEntries(ctx: ActionCtx, workspaceId: Id<"workspaces">, caller: Caller, metas: { entryId: string; meta: ShownMeta; waiting?: number }[]) {
   const named = namedIn(metas.map((entry) => entry.meta));
   const labels = await ctx.runQuery(internal.functions.vaultPeople.labels, { workspaceId, ...named });
   return metas.map((entry) => entryFrom(entry.entryId, entry.meta, caller, labels, entry.waiting ?? 0));

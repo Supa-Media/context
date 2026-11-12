@@ -362,7 +362,7 @@ export async function editorClearanceForGatewayHandler(
  * (`textGroups.ts`, `textGroupHomeOnly.ts` `ownTagToken`): the grant's person, or a home-only grant's tagger. Never
  * on a run's token, nor on an earlier token kept alive beside a newer tag.
  */
-function ownTagOf(live: LiveGrant & { run?: RunGrantInfo }, chatId: string | null, hashedAccessToken: string): { texTaggerId?: Id<"users"> } {
+export function ownTagOf(live: LiveGrant & { run?: RunGrantInfo }, chatId: string | null, hashedAccessToken: string): { texTaggerId?: Id<"users"> } {
   const group = live.grant.texGroup;
   if (chatId === null || live.run || group?.ownTagToken === undefined || group.ownTagToken !== hashedAccessToken) return {};
   const tagger = group.homeOnly === true ? group.taggerId : live.grant.userId;

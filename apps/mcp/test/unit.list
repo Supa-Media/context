@@ -523,3 +523,4 @@ test/toldFacts.test.mjs
 test/toldFactsTurn.test.mjs
 test/toolFailures.test.mjs
 test/openAsk.test.mjs
+test/texSettings.test.mjs
