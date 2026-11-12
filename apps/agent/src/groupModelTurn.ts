@@ -10,6 +10,7 @@ import { askAgentStream, askLine, ServiceError, type AgentAnswer } from "./clien
 import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
 import type { ControlAnswer } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
+import { tappedBy } from "./groupSlowTap";
 import { fixedTimings, log, logTiming, say, sayProgress, sendPicture, type SayMeta } from "./groupSay";
 import { prepareAttachments } from "./attachments";
 import { textsWithExact } from "./format";
@@ -186,6 +187,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
   if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
     // Answered with a tapback and no words: the conversation classifier's (`apps/mcp/src/agent/respond.js`), the emoji checked against the list.
+    if (answer.react !== undefined && message.reaction === undefined) await tappedBy(storage, message.messageId);
     if (answer.react !== undefined && message.reaction === undefined) await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(answer.react || undefined, ackEmoji(message.text))).catch(() => {});
     await handOff();
     return log(answer.react !== undefined ? "reacted" : "silent");
@@ -211,7 +213,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   }
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
   const toSend = textsWithExact(answer.text, answer.verbatim, checkIn);
-  const texts = checkIn ? toSend : await withThreadsLine(toSend, answer.offers, viewLink(answer.hub, deps.threadsLink), answer.verbatim); // the live view rides in the first text (`jobs.ts`)
+  const threaded = checkIn ? toSend : await withThreadsLine(toSend, answer.offers, viewLink(answer.hub, deps.threadsLink), answer.verbatim); // the live view rides in the first text (`jobs.ts`)
+  const texts = withIntro(threaded, !routine && asked.intro === true ? GROUP_LINES.intro(asked.reach ?? []) : null, answer.verbatim);
   const now = await readTwice();
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");
@@ -264,4 +267,16 @@ async function dropSteered(storage: InboxStorage, ids: string[], covers: string[
 async function outbox(storage: InboxStorage, chat: string): Promise<{ recent?: unknown[] }> {
   const recent = await recentEvents(storage, chat);
   return recent.length > 0 ? { recent } : {};
+}
+
+/**
+ * The one-shot introduction as the last line of a chat's first answer (Dev2, 2026-11-12): one send into a new group,
+ * not a fixed bubble ahead of the answer. An exact text (an ask's own words) is never changed, so after one it is a
+ * text of its own; a turn that texts nothing has nothing to carry it.
+ */
+export function withIntro(texts: string[], intro: string | null, exact: readonly string[] = []): string[] {
+  if (intro === null || texts.length === 0) return texts;
+  const last = texts.at(-1)!;
+  // A bare link keeps its preview, and an exact text its words: the intro goes after either as its own text.
+  return /^https?:\/\/\S+$/.test(last.trim()) || exact.some((part) => part.trim() === last.trim()) ? [...texts, intro] : [...texts.slice(0, -1), `${last}\n\n${intro}`];
 }

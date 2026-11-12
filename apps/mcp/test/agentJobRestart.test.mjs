@@ -24,6 +24,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { MAX_RUNNING_JOBS, QUIET_ACK, RESTART_JOB_TOOL, START_JOB_TOOL, backgroundSession, startedJobs, withBackground } from "../src/agent/background.js";
+import { MAX_START_LINE, SAY_FIELD, startLine } from "../src/agent/jobStart.js";
 
 const NOW = Date.UTC(2026, 9, 31, 17, 0, 0);
 const job = (title, state, extra = {}) => ({ id: `job-${title.replace(/\W/g, "").toLowerCase()}-0001`, title, state, startedAt: NOW - 20 * 60_000, ...(state === "running" ? {} : { finishedAt: NOW - 60_000 }), steps: [], verdict: null, advice: "", result: "", status: "", ...extra });
@@ -87,21 +88,59 @@ test("nothing to restart: offered but refused in code, and a job's own turn neve
   assert.deepEqual(backgroundSession({ running: [A16Z], job: { id: "job-x-0001", title: "x" }, now: NOW }).tools, []);
 });
 
-test("a start or restart texts nothing, ever", async () => {
-  // Dev2, 2026-11-11: "why does tex report back to us what its doing? No one actually cares". The text they sent gets a
-  // tapback instead (`texEntryPoint/sendTheReply.js`); they hear the job's result and nothing before it.
+test("a start or restart with no say texts nothing: their text gets a tapback", async () => {
+  // Without a say, the text they sent gets a tapback (`texEntryPoint/sendTheReply.js`); they hear the job's result.
   const restarted = backgroundSession({ running: [YC], job: null, now: NOW });
-  assert.equal(restarted.tools.find((tool) => tool.name === RESTART_JOB_TOOL).inputSchema.properties.quiet, undefined, "no quiet switch: it always is");
+  assert.equal(restarted.tools.find((tool) => tool.name === RESTART_JOB_TOOL).inputSchema.properties.quiet, undefined, "no quiet switch");
   await withBackground(restarted, async () => ({ content: [] }))(RESTART_JOB_TOOL, { titles: ["Y Combinator application"] });
   assert.equal(restarted.endsTurn(RESTART_JOB_TOOL), QUIET_ACK);
   assert.deepEqual(startedJobs(restarted, false), { steers: [{ id: YC.id, resume: true }] }, "it still picks the job up");
 
   const started = backgroundSession({ running: [], job: null, now: NOW });
   assert.equal(started.tools.find((tool) => tool.name === START_JOB_TOOL).inputSchema.properties.quiet, undefined);
-  assert.match(words(await withBackground(started, async () => ({ content: [] }))(START_JOB_TOOL, { title: "Haircut", brief: "Book it." })), /Nothing is texted for it/);
+  assert.match(words(await withBackground(started, async () => ({ content: [] }))(START_JOB_TOOL, { title: "Haircut", brief: "Book it." })), /Their text gets a tapback/);
   assert.equal(started.endsTurn(START_JOB_TOOL), QUIET_ACK);
   assert.equal(started.endsTurn(START_JOB_TOOL), null, "settled once");
   assert.equal(started.endsTurn("search"), null, "no job, no settling");
+});
+
+test("a start or restart with a say ends the turn with that line, judged by Tex, not a rule", async () => {
+  // Dev2, 2026-11-12 (Nov Babies: a 🤝 and eleven minutes of nothing): "some jobs don't need it, some jobs do need it".
+  // The line is written in the call that starts the job, so the turn still ends at once, with no model round after.
+  const started = backgroundSession({ running: [], job: null, now: NOW });
+  assert.deepEqual(started.tools.find((tool) => tool.name === START_JOB_TOOL).inputSchema.properties.say, SAY_FIELD);
+  assert.match(started.prompt, /Some starts need a line, some don't/, "the examples go with the job rules");
+  assert.doesNotMatch(started.prompt, /never a text/, "the 2026-11-11 rule is gone");
+  const line = "On it. I'll put a page together with photos and send it here in a few minutes.";
+  assert.match(words(await withBackground(started, async () => ({ content: [] }))(START_JOB_TOOL, { title: "Birthday ideas", brief: "Twenty people, NYC.", say: `  ${line}\n` })), /Your say is texted/);
+  assert.equal(started.endsTurn(START_JOB_TOOL, {}), line);
+  assert.equal(started.endsTurn(START_JOB_TOOL, {}), null, "settled once");
+
+  const two = backgroundSession({ running: [], job: null, now: NOW });
+  const dispatch = withBackground(two, async () => ({ content: [] }));
+  await dispatch(START_JOB_TOOL, { title: "Venues", brief: "Find venues." });
+  await dispatch(START_JOB_TOOL, { title: "Menus", brief: "Find menus.", say: "On it, venues and menus in a few minutes." });
+  assert.equal(two.endsTurn(START_JOB_TOOL, {}), "On it, venues and menus in a few minutes.", "a round's parts share one line, from whichever said it");
+
+  const refused = backgroundSession({ running: [], job: null, now: NOW });
+  await withBackground(refused, async () => ({ content: [] }))(START_JOB_TOOL, { title: "", brief: "", say: "On it." });
+  assert.equal(refused.endsTurn(START_JOB_TOOL, {}), null, "a refused start says nothing and settles nothing");
+
+  const restarted = backgroundSession({ running: [YC], job: null, now: NOW });
+  assert.deepEqual(restarted.tools.find((tool) => tool.name === RESTART_JOB_TOOL).inputSchema.properties.say, SAY_FIELD);
+  await withBackground(restarted, async () => ({ content: [] }))(RESTART_JOB_TOOL, { titles: ["Y Combinator application"], say: "Picking the YC one back up with your link." });
+  assert.equal(restarted.endsTurn(RESTART_JOB_TOOL, {}), "Picking the YC one back up with your link.");
+});
+
+test("a start line is one plain line, never a control marker, never too long", () => {
+  assert.equal(startLine(undefined), "");
+  assert.equal(startLine("   "), "");
+  assert.equal(startLine("[[tex:quiet-ack]]"), "", "a marker typed into say is never texted");
+  assert.equal(startLine("On it.\n\nPage soon."), "On it. Page soon.");
+  const long = `${"Checking every venue near Union Square for twenty people on Saturday. ".repeat(6)}Done soon.`;
+  const cut = startLine(long);
+  assert.ok(cut.length <= MAX_START_LINE, "cut to the limit");
+  assert.match(cut, /Saturday\.$/, "at its last full sentence");
 });
 
 test("a computer job picked back up gets the computer as its settings are now, not the folder it first ran in", async () => {

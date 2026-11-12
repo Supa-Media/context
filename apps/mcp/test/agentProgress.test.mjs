@@ -273,14 +273,15 @@ test("a streamed turn texts several lines in order, a done line is refused, and 
   assert.equal(result.answer, "Found 3 tables at Nopa. The 7pm is the one by the window, want it?");
 });
 
-test("a line goes only before a slow step outside their notes, never before a search, a note read or the advisor (Dev2, 2026-11-01)", () => {
+test("a line goes only for something to act on or a change outside their notes, never to narrate a search (Dev2, 2026-11-12)", () => {
+  // Nov Babies, 2026-11-11: "Searching NYC karaoke spots that take groups of 20…" and "Searching NYC group dinners…" went
+  // to a group as plan lines and added nothing. A long task's "here's what I'm doing" is its job's start line now.
   for (const words of [PROGRESS_PROMPT, PROGRESS_TOOL_DEFINITION.description]) {
-    assert.match(words, /slow step that reaches outside their notes \(opening a site, browsing, a long job of many steps\)/);
-    assert.match(words, /Never before a search, a note read or asking your advisor/);
     assert.match(words, /could act on before your answer/);
+    assert.match(words, /Never to narrate a search, a lookup or which sites you're checking/);
+    assert.match(words, /background job, whose start line says what they'll get/);
     assert.match(words, /never the answer itself/i);
-    assert.match(words, /"Opening OpenTable for Friday\."/);
-    assert.doesNotMatch(words, /Checking your Friday calendar|Don't repeat a line/);
+    assert.doesNotMatch(words, /your plan|Opening OpenTable|Checking OpenTable and Resy/);
   }
 });
 

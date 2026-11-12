@@ -155,6 +155,7 @@ test/personFlags.test.mjs
 bench/test/calibrate.test.mjs
 bench/test/review.test.mjs
 bench/test/respond.test.mjs
+bench/test/jobstart.test.mjs
 bench/test/context.test.mjs
 bench/test/folder.test.mjs
 bench/test/improve.test.mjs

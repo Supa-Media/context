@@ -6,6 +6,7 @@
  *  1. the gate asked on every decide (no keeping) → "the gate is asked once" fails.
  *  2. `remaining` never counted down → "the day's count runs out here" fails.
  *  3. a refused gate falling through to the gateway → "a refused gate never reaches Clef" fails.
+ *  4. `no_group` kept like any refusal (2026-11-12) → "a group not set up yet is never kept refused" fails.
  */
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -84,6 +85,30 @@ describe("decide in the gateway", () => {
     await w.settle();
     expect(w.gateway).toEqual([]);
     expect(w.control.at(-1)).toMatchObject({ path: "/agent-texts/decide/usage", body: { refused: 1, calls: 0 } });
+  });
+
+  it("a group not set up yet is never kept refused: its next text asks again and reaches Clef (2026-11-12)", async () => {
+    // A brand-new group's first text is refused no_group before its turn makes the chat's row; kept for a minute, its
+    // second text got the same refusal and no tapback (the sister group and Nov Babies, 2026-11-11 and 11-12).
+    let gate: Record<string, unknown> = { ok: false, reason: "unavailable", cause: "no_group" };
+    const w = world();
+    const fetch = w.deps.fetch;
+    w.deps.fetch = (async (url: string, init: RequestInit) => (new URL(url).pathname === "/agent-texts/decide/gate" ? Response.json(gate) : fetch(url, init))) as typeof fetch;
+    expect(await decide(w.deps, ask)).toMatchObject({ ok: false, cause: "no_group" });
+    gate = { ok: true, remaining: 100 };
+    expect(await decide(w.deps, ask)).toMatchObject({ ok: true, act: "answer" });
+    expect(w.gateway).toHaveLength(1);
+  });
+
+  it("any other refusal is kept for its minute", async () => {
+    let gate: Record<string, unknown> = { ok: false, reason: "off", cause: "switched_off" };
+    const w = world();
+    const fetch = w.deps.fetch;
+    w.deps.fetch = (async (url: string, init: RequestInit) => (new URL(url).pathname === "/agent-texts/decide/gate" ? Response.json(gate) : fetch(url, init))) as typeof fetch;
+    await decide(w.deps, ask);
+    gate = { ok: true, remaining: 100 };
+    expect(await decide(w.deps, ask)).toMatchObject({ ok: false, cause: "switched_off" });
+    expect(w.gateway).toEqual([]);
   });
 
   it("a gateway it cannot reach: the control plane's own decide, as before", async () => {
