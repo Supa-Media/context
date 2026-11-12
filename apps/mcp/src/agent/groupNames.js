@@ -98,6 +98,23 @@ export function numberOf(group, who) {
   return phone ? shownNumber(phone) : "";
 }
 
+/** A guest's name in this chat, kept when someone here said who they are (`groupGuestNames.js`), or "". */
+export function guestNameOf(group, label) {
+  return (Array.isArray(group?.guestNames) ? group.guestNames : []).find((entry) => entry.guest === label)?.name ?? "";
+}
+
+/** Someone as a line names them: "@jo", or a guest's label with their name and number beside it, "@guest-1a2b (Sam, +1 (555) 123-4567)". */
+export function shownWho(group, who) {
+  if (!who) return "Someone";
+  const beside = [guestNameOf(group, who), /^guest-/.test(who) ? numberOf(group, who) : ""].filter(Boolean).join(", ");
+  return beside ? `@${who} (${beside})` : `@${who}`;
+}
+
+/** What a group turn is told of keeping a guest's name (`groupGuestNames.js` `name_guest`). */
+export const GUEST_NAME_LINE =
+  "When someone here says who a guest is, or a guest says it themselves, keep it at once with send action name_guest (their label and name), without saying so unless asked: " +
+  "from then on this list and the chat's lines show that name. ";
+
 /**
  * Everyone in the chat, for "who is in this chat" (Dev2, 2026-11-12: Tex said it couldn't see the member list):
  * each account by handle, name and number, each other person by label and number, and how many people that is.
@@ -117,8 +134,8 @@ export function rosterLine(group) {
   const parts = [
     ...accounts,
     ...guests.map((label) => {
-      const number = numberOf(group, label);
-      return `${label}${number ? ` (${number})` : ""}, on no Context account linked to the number they text from`;
+      const beside = [guestNameOf(group, label), numberOf(group, label)].filter(Boolean).join(", ");
+      return `${label}${beside ? ` (${beside})` : ""}, on no Context account linked to the number they text from`;
     }),
     ...(unlisted > 0 ? [`${unlisted} more ${unlisted === 1 ? "person" : "people"} you have no name for`] : []),
   ];
@@ -129,8 +146,8 @@ export function rosterLine(group) {
       ? "Everyone here already sees each other's numbers in the chat, so say a number here whenever a person here would, as in \"the +1 (555) 123-4567 number\". "
       : "") +
     (guests.length > 0
-      ? `A guest label is how you know someone with no linked account, never words to say: call them by the name the chat's about note gives them, ${numbered ? "or by their number, " : ""}or ask who they are. ` +
-        "When someone here says who a guest is, add it to the chat's about note, label and name, like \"guest-1a2b is Sam, Jo's brother (Jo said so)\". " +
+      ? `A guest label is how you know someone with no linked account, never words to say: call them by the name beside it or the one the chat's about note gives them, ${numbered ? "or by their number, " : ""}or ask who they are. ` +
+        GUEST_NAME_LINE +
         "Someone with a Context account who shows here as a guest has not linked this number to it: they can text you once from it, on their own, to link it. "
       : "")
   );
