@@ -294,8 +294,9 @@ function jobOfBody(job) {
   const brief = words(job.brief);
   if (title === "" || brief === "") return null;
   const followUps = Array.isArray(job.followUps) ? job.followUps.map((text) => words(text, 1_000)).filter(Boolean).slice(-8) : [];
+  const asked = Array.isArray(job.asked) ? job.asked.map((text) => words(text, 1_000)).filter(Boolean).slice(-8) : [];
   const attempt = Number.isSafeInteger(job.attempt) && job.attempt > 0 ? Math.min(job.attempt, 999) : 1;
-  return { title, brief, doneWhen: words(job.doneWhen, 1_000), attempt, followUps, advice: words(job.advice, 1_000), roster: words(job.roster, 4_000) };
+  return { title, brief, doneWhen: words(job.doneWhen, 1_000), attempt, asked, followUps, advice: words(job.advice, 1_000), roster: words(job.roster, 4_000) };
 }
 
 /** What the part did, as the advisor's transcript: each step a tool call (the tool's results stay on the computer). */

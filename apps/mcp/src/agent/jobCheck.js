@@ -36,7 +36,7 @@ export const VERDICTS = ["done", "keep_going", "waiting", "stuck"];
 const MAX_ADVICE = 600;
 const MAX_TRANSCRIPT_CHARS = 120_000;
 const MAX_RESULT_CHARS = 8_000;
-const TAGS = ["job", "tex_instructions", "transcript", "their_texts", "job_note_mail"];
+const TAGS = ["job", "tex_instructions", "transcript", "their_ask", "their_texts", "job_note_mail"];
 
 /**
  * What the advisor knows of a job's note mail (the owner, 2026-11-05: the advisor "should know about the mail stuff ...
@@ -53,14 +53,15 @@ export const ADVISOR_KNOWS_MAIL =
 
 export const JOB_CHECK_PROMPT =
   "You are the advisor to Tex, a texting assistant. One of Tex's background jobs has just stopped. Below are the job (what it was asked " +
-  "and its finish line), the person's latest texts about it, and everything the job did in this part: every tool call and " +
-  "its result, and its last words. Decide whether the job is finished, judged against the finish line and the tool results, never against " +
-  "what its words claim.\n\n" +
+  "and its finish line), what the person texted that started it, their latest texts about it, and everything the job did in this part: " +
+  "every tool call and its result, and its last words. Decide whether the job is finished, judged against the finish line, every part of " +
+  "what they asked in their own words (the brief is Tex's paraphrase and can leave one out), and the tool results, never against what " +
+  "its words claim. A part they asked for that the result drops, and that a later text of theirs didn't take back, means it is not finished.\n\n" +
   "Answer with exactly two lines:\n" +
   "VERDICT: done | keep_going | waiting | stuck\n" +
   "ADVICE: one or two sentences\n\n" +
   "- done: the finish line is met, and a tool result shows it (a saved note, a submitted form, the answer itself). ADVICE: what was done.\n" +
-  "- keep_going: it is not met and the job can still get there. Words like \"I'll begin\", \"next I'll\" or \"I'll text you\" mean it is not " +
+  "- keep_going: it is not met, or a part of what they asked is missing, and the job can still get there. Words like \"I'll begin\", \"next I'll\" or \"I'll text you\" mean it is not " +
   "done. ADVICE: exactly what to do next and how to get past what stopped it (another link on the page, another site, retry the step, " +
   "a different way in).\n" +
   "- waiting: only the person can give what is needed: a one-time code, a captcha the browser couldn't pass, card details, a password " +
@@ -89,11 +90,14 @@ export function jobCheckBrief({ job, messages, answer, exhausted }) {
   let body = (Array.isArray(messages) ? messages : []).map(line).filter(Boolean).join("\n\n");
   if (body.length > MAX_TRANSCRIPT_CHARS) body = `(earlier part left out)\n\n${body.slice(-MAX_TRANSCRIPT_CHARS)}`;
   const followUps = (job.followUps ?? []).map((text) => `- ${quoted(text)}`).join("\n");
+  const asked = (job.asked ?? []).map((text) => `- ${quoted(text)}`).join("\n");
   return (
     `<job>\nTitle: ${quoted(job.title)}\nBrief: ${quoted(job.brief)}\nFinish line: ${quoted(job.doneWhen || "(none written: judge by the brief)")}\n` +
     `This was part ${job.attempt}.${job.advice ? `\nYour advice before this part: ${quoted(job.advice)}` : ""}\n</job>\n\n` +
     // Who is on its note's mail (`jobNote.js` `rosterText`), so the advice can hand work to them.
     (job.roster ? `<job_note_mail>\n${ADVISOR_KNOWS_MAIL}\nWhat the job was told:\n${quoted(clip(job.roster, 4_000))}\n</job_note_mail>\n\n` : "") +
+    // Their own words that started it, so the check reads the whole ask, not the brief's paraphrase (`openAsk.js`; Nov Babies, 2026-11-11).
+    (asked ? `<their_ask>\n${asked}\n</their_ask>\n\n` : "") +
     (followUps ? `<their_texts>\n${followUps}\n</their_texts>\n\n` : "") +
     `<transcript>\n${body || "(nothing)"}\n\nTex's last words: ${quoted(answer) || "(none)"}${exhausted ? "\n(It ran out of steps in this part.)" : ""}\n</transcript>\n\n` +
     "Is the job finished?"

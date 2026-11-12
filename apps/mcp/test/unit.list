@@ -517,3 +517,4 @@ test/agentCheckInTexts.test.mjs
 test/noteReadRoute.test.mjs
 test/toldFacts.test.mjs
 test/toldFactsTurn.test.mjs
+test/openAsk.test.mjs
