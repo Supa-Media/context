@@ -41,7 +41,7 @@
 
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timedTurn, updateGroupPage } from "./groupMemoryNote.js";
-import { groupPageCopied } from "./groupPageCopy.js";
+import { copyGroupPageIn, groupPageCopied } from "./groupPageCopy.js";
 import { historyFromLedger, readGroupLedgerConversation } from "./groupLedgerHistory.js";
 import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
@@ -237,7 +237,8 @@ export function trimGroupTurns(turns) {
 async function readRecord(store, group) {
   try {
     const text = await readChatMemoryRecord(store, group, await groupMemoryPath(group), { strict: true });
-    const record = text === null ? null : JSON.parse(text);
+    if (text === null) return { turns: [], fresh: true };
+    const record = JSON.parse(text);
     return record !== null && typeof record === "object" && !Array.isArray(record) ? record : { turns: [] };
   } catch {
     return { turns: [], unreadable: true };
@@ -285,6 +286,14 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   let pagePath = named?.live.memory ?? null;
   const record = (async () => {
     if (await copied) return { turns: [], copied: true };
+    // A chat Tex has never answered (no record at all) starts on its ledger: the retired page is never made for it, so
+    // its home holds one history, the ledger's view (Dev2, 2026-11-12, "Stop it and clean up": new groups made a
+    // `history.md` on their first text that nothing ever trashed).
+    // Only when no page is there either: a page somebody made, or one an older chat left, is copied in as before.
+    if (kept.fresh === true && ledger !== null && dispatch !== null) {
+      const none = pagePath === null || (await readHome(pagePath, named.old.memory)).seen?.missing === true;
+      if (none && (await startOnLedger(ledger, group.key))) return { turns: [], copied: true };
+    }
     if (pagePath !== null && kept.onPage === ON_PAGE) {
       // Straight from the chat's object when the record kept the page's key (`groupDirectNotes.js`), else through the tool.
       const held = await directNote(group, kept, "memory");
@@ -337,6 +346,22 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   if (fromLedger !== null) return fromLedger;
   // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
   return trimGroupTurns(turns.map(({ role, text, tainted, tools, sources, timing }) => ({ ...keptTurn({ role, text, tainted, tools, sources }), ...timedTurn(role, timing) })));
+}
+
+/**
+ * A new chat's ledger marked as its history from the start (`copyGroupPageIn` with no page), so no turn makes or
+ * writes a memory page for it. A chat with no record never had a Tex turn, so there is no page and no old log of
+ * Tex's to wait for. False when the ledger can't be written: the turn then goes on as before.
+ */
+async function startOnLedger(ledger, chat) {
+  try {
+    const copy = await copyGroupPageIn(ledger, chat, [], { withoutLog: true });
+    console.log(JSON.stringify({ event: "group_started_on_ledger", state: copy.state }));
+    return copy.state === "copied" || copy.state === "done";
+  } catch (error) {
+    console.log(JSON.stringify({ event: "group_started_on_ledger_failed", reason: String(error?.name ?? "error").slice(0, 40) }));
+    return false;
+  }
 }
 
 /** The chat's ledger through the turn's store, by its group key, or null (`ledger.js` `storeLedger`). */
@@ -473,6 +498,12 @@ export async function keepGroupExchange(store, group, history, question, answer,
   if (latest.onPage === ON_PAGE && !group.home) {
     // The page is the one copy; with the home unopened this turn, the exchange is lost rather than kept in a second place.
     console.log(JSON.stringify({ event: "group_exchange_not_kept", reason: "no_home" }));
+    return;
+  }
+  if (group.pageCopied === true && latest.onPage !== ON_PAGE) {
+    // On the ledger from the start (`startOnLedger`): the ledger holds the exchange, so the record keeps only its marks.
+    const { fresh: _fresh, ...kept } = marks;
+    if (latest.fresh === true || JSON.stringify(withDirect.direct ?? null) !== JSON.stringify(latest.direct ?? null)) await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ version: 1, ...kept, ...withDirect }));
     return;
   }
   if (latest.onPage === ON_PAGE) {

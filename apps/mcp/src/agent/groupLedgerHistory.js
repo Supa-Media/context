@@ -62,7 +62,8 @@ export async function historyFromLedger(ledger, group, turns, { copied, writes, 
       group.pageCopied = true;
       const read = await early;
       if (read.error !== undefined) throw read.error;
-      return read.turns.map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources }));
+      // Marked during this turn's read (`startOnLedger`), the early read found nothing to start: read it now.
+      if (Array.isArray(read.turns)) return read.turns.map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources }));
     }
     if (!copied) {
       if (!writes) return null;
