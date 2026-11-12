@@ -43,7 +43,7 @@ export async function recheckDraft(
       mark: (item) => ({ ...item, force: true, rechecked: true }),
       chat: message.groupId,
       line: message.line,
-      style: (await groupStyle(storage)).style,
+      style: (await groupStyle()).style,
     },
     { sender: message.from, covers, upTo, text },
   );

@@ -411,21 +411,18 @@ describe("decide in a person's own chat", () => {
   });
 });
 
-// Dev2, 2026-10-28: a reply to the open settings menu is answered by code, never put to decide (`texStyle.ts`).
+// Dev2, 2026-11-11: the "Tex, settings" menu is retired; its words go to the model like any other text.
 describe("\"Tex, settings\" in a person's own chat", () => {
-  it("a bare number, then a choice, changes the setting even when decide would say silent", async () => {
+  it("is no longer answered by code: no menu, nothing saved, the model gets it", async () => {
     const storage = new MemoryStorage();
     const w = world(act("silent"));
     const chat = LINES[0].chatId;
-    for (const [n, text] of ["Tex, settings", "1", "2"].entries()) {
+    for (const [n, text] of ["Tex, settings", "Tex, no emoji"].entries()) {
       await accept(storage, msg(chat, `s${n}`, text), 1_000 + n);
       await drain(storage, w.deps);
     }
-    expect(w.decided).toEqual([]);
-    expect(w.asks).toEqual([]);
-    expect(w.texts[0]).toMatch(/^My settings here:/);
-    expect(w.texts[1]).toMatch(/^Progress updates \(now Normal\)/);
-    expect(w.styles).toEqual([{ phone: PHONE, updates: "planOnly" }]);
-    expect(w.texts[2]).toBe("Progress updates set to Plan only.");
+    expect(w.texts.join("\n")).not.toMatch(/My settings here/);
+    expect(w.styles).toEqual([]);
+    expect(w.asks.length + w.decided.length).toBeGreaterThan(0);
   });
 });

@@ -4,10 +4,9 @@
  * group review of 2026-10-30: "tex, settings" waited four minutes behind
  * another turn, though its menu needs nothing that turn has.
  *
- * Only these, so a chat still runs one model turn at a time: "Tex, settings"
- * and the other commands (`groupCommand`, which the control plane answers
- * with no grant to mint), a reply to the settings menu, a style choice, and
- * an SMS group's fixed line. A yes, a 👍, a routine's run or a job's report
+ * Only these, so a chat still runs one model turn at a time: the commands
+ * (`groupCommand`, which the control plane answers with no grant to mint)
+ * and an SMS group's fixed line. A yes, a 👍, a routine's run or a job's report
  * still waits: each is a model turn.
  */
 
@@ -20,7 +19,7 @@ import type { InboxStorage } from "./inbox";
 export function answeredByCode(item: GroupPending): boolean {
   if (item.message.routine !== undefined || item.message.reaction !== undefined || item.message.jobReport !== undefined) return false;
   // An SMS still waiting on the judge's first look is not code's yet (`groupTurn.ts` `firstLook`).
-  if ((item.message.sms === true && item.look !== true) || item.setting !== undefined || item.engagement !== undefined) return true;
+  if ((item.message.sms === true && item.look !== true)) return true;
   return item.byCode === true && groupCommand(item.message.text) !== null;
 }
 

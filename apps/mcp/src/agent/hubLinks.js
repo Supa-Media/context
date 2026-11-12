@@ -69,8 +69,8 @@ export function hubPrompt(hub, { group = false } = {}) {
       ? `computers lent to this chat (${at("machines")}); each person connects a computer of their own on their own Tex page`
       : `their own computers, and connecting a new one (${at("connect")})`,
     group
-      ? `group settings: when you answer, tone, warmth, enthusiasm, emoji, length, bubbles, humor (${at("settings")})`
-      : `your settings: tone, warmth, enthusiasm, emoji, length, bubbles, humor, signing out of websites (${at("settings")})`,
+      ? `this chat's instructions for how you talk, which you also change when someone here asks (${at("settings")})`
+      : `their instructions for how you talk, which you also change when they ask, and signing out of websites (${at("settings")})`,
   ];
   return (
     `\n\n${group ? "This group's" : "Their"} Tex page is ${hub}, signed in, open only to ${group ? "the people in this chat" : "them"}. ` +

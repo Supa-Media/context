@@ -38,7 +38,6 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { AlarmStorage, MemoryStorage } from "./memoryStorage.testing";
-import { ENGAGEMENT_QUESTION, QUESTION_OPEN_MS } from "./groupStyle";
 import { ADA, answerAll, BO, CY, decidedWords, LINES, newestLine, setup, silent, type Answer, type Decide, chatLog } from "./groupWorld.testing";
 
 const PICTURE = { attachments: [{ url: "https://cdn.example.test/shot.png", filename: "shot.png", mimeType: "image/png", size: null }] };
@@ -192,16 +191,7 @@ for (const { name, groupId } of LINES) {
       expect(w.stale).toEqual([{ asks: [ASK_ID] }]);
     });
 
-    it("an SMS never sets the style, nor joins a waiting tag", async () => {
-      const storage = new MemoryStorage();
-      const w = setup(groupId, { control: { engagementChosen: false } });
-      await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
-      await drainGroup(storage, w.deps);
-      expect(w.texts).toEqual([ENGAGEMENT_QUESTION]);
-      expect(await acceptGroup(storage, w.message("3", { from: BO, sms: true }), 10)).toBe("ignored");
-      await drainGroup(storage, w.deps);
-      expect(w.engagement).toEqual([]);
-
+    it("an SMS never joins a waiting tag", async () => {
       const other = new MemoryStorage();
       const v = setup(groupId, { decide: coverTex });
       await acceptGroup(other, v.message("Tex check this link"), 0);
@@ -244,25 +234,6 @@ for (const { name, groupId } of LINES) {
       await acceptGroup(storage, w.message("nice"), 20);
       await drainGroup(storage, w.deps);
       expect(w.decided.at(-1)!.transcript).toContain("answer to Tex hi");
-    });
-
-    it("the style question's half-hour alarm survives a message that set a 4-second one", async () => {
-      const storage = new AlarmStorage();
-      const w = setup(groupId, { control: { engagementChosen: false } });
-      await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
-      storage.fire();
-      await drainGroup(storage, w.deps);
-      expect(storage.alarm).toBe(1_000 + QUESTION_OPEN_MS);
-      // Another tag: its wait replaces the one alarm.
-      await acceptGroup(storage, w.message("Tex hello?", { from: BO }), 2_000);
-      expect(storage.alarm).toBeLessThan(1_000 + QUESTION_OPEN_MS);
-      storage.fire();
-      await drainGroup(storage, { ...w.deps, now: () => 6_000 });
-      // Never later than the question needs (an earlier one, the review's, may come first).
-      expect(storage.alarm).toBeLessThanOrEqual(1_000 + QUESTION_OPEN_MS);
-      storage.fire();
-      await drainGroup(storage, { ...w.deps, now: () => 1_300_000 });
-      expect(storage.alarm).toBe(1_000 + QUESTION_OPEN_MS);
     });
   });
 }

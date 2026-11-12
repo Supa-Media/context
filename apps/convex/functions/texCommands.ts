@@ -109,6 +109,8 @@ function changeOf(command: { action?: string; text?: string }): InstructionsChan
   const text = command.text ?? "";
   if (text.length > MAX_INSTRUCTIONS) return null;
   if (command.action === "clear") return { clear: true };
+  // "Tex, undo the change", said to the instructions tool since the fixed words were retired (2026-11-11).
+  if (command.action === "undo") return { undo: true };
   if (text.trim() === "") return null;
   return command.action === "add" ? { add: text } : command.action === "remove" ? { remove: text } : command.action === "replace" ? { replace: text } : null;
 }

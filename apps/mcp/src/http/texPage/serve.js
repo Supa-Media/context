@@ -73,12 +73,9 @@ function instructionsSummary(text) {
   return first === "" ? "Default" : first.length > 60 ? `${first.slice(0, 59)}…` : first;
 }
 
-const ANSWERS = { quiet: "named", attentive: "named", followAlong: "named", helpful: "every" };
-const answersOf = (engagement) => ANSWERS[engagement] ?? "named";
-
+/** The settings row's line: the instructions in a line. When Tex answers in a group is no longer a choice (2026-11-11). */
 function settingsSummary(chat) {
-  if (chat.kind === "me") return instructionsSummary(chat.instructions);
-  return answersOf(chat.engagement) === "every" ? "Answers every message" : "Answers when named";
+  return instructionsSummary(chat.instructions);
 }
 
 function nextOf(rows) {
@@ -167,13 +164,11 @@ async function list(env, page, chat, call, kind, cursor) {
     const read = await settled(() => notes.readAbout(call, chat.about), { items: [], total: 0 });
     return { items: read.items, total: read.total };
   }
-  // Settings: the person's own instructions, or the chat's, with the quick picks that add a line to them.
-  if (chat.kind === "me") return { items: [], instructions: chat.instructions, picks: chat.picks };
+  // Settings: the person's own instructions, or the chat's. Quick picks and "when Tex answers" are retired (Dev2, 2026-11-11).
+  if (chat.kind === "me") return { items: [], instructions: chat.instructions };
   return {
     items: [],
     instructions: chat.instructions,
-    picks: chat.picks,
-    values: { answers: answersOf(chat.engagement) },
     ...(chat.sponsor ? { approver: chat.sponsor } : {}),
     people: chat.peopleNames,
   };
@@ -245,7 +240,9 @@ async function act(env, controlPlane, session, page, chat, call, action) {
     default: {
       // `settings` (the person's own) and `group.settings` (the chat's): the control plane checks the chat again.
       if ((type === "settings") !== (chat.kind === "me")) return { ok: false, error: "invalid" };
-      const answer = await controlPlane.texPageSettings(session.accessToken, chat.key, action.values ?? {}).catch(() => null);
+      // Only the instructions text: a quick pick or a speak-up level from an old page is dropped, never saved (2026-11-11).
+      const { pick: _pick, answers: _answers, ...values } = action.values ?? {};
+      const answer = await controlPlane.texPageSettings(session.accessToken, chat.key, values).catch(() => null);
       return answer?.status === "done" ? { ok: true } : { ok: false, error: answer?.status ?? "unavailable" };
     }
   }

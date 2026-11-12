@@ -264,7 +264,8 @@ export const TOLD_QUESTION = "(Not a text from them. Context sent this text by i
 export const TOLD = {
   setup:
     "They texted Context's number and were set up by text: they picked their handle, and their account and personal workspace were made. " +
-    "I told them their notes take a couple of minutes to get ready and that I'd text when they were.",
+    "I told them their notes take a couple of minutes to get ready and that I'd text when they were. " +
+    "Setup answered their first text with the handle question, so if that first text asked for something, it is still unanswered: answer it soon (step 0 of the onboarding skill).",
   ready:
     "Your notes are ready. I asked them to connect their personal Gmail, the one they check most, with a link that signs them in " +
     "and opens Connect Gmail; that Gmail becomes their main email on Context. When it connects, Context texts them by itself. " +

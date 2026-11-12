@@ -41,18 +41,18 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { ENGAGEMENT_QUESTION } from "./groupStyle";
 import { ADA, answerAll, BO, CY, decidedWords, LINE, LINES, setup, silent, untaggedSilent, type Answer, type Decide, chatLog } from "./groupWorld.testing";
 
 for (const { name, groupId } of LINES) {
   describe(`a group's decided turns, ${name}`, () => {
     /*
-      Every style puts every message to the judge, and tells it the style (Dev2,
-      2026-11-11). After Tex answered Ada with an ask, Ada and Bo each send an
+      Every message goes to the judge (Dev2, 2026-11-11), which is told
+      follow-along whatever level a chat chose before the levels were retired
+      that day. After Tex answered Ada with an ask, Ada and Bo each send an
       untagged text; the judge (a stand-in) leaves both silent.
     */
     for (const style of ["quiet", "attentive", "followAlong", "helpful"]) {
-      it(`every style puts every message to the judge (${style})`, async () => {
+      it(`every message goes to the judge, told follow-along (a chat once set ${style})`, async () => {
         const storage = new MemoryStorage();
         const w = setup(groupId, {
           decide: untaggedSilent,
@@ -66,7 +66,7 @@ for (const { name, groupId } of LINES) {
         await acceptGroup(storage, w.message("lol nice", { from: BO }), 11);
         await drainGroup(storage, w.deps);
         expect(await decidedWords(storage, w, groupId)).toEqual(["make it shorter", "lol nice"]);
-        expect(w.decided.at(-1)).toMatchObject({ style });
+        expect(w.decided.at(-1)).toMatchObject({ style: "followAlong" });
         // The judge said silent: nothing more was answered, and they stay what the chat said.
         expect(w.asks).toHaveLength(1);
       });
@@ -299,52 +299,28 @@ for (const { name, groupId } of LINES) {
       expect(w.control.map((body) => body.sender)).toEqual([ADA, BO]);
     });
 
-    it("the first addressed message asks the style question first; any member's 3 sets followAlong, then the message is answered", async () => {
+    it("the first addressed message in a chat nobody chose a style for is answered at once, with no style question (Dev2, 2026-11-11)", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { control: { engagementChosen: false } });
       await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
       await drainGroup(storage, w.deps);
-      expect(w.texts).toEqual([ENGAGEMENT_QUESTION]);
-      expect(ENGAGEMENT_QUESTION).toBe(
-        'Before I answer: when should I speak up here?\n\n1 Quiet: only when someone says "Tex"\n2 Attentive: also when I\'ve asked you to OK something, like an email, and you answer or change it without saying "Tex"\n3 Follow-along: also when you ask a follow-up about my last answer without saying "Tex"\n4 Helpful: also when I spot a question your notes, calendar or email can answer\n\nReply with 1, 2, 3 or 4.',
-      );
-      expect(w.asks).toEqual([]);
-      // Bo, not the asker, answers with a bare "3".
-      expect(await acceptGroup(storage, w.message("3", { from: BO }), 10)).toBe("queued");
-      await drainGroup(storage, w.deps);
-      expect(w.engagement).toEqual([{ line: LINE, groupId, style: "followAlong", setBy: "bo" }]);
-      expect(w.texts[1]).toBe('Got it, Follow-along (set by bo). To change it later, text "Tex, settings".');
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what's on tonight"]);
-      expect(w.texts[2]).toBe("answer to Tex what's on tonight");
-    });
-
-    it("a style question nobody answers in half an hour closes, and the message it held is answered anyway", async () => {
-      const storage = new MemoryStorage();
-      const w = setup(groupId, { control: { engagementChosen: false } });
-      await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
-      await drainGroup(storage, w.deps);
-      expect(w.texts).toEqual([ENGAGEMENT_QUESTION]);
-      await drainGroup(storage, { ...w.deps, now: () => 1_000 + 31 * 60_000 });
-      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what's on tonight"]);
-      expect(w.texts).toHaveLength(2);
+      expect(w.texts).toEqual(["answer to Tex what's on tonight"]);
+      expect(w.texts.join("\n")).not.toMatch(/when should I speak up|Reply with 1, 2, 3 or 4/);
       expect(await storage.get("gengask")).toBeUndefined();
     });
 
-    it("a style's name sets it too, any case; \"Tex, settings\" then 1 asks again", async () => {
+    it("'Tex, settings' and 'Tex, no emoji' are no longer code's: no menu, nothing saved, the model answers (Dev2, 2026-11-11)", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId);
       await acceptGroup(storage, w.message("Tex, settings"), 0);
       await drainGroup(storage, w.deps);
-      // Dev2, 2026-10-28: "Tex, settings" is the two-level menu; its first choice is this question (`texStyle.ts`; its rows since 2026-11-01).
-      expect(w.texts[0]).toMatch(/^My settings in this chat:\n\n1 When I speak up \(Follow-along\)\n2 Progress updates \(Normal\)/);
-      await acceptGroup(storage, w.message("1", { from: BO }), 5);
+      expect(w.texts.join("\n")).not.toMatch(/My settings in this chat/);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex, settings"]);
+      await acceptGroup(storage, w.message("Tex, no emoji", { from: BO }), 10);
       await drainGroup(storage, w.deps);
-      expect(w.texts[1]).toBe(ENGAGEMENT_QUESTION);
-      await acceptGroup(storage, w.message("QUIET", { from: BO }), 10);
-      await drainGroup(storage, w.deps);
-      expect(w.engagement).toEqual([{ line: LINE, groupId, style: "quiet", setBy: "bo" }]);
-      expect(w.texts[2]).toBe('Got it, Quiet (set by bo). To change it later, text "Tex, settings".');
-      expect(w.asks).toEqual([]);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex, settings", "Tex, no emoji"]);
+      expect(w.engagement).toEqual([]);
     });
 
     it("an answer held for a newcomer is logged as never delivered", async () => {

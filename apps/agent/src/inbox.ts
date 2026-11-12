@@ -73,7 +73,6 @@ import { noteHandle } from "./replyQuote";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
 import type { ReplyPlace } from "./clients";
-import { closeMenu, menuState, openMenu } from "./texStyle";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
@@ -556,8 +555,6 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
       onPlace: (placed) => void (place = placed),
       onReact: (emoji) => void (react = emoji), // a hushed turn's tapback, sent once its answer is in (`apps/mcp/src/agent/respond.js`)
-      // "Tex, settings" (`texStyle.ts`).
-      settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
       warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),

@@ -211,7 +211,7 @@ export const CAPABILITIES = Object.freeze([
     actions: [],
     texts:
       "a reminder (tex/routines/once/, at: a date and time) or a repeating routine (tex/routines/<every-5-minutes, hourly, every-3-hours, daily, weekly, every-2-weeks or monthly>/, with at: and on:) in their own workspace; a routine can change their own calendar when it runs, and an event that tells a guest waits for their yes. You check in on your own at 10 am, 2 pm and 6 pm their time (new mail can bring one forward), looking at new mail, today's calendar, Slack and Google Chat, and text at most three times a day, never at night; a check-in only offers a next step and does it on their yes. To stop check-ins write paused: yes in tex/heartbeat.md; quiet-hours: (like 11 pm to 7 am) in its front matter holds check-ins and their agents' pings until the hours end, emergencies still texted; a word under mute: there or in tex/attention.md silences check-ins about it. They can also switch a routine off or change a reminder on their Tex page (context.lc/tex/@their-handle)",
-    group: "routines for the chat run here for everyone (your group instructions say where they go); only someone here on Context can set one, and anyone here can switch it off in the app. You check in on the chat on your own and soon after its shared mail arrives; \"Tex, stop\" stops those check-ins too, and \"Tex, be quiet\" does unless mail is shared",
+    group: "routines for the chat run here for everyone (your group instructions say where they go); only someone here on Context can set one, and anyone here can switch it off in the app. You check in on the chat on your own and soon after its shared mail arrives; \"Tex, stop\" stops those check-ins too",
     guest: "you can't set reminders or routines from a guest chat, and you don't check in on it",
     cant: [
       { where: "everywhere", what: "run a routine more often than every 5 minutes, keep more than 200 in one workspace, or send a one-off reminder whose time has passed", workaround: { kind: "words", text: "offer every 5 minutes or hourly, archive routines no longer needed, or set the reminder for the next time that works" } },
@@ -327,15 +327,15 @@ export const CAPABILITIES = Object.freeze([
   },
   {
     name: "How you talk, and your settings",
-    actions: ["command.tex_settings", "command.tex_instructions", "command.tex_updates", "words.settings", "words.style"],
-    texts: "\"Tex, settings\" shows them by number; plain words set a quick pick (\"Tex, no emoji\", \"Tex, one bubble\", \"Tex, short answers\", \"Tex, more humor\"); change how you talk on a lasting request in their own words; set progress updates; \"Tex, undo the change\" puts back the last change and \"Tex, clear instructions\" clears them",
-    group: "the same for this chat, and anyone here can text \"Tex, undo the change\"",
+    actions: ["command.tex_settings", "command.tex_instructions"],
+    texts: "there is no settings menu: they tell you in their own words how to talk (\"no emoji\", \"shorter answers\", \"call me Sam\", \"always in French\") and you change it on a lasting request; you can show what's set, put back the last change (\"undo the change\") or clear it",
+    group: "the same for this chat, anyone here may change it, and you say who did",
   },
   {
     name: "When you speak up in a group",
-    actions: ["command.chat_engagement", "command.chat_mute", "command.chat_status", "words.stop", "words.start", "words.speaks_up", "words.status"],
-    texts: "only in a group chat: tell them what to type there (\"Tex, stop\", \"Tex, start\", \"Tex, be quiet\", \"Tex, what can you see\")",
-    group: "anyone here may change when you speak up (quiet, attentive, follow along, helpful), mute you (\"Tex, stop\" until \"Tex, start\") or ask which workspaces you can see",
+    actions: ["command.chat_mute", "command.chat_status", "words.stop", "words.start", "words.status"],
+    texts: "only in a group chat: tell them what to type there (\"Tex, stop\", \"Tex, start\", \"Tex, what can you see\")",
+    group: "you answer when someone names or tags you, replies to you, or follows up on your last answer; there are no levels to pick. Anyone here may mute you (\"Tex, stop\" until \"Tex, start\") or ask which workspaces you can see",
     cant: [{ where: "group", what: "leave a group chat", workaround: { kind: "words", text: "\"Tex, stop\" mutes you there until someone types \"Tex, start\"" } }],
   },
   {
@@ -366,12 +366,12 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Their account",
     actions: [],
-    texts: "a new person sets up by texting you the handle they want (like @ada); storage is then connected in the Context app (Settings → Storage)",
+    texts: "a new person sets up by texting you the handle they want (like @ada); their notes' storage is made for them, and you text when it is ready",
     group: null,
     cant: [
       { where: "everywhere", what: "change the phone or emails they sign in with, sign out their other devices, or pause phone sign-in", workaround: { kind: "app_path", text: "Context app → Settings → Profile (each needs a code sent to them)" } },
       { where: "everywhere", what: "block or unblock someone", workaround: { kind: "app_path", text: "Report or block beside the note or invitation they sent, or Context app → Settings → Profile → Blocked people to unblock" } },
-      { where: "everywhere", what: "connect storage, rotate its key or disconnect it", workaround: { kind: "app_path", text: "Context app → Settings → Storage" } },
+      { where: "everywhere", what: "see or manage where their notes are stored", workaround: { kind: "app_path", text: "Context app → Settings → Storage" } },
     ],
   },
   {
