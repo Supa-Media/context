@@ -8,6 +8,11 @@
  * its words. A quick answer gets none, which keeps the "too many emojis" fix of 2026-11-10: a tapback only where
  * a text has not come.
  *
+ * The wait is 25 s, not the first 8 s (Dev2, 2026-11-12: "Tex spams and uses emojis way too much"). At 8 s a
+ * test chat got a tapback at 12 s and its answer at 14 s, and another at 14 s before a 23 s answer. Gateway
+ * turns take 8 to 21 s, so at 25 s most answers land first and the tapback is kept for a long wait like the
+ * 70 s one it was made for.
+ *
  * Only a chat bound to its people, and not muted, gets one: a chat Tex is not set up in, or one it will not
  * answer, is never tapped.
  */
@@ -20,7 +25,7 @@ import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
 
 /** How long a message naming Tex waits for a text or tapback before code taps one. */
-export const SLOW_TAP_MS = 8_000;
+export const SLOW_TAP_MS = 25_000;
 const PREFIX = "gslowtap:";
 
 type Armed = { at: number; message: GroupMessage };

@@ -217,7 +217,8 @@ Then two "Searching…" progress lines went to the chat. Dev2 said "Go" to:
 
 - **A slow tapback.** A message naming Tex is armed as it is accepted
   (`groupSlowTap.ts`). If no text of Tex's goes into the chat and no tapback
-  of Tex's lands on it within `SLOW_TAP_MS` (8 s), the Worker taps one, the
+  of Tex's lands on it within `SLOW_TAP_MS` (25 s; first 8 s, raised the same day after a test
+  chat got a tapback 2 s before its answer), the Worker taps one, the
   emoji picked from its words. Only a chat bound to its people and not muted
   gets one. A quick answer gets none, so the 2026-11-10 rule above still holds
   for every answer that isn't slow.
