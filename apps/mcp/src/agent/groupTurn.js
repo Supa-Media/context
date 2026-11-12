@@ -42,7 +42,7 @@
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timedTurn, updateGroupPage } from "./groupMemoryNote.js";
 import { groupPageCopied } from "./groupPageCopy.js";
-import { historyFromLedger, readGroupLedgerConversation } from "./groupLedgerHistory.js";
+import { historyFromLedger, readGroupLedgerConversation, startOnLedger } from "./groupLedgerHistory.js";
 import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
@@ -237,7 +237,8 @@ export function trimGroupTurns(turns) {
 async function readRecord(store, group) {
   try {
     const text = await readChatMemoryRecord(store, group, await groupMemoryPath(group), { strict: true });
-    const record = text === null ? null : JSON.parse(text);
+    if (text === null) return { turns: [], fresh: true };
+    const record = JSON.parse(text);
     return record !== null && typeof record === "object" && !Array.isArray(record) ? record : { turns: [] };
   } catch {
     return { turns: [], unreadable: true };
@@ -285,6 +286,11 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   let pagePath = named?.live.memory ?? null;
   const record = (async () => {
     if (await copied) return { turns: [], copied: true };
+    // A chat never answered, with no page in its home, starts on its ledger and never makes one (`startOnLedger`).
+    if (kept.fresh === true && ledger !== null && dispatch !== null) {
+      const none = pagePath === null || (await readHome(pagePath, named.old.memory)).seen?.missing === true;
+      if (none && (await startOnLedger(ledger, group.key))) return { turns: [], copied: true };
+    }
     if (pagePath !== null && kept.onPage === ON_PAGE) {
       // Straight from the chat's object when the record kept the page's key (`groupDirectNotes.js`), else through the tool.
       const held = await directNote(group, kept, "memory");
@@ -473,6 +479,12 @@ export async function keepGroupExchange(store, group, history, question, answer,
   if (latest.onPage === ON_PAGE && !group.home) {
     // The page is the one copy; with the home unopened this turn, the exchange is lost rather than kept in a second place.
     console.log(JSON.stringify({ event: "group_exchange_not_kept", reason: "no_home" }));
+    return;
+  }
+  if (group.pageCopied === true && latest.onPage !== ON_PAGE) {
+    // On the ledger from the start (`startOnLedger`): the ledger holds the exchange, so the record keeps only its marks.
+    const { fresh: _fresh, ...kept } = marks;
+    if (latest.fresh === true || JSON.stringify(withDirect.direct ?? null) !== JSON.stringify(latest.direct ?? null)) await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ version: 1, ...kept, ...withDirect }));
     return;
   }
   if (latest.onPage === ON_PAGE) {
