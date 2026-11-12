@@ -14,6 +14,8 @@ import { CHAT_LOOK_PATH } from "./groupRoutines";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import { runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
 import type { Fetch } from "./clients";
+import { membersChanged } from "./groupMembers";
+import { isWhapiGroup } from "./whapi";
 
 /** The chat's world, its turn streaming `lines` and then `answer`. */
 function streaming(groupId: string, lines: string[], answer: string, members?: (string[] | null)[], opts: Parameters<typeof setup>[1] = {}) {
@@ -25,6 +27,19 @@ function streaming(groupId: string, lines: string[], answer: string, members?: (
     return new Response(out.map((line) => JSON.stringify(line)).join("\n") + "\n", { headers: { "content-type": "application/x-ndjson" } });
   }) as unknown as Fetch;
   return w;
+}
+
+/**
+ * Whapi tells the chat its people changed once `after` texts have gone out (`groupMembers.ts`): a WhatsApp group
+ * reads the app again only then. An iMessage group reads the app before every line, so it needs no event.
+ */
+function changeAfter(storage: MemoryStorage, w: ReturnType<typeof streaming>, after: number): void {
+  const fetch = w.deps.fetch;
+  w.deps.fetch = (async (url: string, init?: RequestInit) => {
+    const response = await fetch(url, init);
+    if (w.texts.length === after && new URL(url).host === "gate.whapi.cloud" && init?.method === "POST") await membersChanged(storage, w.deps.now());
+    return response;
+  }) as unknown as Fetch;
 }
 
 for (const { name, groupId } of LINES) {
@@ -43,7 +58,10 @@ for (const { name, groupId } of LINES) {
     it("pause for good once someone new joins, each held line logged as held", async () => {
       const storage = new MemoryStorage();
       // Here when it starts and at the first line; Cy joins before the second, and has left again by the third.
-      const w = streaming(groupId, ["Reading the page now.", "Found the pricing table.", "Comparing the plans."], "Plan B fits.", [[ADA, BO], [ADA, BO], [ADA, BO, CY], [ADA, BO]]);
+      const w = isWhapiGroup(groupId)
+        ? streaming(groupId, ["Reading the page now.", "Found the pricing table.", "Comparing the plans."], "Plan B fits.", [[ADA, BO], [ADA, BO, CY], [ADA, BO]])
+        : streaming(groupId, ["Reading the page now.", "Found the pricing table.", "Comparing the plans."], "Plan B fits.", [[ADA, BO], [ADA, BO], [ADA, BO, CY], [ADA, BO]]);
+      if (isWhapiGroup(groupId)) changeAfter(storage, w, 1); // Cy's join, as Whapi reports it
       await acceptGroup(storage, w.message("Tex, research this"), 0);
       await drainGroup(storage, w.deps);
       expect(w.texts[0]).toBe("Reading the page now.");
@@ -57,7 +75,11 @@ for (const { name, groupId } of LINES) {
       const lines = ["Reading the page now.", "Found the pricing table.", "Comparing the plans."];
       // Turn start, then two reads per line where the first fails: the second line's both fail.
       const storage = new MemoryStorage();
-      const w = streaming(groupId, lines, "Plan B fits.", [[ADA, BO], [ADA, BO], null, null, [ADA, BO], [ADA, BO]]);
+      // WhatsApp reads the app only once Whapi says the people changed: before the second line, here.
+      const w = isWhapiGroup(groupId)
+        ? streaming(groupId, lines, "Plan B fits.", [[ADA, BO], null, null, [ADA, BO]])
+        : streaming(groupId, lines, "Plan B fits.", [[ADA, BO], [ADA, BO], null, null, [ADA, BO], [ADA, BO]]);
+      if (isWhapiGroup(groupId)) changeAfter(storage, w, 1);
       await acceptGroup(storage, w.message("Tex, research this"), 0);
       await drainGroup(storage, w.deps);
       expect(w.texts).toEqual(["Reading the page now.", "Comparing the plans.", "Plan B fits."]);
@@ -65,7 +87,10 @@ for (const { name, groupId } of LINES) {
       expect(held).toEqual(["Found the pricing table."]);
 
       const blip = new MemoryStorage();
-      const b = streaming(groupId, lines, "Plan B fits.", [[ADA, BO], [ADA, BO], null, [ADA, BO]]);
+      const b = isWhapiGroup(groupId)
+        ? streaming(groupId, lines, "Plan B fits.", [[ADA, BO], null, [ADA, BO]])
+        : streaming(groupId, lines, "Plan B fits.", [[ADA, BO], [ADA, BO], null, [ADA, BO]]);
+      if (isWhapiGroup(groupId)) changeAfter(blip, b, 1);
       await acceptGroup(blip, b.message("Tex, research this"), 0);
       await drainGroup(blip, b.deps);
       expect(b.texts).toEqual([...lines, "Plan B fits."]);

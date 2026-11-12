@@ -16,6 +16,7 @@ import { APP_ORIGIN_ENV_VAR, badRequest, json, randomOpaqueToken, stringField } 
 import { TEXTS_GRANT_TTL_MS, TEXTS_LINK_ROUTE } from "../../textLinks";
 import type { SetupAnswer } from "../../textSetup";
 import { SIGN_IN_LINK_ROUTE } from "../../textSignIn";
+import { hashOneTimeCode } from "../oneTimeCodes";
 
 /**
  * `POST /agent-texts/link` — `{ phone, code }` → `{ status: "linked", handle }`
@@ -31,7 +32,7 @@ export async function agentTextsLinkHandler(
   const result: { status: "linked"; handle: string } | { status: "refused" } =
     await ctx.runMutation(internal.functions.textLinks.consumeLinkCode, {
       phone,
-      hashedCode: await hashToken(code.toUpperCase()),
+      hashedCode: await hashOneTimeCode("text-link", code.toUpperCase()),
     });
   return json(result);
 }

@@ -124,6 +124,7 @@ function stepText(step: RunRead["steps"][number]): string {
 /** What the part is told beyond the brief: their later texts, and what the last part got to and what it still needs. */
 function adviceFor(job: JobAsk): string {
   const parts = [
+    ...(job.asked?.length ? [`What they texted that started it, every part of it the job: ${job.asked.map((text) => `"${text}"`).join(" ")}`] : []),
     ...(job.followUps?.length ? [`They texted since: ${job.followUps.map((text) => `"${text}"`).join(" ")}`] : []),
     ...(job.draft ? [`Where the last part got to: ${job.draft}`] : []),
     ...(job.advice ? [`Still to do: ${job.advice}`] : []),
@@ -271,7 +272,7 @@ export async function machineTurn(
         // The advisor checks the part against the finish line, as it checks a cloud part; unreachable, the outcome alone decides.
         const ended = current.runId;
         const checked = async () =>
-          checkOf(await ask("/agent/machine/check", { runId: ended, job: { title: job.title, brief: job.brief, doneWhen: job.doneWhen ?? "", attempt: job.attempt, followUps: job.followUps ?? [], advice: job.advice ?? "", roster: job.roster ?? "" } }).catch(() => ({})));
+          checkOf(await ask("/agent/machine/check", { runId: ended, job: { title: job.title, brief: job.brief, doneWhen: job.doneWhen ?? "", asked: job.asked ?? [], attempt: job.attempt, followUps: job.followUps ?? [], advice: job.advice ?? "", roster: job.roster ?? "" } }).catch(() => ({})));
         switch (read.result.outcome) {
           case "finished": {
             const check = await checked();

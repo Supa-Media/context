@@ -21,7 +21,7 @@ import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { acceptJob, runJob, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, JOB_SHOWN_MS, JOB_STALE_MS, noteJobUpdate, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, WAIT_ENDED_STATUS, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
+import { chatJobs, jobAsked, JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, JOB_SHOWN_MS, JOB_STALE_MS, noteJobUpdate, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, WAIT_ENDED_STATUS, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -122,6 +122,15 @@ describe("background jobs", () => {
     const more = Array.from({ length: 6 }, (_, i) => ({ title: `Part ${"abcdef"[i]} of the build`, brief: "b", machine: studio }));
     expect((await startJobs(storage, more, context)).notStarted).toHaveLength(2);
     expect(readStartedJobs(Array.from({ length: 12 }, (_, i) => ({ title: `Job ${i}`, brief: "b" })))).toHaveLength(11);
+  });
+
+  // Nov Babies, 2026-11-12: the job read only the front door's brief, so "something fun" never reached it (`openAsk.js`).
+  it("keeps their open texts a job started with, and hands them on with the text it started from", () => {
+    const [job] = readStartedJobs([{ title: "Birthday dinner", brief: "b", asked: ["Karaoke maybe? something fun", 3, " ", ...Array.from({ length: 8 }, (_, i) => `t${i}`)] }]);
+    expect(job.asked).toEqual(["t2", "t3", "t4", "t5", "t6", "t7"]);
+    expect(readStartedJobs([{ title: "x", brief: "b" }])[0].asked).toBeUndefined();
+    expect(jobAsked({ asked: ["Karaoke maybe? something fun"], origin: { kind: "phone", phone: "+15550000000", question: "and dinner as well" } })).toEqual(["Karaoke maybe? something fun", "and dinner as well"]);
+    expect(jobAsked({ origin: { kind: "phone", phone: "+15550000000", question: "plan it" } })).toEqual(["plan it"]);
   });
 
   it("tells them about a job it said it started that never did, and says nothing when every one started", () => {

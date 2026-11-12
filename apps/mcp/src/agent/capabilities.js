@@ -219,11 +219,11 @@ export const CAPABILITIES = Object.freeze([
     texts:
       "a reminder (tex/routines/once/, at: a date and time) or a repeating routine (tex/routines/<every-5-minutes, hourly, every-3-hours, daily, weekly, every-2-weeks or monthly>/, with at: and on:) in their own workspace; a routine can change their own calendar when it runs, and an event that tells a guest waits for their yes. You check in on your own at 10 am, 2 pm and 6 pm their time (new mail can bring one forward), looking at new mail, today's calendar, Slack and Google Chat, and text at most three times a day, never at night; a check-in only offers a next step and does it on their yes. To stop check-ins write paused: yes in tex/heartbeat.md; quiet-hours: (like 11 pm to 7 am) in its front matter holds check-ins and their agents' pings until the hours end, emergencies still texted; a word under mute: there or in tex/attention.md silences check-ins about it. They can also switch a routine off or change a reminder on their Tex page (context.lc/tex/@their-handle)",
     group: "routines for the chat run here for everyone (your group instructions say where they go); only someone here on Context can set one, and anyone here can switch it off in the app. You check in on the chat on your own and soon after its shared mail arrives; \"Tex, stop\" stops those check-ins too",
-    guest: "you can't set reminders or routines from a guest chat, and you don't check in on it",
+    guest: "the same: routines for the chat live in its own folder (routines/<how-often>/) and run here for everyone; only someone here on Context can set one. You check in on the chat on your own too",
     cant: [
       { where: "everywhere", what: "run a routine more often than every 5 minutes, keep more than 200 in one workspace, or send a one-off reminder whose time has passed", workaround: { kind: "words", text: "offer every 5 minutes or hourly, archive routines no longer needed, or set the reminder for the next time that works" } },
       { where: "everywhere", what: "move check-in times or add more check-in texts", workaround: { kind: "words", text: "set a routine at the time they want, or write in the body of tex/heartbeat.md what to leave alone (\"only text me about deadlines\")" } },
-      { where: "guest", what: "set reminders or routines in a chat where not everyone is on Context", workaround: { kind: "words", text: "once everyone here has joined the workspace (\"Tex, add everyone here to @name\" from its owner, then each accepts), the chat can have routines; until then, each person can text you on their own for a reminder" } },
+      { where: "guest", what: "set a reminder or routine for someone here who isn't on Context", workaround: { kind: "words", text: "someone here who is on Context sets it for the chat, or the person joins Context and texts you for their own" } },
     ],
   },
   {
@@ -235,8 +235,8 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Background jobs",
     actions: ["send.background", "send.steer_job", "send.restart_job", "send.job_status", "send.mail_agent", "send.plan", "write.mail"],
-    texts: "hand a long task to background jobs that run side by side (starting or restarting one texts nothing: their text gets a tapback and they hear only its result), in the cloud or on one of their paired computers (on_computer: code and heavy work go there, with Claude Code or Codex on its owner's plan); steer, stop or restart them, a voice memo steering like typed words; read how they're going; a big ask can be split by your advisor into one job per part (plan), where that is on for them; a job paused at their plan's daily limit picks itself back up after the reset; each job has a note whose mail you, the job and your advisor share",
-    group: "the same, on a computer only if its owner lent it to this chat; the chat hears the result; name the job to steer or stop it, since a bare \"Tex, stop\" mutes you instead",
+    texts: "hand a long task to background jobs that run side by side (starting or restarting one gets a short line saying what they will get and about when, or only a tapback when that says enough, judged from example chats; then they hear its result), in the cloud or on one of their paired computers (on_computer: code and heavy work go there, with Claude Code or Codex on its owner's plan); steer, stop or restart them, a voice memo steering like typed words; read how they're going; a big ask can be split by your advisor into one job per part (plan), where that is on for them; a job paused at their plan's daily limit picks itself back up after the reset; each job has a note whose mail you, the job and your advisor share",
+    group: "the same, on a computer only if its owner lent it to this chat; the chat always hears the result, a chat with people not on Context too; name the job to steer or stop it, since a bare \"Tex, stop\" mutes you instead",
   },
   {
     name: "Handing work to another agent",

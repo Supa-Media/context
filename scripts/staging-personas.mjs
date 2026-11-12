@@ -5,6 +5,7 @@ import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
 import { CONTEXT_LC_IMAGE_LEAF } from './fixtures/staging-context-lc.mjs';
 import { stagingNotes } from './fixtures/staging-notes.mjs';
+import { stagingSignInCode } from './staging-sign-in-code.mjs';
 
 const deployment = process.env.STAGING_CONVEX_DEPLOYMENT;
 assert.equal(process.env.APP_ENV, 'staging');
@@ -26,8 +27,8 @@ const clients = {};
 for (const persona of ['alpha', 'beta', 'gamma', 'delta', 'epsilon']) {
   const client = new ConvexHttpClient(url, { logger: false });
   const email = `${persona}@supa.media`;
-  await client.action(ref('auth:signIn'), { provider: 'email', params: { email } });
-  const result = await client.action(ref('auth:signIn'), { provider: 'email', params: { email, code: '000000' } });
+  // A fresh code issued for this persona; asking for one by mail would replace it.
+  const result = await client.action(ref('auth:signIn'), { provider: 'email', params: { email, code: stagingSignInCode(email) } });
   assert.ok(result.tokens?.token, `${persona}: login failed`);
   client.setAuth(result.tokens.token);
   clients[persona] = client;

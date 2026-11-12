@@ -101,3 +101,71 @@ describe("what is forwarded", () => {
     expect(response.status).toBe(502);
   });
 });
+
+/**
+ * CASA 6.3.1 (2026-11-11): PostHog reflects any origin, so passing its CORS
+ * headers through let any site read these answers, with no `Vary: Origin`.
+ */
+describe("who may read an analytics answer from another origin", () => {
+  function permissive() {
+    const fetchImpl = (async () =>
+      new Response("x", {
+        status: 200,
+        headers: {
+          "Content-Type": "application/javascript",
+          "Access-Control-Allow-Origin": "https://evil.example",
+          "Access-Control-Allow-Credentials": "true",
+        },
+      })) as unknown as typeof fetch;
+    return fetchImpl;
+  }
+  const scriptUrl = "https://context.lc/ingest/static/array.js";
+  const target = "https://us-assets.i.posthog.com/static/array.js";
+
+  it("names no other origin, whatever PostHog says, and always varies on Origin", async () => {
+    const request = new Request(scriptUrl, { headers: { Origin: "https://evil.example" } });
+    const response = await ingestResponse(request, target, permissive());
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    expect(response.headers.get("access-control-allow-credentials")).toBeNull();
+    expect(response.headers.get("vary")).toMatch(/\bOrigin\b/);
+  });
+
+  it("allows only the origin the request was sent to", async () => {
+    const own = await ingestResponse(new Request(scriptUrl, { headers: { Origin: "https://context.lc" } }), target, permissive());
+    expect(own.headers.get("access-control-allow-origin")).toBe("https://context.lc");
+    const tex = await ingestResponse(
+      new Request("https://tex.lc/ingest/static/array.js", { headers: { Origin: "https://context.lc" } }),
+      target,
+      permissive(),
+    );
+    expect(tex.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("varies on Origin with no Origin header too, so a cache cannot reuse it", async () => {
+    const response = await ingestResponse(new Request(scriptUrl), target, permissive());
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    expect(response.headers.get("vary")).toMatch(/\bOrigin\b/);
+  });
+
+  it("answers a preflight itself, and only its own origin gets a yes", async () => {
+    let forwarded = false;
+    const fetchImpl = (async () => {
+      forwarded = true;
+      return new Response(null, { status: 200, headers: { "Access-Control-Allow-Origin": "*" } });
+    }) as unknown as typeof fetch;
+    const foreign = await ingestResponse(
+      new Request("https://context.lc/ingest/e/", { method: "OPTIONS", headers: { Origin: "https://evil.example" } }),
+      "https://us.i.posthog.com/e/",
+      fetchImpl,
+    );
+    expect(foreign.status).toBe(204);
+    expect(foreign.headers.get("access-control-allow-origin")).toBeNull();
+    const own = await ingestResponse(
+      new Request("https://context.lc/ingest/e/", { method: "OPTIONS", headers: { Origin: "https://context.lc" } }),
+      "https://us.i.posthog.com/e/",
+      fetchImpl,
+    );
+    expect(own.headers.get("access-control-allow-origin")).toBe("https://context.lc");
+    expect(forwarded).toBe(false);
+  });
+});

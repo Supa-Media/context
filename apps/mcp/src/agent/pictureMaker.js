@@ -55,7 +55,8 @@ import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js"
 import { MAP_HEIGHT, STRIP_HEIGHT, drawMap } from "./visuals/map.js";
 import { downloadPhoto, downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visuals/photos.js";
 import { huntPhotos, shooterFor } from "./visuals/hunt.js";
-import { storableDownload, withPagePictures } from "./visuals/pagePhotos.js";
+import { pageWriteNotes, storableDownload, withPagePictures } from "./visuals/pagePhotos.js";
+import { withReadImages } from "./visuals/pageReadImages.js";
 import { fillDistances, geocoderFor } from "./visuals/distance.js";
 import { PAGE_TEMPLATE, coverPictures, pageCover } from "./visuals/page.js";
 import { ensurePageDrawing } from "./visuals/pageDrawing.js";
@@ -332,8 +333,10 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     if (hunt.screenshots.length > 0) notes.push(`Screenshots of their own pages for: ${hunt.screenshots.join(", ")}.`);
     if (hunt.missing.length > 0) notes.push(`No picture found yet for: ${hunt.missing.join(", ")}. Open each one's own page or a review with photos in your browser, pass a photo you read, and draw again: a comparison shows every thing.`);
     else if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo), or search_web with pictures: true for its name, and draw again.`);
-    if (notes.length === 0) return drawn;
-    return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${notes.join(" ")}` } : part)) };
+    // The rows the map holds no pin for go to the card check with the picture (`looked`), never to the model.
+    const unpinned = Array.isArray(drawnMap.map?.unpinned) ? drawnMap.map.unpinned : [];
+    if (notes.length === 0) return { ...drawn, unpinned };
+    return { ...drawn, unpinned, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${notes.join(" ")}` } : part)) };
   }
 
   async function make(args) {
@@ -383,16 +386,20 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
 
   /**
    * A page write with its options' missing pictures put in first; the write's own answer, told what was added.
+   * Photo addresses the turn read go in as bytes first, so they need no one's yes (`./visuals/pageReadImages.js`).
    * Refused with them, it is written again as the writer sent it: a picture found for it never costs the save.
    */
   async function pageWrite(args, callTool) {
     const shoot = shooterFor(shots, { timeoutMs: 10_000 });
     const download = storableDownload((address, headers) => downloadPhoto(address, fetchImpl, { headers }), shoot);
-    const { args: pictured, found } = await withPagePictures(args, { web, download, shoot, read: () => outgoing?.read?.() ?? "" });
+    const page = isPagePath(typeof args?.path === "string" ? args.path.trim() : "");
+    const { args: read, kept, dropped } = page ? await withReadImages(args, { vouches: (address) => outgoing?.vouches?.(address) === true, download }) : { args, kept: [], dropped: [] };
+    const { args: pictured, found, dead } = await withPagePictures(read, { web, download, shoot, read: () => outgoing?.read?.() ?? "" });
     const result = await callTool("write_note", pictured);
-    if (found.length > 0 && result?.isError === true) return callTool("write_note", args);
-    if (found.length === 0 || result?.isError || !Array.isArray(result?.content)) return result;
-    return { ...result, content: [...result.content, { type: "text", text: `Pictures found and added to the page for: ${found.join(", ")}.` }] };
+    if (pictured !== args && result?.isError === true) return callTool("write_note", args);
+    const notes = pageWriteNotes({ found, dead, kept, dropped });
+    if (notes.length === 0 || result?.isError || !Array.isArray(result?.content)) return result;
+    return { ...result, content: [...result.content, ...notes.map((text) => ({ type: "text", text }))] };
   }
 
   let held = 0;
@@ -405,7 +412,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
   async function looked(name, args, result) {
     const image = Array.isArray(result?.content) ? result.content.find((part) => part?.type === "image") : null;
     if (typeof check !== "function" || result?.isError || !image) return result;
-    const verdict = await check({ tool: name, template: typeof args?.template === "string" ? args.template : "", picture: { data: image.data, mediaType: image.mimeType } });
+    const verdict = await check({ tool: name, template: typeof args?.template === "string" ? args.template : "", picture: { data: image.data, mediaType: image.mimeType }, unpinned: Array.isArray(result?.unpinned) ? result.unpinned : [] });
     if (verdict === null || verdict.send) return result;
     if (held < MAX_HELD) {
       held += 1;

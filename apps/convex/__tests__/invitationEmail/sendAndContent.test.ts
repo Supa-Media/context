@@ -26,6 +26,7 @@ import {
   invitationRow,
   linkFrom,
 } from "./fixtures.helpers";
+import { hashOneTimeCode } from "../../functions/lib/oneTimeCodes";
 
 describe("the send is scheduled, for an address and for a @name", () => {
   test("an email invitee queues exactly one send", async () => {
@@ -286,7 +287,9 @@ describe("the magic link", () => {
     );
     expect(codes).toHaveLength(1);
     expect(codes[0].provider).toBe(SIGNIN_PROVIDER);
-    expect(codes[0].code).toBe(await hashToken(code!));
+    // A keyed hash since 2026-11-11 (CASA 1.1.3), never the plain digest.
+    expect(codes[0].code).toBe(await hashOneTimeCode("convex-auth", code!));
+    expect(codes[0].code).not.toBe(await hashToken(code!));
     expect(codes[0].code).not.toBe(code);
   });
 

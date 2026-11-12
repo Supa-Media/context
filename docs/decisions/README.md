@@ -34,6 +34,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [MCP calls have speed budgets, judged from production's own timings](./observability/mcp-speed-budgets.md) (2026-11-03)
 - [Every request and every workspace object call is counted by who made it](./observability/call-counts.md) (2026-11-06)
 - [Tex's basics for any window: people, texts, cost and notes](./observability/tex-stats.md) (2026-11-10)
+- [Every failed Tex tool call is kept with why it failed](./observability/tool-failures.md) (2026-11-10)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
 - [A new managed bucket is served on a temporary credential until its own key answers](./storage-and-credentials.md#a-new-managed-bucket-is-served-on-a-temporary-credential-until-its-own-key-answers) (2026-10-29)
@@ -771,6 +772,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The texting assistant](./texting-assistant.md)
 
+- [A WhatsApp group's people are kept, and trusted before sending until they change (2026-11-12)](./texting-assistant/group-members.md)
 - [Every model Tex calls knows today's date, and every text it reads has one (2026-11-10)](./texting-assistant/dates-everywhere.md)
 - [Each finished day is summed up the night after, and shown where the texts stop (2026-11-06)](./texting-assistant/day-summaries.md)
 - [A turn is shown its whole chat, the nearer days whole and older ones clipped (2026-11-06)](./texting-assistant/faded-history.md)
@@ -809,10 +811,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A person's texts with Tex are one record in their Tex object, read with About me in one call (2026-11-01)](./texting-assistant/one-to-one-history.md)
 - [Each chat with Tex has one ledger, and every view is rebuilt from it (2026-11-02)](./texting-assistant/chat-ledger.md)
 - [A turn's trust is its own; nothing it said marks a later turn (2026-11-05)](./texting-assistant/turn-trust.md)
+- [What Tex told them stays with where it read it (2026-11-12)](./texting-assistant/told-facts.md)
+- [Answers, jobs and done checks read the whole ask in their own words (2026-11-12)](./texting-assistant/open-ask.md)
 - [What was said stays in the record, and Tex does the read instead of offering it (2026-11-04)](./texting-assistant/do-the-read.md)
 - [A decision model judges each texted reply before it goes (2026-11-04)](./texting-assistant/reply-judge.md)
 - [One Haiku reviewer in place of the reply gates (2026-11-06)](./texting-assistant/reply-judge.md#one-haiku-reviewer-in-place-of-the-gates-dev2-2026-11-06)
 - [Conversation threads: a chat shown by subject, not as one long scroll (2026-11-07)](./texting-assistant/conversation-threads.md)
+- [A slow group answer gets a tapback from code, and the intro rides on the answer (2026-11-12)](./texting-assistant/conversation-threads.md)
 - [Group time awareness: ages in code, old moments offered with how they landed, Tex chooses (2026-11-11)](./texting-assistant/group-time-awareness.md)
 - [A person's Tex folder and a group chat's home use the same names (2026-11-01)](./texting-assistant/tex-folders.md)
 - [The advisor's asks, the Mail checker's verdicts and jobs go in the chat's ledger (2026-11-02)](./texting-assistant/ledger-asks.md)
@@ -901,7 +906,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A job's turns are off the daily cap (2026-10-31)](./texting-assistant/background-jobs.md)
 - [A job paused at the daily limit picks itself back up (2026-11-05)](./texting-assistant/background-jobs.md)
 - [A big ask splits into parallel jobs, planned by the advisor (2026-11-04)](./texting-assistant/background-jobs.md)
-- [A job's start texts nothing, and a new brief is always a new job (2026-11-11)](./texting-assistant/background-jobs.md)
+- [A new brief is always a new job (2026-11-11; its silent start reversed 2026-11-12)](./texting-assistant/background-jobs.md)
+- [A job's start is Tex's call: a line or a tapback, judged from example chats (2026-11-12)](./texting-assistant/background-jobs.md)
 - [Every job gets a shared note first, with the job, Tex and the advisor on its mail (2026-11-05)](./texting-assistant/job-notes.md)
 - [A person's own computer becomes more minion slots, run by one Rust runner (2026-11-03, 2026-11-04)](./texting-assistant/machines.md)
 - [A run is plain Claude Code in the person's folder (owner, 2026-11-04)](./texting-assistant/machines.md)

@@ -242,6 +242,15 @@ export function createSessionMethods({ post, required, env = null, sessionObject
     },
 
     /**
+     * A run's failed tool calls (`apps/convex/functions/texToolFailures.ts`): each tool's name, its
+     * cause as a code and its reason with every value taken out (`agent/toolFailures.js`). The
+     * grant proves the gateway is asking for a live connection; the rows keep nobody.
+     */
+    async recordToolFailures(accessToken, expectedWorkspaceId, { kind, failures }) {
+      await post("/gateway/tool-failures", { accessToken, expectedWorkspaceId, kind, failures });
+    },
+
+    /**
      * What a finished built-in turn spent: token counts, the model that answered
      * (for its price) and a duration, never text. Cache counts default to zero.
      */

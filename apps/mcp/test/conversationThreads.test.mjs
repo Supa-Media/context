@@ -9,12 +9,16 @@
  *  3. `listedThreads` putting finished threads first → "the list holds 50 at most, open first…" fails.
  *  4. `threadsChat` writing to the chat's own ledger → "a turn's verdict is kept in the chat's threads ledger…" fails.
  *  5. a 400-token cap on the call → "the classifier's call sets no output cap…" fails.
+ * Sabotage record (2026-11-12, classifier after the answer), each applied, this file run, named test failing, reverted:
+ *  6. `threadedTurn` calling the classifier before it returns → "classified texts older than a day…" fails (asked 1, not 0).
+ *  7. `classifyText` dropping `thinking: "off"` → "the classifier's call thinks not at all…" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { classifyText, foldThreads, listedThreads, MAX_LISTED, readVerdict, threadsChat, threadsOn, threadsWrite, verdictEntries } from "../src/agent/conversationThreads.js";
+import { classifyText, foldThreads, listedThreads, MAX_LISTED, readVerdict, THREADS_MAX_TOKENS, threadsChat, threadsOn, threadsWrite, verdictEntries } from "../src/agent/conversationThreads.js";
+import { gatewayBody } from "../src/agent/aiGateway.js";
 import { threadedTurn } from "../src/agent/threadedTurn.js";
 
 const H = 3600e3;
@@ -96,32 +100,34 @@ test("classified texts older than a day are shown only through their thread; the
     entry("t2", started + 1, { title: "Dentist", description: "booked Thursday", status: "open", texts: ["old2"] }),
   ]);
   const shown = [person("old1", NOW - 48 * H, "find me a hotel in Lisbon under 180"), tex("old1r", NOW - 48 * H + 1, "Memmo Alfama, $172", ["old1"]), person("old2", NOW - 40 * H, "book the dentist"), person("loose", NOW - 30 * H, "nobody answered this"), person("today1", NOW - 2 * H, "lunch?")];
-  const turn = await threadedTurn({ logged: turnOf(shown), ledger, chat: "texts", config: {}, request: answering({ thread: "t1", title: "Lisbon trip", description: "asking about the hotel again", finished: [] }), now: NOW, log: () => {} });
+  let asked = 0;
+  const turn = await threadedTurn({ logged: turnOf(shown), ledger, chat: "texts", config: {}, request: async (...args) => ((asked += 1), answering({ thread: "t1", title: "Lisbon trip", description: "asking about the hotel again", finished: [] })(...args)), now: NOW, log: () => {} });
+  assert.equal(asked, 0, "nothing is asked before the turn is shown (Dev2, 2026-11-12: never wait for it)");
   const text = turn.history[0].text;
-  // The thread list and the suggested thread are said in the person's turn (`note`), so the history stays cacheable.
+  // The thread list is said in the person's turn (`note`), so the history stays cacheable.
   assert.match(turn.note, /- t1 · open · Lisbon trip/);
-  assert.match(turn.note, /most likely continues t1, "Lisbon trip"/);
   assert.doesNotMatch(text, /Lisbon trip/, "the history holds no thread list");
-  assert.match(turn.note, /Its texts from before the last 24 hours:\n\[.*\] @dana: find me a hotel in Lisbon under 180\n\[.*\] You: Memmo Alfama, \$172/);
+  assert.doesNotMatch(text + turn.note, /most likely/, "no guess is shown: the text is sorted after the answer");
+  assert.doesNotMatch(text, /find me a hotel in Lisbon/, "a thread's texts older than a day stay in their thread");
   assert.doesNotMatch(text, /book the dentist/, "another thread's old texts stay out");
   assert.match(text, /nobody answered this/, "a text no thread holds stays in view");
   assert.match(text, /@dana: lunch\?/);
-  assert.equal(turn.suggested, "t1");
-  assert.deepEqual(turn.entries.map((each) => [each.thread, each.texts]), [["t1", ["new1"]]]);
+  assert.deepEqual((await turn.sort()).map((each) => [each.thread, each.texts]), [["t1", ["new1"]]]);
+  assert.equal(asked, 1);
 });
 
 // The history is cached for an hour across texts (`turn.js` `cachedThrough`), so the same chat read again minutes
-// later must render it byte for byte the same, even as the clock, the classifier's verdict and the thread list change.
+// later must render it byte for byte the same, even as the clock and the thread list change.
 // Sabotage: pass `now` back to `renderEvents` in threadedTurn.js, or put `listed` back in the history, and this fails.
 test("the threaded history is the same from one text to the next; what changes is in the note", async () => {
-  const ledger = fakeLedger([entry("t1", NOW - 72 * H, { title: "Lisbon trip", description: "flights booked", status: "open", texts: ["old1"] })]);
   const shown = [person("old1", NOW - 48 * H, "find me a hotel in Lisbon"), person("y", NOW - 14 * H, "dinner tomorrow?"), person("z", NOW - 2 * H, "lunch?")];
-  const read = (now, verdict) => threadedTurn({ logged: { ...turnOf(shown), parts: { ...turnOf(shown).parts, answering: now } }, ledger, chat: "texts", config: {}, request: answering(verdict), now, log: () => {} });
-  const first = await read(NOW, { thread: "t1", title: "Lisbon trip", description: "the hotel", finished: [] });
-  const later = await read(NOW + 9 * H, // past midnight: Saturday is now yesterday
-    { thread: "new", title: "Lunch", description: "lunch plans", finished: [] });
+  const read = (now, entries) => threadedTurn({ logged: { ...turnOf(shown), parts: { ...turnOf(shown).parts, answering: now } }, ledger: fakeLedger(entries), chat: "texts", config: {}, request: answering({ thread: "new", title: "x", description: "x", finished: [] }), now, log: () => {} });
+  const lisbon = entry("t1", NOW - 72 * H, { title: "Lisbon trip", description: "flights booked", status: "open", texts: ["old1"] });
+  const first = await read(NOW, [lisbon]);
+  const later = await read(NOW + 9 * H, [lisbon, entry("t2", NOW + H, { title: "Lunch", description: "lunch plans", status: "open", texts: [] })]); // past midnight, and a thread more
   assert.equal(later.history[0].text, first.history[0].text);
-  assert.notEqual(later.note, first.note);
+  assert.doesNotMatch(first.note, /Lunch/);
+  assert.match(later.note, /t2 · open · Lunch/);
   assert.match(first.note, /Saturday, Nov 7 was today/);
   assert.match(later.note, /Saturday, Nov 7 was yesterday/);
 });
@@ -129,24 +135,23 @@ test("the threaded history is the same from one text to the next; what changes i
 test("on a chat's first thread nothing older drops out: texts from before threads are shown as before", async () => {
   const shown = [person("a", NOW - 50 * H, "the bike lock code is in my notes"), person("b", NOW - H, "hey")];
   const turn = await threadedTurn({ logged: turnOf(shown, "what's the lock code"), ledger: fakeLedger(), chat: "texts", config: {}, request: answering({ thread: "new", title: "Bike lock code", description: "asking for the code", finished: [] }), now: NOW, log: () => {} });
-  assert.match(turn.history[0].text, /bike lock code is in my notes/);
-  assert.match(turn.note, /most likely starts a new conversation/);
-  assert.equal(turn.entries[0].thread, "t1");
+  assert.equal(turn.history, null, "with no thread yet the chat is shown as it was");
+  assert.equal((await turn.sort())[0].thread, "t1");
 });
 
-test("a classifier that fails leaves the list and the last day, with no suggestion and nothing written", async () => {
+test("a classifier that fails leaves the list and the last day, and writes nothing", async () => {
   const ledger = fakeLedger([entry("t1", NOW - 72 * H, { title: "Trip", description: "d", status: "open", texts: ["old1"] })]);
   const shown = [person("old1", NOW - 48 * H, "old trip text"), person("x", NOW - H, "recent")];
   const turn = await threadedTurn({ logged: turnOf(shown), ledger, chat: "texts", config: {}, request: async () => { throw new Error("down"); }, now: NOW, log: () => {} });
   assert.match(turn.note, /- t1 · open · Trip/);
-  assert.doesNotMatch(turn.note, /most likely/);
   assert.doesNotMatch(turn.history[0].text, /old trip text/);
-  assert.deepEqual(turn.entries, []);
+  assert.deepEqual(await turn.sort(), []);
 });
 
 test("silence finishes nothing: a thread closes only when the classifier names it", async () => {
   const ledger = fakeLedger([entry("t1", NOW - 72 * H, { title: "Trip", description: "d", status: "open", texts: [] })]);
   const turn = await threadedTurn({ logged: turnOf([]), ledger, chat: "texts", config: {}, request: answering({ thread: "new", title: "Lunch", description: "lunch plans", finished: [] }), now: NOW + 30 * 24 * H, log: () => {} });
+  assert.ok(!(await turn.sort()).some((each) => each.thread === "t1" && each.status === "finished"));
   assert.equal(turn.threads.find((thread) => thread.id === "t1").status, "open");
 });
 
@@ -155,7 +160,6 @@ test("read_thread lists every conversation, and opens one in full", async () => 
   const turn = await threadedTurn({ logged: turnOf([person("old1", NOW - 48 * H, "old trip text")]), ledger, chat: "texts", config: {}, request: answering({ thread: "new", title: "Lunch", description: "l", finished: [] }), now: NOW, log: () => {} });
   const listed = await turn.read_thread.call({});
   assert.match(listed.content[0].text, /t1 · open · Trip/);
-  assert.match(listed.content[0].text, /t2 · open · Lunch/);
   const opened = await turn.read_thread.call({ thread: "t1" });
   assert.match(opened.content[0].text, /old trip text/);
   assert.equal((await turn.read_thread.call({ thread: "t9" })).isError, true);
@@ -168,10 +172,15 @@ test("a turn's verdict is kept in the chat's threads ledger, never the chat's ow
   assert.deepEqual(Object.keys(kept), ["texts.threads"]);
 });
 
-test("the classifier's call sets no output cap: a cap cuts its thinking and its answer off together", async () => {
+test("the classifier's call thinks not at all, so its cap is the answer's alone", async () => {
   let body = null;
   await classifyText({ threads: [], lines: { byThread: new Map(), recent: [] }, question: "hi", replying: [], config: {}, request: async (sent) => ((body = sent), { text: '{"thread":"new","title":"Hi","description":"d","finished":[]}' }) });
-  assert.equal(body.maxTokens, undefined);
+  assert.equal(body.thinking, "off");
+  assert.equal(body.maxTokens, THREADS_MAX_TOKENS);
+  const wire = gatewayBody({ model: "anthropic/claude-haiku-5-5", system: "s", messages: [{ role: "user", text: "hi" }], tools: [], effort: "low", thinking: "off", maxTokens: THREADS_MAX_TOKENS });
+  assert.deepEqual(wire.thinking, { type: "disabled" });
+  assert.equal(wire.max_tokens, THREADS_MAX_TOKENS);
+  assert.equal(gatewayBody({ model: "anthropic/claude-opus-5-5", system: "s", messages: [{ role: "user", text: "hi" }], tools: [], effort: "low", thinking: "off" }).thinking, undefined, "a model that can't turn it off is not asked to");
 });
 
 test("CONVERSATION_THREADS=off turns it off", () => {

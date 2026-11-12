@@ -1,0 +1,74 @@
+# Issue one sign-in code for an account that cannot read its own mail, and mail
+# it to the team inbox (owner, 2026-11-11; `apps/convex/functions/signInCodes.ts`).
+#
+# The CUJ account and the App Store, directory and Google reviewers used to
+# sign in with fixed codes, which failed the CASA assessment (1.2.1, 1.3.1,
+# 1.3.2, 1.3.4). Now staff run this before a review: the code is random, works
+# once, expires after `days` (fourteen at most), and ten wrong tries delete it.
+# Running it again replaces the last one. Give it to the reviewer only through
+# the review's private form.
+#
+# Manual only. The code goes to the deployment's team inbox
+# (`SIGNUP_ALERTS_EMAIL`) and never into this log: this repository is public,
+# and so is this log. The answer printed is only when the code expires.
+name: Issue a sign-in code
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment the account is on."
+        type: choice
+        options:
+          - production
+          - staging
+        default: production
+      account:
+        description: "connector-review is the App Store and Claude/ChatGPT directory reviewer."
+        type: choice
+        options:
+          - connector-review@supa.media
+          - directory-review@supa.media
+          - google-review@supa.media
+          - agentseyi@agentmail.to
+        default: connector-review@supa.media
+      days:
+        description: "Days the code lives, 1 to 14."
+        type: number
+        default: 7
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-sign-in-code-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  issue:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Issue and mail the code
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          ACCOUNT: ${{ inputs.account }}
+          DAYS: ${{ inputs.days }}
+        run: |
+          set -euo pipefail
+          args=$(jq -cn --arg email "$ACCOUNT" --argjson days "$DAYS" '{email: $email, days: $days}')
+          answer=$(npx convex run functions/signInCodes:mailToTeam "$args" 2>/dev/null)
+          # Only the expiry: the answer holds no code, and nothing else is echoed.
+          echo "Mailed to the team inbox; expires $(echo "$answer" | jq -r '.expiresAt / 1000 | todate')"

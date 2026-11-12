@@ -11,7 +11,7 @@ import { openTurnWeb, theirEarlierWords } from "../turnWeb.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function openTheWeb(t) {
-  const { body, dispatch, env, group, history, ledger, offered, progress, question, report, routine, runner, session, stages, store, supervision, tex } = t;
+  const { body, dispatch, env, group, history, job, ledger, offered, progress, question, report, routine, runner, session, stages, store, supervision, tex } = t;
   /*
     The computer is the texting assistant's for now (the owner's decision is
     about texting), behind the address guard in `computer.js`. Widening it to
@@ -40,7 +40,7 @@ export async function openTheWeb(t) {
     is still the long turn.
   */
   const streamed = typeof progress === "function" && (session.actorClientId === TEXTS_CLIENT_ID || group !== null);
-  const channel = streamed && report === null ? progressChannel(progress, { level: readUpdates(body.updates) }) : null; // off: no tool, yet a sign-in link still goes (`say`); plan only: one line (`progress.js`)
+  const channel = streamed && report === null ? progressChannel(progress, { level: readUpdates(body.updates), job: job != null }) : null; // off: no tool, yet a sign-in link still goes (`say`); plan only: one line (`progress.js`)
   // Clef is metered with the turn (`meter` below).
   /*
     AN ADDRESS IS VOUCHED FOR BY THE PERSON, NEVER BY A PREVIOUS ANSWER.

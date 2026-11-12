@@ -89,16 +89,27 @@ export function photoUrl(value) {
   return ref;
 }
 
+/** The words a photo slot of at least `TILE_MIN_HEIGHT` shows when nothing was found for it. */
+export const NO_PHOTO = "No photo found";
+export const TILE_MIN_HEIGHT = 120;
+
 /**
- * A slot a photo fills: its tone shows through when there is no photo, or the
- * one named did not load, so a missing picture is a quiet block, never a
- * broken-image icon.
+ * A slot a photo fills. A slot with no photo is a tile with the thing's name
+ * and "No photo found", so it says so instead of showing a blank block (Nov Babies, 2026-11-11: Ms.
+ * Kim's slot on a karaoke card was blank, the card check held it three
+ * times, and it went out blank anyway). A photo sits on the slot's
+ * tone, so a transparent logo never shows the tile's words through it. A
+ * small slot (an avatar) has no tile, only its tone.
  */
-export function photo(value, { height, radius = 14, tone = TONES[0], label = "", extra = "", style = "" } = {}) {
+export function photo(value, { height, radius = 14, tone = TONES[0], label = "", extra = "", style = "", name = "" } = {}) {
   const url = photoUrl(value);
-  const image = url ? `background-image: url('${url}'); background-size: cover; background-position: center;` : "";
-  const tag = label ? `<div style="position: absolute; left: 8px; bottom: 8px; font-size: 11px; font-weight: 600; padding: 3px 7px; border-radius: 6px; background: rgba(255,253,249,0.92); color: #1A1714">${label}</div>` : "";
-  return `<div style="position: relative; height: ${height}px; border-radius: ${radius}px; background-color: ${tone}; ${image} ${style}">${tag}${extra}</div>`;
+  const image = url ? `<div style="position: absolute; inset: 0; border-radius: ${radius}px; background-color: ${tone}; background-image: url('${url}'); background-size: cover; background-position: center"></div>` : "";
+  const tag = label && url ? `<div style="position: absolute; left: 8px; bottom: 8px; font-size: 11px; font-weight: 600; padding: 3px 7px; border-radius: 6px; background: rgba(255,253,249,0.92); color: #1A1714">${label}</div>` : "";
+  const tile =
+    url || height < TILE_MIN_HEIGHT
+      ? ""
+      : `<div data-no-photo style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 12px; text-align: center; color: rgba(26,23,20,0.72)">${name ? `<div style="font-family: ${SERIF}; font-size: ${height >= 250 ? 26 : 20}px; font-weight: 600; line-height: 1.1">${esc(name, 30)}</div>` : ""}<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.8">${NO_PHOTO}</div></div>`;
+  return `<div style="position: relative; overflow: hidden; height: ${height}px; border-radius: ${radius}px; background-color: ${tone}; ${style}">${tile}${image}${tag}${extra}</div>`;
 }
 
 /** The small heading every card opens with: a quiet line naming what it is, and a title. */

@@ -63,10 +63,10 @@ export function wantsProgress(request) {
 export const PROGRESS_TOOL_DEFINITION = {
   name: PROGRESS_TOOL,
   description:
-    "Text the person one short line now, while you keep working. For a task you expect to take more than about a minute, the first " +
-    "is your plan in one line (\"Checking OpenTable and Resy for Friday, then the best three.\"), and you start at once. Only just before " +
-    "a slow step that reaches outside their notes (opening a site, browsing, a long job of many steps), saying what you're doing " +
-    "(\"Opening OpenTable for Friday.\"), or for something they could act on before your answer, like a link they must open. Every " +
+    "Text the person one short line now, while you keep working, only for something they could act on before your answer, like a " +
+    "link they must open or a sign-in code, or a step that will change something outside their notes (\"Booking the 7pm at Lilia now.\"). " +
+    "Never to narrate a search, a lookup or which sites you're checking (Nov Babies, 2026-11-11: \"Searching NYC karaoke spots…\" added " +
+    "nothing): a long task goes to a background job, whose start line says what they'll get. Every " +
     "line must be new to them or something to act on, fewer the longer the task runs. Start it with what you're doing now. Never before " +
     "a search, a note read or asking your advisor, never the answer itself, and never that something is done, sent or booked: " +
     "that is your reply. Never to say you're on it, that it will take a while, or that you'll text when it's done (the person " +
@@ -91,11 +91,16 @@ const PLAN_LINE =
 const NEVER =
   "Never the answer itself or that something is done. Never send a line saying you're on it or that you'll text when it's done.";
 
+/**
+ * No plan line and no "Opening OpenTable" line any more (Dev2, 2026-11-12, Nov Babies 6d): two "Searching…" lines went
+ * to a group and added nothing. A long task goes to a background job, whose start line says what they'll get (`jobStart.js`).
+ */
 export const PROGRESS_PROMPT =
-  `\n\n${NORMAL_LEAD} ${PLAN_LINE}` +
-  "Just before a slow step that reaches outside their notes (opening a site, browsing, a long job of many steps), you may " +
-  "send a line: what you're doing (\"Opening OpenTable for Friday.\"). Never before a search, a note read or asking your advisor. " +
-  "After that, only what they could act on before your answer or what is new to them, fewer the longer it runs. " +
+  `\n\n${NORMAL_LEAD} ` +
+  "Text a line (send with action progress, args { text }) only for something they could act on before your answer (a link to open, a sign-in code), or just before a step " +
+  "that changes something outside their notes (\"Booking the 7pm at Lilia now.\"). Never to narrate a search, a lookup or which " +
+  "sites you're checking, and never before a search, a note read or asking your advisor: a long task goes to a background job, " +
+  "whose start line says what they'll get. " +
   NEVER;
 
 export const PLAN_ONLY_PROMPT = `\n\n${PLAN_ONLY_LEAD} ${PLAN_LINE}${NEVER}`;
@@ -143,7 +148,7 @@ export const PLAN_ONLY_NOTICE = "Not sent: this chat gets one plan line per turn
  * `level` (off, planOnly or normal) is the chat's setting; at off the route
  * keeps the channel for `say` alone, so a sign-in link still goes.
  */
-export function progressChannel(send, { planOnly = false, level = planOnly ? "planOnly" : "normal" } = {}) {
+export function progressChannel(send, { planOnly = false, level = planOnly ? "planOnly" : "normal", job = false } = {}) {
   let said = 0;
   const lines = [];
   const plan = level === "planOnly";
@@ -173,10 +178,17 @@ export function progressChannel(send, { planOnly = false, level = planOnly ? "pl
       if (plan && lines.length > 0) return result(PLAN_ONLY_NOTICE, true);
       lines.push(text);
       await send(text.length > MAX_PROGRESS_CHARS ? `${text.slice(0, MAX_PROGRESS_CHARS - 1)}…` : text);
+      // A job's line is texted only when it holds a link (`apps/agent/src/jobRun.ts` `HAS_LINK`); the rest update its
+      // status. Told "Sent", a job believed the chat had heard from it (Nov Babies, 2026-11-12).
+      if (job && !HAS_LINK.test(text)) return result(JOB_NOTED);
       return result("Sent. Keep working.");
     },
   };
 }
+
+const HAS_LINK = /https?:\/\//i;
+/** What a job is told for a line with no link: it updates the job's status, and nobody is texted. */
+export const JOB_NOTED = "Noted on your job's status, not texted: only a line with a link reaches them, and they hear your result when you report. Keep working.";
 
 function result(text, isError = false) {
   return { content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) };

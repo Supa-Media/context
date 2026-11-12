@@ -10,6 +10,7 @@ import { routineTimeZone } from "../routine.js";
 import { carryKey } from "../stretch.js";
 import { keepTextedPictures } from "../textedPictures.js";
 import { turnKind, turnReport, waitBefore } from "../turnLog.js";
+import { reportToolFailures } from "../toolFailures.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function prepareBookkeeping(t) {
@@ -49,7 +50,9 @@ export async function prepareBookkeeping(t) {
     person their answer.
   */
   const logTurn = (outcome, model, timing, usage, parts = null) => {
-    const report = turnReport({ provider: BUILTIN_PROVIDER, outcome, model, timing, usage, parts, kind: turnKind({ runner, job, group, texting }), ms: Date.now() - received, waitMs: waitBefore(body.arrivedAt, received) }); stages?.ran(report, timing?.trace);
+    const kind = turnKind({ runner, job, group, texting });
+    const report = turnReport({ provider: BUILTIN_PROVIDER, outcome, model, timing, usage, parts, kind, ms: Date.now() - received, waitMs: waitBefore(body.arrivedAt, received) }); stages?.ran(report, timing?.trace);
+    const failures = Array.isArray(timing?.failures) ? timing.failures : []; // every failed tool call, its cause and why (`toolFailures.js`)
     console.log(
       JSON.stringify({
         event: "agent_turn",
@@ -64,6 +67,7 @@ export async function prepareBookkeeping(t) {
     return async () => { // the row is sent once the response is ready (`afterAnswer`); the numbers are taken now
       try {
         await tex.step("turn_row", () => controlPlane.recordAgentTurn(session.accessToken, session.workspaceId, report));
+        if (failures.length > 0) await tex.step("tool_failures", () => reportToolFailures(controlPlane, session, kind, failures));
       } catch {
         // See above.
       }

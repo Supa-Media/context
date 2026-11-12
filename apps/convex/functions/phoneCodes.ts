@@ -5,6 +5,7 @@ import { internalQuery, type ActionCtx } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import { contextVerifyKeys } from "./lib/phoneCheck";
+import { hashOneTimeCode } from "./lib/oneTimeCodes";
 import { smsKeysWithSender, storedMessagingServiceSid } from "./lib/adminFns/signInTexts";
 
 /**
@@ -36,9 +37,9 @@ export function newCode(): string {
   return String(buffer[0]! % 1_000_000).padStart(6, "0");
 }
 
+/** What is kept for the code texted to `phone`: a keyed hash (`lib/oneTimeCodes.ts`), never the code. */
 export async function hashCode(phone: string, code: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${phone}:${code}`));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return await hashOneTimeCode("phone-sign-in", `${phone}:${code}`);
 }
 
 /**

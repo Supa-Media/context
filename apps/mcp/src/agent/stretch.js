@@ -15,8 +15,12 @@
  * Built only from what the ledger already keeps (`ledger.js` `toolEntry`):
  * the call's id is made from the entry's own id, so the same call has the same
  * bytes in every later text of the stretch and the cache keeps reading them.
- * Every cut and stub below is fixed per entry and never revised, for the same
- * reason; the size of the whole is trimmed server-side by context editing
+ * Every stub below is fixed per entry and never revised, for the same reason.
+ * A result is carried whole, as the ledger kept it (`ledger.js`
+ * `MAX_RESULT_CHARS`): an 8,000-character cut (2026-11-10) hid the Katz's
+ * line at character 14,944 of a page Tex had read, and a later turn said the
+ * page never held it (Dev2, 2026-11-12: "why not just keep the whole page").
+ * The size of the whole is trimmed server-side by context editing
  * (`aiGateway.js` `CONTEXT_EDITS`).
  *
  * A turn that read from outside (a page, an email, a kept file, a job's
@@ -29,8 +33,13 @@
  *
  * Stubbed, never replayed:
  * - a result read from another workspace (the ledger never kept it);
- * - in a group, every result of a turn asked by anyone but who asks now: one
- *   member's mail or notes never reach a turn for someone else;
+ * - in a group, every result of a turn asked by anyone but who asks now, read
+ *   under a grant other than this turn's: one member's mail or notes never
+ *   reach a turn for someone else. Read under this turn's own grant, it is
+ *   carried whoever asked (Dev2, 2026-11-12, the Nov Babies chat): a chat
+ *   answered from its home runs every person's turn on the one grant, so the
+ *   turn could read it again itself, and stubbing it made Tex take back a
+ *   true fact another person's turn had read;
  * - every result read under a carry key other than this turn's (`carryKey`:
  *   the person, workspace or scopes changed mid-stretch), or under none recorded.
  * A stubbed call keeps its name and loses its arguments too: a query, an
@@ -41,8 +50,6 @@ import { conversationFromLedger } from "./ledgerConversation.js";
 import { TEXTS_CLIENT_ID } from "./texEntryPoint/clients.js";
 
 export const STRETCH_GAP_MS = 3_600_000;
-/** A carried result longer than this is cut, the same way in every text of the stretch. */
-export const MAX_CARRIED_RESULT_CHARS = 8_000;
 /** At most this many tool entries are read for one stretch. */
 export const MAX_CARRIED_CALLS = 60;
 
@@ -96,8 +103,7 @@ function callOf(entry, stub, grant) {
   const as = entry.as && typeof entry.as.name === "string" ? entry.as : null; // the name the model wrote (`turn.js`)
   const stubbed = stub ?? (entry.withheld !== undefined ? STUB_WITHHELD : typeof grant !== "string" || entry.grant !== grant ? STUB_GRANT : null);
   const result = stubbed ?? (typeof entry.result === "string" ? entry.result : "(no result)");
-  const text = result.length > MAX_CARRIED_RESULT_CHARS ? `${result.slice(0, MAX_CARRIED_RESULT_CHARS)}… [cut, ${result.length} characters]` : result;
-  return { id: `toolu_${String(entry.id).replace(/[^A-Za-z0-9_-]/g, "")}`, name: as?.name ?? entry.name, args: stubbed !== null ? {} : (as ?? entry).args ?? {}, result: text, isError: entry.ok !== true && entry.held !== true };
+  return { id: `toolu_${String(entry.id).replace(/[^A-Za-z0-9_-]/g, "")}`, name: as?.name ?? entry.name, args: stubbed !== null ? {} : (as ?? entry).args ?? {}, result, isError: entry.ok !== true && entry.held !== true };
 }
 
 /**
@@ -123,7 +129,7 @@ export function stretchTurns(entries, tools, { since, covered = new Set(), group
     const { turn: _id, askers: asked, ...kept } = turn;
     if (!used) return kept;
     const other = group && (asker === null || asked?.length !== 1 || asked[0] !== asker);
-    const stub = other ? STUB_OTHER : null;
-    return { ...kept, calls: used.map((entry) => callOf(entry, stub, grant)) };
+    // Somebody else's turn: what it read under this turn's own grant is carried; under any other, stubbed.
+    return { ...kept, calls: used.map((entry) => callOf(entry, other && !(typeof grant === "string" && entry.grant === grant) ? STUB_OTHER : null, grant)) };
   });
 }

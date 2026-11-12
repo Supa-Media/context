@@ -3,6 +3,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { asPhoneOnly, asUser, captureError, createUser, errorCode, setupTest, type TestConvex } from "./fixtures.helpers";
 import { hashToken } from "../functions/lib/crypto";
+import { hashOneTimeCode } from "../functions/lib/oneTimeCodes";
 import { RECOVERY_WAIT_MS } from "../functions/emailRecovery";
 
 /**
@@ -39,7 +40,7 @@ type View = Awaited<ReturnType<typeof asPhoneOnly>>["view"];
 async function start(t: TestConvex, view: View, userId: Id<"users">, email = "ada@new.example") {
   const started = await view.action(api.functions.emailRecovery.startEmailRecovery, { email });
   if (started.status === "sent") {
-    const hashed = await hashToken(CODE);
+    const hashed = await hashOneTimeCode("email-recovery", CODE);
     await t.run(async (ctx) => {
       const row = await ctx.db
         .query("emailRecoveryCodes")

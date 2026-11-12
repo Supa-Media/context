@@ -24,6 +24,7 @@ import { armHeartbeat } from "./lib/heartbeats/model";
 import { armHousekeeping } from "./lib/housekeeping/model";
 import { acceptPhoneInvitations } from "./lib/invitations/join";
 import { refreshTexting } from "./lib/textingRefresh";
+import { hashOneTimeCode } from "./lib/oneTimeCodes";
 
 /**
  * Linking a phone to an account, so the person can text the Context assistant.
@@ -136,7 +137,7 @@ export const startPhoneLink = action({
     await ctx.runMutation(internal.functions.textLinks.storeLinkCode, {
       userId: userId as Id<"users">,
       phone: args.phone,
-      hashedCode: await hashToken(code),
+      hashedCode: await hashOneTimeCode("text-link", code),
       expiresAt,
     });
     return { code, expiresAt };
@@ -177,7 +178,7 @@ export const claimPhoneLinkInvite = action({
     const phone: string = await ctx.runMutation(internal.functions.textLinks.storeInviteCode, {
       userId: userId as Id<"users">,
       hashedToken: await hashToken(args.token),
-      hashedCode: await hashToken(code),
+      hashedCode: await hashOneTimeCode("text-link", code),
       expiresAt,
     });
     return { code, expiresAt, phoneEnding: phone.slice(-4) };

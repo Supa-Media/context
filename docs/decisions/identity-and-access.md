@@ -172,12 +172,12 @@ The app's version of that setup also asks for a confirmed phone and a confirmed 
 
 ## Directory sample account (2026-11-04)
 
-Public connector review uses a dedicated principal and a fixed-code provider
-of its own, disabled unless its private deployment code is valid and distinct
-from every other review/test code. The existing App Store and Google review
+Public connector review uses a dedicated principal and a provider of its own
+that takes only a code staff issue for it: single-use, expiring and
+attempt-limited (no fixed code since 2026-11-11; see
+[invitations-and-signin](./identity-and-access/invitations-and-signin.md)). The existing App Store and Google review
 identities remain independent. Like the original directory principal, this
 account cannot join other workspaces, accept outside grants, attach another
 sign-in address or hold a Google connection. It receives ordinary workspace
-permissions, never the production test account privileges. Reviewer sign-in
-and reach tests prove these boundaries; the deployment and local setup sync
-the code from 1Password rather than source.
+permissions, never the production test account privileges. Issued-code and reach
+tests prove these boundaries.

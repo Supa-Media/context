@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
+import { stagingSignInCode } from "./staging-sign-in-code.mjs";
 
 const ENDPOINT = "https://mcp-staging.context.lc/mcp";
 const PERSONA = "alpha@supa.media";
@@ -54,8 +55,7 @@ let personalWorkspaceId = null;
 
 try {
   // -- the persona signs in to the control plane, as the seed script does
-  await convex.action(ref("auth:signIn"), { provider: "email", params: { email: PERSONA } });
-  const signed = await convex.action(ref("auth:signIn"), { provider: "email", params: { email: PERSONA, code: "000000" } });
+  const signed = await convex.action(ref("auth:signIn"), { provider: "email", params: { email: PERSONA, code: stagingSignInCode(PERSONA) } });
   assert.ok(signed.tokens?.token, "persona sign-in failed");
   convex.setAuth(signed.tokens.token);
   const mine = await convex.query(ref("functions/workspaces:listMyWorkspaces"), {});

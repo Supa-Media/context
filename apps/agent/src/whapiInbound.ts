@@ -27,7 +27,7 @@
  *   that `context.mentions` says is Tex (`namingTex`).
  */
 
-import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
+import { cutText, MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
 import type { Reaction, Tapback } from "./reactions";
 import { cleanGroupName, type GroupInbound, type GroupMessage } from "./sendblueGroups";
 import { MAX_QUOTED_TEXT } from "./sendblue";
@@ -75,6 +75,30 @@ export function whapiGroupNames(payload: unknown): Map<string, string> {
     if (name !== null && name !== "") names.set(whapiGroupId(message.chat_id), name);
   }
   return names;
+}
+
+/**
+ * The groups a `groups` delivery says changed (people added, removed or left; a group's settings), by the id each is
+ * queued under. The shape is not relied on: every string anywhere in it that is a group's id counts, so a change is
+ * never missed for a field Whapi moved. Read only to mark the group's kept member list changed (`groupMembers.ts`).
+ */
+export function whapiGroupChanges(payload: unknown): string[] {
+  if (!isRecord(payload) || rec(payload.event)?.type !== "groups") return [];
+  const found = new Set<string>();
+  const walk = (value: unknown, depth: number): void => {
+    if (found.size >= READ_LIMIT || depth > 6) return;
+    if (typeof value === "string") {
+      if (GROUP_JID.test(value)) found.add(whapiGroupId(value));
+    } else if (Array.isArray(value)) {
+      for (const item of value.slice(0, 64)) walk(item, depth + 1);
+    } else if (isRecord(value)) {
+      for (const [key, item] of Object.entries(value).slice(0, 64)) {
+        if (key !== "event") walk(item, depth + 1);
+      }
+    }
+  };
+  walk(payload, 0);
+  return [...found];
 }
 
 /** Every message in one delivery, read; `line` is Tex's own WhatsApp number (E.164). */
@@ -211,7 +235,7 @@ function directEvent(message: Rec, id: string, chatId: string, line: string, typ
     chatId: chat,
     from: phone,
     messageId: id,
-    text: text.slice(0, MAX_INBOUND_TEXT),
+    ...cutText(text),
     ...(attachment !== null ? { attachments: [attachment] } : {}),
     ...(threaded ? { threaded: true as const, ...(quoted !== undefined ? { quoted } : {}) } : {}),
   };
@@ -236,7 +260,7 @@ function groupEvent(message: Rec, id: string, chatId: string, line: string, type
     return { ...base, text: emoji, reaction: tapbackOf(emoji), reactionOn: action.target } satisfies GroupMessage;
   }
   const media = MEDIA_TYPES.has(type) ? rec(message[type]) : null;
-  const text = namingTex(wordsOf(message, media), rec(message.context)?.mentions, line).trim().slice(0, MAX_INBOUND_TEXT);
+  const { text, left } = cutText(namingTex(wordsOf(message, media), rec(message.context)?.mentions, line).trim());
   const attachment = media === null ? null : attachmentOf(media);
   if (text === "" && attachment === null) return { kind: "ignored", reason: "empty" };
   const quotedId = rec(message.context)?.quoted_id;
@@ -244,6 +268,7 @@ function groupEvent(message: Rec, id: string, chatId: string, line: string, type
   return {
     ...base,
     text,
+    ...(left ? { left } : {}),
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(attachment !== null ? { attachments: [attachment] } : {}),
   };

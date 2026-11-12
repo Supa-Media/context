@@ -34,6 +34,20 @@ import { withArchitecture } from "./texArchitecture.js";
 
 export const ADVISOR_TOOL = "ask_advisor";
 export const MAX_ASKS = 10;
+
+/**
+ * How long one ask may take before the asker is told it timed out. Opus
+ * reading a whole turn with thinking on took 20.0 s at the quickest quarter,
+ * 23.9 s at the median and 38.3 s at the slowest of the 19 asks from 10-29 to
+ * 11-12 (AI Gateway timings), so the 20 s every other call gets cut off about
+ * three in four, and both of the Nov Babies jobs ran without it (2026-11-12).
+ * A job is on nobody's clock: 90 s. A text keeps 40 s, and the turn's own end
+ * (`turn.js`) still cuts it so the answer fits the texting Worker's two minutes.
+ */
+export const ADVISOR_TIMEOUT_MS = Object.freeze({ job: 90_000, chat: 40_000 });
+
+/** The advisor's limit for a turn: a job's, or a text's. */
+export const advisorTimeoutMs = (job) => (job ? ADVISOR_TIMEOUT_MS.job : ADVISOR_TIMEOUT_MS.chat);
 /** The most of Tex's instructions the advisor reads (only when a turn hands no parts), and of the turn's transcript, newest kept. */
 const MAX_SYSTEM_CHARS = 40_000;
 /** The most of what is about this person and this job (`system.context`: about.md, goals, jobs, workspaces, a job's brief). */

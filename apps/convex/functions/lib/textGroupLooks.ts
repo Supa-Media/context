@@ -5,7 +5,7 @@
  * work, and know when an email needs to go to the group vs me personally";
  * `docs/decisions/texting-assistant/chat-mail.md`).
  *
- * A chat bound to a shared workspace looks on its own, as a person's own
+ * Every chat looks on its own (in its home, or in the workspace it reaches), as a person's own
  * check-in does (`lib/heartbeats/`): at the same daily slots in its binder's
  * time zone, and about a minute after new mail reaches a mailbox shared there,
  * never sooner than five minutes after its last look. Nothing is set up: a
@@ -79,12 +79,17 @@ async function zoneOf(ctx: QueryCtx, userId: Id<"users"> | null): Promise<string
   return effectiveTimeZone(undefined, userId === null ? null : await accountTimeZone(ctx, userId));
 }
 
-/** A chat bound to a workspace with no look coming gets its next daily one. Never moves one already due. */
+/**
+ * A chat with no look coming gets its next daily one. Never moves one already due. Every chat with a home looks, with
+ * or without a workspace in reach (`lib/textGroupReach.ts` `chatWorkspace`): one rule for every chat (the owner,
+ * 2026-11-12: "all group chats should be the same").
+ */
 export async function armChatLook(ctx: MutationCtx, group: Doc<"textGroups">, now: number): Promise<boolean> {
   if (group.nextLookAt !== undefined || speaksUpOf(group) === "off" || group.guestGroupId !== undefined) return false;
-  // A chat with a workspace in reach (`lib/textGroupReach.ts` `chatWorkspace`): the bound one if still in reach, else the first.
-  if ((await chatWorkspace(ctx, group)) === null) return false;
-  const next = nextBeatAfter(await zoneOf(ctx, await lookerOf(ctx, group)), now);
+  const reached = await chatWorkspace(ctx, group);
+  if (reached === null && group.homeWords === undefined) return false;
+  const looker = reached === null ? homeLooker(group) : await lookerOf(ctx, group);
+  const next = nextBeatAfter(await zoneOf(ctx, looker), now);
   if (next === null) return false;
   await ctx.db.patch(group._id, { nextLookAt: next });
   return true;
@@ -139,9 +144,17 @@ export async function wakeChatAddressLook(ctx: MutationCtx, chatId: Id<"textGrou
   return await bringLookForward(ctx, group, now, { mailAt: now });
 }
 
+/** Who a home's look runs as: whoever bound the chat if still among its people, else the first of them. */
+function homeLooker(group: Doc<"textGroups">): Id<"users"> | null {
+  const people = group.homeUsers ?? [];
+  if (people.length === 0) return null;
+  return group.boundBy !== undefined && people.includes(group.boundBy) ? group.boundBy : people[0]!;
+}
+
 /**
- * A look for a chat that reaches no workspace but has mail at its own address: in its home, run as whoever bound it
- * if still among its people, else the first of them, as a home routine's writer is (`routines/homes.ts`).
+ * A look for a chat that reaches no workspace: in its home, run as `homeLooker`, as a home routine's writer is
+ * (`routines/homes.ts`). It reads what any chat's look reads: mail shared with the chat, mail at its own address and
+ * what it was asked to follow up on.
  */
 async function homeLook(
   ctx: QueryCtx,
@@ -151,7 +164,7 @@ async function homeLook(
   if (group.homeWords === undefined || people.length === 0 || group.mutedAt !== undefined || group.guestGroupId !== undefined) return null;
   const workspaceId = await sealedPin(ctx);
   if (workspaceId === null) return null;
-  const looker = group.boundBy !== undefined && people.includes(group.boundBy) ? group.boundBy : people[0]!;
+  const looker = homeLooker(group)!;
   return { workspaceId, looker, phones: await writerPhones(ctx.db, looker) };
 }
 
@@ -174,14 +187,14 @@ export async function claimChatLooks(ctx: MutationCtx, runIds: string[], now: nu
     if (group.lookClaimedAt !== undefined && group.lookClaimedAt + ROUTINE_LEASE_MS > now) continue;
     const addressMail = (group.mailAt ?? 0) > (group.lastLookAt ?? 0);
     const reached = (await chatWorkspace(ctx, group))?._id;
-    // A chat that reaches no workspace looks only for mail at its own address, in its home.
-    const home = reached === undefined && addressMail ? await homeLook(ctx, group) : null;
+    // A chat that reaches no workspace looks in its home, by the same rule as any chat (the owner, 2026-11-12).
+    const home = reached === undefined ? await homeLook(ctx, group) : null;
     const workspaceId = reached ?? home?.workspaceId;
     const chat = home !== null ? group : reached === undefined ? null : await routineChat(ctx, reached, group.groupKey.slice(0, 16));
     const looker = home !== null ? home.looker : await lookerOf(ctx, group);
     const phones =
       home !== null ? home.phones : reached === undefined || looker === null ? [] : await routineRecipients(ctx, { workspaceId: reached, writerUserId: looker, send: "text" });
-    const mail = chat === null || home !== null ? [] : await liveMailShares(ctx, chat);
+    const mail = chat === null ? [] : await liveMailShares(ctx, chat);
     const listening = mail.length > 0 || addressMail || (speaksUpOf(group) !== "quiet" && group.lastSeenAt + DORMANT_MS > now);
     if (chat === null || chat._id !== group._id || workspaceId === undefined || looker === null || phones.length === 0 || !listening) {
       await ctx.db.patch(group._id, { nextLookAt: undefined });

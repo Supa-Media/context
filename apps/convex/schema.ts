@@ -16,6 +16,7 @@ import { ingestionTables } from "./functions/lib/schema/ingestion";
 import { jobTables } from "./functions/lib/schema/jobs";
 import { rateLimitTables } from "./functions/lib/schema/rateLimits";
 import { phoneCodeTables } from "./functions/lib/schema/phoneCodes";
+import { issuedSignInCodeTables } from "./functions/lib/schema/issuedSignInCodes";
 import { textSignInTables } from "./functions/lib/schema/textSignIn";
 import { oauthTables } from "./functions/lib/schema/oauth";
 import { platformTables } from "./functions/lib/schema/platform";
@@ -53,6 +54,7 @@ import { staffSecondFactorTables } from "./functions/lib/schema/staffSecondFacto
 import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
 import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
+import { texToolFailureTables } from "./functions/lib/schema/texToolFailures";
 import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { trashTables } from "./functions/lib/schema/trash";
 import { oldCopiesTables } from "./functions/lib/schema/oldCopies";
@@ -119,6 +121,7 @@ const schema = defineSchema({
   ...jobTables,
   ...rateLimitTables,
   ...phoneCodeTables,
+  ...issuedSignInCodeTables,
   ...textSignInTables,
   ...oauthTables,
   ...platformTables,
@@ -156,6 +159,7 @@ const schema = defineSchema({
   ...workspaceDomainTables,
   ...archivedAccountTables,
   ...agentTurnTables,
+  ...texToolFailureTables,
   ...searchTimingTables,
   ...trashTables,
   ...collaborationFilingTables,

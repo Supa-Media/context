@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseWhapiWebhook } from "./whapiInbound";
+import { MAX_INBOUND_TEXT, parseWhapiWebhook } from "./whapiInbound";
 
 const LINE = "+15550001111";
 const PHONE = "15551234567";
@@ -72,9 +72,9 @@ describe("whapi webhook: 1:1 chats", () => {
   });
 
   it("trims the words and keeps them within the inbound limit", () => {
-    const [event] = parseWhapiWebhook(delivery(message({ text: { body: `  ${"a".repeat(5000)}  ` } })), LINE);
+    const [event] = parseWhapiWebhook(delivery(message({ text: { body: `  ${"a".repeat(MAX_INBOUND_TEXT + 1000)}  ` } })), LINE);
     expect(event).toMatchObject({ kind: "message" });
-    expect(event.kind === "message" && event.text.length).toBe(4000);
+    expect(event.kind === "message" && event.text.length).toBe(MAX_INBOUND_TEXT);
   });
 
   it("takes a picture with a caption and an https link as its words and one attachment", () => {

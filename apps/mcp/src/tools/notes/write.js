@@ -40,7 +40,7 @@ import { isDrawingPath, parseDrawing } from "../../../../../packages/drawings/sr
 import { isEncryptedNote } from "../../encryption.js";
 import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.js";
 import { parseFormBlocks } from "../../forms.js";
-import { isPagePath, pageProblems, pageSkillMissing } from "../../pages.js";
+import { isPagePath, pageProblems, pageSkillMissing, repairPage, repairedLine } from "../../pages.js";
 import { persistExactVisibility, UNWRITABLE_PATH_REFUSAL, writesOneRule } from "../../privacy/state.js";
 import { HOME_PRIVATE_REFUSAL, inChatHome } from "../../agent/chatHomeSeal.js";
 import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
@@ -153,6 +153,9 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   // A `.page.md` note is checked the same way: a block an agent got wrong (a
   // chart with no numbers, a choice of one) is told while the text is in hand.
   // And a page is written only by a caller who read the page design skill as it is now (`pageSkill.js`).
+  // A slip with one reading is fixed first and said in the answer (`repairPage`), never refused.
+  const repaired = isPagePath(path) && pageSkillMissing(content) === null ? repairPage(content) : { content, fixed: [] };
+  content = repaired.content;
   const pageRefusal = isPagePath(path) ? pageSkillMissing(content) ?? pageProblems(content) : null;
   if (pageRefusal) return toolError(pageRefusal);
   // Any override that is not `team` is a destination a team connection may not
@@ -629,7 +632,8 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
         : "") +
       (formLines.length ? `\n${formLines.join("\n")}` : "") +
       (shareLines.length ? `\n${shareLines.join("\n")}` : "") +
-      (statusLine === null ? "" : `\n${statusLine}`)
+      (statusLine === null ? "" : `\n${statusLine}`) +
+      repairedLine(repaired.fixed)
   ), { created: !existing });
 }
 

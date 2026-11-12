@@ -35,6 +35,32 @@ shadow mode and just launch it".
   shown as before, so nothing drops out on the day a chat starts.
 - `read_thread` lists every thread, or opens one in full.
 
+## Off the reply path (Dev2, 2026-11-12)
+
+Dev2's words: "Classifier off the reply path, in 1:1 and in groups. Never wait
+for it: run it in the background, keep writing the threads ledger after the
+answer, and show the thread list as it stood after the previous text ...
+Also make the call short (thinking off, tight output limit)."
+
+Measured before the change (reply latency audit, 2026-11-12, @supa
+`projects/tex-reliability/2026-11-12-reply-latency-audit.md`): on answered
+turns the wait before the model ("ready") went from 0.1 s to 3.3 s at the
+median. The call wrote about 430 output tokens at effort low, almost all
+thinking, against a design budget of 1.3 to 1.7 s, so 46% of calls reached
+the 4 s cap and 35% came back with nothing. `read_thread` was called 0 times
+in 79 answered turns read from the ledgers.
+
+So the classifier now runs behind the reply (`threads_sort`, `threadedTurn.js`
+`sort`), with thinking off (`thinking: "off"`, Haiku 5.5 takes it at effort
+high or below) and a 400-token answer cap, and its verdict is kept for the
+next text. The turn is shown the threads as they stood after the text
+before, with no suggested thread and no older texts pulled in by a guess; the
+new text and any not sorted yet are untagged in the last 24 hours. It no
+longer says where a reply goes (`place`): that is for the one-turn-per-text
+design. A simplification that moves it back before the model costs every
+text about 3 s; `agentThreadsTurn.test.mjs` fails if the classifier is called
+before the front door.
+
 ## Rules the review asked for
 
 - **Finishing is the consequential call.** A wrong thread costs little (the
@@ -179,6 +205,40 @@ Reversing it brings back an emoji beside most answers. Tests:
 bubble renewed), `groupInbox.test.ts` and `groupDecideEmojiWait.test.ts` (no
 tapback beside a group answer), `apps/mcp/test/agentJobRestart.test.mjs` and
 `agentBackground.test.mjs` (the one-line start).
+
+## A slow group answer gets a tapback from code, and the intro rides on the answer (Dev2, 2026-11-12)
+
+The Nov Babies chat (2026-11-11) opened with a fixed intro bubble telling Seyi
+to "Start a message with Tex", which his message had, then nothing for 70
+seconds: no tapback, because a group's only tapback was the judge's react and
+the judge's gate refused a chat whose row the turn had not made yet
+(`no_group`), a refusal kept for a minute. Seyi sent the whole message again.
+Then two "Searching…" progress lines went to the chat. Dev2 said "Go" to:
+
+- **A slow tapback.** A message naming Tex is armed as it is accepted
+  (`groupSlowTap.ts`). If no text of Tex's goes into the chat and no tapback
+  of Tex's lands on it within `SLOW_TAP_MS` (8 s), the Worker taps one, the
+  emoji picked from its words. Only a chat bound to its people and not muted
+  gets one. A quick answer gets none, so the 2026-11-10 rule above still holds
+  for every answer that isn't slow.
+- **`no_group` is never kept.** The gate's refusal for a group not set up yet
+  is dropped at once (`decideGateway.ts`), so the next text reaches the judge.
+- **The intro rides on the first answer**, as its last line, with words that
+  no longer tell anyone how to call Tex (`groupLines.ts`, `groupModelTurn.ts`
+  `withIntro`). A bare link or an exact ask's words stay their own texts.
+- **No plan lines.** The progress tool and its prompt no longer ask for a plan
+  line or a line before opening a site; a line goes only for something to act
+  on, or just before a step that changes something outside their notes
+  (`progress.js`). A long task's "here's what I'm doing" is its job's start
+  line (`background-jobs.md`, 2026-11-12).
+
+Reversing the tapback brings back silence on every slow group turn, worst in a
+new group. Tests: `apps/agent/src/groupInbox.test.ts` ("taps a message naming
+Tex when no text has gone out…", "never taps a chat Tex is not set up in…",
+"introduces itself at the end of its first answer…"),
+`apps/agent/src/decideGateway.test.ts` ("a group not set up yet is never kept
+refused…"), `apps/mcp/test/agentProgress.test.mjs` ("a line goes only for
+something to act on…").
 
 ## Undo and reversal cost
 

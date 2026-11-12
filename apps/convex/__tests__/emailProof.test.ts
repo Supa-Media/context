@@ -12,7 +12,7 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
-import { hashToken } from "../functions/lib/crypto";
+import { hashOneTimeCode } from "../functions/lib/oneTimeCodes";
 import { EMAIL_PROOF_WINDOW_MS } from "../functions/lib/emailProof";
 import { MAX_WRONG_TRIES } from "../functions/emailProof";
 
@@ -38,7 +38,7 @@ type View = Awaited<ReturnType<typeof asPhoneOnly>>["view"];
 async function askForCode(t: TestConvex, view: View, sessionId: Id<"authSessions">, to?: number) {
   const started = await view.action(api.functions.emailProof.startEmailProof, to === undefined ? {} : { to });
   if (started.status === "sent") {
-    const hashed = await hashToken(CODE);
+    const hashed = await hashOneTimeCode("email-proof", CODE);
     await t.run(async (ctx) => {
       const row = await ctx.db
         .query("emailProofCodes")

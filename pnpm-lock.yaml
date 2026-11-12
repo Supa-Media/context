@@ -28,7 +28,7 @@ overrides:
 
 patchedDependencies:
   '@convex-dev/auth':
-    hash: ak7apkbrmhapkt36pcmmqydrda
+    hash: rd3sknrf6fomc6yqew77kogqmq
     path: patches/@convex-dev__auth.patch
   decode-uri-component@0.2.2:
     hash: 3oaarrrxssiishdhnnigcj2qs4
@@ -88,13 +88,13 @@ importers:
         version: link:../../packages/shared
       '@convex-dev/auth':
         specifier: ^0.0.96
-        version: 0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+        version: 0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       '@resvg/resvg-wasm':
         specifier: ^2.6.2
         version: 2.6.2
       '@supa-media/convex':
         specifier: ^1.11.2
-        version: 1.11.2(@convex-dev/auth@0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
+        version: 1.11.2(@convex-dev/auth@0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
       convex:
         specifier: ^1.31.3
         version: 1.45.0(react@19.1.0)
@@ -232,7 +232,7 @@ importers:
         version: link:../../packages/shared
       '@convex-dev/auth':
         specifier: ^0.0.96
-        version: 0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+        version: 0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       '@excalidraw/excalidraw':
         specifier: 0.18.1
         version: 0.18.1(@types/react-dom@19.1.11(@types/react@19.1.17))(@types/react@19.1.17)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -259,7 +259,7 @@ importers:
         version: 8.26.0(@expo/env@2.0.12)(dotenv@17.4.2)(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(rollup@4.63.0)
       '@supa-media/core':
         specifier: ^1.1.0
-        version: 1.1.0(5ntlwzlozgig2e2vgjyoeldqhy)
+        version: 1.1.0(bhmpnuxdpibfhcsqkpqkna6lca)
       context-activity-kit:
         specifier: file:./modules/context-activity-kit
         version: file:apps/mobile/modules/context-activity-kit
@@ -9646,7 +9646,7 @@ snapshots:
       style-mod: 4.1.3
       w3c-keyname: 2.2.8
 
-  '@convex-dev/auth@0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)':
+  '@convex-dev/auth@0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)':
     dependencies:
       '@auth/core': 0.41.3
       '@oslojs/crypto': 1.0.1
@@ -12000,14 +12000,14 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@supa-media/convex@1.11.2(@convex-dev/auth@0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
+  '@supa-media/convex@1.11.2(@convex-dev/auth@0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
     dependencies:
-      '@convex-dev/auth': 0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+      '@convex-dev/auth': 0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
 
-  '@supa-media/core@1.1.0(5ntlwzlozgig2e2vgjyoeldqhy)':
+  '@supa-media/core@1.1.0(bhmpnuxdpibfhcsqkpqkna6lca)':
     dependencies:
-      '@convex-dev/auth': 0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+      '@convex-dev/auth': 0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
       expo: 54.0.37(@babel/core@7.29.7)(@expo/metro-runtime@6.1.2)(expo-router@6.0.24)(react-native-webview@13.15.0(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
       react: 19.1.0

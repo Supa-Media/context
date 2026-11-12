@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  devOtpBypassAllowed,
+  isIsolatedStaging,
   productionOtpGuard,
   sealDevOtpBypass,
 } from "../functions/lib/otpBypass";
@@ -19,10 +19,9 @@ import {
  * input there is. So these checks are about the wiring as much as the logic,
  * and the last one reads the call site rather than the helper.
  *
- * The gate is a **whitelist**: the bypass exists on exactly one deployment
- * shape and nowhere else. A blocklist naming the deployments where it must not
- * work protects the ones somebody remembered — and a self-host is never on
- * that list.
+ * Since 2026-11-11 the bypass is honoured nowhere, staging included: a fixed
+ * code for every address is what CASA 1.2.1 / 1.3.x failed. Staging's
+ * personas are issued real codes instead (`functions/signInCodes.ts`).
  */
 
 /** The exact environment the isolated staging backend presents. */
@@ -60,12 +59,12 @@ function frameworkIgnoresBypass(
   return Boolean(guard) && siteUrl.includes(guard as string);
 }
 
-describe("where the development OTP bypass is allowed to exist", () => {
-  it("allows it on the isolated staging deployment and nowhere else", () => {
-    expect(devOtpBypassAllowed(staging)).toBe(true);
-    expect(devOtpBypassAllowed(production)).toBe(false);
-    expect(devOtpBypassAllowed(selfHost)).toBe(false);
-    expect(devOtpBypassAllowed({})).toBe(false);
+describe("the isolated staging deployment (asked before a persona is issued a code)", () => {
+  it("is recognised on staging and nowhere else", () => {
+    expect(isIsolatedStaging(staging)).toBe(true);
+    expect(isIsolatedStaging(production)).toBe(false);
+    expect(isIsolatedStaging(selfHost)).toBe(false);
+    expect(isIsolatedStaging({})).toBe(false);
   });
 
   it("refuses when any single leg of the staging shape is missing", () => {
@@ -74,26 +73,19 @@ describe("where the development OTP bypass is allowed to exist", () => {
     for (const leg of Object.keys(staging)) {
       if (leg === "CONVEX_SITE_URL") continue;
       const broken = { ...staging, [leg]: undefined };
-      expect(devOtpBypassAllowed(broken), `${leg} alone must close the gate`).toBe(false);
+      expect(isIsolatedStaging(broken), `${leg} alone must close the gate`).toBe(false);
     }
-    expect(
-      devOtpBypassAllowed({ ...staging, CONVEX_CLOUD_URL: "https://your-deployment.convex.cloud" }),
-    ).toBe(false);
-    expect(devOtpBypassAllowed({ ...staging, APP_ORIGIN: "https://context.lc" })).toBe(false);
+    expect(isIsolatedStaging({ ...staging, CONVEX_CLOUD_URL: "https://your-deployment.convex.cloud" })).toBe(false);
+    expect(isIsolatedStaging({ ...staging, APP_ORIGIN: "https://context.lc" })).toBe(false);
   });
 });
 
 describe("the guard handed to the framework", () => {
-  it("is absent on staging, so the bypass staging depends on still works", () => {
-    expect(productionOtpGuard(staging)).toBeUndefined();
-    expect(frameworkIgnoresBypass(staging, productionOtpGuard(staging))).toBe(false);
-  });
-
-  it("makes the framework ignore the bypass everywhere else", () => {
+  it("makes the framework ignore the bypass everywhere, staging included", () => {
     // Not merely "returns something": the framework's own test is a substring
     // match, so a guard the site URL does not contain would read as protection
-    // and be none.
-    for (const env of [production, selfHost]) {
+    // and be none. Staging is on the list since 2026-11-11 (CASA 1.2.1).
+    for (const env of [staging, production, selfHost]) {
       const guard = productionOtpGuard(env);
       expect(guard).toBeTruthy();
       expect(frameworkIgnoresBypass(env, guard)).toBe(true);
@@ -102,16 +94,15 @@ describe("the guard handed to the framework", () => {
 });
 
 describe("sealing the variable itself", () => {
-  it("clears it on a deployment that may not have it", () => {
-    const env = { ...production, DEV_OTP_BYPASS: "true" } as Record<string, string | undefined>;
-    expect(sealDevOtpBypass(env)).toBe("sealed");
-    expect(env.DEV_OTP_BYPASS).not.toBe("true");
+  it("clears it everywhere, staging included", () => {
+    for (const base of [production, staging, selfHost]) {
+      const env = { ...base, DEV_OTP_BYPASS: "true" } as Record<string, string | undefined>;
+      expect(sealDevOtpBypass(env)).toBe("sealed");
+      expect(env.DEV_OTP_BYPASS).not.toBe("true");
+    }
   });
 
-  it("leaves staging alone and says so when the variable was never set", () => {
-    const allowed = { ...staging, DEV_OTP_BYPASS: "true" } as Record<string, string | undefined>;
-    expect(sealDevOtpBypass(allowed)).toBe("allowed");
-    expect(allowed.DEV_OTP_BYPASS).toBe("true");
+  it("says so when the variable was never set", () => {
     expect(sealDevOtpBypass({ ...production })).toBe("absent");
   });
 

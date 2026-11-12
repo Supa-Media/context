@@ -16,13 +16,17 @@
  *  - `messageLine` dropping `role: "tool"` messages: "with the live turn it reads Tex's instructions ..." fails.
  *  - `quoted` dropped from `advisorBrief`: "a tool result cannot close the fence the transcript is quoted in"
  *    fails, and a page's own words reach the advisor as the brief's.
+ *  - `[ADVISOR_TOOL]: advisorTimeoutMs(...)` dropped from runTheModel's toolTimeouts: "the advisor has its own limit" fails;
+ *    no own limit for the ask in the turn: "an ask slower than the default limit still answers" fails.
  */
 
 import { withArchitecture } from "../src/agent/texArchitecture.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ADVISOR_DEFINITION, ADVISOR_PROMPT, ADVISOR_TOOL, MAX_ASKS, advisorTools } from "../src/agent/advisor.js";
+import { ADVISOR_DEFINITION, ADVISOR_PROMPT, ADVISOR_TIMEOUT_MS, ADVISOR_TOOL, MAX_ASKS, advisorTimeoutMs, advisorTools } from "../src/agent/advisor.js";
+import { TOOL_TIMEOUT_MS } from "../src/agent/turn.js";
+import { texEntryPointSource } from "./texEntryPointSource.mjs";
 import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { sixToolsOver } from "../src/agent/sixTools.js";
@@ -226,4 +230,46 @@ test("what the person's notes say can't close the fence it is quoted in", async 
   const said = asked[0].messages[0].text;
   assert.equal(said.match(/<\/about_them>/g)?.length, 1, "one closing marker");
   assert.doesNotMatch(said.replace(/<about_them>\n[\s\S]*?\n<\/about_them>/, ""), /vault code/);
+});
+
+/*
+  The Nov Babies chat (2026-11-12): both jobs' first ask was stopped at exactly
+  20,000 ms, the limit every call gets. The 19 advisor asks from 10-29 to 11-12
+  took 20.0 s at the quickest quarter, 23.9 s at the median and 38.3 s at most.
+*/
+test("the advisor has its own limit, past its slowest answer: 90 s in a job, 40 s for a text", () => {
+  assert.equal(advisorTimeoutMs(true), 90_000);
+  assert.equal(advisorTimeoutMs(false), 40_000);
+  for (const ms of Object.values(ADVISOR_TIMEOUT_MS)) assert.ok(ms > 38_300 && ms > TOOL_TIMEOUT_MS);
+  assert.match(texEntryPointSource(), /toolTimeouts: \{[^}]*\[ADVISOR_TOOL\]: advisorTimeoutMs\(job !== null\)/, "the texted route gives it that limit");
+});
+
+test("an ask slower than the default limit still answers when it has its own", async () => {
+  const reply = (content, stop) => ({ id: "m", type: "message", role: "assistant", content, stop_reason: stop, usage: { input_tokens: 10, output_tokens: 5 } });
+  const script = [
+    reply([{ type: "tool_use", id: "t1", name: "send", input: { action: "advisor", args: {} } }], "tool_use"),
+    reply([{ type: "text", text: "Muses it is." }], "end_turn"),
+  ];
+  const seen = [];
+  const fetchImpl = async (_url, init) => {
+    seen.push(JSON.stringify(JSON.parse(init.body)));
+    return new Response(JSON.stringify(script.shift()), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const ENV = { AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef", AI_GATEWAY_ID: "context-gw", AI_GATEWAY_TOKEN: `gw-token-${"a".repeat(20)}` };
+  const slow = [{ tool: ADVISOR_DEFINITION, call: async () => { await new Promise((done) => setTimeout(done, 60)); return { content: [{ type: "text", text: "Pick Muses: drinks are included." }] }; } }];
+  resetCreditState();
+  const result = await runTurn({
+    question: "which one?",
+    credential: { provider: BUILTIN_PROVIDER, apiKey: null },
+    tools: [],
+    local: slow,
+    callTool: async () => ({ content: [] }),
+    env: { ...ENV, AGENT_BUILTIN_MODEL: HAIKU },
+    providerOptions: { gateway: aiGatewayConfig(ENV), fetchImpl },
+    builtinModelOverride: HAIKU,
+    toolTimeoutMs: 20,
+    toolTimeouts: { [ADVISOR_TOOL]: 1_000 },
+  });
+  assert.deepEqual(result.steps.map((step) => [step.tool, step.ok]), [[ADVISOR_TOOL, true]]);
+  assert.match(seen[1], /Pick Muses: drinks are included\./, "the model read the advisor's answer, not a timeout");
 });

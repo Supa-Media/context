@@ -155,6 +155,7 @@ test/personFlags.test.mjs
 bench/test/calibrate.test.mjs
 bench/test/review.test.mjs
 bench/test/respond.test.mjs
+bench/test/jobstart.test.mjs
 bench/test/context.test.mjs
 bench/test/folder.test.mjs
 bench/test/improve.test.mjs
@@ -255,6 +256,7 @@ test/agentSelfReview.test.mjs
 test/agentTurnLog.test.mjs
 test/agentAdvisorSetup.test.mjs
 test/agentAdvisor.test.mjs
+test/jobPages.test.mjs
 test/agentTurnStages.test.mjs
 test/groupTiming.test.mjs
 test/agentInstacartCheckout.test.mjs
@@ -308,6 +310,7 @@ test/agentSaveAccount.test.mjs
 test/pagesDesign.test.mjs
 test/agentPhotoHunt.test.mjs
 test/agentPagePictures.test.mjs
+test/agentPageReadPhotos.test.mjs
 test/pagesPhone.test.mjs
 test/pageInkDrawings.test.mjs
 test/pageLayouts.test.mjs
@@ -495,6 +498,7 @@ test/texCalendarCache.test.mjs
 test/texStablePrefix.test.mjs
 test/texCarry.test.mjs
 test/texCarryGating.test.mjs
+test/texFullText.test.mjs
 test/texDaySummaries.test.mjs
 test/texFadedHistory.test.mjs
 test/texArchitecture.test.mjs
@@ -514,3 +518,7 @@ test/datePropertiesWrite.test.mjs
 test/dateStamp.test.mjs
 test/agentCheckInTexts.test.mjs
 test/noteReadRoute.test.mjs
+test/toldFacts.test.mjs
+test/toldFactsTurn.test.mjs
+test/toolFailures.test.mjs
+test/openAsk.test.mjs
