@@ -630,6 +630,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
 
     /** The take-over link a handoff made this question and has not texted yet, for the gateway's reply. */
     handoffLink: () => (handoffSaid ? null : handoffLink),
+    /** The tag of the browser a take-over link went out for this question, said or appended, for Done to be watched by (`handback.js`). */
+    handedOverTag: () => (handoffLink !== null ? (computer.tag?.() ?? null) : null),
     /**
      * The gateway's own sentence for a link it is about to append, or null.
      * When a handoff was asked for and no link was ever made, the sentence

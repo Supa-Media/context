@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, TextInput, View, type GestureResponderEvent } from "react-native";
 import { PressRow } from "../design/components/Button";
 import { Dot, type DotTone } from "../design/components/Dot";
@@ -127,7 +127,7 @@ export function SendTextBar({ send, focus }: { send: (action: TexAction) => void
     setText("");
   };
   return (
-    <KeyboardSticky style={styles.sendBar} testID="tex-send-bar">
+    <View style={styles.sendBar} testID="tex-send-bar">
       <PressRow accessibilityLabel="Type" onPress={() => field.current?.focus()} radius={radii.md} style={styles.key} testID="tex-send-focus">
         <Icon name="keyboard" size={19} color={colors.text2} />
       </PressRow>
@@ -153,6 +153,16 @@ export function SendTextBar({ send, focus }: { send: (action: TexAction) => void
       <PressRow accessibilityLabel="Return" onPress={enter} radius={radii.md} style={styles.key} testID="tex-key-enter">
         <Icon name="enter" size={19} color={colors.text2} />
       </PressRow>
+    </View>
+  );
+}
+
+/** The bottom of the screen, riding above the soft keyboard: Done, then Send text when it shows. */
+export function TexBottomBar({ children }: { children: ReactNode }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <KeyboardSticky style={styles.bottom} testID="tex-bottom">
+      {children}
     </KeyboardSticky>
   );
 }
@@ -177,16 +187,9 @@ const makeStyles = (colors: Colors) =>
     tool: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
     toolOn: { backgroundColor: colors.surface3 },
     toolHover: { backgroundColor: colors.surface2 },
-    sendBar: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      paddingHorizontal: 8,
-      paddingVertical: 8,
-      backgroundColor: colors.surface,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.line,
-    },
+    bottom: { backgroundColor: colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+    // Under Done, which pads above it.
+    sendBar: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingBottom: 8 },
     key: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
     sendInput: {
       flex: 1,

@@ -30,6 +30,7 @@ import { createControlPlaneStub, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 import { browserOwner, groupBrowserOwner } from "../src/agent/browserProviders.js";
 import { forgetChatPeople } from "../src/http/texPage/browser.js";
+import { browserHash } from "../src/agent/handback.js";
 
 const tok = (name) => `cat_texpc_${name}_`.padEnd(40, "0");
 const T = { alice: tok("alice"), bob: tok("bob") };
@@ -66,9 +67,14 @@ async function setUp() {
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
     if (url === `${CONTROL_PLANE_ORIGIN}/gateway/tex/page`) return Response.json(PAGES[JSON.parse(init.body).accessToken] ?? { status: "refused" });
+    if (url === `${CONTROL_PLANE_ORIGIN}/gateway/browser-handback`) {
+      handedBack.push(JSON.parse(init.body));
+      return Response.json({ doneAt: 1_700_000_000_000 });
+    }
     return stubbed(input, init);
   };
   const shots = [];
+  const handedBack = [];
   const SITE_SHOTS = {
     async fetch(url, init) {
       const path = new URL(url).pathname;
@@ -85,7 +91,7 @@ async function setUp() {
     },
   };
   const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, APP_ORIGIN: "https://app.context.test", SITE_SHOTS, TEXTING };
-  return { env, shots, asked, restore: () => ((globalThis.fetch = stubbed), restore()) };
+  return { env, shots, asked, handedBack, restore: () => ((globalThis.fetch = stubbed), restore()) };
 }
 
 async function ask(world, path, token, body) {
@@ -134,7 +140,7 @@ test("a group's page and frame use the chat's own browser tag, never the person'
 test("bob cannot reach alice's group browser: refused as a chat that names nothing", async () => {
   const world = await setUp();
   try {
-    for (const path of ["/tex/computer", "/tex/computer/input", "/tex/computer/stop"]) {
+    for (const path of ["/tex/computer", "/tex/computer/input", "/tex/computer/stop", "/tex/computer/done"]) {
       const answer = await ask(world, path, T.bob, { handle: "bob", chat: GROUP, action: { kind: "tap", x: 1, y: 1 } });
       assert.equal(answer.status, 404, path);
       assert.equal(answer.body.error, "not_found");
@@ -143,6 +149,7 @@ test("bob cannot reach alice's group browser: refused as a chat that names nothi
     assert.deepEqual(nothing, { status: 404, body: { error: "not_found", error_description: "There is no such chat." } });
     assert.equal(world.shots.length, 0, "no browser was asked anything");
     assert.equal(world.asked.length, 0, "the Worker was never asked about a chat bob is not in");
+    assert.equal(world.handedBack.length, 0, "nothing was handed back for bob");
   } finally {
     world.restore();
   }
@@ -157,6 +164,23 @@ test("a group with no turn yet has no browser to show", async () => {
     const page = await ask(world, "/tex/page", T.alice, { handle: "alice", chat: GROUP, sections: ["tiles"] });
     assert.deepEqual(page.body.tiles.computer, { running: false });
     assert.equal(world.shots.length, 0);
+  } finally {
+    world.restore();
+  }
+});
+
+test("Done on a group's take-over screen hands back the chat's own browser, by its hash, with the caller's token", async () => {
+  const world = await setUp();
+  try {
+    const done = await ask(world, "/tex/computer/done", T.alice, { handle: "alice", chat: GROUP });
+    assert.deepEqual(done, { status: 200, body: { handedBack: true } });
+    const groupTag = await groupBrowserOwner(world.env, { key: GROUP, members: PEOPLE });
+    assert.deepEqual(world.handedBack, [{ accessToken: T.alice, browser: await browserHash(groupTag) }]);
+    assert.notEqual(world.handedBack[0].browser, groupTag, "the tag itself never leaves the gateway");
+    // "Just you": the person's own browser.
+    await ask(world, "/tex/computer/done", T.alice, { handle: "alice" });
+    assert.equal(world.handedBack.at(-1).browser, await browserHash(await browserOwner(world.env, "user_a1x")));
+    assert.equal(world.shots.length, 0, "Done asks the browser nothing");
   } finally {
     world.restore();
   }

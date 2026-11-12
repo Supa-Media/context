@@ -53,3 +53,4 @@ export async function gatewayVaultRequestHandler(ctx: ActionCtx, body: Record<st
 
 /** Tex's browser sign-ins, kept in a saved Browserbase profile beside the sealed jar. */
 export { gatewayBrowserProfileHandler } from "./browserProfile";
+export { AGENT_CARRY_ON_ROUTES, BROWSER_GATEWAY_ROUTES } from "./browserHandback";

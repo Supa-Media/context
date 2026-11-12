@@ -21,6 +21,11 @@
  *  4. The screen's own not-yours check dropped, so a live frame handed to
  *     somebody else's page is drawn → "not yours shows nothing of a
  *     browser" fails.
+ *
+ * (2026-11-12, Dev2's Done button)
+ *  5. Done showing Tex taking over without asking the gateway → both Done
+ *     tests and "the menu holds hand back and stop" fail.
+ *  6. A touch after Done not taking control back → "Done tells Tex, …" fails.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -42,7 +47,7 @@ jest.mock("convex/react", () => ({
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "x", expiresAt: 0, scopes: [] }) }));
 
 import { TexComputerBody } from "../features/tex/TexComputerScreen";
-import { HAND_BACK_NOTICE, type Frame, type TexAction, type TexPageView } from "../features/tex/texComputer";
+import { HAND_BACK_NOTICE, HANDED_BACK_TITLE, type Frame, type TexAction, type TexPageView } from "../features/tex/texComputer";
 import type { TexComputerState } from "../features/tex/useTexComputer";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -102,18 +107,25 @@ afterEach(() => {
   container.remove();
 });
 
-function computer(over: Partial<TexComputerState> = {}): TexComputerState & { sent: TexAction[]; stopped: number } {
+function computer(over: Partial<TexComputerState> = {}, handedBack = true): TexComputerState & { sent: TexAction[]; stopped: number; handBacks: number } {
   const state = {
     phase: "live" as const,
     frame: LIVE,
     busy: false,
     sent: [] as TexAction[],
     stopped: 0,
+    handBacks: 0,
     send: (action: TexAction) => void state.sent.push(action),
     stop: () => void (state.stopped += 1),
+    handBack: async (): Promise<boolean> => ((state.handBacks += 1), handedBack),
     ...over,
   };
   return state;
+}
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  });
 }
 
 async function render(view: TexPageView, state: TexComputerState) {
@@ -170,8 +182,10 @@ describe("/tex/<handle>", () => {
     expect((byTestId("tex-send-input") as HTMLInputElement).getAttribute("placeholder")).toBe("Send text");
     expect(byTestId("tex-key-backspace")).not.toBeNull();
     expect(byTestId("tex-key-enter")).not.toBeNull();
+    // Done, full width above Send text (Dev2, 2026-11-12, bringing back what the first version had).
+    expect(byTestId("tex-done")?.textContent).toContain("Done, hand back to Tex");
     // What the first version had and the owner asked to lose.
-    for (const gone of ["tex-take-control", "tex-done", "tex-key-tab", "tex-key-delete", "tex-key-back", "tex-scroll-up", "tex-scroll-down", "tex-live-pill", "tex-where"]) {
+    for (const gone of ["tex-take-control", "tex-key-tab", "tex-key-delete", "tex-key-back", "tex-scroll-up", "tex-scroll-down", "tex-live-pill", "tex-where"]) {
       expect(byTestId(gone)).toBeNull();
     }
     expect(container.textContent).not.toContain("Your agent’s computer");
@@ -253,6 +267,36 @@ describe("/tex/<handle>", () => {
     expect(byTestId("tex-send-bar")).not.toBeNull();
   });
 
+  test("Done tells Tex, and the screen shows Tex taking over; a touch after it takes control again", async () => {
+    const state = computer();
+    await render(READY, state);
+    drag([{ x: 97.5, y: STAGE.top + 350 }]);
+    expect(byTestId("tex-taking-over")).toBeNull();
+    press("tex-done");
+    await settle();
+    expect(state.handBacks).toBe(1);
+    expect(byTestId("tex-taking-over")).not.toBeNull();
+    expect(byTestId("tex-handed-back")?.textContent).toContain(HANDED_BACK_TITLE);
+    expect(byTestId("tex-status")?.textContent).toBe("Tex is driving · chatgpt.com");
+    expect(byTestId("tex-done")?.textContent).toContain("Handed back");
+    expect(byTestId("tex-done")?.getAttribute("aria-disabled")).toBe("true");
+    expect(byTestId("tex-notice")).toBeNull();
+    drag([{ x: 97.5, y: STAGE.top + 350 }]);
+    expect(byTestId("tex-taking-over")).toBeNull();
+    expect(byTestId("tex-status")?.textContent).toContain("You're in control");
+    expect(byTestId("tex-done")?.textContent).toContain("Done, hand back to Tex");
+  });
+
+  test("a Done that cannot reach Tex says to text it instead, and Done can be pressed again", async () => {
+    const state = computer({}, false);
+    await render(READY, state);
+    press("tex-done");
+    await settle();
+    expect(byTestId("tex-taking-over")).toBeNull();
+    expect(byTestId("tex-notice")?.textContent).toBe(HAND_BACK_NOTICE);
+    expect(byTestId("tex-done")?.textContent).toContain("Done, hand back to Tex");
+  });
+
   test("the menu holds hand back and stop, and each does what it says", async () => {
     const state = computer();
     await render(READY, state);
@@ -262,9 +306,11 @@ describe("/tex/<handle>", () => {
     expect(byTestId("tex-hand-back")?.textContent).toContain("Hand back to Tex");
     expect(byTestId("tex-stop")?.textContent).toContain("Stop browser");
     press("tex-hand-back");
-    expect(byTestId("tex-notice")?.textContent).toBe(HAND_BACK_NOTICE);
+    await settle();
+    expect(state.handBacks).toBe(1);
+    expect(byTestId("tex-taking-over")).not.toBeNull();
     expect(byTestId("tex-live")).not.toBeNull();
-    expect(byTestId("tex-status")?.textContent).toContain("Live");
+    expect(byTestId("tex-status")?.textContent).toContain("Tex is driving");
     press("tex-menu");
     press("tex-stop");
     expect(state.stopped).toBe(1);
@@ -276,6 +322,7 @@ describe("/tex/<handle>", () => {
     expect(byTestId("tex-frame")).toBeNull();
     expect(byTestId("tex-keyboard")).toBeNull();
     expect(byTestId("tex-send-bar")).toBeNull();
+    expect(byTestId("tex-done")).toBeNull();
   });
 
   test("not yours shows nothing of a browser", async () => {

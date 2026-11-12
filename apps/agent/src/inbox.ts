@@ -81,7 +81,7 @@ import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck,
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
 import { chatJobs, jobQuestion, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, viewLink, type JobRun, type JobSteer } from "./jobs";
-import { checkVaultSaved, logVaultWatch, queueSavedInGroup, watchForSave } from "./vaultWatch";
+import { checkVaultSaved, logVaultWatch, queueSavedInGroup, watchForSave } from "./vaultWatch"; import { watchForHandback } from "./handbackWatch";
 import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
 import { afterReplyWork, deferAfterReply, rememberSession, type TurnTiming } from "./afterReply";
@@ -557,6 +557,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onTold: (sent) => noteTold(storage, sent, message.chatId, deps.now()),
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: (links) => watchForSave(storage, message.from, deps.now(), links ? { links } : {}),
+      onHandedOver: (browser) => watchForHandback(storage, message.from, deps.now(), browser), // Done on the take-over screen carries it on (`handbackWatch.ts`)
       onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
       onOffers: (offered, named) => void ((offers = offered), (hub = named)),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),

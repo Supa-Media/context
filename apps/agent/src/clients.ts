@@ -29,6 +29,7 @@ import { MAX_HEARD, refusalOf } from "./agentRefusal";
 import { readHub, readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
 import type { TexEvent } from "./events";
 import { watchedLinks } from "./vaultWatch";
+import { watchedBrowser } from "./handbackWatch";
 import { readInvite, type ChatInvite } from "./chatInvite";
 
 /** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
@@ -233,11 +234,12 @@ export type AgentAnswer =
   /** `steered`: the event ids of texts sent while it ran that the turn took in (`inbox.ts`). */
   /** `jobs`: background jobs the turn started (`jobs.ts`); `steers`: running jobs this text is handed to; `exhausted`: it ran out of steps; `unfinished`: a job's answer stopped short of the ask. */
   /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save; `vaultLinks`: those links' hashed tokens, the chat watching only them (`vaultWatch.ts`). */
+  /** `handbackWatch`: the turn texted a take-over link for this browser (a hash), so the inbox watches for its Done (`handbackWatch.ts`). */
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
   /** `heard`, `sent`: what the person said aloud this turn, and the gateway's line naming the files they sent: jobs it starts, changes or restarts get them beside their typed words (`jobs.ts` `jobQuestion`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; invite?: ChatInvite; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; handbackWatch?: string; invite?: ChatInvite; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -311,7 +313,7 @@ export async function askAgent(
     /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
     onStep?: (text: string, how?: StepHow) => Promise<void>;
     /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
-    event?: "vault_saved" | "job_report";
+    event?: "vault_saved" | "job_report" | "browser_handed_back";
     /** A background job's report to this chat's own turn, which decides what they get (`jobTexts.ts`). */
     jobReport?: JobReport;
     /** The chat's event ids this turn answers (`events.ts`), and the chat key those events carry. */
@@ -407,6 +409,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(body.untrusted === true ? { untrusted: true as const } : {}), ...(body.idle === true ? { idle: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`apps/mcp/src/agent/jobCheck.js`); `untrusted`: it read from outside (`route.js`)
       ...(readInvite(body.invite) !== null ? { invite: readInvite(body.invite)! } : {}), // a group's people invited to a workspace, after the answer (`groupInvite.ts`)
       ...(body.vaultWatch === true ? { vaultWatch: true as const, ...(watchedLinks(body.vaultLinks).length > 0 ? { vaultLinks: watchedLinks(body.vaultLinks) } : {}) } : {}),
+      ...(watchedBrowser(body.handbackWatch) !== null ? { handbackWatch: watchedBrowser(body.handbackWatch)! } : {}), // a take-over link went: its Done carries the task on (`handbackWatch.ts`)
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),

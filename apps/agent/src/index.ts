@@ -29,6 +29,7 @@ import { logged } from "./agentError";
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
+import { carryOnAfterHandback } from "./handbackWatch";
 import { countInbound, type CountDataset } from "./textCounts";
 import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
@@ -633,6 +634,7 @@ export class SenderInbox implements DurableObject {
     await logged("alarm_ready", () => checkReady(this.state.storage, this.deps()));
     await logged("alarm_gmail", () => checkGmail(this.state.storage, this.deps()));
     await logged("alarm_carry_on", () => carryOnAfterSave(this.state.storage, this.deps()));
+    await logged("alarm_handed_back", () => carryOnAfterHandback(this.state.storage, this.deps()));
     // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
     await logged("alarm_review", () => checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) }));
     // A job's object has only `jobrun`; every other object finds nothing to run.

@@ -88,7 +88,7 @@ export type Inbound =
        * saved (`vaultWatch.ts`). It has no words, and the gateway asks its
        * own fixed question for it. Never set from a webhook.
        */
-      event?: "vault_saved" | "job_report";
+      event?: "vault_saved" | "job_report" | "browser_handed_back";
       /** On `event: "job_report"`: what a background job would have said, handed to this chat's own turn (`jobTexts.ts`). Never from a webhook. */
       jobReport?: JobReport;
       /**
