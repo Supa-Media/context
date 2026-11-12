@@ -128,6 +128,25 @@ which only the chat's people open. Dev2 picked this over keeping labels only.
   number", "a number is kept only for someone here"),
   `apps/agent/src/groupInbox.test.ts` (numbers only in `numbers`).
 
+## Who is here is the message's own list (Dev2, 2026-11-12)
+
+In Tex Devs, Tex counted five people besides itself where four were there:
+an assistant that joined and left was still in Sendblue's members lookup
+(`GET /api/v2/groups/{id}`) but not in the list each message carries (logged
+`group_people`: webhook 4, lookup 5, one only in the lookup). Dev2 picked the
+message's list for naming and counting.
+
+- A turn names and counts the people (`people`, `guests`, `numbers`, `size`)
+  from the message's own list when it names anyone besides the sender, and
+  from everyone it was given otherwise (a routine, a sender-only webhook)
+  (`apps/agent/src/groupModelTurn.ts` `whoIsHere`).
+- Unchanged: the control plane is asked with, and the chat's `members` hash
+  is made from, both lists together, so the lookup's extra people still only
+  narrow what Tex may share; an email is offered only to someone named here,
+  which the shorter list makes stricter, never wider.
+- Test: `apps/agent/src/groupInbox.test.ts` ("names and counts who is here
+  from the message's own list"); sabotaged by returning the union.
+
 ## What a group turn can do
 
 A separate client id turns off what is somebody's alone

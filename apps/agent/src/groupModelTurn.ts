@@ -19,7 +19,7 @@ import { groupLineFor } from "./groupLine";
 import { membersBeforeSend } from "./groupMembers";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
-import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, sha256Hex } from "./groupChat";
+import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, peopleOf, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, jobQuestion, resumeJobs, startJobs, steerJobs, viewLink, withThreadsLine } from "./jobs";
@@ -63,22 +63,25 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Pictures sent in the chat are read, as a 1:1 text's are (the group chat of 2026-10-23).
   const files = filesFor(message, said.lines);
   const attachments = files.length > 0 ? await prepareAttachments(files, { fetch: deps.fetch, images: deps.images }) : [];
+  // Who is here, for naming and counting: the list the message itself carries (Dev2, 2026-11-12: Sendblue's members
+  // lookup kept someone who had left, and Tex counted them). The lookup still widens `members`, so it only narrows.
+  const here = whoIsHere(message, people);
   const group = {
     key: await sha256Hex(`${message.line}:${message.groupId}`),
     members: await peopleHash(message.line, people),
     ...(asked.handle ? { from: asked.handle } : {}),
     // Who is here, by handle, so an email can be offered to one of them to send (`apps/mcp/src/tools/offerFor.js`).
-    people: [...new Set(handles.values())].filter(Boolean),
+    people: [...new Set(here.flatMap((phone) => (handles.has(phone) ? [handles.get(phone) as string] : [])))].filter(Boolean),
     // Each account's name beside its handle, so "@jo" is known as the "Jo Rivers" the notes name (2026-11-04).
     ...(named(asked.names).length > 0 ? { names: named(asked.names) } : {}),
     // Everyone else here by their label, never a number, and how many people the chat holds besides Tex, so "who is in
     // this chat" is answered from the whole list (Dev2, 2026-11-12).
-    ...(guestLabels(people, labels).length > 0 ? { guests: guestLabels(people, labels) } : {}),
+    ...(guestLabels(here, labels).length > 0 ? { guests: guestLabels(here, labels) } : {}),
     // Each person's number beside the handle or label they are known by (Dev2, 2026-11-12): everyone in the chat
     // already sees it, and a person says a number where Tex would say a label.
-    ...(numbersHere(people, handles, labels).length > 0 ? { numbers: numbersHere(people, handles, labels) } : {}),
+    ...(numbersHere(here, handles, labels).length > 0 ? { numbers: numbersHere(here, handles, labels) } : {}),
     ...(!asked.handle && labels.has(message.from) ? { asker: labels.get(message.from) } : {}),
-    size: people.length,
+    size: here.length,
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
   };
@@ -276,6 +279,15 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
 /** The labels of the people here with no account the control plane linked, each once, in the chat's order. */
 function guestLabels(people: string[], labels: Map<string, string>): string[] {
   return [...new Set(people.flatMap((phone) => (labels.has(phone) ? [labels.get(phone) as string] : [])))];
+}
+
+/**
+ * The people a message's own list names, without Tex's line, when it names anyone besides the sender; otherwise (a
+ * routine, a webhook naming only the sender) everyone the turn was given.
+ */
+function whoIsHere(message: GroupMessage, people: string[]): string[] {
+  const listed = peopleOf(message.line, message.participants);
+  return listed.some((person) => person !== message.from) ? listed : people;
 }
 
 /** Each person here with a handle or label, by it, with their number: real numbers only, each person once. */

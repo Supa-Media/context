@@ -263,6 +263,19 @@ describe("a group's queue", () => {
     expect(line).not.toContain(CY.slice(1));
   });
 
+  it("names and counts who is here from the message's own list; the lookup's extra person only narrows (Dev2, 2026-11-12)", async () => {
+    const storage = new MemoryStorage();
+    // Sendblue's members lookup still lists someone who left; the message's own list doesn't.
+    const w = world([[ADA, BO, CY]]);
+    const control = { status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group", names: [{ phone: ADA, handle: "ada" }, { phone: CY, handle: "cy" }], guests: [{ phone: BO, label: "guest-1a2b" }] };
+    await acceptGroup(storage, message("Tex, who is here?"), 0);
+    await drainGroup(storage, deps(w, { control }));
+    const group = w.asks[0]?.group as Record<string, unknown>;
+    expect(group).toMatchObject({ people: ["ada"], guests: ["guest-1a2b"], size: 2, numbers: [{ who: "ada", phone: ADA }, { who: "guest-1a2b", phone: BO }] });
+    // Asked of the control plane, and hashed for what Tex may share, with everyone either list names.
+    expect(w.control[0]).toMatchObject({ participants: [ADA, BO, CY] });
+  });
+
   it("answers a tagged message in the chat, threaded, with only hashes about the chat", async () => {
     const storage = new MemoryStorage();
     const w = world();
