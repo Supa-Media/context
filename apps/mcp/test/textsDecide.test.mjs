@@ -228,7 +228,7 @@ test("the judge is told which conversations are open, by title and newest lines,
   };
   const facts = await nowFacts(store, GROUP_KEY, { now: T0 });
   assert.deepEqual(facts, [`Open conversation "Quiz for Tex", its newest lines <${id(6)}> <${id(7)}>.`]);
-  assert.deepEqual(reads.map((read) => read.chat).sort(), [GROUP_KEY, GROUP_KEY, `${GROUP_KEY}.threads`]);
+  assert.deepEqual(reads.map((read) => read.chat).sort(), [GROUP_KEY, GROUP_KEY, GROUP_KEY, `${GROUP_KEY}.threads`]);
   assert.ok(!facts.join("").includes("words never shown"));
 });
 

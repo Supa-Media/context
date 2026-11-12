@@ -513,6 +513,7 @@ test/agentRespond.test.mjs
 test/threadsBackfill.test.mjs
 test/scheduledReview.test.mjs
 test/scheduledLastRound.test.mjs
+test/judgeBrief.test.mjs
 test/judgeFolderDefault.test.mjs
 test/dateProperties.test.mjs
 test/objectDateFacts.test.mjs

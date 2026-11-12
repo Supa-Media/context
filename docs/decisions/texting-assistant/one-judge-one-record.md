@@ -164,6 +164,32 @@ Dev2's rule: a message with a literal "@Tex" is always answered. The tag overrid
 - **Decision.** The Worker sends `group.tagged: true` when a message the turn answers tags Tex (`groupModelTurn.ts`, the same `tagsTex` the override uses). The gateway then does not offer `say_nothing`, and if the turn still ends silent (a typed `say_nothing` or a bare SKIP) it texts the existing fallback line (`EMPTY_FALLBACK`), never nothing. An untagged turn may still say nothing.
 - **Rejected.** A Worker-side fallback on a quiet answer alone: it treats the symptom after the model was invited to be silent, and the gateway already owns the fallback line. A job's start keeps its tapback in place of words (`QUIET_ACK`), tagged or not: that answer is the job.
 
+## The judge reads each group turn's brief (Dev2, 2026-11-12)
+
+The judge decided from the chat's lines and a few facts, without what the
+turn knew: Tex's own work (a booking form it was filling, a page it opened, a
+yes it was waiting on) and the chat's own rules (its about note and custom
+instructions). A follow-up about a booking Tex was handling was judged as
+people talking ("it's directly related to details it was handling"). Dev2:
+"can we just give the judge all the information it needs?", then yes to a
+brief kept when each turn ends.
+
+- When a group turn ends, the gateway keeps a `brief` entry in the chat's
+  ledger (`apps/mcp/src/agent/judgeBrief.js`, from `sendTheReply.js`): who
+  asked and their words (200 characters), the tools it ran and the sites or
+  note paths they touched, the yeses it waits on, the chat's about note
+  (900) and its custom instructions (400). No model call.
+- The judge's `<now>` facts (`textsDecide.js` `nowFacts`) read the newest 8:
+  the last 12 hours' work (at most 3 turns), what Tex waits on, the
+  instructions, and the about note last, since the facts are cut from the
+  end to fit (`MAX_FACTS`, now 3,200 characters).
+- Facts only: what the judge does with them is taught by its examples.
+- This is step 5 of the one-record design (#3196, "the next turn's context
+  is built when a turn ends") for the judge only; when that design is
+  built, its next-prompt copy replaces this entry.
+- Tests: `apps/mcp/test/judgeBrief.test.mjs` (sabotaged: `nowFacts` not
+  reading briefs; work kept past 12 hours), `apps/mcp/test/textsDecide.test.mjs`.
+
 ## Owner questions
 
 1. Where do the labelled examples come from? Dev2 labelling a set from Tex Devs and customer chats, or the judge's logged `why` reviewed afterward?

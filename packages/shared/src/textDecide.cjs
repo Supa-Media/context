@@ -173,7 +173,7 @@ const EXAMPLES_TEXT = `<examples>\n${JUDGE_EXAMPLES.map(exampleText).join("\n")}
 const MAX_STATE = 24_000;
 
 /** At most this much of the judge's state is facts about what Tex is doing now (`textsDecide.js` `nowFacts`). */
-const MAX_FACTS = 1_600;
+const MAX_FACTS = 3_200;
 
 /** The judge's state: its examples, the facts of the moment, then the chat, oldest lines dropped first so the whole fits what Clef reads. */
 function judgeState(transcript, facts = []) {
