@@ -19,6 +19,7 @@ import { ledgerFor, ledgerWriter } from "./ledger.js";
 import { dayFromLedger } from "./ledgerHistory.js";
 import { foldThreads, THREADS_SUFFIX } from "./threadsFold.js";
 import { guestNameFacts, guestNamesFrom } from "./groupGuestNames.js";
+import { ABOUT_FACT, briefFacts } from "./judgeBrief.js";
 import { decideRequest, readDecideAnswers, readDecideBody, readRecheckAnswers, readRecheckBody, recheckRequest } from "../../../../packages/shared/src/textDecide.cjs";
 
 /** The paths the Worker posts to on the `TexTexts` binding. */
@@ -147,22 +148,29 @@ const RUNNING = new Set(["started", "keep_going"]);
 
 /**
  * Facts for the judge from the chat's ledger, each one line: the jobs Tex is running here, by title and start time, its
- * open conversations, and the names the chat gave its guests (`groupGuestNames.js`). Read within `FACTS_MS`; none when
- * the ledger is slow or can't be read. Titles and names only, never a word of the chat.
+ * open conversations, the names the chat gave its guests (`groupGuestNames.js`), and what its last turns knew: their
+ * work, what Tex waits on, the chat's about note and instructions (`judgeBrief.js`). Read within `FACTS_MS`; none when
+ * the ledger is slow or can't be read. Never logged.
  */
 export async function nowFacts(store, key, { now = Date.now(), timeoutMs = FACTS_MS } = {}) {
   if (store === null || typeof store?.read !== "function") return [];
   const within = (read) => Promise.race([read.catch(() => null), new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs))]);
   // Both reads at once, from the same object, under the one wait.
-  const [result, threaded, named] = await Promise.all([
+  const [result, threaded, named, briefs] = await Promise.all([
     within(Promise.resolve().then(() => store.read(key, { before: Number.MAX_SAFE_INTEGER, kinds: ["job"], limit: 200, since: now - JOB_FRESH_MS }))),
     within(Promise.resolve().then(() => store.read(`${key}${THREADS_SUFFIX}`, { before: Number.MAX_SAFE_INTEGER, kinds: ["thread"], limit: 200, since: now - THREAD_FRESH_MS }))),
     within(Promise.resolve().then(() => store.read(key, { before: Number.MAX_SAFE_INTEGER, kinds: ["name"], limit: 500 }))),
+    within(Promise.resolve().then(() => store.read(key, { before: Number.MAX_SAFE_INTEGER, kinds: ["brief"], limit: 8 }))),
   ]);
+  const brief = briefFacts(Array.isArray(briefs?.entries) ? briefs.entries : [], { now });
+  const about = brief.filter((fact) => fact.startsWith(ABOUT_FACT));
+  // The about note goes last: the facts are cut from their end to fit (`textDecide.cjs` `MAX_FACTS`).
   return [
     ...jobFacts(Array.isArray(result?.entries) ? result.entries : []),
-    ...threadFacts(Array.isArray(threaded?.entries) ? threaded.entries : []),
+    ...brief.filter((fact) => !fact.startsWith(ABOUT_FACT)),
     ...guestNameFacts(guestNamesFrom(Array.isArray(named?.entries) ? named.entries : [])),
+    ...threadFacts(Array.isArray(threaded?.entries) ? threaded.entries : []),
+    ...about,
   ];
 }
 

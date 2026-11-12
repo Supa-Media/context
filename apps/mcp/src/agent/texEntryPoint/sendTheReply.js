@@ -12,6 +12,8 @@ import { chatHubUrl } from "../hubLinks.js";
 import { keepGroupExchange } from "../groupTurn.js";
 import { jobFields, jobTurnFields } from "../jobCheck.js";
 import { wordsEntry } from "../ledger.js";
+import { briefEntry } from "../judgeBrief.js";
+import { readInstructions } from "../customInstructions.js";
 import { exchangeEntries } from "../ledgerConversation.js";
 import { sentPicturesLine } from "../outgoingPictures.js";
 import { withoutFlattery } from "../pushback.js";
@@ -65,7 +67,9 @@ export async function sendTheReply(t) {
   const eventAsked = report !== null || question === VAULT_SAVED_QUESTION || question === HANDED_BACK_QUESTION ? String(question).slice(0, 2_000) : null;
   // What the person's chat rebuilt from the ledger shows beside this answer (`ledgerConversation.js`): the files they sent and where a picture is kept, the pages it read, the thread it was typed in.
   const attached = attachmentsLine(attachments, attachments.length > 0 ? ((await tex.step("pictures_kept", keepPictures)) ?? []) : []), sources = turn.steps.flatMap((step) => step.sources ?? []);
-  chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), worker: body.worker, replyMs: Date.now() - received }), clean: ledger.untrusted !== true, outside: ledger.outside === true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...factsEntry(sent, t.reads, t.ledgerAt?.grant), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}), ...(eventAsked !== null ? { about: eventAsked } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`); `outside`: whether a later turn replaying its calls is marked (`stretch.js`)
+  // What this group turn knew, for the judge's next look (`judgeBrief.js`): its work, what it waits on, the chat's own rules.
+  const brief = group !== null && job === null ? briefEntry({ group, question, steps: turn.steps, asked: ledger.asked, offered: ledger.offered ?? null, instructions: readInstructions(body.instructions), turn: ledgerTurn }) : null;
+  chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), ...(brief ? [brief] : []), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), worker: body.worker, replyMs: Date.now() - received }), clean: ledger.untrusted !== true, outside: ledger.outside === true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...factsEntry(sent, t.reads, t.ledgerAt?.grant), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}), ...(eventAsked !== null ? { about: eventAsked } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`); `outside`: whether a later turn replaying its calls is marked (`stretch.js`)
   // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
   const replaced = (job !== null && steer !== null && (await tex.step("steer_pending", () => steer.pending()))) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
   if (steer !== null) await tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));
