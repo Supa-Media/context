@@ -53,12 +53,12 @@ const setupWithMap = (prompt, kind) => (typeof prompt === "string" && prompt !==
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runTheModel(t) {
   const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, computersRead, controlPlane, delegation: delegated, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, threadsRun, timeZone } = t;
-  // When the setup's reply reviewer reads this turn, it replaces the older word checks (`untriedWeb.js`, `doItChecks.js`), so those two stay only for a setup without it.
+  // When the setup's reply reviewer reads a draft, it replaces the older word checks (`untriedWeb.js`, `doItChecks.js`); a draft it does not read (one written with no action, `replyJudge.js`) gets them instead.
   // A routine's run that texts is reviewed too, as a text nobody asked for (Dev2, 2026-11-07: a routine texted its own reasoning); one that writes only a note is not a text.
   // Only a text to the person is reviewed (Dev2, 2026-11-07): a routine that texts other people (`to:`) is theirs, not reviewed.
   const scheduled = runner && routine?.settings?.send !== "note" && !(Array.isArray(routine?.settings?.to) && routine.settings.to.length > 0) ? "routine" : null;
   const gated = ((chatTurn && job === null && !runner && (texted || group !== null)) || scheduled !== null) && Boolean(production?.replyJudge) && aiGatewayConfig(env) !== null; // no AI Gateway, no reviewer: the word checks stay
-  const tries = gated ? null : t.tries;
+  const tries = t.tries;
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
   // A big ask the advisor plans and the gateway splits into jobs, when the setup says so (`planBigAsk.js`).
@@ -67,22 +67,19 @@ export async function runTheModel(t) {
   const computers = computersRead === null || computersRead === undefined ? [] : await tex.wait("computers", computersRead);
   const delegation = delegationBeside(delegated, computers);
   // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too, without judges (`doItChecks.js`).
-  const doIt = !gated && chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
-  // The setup's reply reviewer, after `claimCheck.js`: one Haiku call reads the reply against every action this turn took and the kind of turn it is, and sends it back with feedback only for a problem they would notice, at most twice (`replyJudge.js`; Dev2, 2026-11-06). A job's report turn shows it the report.
+  const doIt = chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
+  // The setup's reply reviewer, after `claimCheck.js`: one Haiku call reads the reply against every action this turn took and the kind of turn it is, and sends it back with feedback only for a problem they would notice, at most once, and only on a draft written after an action (`replyJudge.js`; Dev2, 2026-11-06 and 2026-11-11). A job's report turn shows it the report.
   const askedNow = (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)); // what the reviewers read as their text
-  const judge = gated ? replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, report, scheduled, timeZone, question: askedNow, history: logged?.history ?? shown, inner: doIt ?? claims ?? tries }) : null;
-  // A progress line goes to them mid-turn, so the reviewer reads each one too, as a line and not an answer (`progress.js`).
-  if (judge !== null && channel?.offered) {
-    const lineJudge = replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, scheduled: "progress", timeZone, question: askedNow, history: logged?.history ?? shown });
-    channel.review = (text, turn) => lineJudge.check(text, turn);
-  }
+  const judge = gated ? replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, report, scheduled, timeZone, question: askedNow, history: logged?.history ?? shown, inner: claims, plain: doIt ?? claims ?? tries }) : null;
+  // A progress line goes unreviewed (Dev2, 2026-11-11, one-judge PR 3): it says what Tex is doing, and a review held each one up to 8 s.
   if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });
   if (planning) splitFirst(background); // a lone job is offered the planner once
   // The advisor, when the setup names one this deployment can run: offered on every chat turn, a job's included (`advisor.js`).
   const advising = chatTurn && productionModel !== null && Boolean(production.advisor) && canRunBuiltin(production.advisor, env);
   // The chat by conversation, when the classifier ran: the thread list, the suggested thread, the last 24 hours (`threadedTurn.js`). Its verdict is kept after the answer.
-  const threaded = threadsRun ? await tex.wait("threads", threadsRun) : null;
-  if (threaded?.entries?.length > 0) tex.after("threads_write", () => threadsWrite(store, session, threaded.entries));
+  // A group's turn is shown its chat by thread, so it waits for the sort. A 1:1 text is not held for it (Dev2, 2026-11-11, one-judge PR 3: it held a simple ask about 0.9 s):
+  // the model reads the chat as the log shows it, and the sort, run beside the model, still says where the reply goes and is kept.
+  const threaded = threadsRun && group !== null ? await tex.wait("threads", threadsRun) : null;
   // Whether Tex answers at all was the Worker's one judge's, before this turn was asked for (`textDecide.cjs`).
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
@@ -161,6 +158,8 @@ export async function runTheModel(t) {
   outcome.clean = ledger.untrusted !== true;
   // Cancelled by the Worker (`steer.js`), in a round or after the last: its asks are withdrawn, nothing is kept as said, and nothing is texted.
   if (turn.cancelled || (steer !== null && (await tex.step("cancel_check", () => steer.endCancelled())))) return await tex.step("cancelled", () => begun.catch(() => {}).then(() => cancelledTurn(store, session, { ledger, steer, steps: turn.steps })));
-  Object.assign(t, { turn, replyPlace: threaded?.place ?? null }); // where the reply goes: under the text it answers, or plain (`conversationThreads.js`)
+  const sorted = threaded ?? (threadsRun ? await tex.wait("threads", threadsRun) : null);
+  if (sorted?.entries?.length > 0) tex.after("threads_write", () => threadsWrite(store, session, sorted.entries));
+  Object.assign(t, { turn, replyPlace: sorted?.place ?? null }); // where the reply goes: under the text it answers, or plain (`conversationThreads.js`)
 }
 // TEX ENTRY POINT: end

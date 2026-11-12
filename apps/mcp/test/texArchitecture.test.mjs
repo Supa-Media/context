@@ -37,7 +37,7 @@ test("the map goes ahead of an agent's own prompt, the same bytes every call", (
 test("the reviewer's call carries the map and its box", async () => {
   const asked = [];
   const judge = replyJudge({ setting: "haiku", question: "hi", request: async (call) => (asked.push(call), { text: '{"kind":"chat","verdict":"ok","problems":[],"feedback":""}' }) });
-  await judge.check("hey", { messages: [] });
+  await judge.check("hey", { messages: [{ role: "assistant", text: "", toolCalls: [{ name: "search_notes", args: { query: "hi" } }] }] }); // a draft after an action: one with none is not reviewed
   assert.match(asked[0].system, /^HOW TEX WORKS/);
   assert.match(asked[0].system, /WHERE YOU ARE: you are the Reply reviewer/);
 });

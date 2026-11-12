@@ -16,7 +16,8 @@
  * 4. heartbeat.js passing `answerCheck: null`: "the reviewer reads a check-in's text too ..." fails.
  * 6. (2026-11-07, Dev2: "reviewer should only touch texts that go out to the user") `scheduled` ignoring `to:`:
  *    "a routine that texts other people is never reviewed ..." fails; `channel.review` never set in runTheModel.js:
- *    "the reviewer reads each progress line ..." fails.
+ *    "the reviewer reads each progress line ..." fails (that test was replaced on 2026-11-11, one-judge PR 3: Dev2
+ *    took the reviewer off progress lines, so "no reviewer reads a progress line" asserts the opposite).
  * 5. heartbeat.js back to `grants: {}`: the same test fails, on its say_nothing offer (the look's send had no
  *    actions at all, so a check-in could never say nothing either; found writing this test).
  */
@@ -270,17 +271,15 @@ test("a routine that texts other people is never reviewed: the reviewer reads on
   assert.equal(response.body.answer, "Sam, bring the rings at 2:30.");
 });
 
-test("the reviewer reads each progress line before it is texted, as a line, and one it holds back is not sent", async () => {
-  const leaked = "Retrying, since my browse tool keeps timing out in this session.";
-  const fine = "Opening OpenTable for Friday.";
-  script.push(calls("send", { action: "progress", args: { text: leaked } }), calls("send", { action: "progress", args: { text: fine } }), says("Nopa has a table for four at 7 on Friday."));
-  reviewScript.push('{"kind":"task","verdict":"send_back","problems":["not_for_them"],"feedback":"This is about your own tools. Say what you are doing for them instead."}');
+// Sabotage record (2026-11-11, applied, run, failing, reverted): `channel.review` set again in runTheModel.js → this test fails on `reviews().length`.
+test("no reviewer reads a progress line (Dev2, 2026-11-11): each goes as written, and only the reply is reviewed", async () => {
+  const first = "Opening OpenTable for Friday.";
+  const second = "Checking Nopa now.";
+  script.push(calls("send", { action: "progress", args: { text: first } }), calls("send", { action: "progress", args: { text: second } }), says("Nopa has a table for four at 7 on Friday."));
   const lines = await streamed("find me a table for four on Friday");
   const texted = lines.filter((line) => typeof line.progress === "string").map((line) => line.progress);
-  assert.deepEqual(texted, [fine], "the held line never went; the next one did");
-  const [first] = reviews();
-  assert.match(JSON.stringify(first.body.messages), /The progress line about to be texted while Tex keeps working/);
-  assert.match(JSON.stringify(first.body.messages), /find me a table for four/, "it sees what they asked");
-  assert.match(JSON.stringify(turnCalls()[1].body.messages), /Not sent\. A reviewer read your reply/, "the model reads why");
+  assert.deepEqual(texted, [first, second], "both lines went, unreviewed");
+  assert.equal(reviews().length, 1, "the one review is of the reply");
+  assert.match(JSON.stringify(reviews()[0].body.messages), /The reply about to be sent: Nopa has a table/);
   assert.equal(lines.at(-1)?.status, 200);
 });

@@ -405,7 +405,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
           // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
-          body: JSON.stringify({ question: message, conversation: "texts", turn: said.turn, ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
+          // `covers` and `chat` as the Worker sends them (`apps/agent/src/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does.
+          body: JSON.stringify({ question: message, conversation: "texts", turn: said.turn, ...(models.ledgerTurns === true ? { covers: [said.id], chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
         }),
         env,
         ctx,

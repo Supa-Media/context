@@ -44,6 +44,7 @@ import { connectCommand, publishCommand, publishSetup, pullCommand, signIn, sign
 import { improveCommand } from "./improve.mjs";
 import { promoteCommand } from "./promote.mjs";
 import { spendCommand } from "./spend.mjs";
+import { stepsCommand } from "./steps.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 import { filedNotes } from "./checks.mjs";
@@ -340,6 +341,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
         searchKey: process.env.BRAVE_SEARCH_API_KEY,
         // Production reads answers for work handed back (wrangler.toml HANDBACK_JUDGE), so a real run does too.
         handbackJudge: true,
+        // The Worker names the texts a turn covers, so production reads the chat's ledger and sorts the text into a thread (`loggedTurn.js`, `conversationThreads.js`); a real run does too. A scripted model leaves it off, since it would answer the thread sorter's call too.
+        ledgerTurns: true,
       };
   if (scripted) {
     models.sites = bench.sites;
@@ -566,6 +569,7 @@ const COMMANDS = new Map([
   ["publish", publishCommand],
   ["promote", promoteCommand],
   ["spend", (options) => spendCommand(options)],
+  ["steps", stepsCommand],
   ["improve", async (options) => improveCommand(options, { publish: async (draft) => publishSetup({ ...draft, connection: await signIn({ env: process.env }) }) })],
 ]);
 

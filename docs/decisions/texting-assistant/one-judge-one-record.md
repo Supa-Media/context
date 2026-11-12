@@ -1,6 +1,6 @@
 # Fewer gates, a main model that researches (design, 2026-11-11)
 
-_Part of [the texting assistant](../texting-assistant.md). Status: PR 1 (one judge, #3174) built 2026-11-11; the rest is design. The decisions are Dev2's (2026-11-10 and 2026-11-11). Builds on [chat-ledger](./chat-ledger.md) and [conversation-threads](./conversation-threads.md)._
+_Part of [the texting assistant](../texting-assistant.md). Status: PR 1 (one judge, #3174) built 2026-11-11; PR 3 (simple asks) built 2026-11-11, as below; the rest is design. The decisions are Dev2's (2026-11-10 and 2026-11-11). Builds on [chat-ledger](./chat-ledger.md) and [conversation-threads](./conversation-threads.md)._
 
 ## The root issue
 
@@ -144,6 +144,7 @@ Each PR has one outcome a person notices and moves one Instinct metric: accuracy
    - **Metric.** Speed to the first reply.
    - **How we know.** The median time to first text on the Instinct simple asks is under 5 s, shown on the Tex page timings, with that measurement shipped here.
    - **Depends on.** 1.
+   - **Built (2026-11-11).** Measured first on the bench (`pnpm ai steps`, `tests/simple-asks.md`; a real run now reads the chat's ledger as production does). On a simple ask the gateway spent about 0.9 s waiting for the thread classifier and 0.8 s on the reviewer, beside about 1.6 s of model. So: the reviewer reads only a draft written after an action and sends back at most once, and a draft with no action gets the code checks instead; no reviewer reads a progress line; a 1:1 turn runs the classifier beside the model, keeping its verdict and the reply's place, and a group still waits for it, since the judge does not set the thread yet. The router stays a setup option (production has none since 2026-10-31). The Clef link guess in `open_page` is PR 2's. The Worker's judge, `askControlPlane` and delivery are outside the bench and were not measured.
 4. **A correction sent while Tex is working changes the answer.**
    - **Changes.** `fold`, `restart` and `ignore` come from the same judge, and mid-turn texts enter as user turns. `recheck.js`, `groupRecheck.ts`, `lookAgain.ts` and `steer.ts` stop being separate paths.
    - **Metric.** Answering the right message.

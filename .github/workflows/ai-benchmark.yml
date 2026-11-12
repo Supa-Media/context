@@ -364,9 +364,12 @@ jobs:
         if: ${{ always() && steps.name.outputs.result != '' }}
         env:
           RESULT: ${{ steps.name.outputs.result }}
+          LEDGERS: ${{ steps.name.outputs.ledgers }}
         run: |
           if [ -f "$RESULT" ]; then
             pnpm --silent ai summary "$RESULT" >> "$GITHUB_STEP_SUMMARY"
+            # Where the time went, step by step, from the ledgers (`bench/steps.mjs`).
+            if [ -d "$LEDGERS" ]; then { echo; echo "## Where the time went"; echo; pnpm --silent ai steps "$LEDGERS"; } >> "$GITHUB_STEP_SUMMARY"; fi
           else
             echo "_The run wrote no result note; read the job log._" >> "$GITHUB_STEP_SUMMARY"
           fi
