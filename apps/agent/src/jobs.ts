@@ -32,7 +32,7 @@ import { readPictures, type OutgoingPicture } from "./outgoing";
 /** `mail`: one part of a split ask; the project note every part's job joins the mail of, and this part's name there. */
 /** One of the person's own computers a job runs on (`machineTurn.ts`), as the gateway picked it (`apps/mcp/src/machines/forJobs.js`). */
 export type JobMachine = { workspaceId: string; machineId: string; name: string; tool: "claude" | "codex"; folder: string; repo?: string };
-export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; tainted?: true; mail?: JobProject; machine?: JobMachine };
+export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; /** Their earlier texts still open when it started, oldest first (the gateway's `openAsk.js`). */ asked?: string[]; tainted?: true; mail?: JobProject; machine?: JobMachine };
 export type JobProject = { path: string; name: string; context?: string };
 /** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text; a failed one, with the tool's short reason. */
 export type JobStep = { at: number; text: string; failed?: true; why?: string };
@@ -45,7 +45,7 @@ export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
 /** `draft`: the last part's answer, never texted because a later text changed the job, or (`unfinished`) because it stopped short of the ask; the next part builds on it. */
 /** `mail`: note mail that came for it since its last part, oldest first (`jobMail.ts`), never among `followUps`. */
-export type JobAsk = { roster?: string; project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string; cutOff?: string[] };
+export type JobAsk = { roster?: string; project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; /** Their own texts that started it, oldest first, the one it started from last. */ asked?: string[]; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string; cutOff?: string[] };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
 /** `resume`: pick an ended job back up where it stopped (`jobRun.ts` `resumeJob`), never a new copy of it. */
 export type JobSteer = { id: string; text: string; stop?: true; resume?: true; mail?: JobMail; machine?: JobMachine };
@@ -172,6 +172,12 @@ export type JobSaid = { heard?: string; sent?: string };
  * asked nothing and every part was refused (2026-11-05, the Morocco trip job), and a change sent by voice or a
  * picture never reached a running job. At most as long as the gateway takes a question (`apps/mcp/src/agent/turn.js`).
  */
+/** Their own texts that started a job, oldest first: the open ask before it, then the text it started from. */
+export function jobAsked(run: Pick<JobRun, "asked" | "origin">): string[] {
+  const started = run.origin.kind === "phone" ? run.origin.question : run.origin.message.text;
+  return [...(run.asked ?? []), started].filter((words) => typeof words === "string" && words.trim() !== "");
+}
+
 export function jobQuestion(typed: string, said: JobSaid = {}): string {
   return [typed.trim(), (said.heard ?? "").trim(), (said.sent ?? "").trim()].filter(Boolean).join("\n\n").slice(0, MAX_ASKED);
 }
@@ -206,17 +212,21 @@ export function readJobMachine(value: unknown): JobMachine | null {
   };
 }
 
+/** Their earlier open texts a job keeps (the gateway sends at most 6 before the one it started from). */
+const MAX_OPEN_ASKED = 6;
+
 /** `jobs` from the gateway's answer, read strictly. */
 export function readStartedJobs(value: unknown): StartedJob[] {
   if (!Array.isArray(value)) return [];
   return value.slice(0, MAX_TURN_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
-    const { id, title, brief, doneWhen, tainted, mail, machine } = entry as Record<string, unknown>;
+    const { id, title, brief, doneWhen, asked, tainted, mail, machine } = entry as Record<string, unknown>;
     const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 4_000) : "" /* the model's 2,000 and the pages the chat opened (`apps/mcp/src/agent/jobPages.js`) */, doneWhen: line(doneWhen, MAX_STATUS) };
     if (job.title === "" || job.brief === "") return [];
     const project = readJobProject(mail);
     const computer = readJobMachine(machine);
-    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(tainted === true ? { tainted: true as const } : {}), ...(project ? { mail: project } : {}), ...(computer ? { machine: computer } : {}) }];
+    const open = Array.isArray(asked) ? asked.filter((words): words is string => typeof words === "string" && words.trim() !== "").slice(-MAX_OPEN_ASKED).map((words) => words.trim().slice(0, 1_000)) : [];
+    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(open.length > 0 ? { asked: open } : {}), ...(tainted === true ? { tainted: true as const } : {}), ...(project ? { mail: project } : {}), ...(computer ? { machine: computer } : {}) }];
   });
 }
 

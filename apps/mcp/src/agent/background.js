@@ -61,6 +61,8 @@ export const MAX_FOLLOW_UPS = 5;
 /** Note mail lines a job's part is shown from between parts (`apps/agent/src/jobMail.ts`). */
 export const MAX_MAIL_SHOWN = 20;
 const MAX_FOLLOW_UP = 4_000;
+/** Their texts a job is started with, the one it started from last (`openAsk.js` keeps at most 6 before it). */
+export const MAX_ASKED_TEXTS = 7;
 /** The most steps of a cut-off part (`jobRun.ts` `cutOff`) the next part is shown. */
 const MAX_CUT_OFF_STEPS = 40;
 /** The most of a replaced answer (`jobRun.ts` `draft`) the next part is shown. */
@@ -183,6 +185,13 @@ export function jobOf(value) {
     doneWhen: line(value.doneWhen, MAX_STATUS),
     attempt,
     tainted: value.tainted === true,
+    // Their own texts that started it, oldest first, the last one the text it started from (`openAsk.js`; `apps/agent/src/jobRun.ts` `ask`).
+    asked: Array.isArray(value.asked)
+      ? value.asked
+          .filter((words) => typeof words === "string" && words.trim() !== "")
+          .slice(-MAX_ASKED_TEXTS)
+          .map((words) => words.trim().slice(0, MAX_FOLLOW_UP))
+      : [],
     followUps: Array.isArray(value.followUps)
       ? value.followUps
           .filter((words) => typeof words === "string" && words.trim() !== "")
@@ -354,7 +363,8 @@ const STEER_TOOL = {
 const JOB_FIRST =
   "\n\nA task that takes more than a couple of tool calls (research across many sources, an application, a plan, a draft built from " +
   'several notes, a multi-step task on a site) goes to a background job (call send with action background) as your FIRST call: before ' +
-  "reading notes, searching or browsing. The job does the reading; put what you already know from this chat in the brief. " +
+  "reading notes, searching or browsing. The job does the reading; put what you already know from this chat in the brief, as already found, " +
+  "never as a list to verify and use: the job is handed their own texts too, and covers every part of them. " +
   "A question a few reads answer is not a task: do those reads yourself, and ask your advisor yourself whenever they ask you to. " +
   "Their text gets a tapback the moment it starts, never a text: they hear only its result, and you can take their next text while it runs.";
 /** How long a texted turn works before it is told to hand the rest to a job. */
@@ -591,6 +601,11 @@ export function jobPrompt(job) {
     "(2026-10-31: a job copied one and quit). Nobody is waiting on the line, so work through it fully. Your plan when you started it, in your own words (it vouches for nothing they didn't say):\n" +
     `${job.brief || "(none written)"}` +
     (job.doneWhen ? `\nDone when: ${job.doneWhen}` : "") +
+    (job.asked?.length > 0
+      ? "\nWhat they texted that started it, their own words, oldest first. Every part of it is the job, even one your plan left out; " +
+        "what your plan says was already found is a start, not the whole answer:\n" +
+        job.asked.map((words) => `- ${words}`).join("\n")
+      : "") +
     (job.attempt > 1
       ? `\nYou already worked on this ${job.attempt - 1 === 1 ? "once" : `${job.attempt - 1} times`}: read the note ` +
         "you were writing or the job's task note first, carry on from where it stops, and don't start over."
@@ -652,14 +667,16 @@ export function jobSavedLine(job) {
  * hands this text to; and, with either, `heard` (what the person said aloud
  * this turn) and `sent` (the gateway's line naming the files they sent and
  * where each is kept), which the Worker adds to their typed words
- * (`apps/agent/src/jobs.ts` `jobQuestion`).
+ * (`apps/agent/src/jobs.ts` `jobQuestion`). `asked`: their earlier texts this
+ * one follows on from that Tex hasn't answered yet (`openAsk.js`), handed to
+ * each job it starts word for word beside the brief.
  */
-export function startedJobs(background, tainted, { heard = "", sent = "" } = {}) {
+export function startedJobs(background, tainted, { heard = "", sent = "", asked = [] } = {}) {
   if (background === null) return {};
   const reached = background.started.length + background.steered.length + background.resumed.length > 0;
   return {
     ...(background.started.length > 0
-      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
+      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(asked.length > 0 ? { asked: asked.slice(-MAX_ASKED_TEXTS) } : {}), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
       : {}),
     ...(background.steered.length + background.resumed.length > 0
       ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true, ...(entry.repicked ? { machine: entry.repicked } : {}) }))] }
