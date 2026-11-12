@@ -51,14 +51,33 @@ function readEvent(value: unknown, chat: string): TexEvent | null {
  * outbox on top, one event per id. The outbox alone when no turn has opened
  * the chat since this object woke, or the gateway did not answer in time.
  */
-export async function chatEvents(storage: InboxStorage, chat: string, timeoutMs = CHAT_READ_MS): Promise<TexEvent[]> {
+export async function chatEvents(storage: InboxStorage, chat: string, timeoutMs = CHAT_READ_MS, byLedger?: LedgerRead): Promise<TexEvent[]> {
   const outbox = await keptEvents(storage, chat);
   const reader = readers.get(storage)?.get(chat);
-  const read = reader === undefined ? null : await fromGateway(reader, chat, timeoutMs);
-  console.log(JSON.stringify({ event: "tex_chat_read", outcome: reader === undefined ? "no_token" : read === null ? "failed" : "gateway" }));
+  // No token since this object woke: a group's judge asks the gateway by the chat's ledger key over the binding, so it
+  // never reads the newest texts alone (34 of 53 reads did, 2026-11-10 to 11-12).
+  const read = reader !== undefined ? await fromGateway(reader, chat, timeoutMs) : byLedger !== undefined ? await fromLedgerKey(byLedger, chat, timeoutMs) : null;
+  const outcome = reader !== undefined ? (read === null ? "failed" : "gateway") : byLedger === undefined ? "no_token" : read === null ? "ledger_failed" : "ledger";
+  console.log(JSON.stringify({ event: "tex_chat_read", outcome }));
   const byId = new Map<string, TexEvent>();
   for (const event of [...(read ?? []), ...outbox]) byId.set(event.id, event);
   return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** A group chat's ledger key and the gateway binding to read it by (`apps/mcp/src/agent/textsDecide.js` `chatForTexts`). */
+export type LedgerRead = { binding: { fetch: (input: string, init?: RequestInit) => Promise<Response> }; ledger: string };
+export const GATEWAY_CHAT_URL = "https://gateway/texts/chat";
+
+async function fromLedgerKey(by: LedgerRead, chat: string, timeoutMs: number): Promise<TexEvent[] | null> {
+  try {
+    const { status, json } = await post((input, init) => by.binding.fetch(String(input), init), "gateway", GATEWAY_CHAT_URL, "", { ledger: by.ledger, chat }, timeoutMs);
+    if (status !== 200) return null;
+    const events = record(json).events;
+    if (!Array.isArray(events)) return null;
+    return events.map((event) => readEvent(event, chat)).filter((event): event is TexEvent => event !== null);
+  } catch {
+    return null;
+  }
 }
 
 async function fromGateway(reader: ChatReader, chat: string, timeoutMs: number): Promise<TexEvent[] | null> {

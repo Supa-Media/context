@@ -20,7 +20,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
 import { utcDay } from "../functions/lib/jev/meter";
-import { FOR_TEX_RULE, OTHER_ASSISTANT_RULE, decideRequest, readDecideBody } from "../functions/lib/gatewayRoutes/textDecide";
+import { CHAT_MARKS, FOR_TEX_RULE, decideRequest, readDecideBody } from "../functions/lib/gatewayRoutes/textDecide";
 import { groupKeyOf } from "../functions/textGroups";
 import { addMember, asUser, createUser, createWorkspace, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
 
@@ -331,14 +331,27 @@ test("every request it builds passes the inference Worker's request rules", () =
   }
 });
 
-// Dev2, 2026-10-31: a message for another assistant (Instinct is in Tex Devs) is not Tex's.
-test("every style tells decide a message for another assistant is silent, never a react", () => {
+// Dev2, 2026-11-12: "making a hard rule that tex shouldnt reply to a bot is absurd"; a message is for whoever it is
+// addressed to. No rule about senders: the judge is told what the chat's marks mean (whose message a reply is under,
+// Tex's newest question, what Tex is doing now), and the examples teach the rest.
+test("every style shows decide the chat's marks and no rule about who sends a message", () => {
   for (const style of ["quiet", "attentive", "followAlong", "helpful", "direct"] as const) {
-    const { questions } = decideRequest({ chat: GROUP, line: LINE, style, transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" });
+    const { state, questions } = decideRequest({ chat: GROUP, line: LINE, style, transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" });
     const act = (questions as Record<string, { instructions: string }>).act!;
-    expect(act.instructions).toContain(OTHER_ASSISTANT_RULE);
+    expect(state).toContain(`<marks>${CHAT_MARKS}</marks>`);
+    expect(act.instructions).not.toMatch(/another assistant|bot/i);
     expect(act.instructions.length).toBeLessThanOrEqual(1_000);
   }
+});
+
+test("what Tex is doing now reaches the judge between the examples and the chat, and only when there is something", () => {
+  const body = { chat: GROUP, line: LINE, style: "helpful" as const, transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" };
+  const facts = ['Tex is working on a job in this chat: "Find venues", started 14:02 UTC.'];
+  const { state } = decideRequest(body, { facts });
+  expect(state.indexOf("<now>\n")).toBeGreaterThan(state.indexOf("</examples>"));
+  expect(state.indexOf("<now>\n")).toBeLessThan(state.lastIndexOf("<chat>\n"));
+  expect(state).toContain(facts[0]);
+  expect(decideRequest(body).state).not.toContain("<now>\n");
 });
 
 // Dev2, 2026-11-11 (one judge): no word rule says what is for Tex. The judge is told, whatever the speak-up level,

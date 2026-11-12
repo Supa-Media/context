@@ -1,67 +1,591 @@
 {
-  "about": "Should Tex text back, or stay quiet (or only react)? The one judge's held-out cases (`textDecide.cjs`): labelled from real Tex Devs and 1:1 chats of 2026-11-05 to 11-11, names and details changed, never the same texts as the judge's examples. `want: hush` is quiet or a tapback; `want: reply` must reach the model. `must: true` is the owner's \"@Tex must still work\" set (2026-11-11): a tag, Tex's name as the one asked, a reply to Tex, or an answer to Tex's question; not one of them may be hushed. `setting` is a group's speak-up level (follow along when absent). \"You\" is Tex, a person is \"@name\"; \"(replying to You)\" is a reply under one of Tex's texts.",
+  "about": "Should Tex text back, or stay quiet (or only react)? The one judge's held-out cases (`textDecide.cjs`). Every chat, name and detail is invented (Dev2, 2026-11-12: never taken from a real chat), across kinds of groups (family, friends, a team, a club, roommates, a chat with an invented assistant called Nova or Atlas), and no case is within half its words of one of the judge's examples (`respond.test.mjs`). The mistakes found in real chats on 2026-11-11 to 11-12 are here rewritten (`from: \"tune-up\"`), so a later change can't bring them back. `want: hush` is quiet or a tapback; `want: reply` must reach the model. `must: true` is the owner's \"@Tex must still work\" set (2026-11-11): a tag, Tex's name as the one asked, a reply to Tex, or an answer to Tex's question; not one may be hushed. `setting` is a group's speak-up level (follow along when absent). \"You\" is Tex, a person is \"@name\"; \"(replying to You)\" or \"(replying to @name)\" says whose message a line was sent under, and \"(your newest question)\" marks Tex's latest question, as the Worker renders them (`events.ts`).",
   "cases": [
-    { "id": "g-ask-named-person", "chat": "group", "lines": ["@ben: shared the release notes"], "text": "@ben: Maya, do you have your mail set up? had some questions", "want": "hush" },
-    { "id": "g-oops-order", "chat": "group", "lines": ["@maya: [a picture]", "@maya: [a picture]"], "text": "@maya: oops uploaded wrong order", "want": "hush" },
-    { "id": "g-nickname", "chat": "group", "lines": ["@ben: Priya have i been spelling your name wrong?", "@priya: no Pree is right"], "text": "@priya: pree is my nickname", "want": "hush" },
-    { "id": "g-ahhh", "chat": "group", "lines": ["@priya: no Pree is right", "@priya: pree is my nickname"], "text": "@ben: ahhhh", "want": "hush" },
-    { "id": "g-lot-of-reading", "chat": "group", "lines": ["You: The hub is the Tex page in the app. It shows what I'm working on, each job's steps, and the history I see.", "You: I can't switch off my own rules from a group chat."], "text": "@priya: dang this a lot of reading", "want": "hush" },
-    { "id": "g-app-link-emoji", "chat": "group", "lines": ["@dev: https://apps.example.com/app/our-app"], "text": "@dev: 👀🥹", "want": "hush" },
-    { "id": "g-team-news", "chat": "group", "lines": ["@priya: looks like it's still confused about when to talk"], "text": "@dev: just changed it so it only answers when mentioned", "want": "hush" },
-    { "id": "g-ask-dev-debug", "chat": "group", "lines": ["@priya: Dev how do u go about debugging it usually?"], "text": "@dev: 1:1 or group?", "want": "hush" },
-    { "id": "g-yea", "chat": "group", "lines": ["@priya: Dev how do u go about debugging it usually?", "@dev: 1:1 or group?"], "text": "@priya: yea 1:1", "want": "hush" },
-    { "id": "g-should-look-like", "chat": "group", "lines": ["@dev: weird, the history page shows its reasoning", "@dev: [a picture]"], "text": "@dev: should look something like this", "want": "hush" },
-    { "id": "g-apply-to-this", "chat": "group", "lines": ["@ben: Dev, we should apply to this", "@ben: https://example.com/accelerator"], "text": "@ben: especially since we are all in on that cloud", "want": "hush" },
-    { "id": "g-applied-already", "chat": "group", "lines": ["@ben: Dev, we should apply to this"], "text": "@dev: I did already, haven't heard back", "want": "hush" },
-    { "id": "g-bet-bet", "chat": "group", "lines": ["@dev: I did already, haven't heard back"], "text": "@ben: Bet bet", "want": "hush" },
-    { "id": "g-other-assistant", "chat": "group", "lines": ["@dev: Atlas, how do you handle settings here?"], "text": "@ben: Atlas thoughts?", "want": "hush" },
-    { "id": "g-instinct-answer", "chat": "group", "lines": ["@dev: Atlas you've been listening in, any takes?", "@atlas: Two harness choices stand out, plus one behaviour issue."], "text": "@ben: agreed with atlas on the first one", "want": "hush" },
-    { "id": "g-pricing-musing", "chat": "group", "lines": ["@dev: we switched providers because of pricing"], "text": "@ben: Dev what do you think is the best option here? we can work around the limits for now", "want": "hush" },
-    { "id": "g-stickers", "chat": "group", "lines": ["@ben: what do you think is the best option here?"], "text": "@priya: the other one has stickers 👀", "want": "hush" },
-    { "id": "g-locks-heart", "chat": "group", "lines": ["@dev: https://apps.example.com/app/our-app"], "text": "@ben: i'm so happy dev, you know the way to my heart", "want": "hush" },
-    { "id": "g-thats-crazy", "chat": "group", "lines": ["@dev: oh shoot", "@ben: goofed i think"], "text": "@dev: that's crazy", "want": "hush" },
-    { "id": "g-mine-lol", "chat": "group", "lines": ["@dev: I changed the skip word to a tool call"], "text": "@ben: ohh was it u? i thought it was me lol", "want": "hush" },
-    { "id": "g-tex-provider", "chat": "group", "lines": [], "text": "@dev: Tex which texting provider did we choose?", "want": "reply", "must": true },
-    { "id": "g-tex-tag-percent", "chat": "group", "lines": [], "text": "@dev: @Tex what's 18% of 250?", "want": "reply", "must": true },
-    { "id": "g-tex-alone", "chat": "group", "lines": ["@dev: can you redo the comparison as a page, with pricing", "@ben: lol"], "text": "@dev: Tex", "want": "reply", "must": true },
-    { "id": "g-yes-to-tex", "chat": "group", "lines": ["You: Want me to file it as a bug? 👍 or 👎"], "text": "@priya: yes", "want": "reply", "must": true },
-    { "id": "g-talk-too-much", "chat": "group", "lines": ["You: Fair, I took a while to get back to you."], "text": "@priya: Tex u talk too much", "want": "reply", "must": true },
-    { "id": "g-roast", "chat": "group", "lines": [], "text": "@dev: Tex roast Atlas", "want": "reply", "must": true },
-    { "id": "g-correction", "chat": "group", "lines": ["You: Yes, the harness review was done Nov 5."], "text": "@dev: i'm talking about the provider comparison dummy", "want": "reply" },
-    { "id": "g-still-where", "chat": "group", "lines": ["You: The findings are still there if you want them."], "text": "@dev: still where?", "want": "reply" },
-    { "id": "g-file-bug", "chat": "group", "lines": [], "text": "@ben: tex, file a bug that the desktop login keeps retrying offline", "want": "reply", "must": true },
-    { "id": "g-summarize", "chat": "group", "lines": [], "text": "@priya: Tex, summarize everything that happened these past couple days", "want": "reply", "must": true },
-    { "id": "g-reply-to-tex-why", "chat": "group", "lines": ["You: Group chats can't use skills yet."], "text": "@dev: (replying to You) oh weird, it should", "want": "reply", "must": true },
-    { "id": "o-thanks-later", "chat": "one", "lines": ["You: Reminder: today's the deadline to pick your benefits."], "text": "thanks ill look at it at work today", "want": "hush" },
-    { "id": "o-ok-cool", "chat": "one", "lines": ["You: Done, it's on your calendar for 3."], "text": "ok cool", "want": "hush" },
-    { "id": "o-lol", "chat": "one", "lines": ["You: Their price went up again, ha."], "text": "lol", "want": "hush" },
-    { "id": "o-perfect-thanks", "chat": "one", "lines": ["You: Added to your calendar: the show, Dec 5, 6:30 to 8:30 pm."], "text": "perfect thank you!", "want": "hush" },
-    { "id": "o-night", "chat": "one", "lines": ["You: All set for tomorrow."], "text": "great, night", "want": "hush" },
-    { "id": "o-sounds-good", "chat": "one", "lines": ["You: I'll text you at 6:30, before the 6:45 meeting."], "text": "sounds good 🙏", "want": "hush" },
-    { "id": "o-move-it", "chat": "one", "lines": ["You: Done, it's on your calendar for 3."], "text": "thanks! can you move it to 4 though", "want": "reply" },
-    { "id": "o-question", "chat": "one", "lines": [], "text": "how long does frozen ground beef last", "want": "reply" },
-    { "id": "o-yes-cal", "chat": "one", "lines": ["You: Want me to put Dec 5 on your calendar? 👍 or 👎"], "text": "yeah i did, put it on the cal", "want": "reply" },
-    { "id": "o-remind-3", "chat": "one", "lines": ["You: Reminder: today's the deadline to pick your benefits.", "@sam: thanks ill look at it at work today"], "text": "remind me again at 3pm just to make sure", "want": "reply" },
-    { "id": "o-wrong-thread", "chat": "one", "lines": ["You: Correction to my last text: the tournament was yesterday."], "text": "the message you threaded to has nothing to do with the bracket? walk me through your thought process", "want": "reply" },
-    { "id": "o-thanks-but", "chat": "one", "lines": ["You: Booked for 7 at Lucia's."], "text": "thanks but i said 8", "want": "reply" },
-    { "id": "o-never-mind", "chat": "one", "lines": ["You: Want me to email Dana the draft? 👍 or 👎"], "text": "nah never mind, i'll call her", "want": "reply" },
-    { "id": "g-at-tex-mid", "chat": "group", "lines": ["@ben: need the march invoice for taxes"], "text": "@ben: could @Tex find the invoice from march", "want": "reply", "must": true },
-    { "id": "g-at-tex-start", "chat": "group", "lines": [], "text": "@maya: @Tex what's on the calendar tomorrow", "want": "reply", "must": true },
-    { "id": "g-at-tex-bidi", "chat": "group", "lines": [], "text": "@priya: @\u2068Tex\u2069 summarize the doc Dev sent", "want": "reply", "must": true },
-    { "id": "g-native-mention", "chat": "group", "lines": ["@dev: the pricing doc is up"], "text": "@priya: Tex can you summarize the pricing doc", "want": "reply", "must": true },
-    { "id": "g-native-mention-mid", "chat": "group", "lines": ["@ben: we keep going back and forth on this"], "text": "@dev: ok Tex what did we decide about pricing", "want": "reply", "must": true },
-    { "id": "g-closing-name", "chat": "group", "lines": [], "text": "@ben: what's the wifi password at the office tex", "want": "reply", "must": true },
-    { "id": "g-name-comma", "chat": "group", "lines": [], "text": "@dev: Tex, add oat milk to the grocery list", "want": "reply", "must": true },
-    { "id": "g-name-question-mark", "chat": "group", "lines": ["@maya: who has the gate code"], "text": "@maya: Tex?", "want": "reply", "must": true },
-    { "id": "g-quiet-setting-tag", "chat": "group", "setting": "quiet", "lines": ["@ada: lunch at noon?", "@bo: sure"], "text": "@ada: Tex what's 9 times 7", "want": "reply", "must": true },
-    { "id": "g-reply-to-tex-ask", "chat": "group", "lines": ["You: The meeting moved to 3pm."], "text": "@ben: (replying to You) does that still work for the design review", "want": "reply", "must": true },
-    { "id": "g-reply-to-tex-statement", "chat": "group", "lines": ["You: I couldn't find that file."], "text": "@dev: (replying to You) it's in the shared drive under q3", "want": "reply", "must": true },
-    { "id": "g-approve", "chat": "group", "lines": ["You: Send the invite to the whole team? Reply approve to send."], "text": "@ben: approve", "want": "reply", "must": true },
-    { "id": "g-thumb-yes", "chat": "group", "lines": ["You: Want me to order the cake for Friday? 👍 or 👎"], "text": "@maya: 👍 (yes) on Tex's message \"Want me to order the cake for Friday?\"", "want": "reply", "must": true },
-    { "id": "g-answer-pick", "chat": "group", "lines": ["You: Should I book Thai or pizza for Thursday?"], "text": "@priya: thai", "want": "reply", "must": true },
-    { "id": "g-bot-line", "chat": "group", "lines": ["@dev: Instinct what's the weather this weekend"], "text": "@instinct: Saturday looks sunny, around 72; Sunday may rain.", "want": "hush" },
-    { "id": "g-about-tex", "chat": "group", "lines": ["@dev: deploy is out"], "text": "@ben: lol tex was so slow yesterday", "want": "hush" },
-    { "id": "g-other-assistant-names-tex", "chat": "group", "lines": [], "text": "@dev: Atlas, how do you compare to Tex on scheduling?", "want": "hush" },
-    { "id": "g-chatter-quiet-setting", "chat": "group", "setting": "quiet", "lines": ["@ada: running 5 late"], "text": "@bo: no worries, grabbing coffee", "want": "hush" }
+    {
+      "id": "g-carpool",
+      "chat": "group",
+      "lines": [
+        "@nina: who's driving saturday?"
+      ],
+      "text": "@omar: I can take four if someone grabs the cooler",
+      "want": "hush"
+    },
+    {
+      "id": "g-photo-order",
+      "chat": "group",
+      "lines": [
+        "@june: (a picture)",
+        "@june: (a picture)"
+      ],
+      "text": "@june: ugh posted these backwards",
+      "want": "hush"
+    },
+    {
+      "id": "g-spelling",
+      "chat": "group",
+      "lines": [
+        "@omar: Nina is it Katharine with a K?"
+      ],
+      "text": "@nina: yep K and an e at the end",
+      "want": "hush"
+    },
+    {
+      "id": "g-ohh",
+      "chat": "group",
+      "lines": [
+        "@nina: yep K and an e at the end"
+      ],
+      "text": "@omar: ohhh",
+      "want": "hush"
+    },
+    {
+      "id": "g-heart-emoji",
+      "chat": "group",
+      "lines": [
+        "@june: https://example.com/new-puppy"
+      ],
+      "text": "@june: 🥹🐶",
+      "want": "hush"
+    },
+    {
+      "id": "g-coach-q",
+      "chat": "group",
+      "lines": [
+        "@pia: Coach, are cleats required for the indoor games?"
+      ],
+      "text": "@coach: turf shoes are fine",
+      "want": "hush"
+    },
+    {
+      "id": "g-coach-ok",
+      "chat": "group",
+      "lines": [
+        "@pia: Coach, are cleats required for the indoor games?",
+        "@coach: turf shoes are fine"
+      ],
+      "text": "@pia: perfect thank you",
+      "want": "hush"
+    },
+    {
+      "id": "g-apply-grant",
+      "chat": "group",
+      "lines": [
+        "@raf: Lu we should enter the mural contest",
+        "@raf: https://example.com/mural-call"
+      ],
+      "text": "@raf: deadline's in two weeks too",
+      "want": "hush"
+    },
+    {
+      "id": "g-already",
+      "chat": "group",
+      "lines": [
+        "@raf: Lu we should enter the mural contest"
+      ],
+      "text": "@lu: already sent our sketch in!",
+      "want": "hush"
+    },
+    {
+      "id": "g-bet",
+      "chat": "group",
+      "lines": [
+        "@lu: already sent our sketch in!"
+      ],
+      "text": "@raf: let's gooo",
+      "want": "hush"
+    },
+    {
+      "id": "g-musing",
+      "chat": "group",
+      "lines": [
+        "@lu: rent went up again this year"
+      ],
+      "text": "@raf: honestly might look at the place on Elm",
+      "want": "hush"
+    },
+    {
+      "id": "g-crazy",
+      "chat": "group",
+      "lines": [
+        "@raf: dropped my phone in the lake",
+        "@lu: noooo"
+      ],
+      "text": "@raf: rice did not save it",
+      "want": "hush"
+    },
+    {
+      "id": "g-mine",
+      "chat": "group",
+      "lines": [
+        "@lu: someone left the stove on"
+      ],
+      "text": "@raf: oh that was me sorry",
+      "want": "hush"
+    },
+    {
+      "id": "g-quiet-chatter",
+      "chat": "group",
+      "lines": [
+        "@ada: running ten late"
+      ],
+      "text": "@bo: no rush, I'm parking",
+      "want": "hush",
+      "setting": "quiet"
+    },
+    {
+      "id": "g-about-tex",
+      "chat": "group",
+      "lines": [
+        "@lu: groceries are in"
+      ],
+      "text": "@raf: tex forgot the oat milk on the list lol",
+      "want": "hush"
+    },
+    {
+      "id": "g-bot-answers-person",
+      "chat": "group",
+      "lines": [
+        "@pia: Atlas, what's the forecast for the game"
+      ],
+      "text": "@atlas: Clear skies, 64 degrees at kickoff.",
+      "want": "hush"
+    },
+    {
+      "id": "g-bot-reply-under-person",
+      "chat": "group",
+      "lines": [
+        "@raf: Atlas basically reads our minds"
+      ],
+      "text": "@atlas: (replying to @raf) Mind reading is a stretch, I just pay attention.",
+      "want": "hush",
+      "from": "tune-up"
+    },
+    {
+      "id": "g-bot-reply-under-person-2",
+      "chat": "group",
+      "lines": [
+        "@lu: does Atlas keep track of threads?"
+      ],
+      "text": "@atlas: (replying to @lu) I follow who's talking to whom, yes.",
+      "want": "hush",
+      "from": "tune-up"
+    },
+    {
+      "id": "g-go-ahead-to-bot",
+      "chat": "group",
+      "lines": [
+        "@omar: Atlas, could you text Nina's assistant about the tickets?",
+        "@atlas: I can, want me to?"
+      ],
+      "text": "@omar: yes please go for it",
+      "want": "hush",
+      "from": "tune-up"
+    },
+    {
+      "id": "g-tex-as-subject",
+      "chat": "group",
+      "lines": [
+        "@june: it'd be cool if Tex could book our court time"
+      ],
+      "text": "@june: Atlas can you do that kind of thing?",
+      "want": "hush",
+      "from": "tune-up"
+    },
+    {
+      "id": "g-shared-link",
+      "chat": "group",
+      "lines": [
+        "@raf: look at this treehouse someone built",
+        "@raf: https://example.com/treehouse"
+      ],
+      "text": "@lu: I need one",
+      "want": "hush",
+      "from": "tune-up"
+    },
+    {
+      "id": "g-shared-link-wow",
+      "chat": "group",
+      "lines": [
+        "@nina: https://example.com/aurora-photos"
+      ],
+      "text": "@nina: taken from our backyard last night",
+      "want": "hush",
+      "from": "tune-up"
+    },
+    {
+      "id": "g-bot-compare",
+      "chat": "group",
+      "lines": [],
+      "text": "@raf: Atlas, are you better than Tex at planning trips?",
+      "want": "hush"
+    },
+    {
+      "id": "g-tapback-on-friend",
+      "chat": "group",
+      "lines": [
+        "@nina: pizza after practice?"
+      ],
+      "text": "@omar: 👍 (yes) on the message \"pizza after practice?\"",
+      "want": "hush"
+    },
+    {
+      "id": "g-tag-mid",
+      "chat": "group",
+      "lines": [
+        "@raf: need last spring's water bill"
+      ],
+      "text": "@raf: could @Tex dig up the water bill from April",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-tag-start",
+      "chat": "group",
+      "lines": [],
+      "text": "@june: @Tex what time does the pool close tonight",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-tag-bidi",
+      "chat": "group",
+      "lines": [],
+      "text": "@pia: @⁨Tex⁩ recap the schedule the coach sent",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-native",
+      "chat": "group",
+      "lines": [
+        "@coach: new schedule is in the folder"
+      ],
+      "text": "@pia: Tex pull the dates from the coach's schedule",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-native-mid",
+      "chat": "group",
+      "lines": [
+        "@lu: we keep flip flopping on paint"
+      ],
+      "text": "@raf: ok Tex which color did we land on",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-closing",
+      "chat": "group",
+      "lines": [],
+      "text": "@omar: what's the address of the venue tex",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-comma",
+      "chat": "group",
+      "lines": [],
+      "text": "@june: Tex, put sunscreen on the beach list",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-name-q",
+      "chat": "group",
+      "lines": [
+        "@nina: who has the spare key"
+      ],
+      "text": "@nina: Tex?",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-alone",
+      "chat": "group",
+      "lines": [
+        "@lu: can you redo the budget as a table",
+        "@raf: haha"
+      ],
+      "text": "@lu: Tex",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-quiet-tag",
+      "chat": "group",
+      "lines": [
+        "@ada: tacos tonight?",
+        "@bo: yes"
+      ],
+      "text": "@ada: Tex what's 14 times 6",
+      "want": "reply",
+      "must": true,
+      "setting": "quiet"
+    },
+    {
+      "id": "g-reply-ask",
+      "chat": "group",
+      "lines": [
+        "You: Practice moved to 5:30."
+      ],
+      "text": "@pia: (replying to You) is that at the north field still",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-reply-info",
+      "chat": "group",
+      "lines": [
+        "You: I couldn't find the field permit. Where is it?   (your newest question)"
+      ],
+      "text": "@coach: (replying to You) in the team drive, 2026 folder",
+      "want": "reply",
+      "must": true,
+      "from": "tune-up"
+    },
+    {
+      "id": "g-approve",
+      "chat": "group",
+      "lines": [
+        "You: Send the RSVP reminder to everyone? Reply approve to send.   (your newest question)"
+      ],
+      "text": "@june: approve",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-thumb-yes",
+      "chat": "group",
+      "lines": [
+        "You: Want me to reserve the grill area for Sunday? 👍 or 👎   (your newest question)"
+      ],
+      "text": "@omar: 👍 (yes) on Tex's message \"Want me to reserve the grill area for Sunday?\"",
+      "want": "reply",
+      "must": true,
+      "from": "tune-up"
+    },
+    {
+      "id": "g-pick",
+      "chat": "group",
+      "lines": [
+        "You: Sushi or burgers for Friday?   (your newest question)"
+      ],
+      "text": "@lu: burgers",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-word-answer",
+      "chat": "group",
+      "lines": [
+        "You: Which weekend works for the cabin, the 6th or the 13th?   (your newest question)",
+        "@nina: the 13th"
+      ],
+      "text": "@omar: 13th for me too",
+      "want": "reply",
+      "must": true,
+      "from": "tune-up"
+    },
+    {
+      "id": "g-bot-quiz",
+      "chat": "group",
+      "lines": [
+        "@raf: Atlas, test Tex with a few trivia questions"
+      ],
+      "text": "@atlas: Tex, what's the capital of Australia?",
+      "want": "reply",
+      "must": true,
+      "from": "tune-up"
+    },
+    {
+      "id": "g-bot-quiz-untagged",
+      "chat": "group",
+      "lines": [
+        "@raf: Atlas, give Tex three quick riddles",
+        "@atlas: Here goes."
+      ],
+      "text": "@atlas: What has keys but can't open locks?",
+      "want": "reply",
+      "from": "tune-up"
+    },
+    {
+      "id": "g-too-much",
+      "chat": "group",
+      "lines": [
+        "You: That took me a while, sorry."
+      ],
+      "text": "@lu: Tex you send way too many texts",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-roast",
+      "chat": "group",
+      "lines": [],
+      "text": "@raf: Tex roast Lu's cooking",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-file-it",
+      "chat": "group",
+      "lines": [],
+      "text": "@pia: tex, add a reminder that uniforms are due Friday",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-summarize",
+      "chat": "group",
+      "lines": [],
+      "text": "@nina: Tex, catch me up on what I missed today",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-reply-pushback",
+      "chat": "group",
+      "lines": [
+        "You: The cabin sleeps eight."
+      ],
+      "text": "@omar: (replying to You) it says six on the listing though",
+      "want": "reply",
+      "must": true
+    },
+    {
+      "id": "g-correction",
+      "chat": "group",
+      "lines": [
+        "You: Yes, the deposit was paid on the 2nd."
+      ],
+      "text": "@lu: I meant the cleaning fee, not the deposit",
+      "want": "reply"
+    },
+    {
+      "id": "g-still-where",
+      "chat": "group",
+      "lines": [
+        "You: The receipts are still there if you want them."
+      ],
+      "text": "@raf: still where?",
+      "want": "reply"
+    },
+    {
+      "id": "o-later",
+      "chat": "one",
+      "lines": [
+        "You: Reminder: your passport renewal form is due this week."
+      ],
+      "text": "thanks, I'll fill it out tonight",
+      "want": "hush"
+    },
+    {
+      "id": "o-ok",
+      "chat": "one",
+      "lines": [
+        "You: Done, the car wash is on your calendar for 10."
+      ],
+      "text": "ok nice",
+      "want": "hush"
+    },
+    {
+      "id": "o-lol",
+      "chat": "one",
+      "lines": [
+        "You: The bakery sold out by 9 again, ha."
+      ],
+      "text": "lmao",
+      "want": "hush"
+    },
+    {
+      "id": "o-perfect",
+      "chat": "one",
+      "lines": [
+        "You: Added to your calendar: the recital, May 3, 2 to 4 pm."
+      ],
+      "text": "amazing thank you!!",
+      "want": "hush"
+    },
+    {
+      "id": "o-night",
+      "chat": "one",
+      "lines": [
+        "You: All set for the morning."
+      ],
+      "text": "great, good night",
+      "want": "hush"
+    },
+    {
+      "id": "o-sounds-good",
+      "chat": "one",
+      "lines": [
+        "You: I'll text you at 7:15, before the 7:30 call."
+      ],
+      "text": "sounds good 🙏",
+      "want": "hush"
+    },
+    {
+      "id": "o-move",
+      "chat": "one",
+      "lines": [
+        "You: Done, the car wash is on your calendar for 10."
+      ],
+      "text": "thanks! push it to 11 though",
+      "want": "reply"
+    },
+    {
+      "id": "o-question",
+      "chat": "one",
+      "lines": [],
+      "text": "how long do hard boiled eggs last",
+      "want": "reply"
+    },
+    {
+      "id": "o-yes",
+      "chat": "one",
+      "lines": [
+        "You: Want me to put the recital on your calendar? 👍 or 👎   (your newest question)"
+      ],
+      "text": "yes add it",
+      "want": "reply"
+    },
+    {
+      "id": "o-remind",
+      "chat": "one",
+      "lines": [
+        "You: Reminder: your passport renewal form is due this week.",
+        "@kim: thanks, I'll fill it out tonight"
+      ],
+      "text": "actually ping me again at 8 so I don't forget",
+      "want": "reply"
+    },
+    {
+      "id": "o-why",
+      "chat": "one",
+      "lines": [
+        "You: Correction: the game was moved to Thursday."
+      ],
+      "text": "why did you put that under the grocery message? explain",
+      "want": "reply"
+    },
+    {
+      "id": "o-wrong-time",
+      "chat": "one",
+      "lines": [
+        "You: Reserved the court for 6."
+      ],
+      "text": "thanks but I wanted 6:30",
+      "want": "reply"
+    },
+    {
+      "id": "o-cancel",
+      "chat": "one",
+      "lines": [
+        "You: Want me to email the landlord the photos? 👍 or 👎   (your newest question)"
+      ],
+      "text": "no wait, I'll call him first",
+      "want": "reply"
+    }
   ]
 }

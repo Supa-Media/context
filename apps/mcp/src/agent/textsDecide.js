@@ -16,11 +16,18 @@
 
 import { DECISION_MODEL, decisionEngine } from "./decide.js";
 import { ledgerFor, ledgerWriter } from "./ledger.js";
+import { dayFromLedger } from "./ledgerHistory.js";
 import { decideRequest, readDecideAnswers, readDecideBody, readRecheckAnswers, readRecheckBody, recheckRequest } from "../../../../packages/shared/src/textDecide.cjs";
 
 /** The paths the Worker posts to on the `TexTexts` binding. */
 export const TEXTS_DECIDE_PATH = "/texts/decide";
 export const TEXTS_RECHECK_PATH = "/texts/recheck";
+/** The chat's last day from its ledger, for a judge whose Worker holds no token for the chat (`chatRead.ts`). */
+export const TEXTS_CHAT_PATH = "/texts/chat";
+const LEDGER_KEY = /^[0-9a-f]{64}$/;
+const GROUP_ID = /^[A-Za-z0-9._:@+=-]{1,256}$/;
+const CHAT_DAY_MS = 24 * 60 * 60 * 1000;
+const CHAT_READ = 2_000;
 /** A transcript, a draft, 32 ids and 8 asks, with room for the JSON around them. */
 const MAX_BODY_CHARS = 64_000;
 
@@ -48,7 +55,9 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
   if (body === null) return new Response(null, { status: 400 });
   // No model here (a gateway with no AI binding): 503, so the Worker asks the control plane as it did before.
   if (engine === null) return new Response(null, { status: 503 });
-  const asked = recheck ? recheckRequest(body) : decideRequest(body);
+  // What Tex is doing in this chat right now, from its ledger: facts the judge reads beside the chat (Dev2, 2026-11-12).
+  const facts = recheck || !body.ledger ? [] : await nowFacts(ledger(body.ledger), body.ledger);
+  const asked = recheck ? recheckRequest(body) : decideRequest(body, { facts });
   const meter = { questions: Object.keys(asked.questions).length, chars: asked.state.length + JSON.stringify(asked.questions).length, ms: 0 };
   const started = Date.now();
   const answers = await engine(asked.state, asked.questions);
@@ -101,4 +110,62 @@ export function judgeVerdictEntry(body, result, ms) {
     confidence: result.confidence,
     ms,
   };
+}
+
+/**
+ * `POST /texts/chat` on the binding: `{ ledger, chat }`, the group's ledger key and its chat id, answered with the
+ * chat's last day as events, the same day `/agent/chat` answers a Worker holding the chat's token. Before this a
+ * Worker that had just woken held no token, so the judge read only the texts it had not posted yet: 34 of 53 reads
+ * on 2026-11-10 to 11-12 (`tex_chat_read` `no_token`), the judge blind to the question a tapback answered. Reached
+ * only over the service binding, as decide's own ledger write is; never logged with words. `ledger` is for tests.
+ */
+export async function chatForTexts(request, env, { ledger = (key) => ledgerFor(env, { chat: key }), now = Date.now() } = {}) {
+  const body = await readJson(request);
+  const key = typeof body?.ledger === "string" && LEDGER_KEY.test(body.ledger) ? body.ledger : null;
+  const chat = typeof body?.chat === "string" && GROUP_ID.test(body.chat) ? body.chat : null;
+  if (key === null || chat === null) return new Response(null, { status: 400 });
+  const store = ledger(key);
+  if (store === null) return Response.json({ events: [] });
+  try {
+    const read = await store.read(key, { before: Number.MAX_SAFE_INTEGER, kinds: ["text"], limit: CHAT_READ, since: now - CHAT_DAY_MS });
+    const events = dayFromLedger(read?.entries ?? [], chat, []) ?? [];
+    console.log(JSON.stringify({ event: "texts_chat_gateway", events: events.length }));
+    return Response.json({ events });
+  } catch {
+    console.log(JSON.stringify({ event: "texts_chat_gateway", outcome: "failed" }));
+    return new Response(null, { status: 503 });
+  }
+}
+
+/** The longest the judge waits on the ledger for its facts: they help it, and are never worth a slower answer. */
+const FACTS_MS = 400;
+/** A job not heard from in this long is not shown as running. */
+const JOB_FRESH_MS = 6 * 60 * 60 * 1000;
+const RUNNING = new Set(["started", "keep_going"]);
+
+/**
+ * Facts for the judge from the chat's ledger, each one line: the jobs Tex is running here, by title and start time.
+ * Read within `FACTS_MS`; none when the ledger is slow or can't be read. Titles only, never a word of the chat.
+ */
+export async function nowFacts(store, key, { now = Date.now(), timeoutMs = FACTS_MS } = {}) {
+  if (store === null || typeof store?.read !== "function") return [];
+  const read = store.read(key, { before: Number.MAX_SAFE_INTEGER, kinds: ["job"], limit: 200, since: now - JOB_FRESH_MS }).catch(() => null);
+  const result = await Promise.race([read, new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs))]);
+  const entries = Array.isArray(result?.entries) ? result.entries : [];
+  // Newest first: a job's first entry seen is its latest state; its start is its oldest.
+  const latest = new Map();
+  const startedAt = new Map();
+  // A job's title is on whichever of its entries carries one (a keep-going entry often has none).
+  const titles = new Map();
+  for (const entry of entries) {
+    if (entry?.kind !== "job" || typeof entry.job !== "string") continue;
+    if (!latest.has(entry.job)) latest.set(entry.job, entry);
+    if (entry.state === "started") startedAt.set(entry.job, entry.at);
+    if (typeof entry.title === "string" && !titles.has(entry.job)) titles.set(entry.job, entry.title);
+  }
+  const at = (ms) => new Date(ms).toISOString().slice(11, 16);
+  return [...latest.values()]
+    .filter((entry) => RUNNING.has(entry.state))
+    .slice(0, 4)
+    .map((entry) => `Tex is working on a job in this chat: "${String(titles.get(entry.job) ?? "untitled").replace(/["\n]/g, " ").slice(0, 120)}"${startedAt.has(entry.job) ? `, started ${at(startedAt.get(entry.job))} UTC` : ""}.`);
 }
