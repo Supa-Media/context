@@ -532,6 +532,14 @@ export const GROUP_CODE_SIGN_IN_LINE =
   "A site that signs in with an email and a one-time code needs no saved login: type the email you were given, ask for the code it sends, " +
   "and when someone in the chat texts it, type it into the same browser right away. Never refuse it for want of a vault login. ";
 
+/*
+  Who is asking, for a form (the owner, 2026-11-12: asked to fill a venue's form in a group, Tex asked him for his own
+  name, email and phone). Their personal Tex knows them (`askPersonalTex.js`).
+*/
+export const PERSONAL_TEX_LINE =
+  "When a form, booking or sign-in someone here asked for needs their own name, phone number or email, get them with send action ask_personal_tex " +
+  "(their personal Tex knows them) rather than asking; for somebody else here, pass as and they OK it first. ";
+
 /** What a group turn is told, after the built-in words. */
 /** An invited person's tag: an email or calendar change only with `as` naming a member here, as a guest's. */
 function noAccountTaggerCallTool(callTool, group) {
@@ -576,6 +584,7 @@ export function groupPrompt(group, workspace) {
     "A calendar event can invite guests (ask for their emails): it is shown here and only the calendar owner's 👍 or yes makes it, and Google emails the guests. " +
     "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat's later asks. " +
     GROUP_CODE_SIGN_IN_LINE +
+    PERSONAL_TEX_LINE +
     "A password comes only from a login saved for this chat or the whole workspace, or one the person who tagged you saved for themselves, and never typed in the chat; " +
     "when a site needs a password and there is none saved, send whoever asked a vault_add link at once in one short line (the page lets them give it to this chat, the workspace or keep it to themselves), and carry on by yourself once it's saved. " +
     "Slack can't be used from a group, because it connects for one person only; say the person can text you on their own for it. " +

@@ -29,6 +29,7 @@ import { actionArguments } from "../orient/manual.js";
 import { COMMAND_SEND_ACTIONS } from "./commandTools.js";
 import { COMPUTER_SEND_ACTIONS } from "../machines/texActions.js";
 import { SETTINGS_SEND_ACTIONS } from "./settingsActions.js";
+import { PERSONAL_TEX_SEND_ACTIONS } from "./askPersonalTex.js";
 import { TEXTS_ID_PREFIX } from "../tools/texts.js";
 
 /** The six, in the order they are listed. */
@@ -83,6 +84,8 @@ export const ASSISTANT_SEND_ACTIONS = {
   ...Object.fromEntries(Object.entries(COMPUTER_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
   // Their settings and who can use each saved login, changed from a text (`settingsTools.js`).
   ...Object.fromEntries(Object.entries(SETTINGS_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
+  // A group chat's ask of the tagger's personal Tex for who they are (`askPersonalTex.js`).
+  ...Object.fromEntries(Object.entries(PERSONAL_TEX_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
 };
 
 /**

@@ -44,6 +44,15 @@ export const CAPABILITIES = Object.freeze([
     cant: [{ where: "group", what: "see the account of someone whose number here isn't linked to one", workaround: { kind: "words", text: "they text you once on their own from the number they use in this chat, which links it" } }],
   },
   {
+    name: "Who someone is, for a form",
+    actions: ["send.ask_personal_tex"],
+    texts: "you know their own name, phone number and emails from their account, and use them for any form or sign-in without asking",
+    group: "ask the personal Tex of whoever tagged you for their name, phone number and emails, for a form or sign-in they asked for (send ask_personal_tex): the chat is told you're asking, and you never ask them for these; for somebody else here, pass as and only their 👍 or yes lets you ask; never repeat a phone number or email into the chat",
+    guest: "ask them in the chat for what the form needs",
+    who: "the person it is about asks, or OKs someone else's ask with their own 👍 or yes",
+    cant: [{ where: "group", what: "ask the personal Tex of someone here who isn't on Context", workaround: { kind: "words", text: "ask them in the chat for what the form needs" } }],
+  },
+  {
     name: "Notes",
     actions: ["write.save", "write.save_many", "write.comment", "write.upload", "write.remember", "manage.move", "manage.move_many", "manage.move_folder", "manage.archive", "manage.suggest_destination", "manage.layout", "manage.folder_job", "manage.encrypt"],
     texts: "read, search, write, move and archive notes in every workspace they can reach, comment on a note, add pictures to one, encrypt or decrypt one, and lay down a workspace's starting folders; nothing is ever deleted",
