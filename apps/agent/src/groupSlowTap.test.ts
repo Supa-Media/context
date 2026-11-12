@@ -6,6 +6,7 @@
  * Sabotage record (applied, run, observed failing, reverted):
  *  1. no disarm in `groupSay.ts` `sayNow` → "taps a message naming Tex when nothing of Tex's has gone out" fails.
  *  2. no bound check in `slowTap` → "never taps a chat Tex is not set up in" fails.
+ *  3. `SLOW_TAP_MS` back to 8_000 → "an answer that takes up to 23 s gets no tapback" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -30,6 +31,17 @@ for (const { name, groupId } of LINES) {
       expect(await slowTap(storage, w.deps, next.messageId, 1_000 + SLOW_TAP_MS)).toBe(true);
       expect(w.reactions).toHaveLength(1);
       expect(await slowTap(storage, w.deps, next.messageId, 1_000 + 2 * SLOW_TAP_MS)).toBe(false); // once
+    });
+
+    it("an answer that takes up to 23 s gets no tapback (gateway turns run 8 to 21 s)", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId);
+      await acceptGroup(storage, w.message("Tex, hi"), 0);
+      await drainGroup(storage, w.deps);
+      const next = w.message("Tex, and the load in?");
+      await acceptGroup(storage, next, 1_000);
+      expect(await slowTap(storage, w.deps, next.messageId, 1_000 + 23_000)).toBe(false);
+      expect(w.reactions).toHaveLength(0);
     });
 
     it("never taps a chat Tex is not set up in, or a message nobody named Tex in", async () => {
