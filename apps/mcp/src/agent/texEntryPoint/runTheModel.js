@@ -98,7 +98,7 @@ export async function runTheModel(t) {
     onModel: (model) => void (store.usageModel = model),
     // A group turn's tool start goes down the stream as a step line: the Worker taps the asked message once on the first (`groupModelTurn.ts`).
     ...(group !== null && job === null && typeof step === "function" ? { onToolStart: (name) => void Promise.resolve(step(name)).catch(() => {}) } : {}),
-    answerCheck: judge?.check ?? doIt?.check ?? claims?.check ?? tries?.check ?? null, endsTurn: background?.endsTurn ?? null, sayNothing: job === null, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
+    answerCheck: judge?.check ?? doIt?.check ?? claims?.check ?? tries?.check ?? null, endsTurn: background?.endsTurn ?? null, sayNothing: job === null && group?.tagged !== true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
     callTool: allowedFirst(tex.lean ? allowedRead : null, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,

@@ -26,6 +26,7 @@ import { addEvent, kindOf, logAsk, recentEvents } from "./events";
 import { staleAsks } from "./decide";
 import { startTurn } from "./steer";
 import { recheckDraft } from "./groupRecheck";
+import { tagsTex } from "./groupWords";
 import type { GroupPending } from "./groupTurn";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
 
@@ -71,6 +72,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     // this chat" is answered from the whole list (Dev2, 2026-11-12).
     ...(guestLabels(people, labels).length > 0 ? { guests: guestLabels(people, labels) } : {}),
     size: people.length,
+    // A literal "@Tex" is always answered (Dev2, 2026-11-12): the gateway offers no say_nothing, and a silent end is its fallback line.
+    ...(covered.some((entry) => tagsTex(entry.text || entry.heard || "")) ? { tagged: true } : {}),
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
   };

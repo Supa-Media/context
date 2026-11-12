@@ -27,6 +27,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { fakeModel, PRIVACY_MANIFEST } from "./agentEgressFixtures.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
+import { EMPTY_FALLBACK } from "../src/agent/replyChecks.js";
 
 const S3_ENDPOINT = "https://s3.example-group.test";
 const TOKEN_GROUP = `cat_group_editor_${"0".repeat(22)}`;
@@ -480,5 +481,34 @@ test("\"what are you working on\" points at the signed-in Tex page: the person's
     assert.equal((await ask(TOKEN_TEXTS, { question: "hi", conversation: "texts" })).body.hub, undefined);
   } finally {
     delete world.env.APP_ORIGIN;
+  }
+});
+
+// Production, 2026-11-12 08:33Z: "@Tex ..." judged silent was forced into a turn (tag_override), and the turn ended
+// silent: it was offered say_nothing and took it. A literal @Tex is always answered (Dev2): never offered silence,
+// and a silent end anyway is the fallback line. An untagged turn may still say nothing.
+// Sabotage record (applied, run, observed failing, reverted):
+//  1. `runTheModel.js` offering say_nothing whatever `tagged` says: "a tagged turn is never offered say_nothing" fails.
+//  2. `sendTheReply.js` treating a tagged silence as silence: "a tagged turn that still ends silent texts the fallback" fails.
+//  3. `groupOf` dropping `tagged`: both tagged tests fail.
+const offersSayNothing = (request) => /say_nothing/.test(JSON.stringify(request.tools ?? []));
+
+test("a tagged turn is never offered say_nothing; an untagged one is", async () => {
+  world.model.install([{ text: "The opener." }, { text: "The opener." }]);
+  await ask(TOKEN_GROUP, { question: "@Tex what's on the setlist?", group: chat({ tagged: true }), timeZone: "UTC" });
+  await ask(TOKEN_GROUP, { question: "what's on the setlist?", group: chat(), timeZone: "UTC" });
+  assert.equal(offersSayNothing(world.model.requests[0]), false);
+  assert.equal(offersSayNothing(world.model.requests[1]), true);
+});
+
+test("a tagged turn that still ends silent texts the fallback; an untagged one stays quiet", async () => {
+  for (const silence of ['{ action: "say_nothing" }', "SKIP"]) {
+    world.model.install([{ text: silence }, { text: silence }]);
+    const tagged = await ask(TOKEN_GROUP, { question: "@Tex what's 18% of 250?", group: chat({ tagged: true }), timeZone: "UTC" });
+    assert.equal(tagged.body.answer, EMPTY_FALLBACK, silence);
+    assert.equal(tagged.body.quiet, undefined, silence);
+    const untagged = await ask(TOKEN_GROUP, { question: "nice one", group: chat(), timeZone: "UTC" });
+    assert.equal(untagged.body.answer, "", silence);
+    assert.equal(untagged.body.quiet, true, silence);
   }
 });

@@ -8,6 +8,8 @@
  *     judge is silent on" fail.
  *  2. `tagsTex` matching the bare name (`@?tex`): "tagsTex reads @Tex" and "the bare name judged silent" fail.
  *  3. `acceptGroup` without its `isMuted` check: "a muted chat is unchanged" fails.
+ *  4. `groupModelTurn` never sending `tagged` (2026-11-12 08:33Z: the forced turn ended silent): "the forced turn tells
+ *     the gateway it was tagged" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -81,5 +83,18 @@ describe("a literal @Tex tag is answered whatever the judge says", () => {
     await drainGroup(storage, w.deps);
     expect(w.asks).toEqual([]);
     expect(w.decided.length).toBe(decided);
+  });
+
+  it("the forced turn tells the gateway it was tagged, so it is never offered silence; an untagged turn is not", async () => {
+    const { storage, w, before } = await boundWith(silent);
+    await acceptGroup(storage, w.message("@Tex what's 18% of 250?"), 10);
+    await drainGroup(storage, w.deps);
+    expect(w.asks.slice(before).map((ask) => (ask.group as { tagged?: boolean }).tagged)).toEqual([true]);
+    const after = w.asks.length;
+    const plain = await boundWith(answerAll);
+    await acceptGroup(plain.storage, plain.w.message("Tex, what's 18% of 250?"), 10);
+    await drainGroup(plain.storage, plain.w.deps);
+    expect(plain.w.asks.slice(plain.before).map((ask) => (ask.group as { tagged?: boolean }).tagged)).toEqual([undefined]);
+    expect(after).toBe(before + 1);
   });
 });
