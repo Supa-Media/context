@@ -29,11 +29,11 @@ import { internalMutation } from "./lib/rowWatch/mutations";
 import { resolveLiveGrant } from "./lib/controlPlane/liveGrants";
 import { MAX_INSTRUCTIONS, TEX_UPDATES, texUpdatesValidator, type InstructionsChange, type TexUpdates } from "./lib/texInstructions";
 import { muteChat, personRow, setChatSettings, setPersonSettings, setSpeaksUp, settingsOf, speaksUpOf, type Settings, type SettingsRefusal } from "./lib/texChatRules";
-import { cleanAddress, cleanShareQuery, shareMail, unshareMail } from "./lib/textGroupMail";
+import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { TEXTS_GROUP_CLIENT_ID, ENGAGEMENT_STYLES, type Engagement } from "./textGroups";
 import { handleOf } from "./lib/textGroupAccounts";
-import { setSharing } from "./texReviews";
+import { setSharing, sharesReviews } from "./texReviews";
 
 export const TEX_COMMANDS = ["mute", "status", "settings", "instructions", "updates", "engagement", "share_mail", "unshare_mail", "review_sharing"] as const;
 export type TexCommandKind = (typeof TEX_COMMANDS)[number];
@@ -79,6 +79,8 @@ const answerValidator = v.object({
   count: v.optional(v.number()),
   sharing: v.optional(v.boolean()),
   changed: v.optional(v.boolean()),
+  /** A group chat's settings: whose mail is shared there. */
+  mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
 });
 type Answer = typeof answerValidator.type;
 
@@ -138,7 +140,7 @@ export const applyTexCommand = internalMutation({
         if (args.command.share === undefined) return { status: "bad_request" };
         return { status: "done", sharing: args.command.share, changed: await setSharing(ctx, actor.person, args.command.share) };
       }
-      if (kind === "settings") return { status: "done", ...settingsOf((await personRow(ctx, actor.person)) ?? {}) };
+      if (kind === "settings") return { status: "done", ...settingsOf((await personRow(ctx, actor.person)) ?? {}), sharing: await sharesReviews(ctx, actor.person) };
       if (kind === "updates") {
         const updates = updatesOf(args.command.updates);
         return updates === null ? { status: "bad_request" } : saved(await setPersonSettings(ctx, actor.person, { updates }));
@@ -159,7 +161,9 @@ export const applyTexCommand = internalMutation({
         return { status: "done", slug, guest: slug === "" };
       case "settings": {
         const level = speaksUpOf(group);
-        return { status: "done", ...settingsOf(group), ...(level !== undefined ? { engagement: level } : {}), engagementChosen: level !== undefined };
+        // Whose mail is shared here, as the chat's own prompt already says it (`mailSharesNamed`), for "how are you set up here".
+        const { mail } = await mailSharesNamed(ctx, group._id);
+        return { status: "done", ...settingsOf(group), ...(level !== undefined ? { engagement: level } : {}), engagementChosen: level !== undefined, slug, ...(mail ? { mail } : {}) };
       }
       case "instructions": {
         const change = changeOf(args.command);

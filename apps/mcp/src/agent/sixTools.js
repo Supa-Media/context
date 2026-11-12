@@ -28,6 +28,7 @@ import { toolsForSession } from "../tools/advertised.js";
 import { actionArguments } from "../orient/manual.js";
 import { COMMAND_SEND_ACTIONS } from "./commandTools.js";
 import { COMPUTER_SEND_ACTIONS } from "../machines/texActions.js";
+import { SETTINGS_SEND_ACTIONS } from "./settingsActions.js";
 import { TEXTS_ID_PREFIX } from "../tools/texts.js";
 
 /** The six, in the order they are listed. */
@@ -80,6 +81,8 @@ export const ASSISTANT_SEND_ACTIONS = {
   ...Object.fromEntries(Object.entries(COMMAND_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
   // Their own computers, set up from a text (`machines/texActions.js`): offered only when the turn holds the tool.
   ...Object.fromEntries(Object.entries(COMPUTER_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
+  // Their settings and who can use each saved login, changed from a text (`settingsTools.js`).
+  ...Object.fromEntries(Object.entries(SETTINGS_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
 };
 
 /**

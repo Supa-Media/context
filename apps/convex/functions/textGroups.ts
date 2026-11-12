@@ -350,6 +350,9 @@ async function singleWorkspaceTurn(
       hashedRefreshToken: args.hashedRefreshToken,
       expiresAt: args.expiresAt,
       participants: others.length,
+      // The sender's own account holds this grant, so the turn is their own tag: a login they kept for themselves, and
+      // changing who has one by text, count here as on the invited path (`ownTagToken`; missed in #3205, 2026-11-12).
+      ownTag: true,
     });
     if (!ok) return { status: "no_shared" };
   }

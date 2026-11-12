@@ -144,8 +144,9 @@ export const operationValidator = v.union(
   }),
   // "Allow" on an AI the person said no to: it joins the AIs that may use the key.
   v.object({ kind: v.literal("allow"), entryId: v.string(), userId: v.string(), groups: groupsArg, clientId: v.string() }),
-  // Give a key to a person (user id), a group (`@name`) or the whole
-  // workspace (`*`), or change how much of it they get.
+  // Give a key to a person (user id), a group (`@name`), the whole
+  // workspace (`*`) or one Tex group chat (`#chat:<key>`, to use only), or
+  // change how much of it they get.
   v.object({
     kind: v.literal("give"),
     entryId: v.string(),
@@ -154,6 +155,8 @@ export const operationValidator = v.union(
     anyKey: v.boolean(),
     to: v.string(),
     level: shareLevelValidator,
+    /** A group chat's name, for a key given to that chat by text (`#chat:<key>`, `gatewayRoutes/vaultText.ts`). */
+    label: v.optional(v.string()),
   }),
   // Take a key back from `to`, or hand it back (`to` is the person). `still`
   // is every member's `@names`, so whoever no longer has the key loses their

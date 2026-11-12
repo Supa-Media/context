@@ -95,9 +95,9 @@ export const CAPABILITIES = Object.freeze([
   },
   {
     name: "Saved logins, keys and cards (the vault)",
-    actions: ["manage.vault_add", "manage.vault_share", "manage.vault_view", "send.fill_login", "send.fill_card", "send.api"],
-    texts: "send the link where they save a login, key or card; sign in yourself with a saved login you never see (a site that signs in by email and a one-time code needs no saved login: they text you the code and you type it); fill a saved card after asking by text for each purchase, naming the card, total and site, on their plain yes; call an API with a saved key (the first use by each AI is approved in the Context app, never by text); send a private link where they see a saved entry; after they save a login you sent the link for, carry on with the task by yourself",
-    group: "logins and cards saved for this chat or the whole workspace, and ones the person who tagged you saved for themselves (on their own tag only), never typed in the chat; send a save link here in one short line, without asking which vault: its page offers this chat, the whole workspace (showing who here is in it, with Add for anyone who isn't) or just them, and once it's saved you carry on in the chat by yourself; a card is filled on the tagger's plain yes in the chat; a sign-in by emailed code needs no saved login",
+    actions: ["manage.vault_add", "manage.vault_share", "manage.vault_view", "send.fill_login", "send.fill_card", "send.api", "send.vault_access"],
+    texts: "say who can use each saved login, key or card (only them, one group chat, everyone in a workspace, or people by name) and change it when the person who saved it asks (send vault_access: give it to a group chat, a whole shared workspace or a member by @handle, take it back, keep it to themselves, or cut every AI off it), then say who has it now; send the link where they save a login, key or card; sign in yourself with a saved login you never see (a site that signs in by email and a one-time code needs no saved login: they text you the code and you type it); fill a saved card after asking by text for each purchase, naming the card, total and site, on their plain yes; call an API with a saved key (the first use by each AI is approved in the Context app, never by text); send a private link where they see a saved entry; after they save a login you sent the link for, carry on with the task by yourself",
+    group: "logins and cards saved for this chat or the whole workspace, and ones the person who tagged you saved for themselves (on their own tag only), never typed in the chat; whoever saved one can give it to this chat, the workspace or a person, or take it back, by asking you here (send vault_access); send a save link here in one short line, without asking which vault: its page offers this chat, the whole workspace (showing who here is in it, with Add for anyone who isn't) or just them, and once it's saved you carry on in the chat by yourself; a card is filled on the tagger's plain yes in the chat; a sign-in by emailed code needs no saved login",
     guest: "only a login saved for this chat or shared with it, or one the person who tagged you saved for themselves",
     cant: [
       {
@@ -109,8 +109,9 @@ export const CAPABILITIES = Object.freeze([
         },
       },
       { where: "everywhere", what: "use a login on a site other than the one it was saved for", workaround: { kind: "vault_env", text: "send manage vault_add's link with that other site, so they save it there too" } },
-      { where: "everywhere", what: "share a login saved in a personal workspace", workaround: { kind: "vault_env", text: "they save it in the shared workspace (manage vault_add with that context), then you send manage vault_share's link" } },
-      { where: "everywhere", what: "delete a saved key, or cut off one AI or every AI from using it", workaround: { kind: "app_path", text: "Context app → Settings → Vault" } },
+      { where: "everywhere", what: "share a login saved in a personal workspace", workaround: { kind: "vault_env", text: "they save it in the shared workspace (manage vault_add with that context), then you give it with send vault_access" } },
+      { where: "everywhere", what: "change who has a login someone else saved", workaround: { kind: "words", text: "whoever saved it asks you, or changes it in Context app → Settings → Vault" } },
+      { where: "everywhere", what: "delete a saved key, or cut off one particular AI (send vault_access cuts off every AI)", workaround: { kind: "app_path", text: "Context app → Settings → Vault" } },
       { where: "group", what: "use someone's own saved login or card", workaround: { kind: "words", text: "they text you on their own for it, or save it in the workspace's vault and give it to everyone there" } },
       { where: "guest", what: "pay with a card when whoever tagged you isn't on Context", workaround: { kind: "words", text: "someone here who is on Context tags you to pay, and their own plain yes allows it" } },
       {
@@ -334,9 +335,9 @@ export const CAPABILITIES = Object.freeze([
   },
   {
     name: "How you talk, and your settings",
-    actions: ["command.tex_settings", "command.tex_instructions"],
-    texts: "there is no settings menu: they tell you in their own words how to talk (\"no emoji\", \"shorter answers\", \"call me Sam\", \"always in French\") and you change it on a lasting request; you can show what's set, put back the last change (\"undo the change\") or clear it",
-    group: "the same for this chat, anyone here may change it, and you say who did",
+    actions: ["command.tex_settings", "command.tex_instructions", "send.setting"],
+    texts: "there is no settings menu, and you know every setting: send tex_settings reads them all (how you talk, check-ins and quiet hours, texts from their other AIs, the overnight About me rewrite, the daily tidy, sharing with the team, features on early, the workspaces they reach, and each saved login with who can use it); they tell you in their own words how to talk (\"no emoji\", \"shorter answers\", \"call me Sam\", \"always in French\") and you change it on a lasting request, put back the last change (\"undo the change\") or clear it; check-ins, quiet hours, texts from their other AIs, the overnight rewrite and the tidy change with send setting when they ask",
+    group: "the same for how you talk in this chat, anyone here may change it, and you say who did; send tex_settings here reads this chat's instructions, whose mail is shared here, the workspaces it reaches and the saved logins that work here",
   },
   {
     name: "When you speak up in a group",
