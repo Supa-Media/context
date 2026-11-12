@@ -273,3 +273,39 @@ Newest first. One line per pull request that changed the drawing.
   tuned on its own set, sent back at most twice; still off in production.
 - 2026-11-05: first drawing, from main at `d88e2bc` (Dev2's ask).
 - 2026-11-11: Tex settings retired (Dev2, `docs/decisions/texting-assistant/retire-settings.md`). Gone from the Worker: the "Tex, settings" menu (1:1 and group), quick-pick words ("Tex, no emoji"), progress-updates and speak-up choices, the group's first-tag style question and its held message (`groupChoose.ts`, `gengask`), and the Worker's style copy (`gstyle`): `isItForTex` marks only commands and sharing-with-the-devs words as code's, and the judge is told follow-along in every group (`groupStyle.ts`). Gone from the gateway: `tex_updates_set` and `chat_engagement_set`; `tex_instructions_set` gains `undo`, so "undo the change" is the model's. A new person's first text, answered by setup with the handle question, is named as still unanswered in the `setup` told line (onboarding skill step 0), and the skill reads mail live.
+
+## Proposed, not built: one record per chat
+
+A proposal (Dev2's design ask, 2026-11-12), drawn here so the change can be
+seen against sections 1 to 3. It sits after the rule on purpose: agents read
+only sections 1 to 3, and nothing below is how Tex works today. Design page:
+https://claude.ai/artifact/QEWzwyv65r4RZDMRWNQD4Y. If chosen, sections 1 to 3
+are redrawn and this section is removed in the same pull request.
+
+```mermaid
+flowchart TB
+  T([A text, a reaction, a job report, a note change]) --> DO
+  subgraph DO["The chat's Durable Object: person:&lt;workspaceId&gt; or chat:&lt;groupKey&gt;, one writer"]
+    L[(Ledger: the record, append-only, sequence and turn id per entry)]
+    C[(Copy: the chat's notes, members, facts with a level per row<br/>rebuilt from the notes, never the record)]
+    R[(Reads index over the ledger's tool results<br/>source, level, who asked)]
+    V[(Next prompt, built when a turn ends<br/>with what it depends on, refreshed on change)]
+    WL{{Write lock, one call at a time}}
+    L --> R
+    C --> V
+    L --> V
+    R --> V
+  end
+  N[(Workspace objects: the notes)] -- per-note live push --> C
+  V --> G{{"factsFor(room): one level gate in code, at the model door"}}
+  G --> P["One prompt: system, tools, chat memory and facts,<br/>the chat as turns appended, then a per-text block"]
+  P --> J["Judge: a fork of the prompt<br/>respond, react or quiet; which running turn"]
+  P --> FD["Front door, Haiku 5.5, tools<br/>up to 3 turns at once, each adds a Meanwhile block per round"]
+  FD --> WL
+  FD --> F["Checks: forks of the same prompt, one last instruction<br/>reviewer, classifier, hand-back, mail, card<br/>plus code checks for the mechanical ones"]
+  FD --> JOB["Jobs: the same prompt and reads index, plus a brief"]
+  F --> S([Send])
+  S --> L
+  FD --> L
+  JOB --> L
+```
