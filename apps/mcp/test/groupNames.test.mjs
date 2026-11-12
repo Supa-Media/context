@@ -171,7 +171,7 @@ test("a guest who tagged Tex is named by label and number, and only a label that
  * fails "a kept name sits beside the label on every line"; dropping the `here` check in `name_guest` fails
  * "name_guest keeps only a guest of this chat".
  */
-import { guestNameEntry, guestNamesFrom, guestNameTool, NAME_GUEST, readGuestNames } from "../src/agent/groupGuestNames.js";
+import { guestNameEntry, guestNamesFrom, guestNamesWithAbout, guestNameTool, namesInAbout, NAME_GUEST, readGuestNames } from "../src/agent/groupGuestNames.js";
 import { chatLines } from "../src/agent/groupTurn.js";
 import { groupQuestion } from "../src/agent/groupLedgerHistory.js";
 
@@ -234,4 +234,32 @@ test("guest names read newest first, one per guest, never a bad label", () => {
     guestNamesFrom([guestNameEntry("guest-6ce3", "Boba"), guestNameEntry("guest-6ce3", "Old"), { kind: "name", guest: "+15555550123", name: "Num" }, { kind: "note", guest: "guest-1111", name: "X" }]),
     [{ guest: "guest-6ce3", name: "Boba" }],
   );
+});
+
+/*
+ * Names the about note already gave (Dev2, 2026-11-12: after #3218 a chat whose about note said who each guest was
+ * still showed bare labels, since nothing had called name_guest). Sabotage record (2026-11-12): `guestNamesWithAbout`
+ * returning the ledger's names alone fails "an about note's names are used and kept".
+ */
+test("an about note's names are read for guests here, the last mention winning, never a non-name", () => {
+  const about = "Saved: guest-66ef is Instinct, and guest-6ce3 is Boba (guest-66ef said so). guest-1a2b: Not confirmed. guest-9999 is Zed. guest-77aa is Jo's brother. Later: Bubbles (guest-6ce3) after a rename.";
+  assert.deepEqual(namesInAbout(about, ["guest-66ef", "guest-6ce3", "guest-1a2b", "guest-77aa"]), [
+    { guest: "guest-66ef", name: "Instinct" },
+    { guest: "guest-6ce3", name: "Bubbles" },
+  ]);
+  assert.deepEqual(namesInAbout("", ["guest-66ef"]), []);
+  assert.deepEqual(namesInAbout("guest-66ef is Instinct", []), []);
+});
+
+test("an about note's names are used and kept in the ledger, never over a name the chat kept", async () => {
+  const appended = [];
+  const ledger = { append: async (chat, entries) => appended.push({ chat, entries }) };
+  const group = { key: "c3".repeat(32), guests: ["guest-66ef", "guest-6ce3"] };
+  const names = await guestNamesWithAbout(Promise.resolve([{ guest: "guest-6ce3", name: "Boba" }]), Promise.resolve("guest-66ef is Instinct; guest-6ce3 is Bubbles"), group, ledger);
+  assert.deepEqual(names, [{ guest: "guest-6ce3", name: "Boba" }, { guest: "guest-66ef", name: "Instinct" }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].chat, group.key);
+  assert.deepEqual(appended[0].entries.map((entry) => [entry.kind, entry.guest, entry.name, entry.by]), [["name", "guest-66ef", "Instinct", "about"]]);
+  assert.deepEqual(await guestNamesWithAbout(Promise.reject(new Error("x")), Promise.resolve(null), group, ledger), []);
 });

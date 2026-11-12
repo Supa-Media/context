@@ -165,6 +165,11 @@ picked a roster of names kept on the chat itself.
   the name beside the label, with the number: `@guest-6ce3 (Boba, +1 …)`.
 - The judge reads them as a fact (`textsDecide.js` `nowFacts`), so its
   transcript's labels are named too.
+- A chat whose about note already said who a guest is (from before names
+  were kept) gets those names too: a turn reads "guest-1a2b is Sam",
+  "guest-1a2b (Sam)" and "Sam (guest-1a2b)" there for a guest the ledger
+  has no name for, and keeps them in the ledger (`by: "about"`), so the
+  judge reads them as well (`namesInAbout`, `guestNamesWithAbout`).
 - Test: `apps/mcp/test/groupNames.test.mjs` ("a kept name sits beside the
   label on every line"; "name_guest keeps only a guest of this chat"), both
   sabotaged; `apps/mcp/test/textsDecide.test.mjs` ("the judge is told the

@@ -43,7 +43,7 @@ import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.j
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timedTurn, updateGroupPage } from "./groupMemoryNote.js";
 import { groupPageCopied } from "./groupPageCopy.js";
 import { historyFromLedger, readGroupLedgerConversation, startOnLedger } from "./groupLedgerHistory.js";
-import { readGuestNames } from "./groupGuestNames.js";
+import { guestNamesWithAbout, laterNames, readGuestNames } from "./groupGuestNames.js";
 import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
@@ -287,7 +287,8 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   // 2026-11-06: 480 ms of ledger after the notes' wait). Settled either way, so a failure waits to be seen where it was.
   // The names the chat gave its guests, beside the history they label (`groupGuestNames.js`).
   const namesRead = ledger === null ? Promise.resolve([]) : readGuestNames(ledger, group.key);
-  const early = copied.then((yes) => (yes ? readGroupLedgerConversation(ledger, group.key, { names: namesRead }) : null)).then((turns) => ({ turns }), (error) => ({ error }));
+  const guestNamed = laterNames(); // with the about note's, once it is read (`guestNamesWithAbout`)
+  const early = copied.then((yes) => (yes ? readGroupLedgerConversation(ledger, group.key, { names: guestNamed.promise }) : null)).then((turns) => ({ turns }), (error) => ({ error }));
   const [kept] = await Promise.all([readRecord(store, group), openHome(store, group)]);
   // A home's notes by their names now, or the old ones the last lookup found them under (`homeNames.js`).
   const named = homeNamesOf(group, names.key, kept);
@@ -342,12 +343,13 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
     group.aboutPath = path;
     return readAboutUs(group.home, seen);
   })();
+  guestNamed.settle(guestNamesWithAbout(namesRead, aboutRead, group, ledger));
   // A home's open jobs, `jobs.md` as a person's Tex keeps `tex/jobs.md` (`chatJobs.js`).
   const jobsRead = group.home ? (direct ? directNote(group, direct, "jobs") : Promise.resolve(null)).then((held) => readChatJobs(group.home, held)) : Promise.resolve(null);
   // Each of the five timed apart (2026-11-06: together they held a group turn 0.9 s at the median, 6.7 s at p95).
   const [memory, playbook, voice, aboutUs, jobs] = await time.reads(() => Promise.all([time.record(() => record), time.playbook(() => readPlaybook(inFirstReach(dispatch, group), group)), time.voice(() => voiceRead), time.about(() => aboutRead), time.jobs(() => jobsRead)]));
   const turns = Array.isArray(memory?.turns) ? memory.turns.filter(isTurn) : [];
-  const guestNames = await namesRead;
+  const guestNames = await guestNamed.promise;
   Object.assign(group, { playbook, voice, aboutUs, jobs, ...(guestNames.length > 0 ? { guestNames } : {}) });
   const fromLedger = await time.ledger(() => historyFromLedger(ledger, group, turns, { copied: memory?.copied === true, writes: dispatch !== null && kept.onPage === ON_PAGE, early }));
   if (fromLedger !== null) return fromLedger;
