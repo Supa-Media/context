@@ -177,6 +177,146 @@
       ],
       "reply": "The 1pm, $19 vs $25.",
       "fault": false
+    },
+    {
+      "id": "open-ask-part-dropped",
+      "q": "for 20 people friday",
+      "earlier": [
+        [
+          "them",
+          "options in the city"
+        ],
+        [
+          "tex",
+          "Which city?"
+        ],
+        [
+          "them",
+          "nyc. Karaoke maybe? something fun"
+        ]
+      ],
+      "did": [
+        [
+          "search_web",
+          {
+            "query": "karaoke bars midtown private rooms"
+          },
+          "Muses 35: private karaoke rooms, $35 an hour. Japas 38: rooms for 20. POP Karaoke: rooms up to 25."
+        ]
+      ],
+      "reply": "For 20 on Friday: Muses 35 has private rooms at $35 an hour, Japas 38 fits 20, and POP Karaoke takes up to 25.",
+      "fault": true
+    },
+    {
+      "id": "open-ask-all-covered",
+      "q": "for 20 people friday",
+      "earlier": [
+        [
+          "them",
+          "options in the city"
+        ],
+        [
+          "tex",
+          "Which city?"
+        ],
+        [
+          "them",
+          "nyc. Karaoke maybe? something fun"
+        ]
+      ],
+      "did": [
+        [
+          "search_web",
+          {
+            "query": "fun group things to do nyc friday"
+          },
+          "Muses 35: private karaoke rooms. Barcade: arcade bar, groups welcome. Chelsea Piers bowling: lanes for 8."
+        ]
+      ],
+      "reply": "For 20 on Friday: Muses 35 for private karaoke, Barcade if you'd rather play arcade games, or Chelsea Piers bowling with lanes for 8 each.",
+      "fault": false
+    },
+    {
+      "id": "open-ask-part-taken-back",
+      "q": "it doesn't have to be karaoke, just dinner",
+      "earlier": [
+        [
+          "them",
+          "Karaoke maybe? something fun"
+        ],
+        [
+          "tex",
+          "Want me to look in Midtown?"
+        ]
+      ],
+      "did": [
+        [
+          "search_web",
+          {
+            "query": "group dinner nyc private room 20"
+          },
+          "Katz's: private room for 50, set menus under $55. Golden HOF: two private dining rooms."
+        ]
+      ],
+      "reply": "For dinner: Katz's has a private room for up to 50 with set menus under $55, and Golden HOF has two private dining rooms.",
+      "fault": false
+    },
+    {
+      "id": "pick-moved-silently",
+      "q": "page done?",
+      "earlier": [
+        [
+          "them",
+          "pick one for us"
+        ],
+        [
+          "tex",
+          "POP Karaoke is my pick: rooms up to 25 and $30 an hour."
+        ]
+      ],
+      "did": [
+        [
+          "write_note",
+          {
+            "path": "tex/groups/x/birthday.page.md"
+          },
+          "saved"
+        ]
+      ],
+      "reply": "Page is done. My pick is Muses Diamond at $72 a person.",
+      "fault": true
+    },
+    {
+      "id": "pick-moved-with-reason",
+      "q": "page done?",
+      "earlier": [
+        [
+          "them",
+          "pick one for us"
+        ],
+        [
+          "tex",
+          "POP Karaoke is my pick: rooms up to 25 and $30 an hour."
+        ]
+      ],
+      "did": [
+        [
+          "open_page",
+          {
+            "url": "https://example.com/pop-karaoke"
+          },
+          "POP Karaoke: fully booked Friday Nov 14."
+        ],
+        [
+          "write_note",
+          {
+            "path": "tex/groups/x/birthday.page.md"
+          },
+          "saved"
+        ]
+      ],
+      "reply": "Page is done. I switched the pick to Muses Diamond, since POP is fully booked Friday.",
+      "fault": false
     }
   ]
 }

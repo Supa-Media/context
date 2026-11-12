@@ -1,5 +1,6 @@
 /** Builds the reply that gets texted, writes it to the chat's ledger, and saves the exchange. One step of Tex's turn (`../texEntryPoint.js`). */
 
+import { openAskBefore } from "../openAsk.js";
 import { json } from "../../http/responses.js";
 import { offerLine } from "../../tools/offerFor.js";
 import { advisorRequest } from "../advisor.js";
@@ -99,7 +100,7 @@ export async function sendTheReply(t) {
     ...(steer !== null && steer.taken.length > 0 ? { steered: steer.taken } : {}), // the Worker drops these from its queue
     ...(verbatim.length > 0 || offerText ? { verbatim: [...verbatim, ...(offerText ? [offerText] : [])] } : {}),
     ...(offerText ? { askFor: ledger.offered.who } : {}), // the Worker takes only their 👍 or yes
-    ...startedJobs(background, ledger.untrusted === true, { heard: heardWords(attachments), sent: sentLine(attachments, attached) }), // the Worker runs these (`background.js`), asked their words, voice and files included (`heardWords.js`)
+    ...startedJobs(background, ledger.untrusted === true, { heard: heardWords(attachments), sent: sentLine(attachments, attached), asked: openAskBefore(history, question, { now: Date.now() }) }), // the Worker runs these (`background.js`), asked their words, voice and files included (`heardWords.js`)
     ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), ...(offers.length > 0 ? { offers, ...hubField(offers, chatHubUrl(env, session, group)) } : {}), // choices, offers: `outgoingPictures.js`; `hub`: where "what I'm working on" points (`hubLinks.js`)
     ...(ledger.vaultLink === true && group === null ? { vaultWatch: true } : {}), // the Worker watches for the save (`vaultSaved.js`)
     provider: turn.provider,
