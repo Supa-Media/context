@@ -66,6 +66,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     people: [...new Set(handles.values())].filter(Boolean),
     // Each account's name beside its handle, so "@jo" is known as the "Jo Rivers" the notes name (2026-11-04).
     ...(named(asked.names).length > 0 ? { names: named(asked.names) } : {}),
+    // Everyone else here by their label, never a number, and how many people the chat holds besides Tex, so "who is in
+    // this chat" is answered from the whole list (Dev2, 2026-11-12).
+    ...(guestLabels(people, labels).length > 0 ? { guests: guestLabels(people, labels) } : {}),
+    size: people.length,
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
   };
@@ -236,6 +240,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
 }
 
 /** The chat's people with a name on their account, by handle. */
+/** The labels of the people here with no account the control plane linked, each once, in the chat's order. */
+function guestLabels(people: string[], labels: Map<string, string>): string[] {
+  return [...new Set(people.flatMap((phone) => (labels.has(phone) ? [labels.get(phone) as string] : [])))];
+}
+
 function named(names: { handle: string; name?: string }[] | undefined): { handle: string; name: string }[] {
   return (names ?? []).filter((entry) => entry.handle !== "" && typeof entry.name === "string" && entry.name !== "").map(({ handle, name }) => ({ handle, name: name as string }));
 }

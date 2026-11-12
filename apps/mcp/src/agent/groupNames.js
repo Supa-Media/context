@@ -46,6 +46,51 @@ export function namesOf(raw, handles) {
   return names;
 }
 
+/** A guest's label as the control plane makes one (`apps/convex/functions/lib/textGroupGuests.ts` `guestLabel`). */
+const GUEST = /^guest-[0-9a-f]{4}$/;
+/** Most people in a chat Tex answers in (`apps/agent/src/sendblueGroups.ts` `MAX_GROUP_LIST`). */
+const MAX_SIZE = 64;
+
+/** The labels of the people here with no linked account, from the Worker's body: labels only, each once. */
+export function guestsOf(raw) {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.slice(0, MAX_NAMES).filter((label) => typeof label === "string" && GUEST.test(label)))];
+}
+
+/** How many people the chat holds besides Tex, never fewer than are named; null when the Worker didn't say. */
+export function sizeOf(raw, named) {
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > MAX_SIZE) return null;
+  return Math.max(raw, named);
+}
+
+/**
+ * Everyone in the chat, for "who is in this chat" (Dev2, 2026-11-12: Tex said it couldn't see the member list):
+ * each account by handle and name, each other person by label, never a number, and how many people that is.
+ */
+export function rosterLine(group) {
+  const size = typeof group?.size === "number" ? group.size : null;
+  if (size === null) return "";
+  const names = new Map((Array.isArray(group?.names) ? group.names : []).map(({ handle, name }) => [handle, name]));
+  const people = Array.isArray(group?.people) ? group.people : [];
+  const guests = Array.isArray(group?.guests) ? group.guests : [];
+  const accounts = people.map((handle) => (names.has(handle) ? `@${handle} (${names.get(handle)})` : `@${handle}`));
+  const unlisted = Math.max(0, size - people.length - guests.length);
+  const parts = [
+    ...accounts,
+    ...guests.map((label) => `${label}, on no Context account linked to the number they text from`),
+    ...(unlisted > 0 ? [`${unlisted} more ${unlisted === 1 ? "person" : "people"} you have no name for`] : []),
+  ];
+  return (
+    `Everyone in this chat besides you, ${size} ${size === 1 ? "person" : "people"}, the whole list, read from the chat itself this turn: ${parts.join("; ")}. ` +
+    "When asked who is here, answer from this list; you can see it. " +
+    (guests.length > 0
+      ? "A guest label is how you know someone with no linked account, never a name to say: call them by the name the chat's about note gives them, or ask who they are. " +
+        "When someone here says who a guest is, add it to the chat's about note, label and name, like \"guest-1a2b is Sam, Jo's brother (Jo said so)\". " +
+        "Someone with a Context account who shows here as a guest has not linked this number to it: they can text you once from it, on their own, to link it. "
+      : "")
+  );
+}
+
 /** "@jo (Jo Rivers)", or "@jo" when the account has no name. */
 export function taggerLabel(group) {
   const name = (group?.names ?? []).find((entry) => entry.handle === group?.from)?.name;
@@ -57,6 +102,7 @@ export function whoIsWhoLine(group) {
   const names = Array.isArray(group?.names) ? group.names : [];
   const known = names.length > 0 ? `People here by name: ${names.map(({ handle, name }) => `@${handle} is ${name}`).join("; ")}. ` : "";
   return (
+    rosterLine(group) +
     known +
     "Notes may name people by full name, first name or nickname: the person who tagged you is the one asking, so never tell them they would know, or to ask themselves. "
   );

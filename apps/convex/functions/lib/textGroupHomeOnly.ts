@@ -21,7 +21,7 @@ import { phoneSignInPaused } from "./emailProof";
 import { ensureGroupClient } from "./textGroupClient";
 import { keepEarlierToken } from "./controlPlane/earlierTokens";
 import { ensureChatHome, chatHomeOf } from "./textGroupHome";
-import { handleOf, linkedUser, phoneAccountOf } from "./textGroupAccounts";
+import { chatPerson, handleOf, linkedUser, phoneAccountOf } from "./textGroupAccounts";
 import { syncHomePhones } from "./guestPhones";
 import { guestLabel } from "./textGroupGuests";
 import { pinnedContextWorkspace } from "./pinnedContext";
@@ -54,7 +54,7 @@ export interface HomeOnlyReady {
   timeZone: string;
   handle: string;
   minted: boolean;
-  names: { phone: string; handle: string }[];
+  names: { phone: string; handle: string; name?: string }[];
   guests: { phone: string; label: string }[];
   guestTagger?: string;
   /** The slugs of the shared workspaces the chat reaches this turn, by name (`lib/textGroupReach.ts`); none when anyone here has no account. */
@@ -75,7 +75,7 @@ export async function homeOnlyTurn(
 ): Promise<HomeOnlyReady | null> {
   const pinned = await pinnedContextWorkspace(ctx);
   if (pinned === null) return null;
-  const names: { phone: string; handle: string }[] = [];
+  const names: { phone: string; handle: string; name?: string }[] = [];
   const guests: { phone: string; label: string }[] = [];
   const people: Id<"users">[] = [];
   for (const phone of others) {
@@ -89,7 +89,8 @@ export async function homeOnlyTurn(
       continue;
     }
     if (!people.includes(userId)) people.push(userId);
-    names.push({ phone, handle: await handleOf(ctx, userId) });
+    // Each account's name beside its handle, so the turn can say who is here (`apps/mcp/src/agent/groupNames.js`).
+    names.push(await chatPerson(ctx, phone, userId));
   }
   // The sponsor brought Tex in and pays: set once (`textGroupUsage.ts`). Before the row has one, whoever is here with an account.
   const sponsor = chat.sponsorId ?? chat.boundBy ?? senderUser ?? people[0];

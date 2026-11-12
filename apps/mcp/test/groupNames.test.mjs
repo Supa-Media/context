@@ -43,3 +43,46 @@ test("a name can't carry an instruction", () => {
   assert.deepEqual(namesOf([{ handle: "jo", name: "!!!" }], ["jo"]), [], "nothing left is no name");
   assert.deepEqual(namesOf("nope", ["jo"]), []);
 });
+
+/*
+ * Who is in this chat (Dev2, 2026-11-12): "Tex, who is in this groupchat" got
+ * "I can't see the member list", in a new chat with a sister whose number was a
+ * guest. The turn was never told the chat's whole list: only accounts, and only
+ * by handle in a line about email. Now it is told everyone, guests by label.
+ *
+ * Sabotage record (2026-11-12): `rosterLine` returning "" fails "everyone here
+ * is listed, guests by label"; `whoIsWhoLine` dropped from `guestPrompt` fails
+ * "a chat with a guest is told its roster too".
+ */
+import { guestsOf, rosterLine, sizeOf } from "../src/agent/groupNames.js";
+
+
+test("everyone here is listed, guests by label, with how many", () => {
+  const group = groupOf({
+    group: { key: "c3".repeat(32), members: "d4".repeat(32), from: "jo", people: ["jo"], names: [{ handle: "jo", name: "Jo Rivers" }], guests: ["guest-1a2b"], size: 2 },
+  });
+  assert.deepEqual(group.guests, ["guest-1a2b"]);
+  assert.equal(group.size, 2);
+  const line = rosterLine(group);
+  assert.match(line, /2 people, the whole list/);
+  assert.match(line, /@jo \(Jo Rivers\)/);
+  assert.match(line, /guest-1a2b, on no Context account linked/);
+  assert.match(line, /add it to the chat's about note/);
+  assert.match(groupPrompt(group, "acme"), /2 people, the whole list/);
+});
+
+test("a chat with a guest is told its roster too", () => {
+  const group = { key: "c3".repeat(32), members: "d4".repeat(32), from: "jo", people: ["jo"], chat: [], guests: ["guest-1a2b"], size: 2, guestChat: true, guestTagger: false, home: null };
+  assert.match(groupPrompt(group, "acme"), /guest-1a2b/);
+});
+
+test("a roster takes only labels and a sane count, and says nothing without one", () => {
+  assert.deepEqual(guestsOf(["guest-1a2b", "guest-1a2b", "+15551234567", "guest-zzzz", 3]), ["guest-1a2b"]);
+  assert.equal(sizeOf(1, 3), 3, "never fewer than are named");
+  assert.equal(sizeOf(0, 1), null);
+  assert.equal(sizeOf(500, 1), null);
+  assert.equal(sizeOf("2", 1), null);
+  assert.equal(rosterLine({ people: ["jo"] }), "");
+  assert.match(rosterLine({ people: ["jo"], size: 3 }), /2 more people you have no name for/);
+  assert.doesNotMatch(rosterLine({ people: ["jo"], size: 1 }), /guest label/);
+});

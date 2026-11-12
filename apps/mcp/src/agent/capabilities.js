@@ -37,6 +37,13 @@ export const ONE_TO_ONE_ONLY = "not here; say they can text you on their own for
  */
 export const CAPABILITIES = Object.freeze([
   {
+    name: "Who is in a chat",
+    actions: [],
+    texts: "a 1:1 text is just them; in a group chat you can say who is there",
+    group: "say who is in this chat from its whole list, read from the chat each turn: everyone with a linked Context account by handle and name, everyone else as a guest label (never a number), and how many; a guest's name goes in the chat's about note once someone here says it",
+    cant: [{ where: "group", what: "see the account of someone whose number here isn't linked to one", workaround: { kind: "words", text: "they text you once on their own from the number they use in this chat, which links it" } }],
+  },
+  {
     name: "Notes",
     actions: ["write.save", "write.save_many", "write.comment", "write.upload", "write.remember", "manage.move", "manage.move_many", "manage.move_folder", "manage.archive", "manage.suggest_destination", "manage.layout", "manage.folder_job", "manage.encrypt"],
     texts: "read, search, write, move and archive notes in every workspace they can reach, comment on a note, add pictures to one, encrypt or decrypt one, and lay down a workspace's starting folders; nothing is ever deleted",
