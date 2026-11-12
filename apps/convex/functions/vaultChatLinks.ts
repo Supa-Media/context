@@ -4,7 +4,8 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { internalQuery, mutation } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { getAuthUserId } from "./lib/signedIn";
 import { hashToken } from "./lib/crypto";
