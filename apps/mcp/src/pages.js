@@ -43,6 +43,44 @@ export function pageProblems(content) {
   ].join("\n");
 }
 
+/** A label slip has one reading only when its first part names something: a word, not just a number or a link. */
+const NAMES_SOMETHING = /\p{L}/u;
+
+/**
+ * A page with its one-reading slips fixed, and what was fixed. Today that is
+ * one slip: a row written `- Escape Room Madness | Team puzzle rooms` in a
+ * block whose rows need a label, which can only mean `- Escape Room Madness:
+ * Team puzzle rooms`. The Nov Babies job's page was refused for four such rows
+ * and saved only on its next try (2026-11-12). Anything with more than one
+ * reading (a chart with no numbers, a choice of one) is still refused by
+ * `pageProblems`, and every fix is said in the write's answer.
+ *
+ * @returns {{ content: string, fixed: string[] }}
+ */
+export function repairPage(content) {
+  if (typeof content !== "string") return { content, fixed: [] };
+  const { nodes } = parsePage(content);
+  const edits = [];
+  for (const node of nodes ?? []) {
+    if (node?.type !== "block" || !Array.isArray(node.items)) continue;
+    if (!(node.problems ?? []).some((problem) => /needs a label first/.test(problem?.message ?? ""))) continue;
+    for (const item of node.items) {
+      const [first, second] = item.parts ?? [];
+      if (item.label !== null || !second || !NAMES_SOMETHING.test(first.text) || first.text.length > 60) continue;
+      edits.push({ from: first.to, to: second.from, name: first.text });
+    }
+  }
+  if (edits.length === 0) return { content, fixed: [] };
+  let out = content;
+  for (const edit of [...edits].sort((a, b) => b.from - a.from)) out = `${out.slice(0, edit.from)}: ${out.slice(edit.to)}`;
+  return { content: out, fixed: edits.map((edit) => `"- ${edit.name.slice(0, 40)} | …" written as "- ${edit.name.slice(0, 40)}: …"`) };
+}
+
+/** The line a page write's answer carries for what `repairPage` fixed, or "". */
+export function repairedLine(fixed) {
+  return fixed.length > 0 ? `\npage: fixed ${fixed.length} row${fixed.length > 1 ? "s" : ""} so ${fixed.length > 1 ? "they" : "it"} could be drawn: ${fixed.join("; ")}` : "";
+}
+
 /** What `orient about: "pages"` answers: the page design skill, which ends with its stamp (`pageSkill.js`). */
 export const PAGE_GUIDE = PAGE_SKILL;
 

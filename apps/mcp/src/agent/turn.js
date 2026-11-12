@@ -48,6 +48,7 @@ import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
+import { causeOf, failureRecorder } from "./toolFailures.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
 import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
@@ -372,10 +373,10 @@ export async function runTurn(options) {
   const steps = [];
   /*
     Where the time went, in milliseconds and counts only: what a slow answer
-    is diagnosed from (the owner, 2026-10-07: "it was EXTREMELY slow"), and
-    nothing a log line could leak a note or a question through.
+    is diagnosed from (the owner, 2026-10-07: "it was EXTREMELY slow"); no note or question in it.
   */
-  const timing = { rounds: 0, modelMs: 0, toolMs: 0 };
+  const timing = { rounds: 0, modelMs: 0, toolMs: 0, failures: [] }; // `failures`: each failed tool call, logged as it happens (`toolFailures.js`)
+  const failed = failureRecorder(timing.failures, providerOptions, () => model);
   /*
     The same, in order: each model round and each tool call between them, by
     name, outcome and duration. What the turn log keeps, and what shows where
@@ -473,7 +474,7 @@ export async function runTurn(options) {
         error.timing = {
           rounds: timing.rounds + 1,
           modelMs: timing.modelMs + ms,
-          toolMs: timing.toolMs,
+          toolMs: timing.toolMs, failures: timing.failures,
           trace: [...trace, { kind: "model", model, ok: false, at: asked - began, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
         };
       }
@@ -566,6 +567,7 @@ export async function runTurn(options) {
         messages.push({ role: "tool", id: made.id, name: made.name, text: resolved.error, isError: true });
         escalate = true;
         tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: "no such action" });
+        failed({ tool: made.name, cause: "no_such_action", text: resolved.error, round });
         continue;
       }
       const call = { ...made, name: resolved.name, args: resolved.args };
@@ -587,12 +589,14 @@ export async function runTurn(options) {
         });
         escalate = true;
         tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
+        failed({ tool: call.name, cause: "not_offered", text: asSix ? "not one of the actions it was given" : "no such tool", round });
         continue;
       }
       const repeated = held.refusal(call.name, call.args); // a write already made, asked again after a send-back
       if (repeated !== null) {
         messages.push({ role: "tool", id: call.id, name: made.name, text: repeated, isError: true });
         tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "already done this turn" });
+        failed({ tool: call.name, cause: "repeated", text: "already done this turn", round });
         continue;
       }
       if (clock() - began >= toolBudgetMs) {
@@ -601,9 +605,11 @@ export async function runTurn(options) {
         trace.push({ kind: "tool", tool: call.name, ok: false, ms: 0 });
         messages.push({ role: "tool", id: call.id, name: made.name, text: OUT_OF_TIME, isError: true });
         tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "out of time" });
+        failed({ tool: call.name, cause: "out_of_time", text: "asked for after the turn's tool time was spent", round });
         continue;
       }
       let result;
+      let thrown = null; // what the tool threw, for the failure log only (`toolFailures.js`)
       const called = clock();
       // Which model made this call, for the usage breakdown. Per call, because
       // routing and fallback can change the model mid-turn.
@@ -633,6 +639,7 @@ export async function runTurn(options) {
           string goes to a third-party model.
         */
         if (error instanceof ProviderError) throw error;
+        thrown = error;
         const text =
           error instanceof ToolTimeout ? (call.name === BROWSE_TOOL ? BROWSE_TIMED_OUT : isMove(call.name) ? MOVE_TIMED_OUT : TOOL_TIMED_OUT) : "That call failed. Don't guess what it would have said.";
         result = { content: [{ type: "text", text }], isError: true };
@@ -647,7 +654,7 @@ export async function runTurn(options) {
       trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
-      if (failedCall(result)) escalate = true;
+      if (failedCall(result)) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }
       tell({ kind: "tool", name: call.name, args: call.args, ...(made.name !== call.name ? { as: { name: made.name, args: made.args } } : {}), ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result), ...(typeof result?.thinking === "string" && result.thinking ? { thinking: result.thinking } : {}) }); // the result, for the chat's ledger (`ledger.js`)
       messages.push({
         role: "tool",

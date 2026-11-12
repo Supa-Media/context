@@ -49,6 +49,18 @@ const SYSTEM = [
 export const COVER_RULE =
   "This picture is the COVER of a page Tex wrote: its first screen, texted with the page's link, which holds the detail. Judge it as a cover: the title and what is under it can be read, nothing is cut off, broken or empty. Step 5 does not apply to a cover.";
 
+/**
+ * The rows the map could not place, said beside the picture: each is marked
+ * "Not on the map" on the card, so its missing pin is the card telling the
+ * truth. Unsaid, the check refused every places card with a place that had
+ * no address (the Nov Babies chat, 2026-11-12: four redraws, 78 s).
+ */
+export function unpinnedRule(unpinned) {
+  const rows = (Array.isArray(unpinned) ? unpinned : []).filter((n) => Number.isInteger(n) && n > 0 && n <= 6);
+  if (rows.length === 0) return "";
+  return `\n\nRow${rows.length > 1 ? "s" : ""} ${rows.join(", ")} ${rows.length > 1 ? "are" : "is"} marked "Not on the map": the map could not place ${rows.length > 1 ? "them" : "it"}, and the card says so. A missing pin for ${rows.length > 1 ? "those rows" : "that row"} is expected, not a fault.`;
+}
+
 /** The verdict in a model's answer, or null when it gave none it can read. */
 export function readVerdict(text) {
   const match = typeof text === "string" ? text.match(/\{[\s\S]*\}/) : null;
@@ -64,13 +76,13 @@ export function readVerdict(text) {
 }
 
 /**
- * The check for one texted turn: `({ tool, template, picture }) => { send, critique } | null`,
+ * The check for one texted turn: `({ tool, template, picture, unpinned }) => { send, critique } | null`,
  * or null when this deployment has no model road for it. `picture` is `{ data, mediaType }`.
  */
 export function cardCheckFor({ question, config, request = requestViaGateway, metadata = {}, log = (line) => console.log(line) }) {
   if (!config) return null;
   const asked = String(question ?? "").slice(0, MAX_QUESTION_CHARS) || "(no words)";
-  return async ({ tool, template = "", picture }) => {
+  return async ({ tool, template = "", picture, unpinned = [] }) => {
     let verdict = null;
     try {
       const reply = await request(
@@ -80,7 +92,7 @@ export function cardCheckFor({ question, config, request = requestViaGateway, me
           messages: [
             {
               role: "user",
-              text: `THE PERSON'S TEXT\n\n${asked}\n\nTEX'S PICTURE (${tool}${template ? `, ${template} card` : ""}) is attached.${template === "page" ? `\n\n${COVER_RULE}` : ""}`,
+              text: `THE PERSON'S TEXT\n\n${asked}\n\nTEX'S PICTURE (${tool}${template ? `, ${template} card` : ""}) is attached.${template === "page" ? `\n\n${COVER_RULE}` : ""}${unpinnedRule(unpinned)}`,
               attachments: [{ name: "card.png", mediaType: picture.mediaType, data: picture.data }],
             },
           ],

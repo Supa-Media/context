@@ -66,7 +66,7 @@ const optionsCheck = (block, least, most) => [
 ];
 
 const labelled = (block, what) =>
-  block.items.filter((item) => item.label === null).map((item) => `"${item.parts[0].text.slice(0, 40)}" needs a label first: "- ${what}: ...".`);
+  block.items.filter((item) => item.label === null).map((item) => `"${item.parts[0].text.slice(0, 40)}" needs a label first, a name and a colon, like "- ${what}: ...".`);
 
 /**
  * Each kind: what it is for and how its lines read (told to Tex and to people

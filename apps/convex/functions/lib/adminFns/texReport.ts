@@ -23,6 +23,7 @@ import type { Doc } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { dayKey } from "../usage";
 import { texPerformance, texPerformanceValidator } from "./texPerformance";
+import { toolFailuresReport, toolFailuresValidator } from "./texToolFailures";
 
 /** Scores are kept 90 days and turns 30; the turn figures stop at 30. */
 export const TEX_REPORT_WINDOWS = [7, 30, 90] as const;
@@ -92,6 +93,8 @@ export const texReportValidator = v.object({
   }),
   /** Model rounds, answer times, the router and where the time goes. */
   performance: texPerformanceValidator,
+  /** Why tool calls failed over the whole window (kept 90 days, like the scores). */
+  toolFailures: toolFailuresValidator,
   reviewsTruncated: v.boolean(),
   /** Every scored conversation in the window, newest first. */
   reviews: v.array(reviewRow),
@@ -197,6 +200,7 @@ export async function texReportHandler(ctx: QueryCtx, args: { days?: number }, n
       models: [...models.entries()].map(([model, entry]) => ({ model, ...entry })).sort((a, b) => b.costMicroUsd - a.costMicroUsd || b.turns - a.turns),
       tools: [...tools.entries()].map(([tool, entry]) => ({ tool, ...entry })).sort((a, b) => b.calls - a.calls),
     },
+    toolFailures: await toolFailuresReport(ctx, days, now),
     reviewsTruncated: reviewRows.length > MAX_REVIEWS_READ,
     reviews,
   };
