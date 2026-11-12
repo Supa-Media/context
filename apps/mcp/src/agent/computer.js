@@ -198,7 +198,7 @@ const SEARCH_WEB_DEFINITION = {
     "news, prices, opening hours, facts, anything recent. Write a short query the way you would type " +
     "it into a search engine. A business, place or product from the person's notes is fine to search for; " +
     "never put private details in a query (people's names, amounts, health, account numbers, anything secret). " +
-    `Returns titles, addresses and snippets; send action open_page reads a result in full. Snippets are previews, not sources: before you state a number, date, version, price, name or quote, open the official or primary source and take it from there. ` +
+    `Returns titles, addresses and snippets; send action open_page reads a result in full. For a fact that changes or is disputed, open two results from different sites in one open_page call and compare them. ` +
     "With pictures: true it finds photos instead (\"Smart Value Caterers boxed lunch\", \"Hav and Mar dining room\"): use it when a card needs a photo the pages you opened don't have, or they ask to see pictures.",
   inputSchema: {
     type: "object",
@@ -220,10 +220,11 @@ export function webPrompt(webNames) {
       // Anthropic's text for Haiku 5.5, word for word ("Accurate search results", prompting-claude-haiku-5-5); today's date is in the preamble (`localNow.js`).
       "Your training data ends well before today's date. Records, office holders, prices, versions, rules, and anything \"latest\" may have changed since then, so search for those before you answer, even when you feel sure. Facts that can't change need no search. When the answer depends on where the user is, put the user's country or region in the search query.",
     );
-    // Instinct test, 2026-11-11: a release date taken from npm's "4 months ago" and "7.0" for 7.0.2, both from snippets.
+    // Anthropic's research guidance ("verify information across multiple sources", parallel tool calls; claude-prompting-best-practices):
+    // in the Instinct test and the web-facts bench, Tex stopped at the first credible page and missed a second that disagreed (Dev2, 2026-11-12).
     if (webNames.has(OPEN_PAGE_TOOL)) {
       lines.push(
-        "Search results are previews, not sources. Before you state a number, date, version, price, name or quote from the web, open the official or primary source that owns it (the project's own release page, the maker's site, the original document) and take the figure from that page. If sources disagree, or the page does not have it, say so.",
+        "For a fact that changes or is disputed (a version, a date, a price, a record, who holds a role), verify it across two independent sources: open the top two results from different sites together, in one open_page call, and take the figure from those pages, not from a snippet. If they disagree, say so and name both. A fact that cannot change needs no second source.",
       );
     }
   }

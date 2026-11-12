@@ -219,9 +219,10 @@ export async function runAgentSearchChecks(check) {
       "the system prompt tells the model it may search without asking, and to keep private details out of queries",
       systemText(ai.calls[0]).includes("Do it without asking") &&
         systemText(ai.calls[0]).includes("Never put private details from the person's notes in a query") &&
-        // Haiku 5.5's changing-facts text and the primary-source rule (Instinct test, 2026-11-11).
+        // Haiku 5.5's changing-facts text and the two-source rule (Dev2, 2026-11-12).
         systemText(ai.calls[0]).includes("even when you feel sure. Facts that can't change need no search.") &&
-        systemText(ai.calls[0]).includes("Search results are previews, not sources."),
+        systemText(ai.calls[0]).includes("verify it across two independent sources") &&
+        systemText(ai.calls[0]).includes("If they disagree, say so and name both."),
     );
 
     /* ---------------- a result does not vouch for what it mentions ---------------- */
