@@ -132,7 +132,7 @@ test("a group: tools, system and history read back across texts while the tagger
   assert.match(JSON.stringify(second.messages.at(-1)), /@bo tagged you/);
 });
 
-test("the threaded log ends on the hour mark, before the stretch's carried turns", () => {
+test("the threaded log takes the history's hour mark", () => {
   const messages = [{ role: "user", text: "(The chat's last 24 hours) ..." }, { role: "user", text: "now" }];
   const body = gatewayBody({ model: "anthropic/claude-sonnet-5", system: { stable: "s", context: "c" }, messages, tools: [], cachedThrough: 1 });
   assert.match(JSON.stringify(body.messages[0]), /"ttl":"1h"/);
