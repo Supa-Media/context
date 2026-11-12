@@ -50,6 +50,18 @@ export function callsTex(text: string, repliesToTex: boolean): boolean {
   return repliesToTex || NAMED.test(unquoted(text));
 }
 
+/** A literal "@Tex" tag (any case), as a word: never the bare name, which stays the judge's to read. */
+const TAGGED = /(?<![\w-])@tex(?![\w-])/i;
+
+/**
+ * A message that tags Tex with "@Tex" is always answered, even when the judge says silent or react (Dev2,
+ * 2026-11-12: "@Tex what's 18% of 250?" was judged silent). A narrow backstop, not a word rule: the bare name
+ * and everything else stay the judge's.
+ */
+export function tagsTex(text: string): boolean {
+  return TAGGED.test(unquoted(text));
+}
+
 /** "Tex, share my mail from me@work.example here", optionally "matching <a Gmail search>" (`chat-mail.md`). */
 const MAILBOX = "(?:my )?(?:work )?(?:mail|email|emails|inbox|gmail)";
 const HERE = "(?: (?:here|in here|(?:with|to|for|into) (?:this|the) (?:group )?(?:chat|group)|with everyone here|with us))?";
