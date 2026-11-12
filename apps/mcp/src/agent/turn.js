@@ -91,7 +91,8 @@ function roundsFor(maxRounds, cap = MAX_ROUNDS) {
 const WITHHELD_FROM_AGENT = new Set(["rotate_encryption_keys", "search", "fetch"]);
 
 /** The longest question this route accepts. */
-export const MAX_QUESTION_LENGTH = 8000;
+/** Above a text the log keeps whole (`log.js` `MAX_EVENT_TEXT`), with room for what the Worker adds to it. */
+export const MAX_QUESTION_LENGTH = 24_000;
 
 /**
  * How long one tool call may take before the model is told it failed.

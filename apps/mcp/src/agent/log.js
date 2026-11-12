@@ -26,7 +26,8 @@ import { TOLD } from "./conversation.js";
 
 export const LOG_PREFIX = ".context/agent/log/";
 export const MAX_EVENTS_PER_CALL = 50;
-export const MAX_EVENT_TEXT = 3_000;
+/** As long as the Worker keeps a text (`apps/agent/src/inbound.ts` `MAX_INBOUND_TEXT`): Sendblue sends at most 18,996 characters. */
+export const MAX_EVENT_TEXT = 20_000;
 export const READ_LIMIT = 400;
 export const READ_CHARS = 120_000;
 const READ_BATCH = 25;

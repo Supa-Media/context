@@ -21,7 +21,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { appendEvents, checkEvent, EventRefusal } from "../src/agent/log.js";
+import { appendEvents, checkEvent, EventRefusal, MAX_EVENT_TEXT } from "../src/agent/log.js";
 import { renderEvents } from "../src/agent/logRender.js";
 import { loggedTurn } from "../src/agent/loggedTurn.js";
 import { loggedQuestion } from "../src/agent/quoted.js";
@@ -61,7 +61,7 @@ test("only a person's reply carries quoted words, and the log keeps them", () =>
   assert.equal(kept.quoted, DRAFT);
   assert.equal(kept.replyTo, "1793890089884-000620");
   assert.throws(() => checkEvent(event({ from: { kind: "tex" }, quoted: "x" }), { chat: CHAT, now: NOW }), (error) => error instanceof EventRefusal && error.field === "quoted");
-  assert.throws(() => checkEvent(event({ quoted: "x".repeat(3_001) }), { chat: CHAT, now: NOW }), (error) => error instanceof EventRefusal && error.field === "quoted");
+  assert.throws(() => checkEvent(event({ quoted: "x".repeat(MAX_EVENT_TEXT + 1) }), { chat: CHAT, now: NOW }), (error) => error instanceof EventRefusal && error.field === "quoted");
 });
 
 test("the transcript shows what each reply answers, in full, under the reply", () => {

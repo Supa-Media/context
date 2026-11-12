@@ -8,7 +8,7 @@
  *
  * What it keeps, bounded on purpose since it is customer text held outside
  * the customer's storage:
- * - `ev:<id>` one event, its words capped at 3,000 characters, until the
+ * - `ev:<id>` one event, its words capped at 20,000 characters, until the
  *   gateway has it. At most `MAX_KEPT_EVENTS`, at most `MAX_KEPT_CHARS` of
  *   words in all, none older than a day: the oldest go first.
  */
@@ -16,6 +16,7 @@
 import { post, record, type Fetch } from "./clients";
 import { staleAsks } from "./decide";
 import type { InboxStorage } from "./inbox";
+import { cut, MAX_INBOUND_TEXT } from "./inbound";
 
 export type EventKind = "text" | "picture" | "file" | "link" | "reaction" | "ask" | "ask_settled" | "delivery";
 export type EventReason = "upload_failed" | "send_refused" | "held_newcomer" | "failed" | "timed_out" | "too_long";
@@ -47,7 +48,7 @@ type Kept = { e: TexEvent; w?: true };
 
 const PREFIX = "ev:";
 const SEQ = "evseq";
-export const MAX_EVENT_TEXT = 3000;
+export const MAX_EVENT_TEXT = MAX_INBOUND_TEXT;
 /** The most the outbox holds: a gateway that stays down this long loses the oldest (`apps/mcp/src/agent/log.js` `READ_LIMIT`, `READ_CHARS`). */
 export const MAX_KEPT_EVENTS = 400;
 export const MAX_KEPT_CHARS = 120_000;
@@ -86,8 +87,8 @@ export async function addEvent(storage: InboxStorage, event: Omit<TexEvent, "id"
   await storage.put(SEQ, seq);
   const at = Math.max(0, Math.floor(event.at));
   const id = `${String(at).padStart(13, "0")}-${String(seq % 1_000_000).padStart(6, "0")}`;
-  const text = event.text === undefined ? {} : { text: event.text.slice(0, MAX_EVENT_TEXT) };
-  const quoted = event.quoted === undefined || event.quoted === "" ? {} : { quoted: event.quoted.slice(0, MAX_EVENT_TEXT) };
+  const text = event.text === undefined ? {} : { text: cut(event.text, MAX_EVENT_TEXT) };
+  const quoted = event.quoted === undefined || event.quoted === "" ? {} : { quoted: cut(event.quoted, MAX_EVENT_TEXT) };
   const name = displayName(event.from.name);
   const from = { kind: event.from.kind, ...(event.from.who ? { who: event.from.who } : {}), ...(name ? { name } : {}) };
   await storage.put<Kept>(`${PREFIX}${id}`, { e: { ...event, ...text, ...quoted, from, at, id } });
@@ -215,7 +216,7 @@ type Owed = { record: string; who: string };
 
 /** Log one ask Tex sent (`kind: "ask"`) to the person hashed `who`, with the ask line it showed (`text`), and keep it waiting for their yes. */
 export async function logAsk(storage: InboxStorage, event: Omit<TexEvent, "id" | "kind" | "ask">, record: string, who: string, text: string): Promise<void> {
-  const id = await addEvent(storage, { ...event, kind: "ask", ask: record, text: oneLine(text).slice(0, MAX_EVENT_TEXT) });
+  const id = await addEvent(storage, { ...event, kind: "ask", ask: record, text: cut(oneLine(text), MAX_EVENT_TEXT) });
   const asks = ((await storage.get<Ask[]>(ASKS_KEY)) ?? []).filter((ask) => event.at - ask.at < ASK_ARMED_MS);
   await storage.put<Ask[]>(ASKS_KEY, [...asks, { id, record, at: event.at, who }].slice(-MOST_ASKS));
 }

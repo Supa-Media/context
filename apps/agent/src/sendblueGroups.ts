@@ -15,7 +15,7 @@
  */
 
 import { MAX_REPLY_TEXT, post, ServiceError, type Fetch } from "./clients";
-import { MAX_INBOUND_TEXT } from "./inbound";
+import { cut } from "./inbound";
 import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
 import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, MAX_QUOTED_TEXT, TAPBACK, type SendblueKeys } from "./sendblue";
 import type { InboundAttachment } from "./inbound";
@@ -106,7 +106,7 @@ export function parseSendblueGroup(payload: unknown): GroupInbound | null {
     from,
     participants,
     messageId: handle,
-    text: text.slice(0, MAX_INBOUND_TEXT),
+    text: cut(text),
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(payload.service === "SMS" ? { sms: true as const } : {}),
     ...(reaction !== null ? { reaction } : {}),

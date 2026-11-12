@@ -25,7 +25,7 @@
  */
 
 import type { InboxStorage } from "./inbox";
-import { MAX_INBOUND_TEXT } from "./inbound";
+import { cut } from "./inbound";
 import type { Message } from "./reply";
 import { inboxByName } from "./objectPlace";
 
@@ -142,7 +142,7 @@ export async function handleSimulator(request: Request, env: SimulatorEnv, page:
     }
     phone = typeof body.phone === "string" ? body.phone : null;
     if (action === "send") {
-      text = typeof body.text === "string" ? body.text.trim().slice(0, MAX_INBOUND_TEXT) : "";
+      text = typeof body.text === "string" ? cut(body.text.trim()) : "";
       if (text === "") return new Response(null, { status: 400 });
     }
   }

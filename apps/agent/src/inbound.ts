@@ -16,8 +16,21 @@
 import type { Reaction, Tapback } from "./reactions";
 import type { JobReport } from "./jobs";
 
-/** Longest text forwarded to the agent. The gateway caps a question at 8000. */
-export const MAX_INBOUND_TEXT = 4000;
+/**
+ * Longest text forwarded to the agent and kept as an event, the gateway's `MAX_EVENT_TEXT` too (`apps/mcp/src/agent/log.js`);
+ * the gateway caps a question at 24,000. Sendblue sends at most 18,996 characters, so a pasted brief fits whole.
+ * lean: a WhatsApp text longer than this (Whapi documents no limit) is cut, with its marker; raise all three together.
+ */
+export const MAX_INBOUND_TEXT = 20_000;
+
+/** `text` at most `max` characters, the marker included: a cut says how much it left out, so the model knows it holds part of it. */
+export function cut(text: string, max = MAX_INBOUND_TEXT): string {
+  if (text.length <= max) return text;
+  const marker = (left: number) => `\n[cut: ${left} more characters]`;
+  let kept = max - marker(text.length).length;
+  while (kept + 1 + marker(text.length - kept - 1).length <= max) kept += 1; // the count can be a digit shorter than `text.length`
+  return text.slice(0, kept) + marker(text.length - kept);
+}
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 
@@ -160,7 +173,7 @@ export function parseInbound(payload: unknown): Inbound {
     chatId: chat.id,
     from: sender.handle,
     messageId: data.id,
-    text: text.slice(0, MAX_INBOUND_TEXT),
+    text: cut(text),
     ...(attachments.length > 0 ? { attachments } : {}),
   };
 }
