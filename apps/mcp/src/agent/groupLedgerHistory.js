@@ -78,3 +78,21 @@ export async function historyFromLedger(ledger, group, turns, { copied, writes, 
     return null;
   }
 }
+
+/**
+ * A new chat's ledger marked as its history from the start (`copyGroupPageIn` with no page), so no turn makes or
+ * writes a memory page for it. A chat with no record never had a Tex turn, so there is no page and no old log of
+ * Tex's to wait for; a page already in the home is copied in as before instead (Dev2, 2026-11-12, "Stop it and
+ * clean up": new groups made a `history.md` on their first text that nothing ever trashed). False when the ledger
+ * can't be written: the turn then goes on as before.
+ */
+export async function startOnLedger(ledger, chat) {
+  try {
+    const copy = await copyGroupPageIn(ledger, chat, [], { withoutLog: true });
+    console.log(JSON.stringify({ event: "group_started_on_ledger", state: copy.state }));
+    return copy.state === "copied" || copy.state === "done";
+  } catch (error) {
+    console.log(JSON.stringify({ event: "group_started_on_ledger_failed", reason: String(error?.name ?? "error").slice(0, 40) }));
+    return false;
+  }
+}

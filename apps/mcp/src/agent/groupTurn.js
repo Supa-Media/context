@@ -41,8 +41,8 @@
 
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timedTurn, updateGroupPage } from "./groupMemoryNote.js";
-import { copyGroupPageIn, groupPageCopied } from "./groupPageCopy.js";
-import { historyFromLedger, readGroupLedgerConversation } from "./groupLedgerHistory.js";
+import { groupPageCopied } from "./groupPageCopy.js";
+import { historyFromLedger, readGroupLedgerConversation, startOnLedger } from "./groupLedgerHistory.js";
 import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
@@ -286,10 +286,7 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   let pagePath = named?.live.memory ?? null;
   const record = (async () => {
     if (await copied) return { turns: [], copied: true };
-    // A chat Tex has never answered (no record at all) starts on its ledger: the retired page is never made for it, so
-    // its home holds one history, the ledger's view (Dev2, 2026-11-12, "Stop it and clean up": new groups made a
-    // `history.md` on their first text that nothing ever trashed).
-    // Only when no page is there either: a page somebody made, or one an older chat left, is copied in as before.
+    // A chat never answered, with no page in its home, starts on its ledger and never makes one (`startOnLedger`).
     if (kept.fresh === true && ledger !== null && dispatch !== null) {
       const none = pagePath === null || (await readHome(pagePath, named.old.memory)).seen?.missing === true;
       if (none && (await startOnLedger(ledger, group.key))) return { turns: [], copied: true };
@@ -346,22 +343,6 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   if (fromLedger !== null) return fromLedger;
   // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
   return trimGroupTurns(turns.map(({ role, text, tainted, tools, sources, timing }) => ({ ...keptTurn({ role, text, tainted, tools, sources }), ...timedTurn(role, timing) })));
-}
-
-/**
- * A new chat's ledger marked as its history from the start (`copyGroupPageIn` with no page), so no turn makes or
- * writes a memory page for it. A chat with no record never had a Tex turn, so there is no page and no old log of
- * Tex's to wait for. False when the ledger can't be written: the turn then goes on as before.
- */
-async function startOnLedger(ledger, chat) {
-  try {
-    const copy = await copyGroupPageIn(ledger, chat, [], { withoutLog: true });
-    console.log(JSON.stringify({ event: "group_started_on_ledger", state: copy.state }));
-    return copy.state === "copied" || copy.state === "done";
-  } catch (error) {
-    console.log(JSON.stringify({ event: "group_started_on_ledger_failed", reason: String(error?.name ?? "error").slice(0, 40) }));
-    return false;
-  }
 }
 
 /** The chat's ledger through the turn's store, by its group key, or null (`ledger.js` `storeLedger`). */
