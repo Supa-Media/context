@@ -19,7 +19,10 @@ let seq = 0;
 const event = (at, fields = {}) => ({ id: `${at}-${String(++seq).padStart(6, "0")}`, at, chat: CHAT, from: { kind: "person" }, kind: "text", text: "hi", ...fields });
 const isClassifier = (body) => systemText(body).includes(THREADS_SYSTEM.slice(0, 60));
 
-test("a texted turn is sorted into a thread before the model, and the next turn is shown it", async () => {
+// Until 2026-11-11 a 1:1 turn waited for the sort and was shown the chat by thread. Dev2 took that wait off the 1:1 path (one-judge PR 3: it held a simple ask
+// about 0.9 s), so the sort runs beside the model and is kept, and the 1:1 model reads the chat as the log shows it. A group still waits for it.
+// Sabotage: `group !== null` dropped from the threads wait in runTheModel.js: the 1:1 model is shown the thread list and this test fails.
+test("a texted 1:1 turn is sorted into a thread beside the model, the verdict is kept, and the next sort reads it", async () => {
   const world = await createEgressWorld();
   world.env.CONVERSATION_THREADS = "on";
   try {
@@ -30,7 +33,7 @@ test("a texted turn is sorted into a thread before the model, and the next turn 
     const one = await request(world.env, TOKEN_TEXTS, "/agent", { question: first.text, conversation: "texts", covers: [first.id], chat: CHAT, turn: "turn-threads-0001" });
     assert.equal(one.status, 200, JSON.stringify(one.body));
     assert.ok(isClassifier(world.model.requests[0]), "the classifier is the first call");
-    assert.match(JSON.stringify(world.model.requests[1].messages), /starts a new conversation/);
+    assert.doesNotMatch(JSON.stringify(world.model.requests[1].messages), /starts a new conversation/, "the 1:1 model is not held for the thread view");
 
     const reply = event(now - 4_000, { from: { kind: "tex" }, text: "Memmo Alfama, $172.", turn: "turn-threads-0001", covers: [first.id], delivered: true });
     assert.equal((await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [reply] })).status, 200);
@@ -42,9 +45,8 @@ test("a texted turn is sorted into a thread before the model, and the next turn 
     assert.ok(isClassifier(classifier));
     assert.match(JSON.stringify(classifier.messages), /t1 · open · Lisbon hotel/, "the first verdict was kept and read back");
     const front = JSON.stringify(world.model.requests.at(-1));
-    assert.match(front, /t1 · open · Lisbon hotel/);
-    assert.match(front, /most likely continues t1/);
-    assert.match(front, /read_thread/);
+    assert.doesNotMatch(front, /most likely continues t1/);
+    assert.doesNotMatch(front, /read_thread/);
   } finally {
     world.restore();
   }

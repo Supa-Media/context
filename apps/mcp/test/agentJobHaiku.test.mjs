@@ -202,6 +202,8 @@ test("a job's own turn is never reviewed; an ordinary text is (review, 2026-11-0
   script.push({ content: [{ type: "text", text: "Submitted it." }], stop_reason: "end_turn" });
   assert.equal((await ask(TOKEN_GUEST, { job: JOB })).status, 200);
   assert.equal(reviews().length, 0, "nothing reviews a job's own turn");
+  // The ordinary text asks the advisor first: a draft written with no action is not reviewed (2026-11-11, `replyJudge.js`).
+  script.push(askAdvisor, { content: [{ type: "text", text: "Nothing on." }], stop_reason: "end_turn" }, { content: [{ type: "text", text: "Nothing tomorrow." }], stop_reason: "end_turn" });
   assert.equal((await ask(TOKEN_GUEST, { question: "what's on tomorrow" })).status, 200);
   assert.equal(reviews().length, 1, "one review of an ordinary text's reply");
   assert.equal(reviews()[0].body.model, "claude-haiku-5-5");

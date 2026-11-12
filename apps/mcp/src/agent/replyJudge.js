@@ -17,8 +17,8 @@
  * What it reads (`judgeState`): their text, the draft, a job's report when the
  * turn is one, every action the turn took with what came back, and the last
  * few texts; on a rewrite, its own earlier feedback this turn, so a redraft
- * that fixes what it asked goes and nothing new is raised. At most
- * `MAX_SEND_BACKS` send-backs a turn: after that the reply goes as it is, so
+ * that fixes what it asked goes and nothing new is raised. A text the turn
+ * answered with no action is not reviewed. At most `MAX_SEND_BACKS` send-backs a turn: after that the reply goes as it is, so
  * the reviewer can never hold a turn in a loop. A review that errors, runs
  * past `REVIEW_TIMEOUT_MS` or answers anything but its JSON is no verdict, and
  * the reply goes.
@@ -41,8 +41,13 @@ const REVIEW_MAX_TOKENS = 1_500;
 /** No review holds a reply longer than this; past it, the reply goes. */
 export const REVIEW_TIMEOUT_MS = 8_000;
 
-/** The most times the reviewer sends one turn's reply back (Dev2, 2026-11-05: "only send back 2 times"). */
-export const MAX_SEND_BACKS = 2;
+/**
+ * The most times the reviewer sends one turn's reply back: once (Dev2,
+ * 2026-11-11, one-judge PR 3; it was 2 from 2026-11-05). Each send-back is a
+ * whole model round and a second review, and on the web-facts round of
+ * 2026-11-12 a second send-back held a correct answer for 4 s more.
+ */
+export const MAX_SEND_BACKS = 1;
 
 /** The most the reviewer reads, in characters; the reply and the ask come first, so nothing that matters is cut. */
 const MAX_STATE_CHARS = 16_000;
@@ -136,11 +141,11 @@ export function judgeState({ question, history = [], messages = [], answer, repo
     // Without the day, the reviewer guessed one (2026-11-09: "today is Tuesday, October 27") and sent back a correct
     // 3 pm reminder for "today" twice, as the wrong day (`docs/decisions/texting-assistant/dates-everywhere.md`).
     ...(Number.isFinite(now) ? [`It is now ${nowLine(now, zone)} where they are. Each earlier text below shows when it was sent; its "today" means that day.`, ""] : []),
-    ...(scheduled === "progress" || !scheduled
+    ...(!scheduled
       ? [`Their text now: ${clip(String(question ?? ""), 3_000)}`]
       : [`Nobody texted. ${SCHEDULED_LEAD[scheduled] ?? SCHEDULED_LEAD.routine} What Tex was asked to do this run: ${clip(String(question ?? ""), 6_000)}`]),
     "",
-    `${scheduled === "progress" ? "The progress line about to be texted while Tex keeps working, before its answer" : "The reply about to be sent"}: ${clip(String(answer ?? ""), 3_000)}`,
+    `The reply about to be sent: ${clip(String(answer ?? ""), 3_000)}`,
     "",
     ...(report ? [`The job's report (job "${clip(String(report.title ?? ""), 120)}", ${String(report.state ?? "done")}), which the person has not seen:`, clip((Array.isArray(report.texts) ? report.texts : []).join("\n\n") || "(nothing)", 4_000), ""] : []),
     `What Tex did this turn (${actions.length === 0 ? "nothing: no searches, reads or other actions" : `${actions.filter((line) => line.startsWith("- ")).length} actions`}):`,
@@ -221,18 +226,18 @@ export async function reviewReply({ state, earlier = [], request = requestViaGat
 /**
  * `{ check, verdicts }` for `runTurn`'s `answerCheck`, around the turn's other
  * check (`claimCheck.js`; the word checks the reviewer replaces, `doItChecks.js`
- * and `untriedWeb.js`, are off when it runs), which runs first.
+ * and `untriedWeb.js`, are off when it runs), which runs first. `plain` is the
+ * checks a draft written with no action gets instead of a review.
  * `check(answer, { messages })` runs the review; `verdicts` keeps each one for
  * the turn's log. `report`, a job's report (`jobReport.js` `jobReportOf`), is
  * put in the state, so the reviewer judges the text that tells them about it.
  * `scheduled`, `"routine"` or `"check-in"`, marks a run nobody texted for
- * (`"progress"` marks a progress line instead, texted mid-turn: `progress.js`)
  * (`texEntryPoint/runTheModel.js`, `heartbeat.js`): the state says so, and the
  * reviewer judges whether it is worth an unprompted text and is for them at
  * all (Dev2, 2026-11-07: a routine texted "the say_nothing action isn't
  * available to me in this session").
  */
-export function replyJudge({ setting, question, history = [], inner = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = REVIEW_TIMEOUT_MS, clock = Date.now, log = console.log }) {
+export function replyJudge({ setting, question, history = [], inner = null, plain = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = REVIEW_TIMEOUT_MS, clock = Date.now, log = console.log }) {
   const on = Boolean(setting) && (config !== null || request !== requestViaGateway);
   const verdicts = [];
   const feedbackSoFar = [];
@@ -242,7 +247,12 @@ export function replyJudge({ setting, question, history = [], inner = null, repo
   return {
     verdicts,
     async check(answer, turn = {}) {
-      const before = typeof inner?.check === "function" ? await inner.check(answer, turn) : null;
+      // A text answered with no action (no search, read, write or send) is not reviewed (Dev2, 2026-11-11, one-judge PR 3): the reviewer's faults
+      // are claims and figures this turn's actions do not back. `plain`, the code checks a setup without the reviewer runs, reads it instead.
+      // A routine's text and a job's report are still reviewed.
+      const unreviewed = on && !skip && scheduled === null && report === null && actionsOf(turn.messages).length === 0;
+      const checks = unreviewed ? plain : inner;
+      const before = typeof checks?.check === "function" ? await checks.check(answer, turn) : null;
       if (before !== null && before !== undefined) {
         // The code checks that run first: what they sent back, kept in the chat's history too.
         turn.tell?.(judgeEvent({ by: "code", round: sentBack, draft: answer, went: false, notice: before }));
@@ -251,8 +261,12 @@ export function replyJudge({ setting, question, history = [], inner = null, repo
       if (!on || skip) return null;
       // A quiet word is never a text: nothing is sent, so there is nothing to judge (Tex Devs, 2026-11-05: a SKIP sent back three times; `sayNothing.js`).
       if (isControlWord(answer)) return null;
+      if (unreviewed) {
+        log(JSON.stringify({ event: "tex_reply_review", model: REVIEW_MODEL, round: sentBack, kind: null, verdict: "skipped", problems: [], ms: 0 }));
+        return null;
+      }
       if (sentBack >= MAX_SEND_BACKS) {
-        turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: true, reason: "sent back twice already, so it goes as it is" }));
+        turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: true, reason: "sent back once already, so it goes as it is" }));
         return null;
       }
       const state = judgeState({ question, history, messages: turn.messages, answer, report, scheduled, now: clock(), timeZone });

@@ -3,12 +3,14 @@
  * judges with one haiku model that is able to understand nuances and give
  * feedback"): one Haiku call reads the whole turn, says what kind of turn it
  * is, and sends a draft back only with feedback, which goes to Tex word for
- * word; a rewrite is reviewed with its earlier feedback beside it; at most two
- * send-backs a turn; no verdict, a bad answer or a slow one lets the reply go.
+ * word; a rewrite is reviewed with its earlier feedback beside it; at most one
+ * send-back a turn (Dev2, 2026-11-11, one-judge PR 3); a draft written with no
+ * action goes unreviewed; no verdict, a bad answer or a slow one lets the
+ * reply go. The review tests open a page first, so the turn has an action.
  * The names and places are invented.
  *
  * Sabotage record (2026-11-06), each applied, suite run, named test failing, reverted:
- *  1. `MAX_SEND_BACKS` check removed from `check` → "at most two send-backs…".
+ *  1. `MAX_SEND_BACKS` check removed from `check` → "at most one send-back…".
  *  2. `feedbackSoFar` never passed to `reviewReply` → "a rewrite is reviewed with the reviewer's earlier feedback…".
  *  3. `readReview` taking a send-back with no feedback → "an answer that is not a verdict…".
  *  4. `report` left out of `judgeState` → "a job's report is in what the reviewer reads…".
@@ -20,7 +22,7 @@ import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { parseSetup } from "../src/agent/production.js";
-import { actionsOf, judgeState, MAX_SEND_BACKS, PROBLEMS, readReplyJudge, readReview, replyJudge, REVIEW_MODEL, REVIEW_SYSTEM, sendBackNotice } from "../src/agent/replyJudge.js";
+import { actionsOf, judgeState, MAX_SEND_BACKS, PROBLEMS, readReplyJudge, readReview, replyJudge, reviewMessage, REVIEW_MODEL, REVIEW_SYSTEM, sendBackNotice } from "../src/agent/replyJudge.js";
 import { runTurn } from "../src/agent/turn.js";
 import { wireTraceEntry } from "../src/agent/turnLog.js";
 
@@ -59,6 +61,11 @@ function reviewer(verdicts) {
   return { asked, request };
 }
 
+/** A first round that opens a page, so the drafts after it come from a turn that acted. */
+const LOOK = { calls: [{ name: "browse", args: { url: "https://filebox.example/garden-club" } }] };
+/** The same, as the messages a direct `check` reads. */
+const ACTED = [{ role: "assistant", text: "", toolCalls: [{ name: "browse", args: { url: "https://filebox.example/garden-club" } }] }, { role: "tool", name: "browse", text: "resources", isError: false }];
+
 const pass = { kind: "task", send: true, problems: [], feedback: "" };
 const back = (feedback, problems = ["unfinished"]) => ({ kind: "task", send: false, problems, feedback });
 
@@ -92,6 +99,7 @@ function turn(ai, judge, observe = null) {
 
 test("one Haiku review reads the whole turn, and a draft it sends back goes to Tex with its feedback word for word", async () => {
   const ai = scripted([
+    LOOK,
     { text: "Thanks, that helps." },
     { calls: [{ name: "browse", args: { url: "https://filebox.example/garden-club/resources/brand-assets" } }] },
     { text: "Here it is: https://filebox.example/garden-club/resources/brand-assets/garden-club-logo.png" },
@@ -100,19 +108,19 @@ test("one Haiku review reads the whole turn, and a draft it sends back goes to T
   const { review, judge } = judgeFor([back('"Thanks, that helps." doesn\'t get them the logo. Open filebox.example under resources > brand assets and send the link.', ["unfinished", "missed_ask"]), pass], { log: (line) => logs.push(line) });
   const result = await turn(ai, judge);
   assert.equal(result.answer, "Here it is: https://filebox.example/garden-club/resources/brand-assets/garden-club-logo.png");
-  assert.equal(review.asked.length, 2, "one call per draft, not one per check");
+  assert.equal(review.asked.length, 1, "one call per draft, not one per check, and the redraft after the one send-back goes unreviewed");
   const first = review.asked[0].call;
   assert.equal(first.model, REVIEW_MODEL);
   assert.equal(first.system, withArchitecture(REVIEW_SYSTEM, "reviewer"), "the drawing, then its own prompt");
   assert.deepEqual(first.tools, []);
   assert.ok(first.messages[0].text.includes("The reply about to be sent: Thanks, that helps."));
-  assert.ok(first.messages[0].text.includes("nothing: no searches"), "a reply with no actions says so");
-  const told = JSON.stringify(ai.calls[1]);
+  assert.ok(first.messages[0].text.includes("1 actions"), "the page it opened is counted");
+  const told = JSON.stringify(ai.calls[2]);
   assert.ok(told.includes("doesn't get them the logo"), "Tex reads the reviewer's own feedback");
   assert.equal(judge.verdicts[0].verdict, "unfinished,missed_ask");
   assert.equal(judge.verdicts[0].acted, true);
   const judged = result.timing.trace.filter((entry) => entry.kind === "judge");
-  assert.equal(judged.length, 2, "both reviews are in the turn's trace");
+  assert.equal(judged.length, 1, "the review is in the turn's trace");
   assert.deepEqual(wireTraceEntry(judged[0]), { kind: "judge", ok: true, ms: judged[0].ms, verdict: "unfinished,missed_ask", acted: true });
   const logged = JSON.parse(logs[0]);
   assert.deepEqual(logged, { event: "tex_reply_review", model: REVIEW_MODEL, round: 0, kind: "task", verdict: "sent_back", problems: ["unfinished", "missed_ask"], ms: logged.ms });
@@ -136,33 +144,30 @@ test("an accepted reply goes in one round, and the reviewer reads the turn's cal
   assert.ok(!state.includes("earlier feedback"), "a first draft has no earlier feedback");
 });
 
-test("a rewrite is reviewed with the reviewer's earlier feedback beside it, so a fixed draft goes", async () => {
-  const ai = scripted([{ text: "one" }, { text: "two" }]);
-  const { review, judge } = judgeFor([back("Say which file you mean."), pass]);
-  const result = await turn(ai, judge);
-  assert.equal(result.answer, "two");
-  const second = review.asked[1].call.messages[0].text;
+test("a rewrite's review message carries the reviewer's earlier feedback, so a fixed draft goes", async () => {
+  // With one send-back a turn (2026-11-11) no rewrite is reviewed in a turn; the message stays right for a cap raised again.
+  const second = reviewMessage("state", ["Say which file you mean."]);
   assert.match(second, /Your earlier feedback this turn, on drafts that were NOT sent:\n1\. Say which file you mean\./);
+  assert.equal(reviewMessage("state"), "state");
   assert.match(REVIEW_SYSTEM, /never raise a new small point on a rewrite/);
 });
 
 test("every review goes to the chat's history: the draft, the kind of turn, the problems, the notice, and whether it went", async () => {
-  const ai = scripted([{ text: "one" }, { text: "two" }, { text: "three" }]);
+  const ai = scripted([LOOK, { text: "one" }, { text: "two" }]);
   const told = [];
-  const { judge } = judgeFor([back("Fix one."), back("Fix two.", ["too_long"])]);
+  const { judge } = judgeFor([back("Fix one.", ["unfinished", "too_long"]), back("Fix two.")]);
   await turn(ai, judge, (event) => told.push(event));
   const judged = told.filter((event) => event.kind === "judge");
-  assert.deepEqual(judged.map((event) => [event.by, event.draft, event.round, event.went]), [["review", "one", 0, false], ["review", "two", 1, false], ["review", "three", 2, true]]);
-  assert.deepEqual(judged[0].failed, ["unfinished"]);
+  assert.deepEqual(judged.map((event) => [event.by, event.draft, event.round, event.went]), [["review", "one", 0, false], ["review", "two", 1, true]]);
+  assert.deepEqual(judged[0].failed, ["unfinished", "too_long"]);
   assert.equal(judged[0].turnKind, "task");
   assert.equal(judged[0].notice, sendBackNotice("Fix one."), "what Tex was told");
   assert.equal(judged[0].model, REVIEW_MODEL);
-  assert.deepEqual(judged[1].failed, ["too_long"]);
-  assert.match(judged[2].reason, /twice/, "past the cap nothing reviews it");
+  assert.match(judged[1].reason, /once already/, "past the cap nothing reviews it");
 });
 
 test("a code check that sends a draft back is in the history too, and runs before the reviewer", async () => {
-  const ai = scripted([{ text: "one" }, { text: "two" }]);
+  const ai = scripted([LOOK, { text: "one" }, { text: "two" }]);
   const told = [];
   let first = true;
   const inner = { check: () => (first ? ((first = false), "Fix it.") : null) };
@@ -174,26 +179,47 @@ test("a code check that sends a draft back is in the history too, and runs befor
   assert.equal(review.asked.length, 1, "the draft the code check held was never reviewed");
 });
 
-test("at most two send-backs: the third reply goes as it is", async () => {
-  const ai = scripted([{ text: "one" }, { text: "two" }, { text: "three" }]);
-  const { review, judge } = judgeFor([back("a"), back("b"), back("c")]);
+test("at most one send-back: the second reply goes as it is", async () => {
+  const ai = scripted([LOOK, { text: "one" }, { text: "two" }]);
+  const { review, judge } = judgeFor([back("a"), back("b")]);
   const result = await turn(ai, judge);
-  assert.equal(MAX_SEND_BACKS, 2);
-  assert.equal(result.answer, "three");
-  assert.equal(review.asked.length, 2, "reviewed twice, then the reply goes unreviewed");
+  assert.equal(MAX_SEND_BACKS, 1);
+  assert.equal(result.answer, "two");
+  assert.equal(review.asked.length, 1, "reviewed once, then the reply goes unreviewed");
   assert.equal(ai.calls.length, 3);
+});
+
+// Sabotage record (2026-11-11, applied, run, failing, reverted): the no-action skip removed from `check` → this test fails on `review.asked.length`.
+test("a draft written with no action goes unreviewed, and a routine's text or a job's report with none is still read", async () => {
+  const ai = scripted([{ text: "391." }]);
+  const logs = [];
+  const { review, judge } = judgeFor([back("x")], { log: (line) => logs.push(line) });
+  const result = await turn(ai, judge);
+  assert.equal(result.answer, "391.");
+  assert.equal(review.asked.length, 0, "no gateway call for a plain answer");
+  assert.equal(ai.calls.length, 1, "one model round");
+  assert.deepEqual(JSON.parse(logs[0]), { event: "tex_reply_review", model: REVIEW_MODEL, round: 0, kind: null, verdict: "skipped", problems: [], ms: 0 });
+  const routine = judgeFor([pass], { scheduled: "routine" });
+  assert.equal(await routine.judge.check("Morning: nothing due.", { messages: [] }), null);
+  assert.equal(routine.review.asked.length, 1, "a routine's unprompted text is still reviewed");
+  const plainCheck = judgeFor([back("x")], { inner: { check: () => "inner" }, plain: { check: () => "plain notice" } });
+  assert.equal(await plainCheck.judge.check("I couldn't open it.", { messages: [] }), "plain notice", "a draft with no action gets the code checks a setup without the reviewer runs");
+  assert.equal(await plainCheck.judge.check("Opened.", { messages: ACTED }), "inner", "a draft after an action gets the turn's own check, then the review");
+  const report = judgeFor([pass], { report: { title: "PRs", state: "done", texts: ["x"] } });
+  await report.judge.check("Done.", { messages: [] });
+  assert.equal(report.review.asked.length, 1, "a job's report is still reviewed");
 });
 
 test("an answer that is not a verdict, an error, or a slow review lets the reply go", async () => {
   for (const verdict of ["not json", '{"send":"no"}', '{"send":false,"feedback":"  "}', new Error("down")]) {
-    const ai = scripted([{ text: "Thanks, that helps." }]);
+    const ai = scripted([LOOK, { text: "Thanks, that helps." }]);
     const { judge } = judgeFor([verdict]);
     const result = await turn(ai, judge);
     assert.equal(result.answer, "Thanks, that helps.", String(verdict));
-    assert.equal(ai.calls.length, 1);
+    assert.equal(ai.calls.length, 2);
   }
   const slow = replyJudge({ setting: { model: REVIEW_MODEL }, question, request: () => new Promise(() => {}), timeoutMs: 20, log: () => {} });
-  assert.equal(await slow.check("Thanks.", { messages: [] }), null, "a review that never answers is cut off and the reply goes");
+  assert.equal(await slow.check("Thanks.", { messages: ACTED }), null, "a review that never answers is cut off and the reply goes");
   assert.equal(slow.verdicts[0].verdict, null);
 });
 
@@ -234,17 +260,17 @@ test("a job's report is in what the reviewer reads, and an owner's ask is never 
 test("the turn's other check runs first; a quiet word, or no gateway, means no review", async () => {
   const inner = { check: async () => "inner notice" };
   const { review, judge } = judgeFor([back("x")], { inner });
-  assert.equal(await judge.check("x", { messages: [] }), "inner notice");
+  assert.equal(await judge.check("x", { messages: ACTED }), "inner notice");
   assert.equal(review.asked.length, 0);
   const quiet = judgeFor([back("x")]);
-  assert.equal(await quiet.judge.check("SKIP", { messages: [] }), null);
+  assert.equal(await quiet.judge.check("SKIP", { messages: ACTED }), null);
   assert.equal(quiet.review.asked.length, 0);
   assert.equal(await replyJudge({ setting: { model: REVIEW_MODEL }, question, config: null, log: () => {} }).check("x", { messages: [] }), null, "no gateway, no review");
 });
 
 test("the gateway call is filed under the reviewer and carries the turn's metadata", async () => {
   const { review, judge } = judgeFor([pass], { config: { url: "https://gateway.example" }, metadata: { feature: "assistant", workspace: "ws_1", client: "reviewer" } });
-  await judge.check("Booked.", { messages: [] });
+  await judge.check("Booked.", { messages: ACTED });
   assert.deepEqual(review.asked[0].options, { metadata: { feature: "assistant", workspace: "ws_1", client: "reviewer" } });
   assert.deepEqual(review.asked[0].config, { url: "https://gateway.example" });
   assert.equal(review.asked[0].call.effort, "low");
@@ -287,7 +313,7 @@ test("a draft the reviewer passed that a late text then holds is in the history 
   let late = true;
   const steer = { get late() { return late; }, words: ["make it Friday"], next: async () => (late ? ((late = false), "make it Friday") : null) };
   const { judge } = judgeFor([pass, pass]);
-  const result = await runTurn({ observe: (event) => told.push(event), question, history, credential: { provider: BUILTIN_PROVIDER, apiKey: null }, tools: [BROWSE], env: { AI: ai, AGENT_BUILTIN_MODEL: MAIN }, providerOptions: { ai }, texting: true, builtinModelOverride: MAIN, answerCheck: judge.check, steer, callTool: async () => ({ content: [] }) });
+  const result = await runTurn({ observe: (event) => told.push(event), question, history, credential: { provider: BUILTIN_PROVIDER, apiKey: null }, tools: [BROWSE], env: { AI: ai, AGENT_BUILTIN_MODEL: MAIN }, providerOptions: { ai }, texting: true, builtinModelOverride: MAIN, answerCheck: (answer, turnNow) => judge.check(answer, Object.assign(turnNow, { messages: ACTED })), steer, callTool: async () => ({ content: [] }) });
   assert.equal(result.answer, "two");
   const judged = told.filter((event) => event.kind === "judge");
   assert.deepEqual(judged.map((event) => [event.by, event.draft, event.went]), [["review", "one", true], ["late", "one", false], ["review", "two", true]]);
@@ -306,7 +332,7 @@ test("the reviewer is told today's date in their zone, and when each earlier tex
   ];
   const review = reviewer([pass]);
   const judge = replyJudge({ setting: { model: REVIEW_MODEL }, question: "remind me again at 3pm", history: dated, timeZone: "America/New_York", request: review.request, clock: () => monday, log: () => {} });
-  assert.equal(await judge.check("Will do. Reminder set for 3pm today.", { messages: [] }), null);
+  assert.equal(await judge.check("Will do. Reminder set for 3pm today.", { messages: ACTED }), null);
   const read = review.asked[0].call.messages[0].text;
   assert.ok(read.startsWith("It is now Monday, November 9, 2026, 9:25 am (America/New_York) where they are."), read.slice(0, 200));
   assert.ok(read.includes("(Sun 2026-11-08 12:46) Person: how many brackets for 13 players?"));

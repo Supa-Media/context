@@ -624,14 +624,15 @@ test("without reply judges, an untried can't-open on the front door is sent back
   assert.equal(response.body?.answer, "Read it: all fine.");
 });
 
-test("with the reply reviewer, the word checks it replaces stay off: the reviewer decides, not untriedWeb.js (2026-11-06)", async () => {
-  // Sabotage: `tries` kept when `gated` in runTheModel.js: the word check sends it back (two model calls).
+test("with the reply reviewer, a draft written with no action gets the word checks, not a review (2026-11-11, one-judge PR 3)", async () => {
+  // Until 2026-11-11 the reviewer read this draft and the word checks stayed off. It is no longer read (no action), so untriedWeb.js sends it back, as without the reviewer.
+  // Sabotage: `plain` left out of replyJudge in runTheModel.js: one model call, nothing sent it back.
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(`${OPEN_FRONT}\nreply_judge: clef-flash`), etag: "w-on" });
   gatewayReplies.push(GAVE_UP, "Read it: all fine.");
   const response = await ask({ ...onGateway, SITE_SHOTS }, TOKEN_FREE, { question: "thoughts? https://example.com/status", conversation: "texts" });
-  assert.equal(gatewayCalls.length, 1, "the reviewer passed it and nothing else sent it back");
-  assert.equal(reviewCalls.length, 1, "one Haiku review read it");
-  assert.equal(response.body?.answer, GAVE_UP);
+  assert.equal(reviewCalls.length, 0, "no review of a draft with no action");
+  assert.equal(gatewayCalls.length, 2, "the word check sent it back once");
+  assert.equal(response.body?.answer, "Read it: all fine.");
 });
 
 const ADVISED_FRONT = "models:\n  main: anthropic/claude-haiku-5-5\n  advisor: anthropic/claude-opus-5-5";
@@ -644,12 +645,12 @@ test("without reply judges, an advisor they asked for and nobody asked is sent b
   assert.equal(reviewCalls.length, 0, "no reviewer without reply_judge");
 });
 
-test("with the reply reviewer, the advisor word check stays off: the reviewer decides (2026-11-06)", async () => {
-  // Sabotage: `!gated &&` dropped from `doIt` in runTheModel.js: two model calls.
+test("with the reply reviewer, an advisor asked for and not asked, with no action, is sent back by the word check, not reviewed (2026-11-11)", async () => {
+  // Until 2026-11-11 the reviewer read this draft and the advisor word check stayed off. A draft with no action is no longer reviewed, so doItChecks.js reads it.
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(`${ADVISED_FRONT}\nreply_judge: haiku`), etag: "a-on" });
   gatewayReplies.push("My take: ship it.", "Asked: ship it.");
   await ask(onGateway, TOKEN_FREE, { question: "ask your advisor whether we ship today", conversation: "texts" });
-  assert.equal(gatewayCalls.length, 1, "the reviewer passed it and nothing else sent it back");
-  assert.equal(reviewCalls.length, 1);
+  assert.equal(gatewayCalls.length, 2, "the word check sent it back once");
+  assert.equal(reviewCalls.length, 0, "no review of a draft with no action");
 });
 
