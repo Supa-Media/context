@@ -8,6 +8,7 @@
  * and a group's question names its speaker. Sabotage these and a test here fails:
  *  1. `log.js` `MAX_EVENT_TEXT` back to 3_000: the brief's event is refused, the turn is not a logged one → every test.
  *  2. `loggedTurn.js` asking the log's words over the Worker's (`whole` returns `kept`) → "a text the log kept cut".
+ *  3. `loggedTurn.js` `whole` back to a bare prefix match (any shorter text that starts the question) → "never put under another".
  */
 
 import assert from "node:assert/strict";
@@ -77,4 +78,22 @@ test("a text the log kept cut reaches the model whole, as the Worker sent it", a
   }
   const { asked } = await texted(TOKEN_GROUP, BRIEF, { logged: BRIEF.slice(0, 3_000), group: KEY });
   assert.ok(asked.trimEnd().endsWith(LAST), "a group's too");
+});
+
+test("a group: one member's long text is never put under another member's name", async () => {
+  // Ada's brief logged cut, then Bo's short text last; the Worker's question is Ada's whole brief.
+  n += 1;
+  const at = Date.now();
+  const id = (k) => `${at + k}-${String(900 + n * 3 + k).padStart(6, "0")}`;
+  const ada = { id: id(0), at, chat: KEY, from: { kind: "person", who: ADA, name: "Ada" }, kind: "text", text: BRIEF.slice(0, 3_000) };
+  const bo = { id: id(1), at: at + 1, chat: KEY, from: { kind: "person", who: "b".repeat(64), name: "Bo" }, kind: "text", text: "Instructions for the screens:" }; // short, and the start of Ada's words
+  await request(world.env, TOKEN_GROUP, "/agent/events", { conversation: { group: KEY }, events: [ada, bo] });
+  world.model.install([{ text: "Noted." }]);
+  const answered = await request(world.env, TOKEN_GROUP, "/agent", { question: BRIEF, group: { key: KEY, members: MEMBERS, from: "ada" }, timeZone: "UTC", covers: [ada.id, bo.id], chat: KEY, turn: `turn-fulltext-mix-${n}` });
+  assert.equal(answered.status, 200, JSON.stringify(answered.body));
+  const last = world.model.requests.at(-1).messages.at(-1);
+  const asked = typeof last.content === "string" ? last.content : last.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+  assert.match(asked, /^@Bo: Instructions for the screens:$/m, "Bo's line is Bo's words alone");
+  assert.doesNotMatch(asked, /^@Bo: .*The brief:/m, "Ada's words never appear under Bo");
+  assert.ok(!asked.includes(LAST), "nothing restored onto a text that was not cut");
 });
