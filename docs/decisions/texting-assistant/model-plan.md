@@ -156,7 +156,20 @@ the isolate, so a refused field never fails a turn.
 field fail every texted turn; dropping the hour brings the re-writes back.
 Tests: `apps/mcp/test/agentHourCache.test.mjs`.
 
-## The front door thinks at effort high (owner, 2026-11-06)
+## The front door is back at effort medium (Dev2, 2026-11-12)
+
+The reply latency audit (`@supa projects/tex-reliability/2026-11-12-reply-latency-audit.md`)
+found effort high made each front door round slower: in 1:1 the mean round went
+from 3.75 s to 4.50 s and its output from 420 to 644 tokens; in groups the
+mean was flat but the p90 rose from 6.1 s to 8.9 s, with rare rounds of
+15-29 s and 4,000+ thinking tokens. A final reply's words are about 40-55
+tokens, so 85-90% of front door output is thinking. Dev2 chose "Front door
+back to effort medium", asking whether any turn kind should keep high; no data
+showed a reason, and efforts are kept per model name, so splitting by turn
+kind would need code. `effort: high` in the setup note undoes it. Measured as
+its own change, after the classifier change (#3190), with the audit's tables.
+
+## The front door thinks at effort high (owner, 2026-11-06) (superseded 2026-11-12)
 
 The owner asked to "change Tex's interaction model to Haiku high effort", so
 the production setup's `models.effort` is `high` again (it was `medium` from
