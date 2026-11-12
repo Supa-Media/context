@@ -228,6 +228,15 @@ test("the judge is told which conversations are open, by title and newest lines,
   };
   const facts = await nowFacts(store, GROUP_KEY, { now: T0 });
   assert.deepEqual(facts, [`Open conversation "Quiz for Tex", its newest lines <${id(6)}> <${id(7)}>.`]);
-  assert.deepEqual(reads.map((read) => read.chat).sort(), [GROUP_KEY, `${GROUP_KEY}.threads`]);
+  assert.deepEqual(reads.map((read) => read.chat).sort(), [GROUP_KEY, GROUP_KEY, `${GROUP_KEY}.threads`]);
   assert.ok(!facts.join("").includes("words never shown"));
+});
+
+test("the judge is told the names the chat gave its guests, the newest per guest (Dev2, 2026-11-12)", async () => {
+  const name = (at, guest, said) => ({ v: 1, id: `name${at}`, at: T0 - at, kind: "name", guest, name: said, text: `${guest} is ${said}` });
+  const store = {
+    read: async (chat, options) => (options.kinds?.includes("name") ? { entries: [name(1, "guest-6ce3", "Boba"), name(2, "guest-66ef", "Instinct"), name(3, "guest-6ce3", "Instinct")] } : { entries: [] }),
+  };
+  const facts = await nowFacts(store, GROUP_KEY, { now: T0 });
+  assert.deepEqual(facts, ["People here known by a guest label, by name: guest-6ce3 is Boba; guest-66ef is Instinct."]);
 });

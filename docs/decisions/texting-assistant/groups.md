@@ -147,6 +147,29 @@ message's list for naming and counting.
 - Test: `apps/agent/src/groupInbox.test.ts` ("names and counts who is here
   from the message's own list"); sabotaged by returning the union.
 
+## A guest's name is kept on the chat (Dev2, 2026-11-12)
+
+In Battle of the Bots, two assistants with no linked account showed to Tex
+only as guest labels, their names written in the chat's about note. Tex had
+to match label to name by itself and credited one's joke to the other. Dev2
+picked a roster of names kept on the chat itself.
+
+- When someone here says who a guest is (or the guest says it), Tex calls
+  `send` action `name_guest` (`apps/mcp/src/agent/groupGuestNames.js`) with
+  the label and the name. It is kept as a `name` entry in the chat's ledger,
+  the chat's one copy; the newest per guest is that guest's name. Only a
+  label in this chat is taken, and the name is cleaned as an account's is
+  (`cleanName`).
+- Each group turn reads the names beside its history (`readGroupMemory`), and
+  the chat's lines, the roster, who tagged it and its earlier history show
+  the name beside the label, with the number: `@guest-6ce3 (Boba, +1 …)`.
+- The judge reads them as a fact (`textsDecide.js` `nowFacts`), so its
+  transcript's labels are named too.
+- Test: `apps/mcp/test/groupNames.test.mjs` ("a kept name sits beside the
+  label on every line"; "name_guest keeps only a guest of this chat"), both
+  sabotaged; `apps/mcp/test/textsDecide.test.mjs` ("the judge is told the
+  names the chat gave its guests").
+
 ## What a group turn can do
 
 A separate client id turns off what is somebody's alone

@@ -18,6 +18,7 @@ import { DECISION_MODEL, decisionEngine } from "./decide.js";
 import { ledgerFor, ledgerWriter } from "./ledger.js";
 import { dayFromLedger } from "./ledgerHistory.js";
 import { foldThreads, THREADS_SUFFIX } from "./threadsFold.js";
+import { guestNameFacts, guestNamesFrom } from "./groupGuestNames.js";
 import { decideRequest, readDecideAnswers, readDecideBody, readRecheckAnswers, readRecheckBody, recheckRequest } from "../../../../packages/shared/src/textDecide.cjs";
 
 /** The paths the Worker posts to on the `TexTexts` binding. */
@@ -145,18 +146,24 @@ const JOB_FRESH_MS = 6 * 60 * 60 * 1000;
 const RUNNING = new Set(["started", "keep_going"]);
 
 /**
- * Facts for the judge from the chat's ledger, each one line: the jobs Tex is running here, by title and start time.
- * Read within `FACTS_MS`; none when the ledger is slow or can't be read. Titles only, never a word of the chat.
+ * Facts for the judge from the chat's ledger, each one line: the jobs Tex is running here, by title and start time, its
+ * open conversations, and the names the chat gave its guests (`groupGuestNames.js`). Read within `FACTS_MS`; none when
+ * the ledger is slow or can't be read. Titles and names only, never a word of the chat.
  */
 export async function nowFacts(store, key, { now = Date.now(), timeoutMs = FACTS_MS } = {}) {
   if (store === null || typeof store?.read !== "function") return [];
   const within = (read) => Promise.race([read.catch(() => null), new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs))]);
   // Both reads at once, from the same object, under the one wait.
-  const [result, threaded] = await Promise.all([
+  const [result, threaded, named] = await Promise.all([
     within(Promise.resolve().then(() => store.read(key, { before: Number.MAX_SAFE_INTEGER, kinds: ["job"], limit: 200, since: now - JOB_FRESH_MS }))),
     within(Promise.resolve().then(() => store.read(`${key}${THREADS_SUFFIX}`, { before: Number.MAX_SAFE_INTEGER, kinds: ["thread"], limit: 200, since: now - THREAD_FRESH_MS }))),
+    within(Promise.resolve().then(() => store.read(key, { before: Number.MAX_SAFE_INTEGER, kinds: ["name"], limit: 500 }))),
   ]);
-  return [...jobFacts(Array.isArray(result?.entries) ? result.entries : []), ...threadFacts(Array.isArray(threaded?.entries) ? threaded.entries : [])];
+  return [
+    ...jobFacts(Array.isArray(result?.entries) ? result.entries : []),
+    ...threadFacts(Array.isArray(threaded?.entries) ? threaded.entries : []),
+    ...guestNameFacts(guestNamesFrom(Array.isArray(named?.entries) ? named.entries : [])),
+  ];
 }
 
 /** The conversation threads the classifier keeps for this chat that are open, newest first: a title and its newest lines' ids. */
