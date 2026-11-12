@@ -26,6 +26,7 @@
 import type { JobNote } from "./jobNote";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
+import { cut, MAX_INBOUND_TEXT } from "./inbound";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 
 /** What a turn asked to start, as the gateway wrote it. */
@@ -143,7 +144,7 @@ const VERDICTS = new Set(["done", "keep_going", "waiting", "stuck"]);
 const STATES = new Set(["running", "done", "failed", "waiting", "stuck"]);
 const MAX_STATUS = 280;
 /** The asker's words a report carries, as long as a text they could send. */
-const MAX_ASKED = 8_000;
+const MAX_ASKED = MAX_INBOUND_TEXT;
 /** A computer owner's ask is one short line (`groupAsk.js` `machineAskLine`). */
 const MAX_ASK = 400;
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
@@ -179,7 +180,7 @@ export function jobAsked(run: Pick<JobRun, "asked" | "origin">): string[] {
 }
 
 export function jobQuestion(typed: string, said: JobSaid = {}): string {
-  return [typed.trim(), (said.heard ?? "").trim(), (said.sent ?? "").trim()].filter(Boolean).join("\n\n").slice(0, MAX_ASKED);
+  return cut([typed.trim(), (said.heard ?? "").trim(), (said.sent ?? "").trim()].filter(Boolean).join("\n\n"), MAX_ASKED);
 }
 
 const line = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");

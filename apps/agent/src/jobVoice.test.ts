@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import { agentAnswer, type Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { runJob, type JobDeps } from "./jobRun";
+import { MAX_INBOUND_TEXT } from "./inbound";
 import { jobQuestion, RUN_KEY, type JobEntry, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -39,7 +40,7 @@ describe("a job started from a voice message", () => {
     expect(jobQuestion("this one", { heard: SAID, sent: PICTURE })).toBe(`this one\n\n${SAID}\n\n${PICTURE}`);
     expect(jobQuestion("  typed only  ")).toBe("typed only");
     expect(jobQuestion("", { heard: "   " })).toBe("");
-    expect(jobQuestion("x".repeat(9_000), { heard: SAID })).toHaveLength(8_000);
+    expect(jobQuestion("x".repeat(MAX_INBOUND_TEXT + 1_000), { heard: SAID })).toHaveLength(MAX_INBOUND_TEXT);
   });
 
   it("a job started from a voice message is asked what was said", async () => {

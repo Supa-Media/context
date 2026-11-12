@@ -79,6 +79,7 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
     kind: message.reaction ? "reaction" : kindOf(message.text, message.attachments),
     // A voice message's words, as heard before the judge reads it (`groupVoice.ts`): the judge cannot hear the recording.
     text: message.text.trim() === "" && message.heard ? `(voice message) ${message.heard}` : message.text,
+    ...(message.left && !message.reaction ? { left: message.left } : {}),
     people: await eventPeople(storage, message),
     // A reply under an earlier message, found by the handle the webhook names: its id and full words (`replyQuote.ts`).
     ...(message.reaction || message.replyTo === undefined ? {} : await replyFields(storage, message.groupId, { handle: message.replyTo })),
