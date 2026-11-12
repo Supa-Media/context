@@ -269,3 +269,15 @@ Every group chat's grant is now minted on the pinned workspace for its sponsor, 
 - **The sponsor must share too.** Writes in a workspace are audited as the grant's account, so a workspace stays in reach only while the sponsor is a member of it as well as everyone in the chat.
 - **The home may be read by people the reach does not include.** A chat's home names every account in it to edit, whatever workspaces they share; reach narrows what Tex may use beyond the home, never who may open the home.
 
+
+## Every turn of a chat runs the same way (the owner, 2026-11-12)
+
+Dev2, after the Nov Babies chat's two finished research pages were dropped: "all group chats should be the same. It's literally just the people in it, and then there's a durable object created for that group chat, and notes are in there. But then it has access to other workspaces based on who's in the chat." People in a chat are part of its home, never its guests.
+
+- **One grant for every turn.** A tag, a routine's run, a check-in and a job's report all get the chat's home plus its reach (`applyGroupTurn` in `functions/textGroups.ts`). An empty reach means the home alone, never a refusal. A turn started for someone with no account (a job they asked for, reporting) runs as them on the home, as their tag does. A command is still never theirs to give.
+- **What was removed.** Routines needed a shared workspace (from when a chat was bound to one), and a routine was never answered from the home for someone with no account. Both refused a job's report, which runs as a routine's turn, and the Worker then dropped it silently.
+- **Every chat with a home checks in and may keep routines there** (`lib/textGroupLooks.ts`, `apps/mcp/src/agent/groupRoutines.js`). A routine is still set only by someone on Context, since it runs as its writer.
+- **A report is never silent.** One whose turn the chat still can't run texts the "news is waiting" line, unless Tex was told to stop in the chat (`apps/agent/src/groupInbox.ts` `cannotRun`).
+- **Unchanged: the least-privileged rule.** When anyone in the chat has no account, the reach is empty, because nothing can say what that person may read. Letting a chat reach a workspace when its people allow it is a possible later step (Dev2: "in the future we may allow workspace information if the user allows for it"); it is not built.
+
+Reversing this fails `apps/convex/__tests__/textGroupHomeOnly.test.ts` ("every turn of a chat runs on its home and its reach") and `apps/agent/src/groupJobs.test.ts` ("a report whose turn the chat can't run says there is news").

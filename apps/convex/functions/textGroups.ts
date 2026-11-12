@@ -257,9 +257,11 @@ export const applyGroupTurn = internalMutation({
       if (answer !== null) return answer;
     }
 
-    // A guest who tags Tex, with no account, is answered from the chat's home (E1, `lib/textGroupHomeOnly.ts`): the
-    // chat's sponsor pays and the grant reads only the home. A routine or a command is never a guest's to ask.
-    if (senderUser === null && args.command === undefined && args.routine !== true) {
+    // Someone with no account is answered from the chat's home (E1, `lib/textGroupHomeOnly.ts`), whether they tagged
+    // Tex or a job they asked for is reporting: the chat's sponsor pays and the grant reads only the home. Every turn of
+    // a chat runs on its home and its reach, whatever started it (decided by the owner, 2026-11-12). A command is never
+    // a guest's to give.
+    if (senderUser === null && args.command === undefined) {
       const answer = await homeAnswer(ctx, args, group, null, others);
       if (answer !== null) return answer;
     }
@@ -273,12 +275,11 @@ export const applyGroupTurn = internalMutation({
     }
 
     // Everyone else is answered from the chat's home, on a grant that also reaches the shared workspaces all its account
-    // holders share (`lib/textGroupReach.ts`): none when anyone here has no account. A routine is nobody talking, and
-    // runs only where there is a workspace to run in.
+    // holders share (`lib/textGroupReach.ts`): none when anyone here has no account. A routine, a check-in and a job's
+    // report run the same way: an empty reach means the home alone, never a refusal (the owner, 2026-11-12).
     const answer = await homeAnswer(ctx, args, group, senderUser, others);
     // A deployment with no pinned workspace has no home to answer from: its chat works on the one workspace in its reach.
     if (answer === null) return (await pinnedContextWorkspace(ctx)) === null ? await singleWorkspaceTurn(ctx, args, group, senderUser, others) : { status: "no_shared" };
-    if (args.routine === true && answer.status === "ready" && (answer.reach ?? []).length === 0) return { status: "no_shared" };
     return answer;
   },
 });

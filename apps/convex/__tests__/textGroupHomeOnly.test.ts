@@ -153,6 +153,42 @@ describe("a guest's tag in a chat with no shared workspace", () => {
   });
 });
 
+describe("every turn of a chat runs on its home and its reach, whatever started it (the owner, 2026-11-12)", () => {
+  // The Nov Babies chat of 2026-11-12: two finished research jobs reported into a chat with a guest in it, and both
+  // reports were refused because a routine's turn (which a job's report is) needed a shared workspace.
+  test("a routine's or a job report's turn in a chat with a guest gets the same home-only grant a tag does", async () => {
+    const w = await world();
+    const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE], { routine: true });
+    expect(answer).toMatchObject({ status: "ready", slug: "context-lc", minted: true, reach: [] });
+    const session = await resolves(w.t, answer.accessToken as string);
+    expect(session!.workspaces.map((entry) => entry.slug)).toEqual(["context-lc"]);
+    expect(await grantOf(w.t)).toMatchObject({ workspaceId: w.pinned, texGroup: { homeOnly: true, taggerId: w.ada } });
+  });
+
+  test("a job a guest asked for reports on the home too, as the guest, and still reads nothing else", async () => {
+    const w = await world();
+    const answer = await turn(w.t, GUEST, [ADA, BO, GUEST, LINE], { routine: true });
+    expect(answer).toMatchObject({ status: "ready", slug: "context-lc", minted: true, guestTagger: expect.stringMatching(/^guest-[0-9a-f]{4}$/) });
+    expect(await grantOf(w.t)).toMatchObject({ workspaceId: w.pinned, texGroup: { homeOnly: true, guestPhone: GUEST } });
+    const session = await resolves(w.t, answer.accessToken as string);
+    expect(session!.workspaces.map((entry) => entry.workspaceId)).not.toContain(String(w.studio));
+  });
+
+  test("a routine in a chat whose people all share a workspace reaches it, as their tags do", async () => {
+    const w = await world();
+    const tagged = await turn(w.t, ADA, [ADA, BO, LINE]);
+    const routine = await turn(w.t, ADA, [ADA, BO, LINE], { routine: true });
+    expect(routine).toMatchObject({ status: "ready", reach: tagged.reach });
+    expect(routine.reach).toEqual(["studio"]);
+  });
+
+  test("a command is still never a guest's to give", async () => {
+    const w = await world();
+    const answer = await turn(w.t, GUEST, [ADA, BO, GUEST, LINE], { mint: false, command: { kind: "share_mail", address: "a@example.invalid" } });
+    expect(answer.status).not.toBe("ready");
+  });
+});
+
 describe("what a home-only grant reads", () => {
   test("its own home, and nothing else of the pin: the rules it reads by open the home and close every other note", async () => {
     const w = await world();

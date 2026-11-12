@@ -11,9 +11,10 @@
  *
  * So a routine written from a chat must carry this chat's id: a new one
  * without it would sit in the folder and never run, and one naming another
- * chat is refused here. A guest chat reads only a corner of the workspace and
- * sets none; nor does somebody with no account, whose turn runs on the
- * binder's grant: the routine would run as the binder.
+ * chat is refused here. A chat that reaches no shared workspace keeps its
+ * routines in its home, as every chat may (the owner, 2026-11-12: "all group
+ * chats should be the same"); somebody with no account sets none, since a
+ * routine runs as its writer.
  */
 
 import { chatRoutineId, frontMatter, isHomeRoutinePath, routineRootOf } from "../../../../packages/shared/src/routines.cjs";
@@ -41,7 +42,8 @@ export function chatRoutinesFolder(group) {
 export function chatRoutineRefusal(group, name, args) {
   const inHome = homeRoutinePaths(args).length > 0;
   if (routinePaths(args).length === 0 && !inHome) return null;
-  if (group?.guestChat) return "Reminders and routines can't be set from a guest chat: it reads only its own corner of the workspace. Text me on your own for one.";
+  // A chat that reaches no shared workspace keeps its routines in its home, like any chat (the owner, 2026-11-12).
+  if (group?.guestChat && !inHome) return chatRoutinesFolder(group) === null ? "Reminders and routines can't be set from this chat." : `Put this chat's routines in its folder, ${chatRoutinesFolder(group)}/<how-often>/ (context: "@context-lc"): it reaches no shared workspace to keep one in.`;
   if (group?.guestTagger) return "Only someone here who is on Context can set a reminder or routine for this chat; ask one of them to.";
   const id = chatRoutineId(group?.key);
   if (id === null) return "Reminders and routines can't be set from this chat.";
@@ -60,8 +62,8 @@ export function chatRoutineRefusal(group, name, args) {
 /** What a group turn is told about routines. */
 export function chatRoutinePrompt(group) {
   const id = chatRoutineId(group?.key);
-  if (group?.guestChat || id === null) return "You can't set reminders or routines from this chat. ";
   const folder = chatRoutinesFolder(group);
+  if (id === null || (group?.guestChat && folder === null)) return "You can't set reminders or routines from this chat. ";
   const where =
     folder === null
       ? "Write one in this workspace at tex/routines/<how-often>/<name>.md, " +

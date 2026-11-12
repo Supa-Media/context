@@ -114,11 +114,11 @@ describe("a group chat's address", () => {
     expect(after!.nextLookAt! - before).toBeLessThan(10 * 60_000);
   });
 
-  test("a chat that reaches no workspace still looks, in its home, for mail at its address and nothing else", async () => {
+  test("a chat that reaches no workspace looks in its home, for mail at its address too", async () => {
     const { w, chat, words } = await chatWithHome();
     const due = Date.now() + 10 * 60_000;
-    // Before any mail: nothing to look for, so nothing is handed out.
-    await w.t.run(async (ctx) => ctx.db.patch(chat._id, { nextLookAt: Date.now() - 1 }));
+    // A quiet chat looks only when there is mail to look at (`claimChatLooks` `listening`): before any, nothing goes.
+    await w.t.run(async (ctx) => ctx.db.patch(chat._id, { nextLookAt: Date.now() - 1, speaksUp: "quiet" }));
     expect(await w.t.run(async (ctx) => claimChatLooks(ctx, ["run-0"], Date.now()))).toEqual([]);
     const body = JSON.parse((await resolve(w.t, `group-${words}`)).text) as { ingestion: { ticket: string } };
     await ingestPost(w.t, "/gateway/ingest/binding", { ticket: body.ingestion.ticket });
@@ -129,6 +129,17 @@ describe("a group chat's address", () => {
     // Looked at once: the mail is seen, and the next claim has nothing new.
     await w.t.run(async (ctx) => ctx.db.patch(chat._id, { nextLookAt: due, lookClaimedAt: undefined }));
     expect(await w.t.run(async (ctx) => claimChatLooks(ctx, ["run-2"], due + 1))).toEqual([]);
+  });
+
+  test("a chat that reaches no workspace checks in like any chat: armed by a turn, handed out as its check-in (the owner, 2026-11-12)", async () => {
+    const { w, chat } = await chatWithHome();
+    // The first tag made the home; the next arms the look (and the daily arming catches a chat with no next tag).
+    await agentPost(w.t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender: BO, participants: [ADA, BO, LINE], mint: true });
+    const armed = await w.t.run(async (ctx) => await ctx.db.get(chat._id));
+    expect(armed?.nextLookAt).toBeGreaterThan(Date.now());
+    const looks = await w.t.run(async (ctx) => claimChatLooks(ctx, ["run-3"], armed!.nextLookAt! + 1));
+    expect(looks).toHaveLength(1);
+    expect(looks[0]).toMatchObject({ runId: "run-3", chat: chat.groupKey, path: "(check-in)", phones: [ADA] });
   });
 
   test("a capture's note is adopted in the home's email folder, where the home's rule reaches it", async () => {

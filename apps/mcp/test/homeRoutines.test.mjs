@@ -25,11 +25,14 @@ const KEY = "d".repeat(64);
 const group = (extra = {}) => ({ key: KEY, home: { folder: HOME }, ...extra });
 const routine = "---\nat: 8:00 am\n---\nPost who is on shift today.\n";
 
-test("a home routine needs no chat line, and a guest still sets none", () => {
+test("a home routine needs no chat line, in every chat (2026-11-12), and someone with no account still sets none", () => {
   const args = { path: `${HOME}/routines/daily/shifts.md`, content: routine, context: "@context-lc" };
   assert.equal(chatRoutineRefusal(group(), "write_note", args), null);
   assert.equal(chatRoutineRefusal(group(), "write_note", { ...args, path: `@context-lc/${HOME}/routines/daily/shifts.md` }), null);
-  assert.match(chatRoutineRefusal(group({ guestChat: true }), "write_note", args), /guest chat/);
+  // A chat that reaches no shared workspace keeps routines in its home like any chat, and only there.
+  assert.equal(chatRoutineRefusal(group({ guestChat: true }), "write_note", args), null);
+  assert.match(chatRoutineRefusal(group({ guestChat: true }), "write_note", { path: "tex/routines/daily/shifts.md", content: routine }), new RegExp(`${HOME}/routines/<how-often>/`));
+  assert.match(chatRoutinePrompt(group({ guestChat: true })), /You can set reminders and routines for this chat/);
   assert.match(chatRoutineRefusal(group({ guestTagger: true }), "write_note", args), /on Context/);
   // Anywhere else, a routine still names its chat.
   assert.match(chatRoutineRefusal(group(), "write_note", { path: "tex/routines/daily/shifts.md", content: routine }), /chat: d{16}/);
