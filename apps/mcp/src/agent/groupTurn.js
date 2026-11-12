@@ -134,7 +134,7 @@ export function groupOf(body, session = null) {
   const size = sizeOf(group.size, people.length + guests.length);
   const numbers = numbersOf(group.numbers, [...people, ...guests]); // each person's number, by handle or label (`groupNames.js`)
   const asker = from === "" && guests.includes(group.asker) ? group.asker : ""; // a guest who tagged Tex, by label
-  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}) };
+  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
   // A chat that reaches shared workspaces (every person here has an account and shares them) is an ordinary group turn
   // whose home is its memory; only a chat with people who aren't all here (no reach) is narrowed to its home.
   if (reach.length > 0 || !isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;

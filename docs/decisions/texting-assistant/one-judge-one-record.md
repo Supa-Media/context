@@ -156,6 +156,14 @@ Each PR has one outcome a person notices and moves one Instinct metric: accuracy
    - **How we know.** The cache hit rate on parts 1 to 3 is shown on the Tex page timings, and follow-up replies are faster than first replies.
    - **Depends on.** 3.
 
+## A literal @Tex is never silent (2026-11-12)
+
+Dev2's rule: a message with a literal "@Tex" is always answered. The tag override (#3198) forced a turn when the judge said silent or react, but the turn could still end silent. In production at 08:33Z an "@Tex" message was logged `group_decide outcome=silent`, then `outcome=answer reason=tag_override`; the gateway ran one round and the Worker logged `group_turn outcome=silent`, sending nothing.
+
+- **Cause.** The Worker never told the gateway the turn was tagged, and the gateway offers `say_nothing` to every turn that is not a job (`runTheModel.js`), so the model could take it. A group's bare SKIP or a typed `say_nothing` was also silence, never the fallback (`sendTheReply.js`). The judge's verdict and no "you may stay quiet" hint reach the model: the forced turn's body carried nothing about silence either way.
+- **Decision.** The Worker sends `group.tagged: true` when a message the turn answers tags Tex (`groupModelTurn.ts`, the same `tagsTex` the override uses). The gateway then does not offer `say_nothing`, and if the turn still ends silent (a typed `say_nothing` or a bare SKIP) it texts the existing fallback line (`EMPTY_FALLBACK`), never nothing. An untagged turn may still say nothing.
+- **Rejected.** A Worker-side fallback on a quiet answer alone: it treats the symptom after the model was invited to be silent, and the gateway already owns the fallback line. A job's start keeps its tapback in place of words (`QUIET_ACK`), tagged or not: that answer is the job.
+
 ## Owner questions
 
 1. Where do the labelled examples come from? Dev2 labelling a set from Tex Devs and customer chats, or the judge's logged `why` reviewed afterward?
