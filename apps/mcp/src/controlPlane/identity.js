@@ -16,6 +16,16 @@ export function createIdentityMethods({ post }) {
     },
 
     /**
+     * Who tagged Tex in a group chat, for their own ask of their personal Tex (`agent/askPersonalTex.js`): the same
+     * facts, only on the token minted for that person's own tag, else `null`.
+     */
+    async askerIdentity(accessToken) {
+      const parsed = await post("/gateway/agent/identity", { accessToken, asker: true });
+      const identity = parsed?.identity;
+      return identity !== null && typeof identity === "object" && !Array.isArray(identity) ? identity : null;
+    },
+
+    /**
      * A text's session the person object opened (`agent/textsSession.js`): Convex checks the phone is still linked,
      * keeps its copy of the grant, writes the audit row and re-arms the dream, check-in and housekeeping.
      * `{status: "linked" | "unlinked"}`. The token's hash, never the token.

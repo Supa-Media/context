@@ -69,6 +69,10 @@ export function offerFor(session, { who, tool, detail, noun }) {
 
 /** What the chat is shown for an offer: the copy, and who alone may OK it. */
 export function offerLine({ who, tool, detail }) {
+  // Asking someone's personal Tex for who they are (`agent/askPersonalTex.js`): asked of them before it is asked.
+  if (tool === "ask_personal_tex") {
+    return `@${who}, may I ask your personal Tex for ${String(detail).trim()}? @${who}, give it a 👍 or say yes and I'll ask. Only @${who} can OK it.`;
+  }
   const what = tool === "send_email" ? `the email I'd send from @${who}'s email` : `the change I'd make on @${who}'s calendar`;
   const doing = tool === "send_email" ? "send it" : "make it";
   return `Here's ${what}:\n\n${String(detail).trim()}\n\n@${who}, give it a 👍 or say yes and I'll ${doing}. Only @${who} can OK it; anyone can ask me for changes first.`;
