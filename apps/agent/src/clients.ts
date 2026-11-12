@@ -28,6 +28,7 @@ import { readOffers, type Offer } from "./dataCards";
 import { MAX_HEARD, refusalOf } from "./agentRefusal";
 import { readHub, readStartedJobs, readSteers, type JobAsk, type StepHow, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
 import type { TexEvent } from "./events";
+import { watchedLinks } from "./vaultWatch";
 
 /** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
 export const MAX_WARM_CHARS = 1_500_000;
@@ -403,7 +404,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
       ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(body.untrusted === true ? { untrusted: true as const } : {}), ...(body.idle === true ? { idle: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`apps/mcp/src/agent/jobCheck.js`); `untrusted`: it read from outside (`route.js`)
-      ...(body.vaultWatch === true ? { vaultWatch: true as const, ...(vaultLinks(body.vaultLinks).length > 0 ? { vaultLinks: vaultLinks(body.vaultLinks) } : {}) } : {}),
+      ...(body.vaultWatch === true ? { vaultWatch: true as const, ...(watchedLinks(body.vaultLinks).length > 0 ? { vaultLinks: watchedLinks(body.vaultLinks) } : {}) } : {}),
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
@@ -697,8 +698,3 @@ export async function runRoutine(
 
 /** The words an ask showed: the parts texted exactly as written (the ask itself), or the whole answer. */
 export const askLine = (answer: { text: string; verbatim?: string[] }): string => answer.verbatim?.join("\n") || answer.text;
-
-/** The hashed tokens of the save links a turn texted (`vaultWatch.ts`): hex SHA-256s, at most five. */
-function vaultLinks(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((hash): hash is string => typeof hash === "string" && /^[0-9a-f]{64}$/.test(hash)).slice(0, 5) : [];
-}

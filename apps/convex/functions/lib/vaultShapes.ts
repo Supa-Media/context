@@ -5,7 +5,7 @@
  * grants a person is never shown.
  */
 
-import type { ChatPeopleRow, RequestChat } from "./vaultChatShapes";
+import { chatPeopleRowValidator, type ChatPeopleRow, type RequestChat } from "./vaultChatShapes";
 import { v } from "convex/values";
 import type { Id } from "../../_generated/dataModel";
 
@@ -81,6 +81,19 @@ export type Described = {
 
 export const kindValidator = v.union(v.literal("add"), v.literal("share"), v.literal("view"));
 export const fieldSummaryValidator = v.object({ name: v.string(), perEnv: v.boolean(), set: v.array(v.string()) });
+/** `describeVaultRequest`'s answer (`Described`): what `/vault/<token>` shows before the person does anything. */
+export const describedValidator = v.object({
+  kind: kindValidator,
+  workspace: v.object({ handle: v.string(), name: v.string(), kind: v.union(v.literal("personal"), v.literal("shared")) }),
+  grantee: v.union(v.null(), v.string()),
+  entry: v.union(
+    v.null(),
+    v.object({ type: v.union(v.literal("login"), v.literal("secret"), v.literal("card")), name: v.string(), sites: v.array(v.string()), fields: v.array(fieldSummaryValidator) }),
+  ),
+  expiresAt: v.number(),
+  // A link texted in a group chat: the chat's name, its people and who is in the workspace (`lib/vaultChat.ts`).
+  chat: v.union(v.null(), v.object({ label: v.string(), people: v.array(chatPeopleRowValidator), canInvite: v.boolean() })),
+});
 export const cardSummaryValidator = v.object({ brand: v.string(), last4: v.string(), expMonth: v.string(), expYear: v.string() });
 export const fieldValuesValidator = v.object({ name: v.string(), perEnv: v.boolean(), values: v.record(v.string(), v.string()) });
 

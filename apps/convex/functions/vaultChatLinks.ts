@@ -10,21 +10,15 @@ import { getAuthUserId } from "./lib/signedIn";
 import { hashToken } from "./lib/crypto";
 import { getMembership } from "./lib/workspaceAuth";
 import { inviteMemberWithId } from "./lib/invitations/invite";
-import { chatLabel, chatPeopleFor, requestChatOf, requestChatValidator, type RequestChat } from "./lib/vaultChat";
+import { chatLabel, chatPeopleFor, requestChatOf, requestChatValidator, shareChoiceValidator, sharesFor, type RequestChat, type ShareChoice } from "./lib/vaultChat";
 import { resolveLiveGrant, texChatIdOf } from "./lib/controlPlane/liveGrants";
-import type { Described } from "./lib/vaultShapes";
+import type { Described, Share } from "./lib/vaultShapes";
 
 function fail(code: string, message: string): ConvexError<{ code: string; message: string }> {
   return new ConvexError({ code, message });
 }
 const dead = () => fail("VAULT_LINK_DEAD", "This link has expired or was already used. Ask Tex for a new one.");
 const notYours = () => fail("VAULT_LINK_NOT_YOURS", "This link is for a different account. Sign in as the person who asked for it.");
-
-/** A workspace's kind, for what a save may be given to. */
-export const workspaceKindOf = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
-  handler: async (ctx, args): Promise<"personal" | "shared"> => (await ctx.db.get(args.workspaceId))?.kind ?? "personal",
-});
 
 /** The group chat a turn's token is for, and its people, from the grant alone: null for any other token. */
 export const chatOfGrant = internalQuery({
@@ -36,10 +30,15 @@ export const chatOfGrant = internalQuery({
   },
 });
 
-/** The chat's name as the vault's people list shows it, for a save given to the chat (`vault.ts` `saveVaultLogin`). */
-export const chatLabelFor = internalQuery({
-  args: { workspaceId: v.id("workspaces"), userId: v.id("users"), chat: requestChatValidator },
-  handler: async (ctx, args): Promise<string> => chatLabel(await chatPeopleFor(ctx, args.workspaceId, args.chat, args.userId)),
+/** Who a save is given to, and the choice made: the chat named by its people, the workspace, or none (`saveVaultLogin`). */
+export const sharesForSave = internalQuery({
+  args: { workspaceId: v.id("workspaces"), userId: v.id("users"), chat: v.optional(requestChatValidator), share: v.optional(shareChoiceValidator), now: v.number() },
+  handler: async (ctx, args): Promise<{ choice: ShareChoice; shares: Share[] | null }> => {
+    const choice: ShareChoice = args.share ?? (args.chat !== undefined ? "chat" : "me");
+    const kind = (await ctx.db.get(args.workspaceId))?.kind ?? "personal";
+    const label = choice === "chat" && args.chat !== undefined ? chatLabel(await chatPeopleFor(ctx, args.workspaceId, args.chat, args.userId)) : "";
+    return { choice, shares: sharesFor(choice, { chat: args.chat ?? null, label, kind, userId: args.userId, now: args.now }) };
+  },
 });
 
 /** What the page shows of the chat a link was texted in: its name, each person and whether they are in the workspace. */

@@ -24,6 +24,8 @@
 
 import { post, record as asRecord, ServiceError, type Fetch } from "./clients";
 import type { InboxStorage } from "./inbox";
+import { queueGroupByCode } from "./groupInbox";
+import type { GroupMessage } from "./sendblueGroups";
 
 export const VAULT_KEY = "vault-watch";
 /** A group's saved-login turn's routine path: it runs as a job's report does (no ack, no binding, SKIP), and no run waits on it. */
@@ -122,4 +124,16 @@ export function logVaultWatch(outcome: "queued" | "gone" | "no_chat" | "texted_s
 async function armBy(storage: InboxStorage, at: number): Promise<void> {
   const current = storage.getAlarm === undefined ? null : await storage.getAlarm();
   if (current === null || current === undefined || current > at) await storage.setAlarm(at);
+}
+
+/** The hashed tokens of the save links a turn texted, as the gateway sent them: hex SHA-256s, at most five. */
+export function watchedLinks(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((hash): hash is string => typeof hash === "string" && /^[0-9a-f]{64}$/.test(hash)).slice(0, 5) : [];
+}
+
+/** A save from a link texted in a group chat: that chat's turn, on its asker's tag, under the ask, run as a job's report is (Dev2, 2026-11-12). */
+export async function queueSavedInGroup(storage: InboxStorage, saved: Saved & { group: WatchedGroup }, now: number): Promise<void> {
+  const { groupId, line, messageId, text } = saved.group;
+  const message: GroupMessage = { kind: "group-message", eventId: `vault-saved:${saved.savedAt}`, groupId, line, from: saved.phone, participants: [], messageId, text, routine: { runId: `vault:${saved.savedAt}`, path: VAULT_SAVED_PATH }, event: "vault_saved" };
+  logVaultWatch((await queueGroupByCode(storage, message, now)) === "queued" ? "group_queued" : "group_full");
 }

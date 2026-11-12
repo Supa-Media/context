@@ -80,9 +80,7 @@ import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck,
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
 import { chatJobs, jobQuestion, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, viewLink, type JobRun, type JobSteer } from "./jobs";
-import { checkVaultSaved, logVaultWatch, VAULT_SAVED_PATH, watchForSave } from "./vaultWatch";
-import { queueGroupByCode } from "./groupInbox";
-import type { GroupMessage } from "./sendblueGroups";
+import { checkVaultSaved, logVaultWatch, queueSavedInGroup, watchForSave } from "./vaultWatch";
 import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
 import { afterReplyWork, deferAfterReply, rememberSession, type TurnTiming } from "./afterReply";
@@ -235,13 +233,7 @@ export async function accept(
 export async function carryOnAfterSave(storage: InboxStorage, deps: Pick<InboxDeps, "fetch" | "controlPlaneOrigin" | "workerSecret" | "now">): Promise<void> {
   const saved = await checkVaultSaved(storage, deps);
   if (saved === null) return;
-  // Texted in a group chat: that chat's turn, as its asker's tag, run as a job's report is (`jobTexts.ts`), under the ask (Dev2, 2026-11-12).
-  if (saved.group !== undefined) {
-    const { groupId, line, messageId, text } = saved.group;
-    const runId = `vault:${saved.savedAt}`;
-    const message: GroupMessage = { kind: "group-message", eventId: `vault-saved:${saved.savedAt}`, groupId, line, from: saved.phone, participants: [], messageId, text, routine: { runId, path: VAULT_SAVED_PATH }, event: "vault_saved" };
-    return logVaultWatch((await queueGroupByCode(storage, message, deps.now())) === "queued" ? "group_queued" : "group_full");
-  }
+  if (saved.group !== undefined) return queueSavedInGroup(storage, { ...saved, group: saved.group }, deps.now());
   const chat = await storage.get<RememberedChat>(CHAT_KEY);
   if (chat === undefined) return logVaultWatch("no_chat");
   if (chat.at > saved.savedAt) return logVaultWatch("texted_since");

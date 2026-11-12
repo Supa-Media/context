@@ -58,11 +58,11 @@ import { savedPin } from "../../mcp/src/vault/proxy.js";
 import { cardInputValidator, checkedCard } from "./lib/vaultCard";
 import { deleteKey, editEntry } from "./lib/vaultEdit";
 import { allowClient, cutClients, giveKey, listFor, takeKey } from "./lib/vaultPeople";
-import { chatPeopleRowValidator, requestChatValidator, shareChoiceValidator, sharesFor, type ShareChoice } from "./lib/vaultChat";
+import { requestChatValidator, shareChoiceValidator, type ShareChoice } from "./lib/vaultChat";
 import {
-  fieldSummaryValidator,
   fieldValuesValidator,
   kindValidator,
+  describedValidator,
   metaValidator,
   operationValidator,
   proxyClientValidator,
@@ -491,23 +491,7 @@ export async function runVault(
 /** What `/vault/<token>` shows before the person does anything. Never a value. */
 export const describeVaultRequest = action({
   args: { token: v.string() },
-  returns: v.object({
-    kind: kindValidator,
-    workspace: v.object({ handle: v.string(), name: v.string(), kind: v.union(v.literal("personal"), v.literal("shared")) }),
-    grantee: v.union(v.null(), v.string()),
-    entry: v.union(
-      v.null(),
-      v.object({
-        type: v.union(v.literal("login"), v.literal("secret"), v.literal("card")),
-        name: v.string(),
-        sites: v.array(v.string()),
-        fields: v.array(fieldSummaryValidator),
-      }),
-    ),
-    expiresAt: v.number(),
-    // A link texted in a group chat: the chat's name, its people and who is in the workspace (`lib/vaultChat.ts`).
-    chat: v.union(v.null(), v.object({ label: v.string(), people: v.array(chatPeopleRowValidator), canInvite: v.boolean() })),
-  }),
+  returns: describedValidator,
   handler: async (ctx, args): Promise<Described> => {
     const userId = await signedIn(ctx);
     checkToken(args.token);
@@ -557,10 +541,7 @@ export const saveVaultLogin = action({
     proxy: v.optional(proxyPinValidator),
     /** A card, as the person typed it: checked and kept as fixed fields (`apps/mcp/src/vault/card.js`). */
     card: v.optional(cardInputValidator),
-    /**
-     * Who may use it (Dev2, 2026-11-12): the chat the link was texted in, the whole shared workspace, or only its
-     * saver. Absent: the chat for a link from one, else only its saver, as before.
-     */
+    /** Who may use it (Dev2, 2026-11-12); absent: the chat a link came from, else only its saver (`lib/vaultChat.ts`). */
     share: v.optional(shareChoiceValidator),
   },
   returns: v.object({ name: v.string(), site: v.string(), sharedWith: v.union(v.literal("chat"), v.literal("workspace"), v.literal("me")) }),
@@ -602,10 +583,7 @@ export const saveVaultLogin = action({
       candidateEntryId: newEntryId(),
     });
     if (live.entryId === null) throw dead();
-    const choice: ShareChoice = args.share ?? (live.chat !== undefined ? "chat" : "me");
-    const workspaceKind = await ctx.runQuery(internal.functions.vaultChatLinks.workspaceKindOf, { workspaceId: live.workspaceId });
-    const label = choice === "chat" && live.chat !== undefined ? await ctx.runQuery(internal.functions.vaultChatLinks.chatLabelFor, { workspaceId: live.workspaceId, userId, chat: live.chat }) : "";
-    const shares = sharesFor(choice, { chat: live.chat ?? null, label, kind: workspaceKind, userId, now: Date.now() });
+    const { choice, shares } = await ctx.runQuery(internal.functions.vaultChatLinks.sharesForSave, { workspaceId: live.workspaceId, userId, now: Date.now(), ...(live.chat ? { chat: live.chat } : {}), ...(args.share ? { share: args.share } : {}) });
     if (shares === null) throw fail("INVALID_ARGUMENT", choice === "chat" ? "This link wasn't sent from a group chat." : "Only a shared workspace has other people to give it to.");
     const saved = await openVault(
       ctx,
