@@ -18,7 +18,6 @@ import type { GroupMessage } from "./sendblueGroups";
 import { sha256Hex } from "./groupChat";
 import { writeTextTiming, type TimingDataset } from "./textTiming";
 import { isControlWord } from "./controlWords";
-import { textedChat } from "./groupSlowTap";
 
 /** The handles of Tex's last thirty texts in this group, so an inline reply to one wakes it. */
 export const SENT_KEY = "gsent";
@@ -158,7 +157,6 @@ export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, mes
 }
 
 async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
-  await textedChat(storage); // Tex is on it: no slow tapback after this (`groupSlowTap.ts`)
   await sendWords(groupPartLine(storage, deps, message, meta), text);
 }
 

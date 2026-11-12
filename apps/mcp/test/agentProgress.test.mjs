@@ -273,6 +273,21 @@ test("a streamed turn texts several lines in order, a done line is refused, and 
   assert.equal(result.answer, "Found 3 tables at Nopa. The 7pm is the one by the window, want it?");
 });
 
+test("a tool start is told before the tool runs, never for a progress line (Dev2, 2026-11-12: a group's one tapback on a slow ask)", async () => {
+  const order = [];
+  const ai = scripted([
+    chat("", [[PROGRESS_TOOL, { text: "Opening OpenTable for Friday." }]]),
+    chat("", [["search_notes", { query: "nopa" }], ["search_notes", { query: "lilia" }]]),
+    chat("Nopa at 7."),
+  ]);
+  await turn(ai, {
+    progress: progressChannel(async () => {}),
+    onToolStart: (name) => order.push(`start ${name}`),
+    callTool: async (name) => (order.push(`ran ${name}`), { content: [{ type: "text", text: "found" }] }),
+  });
+  assert.deepEqual(order, ["start search_notes", "ran search_notes", "start search_notes", "ran search_notes"]);
+});
+
 test("a line goes only for something to act on or a change outside their notes, never to narrate a search (Dev2, 2026-11-12)", () => {
   // Nov Babies, 2026-11-11: "Searching NYC karaoke spots that take groups of 20…" and "Searching NYC group dinners…" went
   // to a group as plan lines and added nothing. A long task's "here's what I'm doing" is its job's start line now.
