@@ -119,6 +119,18 @@ describe("the history's lines", () => {
     ]);
   });
 
+  test("a text that never reached the chat says so under it, never as Tex quoting itself (Nov Babies, 2026-11-12)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "d2", at: at(2, 9, 17), kind: "text", event: "delivery", eid: "w2", replyTo: "w1", delivered: false, reason: "failed", from: { kind: "tex" } },
+      { id: "d1", at: at(2, 9, 16), kind: "text", eid: "w1", turn: "t1", from: { kind: "tex" }, text: "First name, last name, email and phone?" },
+    ];
+    const lines = historyDays(entries, NOW, { group: true }).flatMap((d) => d.turns.flatMap((t) => t.lines));
+    expect(lines.map((l) => [l.who, l.tone, l.text, l.replyTo ?? null])).toEqual([
+      ["Tex", "tex", "First name, last name, email and phone?", null],
+      ["", "quiet", "didn't reach them · the text app failed it", "Tex: First name, last name, email and phone?"],
+    ]);
+  });
+
   test("a reaction sits under the text it is on, never as a line, as in the mock; one taken back is gone", () => {
     const entries: LedgerEntry[] = [
       { id: "r5", at: at(2, 12, 5), kind: "text", event: "reaction", from: { kind: "person", name: "Ada" }, text: 'took back ❤️ on the message "Will do. I\'ll text you"' },

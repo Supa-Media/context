@@ -197,6 +197,9 @@ function lineOfKind(e: LedgerEntry, group: boolean): HistoryLine {
   const quiet = (text: string): HistoryLine => ({ ...base, time: "", who: "", tone: "quiet", text });
   switch (e.kind) {
     case "text": {
+      // A send that never reached the chat (`apps/agent/src/sendblueStatus.ts`): said so, under the text it was, never
+      // drawn as a text of Tex's quoting itself (the Nov Babies form-fill answer, 2026-11-12).
+      if (str(e.event) === "delivery" && e.delivered === false) return { ...base, time: timeOf(e.at), who: "", tone: "quiet", text: `didn't reach them${e.reason === "failed" ? " · the text app failed it" : ""}` };
       const who = whoOf(e, group);
       return { ...base, time: timeOf(e.at), who, tone: who === "Tex" ? "tex" : "text", text: textWords(e) };
     }

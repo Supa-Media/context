@@ -70,6 +70,7 @@ import { startPresence, type Presence } from "./presence";
 import { MAX_CANDIDATES, staleAsks } from "./decide"; import { lookAgainTexts } from "./lookAgain";
 import { rememberText } from "./threads";
 import { noteHandle } from "./replyQuote";
+import { keepThreaded } from "./threadedResend";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
 import type { ReplyPlace } from "./clients";
@@ -440,7 +441,12 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
       const idempotency = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
       // One sender (`sendOne.ts`): this lane's way out is its idempotency key and thread.
       const partLine: PartLine<Media> = {
-        sendText: (text, failure) => line.sendText(item.message.chatId, text, failure ? `${idempotency}:failed` : idempotency, thread),
+        sendText: async (text, failure) => {
+          const handle = await line.sendText(item.message.chatId, text, failure ? `${idempotency}:failed` : idempotency, thread);
+          // A threaded send Sendblue fails after taking it goes again plain, once (`threadedResend.ts`).
+          if (thread !== undefined) await keepThreaded(storage, handle, { text, place: { kind: "person", chatId: item.message.chatId }, at: deps.now() });
+          return handle;
+        },
         sendPicture: async (media) => (await line.sendMedia(item.message.chatId, media, idempotency, thread), "url" in media ? media.url : undefined),
         refused: refusedPicture,
         // The handle beside its event too, so the send's status finds it (`sendblueStatus.ts`).

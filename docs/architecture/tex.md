@@ -55,11 +55,11 @@ flowchart LR
   W2 -->|POST /agent| E
   E{{"texEntryPoint<br/>apps/mcp/src/agent/texEntryPoint.js"}}:::door
   E --> S1["1:1 way out<br/>inbox.ts · sendParts.ts<br/>idempotency keys, cards, carousels, typing"]:::pipe
-  E --> S2["Group way out<br/>groupSay.ts<br/>group line, send once on a retry"]:::pipe
+  E --> S2["Group way out<br/>groupSay.ts<br/>group line, send once on a retry<br/>an answer to a tapback: under the text it was on, or plain"]:::pipe
   S1 --> SO["Shared step: one sender<br/>each text and picture sent, kept and logged the same way<br/>a picture that won't go is said once, logged as the system's<br/>sendOne.ts"]:::shared
   S2 --> SO
   SO --> Out([iMessage · WhatsApp · SMS]):::you
-  Out -. "Sendblue status, POST /sendblue/status/secret" .-> ST["Shared step: each send's status<br/>logged as codes; one that never went is marked<br/>in the chat's log, never resent<br/>sendblueStatus.ts"]:::shared
+  Out -. "Sendblue status, POST /sendblue/status/secret" .-> ST["Shared step: each send's status<br/>logged as codes; a threaded text that never went<br/>goes again plain, once; any other is marked<br/>in the chat's log<br/>sendblueStatus.ts · threadedResend.ts"]:::shared
   classDef you fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef pipe fill:#fff0e2,stroke:#ff8a2a,color:#1d1838
   classDef door fill:#dcf7f3,stroke:#11b5a4,stroke-width:3px,color:#1d1838
@@ -199,6 +199,7 @@ What each model costs is `jev/meter.ts`.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-12: texts answering a tapback reach the group (Dev2 chose B, after the Nov Babies form-fill answer to a 👍 never arrived: its three texts were threaded under the 👍 itself, and Sendblue took each and then failed it, ERROR class 5000). A group answer to a tapback goes under the Tex text it was on when the tapback names it, else plain, as a 1:1 tapback's answer already did, and the tapback is never tapped (`groupSay.ts` `threadUnder`, `sendblueGroups.ts` `answersTapback`). Any threaded text, 1:1 or group, that Sendblue fails on its status callback goes again plain, once (`threadedResend.ts`, `sendblueStatus.ts` `resendPlain`); a plain one that fails is marked as before, and the History page says "didn't reach them" under it rather than drawing Tex quoting itself. Group way out and status boxes changed. Tests: `apps/agent/src/tapbackThread.test.ts`, `apps/agent/src/sendblueStatus.test.ts`, `apps/mobile/__tests__/texHistoryLines.test.ts`.
 - 2026-11-12: Tex's own `send` actions read words written beside the action (Nov Babies job, "Write a short search query." over a query it had written): `send { action: "search_web", query }` now reaches `search_web` with its query, as the nested `args` shape does, inside `args` winning; the call's own keys (`context`, `mailbox`, `person_said`) never become the action's (`sixTools.js` `own`). A `search_web` or `open_page` call still missing its words is told the shape it needs (`computer.js`). No box changed. Tests: `apps/mcp/test/agentSixTools.test.mjs`, `apps/mcp/test/agentOtherSites.test.mjs`.
 - 2026-11-12: the front door is back at effort medium (Dev2, reply latency audit decision 2): since 2026-11-06 at high, a 1:1 round went from 3.75 s to 4.50 s on average and from 420 to 644 output tokens, and 85-90% of front door output is thinking. A setting in the production setup note (`models.effort`), not code; efforts are per model, so job turns move too. Front door box changed. Decision: `docs/decisions/texting-assistant/model-plan.md`.
 - 2026-11-12: a group's tapback comes only on a slow ask (Dev2: one reaction at most, none on an answer with no tool): the 25 s timer (`groupSlowTap.ts`) is gone, as it landed after most answers (12 to 26 s) and fired on messages the judge silenced. When a group turn starts its first tool, the gateway writes a `step` line (`turn.js` `onToolStart`, group turns only, `runTheModel.js`) and the Worker taps the asked message once, never after a progress line and never twice with a job's start tapback (`groupModelTurn.ts` `toolStarted`). Group lane box changed. Decision: `docs/decisions/texting-assistant/conversation-threads.md`. Tests: `apps/agent/src/groupToolTap.test.ts`, `apps/mcp/test/agentProgress.test.mjs`.
