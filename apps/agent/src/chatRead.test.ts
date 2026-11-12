@@ -10,6 +10,9 @@
  *
  * Sabotage record (2026-11-03): `flushWithReader` returning before it posts → "a group's chatter between Tex's turns
  * reaches the ledger as it is said".
+ *
+ * Sabotage record (2026-11-12): `chatEvents` ignoring `byLedger` → "reads the chat by its ledger key over the gateway
+ * binding" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -145,5 +148,28 @@ describe("chatter between turns", () => {
     rememberChatReader(storage, "g1", { token: "old", conversation: { group: "g1" }, fetch: (async () => { throw new Error("down"); }) as unknown as Fetch, gatewayOrigin: "https://gw.example" });
     expect(await flushWithReader(storage, "g1", () => now)).toBe(true);
     expect((await unwritten(storage)).map((event) => event.id)).toEqual([said]);
+  });
+});
+
+describe("a group's judge without a token (Dev2, 2026-11-12)", () => {
+  it("reads the chat by its ledger key over the gateway binding, with the outbox on top", async () => {
+    const storage = new MemoryStorage();
+    const mine = await addEvent(storage, { at: now, chat: "g", from: { kind: "person" }, kind: "text", text: "newest" });
+    const asked: { url: string; body: unknown }[] = [];
+    const binding = { fetch: async (url: string, init?: RequestInit) => {
+      asked.push({ url, body: JSON.parse(String(init?.body)) });
+      return Response.json({ events: [ev(now - 5_000, 1, { chat: "g", text: "earlier" })] });
+    } };
+    const events = await chatEvents(storage, "g", 500, { binding, ledger: "k".repeat(64) });
+    expect(events.map((event) => event.text)).toEqual(["earlier", "newest"]);
+    expect(events.at(-1)?.id).toBe(mine);
+    expect(asked).toEqual([{ url: "https://gateway/texts/chat", body: { ledger: "k".repeat(64), chat: "g" } }]);
+  });
+
+  it("falls back to the outbox when the gateway does not answer", async () => {
+    const storage = new MemoryStorage();
+    await addEvent(storage, { at: now, chat: "g", from: { kind: "person" }, kind: "text", text: "newest" });
+    const binding = { fetch: async () => new Response("no", { status: 503 }) };
+    expect((await chatEvents(storage, "g", 500, { binding, ledger: "k".repeat(64) })).map((event) => event.text)).toEqual(["newest"]);
   });
 });

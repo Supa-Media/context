@@ -6,6 +6,7 @@
  *  1. `passes` ignoring the @Tex set → "a missed @Tex case fails the bench, whatever the rates" fails.
  *  2. a case's text copied into the judge's examples → "the cases are held out" fails.
  *  3. `caseBody` showing the judge an older line as the newest → "a case reaches the judge as the Worker sends a moment" fails.
+ *  4. a case reworded from an example by one word (2026-11-12) → "the cases are not near-copies of an example" fails.
  */
 
 import assert from "node:assert/strict";
@@ -42,6 +43,19 @@ test("the @Tex set covers every way Tex is called on, and each must be answered"
 test("the cases are held out: no case's text is one of the judge's examples", async () => {
   const shown = new Set(JUDGE_EXAMPLES.map((item) => item.text));
   for (const item of await loadCases()) assert.ok(!shown.has(item.text), item.id);
+});
+
+test("the cases are not near-copies of an example: no case shares more than half its words with one", async () => {
+  const words = (text) => new Set(text.toLowerCase().replace(/^[^:]*:\s*/, "").match(/[a-z0-9']+/g) ?? []);
+  const shown = JUDGE_EXAMPLES.map((item) => words(item.text));
+  for (const item of await loadCases()) {
+    const mine = words(item.text);
+    if (mine.size < 4) continue;
+    for (const theirs of shown) {
+      const both = [...mine].filter((word) => theirs.has(word)).length;
+      assert.ok(both / new Set([...mine, ...theirs]).size <= 0.5, item.id);
+    }
+  }
 });
 
 test("a case reaches the judge as the Worker sends a moment: a body the boundary takes, its text the newest line", async () => {

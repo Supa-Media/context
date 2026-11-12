@@ -539,7 +539,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (!routine) {
     await setChatBound(storage, message);
   }
-  await keepNames(storage, asked.names ?? []);
+  await keepNames(storage, asked.names ?? [], asked.guests ?? []);
   if (command?.kind === "status") return clock?.path("status"), void (await fixed(GROUP_LINES.status(asked.reach ?? [asked.slug])));
   // "Tex, share my chats with the devs" (`groupSettings.ts`).
   if (command?.kind === "review_sharing") return clock?.path(command.kind), await groupReviewSharing(storage, deps, message, command.sharing);
