@@ -20,6 +20,7 @@ import { withKeptFiles } from "../keptFiles.js";
 import { learnedSkillsLine, withLearnedSkills } from "../learnedSkills.js";
 import { setupPromptFor, turnKind } from "../promptModules.js";
 import { ledgerObserver } from "../ledger.js";
+import { collectReads } from "../toldFacts.js";
 import { meterEach, meterParts } from "../modelPlan.js";
 import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
 import { withDrawnImages, withPictureMaker } from "../pictureMaker.js";
@@ -128,7 +129,7 @@ export async function runTheModel(t) {
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
     localNow: { now: Date.now(), timeZone },
-    observe: ledgerObserver(chatLog, withJobSteps(job, step, null), ledgerAt), // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger
+    observe: chatLog === null ? withJobSteps(job, step, null) : collectReads((t.reads = []), ledgerObserver(chatLog, withJobSteps(job, step, null), ledgerAt)), // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger; what it read, for the facts its reply keeps (`toldFacts.js`)
     workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
     texting: texting || group !== null, // a group's answer is a text too, written for one
     notes: production !== null ? { prompt: setupWithMap(setupPromptFor(production, turnKind({ group, job })), turnKind({ group, job })) } : null, // a 1:1 text, a group or a job: each its own modules (`promptModules.js`)

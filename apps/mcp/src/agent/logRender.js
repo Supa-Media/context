@@ -95,7 +95,7 @@ export function newestAt(events, answered) {
  * tools it used (`ledgerHistory.js`): its names follow Tex's first line of
  * that turn, names only.
  */
-export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null, tags = null, now = null } = {}) {
+export function renderEvents(events, { timeZone = "UTC", answeredBy = events, tools = null, tags = null, now = null, facts = null } = {}) {
   const day = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "short", day: "numeric" });
   const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true });
   const all = [...answeredBy, ...events];
@@ -104,6 +104,7 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
   const byId = new Map(all.map((event) => [event.id, event]));
   const lines = [];
   const named = new Set();
+  const quoted = new Set();
   let lastDay = null;
   let lastAt = null;
   // With `now` (a history rebuilt every text, `threadedTurn.js`): each day says how long ago it was, and a quiet
@@ -132,6 +133,12 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
       named.add(event.turn);
       lines.push(`${NOTE_INDENT}(used: ${used.map((name) => oneLine(String(name)).slice(0, 64)).join(", ")})`);
     }
+    // What that turn read for what it said, quoted from its source (`toldFacts.js`), once, under its first text.
+    const backed = event.from?.kind === "tex" && typeof event.turn === "string" && !quoted.has(event.turn) ? facts?.get(event.turn) : undefined;
+    if (Array.isArray(backed) && backed.length > 0) {
+      quoted.add(event.turn);
+      for (const fact of backed) lines.push(`${NOTE_INDENT}${oneLine(factLine(fact))}`);
+    }
   }
   return lines.join("\n");
 }
@@ -150,4 +157,7 @@ export function replyingTo(event, byId, time = TIME_OF("UTC")) {
 }
 
 /** A time-of-day formatter in a time zone, as the rendering writes times. */
+/** One fact a turn kept (`toldFacts.js`) as its line under the text it backs. */
+export const factLine = (fact) => `(from ${fact.source}: "${String(fact.quote).replace(/"/g, "'")}")`;
+
 export const TIME_OF = (timeZone) => new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true });

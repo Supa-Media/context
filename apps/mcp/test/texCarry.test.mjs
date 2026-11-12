@@ -105,17 +105,34 @@ test("a turn that read from outside is replayed, and flagged so the new turn is 
   assert.equal(carryCounts(outside).outside, true, "a reply from before `outside` was kept is judged by `clean`");
   const group = [...entries.slice(0, 3), { ...reply("t1", 13, false), outside: false }];
   assert.equal(carryCounts(stretchTurns(group, [tool("t1", 11)], { since: 0, ...G })).outside, false, "a group's unclean reply that read nothing from outside");
-  const stubbed = stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: B, ...G });
+  const stubbed = stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: B, grant: "grant_b" });
   assert.deepEqual(carryCounts(stubbed), { carried: 0, stubOther: 1, stubGrant: 0, stubWorkspace: 0, outside: false, stretch: 2 }, "nothing replayed, nothing marked");
 });
 
-test("a group: another member's reads are stubbed, the asker's own are carried", () => {
+test("a group: another member's reads under another grant are stubbed, the asker's own are carried", () => {
   const entries = [text("1", 10, A, "what's in my notes?"), text("2", 12, "tex", "Plans.", "t1"), reply("t1", 13)];
-  const other = stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: B, ...G })[1].calls[0];
+  const theirs = tool("t1", 11, { grant: "grant_a" });
+  const other = stretchTurns(entries, [theirs], { since: 0, group: true, asker: B, grant: "grant_b" })[1].calls[0];
   assert.equal(other.result, STUB_OTHER);
   assert.deepEqual(other.args, {}, "another member's query is not carried either");
-  assert.equal(stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: A, ...G })[1].calls[0].result, "secret plans");
-  assert.equal(stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: null, ...G })[1].calls[0].result, STUB_OTHER, "an unknown asker is someone else");
+  assert.equal(stretchTurns(entries, [theirs], { since: 0, group: true, asker: A, grant: "grant_a" })[1].calls[0].result, "secret plans");
+  assert.equal(stretchTurns(entries, [theirs], { since: 0, group: true, asker: null, grant: "grant_b" })[1].calls[0].result, STUB_OTHER, "an unknown asker is someone else");
+});
+
+test("a group answered from its home: another member's read under the same grant is carried (Nov Babies)", () => {
+  // Princess's turn read the guide; Seyi's later turn, on the chat's one grant, must see it, or Tex takes back a true fact.
+  const entries = [text("1", 10, A, "and dinner as well"), text("2", 12, "tex", "Katz's has a room for 50.", "t1"), reply("t1", 13)];
+  const carried = stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: B, ...G })[1].calls[0];
+  assert.equal(carried.result, "secret plans");
+  assert.deepEqual(carried.args, { path: "a.md" });
+  assert.equal(stretchTurns(entries, [tool("t1", 11)], { since: 0, group: true, asker: null, ...G })[1].calls[0].result, "secret plans", "whoever asks, the grant decides");
+});
+
+test("a long result is carried whole, as the ledger kept it (the Katz's line sat at character 14,944)", () => {
+  const page = `${"x".repeat(14_944)}Capacity: 50${"y".repeat(8_000)}`;
+  const entries = [text("1", 10, A, "q"), text("2", 12, "tex", "a", "t1"), reply("t1", 13)];
+  const [, answer] = stretchTurns(entries, [tool("t1", 11, { result: page })], { since: 0, ...G });
+  assert.equal(answer.calls[0].result, page);
 });
 
 test("another workspace's read is never carried, and the call keeps a stable id", () => {
