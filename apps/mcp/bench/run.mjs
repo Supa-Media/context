@@ -26,7 +26,8 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { basename, join, resolve } from "node:path";
 
-import { PRODUCTION_HOUSEKEEPING_PATH, parseSetup } from "../src/agent/production.js";
+import { PRODUCTION_HOUSEKEEPING_PATH, frontOf, parseSetup } from "../src/agent/production.js";
+import { MODULE_FOLDER, assembleSetup } from "../src/agent/promptModules.js";
 import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";
 import { anthropicGateway, cachedEmbeddings, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
@@ -103,18 +104,27 @@ export async function readSkills(dir, job) {
   return skills;
 }
 
-async function readSetups(dir, job, only) {
+export async function readSetups(dir, job, only) {
   const folder = join(dir, "setups", job);
   const names = (await readdir(folder)).filter((name) => name.endsWith(".md")).map((name) => name.slice(0, -3)).sort();
   const chosen = only ? names.filter((name) => only.includes(name)) : names;
   if (chosen.length === 0) throw new Error(`no setups to run in setups/${job}/`);
+  // The prompt modules `pull` brought (`setups/<job>/prompt/`), by the path production reads each from.
+  const moduleNotes = new Map();
+  for (const file of (await readdir(join(folder, "prompt")).catch(() => [])).filter((f) => f.endsWith(".md"))) {
+    moduleNotes.set(`${MODULE_FOLDER}/${file}`, await readFile(join(folder, "prompt", file), "utf8"));
+  }
   const setups = [];
   for (const name of chosen) {
     const raw = await readFile(join(folder, `${name}.md`), "utf8");
-    const parsed = await parseSetup(raw);
+    const read = new Set();
+    const assembled = await assembleSetup(raw, async (path) => (read.add(path), moduleNotes.get(path) ?? null), frontOf);
+    const parsed = assembled === null ? null : await parseSetup(assembled);
     // The product would refuse it and fall back, so a run of it measures nothing.
-    if (!parsed) throw new Error(`setups/${job}/${name}.md is not a valid setup file`);
-    setups.push({ name, raw, version: parsed.version, model: parsed.model, router: parsed.router, fallback: parsed.fallback, skills: parsed.skills.map((skill) => skill.name) });
+    if (!parsed) throw new Error(`setups/${job}/${name}.md is not a valid setup file${read.size ? " with its prompt modules in setups/" + job + "/prompt/" : ""}`);
+    // The modules it names go into the world beside it, where production reads them.
+    const modules = [...read].map((path) => ({ path, raw: moduleNotes.get(path) }));
+    setups.push({ name, raw, modules, version: parsed.version, model: parsed.model, router: parsed.router, fallback: parsed.fallback, skills: parsed.skills.map((skill) => skill.name) });
   }
   return setups;
 }
@@ -270,7 +280,7 @@ const PLAIN_TEXTING_SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthr
  * beside a plain texting one, as `housekeeping.js` reads it.
  */
 export function setupInWorld(job, setup, models) {
-  if (job !== "housekeeping") return [setup.raw, models];
+  if (job !== "housekeeping") return [setup.raw, setup.modules?.length ? { ...models, pinnedNotes: [...(models.pinnedNotes ?? []), ...setup.modules] } : models];
   const pinnedNotes = [...(models.pinnedNotes ?? []), { path: PRODUCTION_HOUSEKEEPING_PATH, raw: setup.raw }];
   return [PLAIN_TEXTING_SETUP, { ...models, pinnedNotes }];
 }

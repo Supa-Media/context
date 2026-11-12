@@ -415,3 +415,27 @@ test("an improver's draft is written as a new setup beside live, and never over 
   await assert.rejects(publishSetup({ job: "texting-assistant", name: "../production", file, connection, fetchImpl }), /not a setup to write/);
   assert.equal(state.written.length, 1);
 });
+
+test("pullSetups brings the live setup's prompt modules, so a run parses it and puts them where production reads them", async () => {
+  // Since PR #3099 the live setup names modules; a pull without them left a file the run refused.
+  const notes = {
+    "ai/production/texting-assistant.md": "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\nmodules:\n  texts: [rules]\n  group: [rules]\n  job: [rules]\n---\n\nThe rules are in the modules.\n",
+    "ai/production/prompt/rules.md": "Answer from their notes.\n",
+  };
+  const { fetchImpl } = fakeGateway({ notes });
+  const dir = await mkdtemp(join(tmpdir(), "bench-pull-modules-"));
+  const connection = { endpoint: ENDPOINT, accessToken: "cat_1" };
+  await pullSetups({ job: "texting-assistant", dir, connection, fetchImpl });
+  assert.equal(await readFile(join(dir, "setups", "texting-assistant", "prompt", "rules.md"), "utf8"), notes["ai/production/prompt/rules.md"]);
+  const { readSetups, setupInWorld } = await import("../run.mjs");
+  const [setup] = await readSetups(dir, "texting-assistant", ["production"]);
+  assert.deepEqual(setup.modules, [{ path: "ai/production/prompt/rules.md", raw: notes["ai/production/prompt/rules.md"] }]);
+  const [raw, models] = setupInWorld("texting-assistant", setup, {});
+  assert.equal(raw, notes["ai/production/texting-assistant.md"]);
+  assert.deepEqual(models.pinnedNotes, setup.modules);
+  // A module that is not there refuses the setup, as production does.
+  delete notes["ai/production/prompt/rules.md"];
+  const bare = await mkdtemp(join(tmpdir(), "bench-pull-modules-missing-"));
+  await pullSetups({ job: "texting-assistant", dir: bare, connection, fetchImpl });
+  await assert.rejects(readSetups(bare, "texting-assistant", ["production"]), /not a valid setup file with its prompt modules/);
+});
