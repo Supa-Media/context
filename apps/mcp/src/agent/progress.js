@@ -143,7 +143,7 @@ export const PLAN_ONLY_NOTICE = "Not sent: this chat gets one plan line per turn
  * `level` (off, planOnly or normal) is the chat's setting; at off the route
  * keeps the channel for `say` alone, so a sign-in link still goes.
  */
-export function progressChannel(send, { planOnly = false, level = planOnly ? "planOnly" : "normal" } = {}) {
+export function progressChannel(send, { planOnly = false, level = planOnly ? "planOnly" : "normal", job = false } = {}) {
   let said = 0;
   const lines = [];
   const plan = level === "planOnly";
@@ -173,10 +173,17 @@ export function progressChannel(send, { planOnly = false, level = planOnly ? "pl
       if (plan && lines.length > 0) return result(PLAN_ONLY_NOTICE, true);
       lines.push(text);
       await send(text.length > MAX_PROGRESS_CHARS ? `${text.slice(0, MAX_PROGRESS_CHARS - 1)}…` : text);
+      // A job's line is texted only when it holds a link (`apps/agent/src/jobRun.ts` `HAS_LINK`); the rest update its
+      // status. Told "Sent", a job believed the chat had heard from it (Nov Babies, 2026-11-12).
+      if (job && !HAS_LINK.test(text)) return result(JOB_NOTED);
       return result("Sent. Keep working.");
     },
   };
 }
+
+const HAS_LINK = /https?:\/\//i;
+/** What a job is told for a line with no link: it updates the job's status, and nobody is texted. */
+export const JOB_NOTED = "Noted on your job's status, not texted: only a line with a link reaches them, and they hear your result when you report. Keep working.";
 
 function result(text, isError = false) {
   return { content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) };

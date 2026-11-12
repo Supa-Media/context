@@ -448,6 +448,17 @@ export async function answerInline(storage: InboxStorage, entries: GroupEntry[],
   return false;
 }
 
+/**
+ * A routine's turn the chat can't run now. A scheduled routine or check-in is nobody asking just now, so it passes
+ * quietly. A job's report answers someone who asked, so the chat hears there is news, never silence (the owner,
+ * 2026-11-12: the Nov Babies chat's two finished pages were dropped here), unless Tex was told to stop in this chat.
+ */
+async function cannotRun(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, status: string | null): Promise<void> {
+  if (message.jobReport === undefined || status === "muted" || status === "stopped") return await routineDone(deps, message, "no_chat");
+  log("job_report_held");
+  await say(storage, deps, message, GROUP_LINES.jobReportRefused, { system: true, reason: "failed" }).catch(() => {});
+}
+
 /** A turn given up on (`reason` as logged): a routine nobody asked for just now fails quietly; anyone else is told what broke, and the chat is scored (`watchFailed`). */
 export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, reason: string | undefined): Promise<void> {
   if (message.jobReport !== undefined) {
@@ -484,7 +495,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
   // A job's report waits for the members it could not read, as a question does, rather than being dropped unread.
   if (routine && members === null && message.jobReport !== undefined) throw new ServiceError(app.senderOnlyWebhook ? "whapi" : "sendblue", null);
-  if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
+  if (routine && (members === null || !members.includes(message.from))) return void (await cannotRun(storage, deps, message, null));
   const people = peopleOf(message.line, message.participants, members);
   // A plain tag from the same person, with the same people, reuses the last token and asks the control plane behind the turn (`groupKept.ts`).
   const plain = command === null && !routine && members !== null;
@@ -497,7 +508,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const status = asked.status;
   const fixed = (text: string) => say(storage, deps, message, text, { system: true });
   // A chat that can't run it now is told nothing: nobody in it asked just now.
-  if (routine && status !== "ready") return void (await routineDone(deps, message, "no_chat"));
+  if (routine && status !== "ready") return void (await cannotRun(storage, deps, message, status));
   // A chat that isn't answering keeps nothing it was told.
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null, status !== "no_shared");
   if (status === "refused" || status === "muted") return log(status);
