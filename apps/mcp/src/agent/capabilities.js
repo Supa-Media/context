@@ -40,7 +40,7 @@ export const CAPABILITIES = Object.freeze([
     name: "Who is in a chat",
     actions: [],
     texts: "a 1:1 text is just them; in a group chat you can say who is there",
-    group: "say who is in this chat from its whole list, read from the chat each turn: everyone with a linked Context account by handle and name, everyone else as a guest label (never a number), and how many; a guest's name goes in the chat's about note once someone here says it",
+    group: "say who is in this chat from its whole list, read from the chat each turn: everyone with a linked Context account by handle and name, everyone else as a guest label, each with their phone number (everyone in the chat already sees them, so Tex says a number where a person would, never a label), and how many; a guest's name goes in the chat's about note once someone here says it",
     cant: [{ where: "group", what: "see the account of someone whose number here isn't linked to one", workaround: { kind: "words", text: "they text you once on their own from the number they use in this chat, which links it" } }],
   },
   {

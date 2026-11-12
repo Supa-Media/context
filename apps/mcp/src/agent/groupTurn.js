@@ -59,7 +59,7 @@ import { toolError } from "../tools/results.js";
 import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.js";
 import { playbookPrompt, readPlaybook, withPlaybookGate } from "./groupPlaybook.js";
 import { toolDefinitions } from "../tools/registry.js";
-import { guestsOf, namesOf, sizeOf, taggerLabel, whoIsWhoLine } from "./groupNames.js";
+import { guestsOf, namesOf, numberOf, numbersOf, sizeOf, taggerLabel, whoIsWhoLine } from "./groupNames.js";
 
 /** The group texting client (`apps/convex/functions/textGroups.ts`). */
 export const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -107,8 +107,10 @@ export function groupOwnAccountTools(definitions) {
 /**
  * The chat a group turn is in, from the Worker: `key` (the line and Sendblue's
  * group id, hashed), `members` (the participant set, hashed) and `from` (the
- * tagger's handle). Hashes only: no phone number reaches the gateway. Null
- * when any of it is missing or malformed.
+ * tagger's handle), hashes for the chat and its people. Each person's number
+ * comes only beside the handle or label they are known by here (`numbers`,
+ * Dev2, 2026-11-12): everyone in the chat already sees it. Null when any of
+ * it is missing or malformed.
  *
  * A chat with people who aren't all here (`groupGuests.js`) is known by the session's names, and then
  * a turn with no tagger handle is one of theirs (`guestTagger`). Otherwise a turn
@@ -128,7 +130,9 @@ export function groupOf(body, session = null) {
   const names = namesOf(group.names, [...people, from]); // each account's name beside its handle (`groupNames.js`)
   const guests = guestsOf(group.guests); // everyone else here, by label (`groupNames.js`)
   const size = sizeOf(group.size, people.length + guests.length);
-  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}) };
+  const numbers = numbersOf(group.numbers, [...people, ...guests]); // each person's number, by handle or label (`groupNames.js`)
+  const asker = from === "" && guests.includes(group.asker) ? group.asker : ""; // a guest who tagged Tex, by label
+  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}) };
   // A chat that reaches shared workspaces (every person here has an account and shares them) is an ordinary group turn
   // whose home is its memory; only a chat with people who aren't all here (no reach) is narrowed to its home.
   if (reach.length > 0 || !isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;
@@ -599,8 +603,9 @@ export function groupPrompt(group, workspace) {
 
 /** Who tagged Tex this time, said in their turn (`turnPrompt.js` preamble), never the cached system prompt: it changes with the tagger. */
 export function taggedLine(group) {
-  if (group.guestChat) return group.from ? `@${group.from} tagged you.` : "A guest in this chat tagged you.";
-  return (group.from ? `${taggerLabel(group)} tagged you.` : "Someone tagged you.") + (group.guestTagger ? ` ${INVITED_TAGGER_LINE.trim()}` : "");
+  const guest = group.asker ? `${group.asker}${numberOf(group, group.asker) ? ` (${numberOf(group, group.asker)})` : ""}` : "";
+  if (group.guestChat) return group.from ? `@${group.from} tagged you.` : guest ? `A guest in this chat, ${guest}, tagged you.` : "A guest in this chat tagged you.";
+  return (group.from ? `${taggerLabel(group)} tagged you.` : guest ? `${guest} tagged you.` : "Someone tagged you.") + (group.guestTagger ? ` ${INVITED_TAGGER_LINE.trim()}` : "");
 }
 
 /** Where the chat's memory is kept, for the prompt: its home's page, or with the chat until it has a home (`groupMemoryCarry.js`). */

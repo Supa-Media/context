@@ -208,7 +208,10 @@ describe("a group's queue", () => {
     expect(await acceptGroup(storage, message("also bring snacks", { from: BO, messageId: "c4" }), 5)).toBe("kept");
     await drainGroup(storage, deps(w, { control }));
     expect(w.asks[1]).toMatchObject({ question: "Tex, write this up", group: { chat: [{ from: "bo", text: "thursday works?" }, { from: "ada", text: "7 at mine" }] } });
-    expect(JSON.stringify(w.asks[1])).not.toContain(BO.slice(1));
+    // A number goes only beside the handle it belongs to, in the chat's numbers (Dev2, 2026-11-12), never in what was said.
+    const { numbers, ...said } = (w.asks[1] as { group: Record<string, unknown> }).group;
+    expect(numbers).toEqual([{ who: "ada", phone: ADA }, { who: "bo", phone: BO }]);
+    expect(JSON.stringify({ ...(w.asks[1] as object), group: said })).not.toContain(BO.slice(1));
     const left = [...(await storage.list<{ text: string }>({ prefix: "gchat:" })).values()].map((line) => line.text);
     expect(left).toEqual(["also bring snacks"]);
   });
@@ -587,7 +590,7 @@ describe("a group chat with people who aren't all here (homes, not guest mode; d
     names: [{ phone: ADA, handle: "ada" }], guests: [{ phone: BO, label: "guest-1a2b" }],
   };
 
-  it("a person with no account is named by label in the chat, never by number, and never offered an email", async () => {
+  it("a person with no account is named by label in the chat, their number only beside it, and never offered an email", async () => {
     const storage = new MemoryStorage();
     const w = world();
     // A chat Tex answers in keeps what is said between tags.
@@ -601,7 +604,13 @@ describe("a group chat with people who aren't all here (homes, not guest mode; d
     expect(group.people).toEqual(["ada"]);
     expect(group.guest).toBeUndefined();
     expect(group.chat).toEqual([{ from: "guest-1a2b", text: "flights are pricey" }]);
-    expect(JSON.stringify(w.asks[1])).not.toContain(BO);
+    // The guest who tagged Tex, by label; their number only in the chat's numbers (Dev2, 2026-11-12).
+    expect(group.asker).toBe("guest-1a2b");
+    const { numbers, ...rest } = w.asks[1] as Record<string, unknown> & { group: Record<string, unknown> };
+    expect(numbers).toBeUndefined();
+    const { numbers: shown, ...others } = rest.group;
+    expect(shown).toEqual([{ who: "ada", phone: ADA }, { who: "guest-1a2b", phone: BO }]);
+    expect(JSON.stringify({ ...rest, group: others })).not.toContain(BO);
   });
 
   it("hands the turn everyone here: accounts with their names, guests by label, and how many (Dev2, 2026-11-12)", async () => {
@@ -609,8 +618,9 @@ describe("a group chat with people who aren't all here (homes, not guest mode; d
     const w = world();
     await acceptGroup(storage, message("Tex who is in this chat", { from: ADA }), 0);
     await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada", names: [{ phone: ADA, handle: "ada", name: "Ada Lovelace" }] } }));
-    expect(w.asks[0]?.group).toMatchObject({ names: [{ handle: "ada", name: "Ada Lovelace" }], guests: ["guest-1a2b"], size: 2 });
-    expect(JSON.stringify(w.asks[0])).not.toContain(BO);
+    expect(w.asks[0]?.group).toMatchObject({ names: [{ handle: "ada", name: "Ada Lovelace" }], guests: ["guest-1a2b"], size: 2, numbers: [{ who: "ada", phone: ADA }, { who: "guest-1a2b", phone: BO }] });
+    // An account holder tagged Tex: no guest asker.
+    expect((w.asks[0]?.group as Record<string, unknown>).asker).toBeUndefined();
   });
 
   it("says what it can see in this chat when it is turned on, and when asked", async () => {
