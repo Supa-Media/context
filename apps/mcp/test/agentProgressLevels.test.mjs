@@ -159,3 +159,17 @@ test("the plan example passes the done check, so the model's copy of it is never
   assert.equal(claimsDone(PLAN_EXAMPLE), false);
   assert.equal(claimsDone(PLAN), false);
 });
+
+// Nov Babies, 2026-11-12: a job was told "Sent" for lines the texting Worker only puts on its status (`jobRun.ts`).
+test("a job's line with no link is noted on its status, not reported as texted; one with a link is sent", async () => {
+  const { progressChannel: channelOf, JOB_NOTED } = await import("../src/agent/progress.js");
+  const said = [];
+  const channel = channelOf(async (text) => said.push(text), { job: true });
+  const plain = await channel.call({ text: "Checking each venue's own page." });
+  assert.equal(plain.content[0].text, JOB_NOTED);
+  const linked = await channel.call({ text: "Sign in here: https://example.test/login" });
+  assert.equal(linked.content[0].text, "Sent. Keep working.");
+  assert.deepEqual(said, ["Checking each venue's own page.", "Sign in here: https://example.test/login"]);
+  const texted = await channelOf(async () => {}).call({ text: "Opening OpenTable for Friday." });
+  assert.equal(texted.content[0].text, "Sent. Keep working.");
+});

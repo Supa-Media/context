@@ -12,6 +12,7 @@
  *  6. `turnFailed` back to `routineDone` for a report → "and refused on every try, the chat still hears there is news".
  *  7. `groupModelTurn` ending a capped report as a routine → "and out of today's turns, it is not tried again but still not silent".
  *  8. `groupModelTurn` returning on a quiet answer before `handOff` (2026-11-11) → "a job's start texts nothing: the ask gets a tapback and the job still runs".
+ *  9. `cannotRun` back to `routineDone` for a report (2026-11-12) → "a report whose turn the chat can't run says there is news".
  */
 
 import { describe, expect, it } from "vitest";
@@ -226,6 +227,35 @@ describe("background jobs in a group chat", () => {
     for (let tries = 0; tries < 3; tries++) await drainGroup(inbox, { ...base, fetch: capped });
     expect(models).toBe(1);
     expect(world.sends.map((send) => send.content)).toEqual(["On it.", GROUP_LINES.jobReportRefused]);
+  });
+
+  /*
+    The Nov Babies chat (2026-11-12): two finished research jobs reported into a chat the control plane would not run a
+    routine's turn in, and each report was dropped as a routine nobody asked for: logged `routine_no_chat`, nothing
+    texted. A report answers someone who asked, so a turn the chat can't run still tells it there is news.
+  */
+  it("a report whose turn the chat can't run says there is news, never silence", async () => {
+    for (const status of ["no_shared", "unknown_sender"]) {
+      const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
+      const inbox = await reportQueued(world);
+      await drainGroup(inbox, deps(world, { answer: "never said" }, { status }));
+      expect(world.sends.map((send) => send.content), status).toEqual(["On it.", GROUP_LINES.jobReportRefused]);
+    }
+  });
+
+  it("and so does one whose asker has left the chat", async () => {
+    const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
+    const inbox = await reportQueued(world);
+    world.members = [[BO]];
+    await drainGroup(inbox, deps(world, { answer: "never said" }));
+    expect(world.sends.map((send) => send.content)).toEqual(["On it.", GROUP_LINES.jobReportRefused]);
+  });
+
+  it("but a chat told to stop hears nothing", async () => {
+    const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
+    const inbox = await reportQueued(world);
+    await drainGroup(inbox, deps(world, { answer: "never said" }, { status: "muted" }));
+    expect(world.sends.map((send) => send.content)).toEqual(["On it."]);
   });
 
   it("holds the result when somebody joined while it ran", async () => {
