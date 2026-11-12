@@ -67,7 +67,7 @@ import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import { groupLineFor } from "./groupLine";
-import { readMembersNow } from "./groupMembers";
+import { inRoom, readMembersNow, withKeptMembers } from "./groupMembers";
 import type { NoteCardDrawer } from "./noteCards";
 import { isBound, isMuted, keepChatLine, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
@@ -150,6 +150,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     if (read.kind === "done") return read.outcome;
     message = { ...message, text: read.line };
   }
+  // WhatsApp names only the sender: the group's kept list says who else heard it (`groupMembers.ts`).
+  message = await withKeptMembers(storage, message);
   const { repliesToTex, forTex: tagged, byCode } = await isItForTexInGroup(storage, message, now);
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
@@ -472,7 +474,7 @@ export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message
 /** One turn for `entries`, as one message (`mergedGroup`). "cancelled" when a restart cancelled it: nothing of it was sent. */
 export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps, clock?: ReplyClock): Promise<"cancelled" | void> {
   const item = entries.at(-1)![1];
-  const message = mergedGroup(entries.map(([, entry]) => entry.message));
+  let message = mergedGroup(entries.map(([, entry]) => entry.message));
   // What the chat said before the first message it answers is its context; the rest it answers.
   const acceptedAt = entries[0][1].at ?? deps.now();
   const covers = coversOf(entries);
@@ -490,6 +492,8 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const members = await readMembersNow(storage, app, chat, deps.now); // kept, for the check before sending (`groupMembers.ts`)
   clock?.mark("members");
   if (members === null) log("members_unread");
+  // WhatsApp's webhook named only the sender: the chat is bound, read and filed by the list just read (`inRoom`).
+  if (app.senderOnlyWebhook && members !== null) message = inRoom(message, members);
   const question = command === null;
   if (members === null && !routine && (app.senderOnlyWebhook || question || command?.kind === "status")) throw new ServiceError(app.senderOnlyWebhook ? "whapi" : "sendblue", null);
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
