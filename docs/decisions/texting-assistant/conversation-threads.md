@@ -206,6 +206,40 @@ bubble renewed), `groupInbox.test.ts` and `groupDecideEmojiWait.test.ts` (no
 tapback beside a group answer), `apps/mcp/test/agentJobRestart.test.mjs` and
 `agentBackground.test.mjs` (the one-line start).
 
+## A slow group answer gets a tapback from code, and the intro rides on the answer (Dev2, 2026-11-12)
+
+The Nov Babies chat (2026-11-11) opened with a fixed intro bubble telling Seyi
+to "Start a message with Tex", which his message had, then nothing for 70
+seconds: no tapback, because a group's only tapback was the judge's react and
+the judge's gate refused a chat whose row the turn had not made yet
+(`no_group`), a refusal kept for a minute. Seyi sent the whole message again.
+Then two "Searching…" progress lines went to the chat. Dev2 said "Go" to:
+
+- **A slow tapback.** A message naming Tex is armed as it is accepted
+  (`groupSlowTap.ts`). If no text of Tex's goes into the chat and no tapback
+  of Tex's lands on it within `SLOW_TAP_MS` (8 s), the Worker taps one, the
+  emoji picked from its words. Only a chat bound to its people and not muted
+  gets one. A quick answer gets none, so the 2026-11-10 rule above still holds
+  for every answer that isn't slow.
+- **`no_group` is never kept.** The gate's refusal for a group not set up yet
+  is dropped at once (`decideGateway.ts`), so the next text reaches the judge.
+- **The intro rides on the first answer**, as its last line, with words that
+  no longer tell anyone how to call Tex (`groupLines.ts`, `groupModelTurn.ts`
+  `withIntro`). A bare link or an exact ask's words stay their own texts.
+- **No plan lines.** The progress tool and its prompt no longer ask for a plan
+  line or a line before opening a site; a line goes only for something to act
+  on, or just before a step that changes something outside their notes
+  (`progress.js`). A long task's "here's what I'm doing" is its job's start
+  line (`background-jobs.md`, 2026-11-12).
+
+Reversing the tapback brings back silence on every slow group turn, worst in a
+new group. Tests: `apps/agent/src/groupInbox.test.ts` ("taps a message naming
+Tex when no text has gone out…", "never taps a chat Tex is not set up in…",
+"introduces itself at the end of its first answer…"),
+`apps/agent/src/decideGateway.test.ts` ("a group not set up yet is never kept
+refused…"), `apps/mcp/test/agentProgress.test.mjs` ("a line goes only for
+something to act on…").
+
 ## Undo and reversal cost
 
 `CONVERSATION_THREADS=off` on the gateway shows the chat as before (faded
