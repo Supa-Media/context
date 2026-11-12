@@ -138,6 +138,10 @@ describe("Settings, while Context is free", () => {
         onDismiss: () => {},
       }),
     );
+    // Plan sits under the workspace's "More" on the one-page home (2026-11-12).
+    act(() => {
+      (document.body.querySelector('[data-testid="settings-more-workspace"]') as HTMLElement).click();
+    });
     expect(document.body.querySelector('[data-testid="settings-section-storage"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="settings-section-premium"]') !== null).toBe(listed);
   });

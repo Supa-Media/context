@@ -4,11 +4,11 @@ import { useConvex } from "convex/react";
 import { Overlay } from "../../design/components/Overlay";
 import { Text } from "../../design/components/Text";
 
-import { layout, space } from "../../design/tokens";
+import { space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { SettingsPane } from "../panes/SettingsPane";
 import { AccountSection } from "./AccountSections";
-import { SettingsList } from "./SettingsList";
+import { SettingsHome, useHomeColors } from "./home/SettingsHome";
 import { SellingSource } from "./liveRowValues";
 import { atName } from "../format";
 import type { CheckoutOutcome } from "@context/shared";
@@ -29,7 +29,7 @@ import { densityFor } from "../../app/frame";
  * It is no longer one scroll opening on an access key: the sections are
  * addressable, the list is the index, and the note behind the scrim keeps its
  * place in the URL. `SettingsPane` renders one block at a time when given a
- * `section`; this component owns the chrome around it, and `SettingsList` owns
+ * `section`; this component owns the chrome around it, and `SettingsHome` owns
  * the index — including the argument for why the contexts are chips at the top
  * rather than rows at the bottom.
  *
@@ -97,8 +97,13 @@ export function SettingsOverlay({
     press back.
   */
   const compact = densityFor(useWindowDimensions().width) === "compact";
-  const [listing, setListing] = useState(compact && startOnList);
-  const [query, setQuery] = useState("");
+  /*
+    Since the one-page home (Dev2, 2026-11-12) a wide window opens on the home
+    too: there is no sidebar any more, the home is the whole of the index, and
+    a section is a page pushed over it with Back, the way a phone always did.
+  */
+  const [listing, setListing] = useState(startOnList);
+  const homeColors = useHomeColors();
   /*
     Plugins is deprecated in the console and absent unless this context is
     already using them, or the build turned the experiment on — the two
@@ -148,21 +153,15 @@ export function SettingsOverlay({
   const account = isAccountSection(active);
 
   const list = (
-    <SettingsList
+    <SettingsHome
       data={data}
-      active={active}
       sections={sections}
-      compact={compact}
-      query={query}
-      onQuery={setQuery}
       onSelect={(next) => {
         onSelect(next);
         setListing(false);
       }}
-      onSwitchContext={(slug) => {
-        onSwitchContext?.(slug);
-        setListing(false);
-      }}
+      onSwitchContext={onSwitchContext}
+      onSignOut={onSignOut}
     />
   );
 
@@ -221,52 +220,28 @@ export function SettingsOverlay({
       <SellingSource workspaceId={current.id} onSelling={setSelling} />
     ) : null;
 
-  if (compact) {
-    return (
-      <Overlay
-        /*
-          On the list, the bar is the only thing naming the screen. On a
-          section it is not: the panel below carries the section's name as its
-          one large heading, so a bar repeating it is the duplicate title this
-          change exists to remove.
-        */
-        title={listing ? "Settings" : undefined}
-        closeLabel="Close settings"
-        /*
-          "Settings", not a bare chevron. The bar is the only thing on a
-          phone's section screen that says where Back goes, and the word is
-          what lets the section below it be the one large title on the
-          screen — which is the whole of how the duplicated heading went.
-        */
-        backLabel="Settings"
-        onBack={listing ? undefined : () => setListing(true)}
-        onDismiss={onDismiss}
-        testID="settings-overlay"
-      >
-        {sellingSource}
-        {listing ? list : content}
-      </Overlay>
-    );
-  }
-
   return (
     <Overlay
       /*
-        No "Settings" title in the bar any more, and the breadcrumb is why: a
-        page that fills the window is named by its address, and `settings /
-        storage` says both which screen this is and that it has one. A word
-        and a path saying the same thing is the duplicate heading this feature
-        already removed once, on the phone.
+        On the home, the page's own "Settings." is the title, drawn in the
+        brand's serif, so the bar carries none. On a section the panel below
+        carries the section's name as its one large heading, and the bar
+        carries the way back to the home.
       */
-      breadcrumb={`${account ? "you" : atName(current?.slug ?? "")} / settings / ${active}`}
-      closeLabel="Back to your notes"
-      sidebar={list}
-      sidebarWidth={layout.settingsListWidth}
+      closeLabel={compact ? "Close settings" : "Back to your notes"}
+      backLabel="Settings"
+      onBack={listing ? undefined : () => setListing(true)}
+      breadcrumb={
+        compact || listing
+          ? undefined
+          : `${account ? "you" : atName(current?.slug ?? "")} / settings / ${active}`
+      }
+      ground={listing ? homeColors.ground : undefined}
       onDismiss={onDismiss}
       testID="settings-overlay"
     >
       {sellingSource}
-      {content}
+      {listing ? list : content}
     </Overlay>
   );
 }

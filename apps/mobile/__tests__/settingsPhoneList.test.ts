@@ -128,31 +128,40 @@ describe("a phone opens Settings on its list", () => {
   });
 });
 
-describe("the phone's list, redrawn (Dev2, 2026-11-06)", () => {
+describe("the one-page home (Dev2, 2026-11-12)", () => {
   /*
-    A phone's Profile is the card at the top, not a row (Dev2, 2026-11-06).
-    SABOTAGE: drop `ProfileCard`'s `onPress`, or hide the card while the
-    Profile row is also hidden, and this fails.
+    Profile is the first row of Your account, a lettermark and your name,
+    and pressing it opens Profile.
+    SABOTAGE: drop the row's `onPress`, and this fails.
   */
-  test("the card at the top opens Profile", () => {
+  test("the profile row opens Profile", () => {
     const chosen: string[] = [];
     const host = overlay("storage", { onSelect: (next) => chosen.push(next) });
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
-    expect(host.querySelector('[data-testid="settings-section-profile"]')).toBeNull();
     act(() => {
-      (host.querySelector('[data-testid="settings-profile-card"]') as HTMLElement).click();
+      (host.querySelector('[data-testid="settings-section-profile"]') as HTMLElement).click();
     });
     expect(chosen).toEqual(["profile"]);
   });
 
-  test("the list's title is large, under a bar with only the close", () => {
+  test("the home is titled once, in its own heading, under a bar with only the close", () => {
     const host = overlay("storage");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
-    expect(host.querySelector('[data-testid="settings-overlay-title"]')?.textContent).toBe("Settings");
+    expect(host.querySelector('[data-testid="settings-home-title"]')?.textContent).toBe("Settings.");
+    expect(host.querySelector('[data-testid="settings-overlay-title"]')).toBeNull();
     expect(host.querySelector('[data-testid="settings-overlay-back"]')).toBeNull();
+  });
+
+  test("a row's button and the row ask for the same page", () => {
+    const chosen: string[] = [];
+    const host = overlay("workspace", { startOnList: true, onSelect: (next) => chosen.push(next) });
+    act(() => {
+      (host.querySelector('[data-testid="settings-action-sharing"]') as HTMLElement).click();
+    });
+    expect(chosen[0]).toBe("sharing");
   });
 });

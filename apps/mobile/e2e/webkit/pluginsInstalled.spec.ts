@@ -30,6 +30,8 @@ async function openPlugins(page: import("@playwright/test").Page) {
   // The list is one press back from whatever section opened first.
   const back = page.getByLabel("Back", { exact: true });
   if (await back.count()) await back.tap();
+  // Plugins sits under the workspace's "More" on the one-page home.
+  await page.getByTestId("settings-more-workspace").click();
   await page.getByTestId("settings-section-plugins").tap();
   await page.getByTestId("plugins-panel").waitFor();
 }

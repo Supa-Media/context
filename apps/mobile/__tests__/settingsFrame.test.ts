@@ -114,6 +114,7 @@ function demoData(): ConsoleData {
 function pointer(
   section: SettingsSectionKey = "storage",
   onDismiss: () => void = () => {},
+  startOnList = false,
 ): HTMLElement {
   for (const [node, prop, value] of [
     [document.documentElement, "clientWidth", 1440],
@@ -133,7 +134,7 @@ function pointer(
       // with light, so an unpinned mount would silently be testing Paper
       // while naming Graphite's tokens.
       scheme: "dark",
-      children: createElement(SettingsOverlay, { data, section, onSelect: () => {}, onDismiss }),
+      children: createElement(SettingsOverlay, { data, section, onSelect: () => {}, onDismiss, startOnList }),
     }),
   );
   return document.body;
@@ -244,9 +245,9 @@ describe("the bar says where you are and how to leave", () => {
   });
 });
 
-describe("the section list is a list, not a stack of boxes", () => {
+describe("the home is one page, not a sidebar beside a pane (2026-11-12)", () => {
   test("a group paints no card of its own", () => {
-    const group = find(pointer(), "settings-group-account");
+    const group = find(pointer("workspace", () => {}, true), "settings-group-account");
     expect(group).not.toBeNull();
     const style = window.getComputedStyle(group!);
     expect(style.borderTopWidth === "" || style.borderTopWidth === "0px").toBe(true);
@@ -254,32 +255,28 @@ describe("the section list is a list, not a stack of boxes", () => {
     expect(paint === "" || paint === "rgba(0, 0, 0, 0)" || paint === "transparent").toBe(true);
   });
 
-  /*
-    The selected row is marked rather than only filled. A fill alone is the
-    one thing a reader with a contrast problem loses first, and it is what the
-    rail beside the notes already does.
-  */
-  test("the open section carries a marker in the accent", () => {
-    const marker = find(pointer("storage"), "settings-marker-storage");
-    expect(marker).not.toBeNull();
-    expect(window.getComputedStyle(marker!).backgroundColor).toBe(rgb(darkColors.accent));
+  test("a wide window opened plainly draws the home, and no section beside it", () => {
+    const body = pointer("workspace", () => {}, true);
+    expect(find(body, "settings-sections")).not.toBeNull();
+    expect(find(body, "settings-pane")).toBeNull();
   });
 
-  /*
-    And the marker is not a row. Every row in this list is found by prefix —
-    `settings.spec.ts` sweeps `[data-testid^="settings-section-"]` to measure
-    label alignment — so a marker named `settings-section-storage-marker`
-    joins that sweep as a labelless row. It did, and the sweep caught it.
-  */
-  test("the marker does not answer to the row selector", () => {
-    const rows = pointer("storage").querySelectorAll('[data-testid^="settings-section-"]');
+  test("a section's bar goes back to the home, and still closes by name", () => {
+    const body = pointer("storage");
+    expect(find(body, "settings-overlay-back")!.textContent).toBe("Settings");
+    act(() => find(body, "settings-overlay-back")!.click());
+    expect(find(body, "settings-sections")).not.toBeNull();
+    expect(find(body, "settings-overlay-close")!.textContent).toBe("Notes");
+  });
+
+  test("every row a test sweeps by prefix is a labelled control", () => {
+    // `settings.spec.ts` sweeps `[data-testid^="settings-section-"]`; a child
+    // sharing the prefix would join the sweep as a row with no label.
+    const rows = pointer("workspace", () => {}, true).querySelectorAll('[data-testid^="settings-section-"]');
+    expect(rows.length).toBeGreaterThan(3);
     for (const row of rows) {
       expect(row.getAttribute("aria-label")).not.toBe(null);
     }
-  });
-
-  test("a section that is not open carries no marker", () => {
-    expect(find(pointer("storage"), "settings-marker-plugins")).toBeNull();
   });
 });
 
