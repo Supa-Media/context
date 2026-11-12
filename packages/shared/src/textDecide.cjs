@@ -80,7 +80,7 @@ function readDecideBody(body) {
  * addressed to, whoever sends it). Facts about the lines, never a rule about what to do.
  */
 const CHAT_MARKS =
-  '"(replying to You)" or "(replying to @name)" says whose message a line was sent under; "(your newest question)" marks Tex\'s latest question; a tapback line names the message it is on; <now>, when present, says what Tex is doing in this chat right now.';
+  '"(replying to You)" or "(replying to @name)" says whose message a line was sent under; "(your newest question)" marks Tex\'s latest question; a tapback line names the message it is on; <now>, when present, says what Tex is doing in this chat right now and which conversations are open, with their newest lines.';
 
 /**
  * Whatever the setting, Tex answers what is plainly its own (Dev2, 2026-11-11, one judge: "@Tex" must still work).
@@ -173,7 +173,7 @@ const EXAMPLES_TEXT = `<examples>\n${JUDGE_EXAMPLES.map(exampleText).join("\n")}
 const MAX_STATE = 24_000;
 
 /** At most this much of the judge's state is facts about what Tex is doing now (`textsDecide.js` `nowFacts`). */
-const MAX_FACTS = 1_000;
+const MAX_FACTS = 1_600;
 
 /** The judge's state: its examples, the facts of the moment, then the chat, oldest lines dropped first so the whole fits what Clef reads. */
 function judgeState(transcript, facts = []) {
