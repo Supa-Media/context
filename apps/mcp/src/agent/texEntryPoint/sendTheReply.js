@@ -29,6 +29,7 @@ import { turnTiming } from "../turnTiming.js";
 import { heardWords, sentLine } from "../heardWords.js";
 import { jobChecked, startedJobEntries } from "../workEntries.js";
 import { VAULT_SAVED_QUESTION } from "../vaultSaved.js";
+import { HANDED_BACK_QUESTION, handbackField } from "../handback.js";
 import { typedCallOf } from "../sayNothing.js"; // a call typed out is never texted, the last stop before it goes
 import { factsEntry } from "../toldFacts.js";
 
@@ -61,7 +62,7 @@ export async function sendTheReply(t) {
   const handoff = opened?.browser?.handoffLine() ?? null;
   const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
   // A turn no text of theirs asked (a job's report, a vault save) keeps the gateway's line it was asked, so the chat rebuilt from the ledger shows what Tex answered.
-  const eventAsked = report !== null || question === VAULT_SAVED_QUESTION ? String(question).slice(0, 2_000) : null;
+  const eventAsked = report !== null || question === VAULT_SAVED_QUESTION || question === HANDED_BACK_QUESTION ? String(question).slice(0, 2_000) : null;
   // What the person's chat rebuilt from the ledger shows beside this answer (`ledgerConversation.js`): the files they sent and where a picture is kept, the pages it read, the thread it was typed in.
   const attached = attachmentsLine(attachments, attachments.length > 0 ? ((await tex.step("pictures_kept", keepPictures)) ?? []) : []), sources = turn.steps.flatMap((step) => step.sources ?? []);
   chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), worker: body.worker, replyMs: Date.now() - received }), clean: ledger.untrusted !== true, outside: ledger.outside === true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...factsEntry(sent, t.reads, t.ledgerAt?.grant), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}), ...(eventAsked !== null ? { about: eventAsked } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`); `outside`: whether a later turn replaying its calls is marked (`stretch.js`)
@@ -104,6 +105,7 @@ export async function sendTheReply(t) {
     ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), ...(offers.length > 0 ? { offers, ...hubField(offers, chatHubUrl(env, session, group)) } : {}), // choices, offers: `outgoingPictures.js`; `hub`: where "what I'm working on" points (`hubLinks.js`)
     ...(ledger.chatInvite ? { invite: ledger.chatInvite } : {}), // the Worker invites this chat's people, as its asker, after the answer (`settingsTools.js`)
     ...(ledger.vaultLink === true ? { vaultWatch: true, ...(ledger.vaultLinks?.length ? { vaultLinks: ledger.vaultLinks } : {}) } : {}), // the Worker watches for the save, in a group too, on the links this chat texted (`vaultSaved.js`)
+    ...(await tex.step("handback_watch", () => handbackField(opened))), // the browser it handed over, whose Done carries the task on (`handback.js`)
     provider: turn.provider,
     model: turn.model,
     steps: turn.steps,

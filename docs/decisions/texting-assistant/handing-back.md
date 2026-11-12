@@ -159,6 +159,53 @@ link is its page's computer view; with no page, the refusal keeps the
 browser and never hands the form back; sabotaged by dropping the viewer, the
 first fails), `apps/mcp/test/agentHandoff.test.mjs`.
 
+## Done on the take-over screen tells Tex to carry on (2026-11-12)
+
+After the group link shipped, the owner asked for a Done button "that should
+notify tex so it continues on", with an animation of Tex taking over. Before
+it, a person who finished a captcha had to go back to the chat and text
+"done", and Tex did nothing until they did.
+
+- **Done is recorded per browser, never per link.** `/tex/computer/done`
+  (with `chat` for a group's page, the same membership check as every other
+  `/tex/computer` route) sends the control plane a hash of the browser's tag
+  (`handback.js` `browserHash`), filed with the caller's grant
+  (`/gateway/browser-handback`, `functions/browserHandbacks.ts`). The tag
+  itself never leaves the gateway.
+- **The turn that handed over watches for it.** Its answer names the same
+  hash (`handbackWatch`), and the asker's inbox in the texting Worker asks
+  `/agent-texts/handed-back` every 3 seconds for five minutes, then every 15,
+  giving up after 20 (the browser is held 15 minutes waiting on someone).
+  Done queues the chat's own turn with no words and
+  `event: "browser_handed_back"`, as a saved login's carry-on is; in a group
+  it runs under the message that asked. A text after Done already carried it
+  on, so nothing is queued then.
+- **The turn is told what happened, not asked to guess.** The gateway answers
+  that event with a fixed question (`HANDED_BACK_QUESTION`): someone pressed
+  Done, read the page again and carry on, or say the check is still there.
+- **The screen shows it.** Done is a full-width button above Send text; once
+  the gateway takes it, a ring glows round the screen, the status reads "Tex
+  is driving" and a toast says Tex has it (still under reduced motion, with no
+  movement). A touch after it takes control back. If Done can't reach Tex, the
+  screen says to text it "done", which still works.
+
+Not covered yet: a background job that hands its browser over mid-run starts
+no watch (`jobRun` does not pass `handbackWatch`), so there the person still
+texts "done".
+
+**What a simplification would cost.** Keying Done on the link instead of the
+browser lets a forwarded link's holder signal a chat they are not in; the
+membership check on `/tex/computer/done` is what stops it. Dropping the
+"texted since" check runs the task twice when someone texts "done" too.
+
+**Tests.** `apps/agent/src/handbackWatch.test.ts` (sabotaged: no
+`onHandedOver`, no "texted since" check, no give-up, each fails one),
+`apps/convex/__tests__/browserHandbacks.test.ts` (no grant check, no `since`
+filter), `apps/mcp/test/texPageComputer.test.mjs` (a stranger's Done refused;
+a group page's Done sends the group browser's hash),
+`apps/mcp/test/agentGroupSignIn.test.mjs`,
+`apps/mobile/__tests__/texComputerRender.test.ts`.
+
 ## What went out is read again each night
 
 The judge reads an answer before it goes, and may send it back once, so

@@ -82,6 +82,7 @@ import { addEvent, flushChat, kindOf, logAsk, pruneEvents } from "./events"; imp
 import { sha256Hex } from "./groupChat";
 import { chatJobs, jobQuestion, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, viewLink, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, queueSavedInGroup, watchForSave } from "./vaultWatch";
+import { checkHandedBack, logHandbackWatch, queueHandedBackInGroup, watchForHandback } from "./handbackWatch";
 import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
 import { afterReplyWork, deferAfterReply, rememberSession, type TurnTiming } from "./afterReply";
@@ -241,6 +242,19 @@ export async function carryOnAfterSave(storage: InboxStorage, deps: Pick<InboxDe
   const channel = chat.channel === "simulator" ? { channel: "simulator" as const } : {};
   const message: Message = { kind: "message", eventId: `vault-saved:${saved.savedAt}`, chatId: chat.chatId, from: saved.phone, messageId: "", text: "", event: "vault_saved", ...channel };
   if (await queueByCode(storage, message, deps.now())) logVaultWatch("queued");
+}
+
+/** Once someone pressed Done on the browser Tex handed over (`handbackWatch.ts`): the same, with `event: "browser_handed_back"`. */
+export async function carryOnAfterHandback(storage: InboxStorage, deps: Pick<InboxDeps, "fetch" | "controlPlaneOrigin" | "workerSecret" | "now">): Promise<void> {
+  const back = await checkHandedBack(storage, deps);
+  if (back === null) return;
+  if (back.group !== undefined) return queueHandedBackInGroup(storage, { ...back, group: back.group }, deps.now());
+  const chat = await storage.get<RememberedChat>(CHAT_KEY);
+  if (chat === undefined) return logHandbackWatch("no_chat");
+  if (chat.at > back.doneAt) return logHandbackWatch("texted_since");
+  const channel = chat.channel === "simulator" ? { channel: "simulator" as const } : {};
+  const message: Message = { kind: "message", eventId: `handed-back:${back.doneAt}`, chatId: chat.chatId, from: back.phone, messageId: "", text: "", event: "browser_handed_back", ...channel };
+  if (await queueByCode(storage, message, deps.now())) logHandbackWatch("queued");
 }
 
 /** Queue a turn this Worker asks for itself (a saved login's, a job's report), never a webhook; false when that event was queued already. */
@@ -557,6 +571,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onTold: (sent) => noteTold(storage, sent, message.chatId, deps.now()),
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: (links) => watchForSave(storage, message.from, deps.now(), links ? { links } : {}),
+      onHandedOver: (browser) => watchForHandback(storage, message.from, deps.now(), browser), // Done on the take-over screen carries it on (`handbackWatch.ts`)
       onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
       onOffers: (offered, named) => void ((offers = offered), (hub = named)),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),

@@ -154,6 +154,8 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
     mayResume: () => browserbaseWanted(),
     /** Whether a person can be handed this browser to sign in: Browserbase, and a page of theirs to do it on. */
     canHandOff: () => browserbaseWanted() && typeof viewer === "string" && viewer.length > 0,
+    /** The browser's tag, which a hand-back is watched by (`handback.js`); never sent to a model. */
+    tag: () => (typeof owner === "string" && owner.length > 0 ? owner : null),
     /**
      * "Sign Tex out": the running browser is let go, its saved profile
      * released at Browserbase, and the sealed jar dropped, so the next

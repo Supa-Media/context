@@ -7,6 +7,10 @@
  *    JPEG; `scale` is its pixels per CSS pixel)
  *  - `POST /tex/computer/input`  `{ handle, action }` → the same, after it
  *  - `POST /tex/computer/stop`   `{ handle }` → `{ closed: true }`
+ *  - `POST /tex/computer/done`   `{ handle, chat? }` → `{ handedBack: true }`
+ *    or `{ handedBack: false }`: Done on the take-over screen. The browser
+ *    it names is the one this route would show the caller, and Tex carries
+ *    on in the chat that handed it over (`agent/handback.js`).
  *
  * `chat` names a group chat's browser instead of the person's own: one the
  * control plane says they are in now, tagged by that chat and its people
@@ -38,11 +42,12 @@ import { createControlPlane } from "../controlPlane.js";
 import { forbiddenResponse, unauthorizedResponse } from "../oauth.js";
 import { bearerToken, resolveSession, SessionRefusal } from "../session.js";
 import { json } from "./responses.js";
+import { browserHash } from "../agent/handback.js";
 
 /** The console's client (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`). */
 const CONSOLE_CLIENT_ID = "context_console";
 
-export const TEX_COMPUTER_PATHS = new Set(["/tex/computer", "/tex/computer/input", "/tex/computer/stop"]);
+export const TEX_COMPUTER_PATHS = new Set(["/tex/computer", "/tex/computer/input", "/tex/computer/stop", "/tex/computer/done"]);
 
 /** The most one request may carry: a frame request is tiny, typing is capped at 1,000 characters. */
 const MAX_BODY_BYTES = 8_192;
@@ -179,6 +184,13 @@ export async function handleTexComputer(request, env, { path, origin }) {
     if (!(error instanceof PageRefusal)) throw error;
     log(error.error);
     return error.response();
+  }
+  if (path === "/tex/computer/done") {
+    // The hash of the browser this caller is shown, marked handed back; the chat that handed it over carries on (`agent/handback.js`).
+    const browser = owner === null ? null : await browserHash(owner);
+    const marked = browser === null ? null : await createControlPlane(env).browserHandback(bearerToken(request), browser).catch(() => null);
+    log(marked === null ? "failed" : "handed_back");
+    return json({ handedBack: marked !== null });
   }
   if (typeof binding?.fetch !== "function" || owner === null) {
     log("unavailable");

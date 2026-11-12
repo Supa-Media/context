@@ -18,6 +18,7 @@ const COMPUTER: TexComputerState = {
   busy: false,
   send: () => {},
   stop: () => {},
+  handBack: async () => true,
 };
 
 /**

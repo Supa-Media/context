@@ -35,6 +35,11 @@ export function createVaultMethods({ post, required }) {
       const parsed = await post("/gateway/vault/text", { accessToken, expectedWorkspaceId, ...(request ?? {}) });
       return parsed && typeof parsed === "object" && typeof parsed.status === "string" ? parsed : null;
     },
+    /** "Done" on Tex's take-over screen: `browser` (a hash of its tag, `agent/handback.js`) handed back now. `{ doneAt }` or null. */
+    async browserHandback(accessToken, browser) {
+      const parsed = await post("/gateway/browser-handback", { accessToken, browser });
+      return typeof parsed?.doneAt === "number" ? { doneAt: parsed.doneAt } : null;
+    },
     /**
      * Tex's saved Browserbase profile for one browser (`agent/browserProfile.js`):
      * `{ profileId, created }`, or `{ profileId: null }` when it has none and

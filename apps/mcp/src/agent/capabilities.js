@@ -117,7 +117,7 @@ export const CAPABILITIES = Object.freeze([
       {
         where: "everywhere",
         what: "type a code you weren't texted, solve a captcha you can't get past, pass a passkey only their own device holds, or pay without them",
-        workaround: { kind: "link", text: "add a handoff step in browse: they get a link to your browser (in a group chat, the chat's own Tex page, for anyone here signed in to Context) and do only that step, then you carry on; with no link, or if they've said they won't take the browser, keep the browser where it got to and say the one step left, never the whole form again" },
+        workaround: { kind: "link", text: "add a handoff step in browse: they get a link to your browser (in a group chat, the chat's own Tex page, for anyone here signed in to Context) and do only that step, then press Done there and you carry on by yourself (texting \"done\" works too); with no link, or if they've said they won't take the browser, keep the browser where it got to and say the one step left, never the whole form again" },
       },
     ],
   },

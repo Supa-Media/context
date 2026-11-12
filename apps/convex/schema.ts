@@ -40,6 +40,7 @@ import { meetingJoinTables } from "./functions/lib/schema/meetingJoin";
 import { transcriptionConsentTables } from "./functions/lib/schema/transcriptionConsent";
 import { spellingTables } from "./functions/lib/schema/spelling";
 import { browserProfileTables } from "./functions/lib/schema/browserProfiles";
+import { browserHandbackTables } from "./functions/lib/schema/browserHandbacks";
 import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
@@ -144,6 +145,7 @@ const schema = defineSchema({
   ...transcriptionConsentTables,
   ...spellingTables,
   ...browserProfileTables,
+  ...browserHandbackTables,
   ...messageTables,
   ...placeTables,
   ...feedbackTables,
