@@ -264,7 +264,7 @@
           {
             "url": "https://www.theinfatuation.com/new-york/guides/where-to-have-a-private-dinner-in-nyc-right-now"
           },
-          "Capacity: 30. Not the folks at Katz's, the Lower East Side deli with a room for rent."
+          "Katz's Delicatessen, the Lower East Side deli, has a room for rent. Capacity: 30. There are a few set menus for under $55 per person."
         ]
       ],
       "reply": "I need to correct my last text: the Infatuation guide says Katz's room holds 30, not 50.",
@@ -283,12 +283,19 @@
         [
           "open_page",
           {
-            "url": "https://katzdelicatessen.com/private-events/"
+            "url": "https://www.theinfatuation.com/new-york/guides/where-to-have-a-private-dinner-in-nyc-right-now"
           },
-          "404 Not Found"
+          "failed: the page timed out"
+        ],
+        [
+          "search_web",
+          {
+            "query": "Katz's Delicatessen private room capacity"
+          },
+          "Katz's Delicatessen catering and shipping. Katz's: 205 E Houston St, open daily. Katz's private events: contact the deli."
         ]
       ],
-      "reply": "That's what The Infatuation's guide said. Katz's own page didn't load just now, so I can't confirm it from them; worth a call before booking.",
+      "reply": "That's what The Infatuation's guide said when I read it. It won't load right now and the search doesn't give a number, so I can't confirm it again; worth a call to Katz's before booking.",
       "fault": false
     }
   ]

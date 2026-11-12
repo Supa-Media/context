@@ -225,6 +225,12 @@ export async function reviewReply({ state, earlier = [], request = requestViaGat
   return readReview(reply?.text);
 }
 
+/** Words that take back or "correct" an earlier text (Nov Babies, 2026-11-11: "I need to correct my last text"). */
+const TAKE_BACK = /\b(?:correct(?:ion|ing)?\s+(?:to\s+)?(?:my|what i)|i was wrong|i misspoke|scratch that|take (?:that|it) back|(?:ignore|disregard) (?:my|that|what i)|(?:wasn't|was not|isn't|is not) (?:on|in) (?:any|the) (?:page|guide|site|source|article)s?|my (?:last|earlier) (?:text|message) was (?:wrong|off))\b/i;
+
+/** Whether a draft takes back an earlier text, so it is reviewed though the turn took no action. */
+export const takesBack = (answer) => typeof answer === "string" && TAKE_BACK.test(answer);
+
 /**
  * `{ check, verdicts }` for `runTurn`'s `answerCheck`, around the turn's other
  * check (`claimCheck.js`; the word checks the reviewer replaces, `doItChecks.js`
@@ -252,7 +258,8 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
       // A text answered with no action (no search, read, write or send) is not reviewed (Dev2, 2026-11-11, one-judge PR 3): the reviewer's faults
       // are claims and figures this turn's actions do not back. `plain`, the code checks a setup without the reviewer runs, reads it instead.
       // A routine's text and a job's report are still reviewed.
-      const unreviewed = on && !skip && scheduled === null && report === null && actionsOf(turn.messages).length === 0;
+      // A take-back is reviewed even with no action: "wasn't on any page I read" with nothing reopened is the Nov Babies retraction (`takesBack`).
+      const unreviewed = on && !skip && scheduled === null && report === null && actionsOf(turn.messages).length === 0 && !takesBack(answer);
       const checks = unreviewed ? plain : inner;
       const before = typeof checks?.check === "function" ? await checks.check(answer, turn) : null;
       if (before !== null && before !== undefined) {

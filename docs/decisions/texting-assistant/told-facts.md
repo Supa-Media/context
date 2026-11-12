@@ -39,7 +39,11 @@ grant. The turn mistook "I can't see it now" for "it was never there".
 4. **The reviewer sends back an unchecked take-back** (`unchecked_retraction`,
    `replyJudge.js`): a reply that takes back or corrects an earlier claim when
    nothing read this turn contradicts it. Not finding it again, or a page that
-   didn't load, is not a contradiction.
+   didn't load, is not a contradiction. Since the reviewer reads only a
+   draft written after an action (one-judge PR 3), a draft whose words take
+   back an earlier text (`takesBack`: "correct my last text", "wasn't on any
+   page", "scratch that") is read even when the turn took none, because a
+   take-back with nothing reopened is exactly the Nov Babies retraction.
 
 A quote rides with the earlier answer it backs, so it is trusted as that answer
 is: it never marks the turn shown it (`turn-trust.md`), and an answer from a
