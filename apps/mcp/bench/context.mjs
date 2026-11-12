@@ -36,6 +36,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
+import { MODULE_FOLDER } from "../src/agent/promptModules.js";
 import { ledgersFolderFor } from "./modelLog.mjs";
 import { repliesName } from "./replies.mjs";
 import { section, summaryMarkdown } from "./summary.mjs";
@@ -200,6 +201,8 @@ export function splitNote(text) {
  *    setup, so a round measures what people get today (decided by the owner,
  *    2026-10-16: tests run "with the latest agents and the latest skills").
  *    It wins over a setup someone named `production`.
+ *  - `ai/production/prompt/` into `setups/<job>/prompt/`: the modules the
+ *    live setup names (`promptModules.js`), read the way production reads them.
  *  - `ai/production/skills/` into `setups/<job>/skills/`: the skills the live
  *    setup reads. A skill only in `ai/setups/<job>/skills/` is added beside
  *    them for a setup trying something new; a copy there of a live skill is
@@ -231,6 +234,11 @@ export async function pullSetups({ job, dir, connection, fetchImpl = fetch }) {
   if (live) {
     await writeFile(join(folder, `${LIVE_SETUP}.md`), await readContent(connection, livePath, fetchImpl));
     names.push(LIVE_SETUP);
+    // Its prompt modules (`promptModules.js`, since PR #3099): without them the live setup does not parse.
+    for (const path of production.filter((p) => dirname(p) === MODULE_FOLDER && basename(p) !== "about.md")) {
+      await mkdir(join(folder, "prompt"), { recursive: true });
+      await writeFile(join(folder, "prompt", basename(path)), await readContent(connection, path, fetchImpl));
+    }
   }
   // The live skills first, then any skill only a setup being tried has.
   const skills = [];

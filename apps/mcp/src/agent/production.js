@@ -431,7 +431,7 @@ async function readAssembled(store, session, path) {
 }
 
 /** A setup's front matter as `readFront` reads it, or null. */
-function frontOf(raw) {
+export function frontOf(raw) {
   const match = FRONT_MATTER.exec(String(raw ?? ""));
   return match ? readFront(match[1]) : null;
 }
