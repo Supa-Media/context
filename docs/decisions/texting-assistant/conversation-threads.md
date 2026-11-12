@@ -35,6 +35,32 @@ shadow mode and just launch it".
   shown as before, so nothing drops out on the day a chat starts.
 - `read_thread` lists every thread, or opens one in full.
 
+## Off the reply path (Dev2, 2026-11-12)
+
+Dev2's words: "Classifier off the reply path, in 1:1 and in groups. Never wait
+for it: run it in the background, keep writing the threads ledger after the
+answer, and show the thread list as it stood after the previous text ...
+Also make the call short (thinking off, tight output limit)."
+
+Measured before the change (reply latency audit, 2026-11-12, @supa
+`projects/tex-reliability/2026-11-12-reply-latency-audit.md`): on answered
+turns the wait before the model ("ready") went from 0.1 s to 3.3 s at the
+median. The call wrote about 430 output tokens at effort low, almost all
+thinking, against a design budget of 1.3 to 1.7 s, so 46% of calls reached
+the 4 s cap and 35% came back with nothing. `read_thread` was called 0 times
+in 79 answered turns read from the ledgers.
+
+So the classifier now runs behind the reply (`threads_sort`, `threadedTurn.js`
+`sort`), with thinking off (`thinking: "off"`, Haiku 5.5 takes it at effort
+high or below) and a 400-token answer cap, and its verdict is kept for the
+next text. The turn is shown the threads as they stood after the text
+before, with no suggested thread and no older texts pulled in by a guess; the
+new text and any not sorted yet are untagged in the last 24 hours. It no
+longer says where a reply goes (`place`): that is for the one-turn-per-text
+design. A simplification that moves it back before the model costs every
+text about 3 s; `agentThreadsTurn.test.mjs` fails if the classifier is called
+before the front door.
+
 ## Rules the review asked for
 
 - **Finishing is the consequential call.** A wrong thread costs little (the

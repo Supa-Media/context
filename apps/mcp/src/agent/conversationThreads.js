@@ -5,8 +5,10 @@
  * history.ledger.json through the classifier, and regenerate the conversation
  * threads"; "let's get rid of shadow mode and just launch it").
  *
- * Before a chat turn's model runs, one Haiku call reads the chat's open
- * threads and the new text, and says which thread the text continues (or that
+ * After a chat turn has answered (Dev2, 2026-11-12: "Classifier off the reply
+ * path ... Never wait for it"; before, every turn waited about 3.4 s for it),
+ * one Haiku call, thinking off, reads the chat's open threads and the new
+ * text, and says which thread the text continues (or that
  * it starts one), the thread's description as it now stands, and which threads
  * the latest texts finished. Its answer is kept in the chat's threads ledger:
  * the same Tex object as the chat's ledger, under the chat's name plus
@@ -16,9 +18,9 @@
  *
  * The turn is then shown (`threadsHistory`): up to `MAX_LISTED` threads, one
  * line each (open first, then the most recently finished; older ones drop out
- * of the prompt as threads close), the suggested thread with its texts older
- * than the last day, and the last 24 hours word for word, each line tagged
- * with its thread. Texts from before the chat's first thread entry are shown
+ * of the prompt as threads close), as they stood after the text before, and
+ * the last 24 hours word for word, each line tagged with its thread (the new
+ * text and any not yet sorted untagged). Texts from before the chat's first thread entry are shown
  * as before, so a chat loses nothing on the day this starts. `read_thread`
  * opens any thread, or lists them all.
  *
@@ -28,8 +30,8 @@
  * theirs Tex has not answered keeps its thread open. A wrong thread costs
  * little: the last day is always shown and any thread can be read.
  *
- * Off with `CONVERSATION_THREADS=off`. When the call fails or is late, the turn
- * still gets the thread list and the last day, with no suggestion.
+ * Off with `CONVERSATION_THREADS=off`. When the call fails or is late, nothing
+ * is kept for that text, and it stays untagged in the last day.
  */
 
 import { requestViaGateway } from "./aiGateway.js";
@@ -43,6 +45,8 @@ export { foldThreads, listedThreads, MAX_LISTED, THREADS_SUFFIX };
 export const THREADS_MODEL = "anthropic/claude-haiku-5-5";
 export const THREADS_EFFORT = "low";
 export const THREADS_TIMEOUT_MS = 4_000;
+/** The answer's cap, with thinking off: a JSON line, title and description included. */
+export const THREADS_MAX_TOKENS = 400;
 /** How far back the chat is shown word for word once its threads have started. */
 export const RECENT_MS = 24 * 60 * 60 * 1000;
 /** What the classifier is shown of each candidate thread, and of the chat just before the new text. */
@@ -61,9 +65,8 @@ You are given whether the chat is a group chat or a 1:1 with Tex (CHAT), the cha
 2. title: for "new", a 3 to 6 word title in plain words; otherwise the thread's title, kept unless it is now wrong.
 3. description: that thread's one or two sentences as they now stand, with the new text in it: what it is about and where it stands (what is asked, what is waiting on whom). At most 240 characters.
 4. finished: ids of OTHER open threads the chat's last lines show are done. Only on evidence: the ask was answered and they acknowledged it or moved on from it by saying so, the task was done, or someone dropped it. Silence never finishes a thread. A question of theirs that Tex has not answered keeps its thread open. When unsure, leave it open.
-5. place: "under" when Tex's reply could be read as answering a different text (other texts came after it, several conversations are interleaving, or it picks up an older subject), else "plain".
 
-Answer with JSON only: {"thread":"t3"|"new","title":"...","description":"...","finished":["t1"],"place":"under"|"plain"}`;
+Answer with JSON only: {"thread":"t3"|"new","title":"...","description":"...","finished":["t1"]}`;
 
 /** Where a reply goes: under the text it answers, or plain in the chat; anything else is none, and the Worker decides. */
 export const PLACES = ["under", "plain"];
@@ -168,12 +171,14 @@ export function verdictEntries(verdict, threads, covered, at = Date.now()) {
 }
 
 /** One classifier call: the verdict, or null when it failed, was late or said nothing usable. */
-// No `maxTokens`: it caps the thinking and the answer together (`aiGateway.js`), and a 400 cap cut the verdict off
-// often enough that about 4 turns in 10 of the 2026-11-07 backfill came back unsorted.
+// No thinking (Dev2, 2026-11-12: "make the call short (thinking off, tight output limit)"): with it, the call wrote
+// about 430 tokens a time, almost all thinking, about 3 s on its own. A 400-token cap with thinking on cut the verdict
+// off (about 4 turns in 10 of the 2026-11-07 backfill came back unsorted); with thinking off the cap is the answer's
+// alone, a JSON line of about 60-120 tokens.
 export async function classifyText({ threads, lines, question, replying, group = false, config, metadata, timeZone = null, request = requestViaGateway, timeoutMs = THREADS_TIMEOUT_MS }) {
   if (!config) return null;
   const call = request(
-    { model: THREADS_MODEL, system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying, group }) }], tools: [], effort: THREADS_EFFORT },
+    { model: THREADS_MODEL, system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying, group }) }], tools: [], effort: THREADS_EFFORT, thinking: "off", maxTokens: THREADS_MAX_TOKENS },
     config,
     { metadata, timeZone }, // told today in their zone (`localNow.js` `withToday`)
   );
@@ -243,4 +248,10 @@ export async function threadsWrite(store, session, entries) {
   if (place === null || typeof store?.texLedger !== "function" || !Array.isArray(entries) || entries.length === 0) return;
   const writer = ledgerWriter(store.texLedger(place.owner.chat ?? null), threadsChat(place.chat));
   await writer?.write(entries);
+}
+
+/** After a turn has answered: sort its text (`threadedTurn.js` `sort`) and keep the verdict for the next turn. Never throws. */
+export async function threadsSortAndWrite(sort, store, session) {
+  const entries = await Promise.resolve().then(sort).catch(() => []);
+  if (Array.isArray(entries) && entries.length > 0) await threadsWrite(store, session, entries);
 }
