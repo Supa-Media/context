@@ -33,7 +33,7 @@ async function boundWith(judge: (body: Decide) => Answer) {
 describe("a literal @Tex tag is answered whatever the judge says", () => {
   it("tagsTex reads @Tex as a word in any case, never the bare name", () => {
     expect(tagsTex("@Tex what's 18% of 250?")).toBe(true);
-    expect(tagsTex("hey @⁨tex⁩ you there")).toBe(true);
+    expect(tagsTex("hey @\u2068tex\u2069 you there")).toBe(true);
     expect(tagsTex("Tex what's 18% of 250?")).toBe(false);
     expect(tagsTex("@Texas trip")).toBe(false);
     expect(tagsTex("mail me@tex.example")).toBe(false);
