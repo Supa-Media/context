@@ -130,6 +130,21 @@ function overlay(
   return document.body;
 }
 
+
+/** Back from a section to the settings home. */
+function toHome(host: HTMLElement): void {
+  act(() => {
+    (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+  });
+}
+
+/** Opens a section's "More", where the settings people rarely open are folded. */
+function openMore(host: HTMLElement, section: string): void {
+  act(() => {
+    (host.querySelector(`[data-testid="settings-more-${section}"]`) as HTMLElement).click();
+  });
+}
+
 /*
   jsdom reports a viewport width of 0, so every mount here takes `Overlay`'s
   **compact** branch. That is the right half to spend a render test on: the
@@ -217,37 +232,42 @@ describe("a phone reaches the settings, not just a menu", () => {
     // states the bucket's health: the Storage row in the list says it.
     const host = overlay("storage");
     expect(host.querySelector('[data-testid="settings-health"]')).toBeNull();
-    act(() => {
-      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
-    });
+    toHome(host);
+    openMore(host, "workspace");
     const row = host.querySelector('[data-testid="settings-section-storage"]');
     expect((row!.textContent ?? "").replace("Storage", "").trim()).not.toBe("");
   });
 });
 
-describe("the search box", () => {
-  test("narrows the list to what somebody typed", () => {
+describe("every setting is on the one page", () => {
+  /*
+    The search box went with the one-page home (Dev2, 2026-11-12): every
+    section is a row on the page, the rarely opened ones under their
+    section's "More", so nothing is reachable only by typing its name.
+  */
+  test("the folded sections are under More, not missing", () => {
     const host = overlay("workspace");
-    act(() => {
-      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
-    });
-    const field = host.querySelector('[data-testid="settings-search"]') as HTMLInputElement;
-    expect(field).not.toBeNull();
-    act(() => {
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype,
-        "value",
-      )?.set;
-      setter?.call(field, "gmail");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    toHome(host);
+    expect(host.querySelector('[data-testid="settings-search"]')).toBeNull();
+    for (const key of ["activity", "meetings", "emoji", "folders", "storage"]) {
+      expect(host.querySelector(`[data-testid="settings-section-${key}"]`)).toBeNull();
+    }
+    openMore(host, "workspace");
+    openMore(host, "account");
+    for (const key of ["activity", "meetings", "emoji", "folders", "storage", "workspace", "spelling", "feedback"]) {
+      expect(host.querySelector(`[data-testid="settings-section-${key}"]`)).not.toBeNull();
+    }
+  });
+
+  test("the Tex rows come from the list Tex reads by text", () => {
+    const host = overlay("workspace");
+    toHome(host);
+    openMore(host, "tex");
     const text = host.textContent ?? "";
-    // Connected apps is where Gmail lives — the mailboxes we read, the
-    // forwarding address, the calendars and the chats, on one screen. What the
-    // box has to do is land on it from the word people actually type, which is
-    // never our word for the section.
-    expect(text).toContain("Connected apps");
-    expect(text).not.toContain("Delete account");
+    for (const label of ["Check-ins", "Quiet hours", "Tidy my notes"]) expect(text).toContain(label);
+    // Rows with a page of their own are not drawn twice.
+    expect(host.querySelector('[data-testid="settings-row-tex-talk"]')).toBeNull();
+    expect(host.querySelector('[data-testid="settings-row-tex-vault"]')).toBeNull();
   });
 });
 
@@ -259,23 +279,19 @@ describe("the list is one press away, and it navigates", () => {
     act(() => {
       (back as HTMLElement).click();
     });
+    openMore(host, "workspace");
     const text = host.textContent ?? "";
     for (const label of ["General", "People & sharing", "Connected apps", "Storage", "Website"]) {
       expect(text).toContain(label);
     }
-    expect(text).not.toContain("Plan"); // Context is free (2026-10-20).
-    // Folded pages are reached from a row on another page, not listed.
-    for (const key of ["activity", "meetings", "emoji", "feedback"]) {
-      expect(host.querySelector(`[data-testid="settings-section-${key}"]`)).toBeNull();
-    }
+    expect(host.querySelector('[data-testid="settings-section-premium"]')).toBeNull(); // Context is free (2026-10-20).
   });
 
   test("pressing a section asks for that section", () => {
     const chosen: string[] = [];
     const host = overlay("storage", (next) => chosen.push(next));
-    act(() => {
-      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
-    });
+    toHome(host);
+    openMore(host, "workspace");
     const row = host.querySelector('[data-testid="settings-section-storage"]');
     expect(row).not.toBeNull();
     act(() => {
@@ -345,6 +361,7 @@ describe("the list is the context switcher too", () => {
 
   test("only the open context carries its sections", () => {
     const host = list(() => {});
+    openMore(host, "workspace");
     // Two contexts' worth of Storage rows in one list is two answers to "what
     // is my bucket", which is the question the row is there to settle.
     expect(host.querySelectorAll('[data-testid="settings-section-storage"]')).toHaveLength(1);
@@ -373,9 +390,8 @@ describe("the list is the context switcher too", () => {
 describe("a row says what it is set to", () => {
   test("Storage carries its verdict, in the list", () => {
     const host = overlay("workspace");
-    act(() => {
-      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
-    });
+    toHome(host);
+    openMore(host, "workspace");
     const row = host.querySelector('[data-testid="settings-section-storage"]');
     expect(row).not.toBeNull();
     // The words are `previews.ts`'s to pin; this pins that the row carries them.
@@ -383,17 +399,14 @@ describe("a row says what it is set to", () => {
     expect((row!.textContent ?? "").replace("Storage", "").trim()).not.toBe("");
   });
 
-  test("a row with nothing to say carries only its label", () => {
-    // General has no state to report, by design — so the row must not
-    // invent one. See `settingsPreview`'s header for the absences this
-    // protects. (It was Meetings until Meetings folded into Connected apps.)
+  test("a row with nothing to report says what it is, never an invented value", () => {
+    // How Tex talks has no state on `ConsoleData`, by design — so the row
+    // carries its one line and its one action, and nothing else.
     const host = overlay("storage");
-    act(() => {
-      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
-    });
-    const row = host.querySelector('[data-testid="settings-section-workspace"]');
+    toHome(host);
+    const row = host.querySelector('[data-testid="settings-section-tex"]');
     expect(row).not.toBeNull();
-    expect((row!.textContent ?? "").trim()).toBe("General");
+    expect((row!.textContent ?? "").trim()).toBe("How Tex talksYour own words for how Tex writes to youEdit");
   });
 });
 
@@ -412,8 +425,8 @@ describe("the workspace is one switcher, under This workspace", () => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
     const switcher = listed(host, '[data-testid="settings-workspace-switcher"]');
-    expect(listed(host, '[data-testid="settings-profile-card"]')).toBeLessThan(switcher);
-    expect(switcher).toBeLessThan(listed(host, '[data-testid="settings-section-workspace"]'));
+    expect(listed(host, '[data-testid="settings-section-profile"]')).toBeLessThan(switcher);
+    expect(switcher).toBeLessThan(listed(host, '[data-testid="settings-section-sharing"]'));
   });
 
   test("one thing is lit at a time", () => {
@@ -475,7 +488,7 @@ describe("the section is named once", () => {
     const headings = Array.from(host.querySelectorAll('[role="heading"]')).map(
       (node) => node.textContent ?? "",
     );
-    expect(headings).toContain("Settings");
+    expect(headings).toContain("Settings.");
   });
 });
 
@@ -585,9 +598,8 @@ describe("the Plugins row is off a list that has no plugins behind it", () => {
       }),
     );
     const host = document.body;
-    act(() => {
-      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
-    });
+    toHome(host);
+    openMore(host, "workspace");
     return host;
   }
 

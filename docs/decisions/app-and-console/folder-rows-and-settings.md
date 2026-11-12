@@ -250,6 +250,8 @@ the ones that needed reporting. `apps/mobile/__tests__/contextMoveBrowser.test.t
 `explorerActionGuards.test.ts` fail.
 ### Settings is seven rows, and a row has to earn its place
 
+_Superseded on 2026-11-12 by [Settings is one page](./settings-one-page.md): every section is on one page now, the rarely used ones under a "More"._
+
 Twenty rows under four headings, each holding one word. Sayo, looking at it on
 a call on 2026-09-18: *"I'm looking at the settings page right now. I'm
 overwhelmed, bro."* That is the whole brief, and the rest of this entry is what
