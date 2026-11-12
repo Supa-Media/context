@@ -40,6 +40,8 @@
 
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
+import { membersChanged } from "./groupMembers";
+import { isWhapiGroup } from "./whapi";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { ADA, answerAll, BO, CY, decidedWords, LINE, LINES, setup, silent, untaggedSilent, type Answer, type Decide, chatLog } from "./groupWorld.testing";
 
@@ -326,6 +328,14 @@ for (const { name, groupId } of LINES) {
     it("an answer held for a newcomer is logged as never delivered", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { members: [[ADA, BO], [ADA, BO, CY]] });
+      // On WhatsApp, Whapi reports Cy's join while the turn runs; the list is read again only then (`groupMembers.ts`).
+      if (isWhapiGroup(groupId)) {
+        const fetch = w.deps.fetch;
+        w.deps.fetch = (async (url: string, init?: RequestInit) => {
+          if (new URL(url).pathname === "/agent") await membersChanged(storage, w.deps.now());
+          return await fetch(url, init);
+        }) as unknown as typeof fetch;
+      }
       await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
       await drainGroup(storage, w.deps);
       const outs = (await chatLog(storage, w, groupId)).filter((event) => event.from.kind !== "person");

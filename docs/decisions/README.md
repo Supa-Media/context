@@ -771,6 +771,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The texting assistant](./texting-assistant.md)
 
+- [A WhatsApp group's people are kept, and trusted before sending until they change (2026-11-12)](./texting-assistant/group-members.md)
 - [Every model Tex calls knows today's date, and every text it reads has one (2026-11-10)](./texting-assistant/dates-everywhere.md)
 - [Each finished day is summed up the night after, and shown where the texts stop (2026-11-06)](./texting-assistant/day-summaries.md)
 - [A turn is shown its whole chat, the nearer days whole and older ones clipped (2026-11-06)](./texting-assistant/faded-history.md)
