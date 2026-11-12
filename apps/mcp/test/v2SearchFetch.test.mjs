@@ -227,7 +227,7 @@ describe("translateFetch: note paths", () => {
   it("treats a lists value other than true as an unknown key on a note", () => {
     assert.equal(
       translateFetch({ id: "a.md", args: { lists: false } }, CLAUDE).error,
-      'fetch "a.md" takes args: mail. orient lists what each id takes.',
+      'fetch "a.md" takes args: mail; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. orient lists what each id takes.',
     );
   });
 
@@ -242,8 +242,16 @@ describe("translateFetch: note paths", () => {
     );
     assert.equal(
       translateFetch({ id: "a.md", args: { limit: 3 } }, CLAUDE).error,
-      'fetch "a.md" takes args: mail. orient lists what each id takes.',
+      'fetch "a.md" takes args: mail; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. orient lists what each id takes.',
     );
+  });
+
+  // The Nov Babies job (2026-11-12) asked for { images: true }, was told a note takes only mail, and guessed again.
+  // Sabotage: drop `others: NOTE_READS` from the read_note target and this fails.
+  it("a refused note read names every way a note reads, a picture by its file name included", () => {
+    const error = translateFetch({ id: "tex/groups/x/fun.page.md", args: { images: true } }, CLAUDE).error;
+    assert.match(error, /takes args: mail; or, instead, one of: image: "<a picture's file name/);
+    for (const way of ["related: true", "lists: true", "transcript", "messages", "activity"]) assert.ok(error.includes(way), way);
   });
 
   it("drops a message anchor and reads the note it names", () => {

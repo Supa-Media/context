@@ -30,7 +30,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { PAGE_GUIDE, pageProblems, pageSkillMissing } from "../src/pages.js";
+import { PAGE_GUIDE, pageProblems, pageSkillMissing, repairPage } from "../src/pages.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
+import { PrivacyOverrides } from "../src/privacy/engine.js";
+import { createMemoryStore } from "./gmailSync/fixtures.mjs";
+import { withServedTree } from "./servedTree.mjs";
 import { PAGE_SKILL, PAGE_SKILL_STAMP } from "../src/pageSkill.js";
 import { toolWriteNote } from "../src/tools/notes/write.js";
 import { jobPrompt, jobReportPrompt } from "../src/agent/background.js";
@@ -246,4 +250,39 @@ test("a cover goes to the control plane with the person's own token, and a huge 
   assert.deepEqual(posts, [["/gateway/page-cover", { path: "projects/dinner.page.md", png: "iVBORw0KGgo=", accessToken: "tok", expectedWorkspaceId: "ws1" }]]);
   assert.equal(await tree.recordPageCover("tok", "ws1", "projects/dinner.page.md", "A".repeat(MAX_COVER_CHARS + 1)), false);
   assert.equal(posts.length, 1);
+});
+
+/*
+  The Nov Babies job (2026-11-12) wrote four places rows as "- Name | detail"
+  and the page was refused ("needs a label first"). That slip has one reading,
+  so the saver fixes it and says so. Sabotage: `repairPage` returning its
+  input unchanged fails both tests below.
+*/
+const SLIPPED = ["---", `skill: ${PAGE_SKILL_STAMP}`, "---", "# Fun for 20", "", "```places Escape Room Madness", "need: 20 players", "- Escape Room Madness | Team puzzle rooms, book two rooms for 20", "  price: $40 a person", "```", ""].join("\n");
+
+test("a row written '- Name | detail' where a label is needed is fixed, not refused; a slip with no single reading is still refused", () => {
+  assert.match(pageProblems(SLIPPED), /needs a label first, a name and a colon/);
+  const { content, fixed } = repairPage(SLIPPED);
+  assert.equal(pageProblems(content), null);
+  assert.match(content, /^- Escape Room Madness: Team puzzle rooms, book two rooms for 20$/m);
+  assert.match(content, /^  price: \$40 a person$/m, "the fields under it are untouched");
+  assert.equal(fixed.length, 1);
+  assert.deepEqual(repairPage(GOOD), { content: GOOD, fixed: [] }, "a page with nothing to fix is left as it is");
+  const still = repairPage(BROKEN);
+  assert.equal(still.content, BROKEN, "'- Jan' alone has no second part to make a value of");
+  assert.match(pageProblems(still.content), /needs a label first/);
+});
+
+test("the write saves the fixed page and its answer says what was fixed", async () => {
+  const store = withPrivacyAuthority(withServedTree(createMemoryStore()), {
+    rules: { etag: "rows-v1", accessVersion: 1, folders: [{ prefix: "notes", visibility: "team" }], notes: [] },
+    async setAccess(change) {
+      return { ok: true, version: (change.expectedVersion ?? 1) + 1 };
+    },
+  });
+  const result = await toolWriteNote(store, "private", [{ prefix: "notes", vis: "team" }], new PrivacyOverrides(), { path: "notes/fun.page.md", content: SLIPPED });
+  assert.notEqual(result.isError, true, result.content?.[0]?.text);
+  assert.match(result.content[0].text, /page: fixed 1 row so it could be drawn: "- Escape Room Madness \| …" written as "- Escape Room Madness: …"/);
+  const saved = await store.get("notes/fun.page.md");
+  assert.match(await saved.text(), /- Escape Room Madness: Team puzzle rooms/);
 });
