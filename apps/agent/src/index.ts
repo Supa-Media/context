@@ -50,7 +50,7 @@ import { membersChanged } from "./groupMembers";
 import { flushWithReader } from "./chatRead";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { sha256Hex } from "./groupChat";
-import type { DueRoutine } from "./clients";
+import type { DueRoutine } from "./routineClients";
 import { textsSessionDeps, type TextsBinding } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";

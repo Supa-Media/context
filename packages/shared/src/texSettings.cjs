@@ -131,11 +131,11 @@ const TEX_SETTINGS = Object.freeze([
   {
     key: "workspaces",
     label: "Workspaces Tex can see",
-    description: "In a group, the shared workspaces everyone there is in; an owner adds everyone with \"Tex, add everyone here to @name\".",
+    description: "In a group, the shared workspaces everyone there is in; a workspace's owner can say \"share @name with everyone here\" to add the whole chat.",
     section: "Group chats",
     where: ["1:1", "group"],
     byText: true,
-    via: "chat_status",
+    via: "chat_add_everyone",
   },
   {
     key: "apps",

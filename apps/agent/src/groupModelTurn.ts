@@ -27,6 +27,7 @@ import { staleAsks } from "./decide";
 import { startTurn } from "./steer";
 import { recheckDraft } from "./groupRecheck";
 import { watchForSave } from "./vaultWatch";
+import { inviteEveryone } from "./groupInvite";
 import type { GroupPending } from "./groupTurn";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
 
@@ -253,6 +254,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
   const askedWho = await sha256Hex(asks ?? message.from);
   for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));
+  // "Share @studio with everyone here": the invitation goes as its asker now the answer has (`groupInvite.ts`).
+  if (answer.invite && !routine) await inviteEveryone(storage, deps, message, people, answer.invite);
   log("answered");
   logTiming({ arrivedAt, asking, answered, firstSent, sent: deps.now(), parts: texts.length, turn: meta.turn ?? "" }, deps.textTiming);
   await routineDone(deps, message, "answered", texts.length > 0 ? 1 : 0);

@@ -24,9 +24,9 @@ import {
   reportRoutineResult,
   runRoutine,
   type DueRoutine,
-  type Fetch,
   type RoutineOutcome,
-} from "./clients";
+} from "./routineClients";
+import type { Fetch } from "./clients";
 import { textsFromAnswer } from "./format";
 import { CHAT_KEY, type InboxStorage, type RememberedChat } from "./inbox";
 import { lineFor, type LineDeps } from "./line";
