@@ -53,14 +53,14 @@ const CODE_TEXT =
   /\b(?:enter (?:the|your|a) (?:\d-digit )?code|(?:we|we've|we have) (?:just )?sent (?:you )?(?:a|an|the) (?:code|text|email)|verification code|two[- ]factor|2-step verification|verify it'?s you|confirm it'?s you|approve (?:the |this )?(?:sign[- ]in|request|login)|check your (?:phone|device|authenticator))\b/i;
 
 /** A page that is a captcha wall. */
-const CAPTCHA_TEXT = /\b(?:captcha|i'?m not a robot|verify (?:that )?you(?:'re| are) (?:a )?human|are you a robot|press (?:&|and) hold|security check to continue)\b/i;
+const CAPTCHA_TEXT = /\b(?:captcha|i'?m not a robot|select all (?:images|squares)|verify (?:that )?you(?:'re| are) (?:a )?human|are you a robot|press (?:&|and) hold|security check to continue)\b/i;
 
 /** A box or a frame for a card, and a page that asks for one. */
 const CARD_LABEL = /\b(?:card ?number|credit card|debit card|name on card|expiry|expiration|exp\.? date|cvc|cvv|security code|cc-\w+)\b/i;
 const CARD_TEXT = /\b(?:card number|credit card|debit card|name on card|cvc|cvv|paypal|apple pay|google pay|payment method)\b/i;
 
 /** Their own words asking to do it themselves. */
-const THEIR_OWN = /\b(?:my ?self|i'?ll (?:do|finish|sign|log|pay|fill|type|enter|handle)|let me (?:do|finish|sign|log|pay|fill|type|enter|handle)|i'?d rather|send me (?:the|your) (?:browser|link)|i (?:want|wanna) to (?:do|sign|log|pay|fill))\b/i;
+const THEIR_OWN = /\b(?:my ?self|i'?ll (?:do|finish|sign|log|pay|fill|type|enter|handle)|let me (?:do|finish|sign|log|pay|fill|type|enter|handle)|i'?d rather|(?:send|give) me (?:a|the|your) (?:browser|link)|i (?:want|wanna) to (?:do|sign|log|pay|fill))\b/i;
 
 /** Said when a handoff was asked for and nothing on the page is the person's. */
 export const NOT_THEIRS =

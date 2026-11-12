@@ -188,9 +188,10 @@ describe("/tex/<handle>", () => {
     expect(cursor.style.top).toBe("350px");
   });
 
-  test("a tap on the screen clicks where the cursor is, and takes control", async () => {
+  test("trackpad: a tap on the screen clicks where the cursor is, and takes control", async () => {
     const state = computer();
     await render(READY, state);
+    press("tex-mode");
     // On the picture, well away from the cursor in its middle.
     drag([{ x: 20, y: STAGE.top + 300 }]);
     expect(state.sent).toEqual([{ kind: "tap", x: 640, y: 430, button: "left" }]);
@@ -201,6 +202,7 @@ describe("/tex/<handle>", () => {
   test("trackpad: a drag moves the cursor, then hovers it there", async () => {
     const state = computer();
     await render(READY, state);
+    press("tex-mode");
     drag([
       { x: 100, y: STAGE.top + 300 },
       { x: 120, y: STAGE.top + 300 },
@@ -210,15 +212,15 @@ describe("/tex/<handle>", () => {
     expect(byTestId("tex-cursor")!.style.left).toBe("234px");
   });
 
-  test("touch mode: the toggle switches, and a tap clicks where it lands", async () => {
+  test("touch mode is the default, so a tap clicks where it lands; the toggle switches to trackpad", async () => {
     const state = computer();
     await render(READY, state);
-    expect(iconIn("tex-mode")).toBe("mouse");
-    press("tex-mode");
     expect(iconIn("tex-mode")).toBe("touch");
     drag([{ x: 97.5, y: STAGE.top + 350 }]);
     expect(state.sent).toEqual([{ kind: "tap", x: 320, y: 430, button: "left" }]);
     expect(byTestId("tex-cursor")!.style.left).toBe("97.5px");
+    press("tex-mode");
+    expect(iconIn("tex-mode")).toBe("mouse");
   });
 
   test("Send text: return sends the text, then Enter, and takes control", async () => {

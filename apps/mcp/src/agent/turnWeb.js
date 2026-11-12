@@ -22,6 +22,7 @@ import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { browserOwner, groupBrowserOwner } from "./browserProviders.js";
 import { texViewerUrl } from "../http/texComputer.js";
+import { groupViewerUrl } from "./hubLinks.js";
 import { decisionEngine } from "./decide.js";
 import { resolveUpload } from "./uploads.js";
 import { keepDownload } from "./downloads.js";
@@ -71,11 +72,12 @@ export function pagesOpenedBefore(history) {
 export async function openTurnWeb(env, { session, texting, group, question, vouched, history = [], channel, store, dispatch, ledger }) {
   // The person's browser tag lets a later text carry on in the same browser
   // (`browserProviders.js`); it is made from their id, never from the request.
-  // A handoff texts their own `/tex/@<handle>` page, never the browser's link.
+  // A handoff texts their own `/tex/@<handle>` page, never the browser's link;
+  // a group chat's, its own page's computer view (`groupViewerUrl`).
   const computer = texting
     ? computerFor(env, { owner: await browserOwner(env, session.actorUserId), viewer: texViewerUrl(env, session), store })
     : group
-      ? computerFor(env, { owner: await groupBrowserOwner(env, group), store, group })
+      ? computerFor(env, { owner: await groupBrowserOwner(env, group), viewer: groupViewerUrl(env, group), store, group })
       : null;
   // Web search is the texting assistant's too, and runs on its own (the
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.
