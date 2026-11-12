@@ -24,7 +24,7 @@ import { conversationPath, readConversation } from "./conversation.js";
 import { readGroupMemory } from "./groupTurn.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { EVENT_ID, isChatKey, READ_CHARS, readEvents } from "./log.js";
-import { renderEvents, replyingTo, speaker, TIME_OF, words } from "./logRender.js";
+import { oneLine, renderEvents, replyingTo, speaker, TIME_OF, words } from "./logRender.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
 import { sentByItself, withSentByItself } from "./sentByItself.js";
 import { dayFromLedger, earlierFromLedger, faded, readLedger, summaryLines } from "./ledgerHistory.js";
@@ -35,6 +35,10 @@ import { carryKey, MAX_CARRIED_CALLS, stretchSince, stretchTurns } from "./stret
 import { groupQuestion } from "./groupLedgerHistory.js";
 
 const MAX_COVERS = 32;
+/** The Worker's mark at the end of a cut text (`apps/agent/src/inbound.ts` `cut`), on one line as `words` shows it. */
+const CUT_MARK = / \u23ce \[cut: (\d+) more characters\]$/;
+/** The log's cap before 2026-11-11: a text logged then was cut here, with no mark. */
+const OLD_CAP = 3_000;
 export const TURNS_PREFIX = ".context/agent/turns/";
 /** Older than this, a left-over turn record or a running or cancel mark is pruned: twice the log's 24h window. */
 const KEEP_MS = 48 * 3_600_000;
@@ -115,10 +119,22 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   const wanted = new Set(covers);
   const covered = events.filter((event) => wanted.has(event.id));
   if (covered.length !== wanted.size) return null;
-  const question = covered
-    .filter((event) => event.from?.kind === "person")
-    .map((event) => (group !== null ? `${speaker(event.from)}: ${words(event)}` : words(event)))
-    .join("\n");
+  // The texts as the Worker sent them (`body.question`), on one line as the log shows them, when the log kept less of them: a text
+  // logged before a cap was raised, or one a cap cut, still reaches the model whole (2026-11-11: a pasted brief cut at 3,000 read as missing).
+  // Only when the logged words provably are the Worker's text cut at a cap: they end with its mark and its count matches, or
+  // they are exactly its first 3,000 (logged before the mark). A short or uncut text is never replaced, so one person's words
+  // never land under another's name (security review, 2026-11-11).
+  const raw = typeof body.question === "string" ? body.question : "";
+  const whole = (kept) => {
+    const mark = CUT_MARK.exec(kept);
+    const cutAt = mark ? raw.length - Number(mark[1]) : OLD_CAP;
+    const proven = kept !== "" && cutAt > 0 && cutAt < raw.length && oneLine(raw.slice(0, cutAt)) === (mark ? kept.slice(0, mark.index) : kept);
+    return proven ? oneLine(raw) : kept;
+  };
+  const asked = covered.filter((event) => event.from?.kind === "person");
+  const question = group !== null
+    ? asked.map((event, i) => `${speaker(event.from)}: ${i === asked.length - 1 ? whole(words(event)) : words(event)}`).join("\n")
+    : whole(asked.map(words).join("\n"));
   if (question === "") return null;
   // A group is shown its whole log, whoever has joined or left since (the owner, 2026-11-02): no cut by the people a text was said in front of.
   // The stretch's earlier turns, carried as messages with their tool calls and results (`stretch.js`), and left out of the rendered log.
