@@ -29,10 +29,10 @@ import { createWeb } from "./sites.mjs";
 import { createBenchSite } from "./siteStub.mjs";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { rmSync } from "node:fs";
-import { createHash } from "node:crypto";
 
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
+import { benchGroup } from "./groupChat.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
@@ -310,31 +310,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     ],
   });
 
-  /*
-    A group chat (`models.group`, a test's `group: <shared workspace>`): the group grant the texting Worker uses
-    (`context_texts_group`, bound to the chat by `texChatId`) on that workspace, and the chat's key, its members and
-    each sender as hex hashes, as the Worker sends them (`src/agent/groupTurn.js` `groupOf`). Every person
-    `people.md` puts in the workspace is a member; the test's person is the one who tags Tex.
-  */
-  const hex = (words) => createHash("sha256").update(words).digest("hex");
-  const groupName = typeof models.group === "string" && models.group !== "" ? models.group : null;
-  let group = null;
-  if (groupName !== null) {
-    const members = bench.people.filter((row) => row.workspace === groupName).map((row) => row.person.toLowerCase().replace(/[^a-z0-9-]/g, ""));
-    if (!ids.has(groupName) || members.length < 2 || !members.includes(person.toLowerCase())) throw new Error(`group: ${groupName} is not a shared workspace ${person} is in with someone else (people.md)`);
-    group = { key: hex(`bench-group:${groupName}`), members: hex(members.sort().join(",")), people: new Map(members.map((handle) => [handle, { handle, who: hex(`bench-person:${handle}`) }])) };
-    await controlPlane.addGrant({
-      workspaceId: ids.get(groupName),
-      role: rows.find((row) => row.workspace === groupName)?.role === "owner" ? "owner" : "editor",
-      userId: `user_bench_${own.workspace}`,
-      accessToken: `cat_group_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}`,
-      scopes: ["context:read", "context:write"],
-      clientId: "context_texts_group",
-      texChatId: group.key,
-    });
-  }
-  const tagger = group?.people.get(person.toLowerCase()) ?? null;
-  const chatToken = group ? `cat_group_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}` : token;
+  // A group chat (`models.group`): its grant, hashes and token (`groupChat.mjs`).
+  const { group, tagger, chatToken } = await benchGroup({ name: models.group, bench, person, rows, ids, own, controlPlane, token });
 
   // Tex's housekeeping (`src/agent/housekeeping.js`) has its own client, over
   // the person's own workspace, plus the pinned one every account reaches,

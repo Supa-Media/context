@@ -516,7 +516,7 @@ test("a conversation keeps every model call and the chat's own ledger, for its l
 
 // Group mode (`group:` in a test, `world.mjs`): a text goes as the group grant with the chat's hashes, the other
 // members' texts go to the chat's ledger first, and the turn runs the threaded history as a group turn does in production.
-// Sabotage: send `conversation: "texts"` instead of `group` from `world.text`, or drop `texChatId` from the group grant,
+// Sabotage: send `conversation: "texts"` instead of `group` from `world.text`, or drop `texChatId` from the group grant (`groupChat.mjs`),
 // and the classifier never runs, so this fails.
 test("a group test's texts run the threaded history, with the other members' texts in it", async () => {
   const sent = [];
