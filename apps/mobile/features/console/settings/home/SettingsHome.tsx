@@ -7,7 +7,7 @@ import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { useCopy } from "../../../design/useCopy";
 import { useScheme } from "../../../design/theme";
-import { fonts } from "../../../design/tokens";
+import { fonts, pointerType, settingsHomeType } from "../../../design/tokens";
 import { settingsHomeColors, type SettingsHomeColors } from "../../../design/tokens/settingsHomeColors";
 import { atName } from "../../format";
 import { selectedContext, type ConsoleContext, type ConsoleData } from "../../types";
@@ -384,22 +384,22 @@ function build(c: SettingsHomeColors) {
   return StyleSheet.create({
     scroll: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 72 },
     page: { width: "100%", maxWidth: 560, alignSelf: "center", gap: 36 },
-    h1: { fontFamily: fonts.reading, fontSize: 34, lineHeight: 40, color: c.text, marginBottom: -8 },
+    h1: { fontFamily: fonts.reading, fontSize: pointerType.page, lineHeight: 40, color: c.text, marginBottom: -8 },
     period: { color: c.blue },
     section: { gap: 6 },
     head: { gap: 2 },
-    h2: { fontFamily: fonts.reading, fontSize: 21, lineHeight: 28, color: c.text },
-    lede: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: c.muted },
+    h2: { fontFamily: fonts.reading, fontSize: settingsHomeType.heading, lineHeight: 28, color: c.text },
+    lede: { fontFamily: fonts.body, fontSize: pointerType.ui, lineHeight: 19, color: c.muted },
     inlineLink: { color: c.text, textDecorationLine: "underline" },
     row: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 11, minHeight: 44 },
     divided: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.hair },
     mark: { width: 20, alignItems: "center" },
     tile: { width: 26, height: 26, borderRadius: 7, alignItems: "center", justifyContent: "center", marginHorizontal: -3 },
     tileRound: { width: 34, height: 34, borderRadius: 17, marginHorizontal: -7 },
-    tileLetter: { fontFamily: fonts.body, fontSize: 12.5, fontWeight: "600", color: c.tileInk },
+    tileLetter: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", color: c.tileInk },
     grow: { flex: 1, minWidth: 0, gap: 2 },
-    title: { fontFamily: fonts.body, fontSize: 15, lineHeight: 20, color: c.text },
-    line: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: c.muted },
+    title: { fontFamily: fonts.body, fontSize: pointerType.lede, lineHeight: 20, color: c.text },
+    line: { fontFamily: fonts.body, fontSize: pointerType.ui, lineHeight: 18, color: c.muted },
     button: {
       borderWidth: 1,
       borderColor: c.buttonLine,
@@ -408,12 +408,12 @@ function build(c: SettingsHomeColors) {
       paddingHorizontal: 12,
     },
     buttonDanger: { borderColor: "transparent", backgroundColor: c.dangerWash },
-    buttonLabel: { fontFamily: fonts.body, fontSize: 13, lineHeight: 17, fontWeight: "500", color: c.text },
+    buttonLabel: { fontFamily: fonts.body, fontSize: pointerType.ui, lineHeight: 17, fontWeight: "500", color: c.text },
     buttonLabelDanger: { color: c.danger },
     copy: { minWidth: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: 8 },
-    byText: { fontFamily: fonts.body, fontSize: 12.5, color: c.muted },
+    byText: { fontFamily: fonts.body, fontSize: pointerType.meta, color: c.muted },
     more: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 11 },
-    moreLabel: { fontFamily: fonts.body, fontSize: 13, color: c.blue },
+    moreLabel: { fontFamily: fonts.body, fontSize: pointerType.ui, color: c.blue },
     indent: { marginLeft: 34 },
     menu: { marginTop: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: c.hair, borderRadius: 10, paddingHorizontal: 12 },
     menuRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 },

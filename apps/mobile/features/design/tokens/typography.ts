@@ -128,6 +128,17 @@ export const texPageType = {
 } as const;
 
 /**
+ * The one-page settings home's scale (`features/console/settings/home`): the
+ * section heading of mockup v5, which Dev2 approved on 2026-11-12 ("nice,
+ * build") after asking for smaller type than the console's `h2`. Every other
+ * size on that page is a console role.
+ */
+export const settingsHomeType = {
+  /** A section's serif heading ("Your account", "Workspace"). */
+  heading: 21,
+} as const;
+
+/**
  * The published website's scale — a different voice from the console's.
  *
  * A visitor reading somebody's site is reading, not operating an app, so the
