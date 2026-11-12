@@ -71,6 +71,7 @@ export const PROBLEMS = [
   "result_missing", // a job's result doesn't reach them
   "needs_a_page", // a long result texted in full instead of on a page with its link
   "not_for_them", // talks about Tex's own run, tools or session, or is a note to someone running Tex, not a text for them
+  "unchecked_retraction", // takes back or "corrects" an earlier claim with nothing read this turn that contradicts it
 ];
 
 export const REVIEW_SYSTEM = [
@@ -92,6 +93,7 @@ export const REVIEW_SYSTEM = [
   "- hands_back: it asks them to do what Tex could do itself (look something up, open a folder or site, search their email), or ends offering a step that reaches nobody else ('want me to check?'). Asking for a code, a payment, a sign-in or a choice that is theirs is fine.",
   "- unfinished: it stops at a plan, a next step or where something is ('I'll begin with the sign-in', 'I'll start on it'), when Tex could have done it this turn and started no job for it. Pointing at the folder or place where the file they asked for is, instead of sending the file or its link, is unfinished. A take with a link to the page or card that holds the rest is finished.",
   "- unsourced: any of these, and only these: (1) what was read this turn contradicts the reply; (2) the reply says a source shows something it doesn't contain, such as a figure the page gives for a different product, or what an unread part of a cut page says; (3) a live outside figure (a price, fare, rate, time or availability) stated as fact when nothing this turn read it and no earlier text gives it; (4) a sum, total or duration in the reply is wrong: work every one out yourself (11:30 pm to 6 am is 6.5 hours). Tex's own take and reasoning, common knowledge, the date and time, what the person or the chat said, what Tex knows about the people in the chat, the take beside a page or card Tex made, and a reasonable inference are not unsourced, and you never ask Tex to go and verify them.",
+  "- unchecked_retraction: the reply takes back, corrects or says to ignore something an earlier text said, and nothing read this turn contradicts it. Not finding it again, a page that didn't load, or an earlier read Tex can't see now is not a contradiction: the feedback says to open the source again, or say it can't confirm that right now, and never to call the earlier text wrong. A correction that what was read this turn backs is right.",
   "- too_long: clearly too long for a text (several paragraphs where a line would do), or words in a script they never write in. When Tex made a page, card or picture this turn, the text is a line: the take, or what it is, and the link. Describing what is on it, or listing its items, its contents or its reasons beside it, is too_long. So is a quick question (is it live? can I?) answered with a paragraph of detail instead of the answer and a line of why. A few sentences, or a list, steps or a draft they asked for, are fine.",
   "- result_missing (report): the job's result doesn't reach them (they can't see the report), a link it gave is dropped ('I wrote up why' with no link), or an ended job is described as still working. A running job's text asking them for the code or choice it is waiting on is the whole report, and right.",
   "- not_for_them: the text is not for the person: it explains Tex's own run, tools, actions, session, routine or reasoning ('the say_nothing action isn't available', 'I didn't text anything this run', 'this routine's output would go to them'), or reads as a note to whoever runs Tex. The person would only be confused. The feedback says to call send with action say_nothing when nothing should be texted, or else to text only what is for them. Saying plainly what Tex did for them, or why it couldn't, is not this.",
@@ -223,6 +225,12 @@ export async function reviewReply({ state, earlier = [], request = requestViaGat
   return readReview(reply?.text);
 }
 
+/** Words that take back or "correct" an earlier text (Nov Babies, 2026-11-11: "I need to correct my last text"). */
+const TAKE_BACK = /\b(?:correct(?:ion|ing)?\s+(?:to\s+)?(?:my|what i)|i was wrong|i misspoke|scratch that|take (?:that|it) back|(?:ignore|disregard) (?:my|that|what i)|(?:wasn't|was not|isn't|is not) (?:on|in) (?:any|the) (?:page|guide|site|source|article)s?|my (?:last|earlier) (?:text|message) was (?:wrong|off))\b/i;
+
+/** Whether a draft takes back an earlier text, so it is reviewed though the turn took no action. */
+export const takesBack = (answer) => typeof answer === "string" && TAKE_BACK.test(answer);
+
 /**
  * `{ check, verdicts }` for `runTurn`'s `answerCheck`, around the turn's other
  * check (`claimCheck.js`; the word checks the reviewer replaces, `doItChecks.js`
@@ -250,7 +258,8 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
       // A text answered with no action (no search, read, write or send) is not reviewed (Dev2, 2026-11-11, one-judge PR 3): the reviewer's faults
       // are claims and figures this turn's actions do not back. `plain`, the code checks a setup without the reviewer runs, reads it instead.
       // A routine's text and a job's report are still reviewed.
-      const unreviewed = on && !skip && scheduled === null && report === null && actionsOf(turn.messages).length === 0;
+      // A take-back is reviewed even with no action: "wasn't on any page I read" with nothing reopened is the Nov Babies retraction (`takesBack`).
+      const unreviewed = on && !skip && scheduled === null && report === null && actionsOf(turn.messages).length === 0 && !takesBack(answer);
       const checks = unreviewed ? plain : inner;
       const before = typeof checks?.check === "function" ? await checks.check(answer, turn) : null;
       if (before !== null && before !== undefined) {

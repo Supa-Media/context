@@ -810,6 +810,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A person's texts with Tex are one record in their Tex object, read with About me in one call (2026-11-01)](./texting-assistant/one-to-one-history.md)
 - [Each chat with Tex has one ledger, and every view is rebuilt from it (2026-11-02)](./texting-assistant/chat-ledger.md)
 - [A turn's trust is its own; nothing it said marks a later turn (2026-11-05)](./texting-assistant/turn-trust.md)
+- [What Tex told them stays with where it read it (2026-11-12)](./texting-assistant/told-facts.md)
 - [What was said stays in the record, and Tex does the read instead of offering it (2026-11-04)](./texting-assistant/do-the-read.md)
 - [A decision model judges each texted reply before it goes (2026-11-04)](./texting-assistant/reply-judge.md)
 - [One Haiku reviewer in place of the reply gates (2026-11-06)](./texting-assistant/reply-judge.md#one-haiku-reviewer-in-place-of-the-gates-dev2-2026-11-06)
