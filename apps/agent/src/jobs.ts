@@ -212,7 +212,7 @@ export function readStartedJobs(value: unknown): StartedJob[] {
   return value.slice(0, MAX_TURN_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
     const { id, title, brief, doneWhen, tainted, mail, machine } = entry as Record<string, unknown>;
-    const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 2_000) : "", doneWhen: line(doneWhen, MAX_STATUS) };
+    const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 4_000) : "" /* the model's 2,000 and the pages the chat opened (`apps/mcp/src/agent/jobPages.js`) */, doneWhen: line(doneWhen, MAX_STATUS) };
     if (job.title === "" || job.brief === "") return [];
     const project = readJobProject(mail);
     const computer = readJobMachine(machine);
