@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { acceptGroup, drainGroup, GROUP_LINES, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
 import { parseSendblueGroup, reactInGroup, readGroupMembers, type GroupMessage } from "./sendblueGroups";
 import { parseSendblueInbound } from "./sendblue";
@@ -7,104 +7,8 @@ import { CHAT_FOR_MS, MAX_CHAT_LINES } from "./groupChat";
 import type { Fetch } from "./clients";
 import type { Decide } from "./groupWorld.testing";
 import { commandTo } from "./groupWords";
+import { LINE, ADA, BO, CY, GROUP, PICTURE, message, deps, world } from "./groupInboxWorld.testing";
 
-const LINE = "+15555550199";
-const ADA = "+15555550101";
-const BO = "+15555550102";
-const CY = "+15555550103";
-const GROUP = "11111111-2222-3333-4444-555555555555";
-
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 10, 0, 0, 0, 10, 8, 2, 0, 0, 0]);
-const PICTURE = { url: "https://cdn.sendblue.example/files/IMG_0001.png", mimeType: "", filename: "IMG_0001.png", size: null };
-
-const message = (text: string, extra: Partial<GroupMessage> = {}): GroupMessage => ({
-  kind: "group-message",
-  eventId: `sendblue:h_${text.length}_${extra.messageId ?? "x"}`,
-  groupId: GROUP,
-  line: LINE,
-  from: ADA,
-  participants: [ADA, BO, LINE],
-  messageId: extra.messageId ?? "h_in",
-  text,
-  ...extra,
-});
-
-type World = {
-  sends: { content?: string; media_url?: string; reply_to?: unknown; from_number: string; group_id: string }[];
-  control: Record<string, unknown>[];
-  asks: Record<string, unknown>[];
-  reactions: number;
-  reacted: string[];
-  members: (string[] | null)[] | null;
-};
-
-function deps(
-  world: World,
-  answers: { control?: unknown; agent?: unknown; agentStatus?: number; stream?: string[]; decide?: (body: Decide) => unknown } = {},
-): GroupDeps {
-  let membersRead = 0;
-  let handles = 0;
-  const fetcher = (async (url: string, init: RequestInit) => {
-    const path = new URL(url).pathname;
-    // A picture someone sent, on Sendblue's file host: a PNG's first bytes are enough to tell it.
-    if (path.startsWith("/files/")) return new Response(PNG, { status: 200 });
-    if (path.startsWith("/api/v2/groups/")) {
-      if (world.members === null) return new Response("{}", { status: 404 });
-      const list = world.members[Math.min(membersRead++, world.members.length - 1)];
-      // A `null` entry is that read failing, which is not the same as nobody being there.
-      if (list === null) return new Response("{}", { status: 404 });
-      return Response.json({ data: { group_id: GROUP, participants: list.map((number) => ({ number })) } });
-    }
-    if (path.startsWith("/api/v2/messages/")) return Response.json({ group_id: GROUP, is_outbound: true, from_number: LINE, content: "Friday at 6." });
-    const body = JSON.parse(String(init.body));
-    if (path === "/api/send-group-message") {
-      world.sends.push(body);
-      return Response.json({ message_handle: `h_out_${++handles}` });
-    }
-    if (path === "/api/send-reaction") {
-      world.reactions++;
-      world.reacted.push(body.reaction);
-      return Response.json({});
-    }
-    // The judge (`decide.ts`): a stand-in that answers what names Tex or replies to it (`coverTex`), unless a test says.
-    if (path === "/agent-texts/decide") return Response.json((answers.decide ?? coverTex)(body));
-    if (path === "/agent/events") return Response.json({ written: body.events.map((event: { id: string }) => event.id) });
-    if (path === "/agent-texts/group") {
-      world.control.push(body);
-      return Response.json(answers.control ?? { status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" });
-    }
-    if (path === "/agent") {
-      world.asks.push(body);
-      if (answers.stream) {
-        const lines = [...answers.stream.map((progress) => ({ progress })), { status: 200, body: answers.agent ?? { answer: "The opener." } }];
-        return new Response(lines.map((line) => JSON.stringify(line)).join("\n") + "\n", { headers: { "content-type": "application/x-ndjson" } });
-      }
-      return Response.json(answers.agent ?? { answer: "The opener." }, { status: answers.agentStatus ?? 200 });
-    }
-    throw new Error(`unexpected ${path}`);
-  }) as unknown as Fetch;
-  return {
-    fetch: fetcher,
-    controlPlaneOrigin: "https://control.example.test",
-    workerSecret: "secret",
-    gatewayOrigin: "https://gateway.example.test",
-    sendblue: { keyId: "id", secret: "key" },
-    hostPicture: async (picture) => `https://agent.example.test/media/${picture.name}`,
-    now: () => 1_000,
-  };
-}
-
-/**
- * A stand-in for the one judge here: it answers the waiting lines that name Tex or reply under its text, covering
- * only those, and is silent on the rest. A fake for the plumbing; the real judge has no word rule (`textDecide.cjs`).
- */
-function coverTex(body: Decide) {
-  const words = (id: string) => (body.transcript.split("\n").find((line) => line.startsWith(`<${id}>`)) ?? "").replace(/^<[^>]+> (?:\[[^\]]*\] )?[^:]*:/, "");
-  const covers = body.candidates.filter((id) => /(?:^|[^\w-])@?tex(?![\w-])|\(replying to You\)/i.test(words(id)));
-  return { ok: true, act: covers.length > 0 ? "answer" : "silent", covers, stale: [], movedOn: false, confidence: 0.9 };
-}
-
-const world = (members: (string[] | null)[] | null = [[ADA, BO]]): World => ({ sends: [], control: [], asks: [], reactions: 0, reacted: [], members });
 
 describe("what wakes Tex in a group", () => {
   // Dev2, 2026-11-11: what wakes Tex is the one judge's, with no word rule; the ways Tex is called on are its must-pass
@@ -208,7 +112,10 @@ describe("a group's queue", () => {
     expect(await acceptGroup(storage, message("also bring snacks", { from: BO, messageId: "c4" }), 5)).toBe("kept");
     await drainGroup(storage, deps(w, { control }));
     expect(w.asks[1]).toMatchObject({ question: "Tex, write this up", group: { chat: [{ from: "bo", text: "thursday works?" }, { from: "ada", text: "7 at mine" }] } });
-    expect(JSON.stringify(w.asks[1])).not.toContain(BO.slice(1));
+    // A number goes only beside the handle it belongs to, in the chat's numbers (Dev2, 2026-11-12), never in what was said.
+    const { numbers, ...said } = (w.asks[1] as { group: Record<string, unknown> }).group;
+    expect(numbers).toEqual([{ who: "ada", phone: ADA }, { who: "bo", phone: BO }]);
+    expect(JSON.stringify({ ...(w.asks[1] as object), group: said })).not.toContain(BO.slice(1));
     const left = [...(await storage.list<{ text: string }>({ prefix: "gchat:" })).values()].map((line) => line.text);
     expect(left).toEqual(["also bring snacks"]);
   });
@@ -338,6 +245,22 @@ describe("a group's queue", () => {
     await acceptGroup(storage, message("fresh", { messageId: "fresh" }), 2 * CHAT_FOR_MS);
     const after = [...(await storage.list<{ text: string }>({ prefix: "gchat:" })).values()].map((line) => line.text);
     expect(after).toEqual(["fresh"]);
+  });
+
+  it("logs how many people each list names, never a number (Dev2, 2026-11-12: Tex counted someone who had left)", async () => {
+    const storage = new MemoryStorage();
+    const w = world([[ADA, BO, CY]]);
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: unknown) => void logged.push(String(line)));
+    try {
+      await acceptGroup(storage, message("Tex, who is here?"), 0);
+      await drainGroup(storage, deps(w));
+    } finally {
+      spy.mockRestore();
+    }
+    const line = logged.find((entry) => entry.includes('"group_people"'));
+    expect(JSON.parse(line ?? "{}")).toEqual({ event: "group_people", webhook: 2, app: 3, onlyWebhook: 0, onlyApp: 1, people: 3 });
+    expect(line).not.toContain(CY.slice(1));
   });
 
   it("answers a tagged message in the chat, threaded, with only hashes about the chat", async () => {
@@ -587,7 +510,7 @@ describe("a group chat with people who aren't all here (homes, not guest mode; d
     names: [{ phone: ADA, handle: "ada" }], guests: [{ phone: BO, label: "guest-1a2b" }],
   };
 
-  it("a person with no account is named by label in the chat, never by number, and never offered an email", async () => {
+  it("a person with no account is named by label in the chat, their number only beside it, and never offered an email", async () => {
     const storage = new MemoryStorage();
     const w = world();
     // A chat Tex answers in keeps what is said between tags.
@@ -601,7 +524,13 @@ describe("a group chat with people who aren't all here (homes, not guest mode; d
     expect(group.people).toEqual(["ada"]);
     expect(group.guest).toBeUndefined();
     expect(group.chat).toEqual([{ from: "guest-1a2b", text: "flights are pricey" }]);
-    expect(JSON.stringify(w.asks[1])).not.toContain(BO);
+    // The guest who tagged Tex, by label; their number only in the chat's numbers (Dev2, 2026-11-12).
+    expect(group.asker).toBe("guest-1a2b");
+    const { numbers, ...rest } = w.asks[1] as Record<string, unknown> & { group: Record<string, unknown> };
+    expect(numbers).toBeUndefined();
+    const { numbers: shown, ...others } = rest.group;
+    expect(shown).toEqual([{ who: "ada", phone: ADA }, { who: "guest-1a2b", phone: BO }]);
+    expect(JSON.stringify({ ...rest, group: others })).not.toContain(BO);
   });
 
   it("hands the turn everyone here: accounts with their names, guests by label, and how many (Dev2, 2026-11-12)", async () => {
@@ -609,8 +538,9 @@ describe("a group chat with people who aren't all here (homes, not guest mode; d
     const w = world();
     await acceptGroup(storage, message("Tex who is in this chat", { from: ADA }), 0);
     await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada", names: [{ phone: ADA, handle: "ada", name: "Ada Lovelace" }] } }));
-    expect(w.asks[0]?.group).toMatchObject({ names: [{ handle: "ada", name: "Ada Lovelace" }], guests: ["guest-1a2b"], size: 2 });
-    expect(JSON.stringify(w.asks[0])).not.toContain(BO);
+    expect(w.asks[0]?.group).toMatchObject({ names: [{ handle: "ada", name: "Ada Lovelace" }], guests: ["guest-1a2b"], size: 2, numbers: [{ who: "ada", phone: ADA }, { who: "guest-1a2b", phone: BO }] });
+    // An account holder tagged Tex: no guest asker.
+    expect((w.asks[0]?.group as Record<string, unknown>).asker).toBeUndefined();
   });
 
   it("says what it can see in this chat when it is turned on, and when asked", async () => {
