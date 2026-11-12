@@ -20,6 +20,7 @@
 import { checkEvent, EVENT_ID, EVENT_KINDS, READ_CHARS, READ_LIMIT } from "./log.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
 import { sentOnItsOwn } from "./sentOnItsOwn.js";
+import { shownFacts } from "./toldFacts.js";
 
 /** The most entries one read of the ledger asks for; a turn reads at most `MAX_PAGES` of them. */
 const PAGE = DESK_LEDGER.options.limit;
@@ -102,14 +103,15 @@ export function dayFromLedger(entries, chat, covers) {
 
 /**
  * What a turn is shown from its ledger's entries (`readLedger`, newest
- * first): `{events, tools}`. `events` are the chat's texts older than
+ * first): `{events, tools, facts}`. `events` are the chat's texts older than
  * `before` (the oldest the turn already holds), oldest first, within `chars`
  * characters, as `log.js` events, with Tex's check-ins among them; `tools`
- * maps a turn to the tools it used; faded, `summaries` are the days before
+ * maps a turn to the tools it used, `facts` to what its reply read for what it said; faded, `summaries` are the days before
  * every text shown, as summed up the night after (`daySummaries.js`).
  */
-export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTEGER, chars = READ_CHARS, known = new Set(), fade = false, fadeFrom = before } = {}) {
+export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTEGER, chars = READ_CHARS, known = new Set(), fade = false, fadeFrom = before, grant = null } = {}) {
   const tools = new Map();
+  const facts = new Map();
   const events = [];
   const seen = new Set(known);
   let room = chars;
@@ -118,6 +120,11 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
       const names = tools.get(entry.turn) ?? [];
       if (!names.includes(entry.name)) names.unshift(entry.name);
       tools.set(entry.turn, names);
+    }
+    // What a reply read for what it said (`toldFacts.js`): a web page's always, a note's only under the grant it was read under.
+    if (entry?.kind === "reply" && typeof entry.turn === "string") {
+      const kept = shownFacts(entry, grant);
+      if (kept.length > 0) facts.set(entry.turn, kept);
     }
     if (room <= 0 || !(entry?.at < before)) continue;
     const found = entry.kind === "text" ? asEvent(entry, chat) : entry.kind === "note" ? noteEvent(entry, chat) : null;
@@ -134,7 +141,7 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
   kept.sort((a, b) => a.at - b.at);
   // Faded, the days older than every text shown are given as the summaries written the night after (`daySummaries.js`).
   const summaries = fade ? daysBefore(entries, kept.length > 0 ? kept[0].at : before) : [];
-  return { events: kept, tools, summaries };
+  return { events: kept, tools, facts, summaries };
 }
 
 /**

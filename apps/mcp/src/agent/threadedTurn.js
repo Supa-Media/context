@@ -70,7 +70,7 @@ export async function threadedTurn({ logged, ledger, chat, group = false, config
   const stretch = (event) => Number.isSafeInteger(parts.since) && event.at >= parts.since; // the stretch is carried as messages (`stretch.js`)
   const kept = parts.shown.filter((event) => (event.at >= cutoff || loose(event)) && !stretch(event));
   const listed = threadsPrompt({ threads, when: (at) => format.format(new Date(at)).replace(/ /g, " ") });
-  const transcript = renderEvents(kept, { timeZone: parts.timeZone, answeredBy: parts.answeredBy, tools: parts.tools, tags, now: parts.answering });
+  const transcript = renderEvents(kept, { timeZone: parts.timeZone, answeredBy: parts.answeredBy, tools: parts.tools, facts: parts.facts, tags, now: parts.answering });
   const pastSummaries = !group && kept.some((event) => event.at < start) ? summaryLines(parts.summaries) : "";
   // Old moments that fit what's said now, with their age and how they landed, just before the last day's texts (`callbacks.js`).
   const inView = new Set(kept.map((event) => event.id));

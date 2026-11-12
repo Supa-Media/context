@@ -22,7 +22,7 @@ import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { parseSetup } from "../src/agent/production.js";
-import { actionsOf, judgeState, MAX_SEND_BACKS, PROBLEMS, readReplyJudge, readReview, replyJudge, reviewMessage, REVIEW_MODEL, REVIEW_SYSTEM, sendBackNotice } from "../src/agent/replyJudge.js";
+import { actionsOf, judgeState, MAX_SEND_BACKS, PROBLEMS, readReplyJudge, readReview, replyJudge, reviewMessage, REVIEW_MODEL, REVIEW_SYSTEM, sendBackNotice, takesBack } from "../src/agent/replyJudge.js";
 import { runTurn } from "../src/agent/turn.js";
 import { wireTraceEntry } from "../src/agent/turnLog.js";
 
@@ -208,6 +208,16 @@ test("a draft written with no action goes unreviewed, and a routine's text or a 
   const report = judgeFor([pass], { report: { title: "PRs", state: "done", texts: ["x"] } });
   await report.judge.check("Done.", { messages: [] });
   assert.equal(report.review.asked.length, 1, "a job's report is still reviewed");
+});
+
+// Sabotage record (2026-11-12, applied, run, failing, reverted): `!takesBack(answer)` removed from `unreviewed` → this test fails on `review.asked.length`.
+test("a take-back with no action is still reviewed (Nov Babies: \"I need to correct my last text\")", async () => {
+  const draft = "I need to correct my last text. The Katz's private room for 50 wasn't on any page I read.";
+  const { review, judge } = judgeFor([back("Open the guide again before taking it back.")]);
+  assert.match(await judge.check(draft, { messages: [] }), /Open the guide again before taking it back\./);
+  assert.equal(review.asked.length, 1);
+  for (const text of ["Scratch that, it's Friday.", "Ignore my last text.", "I was wrong about the time."]) assert.ok(takesBack(text), text);
+  for (const text of ["Correct, it opens at 5.", "That's the correct address.", "Katz's has a room for 50."]) assert.ok(!takesBack(text), text);
 });
 
 test("an answer that is not a verdict, an error, or a slow review lets the reply go", async () => {

@@ -515,3 +515,5 @@ test/datePropertiesWrite.test.mjs
 test/dateStamp.test.mjs
 test/agentCheckInTexts.test.mjs
 test/noteReadRoute.test.mjs
+test/toldFacts.test.mjs
+test/toldFactsTurn.test.mjs

@@ -20,7 +20,7 @@
  * - `thinking`: `{text, ms?, output?}`, the model's thinking in words, as it came back, with its model round's milliseconds and output tokens
  * - `said`: `{text}`, what the model said between its tools
  * - `tool`: `{name, args, as?, ok, ms, held?, reason?, result?, cut?, withheld?}`; `as` is `{name, args}` as the model wrote the call, when that differs; `grant` is the carry key the call ran under (`stretch.js` `carryKey`: a person, workspace and scopes run to about 130 characters), which a later text replays its result only under
- * - `reply`: `{text, ms, model?, timing?}`, the turn's answer as it left the gateway; `timing` is where its time went (`turnTiming.js`)
+ * - `reply`: `{text, ms, model?, timing?, facts?, grant?}`, the turn's answer as it left the gateway; `timing` is where its time went (`turnTiming.js`); `facts` what it read for what it said, quoted from its source, with the carry key a note's quote was read under (`toldFacts.js`)
  * - `advisor`: `{question, answer, ms, steps?}` / `mail_check`: `{to, subject, verdict, why, ref?}` / `job`: `{job, title?, state}`
  * - `note`: `{text}`, anything else worth keeping (a routine's text, a check-in)
  * - `judge`: `{text, by, model?, round, went, ms?, notice?, reason?, judges: [{id, yes, at, passed}], failed}`, one judging of a draft reply (`replyJudge.js`; `by` is `review` for the Haiku reviewer since 2026-11-06, with `turnKind` and the problems it named in `failed`, or `gates` before): `text` is the draft, `went` whether it went out
