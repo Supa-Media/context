@@ -20,7 +20,7 @@
 
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { CARD_VERSION } from "./card";
-import { cut, MAX_INBOUND_ATTACHMENTS, type Inbound, type InboundAttachment } from "./inbound";
+import { cutText, MAX_INBOUND_ATTACHMENTS, type Inbound, type InboundAttachment } from "./inbound";
 import { logShape, sendblueTapback } from "./sendblueTapbacks";
 
 /** The base address docs.sendblue.com names for every call. */
@@ -534,7 +534,7 @@ export function parseSendblueInbound(payload: unknown): Inbound {
     chatId: sendblueChatId(ours, from),
     from,
     messageId: handle,
-    text: cut(text),
+    ...cutText(text),
     ...(attachments.length > 0 ? { attachments: attachments.slice(0, MAX_INBOUND_ATTACHMENTS) } : {}),
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(threadRoot !== undefined ? { threadRoot } : {}),
@@ -587,7 +587,7 @@ function smsInbound(payload: Record<string, unknown>, handle: string, ours: stri
     chatId: sendblueChatId(ours, from),
     from,
     messageId: handle,
-    text: cut(text),
+    ...cutText(text),
     sms: true,
   };
 }

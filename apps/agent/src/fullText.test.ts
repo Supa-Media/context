@@ -6,7 +6,7 @@
  * Sabotage: `MAX_INBOUND_TEXT` back to 4000 in `inbound.ts`: the brief's last line is lost and these fail.
  */
 import { describe, expect, it } from "vitest";
-import { cut, MAX_INBOUND_TEXT } from "./inbound";
+import { cut, cutText, MAX_INBOUND_TEXT } from "./inbound";
 import { parseSendblueInbound } from "./sendblue";
 import { parseSendblueGroup } from "./sendblueGroups";
 import { addEvent, keptEvents, MAX_EVENT_TEXT } from "./events";
@@ -49,5 +49,34 @@ describe("a text over the limit", () => {
     const left = Number(/\[cut: (\d+) more characters\]$/.exec(kept)![1]);
     expect(kept.indexOf("\n[cut:") + left).toBe(long.length);
     expect(MAX_EVENT_TEXT).toBe(MAX_INBOUND_TEXT);
+  });
+});
+
+describe("a cut is told by `left`, never by the words", () => {
+  const LONG = `${BRIEF}${"x".repeat(MAX_INBOUND_TEXT)}`;
+
+  it("a text over the limit carries the count it cut, onto its event", async () => {
+    const parsed = parseSendblueInbound({ content: LONG, is_outbound: false, message_handle: "h_long", from_number: ADA, sendblue_number: LINE, message_type: "message", group_id: "", service: "iMessage" });
+    expect(parsed.kind === "message" && parsed.left).toBe(cutText(LONG).left);
+    const storage = new AlarmStorage();
+    await addEvent(storage, { chat: "c2", at: Date.now(), from: { kind: "person" }, kind: "text", text: LONG });
+    const [kept] = await keptEvents(storage, "c2");
+    expect(kept?.left).toBe(cutText(LONG).left);
+    expect(kept!.text!.length + kept!.left! - `\n[cut: ${kept!.left} more characters]`.length).toBe(LONG.length);
+  });
+
+  it("a typed mark is words: no count", async () => {
+    const typed = `${BRIEF}\n[cut: 99 more characters]`;
+    expect(cutText(typed).left).toBeUndefined();
+    const storage = new AlarmStorage();
+    await addEvent(storage, { chat: "c3", at: Date.now(), from: { kind: "person" }, kind: "text", text: typed });
+    expect((await keptEvents(storage, "c3"))[0]?.left).toBeUndefined();
+  });
+
+  it("only a person's text event carries one, as the gateway takes it", async () => {
+    const storage = new AlarmStorage();
+    await addEvent(storage, { chat: "c4", at: Date.now(), from: { kind: "tex" }, kind: "text", text: LONG });
+    await addEvent(storage, { chat: "c4", at: Date.now(), from: { kind: "person" }, kind: "picture", text: LONG, left: 5 });
+    expect((await keptEvents(storage, "c4")).map((event) => event.left)).toEqual([undefined, undefined]);
   });
 });

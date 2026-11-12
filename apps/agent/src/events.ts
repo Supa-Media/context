@@ -16,7 +16,7 @@
 import { post, record, type Fetch } from "./clients";
 import { staleAsks } from "./decide";
 import type { InboxStorage } from "./inbox";
-import { cut, MAX_INBOUND_TEXT } from "./inbound";
+import { cut, cutText, MAX_INBOUND_TEXT } from "./inbound";
 
 export type EventKind = "text" | "picture" | "file" | "link" | "reaction" | "ask" | "ask_settled" | "delivery";
 export type EventReason = "upload_failed" | "send_refused" | "held_newcomer" | "failed" | "timed_out" | "too_long";
@@ -28,6 +28,8 @@ export type TexEvent = {
   from: { kind: "person" | "tex" | "system"; who?: string; name?: string };
   kind: EventKind;
   text?: string;
+  /** The characters cut off a person's text (`inbound.ts` `cutText`); only on a person's `text` event, as the gateway takes it. */
+  left?: number;
   replyTo?: string;
   /** On a reply: the full words of the message it answers (`replyQuote.ts`). */
   quoted?: string;
@@ -87,11 +89,14 @@ export async function addEvent(storage: InboxStorage, event: Omit<TexEvent, "id"
   await storage.put(SEQ, seq);
   const at = Math.max(0, Math.floor(event.at));
   const id = `${String(at).padStart(13, "0")}-${String(seq % 1_000_000).padStart(6, "0")}`;
-  const text = event.text === undefined ? {} : { text: cut(event.text, MAX_EVENT_TEXT) };
+  const { left: given, ...unmarked } = event;
+  const kept = event.text === undefined ? undefined : cutText(event.text, MAX_EVENT_TEXT);
+  const left = event.kind === "text" && event.from.kind === "person" ? (kept?.left ?? given) : undefined;
+  const text = kept === undefined ? {} : { text: kept.text, ...(left ? { left } : {}) };
   const quoted = event.quoted === undefined || event.quoted === "" ? {} : { quoted: cut(event.quoted, MAX_EVENT_TEXT) };
   const name = displayName(event.from.name);
   const from = { kind: event.from.kind, ...(event.from.who ? { who: event.from.who } : {}), ...(name ? { name } : {}) };
-  await storage.put<Kept>(`${PREFIX}${id}`, { e: { ...event, ...text, ...quoted, from, at, id } });
+  await storage.put<Kept>(`${PREFIX}${id}`, { e: { ...unmarked, ...text, ...quoted, from, at, id } });
   await prune(storage, event.at);
   // Words held outside the customer's bucket never outlive the day, even in a chat that goes quiet.
   await armBy(storage, at + KEEP_EVENTS_MS, at);

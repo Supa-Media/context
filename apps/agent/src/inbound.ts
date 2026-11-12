@@ -25,11 +25,19 @@ export const MAX_INBOUND_TEXT = 20_000;
 
 /** `text` at most `max` characters, the marker included: a cut says how much it left out, so the model knows it holds part of it. */
 export function cut(text: string, max = MAX_INBOUND_TEXT): string {
-  if (text.length <= max) return text;
+  return cutText(text, max).text;
+}
+
+/**
+ * The same, with `left`, the characters cut off, when it cut. `left` goes on the text's event (`events.ts`), the one sign the
+ * gateway trusts that a text was cut (`apps/mcp/src/agent/loggedTurn.js`): the mark is words, and anyone can type it.
+ */
+export function cutText(text: string, max = MAX_INBOUND_TEXT): { text: string; left?: number } {
+  if (text.length <= max) return { text };
   const marker = (left: number) => `\n[cut: ${left} more characters]`;
   let kept = max - marker(text.length).length;
   while (kept + 1 + marker(text.length - kept - 1).length <= max) kept += 1; // the count can be a digit shorter than `text.length`
-  return text.slice(0, kept) + marker(text.length - kept);
+  return { text: text.slice(0, kept) + marker(text.length - kept), left: text.length - kept };
 }
 
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -48,6 +56,8 @@ export type Inbound =
       from: string;
       messageId: string;
       text: string;
+      /** The characters `cutText` cut off `text`, when it cut. */
+      left?: number;
       /** Absent on a text with no files, and on messages queued before files were read. */
       attachments?: InboundAttachment[];
       /** Sendblue: the handle of the message an inline reply answers. Resolved to `quoted`, then dropped, before queueing. */
@@ -173,7 +183,7 @@ export function parseInbound(payload: unknown): Inbound {
     chatId: chat.id,
     from: sender.handle,
     messageId: data.id,
-    text: cut(text),
+    ...cutText(text),
     ...(attachments.length > 0 ? { attachments } : {}),
   };
 }

@@ -15,7 +15,7 @@
  */
 
 import { MAX_REPLY_TEXT, post, ServiceError, type Fetch } from "./clients";
-import { cut } from "./inbound";
+import { cutText } from "./inbound";
 import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
 import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, MAX_QUOTED_TEXT, TAPBACK, type SendblueKeys } from "./sendblue";
 import type { InboundAttachment } from "./inbound";
@@ -37,6 +37,8 @@ export type GroupMessage = {
   participants: string[];
   messageId: string;
   text: string;
+  /** The characters `cutText` cut off `text`, when it cut. */
+  left?: number;
   replyTo?: string;
   /** A green-bubble group: answered with one fixed line, never with notes. */
   sms?: true;
@@ -106,7 +108,7 @@ export function parseSendblueGroup(payload: unknown): GroupInbound | null {
     from,
     participants,
     messageId: handle,
-    text: cut(text),
+    ...cutText(text),
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(payload.service === "SMS" ? { sms: true as const } : {}),
     ...(reaction !== null ? { reaction } : {}),

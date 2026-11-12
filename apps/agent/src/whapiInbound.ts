@@ -27,7 +27,7 @@
  *   that `context.mentions` says is Tex (`namingTex`).
  */
 
-import { cut, MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
+import { cutText, MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
 import type { Reaction, Tapback } from "./reactions";
 import { cleanGroupName, type GroupInbound, type GroupMessage } from "./sendblueGroups";
 import { MAX_QUOTED_TEXT } from "./sendblue";
@@ -235,7 +235,7 @@ function directEvent(message: Rec, id: string, chatId: string, line: string, typ
     chatId: chat,
     from: phone,
     messageId: id,
-    text: cut(text),
+    ...cutText(text),
     ...(attachment !== null ? { attachments: [attachment] } : {}),
     ...(threaded ? { threaded: true as const, ...(quoted !== undefined ? { quoted } : {}) } : {}),
   };
@@ -260,7 +260,7 @@ function groupEvent(message: Rec, id: string, chatId: string, line: string, type
     return { ...base, text: emoji, reaction: tapbackOf(emoji), reactionOn: action.target } satisfies GroupMessage;
   }
   const media = MEDIA_TYPES.has(type) ? rec(message[type]) : null;
-  const text = cut(namingTex(wordsOf(message, media), rec(message.context)?.mentions, line).trim());
+  const { text, left } = cutText(namingTex(wordsOf(message, media), rec(message.context)?.mentions, line).trim());
   const attachment = media === null ? null : attachmentOf(media);
   if (text === "" && attachment === null) return { kind: "ignored", reason: "empty" };
   const quotedId = rec(message.context)?.quoted_id;
@@ -268,6 +268,7 @@ function groupEvent(message: Rec, id: string, chatId: string, line: string, type
   return {
     ...base,
     text,
+    ...(left ? { left } : {}),
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(attachment !== null ? { attachments: [attachment] } : {}),
   };
