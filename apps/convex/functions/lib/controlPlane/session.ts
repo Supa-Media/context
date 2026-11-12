@@ -141,6 +141,8 @@ export const resolveGrantByAccessTokenReturns = v.union(
      * reach (`store/texRouting.js`). Read from the grant, never from the request.
      */
     texChatId: v.optional(v.string()),
+    /** The account whose own tag this turn is, in that chat (`textGroups.ts` `ownTagToken`): logins they saved for themselves count. */
+    texTaggerId: v.optional(v.id("users")),
     workspaceId: v.id("workspaces"),
     slug: v.string(),
     role: v.string(),
@@ -231,6 +233,7 @@ export async function resolveGrantByAccessTokenHandler(
     expiresAt: live.run ? live.run.expiresAt : (live.grant.accessTokenExpiresAt as number),
     toolsListedAt: live.grant.toolsListedAt ?? live.grant.createdAt,
     ...(chatId === null ? {} : { texChatId: chatId }),
+    ...ownTagOf(live, chatId, args.hashedAccessToken),
     workspaceId: live.grant.workspaceId,
     slug: live.workspace.slug,
     role: live.role,
@@ -335,7 +338,7 @@ export function gatewayEditorClearance(
 
 export const editorClearanceForGatewayReturns = v.union(
   v.null(),
-  v.object({ workspaceId: v.id("workspaces"), actorUserId: v.id("users"), clientId: v.string() }),
+  v.object({ workspaceId: v.id("workspaces"), actorUserId: v.id("users"), clientId: v.string(), texChatId: v.optional(v.string()) }),
 );
 
 export async function editorClearanceForGatewayHandler(
@@ -350,5 +353,18 @@ export async function editorClearanceForGatewayHandler(
     args.expectedWorkspaceId,
   );
   if (workspaceId === null) return null;
-  return { workspaceId, actorUserId: live.grant.userId, clientId: live.grant.clientId };
+  const chatId = await texChatIdOf(ctx, live);
+  return { workspaceId, actorUserId: live.grant.userId, clientId: live.grant.clientId, ...(chatId === null ? {} : { texChatId: chatId }) };
+}
+
+/**
+ * Whose own tag a group chat's turn is, when the token it presents is the one minted for that person's tag
+ * (`textGroups.ts`, `textGroupHomeOnly.ts` `ownTagToken`): the grant's person, or a home-only grant's tagger. Never
+ * on a run's token, nor on an earlier token kept alive beside a newer tag.
+ */
+export function ownTagOf(live: LiveGrant & { run?: RunGrantInfo }, chatId: string | null, hashedAccessToken: string): { texTaggerId?: Id<"users"> } {
+  const group = live.grant.texGroup;
+  if (chatId === null || live.run || group?.ownTagToken === undefined || group.ownTagToken !== hashedAccessToken) return {};
+  const tagger = group.homeOnly === true ? group.taggerId : live.grant.userId;
+  return tagger === undefined ? {} : { texTaggerId: tagger };
 }

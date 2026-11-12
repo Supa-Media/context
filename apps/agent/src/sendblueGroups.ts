@@ -71,6 +71,8 @@ export type GroupMessage = {
   routine?: { runId: string; path: string };
   /** A background job's report, queued by this Worker for the chat's own turn, which decides what is said (`jobTexts.ts`). */
   jobReport?: JobReport;
+  /** A login Tex asked for in this chat was saved: the chat's own turn carries the task on, queued by this Worker (`vaultWatch.ts`). */
+  event?: "vault_saved";
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };

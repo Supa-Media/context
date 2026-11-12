@@ -13,7 +13,7 @@
  */
 
 import type { Infer } from "convex/values";
-import { EVERYONE, MAX_SHARES, accessOf, belongsTo, isGroupToken, maySee, pruneRecords } from "../../../mcp/src/vault/access.js";
+import { CHAT_SHARE_PREFIX, EVERYONE, MAX_SHARES, accessOf, belongsTo, isGroupToken, maySee, pruneRecords } from "../../../mcp/src/vault/access.js";
 import { changeMeta, listMeta, mayUse, readMeta, writeMeta } from "../../../mcp/src/vault/entries.js";
 import { waitingAsks } from "../../../mcp/src/vault/usage.js";
 import type { Share, VaultMeta, operationValidator } from "./vaultShapes";
@@ -103,8 +103,13 @@ async function changeKeyMeta(
   return { meta: next };
 }
 
+/** A key given to one Tex group chat (`#chat:<key>`), from its link or by text there. */
+function isChatTarget(to: string): boolean {
+  return to.startsWith(CHAT_SHARE_PREFIX) && /^[0-9a-f]{64}$/.test(to.slice(CHAT_SHARE_PREFIX.length));
+}
+
 function validTarget(to: string): boolean {
-  return to === EVERYONE || isGroupToken(to) || /^[a-z0-9]{8,64}$/i.test(to);
+  return to === EVERYONE || isGroupToken(to) || isChatTarget(to) || /^[a-z0-9]{8,64}$/i.test(to);
 }
 
 /**
@@ -130,8 +135,10 @@ export async function giveKey(store: unknown, keys: unknown, workspaceId: string
     }
     const earlier = (meta.shares ?? []).find((share) => share.to === op.to);
     if (earlier?.level === op.level) return null;
-    const share: Share = { to: op.to, level: op.level, by: op.userId, at: earlier?.at ?? Date.now() };
-    const person = op.to !== EVERYONE && !isGroupToken(op.to);
+    // A chat's people only ever use a key given to it, never see it (`access.js` `actorAccessOf`).
+    const chat = isChatTarget(op.to);
+    const share: Share = { to: op.to, level: chat ? "use" : op.level, by: op.userId, at: earlier?.at ?? Date.now(), ...(chat && op.label ? { label: op.label.slice(0, 200) } : {}) };
+    const person = op.to !== EVERYONE && !isGroupToken(op.to) && !chat;
     const people = person && !meta.people.includes(op.to) ? [...meta.people, op.to] : meta.people;
     return { ...meta, people, shares: [...shares, share], updatedAt: Date.now() };
   });

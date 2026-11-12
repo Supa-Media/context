@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { requestChatValidator } from "../vaultChatShapes";
 
 /**
  * A request to save, share or see one vault entry, made by an agent and
@@ -20,6 +21,12 @@ export const vaultTables = {
     granteeUserId: v.optional(v.id("users")),
     expiresAt: v.number(),
     usedAt: v.optional(v.number()),
+    /**
+     * For an add link Tex texted in a group chat: the chat's key, from the grant, and its people as the turn named them
+     * (handles and guest labels, never a number), so the page can offer the chat and say who is in the workspace
+     * (`lib/vaultChat.ts`). Lives as long as the row.
+     */
+    chat: v.optional(requestChatValidator),
   })
     .index("by_hashed_token", ["hashedToken"])
     .index("by_expires", ["expiresAt"])

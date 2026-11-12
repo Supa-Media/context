@@ -388,6 +388,21 @@ describe("Tex's setup in a group chat", () => {
     expect(session?.texChatId).toBe(chat?.groupKey);
   });
 
+  // "Only me" (Dev2, 2026-11-12): a login its saver kept for themselves is used in a chat on their own tag alone. The
+  // tagger rides on the token minted for that tag; an earlier token, kept alive for a turn still running, names nobody.
+  // Sabotage: drop the `ownTagToken` match in `controlPlane/session.ts` `ownTagOf` and the second check fails.
+  test("a turn's token names its own tagger, and only that token does", async () => {
+    const t = setupTest();
+    await pin(t);
+    const { ada, bo } = await crew(t);
+    const first = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    expect((await resolves(t, first.accessToken as string)) as unknown).toMatchObject({ texTaggerId: ada.userId });
+    const second = await turn(t, BO, [ADA, BO, CY, LINE]);
+    expect((await resolves(t, second.accessToken as string)) as unknown).toMatchObject({ texTaggerId: bo.userId });
+    const earlier = (await resolves(t, first.accessToken as string)) as { texTaggerId?: string } | null;
+    if (earlier !== null) expect(earlier.texTaggerId).toBeUndefined();
+  });
+
   test("the setup-only pin is never a mailbox's workspace", async () => {
     const t = setupTest();
     const pinned = await pin(t);

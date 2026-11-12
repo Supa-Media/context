@@ -67,6 +67,18 @@ test("a call to one of the six becomes its granted carrying tool", () => {
   assert.deepEqual(resolve("write_note", { path: "a.md" }), { name: "write_note", args: { path: "a.md" } });
 });
 
+test("an assistant action's words written beside the action reach the tool", () => {
+  // Nov Babies, 2026-11-12: send { action: "search_web", query } dropped the query, and Tex was told "Write a short search query."
+  const { resolve } = sixToolsOver(held("search_web", "open_page", "text_progress"));
+  assert.deepEqual(resolve("send", { action: "search_web", query: "Puttshack NYC" }), { name: "search_web", args: { query: "Puttshack NYC" } });
+  assert.deepEqual(resolve("send", { action: "open_page", urls: ["https://a.example/"] }), { name: "open_page", args: { urls: ["https://a.example/"] } });
+  // Inside args wins where both name a key; the call's own keys never become the action's.
+  assert.deepEqual(resolve("send", { action: "search_web", query: "outer", args: { query: "inner" } }), { name: "search_web", args: { query: "inner" } });
+  assert.deepEqual(resolve("send", { action: "search_web", query: "q", context: "@x", mailbox: "m", person_said: "p" }), { name: "search_web", args: { query: "q" } });
+  // Called on the wrong family, the words still arrive.
+  assert.deepEqual(resolve("write", { action: "progress", text: "On it." }), { name: "text_progress", args: { text: "On it." } });
+});
+
 test("an action the turn does not hold, or the surface did not allow, is refused before it is dispatched", () => {
   const dream = sixToolsOver(held("read_note", "list_notes", "write_note"), { write: ["save"] });
   assert.deepEqual([...shown(dream.tools)].filter((name) => name.includes(".")), ["write.save"]);

@@ -235,6 +235,7 @@ test/agentGroupActions.test.mjs
 test/agentGroupSignIn.test.mjs
 test/agentGroupOffer.test.mjs
 test/agentGroupGuests.test.mjs
+test/vaultChatShare.test.mjs
 test/vaultGroupChat.test.mjs
 test/connectors.test.mjs
 test/apps.test.mjs
@@ -522,3 +523,4 @@ test/toldFacts.test.mjs
 test/toldFactsTurn.test.mjs
 test/toolFailures.test.mjs
 test/openAsk.test.mjs
+test/texSettings.test.mjs

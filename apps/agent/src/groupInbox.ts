@@ -254,7 +254,7 @@ export async function queueGroupByCode(storage: InboxStorage, message: GroupMess
 export async function routineDone(deps: GroupDeps, message: GroupMessage, outcome: RoutineOutcome, texted = 0): Promise<void> {
   if (message.routine === undefined) return;
   log(`routine_${outcome}`);
-  if (message.jobReport !== undefined) return; // a job's report runs as a routine's turn does, but no run waits on it
+  if (message.jobReport !== undefined || message.event === "vault_saved") return; // a job's report and a saved login's turn run as a routine's turn does, but no run waits on them
   await reportRoutineResult(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, { runId: message.routine.runId, outcome, texted }).catch(() => log("routine_unreported"));
 }
 

@@ -106,6 +106,7 @@ import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import * as vault from "./functions/lib/gatewayRoutes/vault";
+import * as vaultText from "./functions/lib/gatewayRoutes/vaultText";
 import * as personEmail from "./functions/lib/gatewayRoutes/personEmail";
 import * as personMail from "./functions/lib/gatewayRoutes/personMail";
 import * as personCalendar from "./functions/lib/gatewayRoutes/personCalendar";
@@ -849,6 +850,8 @@ http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLink
 export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler);
 
 http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
+export const gatewayVaultText = gatewayRoute(vaultText.gatewayVaultTextHandler); // who each vault login is for, by text (`vaultByText.ts`)
+http.route({ path: "/gateway/vault/text", method: "POST", handler: gatewayVaultText });
 http.route({ path: "/gateway/browser-profile", method: "POST", handler: gatewayRoute(vault.gatewayBrowserProfileHandler) });
 
 // A connector: a link for the person to connect an app, and one call through it.

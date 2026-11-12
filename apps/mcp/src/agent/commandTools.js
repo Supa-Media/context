@@ -123,7 +123,7 @@ const saidText = (result) => (typeof result.instructions === "string" && result.
  *
  * @param {{ run: (command: object) => Promise<object|null>, group: object|null, consent?: (kind: string) => Promise<boolean> }} options
  */
-export function commandTools({ run, group, consent = async () => false }) {
+export function commandTools({ run, group, consent = async () => false, snapshot = null }) {
   if (typeof run !== "function") return [];
   const asked = async (kind) => {
     try {
@@ -143,14 +143,25 @@ export function commandTools({ run, group, consent = async () => false }) {
     tool: {
       name: "tex_settings_get",
       description:
-        "Read how Tex is set to talk in this chat: the people's own instructions, in full. " +
-        "Use it when someone asks about Tex's settings or says \"settings\" in any wording. Show them in one short message, and say they change it by telling you in their own words. Takes no arguments.",
+        "Read every setting in this chat: how Tex talks (the people's own instructions, in full), and, from the settings list " +
+        "(`texSettings.cjs`), check-ins, quiet hours, texts from their other AIs, the overnight and tidy switches, sharing with the team, " +
+        "the workspaces you reach, and each saved login with who can use it. Use it when someone asks about Tex's settings, how you're set up, " +
+        "or what you can see, in any wording; answer what they asked in one short message, and say they change any of it by telling you. Takes no arguments.",
       inputSchema: { type: "object", properties: {} },
     },
-    call: call({ kind: "settings" }, (result) => {
-      const personal = group !== null ? " Personal instructions don't apply in groups." : "";
-      return `Instructions: ${saidText(result)}.${personal} There is no menu: they change how you talk by telling you, in their own words.`;
-    }),
+    call: async () => {
+      const [talk, rest] = await Promise.all([
+        call({ kind: "settings" }, (result) => {
+          const personal = group !== null ? " Personal instructions don't apply in groups." : "";
+          const sharing = typeof result.sharing === "boolean" ? ` Sharing their finished chats with the Context team: ${result.sharing ? "on" : "off"}.` : "";
+          const mail = Array.isArray(result.mail) && result.mail.length ? ` Mail shared with this chat: ${result.mail.map((row) => `@${row.handle}'s ${row.address}`).join(", ")}.` : group !== null ? " No one's mail is shared with this chat." : "";
+          return `Instructions: ${saidText(result)}.${personal}${sharing}${mail} There is no menu: they change any of it by telling you, in their own words.`;
+        })(),
+        typeof snapshot === "function" ? snapshot().catch(() => "") : Promise.resolve(""),
+      ]);
+      const words = [talk.content?.[0]?.text ?? "", rest].filter(Boolean).join("\n");
+      return text(words, talk.isError === true && rest === "");
+    },
   };
   // In a group the change is said with who made it, so anyone there can put it back (Dev2, 2026-11-01).
   const confirm = (result) =>
@@ -245,7 +256,7 @@ export function commandTools({ run, group, consent = async () => false }) {
 
 /** The `send` actions these tools are shown as (`sixTools.js`). */
 export const COMMAND_SEND_ACTIONS = {
-  tex_settings: { tool: "tex_settings_get", summary: "Read Tex's instructions in this chat." },
+  tex_settings: { tool: "tex_settings_get", summary: "Read every setting in this chat: how you talk, check-ins, switches, workspaces, saved logins and who can use each." },
   tex_instructions: { tool: "tex_instructions_set", summary: "Change how Tex talks in this chat, on a clear lasting request; the only way it changes." },
   chat_mute: { tool: "chat_mute", summary: "Mute Tex in this group, when someone asks it to stop." },
   chat_status: { tool: "chat_status", summary: "Which workspace this group chat uses." },
