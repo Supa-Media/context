@@ -6,13 +6,14 @@
  * reply typed under a two-day-old text was answered as if it were about the newest one. Code works those out
  * and says them in words:
  *
- *  - a day's header says how many days ago it was ("--- Monday, Nov 9 (2 days ago) ---");
+ *  - each day the chat shows says how many days ago it was ("Monday, Nov 9 was 2 days ago");
  *  - a quiet stretch of four hours or more between two texts is marked where it happened;
  *  - the turn's own note says when the chat was quiet before this text, and when a text answers one from
  *    hours or days ago, so that conversation is the one picked back up.
  *
- * These change every text, so they are only ever said in what is rebuilt every text (the threaded history and
- * the person's turn, `threadedTurn.js`), never in the cached system prompt (`turnPrompt.js`).
+ * Ages change every text, so they are said only in the person's turn (`threadedTurn.js` `note`, `timeNote`), never
+ * in the cached system prompt or the cached history (`turnPrompt.js`, `turn.js`). A quiet stretch is two texts'
+ * own times, so it stays in the history.
  */
 
 const MINUTE = 60_000;

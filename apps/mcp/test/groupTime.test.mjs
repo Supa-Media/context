@@ -96,7 +96,8 @@ test("a group's old chatter leaves the word-for-word transcript; an open ask of 
   assert.doesNotMatch(text, /oauth token expired/, "a four-day-old aside is not shown as if it were live");
   assert.match(text, /tex can you find the league rules doc/, "an unanswered ask of Tex survives a lull");
   assert.match(text, /what time is kickoff/);
-  assert.match(text, /\(today\) ---/);
+  assert.match(text, /--- Wednesday, Nov 11 ---/, "the history's day headers carry no age, so it holds still from text to text");
+  assert.match(turn.note, /Sunday, Nov 8 was 3 days ago; Wednesday, Nov 11 was today/, "each day's age is said in the person's turn");
 });
 
 test("an old moment that fits what's said now is offered with its age and how it landed", async () => {
@@ -107,17 +108,17 @@ test("an old moment that fits what's said now is offered with its age and how it
     person("today", NOW - H, "what time is kickoff", "maya"),
   ];
   const turn = await groupTurn(shown, "tex roast instinct about security");
-  const text = turn.history[0].text;
+  const text = turn.note; // said in the person's turn: which moments fit changes every text
   assert.match(text, /Things from earlier in this chat that may fit/);
   assert.match(text, /- @instinct, Nov 7 \(4 days ago\): "my oauth token expired again, I'm a security risk lol" \(1 laugh, 1 tapback\)/);
   assert.match(text, /If someone pushes back on one, drop it/);
-  assert.ok(text.indexOf("Things from earlier") < text.indexOf("what time is kickoff"), "offered before the last day's texts, which come last");
+  assert.doesNotMatch(turn.history[0].text, /Things from earlier/, "never in the cached history");
 });
 
 test("an old aside that fits nothing is not offered", async () => {
   const shown = [person("aside", NOW - 4 * D, "my oauth token expired again, I'm a security risk lol", "instinct"), person("today", NOW - H, "what time is kickoff", "maya")];
   const turn = await groupTurn(shown, "anyone up for wings tonight");
-  assert.doesNotMatch(turn.history[0].text, /Things from earlier|oauth/);
+  assert.doesNotMatch(turn.history[0].text + turn.note, /Things from earlier|oauth/);
 });
 
 test("a moment the chat laughed at ranks above one nobody reacted to", () => {

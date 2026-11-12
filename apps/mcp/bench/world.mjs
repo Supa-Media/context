@@ -32,6 +32,7 @@ import { rmSync } from "node:fs";
 
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
+import { benchGroup } from "./groupChat.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
@@ -309,6 +310,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     ],
   });
 
+  // A group chat (`models.group`): its grant, hashes and token (`groupChat.mjs`).
+  const { group, tagger, chatToken } = await benchGroup({ name: models.group, bench, person, rows, ids, own, controlPlane, token });
+
   // Tex's housekeeping (`src/agent/housekeeping.js`) has its own client, over
   // the person's own workspace, plus the pinned one every account reaches,
   // where it reads its setup (`ai/production/housekeeping.md`); its guard
@@ -382,10 +386,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     }
     return { usage, usageByModel, model: reports.at(-1)?.model ?? null };
   };
-  const { textedEvent, postEvents } = workerEvents({ env, token });
+  const { textedEvent, postEvents } = workerEvents({ env, token: chatToken, group });
   return {
     /** One texted message, answered with the conversation so far. */
-    async text(message, attachments = [], { running = null } = {}) {
+    async text(message, attachments = [], { running = null, others = [] } = {}) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -394,19 +398,29 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const reportsBefore = controlPlane.builtinReports.length;
       // Their text posted to the chat's ledger first, as the texting Worker does (`apps/agent/src/events.ts`): the ledger is
       // the chat's one record, so the next text sees this one only through it.
-      const said = textedEvent(message);
+      // In a group, what the other members said since Tex's last answer is posted first, each from its own sender.
+      // The turn covers them with the tagger's text, as the Worker names the queued texts a turn answers (`apps/agent/src/inbox.ts`).
+      const before = [];
+      for (const line of group ? others : []) {
+        const sender = group.people.get(line.from);
+        if (!sender) throw new Error(`@${line.from} is not in the group's workspace (people.md)`);
+        before.push(textedEvent(line.text, sender));
+        await postEvents([before.at(-1)]);
+      }
+      const said = textedEvent(message, tagger);
       await postEvents([said]);
+      const covers = [...before.map((event) => event.id), said.id];
       // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
       // plain JSON ask would measure the quick turn's 8 rounds instead.
       const streamed = await worker.fetch(
         new Request("https://mcp.bench.invalid/agent", {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
+          headers: { Authorization: `Bearer ${chatToken}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
           // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
           // `covers` and `chat` as the Worker sends them (`apps/agent/src/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does.
-          body: JSON.stringify({ question: message, conversation: "texts", turn: said.turn, ...(models.ledgerTurns === true ? { covers: [said.id], chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
+          body: JSON.stringify({ question: message, ...(group ? { group: { key: group.key, members: group.members, from: tagger.handle } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true ? { covers, chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
         }),
         env,
         ctx,
@@ -415,7 +429,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const ms = realNow() - started;
       await settle();
       // Tex's answer, as the Worker posts it once sent.
-      if (typeof body?.answer === "string" && body.answer !== "") await postEvents([{ ...textedEvent(body.answer), from: { kind: "tex" }, turn: said.turn, covers: [said.id], delivered: true }]);
+      if (typeof body?.answer === "string" && body.answer !== "") await postEvents([{ ...textedEvent(body.answer), from: { kind: "tex" }, turn: said.turn, covers, delivered: true }]);
       const turn = controlPlane.turnReports.at(-1) ?? {};
       const spent = spentSince(reportsBefore);
       return {

@@ -205,7 +205,9 @@ export async function converse(world, question, person, mode = null, background 
     const pictures = texts === 0 && question.sendsPicture ? [await benchPicture(question.sendsPicture)] : [];
     conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n[Sent a picture: ${question.sendsPicture}]` : message });
     const seen = world.browser().length;
-    const turn = await world.text(message, pictures, { running });
+    const others = (question.others ?? []).filter((line) => line.before === texts + 1); // a group's other members, before this text (`load.mjs`)
+    for (const line of others) conversation.push({ from: "person", text: `@${line.from}: ${line.text}` });
+    const turn = await world.text(message, pictures, { running, others });
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
     totals.traces.push(turn.trace ?? []);
@@ -352,6 +354,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   models.skills = skills;
   // The computer every case's person has paired, the same for every setup (`computer:` in the test, `world.mjs`).
   models.computer = readComputer(test.front.computer);
+  // A group test (`group: <shared workspace>`) texts as the group grant, in that workspace's chat (`world.mjs`).
+  models.group = test.front.group ?? null;
   const person = { fake: options.fake === true, send, model: test.front.played_by };
 
   // Warm by default (decided 2026-10-08): every workspace indexed once, every
