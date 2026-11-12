@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference as ref } from 'convex/server';
+import { stagingSignInCode } from './staging-sign-in-code.mjs';
 
 assert.equal(process.env.APP_ENV, 'staging');
 const deployment = process.env.STAGING_CONVEX_DEPLOYMENT;
@@ -13,8 +14,7 @@ const reset = process.argv.includes('--reset');
 for (const [owner, slugs] of [['alpha', ['alpha', 'lumio']], ['delta', ['delta', 'maison-solenne', 'common-ground']]]) {
   const client = new ConvexHttpClient(url, { logger: false });
   const email = `${owner}@supa.media`;
-  await client.action(ref('auth:signIn'), { provider: 'email', params: { email } });
-  const result = await client.action(ref('auth:signIn'), { provider: 'email', params: { email, code: '000000' } });
+  const result = await client.action(ref('auth:signIn'), { provider: 'email', params: { email, code: stagingSignInCode(email) } });
   assert.ok(result.tokens?.token);
   client.setAuth(result.tokens.token);
   try {

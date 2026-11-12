@@ -15,7 +15,7 @@ import { WAITLIST_JOINS_PER_HOUR } from "./waitlist";
 import { adCampaignValidator, signUpOrigin } from "./lib/waitlistCampaign";
 import { waitlistConversionId } from "./lib/xConversion";
 import { phoneSignInPaused } from "./lib/emailProof";
-import { APP_REVIEW_PHONE, appReviewPhoneEnabled, appReviewUser } from "./lib/reviewerAccount";
+import { APP_REVIEW_PHONE } from "./lib/reviewerAccount";
 import { scheduleSignInAlert } from "./signInAlerts";
 import { newReceipt } from "./lib/waitlistReceipt";
 
@@ -128,8 +128,7 @@ export const reserveSend = internalMutation({
     if (!(await tryConsumeRateLimit(ctx, { key: "phoneSignIn.lookup", limit: LOOKUPS_PER_HOUR, windowMs: WINDOW_MS }))) {
       return { status: "too_many" };
     }
-    const holder = phone === APP_REVIEW_PHONE ? await appReviewUser(ctx) : await phoneHolder(ctx, phone);
-    if (phone === APP_REVIEW_PHONE && holder === null) return { status: "paused" };
+    const holder = await phoneHolder(ctx, phone);
     if (holder === null && !(await isPhoneAdmitted(ctx.db, phone))) {
       return await joinWaitlist(ctx, phone, origin);
     }
@@ -156,11 +155,8 @@ export const signInUser = internalMutation({
   args: { phone: v.string() },
   returns: v.union(v.id("users"), v.null()),
   handler: async (ctx, { phone }) => {
-    // The review alias cannot sign in to an arbitrary phone holder or create an account.
-    if (phone === APP_REVIEW_PHONE) {
-      const reviewer = await appReviewUser(ctx);
-      return reviewer !== null && !(await phoneSignInPaused(ctx, reviewer)) ? reviewer : null;
-    }
+    // The retired App Store review alias signs nobody in (`lib/reviewerAccount.ts`).
+    if (phone === APP_REVIEW_PHONE) return null;
     const held = await phoneHolder(ctx, phone);
     if (held !== null) {
       // "This wasn't me" paused this phone: it signs nobody in until the
@@ -223,7 +219,9 @@ export const start = action({
   handler: async (ctx, args): Promise<{ status: StartStatus; phone?: string; conversionId?: string; receipt?: string }> => {
     const phone = normalizePhone(args.phone);
     if (phone === null) return { status: "invalid_phone" };
-    if (phone === APP_REVIEW_PHONE ? !appReviewPhoneEnabled() : !canTextCodes()) return { status: "unavailable", phone };
+    // The retired App Store review alias is a fictional number that took a
+    // fixed code; it is texted nothing and signs nobody in (CASA 1.2.1, 2026-11-11).
+    if (phone === APP_REVIEW_PHONE || !canTextCodes()) return { status: "unavailable", phone };
     let reserved: Reserved;
     try {
       reserved = await ctx.runMutation(internal.functions.phoneSignIn.reserveSend, {
@@ -238,7 +236,6 @@ export const start = action({
       throw error;
     }
     if (reserved.status !== "ok") return { ...reserved, status: reserved.status, phone };
-    if (phone === APP_REVIEW_PHONE) return { status: "sent", phone };
     const sent = await textCode(ctx, phone);
     if (sent.ok) return { status: "sent", phone };
     return { status: sent.reason === "invalid_phone" ? "invalid_phone" : sent.reason, phone };

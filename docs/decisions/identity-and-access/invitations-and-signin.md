@@ -103,7 +103,7 @@ verified address".
 **The emailed link is not the invitation token being used as a credential.** The
 token still only addresses the invitation; what signs a recipient in is a
 separate `authVerificationCodes` row, minted through `auth:store` and stored as
-`sha256(code)`. Making the token itself authenticate would invert the
+a keyed hash of the code (see "Codes are stored as a keyed hash" below). Making the token itself authenticate would invert the
 unhashed-token decision in one step: a forwarded email would hand over an
 account. No code is minted for an address whose account already has any
 membership; auto-authentication serves the referral path, and the blast radius
@@ -308,34 +308,73 @@ Self-hosters get the same gate; their `ADMIN_EMAILS` are admitted, and
 (`deployEnv.test.ts`).
 
 
-### The App Store review phone is an alias, never proof of phone ownership
+### No account signs in with a fixed code (2026-11-11)
 
-The owner requested the reserved fictional number `+12025550123` for App Store
-review on 2026-10-15. On 2026-10-25 the owner kept the code already supplied to
-Apple instead of editing App Store Connect. The deployment reads that value
-from `APP_REVIEW_SIGNIN_CODE`, independently of `REVIEWER_SIGNIN_CODE` for the
-directory reviewer's email. Both come from the vault; no code is embedded in
-the provider. Without a separate App Store code, the phone retains the
-directory-code fallback. A malformed override disables the phone alias.
-The existing dedicated reviewer account holds the sample workspace. Phone
-sign-in resolves only that account's verified primary email, never provisions
-an account, and refuses conflicting
-phone assignments. It is enabled only where the directory reviewer is already
-configured. The existing directory email code remains unchanged.
+The CASA assessment failed 1.2.1, 1.3.1, 1.3.2 and 1.3.4 because the CUJ
+account (`agentseyi@agentmail.to`), the directory and App Store reviewer
+(`connector-review@supa.media`), the directory sample principal, Google's
+reviewer and the App Store phone alias `+12025550123` took fixed codes that
+never expired, worked any number of times and had no per-code attempt limit.
+One of them was public in this repository's history. Staging's personas took
+`000000`, and an old `TEST_OTP_EMAIL` / `TEST_OTP_CODE` pair in the auth patch
+could give any one address a fixed code on any deployment.
 
-The code is checked only by the sign-in provider. Shared phone verification,
-linking and recovery still require their normal codes. Treating this alias as a
-verified customer phone would let another account attach it using public review
-credentials. No phone ownership row is written, and neither sends nor checks
-contact Twilio for this reserved number. Normal sign-in rate limits still apply.
-`phoneSignIn.test.ts` proves the wrong code, another phone, a conflicting holder,
-a missing reviewer and disabled configuration cannot obtain a review session.
+All of that is gone. The owner asked for the same controls as a customer's
+code, without weakening any standard flow:
+
+- **Issued codes.** The accounts that cannot read their mail keep a provider
+  each (`test-email*`, refusing every other address), but it accepts only a
+  code staff issue for one review (`functions/signInCodes.ts`, the "Issue a
+  sign-in code" workflow): six random digits, mailed to the team inbox and
+  never printed in a log, single-use, expiring after at most fourteen days
+  (a staging persona's after ten minutes), ten wrong tries in all against the
+  code, and the ordinary ten an hour under the address. Issuing again replaces
+  the last one. Starting a sign-in through these providers mints nothing, so a
+  stranger naming the public address cannot replace or guess at a stored code
+  (`patches/@convex-dev__auth.patch`).
+- **The App Store phone alias is retired.** It is texted nothing and signs
+  nobody in; it stays reserved so no account can claim it. Apple's reviewer
+  signs in to `connector-review@supa.media` with an issued code.
+- **`DEV_OTP_BYPASS` is honoured nowhere**, staging included
+  (`functions/lib/otpBypass.ts`). Staging's scripts issue a persona's code
+  through the deploy key (`scripts/staging-sign-in-code.mjs`).
+- **The old variables are read by nothing** and the deploy deletes their values
+  from each deployment (`deploy-convex.yml`, "Remove retired fixed sign-in
+  codes").
+
+A "simplification" back to a fixed code fails `issuedSignInCodes.test.ts`
+(single use, expiry, the ten-miss limit, a start that mints nothing) and
+`reviewerAccount.test.ts` (no provider carries a code, and nothing reads the
+retired variables).
+
+### Codes are stored as a keyed hash (2026-11-11)
+
+CASA 1.1.3: every one-time code was stored as an unsalted SHA-256. A
+six-digit code is one of a million, so a copy of the table gave every live code
+back in well under a second. Every short code (the library's email and
+reviewer codes, texted phone codes, the ten-digit codes a text link mints, the
+codes that prove or recover an email address) is now stored as an HMAC-SHA256
+under a key held only in the deployment's environment: `AUTH_CODE_HASH_KEY`
+when set, otherwise the auth signing key every deployment already has
+(`functions/lib/oneTimeCodes.ts`, and `hashVerificationCode` in the auth
+patch). Each store has a purpose of its own in the hashed input.
+
+Adaptive hashing (Argon2id, bcrypt, scrypt, PBKDF2) was considered and is not
+what protects a six-digit code: even at 100 ms a guess, a million guesses is a
+day on one laptop core and minutes on a GPU, inside a code's lifetime. A secret
+key outside the database makes a stolen table useless on its own. The lookup
+also has to stay deterministic, because the library finds a code by its hash
+through an index. Invitation links minted before the change are 190-bit tokens
+and are still accepted by their old hash until they expire (the patch reads
+that fallback only for `magic-link` rows, and it goes after 2026-11-19).
+`oneTimeCodes.test.ts` and `issuedSignInCodes.test.ts` fail if a plain digest
+comes back.
 
 ### The reviewer account reaches nothing beyond its own workspace
 
-The phone alias's code was public in this repository's history, and the owner
-kept it (2026-10-25). Instead of changing the credential, the account it opens
-is held to its own workspace (2026-10-28):
+The reviewers' codes are handed to people outside the company, and the phone
+alias's old code was public in this repository's history. So the accounts they
+open are held to their own workspace (2026-10-28):
 
 - it never starts a Google connection;
 - it never joins another workspace, by invitation or by email domain;
@@ -347,15 +386,12 @@ is held to its own workspace (2026-10-28):
 `isReservedReviewer` in `functions/lib/reviewerAccount.ts` is the one test. A
 row naming the reviewer grants nothing, which is the same answer as for a
 stranger. A pending invitation to it stays unspent. Undoing this lets whoever
-holds a public code read whatever anyone shares with a public address.
+holds a reviewer's code read whatever anyone shares with a public address.
 `reviewerReach.test.ts` fails if any of the six doors loses its check.
 
 Google's verification reviewer has to press Connect Google, so it gets a
-principal of its own, `google-review@supa.media`, opened by
-`GOOGLE_REVIEW_SIGNIN_CODE` (2026-10-28). That code is given only through
-Google's private review form, and a value equal to any other fixed code turns
-the sign-in off, so the public App Store code can never open an account that
-holds Google tokens. This account may connect Google (`mayHoldGoogleConnection`)
-and is held to its own workspace like the other. With the secret unset it does
-not exist. `functions/reviewerReachAudit.ts` counts, without naming anything,
+principal of its own, `google-review@supa.media` (2026-10-28), whose codes are
+issued for it alone and given only through Google's private review form. This
+account may connect Google (`mayHoldGoogleConnection`) and is held to its own
+workspace like the other. `functions/reviewerReachAudit.ts` counts, without naming anything,
 what either account already holds from before these checks.

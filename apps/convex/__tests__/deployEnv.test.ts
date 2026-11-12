@@ -64,6 +64,10 @@ const SET_ELSEWHERE: Record<string, string> = {
     "the public half of the auth signing key pair, set once with JWT_PRIVATE_KEY when a deployment is " +
     "set up (staging syncs both through scripts/staging-env.mjs); served by lib/httpSecurityHeaders.ts as " +
     "@convex-dev/auth serves it, and a deploy must not be able to swap the key that verifies every session",
+  AUTH_CODE_HASH_KEY:
+    "optional key for one-time code hashes (`lib/oneTimeCodes.ts`); absent falls back to " +
+    "JWT_PRIVATE_KEY, which is set once by hand like JWKS. Set by hand too, never by a deploy: " +
+    "changing it invalidates every outstanding code",
   INGESTION_RECEIVER:
     "flipped by hand once, when Email Routing is actually pointed at the Worker — " +
     "a deploy must not be able to turn ingestion live",

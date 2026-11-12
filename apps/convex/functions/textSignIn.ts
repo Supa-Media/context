@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { personalWorkspaceOf } from "./textLinks";
+import { hashOneTimeCode } from "./lib/oneTimeCodes";
 
 /**
  * A ten-digit code that signs `userId` in through `phone-verify`, for a page that has just proved `phone` with a texted
@@ -24,7 +25,7 @@ export async function mintPhoneSignInCode(ctx: MutationCtx, userId: Id<"users">,
     next: "/",
     expiresAt: now + SIGN_IN_LINK_TTL_MS,
     openedAt: now,
-    codeHash: await hashToken(code),
+    codeHash: await hashOneTimeCode("text-sign-in", code),
     codeExpiresAt: now + SIGN_IN_CODE_TTL_MS,
   });
   return code;
@@ -129,7 +130,7 @@ export const open = action({
     const opened: { status: "spent"; next?: string } | { status: "open"; phone: string; next: string } =
       await ctx.runMutation(internal.functions.textSignIn.openByHash, {
         tokenHash: await hashToken(token),
-        codeHash: await hashToken(code),
+        codeHash: await hashOneTimeCode("text-sign-in", code),
       });
     return opened.status === "open" ? { ...opened, code } : opened;
   },
@@ -177,7 +178,7 @@ export const consumeCode = internalMutation({
 
 /** `auth.ts`'s check for a ten-digit code, typed here so `auth.ts` stays out of `api`'s inference. */
 export async function checkLinkCode(ctx: ActionCtx, phone: string, code: string): Promise<"approved" | "wrong"> {
-  return await ctx.runMutation(internal.functions.textSignIn.consumeCode, { phone, codeHash: await hashToken(code) });
+  return await ctx.runMutation(internal.functions.textSignIn.consumeCode, { phone, codeHash: await hashOneTimeCode("text-sign-in", code) });
 }
 
 /** Hourly: links a day past their life, opened or not. */

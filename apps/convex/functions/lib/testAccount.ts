@@ -12,28 +12,14 @@ export function isProductionTestAccount(user: {
   );
 }
 
-type Environment = Record<string, string | undefined>;
-
 /**
- * The CUJ account's fixed-code sign-in, or none.
- *
- * The code comes from `TEST_ACCOUNT_SIGNIN_CODE` on the deployment and never
- * from this public repository: a code written here signs anybody in to a
- * production account, which is the first thing a security assessment's scan
- * reports (owner, 2026-10-25). With no valid code no provider is registered,
- * and the address signs in like any other, by a code mailed to its inbox.
- * A malformed value is skipped rather than thrown, because a throw here would
- * take every customer's sign-in down with it; `000000` is refused because it
- * was the public code.
+ * The CUJ account's provider. Always registered, and it opens only with a code
+ * staff issue for it (`functions/signInCodes.ts`): random, single-use,
+ * expiring, attempt-limited. Until 2026-11-11 it took a fixed code from
+ * `TEST_ACCOUNT_SIGNIN_CODE` (and before that `TEST_OTP_EMAIL` /
+ * `TEST_OTP_CODE` through the auth patch); nothing reads those now, because a
+ * code that works every time fails CASA 1.2.1 / 1.3.x.
  */
-export function testAccountEmail(
-  env: Environment = process.env,
-): Array<{ email: string; code: string }> {
-  const code = env.TEST_ACCOUNT_SIGNIN_CODE?.trim() ?? "";
-  if (code === "") return [];
-  if (!/^\d{6}$/.test(code) || code === "000000") {
-    console.error("TEST_ACCOUNT_SIGNIN_CODE is not a six-digit code other than 000000; the CUJ sign-in is off.");
-    return [];
-  }
-  return [{ email: TEST_ACCOUNT_EMAIL, code }];
+export function testAccountEmail(): Array<{ email: string; id: string }> {
+  return [{ email: TEST_ACCOUNT_EMAIL, id: "test-email" }];
 }

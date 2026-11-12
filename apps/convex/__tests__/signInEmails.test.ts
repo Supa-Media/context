@@ -12,7 +12,7 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
-import { hashToken } from "../functions/lib/crypto";
+import { hashOneTimeCode } from "../functions/lib/oneTimeCodes";
 import { accountForEmail, userWithSignInEmail } from "../functions/lib/signInEmails";
 import { isAdmitted } from "../functions/lib/waitlist";
 import { MAX_WRONG_TRIES } from "../functions/signInEmails";
@@ -37,7 +37,7 @@ afterEach(() => vi.useRealTimers());
 async function start(t: TestConvex, userId: Id<"users">, email: string) {
   const started = await asUser(t, userId).action(api.functions.signInEmails.startAddEmail, { email });
   if (started.status === "sent") {
-    const hashed = await hashToken(CODE);
+    const hashed = await hashOneTimeCode("sign-in-email", CODE);
     await t.run(async (ctx) => {
       const row = await ctx.db
         .query("signInEmailCodes")

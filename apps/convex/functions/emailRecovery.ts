@@ -11,6 +11,7 @@ import { parseInvitee } from "./lib/invitees";
 import { accountsForEmail, attachedEmailsOf, MAX_EMAILS_PER_ACCOUNT } from "./lib/signInEmails";
 import { appOrigin, sendAccountMail } from "./lib/accountMail";
 import { confirmedEmailsOf, maskEmail, requireEmailProof } from "./lib/emailProof";
+import { hashOneTimeCode } from "./lib/oneTimeCodes";
 
 /**
  * Lost every email (board k4).
@@ -111,7 +112,7 @@ export const startEmailRecovery = action({
     const prepared = (await ctx.runMutation(internal.functions.emailRecovery.prepareCode, {
       userId,
       email,
-      hashedCode: await hashToken(code),
+      hashedCode: await hashOneTimeCode("email-recovery", code),
     })) as Exclude<StartStatus, "sent" | "invalid_email"> | "ok";
     if (prepared !== "ok") return { status: prepared };
     await ctx.scheduler.runAfter(0, internal.functions.emailRecovery.mail, {
@@ -175,7 +176,7 @@ export const confirmEmailRecovery = action({
     const cancelToken = newToken();
     const result = await ctx.runMutation(internal.functions.emailRecovery.consumeCode, {
       userId,
-      hashedCode: await hashToken(code),
+      hashedCode: await hashOneTimeCode("email-recovery", code),
       hashedCancelToken: await hashToken(cancelToken),
     });
     if (result.status !== "started") return { status: result.status };

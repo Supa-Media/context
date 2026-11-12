@@ -4,10 +4,9 @@ import { action, internalAction, internalQuery, query } from "../_generated/serv
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { hashToken } from "./lib/crypto";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { sendAccountMail } from "./lib/accountMail";
-import { DIRECTORY_REVIEW_EMAIL, DIRECTORY_REVIEW_PROVIDER_ID, directoryReviewTestEmail } from "./lib/reviewerAccount";
+import { DIRECTORY_REVIEW_EMAIL, DIRECTORY_REVIEW_PROVIDER_ID } from "./lib/reviewerAccount";
 import {
   confirmedEmailsOf,
   EMAIL_PROOF_WINDOW_MS,
@@ -18,6 +17,7 @@ import {
   signOutSession,
   signOutSessions,
 } from "./lib/emailProof";
+import { hashOneTimeCode } from "./lib/oneTimeCodes";
 
 /**
  * "Check it's you" (board k2): the session mails itself a code at one of the
@@ -101,7 +101,7 @@ export const startEmailProof = action({
       userId,
       sessionId,
       to: args.to ?? 0,
-      hashedCode: await hashToken(code),
+      hashedCode: await hashOneTimeCode("email-proof", code),
     });
     if (prepared.status !== "ok") return { status: prepared.status };
     await ctx.scheduler.runAfter(0, internal.functions.emailProof.mailCode, { email: prepared.email, code });
@@ -177,7 +177,7 @@ export const confirmEmailProof = action({
     const status = await ctx.runMutation(internal.functions.emailProof.consumeCode, {
       userId,
       sessionId,
-      hashedCode: await hashToken(code),
+      hashedCode: await hashOneTimeCode("email-proof", code),
     });
     return { status };
   },
@@ -250,7 +250,7 @@ export const requireConnectorProof = internalQuery({
   handler: async (ctx) => {
     const userId = requireSignedIn(await getAuthUserId(ctx));
     const user = await ctx.db.get(userId);
-    if (directoryReviewTestEmail().length === 1 && user?.email === DIRECTORY_REVIEW_EMAIL && user.emailVerificationTime !== undefined && await liveSessionOf(ctx, userId)) {
+    if (user?.email === DIRECTORY_REVIEW_EMAIL && user.emailVerificationTime !== undefined && await liveSessionOf(ctx, userId)) {
       const accounts = await ctx.db.query("authAccounts").withIndex("providerAndAccountId", q => q.eq("provider", DIRECTORY_REVIEW_PROVIDER_ID).eq("providerAccountId", DIRECTORY_REVIEW_EMAIL)).take(2);
       if (accounts.length === 1 && accounts[0]!.userId === userId) return null;
     }

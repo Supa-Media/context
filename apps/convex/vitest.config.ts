@@ -38,6 +38,11 @@ export default defineConfig({
       // suite proves it never reaches a response or an audit row — which is
       // only checkable because the tests know what it is.
       GATEWAY_SECRET: "test-gateway-secret-not-a-real-one",
+      // The key one-time codes are hashed under (`functions/lib/oneTimeCodes.ts`).
+      // Obviously fake. A deployment falls back to its auth signing key; the
+      // suite sets this so a test that never mints a session can still issue
+      // a code. `oneTimeCodes.test.ts` covers the fallback and the refusal.
+      AUTH_CODE_HASH_KEY: "test-code-hash-key-not-a-real-one",
       // The Email Worker's own secret — a *different* value held by a different
       // pair of parties, for the reasons in `lib/gatewayAuth.ts`. Deliberately
       // not a prefix, suffix, or substring of the gateway's, so a test proving
