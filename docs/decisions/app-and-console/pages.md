@@ -61,6 +61,15 @@ refused with the line to fix (`apps/mcp/src/pages.js`), as a broken form is;
 `orient about: "pages"` is the format guide, built from the block kinds so it
 cannot drift from the checks.
 
+**A slip with one reading is fixed, not refused (Dev2, 2026-11-12).** A row
+written `- Escape Room Madness | Team puzzle rooms` in a block whose rows need
+a label can only mean `- Escape Room Madness: Team puzzle rooms`, so the write
+saves it that way and its answer names each row it fixed (`repairPage` in
+`apps/mcp/src/pages.js`). The Nov Babies job's page was refused for four such
+rows. A slip with more than one reading, such as a chart with no numbers, is
+still refused with the line to fix. Undoing it fails
+`apps/mcp/test/pages.test.mjs` "a row written '- Name | detail' …".
+
 **One picture, then the link (owner, 2026-10-27: "Cover picture + link").**
 The cover replaces the link's name card rather than joining it: a job's
 answer carries its pictures to the chat (`apps/agent/src/jobTexts.ts`), they

@@ -207,6 +207,12 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep Tex tool failures past their retention",
+  { hours: 1 },
+  internal.functions.texToolFailures.purgeOldToolFailures,
+);
+
+crons.interval(
   "sweep hourly usage past its retention",
   { hours: 1 },
   internal.functions.usage.pruneHourly,

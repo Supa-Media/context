@@ -63,16 +63,25 @@ function openArgs(call) {
  * lists keys that choose the target and are not passed on. Any other key is
  * refused, with the keys this target takes.
  */
-function target(label, a, { name, action, fixed = {}, copy = [], consumed = [] }) {
+function target(label, a, { name, action, fixed = {}, copy = [], consumed = [], others = "" }) {
   const extra = Object.keys(a).filter((key) => !copy.includes(key) && !consumed.includes(key));
   if (extra.length > 0) {
     const takes = copy.length > 0 ? `args: ${copy.join(", ")}` : "no args";
-    return { error: `${label} takes ${takes}. orient lists what each id takes.` };
+    return { error: `${label} takes ${takes}${others}. orient lists what each id takes.` };
   }
   const out = { ...fixed };
   for (const key of copy) if (a[key] !== undefined) out[key] = a[key];
   return { name, arguments: out, action };
 }
+
+/**
+ * Every other way a note id reads, said when a call to one names an arg none of them takes. The refusal used to
+ * name only `mail`, so a job asking for `{ images: true }` was told a note takes nothing else, and guessed again
+ * (the Nov Babies chat, 2026-11-12).
+ */
+const NOTE_READS =
+  '; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), ' +
+  "related: true (with limit), lists: true, transcript, messages, activity";
 
 /** `search` in the v2 shape. */
 export function translateSearch(call, app = {}) {
@@ -214,7 +223,7 @@ export function translateFetch(call, app = {}) {
     if (a.activity !== undefined) {
       return target(label, a, { name: "read_contact", action: "contact", fixed: { path: note }, copy: ["activity"] });
     }
-    return target(label, a, { name: "read_note", action: "note", fixed: { path: note }, copy: ["mail"] });
+    return target(label, a, { name: "read_note", action: "note", fixed: { path: note }, copy: ["mail"], others: NOTE_READS });
   }
 
   // A stored file (a PDF an email carried, a spreadsheet): its words.

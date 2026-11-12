@@ -18,6 +18,7 @@ import { approvalVerdict } from "../textedApprovals.js";
 import { threadsOn } from "../conversationThreads.js";
 import { ledgerPlace } from "../ledger.js";
 import { threadedTurn } from "../threadedTurn.js";
+import { pagesOpenedBefore } from "../turnWeb.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
@@ -40,7 +41,7 @@ export async function readTheHistory(t) {
   if (group !== null) markChatWords(ledger); if (job?.tainted || report !== null || carry.outside) markUntrusted(ledger); // a chat's own words are no stranger's (`chatSkills.js`); a job planned after a read from outside still carries it, and a job's report is what it read
   // The computers a chat turn may name, read beside the rest so the turn is told they're there (`machines/forTurn.js`); a job's own turn names none.
   const computersRead = chatTurn && job === null && (group !== null || session.actorClientId === TEXTS_CLIENT_ID) ? tex.ahead("computers", () => machinesFor(env, session, controlPlane), []).catch(() => []) : null;
-  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group !== null || session.actorClientId === TEXTS_CLIENT_ID ? () => computersRead ?? machinesFor(env, session, controlPlane) : null, inGroup: group !== null }) : null;
+  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group !== null || session.actorClientId === TEXTS_CLIENT_ID ? () => computersRead ?? machinesFor(env, session, controlPlane) : null, inGroup: group !== null, opened: () => pagesOpenedBefore(history) }) : null; // a job starts with the pages the chat opened (`jobPages.js`)
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
   if (session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = [lastOffer(history)].find((offer) => group === null || addressedTo(offer, group.from)) ?? undefined;

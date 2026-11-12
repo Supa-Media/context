@@ -89,7 +89,7 @@ flowchart TB
   readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn<br/>a reply shows the full words it answers<br/>under each earlier text, what it read for it, quoted<br/>starts the conversation classifier"]:::step
   openTheWeb["openTheWeb<br/>write tools and the browser"]:::step
   readTheSetup["readTheSetup<br/>prompt, skills, models, fallback"]:::step
-  prepareBookkeeping["prepareBookkeeping<br/>usage, turn log, the chat's ledger"]:::step
+  prepareBookkeeping["prepareBookkeeping<br/>usage, turn log, failed tool calls, the chat's ledger"]:::step
   prepareTheAnswer["prepareTheAnswer<br/>side reads, answer checks, pictures"]:::step
   runTheModel["runTheModel<br/>THE ANSWER MAKER, section 3"]:::model
   finishARoutine["finishARoutine<br/>a routine's run ends here"]:::step
@@ -116,12 +116,13 @@ flowchart TB
   SEND -. behind the reply .-> CL
   FD["Front door<br/>Haiku 5.5 · effort high · up to 24 rounds<br/>turn.js runTurn"]:::haiku
   FD <-->|tools| T["Tools: notes, search, web, browser,<br/>vault, email, calendar, apps,<br/>their texts (1:1 only, Mac backup)<br/>the one dispatcher, callToolForSession"]:::tool
-  FD <-->|ask_advisor, when stuck or weighing| ADV["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js"]:::opus
+  T -. a call fails .-> TF["Failed tool calls kept, every model with tools<br/>tool, cause code, reason with its values taken out<br/>logged at once, then rows naming nobody<br/>tex.lc/admin: Why tools fail<br/>toolFailures.js · texToolFailures.ts"]:::tool
+  FD <-->|ask_advisor, when stuck or weighing| ADV["Advisor<br/>Opus 5.5 · effort high<br/>up to 40 s for a text, 90 s in a job<br/>advisor.js"]:::opus
   FD -. model down .-> FB["Fallback<br/>GLM-4.7 Flash, @cf/zai-org/glm-4.7-flash<br/>builtin.js"]:::off
   FD -. off in production .-> RT["Router<br/>Clef picks Haiku or Opus<br/>router.js"]:::off
   FD -. off unless planBigAsks .-> PL["Big-ask planner<br/>the advisor splits it into jobs<br/>planBigAsk.js"]:::off
 
-  FD -->|send background| JOB["Background jobs, minions<br/>Haiku 5.5 + the advisor<br/>handed their open ask word for word beside the brief<br/>background.js · openAsk.js"]:::haiku
+  FD -->|send background| JOB["Background jobs, minions<br/>Haiku 5.5 + the advisor<br/>handed their open ask word for word beside the brief<br/>starts with the pages the chat opened<br/>background.js · openAsk.js"]:::haiku
   JOB -->|every stop| JC["Job check<br/>the advisor, Opus 5.5<br/>against the finish line and every part of their own words<br/>jobCheck.js"]:::opus
   FD -->|"send background, ending the turn<br/>with its say line, or a tapback without one<br/>judged from job-start examples, jobStart.js"| JOB["Background jobs, minions<br/>Haiku 5.5 + the advisor<br/>background.js"]:::haiku
   JOB -->|every stop| JC["Job check<br/>the advisor, Opus 5.5<br/>jobCheck.js"]:::opus
@@ -139,7 +140,7 @@ flowchart TB
   PW -->|an address the turn never read| SJ["Sharing judge<br/>the person's own words must ask for it<br/>widening.js · judge.js"]:::judge
   T -->|draw_visual, draw_picture| PIC["Cards and graphics<br/>HTML, photographed by site-shots<br/>an item with no photo is a No photo found tile, never a blank slot"]:::tool
   T -->|make_picture| IMG["Photos<br/>Gemini 2.5 Flash Image<br/>pictureMaker.js"]:::tool
-  PIC --> CC["Card check<br/>Haiku 5.5 looks before it goes<br/>cardCheck.js"]:::judge
+  PIC --> CC["Card check<br/>Haiku 5.5 looks before it goes<br/>told which places have no pin<br/>cardCheck.js"]:::judge
   IMG --> CC
 
   FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js, without the reviewer or on a draft it skips<br/>web findings texted as a wall go back to be a page, workPage.js<br/>a page saved with no picture and no cover call goes back to draw it, pageCoverFloor.js<br/>sent back once"]:::judge
@@ -197,6 +198,9 @@ What each model costs is `jev/meter.ts`.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-12: a job starts with the web pages its chat already opened (Dev2, after a Nov Babies job guessed five venue sites, one a parked domain, that the chat had opened minutes before): the addresses kept with the chat's answers (`sources.js`, `turnWeb.js` `pagesOpenedBefore`) go after its brief, written by code, at most 20, newest kept, with "never guess a web address" (`jobPages.js`, `background.js`; a kept brief is now up to 4,000 characters, the model's own still 2,000: `apps/agent/src/jobs.ts`). A `fetch` of a note with an arg no read takes now names every way a note reads, a picture by its file name included, not only `mail` (`tools/v2/searchFetch.js`). Background jobs box changed. Tests: `apps/mcp/test/jobPages.test.mjs`, `apps/mcp/test/v2SearchFetch.test.mjs`.
+- 2026-11-12: a places card no longer fights its own check (Dev2, after four Nov Babies redraws, 78 s): a place the map can't pin (no address, one not read this turn, no town, or the geocoder missed it) keeps its row with a hollow number and "Not on the map", the card check is told which rows those are and that their missing pin is expected, and pins closer than 30 px are pushed apart (`visuals/map.js` `unpinnedRows`, `spreadPins`; `visuals/choices.js`; `cardCheck.js` `unpinnedRule`). A page row written `- Name | detail` where a label is needed is saved as `- Name: detail`, and the write's answer says so (`pages.js` `repairPage`, `tools/notes/write.js`). Card check box changed. Tests: `apps/mcp/test/agentMapCard.test.mjs`, `apps/mcp/test/pages.test.mjs`.
+- 2026-11-12: the advisor gets its own limit (Dev2, after the Nov Babies jobs both lost it): `ask_advisor` had the 20 s every call gets, and the 19 asks from 10-29 to 11-12 took 20.0 s at the quickest quarter, 23.9 s at the median and 38.3 s at most, so about three in four were cut off (and still paid for). Now 90 s in a job and 40 s for a text, still cut by the turn's own end (`advisor.js` `ADVISOR_TIMEOUT_MS`, `runTheModel.js` `toolTimeouts`). Advisor box changed. Test: `apps/mcp/test/agentAdvisor.test.mjs`.
 - 2026-11-12: answers cover the whole ask (Dev2, the Nov Babies chat, where "Karaoke maybe? something fun" got karaoke alone from the reply, the job and its done check). Code finds the open ask: their texts before this one that Tex hasn't answered yet, back past any Tex text that only asked something back, at most six and three hours (`openAsk.js`). The reviewer reads it beside their text now, `missed_ask` covers all of it, and a new `silent_change` sends back a pick or figure that differs from an earlier text with no word why (`replyJudge.js`). A job started this turn is handed the open ask word for word, the text it started from last, beside the brief; its own turn and its done check read it, and a part they asked for that the result drops keeps it going (`background.js`, `jobCheck.js`, `jobRoutes.js`, `apps/agent/src/jobs.ts` `jobAsked`, `jobRun.ts`, `machineTurn.ts`). The front door puts earlier finds in a brief as already found, never as a list to verify and use. Reviewer, job and job check boxes changed. Decision: `docs/decisions/texting-assistant/open-ask.md`. Tests: `apps/mcp/test/openAsk.test.mjs`, `apps/agent/src/jobs.test.ts`.
 - 2026-11-12: the conversation classifier runs after the reply, never before it (Dev2: "Classifier off the reply path, in 1:1 and in groups. Never wait for it"): the turn is shown the thread list as it stood after the text before and the last 24 hours, with no suggested thread and no place for the reply; the classifier sorts the new text behind the reply (`threads_sort`, `threadedTurn.js` `sort`) with thinking off and a 400-token answer cap, and its verdict is kept for the next text. Before, every turn waited about 3.4 s for it and 35% of calls ran past the 4 s cap with nothing. Decision: `docs/decisions/texting-assistant/conversation-threads.md`.
 - 2026-11-12: a slow group answer gets a tapback from code (Dev2, Nov Babies issue 6: a new group's first text got no tapback and a fixed intro bubble, then 70 s of nothing): a message naming Tex is armed as it is accepted, and if no text or tapback of Tex's reaches the chat in 8 s the Worker taps one, only in a bound, unmuted chat (`groupSlowTap.ts`); the judge's gate never keeps a `no_group` refusal (`decideGateway.ts`); the one-shot intro is the first answer's last line, not a bubble ahead of it (`withIntro`); the progress tool no longer asks for a plan line (`progress.js`). The group lane box gains two lines. Decision: `docs/decisions/texting-assistant/conversation-threads.md`.
