@@ -250,7 +250,7 @@
       "id": "g-tag-bidi",
       "chat": "group",
       "lines": [],
-      "text": "@pia: @⁨Tex⁩ recap the schedule the coach sent",
+      "text": "@pia: @\u2068Tex\u2069 recap the schedule the coach sent",
       "want": "reply",
       "must": true
     },
