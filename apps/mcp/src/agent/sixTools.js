@@ -34,7 +34,21 @@ import { TEXTS_ID_PREFIX } from "../tools/texts.js";
 export const SIX_TOOLS = ["orient", "search", "fetch", "write", "manage", "send"];
 const SIX = new Set(SIX_TOOLS);
 
-const own = (call) => (call.args && typeof call.args === "object" && !Array.isArray(call.args) ? call.args : {});
+/** What the call itself carries, never its own action: routing reads these at the top (`translate.js` `addressing`). */
+const CALL_KEYS = new Set(["action", "args", "context", "mailbox", "person_said"]);
+
+/**
+ * An assistant action's arguments: `args`, plus any written beside the action.
+ * Models write `send { action: "search_web", query }` as often as the nested
+ * shape, and taking only `args` dropped the query unseen: Tex was refused
+ * "Write a short search query." over a query it had written (Nov Babies,
+ * 2026-11-12). Inside `args` wins where both name a key.
+ */
+const own = (call) => {
+  const nested = call.args && typeof call.args === "object" && !Array.isArray(call.args) ? call.args : {};
+  const beside = Object.fromEntries(Object.entries(call).filter(([key]) => !CALL_KEYS.has(key)));
+  return { ...beside, ...nested };
+};
 
 /**
  * What only the assistant can do outside Context, as `send` actions: the
