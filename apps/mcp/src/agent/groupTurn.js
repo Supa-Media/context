@@ -59,7 +59,7 @@ import { toolError } from "../tools/results.js";
 import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.js";
 import { playbookPrompt, readPlaybook, withPlaybookGate } from "./groupPlaybook.js";
 import { toolDefinitions } from "../tools/registry.js";
-import { namesOf, taggerLabel, whoIsWhoLine } from "./groupNames.js";
+import { guestsOf, namesOf, sizeOf, taggerLabel, whoIsWhoLine } from "./groupNames.js";
 
 /** The group texting client (`apps/convex/functions/textGroups.ts`). */
 export const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -126,7 +126,9 @@ export function groupOf(body, session = null) {
   const reach = reachOf(session);
   const people = peopleOf(group.people, from);
   const names = namesOf(group.names, [...people, from]); // each account's name beside its handle (`groupNames.js`)
-  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}) };
+  const guests = guestsOf(group.guests); // everyone else here, by label (`groupNames.js`)
+  const size = sizeOf(group.size, people.length + guests.length);
+  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}) };
   // A chat that reaches shared workspaces (every person here has an account and shares them) is an ordinary group turn
   // whose home is its memory; only a chat with people who aren't all here (no reach) is narrowed to its home.
   if (reach.length > 0 || !isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;

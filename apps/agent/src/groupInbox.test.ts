@@ -604,6 +604,15 @@ describe("a group chat with people who aren't all here (homes, not guest mode; d
     expect(JSON.stringify(w.asks[1])).not.toContain(BO);
   });
 
+  it("hands the turn everyone here: accounts with their names, guests by label, and how many (Dev2, 2026-11-12)", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex who is in this chat", { from: ADA }), 0);
+    await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada", names: [{ phone: ADA, handle: "ada", name: "Ada Lovelace" }] } }));
+    expect(w.asks[0]?.group).toMatchObject({ names: [{ handle: "ada", name: "Ada Lovelace" }], guests: ["guest-1a2b"], size: 2 });
+    expect(JSON.stringify(w.asks[0])).not.toContain(BO);
+  });
+
   it("says what it can see in this chat when it is turned on, and when asked", async () => {
     const storage = new MemoryStorage();
     const w = world();

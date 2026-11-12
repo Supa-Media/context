@@ -86,7 +86,9 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         ...(slug(body.handle) ? { handle: body.handle as string } : {}),
         ...(typeof body.accessToken === "string" && body.accessToken !== "" ? { accessToken: body.accessToken } : {}),
         names: (Array.isArray(body.names) ? body.names : []).map(record).flatMap((entry) =>
-          typeof entry.phone === "string" && slug(entry.handle) ? [{ phone: entry.phone, handle: entry.handle as string }] : [],
+          typeof entry.phone === "string" && slug(entry.handle)
+            ? [{ phone: entry.phone, handle: entry.handle as string, ...(typeof entry.name === "string" && entry.name !== "" ? { name: entry.name.slice(0, 200) } : {}) }]
+            : [],
         ),
         guests: (Array.isArray(body.guests) ? body.guests : []).map(record).flatMap((entry) =>
           typeof entry.phone === "string" && typeof entry.label === "string" && LABEL.test(entry.label) ? [{ phone: entry.phone, label: entry.label }] : [],

@@ -131,6 +131,17 @@ describe("a guest's tag in a chat with no shared workspace", () => {
     expect(await grantOf(w.t)).toMatchObject({ workspaceId: w.pinned, texGroup: { homeOnly: true, taggerId: w.ada } });
   });
 
+  test("names each account here beside its handle, and every guest by label (Dev2, 2026-11-12: who is in this chat)", async () => {
+    const w = await world();
+    await w.t.run(async (ctx) => {
+      await ctx.db.patch(w.ada, { name: "Ada Lovelace" });
+    });
+    const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE]);
+    const names = answer.names as { phone: string; handle: string; name?: string }[];
+    expect(names.find((entry) => entry.phone === ADA)).toMatchObject({ name: "Ada Lovelace" });
+    expect(answer.guests).toEqual([{ phone: GUEST, label: expect.stringMatching(/^guest-[0-9a-f]{4}$/) }]);
+  });
+
   test("with no pin on this deployment there is no home, so no grant is minted", async () => {
     const w = await world();
     await w.t.run(async (ctx) => {
