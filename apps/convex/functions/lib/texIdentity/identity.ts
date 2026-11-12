@@ -22,6 +22,9 @@ import { HEARTBEAT_CLIENT_ID } from "../heartbeats/model";
 import { ROUTINES_CLIENT_ID } from "../routines/model";
 import { personalWorkspaceOf, TEXTS_CLIENT_ID } from "../../textLinks";
 
+/** A group chat's grant (`textGroups.ts` `TEXTS_GROUP_CLIENT_ID`), named here so this file needs nothing of the chat's. */
+const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+
 /** The clients that answer for one person and may be told who that is. */
 export const IDENTITY_CLIENTS: ReadonlySet<string> = new Set([TEXTS_CLIENT_ID, ROUTINES_CLIENT_ID, HEARTBEAT_CLIENT_ID]);
 
@@ -49,6 +52,21 @@ export async function texterIdentityHandler(
   if (home === null || home !== args.expectedWorkspaceId) return null;
   if (!session.workspaces.some((entry) => entry.workspaceId === home)) return null;
   return await identityOfPerson(ctx, userId, home);
+}
+
+/**
+ * Who tagged Tex in a group chat, asked by that chat's turn of their personal Tex (`apps/mcp/src/agent/askPersonalTex.js`;
+ * decided by the owner, Dev2, 2026-11-12: "it doesn't know basic things about me" when he asked it to fill a form in a
+ * group). Only a group chat's grant, only on the token minted for that person's own tag (`controlPlane/session.ts`
+ * `ownTagOf`: never a job's run token, never an earlier token kept alive beside a newer tag), and only that person:
+ * nobody in a chat learns anybody else's this way. Their yes to someone else's ask is a tag of their own.
+ */
+export async function askerIdentityHandler(ctx: QueryCtx, args: { hashedAccessToken: string }): Promise<TexterIdentity | null> {
+  const session = await resolveGrantByAccessTokenHandler(ctx, { hashedAccessToken: args.hashedAccessToken });
+  if (session === null || session.clientId !== TEXTS_GROUP_CLIENT_ID || session.texTaggerId === undefined) return null;
+  const tagger = session.texTaggerId;
+  const home = await personalWorkspaceOf(ctx, tagger);
+  return home === null ? null : await identityOfPerson(ctx, tagger, home);
 }
 
 /** Who `userId` is, by their account and their personal workspace `home`; also the copy their person object keeps (`textingObjects.ts`). */

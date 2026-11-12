@@ -60,6 +60,8 @@ import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.
 import { playbookPrompt, readPlaybook, withPlaybookGate } from "./groupPlaybook.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { guestsOf, namesOf, numberOf, numbersOf, sizeOf, taggerLabel, whoIsWhoLine } from "./groupNames.js";
+import { GROUP_SIGN_IN_LINES } from "./groupSignIns.js";
+export { GROUP_CODE_SIGN_IN_LINE } from "./groupSignIns.js";
 
 /** The group texting client (`apps/convex/functions/textGroups.ts`). */
 export const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -525,16 +527,6 @@ export function keepGroupSettled(store, group, dispatch = null) {
   };
 }
 
-/*
-  A sign-in with an email and a one-time code (the owner, 2026-10-24: Tex
-  refused to sign in to a site that has no password, asking for a vault login
-  that could not exist, and ignored "I'll give you an otp code"). It needs no
-  saved login: Tex starts it, asks the chat for the code, and the chat's own
-  browser keeps the sign-in (`turnWeb.js`, `browserJar.js`).
-*/
-export const GROUP_CODE_SIGN_IN_LINE =
-  "A site that signs in with an email and a one-time code needs no saved login: type the email you were given, ask for the code it sends, " +
-  "and when someone in the chat texts it, type it into the same browser right away. Never refuse it for want of a vault login. ";
 
 /** What a group turn is told, after the built-in words. */
 /** An invited person's tag: an email or calendar change only with `as` naming a member here, as a guest's. */
@@ -579,7 +571,7 @@ export function groupPrompt(group, workspace) {
     "so everyone can refine it together first. Anyone else's yes does nothing. " +
     "A calendar event can invite guests (ask for their emails): it is shown here and only the calendar owner's 👍 or yes makes it, and Google emails the guests. " +
     "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat's later asks. " +
-    GROUP_CODE_SIGN_IN_LINE +
+    GROUP_SIGN_IN_LINES +
     "A password comes only from a login saved for this chat or the whole workspace, or one the person who tagged you saved for themselves, and never typed in the chat; " +
     "when a site needs a password and there is none saved, send whoever asked a vault_add link at once in one short line (the page lets them give it to this chat, the workspace or keep it to themselves), and carry on by yourself once it's saved. " +
     "Slack can't be used from a group, because it connects for one person only; say the person can text you on their own for it. " +
