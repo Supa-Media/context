@@ -51,6 +51,15 @@ export type GroupMessage = {
    */
   reactionOn?: string;
   /**
+   * Set on a reaction queued as its line (`groupInbox.ts` `enqueue`): its
+   * `messageId` is the tapback's own handle, and a text threaded under a
+   * tapback is taken by Sendblue and then fails to deliver (error 5000; the
+   * Nov Babies form-fill answer, 2026-11-12). The answer goes under `on`, the
+   * Tex text it was on when that is known, else plain, as a 1:1 tapback's
+   * answer does (`sendParts.ts` `threadFor`); and the tapback is never tapped.
+   */
+  answersTapback?: { on?: string };
+  /**
    * A picture or file sent in the chat, by Sendblue's address only, never its
    * bytes: fetched when a turn reads it, as a 1:1 text's are (`attachments.ts`).
    * A link's preview card is not one (`isLinkPreview`).

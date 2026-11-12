@@ -222,7 +222,9 @@ async function enqueue(storage: InboxStorage, message: GroupMessage, extra: Part
   await storage.put(seen, now);
   // Whether it replies to Tex is decided now, against the handles Tex sent; the turn reads the words it quotes.
   // A reaction goes on as its line alone: only a held one (`holdThumb`) reaches the gateway as a tapback, which can be a yes.
-  await queueItem<Pending>(storage, GROUP_QUEUE, { message: { ...message, reaction: undefined, ...(repliesToTex ? {} : { replyTo: undefined }) }, attempts: 0, at: now, ...extra });
+  // Its answer never threads under the tapback itself, which Sendblue fails to deliver (`answersTapback`).
+  const tapback = message.reaction !== undefined ? { answersTapback: repliesToTex && message.replyTo !== undefined ? { on: message.replyTo } : {} } : {};
+  await queueItem<Pending>(storage, GROUP_QUEUE, { message: { ...message, reaction: undefined, ...(repliesToTex ? {} : { replyTo: undefined }), ...tapback }, attempts: 0, at: now, ...extra });
   // The chat moved (a wait that began before this decides again: `stillGathering`), and the burst Tex owes an answer to
   // starts with its first waiting message: its deadline counts from here. A line kept only as chat changes neither.
   if (!extra.byCode) await chatEvent(storage, "message", "queued", { now, burst: true }); // a command is no part of a burst

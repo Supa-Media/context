@@ -18,6 +18,7 @@ import type { GroupMessage } from "./sendblueGroups";
 import { sha256Hex } from "./groupChat";
 import { writeTextTiming, type TimingDataset } from "./textTiming";
 import { isControlWord } from "./controlWords";
+import { keepThreaded } from "./threadedResend";
 
 /** The handles of Tex's last thirty texts in this group, so an inline reply to one wakes it. */
 export const SENT_KEY = "gsent";
@@ -133,7 +134,7 @@ export async function timedReply<T>(storage: InboxStorage, arrivedAt: number, ha
 export type SayMeta = { turn?: string; covers?: string[]; people?: string; system?: true; reason?: EventReason; plain?: true };
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex, and logged. */
-export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta = {}): Promise<void> {
+export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, text: string, meta: SayMeta = {}): Promise<void> {
   if (isControlWord(text)) return; // a word meant for us, never a text (`controlWords.ts`)
   await once(storage, message.messageId, `text:${text}`, () => sayNow(storage, deps, message, text, meta));
 }
@@ -144,7 +145,7 @@ export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pi
  * many lines the retry says (`interleaved-updates.md`). Nor does a redraft, a new turn over the same messages,
  * send a line one before it sent over any of them.
  */
-export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
+export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, text: string, meta: SayMeta): Promise<void> {
   if (isControlWord(text)) return;
   const over = meta.covers ?? [];
   if (over.length > 0 && (await chatEvents(storage, message.groupId)).some((event) => event.from.kind === "tex" && event.delivered === true && event.text === text && (event.covers ?? []).some((cover) => over.includes(cover)))) return;
@@ -156,15 +157,31 @@ export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, mes
   await storage.put(key, "sent");
 }
 
-async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
+async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, text: string, meta: SayMeta): Promise<void> {
   await sendWords(groupPartLine(storage, deps, message, meta), text);
 }
 
+/**
+ * Where an answer to this message threads: under it, or, for a tapback (queued as its line, or a held 👍), under the
+ * Tex text it was on when that is known, else plain. Never under the tapback: Sendblue takes that send and then fails
+ * to deliver it (error 5000, the Nov Babies form-fill answer, 2026-11-12).
+ */
+export function threadUnder(message: Pick<GroupMessage, "messageId" | "reaction" | "answersTapback">): string | undefined {
+  if (message.answersTapback !== undefined) return message.answersTapback.on;
+  return message.reaction !== undefined ? undefined : message.messageId;
+}
+
 /** This lane's way out for the one sender (`sendOne.ts`): the group line, under the message answered, and Tex's sent handles. */
-function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, meta: SayMeta): PartLine<OutgoingPicture> {
+function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, meta: SayMeta): PartLine<OutgoingPicture> {
   const place: GroupPlace = { line: message.line, groupId: message.groupId };
+  const under = meta.plain ? undefined : threadUnder(message);
   return {
-    sendText: (text) => groupLineFor(deps, message.groupId).sendText(place, text, meta.plain ? undefined : message.messageId),
+    sendText: async (text) => {
+      const handle = await groupLineFor(deps, message.groupId).sendText(place, text, under);
+      // A threaded send Sendblue fails after taking it goes again plain, once (`sendblueStatus.ts`).
+      if (under !== undefined) await keepThreaded(storage, handle, { text, place: { kind: "group", ...place }, at: deps.now() });
+      return handle;
+    },
     sendPicture: async (picture) => {
       let url: string;
       try {
@@ -175,7 +192,7 @@ function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<
         log("picture_failed", "host");
         return null;
       }
-      await groupLineFor(deps, message.groupId).sendMedia(place, url, meta.plain ? undefined : message.messageId);
+      await groupLineFor(deps, message.groupId).sendMedia(place, url, under);
       return url;
     },
     // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and

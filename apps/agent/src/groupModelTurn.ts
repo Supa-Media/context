@@ -100,7 +100,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // message, at most once an answer and not after a progress line; a turn with no tool gets none.
   let acked = false;
   const toolStarted = async () => {
-    if (acked || routine || message.jobReport !== undefined || message.reaction !== undefined) return;
+    // Never on a tapback: tapping a tapback is no sign to anyone (`answersTapback`).
+    if (acked || routine || message.jobReport !== undefined || message.reaction !== undefined || message.answersTapback !== undefined) return;
     acked = true;
     try {
       if (!(await isBound(storage, message))) return;
@@ -201,7 +202,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
   if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
     // Answered with a tapback and no words: the conversation classifier's (`apps/mcp/src/agent/respond.js`), the emoji checked against the list.
-    if (answer.react !== undefined && message.reaction === undefined && !acked) await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(answer.react || undefined, ackEmoji(message.text))).catch(() => {});
+    if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && !acked) await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(answer.react || undefined, ackEmoji(message.text))).catch(() => {});
     await handOff();
     return log(answer.react !== undefined ? "reacted" : "silent");
   }
