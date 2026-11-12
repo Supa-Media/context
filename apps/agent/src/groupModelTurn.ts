@@ -26,6 +26,7 @@ import { addEvent, kindOf, logAsk, recentEvents } from "./events";
 import { staleAsks } from "./decide";
 import { startTurn } from "./steer";
 import { recheckDraft } from "./groupRecheck";
+import { watchForSave } from "./vaultWatch";
 import type { GroupPending } from "./groupTurn";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
 
@@ -139,7 +140,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await outbox(storage, message.groupId)) } : {}), // the chat's day is the gateway's ledger; the outbox goes on top
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : {}), // a job reporting to this chat's turn (`jobTexts.ts`)
+        ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : message.event === "vault_saved" ? { event: "vault_saved" } : {}), // a job reporting to this chat's turn (`jobTexts.ts`), or a login it asked for saved (`vaultWatch.ts`)
         ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now(), { results: true }) } : {}),
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
@@ -172,6 +173,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
   if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "no_storage" ? 503 : answer.kind === "unavailable" && answer.timedOut ? 504 : null); // 503: the chat's workspace can't be opened (`failedLine`)
   if (answer.steered) await dropSteered(storage, answer.steered, covers);
+  // A link to save a login went: this chat watches that link, and its save carries the task on here (`vaultWatch.ts`).
+  if (answer.vaultWatch) await watchForSave(storage, message.from, deps.now(), { ...(answer.vaultLinks ? { links: answer.vaultLinks } : {}), group: { groupId: message.groupId, line: message.line, messageId: message.messageId, text: message.text } });
   // Still what its asker wants? Their newer words, not folded in, may have changed it: held, it ends as a restart does.
   // At most `MAX_REDRAFTS` per burst (`chatState.ts`): past that the draft is sent as written, never redrafted forever.
   if (!routine && !message.jobReport && message.reaction === undefined && canRedraft(await readChatState(storage)) && (await recheckDraft(storage, deps, { message, covers, upTo, text: answer.text })) === "held") {

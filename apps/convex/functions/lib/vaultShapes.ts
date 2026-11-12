@@ -5,6 +5,7 @@
  * grants a person is never shown.
  */
 
+import { chatPeopleRowValidator, type ChatPeopleRow, type RequestChat } from "./vaultChatShapes";
 import { v } from "convex/values";
 import type { Id } from "../../_generated/dataModel";
 
@@ -28,7 +29,8 @@ export type StoredPin = ProxyPin & PinHistory & { once?: { id: string; until: nu
  * a group as `@name`, or `*` for every member of the workspace.
  */
 export type ShareLevel = "use" | "see";
-export type Share = { to: string; level: ShareLevel; by: string; at: number };
+/** `label`: a chat's name for a key given to that chat (`lib/vaultChat.ts`), its people by name; absent otherwise. */
+export type Share = { to: string; level: ShareLevel; by: string; at: number; label?: string };
 
 export type VaultMeta = {
   type?: EntryKind;
@@ -48,7 +50,7 @@ export type RequestLabels = {
   workspace: { handle: string; name: string; kind: "personal" | "shared" } | null;
   grantee: string | null;
 };
-export type LiveRequest = { workspaceId: Id<"workspaces">; entryId: string | null; granteeUserId: Id<"users"> | null };
+export type LiveRequest = { workspaceId: Id<"workspaces">; entryId: string | null; granteeUserId: Id<"users"> | null; chat?: RequestChat };
 export type ShownMeta = {
   type: EntryKind;
   name: string;
@@ -73,10 +75,25 @@ export type Described = {
   grantee: string | null;
   entry: { type: EntryKind; name: string; sites: string[]; fields: FieldSummary[] } | null;
   expiresAt: number;
+  /** The group chat the link was texted in, its people and who is in the workspace; null for any other link. */
+  chat: { label: string; people: ChatPeopleRow[]; canInvite: boolean } | null;
 };
 
 export const kindValidator = v.union(v.literal("add"), v.literal("share"), v.literal("view"));
 export const fieldSummaryValidator = v.object({ name: v.string(), perEnv: v.boolean(), set: v.array(v.string()) });
+/** `describeVaultRequest`'s answer (`Described`): what `/vault/<token>` shows before the person does anything. */
+export const describedValidator = v.object({
+  kind: kindValidator,
+  workspace: v.object({ handle: v.string(), name: v.string(), kind: v.union(v.literal("personal"), v.literal("shared")) }),
+  grantee: v.union(v.null(), v.string()),
+  entry: v.union(
+    v.null(),
+    v.object({ type: v.union(v.literal("login"), v.literal("secret"), v.literal("card")), name: v.string(), sites: v.array(v.string()), fields: v.array(fieldSummaryValidator) }),
+  ),
+  expiresAt: v.number(),
+  // A link texted in a group chat: the chat's name, its people and who is in the workspace (`lib/vaultChat.ts`).
+  chat: v.union(v.null(), v.object({ label: v.string(), people: v.array(chatPeopleRowValidator), canInvite: v.boolean() })),
+});
 export const cardSummaryValidator = v.object({ brand: v.string(), last4: v.string(), expMonth: v.string(), expYear: v.string() });
 export const fieldValuesValidator = v.object({ name: v.string(), perEnv: v.boolean(), values: v.record(v.string(), v.string()) });
 
@@ -90,7 +107,7 @@ export const proxyPinValidator = v.object({
 });
 
 export const shareLevelValidator = v.union(v.literal("use"), v.literal("see"));
-export const shareValidator = v.object({ to: v.string(), level: shareLevelValidator, by: v.string(), at: v.number() });
+export const shareValidator = v.object({ to: v.string(), level: shareLevelValidator, by: v.string(), at: v.number(), label: v.optional(v.string()) });
 /** The `@names` the person reaches in the workspace (`grantedNamesFor`), for keys given to a group. */
 const groupsArg = v.optional(v.array(v.string()));
 
@@ -108,6 +125,8 @@ export const operationValidator = v.union(
     fields: v.array(fieldValuesValidator),
     proxy: v.optional(proxyPinValidator),
     card: v.optional(cardSummaryValidator),
+    /** Who it is given to as it is saved, chosen on the link's page (`lib/vaultChat.ts` `sharesFor`); none is its saver alone. */
+    shares: v.optional(v.array(shareValidator)),
   }),
   v.object({ kind: v.literal("reveal"), entryId: v.string(), userId: v.string(), groups: groupsArg }),
   v.object({ kind: v.literal("list"), userId: v.string(), groups: groupsArg }),

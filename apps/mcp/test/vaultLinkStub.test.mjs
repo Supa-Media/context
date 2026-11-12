@@ -70,7 +70,7 @@ test("vault_add_link gets a private link from the stub, with the form's prefill 
   const answer = await call(TOKEN_OWNER, "vault_add_link", { type: "login", name: "Streamly", site: "streamly.example" });
   assert.equal(answer.isError, false, answer.text);
   assert.match(answer.text, /Link to save the login: https:\/\/\S+name=Streamly/);
-  assert.match(answer.text, /expires in 30 minutes/);
+  assert.match(answer.text, /for 30 minutes/);
   assert.equal(controlPlane.vaultCalls.at(-1).workspaceId, "ws_vault_a");
 });
 

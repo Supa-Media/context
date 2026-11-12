@@ -27,6 +27,15 @@
 
 export const LEVELS = ["use", "see"];
 export const EVERYONE = "*";
+/**
+ * A key given to one Tex group chat (Dev2, 2026-11-12: "a group created automatically for that chat"), saved from a
+ * link Tex texted there: `#chat:<the chat's key>`. Never a person or an `@group`, so only that chat's own turns count
+ * it (`actorAccessOf`), and only to use.
+ */
+export const CHAT_SHARE_PREFIX = "#chat:";
+export function chatShareTo(chatKey) {
+  return `${CHAT_SHARE_PREFIX}${chatKey}`;
+}
 /** Most people, groups and workspace rows one key is given to. */
 export const MAX_SHARES = 200;
 
@@ -107,6 +116,12 @@ function chatGroups(actor) {
 /** How much of a key the caller `actor` (a store's `actor`) has: "see", "use", or null. */
 export function actorAccessOf(meta, actor) {
   if (!workspaceOnly(actor)) return accessOf(meta, actor?.userId, actor?.groups);
+  // Given to this chat itself, from a link Tex texted here: used, never seen, by whoever tags Tex in it.
+  const ownChat = typeof actor?.chat === "string" && actor.chat !== "" ? chatShareTo(actor.chat) : null;
+  if (ownChat !== null && sharesOf(meta).some((share) => share.to === ownChat)) return "use";
+  // "Only me": a key its saver kept for themselves counts on their own tag alone (Dev2, 2026-11-12), never on a
+  // guest's or an invited person's, which act through the same grant (`taggerId`, from the token, never the request).
+  if (typeof actor?.taggerId === "string" && actor.taggerId !== "" && meta?.createdBy === actor.taggerId) return "use";
   const chat = chatGroups(actor);
   if (chat !== null) return sharesOf(meta).some((share) => isGroupToken(share.to) && chat.has(share.to)) ? "use" : null;
   return sharesOf(meta).some((share) => share.to === EVERYONE) ? "use" : null;

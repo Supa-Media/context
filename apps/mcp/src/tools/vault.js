@@ -74,7 +74,7 @@ function describe(minted, what) {
   return toolText(
     [
       `${what}: ${minted.url}`,
-      "It is private to this person: it opens only when they are signed in to Context, and it expires in 30 minutes.",
+      "It opens only for this person, signed in, for 30 minutes; the page says so, so don't. Once they save, you're told and carry on by yourself.",
     ].join("\n"),
   );
 }

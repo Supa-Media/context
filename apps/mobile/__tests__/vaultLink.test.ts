@@ -1,7 +1,9 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   atHandle,
+  defaultShare,
   openingEnv,
+  shareChoices,
   parseVaultPrefill,
   resolveVaultLinkView,
   vaultLinkHref,
@@ -70,6 +72,7 @@ describe("the vault link", () => {
       prefill: { name: "Netflix", site: "netflix.com", ...loginDefaults },
       busy: false,
       problem: null,
+      chat: null,
     });
     expect(view(shown(addRequest))).toMatchObject({ kind: "add", prefill: { name: "", site: "" } });
   });
@@ -98,6 +101,8 @@ describe("the vault link", () => {
       name: "Netflix",
       site: "netflix.com",
       type: "login",
+      sharedWith: "me",
+      chatLabel: null,
     });
     expect(view(shown(addRequest), { kind: "saved", name: "Stripe", site: "", type: "secret" })).toMatchObject({ type: "secret" });
     expect(view(shown(shareRequest), { kind: "shared", name: "Netflix", grantee: "sayo" })).toEqual({
@@ -276,5 +281,45 @@ describe("a view link", () => {
 
   test("a view link whose entry is gone is expired", () => {
     expect(view(shown({ ...viewRequest, entry: null }))).toMatchObject({ kind: "dead", reason: "expired" });
+  });
+});
+
+describe("who can use a save from a chat (Dev2, 2026-11-12)", () => {
+  const chat = {
+    label: "Group chat with Segun and 2 more",
+    people: [
+      { name: "You", handle: "dev", status: "you" as const },
+      { name: "Segun", handle: "segun", status: "member" as const },
+      { name: "Mom", handle: "mom", status: "not_member" as const },
+      { name: "guest-1a2b", handle: null, status: "invited" as const },
+    ],
+    canInvite: true,
+  };
+  const fromChat: VaultRequest = { ...addRequest, workspace: team, chat };
+
+  test("a link from a chat starts on the chat; any other on the person alone", () => {
+    expect(defaultShare(chat)).toBe("chat");
+    expect(defaultShare(null)).toBe("me");
+  });
+
+  test("the chat is offered only from a chat, the workspace only when it has other people", () => {
+    expect(shareChoices(chat, team)).toEqual(["chat", "workspace", "me"]);
+    expect(shareChoices(chat, personal)).toEqual(["chat", "me"]);
+    expect(shareChoices(null, team)).toEqual(["workspace", "me"]);
+    // Sabotage: offering "workspace" on a personal one gives a choice the server refuses.
+    expect(shareChoices(null, personal)).toEqual(["me"]);
+  });
+
+  test("the add view carries the chat, and the saved one names it only when the chat was picked", () => {
+    expect(view(shown(fromChat))).toMatchObject({ kind: "add", chat });
+    expect(view(shown(addRequest))).toMatchObject({ kind: "add", chat: null });
+    expect(view(shown(fromChat), { kind: "saved", name: "Gusto", site: "gusto.com", sharedWith: "chat" })).toMatchObject({
+      sharedWith: "chat",
+      chatLabel: chat.label,
+    });
+    expect(view(shown(fromChat), { kind: "saved", name: "Gusto", site: "gusto.com", sharedWith: "me" })).toMatchObject({
+      sharedWith: "me",
+      chatLabel: null,
+    });
   });
 });

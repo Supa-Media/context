@@ -12,21 +12,44 @@ import { internalQuery } from "../_generated/server";
  * is live; `gone` when none is, or the phone is no longer linked, and the
  * Worker stops looking. A request row lives until it expires
  * (`purgeExpiredVaultRequests`), as long as the link it was texted as.
+ *
+ * With `links`, the look is for those links alone, by their hashed tokens:
+ * the chat that texted a link watches that link, so a save on a link a group
+ * chat sent wakes that chat and never the person's 1:1 (Dev2, 2026-11-12:
+ * "the link should ... signify this group chat"). A hash that is not this
+ * phone's person's add link counts as nothing.
  */
+/** Most links one look names: a turn mints a few at most. */
+const MAX_LINKS = 5;
+
 export const savedSince = internalQuery({
-  args: { phone: v.string(), since: v.number() },
+  args: { phone: v.string(), since: v.number(), links: v.optional(v.array(v.string())) },
   returns: v.union(
     v.object({ status: v.literal("waiting") }),
     v.object({ status: v.literal("gone") }),
     v.object({ status: v.literal("saved"), savedAt: v.number() }),
   ),
-  handler: async (ctx, { phone, since }) => {
+  handler: async (ctx, { phone, since, links }) => {
     const link = await ctx.db
       .query("phoneLinks")
       .withIndex("by_phone", (q) => q.eq("phone", phone))
       .first();
     if (link === null) return { status: "gone" as const };
     const now = Date.now();
+    if (links !== undefined) {
+      const found = await Promise.all(
+        links.slice(0, MAX_LINKS).map((hashedToken) =>
+          ctx.db
+            .query("vaultRequests")
+            .withIndex("by_hashed_token", (q) => q.eq("hashedToken", hashedToken))
+            .unique(),
+        ),
+      );
+      const theirs = found.filter((row) => row !== null && row.userId === link.userId && row.kind === "add");
+      const usedAt = Math.max(0, ...theirs.map((row) => row!.usedAt ?? 0));
+      if (usedAt > 0) return { status: "saved" as const, savedAt: usedAt };
+      return theirs.some((row) => row!.expiresAt > now) ? { status: "waiting" as const } : { status: "gone" as const };
+    }
     const rows = await ctx.db
       .query("vaultRequests")
       .withIndex("by_user_kind", (q) => q.eq("userId", link.userId).eq("kind", "add"))

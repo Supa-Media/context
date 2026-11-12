@@ -167,7 +167,7 @@ export async function agentTextsGmailHandler(
 }
 
 /**
- * `POST /agent-texts/vault-saved` — `{ phone, since }` → `{ status: "waiting" | "gone" }`
+ * `POST /agent-texts/vault-saved` — `{ phone, since, links? }` → `{ status: "waiting" | "gone" }`
  * or `{ status: "saved", savedAt }`: whether a login was saved on a link Tex
  * texted, so the Worker can carry the task on without a "done" from them.
  */
@@ -178,7 +178,10 @@ export async function agentTextsVaultSavedHandler(
   const phone = stringField(body, "phone");
   const since = body.since;
   if (phone === null || typeof since !== "number" || !Number.isFinite(since)) return badRequest();
-  return json(await ctx.runQuery(internal.functions.vaultWatch.savedSince, { phone, since }));
+  // The links the chat texted, by hashed token: the look is for those alone (`functions/vaultWatch.ts`).
+  const links = body.links;
+  if (links !== undefined && (!Array.isArray(links) || links.length > 5 || links.some((hash) => typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)))) return badRequest();
+  return json(await ctx.runQuery(internal.functions.vaultWatch.savedSince, { phone, since, ...(links === undefined ? {} : { links: links as string[] }) }));
 }
 
 /** `POST /agent-texts/unlink` — `{ phone }` → `{ status: "unlinked" | "not_linked" }`. */

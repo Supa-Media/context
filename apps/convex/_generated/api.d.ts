@@ -248,6 +248,7 @@ import type * as functions_oldCopies from "../functions/oldCopies.js";
 import type * as functions_treeChanges from "../functions/treeChanges.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_vault from "../functions/vault.js";
+import type * as functions_vaultChatLinks from "../functions/vaultChatLinks.js";
 import type * as functions_vaultSettings from "../functions/vaultSettings.js";
 import type * as functions_vaultPeople from "../functions/vaultPeople.js";
 import type * as functions_vaultNotify from "../functions/vaultNotify.js";
@@ -527,6 +528,7 @@ declare const fullApi: ApiFromModules<{
   "functions/usage": typeof functions_usage;
   "functions/usageAnalytics": typeof functions_usageAnalytics;
   "functions/vault": typeof functions_vault;
+  "functions/vaultChatLinks": typeof functions_vaultChatLinks;
   "functions/vaultSettings": typeof functions_vaultSettings;
   "functions/vaultPeople": typeof functions_vaultPeople;
   "functions/vaultNotify": typeof functions_vaultNotify;

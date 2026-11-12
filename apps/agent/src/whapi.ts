@@ -149,8 +149,13 @@ export async function verifyWhapiSecret(secret: string, headers: Headers): Promi
 export async function sendWhapiText(fetcher: Fetch, keys: WhapiKeys, to: string, text: string, quoted?: string): Promise<string | undefined> {
   const address = addressOf(to);
   if (address === null) throw new ServiceError("whapi", null);
-  return await sendMessage(fetcher, keys, "/messages/text", { to: address, body: text.slice(0, MAX_REPLY_TEXT) }, quoted);
+  // A private vault link gets no preview card: WhatsApp's own showed Context's front page under it (Dev2, 2026-11-12).
+  const quiet = VAULT_LINK.test(text) ? { no_link_preview: true } : {};
+  return await sendMessage(fetcher, keys, "/messages/text", { to: address, body: text.slice(0, MAX_REPLY_TEXT), ...quiet }, quoted);
 }
+
+/** A link to save, share or see a vault entry (`apps/mcp/src/tools/vault.js`): private to one person, nothing to preview. */
+const VAULT_LINK = /https:\/\/[^\s/]+\/vault\/[0-9a-f]{16,}/;
 
 /**
  * One file by an https address Whapi fetches: a picture goes as an image,
