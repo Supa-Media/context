@@ -609,10 +609,7 @@ describe("a group chat with people who aren't all here (homes, not guest mode; d
     const w = world();
     await acceptGroup(storage, message("Tex who is in this chat", { from: ADA }), 0);
     await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada", names: [{ phone: ADA, handle: "ada", name: "Ada Lovelace" }] } }));
-    const group = w.asks[0]?.group as Record<string, unknown>;
-    expect(group.names).toEqual([{ handle: "ada", name: "Ada Lovelace" }]);
-    expect(group.guests).toEqual(["guest-1a2b"]);
-    expect(group.size).toBe(2);
+    expect(w.asks[0]?.group).toMatchObject({ names: [{ handle: "ada", name: "Ada Lovelace" }], guests: ["guest-1a2b"], size: 2 });
     expect(JSON.stringify(w.asks[0])).not.toContain(BO);
   });
 
