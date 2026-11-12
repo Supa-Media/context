@@ -69,6 +69,62 @@ export async function readGuestNames(ledger, chat) {
   }
 }
 
+/** A name as an about note writes one: up to three capitalised words. */
+const NOTE_NAME = String.raw`(\p{Lu}[\p{L}\p{M}'’.-]*(?:[ ]\p{Lu}[\p{L}\p{M}'’.-]*){0,2})`;
+const LABEL = String.raw`(guest-[0-9a-f]{4})`;
+/** "guest-1a2b is Sam", "guest-1a2b: Sam", "guest-1a2b (Sam)", and "Sam (guest-1a2b)". */
+const ABOUT_PATTERNS = [
+  { re: new RegExp(`${LABEL}\\s*(?:is|=|:|-|–|—)\\s*${NOTE_NAME}`, "gu"), label: 1, name: 2 },
+  { re: new RegExp(`${LABEL}\\s*\\(\\s*${NOTE_NAME}`, "gu"), label: 1, name: 2 },
+  { re: new RegExp(`${NOTE_NAME}\\s*\\(\\s*${LABEL}\\s*\\)`, "gu"), label: 2, name: 1 },
+];
+/** Words an about note puts where a name would go that are no name. */
+const NOT_A_NAME = /^(?:Not|Unknown|Unconfirmed|Confirmed|Probably|Maybe|The|A|An)$/;
+
+/**
+ * The guests here that the chat's about note names, the last mention per guest, before names were kept on the chat
+ * (Dev2, 2026-11-12: after #3218 Tex still showed Boba and Instinct by label, their names only in the about note,
+ * because nothing had called name_guest). Only labels in this chat; names cleaned as any (`cleanName`).
+ */
+export function namesInAbout(about, guests) {
+  if (typeof about !== "string" || about === "" || !Array.isArray(guests) || guests.length === 0) return [];
+  const here = new Set(guests);
+  const found = [];
+  for (const { re, label, name } of ABOUT_PATTERNS) {
+    for (const match of about.matchAll(re)) {
+      const said = cleanName(match[name]).split(" ").filter((word) => !NOT_A_NAME.test(word)).join(" ");
+      if (here.has(match[label]) && said !== "" && !/['’]s$/.test(said)) found.push({ at: match.index, guest: match[label], name: said });
+    }
+  }
+  const last = new Map();
+  for (const entry of found.sort((a, b) => a.at - b.at)) last.set(entry.guest, entry.name);
+  return [...last].map(([guest, name]) => ({ guest, name }));
+}
+
+/** A promise settled later, for names the history read waits on before the about note is read (`groupTurn.js`). */
+export function laterNames() {
+  let settle = () => {};
+  const promise = new Promise((resolve) => (settle = resolve));
+  return { promise, settle: (names) => Promise.resolve(names).then(settle, () => settle([])) };
+}
+
+/**
+ * The chat's guest names: the ledger's, and for a guest it has none for, the about note's, which are kept in the
+ * ledger then (behind the turn, `by: "about"`), so the judge and every later turn read them from the one copy.
+ */
+export async function guestNamesWithAbout(kept, about, group, ledger) {
+  const [names, note] = await Promise.all([Promise.resolve(kept).catch(() => []), Promise.resolve(about).catch(() => null)]);
+  const known = new Set(names.map((entry) => entry.guest));
+  const added = namesInAbout(note, group?.guests).filter((entry) => !known.has(entry.guest));
+  if (added.length > 0 && typeof ledger?.append === "function" && typeof group?.key === "string") {
+    void Promise.resolve()
+      .then(() => ledger.append(group.key, added.map((entry) => guestNameEntry(entry.guest, entry.name, { by: "about" }))))
+      .then(() => console.log(JSON.stringify({ event: "group_guest_names_from_about", count: added.length })))
+      .catch(() => {});
+  }
+  return [...names, ...added];
+}
+
 /** The judge's facts: each guest here by label and name, one line. */
 export function guestNameFacts(names) {
   const kept = Array.isArray(names) ? names : [];
