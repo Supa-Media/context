@@ -15,6 +15,7 @@ import { prepareAttachments } from "./attachments";
 import { textsWithExact } from "./format";
 import type { InboxStorage } from "./inbox";
 import { groupLineFor } from "./groupLine";
+import { membersBeforeSend } from "./groupMembers";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
 import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, sha256Hex } from "./groupChat";
@@ -91,8 +92,9 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     chat stopped or muted since the turn began. A line that won't send costs
     the chat a line, never the answer, as in a 1:1 text.
   */
-  // One failed read is retried at once: a blip is not a reason to hold (2026-11-02).
-  const readTwice = async () => (await app.readMembers(chat)) ?? (await app.readMembers(chat));
+  // The list kept from this turn's own read when the app reports changes and none came; else the app's, a failed
+  // read retried at once: a blip is not a reason to hold (2026-11-02, 2026-11-12; `groupMembers.ts`).
+  const readTwice = () => membersBeforeSend(storage, app, chat, deps.now);
   let paused = false;
   const progress = async (text: string) => {
     if (routine) return;

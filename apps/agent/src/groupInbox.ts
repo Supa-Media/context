@@ -67,6 +67,7 @@ import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import { groupLineFor } from "./groupLine";
+import { readMembersNow } from "./groupMembers";
 import type { NoteCardDrawer } from "./noteCards";
 import { isBound, isMuted, keepChatLine, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
@@ -475,7 +476,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   // then lists as a phone, a newcomer nobody was, and the control plane mints the turn's grant and spends the one-shot intro on
   // the people it is given. A command is answered from the webhook's names, so "Tex, stop" works with the groups API down;
   // "what can you see" waits, since it names the workspaces those people share.
-  const members = await app.readMembers(chat);
+  const members = await readMembersNow(storage, app, chat, deps.now); // kept, for the check before sending (`groupMembers.ts`)
   clock?.mark("members");
   if (members === null) log("members_unread");
   const question = command === null;

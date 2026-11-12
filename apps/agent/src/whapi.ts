@@ -273,8 +273,12 @@ export async function readWhapiMessage(
 /** Who is in a group, each as `personOfJid` lists them, Tex's own line included; null when it could not be read. Quick, never throws. */
 export async function readWhapiGroupMembers(fetcher: Fetch, keys: WhapiKeys, jid: string): Promise<string[] | null> {
   if (!GROUP_JID.test(jid)) return null;
-  const group = await getRecord(fetcher, keys, `/groups/${encodeURIComponent(jid)}`);
-  if (group === null || !Array.isArray(group.participants)) return null;
+  const group = await getRecord(fetcher, keys, `/groups/${encodeURIComponent(jid)}`, "group_members");
+  if (group === null) return null;
+  if (!Array.isArray(group.participants)) {
+    console.log(JSON.stringify({ event: "whapi_read_failed", what: "group_members", reason: "no_participants" }));
+    return null;
+  }
   const people: string[] = [];
   for (const entry of group.participants.slice(0, MAX_MEMBERS)) {
     const id = isRecord(entry) ? entry.id : undefined;
@@ -337,7 +341,13 @@ async function quick(
 }
 
 /** A GET's JSON object, or null for any failure. Quick, never throws. */
-async function getRecord(fetcher: Fetch, keys: WhapiKeys, path: string): Promise<Record<string, unknown> | null> {
+async function getRecord(fetcher: Fetch, keys: WhapiKeys, path: string, what?: string): Promise<Record<string, unknown> | null> {
+  // Why a read failed is logged for the reads a decision rests on (`what`): a status, a timeout or a body that is
+  // not one (the Crystal Care answer of 2026-11-11 was held on two unread member lists with no reason anywhere).
+  const failed = (reason: string, status?: number) => {
+    if (what !== undefined) console.log(JSON.stringify({ event: "whapi_read_failed", what, reason, ...(status !== undefined ? { status } : {}) }));
+    return null;
+  };
   try {
     const response = await fetcher(`${WHAPI_API}${path}`, {
       method: "GET",
@@ -346,12 +356,12 @@ async function getRecord(fetcher: Fetch, keys: WhapiKeys, path: string): Promise
     });
     if (!response.ok) {
       await response.body?.cancel();
-      return null;
+      return failed("status", response.status);
     }
     const body: unknown = await response.json();
-    return isRecord(body) ? body : null;
-  } catch {
-    return null;
+    return isRecord(body) ? body : failed("body");
+  } catch (error) {
+    return failed(error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError") ? "timeout" : "error");
   }
 }
 
