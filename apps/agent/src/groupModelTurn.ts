@@ -12,6 +12,7 @@ import type { ControlAnswer } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
 import { fixedTimings, log, logTiming, say, sayProgress, sendPicture, type SayMeta } from "./groupSay";
 import { prepareAttachments } from "./attachments";
+import { E164 } from "./sendblue";
 import { textsWithExact } from "./format";
 import type { InboxStorage } from "./inbox";
 import { groupLineFor } from "./groupLine";
@@ -72,6 +73,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     // Everyone else here by their label, never a number, and how many people the chat holds besides Tex, so "who is in
     // this chat" is answered from the whole list (Dev2, 2026-11-12).
     ...(guestLabels(people, labels).length > 0 ? { guests: guestLabels(people, labels) } : {}),
+    // Each person's number beside the handle or label they are known by (Dev2, 2026-11-12): everyone in the chat
+    // already sees it, and a person says a number where Tex would say a label.
+    ...(numbersHere(people, handles, labels).length > 0 ? { numbers: numbersHere(people, handles, labels) } : {}),
+    ...(!asked.handle && labels.has(message.from) ? { asker: labels.get(message.from) } : {}),
     size: people.length,
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
@@ -268,6 +273,17 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
 /** The labels of the people here with no account the control plane linked, each once, in the chat's order. */
 function guestLabels(people: string[], labels: Map<string, string>): string[] {
   return [...new Set(people.flatMap((phone) => (labels.has(phone) ? [labels.get(phone) as string] : [])))];
+}
+
+/** Each person here with a handle or label, by it, with their number: real numbers only, each person once. */
+function numbersHere(people: string[], handles: Map<string, string>, labels: Map<string, string>): { who: string; phone: string }[] {
+  const seen = new Set<string>();
+  return people.flatMap((phone) => {
+    const who = handles.get(phone) ?? labels.get(phone);
+    if (who === undefined || who === "" || seen.has(who) || !E164.test(phone)) return [];
+    seen.add(who);
+    return [{ who, phone }];
+  });
 }
 
 function named(names: { handle: string; name?: string }[] | undefined): { handle: string; name: string }[] {

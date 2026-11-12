@@ -76,8 +76,8 @@ untagged message is never stored.
   chat that isn't bound, an SMS group, a muted one, or once anyone has joined
   or left since Tex last answered, until a tag resolves the chat again.
 - The next tagged message hands the gateway the lines said before it, in front
-  of exactly the people it answers, by handle and never by number (the
-  control plane names them). The gateway files them with the question in the
+  of exactly the people it answers, by handle or guest label (the control
+  plane names them), each person's number given only beside it (below). The gateway files them with the question in the
   chat's memory in the bound workspace, and the queue's copy is deleted. A
   line nobody tags Tex after is dropped after a week, the oldest go first past
   four hundred, and "Tex, stop", a mute or the chat losing its shared
@@ -101,6 +101,32 @@ already share a workspace with the adder: a stranger's number only ever
 yields "not everyone here shares a workspace with me", the same line as an
 unlinked one, and an unknown tagger is told one fixed line once per chat,
 with the same tapback as everyone.
+
+## A group turn sees the numbers of the people in that chat (Dev2, 2026-11-12)
+
+Dev2 asked why Tex couldn't see numbers in a group chat, and that the real
+cost of hiding them is Tex calling someone "guest-1a2b" where any person in
+the chat would say their number. Everyone in an iMessage or WhatsApp group
+already sees every number in it, so telling the turn those numbers shows
+nobody in the chat anything new; and a chat's memory lives in its sealed home,
+which only the chat's people open. Dev2 picked this over keeping labels only.
+
+- The Worker sends `numbers` (each person's number, by the handle or guest
+  label the turn knows them by) and, when a guest tagged Tex, `asker` (their
+  label) (`apps/agent/src/groupModelTurn.ts`). Lines the chat said still name
+  people by handle or label; the number goes only in that list.
+- The gateway keeps a number only for someone named in this chat, only a real
+  one (E.164), once each (`apps/mcp/src/agent/groupNames.js` `numbersOf`), and
+  the roster says each beside its name; the turn is told to say a number where
+  a person would and a guest label never.
+- Unchanged: rows, grants and the control plane still hold account ids and
+  keyed hashes, never a number; logs never carry one; a person's own email,
+  address and other details still reach a group turn by nobody's account
+  ([who-they-are](./who-they-are.md)); the judge reads labels and handles.
+- Reversing it brings back labels said to people. Tests:
+  `apps/mcp/test/groupNames.test.mjs` ("each person here is shown with their
+  number", "a number is kept only for someone here"),
+  `apps/agent/src/groupInbox.test.ts` (numbers only in `numbers`).
 
 ## What a group turn can do
 

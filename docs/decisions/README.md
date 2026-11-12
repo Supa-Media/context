@@ -806,6 +806,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
 - [Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)](./texting-assistant/groups.md)
 - [A group's voice message is heard before the chat decides it is for Tex (2026-11-05)](./texting-assistant/groups.md)
+- [A group turn sees the numbers of the people in that chat (2026-11-12)](./texting-assistant/groups.md#a-group-turn-sees-the-numbers-of-the-people-in-that-chat-dev2-2026-11-12)
 - [A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)](./texting-assistant/group-guests.md)
 - [Group Tex keeps each chat's home in @context-lc, sealed from the people who run it (2026-10-31)](./texting-assistant/chat-homes.md)
 - [A group chat's history has one copy: the memory page in its home, kept in its Durable Object (2026-11-01)](./texting-assistant/group-memory-one-copy.md)
