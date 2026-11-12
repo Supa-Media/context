@@ -62,3 +62,15 @@ export async function linkHash(result) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+
+/**
+ * In a group chat whose grant reads its home and reaches one shared workspace, a link to save something goes to
+ * that workspace's vault without asking which (Dev2, 2026-11-12: Tex asked "which vault?" in the Crystal Care chat;
+ * "you should've just assumed"). A call that names a context keeps it; with several in reach the model picks, and
+ * asks only when the chat's words don't say. Every other turn is untouched.
+ */
+export function withGroupVault(group, callTool) {
+  const reach = Array.isArray(group?.reach) ? group.reach : [];
+  if (reach.length !== 1) return callTool;
+  return (name, args) => (name === "vault_add_link" && (args?.context === undefined || args.context === "") ? callTool(name, { ...args, context: `@${reach[0]}` }) : callTool(name, args));
+}

@@ -5,7 +5,8 @@ import { chatJobs, readJobUpdate, startJobs } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
-import { VAULT_EVERY_MS, VAULT_FIRST_MS, VAULT_GIVE_UP_MS, VAULT_KEY, VAULT_SLACK_MS, watchForSave } from "./vaultWatch";
+import { VAULT_EVERY_MS, VAULT_FIRST_MS, VAULT_GIVE_UP_MS, VAULT_KEY, VAULT_SAVED_PATH, VAULT_SLACK_MS, watchForSave } from "./vaultWatch";
+import { GROUP_QUEUE, queueKey } from "./chatQueue";
 
 /**
  * TEX CARRIES THE TASK ON ONCE THE LOGIN IT ASKED FOR IS SAVED (Dev2,
@@ -31,14 +32,14 @@ const msg = (eventId: string, text: string): Message => ({ kind: "message", even
 
 type Asked = { question: string; event?: string };
 
-function deps(opts: { now: () => number; asked: Asked[]; sent: string[]; looks: { since: number }[]; saved: () => unknown; watch?: boolean }): InboxDeps {
+function deps(opts: { now: () => number; asked: Asked[]; sent: string[]; looks: { since: number; links?: string[] }[]; saved: () => unknown; watch?: boolean }): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
     const body = JSON.parse(String(init.body));
     if (path.endsWith("/typing") || path.endsWith("/read") || path.endsWith("/share_contact_card")) return new Response("{}", { status: 200 });
     if (path === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "t" });
     if (path === "/agent-texts/vault-saved") {
-      opts.looks.push({ since: body.since });
+      opts.looks.push({ since: body.since, ...(body.links ? { links: body.links } : {}) });
       return Response.json(opts.saved());
     }
     if (path === "/agent") {
@@ -169,5 +170,29 @@ describe("a saved login carries the task on", () => {
     expect(update?.vaultWatch).toBe(PHONE);
     expect(await jobUpdate(storage, d, update!)).toBe(true);
     expect(await storage.get(VAULT_KEY)).toMatchObject({ phone: PHONE, since: 2_000 });
+  });
+
+  // Dev2, 2026-11-12: the Crystal Care chat's Gusto login was saved and Tex never carried on; the watch was 1:1 only.
+  it("a link texted in a group chat looks for that link alone, and its save is that chat's turn, under the ask", async () => {
+    const storage = new MemoryStorage();
+    const looks: { since: number; links?: string[] }[] = [];
+    const link = "e".repeat(64);
+    await watchForSave(storage, PHONE, 1_000, { links: [link], group: { groupId: "grp_1", line: "+15555550199", messageId: "m_ask", text: "Tex check the Nov 3-9 payroll on Gusto" } });
+    const d = deps({ now: () => 1_000 + VAULT_FIRST_MS, asked: [], sent: [], looks, saved: () => ({ status: "saved", savedAt: 1_500 }) });
+    await carryOnAfterSave(storage, d);
+    await carryOnAfterSave(storage, d);
+    expect(looks[0]).toMatchObject({ links: [link] });
+    const queued = await storage.get<{ message: Record<string, unknown> }>(queueKey(GROUP_QUEUE, 1));
+    expect(queued?.message).toMatchObject({
+      kind: "group-message",
+      groupId: "grp_1",
+      from: PHONE,
+      messageId: "m_ask",
+      event: "vault_saved",
+      routine: { runId: "vault:1500", path: VAULT_SAVED_PATH },
+    });
+    // One save, one turn; and never as a 1:1 text.
+    expect(await storage.get(queueKey(GROUP_QUEUE, 2))).toBeUndefined();
+    expect(await storage.get(queueKey({ counter: "seq", prefix: "pending:", max: 20 }, 1))).toBeUndefined();
   });
 });

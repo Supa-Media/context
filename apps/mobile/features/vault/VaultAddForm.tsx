@@ -23,7 +23,7 @@ import {
   type FieldDraft,
   type SubmitField,
 } from "./vaultFields";
-import type { EntryType, FormProblem, VaultPrefill } from "./vaultLink";
+import type { EntryType, FormProblem, ShareChoice, VaultPrefill } from "./vaultLink";
 
 type Field = TextInput;
 
@@ -39,6 +39,8 @@ export interface VaultDraft {
   proxy?: ProxyPinDraft;
   /** A card's details; only for a card, which then sends no username, password or fields. */
   card?: CardDraft;
+  /** Who may use it; set by the page's picker, absent where there is none to make. */
+  share?: ShareChoice;
 }
 
 /** Previews only: a form already typed into. */
@@ -70,6 +72,7 @@ export function VaultAddForm({
   problem,
   onSave,
   onType,
+  whoCanUse,
 }: {
   prefill: VaultPrefill;
   initialDraft?: Partial<VaultInitialDraft>;
@@ -78,6 +81,8 @@ export function VaultAddForm({
   onSave: (draft: VaultDraft) => Promise<boolean>;
   /** Tells the page which kind is chosen, so its heading can follow. */
   onType: (type: EntryType) => void;
+  /** The page's "Who can use it", drawn just above Save. */
+  whoCanUse?: React.ReactNode;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -258,6 +263,8 @@ export function VaultAddForm({
       )}
 
       {secret ? <VaultProxyFields state={proxy} onChange={setProxy} entryName={name} entrySite={site} busy={busy} /> : null}
+
+      {whoCanUse}
 
       {problem ? <FormError headline={problem.headline} next={problem.next} /> : null}
 

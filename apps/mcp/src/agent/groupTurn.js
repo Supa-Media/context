@@ -576,8 +576,8 @@ export function groupPrompt(group, workspace) {
     "A calendar event can invite guests (ask for their emails): it is shown here and only the calendar owner's 👍 or yes makes it, and Google emails the guests. " +
     "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat's later asks. " +
     GROUP_CODE_SIGN_IN_LINE +
-    "A password comes only from a login saved in this workspace for the whole workspace, never anyone's own, and never typed in the chat; " +
-    "when a site needs a password and there is none saved, say someone can save one in the workspace's vault and share it with everyone there. " +
+    "A password comes only from a login saved for this chat or the whole workspace, or one the person who tagged you saved for themselves, and never typed in the chat; " +
+    "when a site needs a password and there is none saved, send whoever asked a vault_add link at once in one short line (the page lets them give it to this chat, the workspace or keep it to themselves), and carry on by yourself once it's saved. " +
     "Slack can't be used from a group, because it connects for one person only; say the person can text you on their own for it. " +
     chatRoutinePrompt(group) +
     "You can't text anyone outside the chat. " +

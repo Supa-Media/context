@@ -103,10 +103,13 @@ the gateway and the control plane alike.
   Give says nothing about anybody's mailbox; at most 50 people per Give and
   10 such mails per person a day. A level change on an existing share sends
   nothing.
-- **A Tex group chat counts only what is given to everyone** (2026-10-21):
-  its turns are steered by the whole chat, so a key reaches them only when
-  shared with `*`, at use, never the tagger's own or one given to them
-  (`src/vault/access.js` `actorAccessOf`;
+- **A Tex group chat counts what is given to everyone, to the chat, or
+  kept by its tagger** (2026-10-21, widened by Dev2 2026-11-12): its turns
+  are steered by the whole chat, so a key reaches them when shared with `*`
+  or with that chat (`#chat:<key>`, listed on the vault page by the chat's
+  people, "Group chat with …"), at use; and a key the tagger saved for
+  themselves only on their own tag. Never one given to the tagger by
+  somebody else (`src/vault/access.js` `actorAccessOf`;
   [groups](./groups.md#tex-acts-for-whoever-tagged-it-the-owner-2026-10-21)).
 - **A personal key is moved, not given** (`functions/vaultMove.ts`): only
   its saver, only into a shared workspace they own or edit, as the barrier's
@@ -410,14 +413,31 @@ then asks the control plane (`POST /agent-texts/vault-saved`, times only,
 never which entry) every 10 to 30 seconds for half an hour, and once a save
 link of theirs was used it queues a turn with no words and
 `event: "vault_saved"`. The gateway asks that turn its own fixed line
-(`apps/mcp/src/agent/vaultSaved.js`), only on the texting client's 1:1 turn,
-and Tex carries the task on. A text from them after the save means that text's
+(`apps/mcp/src/agent/vaultSaved.js`) and Tex carries the task on. A text from them after the save means that text's
 turn already did, and nothing is queued; one save queues one turn. Polling
 rather than a push keeps the control plane from knowing the Worker's address,
 the same as the Gmail-connected text. Reversing it fails
 `apps/mcp/test/agentVaultSavedRoute.test.mjs`,
 `apps/agent/src/vaultWatch.test.ts` and
 `apps/convex/__tests__/vaultWatch.test.ts`.
+
+**From a group chat too** (Dev2, 2026-11-12: "Tex should know when I've filled
+out a vault item and continue on from there", after a Gusto login saved from
+the Crystal Care chat went unanswered). A link minted in a group turn is
+watched by its asker's inbox like a 1:1 one, but the look names the link
+itself (the SHA-256 of its token, at most five), so only that link's save
+counts, and the save queues that chat's turn under the original ask, as a job's
+report is queued (`event: "vault_saved"`, `routine.path` `(vault saved)`). The
+add link remembers the chat it was texted in (`vaultRequests.chat`, from the
+grant), and its page asks who may use the save: that chat (picked already),
+everyone in the shared workspace (with who in the chat is a member, and Add,
+for an owner, beside who isn't), or only its saver. The model is told to send
+the link in one line and not to explain it (the page does), a chat reaching one
+shared workspace saves there without asking which, and on WhatsApp a vault
+link goes with no preview card. Reversing it fails
+`apps/mcp/test/vaultChatShare.test.mjs`,
+`apps/convex/__tests__/vaultChatLinks.test.ts` and
+`apps/mobile/__tests__/vaultWhoCanUse.test.ts`.
 
 ### Tex's browser sign-ins are one sealed vault item
 

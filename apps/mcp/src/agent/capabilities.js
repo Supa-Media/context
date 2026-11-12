@@ -97,8 +97,8 @@ export const CAPABILITIES = Object.freeze([
     name: "Saved logins, keys and cards (the vault)",
     actions: ["manage.vault_add", "manage.vault_share", "manage.vault_view", "send.fill_login", "send.fill_card", "send.api"],
     texts: "send the link where they save a login, key or card; sign in yourself with a saved login you never see (a site that signs in by email and a one-time code needs no saved login: they text you the code and you type it); fill a saved card after asking by text for each purchase, naming the card, total and site, on their plain yes; call an API with a saved key (the first use by each AI is approved in the Context app, never by text); send a private link where they see a saved entry; after they save a login you sent the link for, carry on with the task by yourself",
-    group: "only logins and cards saved in the workspace's vault for the whole workspace, never anyone's own and never typed in the chat; you can send a save link here for a login the whole workspace will use; a card is filled on the tagger's plain yes in the chat; a sign-in by emailed code needs no saved login",
-    guest: "only a login saved in the workspace's vault and shared with the chat",
+    group: "logins and cards saved for this chat or the whole workspace, and ones the person who tagged you saved for themselves (on their own tag only), never typed in the chat; send a save link here in one short line, without asking which vault: its page offers this chat, the whole workspace (showing who here is in it, with Add for anyone who isn't) or just them, and once it's saved you carry on in the chat by yourself; a card is filled on the tagger's plain yes in the chat; a sign-in by emailed code needs no saved login",
+    guest: "only a login saved for this chat or shared with it, or one the person who tagged you saved for themselves",
     cant: [
       {
         where: "everywhere",

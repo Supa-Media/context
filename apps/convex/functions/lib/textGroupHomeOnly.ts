@@ -174,7 +174,7 @@ async function mintHomeOnlyGrant(
     homeOnly: true as const,
     reach: input.reach,
     reachPeople: input.reachPeople,
-    ...(input.tagger === null ? {} : { taggerId: input.tagger }),
+    ...(input.tagger === null ? {} : { taggerId: input.tagger, ownTagToken: input.hashedAccessToken }),
     ...(input.guestPhone === undefined ? {} : { guestPhone: input.guestPhone }),
   };
   const token = {

@@ -187,7 +187,17 @@ other people's words are in its history.
   group, and never at "see" (`apps/mcp/src/vault/access.js`
   `actorAccessOf`). A person who wants Tex to act for the group gives it a
   login of its own, such as a shared email, saved in the workspace for
-  everyone. A card is an entry like any other and follows the same rule;
+  everyone. Since 2026-11-12 (Dev2, the Crystal Care chat's Gusto login:
+  "the people in the chat you're just coming from ... or the entire
+  workspace, or just me, only I can use it, but I can mention it in the
+  group") two more count: a key given to this chat itself (`#chat:<key>`,
+  picked on the save page of a link Tex texted there, the key from the
+  grant, never the request), and a key the tagger saved for themselves, on
+  their own tag alone: the control plane names the tagger only on the token
+  minted for that tag (`texGroup.ownTagToken`, `session.texTaggerId`), so a
+  guest's or another person's turn through the same grant never reaches it.
+  Still never one given to the tagger by somebody else, and never at "see".
+  A card is an entry like any other and follows the same rule;
   each payment is still the tagger's own yes, replied to Tex's ask
   ([vault](./vault.md), "A card pays only on the person's yes, once a purchase").
 

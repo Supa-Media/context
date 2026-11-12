@@ -83,7 +83,7 @@ describe("saving through a vault link", () => {
     expect((await me.action(api.functions.vault.describeVaultRequest, { token })).kind).toBe("add");
 
     w.bucket.refusing = false;
-    expect(await me.action(api.functions.vault.saveVaultLogin, { token, ...SAVE })).toEqual({ name: "Netflix", site: "netflix.com" });
+    expect(await me.action(api.functions.vault.saveVaultLogin, { token, ...SAVE })).toEqual({ name: "Netflix", site: "netflix.com", sharedWith: "me" });
     expect(w.vaultKeys()).toHaveLength(1);
     expect(await audits(w.t, "vault.saved")).toHaveLength(1);
 
