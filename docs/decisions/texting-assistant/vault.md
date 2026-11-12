@@ -36,6 +36,20 @@ Decided by the owner, 2026-10-06. Built 2026-10-10.
   it, where the next reading would show it, never receives one. Another
   workspace's login is opened through the grant's own `openContext`, so a
   membership the grant lacks is a login that does not exist.
+- **Every vault the turn reaches, without naming one** (Dev2, 2026-11-12: a
+  Gusto login saved in `@crystal-care` from the Crystal Care chat's link was
+  "no such login" from the chat's own home, which has no vault; "why doesn't
+  the tool just know all the vaults/workspaces it has accessible?").
+  `fill_login` and `fill_card` look an entry up by its id in the workspace
+  the call names, then the turn's own, then every other workspace the grant
+  lists (`apps/mcp/src/vault/reach.js`), and `vault_list` lists them all,
+  each under its `@name`. Finding is not giving: each workspace is opened
+  through `openContext` and each entry still passes `actorMayUse` against
+  that store's own actor, so a group chat still uses only what was given to
+  the chat, the workspace or its tagger. Tests:
+  `apps/mcp/test/agentFillLogin.test.mjs` ("a login is found in whichever
+  vault the turn reaches"), `apps/mcp/test/vault.test.mjs` ("vault_list
+  shows every vault the connection reaches").
 
 **What a simplification would cost:** sealing the whole entry as one part makes
 every listing open passwords; binding nothing but the workspace lets anyone

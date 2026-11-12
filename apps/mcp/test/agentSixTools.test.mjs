@@ -79,6 +79,17 @@ test("an assistant action's words written beside the action reach the tool", () 
   assert.deepEqual(resolve("write", { action: "progress", text: "On it." }), { name: "text_progress", args: { text: "On it." } });
 });
 
+test("a sign-in or card fill hears the workspace its call names", () => {
+  // Crystal Care, 2026-11-12: send { action: "fill_login", args: { entry }, context: "@crystal-care" } reached the tool
+  // with no context, which opened the chat's own home and said "There is no such login".
+  const { resolve } = sixToolsOver(held("fill_login", "fill_card", "search_web"));
+  assert.deepEqual(resolve("send", { action: "fill_login", args: { entry: "v1", password_ref: 2 }, context: "@crystal-care" }), { name: "fill_login", args: { context: "@crystal-care", entry: "v1", password_ref: 2 } });
+  assert.deepEqual(resolve("send", { action: "fill_card", args: { entry: "v1", context: "@inner" }, context: "@outer" }).args.context, "@inner");
+  assert.deepEqual(resolve("send", { action: "fill_login", args: { entry: "v1" }, context: "  " }), { name: "fill_login", args: { entry: "v1" } });
+  // A tool that takes no workspace still never gets one.
+  assert.deepEqual(resolve("send", { action: "search_web", query: "q", context: "@x" }), { name: "search_web", args: { query: "q" } });
+});
+
 test("an action the turn does not hold, or the surface did not allow, is refused before it is dispatched", () => {
   const dream = sixToolsOver(held("read_note", "list_notes", "write_note"), { write: ["save"] });
   assert.deepEqual([...shown(dream.tools)].filter((name) => name.includes(".")), ["write.save"]);

@@ -18,6 +18,7 @@
 import { openForFill, VaultRefused } from "../vault/fill.js";
 import { actorMayUse, isEntryId, listMeta, siteMatches } from "../vault/entries.js";
 import { entryType } from "../vault/fields.js";
+import { openVault, otherVaultNames, vaultHolding } from "../vault/reach.js";
 
 /**
  * Whether the person has a login saved that fills on `origin`, for the
@@ -26,12 +27,22 @@ import { entryType } from "../vault/fields.js";
  * login saved for instacart.com. Reads names and sites only, never a secret.
  */
 export function savedLoginOn(store) {
+  const savedIn = async (vault, origin) => {
+    const keys = vault?.encryptionKey;
+    const workspaceId = vault?.actor?.workspaceId;
+    if (!keys || typeof workspaceId !== "string") return false;
+    const entries = await listMeta(vault, keys, workspaceId).catch(() => []);
+    return entries.some(({ meta }) => entryType(meta) === "login" && actorMayUse(meta, vault.actor) && siteMatches(meta.sites, origin));
+  };
   return async (origin) => {
-    const keys = store?.encryptionKey;
-    const workspaceId = store?.actor?.workspaceId;
-    if (!keys || typeof workspaceId !== "string" || typeof origin !== "string") return false;
-    const entries = await listMeta(store, keys, workspaceId).catch(() => []);
-    return entries.some(({ meta }) => entryType(meta) === "login" && actorMayUse(meta, store.actor) && siteMatches(meta.sites, origin));
+    if (typeof origin !== "string") return false;
+    if (await savedIn(store, origin)) return true;
+    // Or in another vault the turn reaches, where `fill_login` finds it too (`vault/reach.js`).
+    for (const name of otherVaultNames(store)) {
+      const vault = await openVault(store, name);
+      if (vault !== null && (await savedIn(vault, origin))) return true;
+    }
+    return false;
   };
 }
 
@@ -55,7 +66,7 @@ export const FILL_LOGIN_DEFINITION = {
       entry: { type: "string", description: "The login's id from fetch vault:." },
       password_ref: { type: "integer", description: "The password box's number from the last reading, when this page has one." },
       username_ref: { type: "integer", description: "The username or email box's number, when this page has one." },
-      context: { type: "string", description: "The workspace the login is saved in, like @team, when it is not the person's own." },
+      context: { type: "string", description: "The workspace the login is saved in, like @team; left out, the login is found in whichever workspace's vault holds it." },
     },
     required: ["entry"],
   },
@@ -102,15 +113,10 @@ export function fillLoginTool(browser, store) {
       if (origin === null) return text("Open the site's sign-in page with send action browse first.", true);
       fills += 1;
 
-      let vault = store;
-      if (typeof args.context === "string" && args.context.trim() !== "") {
-        try {
-          vault = (await store.openContext(args.context.trim())).store;
-        } catch {
-          vault = null;
-        }
-        if (!vault) return text(REFUSED.not_found, true);
-      }
+      // Whichever vault the turn reaches holds it, the named one first (`vault/reach.js`): a login saved in the group's
+      // shared workspace was "no such login" from the chat's own home (Dev2, 2026-11-12).
+      const vault = await vaultHolding(store, args.entry, args.context);
+      if (!vault) return text(REFUSED.not_found, true);
 
       let login;
       try {

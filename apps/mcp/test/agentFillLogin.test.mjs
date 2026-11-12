@@ -207,9 +207,46 @@ test("a shared workspace's login is opened through the grant's own routing, and 
   const refused = await web.call(FILL_LOGIN_TOOL, { entry: team.id, password_ref: 2, context: "@stranger" });
   assert.equal(refused.isError, true);
   assert.deepEqual(opened, ["@team", "@stranger"]);
-  // Without a context the team's entry is not in the person's own vault.
+  // Without a context, and with no other workspace in the grant's reach, the team's entry is not in the person's own vault.
   const notHere = await web.call(FILL_LOGIN_TOOL, { entry: team.id, password_ref: 2 });
   assert.equal(notHere.isError, true);
+});
+
+test("a login is found in whichever vault the turn reaches, named or not, and still only the ones it may use", async () => {
+  // Dev2, 2026-11-12, the Crystal Care chat: a group turn's own store is the chat's home, with no vault, and every
+  // fill_login of the Gusto login saved in @crystal-care said "There is no such login".
+  const CHAT = "c".repeat(64);
+  const groupActor = (workspaceId) => ({ workspaceId, userId: "user_a", clientId: "context_texts_group", groupChat: true, chat: CHAT, groups: [] });
+  const home = memoryStore();
+  Object.defineProperty(home, "encryptionKey", { value: KEYS, enumerable: false });
+  home.actor = groupActor("ws_home");
+  const care = await vaultWith({ workspaceId: "ws_care", people: ["user_ada"] });
+  care.store.actor = groupActor("ws_care");
+  // Given to this chat from its link, and one kept by somebody else for themselves, in the same vault.
+  const { writeMeta, readMeta } = await import("../src/vault/entries.js");
+  const meta = await readMeta(care.store, KEYS, "ws_care", care.id);
+  await writeMeta(care.store, KEYS, "ws_care", care.id, { ...meta, shares: [{ to: `#chat:${CHAT}`, level: "use" }] });
+  const kept = newEntryId();
+  await writeEntry(care.store, KEYS, "ws_care", { id: kept, meta: { name: "Kept", sites: ["netflix.com"], people: ["user_ada"], createdBy: "user_ada", createdAt: 1, updatedAt: 1 }, secret: { username: "x", password: "y" } });
+  const opened = [];
+  home.contexts = [{ name: "@context-lc", current: true }, { name: "@crystal-care", current: false }];
+  home.openContext = async (name) => {
+    opened.push(name);
+    if (name !== "@crystal-care") throw new Error("not a member");
+    return { store: care.store };
+  };
+  const { computer, web } = await signInPage(home);
+  const found = await web.call(FILL_LOGIN_TOOL, { entry: care.id, password_ref: 2 });
+  assert.notEqual(found.isError, true, found.content[0].text);
+  assert.equal(computer.typed[2], PASSWORD);
+  // A workspace named wrongly still finds it where it is.
+  const misnamed = await web.call(FILL_LOGIN_TOOL, { entry: care.id, password_ref: 2, context: "@elsewhere" });
+  assert.notEqual(misnamed.isError, true, misnamed.content[0].text);
+  // Found is not given: a login the chat was never given stays refused, as one that isn't there.
+  const notGiven = await web.call(FILL_LOGIN_TOOL, { entry: kept, password_ref: 2 });
+  assert.equal(notGiven.isError, true);
+  assert.match(notGiven.content[0].text, /no such login/);
+  assert.ok(opened.every((name) => name === "@crystal-care" || name === "@elsewhere"), "only workspaces the grant lists, or the one named, are opened");
 });
 
 test(`one question fills at most ${MAX_FILLS_PER_TURN} times`, async () => {
