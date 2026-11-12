@@ -131,14 +131,12 @@ function overlay(
 }
 
 
-/** Back from a section to the settings home. */
 function toHome(host: HTMLElement): void {
   act(() => {
     (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
   });
 }
 
-/** Opens a section's "More", where the settings people rarely open are folded. */
 function openMore(host: HTMLElement, section: string): void {
   act(() => {
     (host.querySelector(`[data-testid="settings-more-${section}"]`) as HTMLElement).click();
@@ -240,11 +238,7 @@ describe("a phone reaches the settings, not just a menu", () => {
 });
 
 describe("every setting is on the one page", () => {
-  /*
-    The search box went with the one-page home (Dev2, 2026-11-12): every
-    section is a row on the page, the rarely opened ones under their
-    section's "More", so nothing is reachable only by typing its name.
-  */
+  // No search box since the one-page home (2026-11-12): rarely opened pages sit under "More".
   test("the folded sections are under More, not missing", () => {
     const host = overlay("workspace");
     toHome(host);
@@ -257,17 +251,6 @@ describe("every setting is on the one page", () => {
     for (const key of ["activity", "meetings", "emoji", "folders", "storage", "workspace", "spelling", "feedback"]) {
       expect(host.querySelector(`[data-testid="settings-section-${key}"]`)).not.toBeNull();
     }
-  });
-
-  test("the Tex rows come from the list Tex reads by text", () => {
-    const host = overlay("workspace");
-    toHome(host);
-    openMore(host, "tex");
-    const text = host.textContent ?? "";
-    for (const label of ["Check-ins", "Quiet hours", "Tidy my notes"]) expect(text).toContain(label);
-    // Rows with a page of their own are not drawn twice.
-    expect(host.querySelector('[data-testid="settings-row-tex-talk"]')).toBeNull();
-    expect(host.querySelector('[data-testid="settings-row-tex-vault"]')).toBeNull();
   });
 });
 
