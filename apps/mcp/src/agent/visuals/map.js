@@ -128,6 +128,41 @@ export function worldPixel(lat, lng, zoom) {
   return { x: ((lng + 180) / 360) * size, y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * size };
 }
 
+/** How close two pins' points may sit before their heads cover each other's numbers. */
+export const PIN_ROOM = 30;
+
+/**
+ * Pins closer than `PIN_ROOM` pushed apart, each by half of what they lack,
+ * and kept on the map: two places a block apart read as two pins, not one
+ * ("pins 2 and 4 overlap in Midtown", the Nov Babies card check, 2026-11-12).
+ */
+export function spreadPins(pins, width = MAP_WIDTH, height = MAP_HEIGHT) {
+  const out = pins.map((pin) => ({ ...pin }));
+  for (let pass = 0; pass < 12; pass++) {
+    let moved = false;
+    for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) {
+        const dx = out[j].left - out[i].left;
+        const dy = out[j].top - out[i].top;
+        const apart = Math.hypot(dx, dy);
+        if (apart >= PIN_ROOM) continue;
+        // Two pins on one point part sideways.
+        const [ux, uy] = apart === 0 ? [1, 0] : [dx / apart, dy / apart];
+        const push = (PIN_ROOM - apart) / 2;
+        out[i].left -= ux * push; out[i].top -= uy * push;
+        out[j].left += ux * push; out[j].top += uy * push;
+        moved = true;
+      }
+    }
+    for (const pin of out) {
+      pin.left = Math.min(width - 16, Math.max(16, pin.left));
+      pin.top = Math.min(height - 2, Math.max(38, pin.top));
+    }
+    if (!moved) break;
+  }
+  return out.map((pin) => ({ ...pin, left: Math.round(pin.left), top: Math.round(pin.top) }));
+}
+
 /**
  * The tiles and pin spots for points on a `width` x `height` map: the closest
  * zoom that keeps every pin inside, centred on them.
@@ -163,7 +198,7 @@ export function tileLayout(points, { width = MAP_WIDTH, height = MAP_HEIGHT, pat
       tiles.push({ url: `${OSM_TILES}/${zoom}/${wrapped}/${ty}.png`, left: tx * TILE - left, top: ty * TILE - top });
     }
   }
-  const pins = points.map((p, i) => ({ n: p.n, color: p.color, left: Math.round(px[i].x - left), top: Math.round(px[i].y - top) }));
+  const pins = spreadPins(points.map((p, i) => ({ n: p.n, color: p.color, left: Math.round(px[i].x - left), top: Math.round(px[i].y - top) })), width, height);
   const line = px.slice(points.length).map((p) => [Math.round(p.x - left), Math.round(p.y - top)]);
   return { zoom, tiles, pins, line };
 }
@@ -190,6 +225,21 @@ function refused(reason, said) {
   return { map: null, reason: said, refuse: true };
 }
 
+/**
+ * The rows a drawn map holds no pin for, by their numbers: no address, one the
+ * turn never read, no town to place it in, or one the geocoder missed or put
+ * far from the rest. The card marks those rows "Not on the map" and the card
+ * check is told they have no pin on purpose: before, a row kept its number
+ * with no pin, the check refused the card for the missing pin, and the Nov
+ * Babies cards were redrawn four times, 78 s, for places that had no address
+ * (2026-11-12).
+ */
+function unpinnedRows(template, data, pinned) {
+  const rows = Array.isArray(template === "map" ? data?.stops : data?.items) ? (template === "map" ? data.stops : data.items) : [];
+  const drawn = new Set(pinned.map((stop) => stop.n));
+  return rows.slice(0, 6).map((_row, i) => i + 1).filter((n) => !drawn.has(n));
+}
+
 export async function drawMap(template, data, { key = "", geocode = null, locates = null, read = "", fetchImpl = fetch, offset = 0, height = MAP_HEIGHT } = {}) {
   const all = mapStops(template, data);
   if (all.length === 0) return none("no_address", template === "map" ? "No stop had an address, so the map was left off." : null);
@@ -211,14 +261,14 @@ export async function drawMap(template, data, { key = "", geocode = null, locate
   const found = (route || !google) && typeof geocode === "function" ? await Promise.all(placed.map((stop) => Promise.resolve(geocode(stop.address)).catch(() => null))) : [];
   const way = route ? await routeThrough(placed.map((stop, i) => ({ lat: found[i]?.lat, lng: found[i]?.lon ?? found[i]?.lng })), { loop: data.loop === true, travel: data.travel, fetchImpl }) : null;
   const length = way ? lengthWords(way.meters, townOf(placed[0].address) !== "") : null;
-  const partly = unseen.length > 0 ? `No pin for place ${unseen.map((stop) => stop.n).join(", ")}: its address wasn't in anything you read this turn. Look it up and draw again, or say which ones the map lacks.` : null;
+  const partly = unseen.length > 0 ? `No pin for place ${unseen.map((stop) => stop.n).join(", ")}: its address wasn't in anything you read this turn, so its row says "Not on the map". Look it up and draw again only if its place on the map matters.` : null;
   const measured = way ? `The ${data.loop === true ? "loop" : "route"} measures ${length} along streets; say that length.` : route ? "The way along streets could not be found, so the line is straight between stops; don't claim a length you didn't measure." : null;
   if (google) {
     const url = googleMapUrl(placed, { key, height, route, path: way?.polyline ?? null });
     const image = await downloadPhoto(url, fetchImpl);
     if (image === null) return none("google_failed");
     logMap("drawn", { provider: "google", pins: placed.length, routed: way !== null });
-    return { map: { kind: "google", image: token(0), height, length }, pictures: [["google-static-map", image]], reason: [measured, partly].filter(Boolean).join(" ") || null };
+    return { map: { kind: "google", image: token(0), height, length, unpinned: unpinnedRows(template, data, placed) }, pictures: [["google-static-map", image]], reason: [measured, partly].filter(Boolean).join(" ") || null };
   }
   if (typeof geocode !== "function") return none("no_geocoder");
   // The geocoder (`./distance.js`) answers { lat, lon }.
@@ -235,7 +285,7 @@ export async function drawMap(template, data, { key = "", geocode = null, locate
   if (images.some((image) => image === null)) return none("tiles_failed");
   logMap("drawn", { provider: "osm", pins: kept.length, routed: way !== null });
   return {
-    map: { kind: "tiles", height, tiles: layout.tiles.map((tile, i) => ({ ...tile, image: token(i) })), pins: layout.pins, route, line: layout.line, length },
+    map: { kind: "tiles", height, tiles: layout.tiles.map((tile, i) => ({ ...tile, image: token(i) })), pins: layout.pins, route, line: layout.line, length, unpinned: unpinnedRows(template, data, kept) },
     pictures: layout.tiles.map((tile, i) => [tile.url, images[i]]),
     reason: [measured, partly].filter(Boolean).join(" ") || null,
   };

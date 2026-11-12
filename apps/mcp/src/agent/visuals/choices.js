@@ -148,13 +148,13 @@ export function versus(data, theme) {
 const MIN_FIT = 360;
 
 /** About how tall one place's row is drawn, a little over, for a screenshot Worker that can't fit the card to it. */
-function placeRow(item) {
+function placeRow(item, off = false) {
   const said = (text) => typeof text === "string" && text.trim() !== "";
   const wide = (photoUrl(item.photo) ? 410 : 536) - (said(item.distance) ? 84 : 0);
   const lines = (text, px) => (said(text) ? Math.ceil(Math.min(text.length, 140) / (wide / px)) : 0);
   const where = [item.hours, item.address].filter(said).join(" · ");
   const text = 30 + 27 * Math.max(1, lines(item.name, 12)) + (said(item.cuisine) || said(item.price) ? 22 : 0) + 22 * (lines(item.detail, 7) + lines(where, 7)) + (said(item.note) ? 6 + 22 * lines(item.note, 7.6) : 0);
-  return Math.max(text, photoUrl(item.photo) ? 141 : 0);
+  return Math.max(text + (off ? 22 : 0), photoUrl(item.photo) ? 141 : 0);
 }
 
 /** Places to go: restaurants, hotels, doctors. Numbered, a photo each, with how far. */
@@ -164,10 +164,13 @@ export function places(data, theme) {
   const items = list(data.items, 6);
   // No photo, no slot: an empty coloured block reads as a picture that failed (owner, 2026-10-26).
   const size = 112;
+  // A row the map could not pin says so, and its number is drawn hollow, so nobody looks for a pin that isn't there (`./map.js`).
+  const off = new Set(data.map && Array.isArray(data.map.unpinned) ? data.map.unpinned : []);
   const rows = items.map((item, i) => {
     const pic = photoUrl(item.photo);
     const logo = photoUrl(item.logo);
-    const badge = `<div style="width: 26px; height: 26px; border-radius: 13px; background: ${c.accent}; color: ${c.onAccent}; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0">${i + 1}</div>`;
+    const hollow = off.has(i + 1);
+    const badge = `<div style="width: 26px; height: 26px; box-sizing: border-box; border-radius: 13px; ${hollow ? `border: 2px solid ${c.accent}; color: ${c.accent}` : `background: ${c.accent}; color: ${c.onAccent}`}; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0">${i + 1}</div>`;
     const said = (text) => typeof text === "string" && text.trim() !== "";
     const tag = item.pick === true ? item.tag || "Tex's pick" : item.tag;
     const chip = said(tag) ? `<div style="flex-shrink: 0; font-size: 13px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: ${c.accentSoft}; color: ${c.accent}">${esc(tag, 40)}</div>` : "";
@@ -181,12 +184,12 @@ export function places(data, theme) {
 ${pic ? `<div style="width: ${size}px; flex-shrink: 0">${photo(item.photo, { height: size, radius: 10, tone: c.track })}</div>` : ""}
 <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0">
 <div style="display: flex; align-items: center; gap: 10px">${badge}${logo ? `<div style="width: 26px; height: 26px; border-radius: 6px; flex-shrink: 0; background: url('${logo}') center / contain no-repeat"></div>` : ""}<div style="font-family: ${SERIF}; font-size: 22px; line-height: 1.15; font-weight: 600; min-width: 0">${esc(item.name, 60)}</div>${chip}</div>
-${kind ? `<div style="font-size: 14px; color: ${c.muted}">${kind}</div>` : ""}${lines}${item.note ? `<div style="font-family: ${SERIF}; font-size: 16px; line-height: 1.35; color: ${c.body}">${esc(item.note, 140)}</div>` : ""}</div>
+${kind ? `<div style="font-size: 14px; color: ${c.muted}">${kind}</div>` : ""}${lines}${hollow ? `<div style="font-size: 13px; font-weight: 600; color: ${c.muted}">Not on the map</div>` : ""}${item.note ? `<div style="font-family: ${SERIF}; font-size: 16px; line-height: 1.35; color: ${c.body}">${esc(item.note, 140)}</div>` : ""}</div>
 ${distance ? `<div style="text-align: right; flex-shrink: 0; padding-right: 4px"><div style="font-size: 18px; font-weight: 600">${esc(item.distance, 12)}</div>${item.distance_label ? `<div style="font-size: 13px; color: ${c.muted}">${esc(item.distance_label, 14)}</div>` : ""}</div>` : ""}</div>`;
   });
   // The card is as tall as what it holds (`fit`), so a short list leaves no empty band; the map (`./map.js`) sits above the rows, its pins numbered like them.
   const map = mapBlock(c, data.map);
-  const height = clamp(140 + items.reduce((sum, item) => sum + placeRow(item), 0) + (data.footer ? 50 : 0) + (map ? Number(data.map.height) + 20 : 0), MIN_FIT, FIT_MAX);
+  const height = clamp(140 + items.reduce((sum, item, i) => sum + placeRow(item, off.has(i + 1)), 0) + (data.footer ? 50 : 0) + (map ? Number(data.map.height) + 20 : 0), MIN_FIT, FIT_MAX);
   return {
     html: page(
       `${heading(c, data.kicker, data.title, { size: 36 })}

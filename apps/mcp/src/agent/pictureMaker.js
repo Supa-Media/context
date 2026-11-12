@@ -333,8 +333,10 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     if (hunt.screenshots.length > 0) notes.push(`Screenshots of their own pages for: ${hunt.screenshots.join(", ")}.`);
     if (hunt.missing.length > 0) notes.push(`No picture found yet for: ${hunt.missing.join(", ")}. Open each one's own page or a review with photos in your browser, pass a photo you read, and draw again: a comparison shows every thing.`);
     else if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo), or search_web with pictures: true for its name, and draw again.`);
-    if (notes.length === 0) return drawn;
-    return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${notes.join(" ")}` } : part)) };
+    // The rows the map holds no pin for go to the card check with the picture (`looked`), never to the model.
+    const unpinned = Array.isArray(drawnMap.map?.unpinned) ? drawnMap.map.unpinned : [];
+    if (notes.length === 0) return { ...drawn, unpinned };
+    return { ...drawn, unpinned, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${notes.join(" ")}` } : part)) };
   }
 
   async function make(args) {
@@ -410,7 +412,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
   async function looked(name, args, result) {
     const image = Array.isArray(result?.content) ? result.content.find((part) => part?.type === "image") : null;
     if (typeof check !== "function" || result?.isError || !image) return result;
-    const verdict = await check({ tool: name, template: typeof args?.template === "string" ? args.template : "", picture: { data: image.data, mediaType: image.mimeType } });
+    const verdict = await check({ tool: name, template: typeof args?.template === "string" ? args.template : "", picture: { data: image.data, mediaType: image.mimeType }, unpinned: Array.isArray(result?.unpinned) ? result.unpinned : [] });
     if (verdict === null || verdict.send) return result;
     if (held < MAX_HELD) {
       held += 1;
