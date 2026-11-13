@@ -4,7 +4,7 @@
  * names its step (`node`) and optionally its model. Only the version's own steps are measured: a line
  * whose `side` is "main" is skipped and not counted as bad, since a run log may carry main's side too.
  */
-import type { LabGraph, LabModel } from "../../types";
+import type { LabGraph, LabModel } from "../types";
 
 export type LogRow = { calls: number; wall: number; prodMs: number; out: number; api: boolean };
 export type LogResult = { rows: Record<string, LogRow> | null; matched: number; bad: number };

@@ -77,7 +77,7 @@ export function readToolLog(text: string): { stats: ToolStats; n: number } {
       if (!k) continue;
       const x = stats[k] || (stats[k] = { calls: 0, ms: [], err: 0, why: {} });
       x.calls++;
-      if (+r.ms) x.ms.push(+r.ms);
+      if (Number(r.ms)) x.ms.push(Number(r.ms));
       if (r.ok === false) {
         x.err++;
         const w = String(r.reason || r.error || "failed").slice(0, 60);

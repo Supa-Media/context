@@ -71,10 +71,10 @@ export function Convo() {
             <NumField f="dayChars" label="Summary characters" value={c.dayChars} step={500} min={0} max={60000} />
           </div>
           <div className="chips" style={{ marginTop: 10 }}>
-            <button className="tg" id="cvSlim" aria-pressed={String(c.slim)} onClick={() => setCv("slim", !c.slim)}>
+            <button className="tg" id="cvSlim" aria-pressed={c.slim} onClick={() => setCv("slim", !c.slim)}>
               Tool calls as names only
             </button>
-            <button className="tg" id="cvCls" aria-pressed={String(c.classify === "after")} onClick={() => setCv("classify", c.classify === "after" ? "before" : "after")}>
+            <button className="tg" id="cvCls" aria-pressed={c.classify === "after"} onClick={() => setCv("classify", c.classify === "after" ? "before" : "after")}>
               Classifier after the reply
             </button>
           </div>
@@ -83,7 +83,7 @@ export function Convo() {
           <h2>How Tex changes a chat</h2>
           <div className="cvtools">
             {Object.entries(CV_TOOLS).map(([t, [l, kind, inMain]]) => (
-              <button key={t} className="cvtool" data-cvt={t} aria-pressed={String(c.tools[t])} onClick={() => setCvTool(t, !c.tools[t])}>
+              <button key={t} className="cvtool" data-cvt={t} aria-pressed={c.tools[t]} onClick={() => setCvTool(t, !c.tools[t])}>
                 <span className={`cvk ${kind}`}>{kind}</span>
                 <span className="nm">{l}</span>
                 <code>{t}</code>
