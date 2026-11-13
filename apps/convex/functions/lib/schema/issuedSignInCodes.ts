@@ -5,9 +5,9 @@ import { v } from "convex/values";
  * The bookkeeping for a sign-in code staff issued (`functions/signInCodes.ts`).
  *
  * The code itself lives where every sign-in code does, in `authVerificationCodes`,
- * as a keyed hash. This row counts the wrong codes typed against it, so a code
- * that lives up to fourteen days can be guessed at only ten times in all, on
- * top of the ten an hour every address gets. One row per address: issuing a new
+ * as a keyed hash. This row bounds it to ten minutes from its original issue
+ * and counts at most ten wrong guesses, on top of the ten an hour every
+ * address gets. One row per address: issuing a new
  * code replaces the old one, as it does in the library's table.
  */
 export const issuedSignInCodeTables = {

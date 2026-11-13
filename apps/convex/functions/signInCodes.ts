@@ -11,8 +11,8 @@ import { teamInbox } from "./signupAlerts";
  * the CUJ account, the App Store, directory and Google reviewers, and staging's
  * personas (`lib/issuedSignInCodes.ts` names them).
  *
- * Every one is random, works once, expires (fourteen days at most for a
- * review, ten minutes for a persona), and is attempt-limited: ten wrong codes
+ * Every one is random, works once, expires after ten minutes for every
+ * account, and is attempt-limited: ten wrong codes
  * an hour under the address, like every customer, and ten in all against one
  * issued code. It is stored as a keyed hash, like every code
  * (`lib/oneTimeCodes.ts`). This replaced the fixed codes that failed CASA
@@ -32,10 +32,10 @@ import { teamInbox } from "./signupAlerts";
 const issued = v.object({ email: v.string(), code: v.string(), expiresAt: v.number() });
 
 export const issue = internalMutation({
-  args: { email: v.string(), days: v.optional(v.number()) },
+  args: { email: v.string() },
   returns: issued,
-  handler: async (ctx, { email, days }) => {
-    const target = issueTarget(email, days);
+  handler: async (ctx, { email }) => {
+    const target = issueTarget(email);
     if ("refused" in target) throw new Error(target.refused);
     const code = newIssuedCode();
     const expiresAt = Date.now() + target.lifetimeMs;
@@ -59,7 +59,7 @@ export const issue = internalMutation({
 });
 
 export const mailToTeam = internalAction({
-  args: { email: v.string(), days: v.optional(v.number()) },
+  args: { email: v.string() },
   returns: v.object({ mailed: v.boolean(), expiresAt: v.number() }),
   handler: async (ctx, args): Promise<{ mailed: boolean; expiresAt: number }> => {
     const to = teamInbox();

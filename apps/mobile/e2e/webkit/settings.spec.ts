@@ -103,14 +103,8 @@ const ACCOUNT_MENU = "@seyi — account menu";
 /** `MenuItem.testID` for the Settings row in that menu, Sheet and Popover alike. */
 const ACCOUNT_SETTINGS = "account-settings";
 
-/**
- * Opens a section's "More" on the settings home, where the pages people
- * rarely open are folded (the one-page home, 2026-11-12). A pushed section
- * unmounts the home, so a test coming Back opens it again.
- */
-async function openMore(page: Page, section: string): Promise<void> {
-  await page.getByTestId(`settings-more-${section}`).click();
-}
+/** Nothing is folded on the settings home since 2026-11-13; kept so each test reads as the steps a person takes. */
+async function openMore(_page: Page, _section: string): Promise<void> {}
 
 async function openConsole(page: Page): Promise<void> {
   await page.goto("/e2e-fixture");
