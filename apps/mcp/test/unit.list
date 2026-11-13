@@ -532,3 +532,4 @@ test/replay.test.mjs
 bench/test/replayGate.test.mjs
 bench/test/coreArea.test.mjs
 bench/test/nightly.test.mjs
+test/texWindowStep.test.mjs
