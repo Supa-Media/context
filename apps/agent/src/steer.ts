@@ -45,8 +45,12 @@ export type Live = {
 
 export type Steer = { turn: string; onSession: (accessToken: string) => Promise<void>; onSteered: (ids: string[]) => Promise<void> };
 
-/** One running turn per inbox: a Durable Object answers its texts one at a time. */
-const live = new WeakMap<InboxStorage, Live>();
+/**
+ * The turns running in an inbox. A 1:1 chat runs one at a time; a group runs up
+ * to `MAX_GROUP_TURNS` side by side, one per asker (`groupTurnRun.ts`; Dev2,
+ * 2026-11-13, one turn per text).
+ */
+const live = new WeakMap<InboxStorage, Set<Live>>();
 
 /** Name the turn about to answer `covers` in `chat`; `end` forgets it once the turn is over. */
 export function startTurn(
@@ -59,7 +63,9 @@ export function startTurn(
   onSession: (accessToken: string) => Promise<void> = async () => {},
 ): { steer: Steer; live: Live; end: () => void } {
   const entry: Live = { chat, turn: crypto.randomUUID(), asker, deps, covers };
-  live.set(storage, entry);
+  let running = live.get(storage);
+  if (running === undefined) live.set(storage, (running = new Set()));
+  running.add(entry);
   return {
     live: entry,
     steer: {
@@ -70,16 +76,23 @@ export function startTurn(
       },
       onSteered,
     },
-    end: () => {
-      if (live.get(storage) === entry) live.delete(storage);
-    },
+    end: () => void running.delete(entry),
   };
 }
 
-/** The turn running in `chat`, once it has a session to steer into. */
-export function runningTurn(storage: InboxStorage, chat: string): Live | undefined {
-  const running = live.get(storage);
-  return running !== undefined && running.chat === chat && running.accessToken !== undefined && !running.cancelled ? running : undefined;
+/**
+ * The turn running in `chat`, once it has a session to steer into: in a group,
+ * the one `asker` asked (nobody else's message is steered into a turn on
+ * somebody's grant), the newest when there are two.
+ */
+export function runningTurn(storage: InboxStorage, chat: string, asker?: string): Live | undefined {
+  let found: Live | undefined;
+  for (const running of live.get(storage) ?? []) {
+    if (running.chat !== chat || running.accessToken === undefined || running.cancelled) continue;
+    if (asker !== undefined && running.asker !== asker) continue;
+    found = running;
+  }
+  return found;
 }
 
 /**

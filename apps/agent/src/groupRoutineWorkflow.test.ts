@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptGroupRoutine, drainGroup, type GroupDeps } from "./groupInbox";
 import { CHAT_LOOK_PATH, type ChatRoutineRun } from "./groupRoutines";
 import { isBound, setChatBound } from "./groupChat";
-import { answerHanded, failHanded, TURN_KEY } from "./groupTurnRun";
+import { answerHanded, failHanded, handedTurns, turnKey } from "./groupTurnRun";
 import { runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Fetch } from "./clients";
@@ -150,7 +150,7 @@ describe("a chat routine's run through the workflow", () => {
     const storage = new MemoryStorage();
     const w = fresh();
     const { deps, started, runWorkflow } = world(storage, w);
-    await storage.put(TURN_KEY, { id: "people-turn", keys: [], at: 1_000, starts: 0, started: true });
+    await storage.put(turnKey("people-turn"), { id: "people-turn", keys: [], at: 1_000, starts: 0, started: true });
     await acceptGroupRoutine(storage, RUN, 1_000);
     await drainGroup(storage, deps);
     expect(started).toEqual([]);

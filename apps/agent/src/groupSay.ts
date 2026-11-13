@@ -29,15 +29,25 @@ type GroupSayDeps = GroupLineDeps & { now: () => number; images?: ImagesLike; ho
 /** A part a handed turn sent, by turn and position, as the hash of what it was (`groupTurnRun.ts`). */
 const PART_PREFIX = "gpart:";
 /**
- * The handed turn sending now in this chat, the messages it answers (its parts are threaded under one of them), and
- * the position of its next part. A fixed line answered beside it (`groupBeside.ts`) is under another message: not its part.
+ * The handed turns sending now in this chat (a group runs several side by side: `groupTurnRun.ts`), each with the
+ * messages it answers (its parts are threaded under one of them) and the position of its next part. A fixed line
+ * answered beside them (`groupBeside.ts`) is under another message: no turn's part.
  */
-const sending = new WeakMap<InboxStorage, { turn: string; under: readonly string[]; next: number }>();
+type Sending = { turn: string; under: readonly string[]; next: number };
+const sending = new WeakMap<InboxStorage, Map<string, Sending>>();
 
 /** While a handed turn runs (`turn`, answering the messages `under`), each part it sends is remembered; null ends that. */
-export function sendingFor(storage: InboxStorage, turn: string | null, under: readonly string[] = []): void {
-  if (turn === null) sending.delete(storage);
-  else sending.set(storage, { turn, under, next: 0 });
+export function sendingFor(storage: InboxStorage, turn: string, under: readonly string[] | null = []): void {
+  let turns = sending.get(storage);
+  if (turns === undefined) sending.set(storage, (turns = new Map()));
+  if (under === null) turns.delete(turn);
+  else turns.set(turn, { turn, under, next: 0 });
+}
+
+/** The running turn whose part a send under `under` is, if any. */
+function scopeOf(storage: InboxStorage, under: string): Sending | undefined {
+  for (const scope of sending.get(storage)?.values() ?? []) if (scope.under.includes(under)) return scope;
+  return undefined;
 }
 
 /** Forget what a handed turn sent, once it is over. */
@@ -51,8 +61,8 @@ export async function dropParts(storage: InboxStorage, turn: string): Promise<vo
  * and what reached the chat the first time is not sent twice.
  */
 async function once(storage: InboxStorage, under: string, part: string, send: () => Promise<void>): Promise<void> {
-  const scope = sending.get(storage);
-  if (scope === undefined || !scope.under.includes(under)) return await send();
+  const scope = scopeOf(storage, under);
+  if (scope === undefined) return await send();
   const key = `${PART_PREFIX}${scope.turn}:${scope.next++}`;
   const hash = await sha256Hex(part);
   if ((await storage.get<string>(key)) === hash) return;
@@ -149,8 +159,8 @@ export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, mes
   if (isControlWord(text)) return;
   const over = meta.covers ?? [];
   if (over.length > 0 && (await chatEvents(storage, message.groupId)).some((event) => event.from.kind === "tex" && event.delivered === true && event.text === text && (event.covers ?? []).some((cover) => over.includes(cover)))) return;
-  const scope = sending.get(storage);
-  if (scope === undefined || !scope.under.includes(message.messageId)) return await sayNow(storage, deps, message, text, meta);
+  const scope = scopeOf(storage, message.messageId);
+  if (scope === undefined) return await sayNow(storage, deps, message, text, meta);
   const key = `${PART_PREFIX}${scope.turn}:progress:${await sha256Hex(text)}`;
   if ((await storage.get<string>(key)) !== undefined) return;
   await sayNow(storage, deps, message, text, meta);

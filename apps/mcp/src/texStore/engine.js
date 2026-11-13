@@ -18,6 +18,7 @@ import { texLedger } from "./ledger.js";
 import { PAGE_LIVE_PATH, pageLive } from "./pageLive.js";
 import { logChatOf, pageViews, sectionsForKinds } from "./pageViews.js";
 import { serveTexStore } from "./wire.js";
+import { writeLocks } from "./writeLock.js";
 
 /** How long a routine that could not be handed on waits before it is tried again. */
 export const RETRY_MS = 60 * 1000;
@@ -41,6 +42,8 @@ export class TexEngine {
     this.otherWake = otherWake;
     this.objects = null;
     this.timers = null;
+    // A group chat's write lock, in memory only (`writeLock.js`).
+    this.locks = writeLocks(now);
   }
 
   /** The notes, ledger, page and alarms, built on first use. */
@@ -91,7 +94,7 @@ export class TexEngine {
       return answer;
     }
     const fresh = new Request(request.url, { method: request.method, headers: request.headers, body });
-    const answer = await serveTexStore(this.objects, fresh, this.timers, this.live);
+    const answer = await serveTexStore(this.objects, fresh, this.timers, this.live, this.locks);
     return answer;
   }
 

@@ -12,7 +12,7 @@ the object to answer the turn; when that throws it retries three more times,
 from ten seconds with exponential backoff; after the last it asks the object
 to tell the chat it couldn't answer. Each turn shows on the Workflows
 dashboard with its step, attempts and error. The object starts nothing else
-while a turn is handed over, so a chat still answers one turn at a time.
+while a turn is handed over, so a chat still answers one turn at a time (until 2026-11-13: turns now run side by side, below).
 
 **A retry never repeats what reached the chat.** Each part a handed turn
 sends is remembered by turn and position, as the hash of what it was; a
@@ -99,7 +99,7 @@ reply still answers the latest ask from the right person.
   (`groupBeside.ts`): the commands (`groupCommand`, which the control plane
   answers with no grant), a reply to the settings menu, a style choice, an
   SMS group's line. A yes, a 👍, a routine's run and a job's report still
-  wait: each is a model turn, and a chat runs one model turn at a time. A
+  wait: each is a model turn, run as one when its asker has none running and the chat is under its cap (2026-11-13, below). A
   handed turn's remembered parts are now only the ones under its own
   messages, so a line sent beside it is never taken for one of its parts.
 - **A reply drafted for an older ask is looked at again.** When the asker has
@@ -124,6 +124,57 @@ once…" fails).
 
 Starting a workflow cost 1 to 2 seconds of every group reply (`group_reply_timing` `startMs`, 2026-10-31). Dev2 chose "reply straight away, and only use the workflow when a reply actually fails". A chosen turn is now answered in the chat's object at once (`answerFirst` in `groupTurnRun.ts`), kept alive with the object's `waitUntil`, and its workflow is started only when that answer throws. The workflow then retries it as before, so a turn gets the first answer plus the workflow's own attempts, and a part already sent is never sent again (the per-turn part record).
 
-The chat stays held while the turn runs (`gturn` with `inline`), so one turn at a time still holds, and fixed lines are still answered beside it. An alarm a minute on looks whether the object is still answering it (`answering`, in memory); an object that restarted mid-answer hands the turn to its workflow at once (`inline_lost`). The Workflows dashboard now shows only turns that failed their first answer. Without `answerFirst` (tests, a self-hosted Worker without it) every turn goes to its workflow as before.
+The turn counts against the chat's cap while it runs (`gturn:<id>` with `inline`; one turn at a time until 2026-11-13), and fixed lines are still answered beside it. An alarm a minute on looks whether the object is still answering it (`answering`, in memory); an object that restarted mid-answer hands the turn to its workflow at once (`inline_lost`). The Workflows dashboard now shows only turns that failed their first answer. Without `answerFirst` (tests, a self-hosted Worker without it) every turn goes to its workflow as before.
 
 What a simplification would cost: answering here with no `gturn` lets a second turn start beside the first ("while it is being answered, the chat is held" in `groupAnswerFirst.test.ts` fails); dropping the lost-turn check leaves a chat held for two hours after a restart ("a turn lost mid-answer" fails).
+
+
+## Turns side by side, one per asker (Dev2, 2026-11-13)
+
+Dev2 approved the one-turn-per-text design
+(https://claude.ai/artifact/3GJhW7hxpcdXLqFd17p6rn) after the latency audit
+measured group texts waiting up to 97 s behind another person's turn. Its
+steps 1 and 2 are built; steps 3 to 5 (the which-turn call, rereading the
+chat each round, the reviewer shown the other turns, the 8 s holding line)
+wait on the one-record design, since each gives a checker a new duty.
+
+- **Up to three turns run at once** (`MAX_GROUP_TURNS`, the design's cap,
+  held while the gateway's out-of-memory fault of 2026-11-08 is not
+  understood). Each handed turn is its own record, `gturn:<id>`, with its
+  asker; a record under the old single key `gturn` is moved on first read,
+  and one without an asker holds the chat as before until it is done.
+- **One per asker.** A turn runs on its asker's grant, so only the asker's
+  own message is decided as an interruption of it (`whileRunning`: fold,
+  queue or restart). Anybody else's text is taken in as if no turn ran: kept
+  as chat, judged, and answered by a turn of its own beside the first,
+  never steered into somebody else's grant. The asker's own queued text
+  still waits for their turn; joining a running turn by conversation, for
+  anyone with the same access, is step 3.
+- **A fourth asker waits**, the one case where a text still waits, and is
+  answered as soon as a turn ends (`finish` arms the alarm). Fixed lines
+  (commands, an SMS group's line) are answered beside every running turn.
+- **Each turn's parts are its own** (`groupSay.ts` `sendingFor` keyed by
+  turn), so a retry of one never skips or repeats another's.
+- **The chat state counts turns** (`chatState.ts` `turns`): a second turn
+  starts while one drafts, and the chat is idle only when the last ends. A
+  judge's wait asked while a turn drafts is still refused, so another
+  person's burst is answered at once rather than gathered.
+- **A changing tool call takes the chat's write lock** for that one call
+  (`apps/mcp/src/agent/chatWriteLock.js`): held in the chat's own Tex store,
+  in memory, leased 60 s. A read never takes it. It only orders changes: a
+  store that cannot be reached, or a lock still held after 20 s, lets the
+  call run, logged (`chat_write_lock`). A call that waited for another
+  turn's change is told so in its result, to reread before changing the
+  same thing; a note's own version check still catches what a lock cannot
+  (a read in one call, a write in the next).
+- **The same text twice gets one answer**, as before (`notAskedAgain`,
+  same sender and words within `SAME_ASK_MS`).
+
+What a simplification would cost: one turn record per chat again makes
+somebody else's text wait ("somebody else's text starts its own turn beside
+it" in `groupTurnWorkflow.test.ts` fails); no cap lets a busy chat run a
+turn per person ("at most MAX_GROUP_TURNS" fails); steering another
+person's text into a turn acts on the wrong grant ("nobody else's is folded
+into it" in `groupDecide.test.ts` fails); a lock that blocks instead of
+ordering can stop a change ("never stops the change" in
+`chatWriteLock.test.mjs` fails).
