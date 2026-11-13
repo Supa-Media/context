@@ -61,7 +61,14 @@ did not have to leave a case behind.
    production reader, the front door or the advisor runs the core set and the
    simple asks through `pnpm ai run` and `pnpm ai judge` as the live setup
    (pulled into both trees from Context), one case a question, about $0.15
-   a change plus its mistakes. The cheap areas share one $1 pool a change; an
+   a change plus its mistakes.
+   **One sign-in at a time, nobody dropped:** the workflows that sign in as
+   the benchmark runner (AI Benchmark, AI Promote, Tex replay, Tex nightly)
+   start with a `wait-turn` job (`scripts/bench-runner-lock.mjs`) that waits
+   for every earlier run of them to end, because the runner's refresh token
+   rotates on every use. A shared `concurrency` group did this until
+   2026-11-13 and cancelled every pending run but one, so replays dispatched
+   by several agents cancelled each other and left their checks red. The cheap areas share one $1 pool a change; an
    area whose reruns would pass it is refused. What each replay spent is a row
    in `@context-lc ai/results/spend.md` (`replay-gate`).
 5. **Target cases.** A case that captures a bug not yet fixed is a target: a
