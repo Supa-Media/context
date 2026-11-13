@@ -38,6 +38,8 @@ import { calibrateCommand } from "./calibrate.mjs";
 import { reviewCommand } from "./review.mjs";
 import { respondCommand } from "./respond.mjs";
 import { gateCommand } from "./replayGate.mjs";
+import { nightlyCommand } from "./nightly.mjs";
+import { driftCommand } from "./drift.mjs";
 import { jobstartCommand } from "./jobstart.mjs";
 import { searchCommand } from "./search.mjs";
 import { benchLedger, ledgerFileName, ledgerNote, ledgersFolderFor } from "./modelLog.mjs";
@@ -547,6 +549,8 @@ const USAGE = [
   "       pnpm ai review [--set a,b] [--concurrency <n>] [--fake]   score the reply reviewer on its labelled cases",
   "       pnpm ai respond [--concurrency <n>] [--fake]   score the one judge's respond-or-quiet call (Clef) on its held-out cases",
   "       pnpm ai gate --base <main checkout> [--areas respond,review] [--held-out <dir>] | gate areas --base-sha <sha> | gate held-out --dir <dir>",
+  "       pnpm ai nightly [--held-out <dir>] [--areas core,tasks] [--out <file>] [--run-url <url>]   every area, 3 runs, one scoreboard note",
+  "       pnpm ai drift [--day YYYY-MM-DD]             live conversations' scores against the week before; exit 3 on a drop",
   "       pnpm ai jobstart [--concurrency <n>] [--fake]  score whether a job's start gets a line or only a tapback (Haiku) on held-out chats",
   "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai check <dream|heartbeat|meeting-summaries|meeting-transcription|connected-ais> [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
@@ -570,6 +574,8 @@ const COMMANDS = new Map([
   ["review", reviewCommand],
   ["respond", respondCommand],
   ["gate", gateCommand],
+  ["nightly", nightlyCommand],
+  ["drift", driftCommand],
   ["jobstart", jobstartCommand],
   ["search", searchCommand],
   ["check", checkCommand],

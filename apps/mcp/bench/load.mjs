@@ -94,6 +94,9 @@ function readQuestion(sec) {
     // A drafted case is never run (`runnableQuestions`); "" is a bare line
     // with no name, which still counts as drafted.
     drafted: null,
+    // A known bug not fixed yet (`- target: <cause>`): run and reported apart, never a regression or a failed bar
+    // (`replayGate.mjs`, `nightly.mjs`), so a case can be written the day a bug is found.
+    target: null,
     // Allowed but never required: told to the judge, never graded.
     may: [],
     // A search question (`tests/search.md`): the notes that should come back,
@@ -134,6 +137,7 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- in:\s*(.*)$/))) q.in = m[1].trim() || null;
     else if ((m = line.match(/^- forbid:\s*(.*)$/))) q.forbid.push(...m[1].split(",").map((part) => part.trim()).filter(Boolean));
     else if ((m = line.match(/^- drafted:\s*(.*)$/))) q.drafted = m[1].trim();
+    else if ((m = line.match(/^- target:\s*(.*)$/))) q.target = m[1].trim() || "unnamed cause";
     else if ((m = line.match(/^- mirror:\s*(.*)$/))) {
       if (!/^\d+$/.test(m[1].trim())) throw new Error(`question ${sec.n}: mirror must be a question number, got "${m[1].trim()}"`);
       q.mirror = Number(m[1].trim());
