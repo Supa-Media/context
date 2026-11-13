@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_JUDGE, JUDGE_ATTEMPTS, JUDGE_SCHEMA, estimateJudging, fakeJudge, judgeFile, sidecarPath } from "../judge.mjs";
+import { DEFAULT_JUDGE, JUDGE_ATTEMPTS, JUDGE_SCHEMA, estimateJudging, fakeJudge, judgeFile, sidecarPath, withMoreRoom } from "../judge.mjs";
 import { assignIds, keyMarkdown, resultMarkdown } from "../report.mjs";
 import { parseJudgedSections } from "../resultNote.mjs";
 
@@ -449,6 +449,26 @@ test("a reply that is not JSON is asked for again, and given up on after three t
     } finally {
       await cleanup2();
     }
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a reply cut off at max_tokens is asked again with twice the room, never past the ceiling", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const good = judging(allPass);
+    const limits = [];
+    const cramped = async (body) => {
+      const { max_tokens: limit } = JSON.parse(body);
+      limits.push(limit);
+      if (limits.length <= 2) return json({ content: [{ type: "text", text: "{\"answers\": [" }], stop_reason: "max_tokens", usage: {} });
+      return good(body);
+    };
+    cramped.route = "fake";
+    await judgeFile({ path, dir, send: cramped, concurrency: 1, date: "2026-10-09" });
+    assert.deepEqual(limits.slice(0, 3), [limits[0], limits[0] * 2, limits[0] * 4], "each cut-off doubles the room");
+    assert.equal(JSON.parse(withMoreRoom(JSON.stringify({ max_tokens: 30000 }))).max_tokens, 32000, "never past the ceiling");
   } finally {
     await cleanup();
   }

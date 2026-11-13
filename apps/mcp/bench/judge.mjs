@@ -185,7 +185,24 @@ export function estimateJudging(requests, model) {
 export const JUDGE_ATTEMPTS = 3;
 
 /** A reply the judge got wrong in a way asking again can fix. */
-class MalformedReply extends Error {}
+class MalformedReply extends Error {
+  constructor(message, { cutOff = false } = {}) {
+    super(message);
+    this.cutOff = cutOff;
+  }
+}
+
+/**
+ * The same request with twice the room to answer, up to the ceiling. A reply
+ * cut off at max_tokens comes back cut off again at the same limit: the core
+ * replay judges one answer per question, so a two-check question got the
+ * 1,500-token floor, and its judge ran past it three times in a row
+ * (2026-11-13, question 18). Only the tokens used are paid for.
+ */
+export function withMoreRoom(body) {
+  const request = JSON.parse(body);
+  return JSON.stringify({ ...request, max_tokens: Math.min(MAX_TOKENS_CEILING, request.max_tokens * 2) });
+}
 
 /** The verdicts for every answer in one request, or an error naming only the question. */
 async function judgeQuestion({ send, body, checks, answers, n }) {
@@ -196,6 +213,7 @@ async function judgeQuestion({ send, body, checks, answers, n }) {
     } catch (error) {
       if (!(error instanceof MalformedReply)) throw error;
       lastError = error;
+      if (error.cutOff) body = withMoreRoom(body);
     }
   }
   throw new Error(`${lastError.message} (${JUDGE_ATTEMPTS} attempts)`);
@@ -214,8 +232,8 @@ async function judgeOnce({ send, body, checks, answers, n }) {
   try {
     parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
   } catch {
-    const why = reply.stop_reason === "max_tokens" ? "was cut off at max_tokens" : "is not JSON";
-    throw new MalformedReply(`judge reply for question ${n} ${why}`);
+    const cutOff = reply.stop_reason === "max_tokens";
+    throw new MalformedReply(`judge reply for question ${n} ${cutOff ? "was cut off at max_tokens" : "is not JSON"}`, { cutOff });
   }
   const entries = new Map((Array.isArray(parsed?.answers) ? parsed.answers : []).map((entry) => [entry?.id, entry]));
   const blocks = answers.map((answer) => {
