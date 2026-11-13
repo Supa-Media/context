@@ -19,6 +19,26 @@ test("a change runs only the areas its files reach, and plumbing alone runs none
   assert.deepEqual(areasFor(["apps/mcp/src/agent/warmCopy.js", "apps/mobile/app/index.tsx"]), []);
 });
 
+test("an advisor role's file runs that role alone, and the shared core runs every role", () => {
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/chat.js"]), ["advisor-chat"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/jobCheck.js"]), ["advisor-job-check"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/planner.js"]), ["advisor-planner"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/jobMail.js"]), ["advisor-job-mail"]);
+  assert.deepEqual(areasFor(["apps/mcp/bench/advisor/planner.json"]), ["advisor-planner"], "a role's cases run that role");
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/jobCheck.js"]), ["advisor-job-check"], "the role's brief builder too");
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/knowsMail.js"]), ["advisor-job-check", "advisor-job-mail"], "the mail line reaches both roles that read a job");
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/core.js"]), ["advisor-chat", "advisor-job-check", "advisor-planner", "advisor-job-mail"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/jobNote.js", "apps/mcp/bench/advisor.mjs"]), [], "the mail's plumbing and the scorer are not a role");
+});
+
+test("a change to every advisor role at once still fits the cap with a case to rerun", async () => {
+  const { USD_PER_CASE, MAX_USD } = await import("../replayGate.mjs");
+  const { ROLES, loadRoleCases } = await import("../advisor.mjs");
+  let first = 0;
+  for (const role of Object.keys(ROLES)) first += USD_PER_CASE[role] * (await loadRoleCases(role)).length;
+  assert.ok(first + USD_PER_CASE["advisor-chat"] * 5 <= MAX_USD, `all four roles cost about $${first.toFixed(2)} before reruns`);
+});
+
 test("noise is not a regression: a case regresses only when the change is wrong in most runs and main right in most", () => {
   assert.deepEqual(regressions({ a: [false, true, true] }, { a: [true, true, true] }), [], "wrong once, right twice: noise");
   assert.deepEqual(regressions({ a: [false, false, true] }, { a: [true, true, false] }), ["a"]);

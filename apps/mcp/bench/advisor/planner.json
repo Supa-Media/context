@@ -1,0 +1,26 @@
+{
+  "role": "advisor-planner",
+  "about": "The big-ask planner (plan_big_ask). Invented people and words. A question is done now; parts that run side by side split; one piece of work on their own code is one job.",
+  "cases": [
+    {
+      "id": "question-is-now",
+      "q": "what time does the trader joe's on court st close tonight?",
+      "slots": 3,
+      "want": "now"
+    },
+    {
+      "id": "trip-splits",
+      "q": "plan my lisbon week: three dinner spots in alfama under 40 euros a head, a day trip to sintra with train times from rossio, and a packing list for a rainy week",
+      "slots": 3,
+      "want": "split",
+      "minParts": 2
+    },
+    {
+      "id": "small-code-fix-is-one-job",
+      "q": "the signup test in my recipe-box repo started failing after yesterday's change, can you fix it?",
+      "slots": 3,
+      "computers": [{ "name": "studio-mac", "online": true, "tools": ["claude-code"], "slots": 2, "free": 2 }],
+      "want": "one_job"
+    }
+  ]
+}

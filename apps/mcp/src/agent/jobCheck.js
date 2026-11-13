@@ -28,9 +28,13 @@
  * Its spend is metered under its own model, as the advisor's is.
  */
 
-import { advisorThinking } from "./advisor.js";
+import { adviseOnce, advisorThinking } from "./advisorRoles/core.js";
+import { JOB_CHECK_PROMPT } from "./advisorRoles/jobCheck.js";
+import { ADVISOR_KNOWS_MAIL } from "./advisorRoles/knowsMail.js";
 import { withoutTag } from "./promptFence.js";
-import { withArchitecture } from "./texArchitecture.js";
+
+// Its instructions live in `advisorRoles/jobCheck.js`, beside the other roles' (`advisorRoles/core.js`).
+export { ADVISOR_KNOWS_MAIL, JOB_CHECK_PROMPT };
 
 export const VERDICTS = ["done", "keep_going", "waiting", "stuck"];
 const MAX_ADVICE = 600;
@@ -38,36 +42,7 @@ const MAX_TRANSCRIPT_CHARS = 120_000;
 const MAX_RESULT_CHARS = 8_000;
 const TAGS = ["job", "tex_instructions", "transcript", "their_ask", "their_texts", "job_note_mail"];
 
-/**
- * What the advisor knows of a job's note mail (the owner, 2026-11-05: the advisor "should know about the mail stuff ...
- * that there are other parallel [jobs] working in the mail. So the advisor can advise a job to mail its coworkers in
- * order to divide and execute the work and can just orchestrate that way"). Said wherever the advisor reads a job: its
- * end-of-part check and its answers to the job's mail (`jobNote.js`).
- */
-export const ADVISOR_KNOWS_MAIL =
-  "The job works on a job note whose mail it shares with Tex (the only one who can reach the person), with you (its advisor, " +
-  "always listening), and with any other jobs working on parts of the same ask, by name. Use that mail to orchestrate: tell the " +
-  "job to mail tex what the person must see or do (a sign-in link and its code, a question only they can answer), and to mail " +
-  "its coworker jobs to split the work, hand one of them a piece, ask what they found, or agree who does what, so the jobs " +
-  "divide the work and finish it together. Never tell it to use a saved login or password: a job can't open the vault.";
 
-export const JOB_CHECK_PROMPT =
-  "You are the advisor to Tex, a texting assistant. One of Tex's background jobs has just stopped. Below are the job (what it was asked " +
-  "and its finish line), what the person texted that started it, their latest texts about it, and everything the job did in this part: " +
-  "every tool call and its result, and its last words. Decide whether the job is finished, judged against the finish line, every part of " +
-  "what they asked in their own words (the brief is Tex's paraphrase and can leave one out), and the tool results, never against what " +
-  "its words claim. A part they asked for that the result drops, and that a later text of theirs didn't take back, means it is not finished.\n\n" +
-  "Answer with exactly two lines:\n" +
-  "VERDICT: done | keep_going | waiting | stuck\n" +
-  "ADVICE: one or two sentences\n\n" +
-  "- done: the finish line is met, and a tool result shows it (a saved note, a submitted form, the answer itself). ADVICE: what was done.\n" +
-  "- keep_going: it is not met, or a part of what they asked is missing, and the job can still get there. Words like \"I'll begin\", \"next I'll\" or \"I'll text you\" mean it is not " +
-  "done. ADVICE: exactly what to do next and how to get past what stopped it (another link on the page, another site, retry the step, " +
-  "a different way in).\n" +
-  "- waiting: only the person can give what is needed: a one-time code, a captcha the browser couldn't pass, card details, a password " +
-  "that isn't saved, or a decision only they can make. ADVICE: exactly what is needed from them.\n" +
-  "- stuck: it tried the ways forward and none is left. ADVICE: why, in plain words.\n\n" +
-  "Never invent a fact that is not in what you were given.";
 
 const clip = (value, max) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 const quoted = (value) => TAGS.reduce((text, tag) => withoutTag(tag, text), String(value ?? ""));
@@ -121,14 +96,8 @@ export async function checkJob({ job, live, answer, exhausted = false, model, ef
   if (job === null || typeof model !== "string" || typeof request !== "function") return null;
   let reply;
   try {
-    reply = await request({
-      model,
-      system: withArchitecture(JOB_CHECK_PROMPT, "jobCheck"),
-      messages: [{ role: "user", text: jobCheckBrief({ job, messages: live?.messages, answer, exhausted }) }],
-      tools: [],
-      display: "summarized", // its thinking in words, for the chat's history only (`workEntries.js` `jobChecked`)
-      ...(effort ? { effort } : {}),
-    });
+    // Its thinking comes back in words, for the chat's history only (`workEntries.js` `jobChecked`).
+    reply = await adviseOnce({ request, model, effort, prompt: JOB_CHECK_PROMPT, role: "jobCheck", brief: jobCheckBrief({ job, messages: live?.messages, answer, exhausted }) });
   } catch {
     await meter(null, true, model, false);
     return null;
