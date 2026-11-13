@@ -307,6 +307,9 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // A person's own computers pair and connect at `/machines/` on the gateway.
   // Reserved on the same terms as `presence`.
   "machines",
+  // The Tex Architecture Lab, `/admin/lab` in the app (tex.lc/admin/lab).
+  // Reserved on the same terms as `presence`.
+  "lab",
   // The app's file operations, `/files/trash` and the rest on the gateway, and
   // the routes it answers before reading a workspace name (`/internal/...`).
   // Reserved on the same terms as `presence`; the gateway's
