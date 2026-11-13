@@ -89,12 +89,21 @@ test("a sign-in, a code, a captcha, a card or their own ask is still theirs", ()
   assert.equal(handoffIsTheirs(page([], "We sent a code to your phone. Enter the code to continue.")), true, "a page asking for a code (K2)");
   assert.equal(handoffIsTheirs(page([], "Check your phone and approve the sign-in.")), true, "an approval on their phone (K2)");
   assert.equal(handoffIsTheirs(page([], "Verify you are human")), true, "a captcha wall (K3)");
+  // A reCAPTCHA picture check, as its frame reads (2026-11-12, a group's party request form).
+  assert.equal(handoffIsTheirs(page([], "reCAPTCHA Select all images with fire hydrants")), true, "an image captcha (K3)");
+  // The badge an invisible reCAPTCHA leaves on any form is not a check waiting on anyone.
+  assert.equal(handoffIsTheirs({ reading: { text: "This site is protected by reCAPTCHA", elements: REGISTRATION } }), false, "a reCAPTCHA badge alone");
   assert.equal(handoffIsTheirs({ reading: { text: "", elements: REGISTRATION }, stuck: true }), true, "a captcha that outlasted every try (K3)");
   assert.equal(handoffIsTheirs(page([{ ref: 1001, kind: "input text", label: "Card number" }])), true, "a card box in a payment frame (Y1)");
   assert.equal(
     handoffIsTheirs({ reading: { text: "", elements: REGISTRATION }, theirWords: "I'd rather fill it in myself" }),
     true,
     "they asked to do it themselves",
+  );
+  assert.equal(
+    handoffIsTheirs({ reading: { text: "", elements: REGISTRATION }, theirWords: "give me a link to do the captcha" }),
+    true,
+    "they asked for the link",
   );
 });
 

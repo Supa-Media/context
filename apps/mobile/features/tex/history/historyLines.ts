@@ -171,6 +171,9 @@ function toolWords(e: LedgerEntry): string {
  * see how responses were shaped along the way").
  */
 export function judgeWords(e: LedgerEntry): string {
+  // The one judge's call on a moment (`by: "moment"`, `apps/mcp/src/agent/textsDecide.js`): whether Tex speaks at
+  // all, never a draft. It was shown as "judges · draft 1 · sent back · \"\"" (Tex Devs, 2026-11-13).
+  if (e.by === "moment") return momentWords(e);
   const judges = Array.isArray(e.judges) ? (e.judges as unknown[]).map(record).filter((j): j is Record<string, unknown> => j !== null) : [];
   const round = typeof e.round === "number" ? e.round : 0;
   const by = e.by === "code" ? "checks" : e.by === "review" ? "reviewer" : "judges";
@@ -186,6 +189,14 @@ export function judgeWords(e: LedgerEntry): string {
   return [`${by} · draft ${round + 1} · ${outcome}`, tally, oneLine(e.reason), `"${short(e.text, 160)}"`].filter(Boolean).join(" · ");
 }
 
+const MOMENT_VERDICT: Record<string, string> = { respond: "answer", react: "react", quiet: "stay quiet", wait: "wait" };
+
+/** "judge · stay quiet · asks someone else": the verdict on whether to speak, its why, and the tapback when it reacts. */
+function momentWords(e: LedgerEntry): string {
+  const verdict = str(e.verdict);
+  return ["judge", MOMENT_VERDICT[verdict] ?? verdict, str(e.why).replace(/_/g, " "), str(e.emoji)].filter(Boolean).join(" · ");
+}
+
 function lineOf(e: LedgerEntry, group: boolean): HistoryLine {
   const job = oneLine(e.jobTitle) || (typeof e.jobId === "string" ? "a job" : "");
   const line = lineOfKind(e, group);
@@ -197,6 +208,9 @@ function lineOfKind(e: LedgerEntry, group: boolean): HistoryLine {
   const quiet = (text: string): HistoryLine => ({ ...base, time: "", who: "", tone: "quiet", text });
   switch (e.kind) {
     case "text": {
+      // A send that never reached the chat (`apps/agent/src/sendblueStatus.ts`): said so, under the text it was, never
+      // drawn as a text of Tex's quoting itself (the Nov Babies form-fill answer, 2026-11-12).
+      if (str(e.event) === "delivery" && e.delivered === false) return { ...base, time: timeOf(e.at), who: "", tone: "quiet", text: `didn't reach them${e.reason === "failed" ? " · the text app failed it" : ""}` };
       const who = whoOf(e, group);
       return { ...base, time: timeOf(e.at), who, tone: who === "Tex" ? "tex" : "text", text: textWords(e) };
     }

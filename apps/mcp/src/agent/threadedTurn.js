@@ -6,7 +6,7 @@
  * word, each line tagged with its thread. Texts from before the chat's first
  * thread are shown as before, so nothing drops out on the day threads start.
  *
- * Answers `{history, threads, read_thread, timeNote, sort}`, or null when the
+ * Answers `{history, threads, read_thread, note, timeNote, sort}`, or null when the
  * turn keeps the history it had (no log, threads off); `history` is null on a
  * chat with no thread yet. `sort()` runs the classifier on the new text and
  * answers the entries to keep, for the turn to call after it answers.
@@ -15,11 +15,19 @@
 import { classifyText, foldThreads, readThreadTool, readThreads, RECENT_MS, threadOfEvents, threadsPrompt, verdictEntries } from "./conversationThreads.js";
 import { summaryLines } from "./ledgerHistory.js";
 import { renderEvents, speaker, words } from "./logRender.js";
-import { timeNote } from "./chatTime.js";
+import { dayAgo, timeNote } from "./chatTime.js";
 import { callbacksPrompt, pickCallbacks } from "./callbacks.js";
 
 /** What the threaded history opens with. */
-export const THREADED_PREFACE = "(The chat's conversations, then its last 24 hours of texts, oldest first, as they happened. \"You\" is you. The newest messages, the ones you are answering, come next.)";
+export const THREADED_PREFACE = "(The chat's last 24 hours of texts, oldest first, as they happened. \"You\" is you. The newest messages, the ones you are answering, come next, with the chat's conversations and how long ago each day here was.)";
+
+/** How long ago each day the transcript shows was, one line: said in the person's turn, since it changes as time passes. */
+export function dayAges(events, now, timeZone) {
+  const day = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "short", day: "numeric" });
+  const seen = new Map();
+  for (const event of events) seen.set(day.format(new Date(event.at)), event.at);
+  return seen.size === 0 ? "" : `Days in the chat's texts above: ${[...seen].map(([name, at]) => `${name} was ${dayAgo(at, now, timeZone)}`).join("; ")}.`;
+}
 
 // With the date, not the weekday alone: a week-old "Sun" read as yesterday's (Dev2, 2026-11-10: "ALWAYS be showing the date").
 export const DAY_TIME = (timeZone) => new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -70,15 +78,19 @@ export async function threadedTurn({ logged, ledger, chat, group = false, config
   const stretch = (event) => Number.isSafeInteger(parts.since) && event.at >= parts.since; // the stretch is carried as messages (`stretch.js`)
   const kept = parts.shown.filter((event) => (event.at >= cutoff || loose(event)) && !stretch(event));
   const listed = threadsPrompt({ threads, when: (at) => format.format(new Date(at)).replace(/ /g, " ") });
-  const transcript = renderEvents(kept, { timeZone: parts.timeZone, answeredBy: parts.answeredBy, tools: parts.tools, facts: parts.facts, tags, now: parts.answering });
+  // Absolute times only, so the transcript is the same from text to text within a stretch and is read from the cache
+  // (`turn.js` `cachedThrough`); what changes every text (the thread list, old moments, each day's age) goes in
+  // the person's turn (`note`).
+  const transcript = renderEvents(kept, { timeZone: parts.timeZone, answeredBy: parts.answeredBy, tools: parts.tools, facts: parts.facts, tags, lulls: true });
   const pastSummaries = !group && kept.some((event) => event.at < start) ? summaryLines(parts.summaries) : "";
   // Old moments that fit what's said now, with their age and how they landed, just before the last day's texts (`callbacks.js`).
   const inView = new Set(kept.map((event) => event.id));
   const pool = parts.shown.filter((event) => event.at < cutoff && !inView.has(event.id));
   const live = [...parts.shown.filter((event) => event.at >= cutoff).slice(-6), ...(logged.covered ?? [])]; // what's being said now
   const moments = group ? callbacksPrompt(pickCallbacks({ pool, live, all: parts.shown, tags, suggested: null, now: parts.answering }), { now: parts.answering, timeZone: parts.timeZone }) : "";
-  const told = [listed, pastSummaries, moments, transcript].filter((part) => part !== "").join("\n\n");
+  const told = [pastSummaries, transcript].filter((part) => part !== "").join("\n\n");
+  const note = [listed, moments, dayAges(kept, parts.answering, parts.timeZone)].filter((part) => part !== "").join("\n\n");
   const render = (id) => parts.shown.filter((event) => tags.get(event.id) === id).map((event) => lineOf(event, format)).join("\n");
   // Whether Tex answers at all is the Worker's judge's (`textDecide.cjs`); where the reply goes is left to the send (no place).
-  return { history: [{ role: "user", text: `${THREADED_PREFACE}\n\n${told}` }], threads, read_thread: readThreadTool({ threads, render }), timeNote: time, sort };
+  return { history: [{ role: "user", text: `${THREADED_PREFACE}\n\n${told}` }], threads, read_thread: readThreadTool({ threads, render }), note, timeNote: time, sort };
 }

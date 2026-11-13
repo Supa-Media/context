@@ -13,12 +13,20 @@
  *     the old log" fails.
  *  4. `groupQuestion` leaving the chatter out of the block → "a group's texts
  *     read back as the page kept them" fails.
+ *
+ * Applied, suite run, named check observed failing, reverted (2026-11-12):
+ *  5. `readGroupMemory` without the new-chat start (`startOnLedger` never
+ *     called) → "a new chat starts on its ledger" fails (its first exchange
+ *     makes `history.md`, the second history file Nov Babies showed).
+ *  6. `keepGroupExchange` keeping a ledger-first chat's turns in its record →
+ *     the same check fails (a second copy in the record).
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { keepGroupExchange, readGroupMemory, checkerHistory } from "../src/agent/groupTurn.js";
+import { keepGroupExchange, readGroupMemory, checkerHistory, groupMemoryPath } from "../src/agent/groupTurn.js";
+import { readChatMemoryRecord, writeChatMemoryRecord } from "../src/agent/chatMemoryRecord.js";
 import { GROUP_PAGE_COPIED, copyGroupPageIn, pageEntries } from "../src/agent/groupPageCopy.js";
 import { groupQuestion } from "../src/agent/groupLedgerHistory.js";
 import { GROUP_BACKFILLED } from "../src/agent/ledgerBackfill.js";
@@ -47,13 +55,15 @@ function folder() {
   return { notes, dispatch, edit: (path, text) => (notes.set(path, text), versions.set(path, versions.get(path) + 1)) };
 }
 
-function world() {
+function world({ older = true } = {}) {
   const ledger = texLedger(durableSql());
   const store = Object.assign(createMemoryStore(), { texLedger: (chat) => (chat === KEY ? ledger : null) });
   const home = folder();
   const bound = folder();
   const group = () => ({ ...GROUP, home: { folder: HOME, dispatch: home.dispatch } });
-  return { ledger, store, home, bound, group };
+  // A chat Tex answered before the ledger: it has a record, so its first turn here keeps a page as it did then.
+  const ready = older ? groupMemoryPath(group()).then((path) => writeChatMemoryRecord(store, group(), path, JSON.stringify({ version: 1, turns: [] }))) : Promise.resolve();
+  return { ledger, store, home, bound, group, ready };
 }
 
 const quiet = async (run) => {
@@ -67,7 +77,8 @@ const quiet = async (run) => {
 };
 
 test("once copied in, the ledger is the history: the page is neither read nor written again", async () => {
-  const { ledger, store, home, bound, group } = world();
+  const { ledger, store, home, bound, group, ready } = world();
+  await ready;
   await quiet(async () => {
     // Before: an exchange kept on the page, the one copy then.
     await keepGroupExchange(store, group(), await readGroupMemory(store, group(), bound.dispatch), "what's for dinner?", "Pasta.");
@@ -146,7 +157,8 @@ test("a group's texts read back as the page kept them: the chatter in its block,
 test("once copied in, the ledger's history is read beside the chat's notes, not after them", async () => {
   // Sabotage: reading the ledger's texts only after the notes (as before 2026-11-06) leaves no read of them while
   // the notes are held, and this fails.
-  const { ledger, store, home, bound, group } = world();
+  const { ledger, store, home, bound, group, ready } = world();
+  await ready;
   await quiet(async () => {
     await keepGroupExchange(store, group(), await readGroupMemory(store, group(), bound.dispatch), "what's for dinner?", "Pasta.");
     await readGroupMemory(store, group(), bound.dispatch); // copies the page in
@@ -182,7 +194,8 @@ test("once copied in, the ledger's history is read beside the chat's notes, not 
 });
 
 test("a ledger that fails to read beside the notes leaves the page retired, as before", async () => {
-  const { ledger, store, home, bound, group } = world();
+  const { ledger, store, home, bound, group, ready } = world();
+  await ready;
   await quiet(async () => {
     await keepGroupExchange(store, group(), await readGroupMemory(store, group(), bound.dispatch), "what's for dinner?", "Pasta.");
     await readGroupMemory(store, group(), bound.dispatch);
@@ -200,5 +213,39 @@ test("a ledger that fails to read beside the notes leaves the page retired, as b
     assert.ok(Array.isArray(history));
     await keepGroupExchange(store, g, history, "and dessert?", "Tiramisu.");
     assert.doesNotMatch(home.notes.get(PAGE), /Tiramisu/);
+  });
+});
+
+test("a new chat starts on its ledger: no memory page is made, and the record keeps no turns", async () => {
+  const { ledger, store, home, bound, group } = world({ older: false });
+  await quiet(async () => {
+    const g = group();
+    const history = await readGroupMemory(store, g, bound.dispatch);
+    assert.deepEqual(history, []);
+    assert.equal(g.pageCopied, true);
+    assert.equal(ledger.oldest(KEY).id, GROUP_PAGE_COPIED, "marked from the start, so nothing waits for an old log");
+    await keepGroupExchange(store, g, history, "what's for dinner?", "Pasta.");
+    assert.equal(home.notes.has(PAGE), false, "no history.md beside the ledger's view");
+    const record = await readChatMemoryRecord(store, g, await groupMemoryPath(g));
+    assert.ok(record !== null, "the record is made, so the chat is never new again");
+    assert.doesNotMatch(record, /Pasta/, "the exchange is the ledger's, not a second copy in the record");
+    // The route writes the exchange to the ledger; the next turn reads it from there and still makes no page.
+    ledger.append(KEY, await pageEntries([{ role: "user", text: "@ada: what's for dinner?" }, { role: "assistant", text: "Pasta." }], { before: Date.now() + 60_000 }));
+    const g2 = group();
+    const again = await readGroupMemory(store, g2, bound.dispatch);
+    assert.equal(g2.pageCopied, true);
+    assert.match(JSON.stringify(again), /dinner[\s\S]*Pasta\./);
+    await keepGroupExchange(store, g2, again, "and dessert?", "Tiramisu.");
+    assert.equal(home.notes.has(PAGE), false);
+  });
+});
+
+test("a new chat whose home already holds a page copies that page in, as an older chat does", async () => {
+  const { ledger, store, home, bound, group } = world({ older: false });
+  await quiet(async () => {
+    await home.dispatch("write_note", { path: PAGE, content: "# Tex's memory of this group chat\n\nintro\n\n---\n\n@ada: the gig is friday\n\n**Tex:** Noted: Friday.\n" });
+    const g = group();
+    await readGroupMemory(store, g, bound.dispatch);
+    assert.notEqual(ledger.oldest(KEY)?.id, GROUP_PAGE_COPIED, "not marked empty over a page with words on it");
   });
 });

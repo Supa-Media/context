@@ -10,16 +10,16 @@ import { askAgentStream, askLine, ServiceError, type AgentAnswer } from "./clien
 import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
 import type { ControlAnswer } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
-import { tappedBy } from "./groupSlowTap";
 import { fixedTimings, log, logTiming, say, sayProgress, sendPicture, type SayMeta } from "./groupSay";
 import { prepareAttachments } from "./attachments";
+import { E164 } from "./sendblue";
 import { textsWithExact } from "./format";
 import type { InboxStorage } from "./inbox";
 import { groupLineFor } from "./groupLine";
 import { membersBeforeSend } from "./groupMembers";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
-import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, sha256Hex } from "./groupChat";
+import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, peopleOf, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, jobQuestion, resumeJobs, startJobs, steerJobs, viewLink, withThreadsLine } from "./jobs";
@@ -27,6 +27,10 @@ import { addEvent, kindOf, logAsk, recentEvents } from "./events";
 import { staleAsks } from "./decide";
 import { startTurn } from "./steer";
 import { recheckDraft } from "./groupRecheck";
+import { tagsTex } from "./groupWords";
+import { watchForSave } from "./vaultWatch";
+import { watchForHandback } from "./handbackWatch";
+import { inviteEveryone } from "./groupInvite";
 import type { GroupPending } from "./groupTurn";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
 
@@ -60,18 +64,27 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Pictures sent in the chat are read, as a 1:1 text's are (the group chat of 2026-10-23).
   const files = filesFor(message, said.lines);
   const attachments = files.length > 0 ? await prepareAttachments(files, { fetch: deps.fetch, images: deps.images }) : [];
+  // Who is here, for naming and counting: the list the message itself carries (Dev2, 2026-11-12: Sendblue's members
+  // lookup kept someone who had left, and Tex counted them). The lookup still widens `members`, so it only narrows.
+  const here = whoIsHere(message, people);
   const group = {
     key: await sha256Hex(`${message.line}:${message.groupId}`),
     members: await peopleHash(message.line, people),
     ...(asked.handle ? { from: asked.handle } : {}),
     // Who is here, by handle, so an email can be offered to one of them to send (`apps/mcp/src/tools/offerFor.js`).
-    people: [...new Set(handles.values())].filter(Boolean),
+    people: [...new Set(here.flatMap((phone) => (handles.has(phone) ? [handles.get(phone) as string] : [])))].filter(Boolean),
     // Each account's name beside its handle, so "@jo" is known as the "Jo Rivers" the notes name (2026-11-04).
     ...(named(asked.names).length > 0 ? { names: named(asked.names) } : {}),
     // Everyone else here by their label, never a number, and how many people the chat holds besides Tex, so "who is in
     // this chat" is answered from the whole list (Dev2, 2026-11-12).
-    ...(guestLabels(people, labels).length > 0 ? { guests: guestLabels(people, labels) } : {}),
-    size: people.length,
+    ...(guestLabels(here, labels).length > 0 ? { guests: guestLabels(here, labels) } : {}),
+    // Each person's number beside the handle or label they are known by (Dev2, 2026-11-12): everyone in the chat
+    // already sees it, and a person says a number where Tex would say a label.
+    ...(numbersHere(here, handles, labels).length > 0 ? { numbers: numbersHere(here, handles, labels) } : {}),
+    ...(!asked.handle && labels.has(message.from) ? { asker: labels.get(message.from) } : {}),
+    size: here.length,
+    // A literal "@Tex" is always answered (Dev2, 2026-11-12): the gateway offers no say_nothing, and a silent end is its fallback line.
+    ...(covered.some((entry) => tagsTex(entry.text || entry.heard || "")) ? { tagged: true } : {}),
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
   };
@@ -97,6 +110,21 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // read retried at once: a blip is not a reason to hold (2026-11-02, 2026-11-12; `groupMembers.ts`).
   const readTwice = () => membersBeforeSend(storage, app, chat, deps.now);
   let paused = false;
+  // One tapback on a slow ask, never with a text (Dev2, 2026-11-12): the first tool the turn starts taps the asked
+  // message, at most once an answer and not after a progress line; a turn with no tool gets none.
+  let acked = false;
+  const toolStarted = async () => {
+    // Never on a tapback: tapping a tapback is no sign to anyone (`answersTapback`).
+    if (acked || routine || message.jobReport !== undefined || message.reaction !== undefined || message.answersTapback !== undefined) return;
+    acked = true;
+    try {
+      if (!(await isBound(storage, message))) return;
+      await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(undefined, ackEmoji(message.text)));
+      log("tool_tap");
+    } catch {
+      log("tool_tap_failed");
+    }
+  };
   const progress = async (text: string) => {
     if (routine) return;
     try {
@@ -104,7 +132,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
       if (!paused) {
         const now = await readTwice();
         paused = now !== null && now.some((phone) => phone !== message.line && !people.includes(phone));
-        if (now !== null && !paused) return await sayProgress(storage, deps, message, text, meta);
+        if (now !== null && !paused) return void (acked = true, await sayProgress(storage, deps, message, text, meta));
       }
       await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
     } catch {
@@ -126,7 +154,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await outbox(storage, message.groupId)) } : {}), // the chat's day is the gateway's ledger; the outbox goes on top
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : {}), // a job reporting to this chat's turn (`jobTexts.ts`)
+        ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : message.event !== undefined ? { event: message.event } : {}), // a job reporting to this chat's turn (`jobTexts.ts`), or a login it asked for saved (`vaultWatch.ts`)
         ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now(), { results: true }) } : {}),
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
@@ -137,6 +165,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
               : {}),
       },
       progress,
+      toolStarted,
     );
   } finally {
     end();
@@ -158,6 +187,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
   if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "no_storage" ? 503 : answer.kind === "unavailable" && answer.timedOut ? 504 : null); // 503: the chat's workspace can't be opened (`failedLine`)
   if (answer.steered) await dropSteered(storage, answer.steered, covers);
+  // A link to save a login went: this chat watches that link, and its save carries the task on here (`vaultWatch.ts`).
+  if (answer.vaultWatch) await watchForSave(storage, message.from, deps.now(), { ...(answer.vaultLinks ? { links: answer.vaultLinks } : {}), group: { groupId: message.groupId, line: message.line, messageId: message.messageId, text: message.text } });
+  // A take-over link went: Done on it carries the task on here (`handbackWatch.ts`).
+  if (answer.handbackWatch) await watchForHandback(storage, message.from, deps.now(), answer.handbackWatch, { groupId: message.groupId, line: message.line, messageId: message.messageId, text: message.text });
   // Still what its asker wants? Their newer words, not folded in, may have changed it: held, it ends as a restart does.
   // At most `MAX_REDRAFTS` per burst (`chatState.ts`): past that the draft is sent as written, never redrafted forever.
   if (!routine && !message.jobReport && message.reaction === undefined && canRedraft(await readChatState(storage)) && (await recheckDraft(storage, deps, { message, covers, upTo, text: answer.text })) === "held") {
@@ -187,8 +220,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
   if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
     // Answered with a tapback and no words: the conversation classifier's (`apps/mcp/src/agent/respond.js`), the emoji checked against the list.
-    if (answer.react !== undefined && message.reaction === undefined) await tappedBy(storage, message.messageId);
-    if (answer.react !== undefined && message.reaction === undefined) await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(answer.react || undefined, ackEmoji(message.text))).catch(() => {});
+    if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && !acked) await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(answer.react || undefined, ackEmoji(message.text))).catch(() => {});
     await handOff();
     return log(answer.react !== undefined ? "reacted" : "silent");
   }
@@ -236,6 +268,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
   const askedWho = await sha256Hex(asks ?? message.from);
   for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));
+  // "Share @studio with everyone here": the invitation goes as its asker now the answer has (`groupInvite.ts`).
+  if (answer.invite && !routine) await inviteEveryone(storage, deps, message, people, answer.invite);
   log("answered");
   logTiming({ arrivedAt, asking, answered, firstSent, sent: deps.now(), parts: texts.length, turn: meta.turn ?? "" }, deps.textTiming);
   await routineDone(deps, message, "answered", texts.length > 0 ? 1 : 0);
@@ -248,6 +282,26 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
 /** The labels of the people here with no account the control plane linked, each once, in the chat's order. */
 function guestLabels(people: string[], labels: Map<string, string>): string[] {
   return [...new Set(people.flatMap((phone) => (labels.has(phone) ? [labels.get(phone) as string] : [])))];
+}
+
+/**
+ * The people a message's own list names, without Tex's line, when it names anyone besides the sender; otherwise (a
+ * routine, a webhook naming only the sender) everyone the turn was given.
+ */
+function whoIsHere(message: GroupMessage, people: string[]): string[] {
+  const listed = peopleOf(message.line, message.participants);
+  return listed.some((person) => person !== message.from) ? listed : people;
+}
+
+/** Each person here with a handle or label, by it, with their number: real numbers only, each person once. */
+function numbersHere(people: string[], handles: Map<string, string>, labels: Map<string, string>): { who: string; phone: string }[] {
+  const seen = new Set<string>();
+  return people.flatMap((phone) => {
+    const who = handles.get(phone) ?? labels.get(phone);
+    if (who === undefined || who === "" || seen.has(who) || !E164.test(phone)) return [];
+    seen.add(who);
+    return [{ who, phone }];
+  });
 }
 
 function named(names: { handle: string; name?: string }[] | undefined): { handle: string; name: string }[] {

@@ -9,8 +9,8 @@
  * a mark moves to the newest history, the bytes before it do not).
  *
  * Covers the memory history (`conversation.js`, `readGroupMemory`). Not covered: a turn shown the rendered log
- * (`loggedTurn.js`), held by `texCarry.test.mjs`, and the threaded log, one block rebuilt every text, which carries no hour mark (`historyCached`, checked below
- * on `gatewayBody`).
+ * (`loggedTurn.js`), held by `texCarry.test.mjs`, and the threaded log, held by `conversationThreads.test.mjs` (the same transcript from text to text) and below
+ * on `gatewayBody` (its hour mark).
  *
  * Sabotage these and a test here fails:
  *  1. `background.js` offering only the job tools that apply now → both turns.
@@ -132,10 +132,11 @@ test("a group: tools, system and history read back across texts while the tagger
   assert.match(JSON.stringify(second.messages.at(-1)), /@bo tagged you/);
 });
 
-test("a history rebuilt every text (the threaded log) carries no hour mark", () => {
-  const messages = [{ role: "user", text: "(The chat so far) ..." }, { role: "user", text: "now" }];
-  const body = gatewayBody({ model: "anthropic/claude-sonnet-5", system: { stable: "s", context: "c" }, messages, tools: [], cachedThrough: 0 });
-  assert.doesNotMatch(JSON.stringify(body.messages), /"ttl":"1h"/);
+test("the threaded log takes the history's hour mark", () => {
+  const messages = [{ role: "user", text: "(The chat's last 24 hours) ..." }, { role: "user", text: "now" }];
+  const body = gatewayBody({ model: "anthropic/claude-sonnet-5", system: { stable: "s", context: "c" }, messages, tools: [], cachedThrough: 1 });
+  assert.match(JSON.stringify(body.messages[0]), /"ttl":"1h"/);
+  assert.doesNotMatch(JSON.stringify(body.messages[1]), /"ttl":"1h"/, "the new text is not in the hour-cached prefix");
   const marks = JSON.stringify(body).match(/cache_control/g).length;
   assert.ok(marks <= 4, "within Anthropic's four breakpoints");
 });

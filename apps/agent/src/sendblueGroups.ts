@@ -15,7 +15,7 @@
  */
 
 import { MAX_REPLY_TEXT, post, ServiceError, type Fetch } from "./clients";
-import { MAX_INBOUND_TEXT } from "./inbound";
+import { cutText } from "./inbound";
 import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
 import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, MAX_QUOTED_TEXT, TAPBACK, type SendblueKeys } from "./sendblue";
 import type { InboundAttachment } from "./inbound";
@@ -37,6 +37,8 @@ export type GroupMessage = {
   participants: string[];
   messageId: string;
   text: string;
+  /** The characters `cutText` cut off `text`, when it cut. */
+  left?: number;
   replyTo?: string;
   /** A green-bubble group: answered with one fixed line, never with notes. */
   sms?: true;
@@ -49,6 +51,15 @@ export type GroupMessage = {
    */
   reactionOn?: string;
   /**
+   * Set on a reaction queued as its line (`groupInbox.ts` `enqueue`): its
+   * `messageId` is the tapback's own handle, and a text threaded under a
+   * tapback is taken by Sendblue and then fails to deliver (error 5000; the
+   * Nov Babies form-fill answer, 2026-11-12). The answer goes under `on`, the
+   * Tex text it was on when that is known, else plain, as a 1:1 tapback's
+   * answer does (`sendParts.ts` `threadFor`); and the tapback is never tapped.
+   */
+  answersTapback?: { on?: string };
+  /**
    * A picture or file sent in the chat, by Sendblue's address only, never its
    * bytes: fetched when a turn reads it, as a 1:1 text's are (`attachments.ts`).
    * A link's preview card is not one (`isLinkPreview`).
@@ -60,6 +71,8 @@ export type GroupMessage = {
   routine?: { runId: string; path: string };
   /** A background job's report, queued by this Worker for the chat's own turn, which decides what is said (`jobTexts.ts`). */
   jobReport?: JobReport;
+  /** A login Tex asked for in this chat was saved: the chat's own turn carries the task on, queued by this Worker (`vaultWatch.ts`). */
+  event?: "vault_saved" | "browser_handed_back";
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };
@@ -106,7 +119,7 @@ export function parseSendblueGroup(payload: unknown): GroupInbound | null {
     from,
     participants,
     messageId: handle,
-    text: text.slice(0, MAX_INBOUND_TEXT),
+    ...cutText(text),
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(payload.service === "SMS" ? { sms: true as const } : {}),
     ...(reaction !== null ? { reaction } : {}),

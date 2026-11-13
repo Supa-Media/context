@@ -45,7 +45,11 @@ export async function jobUpdate(storage: InboxStorage, deps: JobTextDeps, update
   const noted = await noteJobUpdate(storage, update, deps.now());
   if (noted === null) return false;
   // A link to save a login went out through the coordinator: watch for the save (`vaultWatch.ts`).
-  if (!noted.quiet && update.vaultWatch !== undefined && noted.groupId === undefined) await watchForSave(storage, update.vaultWatch, deps.now());
+  // In a group chat too: its asker's tag carries the task on there, under the ask (Dev2, 2026-11-12).
+  if (!noted.quiet && update.vaultWatch !== undefined) {
+    const group = noted.groupId !== undefined && noted.line !== undefined ? { groupId: noted.groupId, line: noted.line, messageId: noted.messageId ?? "", text: update.asked?.text ?? "" } : undefined;
+    await watchForSave(storage, update.vaultWatch, deps.now(), { ...(update.vaultLinks ? { links: update.vaultLinks } : {}), ...(group ? { group } : {}) });
+  }
   if (noted.quiet) return true;
   // Paused at the daily limit: the alarm restarts it once the limit resets (`jobPause.ts`).
   if (noted.state === "waiting" && noted.resumeAt !== undefined) await armBy(storage, noted.resumeAt, deps.now());

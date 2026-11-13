@@ -51,7 +51,8 @@ export function vaultToolDefinitions() {
         "Get a private link where the person saves a login, a secret such as API keys and environment variables, or a payment card, themselves, signed in to Context. " +
         "Use it whenever one is needed and is not in vault_list, and whenever someone tries to send you a password, key, token or card number: never take one in a message. " +
         "For a secret, name the fields you expect (e.g. OPENAI_API_KEY); they are per environment (dev, staging, prod) unless perEnv is false. " +
-        "Send them the link and say it is private to them and lasts 30 minutes.",
+        "Text the link in one short line with what you'll do once it's saved, nothing more: the page itself says it is private, who can use it and how long it lasts, and you carry on by yourself once it is saved. " +
+        "In a group chat it saves to the chat's workspace and the page offers that chat first; never ask which vault unless the chat reaches several workspaces and their words don't say which.",
       inputSchema: {
         type: "object",
         properties: {

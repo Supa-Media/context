@@ -32,6 +32,7 @@ import type * as functions_texGroupLogShape from "../functions/texGroupLogShape.
 import type * as functions_texReviewScoresRebuild from "../functions/texReviewScoresRebuild.js";
 import type * as functions_texTriageWatch from "../functions/texTriageWatch.js";
 import type * as functions_texTurnTiming from "../functions/texTurnTiming.js";
+import type * as functions_texToolFailures from "../functions/texToolFailures.js";
 import type * as functions_accessObjects from "../functions/accessObjects.js";
 import type * as functions_accessObjectsExpected from "../functions/accessObjectsExpected.js";
 import type * as functions_accessObjectsRows from "../functions/accessObjectsRows.js";
@@ -247,6 +248,7 @@ import type * as functions_oldCopies from "../functions/oldCopies.js";
 import type * as functions_treeChanges from "../functions/treeChanges.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_vault from "../functions/vault.js";
+import type * as functions_vaultChatLinks from "../functions/vaultChatLinks.js";
 import type * as functions_vaultSettings from "../functions/vaultSettings.js";
 import type * as functions_vaultPeople from "../functions/vaultPeople.js";
 import type * as functions_vaultNotify from "../functions/vaultNotify.js";
@@ -308,6 +310,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texReviewScoresRebuild": typeof functions_texReviewScoresRebuild;
   "functions/texTriageWatch": typeof functions_texTriageWatch;
   "functions/texTurnTiming": typeof functions_texTurnTiming;
+  "functions/texToolFailures": typeof functions_texToolFailures;
   "functions/accessObjects": typeof functions_accessObjects;
   "functions/accessObjectsExpected": typeof functions_accessObjectsExpected;
   "functions/accessObjectsRows": typeof functions_accessObjectsRows;
@@ -525,6 +528,7 @@ declare const fullApi: ApiFromModules<{
   "functions/usage": typeof functions_usage;
   "functions/usageAnalytics": typeof functions_usageAnalytics;
   "functions/vault": typeof functions_vault;
+  "functions/vaultChatLinks": typeof functions_vaultChatLinks;
   "functions/vaultSettings": typeof functions_vaultSettings;
   "functions/vaultPeople": typeof functions_vaultPeople;
   "functions/vaultNotify": typeof functions_vaultNotify;

@@ -388,6 +388,44 @@ describe("Tex's setup in a group chat", () => {
     expect(session?.texChatId).toBe(chat?.groupKey);
   });
 
+  // "Only me" (Dev2, 2026-11-12): a login its saver kept for themselves is used in a chat on their own tag alone. The
+  // tagger rides on the token minted for that tag; an earlier token, kept alive for a turn still running, names nobody.
+  // Sabotage: drop the `ownTagToken` match in `controlPlane/session.ts` `ownTagOf` and the second check fails.
+  test("a turn's token names its own tagger, and only that token does", async () => {
+    const t = setupTest();
+    await pin(t);
+    const { ada, bo } = await crew(t);
+    const first = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    expect((await resolves(t, first.accessToken as string)) as unknown).toMatchObject({ texTaggerId: ada.userId });
+    const second = await turn(t, BO, [ADA, BO, CY, LINE]);
+    expect((await resolves(t, second.accessToken as string)) as unknown).toMatchObject({ texTaggerId: bo.userId });
+    const earlier = (await resolves(t, first.accessToken as string)) as { texTaggerId?: string } | null;
+    if (earlier !== null) expect(earlier.texTaggerId).toBeUndefined();
+  });
+
+  // "Ask your personal Tex" (Dev2, 2026-11-12): a group turn may learn who tagged it (name, phone, emails), only on the
+  // token minted for that person's own tag, and never anyone else in the chat.
+  // Sabotage: drop the `texTaggerId === undefined` check in `lib/texIdentity/identity.ts` `askerIdentityHandler` (falling
+  // back to the grant's person) and the earlier token's check fails.
+  test("a turn learns its own tagger's account facts and nobody else's", async () => {
+    const t = setupTest();
+    await pin(t);
+    const { ada, bo } = await crew(t);
+    const asker = async (accessToken: unknown) => {
+      const response = await gatewayPost(t, "/gateway/agent/identity", { accessToken, asker: true });
+      return ((await response.json()) as { identity: { handle: string; phones: string[] } | null }).identity;
+    };
+    const first = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    expect(await asker(first.accessToken)).toMatchObject({ handle: "ada", phones: [ADA] });
+    const second = await turn(t, BO, [ADA, BO, CY, LINE]);
+    expect(await asker(second.accessToken)).toMatchObject({ handle: "bo", phones: [BO] });
+    // Ada's earlier token, kept alive for her turn still running, names nobody now that Bo tagged.
+    expect(await asker(first.accessToken)).toBeNull();
+    expect(await asker("cat_unknown_token_000000000000000000")).toBeNull();
+    expect(await asker(42)).toBeNull();
+    expect(ada.userId).not.toBe(bo.userId);
+  });
+
   test("the setup-only pin is never a mailbox's workspace", async () => {
     const t = setupTest();
     const pinned = await pin(t);

@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { LINES, setup } from "./groupWorld.testing";
-import { answerHanded, TURN_KEY, type HandedTurn } from "./groupTurnRun";
+import { answerHanded, handedTurns, turnKey, type HandedTurn } from "./groupTurnRun";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -37,7 +37,7 @@ describe("a group reply's timing", () => {
     await acceptGroup(storage, w.message("Tex, what can you see"), 0);
     t = 2_000;
     await drainGroup(storage, deps);
-    const turn = (await storage.get<HandedTurn>(TURN_KEY))!;
+    const turn = ((await handedTurns(storage))[0])!;
     t = 10_000;
     expect(await answerHanded(storage, deps, turn.id)).toBe("done");
     expect(w.texts).toHaveLength(1);

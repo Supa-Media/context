@@ -23,6 +23,35 @@ without asking.
 - **Best effort.** A control plane that fails or predates the route is a turn
   that knows less, never one that fails.
 
+## In a group chat: ask their personal Tex (2026-11-12)
+
+Asked in a group chat to fill a venue's booking form, Tex asked the owner for
+his own name, email and phone: the group's grant learns nobody, by the rule
+above. "It's annoying that it doesn't know basic things about me." Decided by
+the owner (Dev2), 2026-11-12: the group's Tex asks the person's own personal
+Tex, and
+
+- **their own ask needs no yes.** Tex texts the chat a line that it is asking
+  their personal Tex, then `send ask_personal_tex` gets their name, phones and
+  emails (`apps/mcp/src/agent/askPersonalTex.js`). The control plane answers
+  `POST /gateway/agent/identity` with `asker: true` only on the token minted for that person's own
+  tag (`askerIdentityHandler`, `controlPlane/session.ts` `ownTagOf`): never a
+  job's run token, never an earlier token beside a newer tag, never an invited
+  person's tag (which acts through someone else), and never anyone but the
+  tagger. The old route still answers no group grant.
+- **anyone else's waits for their 👍.** `as` naming someone else here offers
+  the ask to them (`offerFor.js`); only their own yes, a tag of their own,
+  lets the same call run, as theirs.
+
+The model is told to type the facts where the form needs them and not to
+repeat a phone number or email into the chat. About me and the rest of their
+personal workspace stay out of a group turn.
+
+**Tests that fail if it is reversed.** `apps/convex/__tests__/textGroups.test.ts`
+("a turn learns its own tagger's account facts and nobody else's"),
+`apps/convex/__tests__/texIdentity.test.ts` (the asker route answers no
+one-person grant) and `apps/mcp/test/askPersonalTex.test.mjs`.
+
 ## What else Tex was not remembering
 
 Auditing the same day what Tex is told about a person on each turn turned up

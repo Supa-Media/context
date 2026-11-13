@@ -235,6 +235,7 @@ test/agentGroupActions.test.mjs
 test/agentGroupSignIn.test.mjs
 test/agentGroupOffer.test.mjs
 test/agentGroupGuests.test.mjs
+test/vaultChatShare.test.mjs
 test/vaultGroupChat.test.mjs
 test/connectors.test.mjs
 test/apps.test.mjs
@@ -252,10 +253,12 @@ test/sessionInstructionsTree.test.mjs
 test/agentTravelTime.test.mjs
 test/routineVoice.test.mjs
 test/agentIdentity.test.mjs
+test/askPersonalTex.test.mjs
 test/agentSelfReview.test.mjs
 test/agentTurnLog.test.mjs
 test/agentAdvisorSetup.test.mjs
 test/agentAdvisor.test.mjs
+test/jobPages.test.mjs
 test/agentTurnStages.test.mjs
 test/groupTiming.test.mjs
 test/agentInstacartCheckout.test.mjs
@@ -497,6 +500,7 @@ test/texCalendarCache.test.mjs
 test/texStablePrefix.test.mjs
 test/texCarry.test.mjs
 test/texCarryGating.test.mjs
+test/texFullText.test.mjs
 test/texDaySummaries.test.mjs
 test/texFadedHistory.test.mjs
 test/texArchitecture.test.mjs
@@ -509,6 +513,7 @@ test/agentRespond.test.mjs
 test/threadsBackfill.test.mjs
 test/scheduledReview.test.mjs
 test/scheduledLastRound.test.mjs
+test/judgeBrief.test.mjs
 test/judgeFolderDefault.test.mjs
 test/dateProperties.test.mjs
 test/objectDateFacts.test.mjs
@@ -518,4 +523,7 @@ test/agentCheckInTexts.test.mjs
 test/noteReadRoute.test.mjs
 test/toldFacts.test.mjs
 test/toldFactsTurn.test.mjs
+test/toolFailures.test.mjs
 test/openAsk.test.mjs
+test/texSettings.test.mjs
+test/chatWriteLock.test.mjs

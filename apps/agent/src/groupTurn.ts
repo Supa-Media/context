@@ -23,7 +23,7 @@ import { eventPeople, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
 import { burstStillTyped, decideDownAnswer } from "./groupPolicy";
-import { callsTex } from "./groupWords";
+import { callsTex, tagsTex } from "./groupWords";
 import { groupStyle } from "./groupStyle";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
@@ -62,10 +62,17 @@ export type GroupEntry = [string, GroupPending];
 /** Handles by the hash of a phone, as the control plane last named them, never a number: so events can say who spoke. */
 const NAMES_KEY = "gnames";
 
-export async function keepNames(storage: InboxStorage, names: readonly { phone: string; handle: string }[]): Promise<void> {
+export async function keepNames(storage: InboxStorage, names: readonly { phone: string; handle: string }[], guests: readonly { phone: string; label: string }[] = []): Promise<void> {
   const kept: Record<string, string> = {};
+  // A guest by the label the turn knows them by, never a number, so the judge and the turn name the same person alike.
+  for (const { phone, label } of guests.slice(0, 64)) kept[await sha256Hex(phone)] = label;
   for (const { phone, handle } of names.slice(0, 64)) kept[await sha256Hex(phone)] = handle;
   await storage.put(NAMES_KEY, kept);
+}
+
+/** The names kept by `keepNames`, by the hash of a phone: what the judge calls a person whose event carries no name. */
+export async function keptNames(storage: InboxStorage): Promise<ReadonlyMap<string, string>> {
+  return new Map(Object.entries((await storage.get<Record<string, string>>(NAMES_KEY)) ?? {}));
 }
 
 /** The event for one group message in: who as a hash and a handle when known, who was there as a hash. */
@@ -79,6 +86,7 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
     kind: message.reaction ? "reaction" : kindOf(message.text, message.attachments),
     // A voice message's words, as heard before the judge reads it (`groupVoice.ts`): the judge cannot hear the recording.
     text: message.text.trim() === "" && message.heard ? `(voice message) ${message.heard}` : message.text,
+    ...(message.left && !message.reaction ? { left: message.left } : {}),
     people: await eventPeople(storage, message),
     // A reply under an earlier message, found by the handle the webhook names: its id and full words (`replyQuote.ts`).
     ...(message.reaction || message.replyTo === undefined ? {} : await replyFields(storage, message.groupId, { handle: message.replyTo })),
@@ -94,6 +102,9 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
  */
 async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: GroupMessage, candidates: string[], running: boolean, look?: string): Promise<Decision> {
   const style = (await groupStyle()).style;
+  // The chat's ledger key: where its verdict is kept, and how its day is read when this object holds no token.
+  const ledgerKey = look !== undefined ? undefined : await sha256Hex(`${newest.line}:${newest.groupId}`);
+  const byLedger = ledgerKey !== undefined && deps.texts?.binding !== undefined ? { binding: deps.texts.binding, ledger: ledgerKey } : undefined;
   const decision = await decide(
     deps,
     {
@@ -102,14 +113,14 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       sender: newest.from,
       style,
       // The chat's whole log, whoever has joined or left since (the owner, 2026-11-02).
-      transcript: look ?? renderTranscript(await chatEvents(storage, newest.groupId)),
+      transcript: look ?? renderTranscript(await chatEvents(storage, newest.groupId, undefined, byLedger), { names: await keptNames(storage) }),
       candidates,
       running,
       // Only the sender's own asks: nobody else's "nah forget it" can end somebody's ask.
       waitingAsks: look !== undefined ? [] : await waitingAsks(storage, deps.now(), await sha256Hex(newest.from)),
       newest: candidates.at(-1) ?? "",
       // The chat's ledger, where the verdict is kept: the control plane's key for it (`groupKeyOf`), never for a first look.
-      ...(look !== undefined ? {} : { ledger: await sha256Hex(`${newest.line}:${newest.groupId}`) }),
+      ...(ledgerKey === undefined ? {} : { ledger: ledgerKey }),
     },
     running ? RUNNING_DECIDE_MS : GROUP_DECIDE_MS,
   );
@@ -180,6 +191,8 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
   // A tapback only in place of words, never beside an answer or a wait (Dev2, 2026-11-10: "uses emojis way too much").
   const react = act === "react" && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
   if (act === "wait") return { answer: [], chat: [], drop: [], wait: burst, waitSeconds: decision.waitSeconds ?? 1, ...react };
+  const tagged = act === "answer" ? -1 : taggedIndex(burst);
+  if (tagged !== -1) return { answer: [burst[tagged]!], chat: burst.filter((_, index) => index !== tagged), drop: [] };
   if (act !== "answer") return { answer: [], chat: burst, drop: [], ...react };
   // Left out before the answer: chat (`gatherTheTurn.ts`). Nothing here is forced (`addressedTurn` took those), so nothing jumps the order.
   const { answer, left } = gatherTheTurn(burst, (entry) => entry[1].ev !== undefined && decision.covers.includes(entry[1].ev), (entry) => !soft(entry));
@@ -194,6 +207,16 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
 export function judgeDownAnswer(waiting: GroupEntry[]): number {
   const called = waiting.map(([, item]) => callsTex(item.message.text || item.message.heard || "", item.message.replyTo !== undefined)).lastIndexOf(true);
   return Math.max(decideDownAnswer(waiting.map(([, item]) => item)), called);
+}
+
+/**
+ * The newest message tagging Tex with "@Tex" (`tagsTex`), -1 for none: the judge said silent or react, and a literal
+ * tag is answered all the same, in place of the tapback (Dev2, 2026-11-12). Logged as `group_decide` `tag_override`.
+ */
+function taggedIndex(burst: GroupEntry[]): number {
+  const index = burst.map(([, item]) => tagsTex(item.message.text || item.message.heard || "")).lastIndexOf(true);
+  if (index !== -1) console.log(JSON.stringify({ event: "group_decide", outcome: "answer", reason: "tag_override" }));
+  return index;
 }
 
 /** The id a first look shows a line under: the contract's event id shape, never one the chat's log holds. */
@@ -224,7 +247,11 @@ export async function firstLook(storage: InboxStorage, deps: ControlDeps & { now
     chosen = question === -1 ? [] : [looks[question]!];
   } else if (decision.act === "answer") chosen = looks.filter((_, index) => decision.covers.includes(ids[index]!));
   // A first look never waits: nothing is kept to wait with, so a wait answers the newest now.
-  else chosen = decision.act === "wait" ? [looks.at(-1)!] : [];
+  else if (decision.act === "wait") chosen = [looks.at(-1)!];
+  else {
+    const tagged = taggedIndex(looks);
+    chosen = tagged === -1 ? [] : [looks[tagged]!];
+  }
   const answer: GroupEntry[] = [];
   for (const [key, item] of chosen) {
     const { look: _look, ...rest } = item;
@@ -234,7 +261,7 @@ export async function firstLook(storage: InboxStorage, deps: ControlDeps & { now
     answer.push([key, kept]);
   }
   const newest = looks.at(-1)!;
-  const react = decision.ok && decision.act === "react" && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
+  const react = decision.ok && decision.act === "react" && chosen.length === 0 && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
   return { answer, chat: [], drop: looks.filter((entry) => !chosen.includes(entry)), ...react };
 }
 

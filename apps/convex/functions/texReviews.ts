@@ -129,7 +129,7 @@ async function onTheTeam(ctx: QueryCtx, pinned: Id<"workspaces"> | null, userId:
   return await userIsStaff(ctx, userId);
 }
 
-async function sharesReviews(ctx: Pick<QueryCtx, "db">, userId: Id<"users">): Promise<boolean> {
+export async function sharesReviews(ctx: Pick<QueryCtx, "db">, userId: Id<"users">): Promise<boolean> {
   const row = await ctx.db
     .query("texReviewSharing")
     .withIndex("by_user", (q) => q.eq("userId", userId))

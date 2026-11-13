@@ -25,11 +25,11 @@
  */
 
 import { jobRoute } from "./jobRoutes";
-import { SLOW_TAP_MS, slowTap, slowTapArmed } from "./groupSlowTap";
 import { logged } from "./agentError";
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
+import { carryOnAfterHandback } from "./handbackWatch";
 import { countInbound, type CountDataset } from "./textCounts";
 import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
@@ -43,15 +43,15 @@ import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, statusPath, threadContext, verifySendblueSecret } from "./sendblue";
-import { noteSendStatus, sendblueStatus, type SendStatus } from "./sendblueStatus";
+import { logInboundLag, noteSendStatus, resendPlain, sendblueStatus, type SendStatus } from "./sendblueStatus";
 import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
 import { heardInGroup } from "./groupVoice";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
 import { membersChanged } from "./groupMembers";
 import { flushWithReader } from "./chatRead";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
-import { sha256Hex } from "./groupChat";
-import type { DueRoutine } from "./clients";
+import { isBound, sha256Hex } from "./groupChat";
+import type { DueRoutine } from "./routineClients";
 import { textsSessionDeps, type TextsBinding } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
@@ -192,6 +192,8 @@ export default {
     }
     // A group message goes to the group's own queue, never a sender's (`groupInbox.ts`).
     const grouped = line === "sendblue" ? parseSendblueGroup(payload) : null;
+    // How late Sendblue handed it over, by its own sent time (`sendblueStatus.ts`).
+    if (line === "sendblue") logInboundLag(payload, Date.now(), grouped !== null);
     if (grouped?.kind === "invalid") logSendblueShape(payload, "group_invalid");
     if (grouped !== null) return groupWebhook(env, grouped, url.origin, "sendblue", groupNameOf(payload));
     // Sendblue retries a 400, so only Linq gets one; typing, calls, statuses and the rest are described by shape.
@@ -500,6 +502,14 @@ export class SenderInbox implements DurableObject {
   /** Work that outlives a call, counted as running until it settles. */
   private handOff = (work: Promise<unknown>): void => this.state.waitUntil(this.counted(() => Promise.resolve(work)));
 
+  /** What a group just said, to its ledger now: by a turn's token, or for a chat Tex is set up in, by its ledger key (`chatRead.ts`). */
+  private async flushChatter(message: GroupMessage): Promise<void> {
+    const storage = this.state.storage;
+    const binding = this.env.GATEWAY_TEXTS;
+    const byLedger = binding !== undefined && !message.sms && (await isBound(storage, message)) ? { binding, ledger: await sha256Hex(`${message.line}:${message.groupId}`) } : undefined;
+    if ((await flushWithReader(storage, message.groupId, () => Date.now(), byLedger)) === "none") console.log(JSON.stringify({ event: "tex_events", outcome: "no_way" }));
+  }
+
   private async serve(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (path.startsWith("/sim/")) {
@@ -557,12 +567,7 @@ export class SenderInbox implements DurableObject {
         countInbound(this.env.TEX_COUNTS, "group", outcome === "queued" ? "for_tex" : "heard", inboxIdOf(this.env.SENDER_INBOX, message.from));
       }
       // What the chat just said goes to its ledger now, not at Tex's next turn, so its history keeps up (`chatRead.ts`).
-      if (outcome === "kept" || outcome === "queued") this.handOff(flushWithReader(this.state.storage, message.groupId, () => Date.now()));
-      // A message naming Tex that nothing of Tex's reaches soon gets a tapback from code (`groupSlowTap.ts`).
-      if (await slowTapArmed(this.state.storage, message.messageId)) {
-        const deps = this.deps();
-        this.handOff(new Promise((done) => setTimeout(done, SLOW_TAP_MS + 50)).then(() => slowTap(this.state.storage, deps, message.messageId, Date.now())).catch(() => {}));
-      }
+      if (outcome === "kept" || outcome === "queued") this.handOff(this.flushChatter(message));
       // The group-typing experiment: ask Whapi for this group's presences once a day (`whapi.ts`); never blocks a message.
       const whapi = whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE);
       if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, (input, init) => fetch(input, init), whapi, message.groupId, Date.now());
@@ -603,7 +608,10 @@ export class SenderInbox implements DurableObject {
     }
     if (path === "/page-jobs") return Response.json(await pageJobsOf(this.state.storage, Date.now()));
     if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
-    if (path === "/send-status") return Response.json({ outcome: await noteSendStatus(this.state.storage, (await request.json()) as SendStatus, Date.now()) });
+    if (path === "/send-status") {
+      const status = (await request.json()) as SendStatus;
+      return Response.json({ outcome: await noteSendStatus(this.state.storage, status, Date.now(), resendPlain(this.state.storage, this.deps(), Date.now)) });
+    }
     if (path === "/react") {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
@@ -636,6 +644,7 @@ export class SenderInbox implements DurableObject {
     await logged("alarm_ready", () => checkReady(this.state.storage, this.deps()));
     await logged("alarm_gmail", () => checkGmail(this.state.storage, this.deps()));
     await logged("alarm_carry_on", () => carryOnAfterSave(this.state.storage, this.deps()));
+    await logged("alarm_handed_back", () => carryOnAfterHandback(this.state.storage, this.deps()));
     // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
     await logged("alarm_review", () => checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) }));
     // A job's object has only `jobrun`; every other object finds nothing to run.

@@ -78,7 +78,6 @@ const SIZED_ANOTHER_WAY: Readonly<Record<string, string>> = {
   "features/meetings/components/NotesPad.tsx": "pointerType.body, 16",
   "features/meetings/components/MeetingTitleField.tsx": "pointerType.h2, 23",
   "features/console/plugins/PluginSuggestDialog.tsx": "pointerType.body, 16",
-  "features/console/settings/SettingsList.tsx": "searchTouch sets touchType.ui on a phone",
   "features/console/files/shareDialog/RecipientPicker.tsx": "inputCompact sets touchType.ui on a phone",
   "features/console/files/LiveEditor.tsx": "the phone's fallbackReading is pointerType.body, 16",
   // Known 15px on a phone. The note editor was out of the scope of the change

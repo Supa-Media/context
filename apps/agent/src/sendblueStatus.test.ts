@@ -11,6 +11,10 @@
  *  1. `sendCall` not adding `status_callback` -> "every send names the status address".
  *  2. the route not checking the path secret -> "a status at any other path is refused".
  *  3. `noteSendStatus` not marking ERROR -> "a send that never went is marked once".
+ * (2026-11-12, plain resend; `threadedResend.ts`)
+ *  4. `noteSendStatus` not resending a kept threaded text -> "a threaded text that never went goes again plain, once" fails.
+ *  5. `takeThreaded` not removing what it takes -> the same check fails (a second ERROR resends again).
+ *  6. `resendPlain` threading its resend -> "the resend is plain, by the chat's own line" fails.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +24,9 @@ import { addEvent, keptEvents, renderTranscript } from "./events";
 import { noteHandle } from "./replyQuote";
 import { sendblueChatId, sendblueKeys, sendSendblueText } from "./sendblue";
 import { sendGroupText } from "./sendblueGroups";
-import { noteSendStatus, parseSendStatus } from "./sendblueStatus";
+import { inboundLagMs, logInboundLag, noteSendStatus, parseSendStatus, resendPlain } from "./sendblueStatus";
+import { keepThreaded, KEEP_MS, type Threaded } from "./threadedResend";
+import { SENT_KEY } from "./groupSay";
 
 const LINE = "+15555550199";
 const PHONE = "+15555550100";
@@ -95,6 +101,75 @@ describe("a send that never went is marked once", () => {
   });
 });
 
+describe("a threaded text that never went goes again plain, once (Nov Babies, 2026-11-12)", () => {
+  const PLACE = { kind: "group" as const, line: LINE, groupId: "g-1" };
+  async function sentThreaded(storage: MemoryStorage, handle = "mh-1", at = NOW - 1000): Promise<string> {
+    const ev = await addEvent(storage, { at, chat: "g-1", from: { kind: "tex" }, kind: "text", text: "First name, last name?", delivered: true });
+    await noteHandle(storage, handle, ev);
+    await keepThreaded(storage, handle, { text: "First name, last name?", place: PLACE, at });
+    return ev;
+  }
+  const failed = (handle = "mh-1") => parseSendStatus(callback({ message_handle: handle, group_id: "g-1", error_code: 5000 }))!;
+
+  it("resends it, marks nothing, and a failure of the resend is marked", async () => {
+    const storage = new MemoryStorage();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const ev = await sentThreaded(storage);
+    const resent: Threaded[] = [];
+    const resend = async (sent: Threaded) => (resent.push(sent), "mh-plain");
+    expect(await noteSendStatus(storage, failed(), NOW, resend)).toBe("resent");
+    expect(resent).toEqual([{ h: "mh-1", text: "First name, last name?", place: PLACE, at: NOW - 1000 }]);
+    expect((await keptEvents(storage, "g-1")).filter((event) => event.kind === "delivery")).toEqual([]);
+    // Redelivered: never resent twice; it is marked.
+    expect(await noteSendStatus(storage, failed(), NOW, resend)).toBe("marked");
+    expect(resent).toHaveLength(1);
+    // The resend's own status finds the same event, and its failure is marked, not resent.
+    const storage2 = new MemoryStorage();
+    const ev2 = await sentThreaded(storage2);
+    await noteSendStatus(storage2, failed(), NOW, resend);
+    expect(await noteSendStatus(storage2, failed("mh-plain"), NOW, resend)).toBe("marked");
+    expect((await keptEvents(storage2, "g-1")).find((event) => event.kind === "delivery")).toMatchObject({ delivered: false, reason: "failed", replyTo: ev2 });
+    expect(ev).toBeTruthy();
+    vi.restoreAllMocks();
+  });
+
+  it("a resend that fails, a text kept too long ago, a plain send, and a delivered one are never resent", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const throwing = async () => {
+      throw new Error("refused");
+    };
+    const storage = new MemoryStorage();
+    await sentThreaded(storage);
+    expect(await noteSendStatus(storage, failed(), NOW, throwing)).toBe("marked");
+    const old = new MemoryStorage();
+    await sentThreaded(old, "mh-1", NOW - KEEP_MS - 1);
+    const never = vi.fn(async () => "x");
+    expect(await noteSendStatus(old, failed(), NOW, never)).toBe("marked");
+    const plain = new MemoryStorage();
+    await noteHandle(plain, "mh-1", await addEvent(plain, { at: NOW, chat: "g-1", from: { kind: "tex" }, kind: "text", text: "hi", delivered: true }));
+    expect(await noteSendStatus(plain, failed(), NOW, never)).toBe("marked");
+    const fine = new MemoryStorage();
+    await sentThreaded(fine);
+    expect(await noteSendStatus(fine, parseSendStatus(callback({ group_id: "g-1", status: "DELIVERED", error_code: null }))!, NOW, never)).toBe("logged");
+    expect(never).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("the resend is plain, by the chat's own line, and a reply under it reaches Tex", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetcher = async (_url: RequestInfo | URL, init?: RequestInit) => (bodies.push(JSON.parse(String(init?.body))), Response.json({ message_handle: `mh-${bodies.length}` }));
+    const storage = new MemoryStorage();
+    const resend = resendPlain(storage, { fetch: fetcher, linqApiKey: "", sendblue: sendblueKeys("id", "secret")! }, () => NOW);
+    expect(await resend({ h: "mh-0", text: "In the group", place: { kind: "group", line: LINE, groupId: "g-1" }, at: NOW })).toBe("mh-1");
+    expect(await resend({ h: "mh-x", text: "In the 1:1", place: { kind: "person", chatId: CHAT }, at: NOW })).toBe("mh-2");
+    expect(bodies.map((body) => [body.content, body.reply_to])).toEqual([
+      ["In the group", undefined],
+      ["In the 1:1", undefined],
+    ]);
+    expect(await storage.get(SENT_KEY)).toEqual(["mh-1"]);
+  });
+});
+
 describe("the status route", () => {
   function env(): { env: Env; routed: { to: string; body: Record<string, unknown> }[] } {
     const routed: { to: string; body: Record<string, unknown> }[] = [];
@@ -132,5 +207,43 @@ describe("the status route", () => {
     expect((await worker.fetch(post("/sendblue/status/abcdefghijklmnop1234", { nothing: true }), e)).status).toBe(200);
     expect(routed).toEqual([]);
     vi.restoreAllMocks();
+  });
+});
+
+describe("how late Sendblue hands a text over (Tex Devs, 2026-11-13)", () => {
+  const NOW = Date.UTC(2026, 10, 13, 0, 33, 48);
+  it("is now less Sendblue's own sent time, for an inbound message only", () => {
+    expect(inboundLagMs({ date_sent: "2026-11-13T00:30:12.000Z", is_outbound: false, content: "Tex, where did we land?" }, NOW)).toBe(216_000);
+    // Tex's own echo, no sent time, a garbled one, a clock ahead or a replay a day old: no lag claimed.
+    for (const payload of [{ date_sent: "2026-11-13T00:30:12.000Z", is_outbound: true }, {}, { date_sent: "soon" }, { date_sent: 5 }, { date_sent: "2026-11-13T00:35:00.000Z" }, { date_sent: "2026-11-11T00:00:00.000Z" }, null, []]) {
+      expect(inboundLagMs(payload, NOW)).toBeNull();
+    }
+    // A sent time a few seconds ahead of our clock is no lag, never a negative one.
+    expect(inboundLagMs({ date_sent: "2026-11-13T00:33:50.000Z" }, NOW)).toBe(0);
+  });
+
+  it("logs the lag and whether it was a group's, never the number or the words", () => {
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: unknown) => void logs.push(String(line)));
+    try {
+      logInboundLag({ date_sent: "2026-11-13T00:30:12.000Z", content: "the launch codes", from_number: "+15555550123" }, NOW, true);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(logs.map((line) => JSON.parse(line))).toEqual([{ event: "sendblue_inbound_lag", lagMs: 216_000, group: true }]);
+  });
+
+  it("is logged for every inbound webhook the Worker takes", async () => {
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: unknown) => void logs.push(String(line)));
+    try {
+      const sent = new Date(Date.now() - 90_000).toISOString();
+      await worker.fetch(new Request("https://agent.example/sendblue", { method: "POST", headers: { "sb-signing-secret": "whsec-long-enough-0123456789" }, body: JSON.stringify({ date_sent: sent, is_outbound: false, content: "hi", from_number: "not-a-number", number: "not-a-number" }) }), { SENDBLUE_WEBHOOK_SECRET: "whsec-long-enough-0123456789" } as unknown as Env);
+    } finally {
+      spy.mockRestore();
+    }
+    const lag = logs.map((line) => { try { return JSON.parse(line); } catch { return null; } }).find((line) => line?.event === "sendblue_inbound_lag");
+    expect(lag?.group).toBe(false);
+    expect(lag?.lagMs).toBeGreaterThanOrEqual(90_000);
   });
 });

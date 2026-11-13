@@ -40,6 +40,7 @@ import { meetingJoinTables } from "./functions/lib/schema/meetingJoin";
 import { transcriptionConsentTables } from "./functions/lib/schema/transcriptionConsent";
 import { spellingTables } from "./functions/lib/schema/spelling";
 import { browserProfileTables } from "./functions/lib/schema/browserProfiles";
+import { browserHandbackTables } from "./functions/lib/schema/browserHandbacks";
 import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
@@ -54,6 +55,7 @@ import { staffSecondFactorTables } from "./functions/lib/schema/staffSecondFacto
 import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
 import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
+import { texToolFailureTables } from "./functions/lib/schema/texToolFailures";
 import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { trashTables } from "./functions/lib/schema/trash";
 import { oldCopiesTables } from "./functions/lib/schema/oldCopies";
@@ -143,6 +145,7 @@ const schema = defineSchema({
   ...transcriptionConsentTables,
   ...spellingTables,
   ...browserProfileTables,
+  ...browserHandbackTables,
   ...messageTables,
   ...placeTables,
   ...feedbackTables,
@@ -158,6 +161,7 @@ const schema = defineSchema({
   ...workspaceDomainTables,
   ...archivedAccountTables,
   ...agentTurnTables,
+  ...texToolFailureTables,
   ...searchTimingTables,
   ...trashTables,
   ...collaborationFilingTables,

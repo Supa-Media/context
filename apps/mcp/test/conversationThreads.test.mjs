@@ -104,14 +104,32 @@ test("classified texts older than a day are shown only through their thread; the
   const turn = await threadedTurn({ logged: turnOf(shown), ledger, chat: "texts", config: {}, request: async (...args) => ((asked += 1), answering({ thread: "t1", title: "Lisbon trip", description: "asking about the hotel again", finished: [] })(...args)), now: NOW, log: () => {} });
   assert.equal(asked, 0, "nothing is asked before the turn is shown (Dev2, 2026-11-12: never wait for it)");
   const text = turn.history[0].text;
-  assert.match(text, /- t1 · open · Lisbon trip/);
-  assert.doesNotMatch(text, /most likely/, "no guess is shown: the text is sorted after the answer");
+  // The thread list is said in the person's turn (`note`), so the history stays cacheable.
+  assert.match(turn.note, /- t1 · open · Lisbon trip/);
+  assert.doesNotMatch(text, /Lisbon trip/, "the history holds no thread list");
+  assert.doesNotMatch(text + turn.note, /most likely/, "no guess is shown: the text is sorted after the answer");
   assert.doesNotMatch(text, /find me a hotel in Lisbon/, "a thread's texts older than a day stay in their thread");
   assert.doesNotMatch(text, /book the dentist/, "another thread's old texts stay out");
   assert.match(text, /nobody answered this/, "a text no thread holds stays in view");
   assert.match(text, /@dana: lunch\?/);
   assert.deepEqual((await turn.sort()).map((each) => [each.thread, each.texts]), [["t1", ["new1"]]]);
   assert.equal(asked, 1);
+});
+
+// The history is cached for an hour across texts (`turn.js` `cachedThrough`), so the same chat read again minutes
+// later must render it byte for byte the same, even as the clock and the thread list change.
+// Sabotage: pass `now` back to `renderEvents` in threadedTurn.js, or put `listed` back in the history, and this fails.
+test("the threaded history is the same from one text to the next; what changes is in the note", async () => {
+  const shown = [person("old1", NOW - 48 * H, "find me a hotel in Lisbon"), person("y", NOW - 14 * H, "dinner tomorrow?"), person("z", NOW - 2 * H, "lunch?")];
+  const read = (now, entries) => threadedTurn({ logged: { ...turnOf(shown), parts: { ...turnOf(shown).parts, answering: now } }, ledger: fakeLedger(entries), chat: "texts", config: {}, request: answering({ thread: "new", title: "x", description: "x", finished: [] }), now, log: () => {} });
+  const lisbon = entry("t1", NOW - 72 * H, { title: "Lisbon trip", description: "flights booked", status: "open", texts: ["old1"] });
+  const first = await read(NOW, [lisbon]);
+  const later = await read(NOW + 9 * H, [lisbon, entry("t2", NOW + H, { title: "Lunch", description: "lunch plans", status: "open", texts: [] })]); // past midnight, and a thread more
+  assert.equal(later.history[0].text, first.history[0].text);
+  assert.doesNotMatch(first.note, /Lunch/);
+  assert.match(later.note, /t2 · open · Lunch/);
+  assert.match(first.note, /Saturday, Nov 7 was today/);
+  assert.match(later.note, /Saturday, Nov 7 was yesterday/);
 });
 
 test("on a chat's first thread nothing older drops out: texts from before threads are shown as before", async () => {
@@ -125,7 +143,7 @@ test("a classifier that fails leaves the list and the last day, and writes nothi
   const ledger = fakeLedger([entry("t1", NOW - 72 * H, { title: "Trip", description: "d", status: "open", texts: ["old1"] })]);
   const shown = [person("old1", NOW - 48 * H, "old trip text"), person("x", NOW - H, "recent")];
   const turn = await threadedTurn({ logged: turnOf(shown), ledger, chat: "texts", config: {}, request: async () => { throw new Error("down"); }, now: NOW, log: () => {} });
-  assert.match(turn.history[0].text, /- t1 · open · Trip/);
+  assert.match(turn.note, /- t1 · open · Trip/);
   assert.doesNotMatch(turn.history[0].text, /old trip text/);
   assert.deepEqual(await turn.sort(), []);
 });

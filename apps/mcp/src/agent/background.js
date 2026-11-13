@@ -43,6 +43,7 @@
  * grant a text would get, re-issued when it runs.
  */
 
+import { pagesSection } from "./jobPages.js";
 import { PAGE_JOB_LINE } from "../pages.js";
 import { mailLine, mailOf } from "./steer.js";
 import { pickMachine } from "../machines/forJobs.js";
@@ -77,6 +78,8 @@ export const MAX_JOB_ATTEMPTS = 10;
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_TITLE = 120;
 const MAX_BRIEF = 2_000;
+/** A started job's brief as kept: the model's words, then the chat's opened pages, written here (`jobPages.js`). */
+const MAX_JOB_BRIEF = 4_000;
 const MAX_STATUS = 280;
 /** `waiting`: on the person (a code, a captcha, card details); `stuck`: no way forward (`jobCheck.js`). */
 const STATES = new Set(["running", "done", "failed", "waiting", "stuck"]);
@@ -179,7 +182,7 @@ export function jobOf(value) {
   return {
     id: value.id,
     title,
-    brief: typeof value.brief === "string" ? value.brief.trim().slice(0, MAX_BRIEF) : "",
+    brief: typeof value.brief === "string" ? value.brief.trim().slice(0, MAX_JOB_BRIEF) : "",
     doneWhen: line(value.doneWhen, MAX_STATUS),
     attempt,
     tainted: value.tainted === true,
@@ -390,7 +393,7 @@ const text = (words, isError = false) => ({ content: [{ type: "text", text: word
  *
  * @param {{ running: Array|null, job: object|null, now: number, report?: boolean, read?: () => void }} options
  */
-export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false }) {
+export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false, opened = () => [] }) {
   if (running === null) return null;
   const started = [];
   let justStarted = []; // the titles of the jobs started since `endsTurn` last read them: a round may start several
@@ -453,7 +456,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         true,
       );
     }
-    started.push({ id: crypto.randomUUID(), title, brief, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
+    started.push({ id: crypto.randomUUID(), title, brief: `${brief}${pagesSection(opened())}`, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
     justStarted.push(title);
     const said = startLine(args?.say);
     if (said !== "") saying.push(said);

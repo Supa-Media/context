@@ -26,6 +26,7 @@
 import type { JobNote } from "./jobNote";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
+import { cut, MAX_INBOUND_TEXT } from "./inbound";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 
 /** What a turn asked to start, as the gateway wrote it. */
@@ -79,7 +80,7 @@ export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
 /** `asked`: who asked for the job and their words, so the chat's turn on its report can start it again (`jobTexts.ts`). */
 /** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
-export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number };
+export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; vaultLinks?: string[]; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -143,7 +144,7 @@ const VERDICTS = new Set(["done", "keep_going", "waiting", "stuck"]);
 const STATES = new Set(["running", "done", "failed", "waiting", "stuck"]);
 const MAX_STATUS = 280;
 /** The asker's words a report carries, as long as a text they could send. */
-const MAX_ASKED = 8_000;
+const MAX_ASKED = MAX_INBOUND_TEXT;
 /** A computer owner's ask is one short line (`groupAsk.js` `machineAskLine`). */
 const MAX_ASK = 400;
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
@@ -179,7 +180,7 @@ export function jobAsked(run: Pick<JobRun, "asked" | "origin">): string[] {
 }
 
 export function jobQuestion(typed: string, said: JobSaid = {}): string {
-  return [typed.trim(), (said.heard ?? "").trim(), (said.sent ?? "").trim()].filter(Boolean).join("\n\n").slice(0, MAX_ASKED);
+  return cut([typed.trim(), (said.heard ?? "").trim(), (said.sent ?? "").trim()].filter(Boolean).join("\n\n"), MAX_ASKED);
 }
 
 const line = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
@@ -221,7 +222,7 @@ export function readStartedJobs(value: unknown): StartedJob[] {
   return value.slice(0, MAX_TURN_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
     const { id, title, brief, doneWhen, asked, tainted, mail, machine } = entry as Record<string, unknown>;
-    const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 2_000) : "", doneWhen: line(doneWhen, MAX_STATUS) };
+    const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 4_000) : "" /* the model's 2,000 and the pages the chat opened (`apps/mcp/src/agent/jobPages.js`) */, doneWhen: line(doneWhen, MAX_STATUS) };
     if (job.title === "" || job.brief === "") return [];
     const project = readJobProject(mail);
     const computer = readJobMachine(machine);
@@ -517,7 +518,7 @@ function resultOf(update: JobUpdate): { result?: string } {
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, pass, asked, verdict, advice, ask, resumeAt } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, vaultLinks, pass, asked, verdict, advice, ask, resumeAt } = value as Record<string, unknown>;
   const by = asked && typeof asked === "object" ? (asked as Record<string, unknown>) : {};
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || typeof state !== "string" || !STATES.has(state)) return null;
@@ -528,6 +529,7 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(typeof status === "string" ? { status } : {}),
     ...(typeof step === "string" ? { step, ...(stepFailed === true ? { stepFailed: true as const, ...(typeof stepWhy === "string" ? { stepWhy } : {}) } : {}) } : {}),
     ...(typeof vaultWatch === "string" && vaultWatch !== "" ? { vaultWatch } : {}),
+    ...(Array.isArray(vaultLinks) && vaultLinks.length > 0 ? { vaultLinks: vaultLinks.filter((hash): hash is string => typeof hash === "string" && /^[0-9a-f]{64}$/.test(hash)).slice(0, 5) } : {}),
     ...(typeof ask === "string" && ask.trim() !== "" ? { ask: ask.slice(0, MAX_ASK) } : {}),
     ...(typeof pass === "string" && ID.test(pass) ? { pass } : {}),
     ...(typeof by.from === "string" && /^\+[1-9]\d{6,14}$/.test(by.from) && typeof by.text === "string" ? { asked: { from: by.from, text: by.text.slice(0, MAX_ASKED) } } : {}),

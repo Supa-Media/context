@@ -8,7 +8,7 @@
  *
  * What it keeps, bounded on purpose since it is customer text held outside
  * the customer's storage:
- * - `ev:<id>` one event, its words capped at 3,000 characters, until the
+ * - `ev:<id>` one event, its words capped at 20,000 characters, until the
  *   gateway has it. At most `MAX_KEPT_EVENTS`, at most `MAX_KEPT_CHARS` of
  *   words in all, none older than a day: the oldest go first.
  */
@@ -16,6 +16,7 @@
 import { post, record, type Fetch } from "./clients";
 import { staleAsks } from "./decide";
 import type { InboxStorage } from "./inbox";
+import { cut, cutText, MAX_INBOUND_TEXT } from "./inbound";
 
 export type EventKind = "text" | "picture" | "file" | "link" | "reaction" | "ask" | "ask_settled" | "delivery";
 export type EventReason = "upload_failed" | "send_refused" | "held_newcomer" | "failed" | "timed_out" | "too_long";
@@ -27,6 +28,8 @@ export type TexEvent = {
   from: { kind: "person" | "tex" | "system"; who?: string; name?: string };
   kind: EventKind;
   text?: string;
+  /** The characters cut off a person's text (`inbound.ts` `cutText`); only on a person's `text` event, as the gateway takes it. */
+  left?: number;
   replyTo?: string;
   /** On a reply: the full words of the message it answers (`replyQuote.ts`). */
   quoted?: string;
@@ -47,7 +50,7 @@ type Kept = { e: TexEvent; w?: true };
 
 const PREFIX = "ev:";
 const SEQ = "evseq";
-export const MAX_EVENT_TEXT = 3000;
+export const MAX_EVENT_TEXT = MAX_INBOUND_TEXT;
 /** The most the outbox holds: a gateway that stays down this long loses the oldest (`apps/mcp/src/agent/log.js` `READ_LIMIT`, `READ_CHARS`). */
 export const MAX_KEPT_EVENTS = 400;
 export const MAX_KEPT_CHARS = 120_000;
@@ -86,11 +89,14 @@ export async function addEvent(storage: InboxStorage, event: Omit<TexEvent, "id"
   await storage.put(SEQ, seq);
   const at = Math.max(0, Math.floor(event.at));
   const id = `${String(at).padStart(13, "0")}-${String(seq % 1_000_000).padStart(6, "0")}`;
-  const text = event.text === undefined ? {} : { text: event.text.slice(0, MAX_EVENT_TEXT) };
-  const quoted = event.quoted === undefined || event.quoted === "" ? {} : { quoted: event.quoted.slice(0, MAX_EVENT_TEXT) };
+  const { left: given, ...unmarked } = event;
+  const kept = event.text === undefined ? undefined : cutText(event.text, MAX_EVENT_TEXT);
+  const left = event.kind === "text" && event.from.kind === "person" ? (kept?.left ?? given) : undefined;
+  const text = kept === undefined ? {} : { text: kept.text, ...(left ? { left } : {}) };
+  const quoted = event.quoted === undefined || event.quoted === "" ? {} : { quoted: cut(event.quoted, MAX_EVENT_TEXT) };
   const name = displayName(event.from.name);
   const from = { kind: event.from.kind, ...(event.from.who ? { who: event.from.who } : {}), ...(name ? { name } : {}) };
-  await storage.put<Kept>(`${PREFIX}${id}`, { e: { ...event, ...text, ...quoted, from, at, id } });
+  await storage.put<Kept>(`${PREFIX}${id}`, { e: { ...unmarked, ...text, ...quoted, from, at, id } });
   await prune(storage, event.at);
   // Words held outside the customer's bucket never outlive the day, even in a chat that goes quiet.
   await armBy(storage, at + KEEP_EVENTS_MS, at);
@@ -149,7 +155,36 @@ export async function flushEvents(
   conversation: Conversation,
   chat?: string,
 ): Promise<void> {
-  await prune(storage, deps.now(), SEND_WITHIN_MS);
+  await flushOutbox(storage, deps.now, chat, (events) => post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/events`, accessToken, { conversation, events }, FLUSH_TIMEOUT_MS));
+}
+
+/** The gateway's binding route for a group's events by its ledger key (`apps/mcp/src/agent/textsDecide.js` `eventsForTexts`). */
+export const GATEWAY_EVENTS_URL = "https://gateway/texts/events";
+export type LedgerWrite = { binding: { fetch: (input: string, init?: RequestInit) => Promise<Response> }; ledger: string };
+
+/**
+ * A group's waiting events sent over the gateway binding by the chat's ledger key, with no token: what the chat says
+ * while Tex stays quiet reaches its history as it is said, even when no turn has left a token in this object's memory
+ * (after a deploy or an idle hour: Tex Devs, 2026-11-12 and 13, texts written hours late). The gateway takes them only
+ * for a chat that already has a ledger; anything it does not take waits here, as before. Never throws.
+ */
+export async function flushEventsByLedger(storage: InboxStorage, by: LedgerWrite, chat: string, now: () => number): Promise<void> {
+  await flushOutbox(storage, now, chat, (events) =>
+    post((input, init) => by.binding.fetch(String(input), init), "gateway", GATEWAY_EVENTS_URL, "", { ledger: by.ledger, chat, events }, FLUSH_TIMEOUT_MS),
+    // A refusal that names no event field is of the ask (its key or chat), never of the events: they wait for a token.
+    true,
+  );
+}
+
+/** Every waiting event of `chat` (every chat when none), 50 a call, one chat's per call, through `send`; what it wrote is forgotten here. */
+async function flushOutbox(
+  storage: InboxStorage,
+  now: () => number,
+  chat: string | undefined,
+  send: (events: TexEvent[]) => Promise<{ status: number; json: unknown }>,
+  keepUnnamed = false,
+): Promise<void> {
+  await prune(storage, now(), SEND_WITHIN_MS);
   await dropWritten(storage);
   const waiting = (await unwritten(storage)).filter((event) => chat === undefined || event.chat === chat);
   // Every event in one call is the same chat's.
@@ -161,10 +196,11 @@ export async function flushEvents(
   for (const events of batches) {
     let written: string[];
     try {
-      const { status, json } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/events`, accessToken, { conversation, events }, FLUSH_TIMEOUT_MS);
+      const { status, json } = await send(events);
+      const field = record(json).error_description;
+      if (status === 400 && keepUnnamed && typeof field !== "string") return;
       if (status === 400) {
         // Refused as malformed: retrying the same batch would be refused forever, so it is dropped.
-        const field = record(json).error_description;
         console.log(JSON.stringify({ event: "tex_events", outcome: "refused", ...(typeof field === "string" && /^[\w.\[\]-]{1,64}$/.test(field) ? { field } : {}) }));
         written = events.map((event) => event.id);
       } else if (status !== 200) return;
@@ -215,7 +251,7 @@ type Owed = { record: string; who: string };
 
 /** Log one ask Tex sent (`kind: "ask"`) to the person hashed `who`, with the ask line it showed (`text`), and keep it waiting for their yes. */
 export async function logAsk(storage: InboxStorage, event: Omit<TexEvent, "id" | "kind" | "ask">, record: string, who: string, text: string): Promise<void> {
-  const id = await addEvent(storage, { ...event, kind: "ask", ask: record, text: oneLine(text).slice(0, MAX_EVENT_TEXT) });
+  const id = await addEvent(storage, { ...event, kind: "ask", ask: record, text: cut(oneLine(text), MAX_EVENT_TEXT) });
   const asks = ((await storage.get<Ask[]>(ASKS_KEY)) ?? []).filter((ask) => event.at - ask.at < ASK_ARMED_MS);
   await storage.put<Ask[]>(ASKS_KEY, [...asks, { id, record, at: event.at, who }].slice(-MOST_ASKS));
 }
@@ -261,8 +297,16 @@ export function flushChat(...args: Parameters<typeof flushChatNow>): Promise<voi
  * to date"). Nothing else is owed here: stale asks go only with the session of the person they belong to.
  */
 export function flushEventsInLine(...args: Parameters<typeof flushEvents>): Promise<void> {
-  const [storage] = args;
-  const next = (flushing.get(storage) ?? Promise.resolve()).catch(() => {}).then(() => flushEvents(...args));
+  return inLine(args[0], () => flushEvents(...args));
+}
+
+/** The same, by the chat's ledger key over the gateway binding, for an object that holds no token (`chatRead.ts`). */
+export function flushByLedgerInLine(...args: Parameters<typeof flushEventsByLedger>): Promise<void> {
+  return inLine(args[0], () => flushEventsByLedger(...args));
+}
+
+function inLine(storage: InboxStorage, work: () => Promise<void>): Promise<void> {
+  const next = (flushing.get(storage) ?? Promise.resolve()).catch(() => {}).then(work);
   flushing.set(storage, next);
   return next;
 }
@@ -319,8 +363,16 @@ const speaker = (name: string | undefined): string => `@${oneLine(name ?? "").re
  * history, as the gateway's transcript shows it (`apps/mcp/src/agent/logRender.js`, 2026-11-03). A group's is the whole
  * log, whoever has joined or left since (the owner, 2026-11-02).
  */
-export function renderTranscript(events: readonly TexEvent[], options: { timeZone?: string; limit?: number } = {}): string {
+export function renderTranscript(events: readonly TexEvent[], options: { timeZone?: string; limit?: number; names?: ReadonlyMap<string, string> } = {}): string {
   const shown = events;
+  // A person whose event carries no name is called what the chat's turn calls them (a handle, or a guest's label),
+  // never "@someone": two unnamed people, or another assistant and a guest, would read as one (Dev2, 2026-11-12).
+  const nameOf = (from: TexEvent["from"]) => from.name ?? (from.who !== undefined ? options.names?.get(from.who) : undefined);
+  const whoSaid = (event: TexEvent) => (event.from.kind === "tex" ? "You" : event.from.kind === "system" ? "Context" : speaker(nameOf(event.from)));
+  // Tex's newest text, when it asks something, is marked as Tex's question: an answer to it after (a tapback, "the
+  // 10th") reads as said to Tex (Battle of the Bots, 2026-11-12). A fact for the judge, never a rule in code.
+  const lastTex = [...shown].reverse().find((event) => event.from.kind === "tex" && event.kind === "text");
+  const open = lastTex !== undefined && (lastTex.text ?? "").includes("?") ? lastTex.id : undefined;
   const byId = new Map(shown.map((event) => [event.id, event]));
   const answered = new Set(shown.filter((event) => event.from.kind === "tex" && event.delivered !== false).flatMap((event) => event.covers ?? []));
   const newestAnswered = shown.reduce((newest, event) => (answered.has(event.id) ? Math.max(newest, event.at) : newest), -Infinity);
@@ -335,14 +387,17 @@ export function renderTranscript(events: readonly TexEvent[], options: { timeZon
     const today = day(event.at);
     if (today !== lastDay) lines.push(`--- ${today} ---`);
     lastDay = today;
-    const who = event.from.kind === "tex" ? "You" : event.from.kind === "system" ? "Context" : speaker(event.from.name);
+    const who = whoSaid(event);
     const said = event.told ? (TOLD_WORDS[event.told] ?? "") : oneLine(event.text ?? "").trim();
     const words = said || (event.kind === "delivery" ? `(your message <${event.replyTo ?? "unknown"}> did not reach them)` : event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
     const unanswered = event.from.kind === "person" && event.at >= newestAnswered && !answered.has(event.id) ? "   (not answered)" : "";
-    // A reply under an earlier message says so: under one of Tex's own, the judge reads it as said to Tex.
-    const under = event.from.kind === "person" && event.replyTo !== undefined ? (byId.get(event.replyTo)?.from.kind === "tex" ? " (replying to You)" : ` (replying to <${event.replyTo}>)`) : "";
+    // A reply under an earlier message says whose it is: under one of Tex's own, the judge reads it as said to Tex;
+    // under a person's, as said to that person (an assistant's reply under Seyi's text read as one to Tex, 2026-11-12).
+    const target = event.replyTo !== undefined ? byId.get(event.replyTo) : undefined;
+    const under = event.from.kind === "person" && event.replyTo !== undefined ? (target === undefined ? ` (replying to <${event.replyTo}>)` : ` (replying to ${whoSaid(target)})`) : "";
+    const asking = event.id === open ? "   (your newest question)" : "";
     // Each line carries its event id, so what decide is asked about by id is grounded in the line it reads.
-    lines.push(`<${event.id}> [${time(event.at)}] ${who}:${under} ${words}${unanswered}`);
+    lines.push(`<${event.id}> [${time(event.at)}] ${who}:${under} ${words}${unanswered}${asking}`);
     if (event.from.kind === "tex" && event.delivered === false) lines.push(`           (not delivered: ${NOT_DELIVERED[event.reason ?? "failed"]})`);
   }
   const limit = options.limit ?? TRANSCRIPT_CHARS;

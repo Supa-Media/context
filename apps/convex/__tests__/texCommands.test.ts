@@ -104,6 +104,8 @@ describe("a group's commands as tools", () => {
     expect((await groupRow(t)).speaksUp).toBe("quiet");
     expect(await command(t, token, { kind: "engagement", engagement: "loud" })).toEqual({ status: "bad_request" });
     expect(await command(t, token, { kind: "status" })).toEqual({ status: "done", slug: "studio", guest: false });
+    // The chat's settings name its workspace too, for "how are you set up here".
+    expect(await command(t, token, { kind: "settings" })).toMatchObject({ status: "done", slug: "studio" });
   });
 
   test("muting stops Tex, and the grant then resolves to nothing", async () => {
@@ -206,11 +208,13 @@ describe("a person's own chat", () => {
     await texter(t, "ada", ADA);
     const opened = await agentPost(t, "/agent-texts/session", { phone: ADA });
     const token = opened.accessToken as string;
-    expect(await command(t, token, { kind: "settings" })).toEqual({ status: "done" });
+    expect(await command(t, token, { kind: "settings" })).toEqual({ status: "done", sharing: false });
     expect(await command(t, token, { kind: "instructions", action: "add", text: "Keep answers short." })).toEqual({ status: "done", instructions: "Keep answers short." });
     expect(await command(t, token, { kind: "updates", updates: "off" })).toEqual({ status: "done", instructions: "Keep answers short.", updates: "off" });
-    expect(await command(t, token, { kind: "settings" })).toEqual({ status: "done", instructions: "Keep answers short.", updates: "off" });
+    expect(await command(t, token, { kind: "settings" })).toEqual({ status: "done", instructions: "Keep answers short.", updates: "off", sharing: false });
     expect(await command(t, token, { kind: "review_sharing", share: true })).toMatchObject({ status: "done", sharing: true });
+    // Settings read the switch back (Dev2, 2026-11-12: Tex knows its own settings).
+    expect(await command(t, token, { kind: "settings" })).toMatchObject({ sharing: true });
     expect(await command(t, token, { kind: "mute" })).toEqual({ status: "not_allowed" });
     expect(await command(t, token, { kind: "share_mail", address: WORK })).toEqual({ status: "not_allowed" });
   });

@@ -38,10 +38,19 @@ export const ONE_TO_ONE_ONLY = "not here; say they can text you on their own for
 export const CAPABILITIES = Object.freeze([
   {
     name: "Who is in a chat",
-    actions: [],
+    actions: ["send.name_guest"],
     texts: "a 1:1 text is just them; in a group chat you can say who is there",
-    group: "say who is in this chat from its whole list, read from the chat each turn: everyone with a linked Context account by handle and name, everyone else as a guest label (never a number), and how many; a guest's name goes in the chat's about note once someone here says it",
+    group: "say who is in this chat from its whole list, read from the chat each turn: everyone with a linked Context account by handle and name, everyone else as a guest label, each with their phone number (everyone in the chat already sees them, so Tex says a number where a person would, never a label), and how many; once someone here says who a guest is, Tex keeps the name on the chat itself (send name_guest) and the list, the chat's lines and who tagged it show that name beside the number",
     cant: [{ where: "group", what: "see the account of someone whose number here isn't linked to one", workaround: { kind: "words", text: "they text you once on their own from the number they use in this chat, which links it" } }],
+  },
+  {
+    name: "Who someone is, for a form",
+    actions: ["send.ask_personal_tex"],
+    texts: "you know their own name, phone number and emails from their account, and use them for any form or sign-in without asking",
+    group: "ask the personal Tex of whoever tagged you for their name, phone number and emails, for a form or sign-in they asked for (send ask_personal_tex): the chat is told you're asking, and you never ask them for these; for somebody else here, pass as and only their 👍 or yes lets you ask; never repeat a phone number or email into the chat",
+    guest: "ask them in the chat for what the form needs",
+    who: "the person it is about asks, or OKs someone else's ask with their own 👍 or yes",
+    cant: [{ where: "group", what: "ask the personal Tex of someone here who isn't on Context", workaround: { kind: "words", text: "ask them in the chat for what the form needs" } }],
   },
   {
     name: "Notes",
@@ -80,9 +89,9 @@ export const CAPABILITIES = Object.freeze([
   },
   {
     name: "Inviting people",
-    actions: ["manage.invite", "words.invite"],
+    actions: ["manage.invite", "words.invite", "send.chat_add_everyone"],
     texts: "invite people by email into a shared workspace they own; the invitations go once they say yes",
-    group: "the workspace's owner types \"Tex, add everyone here to @name\" (add \"as members\" for read-only) and everyone in the chat is invited by phone",
+    group: "the workspace's owner asks in any words (\"share @name with everyone here\", \"add the group to @name as members\") and you call send chat_add_everyone, or they type \"Tex, add everyone here to @name\"; everyone in the chat is invited by phone after your answer, a line saying how many follows, and from then on you can use all of that workspace here",
     guest: "the same words, typed by the workspace's owner",
     cant: [{ where: "everywhere", what: "change a member's role, remove someone from a workspace, or cancel an invitation", workaround: { kind: "app_path", text: "the owner opens Context app → Settings → People & sharing → Members" } }],
   },
@@ -95,10 +104,10 @@ export const CAPABILITIES = Object.freeze([
   },
   {
     name: "Saved logins, keys and cards (the vault)",
-    actions: ["manage.vault_add", "manage.vault_share", "manage.vault_view", "send.fill_login", "send.fill_card", "send.api"],
-    texts: "send the link where they save a login, key or card; sign in yourself with a saved login you never see (a site that signs in by email and a one-time code needs no saved login: they text you the code and you type it); fill a saved card after asking by text for each purchase, naming the card, total and site, on their plain yes; call an API with a saved key (the first use by each AI is approved in the Context app, never by text); send a private link where they see a saved entry; after they save a login you sent the link for, carry on with the task by yourself",
-    group: "only logins and cards saved in the workspace's vault for the whole workspace, never anyone's own and never typed in the chat; you can send a save link here for a login the whole workspace will use; a card is filled on the tagger's plain yes in the chat; a sign-in by emailed code needs no saved login",
-    guest: "only a login saved in the workspace's vault and shared with the chat",
+    actions: ["manage.vault_add", "manage.vault_share", "manage.vault_view", "send.fill_login", "send.fill_card", "send.api", "send.vault_access"],
+    texts: "say who can use each saved login, key or card (only them, one group chat, everyone in a workspace, or people by name) and change it when the person who saved it asks (send vault_access: give it to a group chat, a whole shared workspace or a member by @handle, take it back, keep it to themselves, or cut every AI off it), then say who has it now; send the link where they save a login, key or card; sign in yourself with a saved login you never see (a site that signs in by email and a one-time code needs no saved login: they text you the code and you type it); fill a saved card after asking by text for each purchase, naming the card, total and site, on their plain yes; call an API with a saved key (the first use by each AI is approved in the Context app, never by text); send a private link where they see a saved entry; after they save a login you sent the link for, carry on with the task by yourself",
+    group: "logins and cards saved for this chat or the whole workspace, and ones the person who tagged you saved for themselves (on their own tag only), never typed in the chat; whoever saved one can give it to this chat, the workspace or a person, or take it back, by asking you here (send vault_access); send a save link here in one short line, without asking which vault: its page offers this chat, the whole workspace (showing who here is in it, with Add for anyone who isn't) or just them, and once it's saved you carry on in the chat by yourself; a card is filled on the tagger's plain yes in the chat; a sign-in by emailed code needs no saved login",
+    guest: "only a login saved for this chat or shared with it, or one the person who tagged you saved for themselves",
     cant: [
       {
         where: "everywhere",
@@ -109,14 +118,15 @@ export const CAPABILITIES = Object.freeze([
         },
       },
       { where: "everywhere", what: "use a login on a site other than the one it was saved for", workaround: { kind: "vault_env", text: "send manage vault_add's link with that other site, so they save it there too" } },
-      { where: "everywhere", what: "share a login saved in a personal workspace", workaround: { kind: "vault_env", text: "they save it in the shared workspace (manage vault_add with that context), then you send manage vault_share's link" } },
-      { where: "everywhere", what: "delete a saved key, or cut off one AI or every AI from using it", workaround: { kind: "app_path", text: "Context app → Settings → Vault" } },
+      { where: "everywhere", what: "share a login saved in a personal workspace", workaround: { kind: "vault_env", text: "they save it in the shared workspace (manage vault_add with that context), then you give it with send vault_access" } },
+      { where: "everywhere", what: "change who has a login someone else saved", workaround: { kind: "words", text: "whoever saved it asks you, or changes it in Context app → Settings → Vault" } },
+      { where: "everywhere", what: "delete a saved key, or cut off one particular AI (send vault_access cuts off every AI)", workaround: { kind: "app_path", text: "Context app → Settings → Vault" } },
       { where: "group", what: "use someone's own saved login or card", workaround: { kind: "words", text: "they text you on their own for it, or save it in the workspace's vault and give it to everyone there" } },
       { where: "guest", what: "pay with a card when whoever tagged you isn't on Context", workaround: { kind: "words", text: "someone here who is on Context tags you to pay, and their own plain yes allows it" } },
       {
         where: "everywhere",
         what: "type a code you weren't texted, solve a captcha you can't get past, pass a passkey only their own device holds, or pay without them",
-        workaround: { kind: "link", text: "add a handoff step in browse: they get a link to your browser and do only that step, then you carry on; if they've said they won't take the browser, say exactly the one step they do" },
+        workaround: { kind: "link", text: "add a handoff step in browse: they get a link to your browser (in a group chat, the chat's own Tex page, for anyone here signed in to Context) and do only that step, then press Done there and you carry on by yourself (texting \"done\" works too); with no link, or if they've said they won't take the browser, keep the browser where it got to and say the one step left, never the whole form again" },
       },
     ],
   },
@@ -125,7 +135,7 @@ export const CAPABILITIES = Object.freeze([
     actions: ["send.search_web", "send.open_page", "send.browse", "send.travel_time"],
     texts: "search the web, read pages, drive a real browser (sign in, fill forms, book, buy on their yes), attach a file from their notes, a picture they texted or an email's attachment to a page, save a file a site offers into their notes, get travel times from Google Maps, and sign your browser out of every site when they ask (it forgets every sign-in it kept)",
     group: "the same, with this chat's own browser: whatever is signed in to here stays signed in for the chat; signing out signs out only the chat's browser",
-    cant: [{ where: "everywhere", what: "show them your browser inside a text", workaround: { kind: "link", text: "they watch or take over your browser live at context.lc/tex/@their-handle?view=computer, or at the handoff link browse sends" } }],
+    cant: [{ where: "everywhere", what: "show them your browser inside a text", workaround: { kind: "link", text: "they watch or take over your browser live at context.lc/tex/@their-handle?view=computer&full=1 (a group chat's at context.lc/tex/group/<its words>/computer?full=1), or at the handoff link browse sends" } }],
   },
   {
     name: "Sending email",
@@ -334,9 +344,9 @@ export const CAPABILITIES = Object.freeze([
   },
   {
     name: "How you talk, and your settings",
-    actions: ["command.tex_settings", "command.tex_instructions"],
-    texts: "there is no settings menu: they tell you in their own words how to talk (\"no emoji\", \"shorter answers\", \"call me Sam\", \"always in French\") and you change it on a lasting request; you can show what's set, put back the last change (\"undo the change\") or clear it",
-    group: "the same for this chat, anyone here may change it, and you say who did",
+    actions: ["command.tex_settings", "command.tex_instructions", "send.setting"],
+    texts: "there is no settings menu, and you know every setting: send tex_settings reads them all (how you talk, check-ins and quiet hours, texts from their other AIs, the overnight About me rewrite, the daily tidy, sharing with the team, features on early, the workspaces they reach, and each saved login with who can use it); they tell you in their own words how to talk (\"no emoji\", \"shorter answers\", \"call me Sam\", \"always in French\") and you change it on a lasting request, put back the last change (\"undo the change\") or clear it; check-ins, quiet hours, texts from their other AIs, the overnight rewrite and the tidy change with send setting when they ask",
+    group: "the same for how you talk in this chat, anyone here may change it, and you say who did; send tex_settings here reads this chat's instructions, whose mail is shared here, the workspaces it reaches and the saved logins that work here",
   },
   {
     name: "When you speak up in a group",

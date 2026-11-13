@@ -108,6 +108,8 @@ function readQuestion(sec) {
     checks: [],
     // Background jobs the chat already has running, with `background: on` (`run.mjs` `benchRunning`).
     running: 0,
+    // In a group test (`group:`), what other members text before the person's nth text: `- @priya before text 2: "..."`.
+    others: [],
     body: sec.lines.join("\n").trim(),
   };
   for (const raw of sec.lines) {
@@ -120,6 +122,7 @@ function readQuestion(sec) {
     else if (/^- gate:/.test(line)) q.gate = true;
     else if ((m = line.match(/^- running:\s*(\d+)\s*(?:jobs?)?\s*$/))) q.running = Number(m[1]);
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
+    else if ((m = line.match(/^- @([a-z0-9-]+) before text (\d+):\s*(.*)$/))) q.others.push({ from: m[1], before: Number(m[2]), text: unquote(m[3]) });
     else if ((m = line.match(/^- person sends picture:\s*(.*)$/))) q.sendsPicture = pictureName(m[1].trim());
     else if (/^- person answers asks\s*$/.test(line)) q.answersAsks = true;
     else if ((m = line.match(/^- if asked (.+?):\s*(.*)$/))) q.ifAsked.push({ when: m[1], say: unquote(m[2]) });

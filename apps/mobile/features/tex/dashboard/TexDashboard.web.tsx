@@ -26,6 +26,7 @@ import { DashboardExplore } from "./DashboardExplore.web";
 import { PainPanel } from "./DashboardPain.web";
 import { ModelsPanel, TasksPanel, ToolsPanel, VolumePanel } from "./DashboardPanels.web";
 import { ProgressPanel } from "./DashboardProgress.web";
+import { ToolFailuresPanel } from "./DashboardToolFailures.web";
 import { CostPanel, SpendPanel } from "./DashboardSpend.web";
 import {
   CODES_BEGAN,
@@ -189,6 +190,7 @@ function Body(props: {
       <PainPanel rows={pain} untriaged={untriaged} onOpen={onOpen} onSignal={exploreSignal} onSend={send} />
       <ProgressPanel series={series} days={turnDays} markers={markers} />
       {desk !== null ? <BugsPanel bugs={desk.bugs} days={turnDays} statusOf={props.statusOf} onOpen={onOpen} /> : null}
+      <ToolFailuresPanel report={report} />
       <CostPanel report={report} spend={spend} days={days} />
       <details id="more" className="td-more">
         <summary>Everything else: models, tools, tasks, volume, spend and every scored chat</summary>

@@ -47,7 +47,7 @@ import { browserJar } from "./browserJar.js";
 import { browserProfile } from "./browserProfile.js";
 import { SIGN_OUT_BROWSER_TOOL, signOutBrowserTool } from "./signOutBrowser.js";
 import { decisionTokens } from "./decide.js";
-import { MAX_SEARCHES_PER_TURN, MAX_SEARCHES_PER_TURN_OPEN_WEB, cleanQuery } from "./search.js";
+import { MAX_QUERY_CHARS, MAX_SEARCHES_PER_TURN, MAX_SEARCHES_PER_TURN_OPEN_WEB, cleanQuery } from "./search.js";
 import { OpenableAddresses } from "./trustedSites.js";
 import { TRAVEL_TIME_TOOL, travelTimeTool } from "./travelTime.js";
 
@@ -460,6 +460,9 @@ export function webSession(computer, question, { decide = null, search = null, a
       // `url` alone is accepted too: models reach for the singular.
       const asked = Array.isArray(args?.urls) ? args.urls : [args?.url];
       const wanted = [...new Set(asked.map(canonicalUrl))];
+      if (asked.every((url) => typeof url !== "string" || url.trim() === "")) {
+        return text('open_page needs the addresses to open: send { action: "open_page", args: { urls: ["https://..."] } }.', true);
+      }
       if (wanted.some(builtFormLink)) return text(BUILT_FORM_LINK_ERROR, true);
       if (wanted.length === 0 || wanted.some((url) => url === null || !allowed.has(url))) {
         return text(
@@ -510,7 +513,15 @@ export function webSession(computer, question, { decide = null, search = null, a
 
   async function searchWeb(args) {
     const query = cleanQuery(args?.query);
-    if (query === null) return text("Write a short search query.", true);
+    if (query === null) {
+      // Says what was wrong with the call, never that no query was written when one was (2026-11-12).
+      return text(
+        typeof args?.query === "string" && args.query.trim().length > MAX_QUERY_CHARS
+          ? `That search query is too long (over ${MAX_QUERY_CHARS} characters). Search a few key words.`
+          : 'search_web needs the words to search for: send { action: "search_web", args: { query: "a few key words" } }.',
+        true,
+      );
+    }
     const searchCap = allowed.webIsOpen() ? MAX_SEARCHES_PER_TURN_OPEN_WEB : MAX_SEARCHES_PER_TURN;
     if (usage.searches >= searchCap) {
       return text(`That's all the searches one question gets (${searchCap}). Open the pages you found, or a site that has it (the place's own site, its ordering page, a map listing), for the rest.`, true);

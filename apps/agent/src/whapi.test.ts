@@ -153,6 +153,15 @@ describe("sendWhapiText", () => {
     expect(calls[0].body).toEqual({ to: GROUP, body: "hi all" });
   });
 
+  // A vault link is private to one person: no preview card in the chat (Dev2, 2026-11-12, the Crystal Care Gusto link).
+  it("sends a vault link with no preview card, and any other link as before", async () => {
+    const { fetcher, calls } = fakeWhapi();
+    await sendWhapiText(fetcher, KEYS, GROUP, "Save it here: https://context.test/vault/0123456789abcdef0123?name=Gusto");
+    await sendWhapiText(fetcher, KEYS, GROUP, "See https://example.com/vault/notes");
+    expect(calls[0].body).toEqual({ to: GROUP, body: "Save it here: https://context.test/vault/0123456789abcdef0123?name=Gusto", no_link_preview: true });
+    expect(calls[1].body).toEqual({ to: GROUP, body: "See https://example.com/vault/notes" });
+  });
+
   it("refuses a destination that is neither a phone nor a group, without calling Whapi", async () => {
     const { fetcher, calls } = fakeWhapi();
     await expect(sendWhapiText(fetcher, KEYS, "someone@example.com", "hi")).rejects.toBeInstanceOf(ServiceError);

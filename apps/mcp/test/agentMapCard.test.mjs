@@ -15,6 +15,10 @@
  *     wrote is never drawn" fails.
  *   `drawMap` keeping a map with a missing tile → "a map whose tiles do not
  *     all come is left off whole" fails.
+ *   `unpinnedRows` answering [] → "a place the map can't pin keeps its row,
+ *     marked" and "the card check is told" fail.
+ *   `spreadPins` returning its input → "pins on nearly one spot are pushed
+ *     apart" fails.
  */
 
 import assert from "node:assert/strict";
@@ -23,7 +27,8 @@ import { test } from "node:test";
 import { outgoingPictures } from "../src/agent/outgoingPictures.js";
 import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
 import { VISUAL_TEMPLATES, VISUAL_TOOL, buildVisual } from "../src/agent/visuals/index.js";
-import { MAP_HEIGHT, MAX_TILES, drawMap, googleMapUrl, mapStops, tileLayout, worldPixel } from "../src/agent/visuals/map.js";
+import { MAP_HEIGHT, MAX_TILES, PIN_ROOM, drawMap, googleMapUrl, mapStops, spreadPins, tileLayout, worldPixel } from "../src/agent/visuals/map.js";
+import { cardCheckFor, unpinnedRule } from "../src/agent/cardCheck.js";
 
 const CARD_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
 const KEY = "test-maps-key-not-real";
@@ -214,4 +219,53 @@ test("a map the model wrote is never drawn; the map template lists its stops wit
   assert.match(plain.html, /Pick up the tulips/);
   const withMap = buildVisual({ template: "map", data: { title: "Saturday", stops: [{ name: "A" }] } }, { map: { kind: "google", image: "card-photo:3", height: 340 } });
   assert.match(withMap.html, /url\('card-photo:3'\)/);
+});
+
+/*
+  The Nov Babies chat (2026-11-12): Muses had no address and Karaoke City only
+  "Midtown", so the map left their pins off while their rows kept numbers 2
+  and 4, and the card check refused the card ("the map shows only pins 1 and
+  3"). Four redraws, 78 s. Now the row says so, and the check is told.
+*/
+const NO_ADDRESS = { ...FLORISTS, items: [FLORISTS.items[0], { name: "Muses 35", note: "Room packages" }, ...FLORISTS.items.slice(1)] };
+
+test("a place the map can't pin keeps its row, marked Not on the map, with a hollow number", async () => {
+  const drawn = await drawMap("places", NO_ADDRESS, { geocode, read: READ, fetchImpl: mapWeb().fetchImpl });
+  assert.deepEqual(drawn.map.pins.map((p) => p.n), [1, 3, 4]);
+  assert.deepEqual(drawn.map.unpinned, [2]);
+  const far = async (address) => (address.startsWith("2337") ? { lat: 34.05, lon: -118.24 } : geocode(address));
+  assert.deepEqual((await drawMap("places", FLORISTS, { geocode: far, read: READ, fetchImpl: mapWeb().fetchImpl })).map.unpinned, [3], "one the geocoder put far away too");
+  const built = buildVisual({ template: "places", data: NO_ADDRESS }, { canLoad: () => false, photos: new Map(), map: drawn.map });
+  assert.equal((built.html.match(/Not on the map/g) ?? []).length, 1, "only its row");
+  const second = built.html.split("border-top: 1px solid").slice(1)[1];
+  assert.match(second, /Muses 35/);
+  assert.match(second, /Not on the map/);
+  const unmarked = buildVisual({ template: "places", data: FLORISTS }, { canLoad: () => false, photos: new Map(), map: (await drawMap("places", FLORISTS, { geocode, read: READ, fetchImpl: mapWeb().fetchImpl })).map });
+  assert.doesNotMatch(unmarked.html, /Not on the map/, "every place pinned: no mark");
+});
+
+test("the card check is told which rows have no pin on purpose", async () => {
+  const shots = siteShots();
+  const web = mapWeb();
+  const outgoing = outgoingPictures({ enabled: true, question: "karaoke spots for 20 in nyc" });
+  const asked = [];
+  const maker = pictureMaker(shots, { outgoing, fetchImpl: web.fetchImpl, mapGeocode: geocode, check: async (call) => (asked.push(call), { send: true, critique: "" }) });
+  const call = outgoing.wrap(withPictureMaker(maker, async () => ({ content: [{ type: "text", text: READ }] })));
+  await call("web_search", { query: "karaoke" });
+  const result = await call(VISUAL_TOOL, { template: "places", data: NO_ADDRESS });
+  assert.notEqual(result.isError, true);
+  assert.deepEqual(asked[0].unpinned, [2]);
+  const sent = [];
+  const check = cardCheckFor({ question: "karaoke for 20", config: { url: "https://gateway.test" }, request: async (c) => (sent.push(c), { text: '{"send": true}' }), log: () => {} });
+  await check({ tool: VISUAL_TOOL, template: "places", picture: { data: CARD_PNG, mediaType: "image/png" }, unpinned: [2, 4] });
+  assert.match(sent[0].messages[0].text, /Rows 2, 4 are marked "Not on the map"[^]*expected, not a fault/);
+  assert.equal(unpinnedRule([]), "", "nothing said when every place is pinned");
+});
+
+test("pins on nearly one spot are pushed apart, and stay on the map", () => {
+  const spread = spreadPins([{ n: 1, left: 200, top: 100 }, { n: 2, left: 204, top: 102 }, { n: 3, left: 400, top: 100 }, { n: 4, left: 4, top: 4 }]);
+  const d = (a, b) => Math.hypot(a.left - b.left, a.top - b.top);
+  assert.ok(d(spread[0], spread[1]) >= PIN_ROOM - 1, "the two close pins part");
+  assert.deepEqual([spread[2].left, spread[2].top], [400, 100], "a pin with room is not moved");
+  assert.ok(spread[3].left >= 16 && spread[3].top >= 38, "nothing pushed off the edge");
 });

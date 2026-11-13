@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { VaultDraft } from "./VaultAddForm";
 import type { VaultEdit } from "./VaultKeyEditor";
-import type { Described, Outcome, RevealedEntry, VaultRequest } from "./vaultLink";
+import type { Described, Outcome, RevealedEntry, ShareChoice, VaultRequest } from "./vaultLink";
 
 /** The server calls behind one vault link, each taking the link's token. */
 export interface VaultLinkCalls {
   describe: (token: string) => Promise<VaultRequest>;
-  save: (token: string, draft: VaultDraft) => Promise<{ name: string; site: string }>;
+  save: (token: string, draft: VaultDraft) => Promise<{ name: string; site: string; sharedWith?: ShareChoice }>;
   share?: (token: string) => Promise<{ name: string; grantee: string | null }>;
   reveal: (token: string) => Promise<RevealedEntry>;
   /** Settings › Vault only: save a key changed in place on a view link; resolves what changed, by name. */

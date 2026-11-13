@@ -18,7 +18,7 @@
  */
 
 import { post, record, type Fetch } from "./clients";
-import { flushEventsInLine, keptEvents, type Conversation, type TexEvent } from "./events";
+import { flushByLedgerInLine, flushEventsInLine, keptEvents, type Conversation, type LedgerWrite, type TexEvent } from "./events";
 import type { InboxStorage } from "./inbox";
 
 /** The longest a reader waits for the chat: decide waits on it, and decide is on a person's way to their answer. */
@@ -51,14 +51,33 @@ function readEvent(value: unknown, chat: string): TexEvent | null {
  * outbox on top, one event per id. The outbox alone when no turn has opened
  * the chat since this object woke, or the gateway did not answer in time.
  */
-export async function chatEvents(storage: InboxStorage, chat: string, timeoutMs = CHAT_READ_MS): Promise<TexEvent[]> {
+export async function chatEvents(storage: InboxStorage, chat: string, timeoutMs = CHAT_READ_MS, byLedger?: LedgerRead): Promise<TexEvent[]> {
   const outbox = await keptEvents(storage, chat);
   const reader = readers.get(storage)?.get(chat);
-  const read = reader === undefined ? null : await fromGateway(reader, chat, timeoutMs);
-  console.log(JSON.stringify({ event: "tex_chat_read", outcome: reader === undefined ? "no_token" : read === null ? "failed" : "gateway" }));
+  // No token since this object woke: a group's judge asks the gateway by the chat's ledger key over the binding, so it
+  // never reads the newest texts alone (34 of 53 reads did, 2026-11-10 to 11-12).
+  const read = reader !== undefined ? await fromGateway(reader, chat, timeoutMs) : byLedger !== undefined ? await fromLedgerKey(byLedger, chat, timeoutMs) : null;
+  const outcome = reader !== undefined ? (read === null ? "failed" : "gateway") : byLedger === undefined ? "no_token" : read === null ? "ledger_failed" : "ledger";
+  console.log(JSON.stringify({ event: "tex_chat_read", outcome }));
   const byId = new Map<string, TexEvent>();
   for (const event of [...(read ?? []), ...outbox]) byId.set(event.id, event);
   return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** A group chat's ledger key and the gateway binding to read it by (`apps/mcp/src/agent/textsDecide.js` `chatForTexts`). */
+export type LedgerRead = { binding: { fetch: (input: string, init?: RequestInit) => Promise<Response> }; ledger: string };
+export const GATEWAY_CHAT_URL = "https://gateway/texts/chat";
+
+async function fromLedgerKey(by: LedgerRead, chat: string, timeoutMs: number): Promise<TexEvent[] | null> {
+  try {
+    const { status, json } = await post((input, init) => by.binding.fetch(String(input), init), "gateway", GATEWAY_CHAT_URL, "", { ledger: by.ledger, chat }, timeoutMs);
+    if (status !== 200) return null;
+    const events = record(json).events;
+    if (!Array.isArray(events)) return null;
+    return events.map((event) => readEvent(event, chat)).filter((event): event is TexEvent => event !== null);
+  } catch {
+    return null;
+  }
 }
 
 async function fromGateway(reader: ChatReader, chat: string, timeoutMs: number): Promise<TexEvent[] | null> {
@@ -75,19 +94,27 @@ async function fromGateway(reader: ChatReader, chat: string, timeoutMs: number):
 }
 
 /**
- * Send what the chat said since the last flush to its ledger now, with the token the chat's last turn opened, when
- * there is one. Without this a group's chatter between Tex's turns (anything nobody asked Tex) waited in the outbox
- * until somebody next addressed Tex, so the chat's history on the app stopped at Tex's last answer, and a day of it
- * with no answer was dropped unposted (`SEND_WITHIN_MS`). True when a token was at hand; an expired one is refused by
- * the gateway and the events wait for the next turn, as before. Never throws.
+ * Send what the chat said since the last flush to its ledger now, so the chat's history on the app keeps up with it.
+ * Without this a group's chatter between Tex's turns (anything nobody asked Tex) waited in the outbox until somebody
+ * next addressed Tex. With the token the chat's last turn opened, when this object holds one; otherwise, for a group
+ * Tex is set up in (`byLedger`), by the chat's ledger key over the gateway binding, which needs no token: the token
+ * lives only in memory, so after a deploy or an idle hour texts were written to the ledger hours late (Tex Devs,
+ * 2026-11-12 and 13). An expired token is refused by the gateway and the events wait for the next turn, as before.
+ * Answers how it went: `token`, `ledger`, or `none` when it had neither. Never throws.
  */
-export async function flushWithReader(storage: InboxStorage, chat: string, now: () => number): Promise<boolean> {
+export async function flushWithReader(storage: InboxStorage, chat: string, now: () => number, byLedger?: LedgerWrite): Promise<"token" | "ledger" | "none"> {
   const reader = readers.get(storage)?.get(chat);
-  if (reader === undefined) return false;
   try {
-    await flushEventsInLine(storage, { fetch: reader.fetch, gatewayOrigin: reader.gatewayOrigin, now }, reader.token, reader.conversation, chat);
+    if (reader !== undefined) {
+      await flushEventsInLine(storage, { fetch: reader.fetch, gatewayOrigin: reader.gatewayOrigin, now }, reader.token, reader.conversation, chat);
+      return "token";
+    }
+    if (byLedger !== undefined) {
+      await flushByLedgerInLine(storage, byLedger, chat, now);
+      return "ledger";
+    }
   } catch {
     // The outbox keeps them for the next turn's flush.
   }
-  return true;
+  return reader !== undefined ? "token" : byLedger !== undefined ? "ledger" : "none";
 }

@@ -7,10 +7,13 @@
 //  2. a failed model read as "silent" instead of unavailable → "a model that fails is unavailable" fails.
 //  3. (2026-11-11) the judge entry not written → "the judge's verdict is kept in the group's ledger" fails.
 //  4. (2026-11-11) the judge's state cut from its newest end → "a long chat's judge still reads the examples and the newest line" fails.
+//  5. (2026-11-12) `/texts/chat` not mounted on TexTexts → "a group's judge reads the chat's day by its ledger key" fails.
+//  6. (2026-11-12) `nowFacts` keeping a finished job → "the judge is told what Tex is doing now" fails.
+//  7. (2026-11-12) `threadFacts` keeping a finished thread → "the judge is told which conversations are open" fails.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { decideForTexts, TEXTS_DECIDE_PATH, TEXTS_RECHECK_PATH } from "../src/agent/textsDecide.js";
+import { chatForTexts, decideForTexts, eventsForTexts, nowFacts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "../src/agent/textsDecide.js";
 import { decideRequest, recheckRequest } from "../../../packages/shared/src/textDecide.cjs";
 import { MAX_DECISION_STATE_CHARS } from "../src/agent/decide.js";
 import { TexTexts } from "../src/index.js";
@@ -156,4 +159,142 @@ test("a long chat's judge still reads the examples and the newest line", () => {
   assert.ok(asked.state.length <= MAX_DECISION_STATE_CHARS);
   assert.ok(asked.state.startsWith("<examples>"));
   assert.ok(asked.state.includes(`<${id(2000)}> @a: message number 1999`));
+});
+
+// Dev2, 2026-11-12: "a judge should have all information and facts needed to correctly have a verdict".
+const T0 = Date.UTC(2026, 10, 12, 16, 0);
+const textEntry = (n, text, from = { kind: "person", who: "a".repeat(64), name: "rosa" }) => {
+  const at = T0 - 60_000 + n;
+  return { v: 1, id: `ev${n}`, eid: `${at}-${String(n).padStart(6, "0")}`, at, kind: "text", event: "text", from, text };
+};
+
+test("a group's judge reads the chat's day by its ledger key, over TexTexts only", async () => {
+  const asked = [];
+  const ledger = (key) => ({ read: async (chat, options) => (asked.push({ key, chat, options }), { entries: [textEntry(2, "the 10th"), textEntry(1, "Which day works?", { kind: "tex" })] }) });
+  const answer = await (await chatForTexts(ask(TEXTS_CHAT_PATH, { ledger: GROUP_KEY, chat: "group-1" }), {}, { ledger, now: T0 })).json();
+  assert.deepEqual(answer.events.map((event) => event.text).sort(), ["Which day works?", "the 10th"]);
+  assert.equal(asked[0].key, GROUP_KEY);
+  assert.deepEqual(asked[0].options.kinds, ["text"]);
+  assert.equal(asked[0].options.since, T0 - 24 * 60 * 60 * 1000);
+  // Mounted on the binding's entrypoint: a bad key there is refused by this route, not opened as a texts session.
+  const viaEntry = await TexTexts.fetch(ask(TEXTS_CHAT_PATH, { ledger: "not-a-key", chat: "group-1" }), {}, {});
+  assert.equal(viaEntry.status, 400);
+});
+
+test("the chat read refuses a malformed ask and says so when the ledger fails", async () => {
+  const ledger = () => ({ read: async () => { throw new Error("down"); } });
+  for (const bad of [{}, { ledger: GROUP_KEY }, { ledger: "x", chat: "group-1" }, { ledger: GROUP_KEY, chat: "a b" }]) {
+    assert.equal((await chatForTexts(ask(TEXTS_CHAT_PATH, bad), {}, { ledger })).status, 400);
+  }
+  const log = console.log;
+  console.log = () => {};
+  try {
+    assert.equal((await chatForTexts(ask(TEXTS_CHAT_PATH, { ledger: GROUP_KEY, chat: "group-1" }), {}, { ledger })).status, 503);
+  } finally {
+    console.log = log;
+  }
+});
+
+/** A group's event as the Worker's outbox holds it (`apps/agent/src/events.ts`). */
+const groupEvent = (n, text, at = Date.now() - 60_000 + n) => ({ id: `${at}-${String(n).padStart(6, "0")}`, at, chat: "group-1", from: { kind: "person", who: "a".repeat(64), name: "rosa" }, kind: "text", text });
+const quietly = async (work) => {
+  const log = console.log;
+  const lines = [];
+  console.log = (line) => lines.push(String(line));
+  try {
+    return { result: await work(), lines };
+  } finally {
+    console.log = log;
+  }
+};
+
+test("what a group says while Tex is quiet goes into its ledger by key, with no token (Tex Devs, 2026-11-13)", async () => {
+  const appended = [];
+  const ledger = (key) => ({
+    read: async (chat) => (assert.equal(chat, key), { entries: [textEntry(1, "earlier")] }),
+    append: async (chat, entries) => appended.push({ key, chat, entries }),
+  });
+  const events = [groupEvent(1, "Instinct, would we benefit from using it?"), groupEvent(2, "I told you in this group?")];
+  const { result, lines } = await quietly(() => eventsForTexts(ask(TEXTS_EVENTS_PATH, { ledger: GROUP_KEY, chat: "group-1", events }), {}, { ledger }));
+  assert.equal(result.status, 200);
+  assert.deepEqual((await result.json()).written, events.map((event) => event.id));
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].key, GROUP_KEY);
+  assert.equal(appended[0].chat, GROUP_KEY);
+  assert.deepEqual(appended[0].entries.map((entry) => [entry.kind, entry.eid, entry.text]), events.map((event) => ["text", event.id, event.text]));
+  // Counts only in the log, never a word of the chat.
+  assert.ok(lines.every((line) => !line.includes("Instinct") && !line.includes("told you")));
+});
+
+test("the quiet write never opens a ledger, refuses what /agent/events refuses, and says when the ledger fails", async () => {
+  const appended = [];
+  const empty = () => ({ read: async () => ({ entries: [] }), append: async (...args) => appended.push(args) });
+  // A chat with no ledger (one Tex is not set up in): nothing written, the events wait for a turn.
+  const none = await eventsForTexts(ask(TEXTS_EVENTS_PATH, { ledger: GROUP_KEY, chat: "group-1", events: [groupEvent(1, "hi")] }), {}, { ledger: empty });
+  assert.equal(none.status, 404);
+  assert.equal(appended.length, 0);
+  const kept = () => ({ read: async () => ({ entries: [textEntry(1, "earlier")] }), append: async (...args) => appended.push(args) });
+  const bad = [
+    {},
+    { ledger: GROUP_KEY, chat: "group-1" },
+    { ledger: "x", chat: "group-1", events: [groupEvent(1, "hi")] },
+    { ledger: GROUP_KEY, chat: "a b", events: [groupEvent(1, "hi")] },
+    // An event of another chat, or one with a field the log does not take, is refused whole.
+    { ledger: GROUP_KEY, chat: "group-1", events: [{ ...groupEvent(1, "hi"), chat: "group-2" }] },
+    { ledger: GROUP_KEY, chat: "group-1", events: [{ ...groupEvent(1, "hi"), secret: "x" }] },
+  ];
+  for (const payload of bad) assert.equal((await eventsForTexts(ask(TEXTS_EVENTS_PATH, payload), {}, { ledger: kept })).status, 400);
+  assert.equal(appended.length, 0);
+  const down = () => ({ read: async () => ({ entries: [textEntry(1, "earlier")] }), append: async () => { throw new Error("down"); } });
+  const { result } = await quietly(() => eventsForTexts(ask(TEXTS_EVENTS_PATH, { ledger: GROUP_KEY, chat: "group-1", events: [groupEvent(1, "hi")] }), {}, { ledger: down }));
+  assert.equal(result.status, 503);
+  // Mounted on the binding's entrypoint: a bad key there is refused by this route, not opened as a texts session.
+  const viaEntry = await TexTexts.fetch(ask(TEXTS_EVENTS_PATH, { ledger: "not-a-key", chat: "group-1", events: [] }), {}, {});
+  assert.equal(viaEntry.status, 400);
+});
+
+test("the judge is told what Tex is doing now: running jobs by title, never a finished one", async () => {
+  const job = (at, job, state, title) => ({ v: 1, id: `j${at}`, at: T0 - at, kind: "job", job, state, ...(title ? { title } : {}) });
+  // Newest first, as the ledger reads.
+  const entries = [job(1_000, "a", "keep_going"), job(2_000, "b", "done", "Old report"), job(3_000, "a", "started", "Find a \"quiet\" venue"), job(4_000, "b", "started", "Old report")];
+  const store = { read: async (_key, options) => (assert.deepEqual(options.kinds, ["job"]), { entries }) };
+  const facts = await nowFacts(store, GROUP_KEY, { now: T0 });
+  assert.equal(facts.length, 1);
+  assert.match(facts[0], /^Tex is working on a job in this chat: "Find a  quiet  venue", started \d\d:\d\d UTC\.$/);
+  // A slow or missing ledger gives no facts, never a slower verdict.
+  assert.deepEqual(await nowFacts({ read: () => new Promise(() => {}) }, GROUP_KEY, { timeoutMs: 5 }), []);
+  assert.deepEqual(await nowFacts(null, GROUP_KEY), []);
+});
+
+test("what Tex is doing reaches the judge's state for a group decide", async () => {
+  let seen = "";
+  const engine = async (state) => ((seen = state), { act: { choice: "quiet", confidence: 0.8 } });
+  const ledger = () => ({ read: async () => ({ entries: [{ v: 1, id: "j1", at: Date.now() - 1_000, kind: "job", job: "a", state: "started", title: "Plan the trip" }] }), append: async () => {} });
+  await decideForTexts(ask(TEXTS_DECIDE_PATH, groupBody()), {}, { engine, ledger, waitUntil: () => {} });
+  assert.match(seen, /<now>\nTex is working on a job in this chat: "Plan the trip"/);
+});
+
+test("the judge is told which conversations are open, by title and newest lines, never a finished one (Dev2, 2026-11-12)", async () => {
+  const thread = (at, id, status, title, texts) => ({ v: 1, id: `th${at}`, at: T0 - at, kind: "thread", thread: id, status, title, description: "words never shown", texts });
+  const reads = [];
+  const store = {
+    read: async (chat, options) => {
+      reads.push({ chat, kinds: options.kinds });
+      if (chat.endsWith(".threads")) return { entries: [thread(1_000, "t2", "open", "Quiz for Tex", [id(5), id(6), id(7)]), thread(2_000, "t1", "finished", "Dinner plans", [id(1)]), thread(3_000, "t1", "open", "Dinner plans", [id(1)])] };
+      return { entries: [] };
+    },
+  };
+  const facts = await nowFacts(store, GROUP_KEY, { now: T0 });
+  assert.deepEqual(facts, [`Open conversation "Quiz for Tex", its newest lines <${id(6)}> <${id(7)}>.`]);
+  assert.deepEqual(reads.map((read) => read.chat).sort(), [GROUP_KEY, GROUP_KEY, GROUP_KEY, `${GROUP_KEY}.threads`]);
+  assert.ok(!facts.join("").includes("words never shown"));
+});
+
+test("the judge is told the names the chat gave its guests, the newest per guest (Dev2, 2026-11-12)", async () => {
+  const name = (at, guest, said) => ({ v: 1, id: `name${at}`, at: T0 - at, kind: "name", guest, name: said, text: `${guest} is ${said}` });
+  const store = {
+    read: async (chat, options) => (options.kinds?.includes("name") ? { entries: [name(1, "guest-6ce3", "Boba"), name(2, "guest-66ef", "Instinct"), name(3, "guest-6ce3", "Instinct")] } : { entries: [] }),
+  };
+  const facts = await nowFacts(store, GROUP_KEY, { now: T0 });
+  assert.deepEqual(facts, ["People here known by a guest label, by name: guest-6ce3 is Boba; guest-66ef is Instinct."]);
 });

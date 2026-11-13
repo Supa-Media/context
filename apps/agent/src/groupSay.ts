@@ -18,7 +18,7 @@ import type { GroupMessage } from "./sendblueGroups";
 import { sha256Hex } from "./groupChat";
 import { writeTextTiming, type TimingDataset } from "./textTiming";
 import { isControlWord } from "./controlWords";
-import { textedChat } from "./groupSlowTap";
+import { keepThreaded } from "./threadedResend";
 
 /** The handles of Tex's last thirty texts in this group, so an inline reply to one wakes it. */
 export const SENT_KEY = "gsent";
@@ -29,15 +29,25 @@ type GroupSayDeps = GroupLineDeps & { now: () => number; images?: ImagesLike; ho
 /** A part a handed turn sent, by turn and position, as the hash of what it was (`groupTurnRun.ts`). */
 const PART_PREFIX = "gpart:";
 /**
- * The handed turn sending now in this chat, the messages it answers (its parts are threaded under one of them), and
- * the position of its next part. A fixed line answered beside it (`groupBeside.ts`) is under another message: not its part.
+ * The handed turns sending now in this chat (a group runs several side by side: `groupTurnRun.ts`), each with the
+ * messages it answers (its parts are threaded under one of them) and the position of its next part. A fixed line
+ * answered beside them (`groupBeside.ts`) is under another message: no turn's part.
  */
-const sending = new WeakMap<InboxStorage, { turn: string; under: readonly string[]; next: number }>();
+type Sending = { turn: string; under: readonly string[]; next: number };
+const sending = new WeakMap<InboxStorage, Map<string, Sending>>();
 
 /** While a handed turn runs (`turn`, answering the messages `under`), each part it sends is remembered; null ends that. */
-export function sendingFor(storage: InboxStorage, turn: string | null, under: readonly string[] = []): void {
-  if (turn === null) sending.delete(storage);
-  else sending.set(storage, { turn, under, next: 0 });
+export function sendingFor(storage: InboxStorage, turn: string, under: readonly string[] | null = []): void {
+  let turns = sending.get(storage);
+  if (turns === undefined) sending.set(storage, (turns = new Map()));
+  if (under === null) turns.delete(turn);
+  else turns.set(turn, { turn, under, next: 0 });
+}
+
+/** The running turn whose part a send under `under` is, if any. */
+function scopeOf(storage: InboxStorage, under: string): Sending | undefined {
+  for (const scope of sending.get(storage)?.values() ?? []) if (scope.under.includes(under)) return scope;
+  return undefined;
 }
 
 /** Forget what a handed turn sent, once it is over. */
@@ -51,8 +61,8 @@ export async function dropParts(storage: InboxStorage, turn: string): Promise<vo
  * and what reached the chat the first time is not sent twice.
  */
 async function once(storage: InboxStorage, under: string, part: string, send: () => Promise<void>): Promise<void> {
-  const scope = sending.get(storage);
-  if (scope === undefined || !scope.under.includes(under)) return await send();
+  const scope = scopeOf(storage, under);
+  if (scope === undefined) return await send();
   const key = `${PART_PREFIX}${scope.turn}:${scope.next++}`;
   const hash = await sha256Hex(part);
   if ((await storage.get<string>(key)) === hash) return;
@@ -134,7 +144,7 @@ export async function timedReply<T>(storage: InboxStorage, arrivedAt: number, ha
 export type SayMeta = { turn?: string; covers?: string[]; people?: string; system?: true; reason?: EventReason; plain?: true };
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex, and logged. */
-export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta = {}): Promise<void> {
+export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, text: string, meta: SayMeta = {}): Promise<void> {
   if (isControlWord(text)) return; // a word meant for us, never a text (`controlWords.ts`)
   await once(storage, message.messageId, `text:${text}`, () => sayNow(storage, deps, message, text, meta));
 }
@@ -145,28 +155,43 @@ export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pi
  * many lines the retry says (`interleaved-updates.md`). Nor does a redraft, a new turn over the same messages,
  * send a line one before it sent over any of them.
  */
-export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
+export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, text: string, meta: SayMeta): Promise<void> {
   if (isControlWord(text)) return;
   const over = meta.covers ?? [];
   if (over.length > 0 && (await chatEvents(storage, message.groupId)).some((event) => event.from.kind === "tex" && event.delivered === true && event.text === text && (event.covers ?? []).some((cover) => over.includes(cover)))) return;
-  const scope = sending.get(storage);
-  if (scope === undefined || !scope.under.includes(message.messageId)) return await sayNow(storage, deps, message, text, meta);
+  const scope = scopeOf(storage, message.messageId);
+  if (scope === undefined) return await sayNow(storage, deps, message, text, meta);
   const key = `${PART_PREFIX}${scope.turn}:progress:${await sha256Hex(text)}`;
   if ((await storage.get<string>(key)) !== undefined) return;
   await sayNow(storage, deps, message, text, meta);
   await storage.put(key, "sent");
 }
 
-async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
-  await textedChat(storage); // Tex is on it: no slow tapback after this (`groupSlowTap.ts`)
+async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, text: string, meta: SayMeta): Promise<void> {
   await sendWords(groupPartLine(storage, deps, message, meta), text);
 }
 
+/**
+ * Where an answer to this message threads: under it, or, for a tapback (queued as its line, or a held 👍), under the
+ * Tex text it was on when that is known, else plain. Never under the tapback: Sendblue takes that send and then fails
+ * to deliver it (error 5000, the Nov Babies form-fill answer, 2026-11-12).
+ */
+export function threadUnder(message: Pick<GroupMessage, "messageId" | "reaction" | "answersTapback">): string | undefined {
+  if (message.answersTapback !== undefined) return message.answersTapback.on;
+  return message.reaction !== undefined ? undefined : message.messageId;
+}
+
 /** This lane's way out for the one sender (`sendOne.ts`): the group line, under the message answered, and Tex's sent handles. */
-function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, meta: SayMeta): PartLine<OutgoingPicture> {
+function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, meta: SayMeta): PartLine<OutgoingPicture> {
   const place: GroupPlace = { line: message.line, groupId: message.groupId };
+  const under = meta.plain ? undefined : threadUnder(message);
   return {
-    sendText: (text) => groupLineFor(deps, message.groupId).sendText(place, text, meta.plain ? undefined : message.messageId),
+    sendText: async (text) => {
+      const handle = await groupLineFor(deps, message.groupId).sendText(place, text, under);
+      // A threaded send Sendblue fails after taking it goes again plain, once (`sendblueStatus.ts`).
+      if (under !== undefined) await keepThreaded(storage, handle, { text, place: { kind: "group", ...place }, at: deps.now() });
+      return handle;
+    },
     sendPicture: async (picture) => {
       let url: string;
       try {
@@ -177,7 +202,7 @@ function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<
         log("picture_failed", "host");
         return null;
       }
-      await groupLineFor(deps, message.groupId).sendMedia(place, url, meta.plain ? undefined : message.messageId);
+      await groupLineFor(deps, message.groupId).sendMedia(place, url, under);
       return url;
     },
     // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and

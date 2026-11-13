@@ -15,6 +15,7 @@ import { noteUse } from "../vault/usage.js";
 import { ProxyRefused, proxyFetch, proxyPin } from "../vault/proxy.js";
 import { ENVS, SINGLE, entryType, isFieldName } from "../vault/fields.js";
 import { cardLabel } from "../vault/card.js";
+import { openVault, otherVaultNames } from "../vault/reach.js";
 import { toolError, toolText } from "./results.js";
 
 const NO_LINKS = "The vault is not available on this deployment.";
@@ -52,18 +53,36 @@ function describeEntry({ id, meta }) {
 
 export async function toolVaultList(store, args) {
   if (args?.fetch !== undefined) return toolVaultFetch(store, args.fetch);
-  const keys = store?.encryptionKey;
-  const { workspaceId } = store?.actor ?? {};
-  if (!keys || typeof workspaceId !== "string") return toolText(EMPTY);
-  const entries = (await listMeta(store, keys, workspaceId)).filter(({ meta }) => actorMayUse(meta, store.actor));
-  if (entries.length === 0) return toolText(EMPTY);
+  // This vault, and every other one the connection reaches, each under its own name (`vault/reach.js`): a group chat's
+  // own home has no vault, and its list said "Nothing saved here yet" over a login saved in its workspace (2026-11-12).
+  // A store opened for one named workspace has no `openContext`, so a call that names one lists that vault alone.
+  const elsewhere = await Promise.all(
+    otherVaultNames(store).map(async (name) => {
+      const vault = await openVault(store, name);
+      // Another workspace that can't be read is left out, never the whole list.
+      return vault === null ? null : { name, entries: await usableEntries(vault).catch(() => []) };
+    }),
+  );
+  const here = await usableEntries(store);
+  const others = elsewhere.filter((found) => found !== null && found.entries.length > 0);
+  const count = here.length + others.reduce((sum, found) => sum + found.entries.length, 0);
+  if (count === 0) return toolText(EMPTY);
   return toolText(
     [
-      `${entries.length} saved entr${entries.length === 1 ? "y" : "ies"} this person may use:`,
-      ...entries.map(describeEntry),
+      `${count} saved entr${count === 1 ? "y" : "ies"} this person may use:`,
+      ...here.map(describeEntry),
+      ...others.flatMap(({ name, entries }) => [`In ${name}:`, ...entries.map(describeEntry)]),
       "Values are never shown to you. The browser fills a login, or one field, on the sites listed; the person sees values on the page vault_view_link gives them.",
     ].join("\n"),
   );
+}
+
+/** A vault's entries its caller may use; none when it has no key. */
+async function usableEntries(store) {
+  const keys = store?.encryptionKey;
+  const { workspaceId } = store?.actor ?? {};
+  if (!keys || typeof workspaceId !== "string") return [];
+  return (await listMeta(store, keys, workspaceId)).filter(({ meta }) => actorMayUse(meta, store.actor));
 }
 
 function clip(value, max) {
@@ -74,7 +93,7 @@ function describe(minted, what) {
   return toolText(
     [
       `${what}: ${minted.url}`,
-      "It is private to this person: it opens only when they are signed in to Context, and it expires in 30 minutes.",
+      "It opens only for this person, signed in, for 30 minutes; the page says so, so don't. Once they save, you're told and carry on by yourself.",
     ].join("\n"),
   );
 }

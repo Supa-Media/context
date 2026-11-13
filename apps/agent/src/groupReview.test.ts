@@ -81,7 +81,8 @@ for (const { name, groupId } of LINES) {
       const draining = drainGroup(storage, w.deps);
       await w.running;
       expect(await acceptGroup(storage, w.message("Tex make it blue"), 10)).toBe("queued");
-      expect(await acceptGroup(storage, w.message("Tex where is it", { from: BO }), 11)).toBe("queued");
+      // Bo's is not Ada's turn's to decide (2026-11-13: a turn is only its asker's): kept for the judge, then answered.
+      expect(await acceptGroup(storage, w.message("Tex where is it", { from: BO }), 11)).toBe("kept");
       w.release();
       await draining;
       await drainGroup(storage, w.deps);
@@ -116,7 +117,8 @@ for (const { name, groupId } of LINES) {
       const draining = drainGroup(storage, w.deps);
       await w.running;
       gate = new Promise<void>((resolve) => (open = resolve));
-      const late = w.message("Tex and a poster", { from: BO });
+      // The asker's own: only their running turn decides a message mid-turn (2026-11-13).
+      const late = w.message("Tex and a poster", { messageId: "h_late", eventId: "sendblue:late" });
       const first = acceptGroup(storage, late, 10);
       while (!w.decided.some((body) => body.running)) await new Promise((resolve) => setTimeout(resolve, 1));
       expect(await acceptGroup(storage, late, 11)).toBe("ignored");
@@ -217,11 +219,13 @@ for (const { name, groupId } of LINES) {
 
     it("inbound events, Tex's events and the members named to the gateway carry one people hash", async () => {
       const storage = new MemoryStorage();
-      // The app lists Cy too, the webhook does not: the turn names the gateway all three.
+      // The app lists Cy too, the webhook does not: the turn names the gateway all three. WhatsApp's webhook names
+      // only the sender (`whapiInbound.ts`), and its messages carry the group's kept list instead (`groupMembers.ts`).
       const w = setup(groupId, { members: [[ADA, BO, CY]] });
-      await acceptGroup(storage, w.message("Tex hi"), 0);
+      const heard = name.includes("WhatsApp") ? { participants: [ADA] } : {};
+      await acceptGroup(storage, w.message("Tex hi", heard), 0);
       await drainGroup(storage, w.deps);
-      await acceptGroup(storage, w.message("Tex and now?"), 10);
+      await acceptGroup(storage, w.message("Tex and now?", heard), 10);
       await drainGroup(storage, w.deps);
       const members = (w.asks[1].group as { members: string }).members;
       expect((w.asks[0].group as { members: string }).members).toBe(members);
@@ -231,7 +235,7 @@ for (const { name, groupId } of LINES) {
       expect(second.people).toBe(members);
       expect(answer.people).toBe(members);
       // A tag is never put to decide: an untagged line after it is, and decide reads Tex's answer in the transcript.
-      await acceptGroup(storage, w.message("nice"), 20);
+      await acceptGroup(storage, w.message("nice", heard), 20);
       await drainGroup(storage, w.deps);
       expect(w.decided.at(-1)!.transcript).toContain("answer to Tex hi");
     });

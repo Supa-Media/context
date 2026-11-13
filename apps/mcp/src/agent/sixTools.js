@@ -28,13 +28,40 @@ import { toolsForSession } from "../tools/advertised.js";
 import { actionArguments } from "../orient/manual.js";
 import { COMMAND_SEND_ACTIONS } from "./commandTools.js";
 import { COMPUTER_SEND_ACTIONS } from "../machines/texActions.js";
+import { SETTINGS_SEND_ACTIONS } from "./settingsActions.js";
+import { GUEST_NAME_SEND_ACTIONS } from "./groupGuestNames.js";
+import { PERSONAL_TEX_SEND_ACTIONS } from "./askPersonalTex.js";
 import { TEXTS_ID_PREFIX } from "../tools/texts.js";
 
 /** The six, in the order they are listed. */
 export const SIX_TOOLS = ["orient", "search", "fetch", "write", "manage", "send"];
 const SIX = new Set(SIX_TOOLS);
 
-const own = (call) => (call.args && typeof call.args === "object" && !Array.isArray(call.args) ? call.args : {});
+/** What the call itself carries, never its own action: routing reads these at the top (`translate.js` `addressing`). */
+const CALL_KEYS = new Set(["action", "args", "context", "mailbox", "person_said"]);
+
+/**
+ * An assistant action's arguments: `args`, plus any written beside the action.
+ * Models write `send { action: "search_web", query }` as often as the nested
+ * shape, and taking only `args` dropped the query unseen: Tex was refused
+ * "Write a short search query." over a query it had written (Nov Babies,
+ * 2026-11-12). Inside `args` wins where both name a key.
+ */
+const own = (call) => {
+  const nested = call.args && typeof call.args === "object" && !Array.isArray(call.args) ? call.args : {};
+  const beside = Object.fromEntries(Object.entries(call).filter(([key]) => !CALL_KEYS.has(key)));
+  return { ...beside, ...nested };
+};
+
+/**
+ * The same, for an action whose tool takes a workspace: the call's `context`, where every Context tool reads it,
+ * reaches it too. `fill_login` was handed none and opened a group chat's own home, so a login saved in the chat's
+ * workspace was "There is no such login" (Crystal Care, 2026-11-12). Inside `args` wins here as well.
+ */
+const ownAndWhere = (call) => {
+  const where = typeof call.context === "string" && call.context.trim() !== "" ? { context: call.context.trim() } : {};
+  return { ...where, ...own(call) };
+};
 
 /**
  * What only the assistant can do outside Context, as `send` actions: the
@@ -47,10 +74,10 @@ export const ASSISTANT_SEND_ACTIONS = {
   open_page: { tool: "open_page", summary: "Read web pages by their address.", take: own },
   travel_time: { tool: "travel_time", summary: "How long a trip takes, from Google Maps directions; never estimate one.", take: own },
   browse: { tool: "browse", summary: "Drive a browser step by step.", take: own },
-  fill_login: { tool: "fill_login", summary: "Sign in on the open page with a saved login you never see.", take: own },
-  fill_card: { tool: "fill_card", summary: "Fill the checkout's card boxes with a saved card you never see, on the person's yes in the app.", take: own },
+  fill_login: { tool: "fill_login", summary: "Sign in on the open page with a saved login you never see.", take: ownAndWhere },
+  fill_card: { tool: "fill_card", summary: "Fill the checkout's card boxes with a saved card you never see, on the person's yes in the app.", take: ownAndWhere },
   progress: { tool: "text_progress", summary: "Text the person a short line while you work.", take: own },
-  delegate: { tool: "delegate", summary: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.", take: own },
+  delegate: { tool: "delegate", summary: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.", take: ownAndWhere },
   advisor: { tool: "ask_advisor", summary: "Ask your advisor, a stronger model, when an ask needs judgment, before you call a task done, or when you are stuck; it sees this whole turn, so send no args, and it answers you, never them.", take: own }, // `advisor.js`
   plan: { tool: "plan_big_ask", summary: "A big ask whose parts can run at the same time: your advisor plans it, its notes are written and one background job per part starts.", take: own }, // `planBigAsk.js`
   background: { tool: "start_background_job", summary: "Hand a long task to a background job, so several things run at once.", take: own }, // `background.js`
@@ -66,6 +93,12 @@ export const ASSISTANT_SEND_ACTIONS = {
   ...Object.fromEntries(Object.entries(COMMAND_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
   // Their own computers, set up from a text (`machines/texActions.js`): offered only when the turn holds the tool.
   ...Object.fromEntries(Object.entries(COMPUTER_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
+  // Their settings and who can use each saved login, changed from a text (`settingsTools.js`).
+  ...Object.fromEntries(Object.entries(SETTINGS_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: ownAndWhere }])),
+  // A group chat's ask of the tagger's personal Tex for who they are (`askPersonalTex.js`).
+  ...Object.fromEntries(Object.entries(PERSONAL_TEX_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
+  // A group chat's name for a guest label, kept in its ledger (`groupGuestNames.js`).
+  ...Object.fromEntries(Object.entries(GUEST_NAME_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
 };
 
 /**

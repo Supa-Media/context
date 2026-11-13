@@ -34,6 +34,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [MCP calls have speed budgets, judged from production's own timings](./observability/mcp-speed-budgets.md) (2026-11-03)
 - [Every request and every workspace object call is counted by who made it](./observability/call-counts.md) (2026-11-06)
 - [Tex's basics for any window: people, texts, cost and notes](./observability/tex-stats.md) (2026-11-10)
+- [Every failed Tex tool call is kept with why it failed](./observability/tool-failures.md) (2026-11-10)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
 - [A new managed bucket is served on a temporary credential until its own key answers](./storage-and-credentials.md#a-new-managed-bucket-is-served-on-a-temporary-credential-until-its-own-key-answers) (2026-10-29)
@@ -391,6 +392,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The mobile app and the console](./app-and-console.md)
 
+- [Settings is one scrolling page, each row one line and one action](./app-and-console/settings-one-page.md#settings-is-one-scrolling-page-each-row-one-line-and-one-action-2026-11-12) (2026-11-12)
 - [Each unfinished feature has its own flag, and every flag expires](./app-and-console/feature-flags.md#each-unfinished-feature-has-its-own-flag-and-every-flag-expires-2026-11-08) (2026-11-08)
 - [Vault key use is launched, and the old switches are gone](./app-and-console/feature-flags.md#vault-key-use-is-launched-and-the-old-switches-are-gone-2026-11-08) (2026-11-08)
 - [The phone's account sheet is its own sheet, not the file menu](./app-and-console/native-app-shell.md#the-phones-account-sheet-is-its-own-sheet-not-the-file-menu-2026-11-06)
@@ -804,6 +806,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
 - [Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)](./texting-assistant/groups.md)
 - [A group's voice message is heard before the chat decides it is for Tex (2026-11-05)](./texting-assistant/groups.md)
+- [A group turn sees the numbers of the people in that chat (2026-11-12)](./texting-assistant/groups.md#a-group-turn-sees-the-numbers-of-the-people-in-that-chat-dev2-2026-11-12)
+- [Who is here is the message's own list (2026-11-12)](./texting-assistant/groups.md#who-is-here-is-the-messages-own-list-dev2-2026-11-12)
+- [A guest's name is kept on the chat (2026-11-12)](./texting-assistant/groups.md#a-guests-name-is-kept-on-the-chat-dev2-2026-11-12)
+- [The judge reads each group turn's brief (2026-11-12)](./texting-assistant/one-judge-one-record.md#the-judge-reads-each-group-turns-brief-dev2-2026-11-12)
 - [A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)](./texting-assistant/group-guests.md)
 - [Group Tex keeps each chat's home in @context-lc, sealed from the people who run it (2026-10-31)](./texting-assistant/chat-homes.md)
 - [A group chat's history has one copy: the memory page in its home, kept in its Durable Object (2026-11-01)](./texting-assistant/group-memory-one-copy.md)

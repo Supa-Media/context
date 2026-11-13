@@ -16,8 +16,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptGroup, drainGroup, GROUP_LINES } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { LINES, setup } from "./groupWorld.testing";
-import { answerHanded, failHanded, MAX_STARTS, TURN_KEY } from "./groupTurnRun";
+import { answerAll, LINES, setup } from "./groupWorld.testing";
+import { answerHanded, failHanded, MAX_GROUP_TURNS, MAX_STARTS, START_RETRY_MS, handedTurns, turnKey } from "./groupTurnRun";
 import { ANSWER_RETRIES, runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
 import type { Fetch } from "./clients";
 import { checkReview, REVIEW_KEY, REVIEW_QUIET_MS, watchConversation } from "./reviewWatch";
@@ -75,15 +75,31 @@ for (const { name, groupId } of LINES) {
       expect((await run()).outcome).toBe("done");
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what's on tonight"]);
       expect(w.texts).toContain("answer to Tex what's on tonight");
-      expect(await storage.get(TURN_KEY)).toBeUndefined();
+      expect((await handedTurns(storage))[0]).toBeUndefined();
       expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
     });
 
-    it("while a turn is handed over, the next waits for it, then gets its own", async () => {
+    // Dev2, 2026-11-13 (one turn per text): somebody else's text never waits behind a turn; it starts its own.
+    it("while a turn is handed over, somebody else's text starts its own turn beside it", async () => {
       const { storage, w, deps, started, run } = handedWorld(groupId);
       await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
       await drainGroup(storage, deps);
-      await acceptGroup(storage, w.message("Tex and tomorrow?", { from: "+15555550102" }), 10);
+      await acceptGroup(storage, w.message("Tex and tomorrow?", { from: "+15555550102", messageId: "h_bo", eventId: "sendblue:bo" }), 10);
+      await drainGroup(storage, deps);
+      expect(started).toHaveLength(2);
+      expect((await handedTurns(storage)).map((turn) => turn.asker).sort()).toEqual([w.message("x").from, "+15555550102"].sort());
+      await run(started[1]);
+      await run(started[0]);
+      expect(w.asks.map((ask) => ask.question).sort()).toEqual(["Tex and tomorrow?", "Tex what's on tonight"]);
+      expect(await handedTurns(storage)).toEqual([]);
+      expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
+    });
+
+    it("the asker's own next text waits for their running turn, then gets its own", async () => {
+      const { storage, w, deps, started, run } = handedWorld(groupId, { decide: (body) => (body.running ? { ...answerAll(body), midTurn: "queue" } : answerAll(body)) });
+      await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
+      await drainGroup(storage, deps);
+      await acceptGroup(storage, w.message("Tex and tomorrow?", { messageId: "h_again", eventId: "sendblue:again" }), 10);
       await drainGroup(storage, deps);
       expect(started).toHaveLength(1);
       await run();
@@ -91,6 +107,30 @@ for (const { name, groupId } of LINES) {
       expect(started).toHaveLength(2);
       await run();
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what's on tonight", "Tex and tomorrow?"]);
+    });
+
+    it("at most MAX_GROUP_TURNS run at once: a fourth person's text waits for one to finish", async () => {
+      const { storage, w, deps, started, run } = handedWorld(groupId);
+      const people = ["+15555550101", "+15555550102", "+15555550103", "+15555550104"];
+      for (const [index, from] of people.entries()) {
+        await acceptGroup(storage, w.message(`Tex question ${index}`, { from, messageId: `h_${index}`, eventId: `sendblue:${index}` }), 10 + index);
+        await drainGroup(storage, deps);
+      }
+      expect(started).toHaveLength(MAX_GROUP_TURNS);
+      await run(started[0]);
+      await drainGroup(storage, deps);
+      expect(started).toHaveLength(MAX_GROUP_TURNS + 1);
+      expect((await handedTurns(storage)).map((turn) => turn.asker)).toContain(people[3]);
+    });
+
+    it("a turn handed before turns ran side by side (no asker) still holds the chat until it is done", async () => {
+      const { storage, w, deps, started } = handedWorld(groupId);
+      await storage.put("gturn", { id: "old-turn", keys: [], at: 1_000, starts: 0, started: true });
+      await acceptGroup(storage, w.message("Tex what's on tonight", { from: "+15555550102" }), 10);
+      await drainGroup(storage, deps);
+      expect(started).toEqual([]);
+      expect((await handedTurns(storage)).map((turn) => turn.id)).toEqual(["old-turn"]);
+      expect(await storage.get("gturn")).toBeUndefined();
     });
 
     it("a turn that keeps failing is tried four times, then the chat is told once", async () => {
@@ -111,7 +151,7 @@ for (const { name, groupId } of LINES) {
       expect(tries).toBe(1 + ANSWER_RETRIES.limit);
       expect(runs.filter((name) => name === "answer")).toHaveLength(4);
       expect(w.texts.filter((text) => text === GROUP_LINES.failed)).toHaveLength(1);
-      expect(await storage.get(TURN_KEY)).toBeUndefined();
+      expect((await handedTurns(storage))[0]).toBeUndefined();
       expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
     });
 
@@ -234,8 +274,11 @@ for (const { name, groupId } of LINES) {
       const w = setup(groupId);
       const errors = vi.spyOn(console, "error").mockImplementation(() => {});
       let starts = 0;
+      let clock = 1_000;
       const deps = {
         ...w.deps,
+        // Each alarm is a retry's: a failed start is tried again START_RETRY_MS on, never on the same pass.
+        now: () => clock,
         startTurn: async () => {
           starts += 1;
           throw new Error("no binding");
@@ -245,6 +288,8 @@ for (const { name, groupId } of LINES) {
       for (let alarm = 0; alarm < MAX_STARTS - 1; alarm += 1) {
         await drainGroup(storage, deps);
         expect(w.asks).toHaveLength(0);
+        expect(starts).toBe(alarm + 1);
+        clock += START_RETRY_MS;
       }
       await drainGroup(storage, deps);
       expect(starts).toBe(MAX_STARTS);
@@ -255,7 +300,7 @@ for (const { name, groupId } of LINES) {
       expect(w.texts.filter((text) => text === GROUP_LINES.stuck)).toHaveLength(1);
       expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
       expect(errors.mock.calls.flat().join(" ")).toContain('"outcome":"workflow_unavailable"');
-      expect(await storage.get(TURN_KEY)).toBeUndefined();
+      expect((await handedTurns(storage))[0]).toBeUndefined();
     });
   });
 }

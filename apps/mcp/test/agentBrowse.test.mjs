@@ -374,7 +374,7 @@ async function runEndToEnd(check) {
       // The model is told their Tex page and its places since 2026-11-04 (`hubPrompt`, the owner: offer the page when
       // asked), so what it never sees is the handoff's own link: the gateway adds that line, naming the site.
       "a handoff texts the person's own /tex/@<handle> page, added by the gateway, and the model never sees the handoff link",
-      handed.answer.endsWith("https://app.context.test/tex/@browse?view=computer") && !modelSaw.includes("?view=computer") &&
+      handed.answer.endsWith("https://app.context.test/tex/@browse?view=computer&full=1") && !modelSaw.includes("?view=computer") &&
         modelSaw.includes("A link to this browser will be added to your reply"),
     );
     check(

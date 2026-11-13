@@ -119,6 +119,18 @@ describe("the history's lines", () => {
     ]);
   });
 
+  test("a text that never reached the chat says so under it, never as Tex quoting itself (Nov Babies, 2026-11-12)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "d2", at: at(2, 9, 17), kind: "text", event: "delivery", eid: "w2", replyTo: "w1", delivered: false, reason: "failed", from: { kind: "tex" } },
+      { id: "d1", at: at(2, 9, 16), kind: "text", eid: "w1", turn: "t1", from: { kind: "tex" }, text: "First name, last name, email and phone?" },
+    ];
+    const lines = historyDays(entries, NOW, { group: true }).flatMap((d) => d.turns.flatMap((t) => t.lines));
+    expect(lines.map((l) => [l.who, l.tone, l.text, l.replyTo ?? null])).toEqual([
+      ["Tex", "tex", "First name, last name, email and phone?", null],
+      ["", "quiet", "didn't reach them · the text app failed it", "Tex: First name, last name, email and phone?"],
+    ]);
+  });
+
   test("a reaction sits under the text it is on, never as a line, as in the mock; one taken back is gone", () => {
     const entries: LedgerEntry[] = [
       { id: "r5", at: at(2, 12, 5), kind: "text", event: "reaction", from: { kind: "person", name: "Ada" }, text: 'took back ❤️ on the message "Will do. I\'ll text you"' },
@@ -180,6 +192,17 @@ describe("the history's lines", () => {
       'reviewer · draft 1 · sent back · task · claims undone · "Done!"',
       'reviewer · draft 2 · went out · task · "Added it to Friday."',
     ]);
+  });
+
+  test("the judge's call on whether to speak says its verdict and why, never a draft sent back (2026-11-13)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "m3", at: at(2, 9, 4), kind: "judge", by: "moment", verdict: "react", went: false, why: "thanks_tex", emoji: "❤️", event: "e3" },
+      { id: "m2", at: at(2, 9, 3), kind: "judge", by: "moment", verdict: "respond", went: true, why: "tags_tex", event: "e2" },
+      { id: "m1", at: at(2, 9, 2), kind: "judge", by: "moment", verdict: "quiet", went: false, why: "asks_someone_else", event: "e1" },
+    ];
+    const lines = historyDays(entries, NOW).flatMap((day) => day.turns.flatMap((turn) => turn.lines.map((l) => l.text)));
+    expect(lines).toEqual(["judge · stay quiet · asks someone else", "judge · answer · tags tex", "judge · react · thanks tex · ❤️"]);
+    for (const line of lines) expect(line).not.toMatch(/draft|sent back/);
   });
 
   test("background lines say what each is", () => {

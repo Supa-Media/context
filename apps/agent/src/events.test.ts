@@ -414,3 +414,37 @@ describe("the event buffer", () => {
     for (const words of ["before Cy", "hi all", "after Cy left"]) expect(shown).toContain(words);
   });
 });
+
+describe("what the judge reads about who a line is for (Dev2, 2026-11-12: give the judge eyes)", () => {
+  const at = Date.UTC(2026, 10, 12, 16, 39);
+  it("a person with no name on the event is called what the chat calls them, never @someone", () => {
+    const events: TexEvent[] = [{ id: "1", at, chat: "c", from: { kind: "person", who: "h1" }, kind: "text", text: "hi" }];
+    expect(renderTranscript(events, { names: new Map([["h1", "guest-ab12"]]) })).toContain("@guest-ab12: hi");
+  });
+
+  it("a reply says whose message it is under: You for Tex's, @name for a person's", () => {
+    const events: TexEvent[] = [
+      { id: "1", at, chat: "c", from: { kind: "person", name: "Mia" }, kind: "text", text: "Nova, quiz the room" },
+      { id: "2", at, chat: "c", from: { kind: "tex" }, kind: "text", text: "Ready.", delivered: true },
+      { id: "3", at, chat: "c", from: { kind: "person", name: "Nova" }, kind: "text", text: "on it", replyTo: "1" },
+      { id: "4", at, chat: "c", from: { kind: "person", name: "Kim" }, kind: "text", text: "same", replyTo: "2" },
+      { id: "5", at, chat: "c", from: { kind: "person", name: "Kim" }, kind: "text", text: "old", replyTo: "0" },
+    ];
+    const shown = renderTranscript(events);
+    expect(shown).toContain("@Nova: (replying to @Mia) on it");
+    expect(shown).toContain("@Kim: (replying to You) same");
+    expect(shown).toContain("@Kim: (replying to <0>) old");
+  });
+
+  it("Tex's newest text that asks something is marked as its open question, and only that one", () => {
+    const events: TexEvent[] = [
+      { id: "1", at, chat: "c", from: { kind: "tex" }, kind: "text", text: "Tuesday or Wednesday?", delivered: true },
+      { id: "2", at, chat: "c", from: { kind: "tex" }, kind: "text", text: "Want me to book it?", delivered: true },
+      { id: "3", at, chat: "c", from: { kind: "person", name: "Rosa" }, kind: "reaction", text: "👍 (yes) on Tex's message" },
+    ];
+    const lines = renderTranscript(events).split("\n");
+    expect(lines[1]).not.toContain("(your newest question)");
+    expect(lines[2]).toContain("Want me to book it?   (your newest question)");
+    expect(renderTranscript([{ ...events[1]!, text: "Booked." }])).not.toContain("(your newest question)");
+  });
+});

@@ -112,7 +112,7 @@ test("the settings answer shows the instructions and says there is no menu (2026
   const tools = commandTools({ run: async (command) => (command.kind === "settings" ? { status: "done", instructions: "Use no emoji.", updates: "off", engagementChosen: true, engagement: "helpful" } : { status: "done", address: "a@b.example", narrowed: true }), group: { key: "k" }, consent: async () => true });
   const settings = words(await byName(tools, "tex_settings_get").call({}));
   assert.match(settings, /^Instructions: "Use no emoji\."\. Personal instructions don't apply in groups\./);
-  assert.match(settings, /There is no menu: they change how you talk by telling you, in their own words\./);
+  assert.match(settings, /There is no menu: they change any of it by telling you, in their own words\./);
   assert.doesNotMatch(settings, /Quick picks|Progress updates|speaks up/);
   assert.match(words(await byName(tools, "chat_share_mail").call({ address: "a@b.example" })), /Replies go from it only when they say yes\./);
 });

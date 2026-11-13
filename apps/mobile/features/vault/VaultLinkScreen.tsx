@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Redirect, useLocalSearchParams } from "expo-router";
-import { useAction, useConvexAuth } from "convex/react";
+import { useAction, useConvexAuth, useMutation } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../design/components/Button";
 import { Card } from "../design/components/Card";
@@ -15,13 +15,17 @@ import { firstParam } from "../invite/invite";
 import { useSwitchAccount } from "../auth/useSwitchAccount";
 import { VaultAddForm, type VaultDraft, type VaultInitialDraft } from "./VaultAddForm";
 import { VaultViewPage } from "./VaultViewPage";
+import { VaultWhoCanUse } from "./VaultWhoCanUse";
 import { useVaultLinkFlow } from "./useVaultLinkFlow";
 import {
   PREFILL_KEYS,
   atHandle,
+  defaultShare,
   resolveVaultLinkView,
+  shareChoices,
   type EntryType,
   type RawPrefill,
+  type ShareChoice,
   type VaultLinkView,
   type VaultWorkspace,
 } from "./vaultLink";
@@ -47,6 +51,7 @@ export function VaultLinkScreen() {
   const save = useAction(api.functions.vault.saveVaultLogin);
   const share = useAction(api.functions.vault.confirmVaultShare);
   const reveal = useAction(api.functions.vault.revealVaultEntry);
+  const invite = useMutation(api.functions.vaultChatLinks.inviteFromVaultLink);
   const switchAccount = useSwitchAccount();
   const { described, outcome, setOutcome, onSave, onShare, onReveal } = useVaultLinkFlow(token, auth.isAuthenticated, {
     describe: (link) => describe({ token: link }),
@@ -68,6 +73,7 @@ export function VaultLinkScreen() {
         onReveal={onReveal}
         onDecline={() => setOutcome({ kind: "declined" })}
         onSwitchAccount={switchAccount}
+        onInvite={token === null ? undefined : (handle) => invite({ token, handle })}
       />
     </InvitePage>
   );
@@ -81,6 +87,7 @@ export function VaultLinkBody({
   onReveal,
   onDecline,
   onSwitchAccount,
+  onInvite,
   initialDraft,
 }: {
   view: VaultLinkView;
@@ -90,6 +97,8 @@ export function VaultLinkBody({
   onDecline: () => void;
   /** Sign out, then go to `href`: sign-in, and back to this link. */
   onSwitchAccount: (href: string) => void;
+  /** "Add" beside somebody in the chat who isn't in the workspace. */
+  onInvite?: (handle: string) => Promise<"invited" | "already">;
   /** Previews only: a form already typed into. */
   initialDraft?: Partial<VaultInitialDraft>;
 }) {
@@ -131,10 +140,10 @@ export function VaultLinkBody({
       );
     }
     case "add":
-      return <AddPage view={view} titleSize={titleSize} onSave={onSave} initialDraft={initialDraft} />;
+      return <AddPage view={view} titleSize={titleSize} onSave={onSave} onInvite={onInvite} initialDraft={initialDraft} />;
     case "saved":
       return (
-        <Ending testID="vault-link-saved" titleSize={titleSize} title="Saved">
+        <Ending testID="vault-link-saved" titleSize={titleSize} title={view.chatLabel === null ? "Saved" : `Saved for ${view.chatLabel}`}>
           {savedLine(view)}
         </Ending>
       );
@@ -210,15 +219,19 @@ function AddPage({
   view,
   titleSize,
   onSave,
+  onInvite,
   initialDraft,
 }: {
   view: Extract<VaultLinkView, { kind: "add" }>;
   titleSize: number;
   onSave: (draft: VaultDraft) => Promise<boolean>;
+  onInvite?: (handle: string) => Promise<"invited" | "already">;
   initialDraft?: Partial<VaultInitialDraft>;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [type, setType] = useState<EntryType>(initialDraft?.type ?? view.prefill.type);
+  const [share, setShare] = useState<ShareChoice>(defaultShare(view.chat));
+  const picking = shareChoices(view.chat, view.workspace).length > 1;
   const name = view.prefill.name;
   const title =
     type === "card"
@@ -236,23 +249,28 @@ function AddPage({
     <View testID="vault-link-add">
       <Title size={titleSize}>{title}</Title>
       <Text variant="heroSub" style={styles.sub}>
-        {addLine(type, view.workspace)}
+        {addLine(type, view.workspace, view.chat !== null)}
       </Text>
       <VaultAddForm
         prefill={view.prefill}
         initialDraft={initialDraft}
         busy={view.busy}
         problem={view.problem}
-        onSave={onSave}
+        // Sent only when there was a choice to make; with none, the server keeps it to its saver.
+        onSave={(draft) => onSave(picking ? { ...draft, share } : draft)}
         onType={setType}
+        whoCanUse={
+          <VaultWhoCanUse chat={view.chat} workspace={view.workspace} value={share} onChange={setShare} onInvite={onInvite} busy={view.busy} />
+        }
       />
     </View>
   );
 }
 
-function addLine(type: EntryType, workspace: VaultWorkspace): string {
+function addLine(type: EntryType, workspace: VaultWorkspace, fromChat: boolean): string {
   const vault = workspace.kind === "personal" ? "your personal vault" : `the ${workspace.name} vault`;
-  const yours = workspace.kind === "personal" ? "" : " Only you can use it until you share it.";
+  // Who can use it is picked below once there is a choice to make.
+  const yours = workspace.kind === "personal" || fromChat ? "" : " Pick who can use it below.";
   if (type === "card") return `So Tex can pay at a checkout, each time only after you allow it. It goes in ${vault}.${yours}`;
   return type === "login"
     ? `So Tex can sign in for you. It goes in ${vault}.${yours}`
@@ -260,6 +278,12 @@ function addLine(type: EntryType, workspace: VaultWorkspace): string {
 }
 
 function savedLine(view: Extract<VaultLinkView, { kind: "saved" }>): string {
+  // Saved for a chat: Tex is woken in that chat and answers there, so nobody has to text "done".
+  if (view.chatLabel !== null) {
+    return view.type === "login" && view.site
+      ? `Tex is signing in to ${view.site} now and will answer in the chat. You can close this page.`
+      : "Tex carries on in the chat now. You can close this page.";
+  }
   if (view.type === "login") return `Tex can sign in to ${view.site} for you now. Go back to Messages.`;
   if (view.type === "card") {
     return `Tex can fill ${view.name} at ${view.site ? `checkout on ${view.site}` : "a checkout"} now. Tex texts you before each payment, and fills the card only when you say yes. Go back to Messages.`;

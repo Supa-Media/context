@@ -76,8 +76,8 @@ untagged message is never stored.
   chat that isn't bound, an SMS group, a muted one, or once anyone has joined
   or left since Tex last answered, until a tag resolves the chat again.
 - The next tagged message hands the gateway the lines said before it, in front
-  of exactly the people it answers, by handle and never by number (the
-  control plane names them). The gateway files them with the question in the
+  of exactly the people it answers, by handle or guest label (the control
+  plane names them), each person's number given only beside it (below). The gateway files them with the question in the
   chat's memory in the bound workspace, and the queue's copy is deleted. A
   line nobody tags Tex after is dropped after a week, the oldest go first past
   four hundred, and "Tex, stop", a mute or the chat losing its shared
@@ -101,6 +101,79 @@ already share a workspace with the adder: a stranger's number only ever
 yields "not everyone here shares a workspace with me", the same line as an
 unlinked one, and an unknown tagger is told one fixed line once per chat,
 with the same tapback as everyone.
+
+## A group turn sees the numbers of the people in that chat (Dev2, 2026-11-12)
+
+Dev2 asked why Tex couldn't see numbers in a group chat, and that the real
+cost of hiding them is Tex calling someone "guest-1a2b" where any person in
+the chat would say their number. Everyone in an iMessage or WhatsApp group
+already sees every number in it, so telling the turn those numbers shows
+nobody in the chat anything new; and a chat's memory lives in its sealed home,
+which only the chat's people open. Dev2 picked this over keeping labels only.
+
+- The Worker sends `numbers` (each person's number, by the handle or guest
+  label the turn knows them by) and, when a guest tagged Tex, `asker` (their
+  label) (`apps/agent/src/groupModelTurn.ts`). Lines the chat said still name
+  people by handle or label; the number goes only in that list.
+- The gateway keeps a number only for someone named in this chat, only a real
+  one (E.164), once each (`apps/mcp/src/agent/groupNames.js` `numbersOf`), and
+  the roster says each beside its name; the turn is told to say a number where
+  a person would and a guest label never.
+- Unchanged: rows, grants and the control plane still hold account ids and
+  keyed hashes, never a number; logs never carry one; a person's own email,
+  address and other details still reach a group turn by nobody's account
+  ([who-they-are](./who-they-are.md)); the judge reads labels and handles.
+- Reversing it brings back labels said to people. Tests:
+  `apps/mcp/test/groupNames.test.mjs` ("each person here is shown with their
+  number", "a number is kept only for someone here"),
+  `apps/agent/src/groupInbox.test.ts` (numbers only in `numbers`).
+
+## Who is here is the message's own list (Dev2, 2026-11-12)
+
+In Tex Devs, Tex counted five people besides itself where four were there:
+an assistant that joined and left was still in Sendblue's members lookup
+(`GET /api/v2/groups/{id}`) but not in the list each message carries (logged
+`group_people`: webhook 4, lookup 5, one only in the lookup). Dev2 picked the
+message's list for naming and counting.
+
+- A turn names and counts the people (`people`, `guests`, `numbers`, `size`)
+  from the message's own list when it names anyone besides the sender, and
+  from everyone it was given otherwise (a routine, a sender-only webhook)
+  (`apps/agent/src/groupModelTurn.ts` `whoIsHere`).
+- Unchanged: the control plane is asked with, and the chat's `members` hash
+  is made from, both lists together, so the lookup's extra people still only
+  narrow what Tex may share; an email is offered only to someone named here,
+  which the shorter list makes stricter, never wider.
+- Test: `apps/agent/src/groupInbox.test.ts` ("names and counts who is here
+  from the message's own list"); sabotaged by returning the union.
+
+## A guest's name is kept on the chat (Dev2, 2026-11-12)
+
+In Battle of the Bots, two assistants with no linked account showed to Tex
+only as guest labels, their names written in the chat's about note. Tex had
+to match label to name by itself and credited one's joke to the other. Dev2
+picked a roster of names kept on the chat itself.
+
+- When someone here says who a guest is (or the guest says it), Tex calls
+  `send` action `name_guest` (`apps/mcp/src/agent/groupGuestNames.js`) with
+  the label and the name. It is kept as a `name` entry in the chat's ledger,
+  the chat's one copy; the newest per guest is that guest's name. Only a
+  label in this chat is taken, and the name is cleaned as an account's is
+  (`cleanName`).
+- Each group turn reads the names beside its history (`readGroupMemory`), and
+  the chat's lines, the roster, who tagged it and its earlier history show
+  the name beside the label, with the number: `@guest-6ce3 (Boba, +1 …)`.
+- The judge reads them as a fact (`textsDecide.js` `nowFacts`), so its
+  transcript's labels are named too.
+- A chat whose about note already said who a guest is (from before names
+  were kept) gets those names too: a turn reads "guest-1a2b is Sam",
+  "guest-1a2b (Sam)" and "Sam (guest-1a2b)" there for a guest the ledger
+  has no name for, and keeps them in the ledger (`by: "about"`), so the
+  judge reads them as well (`namesInAbout`, `guestNamesWithAbout`).
+- Test: `apps/mcp/test/groupNames.test.mjs` ("a kept name sits beside the
+  label on every line"; "name_guest keeps only a guest of this chat"), both
+  sabotaged; `apps/mcp/test/textsDecide.test.mjs` ("the judge is told the
+  names the chat gave its guests").
 
 ## What a group turn can do
 
@@ -187,7 +260,17 @@ other people's words are in its history.
   group, and never at "see" (`apps/mcp/src/vault/access.js`
   `actorAccessOf`). A person who wants Tex to act for the group gives it a
   login of its own, such as a shared email, saved in the workspace for
-  everyone. A card is an entry like any other and follows the same rule;
+  everyone. Since 2026-11-12 (Dev2, the Crystal Care chat's Gusto login:
+  "the people in the chat you're just coming from ... or the entire
+  workspace, or just me, only I can use it, but I can mention it in the
+  group") two more count: a key given to this chat itself (`#chat:<key>`,
+  picked on the save page of a link Tex texted there, the key from the
+  grant, never the request), and a key the tagger saved for themselves, on
+  their own tag alone: the control plane names the tagger only on the token
+  minted for that tag (`texGroup.ownTagToken`, `session.texTaggerId`), so a
+  guest's or another person's turn through the same grant never reaches it.
+  Still never one given to the tagger by somebody else, and never at "see".
+  A card is an entry like any other and follows the same rule;
   each payment is still the tagger's own yes, replied to Tex's ask
   ([vault](./vault.md), "A card pays only on the person's yes, once a purchase").
 

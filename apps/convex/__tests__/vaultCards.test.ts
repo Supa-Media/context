@@ -82,7 +82,7 @@ const entryIdOf = (w: World) => /(v[0-9a-f]{24})\.json$/.exec(vaultKeys(w)[0])![
 describe("a card", () => {
   test("is saved sealed as its fixed fields, and listed by brand, last four and expiry only", async () => {
     const w = await world();
-    expect(await saveCard(w)).toEqual({ name: "Work Visa", site: "" });
+    expect(await saveCard(w)).toEqual({ name: "Work Visa", site: "", sharedWith: "me" });
     expect(vaultKeys(w)).toHaveLength(1);
     const raw = JSON.stringify(w.backend.snapshot());
     for (const plain of PLAIN) expect(holdsValue(raw, plain), plain).toBe(false);

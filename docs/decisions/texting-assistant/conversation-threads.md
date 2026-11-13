@@ -215,9 +215,10 @@ the judge's gate refused a chat whose row the turn had not made yet
 (`no_group`), a refusal kept for a minute. Seyi sent the whole message again.
 Then two "Searching…" progress lines went to the chat. Dev2 said "Go" to:
 
-- **A slow tapback.** A message naming Tex is armed as it is accepted
-  (`groupSlowTap.ts`). If no text of Tex's goes into the chat and no tapback
-  of Tex's lands on it within `SLOW_TAP_MS` (8 s), the Worker taps one, the
+- **A slow tapback** (replaced the same day by the tool tapback below). A
+  message naming Tex was armed as it was accepted (`groupSlowTap.ts`). If no text of Tex's goes into the chat and no tapback
+  of Tex's lands on it within `SLOW_TAP_MS` (25 s; first 8 s, raised the same day after a test
+  chat got a tapback 2 s before its answer), the Worker taps one, the
   emoji picked from its words. Only a chat bound to its people and not muted
   gets one. A quick answer gets none, so the 2026-11-10 rule above still holds
   for every answer that isn't slow.
@@ -239,6 +240,39 @@ Tex when no text has gone out…", "never taps a chat Tex is not set up in…",
 `apps/agent/src/decideGateway.test.ts` ("a group not set up yet is never kept
 refused…"), `apps/mcp/test/agentProgress.test.mjs` ("a line goes only for
 something to act on…").
+
+### One tapback, on a slow ask only (Dev2, 2026-11-12)
+
+The 25 s timer tapback above is gone. Measured group answers take 12 to 26 s,
+so it landed after most of them, and it fired on messages the judge silenced,
+since it was armed on any message naming Tex before the judge read it. Dev2's
+rule ("Tex spams and uses emojis way too much", 2026-11-10) and Slack's agent
+guidance ("Show a status indicator immediately ... a lightweight emoji
+reaction", https://docs.slack.dev/concepts/agent-design) give the replacement:
+
+- **The first tool is the signal.** When a group turn starts its first tool (a
+  web search, a page, a note, a job), the gateway writes a `step` line on the
+  turn's stream (`turn.js` `onToolStart`, sent only for a group turn that is
+  not a job's, `runTheModel.js`), and the Worker taps the asked message once
+  (`groupModelTurn.ts` `toolStarted`), the emoji picked from its words as the
+  judge's react and the old timer picked it (`reactionFor(undefined,
+  ackEmoji(text))`).
+- **One at most, never with a text.** Later tools add none; a progress line
+  already sent means none; a job started with a tapback in place of words
+  does not add a second. A progress line or `say_nothing` is not a tool here.
+- **None on a quick ask.** A turn with no tool (about 12 s) gets no tapback,
+  answered or silent. A message the judge silenced runs no turn, so it gets
+  none.
+- **What it cannot know.** The tapback goes as the first tool starts, before
+  the turn has decided whether to text: a turn that searches and then says
+  nothing keeps its tapback. A 1:1 chat is unchanged (its typing bubble).
+
+Reversing it brings back either silence on a slow group ask or the late,
+noisy timer. Tests: `apps/agent/src/groupToolTap.test.ts` (one tapback before
+the reply, two tools still one, none without a tool, none on a silenced
+message), `apps/mcp/test/agentProgress.test.mjs` ("a tool start is told before
+the tool runs…"), `agentBackgroundRoute.test.mjs` ("an ordinary texted turn
+streams no steps…": the 1:1 stream stays without them).
 
 ## Undo and reversal cost
 

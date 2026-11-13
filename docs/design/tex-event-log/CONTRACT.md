@@ -32,9 +32,10 @@ type Event = {
   chat: string;          // the chat key the Worker already uses (1:1 chat id or group id)
   from: { kind: "person" | "tex" | "system"; who?: string /* sha256 of the handle */; name?: string /* display handle, groups */ };
   kind: "text" | "picture" | "file" | "link" | "reaction" | "ask" | "ask_settled" | "delivery";
-  text?: string;         // <= 3000 chars; the words, never a tool result
+  text?: string;         // <= 20000 chars (a longer one ends "[cut: N more characters]"); the words, never a tool result
   replyTo?: string;      // event id of the message a reply answers (an inline reply, a text in a thread)
-  quoted?: string;       // person events only, <= 3000 chars: the full words of the message it answers
+  left?: number;         // person text events only: the characters the Worker cut off it (its text then ends "[cut: N more characters]")
+  quoted?: string;       // person events only, <= 20000 chars: the full words of the message it answers
   delivered?: boolean;   // outbound parts only
   reason?: "upload_failed" | "send_refused" | "held_newcomer" | "failed" | "timed_out" | "too_long";
   turn?: string;         // the turn id that produced it (outbound) or answered it
@@ -69,6 +70,15 @@ and reports `{ calls, failed, refused, questions, chars, ms }` to
 `/agent-texts/decide/usage` after each answer. Both name the chat as decide
 does and return no workspace id. The routes below are the fallback when the
 gateway cannot be reached.
+
+Since 2026-11-12 (Dev2: "a judge should have all information and facts needed
+to correctly have a verdict") a group's decide also names its ledger key
+(`ledger`), and the gateway adds what Tex is doing in that chat now (its running
+jobs, by title, and the chat's open conversation threads, by title and newest
+line ids) to the judge's state as `<now>`. A Worker that holds no token
+for a group reads the chat's last day for the transcript over the same binding,
+`POST /texts/chat` with `{ ledger, chat }`, answered `{ events }` as
+`/agent/chat` answers, so the judge never reads the newest texts alone.
 
 Auth: `AGENT_WORKER_SECRET` bearer, as `/agent-texts/session`. Body:
 

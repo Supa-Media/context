@@ -70,6 +70,7 @@ export function Overlay({
   backLabel,
   onDismiss,
   testID,
+  ground,
 }: {
   /**
    * The bar's own title, where the bar is the only thing naming the screen.
@@ -134,6 +135,12 @@ export function Overlay({
   backLabel?: string;
   onDismiss: () => void;
   testID?: string;
+  /**
+   * A ground of the screen's own, for a page drawn in the brand's paper
+   * rather than the app's (the settings home, Dev2 2026-11-12). The bar and
+   * the pane both take it, so the page reads as one sheet.
+   */
+  ground?: string;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -257,6 +264,7 @@ export function Overlay({
           style={[
             styles.phone,
             { paddingTop: insets.top, paddingBottom: insets.bottom },
+            ground === undefined ? null : { backgroundColor: ground },
           ]}
         >
           {band}
@@ -282,16 +290,21 @@ export function Overlay({
    */
   const bar = (
     <View style={styles.bar}>
+      {/*
+        With a way back (a settings section over the settings home), the
+        left of the bar goes back and the close moves to the right edge; the
+        one control on the left always says where it goes.
+      */}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={closeLabel}
-        onPress={onDismiss}
+        accessibilityLabel={onBack === undefined ? closeLabel : (backLabel ?? "Back")}
+        onPress={onBack ?? onDismiss}
         style={styles.out}
-        testID={testID ? `${testID}-close` : undefined}
+        testID={testID ? (onBack === undefined ? `${testID}-close` : `${testID}-back`) : undefined}
       >
         <Icon name="chevronLeft" size={15} color={colors.muted} />
         <Text variant="rail" style={styles.outLabel} numberOfLines={1}>
-          Notes
+          {onBack === undefined ? "Notes" : (backLabel ?? "Back")}
         </Text>
       </Pressable>
       {badge}
@@ -307,6 +320,19 @@ export function Overlay({
       )}
       <View style={styles.grow} />
       {trailing}
+      {onBack === undefined ? null : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={closeLabel}
+          onPress={onDismiss}
+          style={styles.out}
+          testID={testID ? `${testID}-close` : undefined}
+        >
+          <Text variant="rail" style={styles.outLabel} numberOfLines={1}>
+            Notes
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 
@@ -325,7 +351,11 @@ export function Overlay({
         entire settings surface to collapse into a single VoiceOver element.
       */}
       <View
-        style={[styles.page, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
+        style={[
+          styles.page,
+          { paddingTop: insets.top, paddingBottom: insets.bottom },
+          ground === undefined ? null : { backgroundColor: ground },
+        ]}
         testID={testID ? `${testID}-panel` : undefined}
       >
         {band}
@@ -334,7 +364,10 @@ export function Overlay({
           {sidebar === undefined ? null : (
             <View style={[styles.side, { width: sidebarWidth }]}>{sidebar}</View>
           )}
-          <View style={styles.main} testID={testID ? `${testID}-pane` : undefined}>
+          <View
+            style={[styles.main, ground === undefined ? null : { backgroundColor: ground }]}
+            testID={testID ? `${testID}-pane` : undefined}
+          >
             {children}
           </View>
         </View>

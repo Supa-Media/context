@@ -10,15 +10,22 @@
  * whether it went as SMS, and our event id for the send. Never a number,
  * never words. A send that never went is marked in the chat's event log as a
  * "delivery" event that was not delivered, replying to the send's event, so
- * the next turn and the History page know. Nothing is resent.
+ * the next turn and the History page know. One exception is resent: a text
+ * that went threaded goes again plain, once (`threadedResend.ts`), and is
+ * marked only if that fails too.
  */
 
 import { addEvent } from "./events";
 import type { InboxStorage } from "./inbox";
-import { HANDLES_KEY } from "./replyQuote";
+import { HANDLES_KEY, noteHandle } from "./replyQuote";
 import { groupInboxName } from "./groupInbox";
 import { inboxByName } from "./objectPlace";
 import { E164, isRecord, sendblueChatId, statusPath } from "./sendblue";
+import { takeThreaded, type Threaded } from "./threadedResend";
+import { groupLineFor, type GroupLineDeps } from "./groupLine";
+import { lineFor, type LineDeps } from "./line";
+import { MAX_SENT, SENT_KEY } from "./groupSay";
+import { rememberText } from "./threads";
 
 /** A status body is small; anything this big is not one. */
 const MAX_BODY = 64 * 1024;
@@ -68,11 +75,45 @@ export function parseSendStatus(payload: unknown): SendStatus | null {
   return { ...base, object: { kind: "person", phone }, chat: sendblueChatId(line, phone) };
 }
 
-/** Log one status and mark a send that never went. The outcome, for the log and tests. */
-export async function noteSendStatus(storage: InboxStorage, status: SendStatus, now: number): Promise<"logged" | "marked" | "unmatched"> {
+/** Send a threaded text again, plain, into the same chat: the new message's handle, if the line names one. */
+export type Resend = (sent: Threaded) => Promise<string | undefined>;
+
+/**
+ * The resend, by the chat's own line: a group's keeps the new handle among Tex's sent texts and a 1:1's beside its
+ * words, so a reply under the resent text reaches Tex as one under the first would have (`groupSay.ts`, `threads.ts`).
+ */
+export function resendPlain(storage: InboxStorage, deps: LineDeps & GroupLineDeps, now: () => number): Resend {
+  return async (sent) => {
+    if (sent.place.kind === "group") {
+      const handle = await groupLineFor(deps, sent.place.groupId).sendText({ line: sent.place.line, groupId: sent.place.groupId }, sent.text);
+      if (handle !== undefined) {
+        const kept = (await storage.get<string[]>(SENT_KEY)) ?? [];
+        await storage.put(SENT_KEY, [...kept.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
+      }
+      return handle;
+    }
+    const handle = await lineFor(deps, sent.place.chatId).sendText(sent.place.chatId, sent.text, `resend:${sent.h}`);
+    await rememberText(storage, sent.place.chatId, handle, sent.text, now());
+    return handle;
+  };
+}
+
+/** Log one status, resend plain a threaded text that never went, and mark any other send that never went. The outcome, for the log and tests. */
+export async function noteSendStatus(storage: InboxStorage, status: SendStatus, now: number, resend?: Resend): Promise<"logged" | "marked" | "resent" | "unmatched"> {
   const ev = ((await storage.get<{ h: string; ev: string }[]>(HANDLES_KEY)) ?? []).find((entry) => entry.h === status.handle)?.ev;
-  let outcome: "logged" | "marked" | "unmatched" = ev === undefined ? "unmatched" : "logged";
-  if (ev !== undefined && NEVER_WENT.has(status.status)) {
+  let outcome: "logged" | "marked" | "resent" | "unmatched" = ev === undefined ? "unmatched" : "logged";
+  const threaded = NEVER_WENT.has(status.status) && resend !== undefined ? await takeThreaded(storage, status.handle, now) : undefined;
+  if (threaded !== undefined && resend !== undefined) {
+    try {
+      // The same event, a new message: a reply under the resent text, and its own status, find what it said.
+      const handle = await resend(threaded);
+      if (ev !== undefined) await noteHandle(storage, handle, ev);
+      outcome = "resent";
+    } catch {
+      // The plain send failed too: marked below as never went.
+    }
+  }
+  if (outcome !== "resent" && ev !== undefined && NEVER_WENT.has(status.status)) {
     const failed = (await storage.get<string[]>(FAILED_KEY)) ?? [];
     if (!failed.includes(ev)) {
       await addEvent(storage, { at: now, chat: status.chat, from: { kind: "tex" }, kind: "delivery", delivered: false, reason: "failed", replyTo: ev });
@@ -120,4 +161,30 @@ export async function sendblueStatus(request: Request, inboxes: DurableObjectNam
   const name = status.object.kind === "group" ? groupInboxName(status.object.groupId) : status.object.phone;
   const result = await inboxByName(inboxes, name).fetch("https://inbox/send-status", { method: "POST", body: JSON.stringify(status) });
   return new Response(null, { status: result.ok ? 200 : 503 });
+}
+
+/** A sent time this far ahead of our clock is Sendblue's clock, not a lag; this far behind is a replay, not a lag either. */
+const LAG_SKEW_MS = 60_000;
+const LAG_MOST_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long an inbound message took from the person's phone to this Worker: now less Sendblue's own `date_sent`, in
+ * whole milliseconds, or null when the webhook names no usable sent time or is Tex's own outbound echo. In Tex Devs
+ * (2026-11-13) texts reached Tex 2 to 5 minutes after they were sent and nothing here could show it.
+ */
+export function inboundLagMs(payload: unknown, nowMs: number): number | null {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const { date_sent: sent, is_outbound: outbound } = payload as { date_sent?: unknown; is_outbound?: unknown };
+  if (outbound === true || typeof sent !== "string" || sent.length > 64) return null;
+  const at = Date.parse(sent);
+  if (!Number.isFinite(at)) return null;
+  const lag = nowMs - at;
+  if (lag < -LAG_SKEW_MS || lag > LAG_MOST_MS) return null;
+  return Math.max(0, Math.round(lag));
+}
+
+/** One line per inbound Sendblue message with its lag: counts only, never the number or the words. */
+export function logInboundLag(payload: unknown, nowMs: number, group: boolean): void {
+  const lagMs = inboundLagMs(payload, nowMs);
+  if (lagMs !== null) console.log(JSON.stringify({ event: "sendblue_inbound_lag", lagMs, group }));
 }

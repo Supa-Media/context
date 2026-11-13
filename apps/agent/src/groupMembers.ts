@@ -15,6 +15,9 @@
 
 import type { InboxStorage } from "./inbox";
 import type { GroupLine, GroupPlace } from "./groupLine";
+import { peopleOf } from "./groupChat";
+import type { GroupMessage } from "./sendblueGroups";
+import { isWhapiGroup } from "./whapi";
 
 const KEPT_KEY = "gmembers";
 
@@ -57,6 +60,33 @@ export async function membersBeforeSend(storage: InboxStorage, app: GroupLine, p
     log(kept === undefined ? "none_kept" : changed ? "changed" : "stale");
   }
   return await readMembersNow(storage, app, place, now, 2);
+}
+
+/**
+ * A WhatsApp message with the people it was said in front of. Whapi's webhook names only the sender
+ * (`whapiInbound.ts`), where Sendblue's names everyone, and the chat's lines are bound, kept and handed on by that
+ * list's hash (`groupChat.ts`): read as the sender alone, every member's untagged line but the last tagger's was
+ * dropped, and a member's message about a pay correction went unseen on 2026-11-12. The kept list stands in for
+ * the webhook's, as an iMessage's own list would. Fail closed, as before: no list kept yet, one the app said changed,
+ * or a sender it does not name (somebody new, the list is behind), and the message keeps its sender alone.
+ */
+export async function withKeptMembers(storage: InboxStorage, message: GroupMessage): Promise<GroupMessage> {
+  if (!isWhapiGroup(message.groupId) || message.routine !== undefined) return message;
+  // A webhook that names anyone besides the sender is taken at its word.
+  if (peopleOf(message.line, message.participants).some((person) => person !== message.from)) return message;
+  const kept = await storage.get<Kept>(KEPT_KEY);
+  if (kept === undefined || (kept.changedAt !== undefined && kept.changedAt >= kept.at)) return message;
+  if (!kept.list.includes(message.from)) return message;
+  return { ...message, participants: peopleOf(message.line, kept.list) };
+}
+
+/**
+ * The people a WhatsApp turn binds the chat to and reads its lines by: the list the turn just read from the app,
+ * with the asker. A join Whapi never reported changes this hash, so lines kept under the old list are never handed
+ * to a turn in front of the newcomer; a line said after this turn is kept under the same list (`withKeptMembers`).
+ */
+export function inRoom(message: GroupMessage, members: readonly string[]): GroupMessage {
+  return { ...message, participants: peopleOf(message.line, members, [message.from]) };
 }
 
 /** The app said this group's people changed: the kept list is read from the app again before the next answer goes out. */

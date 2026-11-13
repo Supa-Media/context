@@ -142,8 +142,8 @@ export function ownTexHref(
   return { kind: "go", href: own ? `${texHref(own.handle)}${suffix}` : null };
 }
 
-/** The gateway route for one of the three things this page does. */
-export function texComputerEndpoint(mcpEndpoint: string, route: "frame" | "input" | "stop"): string | null {
+/** The gateway route for one of the four things this page does. */
+export function texComputerEndpoint(mcpEndpoint: string, route: "frame" | "input" | "stop" | "done"): string | null {
   let parsed: URL;
   try {
     parsed = new URL(mcpEndpoint);
@@ -221,5 +221,9 @@ export function hostOf(url: string): string {
   }
 }
 
-/** What the person is told after handing the browser back. */
-export const HAND_BACK_NOTICE = "Text Tex “done” and it will carry on from here.";
+/** What the person is told when Done could not reach Tex: the old way still works. */
+export const HAND_BACK_NOTICE = "Couldn’t reach Tex. Text it “done” and it will carry on from here.";
+
+/** The toast once Done reached Tex (Dev2's mock, 2026-11-12). */
+export const HANDED_BACK_TITLE = "Tex has it from here.";
+export const HANDED_BACK_LINE = "It’ll finish up and text the chat. You can close this page.";
