@@ -197,3 +197,7 @@ jobs:
           else
             node scripts/tex-diagram-check.mjs
           fi
+
+      # The Architecture Lab's cases, module texts and test workspaces are the bench's own (tex.lc/admin/lab).
+      - name: The Tex Lab's data matches the bench
+        run: node scripts/tex-lab-data.mjs --check

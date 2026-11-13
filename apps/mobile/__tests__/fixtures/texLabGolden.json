@@ -1,0 +1,158 @@
+{
+ "sims": {
+  "core/q1": {
+   "reply": 16683.64864,
+   "usd": 0.0060498444000000005,
+   "calls": 5.48,
+   "jobEnd": 0,
+   "T": {
+    "text": 0,
+    "decide": 414,
+    "react": 400,
+    "lanes": 1000,
+    "door": 1500,
+    "fd": 9412,
+    "checks": 60,
+    "reviewer": 3398,
+    "send": 900,
+    "classifier": 1683,
+    "selfreview": 2654
+   }
+  },
+  "core/q5": {
+   "reply": 16683.64864,
+   "usd": 0.0060498444000000005,
+   "calls": 5.48,
+   "jobEnd": 0,
+   "T": {
+    "text": 0,
+    "decide": 414,
+    "react": 400,
+    "lanes": 1000,
+    "door": 1500,
+    "fd": 9412,
+    "checks": 60,
+    "reviewer": 3398,
+    "send": 900,
+    "classifier": 1683,
+    "selfreview": 2654
+   }
+  },
+  "jobs/research-caterers-page": {
+   "reply": 9991.97568,
+   "usd": 0.29827775479999996,
+   "calls": 3.24,
+   "jobEnd": 142135.03399999999,
+   "T": {
+    "text": 0,
+    "decide": 414,
+    "react": 400,
+    "lanes": 1000,
+    "door": 1500,
+    "fd": 3437,
+    "checks": 60,
+    "reviewer": 2681,
+    "send": 900,
+    "classifier": 1683,
+    "selfreview": 2654,
+    "job": 133559,
+    "handback": 2225
+   }
+  },
+  "own": {
+   "reply": 8948.668,
+   "usd": 0.0035544799999999996,
+   "calls": 3,
+   "jobEnd": 0,
+   "T": {
+    "text": 0,
+    "decide": 414,
+    "react": 400,
+    "lanes": 1000,
+    "door": 1500,
+    "fd": 5075,
+    "checks": 60,
+    "send": 900,
+    "classifier": 1683,
+    "selfreview": 2654
+   }
+  }
+ },
+ "diff": [
+  [
+   "fd",
+   "model",
+   "setup",
+   "Sonnet 5.5"
+  ],
+  [
+   "fd",
+   "reads less",
+   "code",
+   "Capability list"
+  ],
+  [
+   "fd",
+   "goal",
+   "doc",
+   "x"
+  ],
+  [
+   "decide",
+   "new wire",
+   "code",
+   "Decide → Front door (Helper)"
+  ],
+  [
+   "convo",
+   "word for word, hours",
+   "code",
+   "12"
+  ]
+ ],
+ "configKeys": [
+  "texLab",
+  "version",
+  "setup",
+  "changes",
+  "steps",
+  "models",
+  "modules",
+  "wires",
+  "areas",
+  "cases",
+  "caseEdits",
+  "log"
+ ],
+ "setup": {
+  "models.main": "anthropic/claude-sonnet-5-5"
+ },
+ "mods": {
+  "p-about-tex": 279,
+  "p-rules": 977,
+  "p-tools": 1163,
+  "p-working": 2705,
+  "p-sound-like-a-person": 482,
+  "p-pictures": 917,
+  "p-how-you-talk": 1065,
+  "prompt": 7600,
+  "map": 3641,
+  "caps": 8175,
+  "tools": 6000,
+  "hist": 4000,
+  "histAll": 40000,
+  "threads": 600,
+  "about": 99,
+  "date": 60,
+  "skills": 800,
+  "skillsAll": 60000,
+  "ask": 300,
+  "brief": 500,
+  "ledger": 2500,
+  "draft": 300,
+  "examples": 1550,
+  "groupBrief": 600,
+  "recent": 500,
+  "own": 1200
+ }
+}
