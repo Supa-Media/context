@@ -47,6 +47,16 @@ export const sayNothingLocal = {
 };
 
 /**
+ * `say_nothing` on a turn that must answer (a literal @Tex tag in a group, Dev2: always answered): offered all the same,
+ * so the tool list is the same bytes on every text and the prompt is read from the cache (2026-11-13: a tagged text's
+ * list without it missed the whole cache, tools first), and refused here. The turn goes on to its answer.
+ */
+export const sayNothingRefused = {
+  tool: SAY_NOTHING_DEFINITION,
+  call: async () => ({ isError: true, content: [{ type: "text", text: "Not quiet this time: they tagged you by name, so this turn answers them. Write your reply." }] }),
+};
+
+/**
  * The answer a turn that called it hands on: the quiet word its readers already treat as nothing to send
  * (`QUIET_WORD` in `checkInGuards.js`, written out because that module reaches back to `turn.js`; a test holds them equal).
  */

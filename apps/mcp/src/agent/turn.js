@@ -51,7 +51,7 @@ import { pushbackNudge } from "./pushback.js";
 import { causeOf, failureRecorder } from "./toolFailures.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
-import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
+import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, sayNothingRefused, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 export { toolResultImages, toolResultText } from "./toolResults.js";
@@ -255,6 +255,7 @@ export async function runTurn(options) {
     answerCheck = null, // reads a final answer and the turn's messages, and may send one more round (`claimCheck.js`, `replyJudge.js`)
     endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
     sayNothing = false, // offers `say_nothing`: a call ends the turn with nothing texted (`sayNothing.js`)
+    mustAnswer = false, // with `sayNothing`: offered the same, but a call is refused and the turn answers (a literal @Tex tag)
     scheduled = false, // a routine's run or a check-in, nobody waiting on it: its last steps end quiet, and its last answer is still reviewed (`lastRound.js`)
     roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
@@ -288,7 +289,8 @@ export async function runTurn(options) {
     it works. Dispatched here, like the web tools, never to the MCP: it reaches
     only the person who asked, on the channel their answer goes to anyway.
   */
-  const [local, settles] = sayNothing ? [[...localTools, sayNothingLocal], withSayNothing(endsTurn)] : [localTools, endsTurn]; // silence ends the turn like a started job (`sayNothing.js`)
+  // Silence ends the turn like a started job (`sayNothing.js`); a turn that must answer is offered it all the same, so its tool list reads from the cache, and refused.
+  const [local, settles] = !sayNothing ? [localTools, endsTurn] : mustAnswer ? [[...localTools, sayNothingRefused], endsTurn] : [[...localTools, sayNothingLocal], withSayNothing(endsTurn)];
   const tools = [
     ...(options.tools ?? []),
     ...(web?.tools ?? []),
