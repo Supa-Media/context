@@ -230,6 +230,14 @@ describe("an issued code", () => {
     expect(row!.code).not.toBe(createHash("sha256").update(typed).digest("hex"));
     expect(row!.code).toBe(await hashOneTimeCode("convex-auth", typed));
   });
+
+  test("a stolen stored MAC cannot be replayed as the sign-in code", async () => {
+    const t = setupTest();
+    const { code } = await issue(t, REVIEWER.email);
+    const [row] = await t.run((ctx) => ctx.db.query("authVerificationCodes").collect());
+    await expect(signIn(t, REVIEWER.provider, REVIEWER.email, row!.code)).rejects.toThrow(/Could not verify code/);
+    expect((await signIn(t, REVIEWER.provider, REVIEWER.email, code)).tokens).toBeTruthy();
+  });
 });
 
 describe("staging's personas", () => {
