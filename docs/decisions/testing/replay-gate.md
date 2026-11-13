@@ -52,8 +52,11 @@ did not have to leave a case behind.
    author: which cases regressed and what each expected, held-out ones by cause.
    Main is never run whole: the change answers every case once, only its
    mistakes are run again (twice more on the change, three times on main), and
-   a case regressed when it is wrong in most of the change's runs and right in
-   most of main's. A case main lacks (the change's own) must pass.
+   a case regressed when it is wrong in every one of the change's runs and
+   right in every one of main's. A case the model gets right only some of the
+   time flips on unchanged code (the first real run, 2026-11-13, flagged three
+   in a change that touched no reviewer code under a most-of-three rule), so
+   only a steady flip counts. A case main lacks (the change's own) must pass.
 4. **Practice cases and held-out cases.** Cases in the repository are practice:
    agents may read them and learn from their failures. Held-out cases live
    outside the repository and are never shown to the agent writing a change;

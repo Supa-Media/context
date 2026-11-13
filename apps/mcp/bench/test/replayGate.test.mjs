@@ -2,7 +2,8 @@
  * THE REPLAY GATE'S MODEL HALF (`bench/replayGate.mjs`; Dev2, 2026-11-13).
  *
  * Sabotage record (applied, run, observed failing, reverted, 2026-11-13):
- *  1. `regressions` counting a single wrong run as a regression -> "noise is not a regression" fails;
+ *  1. `regressions` counting a single wrong run as a regression -> "noise is not a regression" fails
+ *     (again 2026-11-13 with `every` loosened back to `most` on main);
  *  2. `feedback` printing a held-out case's id -> "a held-out case is reported by its cause alone" fails;
  *  3. `areasFor` sending every Tex file to every area -> "a change runs only the areas its files reach" fails;
  *  4. `blocking` keeping target ids -> "a target is reported, never blocks" fails;
@@ -23,9 +24,11 @@ test("a change runs only the areas its files reach, and plumbing alone runs none
   assert.deepEqual(areasFor(["apps/mcp/src/agent/warmCopy.js", "apps/mobile/app/index.tsx"]), []);
 });
 
-test("noise is not a regression: a case regresses only when the change is wrong in most runs and main right in most", () => {
+test("noise is not a regression: a case regresses only when the change is wrong in every run and main right in every run", () => {
   assert.deepEqual(regressions({ a: [false, true, true] }, { a: [true, true, true] }), [], "wrong once, right twice: noise");
-  assert.deepEqual(regressions({ a: [false, false, true] }, { a: [true, true, false] }), ["a"]);
+  assert.deepEqual(regressions({ a: [false, false, false] }, { a: [true, true, true] }), ["a"]);
+  assert.deepEqual(regressions({ a: [false, false, false] }, { a: [true, true, false] }), [], "main is right only sometimes: the model's coin");
+  assert.deepEqual(regressions({ a: [false, false, true] }, { a: [true, true, true] }), [], "the change is right sometimes too");
   assert.deepEqual(regressions({ a: [false, false, false] }, { a: [false, false, true] }), [], "main was wrong too: not this change's");
   assert.deepEqual(regressions({ fresh: [false, false, true] }, { fresh: [] }), ["fresh"], "a change must pass the cases it adds");
 });

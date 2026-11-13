@@ -12,8 +12,11 @@
  *
  * Main is never run whole. The change's tree answers every case once; only
  * the cases it gets wrong are run again, twice more on the change and three
- * times on main, and a case regressed when the change is wrong in most of its
- * three and main right in most of its three. So a change pays for one full
+ * times on main, and a case regressed when the change is wrong in every one of
+ * its three and main right in every one of its three. A case the model gets
+ * right only some of the time flips either way on the same code (the first
+ * real run, 2026-11-13, saw three such "regressions" in a change that touched
+ * no reviewer code), so only a steady flip counts. So a change pays for one full
  * run plus its mistakes, and noise (a case that flips once) is not a
  * regression. The change passes when nothing regressed.
  *
@@ -84,12 +87,15 @@ export function rowsFor(area, scored) {
 }
 
 /**
- * Cases a change got wrong in most runs that main got right in most, and cases main does not have (the change's own
- * new ones) that the change got wrong in most: a change must pass the cases it adds. `runs` maps id to booleans.
+ * Cases a change got wrong in every run that main got right in every run, and cases main does not have (the change's
+ * own new ones) that the change got wrong in most: a change must pass the cases it adds. `runs` maps id to booleans.
+ * A case right some of the time on main is the model's coin, not this change's doing, so it never regresses.
  */
 export function regressions(branchRuns, mainRuns) {
   const most = (list) => list.filter(Boolean).length * 2 > list.length;
-  return Object.keys(branchRuns).filter((id) => !most(branchRuns[id]) && (!mainRuns[id]?.length || most(mainRuns[id])));
+  const every = (list) => list.length > 0 && list.every(Boolean);
+  const none = (list) => list.length > 0 && !list.some(Boolean);
+  return Object.keys(branchRuns).filter((id) => (mainRuns[id]?.length ? none(branchRuns[id]) && every(mainRuns[id]) : !most(branchRuns[id])));
 }
 
 /** The regressed ids that block a merge: a target (`target: "<cause>"`, a known unfixed bug) is reported, never blocks. */
