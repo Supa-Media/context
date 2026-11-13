@@ -38,8 +38,6 @@ jest.mock("expo-router", () => {
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
 // The Tests view has no focus export yet, and the workspace browser is not in the repo yet.
-jest.mock("../features/tex/lab/views/Tests.web", () => ({ Tests: () => null, FocusTests: () => null }));
-jest.mock("../features/tex/lab/views/Workspace.web", () => ({ Workspace: () => null }), { virtual: true });
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
