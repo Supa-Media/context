@@ -5,9 +5,12 @@
  *  1. `regressions` counting a single wrong run as a regression -> "noise is not a regression" fails;
  *  2. `feedback` printing a held-out case's id -> "a held-out case is reported by its cause alone" fails;
  *  3. `areasFor` sending every Tex file to every area -> "a change runs only the areas its files reach" fails;
- *  4. `blocking` keeping target ids -> "a target is reported, never blocks" fails.
+ *  4. `blocking` keeping target ids -> "a target is reported, never blocks" fails;
+ *  5. dropping `areasFor` from replayGate's own import -> "the areas command runs" fails.
  */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import { areasFor, blocking, feedback, heldOutJson, markHeldOut, regressions, rowsFor } from "../replayGate.mjs";
@@ -60,4 +63,10 @@ test("a target is reported, never blocks: a known unfixed bug can fail without s
   assert.deepEqual(blocking(["t", "p"], rows), ["p"]);
   const report = feedback({ areas: ["respond"], results: [{ area: "respond", rows, regressed: [], usd: 0 }] });
   assert.ok(report.includes("respond targets** (known bugs, never block): 0/1 right"));
+});
+
+test("the areas command runs: it names a change's areas from git (it once threw, areasFor unbound)", () => {
+  const run = fileURLToPath(new URL("../run.mjs", import.meta.url));
+  const out = execFileSync(process.execPath, [run, "gate", "areas", "--base-sha", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  assert.equal(out, "\n", "HEAD against itself changes nothing, so no area");
 });
