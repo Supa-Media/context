@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { checkVerdicts } from "./checks.mjs";
 import { isGateQuestion, parseTest } from "./load.mjs";
 import { claudeTransport } from "./models.mjs";
+import { assertAnswered, modelSocket, socketSend } from "./modelSocket.mjs";
 import { priceUsd } from "./report.mjs";
 import { frontMatter, judgedSection, parseResult, setFrontStatus } from "./resultNote.mjs";
 import { benchFolder } from "./folder.mjs";
@@ -372,14 +373,18 @@ export function fakeJudge() {
 export async function judgeCommand(options) {
   const dir = benchFolder(options);
   if (!options.job || !dir) throw new Error("usage: pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--max-usd <n>] [--concurrency <n>] [--fake]");
-  const send = options.fake ? fakeJudge() : claudeTransport(process.env);
+  // Through the model socket (`modelSocket.mjs`) the examiner answers the judge's calls too: with no credits there is no
+  // other model to grade with. A judge's call shows it the checks, never the change.
+  const socket = options.fake ? null : modelSocket(process.env, { blocking: true });
+  const send = options.fake ? fakeJudge() : socket?.covers("claude") ? socketSend(socket) : claudeTransport(process.env);
   if (!options.fake) {
-    process.stderr.write(`Judge calls: ${send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
+    process.stderr.write(`Judge calls: ${send.route === "socket" ? `through the model socket (${socket.mode})` : send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
   }
   const maxUsd = options["max-usd"] === undefined ? DEFAULT_MAX_USD : Number(options["max-usd"]);
   if (!Number.isFinite(maxUsd) || maxUsd < 0) throw new Error(`--max-usd must be a number of dollars, got "${options["max-usd"]}"`);
   const concurrency = options.concurrency === undefined ? DEFAULT_CONCURRENCY : Number(options.concurrency);
   const model = options.fake ? (options.judge ?? "fake-judge") : options.judge;
   const result = await judgeFile({ path: options.job, dir, send, model, date: today(), maxUsd, concurrency, log: (line) => process.stderr.write(`${line}\n`) });
+  assertAnswered(socket, "the judge");
   process.stderr.write(`judged ${result.judged} answers with ${result.model} in ${result.requests} requests, skipped ${result.skipped} unanswered, spent $${result.spent.usd.toFixed(2)}; appended to ${options.job}\n`);
 }
