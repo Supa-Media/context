@@ -42,8 +42,10 @@ import { readConversation } from "./conversation.js";
 import { groupMemoryPath, groupOf, readGroupMemory } from "./groupTurn.js";
 import { json } from "../http/responses.js";
 import { withArchitecture } from "./texArchitecture.js";
+import { texEffort, texModel } from "./texConfig.js";
 
-export const SELF_REVIEW_MODEL = "anthropic/claude-haiku-5-5";
+/** Tex's config's self-review step (`texConfig.js`). */
+export const SELF_REVIEW_MODEL = texModel("selfreview");
 export const SCORE_KEYS = ["goal", "independence", "turns", "friendly", "calm"];
 /**
  * What the conversation was mainly for, one code (the Tex dashboard's task
@@ -233,7 +235,7 @@ export async function scoreConversation({ transcript, words, config, request = r
         messages: [{ role: "user", text: `CONVERSATION\n\n${transcript}` }],
         tools: [],
         maxTokens: words ? REVIEW_MAX_TOKENS.full : REVIEW_MAX_TOKENS.scores,
-        effort: "low",
+        ...texEffort("selfreview"),
       },
       config,
       { metadata },

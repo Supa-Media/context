@@ -38,13 +38,14 @@ import { requestViaGateway } from "./aiGateway.js";
 import { ledgerPlace, ledgerWriter } from "./ledger.js";
 import { firstObject } from "./replyJudge.js";
 import { withArchitecture } from "./texArchitecture.js";
+import { texEffort, texModel, texTimeoutMs } from "./texConfig.js";
 import { DESCRIPTION_CHARS, foldThreads, listedThreads, MAX_LISTED, THREADS_SUFFIX, TITLE_CHARS } from "./threadsFold.js";
 
 export { foldThreads, listedThreads, MAX_LISTED, THREADS_SUFFIX };
 
-export const THREADS_MODEL = "anthropic/claude-haiku-5-5";
-export const THREADS_EFFORT = "low";
-export const THREADS_TIMEOUT_MS = 4_000;
+/** Tex's config's classifier step (`texConfig.js`): its model, how hard it thinks (off) and its time limit. */
+export const THREADS_MODEL = texModel("classifier");
+export const THREADS_TIMEOUT_MS = texTimeoutMs("classifier");
 /** The answer's cap, with thinking off: a JSON line, title and description included. */
 export const THREADS_MAX_TOKENS = 400;
 /** How far back the chat is shown word for word once its threads have started. */
@@ -187,7 +188,7 @@ export function verdictEntries(verdict, threads, covered, at = Date.now()) {
 export async function classifyText({ threads, lines, question, replying, group = false, config, metadata, timeZone = null, request = requestViaGateway, timeoutMs = THREADS_TIMEOUT_MS }) {
   if (!config) return null;
   const call = request(
-    { model: THREADS_MODEL, system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying, group }) }], tools: [], effort: THREADS_EFFORT, thinking: "off", maxTokens: THREADS_MAX_TOKENS },
+    { model: THREADS_MODEL, system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying, group }) }], tools: [], ...texEffort("classifier"), maxTokens: THREADS_MAX_TOKENS },
     config,
     { metadata, timeZone }, // told today in their zone (`localNow.js` `withToday`)
   );

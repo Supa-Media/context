@@ -31,6 +31,7 @@
 import { withoutTag } from "./promptFence.js";
 import { adviseOnce, advisorRequest, advisorThinking } from "./advisorRoles/core.js";
 import { ADVISOR_PROMPT } from "./advisorRoles/chat.js";
+import { texTimeoutMs } from "./texConfig.js";
 
 // Its instructions live in `advisorRoles/chat.js`, beside the other roles' (`advisorRoles/core.js`).
 export { ADVISOR_PROMPT, advisorRequest, advisorThinking };
@@ -47,7 +48,8 @@ export const MAX_ASKS = 10;
  * A job is on nobody's clock: 90 s. A text keeps 40 s, and the turn's own end
  * (`turn.js`) still cuts it so the answer fits the texting Worker's two minutes.
  */
-export const ADVISOR_TIMEOUT_MS = Object.freeze({ job: 90_000, chat: 40_000 });
+// A text's wait is Tex's config's advisor step (`texConfig.js`); a job's is code's until the config has a job advisor step.
+export const ADVISOR_TIMEOUT_MS = Object.freeze({ job: 90_000, chat: texTimeoutMs("advisor") });
 
 /** The advisor's limit for a turn: a job's, or a text's. */
 export const advisorTimeoutMs = (job) => (job ? ADVISOR_TIMEOUT_MS.job : ADVISOR_TIMEOUT_MS.chat);

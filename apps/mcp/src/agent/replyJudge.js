@@ -34,15 +34,16 @@ import { openAskBefore } from "./openAsk.js";
 import { requestViaGateway } from "./aiGateway.js";
 import { isControlWord } from "./jobReport.js";
 import { withArchitecture } from "./texArchitecture.js";
+import { texEffort, texModel, texTimeoutMs } from "./texConfig.js";
 import { datedTurns, localStamp, nowLine, readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
 
 /** The reviewer's model, effort and limits. */
-export const REVIEW_MODEL = "anthropic/claude-haiku-5-5";
-const REVIEW_EFFORT = "low";
+/** Tex's config's reviewer step (`texConfig.js`). */
+export const REVIEW_MODEL = texModel("reviewer");
 const REVIEW_MAX_TOKENS = 1_500;
 
 /** No review holds a reply longer than this; past it, the reply goes. */
-export const REVIEW_TIMEOUT_MS = 8_000;
+export const REVIEW_TIMEOUT_MS = texTimeoutMs("reviewer");
 
 /**
  * The most times the reviewer sends one turn's reply back: once (Dev2,
@@ -254,7 +255,7 @@ export async function reviewReply({ state, earlier = [], request = requestViaGat
     // (`judgeState`), so the door does not write a second one. It is said here
     // because the line sits in their words, which the door never reads a
     // notice out of (`localNow.js` `noticesOf`).
-    { model: REVIEW_MODEL, system: withArchitecture(REVIEW_SYSTEM, "reviewer"), messages: [{ role: "user", text: reviewMessage(state, earlier) }], tools: [], maxTokens: REVIEW_MAX_TOKENS, effort: REVIEW_EFFORT, toldNow: true },
+    { model: REVIEW_MODEL, system: withArchitecture(REVIEW_SYSTEM, "reviewer"), messages: [{ role: "user", text: reviewMessage(state, earlier) }], tools: [], maxTokens: REVIEW_MAX_TOKENS, ...texEffort("reviewer"), toldNow: true },
     config,
     { metadata },
   );
