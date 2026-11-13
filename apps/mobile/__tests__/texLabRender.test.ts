@@ -91,7 +91,7 @@ describe("tex.lc/admin/lab", () => {
 
   test("the sidebar is the artifact's, a view's row opens its page, and a saved version opens on a click", () => {
     mockAnswers.set(ADMIN, true);
-    mockAnswers.set(LIST, { me: "u1", versions: [{ versionId: "vabc", name: "Faster judge", authorId: "u1", graph, picks: "{}", areas: null, results: "[]", createdAt: 1, updatedAt: 2 }], caseEdits: [] });
+    mockAnswers.set(LIST, { me: "u1", names: { u1: "@staff" }, versions: [{ versionId: "vabc", name: "Faster judge", authorId: "u1", graph, picks: "{}", areas: null, results: "[]", createdAt: 1, updatedAt: 2 }], caseEdits: [] });
     mount();
     expect(text("#side > .rowi .nm")).toEqual(["Architecture", "Context modules", "Conversations", "Tools", "Speed and cost", "Test cases", "Run", "Compare versions"]);
     expect(text("#wsList .nm")).toEqual(["maya", "fashion-brand", "band"]);

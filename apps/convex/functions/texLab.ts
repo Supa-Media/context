@@ -12,6 +12,7 @@
 import { ConvexError, v } from "convex/values";
 import { query } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
+import { handleForUser } from "./lib/identities";
 import { mutation } from "./lib/rowWatch/mutations";
 
 /** A version's JSON fields and a case edit must each fit well inside a row. */
@@ -33,16 +34,20 @@ const versionRow = v.object({
   updatedAt: v.number(),
 });
 
-/** Every saved version and every case edit, and who is asking (for "yours" in the list). */
+/** Every saved version and every case edit, who made each version, and who is asking (for "yours" in the list). */
 export const list = query({
   args: {},
-  returns: v.object({ me: v.string(), versions: v.array(versionRow), caseEdits: v.array(v.object({ key: v.string(), data: v.string() })) }),
+  returns: v.object({ me: v.string(), names: v.record(v.string(), v.string()), versions: v.array(versionRow), caseEdits: v.array(v.object({ key: v.string(), data: v.string() })) }),
   handler: async (ctx) => {
     const actor = await requireAdmin(ctx);
     const versions = await ctx.db.query("texLabVersions").collect();
     const caseEdits = await ctx.db.query("texLabCaseEdits").collect();
+    // Each author as the console names staff: their handle, else "Someone" (never an address).
+    const names: Record<string, string> = {};
+    for (const id of new Set(versions.flatMap((r) => (r.authorId ? [r.authorId] : [])))) names[id] = (await handleForUser(ctx, id).then((h) => (h ? "@" + h : null))) ?? "Someone";
     return {
       me: actor.userId,
+      names,
       versions: versions.map((r) => ({ versionId: r.versionId, name: r.name, authorId: r.authorId ?? null, graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results, createdAt: r.createdAt, updatedAt: r.updatedAt })),
       caseEdits: caseEdits.map((r) => ({ key: r.key, data: r.data })),
     };

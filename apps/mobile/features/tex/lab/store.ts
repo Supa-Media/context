@@ -81,6 +81,7 @@ export function useLabSync(enabled: boolean) {
   useEffect(() => {
     if (!data) return;
     lab.myId = data.me;
+    lab.names = data.names;
     const list: LabVersion[] = [MAIN];
     for (const x of data.versions) {
       if (x.versionId === "main") {

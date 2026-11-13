@@ -44,6 +44,8 @@ export type LabState = {
   viewer: { kind: "module"; key: string } | { kind: "diff"; key: string } | { kind: "ws"; ws: string; at?: string } | null;
   toastText: string | null;
   myId: string | null;
+  /** Each version author's name, as the shared list gives it (a handle, else "Someone"). */
+  names: Record<string, string>;
   sync: string;
 };
 
@@ -71,6 +73,7 @@ export const lab: LabState = {
   viewer: null,
   toastText: null,
   myId: null,
+  names: {},
   sync: "Shared with staff",
 };
 
