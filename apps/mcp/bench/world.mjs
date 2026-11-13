@@ -392,12 +392,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   };
   const { textedEvent, postEvents } = workerEvents({ env, token: chatToken, group });
   return {
-    /**
-     * One texted message, answered with the conversation so far. With `job`, one part of a background job instead,
-     * asked as the texting Worker asks it (`apps/agent/src/jobRun.ts` `ask`): the text is the person's own that
-     * started it, posted to the chat's ledger only for its first part, and the answer is the job's report, which goes
-     * to the chat's own turn and is never posted as a text (`jobTasks.mjs`).
-     */
+    /** One texted message, answered with the conversation so far; with `job`, one part of a job, as `jobRun.ts` asks it (`jobTasks.mjs`): their text is posted on part 1 only, the report never. */
     async text(message, attachments = [], { running = null, others = [], job = null } = {}) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
