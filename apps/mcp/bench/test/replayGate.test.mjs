@@ -2,14 +2,19 @@
  * THE REPLAY GATE'S MODEL HALF (`bench/replayGate.mjs`; Dev2, 2026-11-13).
  *
  * Sabotage record (applied, run, observed failing, reverted, 2026-11-13):
- *  1. `regressions` counting a single wrong run as a regression -> "noise is not a regression" fails;
+ *  1. `regressions` counting a single wrong run as a regression -> "noise is not a regression" fails
+ *     (again 2026-11-13 with `every` loosened back to `most` on main);
  *  2. `feedback` printing a held-out case's id -> "a held-out case is reported by its cause alone" fails;
- *  3. `areasFor` sending every Tex file to every area -> "a change runs only the areas its files reach" fails.
+ *  3. `areasFor` sending every Tex file to every area -> "a change runs only the areas its files reach" fails;
+ *  4. `blocking` keeping target ids -> "a target is reported, never blocks" fails;
+ *  5. dropping `areasFor` from replayGate's own import -> "the areas command runs" fails.
  */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { areasFor, feedback, gate, heldOutJson, markHeldOut, mergeRuns, regressions, rowsFor } from "../replayGate.mjs";
+import { areasFor, blocking, feedback, gate, heldOutJson, markHeldOut, mergeRuns, regressions, rowsFor } from "../replayGate.mjs";
 
 test("a change runs only the areas its files reach, and plumbing alone runs none", () => {
   assert.deepEqual(areasFor(["packages/shared/src/textDecide.cjs"]), ["respond"]);
@@ -19,9 +24,11 @@ test("a change runs only the areas its files reach, and plumbing alone runs none
   assert.deepEqual(areasFor(["apps/mcp/src/agent/warmCopy.js", "apps/mobile/app/index.tsx"]), []);
 });
 
-test("noise is not a regression: a case regresses only when the change is wrong in most runs and main right in most", () => {
+test("noise is not a regression: a case regresses only when the change is wrong in every run and main right in every run", () => {
   assert.deepEqual(regressions({ a: [false, true, true] }, { a: [true, true, true] }), [], "wrong once, right twice: noise");
-  assert.deepEqual(regressions({ a: [false, false, true] }, { a: [true, true, false] }), ["a"]);
+  assert.deepEqual(regressions({ a: [false, false, false] }, { a: [true, true, true] }), ["a"]);
+  assert.deepEqual(regressions({ a: [false, false, false] }, { a: [true, true, false] }), [], "main is right only sometimes: the model's coin");
+  assert.deepEqual(regressions({ a: [false, false, true] }, { a: [true, true, true] }), [], "the change is right sometimes too");
   assert.deepEqual(regressions({ a: [false, false, false] }, { a: [false, false, true] }), [], "main was wrong too: not this change's");
   assert.deepEqual(regressions({ fresh: [false, false, true] }, { fresh: [] }), ["fresh"], "a change must pass the cases it adds");
 });
@@ -52,6 +59,21 @@ test("a held-out note's cases are its json block", () => {
   assert.equal(heldOutJson("no block"), null);
 });
 
+test("a target is reported, never blocks: a known unfixed bug can fail without stopping a merge", () => {
+  const rows = rowsFor("respond", [{ id: "t", want: "reply", hushed: true, target: "a cause" }, { id: "p", want: "reply", hushed: true }]);
+  assert.equal(rows[0].target, true);
+  assert.equal(rows[1].target, false);
+  assert.deepEqual(blocking(["t", "p"], rows), ["p"]);
+  const report = feedback({ areas: ["respond"], results: [{ area: "respond", rows, regressed: [], usd: 0 }] });
+  assert.ok(report.includes("respond targets** (known bugs, never block): 0/1 right"));
+});
+
+test("the areas command runs: it names a change's areas from git (it once threw, areasFor unbound)", () => {
+  const run = fileURLToPath(new URL("../run.mjs", import.meta.url));
+  const out = execFileSync(process.execPath, [run, "gate", "areas", "--base-sha", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  assert.equal(out, "\n", "HEAD against itself changes nothing, so no area");
+});
+
 /** A scripted area: `answers[tree][id]` is the list of results it gives, one a run, taken in order. */
 function scripted(answers, cost = 0.01) {
   const calls = [];
@@ -70,7 +92,7 @@ const LIMITS = { core: { maxUsd: 1, pool: "shared", usdPerCase: 0.01, reruns: { 
 
 test("only the change's wrong cases run again, on the change and on main, and a target never blocks", async () => {
   const { runner, calls } = scripted({
-    branch: { ok: [true], broke: [false, false, true], flaky: [false, true, true], "t-known": [false, false, false] },
+    branch: { ok: [true], broke: [false, false, false], flaky: [false, true, true], "t-known": [false, false, false] },
     main: { broke: [true, true, true], flaky: [true, true, true], "t-known": [true, true, true] },
   });
   const result = await gate({ branch: "branch", base: "main", areas: ["core"], scratch: "/nowhere", runners: { core: runner }, limits: LIMITS, hasArea: async () => true });
