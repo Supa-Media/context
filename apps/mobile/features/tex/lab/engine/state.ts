@@ -44,6 +44,8 @@ export type LabState = {
   viewer: { kind: "module"; key: string } | { kind: "diff"; key: string } | { kind: "ws"; ws: string; at?: string } | null;
   toastText: string | null;
   myId: string | null;
+  /** Each version author's name, as the shared list gives it (a handle, else "Someone"). */
+  names: Record<string, string>;
   sync: string;
 };
 
@@ -71,6 +73,7 @@ export const lab: LabState = {
   viewer: null,
   toastText: null,
   myId: null,
+  names: {},
   sync: "Shared with staff",
 };
 
@@ -251,4 +254,32 @@ export function markDirty() {
 export function set(patch: Partial<LabState>) {
   Object.assign(lab, patch);
   emit();
+}
+
+/** Delete the selected step (with its wires and the reads of its output) or wire; the artifact's `delSel`. */
+export function delSel() {
+  const sel = lab.sel;
+  if (!sel) return;
+  if (sel.t === "node") {
+    if (["text", "send"].includes(sel.id)) {
+      toast("Every version needs a start and a send");
+      return;
+    }
+    const id = sel.id;
+    edit(() => {
+      const g = G();
+      g.nodes = g.nodes.filter((n) => n.id !== id);
+      g.edges = g.edges.filter((e) => e.from !== id && e.to !== id);
+      g.nodes.forEach((n) => (n.ctx = n.ctx.filter((c) => c !== "out:" + id)));
+      lab.sel = null;
+    });
+    toast("Deleted. Undo brings it back.");
+  } else {
+    const i = sel.i;
+    edit(() => {
+      G().edges.splice(i, 1);
+      lab.sel = null;
+    });
+    toast("Wire deleted");
+  }
 }

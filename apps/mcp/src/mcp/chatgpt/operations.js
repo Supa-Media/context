@@ -77,7 +77,7 @@ export function chatgptCoverage() {
   return Object.entries(ACTIONS).flatMap(([family, actions]) => Object.keys(actions).map(action => {
     const capability = `${family}.${action}`;
     const tools = entries.filter(entry => entry.source === capability).map(entry => entry.name);
-    const exclusion = capability === "send.api" ? "Arbitrary vault-backed API execution is excluded: destinations and operations are not individually exposed for directory review." : capability === "send.app" ? "Dynamically discovered connected-app execution is excluded: future operations cannot be individually reviewed in this fixed contract." : null;
+    const exclusion = capability === "send.api" ? "Arbitrary vault-backed API execution is excluded: destinations and operations are not individually exposed for directory review." : capability === "send.app" ? "Dynamically discovered connected-app execution is excluded: future operations cannot be individually reviewed in this fixed contract." : capability === "manage.run_model" ? "The Architecture Lab's model runs are staff-only (people who edit @context-lc's AI setup) and are not part of this directory contract." : null;
     return { capability, tools, ...(exclusion ? { exclusion } : {}), ...(capability === "write.save_session" ? { limitation: "User-requested task summaries only; no raw-history field or automatic capture." } : {}) };
   }));
 }

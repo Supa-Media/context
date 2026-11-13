@@ -19,6 +19,7 @@ import { allCases, cvDiff, diff } from "./engine/diff";
 import { G, go, isMain, lab, newVersion, openVersion, saveVersion, set, fit, emit } from "./engine/state";
 import { buildTraces } from "./engine/traces";
 import { LAB_CSS } from "./labCss";
+import { ensureFontsLoaded } from "../../design/fonts.web";
 import { useLab, useLabSync } from "./store";
 import type { View } from "./types";
 import { Canvas } from "./views/Canvas.web";
@@ -67,6 +68,7 @@ export function TexLab() {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
   useLabSync(isAdmin === true);
   useEffect(() => {
+    ensureFontsLoaded();
     if (!lab.scn) buildTraces(allCases());
     emit();
   }, []);
@@ -79,9 +81,9 @@ export function TexLab() {
           <h1>Staff only</h1>
           <p className="lede">This page is for the people who run Tex. If that is you, sign in with your staff account.</p>
         </div>
-      ) : (
+      ) : isAdmin === true ? (
         <Lab />
-      )}
+      ) : null}
     </div>
   );
 }

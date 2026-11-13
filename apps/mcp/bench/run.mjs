@@ -39,7 +39,8 @@ import { reviewCommand } from "./review.mjs";
 import { respondCommand } from "./respond.mjs";
 import { ROLES as ADVISOR_ROLES, advisorCommand } from "./advisor.mjs";
 import { gateCommand } from "./replayGate.mjs";
-import { assertAnswered, modelSocket, socketCommand, socketSend } from "./modelSocket.mjs";
+import { labCommand } from "./lab.mjs";
+import { LAB_REAL_ENV, assertAnswered, labAi, modelSocket, socketAi, socketCommand, socketSend } from "./modelSocket.mjs";
 import { nightlyCommand } from "./nightly.mjs";
 import { driftCommand } from "./drift.mjs";
 import { jobstartCommand } from "./jobstart.mjs";
@@ -78,7 +79,7 @@ function parseArgs(argv) {
   const options = { command, job };
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
-    if (flag === "--fake" || flag === "--verbose" || flag === "--no-fluff" || flag === "--cold" || flag === "--publish" || flag === "--revert" || flag === "--strict") options[flag.slice(2)] = true;
+    if (flag === "--fake" || flag === "--verbose" || flag === "--no-fluff" || flag === "--cold" || flag === "--publish" || flag === "--revert" || flag === "--strict" || flag === "--force") options[flag.slice(2)] = true;
     else if (flag.startsWith("--")) options[flag.slice(2)] = rest[++i];
   }
   return options;
@@ -352,7 +353,7 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   if (socketed) {
     // Workers AI (the embeddings for search by meaning, Clef) answers with the scripted stand-in: the examiner session
     // holds no Cloudflare key, and a real model's numbers would differ live and replayed and change what the turn reads.
-    models.ai = cachedEmbeddings(fakeAi());
+    models.ai = socket.covers("workers-ai") && process.env[LAB_REAL_ENV] ? labAi(socketAi(socket), cachedEmbeddings(fakeAi())) : cachedEmbeddings(fakeAi());
     delete models.searchKey;
     models.offlineWeb = !scripted;
   }
@@ -554,6 +555,7 @@ const USAGE = [
   "       pnpm ai advisor-chat | advisor-job-check | advisor-planner | advisor-job-mail [--only a,b] [--fake]   score one advisor role on its cases",
   "       pnpm ai socket next|answer|publish|pull   the model socket: an examiner session answers the gate's calls",
   "       pnpm ai gate --base <main checkout> [--areas respond,review] [--held-out <dir>] | gate areas --base-sha <sha> | gate held-out --dir <dir>",
+  "       pnpm ai lab plan|apply|run --config <lab config.json>   run a Tex Architecture Lab version on the examiner path ($0)",
   "       pnpm ai nightly [--held-out <dir>] [--areas core,tasks] [--out <file>] [--run-url <url>]   every area, 3 runs, one scoreboard note",
   "       pnpm ai drift [--day YYYY-MM-DD]             live conversations' scores against the week before; exit 3 on a drop",
   "       pnpm ai jobstart [--concurrency <n>] [--fake]  score whether a job's start gets a line or only a tapback (Haiku) on held-out chats",
@@ -581,6 +583,7 @@ const COMMANDS = new Map([
   ["respond", respondCommand],
   ...Object.keys(ADVISOR_ROLES).map((role) => [role, advisorCommand(role)]),
   ["gate", gateCommand],
+  ["lab", labCommand],
   ["socket", (options) => socketCommand(options, { connect: () => signIn({ env: process.env }) })],
   ["nightly", nightlyCommand],
   ["drift", driftCommand],

@@ -30,12 +30,11 @@
  */
 
 import { json } from "../http/responses.js";
-import { contextsFor } from "../context/identity.js";
+import { contextsFor, editsPinnedContext } from "../context/identity.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { callToolForSession } from "../tools/session.js";
 import { newLedger } from "../privacy/egress.js";
 import { SCOPE_PRIVATE, SCOPE_READ } from "../session.js";
-import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { BUILTIN_PROVIDER, canRunBuiltin, hasBuiltinModel } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { decisionEngine } from "./decide.js";
@@ -95,10 +94,7 @@ export function tryDispatcher(tools, call) {
 }
 
 /** Whether this connection's person may edit `@context-lc`, as far as the gateway knows; the control plane decides again. */
-function editsAiNotes(session) {
-  const pinned = contextsFor(session).find((entry) => entry.name === PINNED_CONTEXT_NAME);
-  return pinned !== undefined && (pinned.role === "owner" || pinned.role === "editor");
-}
+const editsAiNotes = editsPinnedContext;
 
 /** The request's chat so far, as the turn's history: words only, alternating, the newest kept. */
 export function tryHistory(raw) {

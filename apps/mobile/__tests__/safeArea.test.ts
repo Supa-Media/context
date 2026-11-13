@@ -374,6 +374,7 @@ const ROUTES: Record<string, Coverage> = {
     kind: "gate",
     mount: () => createElement(requireRoute("(app)/admin/index.tsx")),
   },
+  "(app)/admin/lab.tsx": { kind: "gate", mount: () => createElement(requireRoute("(app)/admin/lab.tsx")) }, // Tex Lab: a redirect off tex.lc
   "(app)/admin/[...section].tsx": {
     kind: "screen",
     mount: () =>

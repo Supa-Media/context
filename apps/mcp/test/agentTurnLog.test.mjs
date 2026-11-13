@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { meterParts } from "../src/agent/modelPlan.js";
-import { MAX_WAIT_MS, turnKind, turnReport, waitBefore } from "../src/agent/turnLog.js";
+import { actionOf, MAX_WAIT_MS, turnKind, turnReport, waitBefore, wireTraceEntry } from "../src/agent/turnLog.js";
 
 test("a turn's kind follows what started it, a routine before a job before a group", () => {
   assert.equal(turnKind({ runner: true, job: { id: "j" }, group: { id: "g" }, texting: true }), "routine");
@@ -78,4 +78,34 @@ test("the row carries the wait only when there is one", () => {
   const base = { provider: "builtin", outcome: "answered", model: "m", timing: null, usage: null, parts: null, kind: "group", ms: 3_000 };
   assert.equal(turnReport({ ...base, waitMs: 12_000 }).waitMs, 12_000);
   assert.equal("waitMs" in turnReport(base), false);
+});
+
+test("a tool's action is kept only when it is shaped like a name from the tool's own list", () => {
+  const entry = (action) => wireTraceEntry({ kind: "tool", tool: "write", ok: true, ms: 5, action });
+  assert.equal(entry("save").action, "save");
+  assert.equal(entry("move_note").action, "move_note");
+  // A value a person typed, with spaces and capitals, never reaches the log.
+  assert.equal("action" in entry("Save My Note"), false);
+  assert.equal("action" in entry("a".repeat(60)), false);
+  assert.equal("action" in entry(42), false);
+  assert.equal("action" in entry(undefined), false);
+  assert.equal("action" in entry(["save"]), false);
+  // A tool that names no action keeps no action key at all.
+  assert.equal("action" in wireTraceEntry({ kind: "tool", tool: "search", ok: true, ms: 1 }), false);
+});
+
+test("an action is never kept on a trace entry that is not a tool call", () => {
+  assert.equal("action" in wireTraceEntry({ kind: "model", ok: true, ms: 1, action: "save" }), false);
+});
+
+test("actionOf prefers the action the model wrote, then the one that ran, and drops anything that is not a name", () => {
+  assert.equal(actionOf({ args: { action: "save" } }, { args: { action: "search" } }), "save");
+  assert.equal(actionOf({ args: {} }, { args: { action: "search" } }), "search");
+  // A written value that is not a name is dropped, not swapped for the one that ran.
+  assert.equal(actionOf({ args: { action: "Save My Note" } }, { args: { action: "search" } }), undefined);
+  assert.equal(actionOf({ args: { action: 7 } }, { args: {} }), undefined);
+  assert.equal(actionOf({ args: { action: "x".repeat(41) } }, { args: {} }), undefined);
+  assert.equal(actionOf({ args: { action: "x".repeat(40) } }, { args: {} }), "x".repeat(40));
+  assert.equal(actionOf(undefined, { args: { action: "send" } }), "send");
+  assert.equal(actionOf(undefined, undefined), undefined);
 });

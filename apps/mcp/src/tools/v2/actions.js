@@ -134,6 +134,11 @@ export const ACTIONS = {
     connect_google: { tool: "connect_google", summary: "Get the link where the person connects Gmail or Calendar.", take: plain },
     connect: { tool: "connect_app", summary: "Get the link where the person connects an app fetch apps: lists, through its own approval screen.", take: plain },
     dream_now: { tool: "dream_now", summary: "Start Tex's dream now: it rewrites tex/about.md (owner only).", take: plain },
+    run_model: {
+      tool: "run_model",
+      summary: "Run one Workers AI model for the Architecture Lab (clef or glm-4.7-flash) on a JSON input; staff only, not for Tex.",
+      take: plain,
+    },
     fill_dates: { tool: "fill_dates", summary: "Fill every empty date created / date modified from each note's history, once (owner only).", take: plain },
     pair_device: {
       tool: "pair_device",

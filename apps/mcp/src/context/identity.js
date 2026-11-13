@@ -5,6 +5,7 @@
  */
 
 import { reachForRole } from "../session.js";
+import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 
 /* --------------------------------- MCP ---------------------------------- */
 
@@ -94,6 +95,18 @@ export function personalNameFor(session) {
     (entry) => entry.kind === "personal" && entry.role === "owner" && entry.slug
   );
   return own ? `@${own.slug}` : null;
+}
+
+/**
+ * Whether this connection's person edits the pinned workspace `@context-lc`
+ * (its AI setup and its shared notes): an owner or an editor there, as the
+ * gateway's session says. A member or a reader, a session that does not reach
+ * it, and a self-hosted deployment with no pinned workspace are all `false`.
+ * The control plane decides again wherever it matters (`tryIt.js`, `runModel.js`).
+ */
+export function editsPinnedContext(session) {
+  const pinned = contextsFor(session).find((entry) => entry.name === PINNED_CONTEXT_NAME);
+  return pinned !== undefined && (pinned.role === "owner" || pinned.role === "editor");
 }
 
 /**

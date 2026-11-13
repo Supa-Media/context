@@ -36,6 +36,7 @@ describe("the Lab's shared versions", () => {
     expect(got.me).toBe(staffId);
     expect(got.versions.map((v) => [v.versionId, v.name, v.authorId])).toEqual([["vabc123", "Haiku judge, faster", staffId]]);
     expect(got.caseEdits.map((c) => c.key)).toEqual(["core/q1"]);
+    expect(got.names).toEqual({ [staffId]: "Someone" });
 
     await staff.mutation(api.functions.texLab.saveCase, { key: "core/q1", data: null });
     await staff.mutation(api.functions.texLab.deleteVersion, { versionId: "vabc123" });
