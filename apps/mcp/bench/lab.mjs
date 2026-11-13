@@ -223,7 +223,8 @@ export function planText(plan) {
   const { version } = plan;
   const lines = [`Lab: ${version.name}${version.id ? ` (${version.id})` : ""}${version.base ? `, base ${version.base}` : ""}`];
   lines.push(`Runs on the examiner path: ${plan.areas.run.join(", ") || "nothing"}`);
-  if (plan.areas.pipeline) lines.push("Runs free: pipeline (pnpm test)");
+  // `run` starts only the gate; the plumbing replays need no model and run with the suite, so the person runs them.
+  if (plan.areas.pipeline) lines.push("Pipeline: free, not started by lab run: run `pnpm test` in apps/mcp (test/replay.test.mjs)");
   for (const skip of plan.areas.skipped) lines.push(`Skipped: ${skip.area} (${skip.why})`);
   if (plan.setupFields.length) {
     lines.push("Setup written to the bench copy (production.md):");
