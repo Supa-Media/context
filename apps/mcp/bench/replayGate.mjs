@@ -4,6 +4,7 @@
  *   pnpm ai gate --base <main checkout> [--areas respond,review] [--held-out <dir>] [--out <file>] [--fake]
  *   pnpm ai gate areas --base-sha <sha>      the areas a change touches, one per line
  *   pnpm ai gate held-out --dir <dir>        the held-out cases from Context (the runner's sign-in)
+ *   pnpm ai gate records --scratch <dir> --sha <sha>   the core area's judged answers into Context, to read a regression
  *
  * A Tex change runs only the model areas its files reach (`AREAS`): the one
  * judge's reply-or-quiet cases (Clef, a fraction of a cent) and the reply
@@ -26,7 +27,7 @@
  * them.
  */
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -261,6 +262,30 @@ export async function writeRows(out, area, scored) {
   await writeFile(out, JSON.stringify(rowsFor(area, scored)));
 }
 
+/** Where a commit's core-area records go in Context: the answers and the judge's reasons, never in the repository. */
+export const RECORDS_FOLDER = "ai/results/replay";
+export const recordsFolderFor = (sha) => `${RECORDS_FOLDER}/${String(sha).slice(0, 12)}`;
+
+/**
+ * The core area's judged result notes (each answer and the judge's reason on every line, the branch's and main's)
+ * into `ai/results/replay/<sha>/`, so a regression can be read instead of guessed at (2026-11-13: core/q13 failed
+ * 3/3 and nobody could see why). The key files stay behind; the core area has no held-out cases. Returns the paths.
+ */
+export async function publishCoreRecords({ scratch, sha, connection, fetchImpl = fetch }) {
+  if (!/^[0-9a-f]{12,40}$/.test(String(sha))) throw new Error(`not a commit sha: ${sha}`);
+  const names = (await readdir(scratch).catch(() => [])).filter((name) => /^core-.+\.md$/.test(name) && !name.endsWith(" key.md")).sort();
+  const written = [];
+  for (const name of names) {
+    const path = `${recordsFolderFor(sha)}/${name}`;
+    const existing = await callTool(connection, "read_note", { path }, fetchImpl);
+    const etag = existing.isError ? null : (splitNote(existing.text).header.etag ?? null);
+    const answer = await callTool(connection, "write_note", { path, content: await readFile(join(scratch, name), "utf8"), summary: `Tex replay record ${name}`, ...(etag ? { expected_etag: etag } : {}) }, fetchImpl);
+    if (answer.isError) throw new Error(`write_note ${path}: ${answer.text}`);
+    written.push(path);
+  }
+  return written;
+}
+
 export async function gateCommand(options) {
   const sub = options.job;
   if (sub === "areas") {
@@ -272,6 +297,12 @@ export async function gateCommand(options) {
     if (!options.dir) throw new Error("usage: pnpm ai gate held-out --dir <dir>");
     const pulled = await pullHeldOut({ dir: options.dir, connection: await signIn({ env: process.env }) });
     process.stdout.write(`held-out cases pulled: ${pulled.join(", ") || "none"}\n`);
+    return;
+  }
+  if (sub === "records") {
+    if (!options.scratch || !options.sha) throw new Error("usage: pnpm ai gate records --scratch <dir> --sha <sha>");
+    const written = await publishCoreRecords({ scratch: options.scratch, sha: options.sha, connection: await signIn({ env: process.env }) });
+    process.stdout.write(written.length ? `Core answers and the judge's reasons: @context-lc ${recordsFolderFor(options.sha)}/ (${written.length} notes)\n` : "No core records to keep.\n");
     return;
   }
   if (!options.base) throw new Error("usage: pnpm ai gate --base <main checkout> [--areas a,b]");
