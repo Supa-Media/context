@@ -528,3 +528,4 @@ test/openAsk.test.mjs
 test/texSettings.test.mjs
 test/chatWriteLock.test.mjs
 test/replay.test.mjs
+bench/test/replayGate.test.mjs
