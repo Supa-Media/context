@@ -11,6 +11,20 @@ function confidenceOf(entry) {
 }
 
 /**
+ * A tool's action name (`write`'s `save`, `manage`'s `move`) as the turn log
+ * takes it: a name from the tool's own closed list, never a value the person
+ * typed. Anything not shaped like a name is dropped, so an argument that
+ * strayed into the action slot cannot reach the log.
+ */
+export const ACTION_NAME = /^[a-z][a-z0-9_]{0,39}$/;
+
+/** The action a tool call named: the one the model wrote, else the one that ran. Dropped, not replaced, when it is not a name. */
+export function actionOf(made, call) {
+  const named = typeof made?.args?.action === "string" ? made.args.action : call?.args?.action;
+  return typeof named === "string" && ACTION_NAME.test(named) ? named : undefined;
+}
+
+/**
  * A trace entry as the turn log takes it (`apps/convex/functions/agentTurns.ts`):
  * kinds, names, numbers and flags, never a word the router or a provider
  * wrote. The router's own word (`pick`) and a fallback's `from` stay in this
@@ -19,7 +33,7 @@ function confidenceOf(entry) {
  */
 export function wireTraceEntry(entry) {
   const base = { kind: entry.kind, ok: entry.ok !== false, ms: entry.ms ?? 0 };
-  if (entry.kind === "tool") return { ...base, tool: entry.tool, ...(entry.held ? { held: true } : {}) };
+  if (entry.kind === "tool") return { ...base, tool: entry.tool, ...(typeof entry.action === "string" && ACTION_NAME.test(entry.action) ? { action: entry.action } : {}), ...(entry.held ? { held: true } : {}) };
   if (entry.kind === "router") return { ...base, tier: entry.tier, model: entry.model, ...confidenceOf(entry) };
   // The reply judge's verdict (`replyJudge.js`): never the words it read.
   if (entry.kind === "judge") return { ...base, verdict: typeof entry.verdict === "string" ? entry.verdict : null, acted: entry.acted === true, ...confidenceOf(entry) };

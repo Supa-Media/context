@@ -56,6 +56,7 @@ import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, sayNothingRefused, typ
 export { describePlace, systemPrompt } from "./prompt.js";
 export { toolResultImages, toolResultText } from "./toolResults.js";
 import { toolResultImages, toolResultText } from "./toolResults.js";
+import { actionOf } from "./turnLog.js";
 
 /**
  * How many times the model may call tools before the turn ends.
@@ -651,7 +652,9 @@ export async function runTurn(options) {
       // A call the egress gate held for the person's yes is not a failure: it
       // runs when they give it (`texEntryPoint.js`), and a log that called it failed
       // would read as a broken tool.
-      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
+      // The action the call named (`write`'s `save`), for the Tools page; a name the log would not keep is left out.
+      const action = actionOf(made, call);
+      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(action === undefined ? {} : { action }), ...(result?.held === true ? { held: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
       if (failedCall(result)) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }
