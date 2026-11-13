@@ -79,7 +79,7 @@ export function rowsFor(area, scored) {
   return scored.map((item) => {
     const right = area === "respond" ? (item.want === "hush" ? item.hushed === true : item.hushed === false && item.verdict?.ok === true) : item.fault ? item.sent === false : item.sent === true;
     const expected = area === "respond" ? (item.want === "hush" ? "stay quiet or react" : "reach the model") : item.fault ? "send it back" : "let it go";
-    return { id: item.id, right, must: item.must === true, heldOut: item.heldOut === true, cause: item.cause ?? null, expected };
+    return { id: item.id, right, must: item.must === true, heldOut: item.heldOut === true, target: Boolean(item.target), cause: item.cause ?? null, expected };
   });
 }
 
@@ -90,6 +90,12 @@ export function rowsFor(area, scored) {
 export function regressions(branchRuns, mainRuns) {
   const most = (list) => list.filter(Boolean).length * 2 > list.length;
   return Object.keys(branchRuns).filter((id) => !most(branchRuns[id]) && (!mainRuns[id]?.length || most(mainRuns[id])));
+}
+
+/** The regressed ids that block a merge: a target (`target: "<cause>"`, a known unfixed bug) is reported, never blocks. */
+export function blocking(ids, rows) {
+  const targets = new Set(rows.filter((row) => row.target).map((row) => row.id));
+  return ids.filter((id) => !targets.has(id));
 }
 
 /**
@@ -104,6 +110,8 @@ export function feedback({ areas, results }) {
   for (const result of results) {
     const practice = result.rows.filter((row) => !row.heldOut);
     const held = result.rows.filter((row) => row.heldOut);
+    const targets = result.rows.filter((row) => row.target);
+    if (targets.length) lines.push(`**${result.area} targets** (known bugs, never block): ${targets.filter((row) => row.right).length}/${targets.length} right.`);
     lines.push(`**${result.area}:** practice ${practice.filter((row) => row.right).length}/${practice.length} right, held-out ${held.filter((row) => row.right).length}/${held.length} right; spent about $${result.usd.toFixed(2)}.`);
   }
   lines.push("");
@@ -149,7 +157,7 @@ export async function gate({ branch, base, areas, heldOut = null, fake = false, 
       for (let i = 2; i <= 3; i += 1) for (const row of await benchRows(branch, area, { heldOut, only: wrong, fake, out: join(scratch, `${area}-branch-${i}.json`) })) branchRuns[row.id]?.push(row.right);
       for (let i = 1; i <= 3; i += 1) for (const row of await benchRows(base, area, { heldOut, only: wrong, fake, out: join(scratch, `${area}-main-${i}.json`) })) mainRuns[row.id]?.push(row.right);
     }
-    const lost = new Set(regressions(branchRuns, mainRuns));
+    const lost = new Set(blocking(regressions(branchRuns, mainRuns), first));
     usd += planned;
     results.push({ area, rows: first, regressed: first.filter((row) => lost.has(row.id)), usd: planned });
   }

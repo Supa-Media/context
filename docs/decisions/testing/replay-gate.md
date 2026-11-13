@@ -62,6 +62,14 @@ did not have to leave a case behind.
    `cause`, pulled at run time into the runner's temp folder. No prompt or judge
    example may be within half its words of any case (`respond.test.mjs`
    already checks this for the judge).
+5. **Targets.** A case marked `"target": "<cause>"` (a bench question line
+   `- target: <cause>`) is a known bug nobody has fixed yet: it runs and is
+   reported, as a count per area and on the nightly scoreboard, but never
+   counts as a regression, so it never blocks a merge (`blocking()` in
+   `bench/replayGate.mjs`). Fixing the bug removes the field, and from then
+   on the case guards like any other. The first targets came from reading
+   every Tex chat on 2026-11-13 (`bench/review/from_chats.json` and the
+   `audit-1113` reply-or-quiet cases), all invented, each named by its cause.
 
 ## What a simplification costs
 

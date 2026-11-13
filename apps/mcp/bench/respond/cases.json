@@ -586,6 +586,58 @@
       ],
       "text": "no wait, I'll call him first",
       "want": "reply"
+    },
+    {
+      "id": "a-old-ask-for-other",
+      "chat": "group",
+      "lines": [
+        "@kai: @mo did the invoices from the print shop come through?",
+        "@mo: will check tonight",
+        "@lin: (a picture)"
+      ],
+      "text": "@lin: this rain is unreal",
+      "want": "hush",
+      "from": "audit-1113",
+      "target": "an older question meant for someone else is not Tex's to answer later",
+      "cause": "an older question meant for someone else is not Tex's to answer later"
+    },
+    {
+      "id": "a-reply-under-member",
+      "chat": "group",
+      "lines": [
+        "@zoe: anyone know a good tailor near the station?",
+        "@ben: (replying to @zoe) Marco's on 3rd is great"
+      ],
+      "text": "@zoe: (replying to @ben) oh perfect, thanks!",
+      "want": "hush",
+      "from": "audit-1113",
+      "target": "a reply under another member's message is for that member",
+      "cause": "a reply under another member's message is for that member"
+    },
+    {
+      "id": "a-roster-ask",
+      "chat": "group",
+      "lines": [
+        "@ada: who even is everyone here lol"
+      ],
+      "text": "@ada: Tex can you tell us who's in this chat?",
+      "want": "reply",
+      "from": "audit-1113",
+      "target": "a question that names Tex is for Tex",
+      "cause": "a question that names Tex is for Tex"
+    },
+    {
+      "id": "a-answer-to-tex-q",
+      "chat": "group",
+      "lines": [
+        "You: Should I book the 7:30 or the 8:00 table?   (your newest question)",
+        "@ines: the rain is crazy today"
+      ],
+      "text": "@rafa: 8 works better for me",
+      "want": "reply",
+      "from": "audit-1113",
+      "target": "an answer to Tex's own open question is for Tex",
+      "cause": "an answer to Tex's own open question is for Tex"
     }
   ]
 }

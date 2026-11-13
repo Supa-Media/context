@@ -4,12 +4,13 @@
  * Sabotage record (applied, run, observed failing, reverted, 2026-11-13):
  *  1. `regressions` counting a single wrong run as a regression -> "noise is not a regression" fails;
  *  2. `feedback` printing a held-out case's id -> "a held-out case is reported by its cause alone" fails;
- *  3. `areasFor` sending every Tex file to every area -> "a change runs only the areas its files reach" fails.
+ *  3. `areasFor` sending every Tex file to every area -> "a change runs only the areas its files reach" fails;
+ *  4. `blocking` keeping target ids -> "a target is reported, never blocks" fails.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { areasFor, feedback, heldOutJson, markHeldOut, regressions, rowsFor } from "../replayGate.mjs";
+import { areasFor, blocking, feedback, heldOutJson, markHeldOut, regressions, rowsFor } from "../replayGate.mjs";
 
 test("a change runs only the areas its files reach, and plumbing alone runs none", () => {
   assert.deepEqual(areasFor(["packages/shared/src/textDecide.cjs"]), ["respond"]);
@@ -50,4 +51,13 @@ test("a held-out case is reported by its cause alone, never its id or words", ()
 test("a held-out note's cases are its json block", () => {
   assert.deepEqual(heldOutJson("# Held out\n\nText.\n\n```json\n{\"cases\":[{\"id\":\"x\"}]}\n```\n"), { cases: [{ id: "x" }] });
   assert.equal(heldOutJson("no block"), null);
+});
+
+test("a target is reported, never blocks: a known unfixed bug can fail without stopping a merge", () => {
+  const rows = rowsFor("respond", [{ id: "t", want: "reply", hushed: true, target: "a cause" }, { id: "p", want: "reply", hushed: true }]);
+  assert.equal(rows[0].target, true);
+  assert.equal(rows[1].target, false);
+  assert.deepEqual(blocking(["t", "p"], rows), ["p"]);
+  const report = feedback({ areas: ["respond"], results: [{ area: "respond", rows, regressed: [], usd: 0 }] });
+  assert.ok(report.includes("respond targets** (known bugs, never block): 0/1 right"));
 });
