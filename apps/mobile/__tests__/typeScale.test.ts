@@ -102,7 +102,13 @@ describe("typeFor", () => {
  * the scale, made in `tokens.ts`, with a reviewer — not a number in a
  * stylesheet. A numeric `fontSize` that is **data** rather than style — a
  * drawing element carries its own, for instance — would need an exemption
- * named here, with its reason. There are none today, which is the point.
+ * named here, with its reason. There is one:
+ *
+ * - `features/tex/lab/`: the staff-only Tex Architecture Lab
+ *   (tex.lc/admin/lab) is a port of the Lab artifact, kept "EXACTLY like the
+ *   artifact" (Dev2, 2026-11-13). Its type is the artifact's own stylesheet
+ *   (`labCss.ts`) and the artifact's inline `font-size:12px` hints, in CSS
+ *   pixels; moving them onto the app's scale is what that rule forbids.
  * ------------------------------------------------------------------ */
 describe("the tree draws its type from the scale", () => {
   const ROOTS = ["features", "app"];
@@ -120,7 +126,9 @@ describe("the tree draws its type from the scale", () => {
     });
   }
 
-  const files = ROOTS.flatMap((root) => sources(join(__dirname, "..", root)));
+  /** The named exemptions above, and why each is one. */
+  const EXEMPT = [join(__dirname, "..", "features", "tex", "lab") + "/"];
+  const files = ROOTS.flatMap((root) => sources(join(__dirname, "..", root))).filter((f) => !EXEMPT.some((e) => f.startsWith(e)));
 
   test("there is a tree to check", () => {
     // A glob that silently matches nothing is a guard that always passes.
