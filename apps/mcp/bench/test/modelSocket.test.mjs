@@ -108,3 +108,11 @@ test("an area whose calls don't go through the socket is refused, never quietly 
     else process.env.BENCH_MODEL_REPLAY = saved;
   }
 });
+
+test("the note command writes the same note publish would, for a session with its own Context connection", async () => {
+  const { socketCommand } = await import("../modelSocket.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "note-"));
+  const sha = "c".repeat(40);
+  await socketCommand({ job: "note", dir, sha, by: "examiner", out: join(dir, "note.md") }, { write: () => {} });
+  assert.deepEqual(readExaminerNote(await readFile(join(dir, "note.md"), "utf8"), sha).answers, {});
+});

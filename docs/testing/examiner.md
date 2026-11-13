@@ -10,9 +10,11 @@ change. A session that wrote the change must never act as its examiner.
 ## What the examiner does for one pull request
 
 1. Check out the pull request's head commit, and add a worktree of
-   `origin/main` at `$MAIN`. Sign in as the benchmark runner
-   (`pnpm ai signin`), and pull the held-out cases with
-   `pnpm ai gate held-out --dir $HELD`.
+   `origin/main` at `$MAIN`. Pull the held-out cases with
+   `pnpm ai gate held-out --dir $HELD` (the benchmark runner's sign-in). A
+   session with its own Context connection can instead read
+   `@context-lc ai/held-out/<area>.md` and save each note's JSON block as
+   `$HELD/<area>.json`.
 2. Name the areas with `pnpm ai gate areas --base-sha $(git merge-base origin/main HEAD)`.
    Only `respond` and `review` can be examined so far (`SOCKET_AREAS` in
    `apps/mcp/bench/replayGate.mjs`). If the change reaches another area, stop
@@ -34,7 +36,9 @@ change. A session that wrote the change must never act as its examiner.
    a score.
 5. When the gate exits, publish the answers with
    `pnpm ai socket publish --dir $SOCK --sha <full head sha> --by "<this session's link>"`,
-   then dispatch **Tex replay** on the branch with `examiner: true`. CI
+   or, with your own Context connection, write the note that
+   `pnpm ai socket note --dir $SOCK --sha <sha> --by "<link>" --out note.md`
+   makes to `@context-lc ai/results/examiner/<sha>.md`. Then dispatch **Tex replay** on the branch with `examiner: true`. CI
    rebuilds every call from the commit, answers each from the published
    answers (a call with no answer fails the run), and scores and compares
    against main itself.

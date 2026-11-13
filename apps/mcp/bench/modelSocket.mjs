@@ -191,6 +191,8 @@ export function readExaminerNote(text, sha) {
  *   pnpm ai socket next --dir <dir> [--wait <s>]             the waiting calls, one JSON line each
  *   pnpm ai socket answer --dir <dir> --hash <h> --text <t>  answer one (or --file <f>)
  *   pnpm ai socket publish --dir <dir> --sha <sha> [--by <who>]   the answers into Context
+ *   pnpm ai socket note --dir <dir> --sha <sha> [--by <who>] --out <file>   the same note as a file, for a session
+ *                                                            that writes to Context with its own connection
  *   pnpm ai socket pull --sha <sha> --out <file>             CI: the answers for a replay
  */
 export async function socketCommand(options, { write = (text) => process.stdout.write(text), connect, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
@@ -227,6 +229,14 @@ export async function socketCommand(options, { write = (text) => process.stdout.
     write(`published ${Object.keys(answers).length} answers to ${path}\n`);
     return path;
   }
+  if (sub === "note") {
+    if (!options.dir || !options.sha || !options.out) throw new Error("usage: pnpm ai socket note --dir <dir> --sha <full sha> [--by <who>] --out <file>");
+    if (!/^[0-9a-f]{40}$/.test(options.sha)) throw new Error("--sha takes the full 40-character commit");
+    const answers = await collectAnswers(options.dir);
+    await writeFile(options.out, examinerNote({ sha: options.sha, by: options.by, at: new Date().toISOString(), answers }), { mode: 0o600 });
+    write(`wrote ${Object.keys(answers).length} answers to ${options.out}; save it as ${examinerPath(options.sha)} in @context-lc\n`);
+    return options.out;
+  }
   if (sub === "pull") {
     if (!options.sha || !options.out) throw new Error("usage: pnpm ai socket pull --sha <full sha> --out <file>");
     const connection = await connect();
@@ -238,5 +248,5 @@ export async function socketCommand(options, { write = (text) => process.stdout.
     write(`pulled ${Object.keys(body.answers).length} examiner answers, made by ${body.by ?? "an examiner session"} at ${body.at}\n`);
     return body;
   }
-  throw new Error("usage: pnpm ai socket next | answer | publish | pull");
+  throw new Error("usage: pnpm ai socket next | answer | publish | note | pull");
 }
