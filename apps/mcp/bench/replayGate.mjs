@@ -79,7 +79,7 @@ export async function pullHeldOut({ dir, connection, fetchImpl = fetch }) {
 export function rowsFor(area, scored) {
   return scored.map((item) => {
     // An advisor role's rows say for themselves (`advisor.mjs` `gateRows`).
-    if (typeof item.right === "boolean") return { id: item.id, right: item.right, must: item.must === true, heldOut: item.heldOut === true, cause: item.cause ?? null, target: Boolean(item.target), expected: item.expected ?? "come out right" };
+    if (typeof item.right === "boolean") return { id: item.id, right: item.right, must: item.must === true, heldOut: item.heldOut === true, cause: item.cause ?? null, target: Boolean(item.target), expected: item.expected ?? "come out right", ...(item.heldOut || typeof item.got !== "string" ? {} : { got: item.got }) };
     const right = area === "respond" ? (item.want === "hush" ? item.hushed === true : item.hushed === false && item.verdict?.ok === true) : item.fault ? item.sent === false : item.sent === true;
     const expected = area === "respond" ? (item.want === "hush" ? "stay quiet or react" : "reach the model") : item.fault ? "send it back" : "let it go";
     return { id: item.id, right, must: item.must === true, heldOut: item.heldOut === true, cause: item.cause ?? null, expected };
@@ -113,7 +113,7 @@ export function feedback({ areas, results }) {
   const practice = lost.filter((row) => !row.heldOut);
   const held = lost.filter((row) => row.heldOut);
   if (practice.length) {
-    lines.push("You changed the code these cases run through, and they now fail where main passes:", ...practice.map((row) => `- ${row.area} \`${row.id}\`${row.must ? " (must pass)" : ""}: expected to ${row.expected}.`), "");
+    lines.push("You changed the code these cases run through, and they now fail where main passes:", ...practice.map((row) => `- ${row.area} \`${row.id}\`${row.must ? " (must pass)" : ""}: expected to ${row.expected}${row.got ? `; got ${row.got}` : ""}.`), "");
   }
   if (held.length) {
     const byCause = new Map();

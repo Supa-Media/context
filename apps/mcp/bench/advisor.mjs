@@ -182,7 +182,19 @@ export function roleReport(role, scored) {
 }
 
 /** The rows the gate reads (`replayGate.mjs` `rowsFor`): each case already says whether it was right. */
-export const gateRows = (scored) => scored.map((item) => ({ id: item.id, right: item.right === true, must: item.must === true, heldOut: item.heldOut === true, cause: item.cause ?? null, target: item.target ?? null, expected: item.expected, usd: item.usd ?? 0 }));
+export const gateRows = (scored) =>
+  scored.map((item) => ({
+    id: item.id,
+    right: item.right === true,
+    must: item.must === true,
+    heldOut: item.heldOut === true,
+    cause: item.cause ?? null,
+    target: item.target ?? null,
+    expected: item.expected,
+    usd: item.usd ?? 0,
+    // What a practice case got, so the gate's feedback says what the role answered; never for a held-out one.
+    ...(item.heldOut ? {} : { got: `${item.got}${item.words ? `: ${String(item.words).replace(/\s+/g, " ").slice(0, 200)}` : ""}` }),
+  }));
 
 export function advisorCommand(role) {
   return async (options, { write = (text) => process.stdout.write(text) } = {}) => {

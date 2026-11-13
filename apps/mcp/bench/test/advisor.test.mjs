@@ -98,6 +98,8 @@ test("a role's rows are what the gate reads, and a held-out case is reported by 
   ];
   const rows = rowsFor("advisor-planner", gateRows(scored));
   assert.deepEqual(rows.map((row) => [row.id, row.right, row.heldOut, row.expected]), [["advisor-planner/a", true, false, "say do it now"], ["held-out/secret-words", false, true, "say do it now"]]);
+  assert.equal(rows[1].got, undefined, "a held-out case's answer never reaches the gate's rows");
+  assert.match(rowsFor("advisor-planner", gateRows([{ ...scored[0], right: false, got: "split", words: "dinners, day-trip" }]))[0].got, /split: dinners, day-trip/);
   const report = roleReport("advisor-planner", scored);
   assert.match(report, /1\/1 right/);
   assert.match(report, /wrong about splits a lookup/);
