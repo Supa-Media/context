@@ -247,6 +247,13 @@ jobs:
             if [ -z "${!var}" ]; then echo "::error::$var is empty: the benchmark runner's grant (pnpm ai connect, apps/mcp/bench/context.mjs) is not set up."; exit 1; fi
           done
 
+      # Its wait-turn job is skipped by "Re-run failed jobs": check once more,
+      # and refuse rather than sign in beside another run (bench-runner-lock.mjs).
+      - name: Refuse to sign in beside another benchmark run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --check
+
       # Rotation first, then the write-back, then nothing else until it is
       # kept: a token that is spent and not written down is a grant lost. The
       # value is masked before gh sees it, and gh sends it sealed.
