@@ -7,7 +7,8 @@ two Claude Console organizations' keys on the gateway's Provider Keys page
 instead of in a GitHub secret.
 
 - `AI_GATEWAY_KEY_ALIASES` names them, comma separated, in the order they are
-  tried. Each call names one with `cf-aig-byok-alias`; the key itself never
+  tried. The names are not secrets, so the workflows that deploy and bench
+  write them out (the owner, 2026-11-13: no new secrets to add by hand). Each call names one with `cf-aig-byok-alias`; the key itself never
   leaves Cloudflare.
 - Order: each stored key, then the plan key (`ANTHROPIC_CREDIT_KEY`), then no
   key, which Unified Billing pays. Each spent payer rests 15 minutes on its
