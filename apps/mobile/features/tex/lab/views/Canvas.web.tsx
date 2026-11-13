@@ -7,6 +7,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  delSel,
   G,
   lab,
   node,
@@ -20,7 +21,7 @@ import { simulate } from "../engine/sim";
 import { SCENARIOS, scnLabel } from "../engine/traces";
 import { useLab } from "../store";
 import { AddMenu } from "./canvas/AddMenu";
-import { addStep, delSel } from "./canvas/actions";
+import { addStep } from "./canvas/actions";
 import {
   fitCam,
   keywHtml,

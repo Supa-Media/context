@@ -7,6 +7,7 @@
  */
 import { useEffect, type RefObject } from "react";
 import {
+  delSel,
   edit,
   emit,
   focusOn,
@@ -24,7 +25,6 @@ import {
   unfocus,
 } from "../../engine/state";
 import { mods } from "../../engine/modules";
-import { delSel } from "./actions";
 import { H, W, wheelCam, type Cam } from "./render";
 
 type Act =

@@ -1,5 +1,5 @@
 /**
- * The Lab canvas's edits (`features/tex/lab/views/canvas/actions.ts`), ported from the artifact's `delSel` and
+ * The Lab canvas's edits (`views/canvas/actions.ts` and the engine's `delSel`), ported from the artifact's `delSel` and
  * `addStep`: deleting a step drops its wires and the reads of its output, the start and the send can't be deleted,
  * a wire deletes alone, an edit to main makes your own copy first, and undo brings it all back.
  *
@@ -10,13 +10,14 @@
 import { beforeEach, describe, expect, test } from "@jest/globals";
 import {
   clone,
+  delSel,
   G,
   lab,
   MAIN,
   node,
   undo,
 } from "../features/tex/lab/engine/state";
-import { addStep, delSel } from "../features/tex/lab/views/canvas/actions";
+import { addStep } from "../features/tex/lab/views/canvas/actions";
 
 beforeEach(() => {
   lab.cur = clone(MAIN);
