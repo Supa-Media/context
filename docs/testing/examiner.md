@@ -16,7 +16,7 @@ change. A session that wrote the change must never act as its examiner.
    `@context-lc ai/held-out/<area>.md` and save each note's JSON block as
    `$HELD/<area>.json`.
 2. Name the areas with `pnpm ai gate areas --base-sha $(git merge-base origin/main HEAD)`.
-   `respond`, `review` and `core` can be examined (`SOCKET_AREAS` in
+   `respond`, `review`, `core` and the four `advisor-*` roles can be examined (`SOCKET_AREAS` in
    `apps/mcp/bench/replayGate.mjs`). If the change reaches another area, stop
    and say so on the pull request. The core area also needs the live setup in
    both trees: run `pnpm ai pull texting-assistant` in each (it uses the

@@ -24,8 +24,8 @@
  */
 
 import { datedTurns, stamped } from "./localNow.js";
-import { advisorThinking } from "./advisor.js";
-import { withArchitecture } from "./texArchitecture.js";
+import { adviseOnce, advisorThinking } from "./advisorRoles/core.js";
+import { PLANNER_PROMPT } from "./advisorRoles/planner.js";
 import { SAY_FIELD } from "./jobStart.js";
 
 export const PLAN_TOOL = "plan_big_ask";
@@ -38,6 +38,9 @@ const MAX_FOLDER = 200;
 const MAX_ASK = 4_000;
 /** Of the conversation, the newest part the planner reads. */
 const MAX_HISTORY_CHARS = 30_000;
+
+// Its instructions live in `advisorRoles/planner.js`, beside the other roles' (`advisorRoles/core.js`).
+export { PLANNER_PROMPT };
 
 export const PLAN_DEFINITION = {
   name: PLAN_TOOL,
@@ -57,22 +60,6 @@ export const PLAN_DEFINITION = {
   },
 };
 
-export const PLANNER_PROMPT =
-  "You plan work for Tex, a texting assistant that can run background jobs side by side. Below are the conversation, the ask, how many job " +
-  "slots are free now and the person's computers. Decide whether the ask splits.\n\n" +
-  "It does not split when it is one piece of work: a question, a lookup, one note or email, a reminder, a short task, or steps where each " +
-  "needs the one before. Then reply with JSON only: {\"split\": false, \"how\": \"now\" or \"one_job\", \"why\": \"one sentence\", \"computer\": null or a computer's name}. " +
-  "\"now\" is for anything Tex can finish in this turn; \"one_job\" is for long work that does not split.\n\n" +
-  "It splits when two or more parts can run at once and each is real work on its own. Then reply with JSON only: " +
-  "{\"split\": true, \"title\": \"the project in a few words\", \"goal\": \"what the whole ask is for, one or two sentences\", " +
-  "\"parts\": [{\"name\": \"short-lowercase-name\", \"title\": \"a few words\", \"brief\": \"what this part does, with every fact it needs\", " +
-  "\"done_when\": \"one line\", \"computer\": null or a computer's name}]}. Never more parts than free slots; when there are more pieces " +
-  "than slots, group them: cloud parts never more than the cloud's free slots, and a computer's parts never more than its free slots. What a computer with Claude Code or Codex is good at always runs on one when they " +
-  "have one, never in the cloud: code (a question about how a codebase works, theirs or a public one on GitHub; reading or searching a repo; every change " +
-  "to their code) and heavy computing (running scripts, crunching big data or many files, builds, long analysis), and anything on their own machine. A small " +
-  "code change is one job on a computer, not a split; a big one (several pieces of a feature that can be built at once) splits into parts on the computer. " +
-  "Everything else prefers the cloud (null), so their computer's slots stay free for that work. " +
-  "Each part's brief names the parts it must tell or ask through the overview's mail. Never invent a fact that is not in the conversation.";
 
 const clip = (value, max) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 const oneLine = (value, max) => clip(value, max * 2).replace(/\s+/g, " ").slice(0, max);
@@ -175,6 +162,18 @@ function conversationText(history, question) {
 }
 
 /**
+ * What the planner reads: the conversation, the ask, the free slots (`cloud` of them in the cloud, `freeOn(computer)`
+ * on each computer) and their computers. The planner's replay cases (`bench/advisor/planner.json`) read the same.
+ */
+export function planBrief({ history, question, ask, slots, cloud, computers, freeOn }) {
+  return (
+    `<conversation>\n${conversationText(history, question) || "(none)"}\n</conversation>\n\n<ask>\n${ask}\n</ask>\n\n` +
+    `Free job slots now: ${slots} (${cloud} in the cloud${computers.map((each) => `, ${freeOn(each)} on ${each.name}`).join("")}).\n` +
+    `Their computers: ${computers.length === 0 ? "none (every part runs in the cloud)" : computers.map((each) => `${each.name}${each.online ? "" : " (offline)"} (${(each.tools ?? []).join(", ") || "no coding tool"}${Number.isSafeInteger(each.slots) ? `, ${each.slots} slots, ${freeOn(each)} free` : ""})`).join("; ")}.`
+  );
+}
+
+/**
  * The tool's call for one turn: `(args, callTool) => result`, where
  * `callTool` is the turn's own dispatcher (`background.js` `withBackground`).
  *
@@ -207,13 +206,10 @@ export function planCall({ model, effort, request, meter = async () => {}, histo
       return text(`${folder} already holds their notes. Give the project a new folder of its own inside their projects folder ("projects/running-prep/").`, true);
     }
     planned = true;
-    const brief =
-      `<conversation>\n${conversationText(history, question) || "(none)"}\n</conversation>\n\n<ask>\n${ask}\n</ask>\n\n` +
-      `Free job slots now: ${slots} (${background.freeSlots()} in the cloud${computers.map((each) => `, ${freeOn(each)} on ${each.name}`).join("")}).\n` +
-      `Their computers: ${computers.length === 0 ? "none (every part runs in the cloud)" : computers.map((each) => `${each.name}${each.online ? "" : " (offline)"} (${(each.tools ?? []).join(", ") || "no coding tool"}${Number.isSafeInteger(each.slots) ? `, ${each.slots} slots, ${freeOn(each)} free` : ""})`).join("; ")}.`;
+    const brief = planBrief({ history, question, ask, slots, cloud: background.freeSlots(), computers, freeOn });
     let answer;
     try {
-      answer = await request({ model, system: withArchitecture(PLANNER_PROMPT, "planner"), messages: [{ role: "user", text: brief }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
+      answer = await adviseOnce({ request, model, effort, prompt: PLANNER_PROMPT, role: "planner", brief });
     } catch {
       await meter(null, true, model, false);
       return text("Your advisor couldn't plan it. Start one background job for the whole ask instead.", true);

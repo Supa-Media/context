@@ -82,6 +82,8 @@ export async function pullHeldOut({ dir, connection, fetchImpl = fetch }) {
 /** One row per case: whether it came out right, and what a report may say about it. */
 export function rowsFor(area, scored) {
   return scored.map((item) => {
+    // An advisor role's rows say for themselves (`advisor.mjs` `gateRows`).
+    if (typeof item.right === "boolean") return { id: item.id, right: item.right, must: item.must === true, heldOut: item.heldOut === true, cause: item.cause ?? null, target: Boolean(item.target), expected: item.expected ?? "come out right", ...(item.heldOut || typeof item.got !== "string" ? {} : { got: item.got }), ...(Number.isFinite(item.usd) ? { usd: item.usd } : {}) };
     const right = area === "respond" ? (item.want === "hush" ? item.hushed === true : item.hushed === false && item.verdict?.ok === true) : item.fault ? item.sent === false : item.sent === true;
     const expected = area === "respond" ? (item.want === "hush" ? "stay quiet or react" : "reach the model") : item.fault ? "send it back" : "let it go";
     return { id: item.id, right, must: item.must === true, heldOut: item.heldOut === true, target: Boolean(item.target), cause: item.cause ?? null, expected };
@@ -126,7 +128,7 @@ export function feedback({ areas, results }) {
   const practice = lost.filter((row) => !row.heldOut);
   const held = lost.filter((row) => row.heldOut);
   if (practice.length) {
-    lines.push("You changed the code these cases run through, and they now fail where main passes:", ...practice.map((row) => `- ${row.area} \`${row.id}\`${row.must ? " (must pass)" : ""}: expected to ${row.expected}.`), "");
+    lines.push("You changed the code these cases run through, and they now fail where main passes:", ...practice.map((row) => `- ${row.area} \`${row.id}\`${row.must ? " (must pass)" : ""}: expected to ${row.expected}${row.got ? `; got ${row.got}` : ""}.`), "");
   }
   if (held.length) {
     const byCause = new Map();
@@ -158,6 +160,15 @@ export const AREA_LIMITS = {
   respond: { maxUsd: 1, pool: "shared", usdPerCase: 0.0002, reruns: { branch: 2, main: 3 } },
   review: { maxUsd: 1, pool: "shared", usdPerCase: 0.002, reruns: { branch: 2, main: 3 } },
   core: { maxUsd: 1, pool: "shared", usdPerCase: 0.005, reruns: { branch: 2, main: 3 } },
+  // The advisor's roles are Opus 5.5 at effort high (docs/decisions/testing/advisor-roles.md). AI Gateway put a job
+  // check at $0.05 a call and a front door's ask, which reads a whole live turn, at $0.25 (2026-11-06 to 11-13); a
+  // case's invented turn is short and its instructions are cached after the first ask. Their rows price themselves
+  // (`advisor.mjs`); these estimates stand in only for a row that doesn't. The first real run of all four, 13 cases,
+  // spent about $0.58. They share the cheap areas' pool, so no change spends past $1.
+  "advisor-chat": { maxUsd: 1, pool: "shared", usdPerCase: 0.06, reruns: { branch: 2, main: 3 } },
+  "advisor-job-check": { maxUsd: 1, pool: "shared", usdPerCase: 0.07, reruns: { branch: 2, main: 3 } },
+  "advisor-planner": { maxUsd: 1, pool: "shared", usdPerCase: 0.03, reruns: { branch: 2, main: 3 } },
+  "advisor-job-mail": { maxUsd: 1, pool: "shared", usdPerCase: 0.04, reruns: { branch: 2, main: 3 } },
   // A job task is a whole background job (its parts, the done check after each, a Haiku quality grade): about $0.35
   // measured (2026-11-13, seven tasks $2.45). It runs only for a change to job or page code, in a pool of its own
   // (the brief: "$1-3 per run"), and a wrong task runs once more on the change and once on main.
@@ -187,6 +198,18 @@ const benchRunner = (area) => async (tree, { heldOut, only, fake, scratch, tag, 
   return { rows, usd: socketed ? 0 : AREA_LIMITS[area].usdPerCase * rows.length * runs };
 };
 
+/** An advisor role's scorer (`advisor.mjs`), run `runs` times: its rows price themselves. */
+const advisorRunner = (area) => async (tree, { heldOut, only, fake, scratch, tag, runs = 1 }) => {
+  const all = [];
+  let usd = 0;
+  for (let i = 1; i <= runs; i += 1) {
+    const rows = await benchRows(tree, area, { heldOut, only, fake, out: join(scratch, `${area}-${tag}-${i}.json`) });
+    usd += rows.reduce((sum, row) => sum + (Number.isFinite(row.usd) ? row.usd : AREA_LIMITS[area].usdPerCase), 0);
+    all.push(rows);
+  }
+  return { rows: mergeRuns(all), usd };
+};
+
 /**
  * How each area is answered in a tree: `(tree, { heldOut, only, fake, scratch, tag, runs })` -> `{ rows, usd }`, each
  * row with `results` (one boolean a run) and `right`. The core area prices its own answers; it has no held-out cases.
@@ -195,6 +218,10 @@ export const RUNNERS = {
   respond: benchRunner("respond"),
   review: benchRunner("review"),
   core: (tree, { only, fake, scratch, tag, runs = 1 }) => runCore(tree, { only, fake, scratch, tag, runs }),
+  "advisor-chat": advisorRunner("advisor-chat"),
+  "advisor-job-check": advisorRunner("advisor-job-check"),
+  "advisor-planner": advisorRunner("advisor-planner"),
+  "advisor-job-mail": advisorRunner("advisor-job-mail"),
   jobs: async (tree, { heldOut, only, fake, scratch, tag, runs = 1 }) => {
     const all = [];
     for (let i = 1; i <= runs; i += 1) {
@@ -217,7 +244,7 @@ async function baseHas(base, area) {
  * The areas whose model calls go through the model socket (`modelSocket.mjs`), so an examiner session can answer
  * them. Another area run with the socket set would call the real models, so it is refused instead.
  */
-export const SOCKET_AREAS = new Set(["respond", "review", "core"]);
+export const SOCKET_AREAS = new Set(["respond", "review", "core", "advisor-chat", "advisor-job-check", "advisor-planner", "advisor-job-mail"]);
 
 export async function gate({ branch, base, areas, heldOut = null, fake = false, scratch, runners = RUNNERS, limits = AREA_LIMITS, hasArea = baseHas }) {
   const results = [];

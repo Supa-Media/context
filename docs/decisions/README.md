@@ -739,6 +739,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The socket is proven by hand, and CI does not cover it
 - One thing an agent writes to a canvas still reaches one screen
 - [Tex changes merge only through the replay gate](./testing/replay-gate.md)
+- [The advisor is four roles, each replayed on its own](./testing/advisor-roles.md)
 - [Pull-request checks report broadly and work narrowly](./testing/ci-pipelines.md)
 - [The Convex suite watches the gateway files Convex reaches](./testing/ci-pipelines.md)
 - [The gateway suite runs as two jobs, and its slow file in shards](./testing/ci-pipelines.md)

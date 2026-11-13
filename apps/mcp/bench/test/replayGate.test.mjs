@@ -24,6 +24,32 @@ test("a change runs only the areas its files reach, and plumbing alone runs none
   assert.deepEqual(areasFor(["apps/mcp/src/agent/warmCopy.js", "apps/mobile/app/index.tsx"]), []);
 });
 
+test("an advisor role's file runs that role alone, and the shared core runs every role", () => {
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/chat.js"]), ["advisor-chat"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/jobCheck.js"]), ["advisor-job-check"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/planner.js"]), ["advisor-planner"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/jobMail.js"]), ["advisor-job-mail"]);
+  assert.deepEqual(areasFor(["apps/mcp/bench/advisor/planner.json"]), ["advisor-planner"], "a role's cases run that role");
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/jobCheck.js"]), ["advisor-job-check"], "the role's brief builder too");
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/knowsMail.js"]), ["advisor-job-check", "advisor-job-mail"], "the mail line reaches both roles that read a job");
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/core.js"]), ["advisor-chat", "advisor-job-check", "advisor-planner", "advisor-job-mail"]);
+  assert.deepEqual(areasFor(["apps/mcp/bench/advisor.mjs"]), [], "the scorer is not a role");
+  assert.ok(!areasFor(["apps/mcp/src/agent/jobNote.js"]).some((area) => area.startsWith("advisor-")), "the mail's plumbing is the jobs area's, not a role");
+});
+
+test("a change to every advisor role at once still fits the cap with a case to rerun", async () => {
+  const { AREA_LIMITS, RUNNERS } = await import("../replayGate.mjs");
+  const { ROLES, loadRoleCases } = await import("../advisor.mjs");
+  let first = 0;
+  for (const role of Object.keys(ROLES)) {
+    assert.equal(AREA_LIMITS[role].pool, "shared", `${role} shares the $1 a change`);
+    assert.equal(typeof RUNNERS[role], "function", `${role} has a runner`);
+    first += AREA_LIMITS[role].usdPerCase * (await loadRoleCases(role)).length;
+  }
+  const chat = AREA_LIMITS["advisor-chat"];
+  assert.ok(first + chat.usdPerCase * (chat.reruns.branch + chat.reruns.main) <= chat.maxUsd, `all four roles cost about $${first.toFixed(2)} before reruns`);
+});
+
 test("noise is not a regression: a case regresses only when the change is wrong in every run and main right in every run", () => {
   assert.deepEqual(regressions({ a: [false, true, true] }, { a: [true, true, true] }), [], "wrong once, right twice: noise");
   assert.deepEqual(regressions({ a: [false, false, false] }, { a: [true, true, true] }), ["a"]);

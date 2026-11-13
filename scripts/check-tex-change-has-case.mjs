@@ -8,7 +8,8 @@
  * Worker, the shared judge) must add or change at least one case Tex is
  * replayed against: a plumbing replay (`apps/mcp/test/replay/cases/`), a
  * reply-or-quiet case (`apps/mcp/bench/respond/`), a reviewer case
- * (`apps/mcp/bench/review/`) or a benchmark question (`apps/mcp/bench/ai/tests/`).
+ * (`apps/mcp/bench/review/`), an advisor role's case (`apps/mcp/bench/advisor/`) or a benchmark question
+ * (`apps/mcp/bench/ai/tests/`).
  * A bug fixed without its case can come back unseen; a feature added without
  * one is never checked again. That is how the same kind of break kept
  * returning before 2026-11-13.
@@ -28,7 +29,7 @@ import { execFileSync } from "node:child_process";
 /** Files whose change changes what Tex does. */
 export const TEX_CODE = [/^apps\/mcp\/src\/agent\//, /^apps\/agent\/src\//, /^packages\/shared\/src\/text[^/]*$/];
 /** Files that are cases Tex is replayed or benchmarked against. */
-export const CASES = [/^apps\/mcp\/test\/replay\/cases\//, /^apps\/mcp\/bench\/respond\//, /^apps\/mcp\/bench\/review\//, /^apps\/mcp\/bench\/ai\/tests\//];
+export const CASES = [/^apps\/mcp\/test\/replay\/cases\//, /^apps\/mcp\/bench\/respond\//, /^apps\/mcp\/bench\/review\//, /^apps\/mcp\/bench\/advisor\//, /^apps\/mcp\/bench\/ai\/tests\//];
 const EXEMPT = /^\s*No replay case:\s*(.+?)\s*$/im;
 const MIN_REASON = 12;
 
@@ -42,7 +43,7 @@ export function verdict(files, body = "") {
   const said = reason ? ` ("${reason}" is too short to be a reason)` : "";
   return (
     `This pull request changes Tex (${tex.slice(0, 3).join(", ")}${tex.length > 3 ? ", ..." : ""}) and adds no case it is replayed against.\n` +
-    `Add one that fails before this change and passes after it: apps/mcp/test/replay/cases/ for plumbing, apps/mcp/bench/respond/ or review/ for the judges, apps/mcp/bench/ai/tests/ for answers.\n` +
+    `Add one that fails before this change and passes after it: apps/mcp/test/replay/cases/ for plumbing, apps/mcp/bench/respond/ or review/ for the judges, apps/mcp/bench/advisor/ for the advisor's roles, apps/mcp/bench/ai/tests/ for answers.\n` +
     `Write it from the cause, with invented people and words, never a real chat's.\n` +
     `If no case can show this change, say why in the description on its own line: "No replay case: <why>"${said}.`
   );
@@ -54,6 +55,7 @@ function selfTest() {
     ["a Tex change with a replay case passes", ["apps/mcp/src/agent/turn.js", "apps/mcp/test/replay/cases/sees-own-reply.mjs"], "", true],
     ["a Tex change with a bench question passes", ["apps/agent/src/inbox.ts", "apps/mcp/bench/ai/tests/core.md"], "", true],
     ["a judge change with a respond case passes", ["packages/shared/src/textDecide.cjs", "apps/mcp/bench/respond/cases.json"], "", true],
+    ["an advisor role's change with its case passes", ["apps/mcp/src/agent/advisorRoles/planner.js", "apps/mcp/bench/advisor/planner.json"], "", true],
     ["a Tex change with no case fails", ["apps/mcp/src/agent/turn.js"], "", false],
     ["a Worker change with no case fails", ["apps/agent/src/inbox.ts"], "Fixes the inbox.", false],
     ["a stated reason passes", ["apps/mcp/src/agent/turn.js"], "Body\n\nNo replay case: renames a log field, no behaviour changes\n", true],

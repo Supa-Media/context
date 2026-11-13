@@ -530,6 +530,7 @@ test/chatWriteLock.test.mjs
 test/texOneDoor.test.mjs
 test/replay.test.mjs
 bench/test/replayGate.test.mjs
+bench/test/advisor.test.mjs
 bench/test/modelSocket.test.mjs
 bench/test/coreArea.test.mjs
 bench/test/coreSocket.test.mjs

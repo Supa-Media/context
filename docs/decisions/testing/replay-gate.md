@@ -34,7 +34,9 @@ did not have to leave a case behind.
    `No replay case: <why>`.
 3. **Model runs only for the area a change touches, capped at $1.** The
    judge's files run the reply-or-quiet cases; the reviewer's run the reviewer
-   cases; the front door and prompt modules run the core set and simple asks.
+   cases; each of the advisor's four roles runs its own cases, and their
+   shared core runs all four ([advisor-roles](./advisor-roles.md)); the front
+   door and prompt modules run the core set and simple asks.
    A run must not score below main's on the same cases; a must-pass case main
    passes may never fail. Only failed cases are run again, up to three times,
    to tell a regression from noise. Golden browser tasks run nightly, not per
