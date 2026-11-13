@@ -202,7 +202,7 @@ async function baseHas(base, area) {
  * The areas whose model calls go through the model socket (`modelSocket.mjs`), so an examiner session can answer
  * them. Another area run with the socket set would call the real models, so it is refused instead.
  */
-export const SOCKET_AREAS = new Set(["respond", "review"]);
+export const SOCKET_AREAS = new Set(["respond", "review", "core"]);
 
 export async function gate({ branch, base, areas, heldOut = null, fake = false, scratch, runners = RUNNERS, limits = AREA_LIMITS, hasArea = baseHas }) {
   const results = [];
