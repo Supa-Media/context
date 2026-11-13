@@ -3,7 +3,7 @@
  */
 
 /**
- * tex.lc/admin/lab, driven through the engine: the properties panel (a step's panel, its model form and reads stack,
+ * /lab, driven through the engine: the properties panel (a step's panel, its model form and reads stack,
  * a wire's panel), the module viewer, and the Context modules page. The Lab is rendered whole; the state is set with
  * the engine's own functions and the controls are clicked or changed the way a person would.
  *
@@ -99,7 +99,7 @@ beforeEach(() => {
   );
 });
 
-describe("tex.lc/admin/lab properties panel, viewer and modules page", () => {
+describe("/lab properties panel, viewer and modules page", () => {
   test("a step's panel shows its name, its reads stack and the cached cut", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));

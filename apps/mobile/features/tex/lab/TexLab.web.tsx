@@ -1,5 +1,5 @@
 /**
- * tex.lc/admin/lab: the Tex Architecture Lab, where staff change Tex's
+ * tex.lc/lab: the Tex Architecture Lab, where staff change Tex's
  * architecture visually (steps, wires, each step's model and context
  * modules), see what it does to speed and cost, edit the test cases, and hand
  * a version to the replay gate. Built from the "Tex Architecture Lab"
@@ -74,7 +74,7 @@ export function TexLab() {
   }, []);
   return (
     <div className="tl" data-testid="tex-lab">
-      <style>{LAB_CSS}</style>
+      <style href="tex-lab-css" precedence="default">{LAB_CSS}</style>
       <title>{TEX_LAB_TITLE}</title>
       {isAdmin === false ? (
         <div className="pgin" data-testid="tex-lab-staff-only" style={{ paddingTop: 60 }}>

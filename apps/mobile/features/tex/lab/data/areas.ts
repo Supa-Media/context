@@ -1,5 +1,5 @@
 /**
- * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/admin/lab): the
+ * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/lab): the
  * trace groups, the area names, which areas are examinable, the setup fields, what
  * each area checks and feeds (AREA_INFO, AREA_IO), and the test people and group chats.
  */

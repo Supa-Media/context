@@ -2,7 +2,7 @@ import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
 /**
- * The Tex Architecture Lab's saved versions and case edits (tex.lc/admin/lab;
+ * The Tex Architecture Lab's saved versions and case edits (tex.lc/lab;
  * Dev2, 2026-11-13). Staff design and compare Tex's architecture here: a
  * version is a graph of steps, wires and context-module edits, never a note
  * and never anyone's data. Case edits change the bench's own test cases, which

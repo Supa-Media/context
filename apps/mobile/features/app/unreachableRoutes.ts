@@ -34,10 +34,16 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
     route: "/admin/lab",
     file: "app/(app)/admin/lab.tsx",
     reachable: false,
+    reason: "Where the Tex Architecture Lab first opened; it redirects to `/lab`, for an old link typed or saved.",
+    marker: "Reached by typing the address",
+  },
+  {
+    route: "/lab",
+    file: "app/(app)/lab.tsx",
+    reachable: false,
     reason:
-      "The Tex Architecture Lab on tex.lc, a staff design tool beside tex.lc/admin " +
-      "and reached the same way: by typing the address. On context.lc it goes to " +
-      "the staff console.",
+      "The Tex Architecture Lab on context.lc and tex.lc, a staff design tool " +
+      "reached like the staff console: by typing the address.",
     marker: "Reached by typing the address",
   },
   {

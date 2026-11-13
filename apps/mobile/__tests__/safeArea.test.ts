@@ -369,12 +369,12 @@ const ROUTES: Record<string, Coverage> = {
     kind: "gate",
     mount: () => createElement(requireRoute("(app)/admin/_layout.tsx")),
   },
-  // A redirect to `/admin/growth`; the console itself is `[...section]`.
-  "(app)/admin/index.tsx": {
+  "(app)/lab.tsx": { kind: "gate", mount: () => createElement(requireRoute("(app)/lab.tsx")) }, // the Tex Lab: web only, nothing on a phone
+  "(app)/admin/index.tsx": { // a redirect to `/admin/growth`; the console itself is `[...section]`
     kind: "gate",
     mount: () => createElement(requireRoute("(app)/admin/index.tsx")),
   },
-  "(app)/admin/lab.tsx": { kind: "gate", mount: () => createElement(requireRoute("(app)/admin/lab.tsx")) }, // Tex Lab: a redirect off tex.lc
+  "(app)/admin/lab.tsx": { kind: "gate", mount: () => createElement(requireRoute("(app)/admin/lab.tsx")) }, // the Lab's first address: a redirect to /lab
   "(app)/admin/[...section].tsx": {
     kind: "screen",
     mount: () =>

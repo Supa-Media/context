@@ -1,5 +1,5 @@
 /**
- * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/admin/lab): the
+ * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/lab): the
  * default conversation-view settings (CV_MAIN), the ledger entry kinds (CV_KINDS)
  * and the chat tools that can be switched on or off (CV_TOOLS).
  */

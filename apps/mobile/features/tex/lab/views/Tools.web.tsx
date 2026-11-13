@@ -1,5 +1,5 @@
 /**
- * The Lab's Tools view: the artifact's `renderTools` (tex.lc/admin/lab, its
+ * The Lab's Tools view: the artifact's `renderTools` (tex.lc/lab, its
  * lines 1126-1143). Tex's tool inventory with how often each tool and action
  * ran and failed. The numbers come from a paste (the artifact's only source)
  * or, when there is none, the live feed of every chat (`texLabToolStats`),

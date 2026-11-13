@@ -3,7 +3,7 @@
  */
 
 /**
- * tex.lc/admin/lab, actually rendered: the Tex Architecture Lab's chrome (Dev2, 2026-11-13: build the Lab artifact
+ * /lab, actually rendered: the Tex Architecture Lab's chrome (Dev2, 2026-11-13: build the Lab artifact
  * for real, "EXACTLY like the artifact"). The host decides; somebody who is not staff sees "Staff only" and nothing
  * is asked for; the sidebar is the artifact's (views, test user Maya, her workspaces and group chat, versions); a
  * view's row opens its page; saved versions come from the staff-shared list and open on a click.
@@ -11,7 +11,7 @@
  * Every value here is fake. This repository is public.
  *
  * Sabotage record (temporary local edits, reverted, 2026-11-13):
- *   `TexLabRoute` ignoring the host (always redirecting)       "not staff" and "the sidebar" fail
+ *   `TexLabRoute` redirecting off tex.lc again                  "it opens on context.lc as on tex.lc" fails
  *   `useLabSync` asking without the staff check ("skip" gone)   "not staff" fails
  *   `go` not setting the view                                   "a view's row opens its page" fails
  */
@@ -45,7 +45,8 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import TexLabRoute from "../app/(app)/admin/lab";
+import TexLabRoute from "../app/(app)/lab";
+import OldTexLabRoute from "../app/(app)/admin/lab";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -74,12 +75,17 @@ const ADMIN = "functions/admin:amIAdmin";
 const LIST = "functions/texLab:list";
 const graph = JSON.stringify({ nodes: [], edges: [] });
 
-describe("tex.lc/admin/lab", () => {
-  test("the host decides", () => {
+describe("/lab", () => {
+  test("it opens on context.lc as on tex.lc, and the first address redirects to it (Dev2, 2026-11-13)", () => {
     mockTexHost = false;
     mount();
-    expect(q('[data-testid="redirect"]')).not.toBeNull();
-    expect(q('[data-testid="tex-lab"]')).toBeNull();
+    expect(q('[data-testid="tex-lab"]')).not.toBeNull();
+    const old = document.createElement("div");
+    document.body.appendChild(old);
+    const root = createRoot(old);
+    act(() => root.render(createElement(OldTexLabRoute)));
+    expect(old.querySelector('[data-testid="redirect"]')?.getAttribute("data-href")).toBe("/lab");
+    act(() => root.unmount());
   });
 
   test("somebody who is not staff sees Staff only, and the shared list is not asked for", () => {

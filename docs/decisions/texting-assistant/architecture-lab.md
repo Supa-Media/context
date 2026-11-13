@@ -6,8 +6,9 @@ what that does to reply time and cost, edit the bench's test cases, and hand
 the version to the replay gate. The same day Dev2 asked for it to be built for
 real, "EXACTLY like the artifact with all the functionality wired up".
 
-**Where:** tex.lc/admin/lab (`apps/mobile/app/(app)/admin/lab.tsx`), beside
-tex.lc/admin and reached the same way, by typing the address. Staff only on
+**Where:** context.lc/lab and tex.lc/lab (`apps/mobile/app/(app)/lab.tsx`;
+Dev2, 2026-11-13), reached like the staff console, by typing the address;
+`/admin/lab`, where it first opened, redirects there. Staff only on
 the server: `apps/convex/functions/texLab.ts`, `requireAdmin` in every
 handler. Saved versions and case edits are two tables every staff member
 shares (`texLabVersions`, `texLabCaseEdits`); they hold the Lab's own JSON

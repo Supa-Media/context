@@ -1,5 +1,5 @@
 /**
- * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/admin/lab): the
+ * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/lab): the
  * model table the Lab prices and times against (BASE_MODELS), the effort multipliers
  * (EFFORT) and the typed-output field types (FTYPES).
  */

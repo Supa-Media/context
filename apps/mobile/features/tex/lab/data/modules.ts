@@ -1,5 +1,5 @@
 /**
- * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/admin/lab): the
+ * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/lab): the
  * prompt modules and their base token counts (BASE_MODULES), which of them are stable,
  * their about text (MOD_ABOUT), where each one's source lives (SRC_KINDS, MOD_SRC).
  */

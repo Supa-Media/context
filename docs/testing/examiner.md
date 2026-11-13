@@ -95,7 +95,7 @@ model and be scored.
 
 ## A Tex Architecture Lab version
 
-The Lab (tex.lc/admin/lab) hands a session a version's config: its steps,
+The Lab (tex.lc/lab) hands a session a version's config: its steps,
 models, reading order, changed modules, wires, areas and picked cases (decided
 by the owner, 2026-11-13: run a Lab version on the subscription, log every
 step, paste the results back). The same examiner procedure runs it, through

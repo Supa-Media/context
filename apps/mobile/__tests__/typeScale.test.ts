@@ -105,7 +105,7 @@ describe("typeFor", () => {
  * named here, with its reason. There is one:
  *
  * - `features/tex/lab/`: the staff-only Tex Architecture Lab
- *   (tex.lc/admin/lab) is a port of the Lab artifact, kept "EXACTLY like the
+ *   (context.lc/lab and tex.lc/lab) is a port of the Lab artifact, kept "EXACTLY like the
  *   artifact" (Dev2, 2026-11-13). Its type is the artifact's own stylesheet
  *   (`labCss.ts`) and the artifact's inline `font-size:12px` hints, in CSS
  *   pixels; moving them onto the app's scale is what that rule forbids.

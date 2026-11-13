@@ -1,5 +1,5 @@
 /**
- * Builds the Tex Architecture Lab (tex.lc/admin/lab) as one static page with Convex stood in, so its look can be
+ * Builds the Tex Architecture Lab (tex.lc/lab) as one static page with Convex stood in, so its look can be
  * screenshot beside the artifact it was ported from (Dev2, 2026-11-13: "EXACTLY like the artifact"):
  *
  *   node scripts/tex-lab-preview.mjs [out.html]     (default: /tmp/tex-lab-preview.html)

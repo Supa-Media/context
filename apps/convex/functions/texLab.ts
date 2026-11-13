@@ -1,5 +1,5 @@
 /**
- * THE TEX ARCHITECTURE LAB'S SAVING (tex.lc/admin/lab; Dev2, 2026-11-13: build
+ * THE TEX ARCHITECTURE LAB'S SAVING (tex.lc/lab; Dev2, 2026-11-13: build
  * the Lab artifact for real, "EXACTLY like the artifact"). The artifact kept
  * versions and case edits in its page database, shared by whoever opened it;
  * here they are two tables every staff member reads and writes, and nobody

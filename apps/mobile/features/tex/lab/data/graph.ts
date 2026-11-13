@@ -1,5 +1,5 @@
 /**
- * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/admin/lab): the
+ * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/lab): the
  * canvas graph of Tex's default architecture (mainGraph0, with NODE_INFO's goals and
  * logs applied by mainGraph), the node factory N, the wire styles, the icon paths,
  * the "when" choices and the add-step kinds.

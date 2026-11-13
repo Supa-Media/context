@@ -3,7 +3,7 @@
  */
 
 /**
- * tex.lc/admin/lab's Tests, Run, Compare and Workspace views, actually rendered: the whole route mounted with the
+ * /lab's Tests, Run, Compare and Workspace views, actually rendered: the whole route mounted with the
  * staff answer it uses, then each page reached by its nav row. What it proves: the fit warnings say what a version
  * has lost against a case; the report reader takes a pasted "## Tex replay" block apart; the prompt a session gets
  * names the version and ends with its config; a case can be run, edited, undone and added, and each change forks
@@ -54,7 +54,7 @@ if (!("CSS" in globalThis)) {
 
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
-import TexLabRoute from "../app/(app)/admin/lab";
+import TexLabRoute from "../app/(app)/lab";
 import { AREAS } from "../features/tex/lab/data/areas";
 import { BASE_MODELS } from "../features/tex/lab/data/models";
 import { CASES } from "../features/tex/lab/labData.generated";
@@ -214,7 +214,7 @@ describe("promptText: what a Claude Code session is handed", () => {
   });
 });
 
-describe("tex.lc/admin/lab: the Tests, Run, Compare and Workspace views", () => {
+describe("/lab: the Tests, Run, Compare and Workspace views", () => {
   test("Tests: the area nav lists every area, and a click shows that area's respond cases", () => {
     mountLab();
     view("tests");
