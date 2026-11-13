@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { readHeldOut, writeRows } from "./replayGate.mjs";
 
 import { decisionEngine } from "../src/agent/decide.js";
+import { modelSocket, socketAi } from "./modelSocket.mjs";
 import { decideRequest, readDecideAnswers } from "../../../packages/shared/src/textDecide.cjs";
 import { workersAi } from "./models.mjs";
 
@@ -140,8 +141,11 @@ export async function respondCommand(options, { write = (text) => process.stdout
   // `--held-out <dir>` adds the cases kept outside the repository (`replayGate.mjs`); `--only a,b` scores those ids alone.
   const only = options.only ? new Set(String(options.only).split(",")) : null;
   const cases = [...(await loadCases()), ...(await readHeldOut(options["held-out"], "respond"))].filter((item) => !only || only.has(item.id));
-  if (!options.fake && !(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN)) throw new Error("set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN");
-  const engine = options.fake ? fakeEngine(cases) : decisionEngine(workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN));
+  // The model socket (`modelSocket.mjs`) answers the judge only when "workers-ai" is among its kinds.
+  const socket = options.fake ? null : modelSocket(process.env);
+  const socketed = socket?.covers("workers-ai") === true;
+  if (!options.fake && !socketed && !(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN)) throw new Error("set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN");
+  const engine = options.fake ? fakeEngine(cases) : decisionEngine(socketed ? socketAi(socket) : workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN));
   const scored = await scoreCases(cases, engine, Number(options.concurrency ?? 6));
   // A held-out case's words never reach the report: it counts in the rates and is named by its cause alone.
   write(`${respondReport(scored.filter((item) => !item.heldOut))}\n${heldOutLine(scored)}`);

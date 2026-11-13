@@ -260,6 +260,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         return new Response(JSON.stringify({ web: { results } }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (typeof models.searchKey === "string" && models.searchKey) return below(input, init);
+      // A socketed run (`modelSocket.mjs`) offers web search and finds nothing, the same live and replayed.
+      if (models.offlineWeb === true) return new Response(JSON.stringify({ web: { results: [] } }), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.startsWith(S3_ENDPOINT) || url.startsWith(CONTROL_PLANE_ORIGIN)) return below(input, init);
     if ((d1 || vectorize) && url.startsWith(CLOUDFLARE_API_BASE)) return below(input, init);
@@ -357,6 +359,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     ...(models.handbackJudge === true ? { HANDBACK_JUDGE: "on" } : {}),
     // A scripted web answers searches itself, so no real key is needed or sent.
     ...(web ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: web.binding } : {}),
+    // An offline web (a socketed run) still offers search_web; the world answers it with nothing.
+    ...(!web && models.offlineWeb === true ? { BRAVE_SEARCH_API_KEY: "bench-offline-search" } : {}),
     // The deployment's search settings (`src/search/settings.js`): what a
     // search setup under test puts in the Worker's vars.
     ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),

@@ -118,7 +118,7 @@ test("signIn says what is missing, and relays a refusal as its code", async () =
   await assert.rejects(signIn({ env: { BENCH_RUNNER_TOKEN_FILE: file }, fetchImpl }), /BENCH_RUNNER_CLIENT_ID and BENCH_RUNNER_REFRESH_TOKEN/);
   await assert.rejects(
     signIn({ env: { BENCH_RUNNER_ENDPOINT: ENDPOINT, BENCH_RUNNER_CLIENT_ID: "client_bench_0001", BENCH_RUNNER_REFRESH_TOKEN: "crt_retired", BENCH_RUNNER_TOKEN_FILE: file }, fetchImpl }),
-    (error) => /refused \(invalid_grant\)/.test(error.message) && !/crt_/.test(error.message),
+    (error) => /refused \(invalid_grant\)/.test(error.message) && /runner grant revoked: a person must run `pnpm ai connect`/.test(error.message) && !/crt_/.test(error.message),
   );
 });
 

@@ -113,6 +113,13 @@ jobs:
             if [ -z "${!var}" ]; then echo "::error::$var is empty: the benchmark runner's grant (pnpm ai connect, apps/mcp/bench/context.mjs) is not set up."; exit 1; fi
           done
 
+      # Its wait-turn job is skipped by "Re-run failed jobs": check once more,
+      # and refuse rather than sign in beside another run (bench-runner-lock.mjs).
+      - name: Refuse to sign in beside another benchmark run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --check
+
       # As in AI Benchmark: the rotated token is kept before anything else runs.
       - name: Sign in as the benchmark runner and keep the rotated token
         env:
