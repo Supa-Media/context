@@ -66,7 +66,7 @@ export async function runArea(spec, { tree, dir, scratch, fake = false, heldOut 
       files.push(JSON.parse(await readFile(json, "utf8")));
     }
     const rows = mergeRuns(files);
-    const usd = AREA_LIMITS[spec.area].usdPerCase * rows.length * NIGHTLY_RUNS;
+    const usd = fake ? 0 : AREA_LIMITS[spec.area].usdPerCase * rows.length * NIGHTLY_RUNS; // a fake run spends nothing
     return { area: spec.area, status: runsPassed * 2 > NIGHTLY_RUNS ? "pass" : "fail", rows, usd, runsPassed, bars: {}, missing: [] };
   }
   const result = await runTests(tree, spec.tests, { dir, runs: NIGHTLY_RUNS, fake, scratch, tag: "nightly" });
