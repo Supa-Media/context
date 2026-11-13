@@ -17,8 +17,7 @@ import { textsWithExact } from "./format";
 import type { InboxStorage } from "./inbox";
 import { groupLineFor } from "./groupLine";
 import { membersBeforeSend } from "./groupMembers";
-import { ackEmoji } from "./ackEmoji";
-import { reactionFor } from "./reactEmoji";
+import { tapback } from "./stepEvents";
 import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, peopleOf, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
@@ -119,7 +118,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     acked = true;
     try {
       if (!(await isBound(storage, message))) return;
-      await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(undefined, ackEmoji(message.text)));
+      await tapback(storage, { chat: message.groupId, now: deps.now, by: "tool_started", turn: steer.turn }, message.text, (sent) => groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent));
       log("tool_tap");
     } catch {
       log("tool_tap_failed");
@@ -220,7 +219,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
   if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
     // Answered with a tapback and no words: the conversation classifier's (`apps/mcp/src/agent/respond.js`), the emoji checked against the list.
-    if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && !acked) await groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(answer.react || undefined, ackEmoji(message.text))).catch(() => {});
+    if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && !acked) await tapback(storage, { chat: message.groupId, now: deps.now, by: "classifier", asked: answer.react || undefined, turn: steer.turn }, message.text, (sent) => groupLineFor(deps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)).catch(() => {});
     await handOff();
     return log(answer.react !== undefined ? "reacted" : "silent");
   }

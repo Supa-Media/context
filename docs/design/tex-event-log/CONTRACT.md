@@ -45,6 +45,35 @@ type Event = {
 };
 ```
 
+A **step** event is not a line of the chat: it is one of the Worker's own
+steps, kept in the chat's ledger beside the gateway's (Dev2, 2026-11-13:
+"every step should log its input output time and stuff";
+`apps/agent/src/stepEvents.ts`):
+
+```ts
+type StepEvent = {
+  id: string; at: number; chat: string; turn?: string; // as above
+  from: { kind: "system" };
+  kind: "step";
+  step: {
+    name: "decide" | "react";   // a 1:1 judging (a group's is kept by the gateway), or a tapback Tex sent
+    of?: string;                // a code: "waiting" | "running" for decide; who chose a tapback ("decide", "classifier", "tool_started")
+    ok: boolean;
+    ms?: number;
+    input?: object;             // <= 4000 chars as JSON: ids, codes, counts and emoji, never anyone's words
+    output?: object;            // the same bound: the verdict, or the emoji sent
+    cause?: string;             // a code: why it failed
+  };
+};
+```
+
+It carries no `text` and no other field. The Worker posts it with the chat's
+events and never shows it: no reader of its outbox (`keptEvents`,
+`recentEvents`, the judge's transcript) includes it. The gateway checks it
+(`log.js` `checkStep`) and keeps it as a `step` entry with the event's id
+(`ledger.js` `eventEntry`); `checkEvent`, which every reader of the chat's
+events uses, refuses its kind, and the bucket's old log never keeps one.
+
 Storage: `.context/agent/log/<sha256(chat)>/<id>.json` in the customer's
 bucket — the person's own for 1:1, the bound shared workspace's for a group.
 Read newest-first, bounded (400 events or 120,000 chars). The Worker's Durable
@@ -111,7 +140,8 @@ then the chat, and Clef's `act` options are `respond`, `quiet` and `wait`
 (read back as `answer`, `silent` and `wait`). No word rule says what is for
 Tex; the speak-up level is told to the judge, never a gate. With `ledger`,
 the gateway appends `{ kind: "judge", by: "moment", verdict, why, event,
-confidence, ms }` to that group's ledger behind the answer.
+confidence, ms }` to that group's ledger behind the answer. A person's own
+chat's judging is kept by the Worker as a `step` event (section 1).
 
 `ok:false` means the Worker falls back: a group answers the newest waiting
 question or message that tags or names Tex or replies under its text
