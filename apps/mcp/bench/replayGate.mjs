@@ -33,7 +33,7 @@ import { callTool, notePaths, signIn, splitNote } from "./context.mjs";
 const run = promisify(execFile);
 
 export { AREAS, areasFor } from "./replayAreas.mjs";
-import { AREAS } from "./replayAreas.mjs";
+import { AREAS, areasFor } from "./replayAreas.mjs";
 
 export const HELD_OUT_FOLDER = "ai/held-out";
 export const HELD_OUT_PREFIX = "held-out/";
