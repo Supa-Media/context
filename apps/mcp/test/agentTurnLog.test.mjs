@@ -109,3 +109,12 @@ test("actionOf prefers the action the model wrote, then the one that ran, and dr
   assert.equal(actionOf(undefined, { args: { action: "send" } }), "send");
   assert.equal(actionOf(undefined, undefined), undefined);
 });
+
+test("a call made as one of the six keeps that name beside the tool that ran; nothing else does", async () => {
+  const { sixOf, wireTraceEntry } = await import("../src/agent/turnLog.js");
+  assert.equal(sixOf({ name: "write" }, { name: "write_note" }), "write");
+  assert.equal(sixOf({ name: "search_web" }, { name: "search_web" }), undefined);
+  assert.equal(sixOf({ name: "orient" }, { name: "orient" }), undefined);
+  assert.equal(wireTraceEntry({ kind: "tool", tool: "write_note", six: "write", action: "save", ok: true, ms: 1 }).six, "write");
+  assert.equal("six" in wireTraceEntry({ kind: "tool", tool: "x", six: "nope", ok: true, ms: 1 }), false);
+});
