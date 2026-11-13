@@ -534,3 +534,4 @@ bench/test/modelSocket.test.mjs
 bench/test/coreArea.test.mjs
 bench/test/coreSocket.test.mjs
 bench/test/nightly.test.mjs
+test/texWindowStep.test.mjs

@@ -49,6 +49,15 @@ export const THREADS_TIMEOUT_MS = 4_000;
 export const THREADS_MAX_TOKENS = 400;
 /** How far back the chat is shown word for word once its threads have started. */
 export const RECENT_MS = 24 * 60 * 60 * 1000;
+/**
+ * The word-for-word window's start moves in steps of this, never text by text (2026-11-13, one record per chat): a start
+ * 24 hours before each text dropped the oldest lines on almost every text in a busy chat, and the whole history after
+ * them, about 30,000 tokens a turn, was written to the cache again instead of read (`turn.js` `cachedThrough`).
+ * Stepped, it moves four times a day, so the window holds 24 to 30 hours.
+ */
+export const WINDOW_STEP_MS = 6 * 60 * 60 * 1000;
+/** Where the word-for-word window starts for a turn answering at `at`. */
+export const windowStart = (at) => Math.floor((at - RECENT_MS) / WINDOW_STEP_MS) * WINDOW_STEP_MS;
 /** What the classifier is shown of each candidate thread, and of the chat just before the new text. */
 const CANDIDATES = 30;
 const LAST_LINES = 3;
