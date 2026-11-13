@@ -428,6 +428,8 @@ jobs:
           node --test scripts/sendblue-status-url.test.mjs
           node --test scripts/ci-performance-report.test.mjs
           node --test scripts/mcp-speed-budgets.test.mjs
+          node --test scripts/tex-speed-budgets.test.mjs
+          node scripts/check-speed-budget.mjs --self-test
           node --test scripts/release-communication-evidence.test.mjs
           node --test scripts/tex-alert.test.mjs
           node --test scripts/agent-logs-filter.test.mjs

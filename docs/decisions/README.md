@@ -32,6 +32,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex telemetry: every turn says where it came from and what it cost](./observability/tex-telemetry.md) (2026-10-24)
 - [Token usage at the MCP boundary](./observability/token-usage.md) (2026-10-08)
 - [MCP calls have speed budgets, judged from production's own timings](./observability/mcp-speed-budgets.md) (2026-11-03)
+- [Tex's reply speed has budgets: calls counted before merge, waits judged live](./observability/tex-speed-budgets.md) (2026-11-13)
 - [Every request and every workspace object call is counted by who made it](./observability/call-counts.md) (2026-11-06)
 - [Tex's basics for any window: people, texts, cost and notes](./observability/tex-stats.md) (2026-11-10)
 - [Every failed Tex tool call is kept with why it failed](./observability/tool-failures.md) (2026-11-10)

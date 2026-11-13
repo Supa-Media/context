@@ -12,9 +12,11 @@
  *  - a new group's first turn with `startOnLedger` skipped did NOT fail an
  *    end-to-end case (a chat home needs a world this fixture lacks), so that
  *    case was dropped rather than kept as a check that cannot fail;
- *    `groupPageCopy.test.mjs` covers it.
+ *    `groupPageCopy.test.mjs` covers it;
  *  - `checkItMayRun` passing `moment: false` (a routine back on its own short
- *    list of last texts) fails "routine-sees-chat".
+ *    list of last texts) fails "routine-sees-chat";
+ *  - one extra awaited store read at the top of `texEntryPoint` fails
+ *    "speed-budgets" for all five turns, naming the read.
  */
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
