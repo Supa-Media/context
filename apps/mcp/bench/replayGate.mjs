@@ -140,8 +140,9 @@ export function feedback({ areas, results }) {
 }
 
 /** One bench command in a tree, its rows written to a file. `only` limits it to some ids. */
-async function benchRows(tree, area, { heldOut, only, fake, out }) {
+async function benchRows(tree, area, { heldOut, only, fake, out, records = null }) {
   const args = [join(tree, "apps/mcp/bench/run.mjs"), area, "--json", out];
+  if (records) args.push("--out", records);
   if (heldOut) args.push("--held-out", heldOut);
   if (only) args.push("--only", only.join(","));
   if (fake) args.push("--fake");
@@ -168,6 +169,10 @@ export const AREA_LIMITS = {
   "advisor-job-check": { maxUsd: 1, pool: "shared", usdPerCase: 0.07, reruns: { branch: 2, main: 3 } },
   "advisor-planner": { maxUsd: 1, pool: "shared", usdPerCase: 0.03, reruns: { branch: 2, main: 3 } },
   "advisor-job-mail": { maxUsd: 1, pool: "shared", usdPerCase: 0.04, reruns: { branch: 2, main: 3 } },
+  // A job task is a whole background job (its parts, the done check after each, a Haiku quality grade): about $0.35
+  // measured (2026-11-13, seven tasks $2.45). It runs only for a change to job or page code, in a pool of its own
+  // (the brief: "$1-3 per run"), and a wrong task runs once more on the change and once on main.
+  jobs: { maxUsd: 5, pool: "jobs", usdPerCase: 0.35, reruns: { branch: 1, main: 1 } },
 };
 
 /** Rows of several runs as one row a case: `results` one boolean a run, `right` when most runs were. */
@@ -217,6 +222,16 @@ export const RUNNERS = {
   "advisor-job-check": advisorRunner("advisor-job-check"),
   "advisor-planner": advisorRunner("advisor-planner"),
   "advisor-job-mail": advisorRunner("advisor-job-mail"),
+  jobs: async (tree, { heldOut, only, fake, scratch, tag, runs = 1 }) => {
+    const all = [];
+    for (let i = 1; i <= runs; i += 1) {
+      // Each practice task's page, parts and checks too (`--out`), kept by the workflow so a pass can be read, not trusted.
+      all.push(await benchRows(tree, "jobs", { heldOut, only, fake, out: join(scratch, `jobs-${tag}-${i}.json`), records: join(scratch, `jobs-${tag}-${i}-records.json`) }));
+    }
+    // Each task prices itself (`usd` on its row); a row without one is counted at the estimate.
+    const usd = all.flat().reduce((sum, row) => sum + (typeof row.usd === "number" ? row.usd : AREA_LIMITS.jobs.usdPerCase), 0);
+    return { rows: mergeRuns(all), usd };
+  },
 };
 
 /** Whether main's tree has the area at all: a change that adds one gives main no runs, and its cases must pass. */

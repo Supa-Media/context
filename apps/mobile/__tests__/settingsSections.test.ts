@@ -89,6 +89,8 @@ describe("the order and the grouping", () => {
       // Tex's own group, How Tex talks first (Dev2, 2026-11-06, board 2).
       "tex",
       "texApps",
+      // The settings Tex changes by text, as switches (Dev2, 2026-11-13).
+      "texHabits",
       "messages",
       "workspace",
       "sharing",
@@ -109,7 +111,7 @@ describe("the order and the grouping", () => {
     );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(17);
+    ).toHaveLength(18);
   });
 
   test("every section sits under a heading somebody can answer", () => {
@@ -118,7 +120,7 @@ describe("the order and the grouping", () => {
       // on rather than a category to learn, and Tex's three pages under its
       // own name (Dev2, 2026-11-06). Every context row is ungrouped.
       expect([null, "You", "Tex"]).toContain(section.group);
-      if (["tex", "texApps", "messages"].includes(section.key)) expect(section.group).toBe("Tex");
+      if (["tex", "texApps", "texHabits", "messages"].includes(section.key)) expect(section.group).toBe("Tex");
     }
   });
 

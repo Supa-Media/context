@@ -345,8 +345,6 @@ function RowAction({
       return <HomeButton label="Download" onPress={() => downloadEverything(data)} testID="settings-download" />;
     case "signOut":
       return <HomeButton label="Sign out" onPress={() => onSignOut?.()} testID="settings-sign-out" />;
-    case "byText":
-      return <Text style={styles.byText}>Text Tex</Text>;
     case "none":
       return null;
   }

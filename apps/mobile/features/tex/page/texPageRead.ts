@@ -19,9 +19,11 @@ import type {
   ListKind,
   ListPage,
   MailCheck,
+  PingLevel,
   Overview,
   Routine,
   Slot,
+  TexHabits,
   Tiles,
   Turn,
   TurnDraft,
@@ -429,5 +431,23 @@ export function readList<K extends ListKind>(kind: K, v: unknown): ListPage<K> {
   if (str(r.approver)) page.approver = str(r.approver);
   const people = arr(r.people).filter((x): x is string => typeof x === "string");
   if (people.length) page.people = people;
+  const habits = readHabits(r.habits);
+  if (habits) page.habits = habits;
   return page;
+}
+
+const PING_LEVELS = new Set(["strict", "relaxed", "emergencies", "off"]);
+const flag = (x: unknown) => (typeof x === "boolean" ? x : null);
+
+/** The by-text switches (`TexHabits`); anything the gateway sent that isn't one reads as unknown. */
+export function readHabits(v: unknown): TexHabits | null {
+  const h = rec(v);
+  if (!h) return null;
+  return {
+    checkins: flag(h.checkins),
+    quietHours: typeof h.quietHours === "string" ? h.quietHours : null,
+    pings: typeof h.pings === "string" && PING_LEVELS.has(h.pings) ? (h.pings as PingLevel) : null,
+    overnight: flag(h.overnight),
+    tidy: flag(h.tidy),
+  };
 }

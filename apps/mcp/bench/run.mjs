@@ -29,7 +29,7 @@ import { basename, join, resolve } from "node:path";
 import { PRODUCTION_HOUSEKEEPING_PATH, frontOf, parseSetup } from "../src/agent/production.js";
 import { MODULE_FOLDER, assembleSetup } from "../src/agent/promptModules.js";
 import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";
-import { anthropicGateway, cachedEmbeddings, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
+import { cachedEmbeddings, claudeTransport, fakeAi, playPerson } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
 import { judgeCommand } from "./judge.mjs";
 import { scoreCommand } from "./score.mjs";
@@ -43,6 +43,7 @@ import { assertAnswered, modelSocket, socketCommand, socketSend } from "./modelS
 import { nightlyCommand } from "./nightly.mjs";
 import { driftCommand } from "./drift.mjs";
 import { jobstartCommand } from "./jobstart.mjs";
+import { jobTasksCommand } from "./jobTasks.mjs";
 import { searchCommand } from "./search.mjs";
 import { benchLedger, ledgerFileName, ledgerNote, ledgersFolderFor } from "./modelLog.mjs";
 import { checkCommand } from "./check.mjs";
@@ -56,6 +57,7 @@ import { createWorld } from "./world.mjs";
 import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
+import { benchModels } from "./worldModels.mjs";
 
 /**
  * The fewest texts the played person may send in one conversation. A brief
@@ -76,7 +78,7 @@ function parseArgs(argv) {
   const options = { command, job };
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
-    if (flag === "--fake" || flag === "--verbose" || flag === "--no-fluff" || flag === "--cold" || flag === "--publish" || flag === "--revert") options[flag.slice(2)] = true;
+    if (flag === "--fake" || flag === "--verbose" || flag === "--no-fluff" || flag === "--cold" || flag === "--publish" || flag === "--revert" || flag === "--strict") options[flag.slice(2)] = true;
     else if (flag.startsWith("--")) options[flag.slice(2)] = rest[++i];
   }
   return options;
@@ -346,29 +348,13 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   if (!options.fake && !socketed && !scripted && options.job === "texting-assistant" && !process.env.BRAVE_SEARCH_API_KEY) {
     throw new Error("BRAVE_SEARCH_API_KEY is not set: production offers search_web and open_page, so a texting-assistant run must too (task 15 says where the key is)");
   }
-  const models = options.fake
-    ? { gatewayFetch: fakeGateway(), ai: cachedEmbeddings(fakeAi()) }
-    : {
-        gatewayFetch: anthropicGateway(send),
-        // Embeds too (`@cf/baai/bge-m3`), remembered by text so each passage
-        // and each query is paid for once a run.
-        ai: cachedEmbeddings(workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null)),
-        searchKey: process.env.BRAVE_SEARCH_API_KEY,
-        // Production reads answers for work handed back (wrangler.toml HANDBACK_JUDGE), so a real run does too.
-        handbackJudge: true,
-        // The Worker names the texts a turn covers, so production reads the chat's ledger and sorts the text into a thread (`loggedTurn.js`, `conversationThreads.js`); a real run does too. A scripted model leaves it off, since it would answer the thread sorter's call too.
-        ledgerTurns: true,
-      };
+  const models = benchModels(options, { scripted, sites: bench.sites, send });
   if (socketed) {
     // Workers AI (the embeddings for search by meaning, Clef) answers with the scripted stand-in: the examiner session
     // holds no Cloudflare key, and a real model's numbers would differ live and replayed and change what the turn reads.
     models.ai = cachedEmbeddings(fakeAi());
     delete models.searchKey;
     models.offlineWeb = !scripted;
-  }
-  if (scripted) {
-    models.sites = bench.sites;
-    delete models.searchKey;
   }
   models.skills = skills;
   // The computer every case's person has paired, the same for every setup (`computer:` in the test, `world.mjs`).
@@ -571,6 +557,7 @@ const USAGE = [
   "       pnpm ai nightly [--held-out <dir>] [--areas core,tasks] [--out <file>] [--run-url <url>]   every area, 3 runs, one scoreboard note",
   "       pnpm ai drift [--day YYYY-MM-DD]             live conversations' scores against the week before; exit 3 on a drop",
   "       pnpm ai jobstart [--concurrency <n>] [--fake]  score whether a job's start gets a line or only a tapback (Haiku) on held-out chats",
+  "       pnpm ai jobs [--setup production] [--only a,b] [--max-parts 4] [--strict] [--fake]  run Tex's job tasks end to end and grade them in code",
   "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai check <dream|heartbeat|meeting-summaries|meeting-transcription|connected-ais> [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai connect [--endpoint <url>]           once, by a person: the runner's grant on Context",
@@ -598,6 +585,7 @@ const COMMANDS = new Map([
   ["nightly", nightlyCommand],
   ["drift", driftCommand],
   ["jobstart", jobstartCommand],
+  ["jobs", jobTasksCommand],
   ["search", searchCommand],
   ["check", checkCommand],
   ["connect", connectCommand],

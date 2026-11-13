@@ -29,6 +29,15 @@ export const AREAS = {
   "advisor-job-check": [ADVISOR_CORE, ADVISOR_KNOWS_MAIL, /^apps\/mcp\/src\/agent\/advisorRoles\/jobCheck\.js$/, /^apps\/mcp\/src\/agent\/jobCheck\.js$/, /^apps\/mcp\/bench\/advisor\/job-check\.json$/],
   "advisor-planner": [ADVISOR_CORE, /^apps\/mcp\/src\/agent\/advisorRoles\/planner\.js$/, /^apps\/mcp\/src\/agent\/planBigAsk\.js$/, /^apps\/mcp\/bench\/advisor\/planner\.json$/],
   "advisor-job-mail": [ADVISOR_CORE, ADVISOR_KNOWS_MAIL, /^apps\/mcp\/src\/agent\/advisorRoles\/jobMail\.js$/, /^apps\/mcp\/bench\/advisor\/job-mail\.json$/],
+  // A background job end to end (`jobTasks.mjs`): how a job is started, asked, carried on and reported, the pages it
+  // writes, the Worker's job runner, and the tasks and the scripted sites they run on. Its own budget (`AREA_LIMITS.jobs`).
+  jobs: [
+    /^apps\/mcp\/src\/agent\/(background|jobs|jobStart|jobNote|jobReport|jobPages|jobSlots|chatJobs|lastRound|openAsk|stopsShort|workPage|progress)\.js$/,
+    /^apps\/mcp\/src\/(pages|pageSkill)\.js$/,
+    /^apps\/agent\/src\/job[A-Za-z]*\.ts$/,
+    /^apps\/mcp\/bench\/job-tasks\//,
+    /^apps\/mcp\/bench\/ai\/sites\/(caterers|halls|lunch|orders|retreat|eats)\.example\.md$/,
+  ],
 };
 
 /** The model areas a change's files reach, in a fixed order. */

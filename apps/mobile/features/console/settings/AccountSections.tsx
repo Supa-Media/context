@@ -25,6 +25,7 @@ import { ProviderConnectionsCard } from "./panels/ProviderConnectionsCard";
 import { PhoneCard } from "./panels/PhoneCard";
 import { AppearancePicker } from "./panels/AppearancePicker";
 import { SpellingSettings } from "./panels/SpellingSettings";
+import { TexHabits } from "./panels/TexHabits";
 import { TexSettings } from "./panels/TexSettings";
 import { YourPicture } from "./panels/YourPicture";
 import { MessagesPanel } from "./panels/MessagesPanel";
@@ -77,6 +78,7 @@ export function AccountSection({
   if (section === "feedback") return <FeedbackSettings />;
   if (section === "spelling") return <SpellingSettings />;
   if (section === "tex") return <TexSettings />;
+  if (section === "texHabits") return <TexHabits workspaceId={personal?.id ?? null} handle={personal?.slug ?? null} />;
   if (section === "messages") return <MessagesPanel owned={owned} workspaceId={personal?.id ?? null} />;
 
   if (section === "texApps") {

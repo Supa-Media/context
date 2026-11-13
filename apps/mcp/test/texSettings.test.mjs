@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { TEX_SETTINGS, WHERE } from "../../../packages/shared/src/texSettings.cjs";
 import { ASSISTANT_SEND_ACTIONS } from "../src/agent/sixTools.js";
-import { SETTING_HANDLERS, settingsSnapshot, settingsTools } from "../src/agent/settingsTools.js";
+import { SETTING_HANDLERS, readHabits, settingSet, settingsSnapshot, settingsTools } from "../src/agent/settingsTools.js";
 import { commandTools } from "../src/agent/commandTools.js";
 
 // Dev2, 2026-11-12: "make sure that tex is privy to its settings configuration and the user can make changes in the
@@ -155,4 +155,27 @@ test("in a group, \"share @studio with everyone here\" queues the invitation for
   assert.deepEqual(queued, [{ slug: "studio", role: "member" }]);
   assert.equal(byName(settingsTools({ session, controlPlane: null, group: null, dispatch: null, words: "share @studio with everyone", onInvite: () => {} }), "chat_add_everyone"), undefined, "never in a 1:1");
   assert.equal(byName(settingsTools({ session, controlPlane: null, group: { key: "k", guestTagger: true }, dispatch: null, words: "share @studio with everyone", onInvite: () => {} }), "chat_add_everyone"), undefined, "never on a guest's tag");
+});
+
+test("the app's settings page reads and changes the same notes a text does", async () => {
+  const { files, dispatch } = notes({ "tex/heartbeat.md": "---\npaused: no\n---\nOnly deadlines." });
+  assert.deepEqual(await readHabits(dispatch), { checkins: true, quietHours: "", pings: "strict", overnight: true, tidy: true });
+  assert.deepEqual(await settingSet(dispatch, "checkins", false), { ok: true });
+  assert.deepEqual(await settingSet(dispatch, "quiet_hours", "10 pm to 6 am"), { ok: true });
+  assert.deepEqual(await settingSet(dispatch, "pings", "emergencies"), { ok: true });
+  assert.deepEqual(await settingSet(dispatch, "overnight", false), { ok: true });
+  assert.deepEqual(await settingSet(dispatch, "tidy", false), { ok: true });
+  assert.match(files.get("tex/heartbeat.md"), /Only deadlines\./, "their own words stay");
+  assert.deepEqual(await readHabits(dispatch), { checkins: false, quietHours: "10 pm to 6 am", pings: "emergencies", overnight: false, tidy: false });
+  assert.deepEqual(await settingSet(dispatch, "pings", "off"), { ok: true });
+  assert.equal((await readHabits(dispatch)).pings, "off");
+  assert.deepEqual(await settingSet(dispatch, "quiet_hours", "off"), { ok: true });
+  assert.equal((await readHabits(dispatch)).quietHours, "");
+  // What a text would refuse is refused here, and nothing outside the `setting` switches is reachable.
+  assert.deepEqual(await settingSet(dispatch, "quiet_hours", "whenever"), { ok: false, error: "invalid" });
+  assert.deepEqual(await settingSet(dispatch, "pings", "loud"), { ok: false, error: "invalid" });
+  assert.deepEqual(await settingSet(dispatch, "vault", "on"), { ok: false, error: "invalid" });
+  assert.deepEqual(await settingSet(dispatch, "toString", "on"), { ok: false, error: "invalid" });
+  assert.deepEqual(await settingSet(dispatch, "tidy", { on: true }), { ok: false, error: "invalid" });
+  assert.deepEqual(await settingSet(dispatch, "quiet_hours", "x".repeat(81)), { ok: false, error: "invalid" });
 });

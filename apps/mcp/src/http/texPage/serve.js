@@ -30,6 +30,7 @@ import { pokeTexPage } from "../../texStore/pageLive.js";
 import { json } from "../responses.js";
 import { fetchPageJobs, jobDetail, jobSummary, jobsOverview, slotsOf, steerPageJob } from "./jobs.js";
 import * as notes from "./notes.js";
+import { readHabits, settingSet } from "../../agent/settingsTools.js";
 import { ledgerView } from "./ledger.js";
 import { PageRefusal, chatOf, checkViewer, loadPage, pickerOf, readPageBody, startOfDay } from "./page.js";
 
@@ -165,7 +166,8 @@ async function list(env, page, chat, call, kind, cursor) {
     return { items: read.items, total: read.total };
   }
   // Settings: the person's own instructions, or the chat's. Quick picks and "when Tex answers" are retired (Dev2, 2026-11-11).
-  if (chat.kind === "me") return { items: [], instructions: chat.instructions };
+  // The person's own also reads the switches Tex changes by text (`agent/settingsTools.js`), for Settings in the app.
+  if (chat.kind === "me") return { items: [], instructions: chat.instructions, habits: await settled(() => readHabits(call), null) };
   return {
     items: [],
     instructions: chat.instructions,
@@ -185,6 +187,7 @@ const ACT_SECTIONS = {
   "checkin.cancel": ["checkins"],
   "checkin.add": ["checkins"],
   "switch.set": ["checkins"],
+  "setting.set": ["checkins", "settings"],
   "about.fix": ["about"],
   "about.remove": ["about"],
   settings: ["settings"],
@@ -231,6 +234,10 @@ async function act(env, controlPlane, session, page, chat, call, action) {
     case "switch.set":
       if (chat.kind !== "me") return { ok: false, error: "invalid" };
       return await notes.switchSet(call, action.name, action.on);
+    case "setting.set":
+      // Their own chat only, like a texted `send setting`: these switches are theirs.
+      if (chat.kind !== "me") return { ok: false, error: "invalid" };
+      return await settingSet(call, action.key, action.value);
     case "about.fix":
       if (!chat.about) return { ok: false, error: "not_found" };
       return await notes.aboutFix(call, chat.about, action.line, action.text);

@@ -25,9 +25,9 @@
  * ## The Tex rows come from one list
  *
  * `TEX_SETTINGS` (`packages/shared/src/texSettings.cjs`) is the list Tex reads
- * when somebody texts it a change. The rows Tex changes by text are drawn from
- * it rather than written again here, so the page and the chat can never name a
- * different set of settings.
+ * when somebody texts it a change. Its `via: "setting"` rows are the switches
+ * on "Check-ins, quiet hours and more" (`panels/TexHabits.tsx`), which write
+ * the same notes a text does; a test holds the two lists equal.
  *
  * ## Titles are the pages' own names
  *
@@ -36,7 +36,6 @@
  * "Settings → People & sharing", and the row is where that path has to land.
  */
 
-import { TEX_SETTINGS, type TexSetting } from "@context/shared/src/texSettings.cjs";
 import type { IconName } from "../../../design/components/Icon";
 import { atName } from "../../format";
 import { selectedContext, type ConsoleData } from "../../types";
@@ -57,8 +56,6 @@ export type HomeAction =
   /** The whole workspace as folders. */
   | { kind: "download" }
   | { kind: "signOut" }
-  /** Changed by texting Tex; the row says so instead of offering a button. */
-  | { kind: "byText" }
   /** Nothing to press: the row states a fact. */
   | { kind: "none" };
 
@@ -96,9 +93,6 @@ export interface HomeInputs {
   canSignOut: boolean;
 }
 
-/** Rows of `TEX_SETTINGS` the page draws as rows of its own, with a page behind them. */
-const TEX_KEYS_WITH_A_PAGE = new Set(["talk", "apps", "vault", "vault_delete"]);
-
 /**
  * What each section's row says about itself when it opens a page.
  *
@@ -109,6 +103,7 @@ const OPEN_ROWS: Record<SettingsSectionKey, { title: string; line: string; actio
   profile: { title: "Profile", line: "", action: "Change", icon: "person" },
   tex: { title: "How Tex talks", line: "", action: "Change", icon: "chat" },
   texApps: { title: "Apps Tex uses", line: "", action: "Manage", icon: "link" },
+  texHabits: { title: "Check-ins, quiet hours and more", line: "", action: "Change", icon: "sparkle" },
   messages: { title: "Messages backup", line: "", action: "Set up", icon: "phone" },
   invitations: { title: "Invitations", line: "", action: "Open", icon: "mailOpen" },
   feedback: { title: "Crash and usage reports", line: "", action: "Change", icon: "bug" },
@@ -152,23 +147,6 @@ function integrationsLine(data: ConsoleData): string | null {
   return count === "1" ? "1 app" : `${count} apps`;
 }
 
-function texRegistryRow(setting: TexSetting): HomeRow {
-  return {
-    id: `tex-${setting.key}`,
-    title: setting.label,
-    line: null,
-    icon: "sparkle",
-    action: setting.byText ? { kind: "byText" } : { kind: "none" },
-  };
-}
-
-/** The Tex rows a person's own chat can change, from the one list. */
-export function texListRows(): HomeRow[] {
-  return TEX_SETTINGS.filter(
-    (setting) => setting.where.includes("1:1") && !TEX_KEYS_WITH_A_PAGE.has(setting.key),
-  ).map(texRegistryRow);
-}
-
 export function settingsHome({ data, sections, texLine = null, live, canSignOut }: HomeInputs): HomeSection[] {
   const has = (key: SettingsSectionKey) => sections.some((entry) => entry.key === key);
   const open = (key: SettingsSectionKey) => openRow(key, data, live);
@@ -195,17 +173,8 @@ export function settingsHome({ data, sections, texLine = null, live, canSignOut 
   account.push(...pick(["invitations", "spelling"]));
   out.push({ id: "account", title: "Account", scope: "everywhere", rows: account });
 
-  /* Tex: what it does for you, everywhere. The rows without a page are changed by texting it. */
-  /*
-    The rest of Tex's own settings (check-ins, quiet hours, tidying, ...) change by texting it today, so they are one
-    row rather than a column of rows with nothing to press; `texListRows` is that list, for the page that gives them
-    switches.
-  */
-  const byText = texListRows().filter((row) => row.action.kind === "byText");
-  const tex = [...pick(["tex", "texApps", "messages"])];
-  if (byText.length > 0) {
-    tex.push({ id: "tex-by-text", title: "Check-ins, quiet hours and more", line: null, icon: "sparkle", action: { kind: "byText" } });
-  }
+  /* Tex: what it does for you, everywhere. Check-ins, quiet hours and the rest of what Tex changes by text have switches too. */
+  const tex = pick(["tex", "texHabits", "texApps", "messages"]);
   out.push({ id: "tex", title: "Tex", scope: "everywhere", rows: tex });
 
   /* AI apps: one connection reaches every workspace this person is in. */
