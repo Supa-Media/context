@@ -18,7 +18,7 @@
  */
 
 import { post, record, type Fetch } from "./clients";
-import { flushEventsInLine, keptEvents, type Conversation, type TexEvent } from "./events";
+import { flushByLedgerInLine, flushEventsInLine, keptEvents, type Conversation, type LedgerWrite, type TexEvent } from "./events";
 import type { InboxStorage } from "./inbox";
 
 /** The longest a reader waits for the chat: decide waits on it, and decide is on a person's way to their answer. */
@@ -94,19 +94,27 @@ async function fromGateway(reader: ChatReader, chat: string, timeoutMs: number):
 }
 
 /**
- * Send what the chat said since the last flush to its ledger now, with the token the chat's last turn opened, when
- * there is one. Without this a group's chatter between Tex's turns (anything nobody asked Tex) waited in the outbox
- * until somebody next addressed Tex, so the chat's history on the app stopped at Tex's last answer, and a day of it
- * with no answer was dropped unposted (`SEND_WITHIN_MS`). True when a token was at hand; an expired one is refused by
- * the gateway and the events wait for the next turn, as before. Never throws.
+ * Send what the chat said since the last flush to its ledger now, so the chat's history on the app keeps up with it.
+ * Without this a group's chatter between Tex's turns (anything nobody asked Tex) waited in the outbox until somebody
+ * next addressed Tex. With the token the chat's last turn opened, when this object holds one; otherwise, for a group
+ * Tex is set up in (`byLedger`), by the chat's ledger key over the gateway binding, which needs no token: the token
+ * lives only in memory, so after a deploy or an idle hour texts were written to the ledger hours late (Tex Devs,
+ * 2026-11-12 and 13). An expired token is refused by the gateway and the events wait for the next turn, as before.
+ * Answers how it went: `token`, `ledger`, or `none` when it had neither. Never throws.
  */
-export async function flushWithReader(storage: InboxStorage, chat: string, now: () => number): Promise<boolean> {
+export async function flushWithReader(storage: InboxStorage, chat: string, now: () => number, byLedger?: LedgerWrite): Promise<"token" | "ledger" | "none"> {
   const reader = readers.get(storage)?.get(chat);
-  if (reader === undefined) return false;
   try {
-    await flushEventsInLine(storage, { fetch: reader.fetch, gatewayOrigin: reader.gatewayOrigin, now }, reader.token, reader.conversation, chat);
+    if (reader !== undefined) {
+      await flushEventsInLine(storage, { fetch: reader.fetch, gatewayOrigin: reader.gatewayOrigin, now }, reader.token, reader.conversation, chat);
+      return "token";
+    }
+    if (byLedger !== undefined) {
+      await flushByLedgerInLine(storage, byLedger, chat, now);
+      return "ledger";
+    }
   } catch {
     // The outbox keeps them for the next turn's flush.
   }
-  return true;
+  return reader !== undefined ? "token" : byLedger !== undefined ? "ledger" : "none";
 }

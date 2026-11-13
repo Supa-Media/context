@@ -194,6 +194,17 @@ describe("the history's lines", () => {
     ]);
   });
 
+  test("the judge's call on whether to speak says its verdict and why, never a draft sent back (2026-11-13)", () => {
+    const entries: LedgerEntry[] = [
+      { id: "m3", at: at(2, 9, 4), kind: "judge", by: "moment", verdict: "react", went: false, why: "thanks_tex", emoji: "❤️", event: "e3" },
+      { id: "m2", at: at(2, 9, 3), kind: "judge", by: "moment", verdict: "respond", went: true, why: "tags_tex", event: "e2" },
+      { id: "m1", at: at(2, 9, 2), kind: "judge", by: "moment", verdict: "quiet", went: false, why: "asks_someone_else", event: "e1" },
+    ];
+    const lines = historyDays(entries, NOW).flatMap((day) => day.turns.flatMap((turn) => turn.lines.map((l) => l.text)));
+    expect(lines).toEqual(["judge · stay quiet · asks someone else", "judge · answer · tags tex", "judge · react · thanks tex · ❤️"]);
+    for (const line of lines) expect(line).not.toMatch(/draft|sent back/);
+  });
+
   test("background lines say what each is", () => {
     const entries: LedgerEntry[] = [
       { id: "n4", at: at(2, 9, 4), kind: "job", job: "j1", title: "Code transactions", state: "keep_going" },

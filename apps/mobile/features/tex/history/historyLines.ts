@@ -171,6 +171,9 @@ function toolWords(e: LedgerEntry): string {
  * see how responses were shaped along the way").
  */
 export function judgeWords(e: LedgerEntry): string {
+  // The one judge's call on a moment (`by: "moment"`, `apps/mcp/src/agent/textsDecide.js`): whether Tex speaks at
+  // all, never a draft. It was shown as "judges · draft 1 · sent back · \"\"" (Tex Devs, 2026-11-13).
+  if (e.by === "moment") return momentWords(e);
   const judges = Array.isArray(e.judges) ? (e.judges as unknown[]).map(record).filter((j): j is Record<string, unknown> => j !== null) : [];
   const round = typeof e.round === "number" ? e.round : 0;
   const by = e.by === "code" ? "checks" : e.by === "review" ? "reviewer" : "judges";
@@ -184,6 +187,14 @@ export function judgeWords(e: LedgerEntry): string {
   const named = e.by === "review" && Array.isArray(e.failed) ? (e.failed as unknown[]).filter((id): id is string => typeof id === "string").map((id) => id.replace(/_/g, " ")) : [];
   const tally = e.by === "review" ? [str(e.turnKind), named.join(", ")].filter(Boolean).join(" · ") : judges.length === 0 ? "" : failed.length === 0 ? `all ${judges.length} passed` : `${failed.join(", ")}${passed ? ` · ${passed} passed` : ""}`;
   return [`${by} · draft ${round + 1} · ${outcome}`, tally, oneLine(e.reason), `"${short(e.text, 160)}"`].filter(Boolean).join(" · ");
+}
+
+const MOMENT_VERDICT: Record<string, string> = { respond: "answer", react: "react", quiet: "stay quiet", wait: "wait" };
+
+/** "judge · stay quiet · asks someone else": the verdict on whether to speak, its why, and the tapback when it reacts. */
+function momentWords(e: LedgerEntry): string {
+  const verdict = str(e.verdict);
+  return ["judge", MOMENT_VERDICT[verdict] ?? verdict, str(e.why).replace(/_/g, " "), str(e.emoji)].filter(Boolean).join(" · ");
 }
 
 function lineOf(e: LedgerEntry, group: boolean): HistoryLine {
