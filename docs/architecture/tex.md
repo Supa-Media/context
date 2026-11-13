@@ -87,7 +87,7 @@ flowchart TB
   settleAYesOrNo["settleAYesOrNo<br/>a yes or 👍 to a waiting send, in code, no model"]:::rail
   watchWhatLeaves["watchWhatLeaves<br/>what this turn may read in and send out"]:::rail
   checkItMayRun["checkItMayRun<br/>tools, history (each part timed), may the model run here"]:::step
-  readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn, a routine, check-in or job report too<br/>a reply shows the full words it answers<br/>under each earlier text, what it read for it, quoted<br/>starts the conversation classifier"]:::step
+  readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn, a routine, check-in, job report or job's part too<br/>a reply shows the full words it answers<br/>under each earlier text, what it read for it, quoted<br/>starts the conversation classifier"]:::step
   openTheWeb["openTheWeb<br/>write tools and the browser"]:::step
   readTheSetup["readTheSetup<br/>prompt, skills, models, fallback"]:::step
   prepareBookkeeping["prepareBookkeeping<br/>usage, turn log, failed tool calls, the chat's ledger"]:::step
@@ -315,6 +315,7 @@ Newest first. One line per pull request that changed the drawing.
 - 2026-11-13: the five settings `send setting` changes (check-ins, quiet hours, texts from other AIs, the overnight About me rewrite, the daily tidy) get switches in the app's Settings, which read and write them through the Tex page (`settingsTools.js` `readHabits`, `settingSet`, the page's `setting.set`) with the handler a text uses; the capability list tells Tex the app has them. No box changed: a texted turn runs as before. Test: `apps/mcp/test/texSettings.test.mjs`.
 - 2026-11-13: the threaded history's word-for-word window starts on a six-hour step instead of exactly 24 hours before each text, so it holds 24 to 30 hours (`conversationThreads.js` `windowStart`; step 2 of the one-record design). Production on 2026-11-12: in a busy group the next text's first round often read only the tools and system prompt from the cache (about 46,000 tokens) and wrote the history again (25,000 to 50,000 tokens), because the oldest lines slid out of the window on almost every text and every byte after them changed. Now the start moves four times a day. Answer-maker input edge changed. Test: `apps/mcp/test/texWindowStep.test.mjs`.
 - 2026-11-13: a literal @Tex tag in a group is offered `say_nothing` like any other turn, and a call to it is refused in code ("they tagged you by name"), so the turn still answers (`turn.js` `mustAnswer`, `sayNothing.js` `sayNothingRefused`). Before, its tool list lacked it, and since the tools come first in the cached prompt, every tagged text after a judged one (or before) read nothing from the cache: production on 2026-11-12 showed first rounds within the hour reading 0 tokens and writing 70,000 to 100,000. Step 2 of the one-record design. Group lane box changed. Tests: `apps/mcp/test/agentGroupTurn.test.mjs`, `apps/mcp/test/texStablePrefix.test.mjs`, replay case `tagged-reads-cache`.
+- 2026-11-13: a job's part reads its chat from the chat's ledger, as a reply does, beside its brief (`loggedTurn.js` `turnReads`, `checkItMayRun.js` `moment`; step 3 of the one-record design). Before, a part was shown none of the chat, only its brief and the texts that started it, so a plan that left out the person's own earlier words lost them (#3193, the Saturday karaoke). readTheHistory box changed. Tests: `apps/mcp/test/texOneDoor.test.mjs`, replay case `job-sees-chat`.
 
 ## Proposed, being built: one record per chat
 
@@ -322,7 +323,7 @@ A proposal (Dev2's design ask, 2026-11-12), drawn here so the change can be
 seen against sections 1 to 3. It sits after the rule on purpose: agents read
 only sections 1 to 3, and nothing below is how Tex works today. Design page:
 https://claude.ai/artifact/QEWzwyv65r4RZDMRWNQD4Y. If chosen, sections 1 to 3
-are redrawn step by step as each part lands (step 1, one door, is built: 2026-11-13; step 2 started: the threaded window starts on a six-hour step), and this section goes with the last one.
+are redrawn step by step as each part lands (step 1, one door, is built: 2026-11-13; step 2: the threaded window starts on a six-hour step, and a tagged turn keeps the same tool list; step 3 started: a job's part reads the chat), and this section goes with the last one.
 
 ```mermaid
 flowchart TB

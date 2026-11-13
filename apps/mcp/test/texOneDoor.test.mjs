@@ -6,9 +6,10 @@
  * 2026-11-12 answered a text from the night before.
  *
  * Sabotage (2026-11-13, temporary local edits, reverted; each fails a test here):
- *  - `checkItMayRun` passing `moment: false`: "a routine reads the chat ..." and "a job's report reads the chat ...";
+ *  - `checkItMayRun` passing `moment: false`: "a routine reads the chat ...", "a job's report reads the chat ..." and "a job's part reads ...";
  *  - `momentView` returning null: every test below;
- *  - `readTheSetup` keeping today's `shown`: "a routine reads the chat ...".
+ *  - `readTheSetup` keeping today's `shown`: "a routine reads the chat ...";
+ *  - `turnReads` reading no ledger for a job (`job ? null : chatLedger`): "a job's part reads ...".
  */
 
 import assert from "node:assert/strict";
@@ -59,6 +60,22 @@ test("a job's report reads the chat from its ledger, as a reply does", async () 
     const shown = JSON.stringify(world.model.requests.at(-1).messages);
     assert.ok(shown.includes(MOMENT_PREFACE.slice(1, 40)), "the report's turn is shown the chat from the ledger");
     assert.match(shown, /the dentist moved to Thursday 4pm/);
+  } finally {
+    world.restore();
+  }
+});
+
+test("a job's part reads the chat from its ledger, as a reply does (step 3 of the one-record design)", async () => {
+  const world = await createEgressWorld();
+  try {
+    await chatSoFar(world);
+    world.model.install([{ text: "Rescheduled the dentist note to Thursday at 4." }]);
+    const job = { id: "job-door-00001", title: "Dentist", brief: "Move the dentist in my notes", attempt: 1, followUps: [] };
+    const part = await request(world.env, TOKEN_TEXTS, "/agent", { question: "move the dentist in my notes", conversation: "texts", job });
+    assert.equal(part.status, 200, JSON.stringify(part.body));
+    const shown = JSON.stringify(world.model.requests.at(-1).messages);
+    assert.ok(shown.includes(MOMENT_PREFACE.slice(1, 40)), "the job's part is shown the chat from the ledger, not only its brief");
+    assert.match(shown, /the dentist moved to Thursday 4pm/, "their own words, which a brief may leave out (#3193)");
   } finally {
     world.restore();
   }

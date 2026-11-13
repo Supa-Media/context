@@ -194,11 +194,11 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
 }
 
 /**
- * What a background job's part reads of the chat: its newest entries only, for the earlier-texts tool, kept files and
- * the words that vouch for an address. Its prompt shows none of them (`texEntryPoint.js`): it works from its own record, the
- * brief, finish line, their later texts, its last answer and the advisor's advice (`background.js` `jobPrompt`).
- * On 2026-10-31 every part re-read the last 150 messages, about 5s each, and three restarted jobs copied the chat's
- * "On it: ... restarted" lines as their answer.
+ * What a background job's part reads of the person's record: its newest entries only, for the earlier-texts tool, kept
+ * files and the words that vouch for an address. On 2026-10-31 every part re-read the last 150 messages, about 5s each.
+ * Since 2026-11-13 (one record per chat, step 3) its prompt shows the chat from the chat's ledger, as a reply's does
+ * (`momentView`), beside its brief, finish line, their later texts, its last answer and the advisor's advice
+ * (`background.js` `jobPrompt`): a brief alone dropped their own words (#3193, "Karaoke maybe?").
  */
 export const JOB_HISTORY_ENTRIES = 30;
 
@@ -211,7 +211,7 @@ export const JOB_HISTORY_ENTRIES = 30;
 const UNTIMED = { memory: (run) => run(), ledger: (run) => run(), log: (run) => run(), group: {} };
 export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, moment = runner || group !== null, time = UNTIMED }) {
   const today = time.memory(() => turnHistory(store, session, body, { runner, group, dispatch, job, time: time.group ?? {} }));
-  const started = job ? null : chatLedger(store, session);
+  const started = chatLedger(store, session); // a job's part reads it too, as a reply does (one record, step 3)
   // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
   const ledger = started === null ? null : time.ledger(() => started);
   const logged = runner ? Promise.resolve(null) : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: carryKey(session) }));
