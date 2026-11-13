@@ -5,7 +5,7 @@
  *  1. `requestHash` ignoring the request -> "a call is named by exactly what would be sent" fails;
  *  2. replay answering a missing call with an empty reply -> "a replay refuses answers made for other code" fails;
  *  3. `reviewWait` keeping the 8 s timeout when socketed -> "a socketed review waits for the examiner" fails;
- *  4. `gate` letting a socketed run reach the core area -> "an area whose calls don't go through the socket is refused" fails.
+ *  4. `gate` letting a socketed run reach an area outside SOCKET_AREAS -> "an area whose calls don't go through the socket is refused" fails.
  */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -102,7 +102,7 @@ test("an area whose calls don't go through the socket is refused, never quietly 
   const saved = process.env.BENCH_MODEL_REPLAY;
   process.env.BENCH_MODEL_REPLAY = "/nowhere.json";
   try {
-    await assert.rejects(gate({ branch: "b", base: "m", areas: ["core"], scratch: "/nowhere", runners: {}, limits: {} }), /core area can't be answered by an examiner yet/);
+    await assert.rejects(gate({ branch: "b", base: "m", areas: ["tasks"], scratch: "/nowhere", runners: {}, limits: {} }), /tasks area can't be answered by an examiner yet/);
   } finally {
     if (saved === undefined) delete process.env.BENCH_MODEL_REPLAY;
     else process.env.BENCH_MODEL_REPLAY = saved;

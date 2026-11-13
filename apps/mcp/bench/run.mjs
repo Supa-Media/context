@@ -39,7 +39,7 @@ import { reviewCommand } from "./review.mjs";
 import { respondCommand } from "./respond.mjs";
 import { ROLES as ADVISOR_ROLES, advisorCommand } from "./advisor.mjs";
 import { gateCommand } from "./replayGate.mjs";
-import { socketCommand } from "./modelSocket.mjs";
+import { assertAnswered, modelSocket, socketCommand, socketSend } from "./modelSocket.mjs";
 import { nightlyCommand } from "./nightly.mjs";
 import { driftCommand } from "./drift.mjs";
 import { jobstartCommand } from "./jobstart.mjs";
@@ -331,12 +331,19 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   // searches and browses the bench's sites, never the real web.
   const scripted = test.front.web === "scripted";
   if (scripted && bench.sites.length === 0) throw new Error(`tests/${testName}.md runs on the scripted web, but sites/ has no sites`);
-  const send = claudeTransport(process.env);
-  if (!options.fake) process.stderr.write(`${label}Claude calls: ${send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
+  // Through the model socket (`modelSocket.mjs`) an examiner session answers every Claude call, held still while it
+  // thinks; the run must then make the same requests live and replayed, so its day is pinned (`clock.mjs` steps it).
+  const socket = options.fake ? null : modelSocket(process.env, { blocking: true });
+  const socketed = socket?.covers("claude") === true;
+  if (socketed && !test.front.today) throw new Error(`tests/${testName}.md pins no day (today:), so its requests would change from one day to the next and an examiner's answers could not be replayed`);
+  const send = socketed ? socketSend(socket) : claudeTransport(process.env);
+  if (!options.fake) process.stderr.write(`${label}Claude calls: ${socketed ? `through the model socket (${socket.mode})` : send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
   // Production's texting assistant has web search, so a run must offer it too
   // (decided 2026-10-09): without the key the assistant is measured with a
-  // shorter tool list than people get. --fake runs without one.
-  if (!options.fake && !scripted && options.job === "texting-assistant" && !process.env.BRAVE_SEARCH_API_KEY) {
+  // shorter tool list than people get. --fake runs without one, and a socketed
+  // run offers it with no results (`offlineWeb`): the real web would answer
+  // differently live and replayed.
+  if (!options.fake && !socketed && !scripted && options.job === "texting-assistant" && !process.env.BRAVE_SEARCH_API_KEY) {
     throw new Error("BRAVE_SEARCH_API_KEY is not set: production offers search_web and open_page, so a texting-assistant run must too (task 15 says where the key is)");
   }
   const models = options.fake
@@ -352,6 +359,13 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
         // The Worker names the texts a turn covers, so production reads the chat's ledger and sorts the text into a thread (`loggedTurn.js`, `conversationThreads.js`); a real run does too. A scripted model leaves it off, since it would answer the thread sorter's call too.
         ledgerTurns: true,
       };
+  if (socketed) {
+    // Workers AI (the embeddings for search by meaning, Clef) answers with the scripted stand-in: the examiner session
+    // holds no Cloudflare key, and a real model's numbers would differ live and replayed and change what the turn reads.
+    models.ai = cachedEmbeddings(fakeAi());
+    delete models.searchKey;
+    models.offlineWeb = !scripted;
+  }
   if (scripted) {
     models.sites = bench.sites;
     delete models.searchKey;
@@ -429,6 +443,7 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   } finally {
     prepared?.close();
   }
+  assertAnswered(socket, `${label}this run`);
   return records;
 }
 

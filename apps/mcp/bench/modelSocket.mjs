@@ -26,8 +26,10 @@
  * "Examiner"), and the nightly asks the real models a sample of the same calls.
  */
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { advanceSteppedClock } from "./clock.mjs";
 
 export const SOCKET_ENV = "BENCH_MODEL_SOCKET";
 export const REPLAY_ENV = "BENCH_MODEL_REPLAY";
@@ -39,6 +41,12 @@ export const REPLAY_ENV = "BENCH_MODEL_REPLAY";
 export const KINDS_ENV = "BENCH_MODEL_SOCKET_KINDS";
 /** How long a live call waits for its answer before the case counts as no answer. */
 export const ANSWER_WAIT_MS = 45 * 60 * 1000;
+/**
+ * How far a stepped clock (`clock.mjs`) moves on for each answered call, the
+ * same live and replayed: a conversation's times move forward the way they
+ * would, and never by how long the examiner took.
+ */
+export const ANSWER_STEP_MS = 3000;
 
 /** JSON with every object's keys sorted, so one request always hashes the same. */
 export function stableJson(value) {
@@ -58,23 +66,58 @@ export const requestHash = (kind, request) => createHash("sha256").update(`${kin
 
 /** What the examiner must answer with, by kind: the shape the harness reads back. */
 export const EXPECTS = {
-  claude: 'Answer as the model named in "model" would, given "system" and "messages": write only the reply text it would send, in the format its system prompt asks for.',
+  claude:
+    'Answer as the model named in "model" would, given "system" and "messages": write only the reply text it would send, in the format its system prompt asks for. ' +
+    'Where "tools" are offered and it would call some, answer with --json (or --json-file) \'{"text": "<words before the calls, or empty>", "toolCalls": [{"name": "<a tool offered>", "input": { ... }}]}\': the results come back as the next call.',
   "workers-ai": 'Answer as the classifier would: a JSON object { "answers": { <question>: { "choice": <one of its choices>, "confidence": <0..1> } } } for every question in input.questions, reading input.state.',
 };
 
-/** The socket a bench command uses, or null when neither variable is set (the real models answer). */
-export function modelSocket(env = process.env, { wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), waitMs = ANSWER_WAIT_MS, pollMs = 500 } = {}) {
+/** Sleeps without letting the event loop run: nothing else in the process moves while it waits. */
+const sleepBlocking = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+function readJsonNow(file) {
+  let text;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch {
+    return undefined;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined; // half written: read again on the next poll
+  }
+}
+
+/**
+ * The socket a bench command uses, or null when neither variable is set (the real models answer).
+ *
+ * `blocking` waits for a live answer with the whole process held still (the texting assistant's runs and their judge,
+ * `run.mjs`): a turn's own timers (the reviewer's 8 s, the advisor's 40 s, a tool's) cannot run out while the examiner
+ * thinks, so a turn takes the path it takes replayed, where every answer is instant. Every answer, live or replayed,
+ * moves a stepped clock on by `ANSWER_STEP_MS`.
+ */
+export function modelSocket(env = process.env, { wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), waitMs = ANSWER_WAIT_MS, pollMs = 500, blocking = false } = {}) {
   const kinds = new Set(String(env[KINDS_ENV] || "claude").split(",").map((kind) => kind.trim()).filter(Boolean));
   const covers = (kind) => kinds.has(kind);
+  // Every call left with no answer. The code that asked may well survive one (a turn falls back to another model, a
+  // reviewer's silence lets a draft through), so a run reads this at its end and fails rather than score that path.
+  const missed = [];
+  const miss = (message) => {
+    missed.push(message);
+    return new Error(message);
+  };
   if (env[REPLAY_ENV]) {
     let answers = null;
     return {
       mode: "replay",
       covers,
+      missed,
       async ask(kind, request) {
         answers ??= JSON.parse(await readFile(env[REPLAY_ENV], "utf8"));
         const hash = requestHash(kind, request);
-        if (!(hash in answers)) throw new Error(`no examiner answer for ${kind} call ${hash.slice(0, 12)}: the answers were made for other code`);
+        if (!(hash in answers)) throw miss(`no examiner answer for ${kind} call ${hash.slice(0, 12)}: the answers were made for other code`);
+        advanceSteppedClock(ANSWER_STEP_MS);
         return answers[hash];
       },
     };
@@ -84,19 +127,25 @@ export function modelSocket(env = process.env, { wait = (ms) => new Promise((res
     return {
       mode: "socket",
       covers,
+      missed,
       async ask(kind, request) {
         const hash = requestHash(kind, request);
         const answerFile = join(dir, "answers", `${hash}.json`);
+        const answered = (answer) => {
+          advanceSteppedClock(ANSWER_STEP_MS);
+          return answer;
+        };
         const have = await readJson(answerFile);
-        if (have !== undefined) return have;
+        if (have !== undefined) return answered(have);
         await mkdir(join(dir, "calls"), { recursive: true });
         await writeFile(join(dir, "calls", `${hash}.json`), JSON.stringify({ hash, kind, expects: EXPECTS[kind], request }), { flag: "w" });
         for (let waited = 0; waited < waitMs; waited += pollMs) {
-          const answer = await readJson(answerFile);
-          if (answer !== undefined) return answer;
-          await wait(pollMs);
+          const answer = blocking ? readJsonNow(answerFile) : await readJson(answerFile);
+          if (answer !== undefined) return answered(answer);
+          if (blocking) sleepBlocking(pollMs);
+          else await wait(pollMs);
         }
-        throw new Error(`no examiner answer for ${kind} call ${hash.slice(0, 12)} in ${Math.round(waitMs / 60000)} min`);
+        throw miss(`no examiner answer for ${kind} call ${hash.slice(0, 12)} in ${Math.round(waitMs / 60000)} min`);
       },
     };
   }
@@ -127,11 +176,16 @@ export async function answerCall(dir, hash, answer) {
   if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error("a call is named by its 64-character hash");
   const call = await readJson(join(dir, "calls", `${hash}.json`));
   if (call === undefined) throw new Error(`no waiting call ${hash.slice(0, 12)}`);
-  const value = call.kind === "claude" ? { text: String(answer) } : typeof answer === "string" ? JSON.parse(answer) : answer;
+  const value = call.kind === "claude" ? claudeAnswer(call.request, answer) : typeof answer === "string" ? JSON.parse(answer) : answer;
   await mkdir(join(dir, "answers"), { recursive: true });
   // Written whole under another name and renamed would be atomic; a half-read file is skipped by `readJson` instead.
   await writeFile(join(dir, "answers", `${hash}.json`), JSON.stringify(value));
   return call.kind;
+}
+
+/** Throws when the socket had no answer for some call: what the code did instead is not the model's answer to score. */
+export function assertAnswered(socket, what = "the run") {
+  if (socket?.missed?.length) throw new Error(`${what} had no examiner answer for ${socket.missed.length} call(s), so its result is not scored: ${socket.missed[0]}`);
 }
 
 /** Every answer the examiner gave, as the { hash: answer } map a replay reads. */
@@ -143,6 +197,61 @@ export async function collectAnswers(dir) {
   return out;
 }
 
+const toolName = (tool) => (typeof tool === "string" ? tool : tool?.name);
+
+/**
+ * A Claude answer as kept: `{ text }`, or `{ text, toolCalls: [{ name, input }] }` when it calls tools. `answer` is the
+ * reply text, or that object (or its JSON). A call to a tool the request did not offer is refused here, while the
+ * examiner can still fix it.
+ */
+export function claudeAnswer(request, answer) {
+  const given = typeof answer === "string" ? { text: answer } : answer ?? {};
+  const text = String(given.text ?? "");
+  const calls = Array.isArray(given.toolCalls) ? given.toolCalls : [];
+  if (calls.length === 0) return { text };
+  const offered = new Set((request?.tools ?? []).map(toolName));
+  const toolCalls = calls.map((call) => {
+    const name = String(call?.name ?? "");
+    if (!offered.has(name)) throw new Error(`the call offers no tool "${name}"`);
+    const input = call?.input ?? call?.args ?? {};
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error(`tool call "${name}" needs an input object`);
+    return { name, input };
+  });
+  return { text, toolCalls };
+}
+
+/** Each tool call's id, from the call's hash and its place: the same id live and replayed, so the next request hashes the same. */
+const toolUseId = (hash, index) => `toolu_socket_${hash.slice(0, 16)}_${index}`;
+
+/** One kept answer as the Messages API's reply body. */
+export function messagesReply(hash, answer) {
+  const text = String(answer?.text ?? "");
+  const calls = Array.isArray(answer?.toolCalls) ? answer.toolCalls : [];
+  const content = [...(text || calls.length === 0 ? [{ type: "text", text }] : []), ...calls.map((call, index) => ({ type: "tool_use", id: toolUseId(hash, index), name: call.name, input: call.input ?? {} }))];
+  return { id: `msg_socket_${hash.slice(0, 16)}`, type: "message", role: "assistant", content, stop_reason: calls.length ? "tool_use" : "end_turn", usage: { input_tokens: 0, output_tokens: 0 } };
+}
+
+/** What a Messages API body asks, as the socket names it: everything sent but the gateway's metadata. */
+export function messagesRequest(body) {
+  const { metadata: _metadata, ...request } = typeof body === "string" ? JSON.parse(body) : body;
+  return request;
+}
+
+/**
+ * `claudeTransport`'s `send(body)` (`models.mjs`) answered through the socket: the texting assistant's turn, its
+ * advisor and reviewer, the played person and the judge all post Messages API bodies through it. The request is keyed
+ * whole (tools with their schemas, which the examiner needs to call them), never the keys or the metadata.
+ */
+export function socketSend(socket) {
+  const send = async (body) => {
+    const request = messagesRequest(body);
+    const answer = await socket.ask("claude", request);
+    return new Response(JSON.stringify(messagesReply(requestHash("claude", request), answer)), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  send.route = "socket";
+  return send;
+}
+
 /**
  * The gateway's `request(call, config, options)` answered through the socket: a Claude call keyed by what would be
  * sent (model, system, messages, tools, the token cap), never the keys or the metadata.
@@ -151,7 +260,9 @@ export function socketRequest(socket) {
   return async (call) => {
     const request = { model: call.model, system: call.system ?? null, messages: call.messages ?? [], tools: (call.tools ?? []).map((tool) => tool?.name ?? tool), maxTokens: call.maxTokens ?? null };
     const answer = await socket.ask("claude", request);
-    return { text: String(answer?.text ?? ""), toolCalls: [], stop: "end_turn", usage: { input: 0, output: 0 } };
+    const hash = requestHash("claude", request);
+    const toolCalls = (Array.isArray(answer?.toolCalls) ? answer.toolCalls : []).map((tool, index) => ({ id: toolUseId(hash, index), name: tool.name, args: tool.input ?? {} }));
+    return { text: String(answer?.text ?? ""), toolCalls, stop: toolCalls.length ? "tool_use" : "end_turn", usage: { input: 0, output: 0 } };
   };
 }
 
@@ -189,7 +300,7 @@ export function readExaminerNote(text, sha) {
 
 /**
  *   pnpm ai socket next --dir <dir> [--wait <s>]             the waiting calls, one JSON line each
- *   pnpm ai socket answer --dir <dir> --hash <h> --text <t>  answer one (or --file <f>)
+ *   pnpm ai socket answer --dir <dir> --hash <h> --text <t>  answer one (or --file <f>; --json <j> or --json-file <f> to call tools)
  *   pnpm ai socket publish --dir <dir> --sha <sha> [--by <who>]   the answers into Context
  *   pnpm ai socket note --dir <dir> --sha <sha> [--by <who>] --out <file>   the same note as a file, for a session
  *                                                            that writes to Context with its own connection
@@ -209,8 +320,12 @@ export async function socketCommand(options, { write = (text) => process.stdout.
     return pending;
   }
   if (sub === "answer") {
-    if (!options.dir || !options.hash || (options.text === undefined && !options.file)) throw new Error("usage: pnpm ai socket answer --dir <dir> --hash <hash> --text <text> | --file <file>");
-    const answer = options.file ? await readFile(options.file, "utf8") : options.text;
+    if (!options.dir || !options.hash || (options.text === undefined && options.json === undefined && !options.file && !options["json-file"])) {
+      throw new Error("usage: pnpm ai socket answer --dir <dir> --hash <hash> --text <text> | --file <file> | --json <{text, toolCalls}> | --json-file <file>");
+    }
+    // --json and --json-file: a Claude answer that calls tools, `{ text, toolCalls: [{ name, input }] }`.
+    const answer =
+      options["json-file"] ? JSON.parse(await readFile(options["json-file"], "utf8")) : options.json !== undefined ? JSON.parse(options.json) : options.file ? await readFile(options.file, "utf8") : options.text;
     const kind = await answerCall(options.dir, options.hash, answer);
     write(`answered ${kind} call ${options.hash.slice(0, 12)}\n`);
     return kind;
