@@ -51,7 +51,7 @@ export async function readLedger(ledger, chat, { chars = READ_CHARS, first = nul
   try {
     for (let page = 0; page < MAX_PAGES && words < chars; page += 1) {
       // The first page may already be read, with the record, in the desk's one call (`texStore/desk.js`).
-      const read = page === 0 && first !== null ? first : await ledger.read(chat, { before: cursor, kinds: DESK_LEDGER.options.kinds, limit: PAGE, slim: true });
+      const read = page === 0 && first !== null ? first : await ledger.read(chat, { before: cursor, kinds: DESK_LEDGER.options.kinds, limit: PAGE, slim: true, keepArgs: DESK_LEDGER.options.keepArgs });
       for (const entry of read?.entries ?? []) {
         entries.push(entry);
         if (entry.kind === "text" || entry.kind === "note") words += String(entry.text ?? "").length;

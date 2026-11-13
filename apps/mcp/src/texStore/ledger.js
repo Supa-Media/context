@@ -199,9 +199,11 @@ export function texLedger(sql, { now = Date.now, guard = () => {} } = {}) {
      * keeps only those kinds. `next` is the seq to pass as `after` for more,
      * when the read stopped at `limit`. `slim` leaves out a tool call's
      * arguments and result and a reply's words (what a turn's prompt reads);
-     * `since` / `until` keep entries in that span of time.
+     * `since` / `until` keep entries in that span of time. `ids` keeps only those entries (`read_back` opens one), and
+     * `keepArgs` keeps a slim read's arguments for tool calls of those names (the reads index, `agent/readsIndex.js`,
+     * lists where each page or note came from without loading what it said).
      */
-    read(chat, { after = null, before = null, kinds = null, limit = MAX_READ, slim = false, since = null, until = null, job = null, jobs = true } = {}) {
+    read(chat, { after = null, before = null, kinds = null, limit = MAX_READ, slim = false, since = null, until = null, job = null, jobs = true, ids = null, keepArgs = null } = {}) {
       checkChat(chat);
       const size = Math.min(MAX_READ, Number.isSafeInteger(limit) && limit > 0 ? limit : MAX_READ);
       const wanted = Array.isArray(kinds) ? kinds.filter((kind) => LEDGER_KINDS.has(kind)) : null;
@@ -214,16 +216,19 @@ export function texLedger(sql, { now = Date.now, guard = () => {} } = {}) {
       // `job` entries; `jobs: false`: none of any job's work. Either way the chat's own lines are left as they are.
       const oneJob = typeof job === "string" && ID.test(job) ? job : null;
       const jobClause = oneJob !== null ? " AND (json_extract(entry, '$.jobId') = ? OR (kind = 'job' AND json_extract(entry, '$.job') = ?))" : jobs === false ? " AND json_extract(entry, '$.jobId') IS NULL" : "";
-      const binds = [...(wanted ?? []), ...(from === null ? [] : [from]), ...(to === null ? [] : [to]), ...(oneJob !== null ? [oneJob, oneJob] : [])];
+      const picked = Array.isArray(ids) ? ids.filter((id) => typeof id === "string" && ID.test(id)).slice(0, 50) : null;
+      const idClause = picked === null ? "" : picked.length === 0 ? " AND 0" : ` AND json_extract(entry, '$.id') IN (${picked.map(() => "?").join(",")})`;
+      const binds = [...(wanted ?? []), ...(from === null ? [] : [from]), ...(to === null ? [] : [to]), ...(oneJob !== null ? [oneJob, oneJob] : []), ...(picked ?? [])];
+      const argsKept = new Set(Array.isArray(keepArgs) ? keepArgs.filter((name) => typeof name === "string") : []);
       const newest = Number.isSafeInteger(before);
       const found = newest
-        ? rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq < ?${kindClause}${timeClause}${jobClause} ORDER BY seq DESC LIMIT ?`, chat, before, ...binds, size + 1))
-        : rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq > ?${kindClause}${timeClause}${jobClause} ORDER BY seq LIMIT ?`, chat, Number.isSafeInteger(after) ? after : -Number.MAX_SAFE_INTEGER, ...binds, size + 1));
+        ? rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq < ?${kindClause}${timeClause}${jobClause}${idClause} ORDER BY seq DESC LIMIT ?`, chat, before, ...binds, size + 1))
+        : rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq > ?${kindClause}${timeClause}${jobClause}${idClause} ORDER BY seq LIMIT ?`, chat, Number.isSafeInteger(after) ? after : -Number.MAX_SAFE_INTEGER, ...binds, size + 1));
       const more = found.length > size;
       const entries = found.slice(0, size).map((row) => {
         const entry = { ...JSON.parse(row.entry), seq: Number(row.seq) };
         if (slim === true) {
-          delete entry.args;
+          if (!(entry.kind === "tool" && argsKept.has(entry.name))) delete entry.args;
           delete entry.result;
           if (entry.kind === "reply") delete entry.text; // its words are the chat's text events; a reader wants its turn and `clean`
           delete entry.timing; // where a reply's time went is for the history view, never a turn's reads

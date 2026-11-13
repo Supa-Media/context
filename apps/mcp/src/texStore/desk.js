@@ -25,7 +25,9 @@ export const DESK_NOTES = ["about", "jobs", "voice", "calendar"]; // calendar: t
  * desk answers beside the record (`agent/ledgerHistory.js`): the whole chat a
  * texted turn is shown, in the same call.
  */
-export const DESK_LEDGER = Object.freeze({ chat: "texts", options: Object.freeze({ before: Number.MAX_SAFE_INTEGER, kinds: Object.freeze(["text", "note", "tool", "reply", "day"]), limit: 2_000, slim: true }) });
+/** The reads whose arguments a slim read keeps: where a page, search or note came from, for the reads index (`agent/readsIndex.js` `INDEXED_READS`). */
+export const READ_ARGS_KEPT = Object.freeze(["open_page", "search_web", "browse", "read_note", "read_notes"]);
+export const DESK_LEDGER = Object.freeze({ chat: "texts", options: Object.freeze({ before: Number.MAX_SAFE_INTEGER, kinds: Object.freeze(["text", "note", "tool", "reply", "day"]), limit: 2_000, slim: true, keepArgs: READ_ARGS_KEPT }) });
 
 const decoder = new TextDecoder();
 
