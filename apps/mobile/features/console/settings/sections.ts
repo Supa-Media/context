@@ -176,6 +176,17 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
+    // The settings Tex changes by text, with switches here too (Dev2, 2026-11-13): check-ins, quiet hours,
+    // texts from their other AIs, the overnight About me and the daily tidy. The person's own Tex.
+    key: "texHabits",
+    keywords: "check ins checkins check-ins quiet hours do not disturb sleep night pings notifications other ais claude code codex tidy housekeeping about me overnight dreams tex",
+    label: "Check-ins, quiet hours and more",
+    scope: "account",
+    group: "Tex",
+    icon: "sparkle",
+    personalOnly: false,
+  },
+  {
     // The texts a Mac backs up for Tex and their AIs (owner, 2026-10-26): the person's own, whichever workspace is open.
     key: "messages",
     keywords: "messages imessage texts text sms backup back up copy mac full disk access tex sister phone number",

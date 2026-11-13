@@ -63,6 +63,7 @@ export function settingsPreview(
 
     // The apps say their own state on the page; a count here would need the query this list does not run.
     case "texApps":
+    case "texHabits":
       return null;
 
     // Whether this Mac is copying lives on the Mac, reached through the bridge on the page itself.

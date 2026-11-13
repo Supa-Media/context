@@ -69,3 +69,12 @@ from the list above, and replaces it where they differ:
 Tests: `settingsHomeModel.test.ts` adds "a row's line is its value" (seven
 words at most, no full stop) and "the Workspace section comes after everything
 that follows you, and holds only workspace sections".
+
+## Switches for what Tex changes by text (2026-11-13)
+
+The "Text Tex" row is gone: "Check-ins, quiet hours and more" (`panels/TexHabits.tsx`) opens a page with a switch or a
+choice for each `via: "setting"` row of `TEX_SETTINGS` (check-ins, quiet hours, texts from their other AIs, the
+overnight About me rewrite, the daily tidy). It reads them from the Tex page's `settings` list (`habits`) and changes
+them with `setting.set`, which calls the same handler a text does (`agent/settingsTools.js` `settingSet`), so a value
+the chat would refuse is refused in the app too and the two can't disagree. The person's own chat only, like
+`send setting`. `settingsHomeModel.test.ts` fails when the panel and the registry name different switches.
