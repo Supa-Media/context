@@ -34,11 +34,18 @@ import { VAULT_SAVED_QUESTION } from "../vaultSaved.js";
 import { HANDED_BACK_QUESTION, handbackField } from "../handback.js";
 import { typedCallOf } from "../sayNothing.js"; // a call typed out is never texted, the last stop before it goes
 import { factsEntry } from "../toldFacts.js";
+import { texVersion } from "../texVersion.js"; // which Tex answered, for the Lab's replays
 
 /** Whether the history this turn was shown (and can read with earlier_texts) holds an answer from a turn that read from outside. */
 export function showsOutsideWords(history) {
   return Array.isArray(history) && history.some((entry) => entry?.role === "assistant" && entry.tainted === true);
 }
+
+/** The reply entry's `version` (`../texVersion.js`), or nothing when none is known. */
+const versionField = (env, production) => {
+  const version = texVersion(env, production);
+  return version === null ? {} : { version };
+};
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function sendTheReply(t) {
@@ -70,7 +77,7 @@ export async function sendTheReply(t) {
   // What this group turn knew, for the judge's next look (`judgeBrief.js`): its work, what it waits on, the chat's own rules.
   const brief = group !== null && job === null ? briefEntry({ group, question, steps: turn.steps, asked: ledger.asked, offered: ledger.offered ?? null, instructions: readInstructions(body.instructions), turn: ledgerTurn }) : null;
   tex.logTo?.(chatLog, ledgerTurn); // every step's time and outcome so far, and each one after the response (`texTiming.js`)
-  chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), ...(brief ? [brief] : []), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), worker: body.worker, replyMs: Date.now() - received }), clean: ledger.untrusted !== true, outside: ledger.outside === true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...factsEntry(sent, t.reads, t.ledgerAt?.grant), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}), ...(eventAsked !== null ? { about: eventAsked } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`); `outside`: whether a later turn replaying its calls is marked (`stretch.js`)
+  chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), ...(brief ? [brief] : []), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, ...versionField(env, production), timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), worker: body.worker, replyMs: Date.now() - received }), clean: ledger.untrusted !== true, outside: ledger.outside === true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...factsEntry(sent, t.reads, t.ledgerAt?.grant), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}), ...(eventAsked !== null ? { about: eventAsked } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`); `outside`: whether a later turn replaying its calls is marked (`stretch.js`)
   // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
   const replaced = (job !== null && steer !== null && (await tex.step("steer_pending", () => steer.pending()))) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
   if (steer !== null) await tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));

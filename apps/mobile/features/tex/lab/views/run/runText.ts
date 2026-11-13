@@ -19,6 +19,15 @@ export type ParsedResult = RunResult & {
   areas: Record<string, AreaScore>;
 };
 
+/** Step 2's replay part, when the version picks the person's own texts (`engine/mine.ts`, `apps/mcp/bench/labReplay.mjs`). */
+function replayLines(c: ReturnType<typeof config>): string {
+  const r = c as { replays?: unknown[]; replayAs?: { name: string } };
+  if (!r.replays?.length || !r.replayAs) return "";
+  const n = r.replays.length;
+  return `   Then replay ${n} of ${r.replayAs.name}'s own text${n > 1 ? "s" : ""}, read only. \`pnpm ai lab notes --config lab.json\` lists the notes those turns read: fetch them through your own Context connection (\`fetch\` id \`notes:\` with args {paths}), read only, and save each at <notes dir>/<its path>, outside the repository. Then \`BENCH_MODEL_SOCKET_KINDS=claude,workers-ai pnpm ai lab replay --config lab.json --notes <notes dir> --socket <dir> --scratch <dir outside the repository>\`, its calls answered blind as above. A replay never texts anyone or changes a real note: write nothing to Context for it. Paste back its "## Lab replay" block too.
+`;
+}
+
 export function promptText(c: ReturnType<typeof config>): string {
   const pipe = c.areas.includes("pipeline"),
     ex = c.areas.filter((a) => EXAMINABLE.has(a) && a !== "pipeline"),
@@ -31,7 +40,7 @@ ${c.changes.length ? c.changes.map((x) => `   - ${x.step}: ${x.what}${x.from !==
 ${Object.keys(c.modules).length ? `   Wording and order are exact. Apply each changed module's text byte for byte (config "modules"; fingerprint is FNV-1a 32-bit of the text). Where a module has a mainFingerprint, first check main's file still has it, and stop and say so if it doesn't. A prompt note's order is the setup's modules: list, in the bench's copy only.\n` : ""}${c.caseEdits.length ? `   Case edits and new cases go in the area's case file on the branch:\n${c.caseEdits.map((e) => `   - ${e.area}/${e.id}${e.isNew ? " (new)" : ""}: ask "${e.ask}", expect "${e.expect}"`).join("\n")}\n` : ""}
 ${pipe ? "   Then run the pipeline replays, which need no model: `pnpm test` in apps/mcp (test/replay.test.mjs). Report each case as passed or failed.\n" : ""}2. Save the config below as lab.json at the repo root and run it the examiner way, following docs/testing/examiner.md ("A Tex Architecture Lab version"): \`pnpm ai lab plan --config lab.json\`, then \`pnpm ai lab apply --config lab.json\`, then \`BENCH_MODEL_SOCKET_KINDS=claude,workers-ai pnpm ai lab run --config lab.json --base <main sha> --socket <dir> --held-out <dir> --scratch <dir>\`, on these areas: ${ex.join(", ") || "(none examinable)"}.${Object.keys(c.cases).length ? `\n   Only these cases: ${Object.entries(c.cases).map(([a, ids]) => a + ": " + ids.join(", ")).join("; ")}.` : ""}
    A separate agent that never saw the change answers every \`pnpm ai socket next\` call blind. Steps on an API model (Clef, GLM) are called for real through Context (\`manage\` action \`run_model\` with the call's model and input), never with a key in a note.
-${no.length ? `   Not examinable here: ${no.join(", ")} (needs API credits). Say so; don't run it.\n` : ""}${swaps.length ? `   Model swaps (${swaps.map((x) => x.step + " → " + x.to).join(", ")}): the examiner answers as the named model, so this shows wiring and prompts, not that model's real quality.\n` : ""}
+${replayLines(c)}${no.length ? `   Not examinable here: ${no.join(", ")} (needs API credits). Say so; don't run it.\n` : ""}${swaps.length ? `   Model swaps (${swaps.map((x) => x.step + " → " + x.to).join(", ")}): the examiner answers as the named model, so this shows wiring and prompts, not that model's real quality.\n` : ""}
 3. Every model call is logged as one JSON line in <scratch>/lab-steps.jsonl: {"node": "<step id>", "model": "<model>", "ms": <wall ms>, "in": <input tokens>, "out": <output tokens>, "thinking": "<its thinking>", "steps": [<tool calls>], "output": "<what it said>", "side": "branch" | "main"}. Step ids: ${c.steps.map((s) => s.id).join(", ")}.
 
 4. Reply with the "## Lab run" block as printed (it holds the "## Tex replay" report), the run link, and the step log, so I can paste them into the Tex Architecture Lab.

@@ -56,3 +56,41 @@ person's about note) and the test workspaces from the repo into
 style" instead of porting them would bring back the thing Dev2 named, a build
 that isn't what was designed; keeping versions in browser storage would lose
 the comparison between staff members' versions, which is half the point.
+
+## Replaying a person's own texts (Dev2, 2026-11-13)
+
+Dev2's ask: "give me the ability to change the user to my user, and
+essentially replay old messages, this means that we have to log which version
+of tex a message is going through in the history ledger, it also should
+probably be read only".
+
+- **Every turn names its Tex.** The turn's `reply` entry in the chat ledger
+  keeps `version`: the deployed commit (`TEX_CODE_VERSION`, passed by the
+  deploy workflows), Cloudflare's Worker version id (`CF_VERSION_METADATA`)
+  and the live setup's version (`production.js` `versionOf`), because the
+  words Tex runs on change in Context, outside a pull request
+  (`apps/mcp/src/agent/texVersion.js`). A turn's own reads drop it, so it
+  changes no prompt.
+- **"You" is the signed-in staff member, and only their own 1:1 chat.** The
+  Test user swap in the Lab's sidebar reads their texts through the Tex page's
+  history route, which answers only a person's own chat. No chat carries a
+  consent flag, so nobody else's chat is replayed; group chats are left out
+  until one does.
+- **Read only by construction.** A picked text goes into the run config
+  (`replays`, `replayAs`). The session fetches the notes that turn read through
+  its own Context connection, and `pnpm ai lab replay`
+  (`apps/mcp/bench/labReplay.mjs`) runs each text in the bench's throwaway
+  world: in-memory buckets, a stub control plane, no Sendblue, no mail. It
+  refuses a notes or scratch folder inside the repository, which is public.
+- **The words stay in the tab.** A pasted "## Lab replay" shows Then beside
+  Now under Your texts, and is never saved with the version, which every staff
+  member reads.
+
+**What a simplification would cost:** replaying through the production
+gateway would let a replay text somebody or change a note; saving the replay
+with the version would copy one person's chat to every staff member; dropping
+the version stamp would leave Then with no way to say what produced it.
+Tests: `apps/mcp/test/texVersion.test.mjs`,
+`apps/mcp/bench/test/labReplay.test.mjs`,
+`apps/mobile/__tests__/texLabMine.test.ts`,
+`apps/mobile/__tests__/texLabMineView.test.ts`.
