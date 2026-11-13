@@ -107,9 +107,6 @@ function sources(dir: string): string[] {
     // The Tex dashboard's sheet (tex.lc/admin), the same arrangement for one
     // light-only staff page; it keeps the retired defaults out on its own.
     if (full.endsWith(join("design", "tokens", "texDashboardColors.ts"))) return [];
-    // The one-page settings home's sheet (mockup v5, approved 2026-11-12): the
-    // landing pages' paper and lettermark tiles, with a dark twin.
-    if (full.endsWith(join("design", "tokens", "settingsHomeColors.ts"))) return [];
     return /\.tsx?$/.test(entry.name) ? [full] : [];
   });
 }

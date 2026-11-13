@@ -8,7 +8,7 @@ import { space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { SettingsPane } from "../panes/SettingsPane";
 import { AccountSection } from "./AccountSections";
-import { SettingsHome, useHomeColors } from "./home/SettingsHome";
+import { SettingsHome } from "./home/SettingsHome";
 import { SellingSource } from "./liveRowValues";
 import { atName } from "../format";
 import type { CheckoutOutcome } from "@context/shared";
@@ -103,7 +103,6 @@ export function SettingsOverlay({
     a section is a page pushed over it with Back, the way a phone always did.
   */
   const [listing, setListing] = useState(startOnList);
-  const homeColors = useHomeColors();
   /*
     Plugins is deprecated in the console and absent unless this context is
     already using them, or the build turned the experiment on — the two
@@ -236,7 +235,6 @@ export function SettingsOverlay({
           ? undefined
           : `${account ? "you" : atName(current?.slug ?? "")} / settings / ${active}`
       }
-      ground={listing ? homeColors.ground : undefined}
       onDismiss={onDismiss}
       testID="settings-overlay"
     >

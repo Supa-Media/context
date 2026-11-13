@@ -151,7 +151,7 @@ describe("the one-page home (Dev2, 2026-11-12)", () => {
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
-    expect(host.querySelector('[data-testid="settings-home-title"]')?.textContent).toBe("Settings.");
+    expect(host.querySelector('[data-testid="settings-home-title"]')?.textContent).toBe("Settings");
     expect(host.querySelector('[data-testid="settings-overlay-title"]')).toBeNull();
     expect(host.querySelector('[data-testid="settings-overlay-back"]')).toBeNull();
   });
