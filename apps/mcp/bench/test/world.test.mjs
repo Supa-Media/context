@@ -541,3 +541,9 @@ test("a group test's texts run the threaded history, with the other members' tex
     world.close();
   }
 });
+
+test("Tex's calendar copy is housekeeping, never recorded as a change the answer made", async () => {
+  // Every answer that read the calendar failed "write nothing into any other note" on it (replay records, 2026-11-13).
+  const { changes } = await ask("Maya", { path: "tex/calendar.md", content: "---\ncache: true\n---\n# Calendar\n", context: "@maya" }, "write_note");
+  assert.ok(!changes.some((c) => c.path === "tex/calendar.md"), JSON.stringify(changes.map((c) => c.path)));
+});
