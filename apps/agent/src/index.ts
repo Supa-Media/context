@@ -43,14 +43,14 @@ import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, statusPath, threadContext, verifySendblueSecret } from "./sendblue";
-import { noteSendStatus, resendPlain, sendblueStatus, type SendStatus } from "./sendblueStatus";
+import { logInboundLag, noteSendStatus, resendPlain, sendblueStatus, type SendStatus } from "./sendblueStatus";
 import { groupNameOf, parseSendblueGroup, sendGroupName, type GroupMessage } from "./sendblueGroups";
 import { heardInGroup } from "./groupVoice";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
 import { membersChanged } from "./groupMembers";
 import { flushWithReader } from "./chatRead";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
-import { sha256Hex } from "./groupChat";
+import { isBound, sha256Hex } from "./groupChat";
 import type { DueRoutine } from "./routineClients";
 import { textsSessionDeps, type TextsBinding } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
@@ -192,6 +192,8 @@ export default {
     }
     // A group message goes to the group's own queue, never a sender's (`groupInbox.ts`).
     const grouped = line === "sendblue" ? parseSendblueGroup(payload) : null;
+    // How late Sendblue handed it over, by its own sent time (`sendblueStatus.ts`).
+    if (line === "sendblue") logInboundLag(payload, Date.now(), grouped !== null);
     if (grouped?.kind === "invalid") logSendblueShape(payload, "group_invalid");
     if (grouped !== null) return groupWebhook(env, grouped, url.origin, "sendblue", groupNameOf(payload));
     // Sendblue retries a 400, so only Linq gets one; typing, calls, statuses and the rest are described by shape.
@@ -500,6 +502,14 @@ export class SenderInbox implements DurableObject {
   /** Work that outlives a call, counted as running until it settles. */
   private handOff = (work: Promise<unknown>): void => this.state.waitUntil(this.counted(() => Promise.resolve(work)));
 
+  /** What a group just said, to its ledger now: by a turn's token, or for a chat Tex is set up in, by its ledger key (`chatRead.ts`). */
+  private async flushChatter(message: GroupMessage): Promise<void> {
+    const storage = this.state.storage;
+    const binding = this.env.GATEWAY_TEXTS;
+    const byLedger = binding !== undefined && !message.sms && (await isBound(storage, message)) ? { binding, ledger: await sha256Hex(`${message.line}:${message.groupId}`) } : undefined;
+    if ((await flushWithReader(storage, message.groupId, () => Date.now(), byLedger)) === "none") console.log(JSON.stringify({ event: "tex_events", outcome: "no_way" }));
+  }
+
   private async serve(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (path.startsWith("/sim/")) {
@@ -557,7 +567,7 @@ export class SenderInbox implements DurableObject {
         countInbound(this.env.TEX_COUNTS, "group", outcome === "queued" ? "for_tex" : "heard", inboxIdOf(this.env.SENDER_INBOX, message.from));
       }
       // What the chat just said goes to its ledger now, not at Tex's next turn, so its history keeps up (`chatRead.ts`).
-      if (outcome === "kept" || outcome === "queued") this.handOff(flushWithReader(this.state.storage, message.groupId, () => Date.now()));
+      if (outcome === "kept" || outcome === "queued") this.handOff(this.flushChatter(message));
       // The group-typing experiment: ask Whapi for this group's presences once a day (`whapi.ts`); never blocks a message.
       const whapi = whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE);
       if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, (input, init) => fetch(input, init), whapi, message.groupId, Date.now());

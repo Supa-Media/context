@@ -162,3 +162,29 @@ export async function sendblueStatus(request: Request, inboxes: DurableObjectNam
   const result = await inboxByName(inboxes, name).fetch("https://inbox/send-status", { method: "POST", body: JSON.stringify(status) });
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
+
+/** A sent time this far ahead of our clock is Sendblue's clock, not a lag; this far behind is a replay, not a lag either. */
+const LAG_SKEW_MS = 60_000;
+const LAG_MOST_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long an inbound message took from the person's phone to this Worker: now less Sendblue's own `date_sent`, in
+ * whole milliseconds, or null when the webhook names no usable sent time or is Tex's own outbound echo. In Tex Devs
+ * (2026-11-13) texts reached Tex 2 to 5 minutes after they were sent and nothing here could show it.
+ */
+export function inboundLagMs(payload: unknown, nowMs: number): number | null {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const { date_sent: sent, is_outbound: outbound } = payload as { date_sent?: unknown; is_outbound?: unknown };
+  if (outbound === true || typeof sent !== "string" || sent.length > 64) return null;
+  const at = Date.parse(sent);
+  if (!Number.isFinite(at)) return null;
+  const lag = nowMs - at;
+  if (lag < -LAG_SKEW_MS || lag > LAG_MOST_MS) return null;
+  return Math.max(0, Math.round(lag));
+}
+
+/** One line per inbound Sendblue message with its lag: counts only, never the number or the words. */
+export function logInboundLag(payload: unknown, nowMs: number, group: boolean): void {
+  const lagMs = inboundLagMs(payload, nowMs);
+  if (lagMs !== null) console.log(JSON.stringify({ event: "sendblue_inbound_lag", lagMs, group }));
+}

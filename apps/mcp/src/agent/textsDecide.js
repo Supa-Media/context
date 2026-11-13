@@ -15,7 +15,8 @@
  */
 
 import { DECISION_MODEL, decisionEngine } from "./decide.js";
-import { ledgerFor, ledgerWriter } from "./ledger.js";
+import { eventEntry, ledgerFor, ledgerWriter } from "./ledger.js";
+import { checkEvents, EventRefusal } from "./log.js";
 import { dayFromLedger } from "./ledgerHistory.js";
 import { foldThreads, THREADS_SUFFIX } from "./threadsFold.js";
 import { guestNameFacts, guestNamesFrom } from "./groupGuestNames.js";
@@ -27,6 +28,8 @@ export const TEXTS_DECIDE_PATH = "/texts/decide";
 export const TEXTS_RECHECK_PATH = "/texts/recheck";
 /** The chat's last day from its ledger, for a judge whose Worker holds no token for the chat (`chatRead.ts`). */
 export const TEXTS_CHAT_PATH = "/texts/chat";
+/** What a group said between Tex's turns, into its ledger, for a Worker that holds no token for the chat. */
+export const TEXTS_EVENTS_PATH = "/texts/events";
 const LEDGER_KEY = /^[0-9a-f]{64}$/;
 const GROUP_ID = /^[A-Za-z0-9._:@+=-]{1,256}$/;
 const CHAT_DAY_MS = 24 * 60 * 60 * 1000;
@@ -136,6 +139,42 @@ export async function chatForTexts(request, env, { ledger = (key) => ledgerFor(e
     return Response.json({ events });
   } catch {
     console.log(JSON.stringify({ event: "texts_chat_gateway", outcome: "failed" }));
+    return new Response(null, { status: 503 });
+  }
+}
+
+/**
+ * `POST /texts/events` on the binding: `{ ledger, chat, events }`, a group's ledger key, its chat id and the events its
+ * Worker has not posted, answered with `{ written }` as `/agent/events` answers. Before this, what a group said while
+ * Tex stayed quiet waited in the Worker's outbox for a token only a turn leaves, in memory: after a deploy or an idle
+ * hour the chat's history stopped at Tex's last answer, texts landing up to hours late (Tex Devs, 2026-11-12 and 13).
+ * The events are checked as `/agent/events` checks them. Only a chat that already has a ledger takes them, so this
+ * never opens one for a chat Tex is not set up in. Reached only over the service binding; never logged with words.
+ * `ledger` is for tests.
+ */
+export async function eventsForTexts(request, env, { ledger = (key) => ledgerFor(env, { chat: key }) } = {}) {
+  const body = await readJson(request);
+  const key = typeof body?.ledger === "string" && LEDGER_KEY.test(body.ledger) ? body.ledger : null;
+  const chat = typeof body?.chat === "string" && GROUP_ID.test(body.chat) ? body.chat : null;
+  if (key === null || chat === null) return new Response(null, { status: 400 });
+  let checked;
+  try {
+    checked = checkEvents(chat, body.events);
+  } catch (error) {
+    if (error instanceof EventRefusal) return Response.json({ error: "invalid_request", error_description: error.field }, { status: 400 });
+    throw error;
+  }
+  const store = ledger(key);
+  if (store === null) return new Response(null, { status: 503 });
+  try {
+    // A chat with no ledger yet is not one this route starts: its events wait for a turn's token, as before.
+    const kept = await store.read(key, { before: Number.MAX_SAFE_INTEGER, limit: 1 });
+    if (!Array.isArray(kept?.entries) || kept.entries.length === 0) return new Response(null, { status: 404 });
+    for (let at = 0; at < checked.length; at += 100) await store.append(key, checked.slice(at, at + 100).map(eventEntry));
+    console.log(JSON.stringify({ event: "texts_events_gateway", events: checked.length }));
+    return Response.json({ written: [...new Set(checked.map((event) => event.id))] });
+  } catch {
+    console.log(JSON.stringify({ event: "texts_events_gateway", outcome: "failed" }));
     return new Response(null, { status: 503 });
   }
 }

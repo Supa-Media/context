@@ -101,7 +101,7 @@
 import { LiveTicketObject } from "./live/ticket.js";
 import { openTextsSession } from "./agent/textsSession.js";
 import { hearForTexts, TEXTS_HEAR_PATH } from "./agent/textsHear.js";
-import { chatForTexts, decideForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_RECHECK_PATH } from "./agent/textsDecide.js";
+import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "./agent/textsDecide.js";
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { TexStore as TexStoreDurableObject } from "./texStore.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
@@ -190,6 +190,7 @@ export const TexTexts = {
       const path = new URL(request.url).pathname;
       if (path === TEXTS_DECIDE_PATH || path === TEXTS_RECHECK_PATH) return await decideForTexts(request, env, { waitUntil: (work) => ctx?.waitUntil?.(work) });
       if (path === TEXTS_CHAT_PATH) return await chatForTexts(request, env);
+      if (path === TEXTS_EVENTS_PATH) return await eventsForTexts(request, env);
       return await openTextsSession(request, env, ctx);
     } catch {
       // The Worker reads anything but a linked answer as "ask Convex".

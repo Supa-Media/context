@@ -128,13 +128,13 @@ describe("chatter between turns", () => {
     }) as unknown as Fetch;
     // No turn since this object woke: nothing to post with, so it waits for the next turn.
     const early = await addEvent(storage, { at: now - 2_000, chat: "g1", from: { kind: "person", who: "a" }, kind: "text", text: "before any turn" });
-    expect(await flushWithReader(storage, "g1", () => now)).toBe(false);
+    expect(await flushWithReader(storage, "g1", () => now)).toBe("none");
     expect(posted).toEqual([]);
     // A turn opened the chat: the next thing anyone says goes now, with what waited before it, and only this chat's.
     rememberChatReader(storage, "g1", { token: "gtok", conversation: { group: "g1" }, fetch: fetcher, gatewayOrigin: "https://gw.example" });
     const other = await addEvent(storage, { at: now - 1_500, chat: "g2", from: { kind: "person", who: "b" }, kind: "text", text: "another chat" });
     const said = await addEvent(storage, { at: now - 1_000, chat: "g1", from: { kind: "person", who: "b" }, kind: "text", text: "not for Tex" });
-    expect(await flushWithReader(storage, "g1", () => now)).toBe(true);
+    expect(await flushWithReader(storage, "g1", () => now)).toBe("token");
     expect(posted.map((p) => [p.url, p.auth, p.body.conversation])).toEqual([["https://gw.example/agent/events", "Bearer gtok", { group: "g1" }]]);
     expect(posted[0]!.body.events.map((event) => event.id)).toEqual([early, said]);
     expect((await unwritten(storage)).map((event) => event.id)).toEqual([other]);
@@ -144,10 +144,71 @@ describe("chatter between turns", () => {
     const storage = new MemoryStorage();
     const said = await addEvent(storage, { at: now, chat: "g1", from: { kind: "person" }, kind: "text", text: "kept" });
     rememberChatReader(storage, "g1", { token: "old", conversation: { group: "g1" }, fetch: (async () => new Response("{}", { status: 401 })) as unknown as Fetch, gatewayOrigin: "https://gw.example" });
-    expect(await flushWithReader(storage, "g1", () => now)).toBe(true);
+    expect(await flushWithReader(storage, "g1", () => now)).toBe("token");
     rememberChatReader(storage, "g1", { token: "old", conversation: { group: "g1" }, fetch: (async () => { throw new Error("down"); }) as unknown as Fetch, gatewayOrigin: "https://gw.example" });
-    expect(await flushWithReader(storage, "g1", () => now)).toBe(true);
+    expect(await flushWithReader(storage, "g1", () => now)).toBe("token");
     expect((await unwritten(storage)).map((event) => event.id)).toEqual([said]);
+  });
+});
+
+describe("chatter with no token in memory (Tex Devs, 2026-11-13)", () => {
+  const LEDGER = "ab".repeat(32);
+  const ledgerBinding = (answer: (body: { ledger: string; chat: string; events: TexEvent[] }) => Response) => {
+    const posted: { url: string; auth: string | null; body: { ledger: string; chat: string; events: TexEvent[] } }[] = [];
+    const binding = {
+      fetch: async (url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        posted.push({ url, auth: new Headers(init?.headers).get("authorization"), body });
+        return answer(body);
+      },
+    };
+    return { posted, binding };
+  };
+
+  it("goes to the ledger by the chat's key over the binding, at once, only this chat's, and is forgotten once written", async () => {
+    const storage = new MemoryStorage();
+    const { posted, binding } = ledgerBinding((body) => Response.json({ written: body.events.map((event) => event.id) }));
+    const before = await addEvent(storage, { at: now - 2_000, chat: "g1", from: { kind: "person", who: "a" }, kind: "text", text: "Instinct, what do you think?" });
+    const other = await addEvent(storage, { at: now - 1_500, chat: "g2", from: { kind: "person", who: "b" }, kind: "text", text: "another chat" });
+    const said = await addEvent(storage, { at: now - 1_000, chat: "g1", from: { kind: "person", who: "b" }, kind: "text", text: "I told you in this group?" });
+    expect(await flushWithReader(storage, "g1", () => now, { binding, ledger: LEDGER })).toBe("ledger");
+    expect(posted.map((p) => [p.url, p.body.ledger, p.body.chat])).toEqual([["https://gateway/texts/events", LEDGER, "g1"]]);
+    // No token rides along: the binding is the credential.
+    expect(posted[0]!.auth).toBe("Bearer");
+    expect(posted[0]!.body.events.map((event) => event.id)).toEqual([before, said]);
+    expect((await unwritten(storage)).map((event) => event.id)).toEqual([other]);
+  });
+
+  it("a token held still goes first, the binding never asked", async () => {
+    const storage = new MemoryStorage();
+    const { posted, binding } = ledgerBinding(() => Response.json({ written: [] }));
+    await addEvent(storage, { at: now, chat: "g1", from: { kind: "person" }, kind: "text", text: "hi" });
+    rememberChatReader(storage, "g1", { token: "gtok", conversation: { group: "g1" }, fetch: (async (_url: string, init: RequestInit) => Response.json({ written: JSON.parse(String(init.body)).events.map((event: TexEvent) => event.id) })) as unknown as Fetch, gatewayOrigin: "https://gw.example" });
+    expect(await flushWithReader(storage, "g1", () => now, { binding, ledger: LEDGER })).toBe("token");
+    expect(posted).toEqual([]);
+    expect(await unwritten(storage)).toEqual([]);
+  });
+
+  it("a chat with no ledger, a failed gateway or a refusal of the ask keeps the chatter for the next turn", async () => {
+    const storage = new MemoryStorage();
+    const said = await addEvent(storage, { at: now, chat: "g1", from: { kind: "person" }, kind: "text", text: "kept" });
+    for (const answer of [() => new Response(null, { status: 404 }), () => new Response(null, { status: 503 }), () => new Response(null, { status: 400 })]) {
+      const { binding } = ledgerBinding(answer);
+      expect(await flushWithReader(storage, "g1", () => now, { binding, ledger: LEDGER })).toBe("ledger");
+    }
+    const down = { fetch: async () => { throw new Error("down"); } };
+    expect(await flushWithReader(storage, "g1", () => now, { binding: down, ledger: LEDGER })).toBe("ledger");
+    expect((await unwritten(storage)).map((event) => event.id)).toEqual([said]);
+    // An event the gateway names as malformed would be refused forever: dropped, as the token's path drops it.
+    const { binding } = ledgerBinding(() => Response.json({ error: "invalid_request", error_description: "events[0].text" }, { status: 400 }));
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await flushWithReader(storage, "g1", () => now, { binding, ledger: LEDGER });
+    } finally {
+      console.log = log;
+    }
+    expect(await unwritten(storage)).toEqual([]);
   });
 });
 

@@ -155,7 +155,36 @@ export async function flushEvents(
   conversation: Conversation,
   chat?: string,
 ): Promise<void> {
-  await prune(storage, deps.now(), SEND_WITHIN_MS);
+  await flushOutbox(storage, deps.now, chat, (events) => post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/events`, accessToken, { conversation, events }, FLUSH_TIMEOUT_MS));
+}
+
+/** The gateway's binding route for a group's events by its ledger key (`apps/mcp/src/agent/textsDecide.js` `eventsForTexts`). */
+export const GATEWAY_EVENTS_URL = "https://gateway/texts/events";
+export type LedgerWrite = { binding: { fetch: (input: string, init?: RequestInit) => Promise<Response> }; ledger: string };
+
+/**
+ * A group's waiting events sent over the gateway binding by the chat's ledger key, with no token: what the chat says
+ * while Tex stays quiet reaches its history as it is said, even when no turn has left a token in this object's memory
+ * (after a deploy or an idle hour: Tex Devs, 2026-11-12 and 13, texts written hours late). The gateway takes them only
+ * for a chat that already has a ledger; anything it does not take waits here, as before. Never throws.
+ */
+export async function flushEventsByLedger(storage: InboxStorage, by: LedgerWrite, chat: string, now: () => number): Promise<void> {
+  await flushOutbox(storage, now, chat, (events) =>
+    post((input, init) => by.binding.fetch(String(input), init), "gateway", GATEWAY_EVENTS_URL, "", { ledger: by.ledger, chat, events }, FLUSH_TIMEOUT_MS),
+    // A refusal that names no event field is of the ask (its key or chat), never of the events: they wait for a token.
+    true,
+  );
+}
+
+/** Every waiting event of `chat` (every chat when none), 50 a call, one chat's per call, through `send`; what it wrote is forgotten here. */
+async function flushOutbox(
+  storage: InboxStorage,
+  now: () => number,
+  chat: string | undefined,
+  send: (events: TexEvent[]) => Promise<{ status: number; json: unknown }>,
+  keepUnnamed = false,
+): Promise<void> {
+  await prune(storage, now(), SEND_WITHIN_MS);
   await dropWritten(storage);
   const waiting = (await unwritten(storage)).filter((event) => chat === undefined || event.chat === chat);
   // Every event in one call is the same chat's.
@@ -167,10 +196,11 @@ export async function flushEvents(
   for (const events of batches) {
     let written: string[];
     try {
-      const { status, json } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/events`, accessToken, { conversation, events }, FLUSH_TIMEOUT_MS);
+      const { status, json } = await send(events);
+      const field = record(json).error_description;
+      if (status === 400 && keepUnnamed && typeof field !== "string") return;
       if (status === 400) {
         // Refused as malformed: retrying the same batch would be refused forever, so it is dropped.
-        const field = record(json).error_description;
         console.log(JSON.stringify({ event: "tex_events", outcome: "refused", ...(typeof field === "string" && /^[\w.\[\]-]{1,64}$/.test(field) ? { field } : {}) }));
         written = events.map((event) => event.id);
       } else if (status !== 200) return;
@@ -267,8 +297,16 @@ export function flushChat(...args: Parameters<typeof flushChatNow>): Promise<voi
  * to date"). Nothing else is owed here: stale asks go only with the session of the person they belong to.
  */
 export function flushEventsInLine(...args: Parameters<typeof flushEvents>): Promise<void> {
-  const [storage] = args;
-  const next = (flushing.get(storage) ?? Promise.resolve()).catch(() => {}).then(() => flushEvents(...args));
+  return inLine(args[0], () => flushEvents(...args));
+}
+
+/** The same, by the chat's ledger key over the gateway binding, for an object that holds no token (`chatRead.ts`). */
+export function flushByLedgerInLine(...args: Parameters<typeof flushEventsByLedger>): Promise<void> {
+  return inLine(args[0], () => flushEventsByLedger(...args));
+}
+
+function inLine(storage: InboxStorage, work: () => Promise<void>): Promise<void> {
+  const next = (flushing.get(storage) ?? Promise.resolve()).catch(() => {}).then(work);
   flushing.set(storage, next);
   return next;
 }

@@ -24,7 +24,7 @@ import { addEvent, keptEvents, renderTranscript } from "./events";
 import { noteHandle } from "./replyQuote";
 import { sendblueChatId, sendblueKeys, sendSendblueText } from "./sendblue";
 import { sendGroupText } from "./sendblueGroups";
-import { noteSendStatus, parseSendStatus, resendPlain } from "./sendblueStatus";
+import { inboundLagMs, logInboundLag, noteSendStatus, parseSendStatus, resendPlain } from "./sendblueStatus";
 import { keepThreaded, KEEP_MS, type Threaded } from "./threadedResend";
 import { SENT_KEY } from "./groupSay";
 
@@ -207,5 +207,43 @@ describe("the status route", () => {
     expect((await worker.fetch(post("/sendblue/status/abcdefghijklmnop1234", { nothing: true }), e)).status).toBe(200);
     expect(routed).toEqual([]);
     vi.restoreAllMocks();
+  });
+});
+
+describe("how late Sendblue hands a text over (Tex Devs, 2026-11-13)", () => {
+  const NOW = Date.UTC(2026, 10, 13, 0, 33, 48);
+  it("is now less Sendblue's own sent time, for an inbound message only", () => {
+    expect(inboundLagMs({ date_sent: "2026-11-13T00:30:12.000Z", is_outbound: false, content: "Tex, where did we land?" }, NOW)).toBe(216_000);
+    // Tex's own echo, no sent time, a garbled one, a clock ahead or a replay a day old: no lag claimed.
+    for (const payload of [{ date_sent: "2026-11-13T00:30:12.000Z", is_outbound: true }, {}, { date_sent: "soon" }, { date_sent: 5 }, { date_sent: "2026-11-13T00:35:00.000Z" }, { date_sent: "2026-11-11T00:00:00.000Z" }, null, []]) {
+      expect(inboundLagMs(payload, NOW)).toBeNull();
+    }
+    // A sent time a few seconds ahead of our clock is no lag, never a negative one.
+    expect(inboundLagMs({ date_sent: "2026-11-13T00:33:50.000Z" }, NOW)).toBe(0);
+  });
+
+  it("logs the lag and whether it was a group's, never the number or the words", () => {
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: unknown) => void logs.push(String(line)));
+    try {
+      logInboundLag({ date_sent: "2026-11-13T00:30:12.000Z", content: "the launch codes", from_number: "+15555550123" }, NOW, true);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(logs.map((line) => JSON.parse(line))).toEqual([{ event: "sendblue_inbound_lag", lagMs: 216_000, group: true }]);
+  });
+
+  it("is logged for every inbound webhook the Worker takes", async () => {
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: unknown) => void logs.push(String(line)));
+    try {
+      const sent = new Date(Date.now() - 90_000).toISOString();
+      await worker.fetch(new Request("https://agent.example/sendblue", { method: "POST", headers: { "sb-signing-secret": "whsec-long-enough-0123456789" }, body: JSON.stringify({ date_sent: sent, is_outbound: false, content: "hi", from_number: "not-a-number", number: "not-a-number" }) }), { SENDBLUE_WEBHOOK_SECRET: "whsec-long-enough-0123456789" } as unknown as Env);
+    } finally {
+      spy.mockRestore();
+    }
+    const lag = logs.map((line) => { try { return JSON.parse(line); } catch { return null; } }).find((line) => line?.event === "sendblue_inbound_lag");
+    expect(lag?.group).toBe(false);
+    expect(lag?.lagMs).toBeGreaterThanOrEqual(90_000);
   });
 });
