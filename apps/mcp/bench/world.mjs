@@ -366,8 +366,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),
   };
 
-  /** Files the gateway writes for itself on a save, and Tex's own transcript of the turn: never the model's change. */
-  const PLUMBING_FILES = new Set(["privacy.md", "activity.md"]);
+  /** The gateway's own files on a save, Tex's turn transcript and its calendar copy (calendarCache.js, a cache): never the model's change. */
+  const PLUMBING_FILES = new Set(["privacy.md", "activity.md", "tex/calendar.md"]);
   const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path) || path.startsWith(`${TRANSCRIPTS_FOLDER}/`);
 
   const routerSaid = (entry) =>
