@@ -22,7 +22,7 @@ import { G, go, isMain, lab, newVersion, openVersion, saveVersion, set, fit, emi
 import { buildTraces } from "./engine/traces";
 import { LAB_CSS } from "./labCss";
 import { ensureFontsLoaded } from "../../design/fonts.web";
-import { useLab, useLabSync } from "./store";
+import { promoteVersion, useLab, useLabSync } from "./store";
 import type { View } from "./types";
 import { Canvas } from "./views/Canvas.web";
 import { Compare } from "./views/Compare.web";
@@ -175,6 +175,21 @@ function Lab() {
           <button className="primary" id="saveBtn" disabled={isMain() || !s.dirty} onClick={() => void saveVersion()}>
             Save
           </button>
+          {/* Not in the artifact: a saved version becomes Tex's config through a pull request (texLabPromote.ts). */}
+          <button
+            id="promoteBtn"
+            hidden={isMain()}
+            disabled={s.dirty || s.cur.promote?.state === "asked"}
+            title={s.cur.promote?.state === "refused" ? "Refused: " + (s.cur.promote.why ?? "") : s.dirty ? "Save first" : "Open the pull request that makes this version Tex's config"}
+            onClick={() => void promoteVersion()}
+          >
+            {s.cur.promote?.state === "asked" ? "Promote asked" : "Promote"}
+          </button>
+          {s.cur.promote?.state === "opened" && s.cur.promote.pr ? (
+            <a id="promotePr" href={s.cur.promote.pr} target="_blank" rel="noreferrer">
+              Its pull request
+            </a>
+          ) : null}
           <span className="spacer" />
           <span className="sync" id="syncState">
             {s.sync}

@@ -48,6 +48,13 @@ the code disagree, so a new step from the Lab ships as the file and its code tog
 out of the prompt's copy of the page; `tex-diagram-check.mjs` fails when the table is stale or a drawn box names
 another model or effort than the file.
 
+**Promote** (the button beside Save) records an ask (`apps/convex/functions/texLabPromote.ts`); the Tex Lab promote
+workflow (`.github/workflows/tex-lab-promote.yml`, every quarter hour) writes the version's graph into the config
+with `scripts/tex-lab-promote.mjs` on a branch of its own and opens the pull request, which merges like any Tex
+change. It refuses a new step (its code comes first, on a branch), a deleted one (turn it off), a model with no
+gateway id, and, until the words move into the config, prompt module edits. Production's setup note names no models;
+AI Promote refuses a texting setup that names its own (`bench/promote.mjs` `configRefusal`).
+
 **Its data is the bench's own.** `scripts/tex-lab-data.mjs` writes the cases,
 the module texts (the map, the capability list, the judge examples, the test
 person's about note) and the test workspaces from the repo into

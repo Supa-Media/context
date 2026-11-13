@@ -97,6 +97,8 @@ export type LabVersion = {
   authorId: string | null;
   createdAt?: number;
   updatedAt?: number;
+  /** Where its Promote stands (`texLabPromote.ts`): asked, its pull request opened, or why it was refused. */
+  promote?: { state: string; pr: string | null; why: string | null } | null;
 };
 
 /** One bench case as the Lab shows it (the artifact's CASES rows; fields vary by area). */

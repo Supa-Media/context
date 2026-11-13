@@ -32,6 +32,8 @@ const versionRow = v.object({
   results: v.string(),
   createdAt: v.number(),
   updatedAt: v.number(),
+  /** Where its Promote stands (`texLabPromote.ts`): asked, the pull request opened, or why it was refused. */
+  promote: v.union(v.null(), v.object({ state: v.string(), pr: v.union(v.string(), v.null()), why: v.union(v.string(), v.null()) })),
 });
 
 /** Every saved version and every case edit, who made each version, and who is asking (for "yours" in the list). */
@@ -48,7 +50,7 @@ export const list = query({
     return {
       me: actor.userId,
       names,
-      versions: versions.map((r) => ({ versionId: r.versionId, name: r.name, authorId: r.authorId ?? null, graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results, createdAt: r.createdAt, updatedAt: r.updatedAt })),
+      versions: versions.map((r) => ({ versionId: r.versionId, name: r.name, authorId: r.authorId ?? null, graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results, createdAt: r.createdAt, updatedAt: r.updatedAt, promote: r.promote ? { state: r.promote.state, pr: r.promote.pr ?? null, why: r.promote.why ?? null } : null })),
       caseEdits: caseEdits.map((r) => ({ key: r.key, data: r.data })),
     };
   },

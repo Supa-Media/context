@@ -52,31 +52,29 @@ test("each judge asks the config how hard to think, and no model file keeps an e
 });
 
 test("a setup note with no models runs on the config's, exactly as the same note naming the config's models", async () => {
-  // The fingerprint copy still names them, so main (which has no config) builds the same prompts beside this change;
-  // they must be the config's, word for word, and the next step deletes them.
-  const copy = readFileSync(FINGERPRINT_SETUP, "utf8").replace(/^modules:\n(?: {2}.*\n)+/m, "");
+  const bare = readFileSync(FINGERPRINT_SETUP, "utf8").replace(/^modules:\n(?: {2}.*\n)+/m, "");
+  assert.doesNotMatch(bare, /^(?:models|reply_judge|plan_big_asks):/m, "the fingerprint copy names no models, as production's note names none");
   const front = texSetupFront();
-  const named = await parseSetup(copy);
-  assert.ok(named, "the fingerprint copy parses");
-  const bare = await parseSetup(copy.replace(/^models:\n(?: {2}.*\n)+/m, "").replace(/^(?:reply_judge|plan_big_asks):.*\n/gm, ""));
-  assert.ok(bare, "with no models it parses");
+  const lines = Object.entries(front.models).map(([k, v]) => `  ${k}: ${JSON.stringify(v)}`).join("\n");
+  const named = await parseSetup(bare.replace(/^---\n/, `---\nmodels:\n${lines}\nreply_judge: ${front.reply_judge}\n`));
+  const fromConfig = await parseSetup(bare);
+  assert.ok(named && fromConfig, "both parse");
   const strip = ({ version, ownModels, ...rest }) => rest;
-  assert.deepEqual(strip(bare), strip(named), "the config's models are the copy's");
-  assert.deepEqual([named.ownModels, bare.ownModels], [true, false]);
-  assert.equal(bare.model, front.models.main);
-  assert.equal(bare.model, texModel("fd"));
-  assert.equal(bare.advisor, texStep("advisor").on ? texModel("advisor") : null);
-  assert.equal(bare.fallback, texStep("fallback").on ? texModel("fallback") : null);
-  assert.equal(bare.efforts[texModel("fd")], texStep("fd").effort);
-  assert.equal(bare.planBigAsks, texStep("planner").on);
-  assert.equal(bare.replyJudge !== null, texStep("reviewer").on);
+  assert.deepEqual(strip(fromConfig), strip(named), "the config's models are what naming them would give");
+  assert.deepEqual([named.ownModels, fromConfig.ownModels], [true, false]);
+  assert.equal(fromConfig.model, texModel("fd"));
+  assert.equal(fromConfig.advisor, texStep("advisor").on ? texModel("advisor") : null);
+  assert.equal(fromConfig.fallback, texStep("fallback").on ? texModel("fallback") : null);
+  assert.equal(fromConfig.efforts[texModel("fd")], texStep("fd").effort);
+  assert.equal(fromConfig.planBigAsks, texStep("planner").on);
+  assert.equal(fromConfig.replyJudge !== null, texStep("reviewer").on);
 
   // A reviewer line left in a note with no models is the config's to answer, and is named.
-  const stale = await parseSetup(copy.replace(/^models:\n(?: {2}.*\n)+/m, "").replace(/^reply_judge:.*$/m, "reply_judge: off"));
+  const stale = await parseSetup(bare.replace(/^---\n/, "---\nreply_judge: off\n"));
   assert.equal(stale.replyJudge !== null, texStep("reviewer").on);
   assert.deepEqual([stale.ownModels, stale.ignored], [false, ["reply_judge"]]);
   // A bench variant keeps the models it was written to compare, and says so.
-  const variant = await parseSetup(copy.replace(/^ {2}main: .*$/m, "  main: anthropic/claude-sonnet-5-5"));
+  const variant = await parseSetup(bare.replace(/^---\n/, "---\nmodels:\n  main: anthropic/claude-sonnet-5-5\n"));
   assert.deepEqual([variant.model, variant.ownModels], ["anthropic/claude-sonnet-5-5", true]);
 });
 
