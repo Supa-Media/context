@@ -18,6 +18,7 @@ import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./f
  *  1. Count held calls as calls. → "a held call is not a call that ran" fails.
  *  2. Keep any action the gateway sends, without the name check. → "a malformed action is dropped, the turn is kept" fails.
  *  3. Read the window with no lower bound. → "a turn older than the window is not counted" fails.
+ *  4. Key by the tool that ran instead of `six`. → "a call made as one of the six is counted under that name…" fails.
  */
 
 const STAFF = "staff@example.invalid";
@@ -135,6 +136,27 @@ describe("the Tex Architecture Lab's tool stats", () => {
       { why: "The save was stopped.", cause: "threw", count: 1 },
     ]);
     expect(result.rows.find((row) => row.key === "write.save")?.why).toEqual([]);
+  });
+
+  test("a call made as one of the six is counted under that name, and its failures find the row", async () => {
+    const t = setupTest();
+    const { staff, accessToken } = await world(t);
+    // `write` `save` runs as `write_note`; `manage` `move` as `move_note`; a six name that is not one is dropped.
+    expect((await report(t, accessToken, [
+      { kind: "tool", tool: "write_note", six: "write", action: "save", ok: true, ms: 300 },
+      { kind: "tool", tool: "move_note", six: "manage", action: "move", ok: false, ms: 80 },
+      { kind: "tool", tool: "search_web", six: "nonsense", ok: true, ms: 40 },
+    ])).recorded).toBe(true);
+    expect((await sendFailures(t, accessToken, [{ tool: "move_note", cause: "refused", why: "No note at <path>." }])).kept).toBe(1);
+
+    const [row] = await turns(t);
+    expect(row.trace[2]).toEqual({ kind: "tool", tool: "search_web", ok: true, ms: 40 });
+    const byKey = Object.fromEntries((await stats(t, staff)).rows.map((r) => [r.key, r]));
+    expect(byKey["write.save"]).toMatchObject({ tool: "write", action: "save", calls: 1 });
+    expect(byKey.manage).toMatchObject({ calls: 1, errors: 1, why: [{ why: "No note at <path>.", cause: "refused", count: 1 }] });
+    expect(byKey["manage.move"]).toMatchObject({ calls: 1, errors: 1 });
+    expect(byKey.search_web).toMatchObject({ calls: 1 });
+    expect(byKey.write_note).toBeUndefined();
   });
 
   test("a turn older than the window is not counted", async () => {

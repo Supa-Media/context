@@ -69,11 +69,16 @@ export async function toolStatsReport(ctx: QueryCtx, days: number, now: number):
     row.samples.push(ms);
     counts.set(key, row);
   };
+  // Counted by the name Tex called (`write`), not the older tool it ran as (`write_note`), so the rows line up with the
+  // Lab's tool list; `ranAs` lets a failure, which names the tool that ran, find its row.
+  const ranAs = new Map<string, string>();
   for (const turn of readTurns) {
     for (const entry of turn.trace) {
       if (entry.kind !== "tool" || entry.tool === undefined || entry.held === true) continue;
-      tally(entry.tool, entry.tool, null, entry.ok, entry.ms);
-      if (entry.action !== undefined) tally(`${entry.tool}.${entry.action}`, entry.tool, entry.action, entry.ok, entry.ms);
+      const name = entry.six ?? entry.tool;
+      if (entry.six !== undefined) ranAs.set(entry.tool, entry.six);
+      tally(name, name, null, entry.ok, entry.ms);
+      if (entry.action !== undefined) tally(`${name}.${entry.action}`, name, entry.action, entry.ok, entry.ms);
     }
   }
 
@@ -85,12 +90,13 @@ export async function toolStatsReport(ctx: QueryCtx, days: number, now: number):
   const readFailures = failures.slice(0, MAX_FAILURES_READ);
   const reasons = new Map<string, Map<string, { why: string; cause: string; count: number }>>();
   for (const failure of readFailures) {
-    const byWhy = reasons.get(failure.tool) ?? new Map<string, { why: string; cause: string; count: number }>();
+    const tool = ranAs.get(failure.tool) ?? failure.tool;
+    const byWhy = reasons.get(tool) ?? new Map<string, { why: string; cause: string; count: number }>();
     const reasonKey = `${failure.cause}\u0000${failure.why}`;
     const reason = byWhy.get(reasonKey) ?? { why: failure.why, cause: failure.cause, count: 0 };
     reason.count += 1;
     byWhy.set(reasonKey, reason);
-    reasons.set(failure.tool, byWhy);
+    reasons.set(tool, byWhy);
   }
 
   const rows = [...counts.entries()].map(([key, row]) => ({

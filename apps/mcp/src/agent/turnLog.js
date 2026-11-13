@@ -18,6 +18,16 @@ function confidenceOf(entry) {
  */
 export const ACTION_NAME = /^[a-z][a-z0-9_]{0,39}$/;
 
+/**
+ * Which of the six a call was made as (`write`, `manage`, `send`, `search`, `fetch`), when it ran as an older tool
+ * (`write` `save` runs as `write_note`): the Lab's Tools page counts calls by the name Tex called, the trace keeps
+ * the tool that ran. Only one of the six names; anything else is left out.
+ */
+export const SIX_NAMES = new Set(["orient", "search", "fetch", "write", "manage", "send"]);
+export function sixOf(made, call) {
+  return typeof made?.name === "string" && SIX_NAMES.has(made.name) && made.name !== call?.name ? made.name : undefined;
+}
+
 /** The action a tool call named: the one the model wrote, else the one that ran. Dropped, not replaced, when it is not a name. */
 export function actionOf(made, call) {
   const named = typeof made?.args?.action === "string" ? made.args.action : call?.args?.action;
@@ -33,7 +43,7 @@ export function actionOf(made, call) {
  */
 export function wireTraceEntry(entry) {
   const base = { kind: entry.kind, ok: entry.ok !== false, ms: entry.ms ?? 0 };
-  if (entry.kind === "tool") return { ...base, tool: entry.tool, ...(typeof entry.action === "string" && ACTION_NAME.test(entry.action) ? { action: entry.action } : {}), ...(entry.held ? { held: true } : {}) };
+  if (entry.kind === "tool") return { ...base, tool: entry.tool, ...(typeof entry.action === "string" && ACTION_NAME.test(entry.action) ? { action: entry.action } : {}), ...(SIX_NAMES.has(entry.six) ? { six: entry.six } : {}), ...(entry.held ? { held: true } : {}) };
   if (entry.kind === "router") return { ...base, tier: entry.tier, model: entry.model, ...confidenceOf(entry) };
   // The reply judge's verdict (`replyJudge.js`): never the words it read.
   if (entry.kind === "judge") return { ...base, verdict: typeof entry.verdict === "string" ? entry.verdict : null, acted: entry.acted === true, ...confidenceOf(entry) };
