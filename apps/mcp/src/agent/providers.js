@@ -65,7 +65,12 @@ export function anthropicMessages(messages) {
             ? message.text
             : [
                 { type: "text", text: message.text },
-                ...images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
+                // A PDF handed back whole (`toolResults.js`) is a document: its pages are read as pictures.
+                ...images.map((image) =>
+                  image.mediaType === "application/pdf"
+                    ? { type: "document", source: { type: "base64", media_type: image.mediaType, data: image.data } }
+                    : { type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } },
+                ),
               ],
         ...(message.isError ? { is_error: true } : {}),
       };

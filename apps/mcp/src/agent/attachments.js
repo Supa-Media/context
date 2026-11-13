@@ -328,6 +328,9 @@ export function attachmentsLine(all, kept = []) {
   const again = [
     ...(where.size > 0 ? [' read_image with that note and image shows it again; to email one, attach takes the same words (<image> in <note>), never the browser.'] : []),
     ...(attachments.some((attachment) => attachment.kept) ? [' read_file with path "download:…" reads a kept file again; never ask them to resend it.'] : []),
+    // Where a later turn's facts came from (review 65b381, 2026-11-13): a PDF seen whole on its turn was read page by page,
+    // so what was said about it then stands even if read_file's words come back thinner.
+    ...(attachments.some(isPdf) ? [" A PDF here was shown to you whole on that turn, its pages as pictures, so what you said about it then came from its pages."] : []),
   ].join("");
   const line = `[Sent with this text: ${names.join(", ")}.${lost ? " Seen only on that turn." : ""}${again}]`;
   const said = attachments

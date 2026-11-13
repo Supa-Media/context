@@ -13,7 +13,7 @@
  */
 
 import { searchOne } from "./search.js";
-import { fileWords, QUOTATION, typeOfFile } from "./readFile.js";
+import { fileWords, pdfPagesPart, QUOTATION, typeOfFile } from "./readFile.js";
 import { toolError, toolText } from "./results.js";
 import { AI_ACCESS_STEP, aiAccessLine } from "./googleAiAccess.js";
 import { INBOX_FOLDER } from "../../../../packages/communications/src/protocol.js";
@@ -305,7 +305,7 @@ async function attachmentWords(store, message, file, part = {}) {
   if (type === null) return toolError(`${name} is not a kind of file Context can read: PDF, Word, Excel, CSV and pictures are.`);
   const words = await fileWords(store.ai, name, type, bytes, part);
   if (words.error) return toolError(`${words.error}: ${name}`);
-  return toolText(
+  const answer = toolText(
     [
       `Attachment ${name} (${type}, ${bytes.byteLength} bytes), read from Gmail (${oneLine(message.address)}).`,
       `On: ${oneLine(message.date)} · From: ${oneLine(message.from, 300)} · Subject: ${oneLine(message.subject, 300)}`,
@@ -316,4 +316,7 @@ async function attachmentWords(store, message, file, part = {}) {
       words.text,
     ].join("\n"),
   );
+  // A PDF of pictures comes back whole, so its pages are read (`readFile.js` A PDF OF PICTURES).
+  if (words.pages) answer.content.push(pdfPagesPart(`email-attachment:${name}`, bytes));
+  return answer;
 }

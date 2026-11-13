@@ -82,9 +82,9 @@ async function counted(tex, run) {
 const script = (reply) => (Array.isArray(reply) ? reply : [{ text: reply }]);
 
 /**
- * A 1:1 chat with Tex. `text(words, reply)` is one person's text and the
- * model's scripted answer; it returns what Tex texted back and what the model
- * was shown for it.
+ * A 1:1 chat with Tex. `text(words, reply, { attachments })` is one person's
+ * text (and the files sent with it) and the model's scripted answer; it
+ * returns what Tex texted back and what the model was shown for it.
  */
 export async function oneToOne() {
   const world = await createEgressWorld();
@@ -95,7 +95,7 @@ export async function oneToOne() {
   const event = (fields) => ({ id: `${clock}-${String(++seq).padStart(6, "0")}`, at: clock, chat: LINE, from: { kind: "person" }, kind: "text", text: "", ...fields });
   return {
     world,
-    async text(words, reply) {
+    async text(words, reply, { attachments } = {}) {
       clock += 60_000;
       const theirs = event({ text: words });
       const turn = `turn-replay-${String(++turns).padStart(4, "0")}`;
@@ -109,6 +109,7 @@ export async function oneToOne() {
           chat: LINE,
           recent: [theirs],
           turn,
+          ...(attachments ? { attachments } : {}),
           ...(warm ? { warm } : {}),
         }),
       );
