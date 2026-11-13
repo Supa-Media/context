@@ -301,6 +301,7 @@ function meCopy(): Copy {
         instructions: "Be friendly.\nUse emoji sparingly.\nKeep answers short: the answer and nothing more.",
         picks: [{ id: "friendly", label: "Friendly" }, { id: "emoji_none", label: "No emoji" }, { id: "short", label: "Short answers" }],
         number: "+1 (555) 010-0199",
+        habits: { checkins: true, quietHours: "11 pm to 7 am", pings: "strict", overnight: true, tidy: true },
       },
     },
     jobs: ["maritime", "dinner", "florists", "sam", "hello"],
@@ -485,6 +486,15 @@ export function fixtureSource(): TexPageSource {
           if (!list?.switches) return { ok: false, error: "invalid" };
           list.switches = { ...list.switches, [action.name]: action.on };
           push(chat, { section: "checkins" });
+          break;
+        }
+        case "setting.set": {
+          // As the gateway does: the person's own chat only, and only a value its handler reads.
+          const habits = c.lists.settings?.habits;
+          if (chat !== "me" || !habits) return { ok: false, error: "invalid" };
+          const field = { checkins: "checkins", quiet_hours: "quietHours", pings: "pings", overnight: "overnight", tidy: "tidy" }[action.key];
+          c.lists.settings!.habits = { ...habits, [field]: action.key === "quiet_hours" && action.value === "off" ? "" : action.value };
+          push(chat, { section: "settings" });
           break;
         }
         case "checkin.add":
