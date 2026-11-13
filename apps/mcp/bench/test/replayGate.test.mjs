@@ -102,3 +102,12 @@ test("the front door, the prompt and the turn reach the core area; their neighbo
   assert.deepEqual(areasFor(["apps/mcp/src/agent/promptModules.js", "apps/mcp/bench/ai/tests/simple-asks.md"]), ["core"]);
   assert.deepEqual(areasFor(["apps/mcp/src/agent/turnWeb.js", "apps/mcp/src/agent/jobNote.js"]), []);
 });
+
+test("`pnpm ai gate areas` names the areas a diff reaches (the run's first step, which threw `areasFor is not defined` on 2026-11-13)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const root = fileURLToPath(new URL("../../../../", import.meta.url));
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root }).toString().trim();
+  const out = execFileSync("node", ["apps/mcp/bench/run.mjs", "gate", "areas", "--base-sha", head], { cwd: root, stdio: ["ignore", "pipe", "pipe"] }).toString();
+  assert.equal(out.trim(), "", "a diff of nothing reaches no area, and the command runs");
+});
