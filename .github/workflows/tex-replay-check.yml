@@ -1,6 +1,8 @@
 # The pull request's required check for the replay gate's model half
 # (docs/decisions/testing/replay-gate.md; scripts/tex-replay-required.mjs).
-# Holds no secret: it reads which model areas the change reaches and, when
+# Holds no secret: it reads which model areas the change reaches (by its
+# files, and by its prompts: every area's prompts are built free on main and on
+# the change, and one that differs by a byte is reached) and, when
 # any, passes only on a successful "Tex replay" status on the head commit,
 # which the dispatched "Tex replay" run sets, then re-runs this.
 
@@ -21,19 +23,43 @@ jobs:
   required:
     name: Tex replay passed on this commit
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # The prompt fingerprints install and run both trees: about four minutes.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          package-manager-cache: false
+          cache: pnpm
+      - name: The rule's own self-test
+        run: node scripts/tex-replay-required.mjs --self-test
+
+      # Every area's prompts built on main and on the change, with no model and no key
+      # (apps/mcp/bench/promptFingerprint.mjs): an area whose prompts differ by a byte is
+      # reached, whatever file changed. Only a change to code that can build a prompt runs it.
+      - name: Prompt fingerprints, main against the change
+        id: prints
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          areas=""
+          if git diff --name-only "$BASE_SHA" HEAD | grep -qE '^(apps/mcp/|apps/agent/|packages/)'; then
+            pnpm install --frozen-lockfile
+            git worktree add "$RUNNER_TEMP/main" "$BASE_SHA"
+            (cd "$RUNNER_TEMP/main" && pnpm install --frozen-lockfile)
+            node apps/mcp/bench/run.mjs gate fingerprint --base-tree "$RUNNER_TEMP/main" > "$RUNNER_TEMP/changed.txt" 2> "$RUNNER_TEMP/prints.txt" || { cat "$RUNNER_TEMP/prints.txt"; exit 1; }
+            areas="$(paste -sd, "$RUNNER_TEMP/changed.txt")"
+            { echo "### Prompt fingerprints"; grep -E '^(- |Prompt)' "$RUNNER_TEMP/prints.txt" || true; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "areas=$areas" >> "$GITHUB_OUTPUT"
+
       - name: The replay gate's model half passed, or the change reaches no model area
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
-        run: |
-          node scripts/tex-replay-required.mjs --self-test
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          node scripts/tex-replay-required.mjs
+          FINGERPRINT_AREAS: ${{ steps.prints.outputs.areas }}
+        run: node scripts/tex-replay-required.mjs

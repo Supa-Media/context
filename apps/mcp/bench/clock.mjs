@@ -48,7 +48,7 @@ export function noonUtcMs(iso) {
  * in CI, where every answer is instant. Any real time or real chance a model
  * is shown would change a request's hash and leave CI with no answer for it.
  */
-export const steppedRun = (env = process.env) => Boolean(env.BENCH_MODEL_SOCKET || env.BENCH_MODEL_REPLAY);
+export const steppedRun = (env = process.env) => Boolean(env.BENCH_MODEL_SOCKET || env.BENCH_MODEL_REPLAY || env.BENCH_MODEL_FINGERPRINT);
 
 /** The stepped clock now installed, if any: `{ offset }` in ms past noon. */
 let stepping = null;
