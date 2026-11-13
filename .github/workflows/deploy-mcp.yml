@@ -303,6 +303,7 @@ jobs:
           AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
           AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+          AI_GATEWAY_KEY_ALIASES: ${{ secrets.AI_GATEWAY_KEY_ALIASES }}
           ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
         run: |
           set -euo pipefail
@@ -335,7 +336,7 @@ jobs:
           #   ANTHROPIC_CREDIT_KEY: model routing through Cloudflare AI Gateway
           #   (src/agent/aiGateway.js); with any of the first three missing the
           #   gateway keeps using Workers AI.
-          node ../../scripts/worker-secrets.mjs GATEWAY_SECRET CONTROL_PLANE_URL '?TRANSCRIBE_WORKER_URL' '?TRANSCRIBE_WORKER_SECRET' '?BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?ANTHROPIC_CREDIT_KEY' \
+          node ../../scripts/worker-secrets.mjs GATEWAY_SECRET CONTROL_PLANE_URL '?TRANSCRIBE_WORKER_URL' '?TRANSCRIBE_WORKER_SECRET' '?BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?AI_GATEWAY_KEY_ALIASES' '?ANTHROPIC_CREDIT_KEY' \
             | pnpm exec wrangler secret bulk --config "$MCP_WRANGLER_CONFIG"
           echo "OK — the Worker's secrets match this repository's."
 
