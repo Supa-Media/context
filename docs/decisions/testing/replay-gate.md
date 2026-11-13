@@ -58,6 +58,23 @@ did not have to leave a case behind.
    repository or the log, so a regression is read before anything is changed
    or re-run (2026-11-13: core q13 failed 3/3 on a four-word diagram edit and
    nobody could see the answers).
+   **An area is reached by its prompts too** (decided by the owner,
+   2026-11-13, choosing "Prompt fingerprints": "reordering or changing the
+   prompts ... even if it's a letter different, we need to check that"). A
+   file rule names an area's own files, and a file it names nowhere (the
+   drawing's map, the capability list, a tool's description) still reaches
+   every prompt. So **Tex replay required** and **Tex replay** both build every
+   area's prompts on main and on the change with no model and no key
+   (`apps/mcp/bench/promptFingerprint.mjs`; the socket's fingerprint mode,
+   `BENCH_MODEL_FINGERPRINT`: each call hashed as the examiner would name it,
+   Claude answered with fixed stand-in words, nothing spent). An area whose
+   prompts differ by one byte, one module moved, or one space, is reached, and
+   its replay is required; an area whose run built nothing is never read as
+   unchanged. The core and jobs areas run on a stand-in setup in production's
+   shape (`apps/mcp/bench/fingerprint/setups/`), since the live setup's words
+   live in `@context-lc`, not the repository; a change to those words is rule
+   8's. It costs about a minute and two installs, only on a change under
+   `apps/mcp/`, `apps/agent/` or `packages/`.
    Main is never run whole: the change answers every case once, only its
    mistakes are run again (twice more on the change, three times on main), and
    a case regressed when it is wrong in every one of the change's runs and
@@ -174,4 +191,9 @@ page edit that never saved has no page);
 `apps/mcp/bench/test/coreArea.test.mjs` (a core question is right only when
 every run passed; a target is never held to the bar);
 `apps/mcp/bench/test/nightly.test.mjs` (a quiet day is too few to tell; a hand
-edit to the live prompt is outside the gate; held-out cases by cause alone).
+edit to the live prompt is outside the gate; held-out cases by cause alone);
+`apps/mcp/bench/test/promptFingerprint.test.mjs` and
+`node scripts/tex-replay-required.mjs --self-test` (one changed prompt changes
+an area's fingerprint; a changed area with no replay run fails the check;
+sabotage on the real trees: one letter of the drawing's map changed seven
+areas whose file rules named none of it).

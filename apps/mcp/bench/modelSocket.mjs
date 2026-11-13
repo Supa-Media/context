@@ -26,7 +26,7 @@
  * "Examiner"), and the nightly asks the real models a sample of the same calls.
  */
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { advanceSteppedClock } from "./clock.mjs";
@@ -39,6 +39,18 @@ export const REPLAY_ENV = "BENCH_MODEL_REPLAY";
  * for a small classifier measures the stand-in.
  */
 export const KINDS_ENV = "BENCH_MODEL_SOCKET_KINDS";
+/**
+ * PROMPT FINGERPRINTS (Dev2, 2026-11-13: "even if it's a letter different, we need to check that"; chose "Prompt
+ * fingerprints"). `BENCH_MODEL_FINGERPRINT=<file>`: every call, of every kind, is hashed exactly as the socket names
+ * it and the hash appended to <file> as a JSON line; a Claude call gets a fixed stand-in answer and any other call is
+ * refused, so a run costs nothing and needs no key. What is hashed is every prompt a case's run builds from its first
+ * on, by the commit's own code:
+ * one byte of a prompt, a module's order or a tool's description changed, and the area's fingerprint changes
+ * (`promptFingerprint.mjs`).
+ */
+export const FINGERPRINT_ENV = "BENCH_MODEL_FINGERPRINT";
+/** What a fingerprint run answers every Claude call with. */
+export const FINGERPRINT_ANSWER = Object.freeze({ text: "Fingerprint run: no answer." });
 /** How long a live call waits for its answer before the case counts as no answer. */
 export const ANSWER_WAIT_MS = 45 * 60 * 1000;
 /**
@@ -107,6 +119,23 @@ export function modelSocket(env = process.env, { wait = (ms) => new Promise((res
     missed.push(message);
     return new Error(message);
   };
+  if (env[FINGERPRINT_ENV]) {
+    const file = env[FINGERPRINT_ENV];
+    return {
+      mode: "fingerprint",
+      covers: () => true,
+      missed,
+      async ask(kind, request) {
+        const hash = requestHash(kind, request);
+        appendFileSync(file, `${JSON.stringify({ kind, hash })}\n`);
+        // A Claude call is answered with the same stand-in words every time, so a conversation goes on the way it
+        // always does from there (a played person's next text, a reviewer's read), and those prompts are hashed too.
+        // Anything else is refused, which every caller already survives. The clock never moves.
+        if (kind === "claude") return FINGERPRINT_ANSWER;
+        throw new Error(`fingerprint run: ${kind} call ${hash.slice(0, 12)} recorded, not answered`);
+      },
+    };
+  }
   if (env[REPLAY_ENV]) {
     let answers = null;
     return {

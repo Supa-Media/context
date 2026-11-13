@@ -34,6 +34,7 @@ import { promisify } from "node:util";
 
 import { callTool, notePaths, signIn, splitNote } from "./context.mjs";
 import { runCore } from "./coreArea.mjs";
+import { fingerprintChanges, fingerprintLines } from "./promptFingerprint.mjs";
 
 const run = promisify(execFile);
 
@@ -316,8 +317,21 @@ export async function publishCoreRecords({ scratch, sha, connection, fetchImpl =
 export async function gateCommand(options) {
   const sub = options.job;
   if (sub === "areas") {
+    // The file rules, and with `--base-tree` every area whose prompts differ from main's by a byte (`promptFingerprint.mjs`).
     const { stdout } = await run("git", ["diff", "--name-only", options["base-sha"], "HEAD"]);
-    process.stdout.write(`${areasFor(stdout.split("\n").filter(Boolean)).join("\n")}\n`);
+    const byFiles = areasFor(stdout.split("\n").filter(Boolean));
+    const prints = options["base-tree"] ? await fingerprintChanges({ head: process.cwd(), base: options["base-tree"] }) : null;
+    if (options["base-tree"]) process.stderr.write(`${fingerprintLines(prints).join("\n")}\n`);
+    const reached = new Set([...byFiles, ...(prints?.changed ?? [])]);
+    process.stdout.write(`${Object.keys(AREAS).filter((area) => reached.has(area)).join("\n")}\n`);
+    return;
+  }
+  if (sub === "fingerprint") {
+    if (!options["base-tree"]) throw new Error("usage: pnpm ai gate fingerprint --base-tree <main checkout> [--json <file>]");
+    const prints = await fingerprintChanges({ head: process.cwd(), base: options["base-tree"] });
+    process.stderr.write(`${fingerprintLines(prints).join("\n")}\n`);
+    if (options.json) await writeFile(options.json, JSON.stringify(prints));
+    process.stdout.write(`${(prints?.changed ?? []).join("\n")}\n`);
     return;
   }
   if (sub === "held-out") {

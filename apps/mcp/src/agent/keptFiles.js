@@ -28,7 +28,7 @@
  */
 
 import { keepDownload, readDownload } from "./downloads.js";
-import { QUOTATION, fileWords, typeOfFile } from "../tools/readFile.js";
+import { QUOTATION, fileWords, pdfPagesPart, typeOfFile } from "../tools/readFile.js";
 import { isTable, partLines, partOf } from "../tools/fileParts.js";
 import { toolError, toolText } from "../tools/results.js";
 
@@ -108,7 +108,10 @@ export async function readKeptFile(store, ai, ref, { now } = {}) {
   if (readAs === null) return toolError(`${ref.id} is a ${type} file: it can be attached to an email or put into a page, not read`);
   const words = await fileWords(ai, name, readAs, bytes, { from: ref.from, next, summary: ref.summary ?? null });
   if (words.error) return toolError(`${words.error}: ${ref.id}`);
-  return toolText(`${head.join("\n")}\n\n${QUOTATION}\n\n${words.text}`);
+  const answer = toolText(`${head.join("\n")}\n\n${QUOTATION}\n\n${words.text}`);
+  // A PDF of pictures comes back whole, so its pages are read (`readFile.js` A PDF OF PICTURES).
+  if (words.pages) answer.content.push(pdfPagesPart(ref.id, bytes));
+  return answer;
 }
 
 /** Which argument of which tool can name a kept file: a listing of one is a read of it (Tex, 2026-10-26, `list_notes { prefix: "download:…" }`). */

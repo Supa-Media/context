@@ -7,6 +7,9 @@
  * the same binding search by meaning uses), at request time, and nothing is
  * kept: the file in the bucket is the record, and the words are a derivative
  * that is cheap to make again. A deployment without the binding says so.
+ * A PDF whose pages are pictures gives up no words, so it comes back whole
+ * beside a line saying so, for a model that reads documents to read its
+ * pages (A PDF OF PICTURES, below).
  *
  * The refusals follow `read_note`'s rule (`notes/read.js`): the existence
  * probe runs for every caller, the bytes are fetched only once `canSee` and
@@ -26,6 +29,7 @@ import { probeWithLegacyFallback } from "../notes/storage.js";
 import { toolError, toolText } from "./results.js";
 import { linksSection, pdfLinks } from "./pdfLinks.js";
 import { factLines, isTable, partLines, partOf, tableFacts, tableSummary } from "./fileParts.js";
+import { base64FromBytes } from "../notes/embeds.js";
 
 /** The extensions `read_file` opens, and the type each is handed to the converter as. */
 export const READABLE_FILE_TYPES = new Map([
@@ -77,10 +81,12 @@ export async function toolReadFile(store, scope, rules, overrides, pathArg, from
     next: (at) => `read_file with path "${path}" and from: ${at}`,
   });
   if (words.error) return toolError(`${words.error}: ${path}`);
-  return toolText(
+  const answer = toolText(
     `path: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}\nkind: file\ntype: ${type}\n` +
       `bytes: ${bytes.byteLength}\ntrust: untrusted\n\n${QUOTATION}\n\n${words.text}`,
   );
+  if (words.pages) answer.content.push(pdfPagesPart(path, bytes));
+  return answer;
 }
 
 /** Said above every file's words. */
@@ -120,6 +126,9 @@ export async function fileWords(ai, name, type, bytes, { from = 0, next = null, 
   const text = typeof first?.data === "string" && first.format !== "error" ? first.data.trim() : "";
   // Where a PDF's buttons and linked words go, which its words alone never say (`pdfLinks.js`).
   const links = type === "application/pdf" ? linksSection(await pdfLinks(bytes)) : "";
+  // A PDF of pictures: its pages go to the model whole, to be read as pictures (`pdfPagesPart`).
+  // An empty answer is the converter saying nothing, not a read of picture pages: it stays a refusal.
+  if (type === "application/pdf" && text && pdfHasNoWords(text) && pageCount(text) <= MAX_PICTURE_PAGES) return { text: `${PICTURE_PAGES}${links}`, pages: true };
   if (!text && !links) return { error: "no words could be taken out of this file" };
   if (next) {
     const part = partOf(text, from);
@@ -128,6 +137,59 @@ export async function fileWords(ai, name, type, bytes, { from = 0, next = null, 
   }
   const words = text.length > MAX_FILE_CHARS ? `${text.slice(0, MAX_FILE_CHARS)}\n\n[cut: the file's words run to ${text.length} characters]` : text;
   return { text: `${words || "(no words could be taken out of this file)"}${links}` };
+}
+
+/*
+  A PDF OF PICTURES IS READ AS PICTURES (review 65b381, 2026-11-13; Dev2 chose
+  it). A planner's Canva deck was texted to a group: on that turn the PDF went
+  to the model as a document (`attachments.js`), which reads each page as a
+  picture, and Tex quoted the Par package at $53. On the next text read_file
+  turned the same file into words, got nine empty pages (the deck has no text
+  layer), and Tex took back prices that were right. So a PDF that gives up no
+  words comes back with the file itself, and a model that reads documents
+  sees its pages; the words say so, so a model that can't is not misled.
+*/
+
+/** Fewer characters a page than this, outside headings and the file's metadata, is a PDF of pictures: a page number or a stray mark, never a sentence. */
+const WORDS_PER_PAGE = 10;
+
+/** Said in place of a PDF's words when its pages are pictures. */
+export const PICTURE_PAGES =
+  "This PDF's pages are pictures with no words in them, so the file itself is shown beside this: read its pages as pictures.";
+
+/** Said where the file can't be shown beside the words (a page in the browser, a file's words kept on a result). */
+export const PICTURE_PAGES_UNSEEN = "(This PDF's pages are pictures with no words in them; read_file on the saved file shows its pages.)";
+
+/** A PDF's words for a caller that can't hand the file on: never the line that says it is shown. */
+export function wordsWithoutPages(read) {
+  return read?.pages ? PICTURE_PAGES_UNSEEN : read?.text;
+}
+
+/** The most pages a document block may have (Anthropic's limit): a longer scan is a book, read in words or not at all. */
+export const MAX_PICTURE_PAGES = 100;
+
+/** How many pages `toMarkdown` found in a PDF (its `### Page N` headings), at least one. */
+export function pageCount(markdown) {
+  return Math.max(1, (String(markdown ?? "").match(/^### Page \d+/gm) ?? []).length);
+}
+
+/** Whether `toMarkdown`'s answer for a PDF holds no real words: only its title, metadata and empty page headings. */
+export function pdfHasNoWords(markdown) {
+  const text = typeof markdown === "string" ? markdown : "";
+  const at = text.indexOf("## Contents");
+  const body = at >= 0 ? text.slice(at) : text.replace(/^## Metadata\n(?:- .*\n?)*/m, "");
+  const pages = pageCount(body);
+  const words = body
+    .split("\n")
+    .filter((line) => !/^#{1,6}\s/.test(line))
+    .join("")
+    .replace(/\s+/g, "");
+  return words.length < WORDS_PER_PAGE * pages;
+}
+
+/** A PDF handed back whole, as an MCP embedded resource, for a model to read its pages (`toolResults.js`). */
+export function pdfPagesPart(uri, bytes) {
+  return { type: "resource", resource: { uri, mimeType: "application/pdf", blob: base64FromBytes(bytes) } };
 }
 
 /** The type a file is read as, from its name and then its first bytes; null when it is not one `fileWords` opens. */
