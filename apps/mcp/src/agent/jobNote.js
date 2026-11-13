@@ -29,6 +29,7 @@ import { hasScope, SCOPE_WRITE } from "../session.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
 import { jobMailOf } from "./background.js";
+import { jobTagged, stepLog, storeLedger } from "./ledger.js";
 import { readProductionSetup } from "./production.js";
 import { adviseOnce, advisorRequest } from "./advisorRoles/core.js";
 import { ADVISOR_MAIL_PROMPT } from "./advisorRoles/jobMail.js";
@@ -236,7 +237,12 @@ async function adviseRoute(request, env, store, session, controlPlane, advise, c
     // A meter that could not be reached costs us a report, not the job its answer.
   }
   const words = typeof answer?.text === "string" ? answer.text.trim() : "";
-  return json({ ok: await send(words || "I can't look at this right now. Use your best judgement and carry on.") });
+  // The job's mail advisor as a step in its chat's ledger, tagged with the job: what the job asked, what it was told (`stepLog`).
+  const record = jobTagged(storeLedger(store, session), { id: body.jobId, title: typeof body.title === "string" ? body.title : undefined });
+  stepLog(record).log({ step: "mailadv", ok: answer !== null, ms: Date.now() - started, input: { question, from }, output: words || null, model });
+  await record?.flush();
+  const ok = await send(words || "I can't look at this right now. Use your best judgement and carry on.");
+  return json({ ok });
 }
 
 export const JOB_NOTE_PATHS = new Set(["/agent/job/note", "/agent/job/advise"]);

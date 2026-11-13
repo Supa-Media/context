@@ -35,7 +35,7 @@ export function waitedLine(before, now) {
  * `callTool` with each changing call under the chat's write lock. Only a group turn (`group.key`) has one;
  * any other turn's calls are left as they are.
  */
-export function withChatWriteLock({ env, group, turn = crypto.randomUUID(), stub = group?.key ? texStoreStub(env, { chat: group.key }) : null, changes = changesSomething, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }, callTool) {
+export function withChatWriteLock({ env, group, steps = null, turn = crypto.randomUUID(), stub = group?.key ? texStoreStub(env, { chat: group.key }) : null, changes = changesSomething, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }, callTool) {
   if (stub === null) return callTool;
   const call = async (op, fields) => await (await callTexStore(stub, op, { turn, ...fields })).json();
   return async (name, args) => {
@@ -59,6 +59,8 @@ export function withChatWriteLock({ env, group, turn = crypto.randomUUID(), stub
       log("unavailable", name);
     }
     if (lock !== null && now() - started >= LOCK_POLL_MS) log("waited", name, now() - started);
+    // The wait for the chat's write lock as a step in its ledger (`stepLog`): which call, how long, and whose turn held it.
+    steps?.log({ step: "lane", name, ok: lock !== null, ms: now() - started, ...(lock?.before ? { output: { before: lock.before } } : {}), ...(lock === null ? { reason: "ran without the lock: it timed out or was unavailable" } : {}) });
     try {
       const result = await callTool(name, args);
       return lock?.before ? withLine(result, waitedLine(lock.before, now())) : result;

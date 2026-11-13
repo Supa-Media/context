@@ -11,7 +11,7 @@ import { canRunBuiltin } from "../builtin.js";
 import { chatHubUrl } from "../hubLinks.js";
 import { keepGroupExchange } from "../groupTurn.js";
 import { jobFields, jobTurnFields } from "../jobCheck.js";
-import { wordsEntry } from "../ledger.js";
+import { stepLog, wordsEntry } from "../ledger.js";
 import { briefEntry } from "../judgeBrief.js";
 import { readInstructions } from "../customInstructions.js";
 import { exchangeEntries } from "../ledgerConversation.js";
@@ -69,6 +69,7 @@ export async function sendTheReply(t) {
   const attached = attachmentsLine(attachments, attachments.length > 0 ? ((await tex.step("pictures_kept", keepPictures)) ?? []) : []), sources = turn.steps.flatMap((step) => step.sources ?? []);
   // What this group turn knew, for the judge's next look (`judgeBrief.js`): its work, what it waits on, the chat's own rules.
   const brief = group !== null && job === null ? briefEntry({ group, question, steps: turn.steps, asked: ledger.asked, offered: ledger.offered ?? null, instructions: readInstructions(body.instructions), turn: ledgerTurn }) : null;
+  tex.logTo?.(chatLog, ledgerTurn); // every step's time and outcome so far, and each one after the response (`texTiming.js`)
   chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), ...(brief ? [brief] : []), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), worker: body.worker, replyMs: Date.now() - received }), clean: ledger.untrusted !== true, outside: ledger.outside === true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...factsEntry(sent, t.reads, t.ledgerAt?.grant), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}), ...(eventAsked !== null ? { about: eventAsked } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`); `outside`: whether a later turn replaying its calls is marked (`stretch.js`)
   // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
   const replaced = (job !== null && steer !== null && (await tex.step("steer_pending", () => steer.pending()))) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
@@ -93,7 +94,7 @@ export async function sendTheReply(t) {
   // Their next 7 days, read again behind the reply when the copy is stale or this turn changed the calendar (`calendarCache.js`).
   if (job === null && group === null && conversation === "texts" && deskEligible(store)) await tex.after("calendar_copy", () => refreshCalendarCache(dispatch, { timeZone, force: changedCalendar(turn.steps) }));
   // "fix this" or frustration scores the conversation now (`selfReview.js`); quiet ends do it from the Worker.
-  if (!turn.exhausted) await tex.after("self_review", () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
+  if (!turn.exhausted) await tex.after("self_review", () => stepLog(chatLog, { turn: ledgerTurn }).timed("selfreview", question, () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null })).catch(() => null)); // what it filed and why, a step in the chat's ledger
   const reply = {
     answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
     ...(hushed && report === null && sent === "" ? { react: "" } : {}), // a tapback in place of a text: a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)

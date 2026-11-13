@@ -130,11 +130,17 @@ test("the judge's verdict is kept in the group's ledger: what, why and the event
   assert.equal(entry.event, id(2));
   assert.equal(entry.went, true);
   assert.ok(!JSON.stringify(entry).includes("pineapple"));
-  // A 1:1 names no ledger key, and a last look is no verdict: neither writes one.
+  // A 1:1 names no ledger key, so it writes nothing; a last look is no verdict, so it is a step (Dev2, 2026-11-13: every step logs).
   await decideForTexts(ask(TEXTS_DECIDE_PATH, body()), {}, { engine, ledger, waitUntil: (work) => pending.push(work) });
   await decideForTexts(ask(TEXTS_RECHECK_PATH, { ...groupBody(), draft: "Hi.", draftFor: id(1) }), {}, { engine: async () => ({ draft_fits: { noul: 0.9 } }), ledger, waitUntil: (work) => pending.push(work) });
   await Promise.all(pending);
-  assert.equal(appended.length, 1);
+  assert.equal(appended.length, 2);
+  const [step] = appended[1].entries;
+  assert.equal(step.kind, "step");
+  assert.equal(step.step, "decide");
+  assert.equal(step.name, "recheck");
+  assert.equal(step.ok, true);
+  assert.ok(!JSON.stringify(step).includes("Hi."), "the draft is not copied into the step");
 });
 
 test("a ledger that fails never fails the verdict", async () => {

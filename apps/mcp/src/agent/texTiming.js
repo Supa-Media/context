@@ -46,11 +46,14 @@ export const OFF_IN_CHATS = new Set([
 ]);
 
 import { goesToObject } from "../store/texRouting.js";
+import { stepEntry } from "./ledger.js";
 
 /** The kinds a person is waiting on. */
 const CHAT_KINDS = new Set(["one", "group"]);
 /** Analytics Engine takes 250 points a request: steps get this many, store calls `MAX_STORE_POINTS`, the rest is `turnStages.js`'s. */
 const MAX_POINTS = 100;
+/** The most timed steps one turn keeps in its chat's ledger. */
+const MAX_LEDGER_STEPS = 200;
 const MAX_STORE_POINTS = 120;
 
 /**
@@ -70,11 +73,25 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
     settled = true;
     for (const entry of pending.splice(0)) write(env, entry, kind, who, turn ?? "");
   };
+  // The chat's ledger, once the turn has one (`logTo`): every step's time and outcome as a `step` entry, in batches.
+  let sink = null, sinkTurn = null, sunk = 0;
+  const sinkFlush = () => {
+    if (sink === null || sunk >= steps.length) return;
+    const entries = steps.slice(sunk, MAX_LEDGER_STEPS).map((entry) => stepEntry({ step: "timing", name: entry.name, ms: entry.ms, ok: entry.state !== "failed", reason: entry.state === "off" ? "off" : null }, { turn: sinkTurn })).filter(Boolean);
+    sunk = steps.length;
+    try {
+      if (entries.length > 0) sink.write(entries);
+    } catch {
+      /* the record never stops the turn */
+    }
+  };
   const record = (name, at, state) => {
     const ms = Math.max(0, now() - at);
     const entry = { name, ms, at: at - start, state };
     steps.push(entry);
     if ((written += 1) <= MAX_POINTS) emit(entry);
+    // Work after the response: each one's time goes to the ledger as it ends, with whatever finished since.
+    if (sink !== null && name.startsWith("after:")) sinkFlush();
     return entry;
   };
   const recordCall = (name, at, state) => {
@@ -114,6 +131,18 @@ export function texEntry(env, { who = "", now = Date.now, later = [] } = {}) {
     },
     get turn() {
       return turn;
+    },
+    /**
+     * The turn's chat ledger (`ledgerWriter`) and turn id: every step timed so
+     * far goes there now as `step` entries (kind `timing`, one append), and each
+     * later one with the next work after the response (decided by the owner,
+     * 2026-11-13: every step logs its time). Set once; with no writer, nothing.
+     */
+    logTo(writer, turnId = null) {
+      if (sink !== null || !writer || typeof writer.write !== "function") return;
+      sink = writer;
+      sinkTurn = typeof turnId === "string" && turnId !== "" ? turnId : null;
+      sinkFlush();
     },
     /** Whether `name` is turned off on this turn. */
     isOff: off,

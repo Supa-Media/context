@@ -26,6 +26,7 @@
  * - `judge`: `{text, by, model?, round, went, ms?, notice?, reason?, judges: [{id, yes, at, passed}], failed}`, one judging of a draft reply (`replyJudge.js`; `by` is `review` for the Haiku reviewer since 2026-11-06, with `turnKind` and the problems it named in `failed`, or `gates` before): `text` is the draft, `went` whether it went out
  * - `name`: `{guest, name, by?, text}`, a name someone in a group chat gave a guest label (`groupGuestNames.js`); the newest per guest is its name
  * - `brief`: `{asker?, ask?, tools?, places?, waiting?, about?, rules?}`, what a group turn knew when it ended, for the judge (`judgeBrief.js`)
+ * - `step`: `{step, ok, ms, input?, output?, model?, reason?}`, one step of a turn that leaves nothing else of its own (`timing`: each named step of the turn with its time and outcome, `name` the step; the router, the fallback, the chat write lock, a front-door step, the card check, the classifier, the self-review, the hand-back judge, the job-mail advisor): what it was given and what it gave, kept like a tool's arguments and result, so a turn can be replayed and a regression traced from the chat alone (decided by the owner, 2026-11-13: "every step should log its input output time")
  * - `day`: `{day, text, model?}`, one finished day summed up the night after (`daySummaries.js`), id `day-<YYYY-MM-DD>` so a day keeps one; `at` is that day's last entry
  */
 
@@ -95,6 +96,77 @@ export function toolEntry({ name, args, as = null, ok, ms, held = false, reason 
 export function wordsEntry(kind, text, { turn = null, at = Date.now(), ...extra } = {}) {
   const kept = cutText(text, MAX_WORDS_CHARS);
   return { v: 1, id: newId(), at, kind, ...(turn ? { turn } : {}), ...extra, text: kept.text, ...(kept.cut !== undefined ? { cut: kept.cut } : {}) };
+}
+
+/** What a step was given or gave, as kept: a string cut like words, anything else kept like a tool's arguments. */
+function keptValue(value) {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return cutText(value, MAX_WORDS_CHARS).text;
+  const kept = keptArgs(value);
+  const text = JSON.stringify(kept ?? null);
+  return text.length > MAX_RESULT_CHARS ? `${text.slice(0, MAX_RESULT_CHARS)}… [cut, ${text.length} characters]` : kept;
+}
+
+/** The steps a `step` entry may name: a new one is added here, so a typo is never a new step. */
+export const STEP_NAMES = new Set(["timing", "decide", "router", "fallback", "model", "steer", "lane", "door", "card", "checks", "classifier", "selfreview", "handback", "mailadv", "react"]);
+
+/** One step of a turn (`step` kind): its name, whether it went, its milliseconds, and what it was given and gave. */
+export function stepEntry({ step, ok = true, ms = null, input, output, model = null, reason = null, name = null }, { turn = null, at = Date.now() } = {}) {
+  if (!STEP_NAMES.has(step)) return null;
+  const entry = { v: 1, id: newId(), at, kind: "step", ...(turn ? { turn } : {}), step, ok: ok === true };
+  if (typeof name === "string" && name !== "") entry.name = name.slice(0, 64);
+  if (Number.isFinite(ms) && ms >= 0) entry.ms = Math.round(ms);
+  const keptIn = keptValue(input);
+  if (keptIn !== undefined) entry.input = keptIn;
+  const keptOut = keptValue(output);
+  if (keptOut !== undefined) entry.output = keptOut;
+  if (typeof model === "string" && model !== "") entry.model = model.slice(0, 120);
+  if (typeof reason === "string" && reason !== "") entry.reason = reason.slice(0, 400);
+  return entry;
+}
+
+/**
+ * A step's writer for code outside a turn's `tell` (`ledgerWriter` plus the
+ * turn's id): `log(fields)` writes one `step` entry; `timed(step, input, run,
+ * outputOf?)` runs `run()`, times it and writes what it gave, or that it threw
+ * (and throws on). Never throws itself; with no writer it only runs.
+ */
+export function stepLog(writer, { turn = null } = {}) {
+  const at = { turn: typeof turn === "string" && turn !== "" ? turn : null };
+  const log = (fields) => {
+    if (!writer) return;
+    try {
+      const entry = stepEntry(fields, { ...at, at: Date.now() });
+      if (entry) writer.write(entry);
+    } catch {
+      /* a step's record never stops the step */
+    }
+  };
+  const timed = async (step, input, run, outputOf = (value) => value, extra = {}) => {
+    const began = Date.now();
+    try {
+      const value = await run();
+      log({ step, ok: true, ms: Date.now() - began, input, output: outputOf(value), ...extra });
+      return value;
+    } catch (error) {
+      log({ step, ok: false, ms: Date.now() - began, input, reason: String(error?.message ?? error?.name ?? "error"), ...extra });
+      throw error;
+    }
+  };
+  return { log, timed };
+}
+
+/**
+ * A draft's check with no reviewer behind it (`doItChecks.js`, `claimCheck.js`
+ * with the hand-back judge, `untriedWeb.js`) as a step: the draft in, the
+ * notice that sent it back out (null: it went). The reviewer logs its own
+ * `judge` entries, so it is never wrapped.
+ */
+export function loggedCheck(writer, { turn = null } = {}, step, checker) {
+  if (!checker || typeof checker.check !== "function") return null;
+  if (!writer) return (answer, context) => checker.check(answer, context);
+  const steps = stepLog(writer, { turn });
+  return (answer, context) => steps.timed(step, answer, () => checker.check(answer, context), (notice) => notice ?? null);
 }
 
 /** A chat event (`log.js` shape) as a `text` entry; its id is the event's, so the same event is kept once. */
@@ -218,6 +290,16 @@ export function ledgerObserver(writer, then = null, { turn = null, ownSlug = nul
     else if (event?.kind === "say" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("said", event.text, at));
     else if (event?.kind === "tool") writer.write(toolEntry(event, { ownSlug, turn: at.turn, grant }));
     else if (event?.kind === "judge") writer.write(judgeEntry(event, at));
+    // The steps `turn.js` tells that leave nothing else: the router's pick, a fallback, a model switch, a steer.
+    else if (event?.kind === "model" || event?.kind === "steered") {
+      const entry = stepEntry(
+        event.kind === "steered"
+          ? { step: "steer", ok: true, input: event.text ?? "" }
+          : { step: STEP_NAMES.has(event.step) ? event.step : "model", ok: event.ok !== false, ms: event.ms, input: event.input, output: event.output, model: event.model, reason: event.reason },
+        at,
+      );
+      if (entry) writer.write(entry);
+    }
   };
 }
 

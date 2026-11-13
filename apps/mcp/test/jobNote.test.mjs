@@ -200,3 +200,19 @@ test("a computer part's brief always names its advisor, how to ask it, and that 
     assert.doesNotMatch(brief, /\b10\b|limit on asks|budget/i, "the advisor's limit is never told");
   }
 });
+
+test("the job's mail advisor leaves its step in the chat's ledger, tagged with the job (Dev2, 2026-11-13)", async () => {
+  const fake = fakeNotes({ "tex/jobs/a.md": "# A\n\nRun it." });
+  const appended = [];
+  Object.assign(fake.store, { getSettings: async () => null, texLedger: () => ({ append: async (chat, entries) => appended.push(...entries.map((entry) => ({ chat, ...entry }))) }) });
+  const advise = async () => ({ text: "Try the web login.", usage: { input: 1, output: 1 } });
+  await ask(fake, "/agent/job/advise", { jobId: JOB, note: { path: "tex/jobs/a.md" }, advisor: "mb_00000009", from: "a", question: "it failed", title: "A" }, texting({ workspaceKind: "personal" }), { advise });
+  const step = appended.find((entry) => entry.kind === "step");
+  assert.ok(step, JSON.stringify(appended));
+  assert.equal(step.step, "mailadv");
+  assert.equal(step.chat, "texts");
+  assert.equal(step.jobId, JOB);
+  assert.deepEqual(step.input, { question: "it failed", from: "a" });
+  assert.equal(step.output, "Try the web login.");
+  assert.equal(step.ok, true);
+});

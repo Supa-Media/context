@@ -39,8 +39,9 @@ test("a second turn waits for the first's change, then is told it ran", async ()
     return textResult("wrote it");
   });
   const order = [];
+  const logged = [];
   const second = withChatWriteLock(
-    { stub: store.stub, turn: "b", changes: () => true, now: () => clock, sleep: async (ms) => { clock += ms; order.push("waited"); if (order.length === 2) release(); await new Promise((r) => setTimeout(r, 0)); } },
+    { stub: store.stub, turn: "b", steps: { log: (fields) => logged.push(fields) }, changes: () => true, now: () => clock, sleep: async (ms) => { clock += ms; order.push("waited"); if (order.length === 2) release(); await new Promise((r) => setTimeout(r, 0)); } },
     async () => (order.push("second ran"), textResult("wrote too")),
   );
   const running = first("write", {});
@@ -50,6 +51,13 @@ test("a second turn waits for the first's change, then is told it ran", async ()
   assert.ok(order.indexOf("second ran") > order.indexOf("waited"));
   assert.equal(result.content.length, 2);
   assert.match(result.content[1].text, /Another turn in this chat just ran write/);
+  // The wait is a step in the chat's ledger (Dev2, 2026-11-13: every step logs its time).
+  assert.equal(logged.length, 1);
+  assert.equal(logged[0].step, "lane");
+  assert.equal(logged[0].name, "write");
+  assert.equal(logged[0].ok, true);
+  assert.ok(logged[0].ms > 0);
+  assert.equal(logged[0].output.before.tool, "write");
 });
 
 test("a read never takes the lock", async () => {

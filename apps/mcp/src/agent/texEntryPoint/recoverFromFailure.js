@@ -12,6 +12,7 @@ export async function recoverFromFailure(t, error) {
 outcome.clean = false;
 if (steer !== null) await tex.step("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));
 if (opened !== null) await tex.after("browser_close", () => opened.close());
+tex.logTo?.(chatLog, t.ledgerTurn); // the steps it took before it threw, with which one failed (`texTiming.js`)
 await tex.after("ledger", () => chatLog?.flush());
 await tex.step("usage_failed", () => meter(null, true));
 /*

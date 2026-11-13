@@ -544,3 +544,4 @@ bench/test/lab.test.mjs
 bench/test/stepLog.test.mjs
 test/runModel.test.mjs
 test/runModelWorker.test.mjs
+test/ledgerSteps.test.mjs
