@@ -12,13 +12,10 @@
  * has. A leaked table without the environment recovers nothing; with the
  * environment the signing key is already lost, which mints sessions outright.
  *
- * Why not Argon2id, bcrypt, scrypt or PBKDF2: an adaptive hash slows each
- * guess, but there are only a million guesses. Even at 100 ms each, a laptop
- * recovers a six-digit code from its hash in under a day, and a GPU in
- * minutes, well inside a code that lives ten minutes to fourteen days. The
- * secret key is what makes the stored value useless on its own. The lookups
- * also need the hash to be deterministic (the library finds a sign-in code by
- * it through an index), which a per-row salt would rule out.
+ * An adaptive hash can slow guessing, but a six-digit code has only a million
+ * possible values. The separate secret is what prevents a database-only
+ * attacker from verifying guesses offline. The library finds a sign-in code
+ * by its hash through an index, so this keyed lookup stays deterministic.
  *
  * Every code store uses a `purpose` of its own, so a value from one table
  * never matches in another. The `@convex-dev/auth` patch computes the same

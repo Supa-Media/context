@@ -66,8 +66,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function issue(t: TestConvex, email: string, days?: number) {
-  return await t.mutation(internal.functions.signInCodes.issue, { email, ...(days === undefined ? {} : { days }) });
+async function issue(t: TestConvex, email: string) {
+  return await t.mutation(internal.functions.signInCodes.issue, { email });
 }
 
 async function signIn(t: TestConvex, provider: string, email: string, code: string) {
@@ -96,19 +96,66 @@ describe("an issued code", () => {
     expect((await signIn(t, REVIEWER.provider, REVIEWER.email, second.code)).tokens).toBeTruthy();
   });
 
-  test("expires: a review code lives at most fourteen days", async () => {
+  for (const account of ACCOUNTS) {
+    test(`expires at ten minutes, including the boundary, for ${account.email}`, async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const t = setupTest();
+      const { code, expiresAt } = await issue(t, account.email);
+      expect(expiresAt - Date.now()).toBe(10 * 60 * 1000);
+      vi.setSystemTime(expiresAt);
+      await expect(signIn(t, account.provider, account.email, code)).rejects.toThrow(/Could not verify code/);
+    });
+  }
+
+  test("still works just before its ten-minute expiry", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const t = setupTest();
-    const { code, expiresAt } = await issue(t, REVIEWER.email, 14);
-    expect(expiresAt - Date.now()).toBe(14 * 24 * 60 * 60 * 1000);
-    vi.setSystemTime(expiresAt + 1);
+    const { code, expiresAt } = await issue(t, REVIEWER.email);
+    vi.setSystemTime(expiresAt - 1);
+    expect((await signIn(t, REVIEWER.provider, REVIEWER.email, code)).tokens).toBeTruthy();
+  });
+
+  test("refuses the retired days override, or any other address", async () => {
+    const t = setupTest();
+    await expect(t.mutation(internal.functions.signInCodes.issue, { email: REVIEWER.email, days: 14 } as never)).rejects.toThrow();
+    await expect(issue(t, "customer@example.invalid")).rejects.toThrow(/only for/);
+  });
+
+  test("an already-issued multi-day code is refused after ten minutes from its original issue", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const t = setupTest();
+    const { code } = await issue(t, REVIEWER.email);
+    const oldIssue = Date.now() - 10 * 60 * 1000;
+    await t.run(async (ctx) => {
+      const [issued] = await ctx.db.query("issuedSignInCodes").collect();
+      const [verification] = await ctx.db.query("authVerificationCodes").collect();
+      await ctx.db.patch(issued!._id, { issuedAt: oldIssue, expiresAt: Date.now() + 14 * 24 * 60 * 60 * 1000 });
+      await ctx.db.patch(verification!._id, { expirationTime: Date.now() + 14 * 24 * 60 * 60 * 1000 });
+    });
+    await expect(signIn(t, REVIEWER.provider, REVIEWER.email, code)).rejects.toThrow(/Could not verify code/);
+    expect(await t.run((ctx) => ctx.db.query("authVerificationCodes").collect())).toEqual([]);
+    expect(await t.run((ctx) => ctx.db.query("issuedSignInCodes").collect())).toEqual([]);
+  });
+
+  test("an issued-provider code without its lifecycle record cannot sign in", async () => {
+    const t = setupTest();
+    const { code } = await issue(t, REVIEWER.email);
+    await t.run(async (ctx) => {
+      const [issued] = await ctx.db.query("issuedSignInCodes").collect();
+      await ctx.db.delete(issued!._id);
+    });
     await expect(signIn(t, REVIEWER.provider, REVIEWER.email, code)).rejects.toThrow(/Could not verify code/);
   });
 
-  test("refuses a lifetime past fourteen days, or for any other address", async () => {
+  test("guesses through another provider cannot consume an issued code's lifecycle", async () => {
     const t = setupTest();
-    for (const days of [0, 15, 1.5]) await expect(issue(t, REVIEWER.email, days)).rejects.toThrow(/days/);
-    await expect(issue(t, "customer@example.invalid")).rejects.toThrow(/only for/);
+    const { code } = await issue(t, REVIEWER.email);
+    for (let miss = 0; miss < 3; miss++) {
+      await expect(signIn(t, "email", REVIEWER.email, "000000")).rejects.toThrow();
+    }
+    const [row] = await t.run((ctx) => ctx.db.query("issuedSignInCodes").collect());
+    expect(row!.misses).toBe(0);
+    expect((await signIn(t, REVIEWER.provider, REVIEWER.email, code)).tokens).toBeTruthy();
   });
 
   test("opens only its own account", async () => {
@@ -144,17 +191,15 @@ describe("an issued code", () => {
     }
   });
 
-  test(`dies after ${MAX_ISSUED_CODE_MISSES} wrong codes in all, even across hours`, async () => {
+  test(`dies after ${MAX_ISSUED_CODE_MISSES} wrong codes before its expiry`, async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const t = setupTest();
-    const { code } = await issue(t, REVIEWER.email, 14);
+    const { code } = await issue(t, REVIEWER.email);
     const wrong = code === "111111" ? "222222" : "111111";
     for (let miss = 0; miss < MAX_ISSUED_CODE_MISSES; miss++) {
-      // An hour apart, so the per-hour limit alone would never stop them.
-      vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+      vi.setSystemTime(Date.now() + 1000);
       await expect(signIn(t, REVIEWER.provider, REVIEWER.email, wrong)).rejects.toThrow(/Could not verify code/);
     }
-    vi.setSystemTime(Date.now() + 60 * 60 * 1000);
     await expect(signIn(t, REVIEWER.provider, REVIEWER.email, code)).rejects.toThrow(/Could not verify code/);
     expect(await t.run((ctx) => ctx.db.query("authVerificationCodes").collect())).toEqual([]);
   });
@@ -228,7 +273,7 @@ describe("mailing a review code to the team", () => {
       return new Response("{}", { status: 200 });
     }) as never;
     const t = setupTest();
-    const answer = await t.action(internal.functions.signInCodes.mailToTeam, { email: REVIEWER.email, days: 3 });
+    const answer = await t.action(internal.functions.signInCodes.mailToTeam, { email: REVIEWER.email });
     expect(Object.keys(answer).sort()).toEqual(["expiresAt", "mailed"]);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.to).toBe("team@example.invalid");

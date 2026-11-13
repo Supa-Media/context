@@ -27,14 +27,10 @@ export const STAGING_PERSONAS: ReadonlyArray<string> = ["alpha", "beta", "gamma"
   (name) => `${name}@supa.media`,
 );
 
-/** A review can take days; no issued code outlives two weeks. */
-export const MAX_ISSUED_CODE_DAYS = 14;
-/** A persona's code is for a script or a person about to type it: the ordinary ten minutes. */
-export const PERSONA_CODE_LIFETIME_MS = 10 * 60 * 1000;
+/** Every issued verifier has the same ten-minute lifetime as a customer's code (CASA 1.3.1). */
+export const ISSUED_CODE_LIFETIME_MS = 10 * 60 * 1000;
 /** Wrong codes in all against one issued code, on top of the ten an hour per address. */
 export const MAX_ISSUED_CODE_MISSES = 10;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type IssueTarget = { email: string; provider: string; lifetimeMs: number };
 
@@ -44,21 +40,16 @@ export type IssueTarget = { email: string; provider: string; lifetimeMs: number 
  */
 export function issueTarget(
   email: string,
-  days: number | undefined,
   env: Record<string, string | undefined> = process.env,
 ): IssueTarget | { refused: string } {
   const address = email.trim().toLowerCase();
   const account = ISSUED_CODE_ACCOUNTS.find((entry) => entry.email === address);
   if (account !== undefined) {
-    const wanted = days ?? 7;
-    if (!Number.isInteger(wanted) || wanted < 1 || wanted > MAX_ISSUED_CODE_DAYS) {
-      return { refused: `days must be a whole number from 1 to ${MAX_ISSUED_CODE_DAYS}` };
-    }
-    return { email: address, provider: account.provider, lifetimeMs: wanted * DAY_MS };
+    return { email: address, provider: account.provider, lifetimeMs: ISSUED_CODE_LIFETIME_MS };
   }
   if (STAGING_PERSONAS.includes(address)) {
     if (!isIsolatedStaging(env)) return { refused: "staging personas are issued codes only on staging" };
-    return { email: address, provider: "email", lifetimeMs: PERSONA_CODE_LIFETIME_MS };
+    return { email: address, provider: "email", lifetimeMs: ISSUED_CODE_LIFETIME_MS };
   }
   return { refused: "codes are issued only for the CUJ, reviewer and staging persona accounts" };
 }
@@ -117,6 +108,30 @@ async function dropCodes(ctx: MutationCtx, provider: string, email: string): Pro
 type VerifyCall = { type?: unknown; provider?: unknown; params?: { email?: unknown } };
 
 /**
+ * Bound a verifier by its original issue time before the library can accept it.
+ * Older deployments issued codes for days. Changing only issuance would leave
+ * those rows usable for days after this deploy. Expire them at ten minutes too,
+ * deleting both rows in this same transaction. An issued-code provider also
+ * refuses an orphan code: without its lifecycle row, its age is not known.
+ */
+export async function beforeVerification(ctx: MutationCtx, call: VerifyCall): Promise<boolean> {
+  if (call?.type !== "verifyCodeAndSignIn" || typeof call.params?.email !== "string") return true;
+  const email = call.params.email.trim().toLowerCase();
+  const row = await ctx.db.query("issuedSignInCodes").withIndex("by_email", (q) => q.eq("email", email)).first();
+  if (row === null) {
+    const account = ISSUED_CODE_ACCOUNTS.find((entry) => entry.email === email && entry.provider === call.provider);
+    if (account === undefined) return true;
+    await dropCodes(ctx, account.provider, email);
+    return false;
+  }
+  if (row.provider !== call.provider) return true;
+  if (Math.min(row.expiresAt, row.issuedAt + ISSUED_CODE_LIFETIME_MS) > Date.now()) return true;
+  await dropCodes(ctx, row.provider, email);
+  await ctx.db.delete(row._id);
+  return false;
+}
+
+/**
  * After the library has answered a verification: a right code ends the
  * issued code's bookkeeping, and the tenth wrong one deletes the code.
  *
@@ -128,7 +143,7 @@ export async function afterVerification(ctx: MutationCtx, call: VerifyCall, resu
   if (call?.type !== "verifyCodeAndSignIn" || typeof call.params?.email !== "string") return;
   const email = call.params.email.trim().toLowerCase();
   const row = await ctx.db.query("issuedSignInCodes").withIndex("by_email", (q) => q.eq("email", email)).first();
-  if (row === null) return;
+  if (row === null || row.provider !== call.provider) return;
   if (result !== null) {
     await ctx.db.delete(row._id);
     return;
