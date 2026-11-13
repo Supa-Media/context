@@ -120,6 +120,20 @@ did not have to leave a case behind.
    in the pull request. Production's wait to the first text is judged hourly.
    See [tex-speed-budgets](../observability/tex-speed-budgets.md).
 
+9. **Without API credits, an examiner answers** (decided by the owner,
+   2026-11-13, choosing "Separate examiner session"). The bench's model socket
+   (`bench/modelSocket.mjs`, `BENCH_MODEL_SOCKET` / `BENCH_MODEL_REPLAY`) writes
+   each Claude call out by the hash of exactly what would be sent, and a separate
+   session that did not write the change answers it
+   ([examiner](../../testing/examiner.md)). The answers go to
+   `@context-lc ai/results/examiner/<sha>.md`. **Tex replay** dispatched with
+   `examiner: true` rebuilds every call from the commit, answers it from that
+   note (a call with no answer fails the run), and scores and compares against
+   main itself. Only `respond` and `review` are examined so far
+   (`SOCKET_AREAS`); a socketed run that reaches another area is refused rather
+   than sent to the real model. The judge keeps its real Workers AI model unless
+   `BENCH_MODEL_SOCKET_KINDS` names `workers-ai`.
+
 ## What a simplification costs
 
 Dropping rule 2 lets a fix land with no case, and the same break returns

@@ -14,6 +14,11 @@ name: Tex replay
 
 on:
   workflow_dispatch:
+    inputs:
+      examiner:
+        description: "Score the examiner session's answers for this commit (ai/results/examiner/<sha>) instead of calling Claude"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -130,6 +135,16 @@ jobs:
         if: steps.areas.outputs.areas != ''
         run: pnpm --silent ai gate held-out --dir "$RUNNER_TEMP/held-out"
 
+      # With no API credits (Dev2, 2026-11-13): a separate examiner session answered this
+      # commit's Claude calls (apps/mcp/bench/modelSocket.mjs); every call is rebuilt here
+      # from this commit and answered from those answers, and the scoring is this run's own.
+      - name: Pull the examiner's answers for this commit
+        if: steps.areas.outputs.areas != '' && inputs.examiner
+        run: |
+          set -euo pipefail
+          pnpm --silent ai socket pull --sha "$HEAD_SHA" --out "$RUNNER_TEMP/examiner.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "BENCH_MODEL_REPLAY=$RUNNER_TEMP/examiner.json" >> "$GITHUB_ENV"
+
       # The core area answers as the live setup, in each tree's own code: the
       # setup and the tests edited in Context go into both trees' bench folders.
       - name: Pull the live setup into both trees (core area)
@@ -182,9 +197,11 @@ jobs:
           AREAS: ${{ steps.areas.outputs.areas }}
           NAMED: ${{ steps.areas.outcome }}
           SIGNIN: ${{ steps.signin.outcome }}
+          EXAMINER: ${{ inputs.examiner }}
         run: |
           set -euo pipefail
           if [ -z "$AREAS" ] && [ "$NAMED" = "success" ]; then state=success; description="No model area reached: plumbing replays only"
+          elif [ "$OUTCOME" = "success" ] && [ "$EXAMINER" = "true" ]; then state=success; description="Nothing regressed against main (examiner's answers, scored here)"
           elif [ "$OUTCOME" = "success" ]; then state=success; description="Nothing regressed against main"
           elif [ "$SIGNIN" = "failure" ]; then state=failure; description="Runner sign-in failed: if the grant was revoked, a person must run pnpm ai connect"
           else state=failure; description="Regressed against main, or the run failed: read the run's summary"; fi

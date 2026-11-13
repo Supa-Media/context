@@ -38,6 +38,7 @@ import { calibrateCommand } from "./calibrate.mjs";
 import { reviewCommand } from "./review.mjs";
 import { respondCommand } from "./respond.mjs";
 import { gateCommand } from "./replayGate.mjs";
+import { socketCommand } from "./modelSocket.mjs";
 import { nightlyCommand } from "./nightly.mjs";
 import { driftCommand } from "./drift.mjs";
 import { jobstartCommand } from "./jobstart.mjs";
@@ -548,6 +549,7 @@ const USAGE = [
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
   "       pnpm ai review [--set a,b] [--concurrency <n>] [--fake]   score the reply reviewer on its labelled cases",
   "       pnpm ai respond [--concurrency <n>] [--fake]   score the one judge's respond-or-quiet call (Clef) on its held-out cases",
+  "       pnpm ai socket next|answer|publish|pull   the model socket: an examiner session answers the gate's calls",
   "       pnpm ai gate --base <main checkout> [--areas respond,review] [--held-out <dir>] | gate areas --base-sha <sha> | gate held-out --dir <dir>",
   "       pnpm ai nightly [--held-out <dir>] [--areas core,tasks] [--out <file>] [--run-url <url>]   every area, 3 runs, one scoreboard note",
   "       pnpm ai drift [--day YYYY-MM-DD]             live conversations' scores against the week before; exit 3 on a drop",
@@ -574,6 +576,7 @@ const COMMANDS = new Map([
   ["review", reviewCommand],
   ["respond", respondCommand],
   ["gate", gateCommand],
+  ["socket", (options) => socketCommand(options, { connect: () => signIn({ env: process.env }) })],
   ["nightly", nightlyCommand],
   ["drift", driftCommand],
   ["jobstart", jobstartCommand],
