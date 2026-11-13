@@ -4,7 +4,7 @@
  * group review of 2026-10-30: "tex, settings" waited four minutes behind
  * another turn, though its menu needs nothing that turn has.
  *
- * Only these, so a chat still runs one model turn at a time: the commands
+ * Only these, never a model turn (those run side by side up to the chat's cap, `groupTurnRun.ts`): the commands
  * (`groupCommand`, which the control plane answers with no grant to mint)
  * and an SMS group's fixed line. A yes, a 👍, a routine's run or a job's report
  * still waits: each is a model turn.
@@ -23,13 +23,14 @@ export function answeredByCode(item: GroupPending): boolean {
   return item.byCode === true && groupCommand(item.message.text) !== null;
 }
 
-/** Answer, oldest first, each waiting message code answers alone that the handed turn (`keys`) does not hold. */
-export async function answerBesideTurn(storage: InboxStorage, deps: GroupDeps, keys: readonly string[]): Promise<void> {
+/** Answer, oldest first, each waiting message code answers alone that no handed turn (`keys`) holds. True when one failed and waits for its retry. */
+export async function answerBesideTurn(storage: InboxStorage, deps: GroupDeps, keys: readonly string[]): Promise<boolean> {
   const waiting: GroupEntry[] = [...(await storage.list<GroupPending>({ prefix: "gpending:" }))];
   for (const entry of waiting) {
     if (keys.includes(entry[0]) || !answeredByCode(entry[1])) continue;
     console.log(JSON.stringify({ event: "group_turn", outcome: "beside_turn" }));
     // A retry is set for it (the alarm, RETRY_MS): the rest wait for that alarm too.
-    if (await answerInline(storage, [entry], deps)) return;
+    if (await answerInline(storage, [entry], deps)) return true;
   }
+  return false;
 }

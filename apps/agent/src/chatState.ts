@@ -8,7 +8,9 @@
  * - gathering: decide said wait N seconds on a burst still being typed; the
  *   chat's alarm decides again when the wait ends, or at once when a new
  *   message lands (`version` moved).
- * - drafting: one model turn is writing (the one-turn-at-a-time rule).
+ * - drafting: a model turn is writing. Up to three run side by side, one per
+ *   asker (Dev2, 2026-11-13, one turn per text): `turns` counts them, and the
+ *   chat is idle again only when the last one is done.
  * - sending: its parts are going out.
  *
  * Guards that keep a model from looping: at most `MAX_CHAT_WAITS` waits per
@@ -41,6 +43,8 @@ export type ChatState = {
   gatheredAt?: number;
   waits: number;
   redrafts: number;
+  /** Model turns running now; absent on a state kept before turns ran side by side (then one while drafting or sending). */
+  turns?: number;
 };
 
 export const CHAT_STATE_KEY = "gstate";
@@ -56,8 +60,8 @@ const IDLE: ChatState = { phase: "idle", version: 0, waits: 0, redrafts: 0 };
 const NEXT: Record<ChatPhase, Partial<Record<ChatEvent, ChatPhase>>> = {
   idle: { message: "idle", wait: "gathering", start: "drafting", silent: "idle" },
   gathering: { message: "gathering", wait: "gathering", start: "drafting", silent: "idle" },
-  drafting: { message: "drafting", redraft: "drafting", send: "sending", cancelled: "idle", done: "idle", failed: "idle" },
-  sending: { message: "sending", redraft: "drafting", send: "sending", cancelled: "idle", done: "idle", failed: "idle" },
+  drafting: { message: "drafting", start: "drafting", redraft: "drafting", send: "sending", cancelled: "idle", done: "idle", failed: "idle" },
+  sending: { message: "sending", start: "drafting", redraft: "drafting", send: "sending", cancelled: "idle", done: "idle", failed: "idle" },
 };
 
 export type StepOptions = { now: number; burst?: boolean; seconds?: number };
@@ -78,9 +82,17 @@ export function stillGathering(state: ChatState, now: number): boolean {
 }
 
 /** The next state, or why the event is refused here. Pure: `chatEvent` persists and logs it. */
+/** How many model turns the state says run now. */
+export function runningTurns(state: ChatState): number {
+  return state.turns ?? (state.phase === "drafting" || state.phase === "sending" ? 1 : 0);
+}
+
 export function step(state: ChatState, event: ChatEvent, { now, burst = false, seconds = 0 }: StepOptions): Step {
   const phase = NEXT[state.phase][event];
   if (phase === undefined) return { ok: false, reason: `${event}_in_${state.phase}` };
+  // Another turn still runs: one ending leaves the chat drafting, its burst's counts kept.
+  const left = runningTurns(state) - 1;
+  if ((event === "done" || event === "failed" || event === "cancelled") && left > 0) return { ok: true, state: { ...state, turns: left } };
   switch (event) {
     case "message":
       return { ok: true, state: { ...state, version: state.version + 1, ...(burst && state.burstAt === undefined ? { burstAt: now } : {}) } };
@@ -95,10 +107,11 @@ export function step(state: ChatState, event: ChatEvent, { now, burst = false, s
       if (!canRedraft(state)) return { ok: false, reason: "redraft_cap" };
       return { ok: true, state: { ...state, phase, redrafts: state.redrafts + 1 } };
     case "start":
+      return { ok: true, state: { ...state, phase, until: undefined, gatheredAt: undefined, turns: runningTurns(state) + 1 } };
     case "send":
       return { ok: true, state: { ...state, phase, until: undefined, gatheredAt: undefined } };
     case "cancelled":
-      return { ok: true, state: { ...state, phase } };
+      return { ok: true, state: { ...state, phase, turns: 0 } };
     default:
       // silent, done, failed: the burst is over.
       return { ok: true, state: { ...IDLE, version: state.version } };

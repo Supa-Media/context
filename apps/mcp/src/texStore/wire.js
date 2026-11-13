@@ -71,7 +71,7 @@ const unknownOp = () => Response.json({ error: "unknown_op" }, { status: 400 });
  * (`{schedule(alarm), cancel(id)}`, `texStore.js`); without it the alarm
  * calls are unknown.
  */
-export async function serveTexStore(stored, request, timers = null, live = null) {
+export async function serveTexStore(stored, request, timers = null, live = null, locks = null) {
   // The chat's history file is answered from its ledger, never kept (`historyView.js`).
   const objects = withHistoryView(stored);
   let call;
@@ -98,6 +98,13 @@ export async function serveTexStore(stored, request, timers = null, live = null)
         if (!timers) return unknownOp();
         await timers.cancel(call.id);
         return Response.json({ ok: true });
+      // A group chat's write lock (`writeLock.js`): only a chat's own store has one.
+      case "write_lock":
+        if (!locks) return unknownOp();
+        return Response.json(locks.take({ turn: call.turn, tool: call.tool }));
+      case "write_unlock":
+        if (!locks) return unknownOp();
+        return Response.json(locks.give({ turn: call.turn }));
       case "head":
         return new Response(null, { headers: { [META]: pack(objects.head(call.key)) } });
       case "get": {

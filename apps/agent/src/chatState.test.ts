@@ -16,8 +16,8 @@ const EVENTS: ChatEvent[] = ["message", "wait", "start", "silent", "redraft", "s
 const EXPECTED: Record<ChatPhase, Record<ChatEvent, ChatPhase | null>> = {
   idle: { message: "idle", wait: "gathering", start: "drafting", silent: "idle", redraft: null, send: null, cancelled: null, done: null, failed: null },
   gathering: { message: "gathering", wait: "gathering", start: "drafting", silent: "idle", redraft: null, send: null, cancelled: null, done: null, failed: null },
-  drafting: { message: "drafting", wait: null, start: null, silent: null, redraft: "drafting", send: "sending", cancelled: "idle", done: "idle", failed: "idle" },
-  sending: { message: "sending", wait: null, start: null, silent: null, redraft: "drafting", send: "sending", cancelled: "idle", done: "idle", failed: "idle" },
+  drafting: { message: "drafting", wait: null, start: "drafting", silent: null, redraft: "drafting", send: "sending", cancelled: "idle", done: "idle", failed: "idle" },
+  sending: { message: "sending", wait: null, start: "drafting", silent: null, redraft: "drafting", send: "sending", cancelled: "idle", done: "idle", failed: "idle" },
 };
 
 const at = (phase: ChatPhase, more: Partial<ChatState> = {}): ChatState => ({ phase, version: 3, waits: 0, redrafts: 0, burstAt: 1_000, ...more });
@@ -36,6 +36,26 @@ describe("every phase and event", () => {
       });
     }
   }
+});
+
+describe("turns side by side (Dev2, 2026-11-13, one turn per text)", () => {
+  it("a second turn starts while one drafts, and the chat is idle only when the last is done", () => {
+    let state: ChatState = { phase: "idle", version: 0, waits: 0, redrafts: 0 };
+    for (const event of ["start", "start"] as const) {
+      const next = step(state, event, { now: 1 });
+      if (next.ok) state = next.state;
+    }
+    expect(state).toMatchObject({ phase: "drafting", turns: 2 });
+    const first = step(state, "done", { now: 2 });
+    expect(first.ok && first.state).toMatchObject({ phase: "drafting", turns: 1 });
+    const last = first.ok ? step(first.state, "done", { now: 3 }) : first;
+    expect(last.ok && last.state.phase).toBe("idle");
+  });
+
+  it("a state kept before turns ran side by side counts its one turn", () => {
+    const next = step({ phase: "drafting", version: 4, waits: 0, redrafts: 0 }, "done", { now: 1 });
+    expect(next.ok && next.state.phase).toBe("idle");
+  });
 });
 
 describe("the guards", () => {

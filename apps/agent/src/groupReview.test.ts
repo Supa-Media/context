@@ -81,7 +81,8 @@ for (const { name, groupId } of LINES) {
       const draining = drainGroup(storage, w.deps);
       await w.running;
       expect(await acceptGroup(storage, w.message("Tex make it blue"), 10)).toBe("queued");
-      expect(await acceptGroup(storage, w.message("Tex where is it", { from: BO }), 11)).toBe("queued");
+      // Bo's is not Ada's turn's to decide (2026-11-13: a turn is only its asker's): kept for the judge, then answered.
+      expect(await acceptGroup(storage, w.message("Tex where is it", { from: BO }), 11)).toBe("kept");
       w.release();
       await draining;
       await drainGroup(storage, w.deps);
@@ -116,7 +117,8 @@ for (const { name, groupId } of LINES) {
       const draining = drainGroup(storage, w.deps);
       await w.running;
       gate = new Promise<void>((resolve) => (open = resolve));
-      const late = w.message("Tex and a poster", { from: BO });
+      // The asker's own: only their running turn decides a message mid-turn (2026-11-13).
+      const late = w.message("Tex and a poster", { messageId: "h_late", eventId: "sendblue:late" });
       const first = acceptGroup(storage, late, 10);
       while (!w.decided.some((body) => body.running)) await new Promise((resolve) => setTimeout(resolve, 1));
       expect(await acceptGroup(storage, late, 11)).toBe("ignored");
