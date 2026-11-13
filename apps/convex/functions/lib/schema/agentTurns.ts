@@ -71,6 +71,8 @@ export const agentTurnTables = {
         tool: v.optional(v.string()),
         // tool: which of the tool's actions ran (`write`'s `save`), a name from its fixed list, never an argument's value.
         action: v.optional(v.string()),
+        // tool: which of the six it was called as (`write`), when it ran as an older tool (`write_note`).
+        six: v.optional(v.string()),
         // router: the tier picked and the model it runs on; fallback: the model
         // the turn went on with. Model names only, as `model` above.
         tier: v.optional(v.union(v.literal("main"), v.literal("think"))),

@@ -7,6 +7,7 @@ type TraceEntry = {
   kind: "model" | "tool" | "router" | "fallback";
   tool?: string;
   action?: string;
+  six?: string;
   tier?: "main" | "think";
   confidence?: number;
   model?: string;
@@ -29,7 +30,7 @@ function traceOf(value: unknown): TraceEntry[] | null {
   const trace: TraceEntry[] = [];
   for (const entry of value) {
     if (typeof entry !== "object" || entry === null) return null;
-    const { kind, tool, action, tier, confidence, model, status, retried, cut, held, ok, ms } = entry as Record<string, unknown>;
+    const { kind, tool, action, six, tier, confidence, model, status, retried, cut, held, ok, ms } = entry as Record<string, unknown>;
     // A reply gate's verdict (`replyJudge.js` via `wireTraceEntry`): kept in the chat's history
     // (`judgeEvent`), not in this log. Skipped, so a judged turn keeps its row and its priced usage.
     if (kind === "judge") continue;
@@ -37,6 +38,7 @@ function traceOf(value: unknown): TraceEntry[] | null {
     if (typeof ok !== "boolean" || typeof ms !== "number") return null;
     if (tool !== undefined && typeof tool !== "string") return null;
     if (action !== undefined && typeof action !== "string") return null;
+    if (six !== undefined && typeof six !== "string") return null;
     if (tier !== undefined && tier !== "main" && tier !== "think") return null;
     if (confidence !== undefined && typeof confidence !== "number") return null;
     if (model !== undefined && typeof model !== "string") return null;
@@ -50,6 +52,7 @@ function traceOf(value: unknown): TraceEntry[] | null {
       ms,
       ...(tool === undefined ? {} : { tool }),
       ...(action === undefined ? {} : { action }),
+      ...(six === undefined ? {} : { six }),
       ...(tier === undefined ? {} : { tier }),
       ...(confidence === undefined ? {} : { confidence }),
       ...(model === undefined ? {} : { model }),
