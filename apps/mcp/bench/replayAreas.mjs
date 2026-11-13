@@ -9,6 +9,13 @@
 export const AREAS = {
   respond: [/^packages\/shared\/src\/textDecide/, /^apps\/agent\/src\/.*decide/i, /^apps\/mcp\/bench\/respond\//],
   review: [/^apps\/mcp\/src\/agent\/(replyJudge|sendBack|recheck|replyChecks)/, /^apps\/mcp\/bench\/review\//],
+  // The front door, the prompt and the turn (Dev2, 2026-11-13): the steps every text takes to an answer, the prompt
+  // they assemble, and the core set and simple asks that measure them (`coreArea.mjs`).
+  core: [
+    /^apps\/mcp\/src\/agent\/texEntryPoint(\.js$|\/)/,
+    /^apps\/mcp\/src\/agent\/(frontDoor|turn|turnPrompt|turnStages|threadedTurn|loggedTurn|prompt|promptModules|promptFence|promptNames|production|modelPlan|router|advisor|sixTools|customInstructions)\.js$/,
+    /^apps\/mcp\/bench\/ai\/tests\/(core|simple-asks)\.md$/,
+  ],
 };
 
 /** The model areas a change's files reach, in a fixed order. */
