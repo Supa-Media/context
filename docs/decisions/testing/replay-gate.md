@@ -40,10 +40,26 @@ did not have to leave a case behind.
    to tell a regression from noise. Golden browser tasks run nightly, not per
    change. Measured costs (`@context-lc ai/results/spend.md`, 2026-11-12):
    core x2 $0.13, web facts $0.08, simple asks $0.01.
+   **How it runs:** the model runs need production's AI keys, and a workflow
+   holding those never runs on a pushed branch by itself
+   (`scripts/check-workflow-triggers.mjs`). So the agent that opens a Tex pull
+   request dispatches **Tex replay** (`tex-replay.yml`) on its branch. It runs
+   `pnpm ai gate` (`apps/mcp/bench/replayGate.mjs`) against main beside it,
+   marks the head commit with the status `Tex replay`, and re-runs the pull
+   request's check **Tex replay required** (`tex-replay-check.yml`,
+   `scripts/tex-replay-required.mjs`), which holds no secret and is red until
+   that status is green. The run's summary is the feedback for the change's
+   author: which cases regressed and what each expected, held-out ones by cause.
+   Main is never run whole: the change answers every case once, only its
+   mistakes are run again (twice more on the change, three times on main), and
+   a case regressed when it is wrong in most of the change's runs and right in
+   most of main's. A case main lacks (the change's own) must pass.
 4. **Practice cases and held-out cases.** Cases in the repository are practice:
    agents may read them and learn from their failures. Held-out cases live
    outside the repository and are never shown to the agent writing a change;
-   a held-out failure is reported by its cause only. No prompt or judge
+   a held-out failure is reported by its cause only. They are
+   `@context-lc ai/held-out/<area>.md`, each a JSON block of cases with a
+   `cause`, pulled at run time into the runner's temp folder. No prompt or judge
    example may be within half its words of any case (`respond.test.mjs`
    already checks this for the judge).
 

@@ -222,6 +222,12 @@ and a new capability removes or narrows the `cant` it replaces
 [capabilities](./docs/decisions/texting-assistant/capabilities.md));
 `apps/mcp/test/capabilities.test.mjs` fails when a tool or command is missing.
 
+**Tex changes merge through the replay gate**
+([replay-gate](./docs/decisions/testing/replay-gate.md); decided by the owner,
+2026-11-13): a Tex change adds the case that proves it, and one that reaches a
+model area dispatches **Tex replay** on its branch before **Tex replay
+required** can go green.
+
 ## Vocabulary
 
 One user-facing noun for a context (decided by the owner, 2026-09-13, reversing

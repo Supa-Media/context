@@ -1,0 +1,39 @@
+# The pull request's required check for the replay gate's model half
+# (docs/decisions/testing/replay-gate.md; scripts/tex-replay-required.mjs).
+# Holds no secret: it reads which model areas the change reaches and, when
+# any, passes only on a successful "Tex replay" status on the head commit,
+# which the dispatched "Tex replay" run sets, then re-runs this.
+
+name: Tex replay required
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  statuses: read
+
+concurrency:
+  group: tex-replay-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  required:
+    name: Tex replay passed on this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: The replay gate's model half passed, or the change reaches no model area
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/tex-replay-required.mjs --self-test
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          node scripts/tex-replay-required.mjs
