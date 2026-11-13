@@ -6,13 +6,12 @@
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { WHEN, WIRES } from "../../data/graph";
-import { edit, G, lab, node, set } from "../../engine/state";
+import { delSel, edit, G, lab, node, set } from "../../engine/state";
 import type { LabEdge } from "../../types";
 import { useLab } from "../../store";
 import { Ic } from "../ic";
 import { WireIcon } from "../parts";
 import { onCommit } from "./change";
-import { delSel } from "./NodePanel.web";
 
 /** Toggle a "fires when" entry: "always" stands alone; any other entry replaces it. */
 function toggleWhen(i: number, t: string) {

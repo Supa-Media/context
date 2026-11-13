@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { AREAS, EXAMINABLE } from "../../data/areas";
 import { NODE_INFO, WIRES } from "../../data/graph";
 import { cacheShare, ctxTokens, fmtS, fmtUsd, outTok, simulate } from "../../engine/sim";
-import { edit, G, go, lab, MODELS, node, set, toast } from "../../engine/state";
+import { delSel, edit, G, go, lab, MODELS, node, set } from "../../engine/state";
 import { scnLabel } from "../../engine/traces";
 import { useLab } from "../../store";
 import type { LabNode } from "../../types";
@@ -18,34 +18,6 @@ import { onCommit } from "./change";
 import { EditModelLink, getModelForm, ModelForm, NewModelButton } from "./ModelForm.web";
 import { OutputGrp } from "./OutputFields.web";
 import { AddPicker, ReadsStack } from "./ReadsStack.web";
-
-/** Delete the selected step (and its wires and context entries) or wire. Undo brings it back. */
-export function delSel() {
-  const s = lab.sel;
-  if (!s) return;
-  if (s.t === "node") {
-    if (["text", "send"].includes(s.id)) {
-      toast("Every version needs a start and a send");
-      return;
-    }
-    const id = s.id;
-    edit(() => {
-      const g = G();
-      g.nodes = g.nodes.filter((n) => n.id !== id);
-      g.edges = g.edges.filter((e) => e.from !== id && e.to !== id);
-      g.nodes.forEach((n) => (n.ctx = n.ctx.filter((c) => c !== "out:" + id)));
-      lab.sel = null;
-    });
-    toast("Deleted. Undo brings it back.");
-  } else {
-    const i = s.i;
-    edit(() => {
-      G().edges.splice(i, 1);
-      lab.sel = null;
-    });
-    toast("Wire deleted");
-  }
-}
 
 /** The artifact's `set(k, v)` in the node branch: edits the step by id, so a fork of main is taken first. */
 function setNode<K extends keyof LabNode>(id: string, k: K, v: LabNode[K]) {
