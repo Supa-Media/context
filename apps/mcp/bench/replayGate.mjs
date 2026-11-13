@@ -12,8 +12,11 @@
  *
  * Main is never run whole. The change's tree answers every case once; only
  * the cases it gets wrong are run again, twice more on the change and three
- * times on main, and a case regressed when the change is wrong in most of its
- * three and main right in most of its three. So a change pays for one full
+ * times on main, and a case regressed when the change is wrong in every one of
+ * its three and main right in every one of its three. A case the model gets
+ * right only some of the time flips either way on the same code (the first
+ * real run, 2026-11-13, saw three such "regressions" in a change that touched
+ * no reviewer code), so only a steady flip counts. So a change pays for one full
  * run plus its mistakes, and noise (a case that flips once) is not a
  * regression. The change passes when nothing regressed.
  *
@@ -34,7 +37,7 @@ import { runCore } from "./coreArea.mjs";
 const run = promisify(execFile);
 
 export { AREAS, areasFor } from "./replayAreas.mjs";
-import { AREAS } from "./replayAreas.mjs";
+import { AREAS, areasFor } from "./replayAreas.mjs";
 
 export const HELD_OUT_FOLDER = "ai/held-out";
 export const HELD_OUT_PREFIX = "held-out/";
@@ -81,17 +84,26 @@ export function rowsFor(area, scored) {
   return scored.map((item) => {
     const right = area === "respond" ? (item.want === "hush" ? item.hushed === true : item.hushed === false && item.verdict?.ok === true) : item.fault ? item.sent === false : item.sent === true;
     const expected = area === "respond" ? (item.want === "hush" ? "stay quiet or react" : "reach the model") : item.fault ? "send it back" : "let it go";
-    return { id: item.id, right, must: item.must === true, heldOut: item.heldOut === true, cause: item.cause ?? null, expected };
+    return { id: item.id, right, must: item.must === true, heldOut: item.heldOut === true, target: Boolean(item.target), cause: item.cause ?? null, expected };
   });
 }
 
 /**
- * Cases a change got wrong in most runs that main got right in most, and cases main does not have (the change's own
- * new ones) that the change got wrong in most: a change must pass the cases it adds. `runs` maps id to booleans.
+ * Cases a change got wrong in every run that main got right in every run, and cases main does not have (the change's
+ * own new ones) that the change got wrong in most: a change must pass the cases it adds. `runs` maps id to booleans.
+ * A case right some of the time on main is the model's coin, not this change's doing, so it never regresses.
  */
 export function regressions(branchRuns, mainRuns) {
   const most = (list) => list.filter(Boolean).length * 2 > list.length;
-  return Object.keys(branchRuns).filter((id) => !most(branchRuns[id]) && (!mainRuns[id]?.length || most(mainRuns[id])));
+  const every = (list) => list.length > 0 && list.every(Boolean);
+  const none = (list) => list.length > 0 && !list.some(Boolean);
+  return Object.keys(branchRuns).filter((id) => (mainRuns[id]?.length ? none(branchRuns[id]) && every(mainRuns[id]) : !most(branchRuns[id])));
+}
+
+/** The regressed ids that block a merge: a target (`target: "<cause>"`, a known unfixed bug) is reported, never blocks. */
+export function blocking(ids, rows) {
+  const targets = new Set(rows.filter((row) => row.target).map((row) => row.id));
+  return ids.filter((id) => !targets.has(id));
 }
 
 /**
@@ -106,6 +118,8 @@ export function feedback({ areas, results }) {
   for (const result of results) {
     const practice = result.rows.filter((row) => !row.heldOut);
     const held = result.rows.filter((row) => row.heldOut);
+    const targets = result.rows.filter((row) => row.target);
+    if (targets.length) lines.push(`**${result.area} targets** (known bugs, never block): ${targets.filter((row) => row.right).length}/${targets.length} right.`);
     lines.push(`**${result.area}:** practice ${practice.filter((row) => row.right).length}/${practice.length} right, held-out ${held.filter((row) => row.right).length}/${held.length} right; spent about $${result.usd.toFixed(2)}.`);
   }
   lines.push("");
@@ -180,12 +194,6 @@ export const RUNNERS = {
 async function baseHas(base, area) {
   const mod = await import(pathToFileURL(join(base, "apps/mcp/bench/replayAreas.mjs")).href).catch(() => null);
   return Boolean(mod?.AREAS?.[area]);
-}
-
-/** The regressed ids that block: a target (a known bug, `target:`) never does. */
-export function blocking(ids, rows) {
-  const targets = new Set(rows.filter((row) => row.target).map((row) => row.id));
-  return ids.filter((id) => !targets.has(id));
 }
 
 export async function gate({ branch, base, areas, heldOut = null, fake = false, scratch, runners = RUNNERS, limits = AREA_LIMITS, hasArea = baseHas }) {
