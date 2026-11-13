@@ -17,8 +17,10 @@ import { post, record, type Fetch } from "./clients";
 import { staleAsks } from "./decide";
 import type { InboxStorage } from "./inbox";
 import { cut, cutText, MAX_INBOUND_TEXT } from "./inbound";
+import type { StepRecord } from "./stepEvents";
 
-export type EventKind = "text" | "picture" | "file" | "link" | "reaction" | "ask" | "ask_settled" | "delivery";
+/** `step`: one of this Worker's own steps for the ledger (`stepEvents.ts`), never a line of the chat: no reader of the outbox shows it. */
+export type EventKind = "text" | "picture" | "file" | "link" | "reaction" | "ask" | "ask_settled" | "delivery" | "step";
 export type EventReason = "upload_failed" | "send_refused" | "held_newcomer" | "failed" | "timed_out" | "too_long";
 
 export type TexEvent = {
@@ -41,6 +43,8 @@ export type TexEvent = {
   told?: string;
   /** On kind "ask" only: the approval record the gateway armed. */
   ask?: string;
+  /** On kind "step" only: the step (`stepEvents.ts`). */
+  step?: StepRecord;
 };
 
 /** Where the gateway files a chat's events: the person's own texts, or a group's chat by its chat key (the group id). */
@@ -124,14 +128,17 @@ export async function pruneEvents(storage: InboxStorage, now: number): Promise<v
   if (oldest !== undefined) await armBy(storage, oldest.e.at + KEEP_EVENTS_MS, now);
 }
 
+/** The chat's lines among what the outbox keeps: a step (`stepEvents.ts`) is the ledger's alone, never shown to a turn or the judge. */
+const chatLine = (chat: string) => (event: TexEvent) => event.chat === chat && event.kind !== "step";
+
 /** This chat's outbox, the events the gateway has not taken yet, in the order kept. Readers of the chat read `chatRead.ts` `chatEvents`. */
 export async function keptEvents(storage: InboxStorage, chat: string): Promise<TexEvent[]> {
-  return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].map((kept) => kept.e).filter((event) => event.chat === chat);
+  return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].map((kept) => kept.e).filter(chatLine(chat));
 }
 
 /** This chat's outbox, oldest first: what a turn is handed beside the warm copy, which the gateway adds to the ledger's day (`warm.ts`). */
 export async function recentEvents(storage: InboxStorage, chat: string): Promise<TexEvent[]> {
-  return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].map((kept) => kept.e).filter((event) => event.chat === chat).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].map((kept) => kept.e).filter(chatLine(chat)).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /** A key this object kept before 2026-11-02, when it held a chat's whole day: dropped on the next flush. */
@@ -187,11 +194,14 @@ async function flushOutbox(
   await prune(storage, now(), SEND_WITHIN_MS);
   await dropWritten(storage);
   const waiting = (await unwritten(storage)).filter((event) => chat === undefined || event.chat === chat);
-  // Every event in one call is the same chat's.
+  // Every event in one call is the same chat's, and a chat's steps (`stepEvents.ts`) go in calls of their own: a gateway
+  // that refuses one (an older one, mid-deploy, that knows no step) drops that call, never the chat's own lines.
   const batches: TexEvent[][] = [];
   for (const key of new Set(waiting.map((event) => event.chat))) {
-    const ofChat = waiting.filter((event) => event.chat === key);
-    for (let start = 0; start < ofChat.length; start += EVENTS_PER_POST) batches.push(ofChat.slice(start, start + EVENTS_PER_POST));
+    for (const steps of [false, true]) {
+      const ofChat = waiting.filter((event) => event.chat === key && (event.kind === "step") === steps);
+      for (let start = 0; start < ofChat.length; start += EVENTS_PER_POST) batches.push(ofChat.slice(start, start + EVENTS_PER_POST));
+    }
   }
   for (const events of batches) {
     let written: string[];

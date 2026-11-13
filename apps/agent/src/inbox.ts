@@ -71,8 +71,7 @@ import { MAX_CANDIDATES, staleAsks } from "./decide"; import { lookAgainTexts } 
 import { rememberText } from "./threads";
 import { noteHandle } from "./replyQuote";
 import { keepThreaded } from "./threadedResend";
-import { ackEmoji } from "./ackEmoji";
-import { reactionFor } from "./reactEmoji";
+import { tapback } from "./stepEvents";
 import type { ReplyPlace } from "./clients";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
@@ -216,7 +215,7 @@ export async function accept(
     await decideWhileRunning(storage, key, { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text, emoji) => {
       const running = runningTurn(storage, text.chatId);
       if (running !== undefined && text.messageId && !text.tapback && text.channel !== "simulator") {
-        await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, reactionFor(emoji, ackEmoji(text.text)));
+        await tapback(storage, { chat: text.chatId, now: () => now, by: "decide", asked: emoji, on: ev }, text.text, (sent) => lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, sent));
       }
     });
   } catch {
@@ -317,7 +316,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       for (const [key] of choice.drop) await storage.delete(key);
       if (choice.answer.length === 0) await presence?.stop();
       // Decide's tapback, in place of words for that text (`inboxTurn.ts`).
-      if (choice.react !== undefined) await acknowledgeText(deps, choice.react, choice.emoji);
+      if (choice.react !== undefined) await acknowledgeText(storage, deps, choice.react, choice.emoji, "decide");
       if (choice.answer.length > 0 && !(await answerTurn(storage, deps, choice.answer, presence))) return;
     } finally {
       await presence?.stop();
@@ -330,9 +329,10 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
 }
 
 /** Decide's `react`: its emoji when one of the 64, else one picked from the words (`ackEmoji.ts`). */
-async function acknowledgeText(deps: InboxDeps, message: Message, emoji?: string): Promise<void> {
+/** Kept in the chat's ledger as a `react` step, with who chose it (`by`) and the turn it ended (`stepEvents.ts`). */
+async function acknowledgeText(storage: InboxStorage, deps: InboxDeps, message: Message, emoji: string | undefined, by: string, turn?: string): Promise<void> {
   if (message.channel === "simulator" || !message.messageId || message.tapback) return;
-  await lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, reactionFor(emoji, ackEmoji(message.text)));
+  await tapback(storage, { chat: message.chatId, now: deps.now, by, asked: emoji, turn }, message.text, (sent) => lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, sent));
 }
 
 /** When the oldest of `entries` came in; nothing for texts queued before this was kept. */
@@ -579,7 +579,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   }
   await clearReactions(storage, reacted);
   // Answered with a tapback and no words: the classifier's, the emoji checked against the list (`reactEmoji.ts`).
-  if (react !== undefined && texts.length === 0) await acknowledgeText(deps, message, react || undefined).catch(() => {});
+  if (react !== undefined && texts.length === 0) await acknowledgeText(storage, deps, message, react || undefined, "classifier", steer.turn).catch(() => {});
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
   if (texts.length > 0 && message.channel !== "simulator") await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).

@@ -25,7 +25,8 @@ import { replyFields } from "./replyQuote";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
 import { chatEvents } from "./chatRead";
-import { decide, IDLE_DECIDE_MS, RUNNING_DECIDE_MS, type ControlDeps, type Decision } from "./decide";
+import { decide, IDLE_DECIDE_MS, RUNNING_DECIDE_MS, type ControlDeps, type DecideAsk, type Decision } from "./decide";
+import { decideStep, logStep } from "./stepEvents";
 import { sha256Hex } from "./groupChat";
 import { linkCode, type Message } from "./reply";
 import { restartTurn, runningTurn, steerInto } from "./steer";
@@ -129,21 +130,20 @@ export function pureAck(message: Message): boolean {
 async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: Message, candidates: string[], running: boolean): Promise<Decision> {
   const asks = await waitingAsks(storage, deps.now(), await sha256Hex(newest.from));
   const chat = newest.chatId;
-  const decision = await decide(
-    deps,
-    {
-      chat,
-      sender: newest.from,
-      style: "direct",
-      transcript: renderTranscript(await chatEvents(storage, chat)), // the ledger's day, with the outbox (`chatRead.ts`)
-      candidates,
-      running,
-      waitingAsks: asks,
-      newest: candidates.at(-1) ?? "",
-    },
-    // Idle, the person is watching the bubble: a slow decide falls back rather than keep them waiting.
-    running ? RUNNING_DECIDE_MS : IDLE_DECIDE_MS,
-  );
+  const asked: DecideAsk = {
+    chat,
+    sender: newest.from,
+    style: "direct",
+    transcript: renderTranscript(await chatEvents(storage, chat)), // the ledger's day, with the outbox (`chatRead.ts`)
+    candidates,
+    running,
+    waitingAsks: asks,
+    newest: candidates.at(-1) ?? "",
+  };
+  // Idle, the person is watching the bubble: a slow decide falls back rather than keep them waiting.
+  const decision = await decide(deps, asked, running ? RUNNING_DECIDE_MS : IDLE_DECIDE_MS);
+  // The verdict in the chat's ledger, as a group's is kept there by the gateway (Dev2, 2026-11-13; `stepEvents.ts`).
+  await logStep(storage, chat, decideStep(asked, decision), deps.now());
   if (decision.ok) await markStale(storage, decision.stale);
   // A 1:1 never waits on a burst: the texts already wait for each other (`sameBurst`), so wait is an answer to the newest.
   if (decision.ok && decision.act === "wait") return { ...decision, act: "answer", covers: candidates.slice(-1) };
