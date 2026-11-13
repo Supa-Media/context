@@ -8,6 +8,7 @@
  *  3. `areasFor` sending every Tex file to every area -> "a change runs only the areas its files reach" fails;
  *  4. `blocking` keeping target ids -> "a target is reported, never blocks" fails;
  *  5. dropping `areasFor` from replayGate's own import -> "the areas command runs" fails.
+ *  6. dropping the key-file filter in `publishCoreRecords` -> "the core area's judged answers go to Context" fails.
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -160,4 +161,28 @@ test("a job or page change reaches the jobs area, on a pool of its own with fewe
   assert.deepEqual(jobs.reruns, { branch: 1, main: 1 });
   assert.ok(jobs.usdPerCase * (7 + 3 * 2) <= jobs.maxUsd, "seven tasks with three wrong stay inside the jobs cap");
   assert.equal(typeof RUNNERS.jobs, "function");
+});
+
+test("the core area's judged answers go to Context under the commit, and its key files never do", async () => {
+  const { publishCoreRecords, recordsFolderFor } = await import("../replayGate.mjs");
+  const { mkdtemp, writeFile: write } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join: joinPath } = await import("node:path");
+  const scratch = await mkdtemp(joinPath(tmpdir(), "records-"));
+  await write(joinPath(scratch, "core-core-branch-1.md"), "answers and reasons");
+  await write(joinPath(scratch, "core-core-branch-1 key.md"), "which setup wrote which answer");
+  await write(joinPath(scratch, "respond-branch-1.json"), "[]");
+  const writes = [];
+  const fetchImpl = async (_url, init) => {
+    const { params } = JSON.parse(init.body);
+    if (params.name === "write_note") writes.push(params.arguments);
+    const isError = params.name === "read_note"; // nothing there yet
+    return new Response(JSON.stringify({ result: { content: [{ type: "text", text: isError ? "not found" : "ok" }], isError } }), { status: 200 });
+  };
+  const sha = "ab".repeat(20);
+  const paths = await publishCoreRecords({ scratch, sha, connection: { endpoint: "https://example.invalid/mcp", accessToken: "t" }, fetchImpl });
+  assert.deepEqual(paths, [`${recordsFolderFor(sha)}/core-core-branch-1.md`]);
+  assert.equal(recordsFolderFor(sha), "ai/results/replay/abababababab");
+  assert.deepEqual(writes.map((w) => [w.path, w.content]), [[paths[0], "answers and reasons"]]);
+  await assert.rejects(publishCoreRecords({ scratch, sha: "../x", connection: {}, fetchImpl }), /not a commit sha/);
 });
