@@ -31,6 +31,16 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
     marker: "Reached by typing the address",
   },
   {
+    route: "/admin/lab",
+    file: "app/(app)/admin/lab.tsx",
+    reachable: false,
+    reason:
+      "The Tex Architecture Lab on tex.lc, a staff design tool beside tex.lc/admin " +
+      "and reached the same way: by typing the address. On context.lc it goes to " +
+      "the staff console.",
+    marker: "Reached by typing the address",
+  },
+  {
     route: "/authorize",
     file: "app/authorize.tsx",
     reachable: false,

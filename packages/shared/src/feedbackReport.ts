@@ -47,6 +47,7 @@ export const ROUTE_SEGMENTS: ReadonlySet<string> = new Set([
   "group",
   "invite",
   "join",
+  "lab",
   "login",
   "map",
   "meetings",

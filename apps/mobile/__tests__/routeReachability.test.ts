@@ -535,6 +535,8 @@ describe("every route is reachable, or says why not", () => {
       "/admin",
       // The same console at one of its tabs; `/admin` redirects to it.
       "/admin/[...section]",
+      // The Tex Architecture Lab on tex.lc, typed like tex.lc/admin (2026-11-13).
+      "/admin/lab",
       "/authorize",
       "/connect/[provider]",
       "/connect/[provider]/[token]",
