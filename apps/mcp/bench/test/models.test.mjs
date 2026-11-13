@@ -56,6 +56,23 @@ test("a refused key is retried without it; any other error is returned as is", a
   assert.equal(bad.calls.length, 1);
 });
 
+test("stored keys are named by alias in order, then the credit key, then Unified Billing; a spent one is skipped after", async () => {
+  const spent = [400, { error: { message: "Your credit balance is too low" } }];
+  const { calls, fetchImpl } = recorder(spent, spent, spent, [200, { content: [] }], [200, { content: [] }]);
+  const send = claudeTransport({ ...GATEWAY, AI_GATEWAY_KEY_ALIASES: "first-credits,second-credits", ANTHROPIC_CREDIT_KEY: "fixture-credit-key-000000000000" }, fetchImpl);
+  assert.equal((await send(BODY)).status, 200);
+  assert.equal(calls.length, 4);
+  assert.equal(calls[0].headers["cf-aig-byok-alias"], "first-credits");
+  assert.equal(calls[0].headers["x-api-key"], undefined);
+  assert.equal(calls[1].headers["cf-aig-byok-alias"], "second-credits");
+  assert.equal(calls[2].headers["x-api-key"], "fixture-credit-key-000000000000");
+  assert.equal(calls[3].headers["x-api-key"], undefined);
+  assert.equal(calls[3].headers["cf-aig-byok-alias"], undefined);
+  await send(BODY);
+  assert.equal(calls.length, 5);
+  assert.equal(calls[4].headers["cf-aig-byok-alias"], undefined);
+});
+
 test("the gateway with no key at all is Unified Billing from the first call", async () => {
   const { calls, fetchImpl } = recorder();
   await claudeTransport(GATEWAY, fetchImpl)(BODY);

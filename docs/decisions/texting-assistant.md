@@ -304,8 +304,8 @@ through one Cloudflare AI Gateway (`apps/mcp/src/agent/aiGateway.js`) rather
 than one account per provider. The owner's Claude plan includes a monthly API
 credit, and nothing that costs money is spent while it lasts:
 
-- A call carries the plan's key (`ANTHROPIC_CREDIT_KEY`) first. When Anthropic
-  says the credit balance is too low, the same round is sent again without it,
+- Gateway-held keys first ([gateway-keys](./texting-assistant/gateway-keys.md)), then
+  the plan's key (`ANTHROPIC_CREDIT_KEY`). When Anthropic says the credit balance is too low, the same round is sent again without it,
   and the gateway serves it on Cloudflare's Unified Billing. A spent credit is
   skipped for 15 minutes rather than tried on every round. A key the gateway
   refuses for another reason is retried without it once, so a broken key costs

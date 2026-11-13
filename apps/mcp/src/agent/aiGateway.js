@@ -14,6 +14,13 @@
  *    precedence is the gateway's documented order: a key on the request wins,
  *    and no key means Unified Billing.
  *
+ * Keys stored in the gateway itself (its Provider Keys page) come first, when
+ * `AI_GATEWAY_KEY_ALIASES` names them: a comma list of aliases, tried in
+ * order with `cf-aig-byok-alias`, each skipped once its credit is spent, then
+ * the plan key above, then Unified Billing (decided by the owner, 2026-11-13:
+ * two Claude Console organizations' credits, held by the gateway rather than
+ * a GitHub secret).
+ *
  * Neither is the customer's key: people's own keys were deleted (the owner,
  * 2026-10-10). Nothing in this file can be pointed elsewhere by a caller: the
  * address is built from two configured ids that are checked against a strict
@@ -85,6 +92,10 @@ const CREDIT_REST_MS = 15 * 60_000;
  */
 const RETRY_WITHOUT_KEY = new Set([401, 403]);
 
+/** An alias the gateway's Provider Keys page accepts, and at most this many. */
+const KEY_ALIAS = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const MAX_KEY_ALIASES = 5;
+
 /**
  * Statuses that mean the provider was busy rather than wrong (rate limited,
  * unavailable, overloaded), after which the same call is sent once more after
@@ -120,6 +131,7 @@ export function aiGatewayConfig(env) {
   if (typeof gatewayId !== "string" || !GATEWAY_ID.test(gatewayId)) return null;
   if (typeof token !== "string" || token.length < 20 || token.length > 512) return null;
   const creditKey = env?.ANTHROPIC_CREDIT_KEY;
+  const aliases = typeof env?.AI_GATEWAY_KEY_ALIASES === "string" ? env.AI_GATEWAY_KEY_ALIASES.split(",").map((alias) => alias.trim()) : [];
   return {
     gatewayId,
     url: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/anthropic/v1/messages`,
@@ -127,15 +139,27 @@ export function aiGatewayConfig(env) {
     base: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}`,
     token,
     creditKey: typeof creditKey === "string" && creditKey.length >= 20 && creditKey.length <= 512 ? creditKey : null,
+    // Keys the gateway holds, by alias, in the order they are tried; a malformed name is dropped, never sent.
+    keyAliases: [...new Set(aliases.filter((alias) => KEY_ALIAS.test(alias)))].slice(0, MAX_KEY_ALIASES),
   };
 }
 
-/** Per isolate: until when the plan's credit is known to be used up. */
-let creditRestingUntil = 0;
+/** Per isolate: until when each payer's credit is known to be used up, by payer name. */
+const creditRestingUntil = new Map();
 
-/** For tests: forget that the credit ran out. */
+/** For tests: forget that any credit ran out. */
 export function resetCreditState() {
-  creditRestingUntil = 0;
+  creditRestingUntil.clear();
+}
+
+/**
+ * Who may pay for a call, in order, before Unified Billing: each key the
+ * gateway holds (by alias), then the plan key sent on the request.
+ */
+function payersOf(config) {
+  const payers = (config.keyAliases || []).map((alias) => ({ name: `alias:${alias}`, alias }));
+  if (config.creditKey) payers.push({ name: "plan", key: config.creditKey });
+  return payers;
 }
 
 function count(value) {
@@ -332,7 +356,7 @@ function saysCreditSpent(text) {
  * the timeout. Returns `{ status, text }`, the text capped and `null` when
  * unreadable.
  */
-async function send(config, body, { withKey, metadata }, fetchImpl) {
+async function send(config, body, { payer, metadata }, fetchImpl) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ROUND_TIMEOUT_MS);
   try {
@@ -347,8 +371,9 @@ async function send(config, body, { withKey, metadata }, fetchImpl) {
           "cf-aig-collect-log": "false",
           ...metadataHeader(metadata),
           ...(body.context_management ? { "anthropic-beta": CONTEXT_BETA } : {}),
-          // The plan's key appears here and nowhere else.
-          ...(withKey ? { "x-api-key": config.creditKey } : {}),
+          // The plan's key appears here and nowhere else; a stored key is named, never sent.
+          ...(payer?.key ? { "x-api-key": payer.key } : {}),
+          ...(payer?.alias ? { "cf-aig-byok-alias": payer.alias } : {}),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -414,18 +439,18 @@ export async function requestViaGateway(call, config, options = {}) {
   // A 400 on a body with one-hour marks is resent once without them; when that
   // goes through, the refusal is remembered for this isolate, so an unaccepted
   // field never fails a turn.
-  const sendIt = async (withKey) => {
-    let answer = await sendWithRetry(config, body, { withKey, metadata: options.metadata }, fetchImpl, wait);
+  const sendIt = async (payer) => {
+    let answer = await sendWithRetry(config, body, { payer, metadata: options.metadata }, fetchImpl, wait);
     // A gateway or API that refuses context editing: once more without it, remembered for the isolate, never a failed turn.
     if (namesContextEdits(answer) && body.context_management) {
       console.log(JSON.stringify({ event: "tex_context_edits_refused", code: "context_management_400" }));
       contextEditsRefused = true;
       body = withoutContextEdits(body);
-      answer = await sendWithRetry(config, body, { withKey, metadata: options.metadata }, fetchImpl, wait);
+      answer = await sendWithRetry(config, body, { payer, metadata: options.metadata }, fetchImpl, wait);
     }
     if (answer.status !== 400 || !hasHourMarks(body) || saysCreditSpent(answer.text) || namesThinking(answer)) return answer; // a thinking 400 is the turn's to strip (`turn.js`)
     const plain = withoutHourMarks(body);
-    const again = await sendWithRetry(config, plain, { withKey, metadata: options.metadata }, fetchImpl, wait);
+    const again = await sendWithRetry(config, plain, { payer, metadata: options.metadata }, fetchImpl, wait);
     if (again.status === 200) {
       hourMarksRefused = true; // only when the marks were what it refused
       body = plain;
@@ -435,24 +460,29 @@ export async function requestViaGateway(call, config, options = {}) {
 
   let paidBy = "cloudflare";
   let answer = null;
-  if (config.creditKey && now() >= creditRestingUntil) {
-    answer = await sendIt(true);
+  for (const payer of payersOf(config)) {
+    if (now() < (creditRestingUntil.get(payer.name) ?? 0)) continue;
+    answer = await sendIt(payer);
     if (answer.status === 200) {
       paidBy = "credit";
+      break;
     } else if (saysCreditSpent(answer.text) || answer.status === 402) {
-      // The plan's credit is used up: rest it until it is worth asking again.
-      creditRestingUntil = now() + CREDIT_REST_MS;
+      // This payer's credit is used up: rest it until it is worth asking again.
+      creditRestingUntil.set(payer.name, now() + CREDIT_REST_MS);
       answer = null;
-    } else if (RETRY_WITHOUT_KEY.has(answer.status)) {
-      // The key itself was refused (revoked, wrong organization): retried
-      // without it, so a broken key costs a slower answer, never no answer.
+    } else if (RETRY_WITHOUT_KEY.has(answer.status) || (payer.alias && answer.status === 400 && !namesThinking(answer))) {
+      // The key itself was refused (revoked, wrong organization, an alias the
+      // gateway does not hold, whose refusal is not documented as a 401): the
+      // next payer is tried, so a broken key costs a slower answer, never no
+      // answer. Named in the log by payer and status only.
+      console.log(JSON.stringify({ event: "ai_gateway_payer_refused", payer: payer.name, status: answer.status }));
       answer = null;
     } else {
       throw statusError(answer);
     }
   }
   if (!answer) {
-    answer = await sendIt(false);
+    answer = await sendIt(null);
   }
   if (answer.status !== 200) {
     throw statusError(answer);

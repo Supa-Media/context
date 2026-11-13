@@ -8,8 +8,9 @@
  *
  *   AI_GATEWAY_ACCOUNT_ID + AI_GATEWAY_ID + AI_GATEWAY_TOKEN
  *                       Claude models through our Cloudflare AI Gateway, the
- *                       road texts take: ANTHROPIC_CREDIT_KEY (or
- *                       ANTHROPIC_API_KEY) first, Unified Billing after
+ *                       road texts take: keys the gateway holds
+ *                       (AI_GATEWAY_KEY_ALIASES), then ANTHROPIC_CREDIT_KEY
+ *                       (or ANTHROPIC_API_KEY), Unified Billing after
  *   ANTHROPIC_API_KEY   without the gateway: Claude models straight to Anthropic
  *   CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AI_TOKEN   `@cf/` models, through the Workers AI REST API
  *
@@ -31,13 +32,16 @@ function json(body, status = 200) {
 const ACCOUNT_ID = /^[0-9a-f]{32}$/;
 const GATEWAY_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-/** Whether a failed call with the key should be tried again without it. */
-async function retryWithoutKey(response) {
+/** Whether a failed call with this payer should move on to the next one. */
+async function retryWithoutKey(response, payer) {
   if (response.status === 401 || response.status === 403 || response.status === 402) return true;
   if (response.status !== 400) return false;
   const text = await response.clone().text().catch(() => "");
-  return /credit balance/i.test(text);
+  // A stored key's plain 400 may be an alias the gateway does not hold (`aiGateway.js`).
+  return /credit balance/i.test(text) || (Boolean(payer.alias) && !/thinking|signature/i.test(text));
 }
+
+const KEY_ALIAS = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /**
  * How this run reaches Claude: `send(body)` posts one Messages API body and
@@ -54,6 +58,10 @@ export function claudeTransport(env, fetchImpl = realFetch) {
   const gatewayId = env.AI_GATEWAY_ID;
   const token = env.AI_GATEWAY_TOKEN;
   const key = env.ANTHROPIC_CREDIT_KEY || env.ANTHROPIC_API_KEY || null;
+  const aliases = [...new Set(String(env.AI_GATEWAY_KEY_ALIASES || "").split(",").map((a) => a.trim()).filter((a) => KEY_ALIAS.test(a)))].slice(0, 5);
+  // Who may pay, in order, before Unified Billing; a spent one is skipped for the rest of the run.
+  const payers = [...aliases.map((alias) => ({ alias })), ...(key ? [{ key }] : [])];
+  const spent = new Set();
   const base = { "content-type": "application/json", "anthropic-version": "2023-06-01" };
 
   if (ACCOUNT_ID.test(accountId ?? "") && GATEWAY_ID.test(gatewayId ?? "") && token) {
@@ -64,14 +72,24 @@ export function claudeTransport(env, fetchImpl = realFetch) {
       "cf-aig-collect-log": "false",
       "cf-aig-metadata": JSON.stringify({ feature: "benchmark" }),
     };
-    const post = (body, withKey) =>
-      fetchImpl(url, { method: "POST", headers: withKey ? { ...headers, "x-api-key": key } : headers, body });
+    const post = (body, payer) =>
+      fetchImpl(url, {
+        method: "POST",
+        headers: {
+          ...headers,
+          ...(payer?.key ? { "x-api-key": payer.key } : {}),
+          ...(payer?.alias ? { "cf-aig-byok-alias": payer.alias } : {}),
+        },
+        body,
+      });
     const send = async (body) => {
-      if (key) {
-        const response = await post(body, true);
-        if (!(await retryWithoutKey(response))) return response;
+      for (const payer of payers) {
+        if (spent.has(payer)) continue;
+        const response = await post(body, payer);
+        if (!(await retryWithoutKey(response, payer))) return response;
+        if (response.status === 402 || (response.status === 400 && /credit balance/i.test(await response.clone().text().catch(() => "")))) spent.add(payer);
       }
-      return post(body, false);
+      return post(body, null);
     };
     send.route = "gateway";
     return send;
