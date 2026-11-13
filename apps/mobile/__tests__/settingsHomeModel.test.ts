@@ -47,7 +47,7 @@ describe("every setting is on the page", () => {
   test("every section this context has is a row, once", () => {
     const home = settingsHome({ data, sections: SETTINGS_SECTIONS, texLine: "+15555550177", canSignOut: true });
     const opened = home
-      .flatMap((section) => [...section.rows, ...(section.more?.rows ?? [])])
+      .flatMap((section) => section.rows)
       .flatMap((row) => (row.action.kind === "open" ? [row.action.key] : []));
     for (const entry of SETTINGS_SECTIONS) expect(opened).toContain(entry.key);
   });
@@ -55,18 +55,38 @@ describe("every setting is on the page", () => {
   test("a section this context does not have is absent, not greyed", () => {
     const sections = SETTINGS_SECTIONS.filter((entry) => entry.key !== "premium");
     const home = settingsHome({ data, sections, canSignOut: false });
-    const ids = home.flatMap((section) => [...section.rows, ...(section.more?.rows ?? [])]).map((row) => row.id);
+    const ids = home.flatMap((section) => section.rows).map((row) => row.id);
     expect(ids).not.toContain("premium");
     expect(ids).not.toContain("sign-out");
     // No Tex line configured: no row promising one.
     expect(ids).not.toContain("tex-line");
   });
 
-  test("leaving is on the page, never folded away", () => {
+  test("leaving is on the page: the workspace's download is its own row", () => {
     const home = settingsHome({ data, sections: SETTINGS_SECTIONS, canSignOut: true });
-    const yours = home.find((section) => section.id === "data");
-    expect(yours?.rows.map((row) => row.id)).toContain("download");
-    expect(yours?.more).toBeUndefined();
+    const workspace = home.find((section) => section.id === "workspace");
+    expect(workspace?.rows.map((row) => row.id)).toContain("download");
+  });
+
+  test("everything in the Workspace section is that workspace's, and it comes after everything that follows you", () => {
+    const home = settingsHome({ data, sections: SETTINGS_SECTIONS, texLine: "+15555550177", canSignOut: true });
+    const ids = home.map((section) => section.id);
+    expect(ids.indexOf("workspace")).toBeGreaterThan(ids.indexOf("account"));
+    expect(ids.indexOf("workspace")).toBeGreaterThan(ids.indexOf("tex"));
+    const workspaceKeys = home
+      .find((section) => section.id === "workspace")!
+      .rows.flatMap((row) => (row.action.kind === "open" ? [row.action.key] : []));
+    const scopeOf = new Map(SETTINGS_SECTIONS.map((entry) => [entry.key, entry.scope]));
+    for (const key of workspaceKeys) expect(scopeOf.get(key)).toBe("context");
+  });
+
+  test("a row's line is its value, never a sentence about the setting", () => {
+    const home = settingsHome({ data, sections: SETTINGS_SECTIONS, texLine: "+15555550177", canSignOut: true });
+    for (const row of home.flatMap((section) => section.rows)) {
+      if (row.line === null) continue;
+      expect(row.line.split(/\s+/).length).toBeLessThanOrEqual(7);
+      expect(row.line).not.toMatch(/\.$/);
+    }
   });
 });
 
@@ -75,7 +95,15 @@ describe("the Tex rows are the list Tex reads by text", () => {
     const own = new Set(["talk", "apps", "vault", "vault_delete"]);
     const expected = TEX_SETTINGS.filter((setting) => setting.where.includes("1:1") && !own.has(setting.key));
     expect(texListRows().map((row) => row.title)).toEqual(expected.map((setting) => setting.label));
-    expect(texListRows().map((row) => row.line)).toEqual(expected.map((setting) => setting.description));
+    for (const row of texListRows()) expect(row.line).toBeNull();
+  });
+
+  test("the page gathers the settings Tex changes by text into one row that says so", () => {
+    const home = settingsHome({ data, sections: SETTINGS_SECTIONS, canSignOut: true });
+    const tex = home.find((section) => section.id === "tex")!;
+    const row = tex.rows.find((entry) => entry.id === "tex-by-text");
+    expect(row?.action.kind).toBe("byText");
+    expect(tex.rows.filter((entry) => entry.action.kind === "byText")).toHaveLength(1);
   });
 
   test("a setting Tex changes by text says so instead of offering a button", () => {

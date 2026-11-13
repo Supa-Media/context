@@ -2,14 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useConvex, useQuery } from "convex/react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { api } from "@context/convex/_generated/api";
-import { Dot } from "../../../design/components/Dot";
 import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { useCopy } from "../../../design/useCopy";
-import { useScheme } from "../../../design/theme";
+import { useColors, type Colors } from "../../../design/theme";
 import { fonts, pointerType, settingsHomeType } from "../../../design/tokens";
-import { settingsHomeColors, type SettingsHomeColors } from "../../../design/tokens/settingsHomeColors";
 import { atName } from "../../format";
+import { useWorkspaceIcons } from "../../useWorkspaceIcons";
+import { WorkspaceMark } from "../../WorkspaceMark";
 import { selectedContext, type ConsoleContext, type ConsoleData } from "../../types";
 import { AppearancePicker } from "../panels/AppearancePicker";
 import { downloadEverything } from "../downloadEverything";
@@ -17,9 +17,47 @@ import { LiveRowValueSource, type LiveRowValues } from "../liveRowValues";
 import type { SettingsSectionKey, SettingsSectionSpec } from "../sections";
 import { settingsHome, type HomeRow, type HomeSection } from "./homeModel";
 
-/** The settings home's palette for the scheme on screen. */
-export function useHomeColors(): SettingsHomeColors {
-  return settingsHomeColors[useScheme()];
+/**
+ * The settings home's palette: the app's own, so the page reads as the same
+ * app as the notes behind it (Dev2, 2026-11-12: the landing page's paper "does
+ * not match the rest of the app"). Tiles take the app's washes.
+ */
+export function useHomeColors(): HomeColors {
+  return homeColorsFor(useColors());
+}
+
+export interface HomeColors {
+  ground: string;
+  text: string;
+  muted: string;
+  hair: string;
+  buttonLine: string;
+  blue: string;
+  danger: string;
+  dangerWash: string;
+  tiles: Record<"peach" | "sage" | "butter" | "lilac" | "sky" | "tint", string>;
+  tileInk: string;
+}
+
+const homeColorCache = new WeakMap<Colors, HomeColors>();
+function homeColorsFor(c: Colors): HomeColors {
+  let out = homeColorCache.get(c);
+  if (out === undefined) {
+    out = {
+      ground: c.ground,
+      text: c.text,
+      muted: c.muted,
+      hair: c.line,
+      buttonLine: c.lineStrong,
+      blue: c.accentText,
+      danger: c.critText,
+      dangerWash: c.critWash,
+      tiles: { peach: c.warnWash, sage: c.okWash, butter: c.markWash, lilac: c.sharedWash, sky: c.hintWash, tint: c.chipFill },
+      tileInk: c.text,
+    };
+    homeColorCache.set(c, out);
+  }
+  return out;
 }
 
 /**
@@ -59,7 +97,6 @@ export function SettingsHome({
   });
   return (
     <ScrollView
-      style={{ backgroundColor: c.ground }}
       contentContainerStyle={styles.scroll}
       keyboardShouldPersistTaps="handled"
       testID="settings-sections"
@@ -68,7 +105,7 @@ export function SettingsHome({
       {live ? <TexLineSource onLine={setTexLine} /> : null}
       <View style={styles.page}>
         <Text role="heading" aria-level={1} style={styles.h1} testID="settings-home-title">
-          Settings<Text style={styles.period}>.</Text>
+          Settings
         </Text>
         {home.map((section) => (
           <Section
@@ -108,80 +145,43 @@ function Section({
 }) {
   const c = useHomeColors();
   const styles = makeStyles(c);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [switching, setSwitching] = useState(false);
   const current = selectedContext(data);
-  const row = (entry: HomeRow, index: number, divided: boolean) => (
-    <Row
-      key={entry.id}
-      row={entry}
-      divided={divided || index > 0}
-      data={data}
-      onSelect={onSelect}
-      onSignOut={onSignOut}
-    />
-  );
   return (
     <View style={styles.section} testID={`settings-group-${section.id}`}>
-      <View style={styles.head}>
-        <Text role="heading" aria-level={2} style={styles.h2}>
-          {section.title}
-        </Text>
-        {section.lede === undefined ? null : (
-          <Text style={styles.lede}>
-            {section.lede}
-            {section.switcher === true && data.contexts.length > 1 ? (
-              <>
-                {" "}
-                <Text
-                  role="button"
-                  aria-expanded={switching}
-                  onPress={() => setSwitching((was) => !was)}
-                  style={styles.inlineLink}
-                  testID="settings-workspace-switcher"
-                >
-                  Switch workspace
-                </Text>
-              </>
-            ) : null}
-          </Text>
-        )}
-        {switching && current !== null ? (
-          <WorkspaceMenu
-            contexts={data.contexts}
-            current={current}
-            onSwitch={(slug) => {
-              setSwitching(false);
-              if (slug !== current.slug) onSwitchContext?.(slug);
-            }}
-          />
-        ) : null}
-      </View>
+      <Text role="heading" aria-level={2} style={styles.h2}>
+        {section.title}
+      </Text>
+      {section.scope === "workspace" && current !== null ? (
+        <WorkspacePicker
+          contexts={data.contexts}
+          current={current}
+          onSwitch={(slug) => {
+            if (slug !== current.slug) onSwitchContext?.(slug);
+          }}
+        />
+      ) : null}
       <View>
-        {section.rows.map((entry, index) => row(entry, index, false))}
-        {section.more === undefined ? null : (
-          <>
-            <Pressable
-              accessibilityRole="button"
-              aria-expanded={moreOpen}
-              onPress={() => setMoreOpen((was) => !was)}
-              style={[styles.more, section.rows.length > 0 ? styles.divided : null]}
-              testID={`settings-more-${section.id}`}
-            >
-              <Text style={[styles.moreLabel, section.rows.some((r) => r.icon !== undefined || r.tile !== undefined) ? styles.indent : null]}>
-                {moreOpen ? "Show less" : section.more.label}
-              </Text>
-              <Icon name={moreOpen ? "chevronUp" : "chevronDown"} size={12} color={c.blue} />
-            </Pressable>
-            {moreOpen ? section.more.rows.map((entry) => row(entry, 1, true)) : null}
-          </>
-        )}
+        {section.rows.map((entry, index) => (
+          <Row key={entry.id} row={entry} divided={index > 0 || section.scope === "workspace"} data={data} onSelect={onSelect} onSignOut={onSignOut} />
+        ))}
       </View>
     </View>
   );
 }
 
-function WorkspaceMenu({
+/** "Shared · Owner": what kind of workspace, and what this person can do in it. */
+export function workspaceCaption(context: ConsoleContext): string {
+  const kind = context.kind === "shared" ? "Shared" : context.role === "owner" ? "Personal" : "Someone else's";
+  const role = context.role === "owner" ? "Owner" : context.role === "editor" ? "Can edit" : "View only";
+  return `${kind} · ${role}`;
+}
+
+/**
+ * Every workspace this person has, at the head of the page: the one picked is
+ * the one the "This workspace" section shows, and picking another switches the
+ * app to it, the same switch as the account menu's.
+ */
+function WorkspacePicker({
   contexts,
   current,
   onSwitch,
@@ -192,31 +192,61 @@ function WorkspaceMenu({
 }) {
   const c = useHomeColors();
   const styles = makeStyles(c);
+  const iconFor = useWorkspaceIcons();
+  const [open, setOpen] = useState(false);
   return (
-    <View style={styles.menu} testID="settings-workspace-menu">
-      {contexts.map((context) => {
-        const here = context.id === current.id;
-        return (
-          <Pressable
-            key={context.id}
-            accessibilityRole="button"
-            accessibilityState={{ selected: here }}
-            aria-current={here ? "true" : undefined}
-            accessibilityLabel={atName(context.slug)}
-            onPress={() => onSwitch(context.slug)}
-            style={styles.menuRow}
-            testID={`settings-context-${context.slug}`}
-          >
-            <Dot tone={context.status} />
-            <Text style={styles.title} numberOfLines={1}>
-              {atName(context.slug)}
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Workspace ${atName(current.slug)}`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onPress={() => setOpen((was) => !was)}
+        style={styles.pick}
+        testID="settings-workspace-switcher"
+      >
+        <WorkspaceMark label={atName(current.slug)} tone={current.status} icon={iconFor(current)} />
+        <View style={styles.grow}>
+          <View style={styles.pickName}>
+            <Text style={styles.pickLabel} numberOfLines={1}>
+              {atName(current.slug)}
             </Text>
-            <View style={styles.grow} />
-            <Text style={styles.line}>{context.kind === "shared" ? "Shared" : "Personal"}</Text>
-            {here ? <Icon name="check" size={13} color={c.blue} /> : null}
-          </Pressable>
-        );
-      })}
+            <Icon name={open ? "chevronUp" : "chevronDown"} size={14} color={c.muted} />
+          </View>
+          <Text style={styles.line}>{workspaceCaption(current)}</Text>
+        </View>
+      </Pressable>
+      {open ? (
+        <View style={styles.menu} role="menu" aria-label="Workspace">
+          {contexts.map((context) => {
+            const here = context.id === current.id;
+            return (
+              <Pressable
+                key={context.id}
+                role="menuitem"
+                aria-checked={here}
+                aria-current={here}
+                accessibilityLabel={atName(context.slug)}
+                onPress={() => {
+                  setOpen(false);
+                  onSwitch(context.slug);
+                }}
+                style={styles.option}
+                testID={`settings-context-${context.slug}`}
+              >
+                <WorkspaceMark label={atName(context.slug)} tone={context.status} icon={iconFor(context)} />
+                <View style={styles.grow}>
+                  <Text style={styles.title} numberOfLines={1}>
+                    {atName(context.slug)}
+                  </Text>
+                  <Text style={styles.line}>{workspaceCaption(context)}</Text>
+                </View>
+                {here ? <Icon name="check" size={14} color={c.text} /> : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -264,7 +294,7 @@ function Row({
         </Text>
         {row.line === null ? null : <Text style={styles.line}>{row.line}</Text>}
       </View>
-      <RowAction row={row} data={data} onSelect={onSelect} onSignOut={onSignOut} />
+      <RowAction row={row} data={data} onSignOut={onSignOut} />
     </>
   );
   if (opens !== undefined) {
@@ -290,12 +320,10 @@ function Row({
 function RowAction({
   row,
   data,
-  onSelect,
   onSignOut,
 }: {
   row: HomeRow;
   data: ConsoleData;
-  onSelect: (key: SettingsSectionKey) => void;
   onSignOut?: () => void;
 }) {
   const c = useHomeColors();
@@ -303,13 +331,11 @@ function RowAction({
   const action = row.action;
   switch (action.kind) {
     case "open":
+      /* The whole row is the button; its label is drawn as one, never a button inside a button. */
       return (
-        <HomeButton
-          label={action.label}
-          danger={action.danger}
-          onPress={() => onSelect(action.key)}
-          testID={`settings-action-${row.id}`}
-        />
+        <View style={[styles.button, action.danger ? styles.buttonDanger : null]} testID={`settings-action-${row.id}`}>
+          <Text style={[styles.buttonLabel, action.danger ? styles.buttonLabelDanger : null]}>{action.label}</Text>
+        </View>
       );
     case "copy":
       return <CopyButton text={action.text} label={`Copy ${row.title.toLowerCase()}`} testID={`settings-copy-${row.id}`} />;
@@ -320,7 +346,7 @@ function RowAction({
     case "signOut":
       return <HomeButton label="Sign out" onPress={() => onSignOut?.()} testID="settings-sign-out" />;
     case "byText":
-      return <Text style={styles.byText}>By text</Text>;
+      return <Text style={styles.byText}>Text Tex</Text>;
     case "none":
       return null;
   }
@@ -370,8 +396,8 @@ function CopyButton({ text, label, testID }: { text: string; label: string; test
   );
 }
 
-const cache = new Map<SettingsHomeColors, ReturnType<typeof build>>();
-function makeStyles(c: SettingsHomeColors) {
+const cache = new Map<HomeColors, ReturnType<typeof build>>();
+function makeStyles(c: HomeColors) {
   let styles = cache.get(c);
   if (styles === undefined) {
     styles = build(c);
@@ -380,18 +406,26 @@ function makeStyles(c: SettingsHomeColors) {
   return styles;
 }
 
-function build(c: SettingsHomeColors) {
+function build(c: HomeColors) {
   return StyleSheet.create({
     scroll: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 72 },
-    page: { width: "100%", maxWidth: 560, alignSelf: "center", gap: 36 },
-    h1: { fontFamily: fonts.reading, fontSize: pointerType.page, lineHeight: 40, color: c.text, marginBottom: -8 },
-    period: { color: c.blue },
-    section: { gap: 6 },
-    head: { gap: 2 },
-    h2: { fontFamily: fonts.reading, fontSize: settingsHomeType.heading, lineHeight: 28, color: c.text },
-    lede: { fontFamily: fonts.body, fontSize: pointerType.ui, lineHeight: 19, color: c.muted },
-    inlineLink: { color: c.text, textDecorationLine: "underline" },
-    row: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 11, minHeight: 44 },
+    page: { width: "100%", maxWidth: 600, alignSelf: "center", gap: 44 },
+    h1: { fontFamily: fonts.body, fontSize: settingsHomeType.heading, lineHeight: 28, fontWeight: "600", color: c.text, marginBottom: -20 },
+    section: { gap: 4 },
+    h2: { fontFamily: fonts.body, fontSize: pointerType.lede, lineHeight: 24, fontWeight: "600", color: c.text, marginBottom: 2 },
+    pick: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8, alignSelf: "flex-start" },
+    pickName: { flexDirection: "row", alignItems: "center", gap: 6 },
+    pickLabel: { fontFamily: fonts.body, fontSize: pointerType.lede, lineHeight: 22, fontWeight: "600", color: c.text },
+    menu: {
+      borderWidth: 1,
+      borderColor: c.buttonLine,
+      borderRadius: 12,
+      padding: 4,
+      marginBottom: 8,
+      backgroundColor: c.ground,
+    },
+    option: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8 },
+    row: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, minHeight: 56 },
     divided: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.hair },
     mark: { width: 20, alignItems: "center" },
     tile: { width: 26, height: 26, borderRadius: 7, alignItems: "center", justifyContent: "center", marginHorizontal: -3 },
@@ -412,10 +446,5 @@ function build(c: SettingsHomeColors) {
     buttonLabelDanger: { color: c.danger },
     copy: { minWidth: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: 8 },
     byText: { fontFamily: fonts.body, fontSize: pointerType.meta, color: c.muted },
-    more: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 11 },
-    moreLabel: { fontFamily: fonts.body, fontSize: pointerType.ui, color: c.blue },
-    indent: { marginLeft: 34 },
-    menu: { marginTop: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: c.hair, borderRadius: 10, paddingHorizontal: 12 },
-    menuRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 },
   });
 }

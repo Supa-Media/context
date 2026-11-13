@@ -1,40 +1,39 @@
 /**
- * What the one-page settings home shows, as data: its sections, each row's
- * name, its one line and its one action (Dev2, 2026-11-12: "as sleek and
- * simple as this", approved as mockup v5).
+ * What the one-page settings home shows, as data: its sections and each
+ * row's name, its value and its one action (Dev2, 2026-11-13: rebuilt from the
+ * reviewed prototype after "way too much jargon and slop text" and "the
+ * layout is horrendous").
  *
  * Pure, so a test can read the page without drawing it. `SettingsHome` draws
  * exactly this and decides nothing of its own beyond how a row looks.
  *
- * ## One action per row
+ * ## A row is a name, its value and one action
  *
- * A row either does its thing in place (copy an address, pick a look, start
- * the download, sign out) or opens the page that holds the rest of it. It
- * never does both, and it never carries two buttons: the reference this was
- * drawn from earned its calm that way, and a row with a toggle *and* a
- * chevron is a row somebody has to read twice.
+ * The line under a row's name is the setting's *value* ("3 people", "Free",
+ * "seyi@context.lc"), never a sentence about what the setting is. A row with
+ * no value to state shows its name alone. A row either does its thing in
+ * place (copy, pick a look, download, sign out) or opens the page that holds
+ * the rest of it, and never carries two buttons.
+ *
+ * ## Everything above the Workspace section follows you
+ *
+ * Text Tex, Account, Tex and AI apps are this person's, the same in every
+ * workspace. The Workspace section is headed by its picker, and every row in
+ * it belongs to the workspace picked there (Dev2, 2026-11-12: "no way to
+ * switch workspaces or see how settings affect different workspaces").
  *
  * ## The Tex rows come from one list
  *
  * `TEX_SETTINGS` (`packages/shared/src/texSettings.cjs`) is the list Tex reads
- * when somebody texts it a change. The rows under the Tex section's "More" are
- * drawn from it rather than written again here, so the page and the chat can
- * never name a different set of settings. The ones the app holds a page for
- * (how Tex talks, the vault, the apps Tex uses) are the page's own rows, and
- * are left out of the list below them rather than shown twice.
+ * when somebody texts it a change. The rows Tex changes by text are drawn from
+ * it rather than written again here, so the page and the chat can never name a
+ * different set of settings.
  *
  * ## Titles are the pages' own names
  *
  * A row opening a page is titled with that page's name ("People & sharing",
- * "Connected apps", "General"), because Tex and the help notes send people to
+ * "Vault", "General"), because Tex and the help notes send people to
  * "Settings → People & sharing", and the row is where that path has to land.
- *
- * ## "More" instead of a second screen
- *
- * Every setting the app has is on this page. The ones people rarely open sit
- * folded under one "More" line at the foot of their section, which is what
- * took the page from five screens of scrolling to two (Dev2: "feels like a
- * lot of scrolling").
  */
 
 import { TEX_SETTINGS, type TexSetting } from "@context/shared/src/texSettings.cjs";
@@ -77,11 +76,13 @@ export interface HomeRow {
 export interface HomeSection {
   id: string;
   title: string;
-  lede?: string;
-  /** Draws the workspace switcher in the lede. */
-  switcher?: boolean;
+  /**
+   * Whom the section's settings reach: every workspace this person has, or
+   * only the one picked at the top of the page (Dev2, 2026-11-12: "no way to
+   * see how settings affect different workspaces"). Drawn beside the heading.
+   */
+  scope: "everywhere" | "workspace";
   rows: HomeRow[];
-  more?: { label: string; rows: HomeRow[] };
 }
 
 export interface HomeInputs {
@@ -105,25 +106,25 @@ const TEX_KEYS_WITH_A_PAGE = new Set(["talk", "apps", "vault", "vault_delete"]);
  * `settingsPreview` wins, because "3 people" answers more than a description.
  */
 const OPEN_ROWS: Record<SettingsSectionKey, { title: string; line: string; action: string; icon: IconName }> = {
-  profile: { title: "Profile", line: "Name, picture, sign-in and devices", action: "Edit", icon: "person" },
-  tex: { title: "How Tex talks", line: "Your own words for how Tex writes to you", action: "Edit", icon: "chat" },
-  texApps: { title: "Apps Tex uses", line: "Slack, Linear and the others Tex acts in as you", action: "Manage", icon: "link" },
-  messages: { title: "Messages", line: "Back up your texts from this Mac so Tex can read them", action: "Set up", icon: "phone" },
-  invitations: { title: "Invitations", line: "Someone asked you to join", action: "Open", icon: "mailOpen" },
-  feedback: { title: "Feedback", line: "Tell us what to fix", action: "Send", icon: "bug" },
-  spelling: { title: "Writing", line: "Spell check and your dictionary", action: "Change", icon: "pencil" },
+  profile: { title: "Profile", line: "", action: "Change", icon: "person" },
+  tex: { title: "How Tex talks", line: "", action: "Change", icon: "chat" },
+  texApps: { title: "Apps Tex uses", line: "", action: "Manage", icon: "link" },
+  messages: { title: "Messages backup", line: "", action: "Set up", icon: "phone" },
+  invitations: { title: "Invitations", line: "", action: "Open", icon: "mailOpen" },
+  feedback: { title: "Crash and usage reports", line: "", action: "Change", icon: "bug" },
+  spelling: { title: "Writing", line: "", action: "Change", icon: "pencil" },
   workspace: { title: "General", line: "", action: "Change", icon: "home" },
-  sharing: { title: "People & sharing", line: "Who can see what, and shared links", action: "Manage", icon: "people" },
-  integrations: { title: "Connected apps", line: "What fills this workspace and who reads it", action: "Manage", icon: "grid" },
-  vault: { title: "Vault", line: "Logins, keys and cards Tex can use for you", action: "Manage", icon: "key" },
-  activity: { title: "Activity", line: "What changed and who changed it", action: "View", icon: "clock" },
-  premium: { title: "Plan", line: "What this workspace is on", action: "Change", icon: "card" },
-  storage: { title: "Storage", line: "Where your notes are kept", action: "Details", icon: "drive" },
-  website: { title: "Website", line: "Publish pages from your notes", action: "Open", icon: "globe" },
-  meetings: { title: "Meetings", line: "Where meeting notes go, and when to join", action: "Change", icon: "mic" },
-  folders: { title: "Built-in folders", line: "Inbox, Projects, Areas, Resources, Archive", action: "Change", icon: "folder" },
-  emoji: { title: "Custom emoji", line: "Emoji of your own for this workspace", action: "Manage", icon: "smile" },
-  plugins: { title: "Plugins", line: "Obsidian plugins running in this workspace", action: "Manage", icon: "plugin" },
+  sharing: { title: "People & sharing", line: "", action: "Manage", icon: "people" },
+  integrations: { title: "Connected apps", line: "", action: "Manage", icon: "grid" },
+  vault: { title: "Vault", line: "", action: "Manage", icon: "key" },
+  activity: { title: "Activity", line: "", action: "View", icon: "clock" },
+  premium: { title: "Plan", line: "", action: "Change", icon: "card" },
+  storage: { title: "Storage", line: "", action: "View", icon: "drive" },
+  website: { title: "Website", line: "", action: "Change", icon: "globe" },
+  meetings: { title: "Meetings", line: "", action: "Change", icon: "mic" },
+  folders: { title: "Built-in folders", line: "", action: "Change", icon: "folder" },
+  emoji: { title: "Custom emoji", line: "", action: "Manage", icon: "smile" },
+  plugins: { title: "Plugins", line: "", action: "Manage", icon: "plugin" },
 };
 
 function openRow(key: SettingsSectionKey, data: ConsoleData, live: HomeInputs["live"]): HomeRow {
@@ -147,15 +148,15 @@ function openRow(key: SettingsSectionKey, data: ConsoleData, live: HomeInputs["l
 function integrationsLine(data: ConsoleData): string | null {
   const count = settingsPreview("integrations", data);
   if (count === null) return null;
-  if (count === "None") return "No AI apps connected yet";
-  return count === "1" ? "1 AI app connected" : `${count} AI apps connected`;
+  if (count === "None") return "None yet";
+  return count === "1" ? "1 app" : `${count} apps`;
 }
 
 function texRegistryRow(setting: TexSetting): HomeRow {
   return {
     id: `tex-${setting.key}`,
     title: setting.label,
-    line: setting.description,
+    line: null,
     icon: "sparkle",
     action: setting.byText ? { kind: "byText" } : { kind: "none" },
   };
@@ -168,10 +169,6 @@ export function texListRows(): HomeRow[] {
   ).map(texRegistryRow);
 }
 
-function moreLabel(rows: readonly HomeRow[], examples: string): string {
-  return `${rows.length} more, like ${examples}`;
-}
-
 export function settingsHome({ data, sections, texLine = null, live, canSignOut }: HomeInputs): HomeSection[] {
   const has = (key: SettingsSectionKey) => sections.some((entry) => entry.key === key);
   const open = (key: SettingsSectionKey) => openRow(key, data, live);
@@ -182,96 +179,71 @@ export function settingsHome({ data, sections, texLine = null, live, canSignOut 
   /* Text Tex: the ways in, each one copied rather than opened. */
   const ways: HomeRow[] = [];
   if (texLine !== null && texLine !== "") {
-    ways.push({ id: "tex-line", title: "Tex's number", line: readableLine(texLine), icon: "chat", action: { kind: "copy", text: texLine } });
+    ways.push({ id: "tex-line", title: "Messages", line: readableLine(texLine), icon: "chat", action: { kind: "copy", text: texLine } });
   }
   if (data.viewer.detail !== undefined && data.viewer.detail !== "") {
-    ways.push({
-      id: "capture-address",
-      title: "Email",
-      line: `${data.viewer.detail}, forward anything here`,
-      icon: "mail",
-      action: { kind: "copy", text: data.viewer.detail },
-    });
+    ways.push({ id: "capture-address", title: "Email", line: data.viewer.detail, icon: "mail", action: { kind: "copy", text: data.viewer.detail } });
   }
-  if (ways.length > 0) out.push({ id: "reach", title: "Text Tex", rows: ways });
+  if (ways.length > 0) out.push({ id: "reach", title: "Text Tex", scope: "everywhere", rows: ways });
 
-  /* Your account. */
+  /* Account: you, everywhere. */
   const account: HomeRow[] = [];
   if (has("profile")) {
-    account.push({
-      id: "profile",
-      title: data.viewer.name,
-      line: "Name, picture, sign-in and devices",
-      tile: { letter: data.viewer.initial, tone: "peach", round: true },
-      action: { kind: "open", key: "profile", label: "Edit" },
-    });
+    account.push({ id: "profile", title: "Name", line: data.viewer.name, icon: "person", action: { kind: "open", key: "profile", label: "Change" } });
   }
-  account.push({ id: "appearance", title: "Appearance", line: "Light, dark, or follow your device", icon: "sun", action: { kind: "appearance" } });
-  account.push(...pick(["invitations"]));
-  const accountMore = pick(["spelling", "feedback"]);
-  out.push({
-    id: "account",
-    title: "Your account",
-    rows: account,
-    more: accountMore.length > 0 ? { label: "Writing and feedback", rows: accountMore } : undefined,
-  });
+  account.push({ id: "appearance", title: "Appearance", line: null, icon: "sun", action: { kind: "appearance" } });
+  account.push(...pick(["invitations", "spelling"]));
+  out.push({ id: "account", title: "Account", scope: "everywhere", rows: account });
 
-  /* Tex. */
-  const texRows = pick(["tex", "vault", "texApps"]);
-  for (const row of texRows) {
-    if (row.id === "vault") row.tile = { letter: "V", tone: "sky" };
+  /* Tex: what it does for you, everywhere. The rows without a page are changed by texting it. */
+  /*
+    The rest of Tex's own settings (check-ins, quiet hours, tidying, ...) change by texting it today, so they are one
+    row rather than a column of rows with nothing to press; `texListRows` is that list, for the page that gives them
+    switches.
+  */
+  const byText = texListRows().filter((row) => row.action.kind === "byText");
+  const tex = [...pick(["tex", "texApps", "messages"])];
+  if (byText.length > 0) {
+    tex.push({ id: "tex-by-text", title: "Check-ins, quiet hours and more", line: null, icon: "sparkle", action: { kind: "byText" } });
   }
-  const texMore = [...pick(["messages"]), ...texListRows()];
-  out.push({
-    id: "tex",
-    title: "Tex",
-    lede: "Or just text Tex to change any of these.",
-    rows: texRows,
-    more: texMore.length > 0 ? { label: moreLabel(texMore, "check-ins and quiet hours"), rows: texMore } : undefined,
-  });
+  out.push({ id: "tex", title: "Tex", scope: "everywhere", rows: tex });
 
-  /* This workspace. */
+  /* AI apps: one connection reaches every workspace this person is in. */
+  if (has("integrations")) out.push({ id: "ai", title: "AI apps", scope: "everywhere", rows: pick(["integrations"]) });
+
+  /* The workspace picked at the head of this section; everything in it is that workspace's own. */
   if (current !== null) {
-    const rows = pick(["sharing", "integrations", "website"]);
-    for (const row of rows) {
-      if (row.id === "sharing") row.tile = { letter: "@", tone: "lilac" };
-      if (row.id === "integrations") row.tile = { letter: "A", tone: "tint" };
-    }
-    const workspace = pick(["workspace"]).map((row) => ({
-      ...row,
-      line: `${atName(current.slug)}, ${current.kind === "shared" ? "shared" : "personal"}`,
-    }));
-    const more = [...workspace, ...pick(["storage", "meetings", "folders", "emoji", "activity", "premium", "plugins"])];
-    out.push({
-      id: "workspace",
-      title: "Workspace",
-      lede: `These apply to ${atName(current.slug)}.`,
-      switcher: true,
-      rows,
-      more: more.length > 0 ? { label: moreLabel(more, "meetings, folders and storage"), rows: more } : undefined,
-    });
-  }
-
-  /* Your data: leaving is never more than one press (non-negotiable #1). */
-  const yours: HomeRow[] = [];
-  if (current !== null) {
-    yours.push({
+    const general = pick(["workspace"]).map((row) => ({ ...row, line: current.displayName || atName(current.slug) }));
+    const rows = [
+      ...general,
+      ...pick(["sharing", "vault", "website", "premium", "storage", "meetings", "folders", "emoji", "plugins", "activity"]),
+    ];
+    /* Leaving is never more than one press (non-negotiable #1), and it is this workspace's. */
+    rows.push({
       id: "download",
-      title: "Download as folders",
-      line: "Every note and file, with real names. Always free.",
+      title: "Download a copy",
+      line: current.role === "owner" ? "All notes, as folders" : "Notes you can see, as folders",
+      icon: "archive",
       action: { kind: "download" },
     });
+    out.push({ id: "workspace", title: "Workspace", scope: "workspace", rows });
   }
-  if (canSignOut) yours.push({ id: "sign-out", title: "Sign out", line: "On this device", action: { kind: "signOut" } });
+
+  /* Data controls. */
+  if (has("feedback")) out.push({ id: "privacy", title: "Data controls", scope: "everywhere", rows: pick(["feedback"]) });
+
+  /* Account management: signing out and leaving for good. */
+  const yours: HomeRow[] = [];
+  if (canSignOut) yours.push({ id: "sign-out", title: "Sign out", line: "This device", action: { kind: "signOut" } });
   if (has("profile") && data.deleteAccount !== undefined) {
     yours.push({
       id: "delete-account",
       title: "Delete account",
-      line: "Your account and personal workspace, for good",
+      line: "Deletes your account and personal workspace",
       action: { kind: "open", key: "profile", label: "Delete", danger: true },
     });
   }
-  if (yours.length > 0) out.push({ id: "data", title: "Your data", rows: yours });
+  if (yours.length > 0) out.push({ id: "data", title: "Account management", scope: "everywhere", rows: yours });
 
   return out;
 }

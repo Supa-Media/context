@@ -70,7 +70,6 @@ export function Overlay({
   backLabel,
   onDismiss,
   testID,
-  ground,
 }: {
   /**
    * The bar's own title, where the bar is the only thing naming the screen.
@@ -135,12 +134,6 @@ export function Overlay({
   backLabel?: string;
   onDismiss: () => void;
   testID?: string;
-  /**
-   * A ground of the screen's own, for a page drawn in the brand's paper
-   * rather than the app's (the settings home, Dev2 2026-11-12). The bar and
-   * the pane both take it, so the page reads as one sheet.
-   */
-  ground?: string;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -264,7 +257,6 @@ export function Overlay({
           style={[
             styles.phone,
             { paddingTop: insets.top, paddingBottom: insets.bottom },
-            ground === undefined ? null : { backgroundColor: ground },
           ]}
         >
           {band}
@@ -354,7 +346,6 @@ export function Overlay({
         style={[
           styles.page,
           { paddingTop: insets.top, paddingBottom: insets.bottom },
-          ground === undefined ? null : { backgroundColor: ground },
         ]}
         testID={testID ? `${testID}-panel` : undefined}
       >
@@ -365,7 +356,7 @@ export function Overlay({
             <View style={[styles.side, { width: sidebarWidth }]}>{sidebar}</View>
           )}
           <View
-            style={[styles.main, ground === undefined ? null : { backgroundColor: ground }]}
+            style={styles.main}
             testID={testID ? `${testID}-pane` : undefined}
           >
             {children}

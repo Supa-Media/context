@@ -15,7 +15,7 @@ searchable index beside a panel.
   place (copy an address, pick a look, download, sign out) or opens that
   section's page, which is the same panel and the same `?settings=<key>`
   address as before. Never two controls on one row.
-- **The brand's look, not a phone's grouped list.** Paper ground, Libron
+- **(Replaced 2026-11-13, see below.) The brand's look, not a phone's grouped list.** Paper ground, Libron
   headings, "Settings." with the blue period, lettermark tiles for things
   (you, the vault, people, apps), small type (15/13). Dev2 on the grouped grey
   cards with capital labels: *"feels ai"*; on the app's own sans-only version:
@@ -40,3 +40,32 @@ splits the page from what Tex can change by text.
 Tests: `__tests__/settingsHomeModel.test.ts` (every section is a row, the Tex
 rows equal the shared list), `settingsOverlayRender.test.ts`,
 `settingsFrame.test.ts`, `e2e/webkit/settings.spec.ts`.
+
+## Rebuilt from the reviewed prototype (2026-11-13)
+
+Dev2 rejected the first build on sight (2026-11-12: "no way to switch
+workspaces or see how settings affect different workspaces, the color does not
+match the rest of the app") and the next prototype on its words and layout
+(2026-11-13: "way too much jargon and slop text", "the layout is horrendous").
+The page was rebuilt to a clickable prototype that went through three UX
+reviews against the reference screenshots, and Dev2 said "build". What changed
+from the list above, and replaces it where they differ:
+
+- **The app's own colours and type.** `useColors` and Instrument Sans; the
+  paper sheet, Libron headings, the blue period and the lettermark tiles are
+  gone.
+- **A row's line is its value**, never a sentence about the setting: "3
+  people", "Healthy", "seyi@context.lc". A row with nothing to state shows its
+  name alone. No section ledes, no scope captions.
+- **Nothing is folded.** Every row is on the page as it opens; "More" is gone.
+- **The workspace is a section of its own, last before Data controls.** Its
+  heading is followed by its picker (the workspace's mark, `@name`, and "Shared
+  · Owner"), and every row under it belongs to the workspace picked there.
+  Everything above it follows the person into every workspace.
+- **Tex settings changed by text are one row** ("Check-ins, quiet hours and
+  more", "Text Tex") until the app has their switches, rather than a column of
+  rows with nothing to press.
+
+Tests: `settingsHomeModel.test.ts` adds "a row's line is its value" (seven
+words at most, no full stop) and "the Workspace section comes after everything
+that follows you, and holds only workspace sections".

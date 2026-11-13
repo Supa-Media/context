@@ -137,11 +137,8 @@ function toHome(host: HTMLElement): void {
   });
 }
 
-function openMore(host: HTMLElement, section: string): void {
-  act(() => {
-    (host.querySelector(`[data-testid="settings-more-${section}"]`) as HTMLElement).click();
-  });
-}
+/** Nothing is folded since the 2026-11-13 rebuild; kept so each test still reads as the steps a person takes. */
+function openMore(_host: HTMLElement, _section: string): void {}
 
 /*
   jsdom reports a viewport width of 0, so every mount here takes `Overlay`'s
@@ -238,16 +235,12 @@ describe("a phone reaches the settings, not just a menu", () => {
 });
 
 describe("every setting is on the one page", () => {
-  // No search box since the one-page home (2026-11-12): rarely opened pages sit under "More".
-  test("the folded sections are under More, not missing", () => {
+  // No search box and nothing folded (2026-11-13): every row is on the page as it opens.
+  test("every section is a row without unfolding anything", () => {
     const host = overlay("workspace");
     toHome(host);
     expect(host.querySelector('[data-testid="settings-search"]')).toBeNull();
-    for (const key of ["activity", "meetings", "emoji", "folders", "storage"]) {
-      expect(host.querySelector(`[data-testid="settings-section-${key}"]`)).toBeNull();
-    }
-    openMore(host, "workspace");
-    openMore(host, "account");
+    expect(host.querySelector('[data-testid^="settings-more-"]')).toBeNull();
     for (const key of ["activity", "meetings", "emoji", "folders", "storage", "workspace", "spelling", "feedback"]) {
       expect(host.querySelector(`[data-testid="settings-section-${key}"]`)).not.toBeNull();
     }
@@ -389,7 +382,7 @@ describe("a row says what it is set to", () => {
     toHome(host);
     const row = host.querySelector('[data-testid="settings-section-tex"]');
     expect(row).not.toBeNull();
-    expect((row!.textContent ?? "").trim()).toBe("How Tex talksYour own words for how Tex writes to youEdit");
+    expect((row!.textContent ?? "").trim()).toBe("How Tex talksChange");
   });
 });
 
@@ -471,7 +464,7 @@ describe("the section is named once", () => {
     const headings = Array.from(host.querySelectorAll('[role="heading"]')).map(
       (node) => node.textContent ?? "",
     );
-    expect(headings).toContain("Settings.");
+    expect(headings).toContain("Settings");
   });
 });
 
