@@ -74,6 +74,7 @@ import { runAgentChecks } from "./agent.test.mjs";
 import { runAgentBuiltinChecks } from "./agentBuiltin.test.mjs";
 import { runMeetingSummaryChecks } from "./meetingSummary.test.mjs";
 import { runAgentGatewayChecks } from "./agentGateway.test.mjs";
+import { runAgentGatewayAliasChecks } from "./agentGatewayAliases.test.mjs";
 import { runAgentComputerChecks } from "./agentComputer.test.mjs";
 import { runAgentBrowseChecks } from "./agentBrowse.test.mjs";
 import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
@@ -134,6 +135,7 @@ const SUITES = [
   ["runAgentBuiltinChecks", () => runAgentBuiltinChecks(check)],
   ["runMeetingSummaryChecks", () => runMeetingSummaryChecks(check)],
   ["runAgentGatewayChecks", () => runAgentGatewayChecks(check)],
+  ["runAgentGatewayAliasChecks", () => runAgentGatewayAliasChecks(check)],
   ["runAgentComputerChecks", () => runAgentComputerChecks(check)],
   ["runAgentBrowseChecks", () => runAgentBrowseChecks(check)],
   ["runAgentRoutineChecks", () => runAgentRoutineChecks(check)],

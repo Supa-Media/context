@@ -304,20 +304,12 @@ through one Cloudflare AI Gateway (`apps/mcp/src/agent/aiGateway.js`) rather
 than one account per provider. The owner's Claude plan includes a monthly API
 credit, and nothing that costs money is spent while it lasts:
 
-- A call carries the plan's key (`ANTHROPIC_CREDIT_KEY`) first. When Anthropic
-  says the credit balance is too low, the same round is sent again without it,
+- Gateway-held keys first ([gateway-keys](./texting-assistant/gateway-keys.md)), then
+  the plan's key (`ANTHROPIC_CREDIT_KEY`). When Anthropic says the credit balance is too low, the same round is sent again without it,
   and the gateway serves it on Cloudflare's Unified Billing. A spent credit is
   skipped for 15 minutes rather than tried on every round. A key the gateway
   refuses for another reason is retried without it once, so a broken key costs
   a slower answer, never no answer.
-- Keys stored on the gateway's own Provider Keys page come before the plan
-  key (decided by the owner, 2026-11-13): `AI_GATEWAY_KEY_ALIASES` names them,
-  comma separated, and each call names one with `cf-aig-byok-alias`, in that
-  order, each spent one resting 15 minutes on its own. A stored key that is
-  not named as the gateway's `default` is never used by a call without an
-  alias, so the last, keyless call still lands on Unified Billing (seen live,
-  2026-11-13: keyless calls stayed `wholesale` after two aliased keys were
-  stored).
 - With no gateway configured (`AI_GATEWAY_ACCOUNT_ID`, `AI_GATEWAY_ID`,
   `AI_GATEWAY_TOKEN`, all optional Worker secrets), the built-in model stays
   GLM on Workers AI, exactly as before. Self-hosting needs none of this.
