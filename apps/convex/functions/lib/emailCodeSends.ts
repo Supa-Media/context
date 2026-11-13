@@ -3,7 +3,7 @@ import { internal } from "../../_generated/api";
 import { type MutationCtx } from "../../_generated/server";
 import { internalMutation } from "./rowWatch/mutations";
 import { tryConsumeRateLimit, windowEndsAt, type RateLimitPolicy } from "./rateLimit";
-import { afterVerification } from "./issuedSignInCodes";
+import { beforeVerification, afterVerification } from "./issuedSignInCodes";
 
 /**
  * How many email sign-in codes one address may be sent.
@@ -99,6 +99,10 @@ export function limitEmailCodeSends() {
       if (call?.type === "createVerificationCode" && call.provider === COUNTED_PROVIDER && typeof call.email === "string") {
         await spendEmailCodeSend(ctx, call.email);
       }
+      // Expiry must be checked before the library can mint a session, including
+      // codes issued with the former multi-day lifetime. Returning null commits
+      // deletion of the expired verifier and follows the library's failure path.
+      if (!await beforeVerification(ctx, args as never)) return null;
       const result = await ctx.runMutation(internal.auth.libraryStore, { args });
       // An issued code's own attempt limit (`lib/issuedSignInCodes.ts`).
       await afterVerification(ctx, args as never, result);

@@ -326,8 +326,8 @@ code, without weakening any standard flow:
   each (`test-email*`, refusing every other address), but it accepts only a
   code staff issue for one review (`functions/signInCodes.ts`, the "Issue a
   sign-in code" workflow): six random digits, mailed to the team inbox and
-  never printed in a log, single-use, expiring after at most fourteen days
-  (a staging persona's after ten minutes), ten wrong tries in all against the
+  never printed in a log, single-use, expiring after ten minutes for every
+  account, ten wrong tries in all against the
   code, and the ordinary ten an hour under the address. Issuing again replaces
   the last one. Starting a sign-in through these providers mints nothing, so a
   stranger naming the public address cannot replace or guess at a stored code
@@ -359,16 +359,42 @@ when set, otherwise the auth signing key every deployment already has
 (`functions/lib/oneTimeCodes.ts`, and `hashVerificationCode` in the auth
 patch). Each store has a purpose of its own in the hashed input.
 
-Adaptive hashing (Argon2id, bcrypt, scrypt, PBKDF2) was considered and is not
-what protects a six-digit code: even at 100 ms a guess, a million guesses is a
-day on one laptop core and minutes on a GPU, inside a code's lifetime. A secret
-key outside the database makes a stolen table useless on its own. The lookup
-also has to stay deterministic, because the library finds a code by its hash
-through an index. Invitation links minted before the change are 190-bit tokens
+Adaptive hashing (Argon2id, bcrypt, scrypt, PBKDF2) can slow guessing, but a
+six-digit code has only a million possible values. This design requires a
+secret outside the database to compute a candidate's stored value, so a stolen
+table alone does not permit offline verification of guesses. The lookup stays
+deterministic because the library finds a code by its hash through an index.
+Invitation links minted before the change are 190-bit tokens
 and are still accepted by their old hash until they expire (the patch reads
 that fallback only for `magic-link` rows, and it goes after 2026-11-19).
 `oneTimeCodes.test.ts` and `issuedSignInCodes.test.ts` fail if a plain digest
 comes back.
+
+### Issued reviewer and test codes expire after ten minutes (2026-11-13)
+
+CASA 1.3.1 asks for the same expiry controls on exception accounts as on
+customer accounts. An issued reviewer or CUJ code now lasts ten minutes,
+including a code issued before this change with a multi-day expiry. Before the
+auth library verifies it, `beforeVerification` bounds it by its original
+`issuedAt` plus ten minutes and its stored expiry, whichever comes first. An
+expired code is deleted together with its lifecycle row in the same mutation;
+an issued-provider code missing that row is refused. The `days` override is
+removed from the internal functions and the issuance workflow.
+
+Review access uses a fresh code at the time of sign-in, or an assessor-owned
+account receiving ordinary email codes. A long review window is not a reason
+to extend a verifier's lifetime. The cost is that an issued code cannot be put
+in an unattended review form days in advance. Reintroducing that convenience
+would recreate the exception this decision removes.
+
+`issuedSignInCodes.test.ts` drives the real public sign-in action: every issued
+account is refused at the ten-minute boundary, a fresh code works just before
+it, an old multi-day verifier and an orphan verifier are refused, and consumed
+or superseded codes never sign in again. Removing the pre-verification guard
+must fail the old-code and orphan-code tests.
+
+The implementation and database-only compromise model are described in
+[authentication verifiers](../../architecture/authentication-verifiers.md).
 
 ### The reviewer account reaches nothing beyond its own workspace
 

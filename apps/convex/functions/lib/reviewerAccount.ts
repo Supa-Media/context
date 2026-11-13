@@ -8,7 +8,7 @@ import type { QueryCtx } from "../../_generated/server";
  * None of them can read our email, so none is mailed a code. Each has a
  * provider of its own that refuses every other address, and the only codes it
  * accepts are ones staff issue for one review (`functions/signInCodes.ts`):
- * random, single-use, expiring within fourteen days, ten wrong tries in all
+ * random, single-use, expiring after ten minutes, ten wrong tries in all
  * and the same ten an hour under the address as every customer. Starting a
  * sign-in through one mints nothing (`patches/@convex-dev__auth.patch`).
  *

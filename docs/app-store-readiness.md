@@ -37,10 +37,11 @@ Do not describe push delivery as working until those exist.
 Current sign-in includes phone authentication, with email as an alternative.
 The dedicated reviewer email (`connector-review@supa.media`) signs in with a
 code staff issue for each submission: run **Actions → Issue a sign-in code**
-(production, that account, days to cover the review), take the code from the
-team inbox, and put it with the email in the App Store Connect review fields.
-It works once, expires within fourteen days and dies after ten wrong tries, so
-issue a fresh one for each submission. The old review phone `+12025550123` and
+(production, that account) when the reviewer is ready to sign in, and take the
+code from the team inbox. It works once, expires after ten minutes and dies
+after ten wrong tries. Arrange fresh-code delivery for the review; putting a
+code in an unattended form days in advance will not work. A reviewer-owned
+admitted account can instead receive ordinary email codes. The old review phone `+12025550123` and
 its fixed code are retired (2026-11-11). The reviewer's exact identity is exempt
 from the phone check. The production CUJ account is also exempt. Prefer the dedicated reviewer
 identity: the CUJ account has test-only provisioning and cleanup powers.
