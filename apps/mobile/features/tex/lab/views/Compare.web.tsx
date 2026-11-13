@@ -22,7 +22,7 @@ function latest(v: LabVersion): Record<string, AreaRun> {
 
 export function Compare() {
   useLab();
-  const names = (lab as unknown as { names?: Record<string, string> }).names || {};
+  const names = lab.names || {};
   const ac = Object.keys(AREAS);
   return (
     <>
@@ -68,7 +68,7 @@ export function Compare() {
                   </td>
                   <td>
                     {v.authorId ? (
-                      names[v.authorId] || (v.authorId === lab.myId ? "You" : "Someone")
+                      names[v.authorId] || "Someone"
                     ) : (
                       <span className="hint">live</span>
                     )}
