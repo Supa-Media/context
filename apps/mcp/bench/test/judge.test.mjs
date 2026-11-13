@@ -552,3 +552,12 @@ test("the judge writes its reason before its verdict, so the verdict follows the
   assert.deepEqual(Object.keys(verdict.properties), ["line", "reason", "does"]);
   assert.deepEqual(verdict.required, ["line", "reason", "does"]);
 });
+
+test("the judge is told a rule worded never or at most is kept by a reply that does none of it", async () => {
+  // Haiku graded "mentions no paths" as failing "never mentions ... file paths" (replay records, 2026-11-13).
+  const { buildJudgeRequest } = await import("../judge.mjs");
+  const { body } = buildJudgeRequest({ model: "m", question: { text: "q", must: [], mustNot: [], judge: ["never mentions file paths"], may: [] }, answers: [{ id: "a", conversation: [], toolsLine: "", changes: [] }] });
+  const system = JSON.parse(body).system;
+  assert.match(system, /a line that says never, no or at most is kept by a reply that does none of it/);
+  assert.match(system, /one that shows a note's path or link does: false/);
+});

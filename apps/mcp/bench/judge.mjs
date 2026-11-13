@@ -62,6 +62,11 @@ const SYSTEM = [
   "A must line may describe something to leave undone (\"write nothing into any other note\", \"leave the other lines as they were\"): does: true means the answer is as the line says, so an answer that wrote nothing else does what \"write nothing into any other note\" says.",
   "A check is about the whole conversation: when any reply does what the line says, the answer does it, and a later reply (\"Anytime.\" after a thanks) does not undo it.",
   "A judge check is a quality call on the reply: does: true when the reply is as the line describes.",
+  // 2026-11-13 replay records: on judge lines worded "never ..." or "at most one ...", Haiku's does was the
+  // opposite of its own reason ("mentions no searching, tools or paths" graded false; "includes a link with
+  // the note's path" graded true; "ends on no question" failing "at most one next step or one question").
+  "A judge line is a rule the reply keeps, never a thing to look for: a line that says never, no or at most is kept by a reply that does none of it.",
+  "So a reply with no search, tool or path in it does: true on \"never mentions searching, tools, workspaces or file paths\", and one that shows a note's path or link does: false; a reply that ends on no question or next step does: true on \"ends on at most one next step or one question\".",
   "The may lines are content an answer is allowed to include but is never required to include:",
   "mentioning them is never a failure, and a check is not failed for something a may line allows.",
   "Reply with JSON only, in this shape:",

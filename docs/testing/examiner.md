@@ -10,17 +10,28 @@ change. A session that wrote the change must never act as its examiner.
 ## What the examiner does for one pull request
 
 1. Check out the pull request's head commit, and add a worktree of
-   `origin/main` at `$MAIN`. Pull the held-out cases with
-   `pnpm ai gate held-out --dir $HELD` (the benchmark runner's sign-in). A
-   session with its own Context connection can instead read
-   `@context-lc ai/held-out/<area>.md` and save each note's JSON block as
+   `origin/main` at `$MAIN`. Read `@context-lc ai/held-out/<area>.md` with
+   your own Context connection and save each note's JSON block as
    `$HELD/<area>.json`.
+
+   **Never use the benchmark runner's sign-in from an examiner session**
+   (`pnpm ai gate held-out`, `pnpm ai pull`, `pnpm ai socket publish`,
+   `pnpm ai signin`). Its refresh token rotates on every use and is shared
+   with Tex replay in CI: a second user beside a running replay presents a
+   retired token and the gateway revokes the whole grant (it happened on
+   2026-11-13 and took a person's `pnpm ai connect` to restore).
 2. Name the areas with `pnpm ai gate areas --base-sha $(git merge-base origin/main HEAD)`.
    `respond`, `review`, `core` and the four `advisor-*` roles can be examined (`SOCKET_AREAS` in
    `apps/mcp/bench/replayGate.mjs`). If the change reaches another area, stop
    and say so on the pull request. The core area also needs the live setup in
-   both trees: run `pnpm ai pull texting-assistant` in each (it uses the
-   benchmark runner's sign-in), as the workflow does.
+   both trees, as `pnpm ai pull texting-assistant` writes it in CI. Copy it
+   with your Context connection into each tree's `apps/mcp/bench/ai/`:
+   `@context-lc ai/production/texting-assistant.md` to
+   `setups/texting-assistant/production.md`, every note in
+   `ai/production/prompt/` to `setups/texting-assistant/prompt/`, every note
+   in `ai/production/skills/` to `setups/texting-assistant/skills/`, and every
+   note in `ai/tests/` to `tests/` (skip each folder's `about.md`; write each
+   note's text only, ending in a newline).
    The `jobs` area stays out of the socket on purpose, and runs only with API
    credits. One run is about 350 long tool-using calls (seven whole jobs, part
    after part, each with Opus's done check), more than an examiner can answer.
@@ -45,11 +56,10 @@ change. A session that wrote the change must never act as its examiner.
    each call on its own merits. Don't open the case files, the diff, or the
    pull request while answering, and don't change an answer after you've seen
    a score.
-5. When the gate exits, publish the answers with
-   `pnpm ai socket publish --dir $SOCK --sha <full head sha> --by "<this session's link>"`,
-   or, with your own Context connection, write the note that
-   `pnpm ai socket note --dir $SOCK --sha <sha> --by "<link>" --out note.md`
-   makes to `@context-lc ai/results/examiner/<sha>.md`. Then dispatch **Tex replay** on the branch with `examiner: true`. CI
+5. When the gate exits, make the note with
+   `pnpm ai socket note --dir $SOCK --sha <full head sha> --by "<this session's link>" --out note.md`
+   and write it with your Context connection to
+   `@context-lc ai/results/examiner/<full head sha>.md`. Then dispatch **Tex replay** on the branch with `examiner: true`. CI
    rebuilds every call from the commit, answers each from the published
    answers (a call with no answer fails the run), and scores and compares
    against main itself.
@@ -100,3 +110,11 @@ model and be scored.
   that they match production's Haiku. The examiner is a different model from
   production's. Each nightly that has credits asks the real models a sample of
   the same calls and reports how often they agree.
+
+## Proven
+
+2026-11-13, run 43466505830: a comment-only change reaching `advisor-planner`.
+The gate ran on the socket in one session, a separate agent answered its three
+calls blind, the note went to Context through the connector, and Tex replay
+with `examiner: true` marked the commit "Nothing regressed against main
+(examiner's answers, scored here)" for $0.
