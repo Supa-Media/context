@@ -99,9 +99,10 @@ async function post(env, token, path, body) {
   }
 }
 
+/** What the turn was asked: its last message (a routine now reads its chat first, as a reply does). */
 const userText = (request) => {
-  const first = request?.messages?.[0]?.content;
-  return typeof first === "string" ? first : JSON.stringify(first ?? "");
+  const asked = request?.messages?.at(-1)?.content;
+  return typeof asked === "string" ? asked : JSON.stringify(asked ?? "");
 };
 
 function unitChecks(check) {

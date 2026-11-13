@@ -28,9 +28,11 @@
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { callTool, notePaths, signIn, splitNote } from "./context.mjs";
+import { runCore } from "./coreArea.mjs";
 
 const run = promisify(execFile);
 
@@ -145,27 +147,86 @@ async function benchRows(tree, area, { heldOut, only, fake, out }) {
   return JSON.parse(await readFile(out, "utf8"));
 }
 
-/** What a run of an area's cases costs, roughly, per case: Clef is Workers AI, the reviewer one Haiku call. */
-export const USD_PER_CASE = { respond: 0.0002, review: 0.002 };
-export const MAX_USD = 1;
+/**
+ * What each area may spend and how often its wrong cases run again (on the change, on main). Areas in one pool share
+ * its cap: the cheap ones share $1 a change (Dev2, 2026-11-13: "Can we get each change to be less than $1?").
+ * `usdPerCase` is a case's price, an estimate where the run does not price itself: Clef is Workers AI, the reviewer
+ * one Haiku call, a core question one answer from the production setup plus the judge (measured: spend.md, 2026-11-12).
+ */
+export const AREA_LIMITS = {
+  respond: { maxUsd: 1, pool: "shared", usdPerCase: 0.0002, reruns: { branch: 2, main: 3 } },
+  review: { maxUsd: 1, pool: "shared", usdPerCase: 0.002, reruns: { branch: 2, main: 3 } },
+  core: { maxUsd: 1, pool: "shared", usdPerCase: 0.005, reruns: { branch: 2, main: 3 } },
+};
 
-export async function gate({ branch, base, areas, heldOut = null, fake = false, scratch }) {
+/** Rows of several runs as one row a case: `results` one boolean a run, `right` when most runs were. */
+export function mergeRuns(runs) {
+  const byId = new Map();
+  for (const rows of runs) {
+    for (const row of rows) {
+      const seen = byId.get(row.id) ?? { ...row, results: [] };
+      seen.results.push(...(row.results ?? [row.right]));
+      byId.set(row.id, seen);
+    }
+  }
+  return [...byId.values()].map((row) => ({ ...row, right: row.results.filter(Boolean).length * 2 > row.results.length }));
+}
+
+/** A scorer that writes rows (`--json`), run `runs` times: the judge's and the reviewer's areas. */
+const benchRunner = (area) => async (tree, { heldOut, only, fake, scratch, tag, runs = 1 }) => {
+  const all = [];
+  for (let i = 1; i <= runs; i += 1) all.push(await benchRows(tree, area, { heldOut, only, fake, out: join(scratch, `${area}-${tag}-${i}.json`) }));
+  const rows = mergeRuns(all);
+  return { rows, usd: AREA_LIMITS[area].usdPerCase * rows.length * runs };
+};
+
+/**
+ * How each area is answered in a tree: `(tree, { heldOut, only, fake, scratch, tag, runs })` -> `{ rows, usd }`, each
+ * row with `results` (one boolean a run) and `right`. The core area prices its own answers; it has no held-out cases.
+ */
+export const RUNNERS = {
+  respond: benchRunner("respond"),
+  review: benchRunner("review"),
+  core: (tree, { only, fake, scratch, tag, runs = 1 }) => runCore(tree, { only, fake, scratch, tag, runs }),
+};
+
+/** Whether main's tree has the area at all: a change that adds one gives main no runs, and its cases must pass. */
+async function baseHas(base, area) {
+  const mod = await import(pathToFileURL(join(base, "apps/mcp/bench/replayAreas.mjs")).href).catch(() => null);
+  return Boolean(mod?.AREAS?.[area]);
+}
+
+export async function gate({ branch, base, areas, heldOut = null, fake = false, scratch, runners = RUNNERS, limits = AREA_LIMITS, hasArea = baseHas }) {
   const results = [];
+  const pools = {};
   let usd = 0;
   for (const area of areas) {
-    const first = await benchRows(branch, area, { heldOut, fake, out: join(scratch, `${area}-branch-1.json`) });
-    const wrong = first.filter((row) => !row.right).map((row) => row.id);
-    const planned = USD_PER_CASE[area] * (first.length + wrong.length * 5);
-    if (usd + planned > MAX_USD) throw new Error(`the ${area} area would take the run past $${MAX_USD} (about $${(usd + planned).toFixed(2)}); refused`);
-    const branchRuns = Object.fromEntries(wrong.map((id) => [id, [false]]));
+    const limit = limits[area];
+    const runner = runners[area];
+    const first = await runner(branch, { heldOut, fake, scratch, tag: "branch-1", runs: 1 });
+    const wrongRows = first.rows.filter((row) => !row.right);
+    const wrong = wrongRows.map((row) => row.id);
+    const perCase = first.rows.length ? first.usd / first.rows.length : limit.usdPerCase;
+    const planned = first.usd + perCase * wrong.length * (limit.reruns.branch + limit.reruns.main);
+    const spent = pools[limit.pool] ?? 0;
+    if (spent + planned > limit.maxUsd) throw new Error(`the ${area} area would take the ${limit.pool} pool past $${limit.maxUsd} (about $${(spent + planned).toFixed(2)}); refused`);
+    const branchRuns = Object.fromEntries(wrongRows.map((row) => [row.id, [...(row.results ?? [row.right])]]));
     const mainRuns = Object.fromEntries(wrong.map((id) => [id, []])); // an id main lacks stays empty: the change's own new case
+    let cost = first.usd;
     if (wrong.length) {
-      for (let i = 2; i <= 3; i += 1) for (const row of await benchRows(branch, area, { heldOut, only: wrong, fake, out: join(scratch, `${area}-branch-${i}.json`) })) branchRuns[row.id]?.push(row.right);
-      for (let i = 1; i <= 3; i += 1) for (const row of await benchRows(base, area, { heldOut, only: wrong, fake, out: join(scratch, `${area}-main-${i}.json`) })) mainRuns[row.id]?.push(row.right);
+      const more = await runner(branch, { heldOut, only: wrong, fake, scratch, tag: "branch-2", runs: limit.reruns.branch });
+      for (const row of more.rows) branchRuns[row.id]?.push(...row.results);
+      cost += more.usd;
+      if (await hasArea(base, area)) {
+        const onMain = await runner(base, { heldOut, only: wrong, fake, scratch, tag: "main", runs: limit.reruns.main });
+        for (const row of onMain.rows) mainRuns[row.id]?.push(...row.results);
+        cost += onMain.usd;
+      }
     }
-    const lost = new Set(blocking(regressions(branchRuns, mainRuns), first));
-    usd += planned;
-    results.push({ area, rows: first, regressed: first.filter((row) => lost.has(row.id)), usd: planned });
+    const lost = new Set(blocking(regressions(branchRuns, mainRuns), first.rows));
+    pools[limit.pool] = spent + cost;
+    usd += cost;
+    results.push({ area, rows: first.rows, regressed: first.rows.filter((row) => lost.has(row.id)), usd: cost });
   }
   return { pass: results.every((result) => result.regressed.length === 0), usd, results, report: feedback({ areas, results }) };
 }

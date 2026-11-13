@@ -1,6 +1,7 @@
 /**
  * `pnpm ai spend check <test> --setups <a,b>`
  * `pnpm ai spend record <result file> --run <n> [--run-url <url>]`
+ * `pnpm ai spend add <test> --usd <n> --run <n> [--run-url <url>] [--answers <n>]`
  *
  * The testing loop's budget, kept where a person can read and raise it: one
  * note, `@context-lc ai/results/spend.md`, with `cap_usd` in its front matter
@@ -82,8 +83,19 @@ export function withRow(raw, row) {
   return `${lines.join("\n")}\n`;
 }
 
-async function readSpend(connection) {
-  const read = await callTool(connection, "read_note", { path: SPEND_NOTE });
+/** One row added to the spend note. Two tries: the note is shared, and a write that lost a race is read again. */
+export async function addSpendRow(connection, row, fetchImpl = fetch) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const note = await readSpend(connection, fetchImpl);
+    if (!note) throw new Error(`${SPEND_NOTE} is not in Context`);
+    const written = await callTool(connection, "write_note", { path: SPEND_NOTE, content: withRow(note.content, row), expected_etag: note.header.etag, summary: `spend for ${row.test} ${row.run}` }, fetchImpl);
+    if (!written.isError) return;
+  }
+  throw new Error(`could not record the round's spend in ${SPEND_NOTE}`);
+}
+
+export async function readSpend(connection, fetchImpl = fetch) {
+  const read = await callTool(connection, "read_note", { path: SPEND_NOTE }, fetchImpl);
   if (read.isError) return null;
   return splitNote(read.text);
 }
@@ -100,19 +112,18 @@ export async function spendCommand(options, args = process.argv.slice(2)) {
     if (!verdict.ok) process.exitCode = 4;
     return;
   }
-  if (action === "record") {
-    const row = roundRow(await readFile(subject, "utf8"), options["run-url"] ? `[${options.run ?? basename(subject)}](${options["run-url"]})` : String(options.run ?? basename(subject, ".md")));
-    // Two tries: the note is shared, and a write that lost a race is read again.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const note = await readSpend(connection);
-      if (!note) throw new Error(`${SPEND_NOTE} is not in Context`);
-      const written = await callTool(connection, "write_note", { path: SPEND_NOTE, content: withRow(note.content, row), expected_etag: note.header.etag, summary: `spend for ${row.test} ${row.run}` });
-      if (!written.isError) {
-        process.stdout.write(`recorded $${row.usd.toFixed(2)} for ${row.test}\n`);
-        return;
-      }
-    }
-    throw new Error(`could not record the round's spend in ${SPEND_NOTE}`);
+  if (action === "record" || action === "add") {
+    const run = options["run-url"] ? `[${options.run ?? subject}](${options["run-url"]})` : String(options.run ?? subject);
+    // `add`: a run with no result note of its own, the replay gate's and the nightly's, priced by the run itself.
+    const row =
+      action === "add"
+        ? { date: new Date().toISOString().slice(0, 10), run, test: String(subject), setups: ["production"], answers: Number(options.answers ?? 0), usd: Math.round(Number(options.usd) * 100) / 100 }
+        : roundRow(await readFile(subject, "utf8"), options["run-url"] ? `[${options.run ?? basename(subject)}](${options["run-url"]})` : String(options.run ?? basename(subject, ".md")));
+    // A test name is one word in the table (`parseSpend` reads its cell as \S+).
+    if (action === "add" && (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(row.test) || !Number.isFinite(row.usd) || row.usd < 0)) throw new Error("spend add needs a one-word test name and --usd <dollars>");
+    await addSpendRow(connection, row);
+    process.stdout.write(`recorded $${row.usd.toFixed(2)} for ${row.test}\n`);
+    return;
   }
-  throw new Error("usage: pnpm ai spend check <test> --setups <a,b> | pnpm ai spend record <result file> --run <n> [--run-url <url>]");
+  throw new Error("usage: pnpm ai spend check <test> --setups <a,b> | spend record <result file> --run <n> [--run-url <url>] | spend add <test> --usd <n> --run <n>");
 }

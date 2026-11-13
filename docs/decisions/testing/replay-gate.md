@@ -57,6 +57,16 @@ did not have to leave a case behind.
    time flips on unchanged code (the first real run, 2026-11-13, flagged three
    in a change that touched no reviewer code under a most-of-three rule), so
    only a steady flip counts. A case main lacks (the change's own) must pass.
+   **The areas** (`replayAreas.mjs`, each with its runner and limits in
+   `replayGate.mjs` `RUNNERS` and `AREA_LIMITS`): `respond` (the one judge's
+   cases), `review` (the reply reviewer's), and `core` (`coreArea.mjs`): a
+   change to `texEntryPoint/`, the turn, the prompt and its modules, the
+   production reader, the front door or the advisor runs the core set and the
+   simple asks through `pnpm ai run` and `pnpm ai judge` as the live setup
+   (pulled into both trees from Context), one case a question, about $0.15
+   a change plus its mistakes. The cheap areas share one $1 pool a change; an
+   area whose reruns would pass it is refused. What each replay spent is a row
+   in `@context-lc ai/results/spend.md` (`replay-gate`).
 4. **Practice cases and held-out cases.** Cases in the repository are practice:
    agents may read them and learn from their failures. Held-out cases live
    outside the repository and are never shown to the agent writing a change;
@@ -65,14 +75,36 @@ did not have to leave a case behind.
    `cause`, pulled at run time into the runner's temp folder. No prompt or judge
    example may be within half its words of any case (`respond.test.mjs`
    already checks this for the judge).
-5. **Targets.** A case marked `"target": "<cause>"` (a bench question line
-   `- target: <cause>`) is a known bug nobody has fixed yet: it runs and is
-   reported, as a count per area and on the nightly scoreboard, but never
-   counts as a regression, so it never blocks a merge (`blocking()` in
-   `bench/replayGate.mjs`). Fixing the bug removes the field, and from then
-   on the case guards like any other. The first targets came from reading
+5. **Target cases.** A case that captures a bug not yet fixed is a target: a
+   bench question's `- target: <cause>` line, or a respond or review case's
+   `"target": "<cause>"`. It runs, it is reported apart, and it never blocks a
+   merge or fails an area's bar (`blocking()` in `bench/replayGate.mjs`);
+   fixing the bug is removing the line. The first targets came from reading
    every Tex chat on 2026-11-13 (`bench/review/from_chats.json` and the
    `audit-1113` reply-or-quiet cases), all invented, each named by its cause.
+6. **Every night, everything.** `tex-nightly.yml` (`pnpm ai nightly`,
+   `bench/nightly.mjs`) runs every area three times as the live setup: core
+   and simple asks, the golden tasks, the web facts (once that set is on
+   main), the one judge's cases and the reviewer's, held-out cases included.
+   Each area is checked against `cap_usd` in `spend.md` before it starts and
+   refused past it, and its cost is recorded there. It writes one note,
+   `@context-lc ai/results/nightly/<date>.md`: pass or fail by each area's own
+   bar, the cases that fell short (held-out ones by cause), the target cases,
+   the live drift and the live prompt's changes. The run goes red when an area
+   falls short, so a morning starts from a number.
+7. **Live drift.** `pnpm ai drift` (`bench/drift.mjs`) holds yesterday's
+   conversation scores from Tex's self-review
+   (`@context-lc areas/tex-reviews/scores/`) against the seven days before,
+   weighted by conversations, and the nightly keeps one open `tex-drift` issue
+   while they have dropped (1 point in the mean of every measure, or 1.5 in
+   one; at least 5 conversations that day and 10 in the week). Numbers only.
+8. **The live prompt is watched.** The gateway reads `@context-lc
+   ai/production/` on every turn, so an edit there is live at once, with no
+   pull request and no replay. AI Promote is the gated way in. The nightly
+   fingerprints every production note and names each change since the night
+   before as AI Promote's or outside the gate; its runs then score the changed
+   prompt within a day. Making the gateway refuse an ungated edit is a
+   separate decision for the owner: it would turn a hand fix into a deploy.
 
 ## What a simplification costs
 
@@ -85,4 +117,9 @@ lets a change pass by fitting the test instead of the cause.
 
 `node scripts/check-tex-change-has-case.mjs --self-test`; `apps/mcp/test/replay.test.mjs`
 (sabotage: `warmCopy.js` `events` reading the copy's day instead of the ledger
-fails `sees-own-reply` and `after-deploy`).
+fails `sees-own-reply` and `after-deploy`); `apps/mcp/bench/test/replayGate.test.mjs`
+(reruns only the wrong cases, a target never blocks, the shared pool's cap);
+`apps/mcp/bench/test/coreArea.test.mjs` (a core question is right only when
+every run passed; a target is never held to the bar);
+`apps/mcp/bench/test/nightly.test.mjs` (a quiet day is too few to tell; a hand
+edit to the live prompt is outside the gate; held-out cases by cause alone).

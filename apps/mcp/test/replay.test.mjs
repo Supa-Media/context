@@ -13,6 +13,8 @@
  *    end-to-end case (a chat home needs a world this fixture lacks), so that
  *    case was dropped rather than kept as a check that cannot fail;
  *    `groupPageCopy.test.mjs` covers it.
+ *  - `checkItMayRun` passing `moment: false` (a routine back on its own short
+ *    list of last texts) fails "routine-sees-chat".
  */
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";

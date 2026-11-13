@@ -36,6 +36,8 @@ jobs:
       AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
       AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
+      BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
       BENCH_RUNNER_CLIENT_ID: ${{ secrets.BENCH_RUNNER_CLIENT_ID }}
@@ -94,6 +96,15 @@ jobs:
         if: steps.areas.outputs.areas != ''
         run: pnpm --silent ai gate held-out --dir "$RUNNER_TEMP/held-out"
 
+      # The core area answers as the live setup, in each tree's own code: the
+      # setup and the tests edited in Context go into both trees' bench folders.
+      - name: Pull the live setup into both trees (core area)
+        if: contains(steps.areas.outputs.areas, 'core')
+        run: |
+          set -euo pipefail
+          pnpm --silent ai pull texting-assistant
+          (cd "$RUNNER_TEMP/main" && pnpm --silent ai pull texting-assistant)
+
       - name: Replay against main
         id: gate
         if: steps.areas.outputs.areas != ''
@@ -104,6 +115,30 @@ jobs:
           pnpm --silent ai gate --base "$RUNNER_TEMP/main" --areas "$AREAS" --held-out "$RUNNER_TEMP/held-out" \
             --scratch "$RUNNER_TEMP/gate" --out "$RUNNER_TEMP/gate.json" | tee -a "$GITHUB_STEP_SUMMARY"
           exit "${PIPESTATUS[0]}"
+
+      # What the run spent, beside the testing loop's other rounds (ai/results/spend.md).
+      - name: Record what the replay spent
+        if: always() && steps.areas.outputs.areas != ''
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/gate.json" ] || exit 0
+          usd="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).usd.toFixed(2))' "$RUNNER_TEMP/gate.json")"
+          [ "$usd" = "0.00" ] || pnpm --silent ai spend add replay-gate --usd "$usd" --run "replay-$RUN_NUMBER" --run-url "$RUN_URL"
+
+      # The core area's answers may take long enough to sign in again: keep that token too.
+      - name: Keep the runner's rotated token
+        if: always() && steps.areas.outputs.areas != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/bench-runner.json" ] || exit 0
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
 
       - name: Mark the commit with the result and re-run the pull request's check
         if: always()

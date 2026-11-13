@@ -16,7 +16,7 @@ import { threadView } from "../threadView.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function readTheSetup(t) {
-  const { attachments, conversation, dispatch, env, group, history, job, learnedRead, ledger, logged, opened, quoted, session, setupRead, stages, store, tex, textingWriting } = t;
+  const { attachments, conversation, dispatch, env, group, history, job, learnedRead, ledger, logged, opened, quoted, session, setupRead, stages, store, tex, textingWriting, view = null } = t;
   /*
     THE PRODUCTION SETUP (`production.js`): the texting job's file on a texted
     turn or a group chat's (2026-10-23), none otherwise. Its prompt replaces the built-in words, and
@@ -25,7 +25,8 @@ export async function readTheSetup(t) {
   */
   const production = await tex.wait("setup", setupRead); stages?.mark("setup");
   // What of the conversation this turn is shown: the setup's `history:`, else the default; a text typed in a thread, that thread (`threadView.js`).
-  const { shown, ...inThread } = threadView(history, quoted, job !== null ? 0 : production?.history ?? SHOWN_HISTORY_TURNS); // a job works from its own record, not the chat (`loggedTurn.js` `JOB_HISTORY_ENTRIES`)
+  const { shown: today, ...inThread } = threadView(history, quoted, job !== null ? 0 : production?.history ?? SHOWN_HISTORY_TURNS); // a job works from its own record, not the chat (`loggedTurn.js` `JOB_HISTORY_ENTRIES`)
+  const shown = view?.history ?? today; // a turn that names no text reads the chat from its ledger, as a reply does (`loggedTurn.js` `momentView`)
   // An earlier answer never marks this turn: only what this turn itself reads from outside does (`docs/decisions/texting-assistant/turn-trust.md`).
   if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
   // The rest is read on request, and carries its own mark when it is read.
