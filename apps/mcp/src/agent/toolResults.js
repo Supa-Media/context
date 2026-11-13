@@ -26,14 +26,25 @@ const MAX_RESULT_IMAGES = 2;
 const MAX_RESULT_IMAGE_CHARS = Math.ceil((5_000_000 * 4) / 3);
 const RESULT_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
+/** A PDF a tool hands back whole (`read_file` on a PDF of pictures), at most: the size `read_file` reads a file at. */
+const MAX_RESULT_PDF_CHARS = Math.ceil((10 * 1024 * 1024 * 4) / 3);
+const PDF = "application/pdf";
+
 /**
  * The pictures an MCP tool result carries (`read_image`, a drawn picture), so
- * the model sees what it asked to look at rather than only the words beside it.
+ * the model sees what it asked to look at rather than only the words beside it,
+ * and one PDF handed back whole as an embedded resource, so a PDF of pictures
+ * is read page by page (`readFile.js` A PDF OF PICTURES; `providers.js` makes
+ * it a document block).
  */
 export function toolResultImages(result) {
   const content = Array.isArray(result?.content) ? result.content : [];
-  return content
+  const pictures = content
     .filter((part) => part?.type === "image" && typeof part.data === "string" && RESULT_IMAGE_TYPES.has(part.mimeType) && part.data.length <= MAX_RESULT_IMAGE_CHARS)
     .slice(0, MAX_RESULT_IMAGES)
     .map((part) => ({ mediaType: part.mimeType, data: part.data }));
+  const pdf = content.find(
+    (part) => part?.type === "resource" && part.resource?.mimeType === PDF && typeof part.resource.blob === "string" && part.resource.blob.length <= MAX_RESULT_PDF_CHARS,
+  );
+  return pdf ? [...pictures, { mediaType: PDF, data: pdf.resource.blob }] : pictures;
 }

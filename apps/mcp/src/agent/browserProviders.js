@@ -21,7 +21,7 @@
  * be produced for another person without the secret.
  */
 
-import { fileWords, typeOfFile } from "../tools/readFile.js";
+import { fileWords, typeOfFile, wordsWithoutPages } from "../tools/readFile.js";
 import { pdfLinks } from "../tools/pdfLinks.js";
 
 /** Set once a Worker says it has no Browserbase key; a deploy starts a new isolate. */
@@ -195,7 +195,7 @@ export async function withFileWords(ai, result) {
     const bytes = Uint8Array.from(atob(file.data), (ch) => ch.charCodeAt(0));
     const type = typeOfFile(String(file.name ?? ""), bytes);
     const read = type === null ? null : await fileWords(ai, String(file.name ?? "file"), type, bytes);
-    words = typeof read?.text === "string" ? read.text : null;
+    words = typeof read?.text === "string" ? wordsWithoutPages(read) : null;
   } catch {
     words = null;
   }
@@ -222,7 +222,7 @@ export async function pdfPage(ai, page) {
   return {
     ...rest,
     title: rest.title || name,
-    text: read.text ?? `(This is a PDF, and ${read.error}.)`,
+    text: wordsWithoutPages(read) ?? `(This is a PDF, and ${read.error}.)`,
     links,
   };
 }

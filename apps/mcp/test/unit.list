@@ -537,4 +537,5 @@ bench/test/coreSocket.test.mjs
 bench/test/nightly.test.mjs
 test/texWindowStep.test.mjs
 bench/test/jobTasks.test.mjs
+test/pdfPictures.test.mjs
 bench/test/promptFingerprint.test.mjs
