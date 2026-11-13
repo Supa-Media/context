@@ -23,6 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
+import { readHeldOut, writeRows } from "./replayGate.mjs";
 import { judgeState, reviewReply } from "../src/agent/replyJudge.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -130,7 +131,14 @@ export async function reviewCommand(options, { write = (text) => process.stdout.
   // Each answer's raw text is kept, so a review with no verdict says why.
   const review = options.fake ? fakeReview : (state, _item, seen) => reviewReply({ state, config, metadata: { feature: "bench", client: "reviewer" }, request: async (...args) => { const reply = await requestViaGateway(...args); seen.raw = String(reply?.text ?? ""); return reply; } });
   const chosen = Object.fromEntries(names.map((name) => [name, sets[name]]));
-  const scored = await scoreCases(Object.values(chosen).flat(), review, Number(options.concurrency ?? 6));
-  write(`${reviewReport(chosen, scored)}\n`);
+  // `--held-out <dir>` adds the cases kept outside the repository (`replayGate.mjs`); `--only a,b` scores those ids alone.
+  const only = options.only ? new Set(String(options.only).split(",")) : null;
+  const cases = [...Object.values(chosen).flat(), ...(await readHeldOut(options["held-out"], "review"))].filter((item) => !only || only.has(item.id));
+  const scored = await scoreCases(cases, review, Number(options.concurrency ?? 6));
+  // A held-out case's words never reach the report: it counts in the rates and is named by its cause alone.
+  const held = scored.filter((item) => item.heldOut);
+  const wrong = held.filter((item) => (item.fault ? item.sent !== false : item.sent !== true));
+  write(`${reviewReport(chosen, scored.filter((item) => !item.heldOut))}\n${held.length ? `Held-out: ${held.length - wrong.length}/${held.length} right${wrong.length ? `; wrong about ${[...new Set(wrong.map((item) => item.cause))].join(", ")}` : ""}.\n` : ""}`);
+  if (options.json) await writeRows(options.json, "review", scored);
   return rates(scored);
 }

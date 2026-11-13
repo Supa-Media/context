@@ -18,6 +18,8 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readHeldOut, writeRows } from "./replayGate.mjs";
+
 import { decisionEngine } from "../src/agent/decide.js";
 import { decideRequest, readDecideAnswers } from "../../../packages/shared/src/textDecide.cjs";
 import { workersAi } from "./models.mjs";
@@ -104,6 +106,14 @@ export function fakeEngine(cases) {
   };
 }
 
+/** One line on the held-out cases: how many came out right, and the causes of those that didn't. */
+export function heldOutLine(scored) {
+  const held = scored.filter((item) => item.heldOut);
+  if (!held.length) return "";
+  const wrong = held.filter((item) => (item.want === "hush" ? !item.hushed : item.hushed || item.verdict?.ok !== true));
+  return `Held-out: ${held.length - wrong.length}/${held.length} right${wrong.length ? `; wrong about ${[...new Set(wrong.map((item) => item.cause))].join(", ")}` : ""}.\n`;
+}
+
 export function respondReport(scored) {
   const pct = (value) => `${Math.round(value * 100)}%`;
   const all = rates(scored);
@@ -127,10 +137,14 @@ export function respondReport(scored) {
 }
 
 export async function respondCommand(options, { write = (text) => process.stdout.write(text) } = {}) {
-  const cases = await loadCases();
+  // `--held-out <dir>` adds the cases kept outside the repository (`replayGate.mjs`); `--only a,b` scores those ids alone.
+  const only = options.only ? new Set(String(options.only).split(",")) : null;
+  const cases = [...(await loadCases()), ...(await readHeldOut(options["held-out"], "respond"))].filter((item) => !only || only.has(item.id));
   if (!options.fake && !(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN)) throw new Error("set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN");
   const engine = options.fake ? fakeEngine(cases) : decisionEngine(workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN));
   const scored = await scoreCases(cases, engine, Number(options.concurrency ?? 6));
-  write(`${respondReport(scored)}\n`);
+  // A held-out case's words never reach the report: it counts in the rates and is named by its cause alone.
+  write(`${respondReport(scored.filter((item) => !item.heldOut))}\n${heldOutLine(scored)}`);
+  if (options.json) await writeRows(options.json, "respond", scored);
   return rates(scored);
 }
