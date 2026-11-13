@@ -25,7 +25,7 @@ import { judgeFor } from "../../privacy/judge.js";
 import { withKeptFiles } from "../keptFiles.js";
 import { learnedSkillsLine, withLearnedSkills } from "../learnedSkills.js";
 import { setupPromptFor, turnKind } from "../promptModules.js";
-import { ledgerObserver } from "../ledger.js";
+import { ledgerObserver, loggedCheck, stepLog } from "../ledger.js";
 import { collectReads } from "../toldFacts.js";
 import { markRead, readBackTool, readsNote, readsOf } from "../readsIndex.js";
 import { carryKey } from "../stretch.js";
@@ -91,7 +91,7 @@ export async function runTheModel(t) {
   // The chat by conversation: the thread list as it stood after the text before, then the last 24 hours (`threadedTurn.js`), in 1:1 and in groups.
   // The new text is sorted only after the answer has gone, and its verdict kept for the next turn (Dev2, 2026-11-12: "Never wait for it").
   const threaded = threadsRun ? await tex.wait("threads", threadsRun) : null;
-  if (threaded?.sort) tex.after("threads_sort", () => threadsSortAndWrite(threaded.sort, store, session));
+  if (threaded?.sort) tex.after("threads_sort", () => stepLog(chatLog, ledgerAt ?? {}).timed("classifier", question, () => threadsSortAndWrite(threaded.sort, store, session)).catch(() => {})); // the threads it filed the text into, a step in the chat's ledger
   // Whether Tex answers at all was the Worker's one judge's, before this turn was asked for (`textDecide.cjs`).
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
@@ -109,9 +109,10 @@ export async function runTheModel(t) {
     onModel: (model) => void (store.usageModel = model),
     // A group turn's tool start goes down the stream as a step line: the Worker taps the asked message once on the first (`groupModelTurn.ts`).
     ...(group !== null && job === null && typeof step === "function" ? { onToolStart: (name) => void Promise.resolve(step(name)).catch(() => {}) } : {}),
-    answerCheck: judge?.check ?? doIt?.check ?? claims?.check ?? tries?.check ?? null, endsTurn: background?.endsTurn ?? null, sayNothing: job === null, mustAnswer: group?.tagged === true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
+    answerCheck: judge?.check ?? loggedCheck(chatLog, ledgerAt ?? {}, doIt !== null ? "checks" : claims !== null ? "handback" : "checks", doIt ?? claims ?? tries), endsTurn: background?.endsTurn ?? null, sayNothing: job === null, mustAnswer: group?.tagged === true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
+    // With no reviewer, the answer check is a step of its own in the ledger (`loggedCheck`, `ledger.js`).
     // A group turn's changing calls take the chat's write lock, one at a time across its turns side by side (`chatWriteLock.js`).
-    callTool: allowedFirst(tex.lean ? allowedRead : null, withChatWriteLock({ env, group }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
+    callTool: allowedFirst(tex.lean ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
         withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), groupWriting, { store, group, outside: () => ledger.outside === true }) : textingAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),

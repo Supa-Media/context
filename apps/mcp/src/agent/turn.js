@@ -49,8 +49,8 @@ import { resultInV2Names } from "../tools/v2/speak.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 import { causeOf, failureRecorder } from "./toolFailures.js";
-
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
+import { traceNames } from "./turnLog.js";
 import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, sayNothingRefused, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
@@ -347,7 +347,7 @@ export async function runTurn(options) {
     // near misses. Absent when it picked another tier or did not answer.
     const confidence = routed.pick === "think" && typeof routed.confidence === "number" ? { confidence: routed.confidence } : {};
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
-    tell({ kind: "model", model, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
+    tell({ kind: "model", step: "router", model, ms: clock() - asked, input: options.planned || nudge !== "" ? undefined : question, output: { tier: routed.tier, pick: routed.pick, ...confidence }, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
   const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
@@ -456,7 +456,7 @@ export async function runTurn(options) {
         const ms = clock() - asked;
         timing.modelMs += ms;
         trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ok: true, at: asked - began, ms });
-        tell({ kind: "model", model: next, reason: `after ${model} failed` });
+        tell({ kind: "model", step: "fallback", model: next, ms, input: { from: model, status: error.status ?? null }, output: { model: next }, reason: `after ${model} failed` });
         // The rest of the turn stays on the fallback: a plan would send it back to what failed.
         plan = null;
         // Another model reads none of this one's thinking, and the prompt changed with it.
@@ -651,7 +651,7 @@ export async function runTurn(options) {
       // A call the egress gate held for the person's yes is not a failure: it
       // runs when they give it (`texEntryPoint.js`), and a log that called it failed
       // would read as a broken tool.
-      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
+      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
       if (failedCall(result)) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }

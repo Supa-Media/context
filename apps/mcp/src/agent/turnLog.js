@@ -34,6 +34,12 @@ export function actionOf(made, call) {
   return typeof named === "string" && ACTION_NAME.test(named) ? named : undefined;
 }
 
+/** A tool trace entry's `action` and `six` (`actionOf`, `sixOf`), each only when there is one. */
+export function traceNames(made, call) {
+  const action = actionOf(made, call), six = sixOf(made, call);
+  return { ...(action === undefined ? {} : { action }), ...(six === undefined ? {} : { six }) };
+}
+
 /**
  * A trace entry as the turn log takes it (`apps/convex/functions/agentTurns.ts`):
  * kinds, names, numbers and flags, never a word the router or a provider

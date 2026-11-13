@@ -93,3 +93,27 @@ test("a text Tex sends outside a turn (a check-in) is kept as a note; the Worker
   const notes = (await ledgerFor(env, { person: "ws1" }).read(ONE_TO_ONE_CHAT, { kinds: ["note"] })).entries;
   assert.deepEqual(notes.map((entry) => [entry.text, entry.about]), [["Want me to forward both receipts?", "(check-in)"]]);
 });
+
+test("every step of a texted turn leaves its time and outcome in the ledger, under the turn (Dev2, 2026-11-13)", async () => {
+  const world = await createEgressWorld();
+  try {
+    const now = Date.now();
+    const text = event(now - 5_000, { text: "what's in my notes?" });
+    world.model.install([{ toolCalls: [{ name: "search", args: { query: "notes" } }] }, { text: "Here's what I found." }]);
+    const turn = await request(world.env, TOKEN_TEXTS, "/agent", { question: text.text, conversation: "texts", covers: [text.id], chat: CHAT, recent: [text], turn: "turn-ledger-0009" });
+    assert.equal(turn.status, 200, JSON.stringify(turn.body));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const { entries } = await ledgerOf(world).read(ONE_TO_ONE_CHAT);
+    const steps = entries.filter((entry) => entry.kind === "step");
+    const timed = steps.filter((entry) => entry.step === "timing");
+    console.log(JSON.stringify(steps.map((e) => [e.step, e.name ?? "", e.ok])));
+    const model = timed.find((entry) => entry.name === "model");
+    assert.ok(model, "the model step is timed in the ledger");
+    assert.equal(model.turn, "turn-ledger-0009");
+    assert.equal(model.ok, true);
+    assert.ok(Number.isFinite(model.ms));
+    assert.ok(timed.length >= 5, `the front door's steps are there too (${timed.length})`);
+  } finally {
+    world.restore();
+  }
+});

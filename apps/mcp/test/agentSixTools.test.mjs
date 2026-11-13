@@ -179,3 +179,21 @@ test("the vault link's action tells the model to look a login's site up, not gue
   // golden task 3: asked to save a login, Tex asked "Gmail or another email?" instead of sending the link.
   assert.match(line, /never ask first which email/);
 });
+
+test("the turn's trace names the six a call was made as and its action, for the Lab's Tools page (2026-11-13)", async () => {
+  resetCreditState();
+  const queue = [reply([use("a", "write", { action: "save", path: "a.md", content: "x" })], "tool_use"), reply([{ type: "text", text: "Saved." }])];
+  const fetchImpl = async () => new Response(JSON.stringify(queue.shift()), { status: 200, headers: { "content-type": "application/json" } });
+  const turn = await runTurn({
+    question: "save it",
+    tools: held("orient", "write_note"),
+    callTool: async () => ({ content: [{ type: "text", text: "saved" }] }),
+    env: { ...ENV, AGENT_BUILTIN_MODEL: HAIKU },
+    providerOptions: { gateway: aiGatewayConfig(ENV), fetchImpl },
+    builtinModelOverride: HAIKU,
+  });
+  const tool = turn.timing.trace.find((entry) => entry.kind === "tool");
+  assert.equal(tool.tool, "write_note");
+  assert.equal(tool.six, "write");
+  assert.equal(tool.action, "save");
+});
