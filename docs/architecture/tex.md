@@ -87,7 +87,7 @@ flowchart TB
   settleAYesOrNo["settleAYesOrNo<br/>a yes or 👍 to a waiting send, in code, no model"]:::rail
   watchWhatLeaves["watchWhatLeaves<br/>what this turn may read in and send out"]:::rail
   checkItMayRun["checkItMayRun<br/>tools, history (each part timed), may the model run here"]:::step
-  readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn<br/>a reply shows the full words it answers<br/>under each earlier text, what it read for it, quoted<br/>starts the conversation classifier"]:::step
+  readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn, a routine, check-in or job report too<br/>a reply shows the full words it answers<br/>under each earlier text, what it read for it, quoted<br/>starts the conversation classifier"]:::step
   openTheWeb["openTheWeb<br/>write tools and the browser"]:::step
   readTheSetup["readTheSetup<br/>prompt, skills, models, fallback"]:::step
   prepareBookkeeping["prepareBookkeeping<br/>usage, turn log, failed tool calls, the chat's ledger"]:::step
@@ -311,3 +311,40 @@ Newest first. One line per pull request that changed the drawing.
 - 2026-11-12: the judge reads what the last group turns knew (Dev2: "can we just give the judge all the information it needs?", yes to the brief). When a group turn ends, `sendTheReply.js` keeps a `brief` entry in the chat's ledger: who asked and what, the tools it ran and the sites or notes they touched, the yeses it waits on, and the chat's about note and custom instructions; `nowFacts` reads the newest 8 in the same 0.4 s wait and adds the last 12 hours' work (at most 3 turns), what Tex waits on, the instructions and, last, the about note to `<now>` (`judgeBrief.js`, `textsDecide.js`; `MAX_FACTS` 1,600 to 3,200). Step 5 of the one-record design (#3196), for the judge only; its next-prompt copy replaces the entry when built. Judge box changed. Decision: `docs/decisions/texting-assistant/one-judge-one-record.md`. Tests: `apps/mcp/test/judgeBrief.test.mjs`, `apps/mcp/test/textsDecide.test.mjs`.
 - 2026-11-12: a group's guest names from its about note (a later review: after the name roster went live, a chat whose about note named its guests still showed bare labels, since nothing had called `name_guest`). A turn reads "guest-1a2b is Sam" and the like there for a guest the ledger has no name for, uses it at once and keeps it as a `name` entry (`by: "about"`) behind the turn (`groupGuestNames.js` `guestNamesWithAbout`, `groupTurn.js`). No model or step changed, so the drawing is unchanged.
 - 2026-11-13: the reply reviewer sends a task's or a job's report's reply back up to five times (chat, questions and corrections still once), and from the third send-back tells Tex to ask its advisor before writing again (Dev2: "sendbacks could be as up to 5. A couple, and if it keeps getting sent back, we should get the advisor in"), after a Puttery form's second draft handed the work back unreviewed. A send-back past the first waits on the turn's time (80 s), and the advisor is brought in only before 50 s, so the reply still fits the texting Worker's two minutes (`replyJudge.js` `TASK_SEND_BACKS`, `ADVISOR_AFTER_SEND_BACKS`, `SEND_BACK_WINDOW_MS`). Reviewer box changed. Decision: `docs/decisions/texting-assistant/reply-judge.md`. Test: `apps/mcp/test/replyJudge.test.mjs`.
+- 2026-11-13: one door (Dev2, yes to "fewer doors" from the regressions diagnosis, step 1 of the one-record design #3196): a routine or check-in, a job's report and a group turn the Worker named no text for read the chat from its ledger the way a reply does, aged from now with nothing covered (`loggedTurn.js` `momentView`). Before, a 1:1 routine read no chat and a group check-in read the old memory file, which takes a quiet text only at the next turn, so a 6 pm check-in answered a text from the night before. readTheHistory box changed. Test: `apps/mcp/test/texOneDoor.test.mjs`.
+
+## Proposed, being built: one record per chat
+
+A proposal (Dev2's design ask, 2026-11-12), drawn here so the change can be
+seen against sections 1 to 3. It sits after the rule on purpose: agents read
+only sections 1 to 3, and nothing below is how Tex works today. Design page:
+https://claude.ai/artifact/QEWzwyv65r4RZDMRWNQD4Y. If chosen, sections 1 to 3
+are redrawn step by step as each part lands (step 1, one door, is built: 2026-11-13), and this section goes with the last one.
+
+```mermaid
+flowchart TB
+  T([A text, a reaction, a job report, a note change]) --> DO
+  subgraph DO["The chat's Durable Object: person:&lt;workspaceId&gt; or chat:&lt;groupKey&gt;, one writer"]
+    L[(Ledger: the record, append-only, sequence and turn id per entry)]
+    C[(Copy: the chat's notes, members, facts with a level per row<br/>rebuilt from the notes, never the record)]
+    R[(Reads index over the ledger's tool results<br/>source, level, who asked)]
+    V[(Next prompt, built when a turn ends<br/>with what it depends on, refreshed on change)]
+    WL{{Write lock, one call at a time}}
+    L --> R
+    C --> V
+    L --> V
+    R --> V
+  end
+  N[(Workspace objects: the notes)] -- per-note live push --> C
+  V --> G{{"factsFor(room): one level gate in code, at the model door"}}
+  G --> P["One prompt: system, tools, chat memory and facts,<br/>the chat as turns appended, then a per-text block"]
+  P --> J["Judge: a fork of the prompt<br/>respond, react or quiet; which running turn"]
+  P --> FD["Front door, Haiku 5.5, tools<br/>up to 3 turns at once, each adds a Meanwhile block per round"]
+  FD --> WL
+  FD --> F["Checks: forks of the same prompt, one last instruction<br/>reviewer, classifier, hand-back, mail, card<br/>plus code checks for the mechanical ones"]
+  FD --> JOB["Jobs: the same prompt and reads index, plus a brief"]
+  F --> S([Send])
+  S --> L
+  FD --> L
+  JOB --> L
+```

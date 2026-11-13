@@ -1,0 +1,11 @@
+{
+  "about": "How long a person waits for Tex's first text, from their text reaching the texting Worker to the first bubble going out (tex_text_timing double5, apps/agent/src/textTiming.ts), judged every hour over the last day by scripts/tex-speed-budgets.mjs. paths are the bars: the day's measured median and p95 on 2026-11-13 plus about 25% headroom, so a red bar is a regression. targets are where Dev2 wants Tex to be (simple asks under 5 s, a holding line by about 7 s, a lookup about 10 s); a red target is the work still to do. A speed fix lowers its bar in the same change, to the new measure plus about 25%. Raising a bar or a target needs \"Speed budget raised: <why>\" in the pull request (scripts/check-speed-budget.mjs). See docs/decisions/observability/tex-speed-budgets.md.",
+  "paths": {
+    "1:1": { "p50Ms": 17500, "p95Ms": 28000 },
+    "group": { "p50Ms": 18500, "p95Ms": 45000 }
+  },
+  "targets": {
+    "1:1": { "p50Ms": 5000, "p95Ms": 10000 },
+    "group": { "p50Ms": 5000, "p95Ms": 10000 }
+  }
+}

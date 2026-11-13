@@ -1,0 +1,10 @@
+{
+  "about": "The most a simple turn may ask for (Dev2, 2026-11-13: reply speed kept regressing campaign after campaign). model: every model call the turn makes, judges and advisor included; beforeModel: storage, control-plane and Tex object calls made before the first model call, fire-and-forget reports left out. Measured on the replay fixture (test/replay/cases/speed-budgets.mjs), which fails when a count is over its budget and when it is under it, so a change that makes a turn cheaper lowers the number in the same change. Raising one needs a line \"Speed budget raised: <why>\" in the pull request description (scripts/check-speed-budget.mjs). See docs/decisions/testing/replay-gate.md.",
+  "paths": {
+    "1:1 first text": { "model": 1, "beforeModel": 19 },
+    "1:1 warm text": { "model": 1, "beforeModel": 12 },
+    "1:1 text after a deploy": { "model": 1, "beforeModel": 14 },
+    "group first tag": { "model": 1, "beforeModel": 21 },
+    "group tag": { "model": 1, "beforeModel": 15 }
+  }
+}

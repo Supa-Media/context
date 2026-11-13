@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { areasFor, feedback, heldOutJson, markHeldOut, regressions, rowsFor } from "../replayGate.mjs";
+import { areasFor, feedback, gate, heldOutJson, markHeldOut, mergeRuns, regressions, rowsFor } from "../replayGate.mjs";
 
 test("a change runs only the areas its files reach, and plumbing alone runs none", () => {
   assert.deepEqual(areasFor(["packages/shared/src/textDecide.cjs"]), ["respond"]);
@@ -32,11 +32,16 @@ test("an advisor role's file runs that role alone, and the shared core runs ever
 });
 
 test("a change to every advisor role at once still fits the cap with a case to rerun", async () => {
-  const { USD_PER_CASE, MAX_USD } = await import("../replayGate.mjs");
+  const { AREA_LIMITS, RUNNERS } = await import("../replayGate.mjs");
   const { ROLES, loadRoleCases } = await import("../advisor.mjs");
   let first = 0;
-  for (const role of Object.keys(ROLES)) first += USD_PER_CASE[role] * (await loadRoleCases(role)).length;
-  assert.ok(first + USD_PER_CASE["advisor-chat"] * 5 <= MAX_USD, `all four roles cost about $${first.toFixed(2)} before reruns`);
+  for (const role of Object.keys(ROLES)) {
+    assert.equal(AREA_LIMITS[role].pool, "shared", `${role} shares the $1 a change`);
+    assert.equal(typeof RUNNERS[role], "function", `${role} has a runner`);
+    first += AREA_LIMITS[role].usdPerCase * (await loadRoleCases(role)).length;
+  }
+  const chat = AREA_LIMITS["advisor-chat"];
+  assert.ok(first + chat.usdPerCase * (chat.reruns.branch + chat.reruns.main) <= chat.maxUsd, `all four roles cost about $${first.toFixed(2)} before reruns`);
 });
 
 test("noise is not a regression: a case regresses only when the change is wrong in most runs and main right in most", () => {
@@ -70,4 +75,55 @@ test("a held-out case is reported by its cause alone, never its id or words", ()
 test("a held-out note's cases are its json block", () => {
   assert.deepEqual(heldOutJson("# Held out\n\nText.\n\n```json\n{\"cases\":[{\"id\":\"x\"}]}\n```\n"), { cases: [{ id: "x" }] });
   assert.equal(heldOutJson("no block"), null);
+});
+
+/** A scripted area: `answers[tree][id]` is the list of results it gives, one a run, taken in order. */
+function scripted(answers, cost = 0.01) {
+  const calls = [];
+  const runner = async (tree, { only, runs = 1, tag }) => {
+    calls.push({ tree, tag, only, runs });
+    const ids = only ?? Object.keys(answers[tree]);
+    const rows = ids.filter((id) => id in answers[tree]).map((id) => {
+      const results = answers[tree][id].splice(0, runs);
+      return { id, results, right: results.filter(Boolean).length * 2 > results.length, target: id.startsWith("t-") ? "a known bug" : null, must: false, heldOut: false, cause: null, expected: "pass" };
+    });
+    return { rows, usd: cost * rows.length * runs };
+  };
+  return { runner, calls };
+}
+const LIMITS = { core: { maxUsd: 1, pool: "shared", usdPerCase: 0.01, reruns: { branch: 2, main: 3 } }, respond: { maxUsd: 1, pool: "shared", usdPerCase: 0.01, reruns: { branch: 2, main: 3 } } };
+
+test("only the change's wrong cases run again, on the change and on main, and a target never blocks", async () => {
+  const { runner, calls } = scripted({
+    branch: { ok: [true], broke: [false, false, true], flaky: [false, true, true], "t-known": [false, false, false] },
+    main: { broke: [true, true, true], flaky: [true, true, true], "t-known": [true, true, true] },
+  });
+  const result = await gate({ branch: "branch", base: "main", areas: ["core"], scratch: "/nowhere", runners: { core: runner }, limits: LIMITS, hasArea: async () => true });
+  assert.deepEqual(result.results[0].regressed.map((row) => row.id), ["broke"]);
+  assert.equal(result.pass, false);
+  assert.deepEqual(calls.map((call) => [call.tree, call.runs, call.only?.join(",") ?? "all"]), [["branch", 1, "all"], ["branch", 2, "broke,flaky,t-known"], ["main", 3, "broke,flaky,t-known"]]);
+});
+
+test("a main without the area gives main no runs, and the change must pass its own cases", async () => {
+  const { runner, calls } = scripted({ branch: { fresh: [false, false, false], good: [true] }, main: {} });
+  const result = await gate({ branch: "branch", base: "main", areas: ["core"], scratch: "/nowhere", runners: { core: runner }, limits: LIMITS, hasArea: async () => false });
+  assert.deepEqual(result.results[0].regressed.map((row) => row.id), ["fresh"]);
+  assert.ok(!calls.some((call) => call.tree === "main"), "main was not asked to run an area it does not have");
+});
+
+test("areas in one pool share its cap: a change that would pass it is refused before its reruns", async () => {
+  const many = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`c${i}`, [false]]));
+  const { runner } = scripted({ branch: many, main: {} }, 0.02);
+  await assert.rejects(gate({ branch: "branch", base: "main", areas: ["core"], scratch: "/nowhere", runners: { core: runner }, limits: LIMITS, hasArea: async () => true }), /shared pool past \$1/);
+});
+
+test("several runs read as one row a case, right when most were", () => {
+  const merged = mergeRuns([[{ id: "a", right: false }], [{ id: "a", right: true }], [{ id: "a", right: true }]]);
+  assert.deepEqual(merged.map((row) => [row.id, row.results, row.right]), [["a", [false, true, true], true]]);
+});
+
+test("the front door, the prompt and the turn reach the core area; their neighbours do not", () => {
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/texEntryPoint/runTheModel.js"]), ["core"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/promptModules.js", "apps/mcp/bench/ai/tests/simple-asks.md"]), ["core"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/turnWeb.js", "apps/mcp/src/agent/jobNote.js"]), []);
 });

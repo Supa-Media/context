@@ -48,6 +48,7 @@ jobs:
           node scripts/check-workflow-triggers.mjs
           node scripts/check-workflow-interpolation.mjs --self-test
           node scripts/check-workflow-interpolation.mjs
+          node scripts/bench-runner-lock.mjs --self-test
           node scripts/check-package-tests-run.mjs --self-test
           node scripts/check-package-tests-run.mjs
           node scripts/check-workflow-cloudflare-preflight.mjs --self-test
@@ -170,6 +171,18 @@ jobs:
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
           fi
           node scripts/check-tex-change-has-case.mjs
+
+      # Tex's speed budgets move up only with a stated reason (Dev2 2026-11-13: "the speed keeps regressing").
+      - name: Tex speed budgets are not raised without a reason
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TEX_PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          node scripts/check-speed-budget.mjs --self-test
+          if [ -n "$BASE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          fi
+          node scripts/check-speed-budget.mjs
 
       # The one Tex drawing moves with the code it draws (docs/architecture/tex.md, Dev2 2026-11-05).
       - name: The Tex diagram matches the code

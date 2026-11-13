@@ -1,0 +1,178 @@
+# Tex's nightly scoreboard (Dev2, 2026-11-13: "I want to wake up to some
+# failed benchmarks, I guess, or passing benchmarks if it's truly passing").
+# Every area, three runs each, as the live setup (apps/mcp/bench/nightly.mjs):
+# the core set and simple asks, the golden tasks, the web facts, the one
+# judge's reply-or-quiet cases and the reply reviewer's, held-out cases
+# included. Each area is checked against the spend cap in
+# `@context-lc ai/results/spend.md` first and refused past it; what it spent is
+# recorded there. One note, `ai/results/nightly/<date>.md`, says pass or fail
+# by area, the cases that fell short, the target cases (known bugs) apart, the
+# live drift and what changed in the live prompt outside AI Promote.
+#
+# Then the live drift (apps/mcp/bench/drift.mjs): the day's conversation
+# scores from Tex's self-review against the week before, keeping one open
+# issue labelled tex-drift while they have dropped. That report is numbers and
+# measure names only; this repository is public.
+#
+# Scheduled, like tex-alert.yml: it runs main's code only, never a branch's,
+# and spends under the cap a person sets in Context. The run goes red when an
+# area falls short of its bar, so a morning starts from a number to fix.
+name: Tex nightly
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+    inputs:
+      areas:
+        description: "Areas to run, comma-separated (core, tasks, web-facts, respond, review); empty runs them all"
+        required: false
+        default: ""
+      fake:
+        description: "Scripted models, nothing spent, nothing written to Context: checks the workflow"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+# No `concurrency` group: one holds a single pending run and cancels the
+# next, so the wait-turn job below queues runs instead (bench-runner-lock.mjs).
+
+jobs:
+  # One benchmark runner sign-in at a time, first come first served, nothing
+  # cancelled (scripts/bench-runner-lock.mjs). Its own job, holding no secret:
+  # the next job's secrets are read when it starts, after an earlier run has
+  # written the rotated refresh token back.
+  wait-turn:
+    name: Wait for earlier benchmark runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - name: Wait until no earlier run signs in as the benchmark runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --max-minutes 170
+
+  nightly:
+    name: Every area, three runs, one scoreboard
+    needs: wait-turn
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 180
+    env:
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
+      BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      BENCH_RUNNER_CLIENT_ID: ${{ secrets.BENCH_RUNNER_CLIENT_ID }}
+      BENCH_RUNNER_REFRESH_TOKEN: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN }}
+      BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE }}
+      NIGHTLY_AREAS: ${{ inputs.areas }}
+      NIGHTLY_FAKE: ${{ inputs.fake && '--fake' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Refuse an argument that is not the shape it should be
+        run: |
+          set -euo pipefail
+          [[ "$NIGHTLY_AREAS" =~ ^[a-z,-]{0,64}$ ]] || { echo "::error::areas must be comma-separated area names."; exit 1; }
+
+      # Rotation first, then the write-back, then nothing else until it is
+      # kept: a token that is spent and not written down is a grant lost.
+      - name: Sign in as the benchmark runner and keep the rotated token
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          pnpm --silent ai signin
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
+
+      - name: Fetch the live setup and the tests edited in Context
+        run: pnpm --silent ai pull texting-assistant
+
+      - name: Pull the held-out cases (never written to the repository or the log)
+        run: pnpm --silent ai gate held-out --dir "$RUNNER_TEMP/held-out"
+
+      - name: Run every area and write the scoreboard
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          args=(--held-out "$RUNNER_TEMP/held-out" --scratch "$RUNNER_TEMP/nightly" --out "$RUNNER_TEMP/scoreboard.md" --run-url "$RUN_URL")
+          [ -n "$NIGHTLY_AREAS" ] && args+=(--areas "$NIGHTLY_AREAS")
+          [ -n "$NIGHTLY_FAKE" ] && args+=("$NIGHTLY_FAKE")
+          pnpm --silent ai nightly "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Read the live drift
+        id: drift
+        if: always()
+        run: |
+          set -uo pipefail
+          pnpm --silent ai drift > "$RUNNER_TEMP/drift.md"
+          code=$?
+          cat "$RUNNER_TEMP/drift.md"
+          if [ "$code" = 3 ]; then echo "dropped=true" >> "$GITHUB_OUTPUT"; elif [ "$code" != 0 ]; then exit "$code"; fi
+          if grep -q "steady" "$RUNNER_TEMP/drift.md"; then echo "steady=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Open or update the drift issue
+        if: always() && steps.drift.outputs.dropped == 'true' && inputs.fake != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh label create tex-drift --color D93F0B --description "Tex's live conversation scores dropped" 2>/dev/null || true
+          open=$(gh issue list --label tex-drift --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body-file "$RUNNER_TEMP/drift.md"
+          else
+            gh issue create --title "Tex's live conversation scores dropped" --label tex-drift --body-file "$RUNNER_TEMP/drift.md"
+          fi
+
+      - name: Close the drift issue once the scores are steady again
+        if: always() && steps.drift.outputs.steady == 'true' && inputs.fake != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          open=$(gh issue list --label tex-drift --state open --json number --jq '.[0].number // empty')
+          [ -z "$open" ] || gh issue close "$open" --comment "$(cat "$RUNNER_TEMP/drift.md")"
+
+      # A long night may have signed in again after the hour: keep that token too.
+      - name: Keep the runner's rotated token
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/bench-runner.json" ] || exit 0
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
+
+      - name: Upload the scoreboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tex-nightly-scoreboard
+          path: ${{ runner.temp }}/scoreboard.md
+          if-no-files-found: ignore
+          retention-days: 30

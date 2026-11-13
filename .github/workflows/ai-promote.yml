@@ -45,13 +45,32 @@ permissions:
   # Downloading the AI Benchmark runs' artifacts.
   actions: read
 
-concurrency:
-  group: ai-benchmark
-  cancel-in-progress: false
+# No `concurrency` group: one holds a single pending run and cancels the
+# next, so the wait-turn job below queues runs instead (bench-runner-lock.mjs).
 
 jobs:
+  # One benchmark runner sign-in at a time, first come first served, nothing
+  # cancelled (scripts/bench-runner-lock.mjs). Its own job, holding no secret:
+  # the next job's secrets are read when it starts, after an earlier run has
+  # written the rotated refresh token back.
+  wait-turn:
+    name: Wait for earlier benchmark runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - name: Wait until no earlier run signs in as the benchmark runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --max-minutes 170
+
   promote:
     name: Promote or revert
+    needs: wait-turn
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 15
