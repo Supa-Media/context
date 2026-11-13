@@ -20,15 +20,40 @@ permissions:
   statuses: write
   actions: write
 
-# One queue with the AI Benchmark: both rotate the benchmark runner's refresh
-# token, and two rotations at once would leave the saved one spent.
-concurrency:
-  group: ai-benchmark
-  cancel-in-progress: false
+# No `concurrency` group: one holds a single pending run and cancels the
+# next, so the wait-turn job below queues runs instead (bench-runner-lock.mjs).
 
 jobs:
+  # One benchmark runner sign-in at a time, first come first served, nothing
+  # cancelled (scripts/bench-runner-lock.mjs). Its own job, holding no secret:
+  # the next job's secrets are read when it starts, after an earlier run has
+  # written the rotated refresh token back.
+  wait-turn:
+    name: Wait for earlier benchmark runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      actions: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - name: Mark the commit as waiting its turn
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=pending -f context="Tex replay" \
+            -f description="Waiting for earlier benchmark runs, then replaying" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > /dev/null
+      - name: Wait until no earlier run signs in as the benchmark runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --max-minutes 170
+
   replay:
     name: Replay the areas this change reaches
+    needs: wait-turn
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 30
