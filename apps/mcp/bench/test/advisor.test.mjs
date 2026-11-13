@@ -11,7 +11,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ROLES, fakeRequest, gateRows, loadRoleCases, roleReport, saysRight, scoreRole } from "../advisor.mjs";
-import { rowsFor } from "../replayGate.mjs";
+import { SOCKET_AREAS, rowsFor } from "../replayGate.mjs";
+import { modelSocket, requestHash, socketRequest } from "../modelSocket.mjs";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ADVISOR_PROMPT, advisorTools } from "../../src/agent/advisor.js";
 import { adviseOnce } from "../../src/agent/advisorRoles/core.js";
 import { JOB_CHECK_PROMPT } from "../../src/agent/jobCheck.js";
@@ -104,4 +108,22 @@ test("a role's rows are what the gate reads, and a held-out case is reported by 
   assert.match(report, /1\/1 right/);
   assert.match(report, /wrong about splits a lookup/);
   assert.doesNotMatch(report, /secret/);
+});
+
+test("an examiner can answer every advisor role: its calls go through the model socket, keyed by what is sent", async () => {
+  for (const role of Object.keys(ROLES)) assert.ok(SOCKET_AREAS.has(role), `${role} is examinable`);
+  const [item] = await loadRoleCases("advisor-job-check");
+  // Record the one call the case makes, then answer it from a replay file as CI does.
+  let sent = null;
+  await ROLES["advisor-job-check"].ask(item, async (call) => ((sent = { model: call.model, system: call.system ?? null, messages: call.messages ?? [], tools: (call.tools ?? []).map((tool) => tool?.name ?? tool), maxTokens: call.maxTokens ?? null }), { text: "" }));
+  const dir = await mkdtemp(join(tmpdir(), "advisor-socket-"));
+  const file = join(dir, "answers.json");
+  await writeFile(file, JSON.stringify({ [requestHash("claude", sent)]: { text: "VERDICT: done\nADVICE: saved." } }));
+  const socket = modelSocket({ BENCH_MODEL_REPLAY: file });
+  const [scored] = await scoreRole("advisor-job-check", [item], () => socketRequest(socket));
+  assert.equal(scored.got, "done");
+  assert.equal(scored.usd, 0, "an examined run spends nothing");
+  const other = { ...item, answer: "something else" };
+  const [missing] = await scoreRole("advisor-job-check", [other], () => socketRequest(socket));
+  assert.equal(missing.right, false, "a call the answers weren't made for has no answer");
 });

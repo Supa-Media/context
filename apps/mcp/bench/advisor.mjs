@@ -32,6 +32,7 @@ import { checkJob } from "../src/agent/jobCheck.js";
 import { jobMailBrief } from "../src/agent/jobNote.js";
 import { parsePlan, planBrief } from "../src/agent/planBigAsk.js";
 import { readHeldOut } from "./replayGate.mjs";
+import { modelSocket, socketRequest } from "./modelSocket.mjs";
 import { priceUsd } from "./report.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -200,12 +201,16 @@ export function advisorCommand(role) {
   return async (options, { write = (text) => process.stdout.write(text) } = {}) => {
     const only = options.only ? new Set(String(options.only).split(",")) : null;
     const cases = [...(await loadRoleCases(role)), ...(await readHeldOut(options["held-out"], role))].filter((item) => !only || only.has(item.id));
-    const config = aiGatewayConfig(process.env);
-    if (!options.fake && config === null) throw new Error("set AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID and AI_GATEWAY_TOKEN");
-    const real = options.fake ? null : advisorRequest({ ai: null, gateway: config, metadata: { feature: "bench", client: role } });
+    // With the model socket (`modelSocket.mjs`, docs/testing/examiner.md) an examiner session answers the role's calls,
+    // and no key is needed; every call then waits at once, so the examiner sees them all.
+    const socket = options.fake ? null : modelSocket(process.env);
+    const socketed = socket?.covers("claude") === true;
+    const config = socketed ? null : aiGatewayConfig(process.env);
+    if (!options.fake && !socketed && config === null) throw new Error("set AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID and AI_GATEWAY_TOKEN");
+    const real = options.fake ? null : socketed ? socketRequest(socket) : advisorRequest({ ai: null, gateway: config, metadata: { feature: "bench", client: role } });
     // One at a time by default: the role's instructions (the drawing included) are cached after the first ask, so the
     // rest read them at a tenth of the price.
-    const scored = await scoreRole(role, cases, (item) => (options.fake ? fakeRequest(role, item) : real), Number(options.concurrency ?? 1));
+    const scored = await scoreRole(role, cases, (item) => (options.fake ? fakeRequest(role, item) : real), Number(options.concurrency ?? (socketed ? 8 : 1)));
     write(roleReport(role, scored));
     if (options.json) await writeFile(options.json, JSON.stringify(gateRows(scored)));
     return scored;

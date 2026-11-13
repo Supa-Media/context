@@ -14,6 +14,11 @@ name: Tex replay
 
 on:
   workflow_dispatch:
+    inputs:
+      examiner:
+        description: "Score the examiner session's answers for this commit (ai/results/examiner/<sha>) instead of calling Claude"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -106,7 +111,16 @@ jobs:
           git worktree add "$RUNNER_TEMP/main" "$BASE"
           (cd "$RUNNER_TEMP/main" && pnpm install --frozen-lockfile)
 
+      # Its wait-turn job is skipped by "Re-run failed jobs": check once more,
+      # and refuse rather than sign in beside another run (bench-runner-lock.mjs).
+      - name: Refuse to sign in beside another benchmark run
+        if: steps.areas.outputs.areas != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --check
+
       - name: Sign in as the benchmark runner and keep the rotated token
+        id: signin
         if: steps.areas.outputs.areas != ''
         env:
           GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
@@ -120,6 +134,16 @@ jobs:
       - name: Pull the held-out cases (never written to the repository or the log)
         if: steps.areas.outputs.areas != ''
         run: pnpm --silent ai gate held-out --dir "$RUNNER_TEMP/held-out"
+
+      # With no API credits (Dev2, 2026-11-13): a separate examiner session answered this
+      # commit's Claude calls (apps/mcp/bench/modelSocket.mjs); every call is rebuilt here
+      # from this commit and answered from those answers, and the scoring is this run's own.
+      - name: Pull the examiner's answers for this commit
+        if: steps.areas.outputs.areas != '' && inputs.examiner
+        run: |
+          set -euo pipefail
+          pnpm --silent ai socket pull --sha "$HEAD_SHA" --out "$RUNNER_TEMP/examiner.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "BENCH_MODEL_REPLAY=$RUNNER_TEMP/examiner.json" >> "$GITHUB_ENV"
 
       # The core area answers as the live setup, in each tree's own code: the
       # setup and the tests edited in Context go into both trees' bench folders.
@@ -172,10 +196,14 @@ jobs:
           OUTCOME: ${{ steps.gate.outcome }}
           AREAS: ${{ steps.areas.outputs.areas }}
           NAMED: ${{ steps.areas.outcome }}
+          SIGNIN: ${{ steps.signin.outcome }}
+          EXAMINER: ${{ inputs.examiner }}
         run: |
           set -euo pipefail
           if [ -z "$AREAS" ] && [ "$NAMED" = "success" ]; then state=success; description="No model area reached: plumbing replays only"
+          elif [ "$OUTCOME" = "success" ] && [ "$EXAMINER" = "true" ]; then state=success; description="Nothing regressed against main (examiner's answers, scored here)"
           elif [ "$OUTCOME" = "success" ]; then state=success; description="Nothing regressed against main"
+          elif [ "$SIGNIN" = "failure" ]; then state=failure; description="Runner sign-in failed: if the grant was revoked, a person must run pnpm ai connect"
           else state=failure; description="Regressed against main, or the run failed: read the run's summary"; fi
           gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$state" -f context="Tex replay" \
             -f description="$description" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > /dev/null

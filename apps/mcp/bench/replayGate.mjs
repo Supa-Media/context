@@ -188,7 +188,9 @@ const benchRunner = (area) => async (tree, { heldOut, only, fake, scratch, tag, 
   const all = [];
   for (let i = 1; i <= runs; i += 1) all.push(await benchRows(tree, area, { heldOut, only, fake, out: join(scratch, `${area}-${tag}-${i}.json`) }));
   const rows = mergeRuns(all);
-  return { rows, usd: AREA_LIMITS[area].usdPerCase * rows.length * runs };
+  // Answered through the model socket (an examiner session, or its recorded answers), a run spends no credits.
+  const socketed = Boolean(process.env.BENCH_MODEL_SOCKET || process.env.BENCH_MODEL_REPLAY);
+  return { rows, usd: socketed ? 0 : AREA_LIMITS[area].usdPerCase * rows.length * runs };
 };
 
 /** An advisor role's scorer (`advisor.mjs`), run `runs` times: its rows price themselves. */
@@ -223,10 +225,18 @@ async function baseHas(base, area) {
   return Boolean(mod?.AREAS?.[area]);
 }
 
+/**
+ * The areas whose model calls go through the model socket (`modelSocket.mjs`), so an examiner session can answer
+ * them. Another area run with the socket set would call the real models, so it is refused instead.
+ */
+export const SOCKET_AREAS = new Set(["respond", "review", "advisor-chat", "advisor-job-check", "advisor-planner", "advisor-job-mail"]);
+
 export async function gate({ branch, base, areas, heldOut = null, fake = false, scratch, runners = RUNNERS, limits = AREA_LIMITS, hasArea = baseHas }) {
   const results = [];
   const pools = {};
   let usd = 0;
+  const socketed = Boolean(process.env.BENCH_MODEL_SOCKET || process.env.BENCH_MODEL_REPLAY);
+  for (const area of areas) if (socketed && !SOCKET_AREAS.has(area)) throw new Error(`the ${area} area can't be answered by an examiner yet: its calls don't go through the model socket`);
   for (const area of areas) {
     const limit = limits[area];
     const runner = runners[area];

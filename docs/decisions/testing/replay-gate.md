@@ -73,7 +73,7 @@ did not have to leave a case behind.
    for every earlier run of them to end, because the runner's refresh token
    rotates on every use. A shared `concurrency` group did this until
    2026-11-13 and cancelled every pending run but one, so replays dispatched
-   by several agents cancelled each other and left their checks red. The cheap areas share one $1 pool a change; an
+   by several agents cancelled each other and left their checks red. "Earlier" is by when a run's latest attempt started, and the signing-in job checks again before it signs in (`--check`), refusing rather than waiting: a "Re-run failed jobs" skips a passed `wait-turn`, and on 2026-11-13 one such re-run signed in beside a newer replay, the two rotations raced and the grant was revoked. Dispatch again, or re-run all jobs. The cheap areas share one $1 pool a change; an
    area whose reruns would pass it is refused. What each replay spent is a row
    in `@context-lc ai/results/spend.md` (`replay-gate`).
 4. **Practice cases and held-out cases.** Cases in the repository are practice:
@@ -121,6 +121,20 @@ did not have to leave a case behind.
    until the number is lowered); raising one needs `Speed budget raised: <why>`
    in the pull request. Production's wait to the first text is judged hourly.
    See [tex-speed-budgets](../observability/tex-speed-budgets.md).
+
+9. **Without API credits, an examiner answers** (decided by the owner,
+   2026-11-13, choosing "Separate examiner session"). The bench's model socket
+   (`bench/modelSocket.mjs`, `BENCH_MODEL_SOCKET` / `BENCH_MODEL_REPLAY`) writes
+   each Claude call out by the hash of exactly what would be sent, and a separate
+   session that did not write the change answers it
+   ([examiner](../../testing/examiner.md)). The answers go to
+   `@context-lc ai/results/examiner/<sha>.md`. **Tex replay** dispatched with
+   `examiner: true` rebuilds every call from the commit, answers it from that
+   note (a call with no answer fails the run), and scores and compares against
+   main itself. Only `respond` and `review` are examined so far
+   (`SOCKET_AREAS`); a socketed run that reaches another area is refused rather
+   than sent to the real model. The judge keeps its real Workers AI model unless
+   `BENCH_MODEL_SOCKET_KINDS` names `workers-ai`.
 
 ## What a simplification costs
 
