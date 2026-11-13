@@ -1,5 +1,5 @@
 /**
- * The Tex Architecture Lab artifact's stylesheet (tex.lc/admin/lab), ported
+ * The Tex Architecture Lab artifact's stylesheet (tex.lc/lab), ported
  * verbatim from the artifact's <style> block and scoped under `.tl`, the root
  * element the Lab mounts in. The only changes from the artifact: `:root` and
  * the bare `html,body` selector are now `.tl`, and the first rule makes the

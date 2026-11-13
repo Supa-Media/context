@@ -1,5 +1,5 @@
 /**
- * The Tex Architecture Lab's shapes (tex.lc/admin/lab). The Lab is a port of
+ * The Tex Architecture Lab's shapes (tex.lc/lab). The Lab is a port of
  * the "Tex Architecture Lab" artifact (Dev2, 2026-11-13: "EXACTLY like the
  * artifact"), so these name what that page's script kept in plain objects.
  */

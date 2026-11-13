@@ -535,7 +535,7 @@ describe("every route is reachable, or says why not", () => {
       "/admin",
       // The same console at one of its tabs; `/admin` redirects to it.
       "/admin/[...section]",
-      // The Tex Architecture Lab on tex.lc, typed like tex.lc/admin (2026-11-13).
+      // The Tex Architecture Lab's first address, now a redirect to `/lab` (2026-11-13).
       "/admin/lab",
       "/authorize",
       "/connect/[provider]",
@@ -567,6 +567,8 @@ describe("every route is reachable, or says why not", () => {
         `/invite/[token]`: the token is in one email and nowhere else.
       */
       "/join/[token]",
+      // The Tex Architecture Lab on both hosts, typed like the staff console (2026-11-13).
+      "/lab",
       // Account-safety links mailed with a one-time token (Dev2, 2026-10-12).
       "/not-me",
       "/note/[...address]",

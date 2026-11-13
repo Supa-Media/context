@@ -16,6 +16,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAction, useQuery } from "convex/react";
+import { AdminChrome } from "../../admin/AdminPane";
+import { StaffFactorGate } from "../../admin/StaffFactorGate";
 import { Tex } from "../../chaos/Tex";
 import { api } from "@context/convex/_generated/api";
 import { DASHBOARD_CSS } from "./dashboardCss";
@@ -56,6 +58,8 @@ type Who = "all" | "not_staff" | "new";
 
 export function TexDashboard() {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
+  // Staff whose session has not typed its second-factor code are asked for it here, as the console asks (`AdminPane.tsx`), never told "Staff only".
+  const factor = useQuery(api.functions.staffSecondFactor.myStaffFactor, {});
   const [days, setDays] = useState<TexWindow>("7");
   const [who, setWho] = useState<Who>("all");
   const [task, setTask] = useState<string>("all");
@@ -66,6 +70,13 @@ export function TexDashboard() {
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [filters, setFilters] = useState<TexFilters>({});
   const desk = triage !== undefined && triage.available ? triage : null;
+  if (isAdmin === false && factor?.staff === true && factor.standing !== "open") {
+    return (
+      <AdminChrome>
+        <StaffFactorGate factor={factor} />
+      </AdminChrome>
+    );
+  }
   return (
     <div className="td" data-testid="tex-dashboard">
       <style>{DASHBOARD_CSS}</style>

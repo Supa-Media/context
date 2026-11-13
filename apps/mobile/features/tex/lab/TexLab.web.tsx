@@ -1,5 +1,5 @@
 /**
- * tex.lc/admin/lab: the Tex Architecture Lab, where staff change Tex's
+ * tex.lc/lab: the Tex Architecture Lab, where staff change Tex's
  * architecture visually (steps, wires, each step's model and context
  * modules), see what it does to speed and cost, edit the test cases, and hand
  * a version to the replay gate. Built from the "Tex Architecture Lab"
@@ -13,6 +13,8 @@
  */
 import { useEffect } from "react";
 import { useQuery } from "convex/react";
+import { AdminChrome } from "../../admin/AdminPane";
+import { StaffFactorGate } from "../../admin/StaffFactorGate";
 import { api } from "@context/convex/_generated/api";
 import { GROUP_CHATS, PEOPLE } from "./data/areas";
 import { allCases, cvDiff, diff } from "./engine/diff";
@@ -66,15 +68,24 @@ function Svg({ d, className = "i ic", style }: { d: string; className?: string; 
 
 export function TexLab() {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
+  // Staff whose session has not typed its second-factor code are asked for it here, as the console asks (`AdminPane.tsx`), never told "Staff only".
+  const factor = useQuery(api.functions.staffSecondFactor.myStaffFactor, {});
   useLabSync(isAdmin === true);
   useEffect(() => {
     ensureFontsLoaded();
     if (!lab.scn) buildTraces(allCases());
     emit();
   }, []);
+  if (isAdmin === false && factor?.staff === true && factor.standing !== "open") {
+    return (
+      <AdminChrome>
+        <StaffFactorGate factor={factor} />
+      </AdminChrome>
+    );
+  }
   return (
     <div className="tl" data-testid="tex-lab">
-      <style>{LAB_CSS}</style>
+      <style href="tex-lab-css" precedence="default">{LAB_CSS}</style>
       <title>{TEX_LAB_TITLE}</title>
       {isAdmin === false ? (
         <div className="pgin" data-testid="tex-lab-staff-only" style={{ paddingTop: 60 }}>

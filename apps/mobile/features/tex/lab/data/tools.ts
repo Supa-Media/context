@@ -1,5 +1,5 @@
 /**
- * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/admin/lab): Tex's
+ * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/lab): Tex's
  * tool inventory (TOOL_INV): name, read or change, what it does, and its actions.
  */
 
