@@ -21,7 +21,6 @@
 
 import { readMailbox, searchMailbox } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
-import { CALENDAR_PATH } from "../src/agent/calendarCache.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
@@ -367,12 +366,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),
   };
 
-  /**
-   * Files the gateway writes for itself on a save, Tex's own transcript of the turn, and its calendar copy
-   * (`tex/calendar.md`, `cache: true`, rewritten on every turn that reads the calendar): never the model's change.
-   * The copy failed "write nothing into any other note" on every answer, main's too (replay records, 2026-11-13).
-   */
-  const PLUMBING_FILES = new Set(["privacy.md", "activity.md", CALENDAR_PATH]);
+  /** The gateway's own files on a save, Tex's turn transcript and its calendar copy (calendarCache.js, a cache): never the model's change. */
+  const PLUMBING_FILES = new Set(["privacy.md", "activity.md", "tex/calendar.md"]);
   const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path) || path.startsWith(`${TRANSCRIPTS_FOLDER}/`);
 
   const routerSaid = (entry) =>
