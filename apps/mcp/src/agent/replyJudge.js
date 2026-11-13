@@ -18,8 +18,10 @@
  * turn is one, every action the turn took with what came back, and the last
  * few texts; on a rewrite, its own earlier feedback this turn, so a redraft
  * that fixes what it asked goes and nothing new is raised. A text the turn
- * answered with no action is not reviewed. At most `MAX_SEND_BACKS` send-backs a turn: after that the reply goes as it is, so
- * the reviewer can never hold a turn in a loop. A review that errors, runs
+ * answered with no action is not reviewed. At most `MAX_SEND_BACKS` send-backs a turn, or
+ * `TASK_SEND_BACKS` for a task or a job's report (Dev2, 2026-11-13), and a send-back past the
+ * first only while the turn has time (`SEND_BACK_WINDOW_MS`): after that the reply goes as it is, so
+ * the reviewer can never hold a turn in a loop. From the third, Tex is told to ask its advisor first. A review that errors, runs
  * past `REVIEW_TIMEOUT_MS` or answers anything but its JSON is no verdict, and
  * the reply goes.
  *
@@ -49,6 +51,35 @@ export const REVIEW_TIMEOUT_MS = 8_000;
  * 2026-11-12 a second send-back held a correct answer for 4 s more.
  */
 export const MAX_SEND_BACKS = 1;
+
+/**
+ * A task's or a job's report's budget (Dev2, 2026-11-13, after a Puttery form
+ * was handed back to him with a second draft nobody reviewed: "when it comes
+ * to jobs and tasks and stuff, sendbacks could be as up to 5. A couple, and if
+ * it keeps getting sent back, we should get the advisor in"). Chat, questions
+ * and corrections keep `MAX_SEND_BACKS`: a quick answer held longer costs more
+ * than it fixes.
+ */
+export const TASK_SEND_BACKS = 5;
+/** The kinds of turn that get `TASK_SEND_BACKS`. */
+const TASK_KINDS = new Set(["task", "report"]);
+/** After this many send-backs, the next one tells Tex to ask its advisor before it writes again. */
+export const ADVISOR_AFTER_SEND_BACKS = 2;
+/**
+ * A send-back past the first only while the turn began less than this ago:
+ * the texting Worker gives a turn two minutes (`turn.js`), and a rewrite and
+ * its review take a model round each, so the reply still reaches them.
+ */
+export const SEND_BACK_WINDOW_MS = 80_000;
+/** The advisor is brought in only before this: it answers in 20 to 40 s (`advisor.js`), and tools stop at `TURN_TOOL_BUDGET_MS`. */
+export const ADVISOR_WINDOW_MS = 50_000;
+
+/** What Tex reads with a send-back that brings the advisor in. */
+export const ASK_ADVISOR_FIRST =
+  "This reply has been sent back more than once. Before you write it again, call ask_advisor: it sees every draft and every review this turn. Then do what it says.";
+
+/** How many send-backs a turn of this kind gets. */
+export const sendBacksFor = (kind) => (TASK_KINDS.has(kind) ? TASK_SEND_BACKS : MAX_SEND_BACKS);
 
 /** The most the reviewer reads, in characters; the reply and the ask come first, so nothing that matters is cut. */
 const MAX_STATE_CHARS = 16_000;
@@ -212,8 +243,8 @@ export function reviewMessage(state, earlier = []) {
 }
 
 /** What Tex is told when the reviewer sends a draft back. */
-export function sendBackNotice(feedback) {
-  return `A reviewer read your reply before it went and sent it back:\n${feedback}`;
+export function sendBackNotice(feedback, { advisor = false } = {}) {
+  return `A reviewer read your reply before it went and sent it back:\n${feedback}${advisor ? `\n\n${ASK_ADVISOR_FIRST}` : ""}`;
 }
 
 /** One review: `{ kind, send, problems, feedback }`, or null when there is no verdict in time. */
@@ -251,13 +282,17 @@ export const takesBack = (answer) => typeof answer === "string" && TAKE_BACK.tes
  * all (Dev2, 2026-11-07: a routine texted "the say_nothing action isn't
  * available to me in this session").
  */
-export function replyJudge({ setting, question, history = [], inner = null, plain = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = REVIEW_TIMEOUT_MS, clock = Date.now, log = console.log }) {
+export function replyJudge({ setting, question, history = [], inner = null, plain = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = REVIEW_TIMEOUT_MS, clock = Date.now, log = console.log, advisor = false }) {
   const on = Boolean(setting) && (config !== null || request !== requestViaGateway);
   const verdicts = [];
   const feedbackSoFar = [];
   // A computer owner's ask goes out in the gateway's own words whatever the turn says (`jobReport.js`): nothing to judge.
   const skip = Boolean(report?.ask);
   let sentBack = 0;
+  // The turn begins as its reviewer is made (`runTheModel.js`): the clock a send-back past the first is held to.
+  const began = clock();
+  // The kind the reviewer last named: the budget is the turn's, so a task stays a task on its rewrites.
+  let kindSoFar = null;
   return {
     verdicts,
     async check(answer, turn = {}) {
@@ -280,22 +315,30 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
         log(JSON.stringify({ event: "tex_reply_review", model: REVIEW_MODEL, round: sentBack, kind: null, verdict: "skipped", problems: [], ms: 0 }));
         return null;
       }
-      if (sentBack >= MAX_SEND_BACKS) {
-        turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: true, reason: "sent back once already, so it goes as it is" }));
+      if (sentBack >= sendBacksFor(kindSoFar)) {
+        turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: true, reason: `sent back ${sentBack === 1 ? "once" : `${sentBack} times`} already, so it goes as it is` }));
+        return null;
+      }
+      if (sentBack >= 1 && clock() - began >= SEND_BACK_WINDOW_MS) {
+        turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: true, reason: "out of time to write it again, so it goes as it is" }));
         return null;
       }
       const state = judgeState({ question, history, messages: turn.messages, answer, report, scheduled, now: clock(), timeZone });
       const started = clock();
       const review = await reviewReply({ state, earlier: feedbackSoFar, request, config, metadata, timeoutMs }).catch(() => null);
       const ms = clock() - started;
-      const acted = review !== null && review.send === false;
+      if (review !== null && kindSoFar === null) kindSoFar = review.kind;
+      // A send-back past the kind's budget is not taken: a chat reply sent back once already goes (the budget is the first review's kind).
+      const acted = review !== null && review.send === false && sentBack < sendBacksFor(kindSoFar ?? review.kind);
       const verdict = review === null ? null : acted ? review.problems.join(",") || "sent_back" : "accepted";
       verdicts.push({ verdict, ms, acted, kind: review?.kind ?? null, problems: review?.problems ?? [], round: sentBack });
       turn.mark?.({ verdict, confidence: null, ms, acted, ok: review !== null });
       // The kind and the problem names only: never the reply, the question or the feedback (`docs/decisions/observability`).
       log(JSON.stringify({ event: "tex_reply_review", model: REVIEW_MODEL, round: sentBack, kind: review?.kind ?? null, verdict: review === null ? "none" : acted ? "sent_back" : "sent", problems: review?.problems ?? [], ms }));
       if (review === null) return null;
-      const notice = acted ? sendBackNotice(review.feedback) : null;
+      // The third send-back and on bring the advisor in, while it has time to answer (Dev2, 2026-11-13).
+      const askAdvisor = acted && advisor && sentBack >= ADVISOR_AFTER_SEND_BACKS && clock() - began < ADVISOR_WINDOW_MS;
+      const notice = acted ? sendBackNotice(review.feedback, { advisor: askAdvisor }) : null;
       // Every review of a draft, and whether it went, in the chat's history (Dev2, 2026-11-05: "so we can see how responses were shaped").
       turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: !acted, ms, notice, kind: review.kind, problems: review.problems }));
       if (!acted) return null;
