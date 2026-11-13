@@ -61,7 +61,8 @@ jobs:
     needs: wait-turn
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 30
+    # The jobs area runs whole background jobs (apps/mcp/bench/jobTasks.mjs): minutes a task.
+    timeout-minutes: 60
     env:
       AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
@@ -145,10 +146,10 @@ jobs:
           pnpm --silent ai socket pull --sha "$HEAD_SHA" --out "$RUNNER_TEMP/examiner.json" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "BENCH_MODEL_REPLAY=$RUNNER_TEMP/examiner.json" >> "$GITHUB_ENV"
 
-      # The core area answers as the live setup, in each tree's own code: the
-      # setup and the tests edited in Context go into both trees' bench folders.
-      - name: Pull the live setup into both trees (core area)
-        if: contains(steps.areas.outputs.areas, 'core')
+      # The core and jobs areas answer as the live setup, in each tree's own code:
+      # the setup and the tests edited in Context go into both trees' bench folders.
+      - name: Pull the live setup into both trees (core and jobs areas)
+        if: contains(steps.areas.outputs.areas, 'core') || contains(steps.areas.outputs.areas, 'jobs')
         run: |
           set -euo pipefail
           pnpm --silent ai pull texting-assistant
@@ -164,6 +165,17 @@ jobs:
           pnpm --silent ai gate --base "$RUNNER_TEMP/main" --areas "$AREAS" --held-out "$RUNNER_TEMP/held-out" \
             --scratch "$RUNNER_TEMP/gate" --out "$RUNNER_TEMP/gate.json" | tee -a "$GITHUB_STEP_SUMMARY"
           exit "${PIPESTATUS[0]}"
+
+      # The job tasks' records (each practice task's page, parts and checks; held-out ones are never written), so a
+      # pass can be read rather than trusted.
+      - name: Keep the job tasks' records
+        if: always() && contains(steps.areas.outputs.areas, 'jobs')
+        uses: actions/upload-artifact@v4
+        with:
+          name: tex-replay-job-tasks
+          path: ${{ runner.temp }}/gate/jobs-*-records.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       # What the run spent, beside the testing loop's other rounds (ai/results/spend.md).
       - name: Record what the replay spent

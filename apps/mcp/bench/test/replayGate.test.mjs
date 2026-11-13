@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { areasFor, blocking, feedback, gate, heldOutJson, markHeldOut, mergeRuns, regressions, rowsFor } from "../replayGate.mjs";
+import { AREA_LIMITS, areasFor, blocking, feedback, gate, heldOutJson, markHeldOut, mergeRuns, regressions, rowsFor, RUNNERS } from "../replayGate.mjs";
 
 test("a change runs only the areas its files reach, and plumbing alone runs none", () => {
   assert.deepEqual(areasFor(["packages/shared/src/textDecide.cjs"]), ["respond"]);
@@ -122,5 +122,16 @@ test("several runs read as one row a case, right when most were", () => {
 test("the front door, the prompt and the turn reach the core area; their neighbours do not", () => {
   assert.deepEqual(areasFor(["apps/mcp/src/agent/texEntryPoint/runTheModel.js"]), ["core"]);
   assert.deepEqual(areasFor(["apps/mcp/src/agent/promptModules.js", "apps/mcp/bench/ai/tests/simple-asks.md"]), ["core"]);
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/turnWeb.js", "apps/mcp/src/agent/jobNote.js"]), []);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/turnWeb.js", "apps/mcp/src/agent/jobNote.js"]), ["jobs"], "a job note is the jobs area's, never core's");
+});
+
+test("a job or page change reaches the jobs area, on a pool of its own with fewer reruns", () => {
+  assert.deepEqual(areasFor(["apps/agent/src/jobRun.ts"]), ["jobs"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/jobNote.js", "apps/mcp/bench/job-tasks/cases.json"]), ["jobs"]);
+  assert.deepEqual(areasFor(["apps/mcp/bench/jobTasks.mjs", "apps/mcp/bench/world.mjs"]), [], "the scorer and the world are not Tex");
+  const jobs = AREA_LIMITS.jobs;
+  assert.equal(jobs.pool, "jobs", "a job task's whole job never eats the cheap areas' $1");
+  assert.deepEqual(jobs.reruns, { branch: 1, main: 1 });
+  assert.ok(jobs.usdPerCase * (7 + 3 * 2) <= jobs.maxUsd, "seven tasks with three wrong stay inside the jobs cap");
+  assert.equal(typeof RUNNERS.jobs, "function");
 });
