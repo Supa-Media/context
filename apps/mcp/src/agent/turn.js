@@ -254,8 +254,7 @@ export async function runTurn(options) {
     voice = null, calendar = null, // `tex/voice.md`'s text on a texted turn (`personVoice.js`); null says nothing about it.
     answerCheck = null, // reads a final answer and the turn's messages, and may send one more round (`claimCheck.js`, `replyJudge.js`)
     endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
-    sayNothing = false, // offers `say_nothing`: a call ends the turn with nothing texted (`sayNothing.js`)
-    mustAnswer = false, // with `sayNothing`: offered the same, but a call is refused and the turn answers (a literal @Tex tag)
+    sayNothing = false, mustAnswer = false, // offers `say_nothing`: a call ends the turn with nothing texted, or with `mustAnswer` (a literal @Tex tag) is refused (`sayNothing.js`)
     scheduled = false, // a routine's run or a check-in, nobody waiting on it: its last steps end quiet, and its last answer is still reviewed (`lastRound.js`)
     roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
@@ -289,8 +288,7 @@ export async function runTurn(options) {
     it works. Dispatched here, like the web tools, never to the MCP: it reaches
     only the person who asked, on the channel their answer goes to anyway.
   */
-  // Silence ends the turn like a started job (`sayNothing.js`); a turn that must answer is offered it all the same, so its tool list reads from the cache, and refused.
-  const [local, settles] = !sayNothing ? [localTools, endsTurn] : mustAnswer ? [[...localTools, sayNothingRefused], endsTurn] : [[...localTools, sayNothingLocal], withSayNothing(endsTurn)];
+  const [local, settles] = !sayNothing ? [localTools, endsTurn] : mustAnswer ? [[...localTools, sayNothingRefused], endsTurn] : [[...localTools, sayNothingLocal], withSayNothing(endsTurn)]; // silence ends the turn like a started job; a turn that must answer is offered it the same (one tool list, cached) and refused (`sayNothing.js`)
   const tools = [
     ...(options.tools ?? []),
     ...(web?.tools ?? []),
