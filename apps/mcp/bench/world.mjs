@@ -392,8 +392,13 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   };
   const { textedEvent, postEvents } = workerEvents({ env, token: chatToken, group });
   return {
-    /** One texted message, answered with the conversation so far. */
-    async text(message, attachments = [], { running = null, others = [] } = {}) {
+    /**
+     * One texted message, answered with the conversation so far. With `job`, one part of a background job instead,
+     * asked as the texting Worker asks it (`apps/agent/src/jobRun.ts` `ask`): the text is the person's own that
+     * started it, posted to the chat's ledger only for its first part, and the answer is the job's report, which goes
+     * to the chat's own turn and is never posted as a text (`jobTasks.mjs`).
+     */
+    async text(message, attachments = [], { running = null, others = [], job = null } = {}) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -412,7 +417,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         await postEvents([before.at(-1)]);
       }
       const said = textedEvent(message, tagger);
-      await postEvents([said]);
+      if (job === null || job.attempt === 1) await postEvents([said]);
       const covers = [...before.map((event) => event.id), said.id];
       // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
@@ -424,7 +429,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
           // `covers` and `chat` as the Worker sends them (`apps/agent/src/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does.
-          body: JSON.stringify({ question: message, ...(group ? { group: { key: group.key, members: group.members, from: tagger.handle } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true ? { covers, chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}) }),
+          body: JSON.stringify({ question: message, ...(group ? { group: { key: group.key, members: group.members, from: tagger.handle } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true ? { covers, chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
         }),
         env,
         ctx,
@@ -433,7 +438,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const ms = realNow() - started;
       await settle();
       // Tex's answer, as the Worker posts it once sent.
-      if (typeof body?.answer === "string" && body.answer !== "") await postEvents([{ ...textedEvent(body.answer), from: { kind: "tex" }, turn: said.turn, covers, delivered: true }]);
+      if (job === null && typeof body?.answer === "string" && body.answer !== "") await postEvents([{ ...textedEvent(body.answer), from: { kind: "tex" }, turn: said.turn, covers, delivered: true }]);
       const turn = controlPlane.turnReports.at(-1) ?? {};
       const spent = spentSince(reportsBefore);
       return {
@@ -441,6 +446,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         answer: body?.answer ?? "",
         // Nothing to text, and the tapback the Worker sends instead (`texEntryPoint/sendTheReply.js`).
         quiet: body?.quiet === true,
+        // A job's part: the done check's verdict and advice (`jobCheck.js` `jobFields`), as the Worker reads them.
+        ...(job ? { verdict: typeof body?.verdict === "string" ? body.verdict : null, advice: typeof body?.advice === "string" ? body.advice : "", unfinished: body?.unfinished === true, exhausted: body?.exhausted === true } : {}),
         react: typeof body?.react === "string" ? body.react : null,
         // Lines the turn texted while it worked: each is a text the person got,
         // sent before the answer, as the texting Worker sends them (`apps/agent/src/inbox.ts`).

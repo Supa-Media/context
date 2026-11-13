@@ -157,6 +157,10 @@ export const AREA_LIMITS = {
   respond: { maxUsd: 1, pool: "shared", usdPerCase: 0.0002, reruns: { branch: 2, main: 3 } },
   review: { maxUsd: 1, pool: "shared", usdPerCase: 0.002, reruns: { branch: 2, main: 3 } },
   core: { maxUsd: 1, pool: "shared", usdPerCase: 0.005, reruns: { branch: 2, main: 3 } },
+  // A job task is a whole background job (its parts, the done check after each, a Haiku quality grade): about $0.35
+  // measured (2026-11-13, seven tasks $2.45). It runs only for a change to job or page code, in a pool of its own
+  // (the brief: "$1-3 per run"), and a wrong task runs once more on the change and once on main.
+  jobs: { maxUsd: 5, pool: "jobs", usdPerCase: 0.35, reruns: { branch: 1, main: 1 } },
 };
 
 /** Rows of several runs as one row a case: `results` one boolean a run, `right` when most runs were. */
@@ -190,6 +194,13 @@ export const RUNNERS = {
   respond: benchRunner("respond"),
   review: benchRunner("review"),
   core: (tree, { only, fake, scratch, tag, runs = 1 }) => runCore(tree, { only, fake, scratch, tag, runs }),
+  jobs: async (tree, { heldOut, only, fake, scratch, tag, runs = 1 }) => {
+    const all = [];
+    for (let i = 1; i <= runs; i += 1) all.push(await benchRows(tree, "jobs", { heldOut, only, fake, out: join(scratch, `jobs-${tag}-${i}.json`) }));
+    // Each task prices itself (`usd` on its row); a row without one is counted at the estimate.
+    const usd = all.flat().reduce((sum, row) => sum + (typeof row.usd === "number" ? row.usd : AREA_LIMITS.jobs.usdPerCase), 0);
+    return { rows: mergeRuns(all), usd };
+  },
 };
 
 /** Whether main's tree has the area at all: a change that adds one gives main no runs, and its cases must pass. */

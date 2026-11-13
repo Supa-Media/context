@@ -16,6 +16,15 @@ export const AREAS = {
     /^apps\/mcp\/src\/agent\/(frontDoor|turn|turnPrompt|turnStages|threadedTurn|loggedTurn|prompt|promptModules|promptFence|promptNames|production|modelPlan|router|advisor|sixTools|customInstructions)\.js$/,
     /^apps\/mcp\/bench\/ai\/tests\/(core|simple-asks)\.md$/,
   ],
+  // A background job end to end (`jobTasks.mjs`): how a job is started, asked, carried on and reported, the pages it
+  // writes, the Worker's job runner, and the tasks and the scripted sites they run on. Its own budget (`AREA_LIMITS.jobs`).
+  jobs: [
+    /^apps\/mcp\/src\/agent\/(background|jobs|jobStart|jobNote|jobReport|jobPages|jobSlots|chatJobs|lastRound|openAsk|stopsShort|workPage|progress)\.js$/,
+    /^apps\/mcp\/src\/(pages|pageSkill)\.js$/,
+    /^apps\/agent\/src\/job[A-Za-z]*\.ts$/,
+    /^apps\/mcp\/bench\/job-tasks\//,
+    /^apps\/mcp\/bench\/ai\/sites\/(caterers|halls|lunch|orders|retreat|eats)\.example\.md$/,
+  ],
 };
 
 /** The model areas a change's files reach, in a fixed order. */
