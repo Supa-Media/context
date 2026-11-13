@@ -164,7 +164,13 @@ const fakeQuality = async () => ({ text: "", usage: {} });
 export const partsUsd = (parts) => parts.reduce((sum, part) => sum + Object.entries(part.usageByModel ?? {}).reduce((s, [model, usage]) => s + (priceUsd(model, usage) ?? 0), 0), 0);
 
 /** The replay gate's row for a graded case (`replayGate.mjs`): right and expected are this scorer's own. */
-export const gateRow = (record) => ({ id: record.id, right: record.right === true, must: false, heldOut: record.heldOut === true, target: record.target ?? false, cause: record.cause ?? (record.target || null), expected: "finish with every check passing", usd: record.usd ?? 0 });
+export const gateRow = (record) => ({ id: record.id, right: record.right === true, must: false, heldOut: record.heldOut === true, target: record.target ?? false, cause: record.cause ?? (record.target || null), expected: expectedOf(record), usd: record.usd ?? 0 });
+
+/** What the gate's report says a case expected: for a practice case, the checks it failed too; a held-out one, nothing more. */
+function expectedOf(record) {
+  const failed = record.heldOut === true ? [] : (record.checks ?? []).filter((check) => !check.pass).map((check) => check.line);
+  return `finish with every check passing${failed.length ? ` (failed: ${failed.join("; ")})` : ""}`;
+}
 
 /** Whether the jobs clear the bar: every case that is not a target right. */
 export const passes = (records) => records.filter((record) => !record.target).every((record) => record.right);

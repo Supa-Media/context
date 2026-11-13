@@ -10,6 +10,7 @@
  *  4. `pickPage` taking a placed page nobody rewrote -> "a page edit that never saved has no page" fails.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { checkTask, endedAs, gateRow, hasEntry, loadCases, pickPage, readQuality, runJob, sourcesIn } from "../jobTasks.mjs";
@@ -50,6 +51,9 @@ test("sources are counted once per page, with or without the scheme, and only on
   assert.deepEqual(sourcesIn(text, ["caterers.example"]).sort(), ["caterers.example/a", "caterers.example/b"]);
   assert.equal(hasEntry("Sunday $6,500", "6,500|6500"), true);
   assert.equal(hasEntry("nothing", "6,500|6500"), false);
+  const retreat = JSON.parse(readFileSync(new URL("../job-tasks/cases.json", import.meta.url), "utf8")).cases.find((item) => item.id === "page-edit-add-retreat-details");
+  assert.equal(hasEntry("Harvest Retreat, Nov 13–15, Pine Lake", retreat.covers[1]), true, "a range names its last day");
+  assert.equal(hasEntry("Harvest Retreat, Nov 13, Pine Lake", retreat.covers[1]), false, "a start day alone does not");
 });
 
 test("a job ends as the Worker ends it", () => {
@@ -126,4 +130,7 @@ test("every job task is invented, complete and gradeable", async () => {
   for (const kind of ["research page", "page edit", "errand"]) assert.ok(cases.some((item) => item.kind === kind), `a ${kind} task`);
   assert.deepEqual(gateRow({ id: "x", right: true, target: "a bug", usd: 0.3 }), { id: "x", right: true, must: false, heldOut: false, target: "a bug", cause: "a bug", expected: "finish with every check passing", usd: 0.3 });
   assert.equal(gateRow({ id: "y", right: false, target: false }).cause, null, "a case that is no target has no cause to name");
+  const failing = { id: "z", right: false, checks: [{ line: 'covers "Pine Lake"', pass: false }, { line: "ended done (ended done)", pass: true }] };
+  assert.equal(gateRow(failing).expected, 'finish with every check passing (failed: covers "Pine Lake")', "the report says which check a practice case failed");
+  assert.equal(gateRow({ ...failing, heldOut: true }).expected, "finish with every check passing", "a held-out case's checks are never shown");
 });

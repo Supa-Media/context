@@ -1,5 +1,5 @@
 {
-  "about": "Background-job tasks run end to end (`bench/jobTasks.mjs`): each starts a job as the texting Worker would, runs its parts through the real gateway in a throwaway world with the done check after each, and grades what it left behind in plain code (the page exists, cites its sources, answers every part of the ask, keeps what it should, the errand's site step happened, the job ended done). A quality judge reads the page only for what code can't. Everything is invented: Maya is the bench's invented person and every site is a scripted one in `bench/ai/sites/`. `covers`: each entry must appear in the page (case-insensitive); `a|b` means either. `keeps`: lines of a placed page that must survive the edit. A case with `target` captures a bug not fixed yet: reported, never blocking.",
+  "about": "Background-job tasks run end to end (`bench/jobTasks.mjs`): each starts a job as the texting Worker would, runs its parts through the real gateway in a throwaway world with the done check after each, and grades what it left behind in plain code (the page exists, cites its sources, answers every part of the ask, keeps what it should, the errand's site step happened, the job ended done). A quality judge reads the page only for what code can't. Everything is invented: Maya is the bench's invented person and every site is a scripted one in `bench/ai/sites/`. `covers`: each entry must appear in the page (case-insensitive); `a|b` means either, so a date may be written any way it reads (a range such as `13-15` names its last day too). `keeps`: lines of a placed page that must survive the edit. A case with `target` captures a bug not fixed yet: reported, never blocking.",
   "cases": [
     {
       "id": "research-caterers-page",
@@ -97,7 +97,7 @@
       },
       "page": { "at": "maya/projects/retreat/planning.page.md" },
       "sources": { "hosts": [], "min": 0 },
-      "covers": ["November 13|Nov 13|11/13", "November 15|Nov 15|11/15", "Pine Lake", "November 6|Nov 6|11/6"],
+      "covers": ["November 13|Nov 13|Nov. 13|11/13", "November 15|Nov 15|Nov. 15|11/15|13-15|13–15|13 - 15|13 – 15|13 to 15", "Pine Lake", "November 6|Nov 6|Nov. 6|11/6"],
       "keeps": ["# Retreat planning", "- Priya", "- rain jacket"],
       "quality": ["The new details sit in their own section or lines, not buried in the packing list"]
     },
