@@ -494,6 +494,19 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     },
 
     /**
+     * A Lab replay's chat before its text (`labReplay.mjs`): each line posted to the chat's ledger as the texting
+     * Worker posts it, theirs as a text and Tex's as its delivered answer to the text before, so the replayed turn
+     * reads the chat it read then. Nothing is answered.
+     */
+    async earlier(lines) {
+      let last = null;
+      for (const line of lines) {
+        const event = textedEvent(line.text, line.from === "person" ? tagger : null);
+        if (line.from === "person") last = event;
+        await postEvents([line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true }]);
+      }
+    },
+    /**
      * One housekeeping run over the person's own workspace, answered as a turn
      * is: its answer is the line it would text and the log it wrote.
      */

@@ -12,6 +12,7 @@
 import { mainGraph } from "../data/graph";
 import { BASE_MODELS } from "../data/models";
 import type { LabCase, LabGraph, LabModel, LabVersion, Selection, Tool, View } from "../types";
+import type { MyText, ReplayNow } from "./mine";
 
 export const clone = <T,>(o: T): T => JSON.parse(JSON.stringify(o));
 
@@ -47,6 +48,19 @@ export type LabState = {
   /** Each version author's name, as the shared list gives it (a handle, else "Someone"). */
   names: Record<string, string>;
   sync: string;
+  /** Who the test cases run as: the bench's invented person, or the signed-in person's own texts, replayed read only (`mine.ts`). */
+  tester: "bench" | "me";
+  /** The signed-in person, as the Lab's "You": their handle, name and workspaces; null until known. */
+  me: { handle: string; name: string; workspaces: Array<{ n: string; kind: string; role: string }> } | null;
+  /** Their texts read so far, newest first; null before the first read, "failed" when it could not be read. */
+  myTexts: MyText[] | null | "failed";
+  /** The ledger seq to read older texts before, when there are older ones. */
+  myOlder: number | null;
+  /** The texts picked to replay, by entry id, and the notes each one's turn read. */
+  myPicks: string[];
+  myReads: Record<string, string[]>;
+  /** What a version said now for each replayed text, from a pasted "## Lab replay": this tab only, never saved. */
+  myNow: Record<string, ReplayNow>;
 };
 
 export const lab: LabState = {
@@ -75,6 +89,13 @@ export const lab: LabState = {
   myId: null,
   names: {},
   sync: "Shared with staff",
+  tester: "bench",
+  me: null,
+  myTexts: null,
+  myOlder: null,
+  myPicks: [],
+  myReads: {},
+  myNow: {},
 };
 
 let version = 0;

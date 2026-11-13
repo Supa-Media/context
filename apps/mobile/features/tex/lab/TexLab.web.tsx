@@ -35,6 +35,7 @@ import { Sim } from "./views/Sim.web";
 import { Tests } from "./views/Tests.web";
 import { Tools } from "./views/Tools.web";
 import { Viewer } from "./views/Viewer.web";
+import { MineLoader } from "./views/mine/useMine";
 
 export const TEX_LAB_TITLE = "Tex Architecture Lab";
 
@@ -109,6 +110,14 @@ function Lab() {
   const propsOn = s.view === "canvas" && s.sel !== null;
   const wide = propsOn && !!s.cfocus && s.sel?.t === "node" && s.sel.id === s.cfocus;
   const unsaved = !isMain() && !s.versions.some((v) => v.id === s.cur.id);
+  const me = s.tester === "me";
+  // You or the bench's Maya; as You, Test cases opens on your own texts.
+  const swapTester = () => {
+    const toMe = s.tester !== "me";
+    set({ tester: toMe ? "me" : "bench", tArea: toMe ? "mine" : "core", tQ: "" });
+    if (toMe) go("tests");
+    closeSide();
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -186,34 +195,49 @@ function Lab() {
             ))}
             <div className="sec">
               <span>Test user</span>
+              <button id="tuserSwap" aria-label={me ? "Run as Maya" : "Run as you"} onClick={swapTester}>
+                <Svg className="i" style={{ width: 16, height: 16 }} d='<path d="M7 7h11l-3-3M17 17H6l3 3"/>' />
+              </button>
             </div>
-            <div className="tuser">
-              <span className="av">M</span>
+            <div className="tuser" id="tuser">
+              <span className="av">{me ? (s.me?.name || "Y").slice(0, 1).toUpperCase() : "M"}</span>
               <div>
-                <b>Maya</b>
-                <div className="hint">core and jobs run as her</div>
+                <b>{me ? s.me?.name || "You" : "Maya"}</b>
+                <div className="hint">{me ? "your texts replay read only" : "core and jobs run as her"}</div>
               </div>
             </div>
             <div className="sub">Workspaces</div>
             <div id="wsList">
-              {PEOPLE.Maya.ws.map((w) => (
-                <button key={w.n} className="rowi" data-sws={w.n} onClick={() => (closeSide(), set({ viewer: { kind: "ws", ws: w.n } }))}>
-                  <Ic k={w.kind === "personal" ? "door" : "thread"} style={{ color: "var(--muted)" }} />
-                  <span className="nm">{w.n}</span>
-                  <span className="meta">{w.role}</span>
-                </button>
-              ))}
+              {me
+                ? (s.me?.workspaces ?? []).map((w) => (
+                    <button key={w.n} className="rowi" data-myws={w.n}>
+                      <Ic k={w.kind === "personal" ? "door" : "thread"} style={{ color: "var(--muted)" }} />
+                      <span className="nm">{w.n}</span>
+                      <span className="meta">{w.role}</span>
+                    </button>
+                  ))
+                : PEOPLE.Maya.ws.map((w) => (
+                    <button key={w.n} className="rowi" data-sws={w.n} onClick={() => (closeSide(), set({ viewer: { kind: "ws", ws: w.n } }))}>
+                      <Ic k={w.kind === "personal" ? "door" : "thread"} style={{ color: "var(--muted)" }} />
+                      <span className="nm">{w.n}</span>
+                      <span className="meta">{w.role}</span>
+                    </button>
+                  ))}
             </div>
-            <div className="sub">Group chats</div>
-            <div id="gcList">
-              {GROUP_CHATS.map((c) => (
-                <button key={c.name} className="rowi" data-sws={c.ws} title={c.note} onClick={() => (closeSide(), set({ viewer: { kind: "ws", ws: c.ws } }))}>
-                  <Ic k="text" style={{ color: "var(--muted)" }} />
-                  <span className="nm">{c.name}</span>
-                  <span className="meta">{c.with}</span>
-                </button>
-              ))}
-            </div>
+            {me ? null : (
+              <>
+                <div className="sub">Group chats</div>
+                <div id="gcList">
+                  {GROUP_CHATS.map((c) => (
+                    <button key={c.name} className="rowi" data-sws={c.ws} title={c.note} onClick={() => (closeSide(), set({ viewer: { kind: "ws", ws: c.ws } }))}>
+                      <Ic k="text" style={{ color: "var(--muted)" }} />
+                      <span className="nm">{c.name}</span>
+                      <span className="meta">{c.with}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             <div className="sec">
               <span>Versions</span>
               <button id="sideNewVer" aria-label="New version from main" onClick={newVersion}>
@@ -255,6 +279,7 @@ function Lab() {
           </aside>
         </div>
       </div>
+      {me ? <MineLoader /> : null}
       <div className="toast" id="toast" hidden={!s.toastText}>
         {s.toastText}
       </div>

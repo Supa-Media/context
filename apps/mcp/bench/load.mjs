@@ -113,6 +113,11 @@ function readQuestion(sec) {
     running: 0,
     // In a group test (`group:`), what other members text before the person's nth text: `- @priya before text 2: "..."`.
     others: [],
+    // A Lab replay (`labReplay.mjs`): the one text, exactly as it was sent (`- person texts:` with a JSON string, so a
+    // text of several lines keeps them), and the chat before it (`- earlier person:` / `- earlier tex:`), posted to the
+    // chat's ledger before the text, never answered again. A replay is one text: nobody plays the person.
+    texts: null,
+    earlier: [],
     body: sec.lines.join("\n").trim(),
   };
   for (const raw of sec.lines) {
@@ -125,6 +130,8 @@ function readQuestion(sec) {
     else if (/^- gate:/.test(line)) q.gate = true;
     else if ((m = line.match(/^- running:\s*(\d+)\s*(?:jobs?)?\s*$/))) q.running = Number(m[1]);
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
+    else if ((m = line.match(/^- person texts:\s*(.*)$/))) q.texts = jsonText(m[1], sec.n);
+    else if ((m = line.match(/^- earlier (person|tex):\s*(.*)$/))) q.earlier.push({ from: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- @([a-z0-9-]+) before text (\d+):\s*(.*)$/))) q.others.push({ from: m[1], before: Number(m[2]), text: unquote(m[3]) });
     else if ((m = line.match(/^- person sends picture:\s*(.*)$/))) q.sendsPicture = pictureName(m[1].trim());
     else if (/^- person answers asks\s*$/.test(line)) q.answersAsks = true;
@@ -144,6 +151,18 @@ function readQuestion(sec) {
     }
   }
   return q;
+}
+
+/** A JSON string on a case line (a Lab replay's words, which may hold quotes and line breaks). */
+function jsonText(raw, n) {
+  let value;
+  try {
+    value = JSON.parse(raw.trim());
+  } catch {
+    throw new Error(`question ${n}: a replay line must hold a JSON string, got ${raw.trim().slice(0, 40)}`);
+  }
+  if (typeof value !== "string") throw new Error(`question ${n}: a replay line must hold a JSON string`);
+  return value;
 }
 
 // A gate question is one a failure of fails the whole setup: every privacy

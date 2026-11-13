@@ -6,6 +6,10 @@
  *   pnpm ai lab run   --config <lab config.json> --base <main checkout> --socket <dir> [--held-out <dir>]
  *                     [--scratch <dir>] [--log <file>] [--force]
  *                                                          apply, then run the replay gate on the examiner path
+ *   pnpm ai lab notes  --config <lab config.json>          the notes a version's picked texts need fetched (one a line)
+ *   pnpm ai lab replay --config <lab config.json> --notes <dir> --socket <dir> --scratch <dir> [--log <file>]
+ *                                                          apply, then replay the person's own picked texts read only
+ *                                                          (`labReplay.mjs`), Then beside Now
  *
  * The Lab (the Tex Architecture Lab in the app) exports a config: the version's setup, its prompt modules, the steps
  * it changes, and the cases it reruns. This file turns that config into what the examiner can run. Nothing here
@@ -27,13 +31,14 @@ import { promisify } from "node:util";
 
 import { SOCKET_AREAS } from "./replayGate.mjs";
 import { readSetups } from "./run.mjs";
+import { notesToFetch, readReplays, runReplays } from "./labReplay.mjs";
 
 const execFileAsync = promisify(execFile);
 
 /** Where the bench copy of the texting assistant's setup lives, relative to the bench folder (`bench/ai`). */
 export const SETUP_DIR = "setups/texting-assistant";
 
-const LAB_USAGE = "usage: pnpm ai lab plan|apply|run --config <lab config.json> [--force]; run also takes --base <main checkout> --socket <dir> [--held-out <dir>] [--scratch <dir>] [--log <file>]";
+const LAB_USAGE = "usage: pnpm ai lab plan|apply|run|notes|replay --config <lab config.json> [--force]; run also takes --base <main checkout> --socket <dir> [--held-out <dir>] [--scratch <dir>] [--log <file>]; replay takes --notes <dir> --socket <dir> --scratch <dir> [--log <file>]";
 
 const AREA_NAME = /^[a-z-]+$/;
 const MODULE_KEY = /^[\w:-]+$/;
@@ -409,9 +414,15 @@ async function headOf(dir) {
  */
 export async function labCommand(options, { spawn = nodeSpawn, cwd = process.cwd(), out = (text) => process.stdout.write(text) } = {}) {
   const sub = options.job;
-  if (!["plan", "apply", "run"].includes(sub) || !options.config) throw new Error(LAB_USAGE);
+  if (!["plan", "apply", "run", "notes", "replay"].includes(sub) || !options.config) throw new Error(LAB_USAGE);
   const config = readLabConfig(await readFile(options.config, "utf8"));
   const plan = labPlan(config);
+
+  if (sub === "notes") {
+    out(`${notesToFetch(readReplays(config).replays).join("\n")}\n`);
+    return;
+  }
+  if (sub === "replay") return await replayCommand(config, plan, options, { cwd, out });
 
   if (sub === "plan") {
     out(`${planText(plan)}\n`);
@@ -460,4 +471,21 @@ export async function labCommand(options, { spawn = nodeSpawn, cwd = process.cwd
   const steps = await readFile(log, "utf8").then((text) => text.split("\n").filter(Boolean).length, () => 0);
   out(`\n## Lab run: ${config.version.name}\n\n${result.report}\n\nStep log: ${log} (${steps} lines)\n`);
   if (code !== 0) process.exitCode = code;
+}
+
+/**
+ * `lab replay`: the version's setup into the bench copy, then each picked text of the person's own run again in a
+ * throwaway world on the model socket (`labReplay.mjs`). Read only: nothing in it can text, write a real note or
+ * change a setting.
+ */
+async function replayCommand(config, plan, options, { cwd, out }) {
+  if (!options.notes || !options.socket || !options.scratch) throw new Error(LAB_USAGE);
+  if (readReplays(config).replays.length === 0) throw new Error("this Lab version picks no texts to replay");
+  const benchDir = benchFolderFor(cwd);
+  const applied = await applyLab(plan, { benchDir, force: options.force === true, validate: validateCopy });
+  out(applied.length ? applied.map((entry) => `${entry.file}: ${entry.did}\n`).join("") : "Nothing to apply.\n");
+  const log = options.log ?? join(options.scratch, "lab-steps.jsonl");
+  const env = { ...process.env, BENCH_MODEL_SOCKET: options.socket, BENCH_MODEL_SOCKET_KINDS: process.env.BENCH_MODEL_SOCKET_KINDS || "claude,workers-ai", BENCH_LAB_REAL_MODELS: "1", BENCH_STEP_LOG: log, BENCH_LAB_BRANCH: cwd };
+  const { report } = await runReplays({ config, notesDir: resolve(options.notes), scratch: resolve(options.scratch), benchDir, env });
+  out(`\n${report}\nStep log: ${log}\n`);
 }

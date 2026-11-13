@@ -306,6 +306,14 @@ binding = "AI"
 [images]
 binding = "IMAGES"
 
+# Which Worker version answered a Tex turn (`src/agent/texVersion.js`): its id
+# is kept on the turn's reply in the chat's ledger, beside the deployed commit
+# (`TEX_CODE_VERSION`, passed by the deploy workflows), so the Lab can say what
+# an old text ran on. Self-hosting: harmless to keep; delete it and turns keep
+# only the commit and setup versions.
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
 # Staging shares code with production, but owns its presence objects.
 [env.staging]
 name = "context-mcp-staging"
@@ -370,3 +378,6 @@ binding = "AI"
 
 [env.staging.images]
 binding = "IMAGES"
+
+[env.staging.version_metadata]
+binding = "CF_VERSION_METADATA"
