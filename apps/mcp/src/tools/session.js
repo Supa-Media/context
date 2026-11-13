@@ -16,6 +16,7 @@ import { addressByPath } from "./pathAddress.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
   FORM_TOOLS,
+  STAFF_ONLY_TOOLS,
   isUsableContextName,
   ROUTING_PLANNING_TOOLS,
   toolIsWriting,
@@ -30,6 +31,8 @@ import {
   writesAnywhere,
 } from "../session.js";
 import { isPlumbing } from "../privacy/engine.js";
+import { editsPinnedContext } from "../context/identity.js";
+import { RUN_MODEL_WHO } from "./runModel.js";
 import { normalizePath } from "../notes/paths.js";
 import { pluginForTool } from "../plugins/catalog.js";
 import { measuredCall, reportToolUsage } from "../mcp/usage.js";
@@ -259,6 +262,10 @@ export async function callToolForSession(params, store, session, options = {}) {
   if (error) return toolError(error);
   // A job part on the person's computer never reaches outside, by either the v2 name or the tool it translated to.
   if (machineRunRefuses(session, canonicalToolName(params?.name)) || machineRunRefuses(session, canonicalToolName(call?.name))) return toolError(MACHINE_RUN_REFUSAL);
+  // A staff-only tool (`STAFF_ONLY_TOOLS`) is refused before it is routed anywhere: a cross-context call must not reach it either.
+  if (STAFF_ONLY_TOOLS.has(canonicalToolName(call?.name)) && !editsPinnedContext(session)) {
+    return toolError(RUN_MODEL_WHO);
+  }
   // `save_many` is one ordinary `write` per note, each back through this function and every gate in it (`saveMany.js`).
   if (v2 && call?.name === SAVE_MANY_TOOL) {
     return inWordsOf(v2, await saveMany(call.arguments, (one) => callToolForSession({ name: "write", arguments: one }, store, session)));

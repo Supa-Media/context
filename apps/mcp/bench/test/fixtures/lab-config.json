@@ -1,0 +1,146 @@
+{
+  "texLab": 1,
+  "version": {
+    "name": "Faster reviewer",
+    "id": "v_test1",
+    "base": "main@7188420"
+  },
+  "setup": {
+    "models.main": "anthropic/claude-sonnet-5-5",
+    "plan_big_asks": "on"
+  },
+  "changes": [
+    {
+      "step": "fd",
+      "what": "model",
+      "from": "Haiku 5.5",
+      "to": "Sonnet 5.5",
+      "how": "setup"
+    },
+    {
+      "step": "reviewer",
+      "what": "reads less",
+      "to": "Chat history",
+      "how": "code"
+    },
+    {
+      "step": "module:p-rules",
+      "what": "context module changed",
+      "how": "setup"
+    },
+    {
+      "step": "module:about",
+      "what": "context module changed",
+      "how": "fixture"
+    }
+  ],
+  "steps": [
+    {
+      "id": "fd",
+      "label": "Front door",
+      "model": "anthropic/claude-sonnet-5-5",
+      "runs": "subscription",
+      "effort": "medium",
+      "on": true,
+      "reads": [
+        "tools",
+        "p-rules",
+        "hist"
+      ],
+      "output": "text",
+      "file": "turn.js runTurn"
+    },
+    {
+      "id": "reviewer",
+      "label": "Reply reviewer",
+      "model": "anthropic/claude-haiku-5-5",
+      "runs": "subscription",
+      "effort": "medium",
+      "on": true,
+      "reads": [
+        "own",
+        "draft"
+      ],
+      "output": [
+        {
+          "name": "verdict",
+          "type": "choice",
+          "options": "ok, send_back"
+        }
+      ],
+      "file": "replyJudge.js"
+    },
+    {
+      "id": "decide",
+      "label": "Decide",
+      "model": "@cf/cloudflare/clef",
+      "runs": "api",
+      "on": true,
+      "reads": [
+        "examples",
+        "recent"
+      ],
+      "output": [
+        {
+          "name": "act",
+          "type": "choice",
+          "options": "quiet, respond, wait"
+        }
+      ],
+      "file": "textsDecide.js"
+    }
+  ],
+  "models": {},
+  "modules": {
+    "p-rules": {
+      "name": "Rules",
+      "from": "ailc",
+      "path": "ai/production/prompt/rules.md",
+      "tokens": 12,
+      "changesEveryTurn": false,
+      "text": "# Rules\n\nBe brief. Never invent a fact.\n",
+      "fingerprint": "acfea22b",
+      "mainFingerprint": null
+    },
+    "about": {
+      "name": "About them",
+      "from": "store",
+      "tokens": 8,
+      "changesEveryTurn": false,
+      "text": "Maya runs a small fashion brand.",
+      "fingerprint": "5b6914c6",
+      "mainFingerprint": null
+    }
+  },
+  "wires": [
+    {
+      "from": "text",
+      "to": "decide",
+      "mode": "wait",
+      "when": [
+        "*"
+      ]
+    }
+  ],
+  "areas": [
+    "core",
+    "review",
+    "jobs"
+  ],
+  "cases": {
+    "review": [
+      "r3",
+      "r7"
+    ]
+  },
+  "caseEdits": [
+    {
+      "area": "review",
+      "id": "r3",
+      "ask": "Is the draft fine?",
+      "expect": "send_back",
+      "isNew": false
+    }
+  ],
+  "log": "one JSON line per model call: {node, model, ms, in, out, thinking, steps, output}"
+}

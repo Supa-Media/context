@@ -38,15 +38,18 @@ import { routineWhen } from "./routineWhen.js";
 import { NOTE_SOURCE_PREFIX } from "./sources.js";
 
 /**
- * Tools a text is never offered, with the reason. None: the owner decided on
+ * Tools a text is never offered, with the reason. The owner decided on
  * 2026-10-08 ("our inhouse assistant should have just as much tool access as
- * any other mcp") that a text has everything an MCP client has. The one name
- * that was here, the key export, was then removed from the MCP itself (the
- * owner chose "Remove it" the same day), so no client is offered it. A name
+ * any other mcp") that a text has everything an MCP client has, so this holds
+ * only staff tools: `run_model`, the Architecture Lab's model run, which is
+ * for people who edit @context-lc's AI setup and is never Tex's to call. A name
  * added here must still be a tool the MCP has: the drift test fails on a
  * stale one.
  */
-export const WITHHELD_TOOLS = new Map();
+export const WITHHELD_TOOLS = new Map([
+  // The Architecture Lab's staff tool: a model run by the gateway's binding for people who edit @context-lc's AI setup (`tools/runModel.js`).
+  ["run_model", "the Architecture Lab's staff tool"],
+]);
 
 /** Fields of an offered tool a text never passes, with the reason. None. */
 export const WITHHELD_FIELDS = new Map();

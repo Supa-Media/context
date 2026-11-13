@@ -27,7 +27,7 @@ for (const [family, actions] of Object.entries(ACTIONS)) {
     assert.ok(row.tools.length || row.exclusion, `Neither implemented nor explicitly excluded: ${row.capability}`);
   }
 }
-assert.deepEqual(chatgptCoverage().filter(r => r.exclusion).map(r => r.capability).sort(), ["send.api", "send.app"]);
+assert.deepEqual(chatgptCoverage().filter(r => r.exclusion).map(r => r.capability).sort(), ["manage.run_model", "send.api", "send.app"]);
 const documented = JSON.parse(readFileSync(new URL("../../../docs/connectors/chatgpt-capabilities.json", import.meta.url), "utf8"));
 assert.deepEqual(documented.capabilities, chatgptCoverage());
 assert.deepEqual(documented.tool_names, chatgptOperations().map(op => op.name));

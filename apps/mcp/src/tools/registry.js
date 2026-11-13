@@ -62,6 +62,14 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
 ]);
 
 /**
+ * Tools only the staff of `@context-lc` may call (`editsPinnedContext`): a
+ * connection whose person is not an owner or editor there is not offered
+ * them, and a call to one is refused before it is routed (`tools/runModel.js`).
+ * Tex is never offered them either (`WITHHELD_TOOLS`).
+ */
+export const STAFF_ONLY_TOOLS = new Set(["run_model"]);
+
+/**
  * The subset of those whose *existence* is masked, not merely refused.
  *
  * `list_plugins` and `set_encryption` answer a lower tier with a plain

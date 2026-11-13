@@ -326,6 +326,11 @@
       ]
     },
     {
+      "capability": "manage.run_model",
+      "tools": [],
+      "exclusion": "The Architecture Lab's model runs are staff-only (people who edit @context-lc's AI setup) and are not part of this directory contract."
+    },
+    {
       "capability": "manage.fill_dates",
       "tools": [
         "fill_dates"
