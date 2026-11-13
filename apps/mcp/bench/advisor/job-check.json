@@ -4,34 +4,101 @@
   "cases": [
     {
       "id": "saved-note-is-done",
-      "job": { "title": "Dentists taking Aetna", "brief": "Find three dentists near 10025 that take Aetna PPO and save them to a note.", "doneWhen": "A note lists three dentists with address, phone and that each takes Aetna PPO.", "asked": ["find me 3 dentists near me that take aetna ppo and save them"] },
+      "job": {
+        "title": "Dentists taking Aetna",
+        "brief": "Find three dentists near 10025 that take Aetna PPO and save them to a note.",
+        "doneWhen": "A note lists three dentists with address, phone and that each takes Aetna PPO.",
+        "asked": [
+          "find me 3 dentists near 10025 that take aetna ppo and save them in a note"
+        ]
+      },
       "did": [
-        ["web_search", { "q": "dentist 10025 Aetna PPO" }, "Riverside Dental (Aetna PPO) 2700 Broadway; Columbus Smiles (Aetna PPO) 912 Columbus Ave; Morningside Dental Care (Aetna PPO) 1180 Amsterdam Ave"],
-        ["write", { "path": "areas/health/dentists.md" }, "applied: areas/health/dentists.md\n# Dentists taking Aetna PPO\n- Riverside Dental, 2700 Broadway, (212) 555-0141, Aetna PPO\n- Columbus Smiles, 912 Columbus Ave, (212) 555-0177, Aetna PPO\n- Morningside Dental Care, 1180 Amsterdam Ave, (212) 555-0102, Aetna PPO"]
+        [
+          "web_search",
+          {
+            "q": "dentist 10025 Aetna PPO"
+          },
+          "Riverside Dental, 2700 Broadway, (212) 555-0141, in network: Aetna PPO; Columbus Smiles, 912 Columbus Ave, (212) 555-0177, in network: Aetna PPO; Morningside Dental Care, 1180 Amsterdam Ave, (212) 555-0102, in network: Aetna PPO"
+        ],
+        [
+          "write",
+          {
+            "path": "areas/health/dentists.md"
+          },
+          "applied: areas/health/dentists.md\n# Dentists taking Aetna PPO\n- Riverside Dental, 2700 Broadway, (212) 555-0141, Aetna PPO\n- Columbus Smiles, 912 Columbus Ave, (212) 555-0177, Aetna PPO\n- Morningside Dental Care, 1180 Amsterdam Ave, (212) 555-0102, Aetna PPO"
+        ]
       ],
       "answer": "Saved three dentists taking Aetna PPO to areas/health/dentists.md: Riverside Dental, Columbus Smiles and Morningside Dental Care, each with address and phone.",
-      "want": "done"
+      "want": "done",
+      "fixed": "2026-11-13: the phone numbers were only in the saved note, never in a tool result, so the check was right to doubt it; the search result now carries them, and the ask names the zip"
     },
     {
       "id": "promise-is-not-done",
-      "job": { "title": "Fellowship application", "brief": "Fill in and submit the Northwind Fellowship application at northwind.example/apply with the details in her resume note.", "doneWhen": "The application is submitted and the confirmation page or email is seen.", "asked": ["apply to the northwind fellowship for me, use my resume"] },
-      "did": [["browse", { "url": "https://northwind.example/apply" }, "Northwind Fellowship 2027. Step 1 of 4: Create an account or sign in. [Sign in with email] [Continue with Google]"]],
+      "job": {
+        "title": "Fellowship application",
+        "brief": "Fill in and submit the Northwind Fellowship application at northwind.example/apply with the details in her resume note.",
+        "doneWhen": "The application is submitted and the confirmation page or email is seen.",
+        "asked": [
+          "apply to the northwind fellowship for me, use my resume"
+        ]
+      },
+      "did": [
+        [
+          "browse",
+          {
+            "url": "https://northwind.example/apply"
+          },
+          "Northwind Fellowship 2027. Step 1 of 4: Create an account or sign in. [Sign in with email] [Continue with Google]"
+        ]
+      ],
       "answer": "I opened the application. It has four steps; I'll begin with the sign-in next.",
       "want": "keep_going"
     },
     {
       "id": "texted-code-is-waiting",
-      "job": { "title": "Change the electric autopay", "brief": "Sign in to her Brightline Energy account and switch autopay to the card ending 4417.", "doneWhen": "Autopay shows the card ending 4417.", "asked": ["switch my brightline autopay to the card ending 4417"] },
+      "job": {
+        "title": "Change the electric autopay",
+        "brief": "Sign in to her Brightline Energy account and switch autopay to the card ending 4417.",
+        "doneWhen": "Autopay shows the card ending 4417.",
+        "asked": [
+          "switch my brightline autopay to the card ending 4417"
+        ]
+      },
       "did": [
-        ["browse", { "url": "https://brightline.example/login", "steps": ["email", "Continue"] }, "We texted a 6-digit code to (•••) •••-0192. Enter it to continue. The code expires in 10 minutes."]
+        [
+          "browse",
+          {
+            "url": "https://brightline.example/login",
+            "steps": [
+              "email",
+              "Continue"
+            ]
+          },
+          "We texted a 6-digit code to (•••) •••-0192. Enter it to continue. The code expires in 10 minutes."
+        ]
       ],
       "answer": "Brightline sent a one-time code to her phone; I need it to sign in.",
       "want": "waiting"
     },
     {
       "id": "dropped-part-keeps-going",
-      "job": { "title": "Chicago trip", "brief": "Find flights from LGA to Chicago on Dec 4 back Dec 7 under $300.", "doneWhen": "Three flight options under $300 with times and prices.", "asked": ["find me flights to chicago dec 4 to 7 under 300, and a hotel near the loop under 200 a night"] },
-      "did": [["web_search", { "q": "LGA ORD Dec 4 Dec 7 flights" }, "United 7:00 am $248; American 9:30 am $262; Delta 12:15 pm $289 (all round trip)"]],
+      "job": {
+        "title": "Chicago trip",
+        "brief": "Find flights from LGA to Chicago on Dec 4 back Dec 7 under $300.",
+        "doneWhen": "Three flight options under $300 with times and prices.",
+        "asked": [
+          "find me flights to chicago dec 4 to 7 under 300, and a hotel near the loop under 200 a night"
+        ]
+      },
+      "did": [
+        [
+          "web_search",
+          {
+            "q": "LGA ORD Dec 4 Dec 7 flights"
+          },
+          "United 7:00 am $248; American 9:30 am $262; Delta 12:15 pm $289 (all round trip)"
+        ]
+      ],
       "answer": "Three round trips under $300: United 7:00 am $248, American 9:30 am $262, Delta 12:15 pm $289.",
       "want": "keep_going"
     }
