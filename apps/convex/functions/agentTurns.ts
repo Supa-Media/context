@@ -26,6 +26,8 @@ export const AGENT_TURN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_TRACE_ENTRIES = 64;
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
+/** A tool's action, as the gateway names it (`apps/mcp/src/agent/turnLog.js` `ACTION_NAME`). */
+export const ACTION_NAME = /^[a-z][a-z0-9_]{0,39}$/;
 const PROVIDER = /^[a-z][a-z0-9_-]{0,31}$/;
 const MODEL = /^[\w@./:-]{1,128}$/;
 const MAX_MS = 15 * 60 * 1000;
@@ -38,6 +40,7 @@ const count = (n: number, max: number) => (Number.isFinite(n) ? Math.min(max, Ma
 export const traceEntryValidator = v.object({
   kind: v.union(v.literal("model"), v.literal("tool"), v.literal("router"), v.literal("fallback")),
   tool: v.optional(v.string()),
+  action: v.optional(v.string()),
   tier: v.optional(v.union(v.literal("main"), v.literal("think"))),
   confidence: v.optional(v.number()),
   model: v.optional(v.string()),
@@ -100,7 +103,9 @@ export const recordAgentTurn = internalMutation({
       const ms = count(entry.ms, MAX_MS);
       if (entry.kind === "tool") {
         if (entry.tool === undefined || !TOOL_NAME.test(entry.tool)) return false;
-        trace.push({ kind: "tool" as const, tool: entry.tool, ok: entry.ok, ms, ...(entry.held ? { held: true } : {}) });
+        // The action is kept only when it is a name; anything else is dropped, and the turn is still kept.
+        const action = entry.action !== undefined && ACTION_NAME.test(entry.action) ? entry.action : undefined;
+        trace.push({ kind: "tool" as const, tool: entry.tool, ok: entry.ok, ms, ...(action === undefined ? {} : { action }), ...(entry.held ? { held: true } : {}) });
       } else if (entry.kind === "router") {
         // The router's pick (`src/agent/router.js`): which tier, and so which model, answered.
         if (entry.tool !== undefined || entry.tier === undefined || entry.model === undefined || !MODEL.test(entry.model)) return false;

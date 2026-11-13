@@ -171,6 +171,17 @@ did not have to leave a case behind.
    than sent to the real model. The judge keeps its real Workers AI model unless
    `BENCH_MODEL_SOCKET_KINDS` names `workers-ai`.
 
+10. **A Tex Architecture Lab version runs on the same path** (decided by the
+    owner, 2026-11-13: run a Lab version on the subscription, non-Claude steps
+    as real calls, every step logged). `pnpm ai lab` (`bench/lab.mjs`) writes a
+    version's setup fields and prompt modules into the bench's copy only,
+    refuses a copy that drifted from main's or that the product could not read,
+    and runs the gate with a step log (`bench/stepLog.mjs`). Clef and GLM come
+    to the socket and the session runs each through Context's staff-only
+    `manage` action `run_model` (`src/tools/runModel.js`): owners and editors
+    of `@context-lc` only, two models, never offered to Tex, and no key ever on
+    the session's machine or in a note.
+
 ## What a simplification costs
 
 Dropping rule 2 lets a fix land with no case, and the same break returns
@@ -197,3 +208,11 @@ edit to the live prompt is outside the gate; held-out cases by cause alone);
 an area's fingerprint; a changed area with no replay run fails the check;
 sabotage on the real trees: one letter of the drawing's map changed seven
 areas whose file rules named none of it).
+`apps/mcp/bench/test/lab.test.mjs` (a module path that leaves `ai/production` is
+refused; a setup file cannot be written outside the setup folder; a version
+that leaves the setup unreadable is refused at apply);
+`apps/mcp/bench/test/stepLog.test.mjs` (every step's phrase is in its real
+prompt file); `apps/mcp/test/runModel.test.mjs` and
+`apps/mcp/test/runModelWorker.test.mjs` (a member, a session without
+`@context-lc` and a self-hosted deployment are refused; an editor gets the
+model's answer through the whole Worker).

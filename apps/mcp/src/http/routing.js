@@ -8,6 +8,7 @@
 import { objectFirstChildren, objectFirstManifest } from "../store/objectManifest.js";
 import { attachHomeRoutineReports } from "../agent/chatHomeSeal.js";
 import { deliverMail } from "../mail/deliver.js";
+import { runLabModel } from "../tools/runModel.js";
 
 /**
  * The three link calls, attached to the store for each request.
@@ -195,6 +196,14 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   // the owner of their personal workspace off this token and decides.
   Object.defineProperty(store, "dreamNow", {
     value: () => controlPlane.dreamNow(session.accessToken, session.workspaceId),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // `run_model`: a Workers AI model run for the Architecture Lab with this deployment's own binding. Staff only:
+  // `runLabModel` decides from this connection's session (`tools/runModel.js`).
+  Object.defineProperty(store, "runLabModel", {
+    value: (args) => runLabModel({ ai: env?.AI, session, workspace: session.workspaceId, args }),
     enumerable: false,
     writable: false,
     configurable: true,

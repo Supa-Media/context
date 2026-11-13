@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { CAPABILITIES, CAPABILITY_LIST, ONE_TO_ONE_ONLY, capabilitiesFor } from "../src/agent/capabilities.js";
 import { ACTIONS } from "../src/tools/v2/actions.js";
+import { STAFF_ONLY_TOOLS } from "../src/tools/registry.js";
 import { ASSISTANT_SEND_ACTIONS } from "../src/agent/sixTools.js";
 import { COMMAND_SEND_ACTIONS } from "../src/agent/commandTools.js";
 import { SOMEBODYS_ALONE } from "../src/agent/groupTurn.js";
@@ -23,7 +24,11 @@ function groupWordKinds() {
 /** Everything a person can get Tex to do by a tool or a command, each with the tool that carries it (null for words). */
 function everything() {
   const all = new Map();
-  for (const family of ["write", "manage", "send"]) for (const [name, entry] of Object.entries(ACTIONS[family])) all.set(`${family}.${name}`, entry.tool);
+  // A staff tool (`STAFF_ONLY_TOOLS`, the Architecture Lab's `run_model`) is never Tex's (`WITHHELD_TOOLS`), so it is
+  // nothing a person can get Tex to do, and a line for it would only add words to every turn's prompt.
+  for (const family of ["write", "manage", "send"]) {
+    for (const [name, entry] of Object.entries(ACTIONS[family])) if (!STAFF_ONLY_TOOLS.has(entry.tool)) all.set(`${family}.${name}`, entry.tool);
+  }
   for (const [name, entry] of Object.entries(ASSISTANT_SEND_ACTIONS)) {
     all.set(Object.hasOwn(COMMAND_SEND_ACTIONS, name) ? `command.${name}` : `send.${name}`, entry.tool);
   }

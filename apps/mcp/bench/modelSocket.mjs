@@ -30,6 +30,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { advanceSteppedClock } from "./clock.mjs";
+import { STEP_LOG_ENV, withStepLog } from "./stepLog.mjs";
 
 export const SOCKET_ENV = "BENCH_MODEL_SOCKET";
 export const REPLAY_ENV = "BENCH_MODEL_REPLAY";
@@ -84,6 +85,16 @@ export const EXPECTS = {
   "workers-ai": 'Answer as the classifier would: a JSON object { "answers": { <question>: { "choice": <one of its choices>, "confidence": <0..1> } } } for every question in input.questions, reading input.state.',
 };
 
+/**
+ * In a Tex Architecture Lab run (`lab.mjs` sets `BENCH_LAB_REAL_MODELS`), Clef and GLM are not played: Dev2
+ * (2026-11-13) asked that non-Claude steps run as real calls. The session runs each through Context, whose gateway
+ * holds the binding, so no key is ever on the session's machine or in a note.
+ */
+export const LAB_REAL_ENV = "BENCH_LAB_REAL_MODELS";
+export const REAL_EXPECTS =
+  'Run this call for real: call Context\'s `manage` tool with action "run_model" and args { "model": request.model, "input": request.input }, then answer with exactly the JSON it returned (--json), changing nothing.';
+const expectsFor = (kind, env) => (kind === "workers-ai" && env[LAB_REAL_ENV] ? REAL_EXPECTS : EXPECTS[kind]);
+
 /** Sleeps without letting the event loop run: nothing else in the process moves while it waits. */
 const sleepBlocking = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
@@ -109,7 +120,14 @@ function readJsonNow(file) {
  * thinks, so a turn takes the path it takes replayed, where every answer is instant. Every answer, live or replayed,
  * moves a stepped clock on by `ANSWER_STEP_MS`.
  */
-export function modelSocket(env = process.env, { wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), waitMs = ANSWER_WAIT_MS, pollMs = 500, blocking = false } = {}) {
+export function modelSocket(env = process.env, options = {}) {
+  const socket = socketFor(env, options);
+  // The step log (`stepLog.mjs`) is for the calls that get a real answer, live or replayed; a fingerprint run answers
+  // nothing real, so it is never logged.
+  return socket && socket.mode !== "fingerprint" && env[STEP_LOG_ENV] ? withStepLog(socket, env) : socket;
+}
+
+function socketFor(env, { wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), waitMs = ANSWER_WAIT_MS, pollMs = 500, blocking = false } = {}) {
   const kinds = new Set(String(env[KINDS_ENV] || "claude").split(",").map((kind) => kind.trim()).filter(Boolean));
   const covers = (kind) => kinds.has(kind);
   // Every call left with no answer. The code that asked may well survive one (a turn falls back to another model, a
@@ -167,7 +185,7 @@ export function modelSocket(env = process.env, { wait = (ms) => new Promise((res
         const have = await readJson(answerFile);
         if (have !== undefined) return answered(have);
         await mkdir(join(dir, "calls"), { recursive: true });
-        await writeFile(join(dir, "calls", `${hash}.json`), JSON.stringify({ hash, kind, expects: EXPECTS[kind], request }), { flag: "w" });
+        await writeFile(join(dir, "calls", `${hash}.json`), JSON.stringify({ hash, kind, expects: expectsFor(kind, env), request }), { flag: "w" });
         for (let waited = 0; waited < waitMs; waited += pollMs) {
           const answer = blocking ? readJsonNow(answerFile) : await readJson(answerFile);
           if (answer !== undefined) return answered(answer);
@@ -293,6 +311,17 @@ export function socketRequest(socket) {
     const toolCalls = (Array.isArray(answer?.toolCalls) ? answer.toolCalls : []).map((tool, index) => ({ id: toolUseId(hash, index), name: tool.name, args: tool.input ?? {} }));
     return { text: String(answer?.text ?? ""), toolCalls, stop: toolCalls.length ? "tool_use" : "end_turn", usage: { input: 0, output: 0 } };
   };
+}
+
+/** The embeddings model search by meaning uses (`src/search/meaning/embed.js`): kept on the scripted stand-in. */
+const EMBED_MODEL = "@cf/baai/bge-m3";
+
+/**
+ * A Lab run's Workers AI (`LAB_REAL_ENV`): every model call (Clef, GLM) goes to the socket to be run for real, while
+ * the embeddings for search by meaning stay on the stand-in, so what a turn finds is the same as any socketed run.
+ */
+export function labAi(socketed, embeddings) {
+  return { run: (model, input, options) => (model === EMBED_MODEL ? embeddings.run(model, input, options) : socketed.run(model, input)) };
 }
 
 /** Workers AI's `ai.run(model, input)` answered through the socket. */

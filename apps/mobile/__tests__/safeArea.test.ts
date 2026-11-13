@@ -374,15 +374,7 @@ const ROUTES: Record<string, Coverage> = {
     kind: "gate",
     mount: () => createElement(requireRoute("(app)/admin/index.tsx")),
   },
-  /*
-    The Tex Architecture Lab, a web-only staff tool on tex.lc. Anywhere else
-    it is a redirect to the console, which is what mounts here; on tex.lc it
-    is a full-window page (`.tl` is fixed to the viewport), not a phone screen.
-  */
-  "(app)/admin/lab.tsx": {
-    kind: "gate",
-    mount: () => createElement(requireRoute("(app)/admin/lab.tsx")),
-  },
+  "(app)/admin/lab.tsx": { kind: "gate", mount: () => createElement(requireRoute("(app)/admin/lab.tsx")) }, // Tex Lab: a redirect off tex.lc
   "(app)/admin/[...section].tsx": {
     kind: "screen",
     mount: () =>
