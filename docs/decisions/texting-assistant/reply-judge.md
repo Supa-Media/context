@@ -112,6 +112,37 @@ brings back the stacked vetoes; dropping the earlier feedback brings back
 redrafts that never converge. Tests: `apps/mcp/test/replyJudge.test.mjs`,
 `apps/mcp/bench/test/review.test.mjs`.
 
+## A task gets five send-backs, and the advisor from the third (Dev2, 2026-11-13)
+
+In a group chat Tex filled a party request form and texted that the person
+should set the end time, tick the captcha and press Submit. The reviewer
+caught it (`hands_back`, `empty_promise`), but a turn had one send-back, and
+the rewrite still handed the work back and went out unreviewed. Dev2: "when it
+comes to jobs and tasks and stuff, sendbacks could be as up to 5. A couple,
+and if it keeps getting sent back, we should get the advisor in."
+
+- **The budget is the turn's kind.** The reviewer names the kind on its first
+  review; a `task` or a `report` (a job's result) gets `TASK_SEND_BACKS` (5),
+  every other kind keeps `MAX_SEND_BACKS` (1). A quick answer held longer
+  costs more than it fixes; a task handed back costs the person the task.
+- **The advisor from the third.** The third send-back and every one after it
+  tells Tex to call `ask_advisor` before writing again. The advisor already
+  reads the whole turn, every draft and every review included, so it is told
+  nothing new; only when the setup offers an advisor.
+- **Time bounds it, not the count alone.** A send-back past the first is taken
+  only while the turn began less than `SEND_BACK_WINDOW_MS` (80 s) ago, and
+  the advisor is brought in only before `ADVISOR_WINDOW_MS` (50 s), since it
+  answers in 20 to 40 s and the texting Worker gives a turn two minutes. The
+  turn's round cap still ends it. This is the chat turn's reviewer only; a
+  computer job's part review is separate and unchanged.
+
+**What a simplification would cost.** One budget for every kind holds chat
+replies through five reviews; dropping the time window lets a task's fifth
+rewrite run past the Worker's two minutes and the person gets nothing.
+
+**Tests.** `apps/mcp/test/replyJudge.test.mjs` ("a task is sent back up to
+five times…", "a send-back past the first waits on the turn's time…").
+
 ## Ten parallel gates, sent back at most twice (2026-11-05; replaced 2026-11-06)
 
 The owner asked for the pattern checks on replies to go ("a series of parallel
