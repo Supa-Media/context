@@ -259,8 +259,9 @@ export async function threadsWrite(store, session, entries) {
   await writer?.write(entries);
 }
 
-/** After a turn has answered: sort its text (`threadedTurn.js` `sort`) and keep the verdict for the next turn. Never throws. */
+/** After a turn has answered: sort its text (`threadedTurn.js` `sort`) and keep the verdict for the next turn; answers the entries kept. Never throws. */
 export async function threadsSortAndWrite(sort, store, session) {
   const entries = await Promise.resolve().then(sort).catch(() => []);
   if (Array.isArray(entries) && entries.length > 0) await threadsWrite(store, session, entries);
+  return Array.isArray(entries) ? entries : []; // what it filed, for the classifier's step in the chat's ledger
 }

@@ -15,7 +15,7 @@
  */
 
 import { DECISION_MODEL, decisionEngine } from "./decide.js";
-import { eventEntry, ledgerFor, ledgerWriter } from "./ledger.js";
+import { eventEntry, ledgerFor, ledgerWriter, stepEntry } from "./ledger.js";
 import { checkEvents, EventRefusal } from "./log.js";
 import { dayFromLedger } from "./ledgerHistory.js";
 import { foldThreads, THREADS_SUFFIX } from "./threadsFold.js";
@@ -85,8 +85,10 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
     }),
   );
   // The verdict in the group's ledger, behind the answer: never on the text's path.
-  if (!recheck && result.ok && body.ledger) {
-    const written = ledgerWriter(ledger(body.ledger), body.ledger)?.write(judgeVerdictEntry(body, result, meter.ms)) ?? Promise.resolve();
+  // A look again, or a judging that failed, is a step there instead, so every judging of the chat is in its record (Dev2, 2026-11-13).
+  if (body.ledger) {
+    const entry = !recheck && result.ok ? judgeVerdictEntry(body, result, meter.ms) : stepEntry({ step: "decide", name: recheck ? "recheck" : "decide", ok: result.ok === true, ms: meter.ms, input: { newest: body.newest ?? null, candidates: body.candidates?.length ?? 0 }, output: result.ok ? (recheck ? { fits: result.fits } : null) : { cause: result.cause ?? null }, model: DECISION_MODEL });
+    const written = ledgerWriter(ledger(body.ledger), body.ledger)?.write(entry) ?? Promise.resolve();
     if (typeof waitUntil === "function") waitUntil(written);
   }
   return Response.json({ ...result, meter: { ...meter, answered: answers !== null } });

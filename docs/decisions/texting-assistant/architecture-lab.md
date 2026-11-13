@@ -29,6 +29,13 @@ Convex stood in, so the two can be screenshot side by side.
 database ("Shared · n saved versions"), and the Tools page also reads live
 tool figures.
 
+**Main's graph is what main runs** (Dev2, 2026-11-13: "how accurate is the current lab graph?"). The artifact's
+graph had the fallback off and five efforts wrong (jobs at high; the reviewer, mail checker, hand-back judge and
+self-review at medium) and no send-back from the answer checks. Main's graph now follows the code and the
+production setup as the fingerprint gate keeps it, and `__tests__/texLabMainGraph.test.ts` fails when either moves
+without it. The port's golden tests still run on the artifact's own graph (`fixtures/texLabArtifactGraph.json`).
+Times are the model table's estimates, not measurements.
+
 **Its data is the bench's own.** `scripts/tex-lab-data.mjs` writes the cases,
 the module texts (the map, the capability list, the judge examples, the test
 person's about note) and the test workspaces from the repo into

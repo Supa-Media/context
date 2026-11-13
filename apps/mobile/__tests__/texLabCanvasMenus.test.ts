@@ -135,12 +135,13 @@ describe("the canvas's test picker", () => {
       createElement(ScnPop, { onClose: () => undefined }),
     );
     // The golden was taken from the artifact's shipped cases; labData.generated.ts (the bench's current cases)
-    // has four more rows: core/q20 and three pipeline replays. Those rows are removed here, and only these.
+    // has more rows: core/q20 and the pipeline replays added since. Those rows are removed here, and only these.
     const drift = [
       "core/q20",
       "pipeline/job-sees-chat",
       "pipeline/pdf-of-pictures",
       "pipeline/reads-back",
+      "pipeline/turn-steps-logged",
     ];
     const removed: string[] = [];
     for (const b of Array.from(

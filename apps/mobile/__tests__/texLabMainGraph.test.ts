@@ -1,0 +1,58 @@
+/**
+ * The Lab's main graph is what main runs (Dev2, 2026-11-13: "how accurate is the current lab graph?"). Each step's
+ * model, effort, on or off, and time limit is read from the code that runs it, or from the production setup as the
+ * prompt-fingerprint gate keeps it (`apps/mcp/bench/fingerprint/setups/texting-assistant/production.md`, the copy of
+ * `@context-lc ai/production/texting-assistant.md`). A change to one of those that leaves the Lab behind fails here.
+ *
+ * Every value here is read from this repository. This repository is public.
+ *
+ * Sabotage record (temporary local edits, reverted, 2026-11-13):
+ *   the reviewer back at effort medium in `graph.ts`                "each judge's model and effort" fails
+ *   Fallback `on:false` again                                       "the setup's models" fails
+ *   the answer checks' send-back wire removed                       "both send-backs" fails
+ */
+import { describe, expect, test } from "@jest/globals";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { mainGraph } from "../features/tex/lab/data/graph";
+import { BASE_MODELS } from "../features/tex/lab/data/models";
+
+const MCP = join(__dirname, "../../mcp");
+const src = (f: string) => readFileSync(join(MCP, "src/agent", f), "utf8");
+const setup = readFileSync(join(MCP, "bench/fingerprint/setups/texting-assistant/production.md"), "utf8");
+const line = (k: string) => setup.match(new RegExp(`^\\s*${k}:\\s*"?([^"\\n]+)"?$`, "m"))?.[1]?.trim() ?? null;
+const constant = (file: string, name: string) => src(file).match(new RegExp(`${name} = "([^"]+)"`))?.[1] ?? null;
+const firstEffort = (file: string) => src(file).match(/effort: "(\w+)"/)?.[1] ?? null;
+
+const g = mainGraph();
+const node = (id: string) => g.nodes.find((n) => n.id === id)!;
+const modelId = (id: string) => BASE_MODELS[node(id).model as string]?.id;
+
+describe("the Lab's main graph is what main runs", () => {
+  test("the setup's models: front door and jobs on main at its effort, the advisor's roles at advisor_effort, the fallback on", () => {
+    for (const id of ["fd", "job"]) expect([id, modelId(id), node(id).effort]).toEqual([id, line("main"), line("effort")]);
+    for (const id of ["advisor", "jobcheck", "mailadv", "planner"]) expect([id, modelId(id), node(id).effort]).toEqual([id, line("advisor"), line("advisor_effort")]);
+    expect([modelId("fallback"), node("fallback").on]).toEqual([line("fallback"), line("fallback") !== null]);
+    expect(node("router").on).toBe(line("router") !== null);
+    expect(node("planner").on).toBe(line("think") !== null);
+    expect(node("reviewer").on).toBe(line("reply_judge") === "haiku");
+  });
+
+  test("each judge's model and effort is its file's", () => {
+    expect([modelId("reviewer"), node("reviewer").effort]).toEqual([constant("replyJudge.js", "REVIEW_MODEL"), constant("replyJudge.js", "REVIEW_EFFORT")]);
+    const judges: Array<[string, string, string]> = [["mail", "mailChecker.js", "MAIL_CHECKER_MODEL"], ["card", "cardCheck.js", "CARD_CHECK_MODEL"], ["handback", "handbackJudge.js", "HANDBACK_JUDGE_MODEL"], ["selfreview", "selfReview.js", "SELF_REVIEW_MODEL"]];
+    for (const [id, file, name] of judges) expect([id, modelId(id), node(id).effort]).toEqual([id, constant(file, name), firstEffort(file)]);
+    expect(src("conversationThreads.js")).toMatch(/thinking: "off"/);
+    expect([modelId("classifier"), node("classifier").effort]).toEqual([constant("conversationThreads.js", "THREADS_MODEL"), "off"]);
+  });
+
+  test("time limits are the code's", () => {
+    expect(node("reviewer").timeoutS * 1000).toBe(Number(src("replyJudge.js").match(/REVIEW_TIMEOUT_MS = ([\d_]+)/)![1].replace(/_/g, "")));
+    expect(node("advisor").timeoutS * 1000).toBe(Number(src("advisor.js").match(/chat: ([\d_]+)/)![1].replace(/_/g, "")));
+  });
+
+  test("both send-backs reach the front door: the reviewer's after an action, and the answer checks' on any draft (sendBack.js)", () => {
+    const loops = g.edges.filter((e) => e.mode === "loop" && e.to === "fd").map((e) => [e.from, e.when.join()]);
+    expect(loops).toEqual([["reviewer", "action"], ["checks", "*"]]);
+  });
+});

@@ -437,7 +437,16 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
  * them. `meter` is the turn's own; the image model's spend is reported as a
  * part of the turn, not a turn of its own.
  */
-export async function turnPictures(env, { texted, question, attachments, store, keep, meter, workspaceId, keepCover = null }) {
+/**
+ * The card check as a step in the chat's ledger (`stepLog`, `ledger.js`): the
+ * tool and template it looked at (never the picture's bytes) and its verdict.
+ */
+export function loggedCardCheck(steps, check) {
+  if (typeof check !== "function" || steps === null) return check;
+  return (args) => steps.timed("card", { tool: args?.tool ?? null, template: args?.template || null, unpinned: args?.unpinned ?? [] }, () => check(args));
+}
+
+export async function turnPictures(env, { texted, question, attachments, store, keep, meter, workspaceId, keepCover = null, steps = null }) {
   const outgoing = outgoingPictures({ enabled: texted, question });
   const maker = texted
     ? pictureMaker(env, {
@@ -450,7 +459,7 @@ export async function turnPictures(env, { texted, question, attachments, store, 
         metadata: { workspace: String(workspaceId), client: "texts" },
         keepCover,
         // Every picture is looked at before it may go (owner, 2026-10-27: "always look at a card before sending it").
-        check: env?.CARD_CHECK === "off" ? null : cardCheckFor({ question, config: aiGatewayConfig(env), metadata: { workspace: String(workspaceId), client: "texts" } }),
+        check: env?.CARD_CHECK === "off" ? null : loggedCardCheck(steps, cardCheckFor({ question, config: aiGatewayConfig(env), metadata: { workspace: String(workspaceId), client: "texts" } })),
       })
     : null;
   // Kept before the turn runs, so a later "try again" has them whatever this turn does.
