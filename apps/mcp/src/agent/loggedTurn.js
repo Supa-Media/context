@@ -103,6 +103,32 @@ export async function turnHistory(store, session, body, { runner, group, dispatc
   return { conversation, history };
 }
 
+export const MOMENT_PREFACE = "(The chat so far, oldest first, as it happened. \"You\" is you. Nothing new was texted for this turn: what you are asked to do comes next.)";
+
+/**
+ * ONE DOOR (Dev2, 2026-11-13: check-ins, job results and new groups read the chat the way a reply does): what a turn that
+ * answers no named text is shown of its chat. A routine or check-in, a job's report, a group turn the Worker named nothing
+ * for: the same ledger view a reply reads (`loggedTurn` below), aged from now, with nothing covered. Before this, those turns
+ * read the old group memory file or, in a 1:1, nothing at all, so a check-in answered a text from the night before.
+ * Null when the chat keeps no ledger or it holds nothing to show; the turn then reads today's history as before.
+ */
+export function momentView(read, { chat = null, timeZone = "UTC", now = Date.now(), grant = null, record = [], group = null } = {}) {
+  if (!Array.isArray(read?.entries) || read.entries.length === 0) return null;
+  const key = isChatKey(chat) ? chat : read.chat;
+  if (!isChatKey(key) || !isChatKey(read.chat)) return null;
+  const day = dayFromLedger(read.entries, key, []) ?? [];
+  const room = Math.max(0, READ_CHARS - day.reduce((sum, event) => sum + String(event.text ?? "").length, 0));
+  const earlier = earlierFromLedger(read.entries, read.chat, { before: day.length > 0 ? day[0].at : Number.MAX_SAFE_INTEGER, chars: room, known: new Set(day.map((event) => event.id)), fade: true, fadeFrom: now, grant });
+  const seen = [...earlier.events, ...day.map((event) => faded(event, now))];
+  // A one-to-one chat's check-ins and routine texts kept in the person's record, as a reply shows them (`sentByItself.js`).
+  const own = group === null ? sentByItself(record, seen, { chat: key, newest: now }) : { shown: [] };
+  const all = withSentByItself(seen, own.shown);
+  const transcript = all.length === 0 ? "" : renderEvents(all, { timeZone, answeredBy: all, tools: earlier.tools, facts: earlier.facts });
+  const told = [summaryLines(earlier.summaries), transcript].filter((part) => part !== "").join("\n\n");
+  if (told === "") return null;
+  return { history: [{ role: "user", text: `${MOMENT_PREFACE}\n\n${told}` }], shown: all };
+}
+
 /** The log's history and question for a turn that names what it covers, or null for today's turn. */
 export async function loggedTurn(store, body, { group = null, timeZone = "UTC", warm = null, record = null, ledger = null, grant = null } = {}) {
   const covers = body?.covers;
@@ -183,12 +209,15 @@ export const JOB_HISTORY_ENTRIES = 30;
  * second a group's history takes is never guessed at (2026-11-04); by default nothing is timed.
  */
 const UNTIMED = { memory: (run) => run(), ledger: (run) => run(), log: (run) => run(), group: {} };
-export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, time = UNTIMED }) {
+export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, moment = runner || group !== null, time = UNTIMED }) {
   const today = time.memory(() => turnHistory(store, session, body, { runner, group, dispatch, job, time: time.group ?? {} }));
   const started = job ? null : chatLedger(store, session);
   // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
   const ledger = started === null ? null : time.ledger(() => started);
-  return Promise.all([today, runner ? null : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: carryKey(session) }))]);
+  const logged = runner ? Promise.resolve(null) : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: carryKey(session) }));
+  // A routine, a check-in, a job's report or a group turn that names no text still reads its chat from the ledger, as a reply does (`momentView`); a 1:1 text named nothing keeps today's record.
+  const view = ledger === null || !moment ? Promise.resolve(null) : logged.then((named) => (named !== null ? null : Promise.all([ledger, today]).then(([read, held]) => momentView(read, { chat: body?.chat, timeZone, grant: carryKey(session), record: held?.history ?? [], group })))).catch(() => null);
+  return Promise.all([today, logged, view]).then(([read, named, moment]) => [{ ...read, view: moment }, named]);
 }
 
 /** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */

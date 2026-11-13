@@ -16,7 +16,7 @@
  * chat kept: no judge, no model, no spend.
  */
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../controlPlaneStub.mjs";
-import { createEgressWorld, fakeModel, keepDeskKeys, PRIVACY_MANIFEST, request, TOKEN_TEXTS } from "../agentEgressFixtures.mjs";
+import { createEgressWorld, fakeModel, keepDeskKeys, PRIVACY_MANIFEST, request, TOKEN_ROUTINE, TOKEN_TEXTS } from "../agentEgressFixtures.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "../agentModelFixture.mjs";
 import { texStoreNamespace } from "../texStoreFixture.mjs";
 
@@ -121,6 +121,15 @@ export async function oneToOne() {
       const flushed = await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [theirs, sent] });
       if (flushed.status !== 200) throw new Error(`replay: the Worker's flush answered ${flushed.status}`);
       return { answer, calls, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
+    },
+    /** A routine (a check-in or a daily brief) firing in this chat: no text named, Tex decides what to say. */
+    async routine(path, reply) {
+      clock += 60_000;
+      const before = world.model.requests.length;
+      world.model.install(script(reply));
+      const ran = await request(world.env, TOKEN_ROUTINE, "/agent", { routine: { path } });
+      if (ran.status !== 200) throw new Error(`replay: the routine ${path} answered ${ran.status}: ${JSON.stringify(ran.body)}`);
+      return { answer: String(ran.body.answer ?? ""), shown: world.model.requests.slice(before).map(shownIn).join("\n") };
     },
     /** A deploy or an eviction: the Worker forgets its warm copy, and the next turn reads cold. */
     deploy() {
