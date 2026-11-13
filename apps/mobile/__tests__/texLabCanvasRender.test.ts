@@ -4,7 +4,10 @@
  * phone) on the core/q1 moment: the world's markup, the stats, the key, every wire's path, the camera after fit, and
  * the focus view of the front door. The port must give the same strings and numbers.
  */
-import { afterEach, describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
+
+// The artifact's own graph: main's is corrected to the code (`texLabMainGraph.test.ts`), the port is held to the artifact.
+jest.mock("../features/tex/lab/data/graph", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactGraphModule());
 import golden from "./fixtures/texLabCanvasGolden.json";
 import { allCases } from "../features/tex/lab/engine/diff";
 import { simulate } from "../features/tex/lab/engine/sim";
