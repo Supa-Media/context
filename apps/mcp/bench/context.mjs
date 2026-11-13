@@ -116,6 +116,9 @@ async function postToken(discovery, params, fetchImpl) {
   });
   const body = await response.json().catch(() => null);
   // The code, never the prose: this is read in a job log.
+  if (body?.error === "invalid_grant") {
+    throw new Error("the token request was refused (invalid_grant): runner grant revoked: a person must run `pnpm ai connect` and set the two secrets it prints");
+  }
   if (!response.ok || typeof body?.access_token !== "string") throw new Error(`the token request was refused (${body?.error || response.status})`);
   if (typeof body.refresh_token !== "string" || !body.refresh_token) throw new Error("the token response carried no refresh token");
   return {
