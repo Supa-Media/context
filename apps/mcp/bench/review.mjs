@@ -23,6 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
+import { ANSWER_WAIT_MS, modelSocket, socketRequest } from "./modelSocket.mjs";
 import { readHeldOut, writeRows } from "./replayGate.mjs";
 import { judgeState, reviewReply } from "../src/agent/replyJudge.js";
 
@@ -122,14 +123,20 @@ export function reviewReport(sets, scored) {
   return lines.join("\n");
 }
 
+/** An examiner answers in minutes, not the reviewer's 8 s: a socketed review waits as long as the socket does. */
+export const reviewWait = (socket) => (socket?.covers("claude") ? { timeoutMs: ANSWER_WAIT_MS } : {});
+
 export async function reviewCommand(options, { write = (text) => process.stdout.write(text) } = {}) {
   const sets = await loadSets();
   const names = options.set ? options.set.split(",") : Object.keys(sets);
   for (const name of names) if (!(name in sets)) throw new Error(`no set named ${name}`);
-  const config = aiGatewayConfig(process.env);
-  if (!options.fake && config === null) throw new Error("set AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID and AI_GATEWAY_TOKEN");
+  // With the model socket (`modelSocket.mjs`) an examiner session answers the reviewer's Claude calls, and no key is needed.
+  const socket = options.fake ? null : modelSocket(process.env);
+  const send = socket?.covers("claude") ? socketRequest(socket) : requestViaGateway;
+  const config = socket?.covers("claude") ? null : aiGatewayConfig(process.env);
+  if (!options.fake && !socket?.covers("claude") && config === null) throw new Error("set AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID and AI_GATEWAY_TOKEN");
   // Each answer's raw text is kept, so a review with no verdict says why.
-  const review = options.fake ? fakeReview : (state, _item, seen) => reviewReply({ state, config, metadata: { feature: "bench", client: "reviewer" }, request: async (...args) => { const reply = await requestViaGateway(...args); seen.raw = String(reply?.text ?? ""); return reply; } });
+  const review = options.fake ? fakeReview : (state, _item, seen) => reviewReply({ state, config, metadata: { feature: "bench", client: "reviewer" }, ...reviewWait(socket), request: async (...args) => { const reply = await send(...args); seen.raw = String(reply?.text ?? ""); return reply; } });
   const chosen = Object.fromEntries(names.map((name) => [name, sets[name]]));
   // `--held-out <dir>` adds the cases kept outside the repository (`replayGate.mjs`); `--only a,b` scores those ids alone.
   const only = options.only ? new Set(String(options.only).split(",")) : null;
