@@ -53,25 +53,28 @@ jobs:
           MINUTES: ${{ inputs.minutes || '1440' }}
           REPORT_FILE: report.md
         run: |
-          set -uo pipefail
+          # The runner starts this shell with -e; turn it off so a red verdict
+          # (exit 1) is kept for the issue step instead of ending the step here.
+          set +e -uo pipefail
           node scripts/tex-speed-budgets.mjs
           code=$?
-          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # Words, not 0 and 1: an expression compares '' == '0' as equal.
+          case "$code" in 0) echo "verdict=green" ;; 1) echo "verdict=red" ;; *) echo "verdict=unread" ;; esac >> "$GITHUB_OUTPUT"
           exit $code
 
       # Only production's hourly verdict keeps the issue; a staging or
       # hand-picked window is a look, not the record.
       - name: Open, refresh or close the speed issue
-        if: ${{ always() && (inputs.environment || 'production') == 'production' && (steps.judge.outputs.code == '0' || steps.judge.outputs.code == '1') }}
+        if: ${{ always() && (inputs.environment || 'production') == 'production' && (steps.judge.outputs.verdict == 'green' || steps.judge.outputs.verdict == 'red') }}
         env:
           GH_TOKEN: ${{ github.token }}
-          CODE: ${{ steps.judge.outputs.code }}
+          VERDICT: ${{ steps.judge.outputs.verdict }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           gh label create tex-speed --color D93F0B --description "Tex's reply speed is over its bar or short of its target" 2>/dev/null || true
           open=$(gh issue list --label tex-speed --state open --json number --jq '.[0].number // empty')
-          if [ "$CODE" = "1" ]; then
+          if [ "$VERDICT" = "red" ]; then
             printf '\n\nLast checked by [this run](%s). Refreshed every hour while red; closes when green.\n' "$RUN_URL" >> report.md
             if [ -n "$open" ]; then
               gh issue edit "$open" --body-file report.md
