@@ -37,6 +37,8 @@ import { priceUsd } from "./report.mjs";
 import { readHeldOut } from "./replayGate.mjs";
 import { readSetups, readSkills, setupInWorld } from "./run.mjs";
 import { prepareRun } from "./warm.mjs";
+import { modelSocket, socketSend } from "./modelSocket.mjs";
+import { cachedEmbeddings, fakeAi } from "./models.mjs";
 import { benchModels } from "./worldModels.mjs";
 import { createWorld } from "./world.mjs";
 
@@ -214,7 +216,11 @@ async function gradeJob(world, item, ran, request, placed) {
 
 export async function jobTasksCommand(options, { write = (text) => process.stdout.write(text) } = {}) {
   const config = aiGatewayConfig(process.env);
-  if (!options.fake && config === null) throw new Error("set AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID and AI_GATEWAY_TOKEN");
+  // A prompt-fingerprint run (`modelSocket.mjs` FINGERPRINT_ENV, `promptFingerprint.mjs`) hashes every Claude call and
+  // answers it with stand-in words: no key, nothing spent, and the quality grade is the stand-in's too.
+  const socket = options.fake ? null : modelSocket(process.env, { blocking: true });
+  const fingerprint = socket?.mode === "fingerprint";
+  if (!options.fake && !fingerprint && config === null) throw new Error("set AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID and AI_GATEWAY_TOKEN");
   const bench = await readBenchFolder(REPO_BENCH_FOLDER);
   const setupsDir = benchFolder(options);
   const setupName = options.setup ?? "production";
@@ -224,8 +230,11 @@ export async function jobTasksCommand(options, { write = (text) => process.stdou
   const cases = [...(await loadCases()), ...(await readHeldOut(options["held-out"], "jobs"))].filter((item) => !only || only.has(item.id));
   const maxParts = Number(options["max-parts"] ?? MAX_PARTS);
   const maxUsd = Number(options["max-usd"] ?? MAX_USD);
-  const models = { ...benchModels(options, { scripted: true, sites: bench.sites }), skills };
-  const request = options.fake ? fakeQuality : (params) => requestViaGateway(params, config, { metadata: { feature: "bench", client: "job-tasks" } });
+  const models = { ...benchModels(options, { scripted: true, sites: bench.sites, ...(fingerprint ? { send: socketSend(socket) } : {}) }), skills };
+  // Workers AI (embeddings, Clef) answers with the scripted stand-in, as a socketed run's does (`run.mjs`): a real model's
+  // numbers would change what a turn reads, and so its prompts.
+  if (fingerprint) models.ai = cachedEmbeddings(fakeAi());
+  const request = options.fake || fingerprint ? fakeQuality : (params) => requestViaGateway(params, config, { metadata: { feature: "bench", client: "job-tasks" } });
   const records = [];
   let spent = 0;
   for (const item of cases) {
