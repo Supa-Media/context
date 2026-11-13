@@ -63,6 +63,13 @@ did not have to leave a case behind.
    example may be within half its words of any case (`respond.test.mjs`
    already checks this for the judge).
 
+5. **Speed is a case too.** `cases/speed-budgets.mjs` counts the model calls
+   and the calls before the first model call for five simple turns against
+   `test/replay/speed-budget.json`, both ways (over fails, and so does under
+   until the number is lowered); raising one needs `Speed budget raised: <why>`
+   in the pull request. Production's wait to the first text is judged hourly.
+   See [tex-speed-budgets](../observability/tex-speed-budgets.md).
+
 ## What a simplification costs
 
 Dropping rule 2 lets a fix land with no case, and the same break returns

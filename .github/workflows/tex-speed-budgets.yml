@@ -1,0 +1,84 @@
+# How long do people wait for Tex's first text? Every hour, read production's
+# own timings for the last day and go red when a 1:1 or group median or p95 is
+# over its bar (slower than it was) or short of its target (the work still to
+# do), with the bars and targets in scripts/tex-speed-budgets.json (Dev2,
+# 2026-11-13: "the speed keeps regressing"). While red, one issue labelled
+# tex-speed holds the latest report, its body refreshed each hour so it does
+# not notify on every run; it closes when the run is green. Kinds, counts and
+# milliseconds only, never a number, a chat or a word: this repository is
+# public.
+name: Tex Speed Budgets
+
+on:
+  schedule:
+    - cron: "47 * * * *"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to read."
+        type: choice
+        options: [production, staging]
+        default: production
+      minutes:
+        description: "How far back to read, in minutes (5 to 10080). A day by default: an hour holds too few texts to judge."
+        required: true
+        default: "1440"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: tex-speed-budgets
+  cancel-in-progress: false
+
+jobs:
+  budgets:
+    name: Check Tex's reply speed against its budgets
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Judge the last window
+        id: judge
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DATASET: ${{ inputs.environment == 'staging' && 'tex_text_timing_staging' || 'tex_text_timing' }}
+          MINUTES: ${{ inputs.minutes || '1440' }}
+          REPORT_FILE: report.md
+        run: |
+          set -uo pipefail
+          node scripts/tex-speed-budgets.mjs
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
+
+      # Only production's hourly verdict keeps the issue; a staging or
+      # hand-picked window is a look, not the record.
+      - name: Open, refresh or close the speed issue
+        if: ${{ always() && (inputs.environment || 'production') == 'production' && (steps.judge.outputs.code == '0' || steps.judge.outputs.code == '1') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODE: ${{ steps.judge.outputs.code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create tex-speed --color D93F0B --description "Tex's reply speed is over its bar or short of its target" 2>/dev/null || true
+          open=$(gh issue list --label tex-speed --state open --json number --jq '.[0].number // empty')
+          if [ "$CODE" = "1" ]; then
+            printf '\n\nLast checked by [this run](%s). Refreshed every hour while red; closes when green.\n' "$RUN_URL" >> report.md
+            if [ -n "$open" ]; then
+              gh issue edit "$open" --body-file report.md
+            else
+              gh issue create --title "Tex reply speed is red" --label tex-speed --body-file report.md
+            fi
+          elif [ -n "$open" ]; then
+            gh issue comment "$open" --body "Green again: every bar and target met over the last window ($RUN_URL)."
+            gh issue close "$open"
+          fi

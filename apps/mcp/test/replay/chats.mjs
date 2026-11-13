@@ -26,6 +26,58 @@ const HOUR = 60 * 60_000;
 /** What the model was shown on one request, as one string a check can match. */
 export const shownIn = (body) => JSON.stringify({ system: body?.system ?? null, messages: body?.messages ?? [] });
 
+/**
+ * The control plane's fire-and-forget reports (`src/controlPlane/reporting.js`): usage counters, timings, activity and
+ * change notices, sent behind the response with their failure swallowed. Nobody waits on them, and the lazy usage report
+ * (`reportBoundaryUsage`) starts a macrotask after whatever made it, so it lands before or after the first model call
+ * by timing alone: counting it made the budgets flicker by one between runs. `speed-budgets.mjs` checks this list
+ * against that file, so a new report joins it and a call moved out of it is counted.
+ */
+export const BEHIND_THE_RESPONSE = new Set([
+  "/gateway/usage",
+  "/gateway/search-timing",
+  "/gateway/search-index/progress",
+  "/gateway/activity",
+  "/gateway/tree",
+  "/gateway/tree/touch",
+  "/gateway/website",
+  "/gateway/routines",
+  "/gateway/forms/notify",
+]);
+
+/**
+ * What one turn asked for, counted on the way out: model calls (`gateway.ai`, every one of them, the judges' and the
+ * advisor's included), and the calls made before the first model call that the person waits on before anything can be
+ * said: storage and control-plane requests (`fetch`) and calls to Tex's Durable Objects (`tex.calls`). Reports behind
+ * the response are left out (`BEHIND_THE_RESPONSE`). `before` names each counted call, so a budget that fails says
+ * which calls are new. The speed budgets (`speed-budget.json`) are over these.
+ */
+async function counted(tex, run) {
+  const inner = globalThis.fetch;
+  const calls = { model: 0, beforeModel: 0, before: [] };
+  const objectsAtStart = tex.calls.length;
+  let objectsAtModel = null;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.host.startsWith("gateway.ai")) {
+      if (calls.model === 0) objectsAtModel = tex.calls.length;
+      calls.model += 1;
+    } else if (calls.model === 0 && !BEHIND_THE_RESPONSE.has(url.pathname)) {
+      calls.before.push(`${String(init.method ?? input.method ?? "GET").toUpperCase()} ${url.host}${url.pathname}`);
+    }
+    return inner(input, init);
+  };
+  try {
+    const result = await run();
+    const objects = tex.calls.slice(objectsAtStart, objectsAtModel ?? tex.calls.length).map((call) => `object ${call.op}${call.key ? ` ${call.key}` : ""}`);
+    calls.before.push(...objects);
+    calls.beforeModel = calls.before.length;
+    return { result, calls };
+  } finally {
+    globalThis.fetch = inner;
+  }
+}
+
 /** The scripted model's step for a reply given as words, or the steps as given. */
 const script = (reply) => (Array.isArray(reply) ? reply : [{ text: reply }]);
 
@@ -49,15 +101,17 @@ export async function oneToOne() {
       const turn = `turn-replay-${String(++turns).padStart(4, "0")}`;
       const before = world.model.requests.length;
       world.model.install(script(reply));
-      const answered = await request(world.env, TOKEN_TEXTS, "/agent", {
-        question: words,
-        conversation: "texts",
-        covers: [theirs.id],
-        chat: LINE,
-        recent: [theirs],
-        turn,
-        ...(warm ? { warm } : {}),
-      });
+      const { result: answered, calls } = await counted(world.tex, () =>
+        request(world.env, TOKEN_TEXTS, "/agent", {
+          question: words,
+          conversation: "texts",
+          covers: [theirs.id],
+          chat: LINE,
+          recent: [theirs],
+          turn,
+          ...(warm ? { warm } : {}),
+        }),
+      );
       if (answered.status !== 200) throw new Error(`replay: the turn for "${words}" answered ${answered.status}: ${JSON.stringify(answered.body)}`);
       warm = answered.body.warm ?? null;
       await keepDeskKeys(world, { about: false, jobs: false });
@@ -66,7 +120,7 @@ export async function oneToOne() {
       const sent = event({ from: { kind: "tex" }, text: answer, turn, covers: [theirs.id], delivered: true });
       const flushed = await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [theirs, sent] });
       if (flushed.status !== 200) throw new Error(`replay: the Worker's flush answered ${flushed.status}`);
-      return { answer, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
+      return { answer, calls, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
     },
     /** A deploy or an eviction: the Worker forgets its warm copy, and the next turn reads cold. */
     deploy() {
@@ -132,7 +186,8 @@ export async function groupChat({ key = "a".repeat(64), members = "b".repeat(64)
   controlPlane.setBuiltinVerdict("ws_replay_team", BUILTIN_ALLOWED);
   const team = s3.bucketFor("tenant-replay-team");
   team.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "t0" });
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: texStoreNamespace().namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+  const tex = texStoreNamespace();
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
   const live = (prefix) => [...team.keys()].filter((name) => name.startsWith(prefix) && !String(team.get(name)?.body ?? "").startsWith("context.logical-delete"));
   return {
     model,
@@ -140,9 +195,9 @@ export async function groupChat({ key = "a".repeat(64), members = "b".repeat(64)
     async tag(from, words, reply, said = []) {
       const before = model.requests.length;
       model.install(script(reply));
-      const answered = await request(env, TOKEN_GROUP, "/agent", { question: words, group: { key, members, from, chat: said } });
+      const { result: answered, calls } = await counted(tex, () => request(env, TOKEN_GROUP, "/agent", { question: words, group: { key, members, from, chat: said } }));
       if (answered.status !== 200) throw new Error(`replay: the group turn for "${words}" answered ${answered.status}: ${JSON.stringify(answered.body)}`);
-      return { answer: String(answered.body.answer ?? ""), shown: model.requests.slice(before).map(shownIn).join("\n") };
+      return { answer: String(answered.body.answer ?? ""), calls, shown: model.requests.slice(before).map(shownIn).join("\n") };
     },
     /** The workspace's notes and memory files, live ones only. */
     notes: (prefix = "") => live(prefix),
