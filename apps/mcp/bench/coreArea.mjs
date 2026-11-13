@@ -80,14 +80,17 @@ export async function runTests(tree, tests, { only = null, runs = 1, fake = fals
   const missing = [];
   let usd = 0;
   for (const test of tests) {
-    const numbers = only ? only.map(caseId).filter((c) => c?.test === test).map((c) => c.n) : null;
-    if (numbers && numbers.length === 0) continue;
+    const named = only ? only.map(caseId).filter((c) => c?.test === test).map((c) => c.n) : null;
+    if (named && named.length === 0) continue;
     const testPath = join(folder, "tests", `${test}.md`);
     const testRaw = await readFile(testPath, "utf8").catch(() => null);
     if (testRaw === null) {
       missing.push(test); // a tree without the test (main, before a change adds it) answers none of it
       continue;
     }
+    // A question with a mirror counts only when its mirror passes, so a rerun asks the mirror too: without it the
+    // question read as untested, its row vanished, and one failed first run looked like a new case (core/q13, 2026-11-13).
+    const numbers = named && withMirrors(named, parseTest(testRaw).questions);
     const out = join(scratch, `core-${test}-${tag}.md`);
     const args = ["run", "texting-assistant", "--dir", folder, "--test", test, "--setups", SETUP, "--runs", String(runs), "--out", out];
     if (numbers) args.push("--questions", numbers.join(","));
@@ -102,6 +105,12 @@ export async function runTests(tree, tests, { only = null, runs = 1, fake = fals
     bars[test] = cases.bar;
   }
   return { rows, usd, bars, missing };
+}
+
+/** `numbers` and the mirror question each of them counts on, in order, each once. */
+export function withMirrors(numbers, questions) {
+  const mirrors = numbers.map((n) => questions.find((q) => q.n === n)?.mirror ?? null).filter((n) => n !== null);
+  return [...new Set([...numbers, ...mirrors])];
 }
 
 /** The core area: the core set and the simple asks. */
