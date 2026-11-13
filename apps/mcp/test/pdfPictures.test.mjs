@@ -98,6 +98,14 @@ test("a kept PDF of pictures comes back whole, beside words that say so", async 
   assert.equal(resource.resource.uri, kept.kept.id);
 });
 
+test("a PDF of pictures past the document page limit is not handed on", async () => {
+  const store = memoryStore();
+  const [kept] = await keepSentFiles(store, [{ name: "scan.pdf", mediaType: "application/pdf", data: PDF_BYTES }]);
+  const book = ["## Contents", ...Array.from({ length: 101 }, (_, n) => `### Page ${n + 1}\n`)].join("\n");
+  const read = await readKeptFile(store, fakeAi(book), keptRef(kept.kept.id));
+  assert.equal(read.content.some((part) => part.type === "resource"), false);
+});
+
 test("a kept PDF with words comes back as words only", async () => {
   const store = memoryStore();
   const [kept] = await keepSentFiles(store, [{ name: "menu.pdf", mediaType: "application/pdf", data: PDF_BYTES }]);

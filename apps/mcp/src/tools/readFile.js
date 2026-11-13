@@ -124,7 +124,7 @@ export async function fileWords(ai, name, type, bytes, { from = 0, next = null, 
   // Where a PDF's buttons and linked words go, which its words alone never say (`pdfLinks.js`).
   const links = type === "application/pdf" ? linksSection(await pdfLinks(bytes)) : "";
   // A PDF of pictures: its pages go to the model whole, to be read as pictures (`pdfPagesPart`).
-  if (type === "application/pdf" && pdfHasNoWords(text)) return { text: `${PICTURE_PAGES}${links}`, pages: true };
+  if (type === "application/pdf" && pdfHasNoWords(text) && pageCount(text) <= MAX_PICTURE_PAGES) return { text: `${PICTURE_PAGES}${links}`, pages: true };
   if (!text && !links) return { error: "no words could be taken out of this file" };
   if (next) {
     const part = partOf(text, from);
@@ -161,12 +161,20 @@ export function wordsWithoutPages(read) {
   return read?.pages ? PICTURE_PAGES_UNSEEN : read?.text;
 }
 
+/** The most pages a document block may have (Anthropic's limit): a longer scan is a book, read in words or not at all. */
+export const MAX_PICTURE_PAGES = 100;
+
+/** How many pages `toMarkdown` found in a PDF (its `### Page N` headings), at least one. */
+export function pageCount(markdown) {
+  return Math.max(1, (String(markdown ?? "").match(/^### Page \d+/gm) ?? []).length);
+}
+
 /** Whether `toMarkdown`'s answer for a PDF holds no real words: only its title, metadata and empty page headings. */
 export function pdfHasNoWords(markdown) {
   const text = typeof markdown === "string" ? markdown : "";
   const at = text.indexOf("## Contents");
   const body = at >= 0 ? text.slice(at) : text.replace(/^## Metadata\n(?:- .*\n?)*/m, "");
-  const pages = Math.max(1, (body.match(/^### Page \d+/gm) ?? []).length);
+  const pages = pageCount(body);
   const words = body
     .split("\n")
     .filter((line) => !/^#{1,6}\s/.test(line))
