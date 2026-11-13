@@ -30,11 +30,10 @@ import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
 import { jobMailOf } from "./background.js";
 import { readProductionSetup } from "./production.js";
-import { advisorRequest } from "./advisor.js";
+import { adviseOnce, advisorRequest } from "./advisorRoles/core.js";
+import { ADVISOR_MAIL_PROMPT } from "./advisorRoles/jobMail.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { builtinModel, canRunBuiltin } from "./builtin.js";
-import { ADVISOR_KNOWS_MAIL } from "./jobCheck.js";
-import { withArchitecture } from "./texArchitecture.js";
 
 const TEXTS_CLIENT_ID = "context_texts";
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -166,11 +165,22 @@ async function noteRoute(request, store, session, call) {
   });
 }
 
-export const ADVISOR_MAIL_PROMPT =
-  "You are the advisor to one of Tex's background jobs, a stronger model it can mail at any time. Below are the job's brief, its " +
-  "finish line, its note (with the mail on it) and the question it just mailed you. Answer the job directly: what to do next and " +
-  "why, the steps in order, the facts to check, the mistake to avoid. " + ADVISOR_KNOWS_MAIL + " Be specific and short, a few " +
-  "hundred words at most, and never invent a fact that isn't below.";
+
+// Its instructions live in `advisorRoles/jobMail.js`, beside the other roles' (`advisorRoles/core.js`).
+export { ADVISOR_MAIL_PROMPT };
+
+/**
+ * What the advisor on the mail reads: the job, who is on its mail, its note and the question. The role's replay cases
+ * (`bench/advisor/job-mail.json`) read the same.
+ */
+export function jobMailBrief({ title, brief, doneWhen, from, noteText, question }) {
+  return (
+    `Job: ${clip(title, 200)}\nBrief: ${clip(brief, MAX_TEXT)}\n` +
+    (clip(doneWhen, 600) ? `Done when: ${clip(doneWhen, 600)}\n` : "") +
+    `On its mail: ${[from, TEX_NAME, ADVISOR_NAME, ...joinedNames(noteText).filter((name) => ![from, TEX_NAME, ADVISOR_NAME].includes(name))].map((name) => `"${name}"`).join(", ")}\n` +
+    `\n<job_note>\n${noteText.replaceAll("</job_note>", "")}\n</job_note>\n\n${from} asks: ${question}`
+  );
+}
 
 async function adviseRoute(request, env, store, session, controlPlane, advise, call) {
   const body = await bodyOf(request);
@@ -199,22 +209,13 @@ async function adviseRoute(request, env, store, session, controlPlane, advise, c
   const started = Date.now();
   let answer = null;
   try {
-    answer = await request_({
+    answer = await adviseOnce({
+      request: request_,
       model,
-      system: withArchitecture(ADVISOR_MAIL_PROMPT, "jobAdvisor"),
-      messages: [
-        {
-          role: "user",
-          text:
-            `Job: ${clip(body.title, 200)}\nBrief: ${clip(body.brief, MAX_TEXT)}\n` +
-            (clip(body.doneWhen, 600) ? `Done when: ${clip(body.doneWhen, 600)}\n` : "") +
-            `On its mail: ${[from, TEX_NAME, ADVISOR_NAME, ...joinedNames(noteText).filter((name) => ![from, TEX_NAME, ADVISOR_NAME].includes(name))].map((name) => `"${name}"`).join(", ")}\n` +
-            `\n<job_note>\n${noteText.replaceAll("</job_note>", "")}\n</job_note>\n\n${from} asks: ${question}`,
-        },
-      ],
-      tools: [],
-      display: "summarized",
-      ...(production?.efforts?.[model] ? { effort: production.efforts[model] } : {}),
+      effort: production?.efforts?.[model],
+      prompt: ADVISOR_MAIL_PROMPT,
+      role: "jobAdvisor",
+      brief: jobMailBrief({ title: body.title, brief: body.brief, doneWhen: body.doneWhen, from, noteText, question }),
     });
   } catch {
     answer = null;

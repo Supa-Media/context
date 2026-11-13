@@ -79,6 +79,40 @@ export const SETTING_HANDLERS = Object.freeze({
 
 const SETTING_KEYS = Object.keys(SETTING_HANDLERS);
 
+/**
+ * The `setting` switches as the app's settings page reads them (`/tex/page/list`, kind `settings`, the person's own
+ * chat): the same notes `settingsSnapshot` reads for a text, so the page and the chat can't disagree. A note that is
+ * missing reads as its default; one that can't be read is null, never guessed.
+ */
+export async function readHabits(call) {
+  const [checkins, switches, attention] = await Promise.all([
+    readCheckinSettings(call).catch(() => null),
+    readSwitches(call).catch(() => null),
+    readFront(call, ATTENTION_PATH),
+  ]);
+  const said = attention === null ? null : readAttentionSettings(attention);
+  return {
+    checkins: checkins === null ? null : !checkins.paused,
+    quietHours: checkins === null ? null : (checkins.quietHours ?? ""),
+    pings: said === null ? null : said.paused ? "off" : said.tolerance,
+    overnight: switches === null ? null : switches.dreams,
+    tidy: switches === null ? null : switches.housekeeping,
+  };
+}
+
+/**
+ * One `setting` switch changed from the app's settings page (`setting.set`): the handler a text uses, so a value the
+ * chat would refuse is refused here too. `value` is a boolean for an on/off switch, or the words a text would send.
+ */
+export async function settingSet(call, key, value) {
+  const handler = typeof key === "string" && Object.hasOwn(SETTING_HANDLERS, key) ? SETTING_HANDLERS[key] : null;
+  const words = typeof value === "boolean" ? (value ? "on" : "off") : typeof value === "string" && value.length <= 80 ? value : null;
+  if (handler === null || words === null) return { ok: false, error: "invalid" };
+  const done = await Promise.resolve(handler.set(call, words)).catch(() => ({ ok: false, error: "failed" }));
+  if (done === null) return { ok: false, error: "invalid" };
+  return done?.ok === true ? { ok: true } : { ok: false, error: done?.error ?? "failed" };
+}
+
 /** One login as a line: who has it and whether it works here. Never a value. */
 function loginLine(entry) {
   const who = entry.who?.length ? entry.who.join(", ") : entry.yours ? "only them" : `given to them by ${entry.savedBy}`;

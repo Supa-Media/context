@@ -1,0 +1,141 @@
+{
+  "about": "Background-job tasks run end to end (`bench/jobTasks.mjs`): each starts a job as the texting Worker would, runs its parts through the real gateway in a throwaway world with the done check after each, and grades what it left behind in plain code (the page exists, cites its sources, answers every part of the ask, keeps what it should, the errand's site step happened, the job ended done). A quality judge reads the page only for what code can't. Everything is invented: Maya is the bench's invented person and every site is a scripted one in `bench/ai/sites/`. `covers`: each entry must appear in the page (case-insensitive); `a|b` means either, so a date may be written any way it reads (a range such as `13-15` names its last day too). `keeps`: lines of a placed page that must survive the edit. A case with `target` captures a bug not fixed yet: reported, never blocking.",
+  "cases": [
+    {
+      "id": "research-caterers-page",
+      "kind": "research page",
+      "as": "Maya",
+      "today": "2026-10-11",
+      "text": "can you make me a page comparing the caterers on caterers.example for my 40 person party? total for 40 for each one, and link each so i can check",
+      "job": {
+        "title": "Caterers page for 40",
+        "brief": "Compare every caterer listed on caterers.example for a 40-person party on a page in Maya's notes: the full total for 40 people (food, sides and drinks) for each, with a link to each caterer's page.",
+        "doneWhen": "A page in Maya's notes lists every caterer on caterers.example with its total for 40 people and a link to its page, and Maya has the page's link."
+      },
+      "page": { "under": "maya/" },
+      "sources": { "hosts": ["caterers.example"], "min": 4 },
+      "covers": ["Lucky Wok", "340", "Taqueria Rosa", "400", "Nonna", "380", "Big Smoke", "740"],
+      "quality": [
+        "Each total adds food, sides and drinks for 40 people, and Nonna's Trays is priced by trays that serve ten",
+        "It says which caterer is cheapest",
+        "A reader can scan it: a table or one line per caterer, no filler"
+      ]
+    },
+    {
+      "id": "research-sunday-halls-page",
+      "kind": "research page",
+      "as": "Maya",
+      "today": "2026-10-11",
+      "text": "we need a sunday space for church services in riverside. find halls that are actually free on sundays and put them on a page with the sunday price and a link for each",
+      "job": {
+        "title": "Sunday halls page",
+        "brief": "Find event halls in Riverside that are free to rent on Sundays (not ones a church already uses on Sundays) and put them on a page in Maya's notes with each one's Sunday price and a link to its page.",
+        "doneWhen": "A page in Maya's notes lists the Riverside halls available on Sundays, each with its Sunday price (or that it publishes none) and a link, and Maya has the page's link."
+      },
+      "page": { "under": "maya/" },
+      "sources": { "hosts": ["halls.example"], "min": 4 },
+      "covers": ["Mill Street", "4,000|4000|4k", "Foundry", "6,500|6500", "Riverbank Loft", "5,000|5000|5k", "Ferry House"],
+      "quality": [
+        "Grace Hall and St. Brendan Commons are left out, or named only as not available on Sundays",
+        "Ferry House is shown as publishing no price (on request), never given a made-up one",
+        "The directory's general price range is never put beside a hall as its price"
+      ]
+    },
+    {
+      "id": "research-lunch-prices-page",
+      "kind": "research page",
+      "as": "Maya",
+      "today": "2026-10-11",
+      "text": "put the lunch spots from lunch.example on a page with what lunch costs at each, and where you got it",
+      "job": {
+        "title": "Lunch prices page",
+        "brief": "Put every lunch spot on lunch.example on a page in Maya's notes with its lunch price range and the link the price came from.",
+        "doneWhen": "A page in Maya's notes lists every lunch spot on lunch.example with its lunch prices and a source link for each price, and Maya has the page's link."
+      },
+      "page": { "under": "maya/" },
+      "sources": { "hosts": ["lunch.example", "orders.example"], "min": 3 },
+      "covers": ["Bento Bay", "12", "Pho Corner", "13", "Seoul Box", "15|14"],
+      "quality": [
+        "Seoul Box's prices come from its ordering page, never a guess or 'no price available'",
+        "Each price has the link it came from"
+      ]
+    },
+    {
+      "id": "page-edit-fix-caterer-numbers",
+      "kind": "page edit",
+      "as": "Maya",
+      "today": "2026-10-11",
+      "places": {
+        "projects/party/plan.page.md": "# Party plan\n\nSaturday, 40 people at the community room.\n\n## Food\n\nCaterer: Lucky Wok, $5 a person, so $200 for 40.\n\n## Music\n\nPriya's playlist, speaker from the band room.\n"
+      },
+      "text": "the caterer numbers on my party plan page look wrong, can you check lucky wok on caterers.example and fix them",
+      "job": {
+        "title": "Fix party plan caterer numbers",
+        "brief": "Check Lucky Wok's prices on caterers.example and correct the caterer cost on Maya's party plan page (projects/party/plan.page.md) for 40 people, keeping the rest of the page as it is.",
+        "doneWhen": "The party plan page shows Lucky Wok's real cost for 40 people, everything else on it unchanged."
+      },
+      "page": { "at": "maya/projects/party/plan.page.md" },
+      "sources": { "hosts": [], "min": 0 },
+      "covers": ["Lucky Wok", "340"],
+      "absent": ["$200 for 40"],
+      "keeps": ["# Party plan", "Saturday, 40 people at the community room.", "Priya's playlist"],
+      "quality": ["The new cost says what it is made of (food, sides and drinks a person), or is plainly the full total"]
+    },
+    {
+      "id": "page-edit-add-retreat-details",
+      "kind": "page edit",
+      "as": "Maya",
+      "today": "2026-10-11",
+      "places": {
+        "projects/retreat/planning.page.md": "# Retreat planning\n\n## Who's going\n\n- Maya\n- Priya\n\n## Packing\n\n- sleeping bag\n- rain jacket\n"
+      },
+      "text": "add the harvest retreat's dates, where it is and the registration deadline to my retreat planning page. retreat.example has it",
+      "job": {
+        "title": "Retreat details on the planning page",
+        "brief": "Add Harvest Retreat 2026's dates, place and registration deadline from retreat.example to Maya's retreat planning page (projects/retreat/planning.page.md), keeping what is already there.",
+        "doneWhen": "The retreat planning page shows the retreat's dates, place and registration deadline, with its existing sections kept."
+      },
+      "page": { "at": "maya/projects/retreat/planning.page.md" },
+      "sources": { "hosts": [], "min": 0 },
+      "covers": ["November 13|Nov 13|Nov. 13|11/13", "November 15|Nov 15|Nov. 15|11/15|13-15|13–15|13 - 15|13 – 15|13 to 15", "Pine Lake", "November 6|Nov 6|Nov. 6|11/6"],
+      "keeps": ["# Retreat planning", "- Priya", "- rain jacket"],
+      "quality": ["The new details sit in their own section or lines, not buried in the packing list"]
+    },
+    {
+      "id": "errand-register-retreat-and-note",
+      "kind": "errand",
+      "as": "Maya",
+      "today": "2026-10-11",
+      "text": "register me for the harvest retreat on retreat.example, Maya Reyes, maya@example.invalid (not my first one, no baptism, no transport or childcare, i'm working) and then save a note that i'm registered",
+      "job": {
+        "title": "Register for Harvest Retreat",
+        "brief": "Register Maya for Harvest Retreat 2026 on retreat.example as Maya Reyes, maya@example.invalid (first retreat: No; baptism: No; transport or childcare: No; school: Graduated/Working Professional), then save a note in her notes that she is registered, with the retreat's dates.",
+        "doneWhen": "The site shows Maya registered, and a note in her notes says she is registered for Harvest Retreat with its dates."
+      },
+      "site": ["set registered"],
+      "page": { "under": "maya/" },
+      "sources": { "hosts": [], "min": 0 },
+      "covers": ["Harvest Retreat", "registered"],
+      "quality": ["The note has the retreat's dates and where it is, so it is useful on its own"]
+    },
+    {
+      "id": "errand-open-tonight-to-note",
+      "kind": "errand",
+      "as": "Maya",
+      "today": "2026-10-11",
+      "text": "which of the places on eats.example are open tonight? save the ones that are to a date night note with their hours",
+      "job": {
+        "title": "Open tonight from eats.example",
+        "brief": "Find which of the dinner places on eats.example are open tonight (today is Sunday) by opening each one's page, and save the open ones with their hours to a date night note in Maya's notes.",
+        "doneWhen": "A date night note in Maya's notes lists the eats.example places open tonight with their hours, and Maya is told which they are."
+      },
+      "page": { "under": "maya/" },
+      "sources": { "hosts": [], "min": 0 },
+      "covers": ["Casa Verde", "Brick Oven"],
+      "quality": [
+        "Golden Lotus is left out, or named only as closed on Sundays",
+        "Each open place has tonight's hours (Casa Verde 4 to 9 pm, The Brick Oven 5 to 10 pm)"
+      ]
+    }
+  ]
+}

@@ -8,13 +8,14 @@
  *  3. `areasFor` sending every Tex file to every area -> "a change runs only the areas its files reach" fails;
  *  4. `blocking` keeping target ids -> "a target is reported, never blocks" fails;
  *  5. dropping `areasFor` from replayGate's own import -> "the areas command runs" fails.
+ *  6. dropping the key-file filter in `publishCoreRecords` -> "the core area's judged answers go to Context" fails.
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { areasFor, blocking, feedback, gate, heldOutJson, markHeldOut, mergeRuns, regressions, rowsFor } from "../replayGate.mjs";
+import { AREA_LIMITS, areasFor, blocking, feedback, gate, heldOutJson, markHeldOut, mergeRuns, regressions, rowsFor, RUNNERS } from "../replayGate.mjs";
 
 test("a change runs only the areas its files reach, and plumbing alone runs none", () => {
   assert.deepEqual(areasFor(["packages/shared/src/textDecide.cjs"]), ["respond"]);
@@ -22,6 +23,32 @@ test("a change runs only the areas its files reach, and plumbing alone runs none
   assert.deepEqual(areasFor(["apps/mcp/bench/review/chat.json", "apps/mcp/bench/respond/cases.json"]), ["respond", "review"]);
   assert.deepEqual(areasFor(["apps/mcp/bench/respond.mjs", "apps/mcp/bench/review.mjs"]), [], "the scorers are not Tex");
   assert.deepEqual(areasFor(["apps/mcp/src/agent/warmCopy.js", "apps/mobile/app/index.tsx"]), []);
+});
+
+test("an advisor role's file runs that role alone, and the shared core runs every role", () => {
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/chat.js"]), ["advisor-chat"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/jobCheck.js"]), ["advisor-job-check"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/planner.js"]), ["advisor-planner"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/jobMail.js"]), ["advisor-job-mail"]);
+  assert.deepEqual(areasFor(["apps/mcp/bench/advisor/planner.json"]), ["advisor-planner"], "a role's cases run that role");
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/jobCheck.js"]), ["advisor-job-check"], "the role's brief builder too");
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/knowsMail.js"]), ["advisor-job-check", "advisor-job-mail"], "the mail line reaches both roles that read a job");
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/core.js"]), ["advisor-chat", "advisor-job-check", "advisor-planner", "advisor-job-mail"]);
+  assert.deepEqual(areasFor(["apps/mcp/bench/advisor.mjs"]), [], "the scorer is not a role");
+  assert.ok(!areasFor(["apps/mcp/src/agent/jobNote.js"]).some((area) => area.startsWith("advisor-")), "the mail's plumbing is the jobs area's, not a role");
+});
+
+test("a change to every advisor role at once still fits the cap with a case to rerun", async () => {
+  const { AREA_LIMITS, RUNNERS } = await import("../replayGate.mjs");
+  const { ROLES, loadRoleCases } = await import("../advisor.mjs");
+  let first = 0;
+  for (const role of Object.keys(ROLES)) {
+    assert.equal(AREA_LIMITS[role].pool, "shared", `${role} shares the $1 a change`);
+    assert.equal(typeof RUNNERS[role], "function", `${role} has a runner`);
+    first += AREA_LIMITS[role].usdPerCase * (await loadRoleCases(role)).length;
+  }
+  const chat = AREA_LIMITS["advisor-chat"];
+  assert.ok(first + chat.usdPerCase * (chat.reruns.branch + chat.reruns.main) <= chat.maxUsd, `all four roles cost about $${first.toFixed(2)} before reruns`);
 });
 
 test("noise is not a regression: a case regresses only when the change is wrong in every run and main right in every run", () => {
@@ -122,5 +149,40 @@ test("several runs read as one row a case, right when most were", () => {
 test("the front door, the prompt and the turn reach the core area; their neighbours do not", () => {
   assert.deepEqual(areasFor(["apps/mcp/src/agent/texEntryPoint/runTheModel.js"]), ["core"]);
   assert.deepEqual(areasFor(["apps/mcp/src/agent/promptModules.js", "apps/mcp/bench/ai/tests/simple-asks.md"]), ["core"]);
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/turnWeb.js", "apps/mcp/src/agent/jobNote.js"]), []);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/turnWeb.js", "apps/mcp/src/agent/jobNote.js"]), ["jobs"], "a job note is the jobs area's, never core's");
+});
+
+test("a job or page change reaches the jobs area, on a pool of its own with fewer reruns", () => {
+  assert.deepEqual(areasFor(["apps/agent/src/jobRun.ts"]), ["jobs"]);
+  assert.deepEqual(areasFor(["apps/mcp/src/agent/jobNote.js", "apps/mcp/bench/job-tasks/cases.json"]), ["jobs"]);
+  assert.deepEqual(areasFor(["apps/mcp/bench/jobTasks.mjs", "apps/mcp/bench/world.mjs"]), [], "the scorer and the world are not Tex");
+  const jobs = AREA_LIMITS.jobs;
+  assert.equal(jobs.pool, "jobs", "a job task's whole job never eats the cheap areas' $1");
+  assert.deepEqual(jobs.reruns, { branch: 1, main: 1 });
+  assert.ok(jobs.usdPerCase * (7 + 3 * 2) <= jobs.maxUsd, "seven tasks with three wrong stay inside the jobs cap");
+  assert.equal(typeof RUNNERS.jobs, "function");
+});
+
+test("the core area's judged answers go to Context under the commit, and its key files never do", async () => {
+  const { publishCoreRecords, recordsFolderFor } = await import("../replayGate.mjs");
+  const { mkdtemp, writeFile: write } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join: joinPath } = await import("node:path");
+  const scratch = await mkdtemp(joinPath(tmpdir(), "records-"));
+  await write(joinPath(scratch, "core-core-branch-1.md"), "answers and reasons");
+  await write(joinPath(scratch, "core-core-branch-1 key.md"), "which setup wrote which answer");
+  await write(joinPath(scratch, "respond-branch-1.json"), "[]");
+  const writes = [];
+  const fetchImpl = async (_url, init) => {
+    const { params } = JSON.parse(init.body);
+    if (params.name === "write_note") writes.push(params.arguments);
+    const isError = params.name === "read_note"; // nothing there yet
+    return new Response(JSON.stringify({ result: { content: [{ type: "text", text: isError ? "not found" : "ok" }], isError } }), { status: 200 });
+  };
+  const sha = "ab".repeat(20);
+  const paths = await publishCoreRecords({ scratch, sha, connection: { endpoint: "https://example.invalid/mcp", accessToken: "t" }, fetchImpl });
+  assert.deepEqual(paths, [`${recordsFolderFor(sha)}/core-core-branch-1.md`]);
+  assert.equal(recordsFolderFor(sha), "ai/results/replay/abababababab");
+  assert.deepEqual(writes.map((w) => [w.path, w.content]), [[paths[0], "answers and reasons"]]);
+  await assert.rejects(publishCoreRecords({ scratch, sha: "../x", connection: {}, fetchImpl }), /not a commit sha/);
 });

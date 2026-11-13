@@ -138,3 +138,19 @@ test("a test area that main does not have yet says so instead of failing", async
   const result = await runArea(NIGHTLY_AREAS.find((spec) => spec.area === "web-facts"), { tree: TREE, dir, scratch: dir, fake: true });
   assert.equal(result.status, "missing");
 });
+
+test("the job tasks run once a night, priced by their own rows, and a scripted run spends nothing", async () => {
+  const scratch = await mkdtemp(join(tmpdir(), "nightly-jobs-"));
+  const jobs = NIGHTLY_AREAS.find((spec) => spec.area === "jobs");
+  assert.equal(jobs.runs, 1, "a task is a whole job: three runs a night would triple its cost");
+  const { passes } = await import("../jobTasks.mjs");
+  for (const records of [[{ right: true }, { right: false, target: "a bug" }], [{ right: false }]]) assert.equal(jobs.scorer.passes(records), passes(records), "the scoreboard's bar is the scorer's");
+  const scripted = { ...jobs, scorer: { ...jobs.scorer, command: async ({ json }) => { await writeFile(json, JSON.stringify([{ id: "a", right: true, usd: 0.3 }, { id: "b", right: false, usd: 0.4 }])); return [{ right: true }, { right: false }]; } } };
+  const result = await runArea(scripted, { tree: TREE, dir: null, scratch });
+  assert.equal(result.runs, 1);
+  assert.equal(result.status, "fail", "a task that is not a target fell short");
+  assert.equal(result.usd.toFixed(2), "0.70");
+  assert.ok(result.rows.every((row) => row.results.length === 1));
+  const fake = await runArea(scripted, { tree: TREE, dir: null, scratch, fake: true });
+  assert.equal(fake.usd, 0);
+});

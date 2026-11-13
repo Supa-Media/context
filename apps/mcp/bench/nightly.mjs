@@ -5,7 +5,7 @@
  *   pnpm ai nightly [--held-out <dir>] [--out <file>] [--run-url <url>] [--fake] [--areas core,tasks]
  *
  * Every area, three runs each, as the live setup: the core set and the simple asks, the golden tasks, the web facts,
- * the one judge's reply-or-quiet cases and the reply reviewer's. Each area is checked against the spend cap in
+ * the one judge's reply-or-quiet cases and the reply reviewer's, and (once, a whole job each) the background job tasks. Each area is checked against the spend cap in
  * `@context-lc ai/results/spend.md` before it starts, refused when it would pass it, and its cost recorded there after.
  * One note, `ai/results/nightly/<date>.md`, says pass or fail by each area's own bar, the cases that fell short, the
  * target cases (known bugs) apart, the live drift from people's conversations, and what changed in the live prompt
@@ -36,13 +36,27 @@ export const NIGHTLY_AREAS = [
   { area: "web-facts", tests: ["web-facts"] },
   { area: "respond", scorer: { command: respondCommand, passes: respondPasses, count: async () => (await loadCases()).length } },
   { area: "review", scorer: { command: reviewCommand, passes: reviewPasses, count: async () => Object.values(await loadSets()).flat().length } },
+  // A job task is a whole background job (about $0.35), so the jobs area runs once a night, not three times.
+  // Loaded when it runs: jobTasks.mjs reads run.mjs, which reads this file.
+  {
+    area: "jobs",
+    runs: 1,
+    scorer: {
+      command: async (...args) => (await import("./jobTasks.mjs")).jobTasksCommand(...args),
+      passes: (records) => records.filter((record) => !record.target).every((record) => record.right),
+      count: async () => (await (await import("./jobTasks.mjs")).loadCases()).length,
+    },
+  },
 ];
+
+/** How many times an area runs tonight. */
+export const runsOf = (spec) => spec.runs ?? NIGHTLY_RUNS;
 
 /** What an area is expected to cost tonight: a test's dearest earlier round, scaled to three runs; a scorer's cases at their price. */
 export async function expectedFor(spec, { rows, dir, heldOut = null }) {
   if (spec.scorer) {
     const held = (await readHeldOut(heldOut, spec.area)).length;
-    return AREA_LIMITS[spec.area].usdPerCase * ((await spec.scorer.count()) + held) * NIGHTLY_RUNS;
+    return AREA_LIMITS[spec.area].usdPerCase * ((await spec.scorer.count()) + held) * runsOf(spec);
   }
   let usd = 0;
   for (const test of spec.tests) {
@@ -59,15 +73,17 @@ export async function runArea(spec, { tree, dir, scratch, fake = false, heldOut 
   if (spec.scorer) {
     const files = [];
     let runsPassed = 0;
-    for (let i = 1; i <= NIGHTLY_RUNS; i += 1) {
+    for (let i = 1; i <= runsOf(spec); i += 1) {
       const json = join(scratch, `${spec.area}-nightly-${i}.json`);
       const rates = await spec.scorer.command({ json, "held-out": heldOut, fake }, { write: () => {} });
       if (spec.scorer.passes(rates)) runsPassed += 1;
       files.push(JSON.parse(await readFile(json, "utf8")));
     }
     const rows = mergeRuns(files);
-    const usd = fake ? 0 : AREA_LIMITS[spec.area].usdPerCase * rows.length * NIGHTLY_RUNS; // a fake run spends nothing
-    return { area: spec.area, status: runsPassed * 2 > NIGHTLY_RUNS ? "pass" : "fail", rows, usd, runsPassed, bars: {}, missing: [] };
+    // A fake run spends nothing; a scorer that prices its rows (`usd`) is taken at its word, the rest at the estimate.
+    const priced = files.flat();
+    const usd = fake ? 0 : priced.every((row) => typeof row.usd === "number") ? priced.reduce((sum, row) => sum + row.usd, 0) : AREA_LIMITS[spec.area].usdPerCase * rows.length * runsOf(spec);
+    return { area: spec.area, status: runsPassed * 2 > runsOf(spec) ? "pass" : "fail", rows, usd, runsPassed, runs: runsOf(spec), bars: {}, missing: [] };
   }
   const result = await runTests(tree, spec.tests, { dir, runs: NIGHTLY_RUNS, fake, scratch, tag: "nightly" });
   if (result.missing.length === spec.tests.length) return { area: spec.area, status: "missing", rows: [], usd: 0, bars: {}, missing: result.missing };
@@ -93,7 +109,7 @@ export function scoreboardNote({ date, runUrl = null, areas, drift = null, produ
     "",
     `# Tex nightly, ${date}`,
     "",
-    `Written by the Tex nightly run${runUrl ? ` ([the run](${runUrl}))` : ""}: every area, ${NIGHTLY_RUNS} runs each, as the live setup. ${ran.filter((a) => a.status === "pass").length} of ${areas.length} areas pass their bar; tonight spent ${money(spent)}, and the testing budget stands at ${money(spend.total)} of its ${money(spend.cap)} cap (ai/results/spend.md).`,
+    `Written by the Tex nightly run${runUrl ? ` ([the run](${runUrl}))` : ""}: every area, ${NIGHTLY_RUNS} runs each (the job tasks once: each is a whole job), as the live setup. ${ran.filter((a) => a.status === "pass").length} of ${areas.length} areas pass their bar; tonight spent ${money(spent)}, and the testing budget stands at ${money(spend.total)} of its ${money(spend.cap)} cap (ai/results/spend.md).`,
     "",
     `| area | result | cases right in most runs | right in every run | spent |`,
     "| --- | --- | --- | --- | --- |",
@@ -116,7 +132,7 @@ export function scoreboardNote({ date, runUrl = null, areas, drift = null, produ
         if (!bar || bar.goodEnough) continue;
         lines.push(`- **${a.area}, ${test}:** score ${pct(bar.score)} of the test's bar${bar.gateFailed?.length ? `; gates failed: ${bar.gateFailed.map((n) => `q${n}`).join(", ")}` : ""}${bar.speed ? `; median ${bar.speed.toFixed(1)} s` : ""}.`);
       }
-      if (a.runsPassed !== undefined) lines.push(`- **${a.area}:** passed its bar in ${a.runsPassed} of ${NIGHTLY_RUNS} runs.`);
+      if (a.runsPassed !== undefined) lines.push(`- **${a.area}:** passed its bar in ${a.runsPassed} of ${a.runs ?? NIGHTLY_RUNS} run(s).`);
       const wrong = a.rows.filter((row) => !row.target && row.results?.some((r) => !r));
       for (const row of wrong.filter((r) => !r.heldOut)) lines.push(`  - \`${row.id}\` right in ${row.results.filter(Boolean).length} of ${row.results.length} runs; expected to ${row.expected}.`);
       const byCause = new Map();
@@ -188,7 +204,7 @@ export async function nightlyCommand(options, { write = (text) => process.stdout
     }
     areas.push(result);
     if (!options.fake && result.usd >= 0.005) {
-      const row = { date, run, test: `nightly-${spec.area}`, setups: ["production"], answers: result.rows.length * NIGHTLY_RUNS, usd: Math.round(result.usd * 100) / 100 };
+      const row = { date, run, test: `nightly-${spec.area}`, setups: ["production"], answers: result.rows.length * runsOf(spec), usd: Math.round(result.usd * 100) / 100 };
       await addSpendRow(connection, row);
       spend.total += row.usd;
     }

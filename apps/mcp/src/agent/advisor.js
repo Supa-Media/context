@@ -28,9 +28,12 @@
  * 2026-10-31: 10, and the everyday model is never told there is a limit).
  */
 
-import { requestBuiltin } from "./builtin.js";
 import { withoutTag } from "./promptFence.js";
-import { withArchitecture } from "./texArchitecture.js";
+import { adviseOnce, advisorRequest, advisorThinking } from "./advisorRoles/core.js";
+import { ADVISOR_PROMPT } from "./advisorRoles/chat.js";
+
+// Its instructions live in `advisorRoles/chat.js`, beside the other roles' (`advisorRoles/core.js`).
+export { ADVISOR_PROMPT, advisorRequest, advisorThinking };
 
 export const ADVISOR_TOOL = "ask_advisor";
 export const MAX_ASKS = 10;
@@ -65,21 +68,6 @@ export const ADVISOR_DEFINITION = {
     "It answers you, never them; you still do the work and write the text. If it declines, answer yourself.",
   inputSchema: { type: "object", properties: {} },
 };
-
-export const ADVISOR_PROMPT =
-  "You are the advisor to Tex, a texting assistant. Below is what Tex's everyday model has in this turn: who the person is and their goals, the tools " +
-  "it was given, the conversation, and every tool call and result so far. It has paused to ask you for advice. You answer Tex, never the person, " +
-  "and you can't call tools: Tex does the work and writes the text.\n\n" +
-  "If Tex can handle this from what it has (a lookup, a simple write, a greeting, a plain yes or no), reply with one line " +
-  'that starts with "Decline:" and says what to do.\n\n' +
-  "Otherwise think it through and reply with what Tex should do and say: the decision and why, the steps in order, the facts to check, " +
-  "and the mistake to avoid. Check whether what was asked is actually done: a tool result that failed, a step not taken, or words that " +
-  "promise work nobody will do are what to catch. Be specific and short, a few hundred words at most. Never invent a fact that isn't in the transcript; " +
-  "say what Tex must look up instead.\n\n" +
-  "What Tex may never do, whatever you advise: reach anyone but the person without their yes (an email, a message to someone, an invite " +
-  "that tells a guest is shown to them for one 👍 first); tell one workspace's people what is in another; take a password, key or card " +
-  "number by text (the vault's links do that); claim something is done that no tool result shows. A change to their own notes or their " +
-  "own calendar needs no yes. Tex texts in a sentence or two, so advise what to do, not a long reply.";
 
 /**
  * A job's turn runs on the everyday model from its first round (Dev2, 2026-11-05: "for the Tex minions knock them down to
@@ -128,9 +116,7 @@ export function advisorTools({ model, effort, history, question, request, meter 
     const transcript = Array.isArray(live?.messages) ? live.messages : [...history, { role: "user", text: question }];
     let answer;
     try {
-      // `display: "summarized"`: its thinking comes back in words, kept with its answer in the chat's
-      // history (Dev, 2026-11-02: "'Its private reasoning isn't kept.' - why?"). It never goes to Tex.
-      answer = await request({ model, system: withArchitecture(ADVISOR_PROMPT, "advisor"), messages: [{ role: "user", text: advisorBrief(live, transcript) }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
+      answer = await adviseOnce({ request, model, effort, prompt: ADVISOR_PROMPT, role: "advisor", brief: advisorBrief(live, transcript) });
     } catch {
       await meter(null, true, model, false);
       return text("Your advisor couldn't be reached. Answer with what you have.", true);
@@ -142,16 +128,6 @@ export function advisorTools({ model, effort, history, question, request, meter 
     return thought ? { ...result, thinking: thought } : result;
   };
   return [{ tool: ADVISOR_DEFINITION, call }];
-}
-
-/** The advisor's thinking in words (`aiGateway.js` hands back the answer's blocks when it thought), or "". */
-export function advisorThinking(answer) {
-  const blocks = Array.isArray(answer?.content) ? answer.content : [];
-  return blocks
-    .filter((block) => block?.type === "thinking" && typeof block.thinking === "string")
-    .map((block) => block.thinking.trim())
-    .filter(Boolean)
-    .join("\n\n");
 }
 
 /**
@@ -203,8 +179,3 @@ function messageLine(message) {
 }
 
 const text = (words, isError) => ({ content: [{ type: "text", text: words }], ...(isError ? { isError: true } : {}) });
-
-/** `requestBuiltin` bound to a turn's provider options, for `advisorTools`. */
-export function advisorRequest(providerOptions) {
-  return (params) => requestBuiltin(params, providerOptions.ai, providerOptions);
-}

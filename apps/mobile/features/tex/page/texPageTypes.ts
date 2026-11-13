@@ -205,7 +205,28 @@ export interface ListPage<K extends ListKind> {
   number?: string;
   approver?: string;
   people?: string[];
+  /** settings, the person's own chat: the switches Tex also changes by text (Settings in the app; Dev2, 2026-11-13). */
+  habits?: TexHabits;
 }
+
+/** What texting Tex never to bother you with sounds like, as the gateway's `pings` setting. */
+export type PingLevel = "strict" | "relaxed" | "emergencies" | "off";
+
+/**
+ * The settings Tex changes by text (`apps/mcp/src/agent/settingsTools.js` `SETTING_HANDLERS`), read for Settings in
+ * the app. Null is a note the gateway couldn't read, never a guessed value.
+ */
+export interface TexHabits {
+  checkins: boolean | null;
+  /** The window as the person said it, like "11 pm to 7 am"; "" is none. */
+  quietHours: string | null;
+  pings: PingLevel | null;
+  overnight: boolean | null;
+  tidy: boolean | null;
+}
+
+/** The keys `setting.set` takes, one per `TexHabits` field (the gateway's `quiet_hours` spelled its own way). */
+export type HabitKey = "checkins" | "quiet_hours" | "pings" | "overnight" | "tidy";
 
 /** The daily tidy (`housekeeping`) and the nightly rewrite of About me (`dreams`), each true when on. */
 export interface TexSwitches {
@@ -223,6 +244,7 @@ export type PageAction =
   | { type: "checkin.cancel"; id: string }
   | { type: "checkin.add"; when: string; what: string }
   | { type: "switch.set"; name: keyof TexSwitches; on: boolean }
+  | { type: "setting.set"; key: HabitKey; value: boolean | string }
   | { type: "about.fix"; line: string; text: string }
   | { type: "about.remove"; line: string }
   | { type: "settings"; values: Record<string, string | number> }

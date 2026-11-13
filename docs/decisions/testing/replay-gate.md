@@ -34,7 +34,9 @@ did not have to leave a case behind.
    `No replay case: <why>`.
 3. **Model runs only for the area a change touches, capped at $1.** The
    judge's files run the reply-or-quiet cases; the reviewer's run the reviewer
-   cases; the front door and prompt modules run the core set and simple asks.
+   cases; each of the advisor's four roles runs its own cases, and their
+   shared core runs all four ([advisor-roles](./advisor-roles.md)); the front
+   door and prompt modules run the core set and simple asks.
    A run must not score below main's on the same cases; a must-pass case main
    passes may never fail. Only failed cases are run again, up to three times,
    to tell a regression from noise. Golden browser tasks run nightly, not per
@@ -50,6 +52,12 @@ did not have to leave a case behind.
    `scripts/tex-replay-required.mjs`), which holds no secret and is red until
    that status is green. The run's summary is the feedback for the change's
    author: which cases regressed and what each expected, held-out ones by cause.
+   The core area's judged answers (each answer and the judge's reason on every
+   line, the change's and main's) are kept in
+   `@context-lc ai/results/replay/<sha>/` (`pnpm ai gate records`), never the
+   repository or the log, so a regression is read before anything is changed
+   or re-run (2026-11-13: core q13 failed 3/3 on a four-word diagram edit and
+   nobody could see the answers).
    Main is never run whole: the change answers every case once, only its
    mistakes are run again (twice more on the change, three times on main), and
    a case regressed when it is wrong in every one of the change's runs and
@@ -64,7 +72,18 @@ did not have to leave a case behind.
    production reader, the front door or the advisor runs the core set and the
    simple asks through `pnpm ai run` and `pnpm ai judge` as the live setup
    (pulled into both trees from Context), one case a question, about $0.15
-   a change plus its mistakes.
+   a change plus its mistakes. And `jobs` (`jobTasks.mjs`, `pnpm ai jobs`;
+   Dev2, 2026-11-13: "whether the agents are getting tasks done right, like
+   creating pages and doing research"): a change to how a job starts, runs,
+   is checked and reported, the pages it writes, or the Worker's job runner
+   runs seven invented tasks (research pages, page edits, errands on the
+   scripted sites) as whole jobs, part after part with the done check after
+   each, and grades what each left behind in plain code: the page exists,
+   cites its sources, covers every part of the ask, keeps what it should, the
+   errand's site step happened, the job ended done. A Haiku judge grades
+   quality beside, never deciding. A task is about $0.35, so the area has a
+   pool of its own, capped at $5, and a wrong task runs once more on the
+   change and once on main (about $2.50 a change, measured).
    **One sign-in at a time, nobody dropped:** the workflows that sign in as
    the benchmark runner (AI Benchmark, AI Promote, Tex replay, Tex nightly)
    start with a `wait-turn` job (`scripts/bench-runner-lock.mjs`) that waits
@@ -92,7 +111,8 @@ did not have to leave a case behind.
 6. **Every night, everything.** `tex-nightly.yml` (`pnpm ai nightly`,
    `bench/nightly.mjs`) runs every area three times as the live setup: core
    and simple asks, the golden tasks, the web facts (once that set is on
-   main), the one judge's cases and the reviewer's, held-out cases included.
+   main), the one judge's cases and the reviewer's, held-out cases included,
+   and the job tasks once (a whole job each).
    Each area is checked against `cap_usd` in `spend.md` before it starts and
    refused past it, and its cost is recorded there. It writes one note,
    `@context-lc ai/results/nightly/<date>.md`: pass or fail by each area's own
@@ -146,7 +166,11 @@ lets a change pass by fitting the test instead of the cause.
 `node scripts/check-tex-change-has-case.mjs --self-test`; `apps/mcp/test/replay.test.mjs`
 (sabotage: `warmCopy.js` `events` reading the copy's day instead of the ledger
 fails `sees-own-reply` and `after-deploy`); `apps/mcp/bench/test/replayGate.test.mjs`
-(reruns only the wrong cases, a target never blocks, the shared pool's cap);
+(reruns only the wrong cases, a target never blocks, the shared pool's cap,
+the jobs area's own pool); `apps/mcp/bench/test/jobTasks.test.mjs` (a page
+without its sources fails, a part the check says isn't finished is followed by
+another on its advice, a job unfinished when its parts run out ends stuck, a
+page edit that never saved has no page);
 `apps/mcp/bench/test/coreArea.test.mjs` (a core question is right only when
 every run passed; a target is never held to the bar);
 `apps/mcp/bench/test/nightly.test.mjs` (a quiet day is too few to tell; a hand

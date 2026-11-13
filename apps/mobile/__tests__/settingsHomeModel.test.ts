@@ -18,7 +18,8 @@ import { createRoot } from "react-dom/client";
 import { TEX_SETTINGS } from "@context/shared/src/texSettings.cjs";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
 import type { ConsoleData } from "../features/console/types";
-import { settingsHome, texListRows, readableLine } from "../features/console/settings/home/homeModel";
+import { settingsHome, readableLine } from "../features/console/settings/home/homeModel";
+import { FIELD_OF } from "../features/console/settings/panels/TexHabits";
 import { SETTINGS_SECTIONS } from "../features/console/settings/sections";
 
 /**
@@ -90,27 +91,17 @@ describe("every setting is on the page", () => {
   });
 });
 
-describe("the Tex rows are the list Tex reads by text", () => {
-  test("one row per 1:1 setting, except the ones with a page of their own", () => {
-    const own = new Set(["talk", "apps", "vault", "vault_delete"]);
-    const expected = TEX_SETTINGS.filter((setting) => setting.where.includes("1:1") && !own.has(setting.key));
-    expect(texListRows().map((row) => row.title)).toEqual(expected.map((setting) => setting.label));
-    for (const row of texListRows()) expect(row.line).toBeNull();
+describe("the settings Tex changes by text have switches in the app", () => {
+  test("the panel has a switch for every `setting` row Tex changes by text, and no other", () => {
+    const rows = TEX_SETTINGS.filter((setting) => setting.via === "setting").map((setting) => setting.key);
+    expect(Object.keys(FIELD_OF).sort()).toEqual([...rows].sort());
   });
 
-  test("the page gathers the settings Tex changes by text into one row that says so", () => {
+  test("the Tex section opens them as one row with a page behind it", () => {
     const home = settingsHome({ data, sections: SETTINGS_SECTIONS, canSignOut: true });
     const tex = home.find((section) => section.id === "tex")!;
-    const row = tex.rows.find((entry) => entry.id === "tex-by-text");
-    expect(row?.action.kind).toBe("byText");
-    expect(tex.rows.filter((entry) => entry.action.kind === "byText")).toHaveLength(1);
-  });
-
-  test("a setting Tex changes by text says so instead of offering a button", () => {
-    for (const row of texListRows()) {
-      const setting = TEX_SETTINGS.find((entry) => entry.label === row.title)!;
-      expect(row.action.kind).toBe(setting.byText ? "byText" : "none");
-    }
+    expect(tex.rows.map((row) => row.id)).toEqual(["tex", "texHabits", "texApps", "messages"]);
+    expect(tex.rows.find((row) => row.id === "texHabits")?.action).toEqual({ kind: "open", key: "texHabits", label: "Change" });
   });
 });
 

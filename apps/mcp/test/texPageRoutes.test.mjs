@@ -240,6 +240,13 @@ test("job page, list and acts: a stop reaches her inbox's job; settings go to th
     assert.deepEqual(inGroup.body, { ok: false, error: "invalid" });
     const groupList = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: GROUP, kind: "checkins" } });
     assert.equal(groupList.body.switches, undefined);
+    // The by-text switches, for Settings in the app (`settingsTools.readHabits`): their defaults, and never a group's.
+    const mine = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: "me", kind: "settings" } });
+    assert.deepEqual(mine.body.habits, { checkins: true, quietHours: "", pings: "strict", overnight: true, tidy: true });
+    const groupSettings = await ask(world, "/tex/page/list", { token: T.alice, body: { handle: "alice", chat: GROUP, kind: "settings" } });
+    assert.equal(groupSettings.body.habits, undefined);
+    const groupSet = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: GROUP, action: { type: "setting.set", key: "checkins", value: false } } });
+    assert.deepEqual(groupSet.body, { ok: false, error: "invalid" });
   } finally {
     world.restore();
   }
