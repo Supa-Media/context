@@ -131,6 +131,15 @@ export async function oneToOne() {
       if (ran.status !== 200) throw new Error(`replay: the routine ${path} answered ${ran.status}: ${JSON.stringify(ran.body)}`);
       return { answer: String(ran.body.answer ?? ""), shown: world.model.requests.slice(before).map(shownIn).join("\n") };
     },
+    /** One part of a background job started from this chat: `job` as the Worker hands it (title, brief, attempt, followUps). */
+    async jobPart(words, job, reply) {
+      clock += 60_000;
+      const before = world.model.requests.length;
+      world.model.install(script(reply));
+      const ran = await request(world.env, TOKEN_TEXTS, "/agent", { question: words, conversation: "texts", job });
+      if (ran.status !== 200) throw new Error(`replay: the job part ${job.title} answered ${ran.status}: ${JSON.stringify(ran.body)}`);
+      return { answer: String(ran.body.answer ?? ""), shown: world.model.requests.slice(before).map(shownIn).join("\n") };
+    },
     /** A deploy or an eviction: the Worker forgets its warm copy, and the next turn reads cold. */
     deploy() {
       warm = null;
