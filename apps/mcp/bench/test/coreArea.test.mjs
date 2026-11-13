@@ -6,7 +6,8 @@
  * Sabotage record (applied, run, observed failing, reverted, 2026-11-13):
  *  1. `coreCases` counting a question right when any run passed -> "a question is right only when every run passed" fails;
  *  2. `coreCases` holding a target question to the test's bar -> "a target is reported, never held to the bar" fails;
- *  3. `runTests` ignoring `only` -> "only the named cases run again" fails.
+ *  3. `runTests` ignoring `only` -> "only the named cases run again" fails;
+ *  4. `runTests` rerunning a question without its mirror -> "a rerun asks a question's mirror too" fails.
  */
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -15,7 +16,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { caseId, coreCases, runTests } from "../coreArea.mjs";
+import { caseId, coreCases, runTests, withMirrors } from "../coreArea.mjs";
 
 const TREE = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
@@ -46,13 +47,13 @@ const CORE = [
   "",
 ].join("\n");
 
-async function folder() {
+async function folder(core = CORE) {
   const dir = await mkdtemp(join(tmpdir(), "core-area-"));
   const files = {
     "README.md": "# Bench\n",
     "workspaces/people.md": "| Person | Workspace | Role |\n|---|---|---|\n| Ana | ana (personal) | owner |\n",
     "workspaces/ana/health/dentist.md": "Dentist Tuesday 3 pm\n",
-    "tests/core.md": CORE,
+    "tests/core.md": core,
     "setups/texting-assistant/production.md": SETUP,
     "setups/texting-assistant/experiment.md": SETUP,
   };
@@ -94,4 +95,15 @@ test("a question is right only when every run passed", async () => {
   const cases = coreCases({ test: "core", testRaw: CORE, resultRaw: flipped, keyRaw });
   assert.deepEqual(cases.rows.map((row) => [row.id, row.right, row.results]), [["core/q1", false, [true, false]]]);
   assert.equal(cases.bar.goodEnough, false, "a failed run of a held case fails the bar");
+});
+
+test("a rerun asks a question's mirror too, so the question is still counted", async () => {
+  // Question 3 counts only when question 1, its mirror, passes (as core/q13 counts on q14). Rerun alone, it read as
+  // untested, its row vanished, and the gate took one failed first run for a new case that failed (2026-11-13).
+  const mirrored = `${CORE}\n## 3. Remind me about the dentist again\n\n- kind: task\n- person starts: "remind me about the dentist again"\n- must: report the matches it found\n- mirror: 1\n`;
+  const dir = await folder(mirrored);
+  const scratch = await mkdtemp(join(tmpdir(), "core-scratch-"));
+  const again = await runTests(TREE, ["core"], { dir, fake: true, scratch, tag: "mirror", only: ["core/q3"], runs: 2 });
+  assert.deepEqual(again.rows.map((row) => [row.id, row.results]), [["core/q3", [true, true]]], "the question is counted, and only it is reported");
+  assert.deepEqual(withMirrors([3, 2], [{ n: 1, mirror: null }, { n: 2, mirror: null }, { n: 3, mirror: 1 }]), [3, 2, 1]);
 });
