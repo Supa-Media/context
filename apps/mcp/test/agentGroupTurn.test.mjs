@@ -485,20 +485,26 @@ test("\"what are you working on\" points at the signed-in Tex page: the person's
 });
 
 // Production, 2026-11-12 08:33Z: "@Tex ..." judged silent was forced into a turn (tag_override), and the turn ended
-// silent: it was offered say_nothing and took it. A literal @Tex is always answered (Dev2): never offered silence,
-// and a silent end anyway is the fallback line. An untagged turn may still say nothing.
+// silent: it was offered say_nothing and took it. A literal @Tex is always answered (Dev2): a call to say_nothing is
+// refused in code and the turn goes on to its answer, and a silent end anyway is the fallback line. An untagged turn may
+// still say nothing. Since 2026-11-13 a tagged turn is offered say_nothing all the same: a list without it was different
+// bytes, and every tagged text after an untagged one (or before) missed the whole prompt cache, tools first.
 // Sabotage record (applied, run, observed failing, reverted):
-//  1. `runTheModel.js` offering say_nothing whatever `tagged` says: "a tagged turn is never offered say_nothing" fails.
+//  1. `runTheModel.js` dropping `mustAnswer`: "a tagged turn's say_nothing is refused" fails (the turn ends quiet).
 //  2. `sendTheReply.js` treating a tagged silence as silence: "a tagged turn that still ends silent texts the fallback" fails.
 //  3. `groupOf` dropping `tagged`: both tagged tests fail.
-const offersSayNothing = (request) => /say_nothing/.test(JSON.stringify(request.tools ?? []));
+//  4. `runTheModel.js` offering no say_nothing to a tagged turn again: "the same tools" fails.
+const sendTool = (request) => JSON.stringify((request.tools ?? []).find((tool) => tool.name === "send") ?? {});
 
-test("a tagged turn is never offered say_nothing; an untagged one is", async () => {
-  world.model.install([{ text: "The opener." }, { text: "The opener." }]);
-  await ask(TOKEN_GROUP, { question: "@Tex what's on the setlist?", group: chat({ tagged: true }), timeZone: "UTC" });
+test("a tagged turn is offered the same tools as an untagged one, and its say_nothing is refused: it answers", async () => {
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "say_nothing", args: { why: "not for me" } } }] }, { text: "The opener is Blue Skies." }, { text: "The opener." }]);
+  const tagged = await ask(TOKEN_GROUP, { question: "@Tex what's on the setlist?", group: chat({ tagged: true }), timeZone: "UTC" });
   await ask(TOKEN_GROUP, { question: "what's on the setlist?", group: chat(), timeZone: "UTC" });
-  assert.equal(offersSayNothing(world.model.requests[0]), false);
-  assert.equal(offersSayNothing(world.model.requests[1]), true);
+  assert.equal(sendTool(world.model.requests[0]), sendTool(world.model.requests.at(-1)), "the same tools, so a tagged text reads the cache an untagged one wrote");
+  assert.match(sendTool(world.model.requests[0]), /say_nothing/);
+  assert.match(JSON.stringify(world.model.requests[1].messages), /Not quiet this time: they tagged you by name/, "the call is refused");
+  assert.equal(tagged.body.answer, "The opener is Blue Skies.", "and the turn answers");
+  assert.equal(tagged.body.quiet, undefined);
 });
 
 test("a tagged turn that still ends silent texts the fallback; an untagged one stays quiet", async () => {

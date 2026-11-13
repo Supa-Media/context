@@ -15,6 +15,7 @@
  * Sabotage these and a test here fails:
  *  1. `background.js` offering only the job tools that apply now → both turns.
  *  2. `runTheModel.js` putting `taggedLine` or the running jobs back in `threadNote` → both turns.
+ *  3. `runTheModel.js` offering a tagged turn no say_nothing (`sayNothing: job === null && group?.tagged !== true`) → the group turn.
  *  (The calendar copy's age out of `system.context` is held by `texCalendarCache.test.mjs`.)
  */
 
@@ -122,11 +123,11 @@ test("a 1:1 text: tools, system and history read back across texts while the clo
   assert.doesNotMatch(JSON.stringify(first.messages.at(-1)), /Logo in green/);
 });
 
-test("a group: tools, system and history read back across texts while the tagger changes", async () => {
+test("a group: tools, system and history read back across texts while the tagger changes, and a literal @Tex tag follows a judged text", async () => {
   const { first, second } = await assertStable(TOKEN_GROUP, [
     { question: "hello", group: { key: KEY, members: MEMBERS, from: "ada" }, timeZone: "UTC", running: [] },
     { question: "what's the setlist?", group: { key: KEY, members: MEMBERS, from: "ada" }, timeZone: "UTC", running: [] },
-    { question: "and the opener?", group: { key: KEY, members: MEMBERS, from: "bo" }, timeZone: "UTC", running: [JOB] },
+    { question: "@Tex and the opener?", group: { key: KEY, members: MEMBERS, from: "bo", tagged: true }, timeZone: "UTC", running: [JOB] },
   ]);
   assert.match(JSON.stringify(first.messages.at(-1)), /@ada tagged you/);
   assert.match(JSON.stringify(second.messages.at(-1)), /@bo tagged you/);
