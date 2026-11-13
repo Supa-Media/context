@@ -106,6 +106,14 @@ jobs:
           git worktree add "$RUNNER_TEMP/main" "$BASE"
           (cd "$RUNNER_TEMP/main" && pnpm install --frozen-lockfile)
 
+      # Its wait-turn job is skipped by "Re-run failed jobs": check once more,
+      # and refuse rather than sign in beside another run (bench-runner-lock.mjs).
+      - name: Refuse to sign in beside another benchmark run
+        if: steps.areas.outputs.areas != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --check
+
       - name: Sign in as the benchmark runner and keep the rotated token
         if: steps.areas.outputs.areas != ''
         env:

@@ -36,6 +36,8 @@ on:
 permissions:
   contents: read
   issues: write
+  # Reading the other benchmark runs (bench-runner-lock.mjs).
+  actions: read
 
 # No `concurrency` group: one holds a single pending run and cancels the
 # next, so the wait-turn job below queues runs instead (bench-runner-lock.mjs).
@@ -92,6 +94,13 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$NIGHTLY_AREAS" =~ ^[a-z,-]{0,64}$ ]] || { echo "::error::areas must be comma-separated area names."; exit 1; }
+
+      # Its wait-turn job is skipped by "Re-run failed jobs": check once more,
+      # and refuse rather than sign in beside another run (bench-runner-lock.mjs).
+      - name: Refuse to sign in beside another benchmark run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --check
 
       # Rotation first, then the write-back, then nothing else until it is
       # kept: a token that is spent and not written down is a grant lost.

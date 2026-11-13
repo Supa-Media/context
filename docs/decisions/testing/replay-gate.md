@@ -71,7 +71,7 @@ did not have to leave a case behind.
    for every earlier run of them to end, because the runner's refresh token
    rotates on every use. A shared `concurrency` group did this until
    2026-11-13 and cancelled every pending run but one, so replays dispatched
-   by several agents cancelled each other and left their checks red. The cheap areas share one $1 pool a change; an
+   by several agents cancelled each other and left their checks red. "Earlier" is by when a run's latest attempt started, and the signing-in job checks again before it signs in (`--check`), refusing rather than waiting: a "Re-run failed jobs" skips a passed `wait-turn`, and on 2026-11-13 one such re-run signed in beside a newer replay, the two rotations raced and the grant was revoked. Dispatch again, or re-run all jobs. The cheap areas share one $1 pool a change; an
    area whose reruns would pass it is refused. What each replay spent is a row
    in `@context-lc ai/results/spend.md` (`replay-gate`).
 4. **Practice cases and held-out cases.** Cases in the repository are practice:
