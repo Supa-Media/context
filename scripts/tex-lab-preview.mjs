@@ -25,5 +25,5 @@ const result = await build({
   logLevel: "warning",
 });
 const js = result.outputFiles[0].text.replace(/<\/script/g, "<\\/script");
-writeFileSync(out, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tex Architecture Lab preview</title></head><body style="margin:0"><div id="root"></div><script>${js}</script></body></html>`);
+writeFileSync(out, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tex Architecture Lab preview</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"></head><body style="margin:0"><div id="root"></div><script>${js}</script></body></html>`);
 console.log(`wrote ${out}`);

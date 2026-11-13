@@ -89,6 +89,13 @@ describe("tex.lc/admin/lab", () => {
     expect(mockArgs.get(LIST)).toBe("skip");
   });
 
+  test("until the staff check answers, no view is drawn, so no view's query runs for somebody who is not staff", () => {
+    mount();
+    expect(q('[data-testid="tex-lab"]')).not.toBeNull();
+    expect(q(".bar")).toBeNull();
+    expect(q('[data-testid="tex-lab-staff-only"]')).toBeNull();
+  });
+
   test("the sidebar is the artifact's, a view's row opens its page, and a saved version opens on a click", () => {
     mockAnswers.set(ADMIN, true);
     mockAnswers.set(LIST, { me: "u1", names: { u1: "@staff" }, versions: [{ versionId: "vabc", name: "Faster judge", authorId: "u1", graph, picks: "{}", areas: null, results: "[]", createdAt: 1, updatedAt: 2 }], caseEdits: [] });
