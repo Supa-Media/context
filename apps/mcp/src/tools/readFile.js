@@ -127,7 +127,8 @@ export async function fileWords(ai, name, type, bytes, { from = 0, next = null, 
   // Where a PDF's buttons and linked words go, which its words alone never say (`pdfLinks.js`).
   const links = type === "application/pdf" ? linksSection(await pdfLinks(bytes)) : "";
   // A PDF of pictures: its pages go to the model whole, to be read as pictures (`pdfPagesPart`).
-  if (type === "application/pdf" && pdfHasNoWords(text) && pageCount(text) <= MAX_PICTURE_PAGES) return { text: `${PICTURE_PAGES}${links}`, pages: true };
+  // An empty answer is the converter saying nothing, not a read of picture pages: it stays a refusal.
+  if (type === "application/pdf" && text && pdfHasNoWords(text) && pageCount(text) <= MAX_PICTURE_PAGES) return { text: `${PICTURE_PAGES}${links}`, pages: true };
   if (!text && !links) return { error: "no words could be taken out of this file" };
   if (next) {
     const part = partOf(text, from);
