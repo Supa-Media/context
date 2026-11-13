@@ -166,6 +166,17 @@ jobs:
             --scratch "$RUNNER_TEMP/gate" --out "$RUNNER_TEMP/gate.json" | tee -a "$GITHUB_STEP_SUMMARY"
           exit "${PIPESTATUS[0]}"
 
+      # The job tasks' records (each practice task's page, parts and checks; held-out ones are never written), so a
+      # pass can be read rather than trusted.
+      - name: Keep the job tasks' records
+        if: always() && contains(steps.areas.outputs.areas, 'jobs')
+        uses: actions/upload-artifact@v4
+        with:
+          name: tex-replay-job-tasks
+          path: ${{ runner.temp }}/gate/jobs-*-records.json
+          if-no-files-found: ignore
+          retention-days: 14
+
       # What the run spent, beside the testing loop's other rounds (ai/results/spend.md).
       - name: Record what the replay spent
         if: always() && steps.areas.outputs.areas != ''

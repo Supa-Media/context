@@ -138,8 +138,9 @@ export function feedback({ areas, results }) {
 }
 
 /** One bench command in a tree, its rows written to a file. `only` limits it to some ids. */
-async function benchRows(tree, area, { heldOut, only, fake, out }) {
+async function benchRows(tree, area, { heldOut, only, fake, out, records = null }) {
   const args = [join(tree, "apps/mcp/bench/run.mjs"), area, "--json", out];
+  if (records) args.push("--out", records);
   if (heldOut) args.push("--held-out", heldOut);
   if (only) args.push("--only", only.join(","));
   if (fake) args.push("--fake");
@@ -196,7 +197,10 @@ export const RUNNERS = {
   core: (tree, { only, fake, scratch, tag, runs = 1 }) => runCore(tree, { only, fake, scratch, tag, runs }),
   jobs: async (tree, { heldOut, only, fake, scratch, tag, runs = 1 }) => {
     const all = [];
-    for (let i = 1; i <= runs; i += 1) all.push(await benchRows(tree, "jobs", { heldOut, only, fake, out: join(scratch, `jobs-${tag}-${i}.json`) }));
+    for (let i = 1; i <= runs; i += 1) {
+      // Each practice task's page, parts and checks too (`--out`), kept by the workflow so a pass can be read, not trusted.
+      all.push(await benchRows(tree, "jobs", { heldOut, only, fake, out: join(scratch, `jobs-${tag}-${i}.json`), records: join(scratch, `jobs-${tag}-${i}-records.json`) }));
+    }
     // Each task prices itself (`usd` on its row); a row without one is counted at the estimate.
     const usd = all.flat().reduce((sum, row) => sum + (typeof row.usd === "number" ? row.usd : AREA_LIMITS.jobs.usdPerCase), 0);
     return { rows: mergeRuns(all), usd };
