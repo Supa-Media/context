@@ -191,9 +191,10 @@ for (const { name, groupId } of LINES) {
       await acceptGroup(storage, w.message("Tex make a graphic", everyone), 0);
       const draining = drainGroup(storage, w.deps);
       await w.running;
-      // Bound now (the turn started), so their untagged lines are the chat's and reach decide (helpful).
-      expect(await acceptGroup(storage, w.message("wtf", { from: BO, ...everyone }), 10)).toBe("queued");
-      expect(await acceptGroup(storage, w.message("you are disappointing us", { from: CY, ...everyone }), 11)).toBe("queued");
+      // Bound now (the turn started), so their untagged lines are the chat's and reach decide (helpful): kept as
+      // chat and queued for the judge, as when no turn runs, since a turn is only its asker's (2026-11-13).
+      expect(await acceptGroup(storage, w.message("wtf", { from: BO, ...everyone }), 10)).toBe("kept");
+      expect(await acceptGroup(storage, w.message("you are disappointing us", { from: CY, ...everyone }), 11)).toBe("kept");
       w.release();
       await draining;
       await drainGroup(storage, w.deps);

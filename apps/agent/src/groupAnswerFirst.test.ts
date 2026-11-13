@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { LINES, setup } from "./groupWorld.testing";
-import { answerHanded, failHanded, TURN_KEY, type HandedTurn } from "./groupTurnRun";
+import { answerHanded, failHanded, handedTurns, turnKey, type HandedTurn } from "./groupTurnRun";
 import { runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
 import type { Fetch } from "./clients";
 
@@ -39,7 +39,7 @@ describe(`a group turn answered first, ${name}`, () => {
     await settle();
     expect(started).toEqual([]);
     expect(w.texts).toContain("answer to Tex what's on tonight");
-    expect(await storage.get(TURN_KEY)).toBeUndefined();
+    expect((await handedTurns(storage))[0]).toBeUndefined();
     expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
   });
 
@@ -79,20 +79,20 @@ describe(`a group turn answered first, ${name}`, () => {
     await drainGroup(storage, deps);
     await settle();
     expect(started).toHaveLength(1);
-    expect((await storage.get<HandedTurn>(TURN_KEY))?.started).toBe(true);
+    expect(((await handedTurns(storage))[0])?.started).toBe(true);
     const inbox: InboxCall = async (path, turn) => Response.json({ outcome: await (path === "/group-answer" ? answerHanded : failHanded)(storage, deps, turn) });
     const step = { do: async <T>(_name: string, ...rest: unknown[]) => await (rest.at(-1) as () => Promise<T>)() } as unknown as Parameters<typeof runGroupTurn>[1];
     expect(await runGroupTurn({ inbox: "inbox", turn: started[0] }, step, inbox)).toBe("done");
     expect(w.texts).toContain("answer to Tex what's on tonight");
-    expect(await storage.get(TURN_KEY)).toBeUndefined();
+    expect((await handedTurns(storage))[0]).toBeUndefined();
   });
 
   it("a turn lost mid-answer (the object restarted) is handed to its workflow at the next drain", async () => {
     const { storage, w, deps, started } = firstWorld(groupId);
-    await storage.put<HandedTurn>(TURN_KEY, { id: "lost-turn-1", keys: [], at: 0, starts: 0, inline: true });
+    await storage.put<HandedTurn>(turnKey("lost-turn-1"), { id: "lost-turn-1", keys: [], at: 0, starts: 0, inline: true });
     await drainGroup(storage, deps);
     expect(started).toEqual(["lost-turn-1"]);
-    expect((await storage.get<HandedTurn>(TURN_KEY))?.inline).toBeUndefined();
+    expect(((await handedTurns(storage))[0])?.inline).toBeUndefined();
     expect(w.asks).toHaveLength(0);
   });
 });

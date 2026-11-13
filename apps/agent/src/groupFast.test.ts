@@ -29,7 +29,7 @@ import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { answerAll, BO, LINES, setup, untaggedSilent, type Answer, type Decide } from "./groupWorld.testing";
-import { answerHanded, failHanded, TURN_KEY } from "./groupTurnRun";
+import { answerHanded, failHanded, handedTurns, turnKey } from "./groupTurnRun";
 import { runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
 import { answeredByCode } from "./groupBeside";
 import { recheckDraft } from "./groupRecheck";
@@ -110,7 +110,7 @@ for (const { name, groupId } of LINES) {
       fail = false;
       w.release();
       await turn;
-      expect(await storage.get(TURN_KEY)).toBeUndefined();
+      expect((await handedTurns(storage))[0]).toBeUndefined();
       expect(w.texts.slice(menu).filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex make a poster"]);
     });
 
@@ -216,7 +216,7 @@ for (const { name, groupId } of LINES) {
       sendingFor(storage, "turn-1", [mine.messageId]);
       await say(storage, w.deps, mine, "Here's the poster.");
       await say(storage, w.deps, other, "Settings menu");
-      sendingFor(storage, null);
+      sendingFor(storage, "turn-1", null);
       expect([...(await storage.list({ prefix: "gpart:turn-1:" })).keys()]).toHaveLength(1);
       expect(w.texts).toEqual(["Here's the poster.", "Settings menu"]);
     });

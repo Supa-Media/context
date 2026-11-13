@@ -81,7 +81,7 @@ import { reactionFor } from "./reactEmoji";
 import { runningTurn } from "./steer";
 import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
 import { chooseGroupTurn, coversOf, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
-import { handedTurnWaits, handOff, TURN_KEY, type HandedTurn } from "./groupTurnRun";
+import { handOff, liveTurns, MAX_GROUP_TURNS } from "./groupTurnRun";
 import { answerBesideTurn } from "./groupBeside";
 import { groupTurn } from "./groupModelTurn";
 import type { TimingDataset } from "./textTiming";
@@ -166,7 +166,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     log("untagged_first_look");
     return await enqueue(storage, message, { soft: true, look: true }, repliesToTex, seen, now);
   }
-  const running = runningTurn(storage, message.groupId);
+  // Only the sender's own running turn: anybody else's text starts a turn of its own (Dev2, 2026-11-13, one turn per text).
+  const running = runningTurn(storage, message.groupId, message.from);
   // Not code's, in a bound chat: kept as what the chat said, and the judge's. `ev` given: it was logged already.
   const idleUntagged = async (logged?: string): Promise<"kept" | "ignored"> => {
     // Right after the sender's own waiting message, it goes with it.
@@ -366,11 +367,25 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
   const thumb = await dueThumb<GroupMessage>(storage, deps.now(), GROUP_THUMB_KEY);
   if (thumb !== undefined) await queueItem<Pending>(storage, GROUP_QUEUE, { message: thumb, attempts: 0, at: deps.now(), byCode: true });
   for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
-    // One model turn at a time: while a workflow answers one, the rest wait for it (`groupTurnRun.ts`); a fixed line goes now (`groupBeside.ts`).
-    if (deps.startTurn !== undefined && (await handedTurnWaits(storage, deps))) {
-      return void (await answerBesideTurn(storage, deps, (await storage.get<HandedTurn>(TURN_KEY))?.keys ?? []));
+    // Up to `MAX_GROUP_TURNS` model turns side by side, one per asker (`groupTurnRun.ts`): what a running turn holds,
+    // and the asker's own next texts, wait for it; anybody else's starts its own. A fixed line goes now (`groupBeside.ts`).
+    // Looked at first: a turn given up on there takes what it held out of the queue.
+    const turns = deps.startTurn !== undefined ? await liveTurns(storage, deps) : [];
+    let pending = [...(await storage.list<Pending>({ prefix: GROUP_QUEUE.prefix }))];
+    let holding: string[] = [];
+    if (deps.startTurn !== undefined) {
+      holding = turns.flatMap((turn) => turn.keys);
+      const busy = new Set(turns.map((turn) => turn.asker));
+      // A turn handed before turns ran side by side names no asker: it holds the chat, as it did then.
+      if (turns.length >= MAX_GROUP_TURNS || busy.has(undefined)) return void (await answerBesideTurn(storage, deps, holding));
+      // A fixed line never takes a turn's place: answered here, now, whoever's it is.
+      if (turns.length > 0) {
+        if (await answerBesideTurn(storage, deps, holding)) return;
+        pending = [...(await storage.list<Pending>({ prefix: GROUP_QUEUE.prefix }))];
+      }
+      pending = pending.filter(([key, item]) => !holding.includes(key) && !busy.has(item.message.from));
+      if (pending.length === 0 && turns.length > 0) return void (await answerBesideTurn(storage, deps, holding));
     }
-    const pending = [...(await storage.list<Pending>({ prefix: GROUP_QUEUE.prefix }))];
     if (pending.length === 0) break;
     let entries: GroupEntry[] = [pending[0]];
     if (!pending[0][1].byCode && pending[0][1].attempts === 0) {
@@ -385,7 +400,7 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       if (untagged && stillGathering(state, deps.now())) {
         await armBy(storage, state.until!, deps.now());
         // What code answers alone (a command, a menu reply) never waits on a held burst (`groupBeside.ts`).
-        return void (await answerBesideTurn(storage, deps, burst.map(([key]) => key)));
+        return void (await answerBesideTurn(storage, deps, [...holding, ...burst.map(([key]) => key)]));
       }
       const choice = await chooseGroupTurn(storage, deps, burst, untagged && canWait(state, deps.now()));
       // Decide's reaction goes at once, whatever it decided about words, and only once per message.
@@ -400,7 +415,7 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         if (held.ok) {
           await armBy(storage, held.state.until!, deps.now());
           log("waiting");
-          return void (await answerBesideTurn(storage, deps, choice.wait.map(([key]) => key)));
+          return void (await answerBesideTurn(storage, deps, [...holding, ...choice.wait.map(([key]) => key)]));
         }
         // Past the burst's deadline or its waits: answered now, never held again.
         choice.answer = choice.wait;
@@ -419,7 +434,12 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
     }
     // A retried turn (the inline path) is still the same draft: only a first attempt starts one.
     if (entries.at(-1)![1].attempts === 0) await chatEvent(storage, "start", entries.at(-1)![1].byCode ? "code" : "turn", { now: deps.now() });
-    if (deps.startTurn !== undefined) return void (await handOff(storage, deps, entries)); // No Workflows binding: answered here.
+    // Handed off, it runs beside the drain: the next pass looks for somebody else's text to start beside it.
+    if (deps.startTurn !== undefined) {
+      await handOff(storage, deps, entries);
+      continue;
+    }
+    // No Workflows binding: answered here, one at a time.
     if (await answerInline(storage, entries, deps)) return;
   }
   await pruneSeen(storage, deps.now());
