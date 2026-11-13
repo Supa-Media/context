@@ -159,6 +159,18 @@ jobs:
       - name: Gateway health probe can still fail
         run: node scripts/health-check-gateway.mjs --self-test
 
+      # A change to Tex ships with the case it is replayed against (docs/decisions/testing/replay-gate.md, Dev2 2026-11-13).
+      - name: A Tex change adds the case that proves it
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TEX_PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          node scripts/check-tex-change-has-case.mjs --self-test
+          if [ -n "$BASE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          fi
+          node scripts/check-tex-change-has-case.mjs
+
       # The one Tex drawing moves with the code it draws (docs/architecture/tex.md, Dev2 2026-11-05).
       - name: The Tex diagram matches the code
         env:
