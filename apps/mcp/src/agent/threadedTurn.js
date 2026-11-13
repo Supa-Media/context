@@ -12,7 +12,7 @@
  * answers the entries to keep, for the turn to call after it answers.
  */
 
-import { classifyText, foldThreads, readThreadTool, readThreads, RECENT_MS, threadOfEvents, threadsPrompt, verdictEntries } from "./conversationThreads.js";
+import { classifyText, foldThreads, readThreadTool, readThreads, threadOfEvents, threadsPrompt, verdictEntries, windowStart } from "./conversationThreads.js";
 import { summaryLines } from "./ledgerHistory.js";
 import { renderEvents, speaker, words } from "./logRender.js";
 import { dayAgo, timeNote } from "./chatTime.js";
@@ -67,7 +67,7 @@ export async function threadedTurn({ logged, ledger, chat, group = false, config
   const time = timeNote({ covered: logged.covered ?? [], shown: parts.shown, byId: parts.byId ?? new Map(), timeZone: parts.timeZone });
   if (start === null) return { history: null, threads, read_thread: null, timeNote: time, sort }; // no thread yet: the chat as it was shown
   const tags = threadOfEvents(threads, parts.shown);
-  const cutoff = parts.answering - RECENT_MS;
+  const cutoff = windowStart(parts.answering); // the last day, its start moving in six-hour steps so the transcript is read from the cache
   // The last day, and in a one-to-one chat whatever no thread holds (older than the chat's first thread, or not sorted yet); the rest is in its threads.
   // In a group, older texts no thread holds are aged like the rest (Dev2, 2026-11-11): they leave the word-for-word
   // transcript, unless one is still an open ask of Tex, and come back only as old moments that fit (`callbacks.js`).

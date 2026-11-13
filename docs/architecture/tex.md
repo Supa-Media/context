@@ -112,7 +112,7 @@ may leave the turn (`privacy/egress.js`).
 
 ```mermaid
 flowchart TB
-  Q([The question, the chat, About me, the setup,<br/>the capability list: what Tex can do, and where<br/>capabilities.js<br/>today's date for every model below, at its door,<br/>and every earlier text with its day and time<br/>localNow.js withToday · stamped]):::you -->|thread list as it stood after the text before,<br/>old moments that fit, with age and reactions,<br/>last 24 hours with day ages and quiet stretches<br/>threadedTurn.js · callbacks.js · chatTime.js| FD
+  Q([The question, the chat, About me, the setup,<br/>the capability list: what Tex can do, and where<br/>capabilities.js<br/>today's date for every model below, at its door,<br/>and every earlier text with its day and time<br/>localNow.js withToday · stamped]):::you -->|thread list as it stood after the text before,<br/>old moments that fit, with age and reactions,<br/>last 24 to 30 hours, its start on a 6-hour step so it reads from cache,<br/>with day ages and quiet stretches<br/>threadedTurn.js · callbacks.js · chatTime.js| FD
   CL["Conversation classifier<br/>Haiku 5.5 · thinking off · after the reply, never waited for<br/>which open thread the text continues, or a new one<br/>finishes a thread only on evidence, never on silence<br/>whether to answer at all is the Worker's one judge's<br/>kept in the chat's threads ledger, chat.threads, for the next text<br/>conversationThreads.js · threadedTurn.js"]:::judge
   SEND -. behind the reply .-> CL
   FD["Front door<br/>Haiku 5.5 · effort medium · up to 24 rounds<br/>turn.js runTurn"]:::haiku
@@ -306,6 +306,7 @@ Newest first. One line per pull request that changed the drawing.
 - 2026-11-12: a group's guest names from its about note (a later review: after the name roster went live, a chat whose about note named its guests still showed bare labels, since nothing had called `name_guest`). A turn reads "guest-1a2b is Sam" and the like there for a guest the ledger has no name for, uses it at once and keeps it as a `name` entry (`by: "about"`) behind the turn (`groupGuestNames.js` `guestNamesWithAbout`, `groupTurn.js`). No model or step changed, so the drawing is unchanged.
 - 2026-11-13: the reply reviewer sends a task's or a job's report's reply back up to five times (chat, questions and corrections still once), and from the third send-back tells Tex to ask its advisor before writing again (Dev2: "sendbacks could be as up to 5. A couple, and if it keeps getting sent back, we should get the advisor in"), after a Puttery form's second draft handed the work back unreviewed. A send-back past the first waits on the turn's time (80 s), and the advisor is brought in only before 50 s, so the reply still fits the texting Worker's two minutes (`replyJudge.js` `TASK_SEND_BACKS`, `ADVISOR_AFTER_SEND_BACKS`, `SEND_BACK_WINDOW_MS`). Reviewer box changed. Decision: `docs/decisions/texting-assistant/reply-judge.md`. Test: `apps/mcp/test/replyJudge.test.mjs`.
 - 2026-11-13: one door (Dev2, yes to "fewer doors" from the regressions diagnosis, step 1 of the one-record design #3196): a routine or check-in, a job's report and a group turn the Worker named no text for read the chat from its ledger the way a reply does, aged from now with nothing covered (`loggedTurn.js` `momentView`). Before, a 1:1 routine read no chat and a group check-in read the old memory file, which takes a quiet text only at the next turn, so a 6 pm check-in answered a text from the night before. readTheHistory box changed. Test: `apps/mcp/test/texOneDoor.test.mjs`.
+- 2026-11-13: the threaded history's word-for-word window starts on a six-hour step instead of exactly 24 hours before each text, so it holds 24 to 30 hours (`conversationThreads.js` `windowStart`; step 2 of the one-record design). Production on 2026-11-12: in a busy group the next text's first round often read only the tools and system prompt from the cache (about 46,000 tokens) and wrote the history again (25,000 to 50,000 tokens), because the oldest lines slid out of the window on almost every text and every byte after them changed. Now the start moves four times a day. Answer-maker input edge changed. Test: `apps/mcp/test/texWindowStep.test.mjs`.
 
 ## Proposed, being built: one record per chat
 
@@ -313,7 +314,7 @@ A proposal (Dev2's design ask, 2026-11-12), drawn here so the change can be
 seen against sections 1 to 3. It sits after the rule on purpose: agents read
 only sections 1 to 3, and nothing below is how Tex works today. Design page:
 https://claude.ai/artifact/QEWzwyv65r4RZDMRWNQD4Y. If chosen, sections 1 to 3
-are redrawn step by step as each part lands (step 1, one door, is built: 2026-11-13), and this section goes with the last one.
+are redrawn step by step as each part lands (step 1, one door, is built: 2026-11-13; step 2 started: the threaded window starts on a six-hour step), and this section goes with the last one.
 
 ```mermaid
 flowchart TB
