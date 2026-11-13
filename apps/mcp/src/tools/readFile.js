@@ -7,6 +7,9 @@
  * the same binding search by meaning uses), at request time, and nothing is
  * kept: the file in the bucket is the record, and the words are a derivative
  * that is cheap to make again. A deployment without the binding says so.
+ * A PDF whose pages are pictures gives up no words, so it comes back whole
+ * beside a line saying so, for a model that reads documents to read its
+ * pages (A PDF OF PICTURES, below).
  *
  * The refusals follow `read_note`'s rule (`notes/read.js`): the existence
  * probe runs for every caller, the bytes are fetched only once `canSee` and
