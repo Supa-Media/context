@@ -32,8 +32,8 @@
 import { namesIn, sentencesOf } from "./sourcedFigures.js";
 
 /** The reads a fact may quote, by the tool's own name. */
-const WEB_READS = new Set(["open_page", "search_web", "browse"]);
-const NOTE_READS = new Set(["read_note", "read_notes"]);
+export const WEB_READS = new Set(["open_page", "search_web", "browse"]);
+export const NOTE_READS = new Set(["read_note", "read_notes"]);
 
 /** Most facts one reply keeps, and how long each part is. */
 export const MAX_FACTS = 6;

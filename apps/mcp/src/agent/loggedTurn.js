@@ -217,7 +217,13 @@ export function turnReads(store, session, body, { runner, group, dispatch, warm,
   const logged = runner ? Promise.resolve(null) : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: carryKey(session) }));
   // A routine, a check-in, a job's report or a group turn that names no text still reads its chat from the ledger, as a reply does (`momentView`); a 1:1 text named nothing keeps today's record.
   const view = ledger === null || !moment ? Promise.resolve(null) : logged.then((named) => (named !== null ? null : Promise.all([ledger, today]).then(([read, held]) => momentView(read, { chat: body?.chat, timeZone, grant: carryKey(session), record: held?.history ?? [], group })))).catch(() => null);
-  return Promise.all([today, logged, view]).then(([read, named, moment]) => [{ ...read, view: moment }, named]);
+  // The chat's tool calls as its slim read keeps them (a read's arguments, never its result), for the index of what it has
+  // read (`readsIndex.js`); `read_back` opens one whole (`open`). Null when it keeps no ledger.
+  const tools = ledger === null ? Promise.resolve(null) : ledger.then((read) => (typeof read?.ledger?.read !== "function" ? null : {
+    entries: (read.entries ?? []).filter((entry) => entry?.kind === "tool"),
+    open: async (id) => (await read.ledger.read(read.chat, { kinds: ["tool"], ids: [id], limit: 1 }))?.entries?.[0] ?? null,
+  })).catch(() => null);
+  return Promise.all([today, logged, view, tools]).then(([read, named, moment, kept]) => [{ ...read, view: moment, tools: kept }, named]);
 }
 
 /** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */

@@ -30,7 +30,7 @@ export async function readTheHistory(t) {
   const offered = await tex.wait("tools_list", offeredRead); stages?.mark("tools");
   const learnedRead = tex.ahead("learned_skills", () => group !== null ? historyRead.then(() => openChatSkills(group)) : openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts, warm: hot.skills }), null).catch(() => null); // read beside the history, once the egress ledger is set
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
-  const [{ conversation, history, view = null }, logged] = await tex.wait("history", historyRead); const attachments = [...fresh, ...(runner ? [] : await tex.step("kept_files_again", () => carryKeptFiles(store, history, fresh), []))]; stages?.mark("history");
+  const [{ conversation, history, view = null, tools: keptReads = null }, logged] = await tex.wait("history", historyRead); const attachments = [...fresh, ...(runner ? [] : await tex.step("kept_files_again", () => carryKeptFiles(store, history, fresh), []))]; stages?.mark("history");
   // The new text sorted into the chat's conversations, started now and waited for just before the model (`threadedTurn.js`).
   const place = ledgerPlace(session);
   const threadsRun = chatTurn && job === null && !runner && logged !== null && place !== null && threadsOn(env) && typeof store?.texLedger === "function"
@@ -62,6 +62,6 @@ export async function readTheHistory(t) {
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });
   }
-  Object.assign(t, { attachments, background, computersRead, conversation, fresh, history, learnedRead, logged, offered, threadsRun, view });
+  Object.assign(t, { attachments, background, computersRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view });
 }
 // TEX ENTRY POINT: end

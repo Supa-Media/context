@@ -27,7 +27,7 @@ export const BRIEF_FRESH_MS = 12 * 60 * 60 * 1000;
 /** How many recent turns' work the judge is told. */
 const MAX_TURNS = 3;
 /** Tools that are no work on anything (how the turn ran, not what it did). */
-const NOT_WORK = new Set(["say_nothing", "ask_advisor", "earlier_chat", "read_thread", "job_status"]);
+const NOT_WORK = new Set(["say_nothing", "ask_advisor", "earlier_chat", "read_thread", "read_back", "job_status"]);
 
 const newId = () => `brief${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
 /** Control characters and line and paragraph separators, as `logRender.js` `BREAKS`: a brief is one line each. */
