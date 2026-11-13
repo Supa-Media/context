@@ -277,7 +277,8 @@ jobs:
         if: ${{ matrix.worker.name == 'mcp' }}
         run: pnpm --dir infra/site-shots exec wrangler deploy --env staging
       - name: Deploy staging Worker
-        run: pnpm --dir "$WORKER_DIR" exec wrangler deploy --env staging
+        # The gateway records the commit on each Tex turn (apps/mcp/src/agent/texVersion.js).
+        run: pnpm --dir "$WORKER_DIR" exec wrangler deploy --env staging ${{ matrix.worker.name == 'mcp' && format('--var TEX_CODE_VERSION:{0}', github.sha) || '' }}
       - name: Sync staging Worker secrets
         run: |
           set -euo pipefail

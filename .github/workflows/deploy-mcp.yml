@@ -274,7 +274,8 @@ jobs:
       - name: Deploy gateway
         if: steps.config.outputs.found == 'true'
         working-directory: apps/mcp
-        run: pnpm exec wrangler deploy --config "$MCP_WRANGLER_CONFIG"
+        # The commit each Tex turn records as its version (src/agent/texVersion.js).
+        run: pnpm exec wrangler deploy --config "$MCP_WRANGLER_CONFIG" --var "TEX_CODE_VERSION:${GITHUB_SHA}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

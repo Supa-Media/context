@@ -132,6 +132,27 @@ BENCH_MODEL_SOCKET_KINDS=claude,workers-ai \
 
 A model swap only proves wiring: the examiner answers as the named model.
 
+### Replaying a person's own texts
+
+When the Lab's test user is You, the config also carries `replays`: texts
+the signed-in person picked from their own chat, with the chat before each,
+what Tex said then and which Tex that was. Replay them read only:
+
+```sh
+pnpm ai lab notes --config lab.json   # the notes those turns read, one a line
+# fetch each through your own Context connection (fetch id "notes:" with args {paths}),
+# and save it at $NOTES/<its path>, outside the repository
+BENCH_MODEL_SOCKET_KINDS=claude,workers-ai \
+  pnpm ai lab replay --config lab.json --notes $NOTES --socket $SOCK --scratch $SCRATCH
+```
+
+Each text runs in the bench's throwaway world as that person, with only those
+notes, and nothing in it can text anyone or change a real note. Write
+nothing to Context for a replay. `--notes` and `--scratch` must be outside
+the repository (it is public), and the command refuses otherwise. Paste the
+`## Lab replay` block it prints into the Lab's Results box; it shows under
+Your texts, Then beside Now, and is not saved with the version.
+
 ## Why it is built this way
 
 - **CI recomputes the score.** The examiner only supplies the model's words,

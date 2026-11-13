@@ -207,7 +207,9 @@ export async function converse(world, question, person, mode = null, background 
   // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count already (`benchRunning`).
   const running = background ? benchRunning(question.running ?? 0) : null;
   const totals = { ms: 0, personMs: 0, tools: [], jobs: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
-  let message = question.personStarts ?? question.text;
+  // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`).
+  if ((question.earlier ?? []).length > 0) await world.earlier(question.earlier);
+  let message = question.personStarts ?? question.texts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
     const pictures = texts === 0 && question.sendsPicture ? [await benchPicture(question.sendsPicture)] : [];

@@ -11,6 +11,7 @@ import { saveMainResults, useLab } from "../store";
 import { PageHead } from "./parts";
 import { caseFit } from "./tests/caseParts";
 import { type ParsedResult, parseReport, promptText } from "./run/runText";
+import { parseReplay } from "../engine/mine";
 
 function toggleArea(k: string) {
   if (isMain()) forkFromMain();
@@ -75,10 +76,20 @@ export function Run() {
       toast("Paste the report first");
       return;
     }
-    const r = parseReport(txt);
+    // A replay's Then-and-Now is the person's own chat: it stays in this tab (`lab.myNow`) and is never saved with the
+    // version, which every staff member reads (`functions/texLab.ts`). Only the rest of the report is kept.
+    const replay = parseReplay(txt);
+    if (replay.length) lab.myNow = { ...lab.myNow, ...Object.fromEntries(replay.map((x) => [x.id, x])) };
+    const kept = replay.length ? txt.slice(0, txt.indexOf("## Lab replay")).trim() : txt;
+    if (replay.length && !kept) {
+      toast("Replay shown under Your texts");
+      emit();
+      return;
+    }
+    const r = parseReport(kept);
     r.link = (linkRef.current?.value ?? "").trim();
     r.by = lab.myId;
-    if (!Object.keys(r.areas).length) toast("No “**area:** practice x/y” lines found; kept the text");
+    if (!Object.keys(r.areas).length && !replay.length) toast("No “**area:** practice x/y” lines found; kept the text");
     if (isMain()) {
       MAIN.results.push(r);
       lab.cur.results = MAIN.results;
