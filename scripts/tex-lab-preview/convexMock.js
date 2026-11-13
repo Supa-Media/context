@@ -2,6 +2,7 @@
 export const useQuery = (ref, args) => {
   if (args === "skip") return undefined;
   const name = String(ref?.[Symbol.for("functionName")] ?? ref ?? "");
+  if (name.includes("texLabToolStats")) return globalThis.__labToolStats;
   if (name.includes("amIAdmin")) return true;
   if (name.includes("texLab")) return { me: "preview", versions: [], caseEdits: [] };
   return undefined;
