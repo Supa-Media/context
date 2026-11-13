@@ -8,11 +8,13 @@
 import { disabledToolNames } from "../plugins/enablement.js";
 import {
   PRIVATE_TIER_ONLY_TOOLS,
+  STAFF_ONLY_TOOLS,
   EXISTENCE_MASKED_TOOLS as registryExistenceMaskedTools,
   toolDefinitions as registryToolDefinitions,
   toolExistenceMasked,
 } from "./registry.js";
 import { readsPrivateAnywhere, writesAnywhere } from "../session.js";
+import { editsPinnedContext } from "../context/identity.js";
 import { machineRunRefuses } from "./machineRun.js";
 import { validateArguments } from "../toolArguments.js";
 
@@ -219,7 +221,9 @@ export async function toolsForSession(session, store, { shape = "v2" } = {}) {
     that suddenly speaks a quarter of the protocol.
   */
   const off = await disabledToolNames(store);
-  const enabled = off.size === 0 ? scoped : scoped.filter((tool) => !off.has(tool.name));
+  const enabled = (off.size === 0 ? scoped : scoped.filter((tool) => !off.has(tool.name))).filter(
+    (tool) => !STAFF_ONLY_TOOLS.has(tool.name) || editsPinnedContext(session),
+  );
   // An explicit adapter may expose a previously unlisted operation under its
   // own reviewed schema. Keep all existing scope/plugin/machine filters.
   if (shape === "all") return enabled.filter((tool) => !machineRunRefuses(session, tool.name));

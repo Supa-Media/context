@@ -663,6 +663,8 @@ export function groupWriteTools(offered, group = null) {
 export const SOMEBODYS_ALONE = new Set([
   "save_email_draft", "google_chat", "forward_rule", "connect_google", "connect_app", "slack_api", "app_read", "app_change",
   "dream_now", "notify_me", "save_context", "create_workspace", "pair_device", "fill_dates",
+  // The Architecture Lab's staff tool (`tools/runModel.js`): never a group's.
+  "run_model",
 ]);
 
 /** Every tool that changes something, by the registry's own word. */

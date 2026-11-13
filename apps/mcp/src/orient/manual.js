@@ -10,7 +10,7 @@
  */
 
 import { ACTIONS } from "../tools/v2/actions.js";
-import { PRIVATE_TIER_ONLY_TOOLS, toolDefinitions } from "../tools/registry.js";
+import { PRIVATE_TIER_ONLY_TOOLS, STAFF_ONLY_TOOLS, toolDefinitions } from "../tools/registry.js";
 import { V2_TOOLS } from "../tools/advertised.js";
 import { appOf, argumentsLine, liveToolListSection } from "../tools/liveList.js";
 
@@ -141,7 +141,7 @@ export async function toolsManual(store, scope) {
   }
   const offeredNames = new Set(offered.map((tool) => tool.name));
   const families = ACTION_FAMILIES.filter((family) => offeredNames.has(family) && actionsOf(family, scope).length > 0).map((family) => {
-    const lines = actionsOf(family, scope).map(([name, entry]) => {
+    const lines = actionsOf(family, scope).filter(([, entry]) => !STAFF_ONLY_TOOLS.has(entry.tool) || offeredNames.has(entry.tool)).map(([name, entry]) => {
       const { note } = shapeOf(entry);
       const top = note.length ? `top level: ${note.join(", ")}; ` : "";
       return `  - ${name} — ${entry.summary}\n    ${top}args: ${actionArguments(entry)}`;

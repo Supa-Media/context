@@ -93,6 +93,45 @@ search by meaning differently from production: there they find less. A call left
 run (`assertAnswered`), rather than letting the turn fall back to another
 model and be scored.
 
+## A Tex Architecture Lab version
+
+The Lab (tex.lc/admin/lab) hands a session a version's config: its steps,
+models, reading order, changed modules, wires, areas and picked cases (decided
+by the owner, 2026-11-13: run a Lab version on the subscription, log every
+step, paste the results back). The same examiner procedure runs it, through
+`pnpm ai lab` (`apps/mcp/bench/lab.mjs`):
+
+```sh
+pnpm ai lab plan --config lab.json      # what runs, what is applied, what needs code, what is skipped
+pnpm ai lab apply --config lab.json     # changed setup fields and prompt modules into the bench's copy only
+BENCH_MODEL_SOCKET_KINDS=claude,workers-ai \
+  pnpm ai lab run --config lab.json --base $MAIN --socket $SOCK --held-out $HELD --scratch $SCRATCH
+```
+
+- **Setup changes go into the bench's copy** (`apps/mcp/bench/ai/setups/texting-assistant/`),
+  never into `@context-lc ai/production`. Copy the live setup first (step 2
+  above). A module the config says came from main's text is checked against
+  the copy by its fingerprint, and a drifted copy stops the run.
+- **Code changes are built by hand** on a `lab/<version>` branch first; `run`
+  refuses a config with code changes on a tree that is still main's.
+- **Clef and GLM run for real.** With `workers-ai` in
+  `BENCH_MODEL_SOCKET_KINDS`, their calls come to the socket too, and the
+  session answers each by calling Context's `manage` action `run_model`
+  (`{ model, input }`, the call's own `request.model` and `request.input`) and
+  writing back exactly what it returned. The gateway runs the model with its
+  own binding; no key is ever in a note or on the session's machine. Only
+  owners and editors of `@context-lc` may call it.
+- **Every call is logged** to the step log (`BENCH_STEP_LOG`, default
+  `$SCRATCH/lab-steps.jsonl`; `apps/mcp/bench/stepLog.mjs`): one JSON line with
+  the Lab step (`node`), model, wall ms, estimated tokens in and out, thinking,
+  tool calls, output and `side` (`branch` or `main`, since the gate runs both).
+  The Lab reads the branch lines and turns a subscription call's output tokens
+  into production time.
+- **What to paste back:** the `## Lab run` block `run` prints (the gate's
+  `## Tex replay` report) and the step log.
+
+A model swap only proves wiring: the examiner answers as the named model.
+
 ## Why it is built this way
 
 - **CI recomputes the score.** The examiner only supplies the model's words,

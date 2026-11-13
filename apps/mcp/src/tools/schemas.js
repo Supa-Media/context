@@ -27,6 +27,7 @@ import { forwardRuleToolDefinitions } from "./schemas/forwardRule.js";
 import { workspaceToolDefinitions } from "./schemas/workspaces.js";
 import { connectorToolDefinitions } from "./schemas/connectors.js";
 import { dreamToolDefinitions } from "./schemas/dreams.js";
+import { runModelToolDefinitions } from "./schemas/runModel.js";
 import { fillDatesToolDefinitions } from "./schemas/fillDates.js";
 import { deviceToolDefinitions } from "./schemas/devices.js";
 import { attentionToolDefinitions } from "./schemas/attention.js";
@@ -53,6 +54,7 @@ export function baseToolDefinitions() {
     ...workspaceToolDefinitions(),
     ...connectorToolDefinitions(),
     ...dreamToolDefinitions(),
+    ...runModelToolDefinitions(),
     ...fillDatesToolDefinitions(),
     ...deviceToolDefinitions(),
     ...attentionToolDefinitions(),

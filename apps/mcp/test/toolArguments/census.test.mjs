@@ -7,6 +7,7 @@
  */
 
 import { fullToolList, V2_LIST_NAMES } from "../fullToolList.mjs";
+import { STAFF_ONLY_TOOLS } from "../../src/tools/registry.js";
 import {
   PRIVACY_MANIFEST,
   rpc,
@@ -84,8 +85,9 @@ export async function runToolArgumentCensusChecks(check, harness) {
 
   /* ---- every dispatch case is advertised, and every schema is closed ---- */
 
+  // A staff-only tool (`STAFF_ONLY_TOOLS`) is advertised to its staff alone, so this owner's connection is not offered it.
   const uncovered = dispatched.filter(
-    (name) => !schemas.has(aliases.get(name) ?? name) && !unlisted.has(name)
+    (name) => !schemas.has(aliases.get(name) ?? name) && !unlisted.has(name) && !STAFF_ONLY_TOOLS.has(name)
   );
   check(
     "every tool in the dispatch table has an advertised inputSchema",
