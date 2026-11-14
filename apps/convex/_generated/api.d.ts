@@ -63,6 +63,7 @@ import type * as functions_collaborationFiling from "../functions/collaborationF
 import type * as functions_linkRepairs from "../functions/linkRepairs.js";
 import type * as functions_liveSession from "../functions/liveSession.js";
 import type * as functions_collect from "../functions/collect.js";
+import type * as functions_consoleHome from "../functions/consoleHome.js";
 import type * as functions_consolePeople from "../functions/consolePeople.js";
 import type * as functions_contentReports from "../functions/contentReports.js";
 import type * as functions_contextMoves from "../functions/contextMoves.js";
@@ -356,6 +357,7 @@ declare const fullApi: ApiFromModules<{
   "functions/liveSession": typeof functions_liveSession;
   "functions/collect": typeof functions_collect;
   "functions/cloudflare": typeof functions_cloudflare;
+  "functions/consoleHome": typeof functions_consoleHome;
   "functions/consolePeople": typeof functions_consolePeople;
   "functions/contentReports": typeof functions_contentReports;
   "functions/contextMoves": typeof functions_contextMoves;
