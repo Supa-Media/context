@@ -263,6 +263,7 @@ import type * as functions_connectionClients from "../functions/connectionClient
 import type * as functions_connectionConsent from "../functions/connectionConsent.js";
 import type * as functions_connectionSettings from "../functions/connectionSettings.js";
 import type * as functions_connections from "../functions/connections.js";
+import type * as functions_consoleAi from "../functions/consoleAi.js";
 import type * as functions_featureFlags from "../functions/featureFlags.js";
 import type * as functions_flagObjects from "../functions/flagObjects.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
@@ -546,6 +547,7 @@ declare const fullApi: ApiFromModules<{
   "functions/connectionConsent": typeof functions_connectionConsent;
   "functions/connectionSettings": typeof functions_connectionSettings;
   "functions/connections": typeof functions_connections;
+  "functions/consoleAi": typeof functions_consoleAi;
   "functions/featureFlags": typeof functions_featureFlags;
   "functions/flagObjects": typeof functions_flagObjects;
   "functions/waitlist": typeof functions_waitlist;
