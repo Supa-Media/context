@@ -24,6 +24,8 @@ export default {
     const skipped = written.find((entry) => entry.kind === "step" && entry.step === "reviewer");
     assert.ok(skipped, "a review skipped for a turn with no action is a step too");
     assert.equal(skipped.output.verdict, "skipped");
-    assert.ok(!JSON.stringify(written).includes("391"), "never the draft's words, which are the reply entry");
+    // Ids and times are random digits that can hold "391" (a flake seen in CI on 2026-11-14), so they are left out.
+    const kept = JSON.stringify(written.map(({ id: _id, at: _at, ...entry }) => entry));
+    assert.ok(!kept.includes("391"), "never the draft's words, which are the reply entry");
   },
 };
