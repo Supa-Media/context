@@ -49,6 +49,11 @@ export function jobStub(env: JobStubEnv, jobId: string, { spawn }: { spawn: bool
           logPlace(path, "gateway", "ok");
           return started;
         }
+        // A start the gateway took but whose answer was lost must not run twice: it runs where it was born.
+        if (await gatewayHolds(binding, name)) {
+          logPlace(path, "gateway", "ok");
+          return Response.json({ ok: true });
+        }
         logPlace(path, "worker", "fallback");
         return await inbox.fetch(input, init);
       }

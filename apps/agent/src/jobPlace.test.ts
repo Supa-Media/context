@@ -129,9 +129,18 @@ describe("jobStub spawn (/job-start)", () => {
       body: JSON.stringify(START),
     });
     expect(response.status).toBe(200);
-    expect(gw.hits).toHaveLength(1);
+    expect(gw.hits).toHaveLength(2); // the start, then whether it was born there anyway
     expect(sender.hits).toEqual([{ id: `enam:${NAME}`, url: "https://inbox/job-start", method: "POST", name: NAME, body: JSON.stringify(START) }]);
     expect(JSON.parse(logged(spy)[0])).toEqual({ event: "job_place", op: "job-start", place: "worker", outcome: "fallback" });
+  });
+
+  it("a start the gateway took but answered badly stays in the gateway, never runs twice", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const sender = senderInbox();
+    const gw = gateway((url) => (url.endsWith("/job-here") ? Response.json({ here: true }) : new Response(null, { status: 502 })));
+    const response = await jobStub({ SENDER_INBOX: sender.ns, JOBS: "gateway", GATEWAY_TEXTS: gw.binding }, JOB, { spawn: true }).fetch("https://inbox/job-start", { method: "POST", body: "{}" });
+    expect(response.status).toBe(200);
+    expect(sender.hits).toHaveLength(0);
   });
 
   it("falls back to the SenderInbox when the gateway answers 404 (TexJob not deployed there)", async () => {

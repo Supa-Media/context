@@ -12,7 +12,7 @@
  *   - the inner object runs its workflow in the gateway (`env.TEX_JOB_RUN`) and reaches other jobs' objects here
  *     (`chatEnv`'s `jobsHere`).
  *
- * A chat running here reaches a job's object here only while `TEX_JOBS` is "gateway" (`texChat.js` `jobsInGateway`), and
+ * A chat starts a job here only while `TEX_JOBS` is "gateway" (`apps/agent/src/jobPlace.ts`, via `chatEnv`'s `JOBS`), and
  * the Worker hands calls to it through `jobCallForTexts`. Production keeps `TEX_JOBS` at "worker", so it is idle there.
  */
 

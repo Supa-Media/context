@@ -18,7 +18,7 @@ import type { JobNext } from "./jobRun";
 import { jobTag, MAX_JOB_ATTEMPTS, MAX_JOB_TRIES, MAX_MACHINE_JOB_ATTEMPTS } from "./jobs";
 import { logged } from "./agentError";
 import type { Env } from "./env";
-import { jobStub } from "./jobPlace";
+import { inboxByName } from "./objectPlace";
 
 export type JobRunParams = { job: string };
 /** More passes than a job can take: every part's tries, plus its last word offered again (10 parts since 2026-10-31). */
@@ -71,7 +71,7 @@ async function tellFailed(step: Pick<WorkflowStep, "do">, call: JobCall): Promis
 
 export class JobRunWorkflow extends WorkflowEntrypoint<Env, JobRunParams> {
   async run(event: Readonly<WorkflowEvent<JobRunParams>>, step: WorkflowStep): Promise<string> {
-    const stub = jobStub(this.env, event.payload.job, { spawn: false });
+    const stub = inboxByName(this.env.SENDER_INBOX, `job:${event.payload.job}`);
     return await runJobFlow(step, (path) => stub.fetch(`https://inbox${path}`, { method: "POST" }), event.payload.job);
   }
 }

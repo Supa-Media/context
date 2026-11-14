@@ -9,8 +9,8 @@
  *   - the line (sending, typing, read, tapback, members) is the texting Worker's, over its `TEXTING` RPC entrypoint
  *     (`lineCall`, `groupLineCall`), because the line's keys stay in the Worker;
  *   - the Worker's other objects this one reaches (a chat's directory entry, and a job's object while jobs run in the
- *     Worker) are reached the same way (`inboxFetch`); with `TEX_JOBS` "gateway" a job's object is `TEX_JOB` here
- *     (`senderObjects`, `jobsInGateway`);
+ *     Worker) are reached the same way (`inboxFetch`); a job's calls go through `apps/agent/src/jobPlace.ts`, which starts
+ *     a new job in the gateway's `TEX_JOB` while `TEX_JOBS` is "gateway" and sends every later call where it was born;
  *   - a group turn's retries stay the Worker's Workflow, started over the same RPC (`groupTurn`);
  *   - the control plane is reached as the Worker reached it, with `AGENT_WORKER_SECRET`.
  *
@@ -110,7 +110,7 @@ export function texChatClass({ gateway, texts }) {
       if (this.name === null) return null;
       const { SenderInbox } = await import("../../agent/src/gatewayChat.js");
       const senderId = (await storage.get(SENDER_ID_KEY)) ?? "";
-      this.inner = new SenderInbox(chatState(this.state, senderId), await chatEnv(this.env, this.state, this.name, senderId, { gateway, texts, jobsHere: jobsInGateway(this.env) }));
+      this.inner = new SenderInbox(chatState(this.state, senderId), await chatEnv(this.env, this.state, this.name, senderId, { gateway, texts }));
       return this.inner;
     }
   };
@@ -136,14 +136,6 @@ async function copyIn(rpc, storage, name) {
     await storage.put(SENDER_ID_KEY, typeof id === "string" ? id : "");
   }
   return moved;
-}
-
-/**
- * Whether background jobs run in the gateway (`TEX_JOBS` is "gateway", with the job objects bound): a chat's job calls
- * then go to `TEX_JOB` here, and otherwise to the Worker's objects as before (`texJob.js`).
- */
-export function jobsInGateway(env) {
-  return env.TEX_JOBS === "gateway" && env.TEX_JOB !== undefined;
 }
 
 /**
@@ -180,6 +172,8 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     CONTROL_PLANE_ORIGIN: typeof env.CONTROL_PLANE_URL === "string" ? env.CONTROL_PLANE_URL : "",
     AGENT_WORKER_SECRET: typeof env.AGENT_WORKER_SECRET === "string" ? env.AGENT_WORKER_SECRET : "",
     // The Worker's other objects (a job's, a chat's directory entry), reached through the Worker.
+    // Where a new background job starts (`apps/agent/src/jobPlace.ts`): its calls then follow where it was born.
+    JOBS: env.TEX_JOBS === "gateway" && env.TEX_JOB !== undefined ? "gateway" : "worker",
     SENDER_INBOX: senderObjects(env, rpc, name, senderId, jobsHere),
     TEX_LINE: rpc === undefined ? undefined : { line: (chatId) => remoteLine(rpc, name, chatId), groupLine: (groupId) => remoteGroupLine(rpc, name, groupId) },
     // A group turn's retries stay the Worker's Workflow: it reaches this chat through the Worker's object by its old
