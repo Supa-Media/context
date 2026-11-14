@@ -550,3 +550,4 @@ test/runModelWorker.test.mjs
 test/ledgerSteps.test.mjs
 test/texConfig.test.mjs
 test/workerSteps.test.mjs
+test/texPrefixPrint.test.mjs

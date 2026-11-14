@@ -496,7 +496,7 @@ export async function runTurn(options) {
       ...(answer.stop === "max_tokens" ? { cut: true } : {}),
       ...(strippedNote ? { code: "thinking_stripped" } : {}),
       // What the round cost in tokens, and how much of its output was words or calls (the rest is thinking): `turnStages.js` `callPoints`; and which prompt it was sent, as module ids and fingerprints, never its words (`promptManifest.js`).
-      ...(answer.usage ? { usage: answer.usage, said: (answer.text ?? "").length, calls: answer.toolCalls.length } : {}), ...(prompt.prompt ? { prompt: prompt.prompt } : {}),
+      ...(answer.usage ? { usage: answer.usage, said: (answer.text ?? "").length, calls: answer.toolCalls.length } : {}), ...(prompt.prompt ? { prompt: prompt.prompt } : {}), ...(answer.prefix ? { prefix: answer.prefix } : {}),
     });
     strippedNote = false;
     if (answer.usage) {

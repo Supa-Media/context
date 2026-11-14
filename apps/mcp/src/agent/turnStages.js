@@ -86,7 +86,9 @@ export function turnStages(env, now = Date.now) {
       // The same numbers in the Worker's log, for a live tail (`wrangler tail`).
       if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "turn_stages", kind: point.blobs[0], outcome: point.blobs[1], ...(carry ?? {}), ...Object.fromEntries(COLUMNS.map((name, i) => [name, Math.round(point.doubles[i])])) }));
       const perCall = callPoints(point.blobs[0], rounds ?? report?.trace ?? [], turn);
-      for (const call of perCall) if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "model_call", kind: call.blobs[0], model: call.blobs[1], ...Object.fromEntries(CALL_COLUMNS.map((name, i) => [name, call.doubles[i]])) }));
+      // Each round's prefix fingerprints beside its numbers (`prefixPrint.js`), so a cache miss names what changed; same order as `callPoints`.
+      const prints = (rounds ?? report?.trace ?? []).filter((entry) => entry?.kind === "model").map((entry) => (entry.prefix ? { ...entry.prefix, modules: (entry.prompt?.modules ?? []).map((m) => `${m.id}:${m.h}`) } : null));
+      for (const [i, call] of perCall.entries()) if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "model_call", kind: call.blobs[0], model: call.blobs[1], turn: call.blobs[3], ...Object.fromEntries(CALL_COLUMNS.map((name, at) => [name, call.doubles[at]])), ...(prints[i] ? { prefix: prints[i] } : {}) }));
       write(env?.TEX_CALLS, perCall);
       return write(env?.TEX_TIMING, [point]) ? point : null;
     },

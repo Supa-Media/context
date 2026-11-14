@@ -47,6 +47,7 @@
  */
 
 import { ProviderError, THINKING_REFUSED, anthropicMessages } from "./providers.js";
+import { prefixPrint } from "./prefixPrint.js";
 import { withToday } from "./localNow.js";
 
 /** The Anthropic API version this build is written against. */
@@ -527,5 +528,7 @@ export async function requestViaGateway(call, config, options = {}) {
     },
     paidBy,
     retried: answer.retried ?? null,
+    // A texted turn's prefix as fingerprints, so a cache miss names the piece that changed (`prefixPrint.js`).
+    prefix: Number.isInteger(call.cachedThrough) ? prefixPrint(body, anthropicMessages(call.messages.slice(0, call.cachedThrough)).length) : null,
   };
 }
