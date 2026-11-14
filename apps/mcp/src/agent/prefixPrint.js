@@ -33,10 +33,26 @@ function chunksOf(message) {
   return out;
 }
 
+/** The most lines of the first history message printed one by one. */
+export const MAX_LINES = 800;
+
+/** What a line is, by its first character only: a stamped text, a bracketed note, a summary, an indented quote, blank or other. */
+const LINE_KINDS = { "[": "t", "(": "p", "-": "s", " ": "i", "": "e" };
+
+/**
+ * The first history message line by line, each as its kind and a short fingerprint ("t1a2b3"), so two texts' transcripts
+ * line up and say which lines were added, dropped or changed, and where (a 20-line chunk cannot: one line added at the
+ * top changes every chunk after it, as production's first 1:1 pair did on 2026-11-14).
+ */
+function linesOf(message) {
+  if (!message) return [];
+  return textOf(message).split("\n").slice(0, MAX_LINES).map((line) => `${LINE_KINDS[line.slice(0, 1)] ?? "o"}${fingerprint(line).slice(0, 5)}`);
+}
+
 const unmarked = (value) => JSON.stringify(value, (key, inner) => (key === "cache_control" ? undefined : inner));
 
 /**
- * `{tools, systemParts, history, toolPrints, firstChunks, historyBlocks, blocks, more}` for a body laid out with a history
+ * `{tools, systemParts, history, toolPrints, firstChunks, firstLines, historyBlocks, blocks, more}` for a body laid out with a history
  * breakpoint, or null without one. `historyEnd` is how many wire messages the
  * history is; `blocks` counts the content blocks from the history's end to the
  * body's end (the API looks back about 20 blocks from a breakpoint for an
@@ -55,6 +71,7 @@ export function prefixPrint(body, historyEnd) {
     toolPrints: (body.tools ?? []).map((tool) => [fingerprint(String(tool?.name ?? "")), fingerprint(unmarked(tool))]),
     // The first history message (a transcript of the chat's day) in chunks of `CHUNK_LINES` lines, so a changed transcript names where it changed.
     firstChunks: chunksOf(history[0]),
+    firstLines: linesOf(history[0]),
     historyBlocks: history.reduce((sum, message) => sum + blocksOf(message), 0),
     blocks: messages.slice(historyEnd).reduce((sum, message) => sum + blocksOf(message), 0),
     ...(history.length > MAX_HISTORY_PRINTS ? { more: history.length - MAX_HISTORY_PRINTS } : {}),
