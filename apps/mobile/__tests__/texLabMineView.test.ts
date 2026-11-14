@@ -52,6 +52,7 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
     readMyTexts: async () => {},
     readMyChats: async () => {},
     readMomentDetail: async () => {},
+    refreshChat: async () => {},
     // Replay's details: the Worker's judgings and each turn's reply timing, as the ledger keeps them.
     replayEntries: () => {
       const T1 = Date.UTC(2026, 10, 14, 14);
@@ -298,11 +299,12 @@ describe("the Lab's test user as You", () => {
 
   test("Replay is its own mode: your chats, the conversation in moments, a timeline of how they queued, read only", async () => {
     await click(q("#modeReplay"));
-    // The text box over the canvas repeats the chat, so it is hidden; the wires' key is folded until asked for.
+    // The text box over the canvas repeats the chat, so it is hidden; the wires' key is open, starting the top row, until put away.
     expect(q(".ctop .moment")?.hasAttribute("hidden")).toBe(true);
-    expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
-    await click(q("#keyBtn"));
     expect(q("#keyw")?.textContent).toMatch(/Next/);
+    expect(q("#keyBtn")?.previousElementSibling?.className).not.toBe("cbreak");
+    await click(q("#keyBtn"));
+    expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
     await click(q("#keyBtn"));
     // The chats hide from beside them, and come back from the canvas's edge.
     await click(q("#rCollapse"));
@@ -319,8 +321,14 @@ describe("the Lab's test user as You", () => {
     expect(qa("#replaySide [data-moment]").map((x) => x.getAttribute("data-moment"))).toEqual(["ev1", "ev3"]);
     // It opens on the newest moment, and the timeline shows its texts, the judge's calls and the turn.
     expect(q('[data-moment="ev3"]')?.getAttribute("aria-current")).toBe("true");
-    expect(qa('#replayTimeline [data-lane="Judge"] .rbar').map((x) => x.textContent)).toEqual(["answer", "fold it in"]);
-    expect(qa('#replayTimeline [data-lane="Turn"] .rbar').map((x) => x.className)).toEqual(["rbar wait", "rbar turn"]);
+    expect(qa('#replayTimeline [data-lane="decide"] .rbar').map((x) => x.textContent)).toEqual(["answer", "fold it in"]);
+    expect(qa('#replayTimeline [data-lane="queue"] .rbar').map((x) => x.className)).toEqual(["rbar wait"]);
+    // One row per step that ran, each helper under the step that waited on it (Dev2, 2026-11-14: "what about helpers?").
+    const rowNames = qa("#replayTimeline .rrow .rln").map((x) => x.textContent);
+    expect(rowNames[0]).toBe("Texts");
+    expect(rowNames).toContain("Front door");
+    expect(rowNames).not.toContain("Judge");
+    expect(rowNames.at(-1)).toBe("Sent");
     // The panel doesn't repeat the texts (they're on the left): it shows each turn and the judge's calls.
     expect(q("#replayPanel h3")?.textContent).toBe("From your text");
     expect(qa("#rTurns .rturnt").map((x) => x.textContent)).toEqual(["Done."]);

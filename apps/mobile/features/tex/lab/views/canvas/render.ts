@@ -66,6 +66,31 @@ export function wireIconHtml(mode: string): string {
   return `<svg class="w" viewBox="0 0 30 10" style="width:30px;height:10px;flex:none"><path d="M1,5 H26" stroke="var(${w.c})" stroke-width="${w.w || 1.6}" ${w.dash ? `stroke-dasharray="${w.dash}"` : ""} fill="none"/><path d="M24,2 L29,5 L24,8z" fill="var(${w.c})"/></svg>`;
 }
 
+/**
+ * A step that waits on others (Dev2, 2026-11-14: "is the 3 second tool call essentially added to the front door? ...
+ * can we somehow show that"): a thin bar along its foot split into its own time and each helper it stood waiting on,
+ * in each one's colour, so the step's time reads as the sum it is. Nothing for a step that waits on none.
+ */
+function splitHtml(sim: Sim, g: LabGraph, id: string, ownColour: string): string {
+  const parts = (sim.T[id]?.parts ?? []).filter((p) => p.ms > 0);
+  if (parts.length < 2) return "";
+  const total = parts.reduce((a, p) => a + p.ms, 0);
+  const span = W - 20;
+  let x = 10;
+  const colour = (p: { id: string; own?: boolean }) => (p.own ? ownColour : p.id === "sendback" ? "--bad" : (MODELS[node(p.id, g)?.model ?? "code"] || MODELS.code).c);
+  const name = (p: { id: string; own?: boolean }) => (p.own ? "Its own work" : p.id === "sendback" ? "Sent back" : "Waiting on " + (node(p.id, g)?.label ?? p.id));
+  const tip = parts.map((p) => `${name(p)} ${fmtS(p.ms)}`).join(" · ");
+  const segs = parts
+    .map((p) => {
+      const w = Math.max(2, (p.ms / total) * span);
+      const r = `<rect x="${x.toFixed(1)}" y="${H - 7}" width="${Math.max(1, w - 1.5).toFixed(1)}" height="3" rx="1.5" fill="var(${colour(p)})"/>`;
+      x += w;
+      return r;
+    })
+    .join("");
+  return `<g class="split"><title>${esc(tip)}</title>${segs}</g>`;
+}
+
 /** A step's time over it: measured as is, an estimate beside measured ones marked "≈", or "inside" a step. */
 function timeLabel(sim: Sim, id: string): string {
   const t = sim.T[id];
@@ -106,6 +131,9 @@ export function renderGraphHtml(
   // While playing, how far through each running step is (0 to 1), drawn as a ring filling around it.
   const ring = (id: string) => (litId instanceof Map ? (litId.get(id) ?? null) : null);
   const lit = (id: string) => (fade === "off" ? !!node(id, g)?.on : reached(id));
+  // Running and waiting on a helper that is running now (Dev2, 2026-11-14: "green when its running through its regular
+  // process/reasoning, and then blue whenever its making a helper call").
+  const waiting = (id: string) => litId instanceof Map && g.edges.some((e) => e.from === id && e.mode === "uses" && litId.has(e.to));
   let h = `<defs>${Object.entries(WIRES)
     .map(
       ([k, w]) =>
@@ -137,12 +165,12 @@ export function renderGraphHtml(
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
     const time = timeLabel(sim, n.id);
     h += `<g class="nd ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
-      <rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? `<rect class="ring" width="${W}" height="${H}" rx="12" pathLength="100" stroke-dasharray="${(ring(n.id)! * 100).toFixed(1)} 100"/>` : ""}
+      <rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? `<rect class="ring${waiting(n.id) ? " wait" : ""}" width="${W}" height="${H}" rx="12" pathLength="100" stroke-dasharray="${(ring(n.id)! * 100).toFixed(1)} 100"/>` : ""}
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>
       <text class="ttl" x="62" y="28">${esc(n.label.length > 15 ? n.label.slice(0, 14) + "…" : n.label)}</text>
       <circle cx="66" cy="43" r="3.5" fill="var(${n.on ? m.c : "--dim"})"/><text class="sub" x="74" y="47">${esc(sub)}</text>
-      ${time ? `<text class="tm" x="${W - 4}" y="-7" text-anchor="end">${time}</text>` : ""}
+      ${time ? `<text class="tm" x="${W - 4}" y="-7" text-anchor="end">${time}</text>` : ""}${n.on ? splitHtml(sim, g, n.id, m.c) : ""}
       <circle class="port" data-port="${n.id}" cx="${W}" cy="${H / 2}" r="6"/>
       <circle class="port" data-port="${n.id}" cx="0" cy="${H / 2}" r="6"/>
     </g>`;

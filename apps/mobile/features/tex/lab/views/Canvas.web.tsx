@@ -96,7 +96,7 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
   const { lit, clock, running, toggle: play, scrub, total } = usePlayback(speed, `${s.scn}|${s.ownText}|${s.real?.text ?? ""}|${s.real ? 1 : 0}`);
   const [addOpen, setAddOpen] = useState(false);
   const [scnOpen, setScnOpen] = useState(false);
-  const [keyOpen, setKeyOpen] = useState(false);
+  const [keyOpen, setKeyOpen] = useState(true); // open until put away (Dev2, 2026-11-14: "The key should be open by default")
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const applyCam = () =>
@@ -234,7 +234,8 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
         id="stats"
         dangerouslySetInnerHTML={{ __html: statsHtml(sim) }}
       />
-      <div className="cbreak" />
+      {/* In Replay the top row holds nothing else, so the key starts it instead of a row below (Dev2: "why is it so low on the page"). */}
+      {replay ? null : <div className="cbreak" />}
       {/* The wires' key, folded away until asked for (Dev2, 2026-11-14: "this legend could collapse into something more tucked away"). */}
       {focused ? null : (
         <button className="float keybtn" id="keyBtn" aria-expanded={keyOpen} title="What the wires mean" onClick={() => setKeyOpen(!keyOpen)}>
@@ -377,7 +378,8 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
       </div>
       </>
       )}
-      <div className={replay ? "float zoom ztop" : "float zoom"}>
+      {/* Replay zooms with the trackpad and pinch alone (Dev2, 2026-11-14: "dont need this"). */}
+      <div className="float zoom" hidden={!!replay}>
         <button
           className="ib"
           id="zOut"
