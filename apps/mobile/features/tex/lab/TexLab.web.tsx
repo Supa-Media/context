@@ -239,9 +239,7 @@ function Lab() {
               Replay
             </button>
           </div>
-          {replay ? (
-            <span className="hint" id="replayNote">Read only</span>
-          ) : (
+          {replay ? null : (
             <>
           <button className="chipbtn" id="verBtn" onClick={showVersions}>
             <Svg className="i" d='<path d="M6 4v10a4 4 0 0 0 4 4h8"/><circle cx="18" cy="18" r="1.6"/>' />
