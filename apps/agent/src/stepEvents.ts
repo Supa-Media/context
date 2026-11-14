@@ -23,7 +23,7 @@ import { reactionFor } from "./reactEmoji";
 import type { Decision, DecideAsk } from "./decide";
 import type { InboxStorage } from "./inbox";
 
-export type StepName = "decide" | "react";
+export type StepName = "triage" | "decide" | "react";
 /** One step as the gateway takes it (`apps/mcp/src/agent/log.js` `checkStep`). */
 export type StepRecord = {
   name: StepName;
@@ -73,11 +73,13 @@ export function decideStep(ask: Pick<DecideAsk, "style" | "candidates" | "newest
 }
 
 /**
- * Decide when code answered and the judge was never asked (`inboxTurn.ts` `chooseTurn`): the texts it covered, by id,
- * and why code settled it, as an answer to all of them.
+ * Triage: code's rules over a person's waiting texts, before any judge (`inboxTurn.ts` `chooseTurn`, `groupInbox.ts`
+ * `acceptGroup`; Dev2, 2026-11-14: "everything needs a node ... where else is there random code running"). It names the
+ * texts it looked at, by id, where it sent them (`to`: "tex" straight to the queue, "judge" to Decide, "running" put to
+ * the judge beside the turn already running) and the rule that did it.
  */
-export function codeDecideStep(candidates: string[], why: string): StepRecord {
-  return { name: "decide", of: "waiting", ok: true, ms: 0, input: { style: "direct", running: false, candidates, newest: candidates.at(-1) ?? "" }, output: { act: "answer", covers: candidates, by: "code", why } };
+export function triageStep(candidates: string[], to: "tex" | "judge" | "running", why: string, more: Record<string, unknown> = {}): StepRecord {
+  return { name: "triage", of: to, ok: true, ms: 0, input: { texts: candidates, ...more }, output: { to, why } };
 }
 
 /**

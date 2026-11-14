@@ -31,13 +31,21 @@ const base: LedgerEntry[] = [
   }),
   e({ id: "ev2", seq: 6, at: 1_000_000_008_100, kind: "text", from: { kind: "tex" }, text: "Three things.", turn: T, covers: ["1000000000001-000001"] }),
 ];
-// What the Worker now keeps when code sends one text straight to Tex (`apps/agent/src/stepEvents.ts` `codeDecideStep`).
+// What the Worker kept, before Triage had a node, when code sent one text straight to Tex.
 const codeDecide = e({
   id: "ev1000000000001500002",
   seq: 7,
   at: 1_000_000_000_500,
   kind: "step",
   step: { name: "decide", of: "waiting", ok: true, ms: 0, input: { candidates: ["1000000000001-000001"] }, output: { act: "answer", by: "code", why: "one text and nothing of Tex's waiting on it: it goes straight to Tex" } },
+} as unknown as Partial<LedgerEntry> & { id: string; kind: string });
+// What it keeps now (`apps/agent/src/stepEvents.ts` `triageStep`).
+const triaged = e({
+  id: "ev1000000000001500003",
+  seq: 8,
+  at: 1_000_000_000_500,
+  kind: "step",
+  step: { name: "triage", of: "tex", ok: true, ms: 0, input: { texts: ["1000000000001-000001"] }, output: { to: "tex", why: "one text and nothing of Tex's waiting on it: it goes straight to Tex" } },
 } as unknown as Partial<LedgerEntry> & { id: string; kind: string });
 
 const rowsOf = (entries: LedgerEntry[]) => {
@@ -52,8 +60,20 @@ describe("Replay draws only what ran", () => {
     for (const never of ["decide", "react", "checks", "router", "classifier", "planner"]) expect(ids).not.toContain(never);
   });
 
-  test("Decide gets its row when the Worker logged it, even decided by code in no time", () => {
-    expect(rowsOf([...base, codeDecide])).toContain("decide");
+  test("Triage gets its row when code sent the text straight to Tex, and Decide, which never ran, gets none", () => {
+    // Dev2, 2026-11-14: "I told you everything needs a node but I dont see a code node that sends it to tex?"
+    for (const kept of [triaged, codeDecide]) {
+      const ids = rowsOf([...base, kept]);
+      expect(ids).toContain("triage");
+      expect(ids).not.toContain("decide");
+    }
+  });
+
+  test("on the canvas, the text reaches the queue through Triage's wires, never by a jump", () => {
+    const g = G();
+    expect(g.edges.some((w) => w.from === "text" && w.to === "triage")).toBe(true);
+    expect(g.edges.some((w) => w.from === "triage" && w.to === "lanes")).toBe(true);
+    expect(g.edges.some((w) => w.from === "text" && w.to === "decide")).toBe(false);
   });
 
   test("the canvas's run keeps only measured steps and what started it", () => {

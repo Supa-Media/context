@@ -56,6 +56,14 @@ test("a step event is checked at the door: from the system, a known step, no wor
   assert.throws(() => checkEvent(step(now), { chat: CHAT, now }), EventRefusal);
 });
 
+test("Triage, code's routing before any judge, is taken as a step of its own (Dev2, 2026-11-14: \"everything needs a node\")", () => {
+  // Sabotage: drop "triage" from log.js WORKER_STEPS or ledger.js STEP_NAMES and this fails.
+  const now = Date.now();
+  const event = checkEvents(CHAT, [step(now, { step: { name: "triage", of: "tex", ok: true, ms: 0, input: { texts: ["1-000001"] }, output: { to: "tex", why: "one text and nothing waiting" } } })])[0];
+  const entry = eventEntry(event);
+  assert.deepEqual([entry.kind, entry.step, entry.name, entry.output.to], ["step", "triage", "tex", "tex"]);
+});
+
 test("a step becomes a step entry with its input, output, time and outcome, kept once by its event id", () => {
   const now = Date.now();
   const event = checkEvents(CHAT, [step(now, { turn: "turn-step-0001" })])[0];
