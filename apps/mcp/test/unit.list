@@ -86,6 +86,7 @@ test/liveGrantAccess.test.js
 test/liveToolList.test.mjs
 test/logicalDelete.test.mjs
 test/managedEncryption.test.mjs
+test/mailAccounts.test.mjs
 test/meaningCatchup.test.mjs
 test/meaningSearch.test.mjs
 test/meaningFromObjectGate.test.mjs

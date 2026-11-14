@@ -260,9 +260,7 @@ export async function runTurn(options) {
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
     // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
-    workspaces = null,
-    // Their connected mailboxes and each one's state (`mailAccounts.js`), so a mail search names the right one.
-    mail = null,
+    workspaces = null, mail = null, // and their mailboxes with each one's state (`mailAccounts.js`)
     // How hard each model thinks, by model name (`production.js`); absent: the model's own default.
     efforts = null,
     // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
@@ -566,9 +564,8 @@ export async function runTurn(options) {
       if (resolved.error) {
         messages.push({ role: "tool", id: made.id, name: made.name, text: resolved.error, isError: true });
         escalate = true;
-        const unknownArg = resolved.cause === "unknown_argument";
-        tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: unknownArg ? "unknown argument" : "no such action" });
-        failed({ tool: made.name, cause: unknownArg ? "unknown_argument" : "no_such_action", text: resolved.error, round });
+        tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: (resolved.cause ?? "no_such_action").replaceAll("_", " ") });
+        failed({ tool: made.name, cause: resolved.cause ?? "no_such_action", text: resolved.error, round }); // or `unknown_argument` (`sixTools.js`)
         continue;
       }
       const call = { ...made, name: resolved.name, args: resolved.args };
