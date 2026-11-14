@@ -558,3 +558,6 @@ test/texGraphHome.test.mjs
 test/searchQuality.test.mjs
 test/textsArrive.test.mjs
 test/texChatMove.test.mjs
+test/reflectNudgeNodes.test.mjs
+test/nightlyGraph.test.mjs
+test/egressPictureNodes.test.mjs
