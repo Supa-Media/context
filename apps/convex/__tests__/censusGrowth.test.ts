@@ -173,5 +173,14 @@ describe("the census's growth slice", () => {
     expect(report.sources.mailOpenSlugs.slice(0, 3)).toEqual(["alpha", "w00", "w01"]);
     expect(report.sources.mailOpenSlugs).not.toContain("closed");
     expect([...report.sources.mailOpenSlugs]).toEqual([...report.sources.mailOpenSlugs].sort());
+    // Home's "Needs you" reads the same list from its own light query.
+    expect(await as.query(api.functions.consoleHome.openMail, {})).toEqual(report.sources.mailOpenSlugs);
+  });
+
+  test("Home's open-mail list refuses everyone who is not staff", async () => {
+    const t = convexTest(schema, modules);
+    const outsider = await seedUser(t, "someone@example.test");
+    await expect(withSession(t, outsider).query(api.functions.consoleHome.openMail, {})).rejects.toThrow();
+    await expect(t.query(api.functions.consoleHome.openMail, {})).rejects.toThrow();
   });
 });

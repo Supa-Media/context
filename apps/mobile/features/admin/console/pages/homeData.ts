@@ -1,0 +1,222 @@
+/**
+ * The console's Home page, as data: the five tiles on top and the "Needs you" list under them (Dev2, 2026-11-14:
+ * "metric tiles on top, Needs you under them"). Pure functions over what the existing staff queries return, so every
+ * figure on the page can be checked without mounting anything. The page is `HomePage.web.tsx`; the mock it copies is
+ * the staff console artifact's `P.home` and `needsList`.
+ */
+
+/** The console's window, in days, as its `d` URL key holds it. */
+export type ConsoleWindow = "1" | "7" | "30" | "90";
+
+export const WINDOW_WORDS: Readonly<Record<ConsoleWindow, string>> = {
+  "1": "24 hours",
+  "7": "7 days",
+  "30": "30 days",
+  "90": "90 days",
+};
+
+export const DAY_MS = 86_400_000;
+
+/** `[from, to)` for a window ending now, and the same-length window before it. */
+export function windowRange(d: ConsoleWindow, now: number): { from: number; to: number; priorFrom: number } {
+  const span = Number(d) * DAY_MS;
+  return { from: now - span, to: now, priorFrom: now - 2 * span };
+}
+
+/** `$1,234.56`, as the mock's `money`. */
+export function money(usd: number, digits = 2): string {
+  const value = Number.isFinite(usd) ? usd : 0;
+  return "$" + value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+export const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** A signed change, and whether it is the good direction (the mock's `delta`). */
+export type Delta = { text: string; good: boolean };
+
+export function delta(change: number, upIsGood: boolean, unit = ""): Delta {
+  // `|| 0` so a fall that rounds away reads +0, never -0.
+  const rounded = Math.round(change * 100) / 100 || 0;
+  return { text: `${rounded >= 0 ? "+" : ""}${rounded}${unit}`, good: rounded >= 0 === upIsGood };
+}
+
+/** Percent change from `prior` to `now`, or null when there was nothing before to compare with. */
+export function percentChange(now: number, prior: number): number | null {
+  if (!(prior > 0)) return null;
+  return Math.round(((now - prior) / prior) * 100);
+}
+
+// -- tiles -------------------------------------------------------------------------------------------------------------
+
+/** What `texStats.report` answers, the parts Home reads. */
+export type TexStatsLike = {
+  configured: true;
+  dailyActive: number;
+  people: { one: number; group: number; any: number; accounts?: number; guests?: number };
+  texts: { inOne: number; inGroup: number; outOne: number; outGroup: number };
+  cost: { totalUsd: number };
+  costPerTextUsd: number | null;
+  series: { at: number; people: number; textsIn: number; usd: number }[];
+};
+
+/** What the AI costs action answers, the parts Home reads (`admin.consoleCosts`). */
+export type CostsLike = {
+  totalUsd: number;
+  outOfPocketUsd: number;
+  perTextUsd: number | null;
+  priorPerTextUsd: number | null;
+  daily?: { usd: number }[];
+};
+
+export type Tile = {
+  key: string;
+  label: string;
+  value: string;
+  /** The line under the value; `delta` is drawn first, coloured, when set. */
+  detail: string;
+  delta?: Delta;
+  /** The page a tile opens. */
+  go: string;
+  spark: number[];
+  color: "c1" | "c2" | "c3" | "c4" | "c5";
+};
+
+/**
+ * The five tiles. `stats` is null while it loads or when the deployment has no analytics token; a tile then reads `—`
+ * rather than a zero nobody measured.
+ */
+export function homeTiles(input: {
+  d: ConsoleWindow;
+  stats: TexStatsLike | null;
+  costs: CostsLike | null;
+  /** Accounts, for "of N people". */
+  accounts: number | null;
+  /** Turns Tex answered in the window (`agentReport` texts `current.answered`). */
+  answered: number | null;
+  /** Cost per text in the window before, when `costs` does not say (from `texStats` of that window). */
+  priorPerText?: number | null;
+}): Tile[] {
+  const { d, stats, costs, accounts, answered } = input;
+  const series = stats?.series ?? [];
+  const dash = "—";
+  const people = stats?.people;
+  const withAccounts = people?.accounts ?? people?.one ?? 0;
+  const guests = people?.guests ?? Math.max(0, (people?.any ?? 0) - withAccounts);
+  const textsIn = stats ? stats.texts.inOne + stats.texts.inGroup : null;
+  const perText = costs?.perTextUsd ?? stats?.costPerTextUsd ?? null;
+  const priorPerText = costs?.priorPerTextUsd ?? input.priorPerText ?? null;
+  const total = costs?.totalUsd ?? stats?.cost.totalUsd ?? null;
+  const daily = stats?.dailyActive;
+  return [
+    {
+      key: "dap",
+      label: "Daily active people",
+      value: daily == null ? dash : d === "1" ? String(people?.any ?? 0) : (Math.round(daily * 10) / 10).toString(),
+      detail: accounts == null ? "" : `of ${accounts} people`,
+      go: "people",
+      spark: series.map((p) => p.people),
+      color: "c5",
+    },
+    {
+      key: "texters",
+      label: "People texting Tex",
+      value: people ? String(people.any) : dash,
+      detail: people ? `${withAccounts} with accounts · ${guests} guests` : "",
+      go: "turns",
+      spark: series.map((p) => p.people),
+      color: "c4",
+    },
+    {
+      key: "texts",
+      label: "Texts received",
+      value: textsIn == null ? dash : textsIn.toLocaleString("en-US"),
+      detail: answered == null ? "" : `${answered.toLocaleString("en-US")} answered`,
+      go: "turns",
+      spark: series.map((p) => p.textsIn),
+      color: "c1",
+    },
+    {
+      key: "cpt",
+      label: "Cost per text",
+      value: perText == null ? dash : money(perText),
+      detail: perText != null && priorPerText != null ? " vs the window before" : "",
+      delta: perText != null && priorPerText != null ? delta(perText - priorPerText, false) : undefined,
+      go: "costs",
+      spark: series.map((p) => (p.textsIn > 0 ? p.usd / p.textsIn : 0)),
+      color: "c2",
+    },
+    {
+      key: "spent",
+      label: "Spent on AI",
+      value: total == null ? dash : money(total),
+      detail: costs ? `${money(costs.outOfPocketUsd)} of it out of pocket` : "",
+      go: "costs",
+      spark: costs?.daily?.length ? costs.daily.map((p) => p.usd) : series.map((p) => p.usd),
+      color: "c3",
+    },
+  ];
+}
+
+// -- needs you ---------------------------------------------------------------------------------------------------------
+
+/** Where a need's row goes: a page, its sub-path, a selected row and filters, as the console's `go` takes them. */
+export type Target = { page: string; subs?: string[]; x?: string | null; f?: Record<string, string> };
+
+export type NeedLine = {
+  key: string;
+  tone: "warn" | "bad";
+  /** The bold words, then the rest of the sentence. */
+  bold: string;
+  rest: string;
+  /** The page's name, shown at the right. */
+  where: string;
+  target: Target;
+};
+
+export type NeedsSources = {
+  /** Credentials the code expects that are not set (`unsetKnownSecrets`). */
+  secretsUnset: number | undefined;
+  /** Open content reports; `viaTex` when the report rows say which came by text. */
+  openReports: { count: number; viaTex: number | null } | undefined;
+  /** Turns that did not finish in the window (`agentReport` texts). */
+  unfinished: { exhausted: number; failed: number } | undefined;
+  /** People waiting on the waitlist. */
+  waiting: number | undefined;
+  /** People let in by phone but never told. */
+  untold: number | undefined;
+  /** Workspaces whose search index failed. */
+  failedIndexes: number | undefined;
+  /** Workspaces (slugs) whose backup encryption check failed. */
+  failedBackups: string[] | undefined;
+  /** Workspaces (slugs) whose mail inbox takes mail from anyone. */
+  mailOpen: string[] | undefined;
+};
+
+/** The list, in the mock's order. A source still loading adds nothing; it never reads as "nothing needs you". */
+export function needsList(s: NeedsSources): NeedLine[] {
+  const out: NeedLine[] = [];
+  const n = (v: number | undefined): number => (typeof v === "number" && v > 0 ? v : 0);
+  if (n(s.secretsUnset)) {
+    const c = n(s.secretsUnset);
+    out.push({ key: "credentials", tone: "warn", bold: plural(c, "credential", "credentials"), rest: ` the code expects ${c > 1 ? "are" : "is"} not set`, where: "Credentials", target: { page: "credentials" } });
+  }
+  if (s.openReports && s.openReports.count > 0) {
+    const r = s.openReports;
+    out.push({ key: "reports", tone: "bad", bold: plural(r.count, "open report", "open reports"), rest: r.viaTex == null ? "" : `, ${r.viaTex} texted to Tex`, where: "Reports", target: { page: "reports" } });
+  }
+  if (s.unfinished) {
+    const { exhausted, failed } = s.unfinished;
+    const total = exhausted + failed;
+    if (total > 0) out.push({ key: "turns", tone: "warn", bold: plural(total, "turn", "turns"), rest: ` didn't finish (${exhausted} ran out of steps, ${failed} failed)`, where: "Turns", target: { page: "turns", f: { end: "trouble" } } });
+  }
+  if (n(s.waiting)) out.push({ key: "waiting", tone: "warn", bold: plural(n(s.waiting), "person", "people"), rest: " waiting to be let in", where: "People", target: { page: "people", f: { ps: "waiting" } } });
+  if (n(s.untold)) out.push({ key: "untold", tone: "warn", bold: plural(n(s.untold), "person", "people"), rest: " let in by phone but never told", where: "People", target: { page: "people", f: { ps: "in", told: "no" } } });
+  if (n(s.failedIndexes)) out.push({ key: "indexes", tone: "bad", bold: plural(n(s.failedIndexes), "workspace", "workspaces"), rest: " with a failed search index", where: "Search", target: { page: "search", subs: ["indexes"] } });
+  const backups = s.failedBackups ?? [];
+  if (backups.length === 1) out.push({ key: "backup", tone: "bad", bold: `@${backups[0]}`, rest: " failed its backup encryption check", where: "Storage", target: { page: "storage" } });
+  else if (backups.length > 1) out.push({ key: "backup", tone: "bad", bold: plural(backups.length, "workspace", "workspaces"), rest: " failed their backup encryption check", where: "Storage", target: { page: "storage" } });
+  for (const slug of s.mailOpen ?? []) {
+    out.push({ key: `mail-${slug}`, tone: "warn", bold: `@${slug}'s mail inbox`, rest: " takes mail from anyone", where: "People", target: { page: "people" } });
+  }
+  return out;
+}
