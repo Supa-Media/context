@@ -112,7 +112,8 @@ test("each step's prompt modules are the p- entries of its context, in order, an
 });
 
 test("a note naming neither models nor modules, as production's does, is given the config's modules and the repository's words", async () => {
-  const bare = readFileSync(FINGERPRINT_SETUP, "utf8").replace(/^modules:\n(?: {2}.*\n)+/m, "");
+  const bare = readFileSync(FINGERPRINT_SETUP, "utf8");
+  assert.doesNotMatch(bare, /^modules:/m, "the fingerprint copy names no modules, as production's note names none");
   const setup = await parseSetup(bare);
   const { texts, job } = texModules();
   assert.deepEqual(setup.modules, texModules());
@@ -123,8 +124,8 @@ test("a note naming neither models nor modules, as production's does, is given t
 });
 
 test("a note that names its own modules keeps them, and says which of Tex's modules it words differently", async () => {
-  const raw = readFileSync(FINGERPRINT_SETUP, "utf8");
-  assert.match(raw, /^modules:/m);
+  const lists = texModules();
+  const raw = readFileSync(FINGERPRINT_SETUP, "utf8").replace(/^---\n/, `---\nmodules:\n  texts: [${lists.texts.join(", ")}]\n  job: [${lists.job.join(", ")}]\n`);
   const words = (path) => {
     const name = path.slice(path.lastIndexOf("/") + 1, -3);
     const text = TEX_PROMPT_WORDS[name];
