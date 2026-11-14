@@ -5,6 +5,7 @@
  * the "when" choices and the add-step kinds. The graph itself is Tex's config (`mainGraph`).
  */
 import TEX_CONFIG from "@context/shared/src/texConfig.json";
+import { foldGroups, type GroupDefs } from "../engine/groups";
 import type { LabGraph, LabNode } from "../types";
 
 export const BASE_SHA: string = "888afb0";
@@ -83,7 +84,11 @@ export const NODE_INFO: Record<string, { goal: string; logs: string[] | null }> 
  */
 export function mainGraph(): LabGraph {return mainGraph0()}
 
-export function mainGraph0(): LabGraph {const c=JSON.parse(JSON.stringify(TEX_CONFIG)) as {nodes:LabNode[];edges:LabGraph["edges"]};return {nodes:c.nodes,edges:c.edges}}
+/** The config's group definitions (the box of each folded group). */
+export const GROUPS: GroupDefs = TEX_CONFIG.groups;
+
+/** The Lab's start graph: the config with each group folded into its box (Dev2, 2026-11-14: "Focus on it opens all eleven steps"). */
+export function mainGraph0(): LabGraph {const c=JSON.parse(JSON.stringify(TEX_CONFIG)) as {nodes:LabNode[];edges:LabGraph["edges"]};return foldGroups({nodes:c.nodes,edges:c.edges},GROUPS)}
 
 export const WHEN: Array<[string, string]> = [["*","Always"],["action","After an action"],["lookup","Looking things up"],["email","An email"],["card","A card"],["stuck","Stuck"],["job","A job"],["group","Group chats"],["one","1:1 chats"],["down","Model down"],["big","Big ask"]];
 

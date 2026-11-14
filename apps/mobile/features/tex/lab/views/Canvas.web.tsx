@@ -18,6 +18,8 @@ import {
   undo,
 } from "../engine/state";
 import { fmtS } from "../engine/sim";
+import { stepsShownFor } from "../engine/groups";
+import { GROUPS } from "../data/graph";
 import { labSim, tracedReal } from "../engine/realTimes";
 import { SCENARIOS, scnLabel } from "../engine/traces";
 import { useLab } from "../store";
@@ -141,16 +143,22 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
 
   // The artifact's renderCanvas: a focused step that no longer exists drops the focus.
   const g = G();
-  if (s.cfocus && !node(s.cfocus, g)) lab.cfocus = null;
+  // A focus on an open group draws the whole graph with its steps in it (Dev2, 2026-11-14: "Focus on it opens all eleven steps").
+  const opened = stepsShownFor(g, lab.cfocus).length > 0;
+  if (s.cfocus && !node(s.cfocus, g) && !opened) lab.cfocus = null;
   const sim = labSim(g);
   const tags = (SCENARIOS[s.scn] || SCENARIOS.own)?.tags || [];
   let html: string;
-  if (lab.cfocus) {
+  if (lab.cfocus && !opened) {
     const f = renderFocusCanvasHtml(g, sim, lab.cfocus, s.sel);
     fBounds.current = f.fBounds;
     html = f.html;
-  } else html = renderGraphHtml(g, sim, tags, s.sel, replay ? replayLit : lit, "off");
-  const focused = lab.cfocus ? node(lab.cfocus, g) : undefined;
+  } else {
+    fBounds.current = null;
+    html = renderGraphHtml(g, sim, tags, s.sel, replay ? replayLit : lit, "off");
+  }
+  // An open group has no box to name, so its focus bar takes the group's label (Dev2, 2026-11-14).
+  const focused = lab.cfocus ? node(lab.cfocus, g) ?? (opened ? { label: GROUPS[lab.cfocus]?.label ?? lab.cfocus } : undefined) : undefined;
 
   useLayoutEffect(applyCam);
 

@@ -1,245 +1,206 @@
 # How Tex works
 
-The one architecture diagram of Tex: how a text reaches `texEntryPoint`, the
-steps it runs, and the answer maker inside it with every model it calls.
-**Any change to this architecture changes this file in the same pull request**
-(Dev2, 2026-11-05: "have a standing rule that any change to the architecture
-must change the diagram, that way I can always go to the diagram and see what
-changed"). `scripts/tex-diagram-check.mjs` enforces it in CI; see
-[the rule](#the-rule) at the bottom. What changed, and when, is the
-[change log](#change-log) and this file's history.
+The one architecture diagram of Tex: every step Tex runs and every wire between
+them, **drawn from Tex's config**, `packages/shared/src/texConfig.json`, which
+is what runs (Dev2, 2026-11-14: the connections between nodes are config, never
+code). Nothing in sections 1 and 2 is hand-drawn: change the config (by hand,
+or with the Tex Architecture Lab's Promote) and run
+`node scripts/tex-architecture.mjs`, and this page and what every Tex agent is
+told about its own structure follow. `scripts/tex-diagram-check.mjs` enforces
+it in CI; see [the rule](#the-rule). How the config works, field by field, is
+[the config graph decision](../decisions/texting-assistant/config-graph.md).
+What changed, and when, is the [change log](#change-log) and this file's
+history.
 
-Models named here are the production setup's
-(`@context-lc ai/production/texting-assistant.md`, read on every turn by
-`readTheSetup`) or the literal in the file named beside them.
+## 1. Every step and wire
 
-## 1. A text on its way to the door
+A box is a node: code, or one model call, with the file its code lives in. A
+group of nodes (the eleven Door steps) is drawn as one box around them; the Lab
+folds it and opens it with Focus. An arrow is a wire, drawn by its mode:
 
-Every text, 1:1 or group, ends in the same `texEntryPoint`. What differs today
-is the texting Worker in front of it (`apps/agent`), which has a lane for each.
-The one-door plan folds the group lane into the door, step by step.
+- `-->` **wait**: runs next, on the source's output, only when the output carries
+  the wire's tag (a tag on the arrow; none means always);
+- `-.->` **uses** (the source may call it and wait for the answer) or
+  **background** (runs after the source, nobody waits);
+- `==>` **loop** (sends work back for another try) or **job** (starts it as a
+  background job).
 
+<!-- tex-config: drawing begin -->
 ```mermaid
 flowchart LR
-  P1([1:1 text]):::you --> W1
-  P2([Group text]):::you --> W2
-  subgraph Worker["Texting Worker · apps/agent"]
-    W1["1:1 lane<br/>inbox.ts · inboxTurn.ts<br/>queue, which texts, steer"]:::pipe
-    W2["Group lane<br/>groupInbox.ts · groupTurn.ts<br/>every message to the judge, chatter kept<br/>chatter in the ledger as it is said: a turn's token, or with none, the chat's ledger key over the binding, /texts/events · chatRead.ts · textsDecide.js<br/>up to 3 turns side by side, one per asker: anybody else's text starts its own, the asker's next waits or is steered in · groupTurnRun.ts<br/>a literal @Tex tag judged silent or react is answered all the same, its silence the fallback line<br/>one tapback on a slow ask: as its first tool starts, at most one, none with a text · groupModelTurn.ts<br/>the intro rides on the first answer<br/>a chat Tex is not set up in: first look, nothing kept<br/>sent only to the people it was written for: a WhatsApp list<br/>kept from its own read and Whapi's change events · groupMembers.ts<br/>every turn (a tag, a routine, a check-in, a job's report, a saved login's carry-on, a Done on its browser) runs on the chat's home plus its reach<br/>a job's report that can't run says news is waiting, never silence"]:::pipe
-    H["Hear a group voice memo first<br/>groupVoice.ts"]:::pipe
-    W2 --- H
-    LA["Shared step: lookAgain<br/>their newer words may change the answer<br/>a tapback never holds a reply<br/>lookAgain.ts"]:::shared
-    RT["Shared rule: a failed turn is tried 3 more times<br/>from 10 s, doubling, then one failed line<br/>1:1 by the queue's alarm, groups by groupTurnWorkflow.ts<br/>1:1 says a refusal or a turn past its time at once"]:::shared
-    W1 --- RT
-    W2 --- RT
-    Q["Shared step: the chat's queue<br/>each text waits in its chat's object, in order<br/>1:1 up to 20, a group up to 10<br/>chatQueue.ts"]:::shared
-    W1 --- Q
-    W2 --- Q
-    FT["Shared step: isItForTex<br/>only whether code answers it, never the model:<br/>a command said to Tex by name, sharing chats with the devs, an SMS<br/>whether anything else is for Tex is the judge's<br/>isItForTex.ts"]:::shared
-    W1 --- FT
-    W2 --- FT
-    GT["Shared step: gatherTheTurn<br/>what decide named is answered, an older must-answer first<br/>1:1 drops what's left, a group keeps it as chat<br/>gatherTheTurn.ts"]:::shared
-    W1 --- GT
-    W2 --- GT
+  n_checkin(["Check-in<br/>code<br/>heartbeat.js"]):::start
+  n_routine(["Routine runs<br/>code<br/>routine.js · runARoutine.js · finishARoutine.js"]):::start
+  n_notify(["Send through Tex<br/>code<br/>tools/attention.js · attention.js"]):::start
+  n_text(["A text arrives<br/>code<br/>apps/agent"]):::start
+  n_decide["Decide<br/>Clef<br/>textsDecide.js · textDecide.cjs"]:::model
+  n_lanes["Queue<br/>code<br/>apps/agent inbox.ts · groupTurn.ts"]:::code
+  n_router["Router<br/>Clef · off<br/>router.js"]:::off
+  n_fd["Front door<br/>Haiku 5.5 · effort medium<br/>turn.js runTurn · texEntryPoint/runTheModel.js"]:::model
+  n_fallback["Fallback<br/>GLM-4.7 Flash<br/>builtin.js"]:::model
+  n_planner["Big-ask planner<br/>Opus 5.5 · effort high · off<br/>planBigAsk.js"]:::off
+  n_tools["Tools<br/>code<br/>callToolForSession"]:::tool
+  n_advisor["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js · advisorRoles/chat.js"]:::model
+  n_checks["Answer checks<br/>code<br/>doItChecks.js"]:::code
+  n_mail["Mail checker<br/>Haiku 5.5 · effort low<br/>mailChecker.js"]:::model
+  n_card["Card check<br/>Haiku 5.5 · effort medium<br/>cardCheck.js"]:::model
+  n_reviewer["Reply reviewer<br/>Haiku 5.5 · effort low<br/>replyJudge.js · sendBack.js"]:::model
+  n_send["Text them<br/>code<br/>sendTheReply · sendOne.ts · recoverFromFailure.js"]:::code
+  n_react["React<br/>code<br/>decide.ts reactionFor · reactions.ts"]:::code
+  n_classifier["Classifier<br/>Haiku 5.5 · effort off<br/>conversationThreads.js"]:::model
+  n_selfreview["Self-review<br/>Haiku 5.5 · effort low<br/>selfReview.js"]:::model
+  n_job["Background job<br/>Haiku 5.5 · effort medium<br/>background.js"]:::model
+  n_jobcheck["Job check<br/>Opus 5.5 · effort high<br/>jobCheck.js"]:::model
+  n_mailadv["Advisor on job mail<br/>Opus 5.5 · effort high<br/>jobNote.js · advisorRoles/jobMail.js"]:::model
+  n_handback["Hand-back judge<br/>Haiku 5.5 · effort low<br/>handbackJudge.js · claimCheck.js"]:::model
+  subgraph n_group_door["Door steps"]
+    n_readTheText["Read the text<br/>code<br/>texEntryPoint/readTheText.js"]:::code
+    n_runARoutine["Run a routine<br/>code<br/>texEntryPoint/runARoutine.js"]:::code
+    n_checkTheQuestion["Check the question<br/>code<br/>texEntryPoint/checkTheQuestion.js"]:::code
+    n_settleAYesOrNo["Settle a yes or no<br/>code<br/>texEntryPoint/settleAYesOrNo.js"]:::code
+    n_watchWhatLeaves["Watch what leaves<br/>code<br/>texEntryPoint/watchWhatLeaves.js"]:::code
+    n_checkItMayRun["Check it may run<br/>code<br/>texEntryPoint/checkItMayRun.js"]:::code
+    n_readTheHistory["Read the history<br/>code<br/>texEntryPoint/readTheHistory.js"]:::code
+    n_openTheWeb["Open the web<br/>code<br/>texEntryPoint/openTheWeb.js"]:::code
+    n_readTheSetup["Read the setup<br/>code<br/>texEntryPoint/readTheSetup.js"]:::code
+    n_prepareBookkeeping["Bookkeeping<br/>code<br/>texEntryPoint/prepareBookkeeping.js"]:::code
+    n_prepareTheAnswer["Prepare the answer<br/>code<br/>texEntryPoint/prepareTheAnswer.js"]:::code
   end
-  D["The one judge · recheck, in the gateway<br/>Clef, @cf/cloudflare/clef, few-shot examples<br/>respond, react or quiet, with a why, every moment<br/>told follow-along in every group; a judge entry in the group's ledger<br/>reads the chat's day by its ledger key, /texts/chat, when the Worker holds no token<br/>shown whose message a reply is under, Tex's open question, its running jobs and open threads as now<br/>and each group turn's brief: its work, what it waits on, the chat's rules and guest names<br/>textDecide.cjs · textsDecide.js · decideGateway.ts"]:::judge
-  subgraph Control["Control plane · Convex"]
-    CAP["decide's daily cap and usage rows<br/>asked now and then, written after<br/>textDecideMeter.ts · jev/models.ts"]:::judge
-  end
-  D -. cap kept 5 min, usage after .-> CAP
-  W1 -. which texts, wait or answer .-> D
-  W2 -. respond, react or quiet, which texts .-> D
-  E -. draft, before it sends .-> LA
-  LA -. still fits? .-> D
-  W1 -->|POST /agent| E
-  W2 -->|POST /agent| E
-  E{{"texEntryPoint<br/>apps/mcp/src/agent/texEntryPoint.js"}}:::door
-  E --> S1["1:1 way out<br/>inbox.ts · sendParts.ts<br/>idempotency keys, cards, carousels, typing"]:::pipe
-  E --> S2["Group way out<br/>groupSay.ts<br/>group line, send once on a retry, each turn's parts its own<br/>every reply under the text it answers; an answer to a tapback: under the text it was on, or plain"]:::pipe
-  E -. "a changing tool call, one at a time per chat" .-> WL["Group write lock<br/>in the chat's own Tex store, leased 60 s, in memory<br/>a read never takes it; waited 20 s at most, never stops a change<br/>chatWriteLock.js · texStore/writeLock.js"]:::shared
-  S1 --> SO["Shared step: one sender<br/>each text and picture sent, kept and logged the same way<br/>a picture that won't go is said once, logged as the system's<br/>sendOne.ts"]:::shared
-  S2 --> SO
-  SO --> Out([iMessage · WhatsApp · SMS]):::you
-  Out -. "Sendblue status, POST /sendblue/status/secret" .-> ST["Shared step: each send's status<br/>logged as codes; a threaded text that never went<br/>goes again plain, once; any other is marked<br/>in the chat's log<br/>each inbound text's lag, by Sendblue's own sent time<br/>sendblueStatus.ts · threadedResend.ts"]:::shared
-  classDef you fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
-  classDef pipe fill:#fff0e2,stroke:#ff8a2a,color:#1d1838
-  classDef door fill:#dcf7f3,stroke:#11b5a4,stroke-width:3px,color:#1d1838
-  classDef judge fill:#fff5d6,stroke:#e09a00,color:#1d1838
-  classDef shared fill:#dcf6e7,stroke:#19a75a,stroke-width:3px,color:#1d1838
-```
-
-Green boxes are door steps both lanes already share. Each one-door pull
-request moves another job out of the two lanes into one.
-
-## 2. The door: texEntryPoint, top to bottom
-
-One function (`apps/mcp/src/agent/texEntryPoint.js`), one file per step under
-`apps/mcp/src/agent/texEntryPoint/`. A step either hands the turn on or answers
-it; the first answer is the response. Every 1:1 text, group turn, background
-job, job report and routine run takes this path.
-
-<!-- tex-diagram: steps begin -->
-```mermaid
-flowchart TB
-  readTheText["readTheText<br/>who is asking, which chat, a group's chat<br/>and the apex its own email address is on"]:::step
-  runARoutine["runARoutine<br/>a routine's run: paused, or nothing to do"]:::step
-  checkTheQuestion["checkTheQuestion<br/>the question, its files, what it replies to"]:::step
-  settleAYesOrNo["settleAYesOrNo<br/>a yes or 👍 to a waiting send, in code, no model"]:::rail
-  watchWhatLeaves["watchWhatLeaves<br/>what this turn may read in and send out"]:::rail
-  checkItMayRun["checkItMayRun<br/>tools, history (each part timed), may the model run here"]:::step
-  readTheHistory["readTheHistory<br/>voice memos heard, files kept, the chat so far<br/>read from its ledger every turn, a routine, check-in, job report or job's part too<br/>a reply shows the full words it answers<br/>under each earlier text, what it read for it, quoted<br/>starts the conversation classifier"]:::step
-  openTheWeb["openTheWeb<br/>write tools and the browser"]:::step
-  readTheSetup["readTheSetup<br/>prompt, skills, models, fallback"]:::step
-  prepareBookkeeping["prepareBookkeeping<br/>usage, turn log, failed tool calls, the chat's ledger"]:::step
-  prepareTheAnswer["prepareTheAnswer<br/>side reads, answer checks, pictures"]:::step
-  runTheModel["runTheModel<br/>THE ANSWER MAKER, section 3"]:::model
-  finishARoutine["finishARoutine<br/>a routine's run ends here"]:::step
-  sendTheReply["sendTheReply<br/>the reply, the ledger, self-review<br/>the reply keeps its facts: each claim, its source, a quote<br/>a job part's answer streamed before its check"]:::step
-  recoverFromFailure["recoverFromFailure<br/>a turn that threw"]:::fail
-  readTheText --> runARoutine --> checkTheQuestion --> settleAYesOrNo --> watchWhatLeaves --> checkItMayRun --> readTheHistory --> openTheWeb --> readTheSetup --> prepareBookkeeping --> prepareTheAnswer --> runTheModel --> finishARoutine --> sendTheReply
-  runTheModel -. throws .-> recoverFromFailure
-  classDef step fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
-  classDef rail fill:#e4e7ff,stroke:#3c4bd6,color:#1d1838
-  classDef model fill:#ece5ff,stroke:#7b4dff,stroke-width:3px,color:#1d1838
-  classDef fail fill:#ffe5e6,stroke:#e5484d,color:#1d1838
-```
-<!-- tex-diagram: steps end -->
-
-Blue steps are rails kept in code, never by a model: who may say yes, and what
-may leave the turn (`privacy/egress.js`).
-
-## 3. The answer maker: runTheModel and every model it calls
-
-```mermaid
-flowchart TB
-  Q([The question, the chat, About me, the setup,<br/>the capability list: what Tex can do, and where<br/>capabilities.js<br/>today's date for every model below, at its door,<br/>and every earlier text with its day and time<br/>localNow.js withToday · stamped]):::you -->|thread list as it stood after the text before,<br/>old moments that fit, with age and reactions,<br/>last 24 to 30 hours, its start on a 6-hour step so it reads from cache,<br/>with day ages and quiet stretches<br/>threadedTurn.js · callbacks.js · chatTime.js| FD
-  CL["Conversation classifier<br/>Haiku 5.5 · thinking off · after the reply, never waited for<br/>which open thread the text continues, or a new one<br/>finishes a thread only on evidence, never on silence<br/>whether to answer at all is the Worker's one judge's<br/>kept in the chat's threads ledger, chat.threads, for the next text<br/>conversationThreads.js · threadedTurn.js"]:::judge
-  SEND -. behind the reply .-> CL
-  FD["Front door<br/>Haiku 5.5 · effort medium · up to 24 rounds<br/>turn.js runTurn"]:::haiku
-  FD <-->|tools| T["Tools: notes, search, web, browser,<br/>vault, email, calendar, apps,<br/>their texts (1:1 only, Mac backup)<br/>the one dispatcher, callToolForSession"]:::tool
-  T -. a call fails .-> TF["Failed tool calls kept, every model with tools<br/>tool, cause code, reason with its values taken out<br/>logged at once, then rows naming nobody<br/>tex.lc/admin: Why tools fail<br/>toolFailures.js · texToolFailures.ts"]:::tool
-  FD <-->|ask_advisor, when stuck or weighing| ADV["Advisor<br/>Opus 5.5 · effort high<br/>up to 40 s for a text, 90 s in a job<br/>advisor.js · its words advisorRoles/chat.js<br/>replayed alone: advisor-chat"]:::opus
-  FD -. model down .-> FB["Fallback<br/>GLM-4.7 Flash, @cf/zai-org/glm-4.7-flash<br/>builtin.js"]:::off
-  FD -. off in production .-> RT["Router<br/>Clef picks Haiku or Opus<br/>router.js"]:::off
-  FD -. off unless planBigAsks .-> PL["Big-ask planner<br/>the advisor splits it into jobs<br/>planBigAsk.js · its words advisorRoles/planner.js<br/>replayed alone: advisor-planner"]:::off
-
-  FD -->|"send background, ending the turn<br/>with its say line, or a tapback without one<br/>judged from job-start examples, jobStart.js"| JOB["Background jobs, minions<br/>Haiku 5.5 + the advisor<br/>handed their open ask word for word beside the brief<br/>starts with the pages the chat opened<br/>background.js · openAsk.js · jobPages.js"]:::haiku
-  JOB -->|every stop| JC["Job check<br/>the advisor, Opus 5.5<br/>against the finish line and every part of their own words<br/>jobCheck.js · its words advisorRoles/jobCheck.js<br/>replayed alone: advisor-job-check"]:::opus
-  JOB <-->|first, then all along| JN["Job note and its mail<br/>the job, tex, advisor, coworker jobs<br/>other notes' mail too, as the job's own name<br/>new-mail checks and asks' waits answered by the note's object<br/>jobNote.js · jobNote.ts · deliver.js · mailOps.js"]:::tool
-  JN -->|mail to tex| SEND
-  JN -->|mail to advisor| JNA["Advisor on the mail<br/>Opus 5.5, ten asks a job<br/>jobNote.js · its words advisorRoles/jobMail.js<br/>replayed alone: advisor-job-mail"]:::opus
-  ADVC["The advisor's shared core: one model, four roles<br/>each asked one way, the drawing ahead of its own words<br/>a change here replays all four roles<br/>advisorRoles/core.js adviseOnce"]:::opus
-  ADVC -.- ADV
-  ADVC -.- PL
-  ADVC -.- JC
-  ADVC -.- JNA
-  JOB -->|a job's answer| JCK["claimCheck.js, code<br/>+ hand-back judge, Haiku 5.5<br/>handbackJudge.js"]:::judge
-  JOB -->|on a computer| PC["A person's computer<br/>Claude Code on Opus 5.5, or Codex<br/>told where it was started from (1:1 or group)<br/>jobBackground.js"]:::tool
-  FD -->|delegate, 1:1 only| DL["Another agent on the web<br/>Claude Code, Codex, Claude, Claude Design or ChatGPT<br/>on their own account, a task note and its supervisor<br/>delegate.js · supervise.js"]:::tool
-  FD -->|send action computers| CS["Their own computers, set up from a text<br/>setup prompt, pair by texted code (1:1 only),<br/>lend to this group, limits, install, sign in, disconnect<br/>owner's own words only · texActions.js"]:::tool
-  FD -->|send tex_settings, setting, vault_access| ST["Every setting, from a text<br/>one list: texSettings.cjs, also the app's rows<br/>check-ins, quiet hours, pings, overnight, tidy (1:1)<br/>who can use each saved login: chat, workspace, @person<br/>invite everyone here to a workspace, sent by the Worker after the answer<br/>saver's own words, widening judged · settingsTools.js · vaultByText.ts"]:::tool
-  FD -->|"send ask_personal_tex, groups only"| PT["The tagger's personal Tex, asked for who they are<br/>name, phone, emails from their account, for a form or sign-in<br/>their own tag: says it is asking, then asks<br/>anyone else here: offered, runs on their own 👍 or yes<br/>askPersonalTex.js · texIdentity/identity.ts"]:::tool
-
-  T -->|send_email| MC["Mail checker<br/>Haiku 5.5, reads the draft<br/>mailChecker.js"]:::judge
-  MC --> YES([Waits for the person's yes, in code]):::rail
-  T -->|write_note of a page| PW["Page pictures, code, before the save<br/>fills each option with no photo, or one it names but never attached<br/>a photo address the turn read goes in as bytes, no judge<br/>pagePhotos.js · pageReadImages.js"]:::tool
-  PW -->|an address the turn never read| SJ["Sharing judge<br/>the person's own words must ask for it<br/>widening.js · judge.js"]:::judge
-  T -->|draw_visual, draw_picture| PIC["Cards and graphics<br/>HTML, photographed by site-shots<br/>an item with no photo is a No photo found tile, never a blank slot"]:::tool
-  T -->|make_picture| IMG["Photos<br/>Gemini 2.5 Flash Image<br/>pictureMaker.js"]:::tool
-  PIC --> CC["Card check<br/>Haiku 5.5 looks before it goes<br/>told which places have no pin<br/>cardCheck.js"]:::judge
-  IMG --> CC
-
-  FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js, without the reviewer or on a draft it skips<br/>web findings texted as a wall go back to be a page, workPage.js<br/>a page saved with no picture and no cover call goes back to draw it, pageCoverFloor.js<br/>sent back once"]:::judge
-  FD -->|say_nothing: nothing to text| QT["Say nothing, a call<br/>ends the turn at once, no judge reads it<br/>never a word like SKIP<br/>sayNothing.js"]:::judge
-  CHK -->|reply_judge: haiku,<br/>a draft after an action| RJ["Reply reviewer, Haiku 5.5, one call<br/>a draft written with no action is not read<br/>reads the whole turn, names its kind<br/>checks the whole open ask, not only the newest text<br/>a changed pick or figure must say why<br/>a routine's or check-in's text too, as one nobody asked for,<br/>on its last step too: sent back there, nothing is texted<br/>never a progress line, never a text to other people<br/>a joke is never a fact, unless it says Tex sent something<br/>works out every sum, checks every figure against what was read<br/>a take-back nothing read this turn backs goes back, read with no action too<br/>sends back only with feedback, at most once,<br/>a task or a job's report up to five times, asking the advisor from the third, while the turn has time<br/>reviews kept in the chat history<br/>replyJudge.js"]:::judge
-  CHK -->|held back| SB["Send-back, from the turn's ledger<br/>each draft quoted, marked NOT sent<br/>every action taken, what the reviewer named<br/>revise, don't restart; the same write is not rerun<br/>sendBack.js"]:::judge
-  RJ -->|held back| SB
-  SB -->|revise the draft| FD
-  CHK --> SEND([sendTheReply]):::door
-  SEND -. behind the reply .-> SR["Self-review<br/>Haiku 5.5 scores the chat<br/>selfReview.js"]:::judge
-
-  classDef you fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
-  classDef haiku fill:#dcf7f3,stroke:#11b5a4,stroke-width:3px,color:#1d1838
-  classDef opus fill:#ece5ff,stroke:#7b4dff,stroke-width:3px,color:#1d1838
-  classDef judge fill:#fff5d6,stroke:#e09a00,color:#1d1838
+  n_checkin --> n_fd
+  n_routine --> n_readTheText
+  n_notify --> n_send
+  n_text --> n_decide
+  n_decide --> n_react
+  n_decide --> n_lanes
+  n_lanes --> n_readTheText
+  n_readTheText -->|next| n_runARoutine
+  n_runARoutine -->|next| n_checkTheQuestion
+  n_checkTheQuestion -->|next| n_settleAYesOrNo
+  n_settleAYesOrNo -->|next| n_watchWhatLeaves
+  n_watchWhatLeaves -->|next| n_checkItMayRun
+  n_checkItMayRun -->|next| n_readTheHistory
+  n_readTheHistory -->|next| n_openTheWeb
+  n_openTheWeb -->|next| n_readTheSetup
+  n_readTheSetup -->|next| n_prepareBookkeeping
+  n_prepareBookkeeping -->|next| n_prepareTheAnswer
+  n_readTheText -->|answered| n_send
+  n_runARoutine -->|answered| n_send
+  n_checkTheQuestion -->|answered| n_send
+  n_settleAYesOrNo -->|answered| n_send
+  n_checkItMayRun -->|answered| n_send
+  n_prepareTheAnswer --> n_fd
+  n_prepareTheAnswer --> n_router
+  n_router --> n_fd
+  n_fd -.->|uses: action| n_tools
+  n_fd -.->|uses: stuck| n_advisor
+  n_fd -.->|uses: down| n_fallback
+  n_fd -.->|uses: big| n_planner
+  n_tools -.->|uses: email| n_mail
+  n_tools -.->|uses: card| n_card
+  n_fd --> n_checks
+  n_checks -->|action| n_reviewer
+  n_checks --> n_send
+  n_reviewer -->|action| n_send
+  n_reviewer ==>|loop: action| n_fd
+  n_checks ==>|loop| n_fd
+  n_send -.->|background| n_classifier
+  n_send -.->|background| n_selfreview
+  n_fd ==>|job: job| n_job
+  n_job -.->|uses: job| n_tools
+  n_job -.->|uses: job| n_jobcheck
+  n_job ==>|job: job| n_handback
+  n_job -.->|uses: job| n_mailadv
+  classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
+  classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
+  classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
   classDef tool fill:#fff0e2,stroke:#ff8a2a,color:#1d1838
-  classDef rail fill:#e4e7ff,stroke:#3c4bd6,color:#1d1838
-  classDef door fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
-  classDef off fill:#efeef4,stroke:#9a97b0,stroke-dasharray:5 4,color:#5d5880
+  classDef off fill:#eeeeee,stroke:#999999,color:#555555,stroke-dasharray:4 3
 ```
+<!-- tex-config: drawing end -->
 
-Grey dashed boxes are built but off in production today. Other models on the
-way: voice memos are heard by Whisper in the transcribe Worker
-(`ingestion/transcription.js`), and search by meaning uses BGE-M3 embeddings
-(`search/meaning/embed.js`). Decide's Clef is in section 1, asked in the
-gateway (`textsDecide.js`) through `decide.js`, the gateway's one call to it;
-its cap and usage rows stay in the control plane.
-What each model costs is `jev/meter.ts`.
+## 2. Every step, in a table
+
+Each node's model, effort, time limit and the context it reads, in order, and
+every wire, from the same config.
+
+<!-- tex-config: steps begin -->
+| Step | Id | Group | | Model | Effort | Time limit | Reads, in order | Where |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Check-in | checkin |  | on | code |  |  |  | heartbeat.js |
+| Routine runs | routine |  | on | code |  |  |  | routine.js · runARoutine.js · finishARoutine.js |
+| Send through Tex | notify |  | on | code |  |  |  | tools/attention.js · attention.js |
+| A text arrives | text |  | on | code |  |  |  | apps/agent |
+| Decide | decide |  | on | Clef |  |  | examples, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
+| Queue | lanes |  | on | code |  |  |  | apps/agent inbox.ts · groupTurn.ts |
+| Read the text | readTheText | door | on | code |  |  |  | texEntryPoint/readTheText.js |
+| Run a routine | runARoutine | door | on | code |  |  |  | texEntryPoint/runARoutine.js |
+| Check the question | checkTheQuestion | door | on | code |  |  |  | texEntryPoint/checkTheQuestion.js |
+| Settle a yes or no | settleAYesOrNo | door | on | code |  |  |  | texEntryPoint/settleAYesOrNo.js |
+| Watch what leaves | watchWhatLeaves | door | on | code |  |  |  | texEntryPoint/watchWhatLeaves.js |
+| Check it may run | checkItMayRun | door | on | code |  |  |  | texEntryPoint/checkItMayRun.js |
+| Read the history | readTheHistory | door | on | code |  |  |  | texEntryPoint/readTheHistory.js |
+| Open the web | openTheWeb | door | on | code |  |  |  | texEntryPoint/openTheWeb.js |
+| Read the setup | readTheSetup | door | on | code |  |  |  | texEntryPoint/readTheSetup.js |
+| Bookkeeping | prepareBookkeeping | door | on | code |  |  |  | texEntryPoint/prepareBookkeeping.js |
+| Prepare the answer | prepareTheAnswer | door | on | code |  |  |  | texEntryPoint/prepareTheAnswer.js |
+| Router | router |  | off | Clef |  |  | recent | router.js |
+| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, caps, hist, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
+| Fallback | fallback |  | on | GLM-4.7 Flash |  |  |  | builtin.js |
+| Big-ask planner | planner |  | off | Opus 5.5 | high |  | own, ask, caps | planBigAsk.js |
+| Tools | tools |  | on | code |  |  |  | callToolForSession |
+| Advisor | advisor |  | on | Opus 5.5 | high | 40 s | own, caps, about, ask, ledger, hist, date | advisor.js · advisorRoles/chat.js |
+| Answer checks | checks |  | on | code |  |  |  | doItChecks.js |
+| Mail checker | mail |  | on | Haiku 5.5 | low |  | own, draft, ask | mailChecker.js |
+| Card check | card |  | on | Haiku 5.5 | medium |  | own, draft | cardCheck.js |
+| Reply reviewer | reviewer |  | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | replyJudge.js · sendBack.js |
+| Text them | send |  | on | code |  |  |  | sendTheReply · sendOne.ts · recoverFromFailure.js |
+| React | react |  | on | code |  |  |  | decide.ts reactionFor · reactions.ts |
+| Classifier | classifier |  | on | Haiku 5.5 | off | 4 s | own, threads, recent | conversationThreads.js |
+| Self-review | selfreview |  | on | Haiku 5.5 | low |  | own, hist | selfReview.js |
+| Background job | job |  | on | Haiku 5.5 | medium |  | tools, map, p-about-tex, p-rules, p-tools, p-working, brief, ask, date | background.js |
+| Job check | jobcheck |  | on | Opus 5.5 | high |  | own, brief, ask, ledger, out:job | jobCheck.js |
+| Advisor on job mail | mailadv |  | on | Opus 5.5 | high |  | own, brief, ask | jobNote.js · advisorRoles/jobMail.js |
+| Hand-back judge | handback |  | on | Haiku 5.5 | low |  | own, brief, draft | handbackJudge.js · claimCheck.js |
+
+Wires: checkin → fd (wait) · routine → readTheText (wait) · notify → send (wait) · text → decide (wait) · decide → react (wait) · decide → lanes (wait) · lanes → readTheText (wait) · readTheText → runARoutine (wait, next) · runARoutine → checkTheQuestion (wait, next) · checkTheQuestion → settleAYesOrNo (wait, next) · settleAYesOrNo → watchWhatLeaves (wait, next) · watchWhatLeaves → checkItMayRun (wait, next) · checkItMayRun → readTheHistory (wait, next) · readTheHistory → openTheWeb (wait, next) · openTheWeb → readTheSetup (wait, next) · readTheSetup → prepareBookkeeping (wait, next) · prepareBookkeeping → prepareTheAnswer (wait, next) · readTheText → send (wait, answered) · runARoutine → send (wait, answered) · checkTheQuestion → send (wait, answered) · settleAYesOrNo → send (wait, answered) · checkItMayRun → send (wait, answered) · prepareTheAnswer → fd (wait) · prepareTheAnswer → router (wait) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background) · send → selfreview (background) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job)
+<!-- tex-config: steps end -->
 
 ## The rule
 
-1. **A pull request that changes Tex's architecture changes this file.** That
-   covers a step added, removed, renamed or reordered in `texEntryPoint`; a
-   model, judge or check added, removed, switched on or off; a lane, queue or
-   sender in the Worker; and anything this file names moving. Redraw the part
-   that changed and add a line to the change log.
+1. **Tex's architecture is its config.** A step added, removed, renamed,
+   switched on or off, moved to another model, or wired differently is a change
+   to `packages/shared/src/texConfig.json`, and this page is regenerated from it
+   in the same pull request (`node scripts/tex-architecture.mjs`). Add a line
+   to the change log below.
 2. **CI checks it** (`scripts/tex-diagram-check.mjs`, in Fast repository
    guards):
-   - every step `texEntryPoint.js` runs is drawn in section 2, in its order;
+   - this page's drawing and table, and
+     `apps/mcp/src/agent/texArchitecture.generated.js`, are exactly what the
+     config makes; every wire joins two nodes and has a mode the runner knows;
+   - every step `texEntryPoint.js` runs is a node of the config, or named by a
+     node's file, and the door's steps are in the config in the order the code
+     runs them;
    - every file under `apps/mcp/src/agent/`, `apps/agent/src/` or
-     `apps/convex/functions/lib/jev/` that names a model is named here;
+     `apps/convex/functions/lib/jev/` that names a model is a node's file, or
+     on the check's short lists: plumbing that carries model calls for nodes,
+     or a model call not yet given its node (a list that only shrinks);
    - a pull request that changes `texEntryPoint.js`, a file under
-     `texEntryPoint/`, or any file this page names in backticks must change
-     this page, or say why not in its description with a line
-     `Tex diagram: unchanged because <reason>` (a fix inside a file that
-     leaves the shape as drawn).
-
-3. **Every Tex agent reads sections 1 to 3.** They are generated into
+     `texEntryPoint/`, or any node's file must change the config, or say why
+     not in its description with a line
+     `Tex diagram: unchanged because <reason>` (a fix inside a node that
+     leaves the graph as it is).
+3. **Every Tex agent reads the graph.** `TEX_MAP`, the config's nodes and
+   wires in words, is generated into
    `apps/mcp/src/agent/texArchitecture.generated.js` and put ahead of each
-   agent's own prompt with one line naming its box (`texArchitecture.js`).
-   After redrawing, run `node scripts/tex-architecture-module.mjs`; CI fails
-   while the module is stale, and fails any file under `apps/mcp/src/agent/`
-   that gives a model a system prompt without `withArchitecture`.
-
-## Every step, from Tex's config
-
-<!-- tex-config: steps begin -->
-Generated from `packages/shared/src/texConfig.json` by `scripts/tex-config-table.mjs`. Do not edit: change the config (the Lab's Promote) and run the script.
-
-| Step | | Model | Effort | Time limit | Reads, in order | Where |
-| --- | --- | --- | --- | --- | --- | --- |
-| Check-in | on | code |  |  |  | heartbeat.js |
-| Routine runs | on | code |  |  |  | routine.js · runARoutine.js |
-| Send through Tex | on | code |  |  |  | tools/attention.js · attention.js |
-| A text arrives | on | code |  |  |  | apps/agent |
-| Decide | on | Clef |  |  | examples, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
-| Queue | on | code |  |  |  | apps/agent inbox.ts · groupTurn.ts |
-| Door steps | on | code |  |  |  | texEntryPoint/* |
-| Router | off | Clef |  |  | recent | router.js |
-| Front door | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, caps, hist, threads, about, date, ask | turn.js runTurn |
-| Fallback | on | GLM-4.7 Flash |  |  |  | builtin.js |
-| Big-ask planner | off | Opus 5.5 | high |  | own, ask, caps | planBigAsk.js |
-| Tools | on | code |  |  |  | callToolForSession |
-| Advisor | on | Opus 5.5 | high | 40 s | own, caps, about, ask, ledger, hist, date | advisor.js · advisorRoles/chat.js |
-| Answer checks | on | code |  |  |  | doItChecks.js |
-| Mail checker | on | Haiku 5.5 | low |  | own, draft, ask | mailChecker.js |
-| Card check | on | Haiku 5.5 | medium |  | own, draft | cardCheck.js |
-| Reply reviewer | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | replyJudge.js · sendBack.js |
-| Text them | on | code |  |  |  | sendTheReply · sendOne.ts |
-| React | on | code |  |  |  | decide.ts reactionFor · reactions.ts |
-| Classifier | on | Haiku 5.5 | off | 4 s | own, threads, recent | conversationThreads.js |
-| Self-review | on | Haiku 5.5 | low |  | own, hist | selfReview.js |
-| Background job | on | Haiku 5.5 | medium |  | tools, map, p-about-tex, p-rules, p-tools, p-working, brief, ask, date | background.js |
-| Job check | on | Opus 5.5 | high |  | own, brief, ask, ledger, out:job | jobCheck.js |
-| Advisor on job mail | on | Opus 5.5 | high |  | own, brief, ask | jobNote.js · advisorRoles/jobMail.js |
-| Hand-back judge | on | Haiku 5.5 | low |  | own, brief, draft | handbackJudge.js · claimCheck.js |
-
-Wires: checkin → fd (wait) · routine → door (wait) · notify → send (wait) · text → decide (wait) · decide → react (wait) · decide → lanes (wait) · lanes → door (wait) · door → fd (wait) · door → router (wait) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (behind) · send → selfreview (behind) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job)
-<!-- tex-config: steps end -->
+   agent's own prompt with one line naming the node it is
+   (`texArchitecture.js`, each role keyed by its node's id). So a config change
+   changes every agent's prompt, and the replay gate runs on it like any prompt
+   change. CI fails any file under `apps/mcp/src/agent/` that gives a model a
+   system prompt without `withArchitecture`.
 
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-14: the drawing and what every Tex agent is told about its own structure are generated from Tex's config, `packages/shared/src/texConfig.json`, by `scripts/tex-architecture.mjs`; the hand-drawn sections 1 to 3 are gone (they are in this file's history). Door steps is eleven nodes in the group `door`, one per step `texEntryPoint.js` runs before the front door, wired in that order with `wait` wires tagged `next`, and each one that can end the turn wired to Text them tagged `answered`. Each agent's role names its node by id. Dev2: "I want this new config system ... properly documented", and Tex is told its own structure from it. Decision: `docs/decisions/texting-assistant/config-graph.md`. Tests: `apps/mcp/test/texArchitecture.test.mjs`, `scripts/tex-diagram-check.mjs --self-test`.
 - 2026-11-14: every model round keeps the prompt it was sent as its modules' ids, lengths and fingerprints plus the builder inputs a rebuild cannot read from notes (when, the time zone, the model, how much history), never the words (Dev2: "keep the ids of the prompt modules loaded in, so they can be reconstructed along with the date and version control"; `promptManifest.js`, `turnPrompt.js`, `turnTiming.js` v2); with the reply's `version.code`, a rebuild runs the builders of the commit that ran ("run the exact version from the day it ran"). A check-in's steps (thinking, tools, judging) now reach the person's chat ledger under a turn of their own (`ck…`), and a texted check-in's and a routine's note keep the run's milliseconds, code version and timing, so Replay shows them like a text's turn (`heartbeat.js`, `conversation.js`, `finishARoutine.js`). The prompt's bytes are unchanged, so no box changes. Tests: `apps/mcp/test/promptManifest.test.mjs`, `turnTiming.test.mjs`, `agentHeartbeat.test.mjs`, `agentRoutineTex.test.mjs`.
 - 2026-11-14: Door steps writes a `door` step to the chat's ledger every turn: the kind of turn, the chat and the text ids it covers, and every setting the turn runs with (model, effort, reviewer, advisor, planner, fallback, router, computers, skills), never the chat's words (`runTheModel.js`); a group's judging keeps what it was asked as references, the ids of the texts it weighed, whether a turn was running, its style and how much it read (`textsDecide.js`). Dev2: "Every single block should have proper logging of what's going in and out and what parameters were set". Ledger writes only, so no box changes. Tests: `apps/mcp/test/chatLedgerWrites.test.mjs`, `textsDecide.test.mjs`, replay case `door-settings-logged`.
 - 2026-11-14: Answer checks and the reviewer are steps in the chat's ledger every time they run, not only when they send a draft back: the code checks keep which set ran, the draft's length, the turn's action count and whether it let the draft go (`replyJudge.js`); a review skipped for a turn with no action keeps that it was skipped and why. A 1:1 text code sends straight to Tex keeps a Decide step saying code answered and why (`apps/agent/src/inboxTurn.ts`). Replay draws only the steps a turn's log shows ran (Dev2: "If the step never ran, then why is it logged as running?"). Ledger writes only, so no box changes. Tests: `apps/mcp/test/replyJudge.test.mjs`, replay case `checks-step-logged`, `apps/agent/src/stepEvents.test.ts`.
@@ -366,8 +327,8 @@ Newest first. One line per pull request that changed the drawing.
 ## Proposed, being built: one record per chat
 
 A proposal (Dev2's design ask, 2026-11-12), drawn here so the change can be
-seen against sections 1 to 3. It sits after the rule on purpose: agents read
-only sections 1 to 3, and nothing below is how Tex works today. Design page:
+seen against the config's graph. It sits after the rule on purpose: no agent
+reads it, and nothing below is how Tex works today. Design page:
 https://claude.ai/artifact/QEWzwyv65r4RZDMRWNQD4Y. If chosen, sections 1 to 3
 are redrawn step by step as each part lands (step 1, one door, is built: 2026-11-13; step 2: the threaded window starts on a six-hour step, and a tagged turn keeps the same tool list; step 3: a job's part reads the chat, and what the chat read is indexed and opened again with read_back), and this section goes with the last one.
 
