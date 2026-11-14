@@ -44,6 +44,7 @@ export const scnLabel = (k: string) => (SCENARIOS[k] || SCENARIOS.own)?.name ?? 
  * personal account, I expected to see the messages I've sent here not test cases").
  */
 export function traceMine(text: string) {
+  if (lab.real?.text !== text) lab.real = null;
   lab.ownText = text;
   buildTraces(allCases());
   lab.scn = "own";

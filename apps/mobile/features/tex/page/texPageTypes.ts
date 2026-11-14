@@ -294,7 +294,7 @@ export const SUB_VIEWS: readonly SubView[] = [
  * it (`apps/mcp/src/http/texPage/ledger.js`; decided by the owner,
  * 2026-11-02, `docs/decisions/texting-assistant/chat-ledger.md`).
  */
-export const LEDGER_KINDS = ["text", "thinking", "said", "tool", "reply", "advisor", "mail_check", "job", "note", "judge"] as const;
+export const LEDGER_KINDS = ["text", "thinking", "said", "tool", "reply", "advisor", "mail_check", "job", "note", "judge", "step"] as const;
 export type LedgerKind = (typeof LEDGER_KINDS)[number];
 
 /** One entry as kept: `{v, id, at, kind, seq}` and the kind's own fields, shown raw. */

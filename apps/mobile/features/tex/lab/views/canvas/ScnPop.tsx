@@ -11,6 +11,8 @@ import { TRACE_GROUPS } from "../../data/areas";
 import { allCases } from "../../engine/diff";
 import { emit, lab } from "../../engine/state";
 import { buildTraces, SCENARIOS, traceMine } from "../../engine/traces";
+import type { MyText } from "../../engine/mine";
+import { readTurnTimes } from "../mine/useMine";
 
 const GROUPS = ["core", "jobs", "pipeline"];
 const when = (at: number) => new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -30,15 +32,17 @@ export function ScnPop({ onClose }: { onClose: () => void }) {
     onClose();
     emit();
   };
-  const pickMine = (text: string) => {
-    traceMine(text);
+  const pickMine = (t: MyText) => {
+    traceMine(t.text);
     onClose();
     emit();
+    void readTurnTimes(t);
   };
   const me = lab.tester === "me";
   const mine = Array.isArray(lab.myTexts) ? lab.myTexts.filter((t) => !ql || t.text.toLowerCase().includes(ql)) : [];
   const trace = () => {
     lab.ownText = (own.current?.value ?? "").trim();
+    lab.real = null;
     buildTraces(allCases());
     lab.scn = "own";
     onClose();
@@ -65,7 +69,7 @@ export function ScnPop({ onClose }: { onClose: () => void }) {
             {lab.myTexts === "failed" ? <div className="scne">Couldn't read your texts</div> : null}
             {Array.isArray(lab.myTexts) && !mine.length ? <div className="scne">{ql ? "No texts match" : "No texts yet"}</div> : null}
             {mine.map((t) => (
-              <button key={t.id} data-mine={t.id} aria-current={lab.scn === "own" && lab.ownText === t.text ? "true" : "false"} onClick={() => pickMine(t.text)}>
+              <button key={t.id} data-mine={t.id} aria-current={lab.scn === "own" && lab.ownText === t.text ? "true" : "false"} onClick={() => pickMine(t)}>
                 <span className="nm">{t.text}</span>
                 <small>{when(t.at)}</small>
               </button>

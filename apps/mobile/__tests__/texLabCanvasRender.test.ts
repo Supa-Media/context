@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 // The artifact's own graph: main's is corrected to the code (`texLabMainGraph.test.ts`), the port is held to the artifact.
+jest.mock("../features/tex/lab/data/models", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModelsModule());
 jest.mock("../features/tex/lab/data/graph", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactGraphModule());
 // The artifact sized Tex's prompt modules by its own estimates: it had none of their words, which are the repository's
 // since 2026-11-14 (packages/shared/src/texPrompt). The golden is the artifact's drawing, so it is drawn without them.

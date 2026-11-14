@@ -35,7 +35,7 @@ import { Sim } from "./views/Sim.web";
 import { Tests } from "./views/Tests.web";
 import { Tools } from "./views/Tools.web";
 import { Viewer } from "./views/Viewer.web";
-import { MineLoader } from "./views/mine/useMine";
+import { MineLoader, readTurnTimes } from "./views/mine/useMine";
 import { setLabTheme, THEMES, useLabTheme } from "./theme.web";
 
 export const TEX_LAB_TITLE = "Tex Architecture Lab";
@@ -137,12 +137,16 @@ function Lab() {
   const swapTester = () => {
     const toMe = s.tester !== "me";
     // The canvas traces your newest text as You (once read, `useMine`), and a bench test again as Maya.
-    if (toMe && Array.isArray(lab.myTexts) && lab.myTexts[0]) traceMine(lab.myTexts[0].text);
+    if (toMe && Array.isArray(lab.myTexts) && lab.myTexts[0]) {
+      traceMine(lab.myTexts[0].text);
+      void readTurnTimes(lab.myTexts[0]);
+    }
     if (!toMe) {
       if (lab.scn === "own") {
         lab.scn = "";
         lab.ownText = "";
       }
+      lab.real = null;
       buildTraces(allCases());
     }
     set({ tester: toMe ? "me" : "bench", tArea: toMe ? "mine" : "core", tQ: "" });

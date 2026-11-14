@@ -10,10 +10,11 @@
  *  1. `readLog` counting `side: "main"` lines as bad → "a main-side line is skipped, not counted as bad" fails.
  *  2. `readLog` timing a subscription model by its logged ms → "a subscription step is re-timed from its tokens" fails.
  */
-import { expect, test } from "@jest/globals";
+import { expect, jest, test } from "@jest/globals";
 import { BASE_MODELS } from "../features/tex/lab/data/models";
 import type { LabGraph } from "../features/tex/lab/types";
 import { readLog } from "../features/tex/lab/views/simLog";
+jest.mock("../features/tex/lab/data/models", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModelsModule());
 
 const g: LabGraph = {
   nodes: [

@@ -43,6 +43,11 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
       return null;
     },
     readMyTexts: async () => {},
+    // What that turn's reply timing and reviewer entries measured, as `realTimes` reads them.
+    readTurnTimes: async (t: { text: string }) => {
+      lab.real = { text: t.text, times: { reply: 6300, ms: { lanes: 450, door: 700, fd: 2700, tools: 650, reviewer: 2100, send: 150 }, calls: { fd: 2, reviewer: 1 } } };
+      emit();
+    },
     readTurnReads: async (id: string) => {
       lab.myReads = { ...lab.myReads, [id]: ["projects/shelves.md"] };
       emit();
@@ -125,10 +130,16 @@ describe("the Lab's test user as You", () => {
     expect(qa("#scnPop [data-tr]")).toEqual([]);
     await click(q('#scnPop [data-mine="ev1"]'));
     expect(q("#scnName")?.textContent).toBe("hey");
+    // Its real times, not estimates: the reply as measured, each measured step as is, the rest marked "≈".
+    expect(q("#stats")?.textContent).toMatch(/Reply 6\.3 s real/);
+    expect(q('.nd[data-id="fd"] .tm')?.textContent).toBe("2.7 s");
+    expect(q('.nd[data-id="reviewer"] .tm')?.textContent).toBe("2.1 s");
+    expect(q('.nd[data-id="checks"] .tm')?.textContent ?? "").toMatch(/^(≈ .* s)?$/);
     // Back to Maya: a bench test again, and her picker lists tests.
     await click(q("#tuserSwap"));
     await click(q('[data-view="canvas"]'));
     expect(q("#scnName")?.textContent).not.toBe("hey");
+    expect(q("#stats")?.textContent).not.toMatch(/real/);
     await click(q("#scnBtn"));
     expect(qa("#scnPop [data-mine]")).toEqual([]);
     expect(qa("#scnPop [data-tr]").length).toBeGreaterThan(0);

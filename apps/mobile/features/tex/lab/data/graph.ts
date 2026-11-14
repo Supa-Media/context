@@ -12,7 +12,8 @@ export const BASE_SHA: string = "888afb0";
 export const WIRES: Record<string, { name: string; dash: string; c: string; w?: number; tip: string }> = {
   wait:{name:"Next step",dash:"",c:"--text2",tip:"Runs when this step is done, before the reply"},
   uses:{name:"Helper",dash:"",c:"--accent",w:3,tip:"Used in the middle of this step, then hands back to it"},
-  behind:{name:"After sending",dash:"2 4",c:"--dim",tip:"Runs once the reply has gone; nobody waits for it"},
+  // Not the artifact's faint grey dots, which read as "Next step" (Dev2, 2026-11-14: "next step and after sending seems like its the same?").
+  behind:{name:"After sending",dash:"1 5",c:"--team",w:2.2,tip:"Runs once the reply has gone; nobody waits for it"},
   job:{name:"Background",dash:"7 5",c:"--m-api",tip:"Starts a job; the reply doesn't wait"},
   loop:{name:"Send back",dash:"5 4",c:"--bad",tip:"Sometimes sends the draft back"}
 };
