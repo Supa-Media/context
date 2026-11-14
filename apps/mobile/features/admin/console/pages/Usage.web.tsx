@@ -172,12 +172,10 @@ export function renderUsage(d: UsageData | undefined): string {
   );
 }
 
-// The registry holds every page as `ConsolePage` (its data is `unknown` there), so `render` takes that type and
-// narrows it back to this page's data, which `useData` is the only source of.
-export const usagePage: ConsolePage = {
+export const usagePage: ConsolePage<UsageData> = {
   key: "usage",
   filters: {},
   windowed: true,
   useData,
-  render: (d) => renderUsage(d as UsageData | undefined),
+  render: renderUsage,
 };
