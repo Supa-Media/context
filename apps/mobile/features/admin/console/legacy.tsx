@@ -10,7 +10,6 @@ import { api } from "@context/convex/_generated/api";
 import { ActivitySection } from "../ActivitySection";
 import { AgentSection } from "../AgentSection";
 import { AiCostsSection } from "../AiCostsSection";
-import { AiSection, aiPlaceOf } from "../AiSection";
 import { CommunityLinks } from "../CommunityLinks";
 import { EstateSection } from "../EstateSection";
 import { FeaturesSection } from "../FeaturesSection";
@@ -55,10 +54,6 @@ export function LegacyTurns() {
 export function LegacyCosts() {
   const [open, setOpen] = useState<string | null>(null);
   return <AiCostsSection days={days()} openId={open} onOpen={setOpen} />;
-}
-export function LegacyJobs() {
-  const [sub, setSub] = useState<string | null>(null);
-  return <AiSection days={days()} place={aiPlaceOf(sub)} onPlace={setSub} />;
 }
 export const LegacyStorage = () => <EstateSection days={days()} />;
 export const LegacySearch = () => <SearchSection />;
