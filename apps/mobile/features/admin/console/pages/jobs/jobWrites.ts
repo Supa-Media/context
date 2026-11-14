@@ -79,9 +79,14 @@ export function makeJobWrites(io: NoteIo, me: string, today: () => string = () =
       while (taken.has(`experiment-${n}`)) n += 1;
       const name = `experiment-${n}`;
       const change = "Name the one thing that changes";
-      await write(`ai/setups/${page.job.key}/${name}.md`, (existing) =>
-        existing === null ? experimentText(liveText, { job: page.job.key, basedOn: page.live ?? page.row.setup!.name, change, by: me }) : null,
-      );
+      let wrote = false;
+      await write(`ai/setups/${page.job.key}/${name}.md`, (existing) => {
+        if (existing !== null) return null;
+        wrote = true;
+        return experimentText(liveText, { job: page.job.key, basedOn: page.live ?? page.row.setup!.name, change, by: me });
+      });
+      // Never claim a copy that was not written: a note by that name already existed.
+      if (!wrote) throw new Error(`A setup called ${name} already exists; reload and try again`);
       return name;
     },
     /**

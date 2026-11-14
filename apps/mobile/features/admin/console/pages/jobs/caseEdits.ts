@@ -60,7 +60,8 @@ export function withCaseCopied(text: string, number: number): { text: string; nu
   const list = parseTestList(text);
   const block = caseLines(list, number);
   const title = list.cases.find((item) => item.number === number)?.title ?? "Case";
-  const heading = block[0]!.replace(/^(## \d+\. ).*$/, `$1${title} (copy)`);
+  // A replacer, not a string: a case named "Pay $& later" must not expand.
+  const heading = block[0]!.replace(/^(## \d+\. ).*$/, (_all, head: string) => `${head}${title} (copy)`);
   const next = appendCase(list, [heading, ...block.slice(1)]);
   return { text: serializeTestList(next), number: next.cases.reduce((max, item) => Math.max(max, item.number), 0) };
 }
