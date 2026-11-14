@@ -12,7 +12,7 @@ import { MCP_ENDPOINT } from "../../../../console/placeholderData";
 import { gatewaySource, type TexPageSource } from "../../../page/texPageSource";
 import { LATEST, type LedgerEntry } from "../../../page/texPageTypes";
 import { myTexts, readsOf, type MyText } from "../../engine/mine";
-import { realTimes } from "../../engine/realTimes";
+import { realIO, realTimes } from "../../engine/realTimes";
 import { emit, lab, toast } from "../../engine/state";
 import { traceMine } from "../../engine/traces";
 
@@ -58,7 +58,7 @@ export async function readTurnTimes(t: MyText) {
   const now = (entries: LedgerEntry[]) => {
     const times = realTimes(entries, t.turn);
     if (lab.ownText !== t.text) return false;
-    lab.real = times ? { text: t.text, times } : null;
+    lab.real = times ? { text: t.text, times, io: realIO(entries, t.turn, t.text, t.then.text) } : null;
     emit();
     return times !== null;
   };
@@ -67,7 +67,7 @@ export async function readTurnTimes(t: MyText) {
   const more: LedgerEntry[] = [];
   let before = LATEST;
   for (let i = 0; i < PAGES_BACK; i++) {
-    const r = await source.ledger("me", { kinds: ["judge", "step"], day, before });
+    const r = await source.ledger("me", { kinds: ["judge", "step", "tool", "thinking", "said"], day, before });
     if (r.kind !== "ok") break;
     more.push(...r.value.entries);
     const oldest = Math.min(...r.value.entries.map((e) => e.at));

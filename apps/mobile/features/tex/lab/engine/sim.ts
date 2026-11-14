@@ -9,6 +9,7 @@ import type { LabEdge, LabGraph, LabNode } from "../types";
 import { isStable, mods } from "./modules";
 import { MODELS, node, type LabState } from "./state";
 import { SCENARIOS } from "./traces";
+import type { RealTimes } from "./realTimes";
 
 type Log = LabState["logRows"];
 export type StepTime = { start: number; end: number; ms: number; usd: number; calls: number; parts: Part[]; lane: string };
@@ -72,16 +73,30 @@ export function stepCost(n: LabNode, g: LabGraph, s: string, log: Log, hit?: num
   return { ms, usd, calls };
 }
 
-export function fold(n: LabNode, g: LabGraph, s: string, tags: string[], log: Log, seen = new Set<string>()): { ms: number; usd: number; calls: number; parts: Part[] } {
+/**
+ * One step's time with its helpers folded in. With `real` (a text the person sent, `realTimes.ts`), a measured step
+ * takes its measured time, a helper that was not measured did not run, and send-backs are already in the measured
+ * rounds, so the timeline plays at the pace Tex really went.
+ */
+export function fold(n: LabNode, g: LabGraph, s: string, tags: string[], log: Log, seen = new Set<string>(), real: RealTimes | null = null): { ms: number; usd: number; calls: number; parts: Part[] } {
   if (seen.has(n.id)) return { ms: 0, usd: 0, calls: 0, parts: [] };
   seen.add(n.id);
-  const own = stepCost(n, g, s, log);
+  const est = stepCost(n, g, s, log);
+  const own = real && real.ms[n.id] !== undefined ? { ms: real.ms[n.id], usd: est.usd, calls: real.calls[n.id] ?? 0 } : est;
   let ms = own.ms;
   let usd = own.usd;
   let calls = own.calls;
   const parts: Part[] = [{ id: n.id, ms: own.ms, own: true }];
-  for (const e of g.edges.filter((e) => e.from === n.id && e.mode === "uses" && fires(e, tags, g))) {
+  for (const e of g.edges.filter((e) => e.from === n.id && e.mode === "uses" && (real ? true : fires(e, tags, g)))) {
     const c = node(e.to, g)!;
+    if (real) {
+      const m = real.ms[c.id];
+      if (m === undefined) continue;
+      ms += m;
+      calls += real.calls[c.id] ?? 0;
+      parts.push({ id: c.id, ms: m });
+      continue;
+    }
     if (c.kind === "tool") {
       const k = Math.max(1, roundsFor(n, s) - 1);
       const inner = fold(c, g, s, tags, log, new Set(seen));
@@ -98,7 +113,7 @@ export function fold(n: LabNode, g: LabGraph, s: string, tags: string[], log: Lo
       parts.push({ id: c.id, ms: inner.ms });
     }
   }
-  for (const e of g.edges.filter((e) => e.from === n.id && e.mode === "loop" && fires(e, tags, g))) {
+  for (const e of g.edges.filter((e) => !real && e.from === n.id && e.mode === "loop" && fires(e, tags, g))) {
     const p = n.sendBack ?? 0.1;
     const back = fold(node(e.to, g)!, g, s, tags, log, new Set([n.id]));
     const x = p * (back.ms + own.ms);
@@ -110,8 +125,19 @@ export function fold(n: LabNode, g: LabGraph, s: string, tags: string[], log: Lo
   return { ms, usd, calls, parts };
 }
 
-export function simulate(g: LabGraph, s: string, log: Log): Sim {
+/** Steps whose every run leaves a ledger entry for its turn (`realTimes.ts`), so no entry means it did not run. */
+const LOGS_WHEN_RUN = new Set(["reviewer", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "tools"]);
+
+export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | null = null): Sim {
   const tags = (SCENARIOS[s] || SCENARIOS.own)?.tags ?? [];
+  // A real run goes where it was measured: a measured step ran, a step that always logs when it runs and logged
+  // nothing did not, and the rest follow the guess from the text's words.
+  const on = (e: LabEdge) => {
+    if (!real) return fires(e, tags, g);
+    if (!node(e.to, g)?.on || !node(e.from, g)?.on) return false;
+    if (real.ms[e.to] !== undefined) return true;
+    return !LOGS_WHEN_RUN.has(e.to) && fires(e, tags, g);
+  };
   const reach = new Map<string, { lane: string }>();
   const start = node("text", g) || g.nodes[0];
   if (!start) return { T: {}, reply: 0, usd: 0, replyCalls: 0, jobEnd: 0, reach, inside: new Set() };
@@ -121,7 +147,7 @@ export function simulate(g: LabGraph, s: string, log: Log): Sim {
   while (ch && guard++ < 60) {
     ch = false;
     for (const e of g.edges) {
-      if (!reach.has(e.from) || !fires(e, tags, g) || e.mode === "uses" || e.mode === "loop") continue;
+      if (!reach.has(e.from) || !on(e) || e.mode === "uses" || e.mode === "loop") continue;
       const fl = reach.get(e.from)!.lane;
       const lane = e.mode === "behind" ? "behind" : e.mode === "job" ? "job" : fl;
       if (!reach.has(e.to)) {
@@ -135,21 +161,21 @@ export function simulate(g: LabGraph, s: string, log: Log): Sim {
   for (let p = 0; p < order.length + 2; p++)
     for (const id of order) {
       const n = node(id, g)!;
-      const preds = g.edges.filter((e) => e.to === id && reach.has(e.from) && fires(e, tags, g) && !["uses", "loop"].includes(e.mode) && T[e.from]);
+      const preds = g.edges.filter((e) => e.to === id && reach.has(e.from) && on(e) && !["uses", "loop"].includes(e.mode) && T[e.from]);
       if (id !== start.id && !preds.length) continue;
       const st = id === start.id ? 0 : Math.max(0, ...preds.map((e) => T[e.from].end));
-      const f = fold(n, g, s, tags, log);
+      const f = fold(n, g, s, tags, log, new Set(), real);
       T[id] = { start: st, end: st + f.ms, ms: f.ms, usd: f.usd, calls: f.calls, parts: f.parts, lane: reach.get(id)!.lane };
     }
   const all = Object.values(T);
   const reply = T.send ? T.send.end : Math.max(0, ...all.filter((t) => t.lane === "reply").map((t) => t.end));
   const inside = new Set<string>();
-  for (const e of g.edges) if (e.mode === "uses" && reach.has(e.from) && fires(e, tags, g)) inside.add(e.to);
+  for (const e of g.edges) if (e.mode === "uses" && reach.has(e.from) && on(e)) inside.add(e.to);
   let grow = true;
   while (grow) {
     grow = false;
     for (const e of g.edges)
-      if (e.mode === "uses" && inside.has(e.from) && fires(e, tags, g) && !inside.has(e.to)) {
+      if (e.mode === "uses" && inside.has(e.from) && on(e) && !inside.has(e.to)) {
         inside.add(e.to);
         grow = true;
       }
