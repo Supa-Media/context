@@ -6,6 +6,7 @@
  */
 
 import { jobRoute } from "./jobRoutes";
+import { jobStub } from "./jobPlace";
 import { logged } from "./agentError";
 import { type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
@@ -315,12 +316,12 @@ export class SenderInbox implements DurableObject {
       now: () => Date.now(),
       ...this.remoteLines(),
       spawnJob: async (id: string, run: JobRun) => {
-        const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
+        const stub = jobStub(this.env, id, { spawn: true });
         const response = await stub.fetch("https://inbox/job-start", { method: "POST", body: JSON.stringify(run) });
         if (!response.ok) throw new Error("job not started");
       },
       steerJob: async (id: string, steer: JobSteer) => {
-        const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
+        const stub = jobStub(this.env, id, { spawn: false });
         const response = await stub.fetch("https://inbox/job-steer", { method: "POST", body: JSON.stringify(steer) });
         return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },

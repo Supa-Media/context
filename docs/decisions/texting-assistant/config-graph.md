@@ -151,6 +151,11 @@ wires (`graph/bridges.js`), so a wire the config lacks is refused.
 **What a simplification would cost:** an early return in a start's code is a branch the Lab cannot draw. Tests that
 fail: `apps/mcp/test/texGraphStartNodes.test.mjs` (each with a sabotage record).
 
+A background job's object moves the way a chat's did: the gateway's `TexJob` runs the Worker's job code as it is, a
+job lives where it was born (`apps/agent/src/jobPlace.ts` asks `/job-here` before a steer, stop, resume or mail), and
+`TEX_JOBS` turns the gateway on per environment, so a job running in the Worker is never moved mid-run. The job node
+comes next, on that object.
+
 ## The door steps are one group
 
 The eleven door steps (`readTheText` through `prepareTheAnswer`) carry
