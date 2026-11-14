@@ -7,13 +7,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { evidenceSessions, lmeDate, locomoDate, sampleLme } from "../publicSets.mjs";
+import { evidenceSessions, lmeDate, locomoDate, safeId, sampleLme } from "../publicSets.mjs";
 import { bootstrapRange } from "../search.mjs";
 
 test("dates come from each dataset's own format", () => {
   assert.equal(lmeDate("2023/05/20 (Sat) 02:21"), "2023-05-20");
   assert.equal(locomoDate("1:56 pm on 8 May, 2023"), "2023-05-08");
   assert.equal(locomoDate("not a date"), null);
+});
+
+test("a dataset id that would leave its folder is refused before it becomes a path", () => {
+  assert.equal(safeId("answer_280352e9"), "answer_280352e9");
+  for (const bad of ["../../etc", "a/b", "", ".", "x".repeat(81), 7]) assert.throws(() => safeId(bad), /not a safe path segment/);
 });
 
 test("LoCoMo evidence names sessions, once each, malformed ids included", () => {

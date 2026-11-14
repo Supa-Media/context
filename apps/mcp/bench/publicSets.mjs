@@ -26,11 +26,21 @@
  * the vendors headline, so it is not comparable to their published numbers.
  */
 
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const LME_URL = "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json";
-const LOCOMO_URL = "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json";
+// Pinned to one revision each and checked by hash: the ids in these files become
+// paths, and the script runs beside the benchmark's production keys.
+const LME = {
+  url: "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/98d7416c24c778c2fee6e6f3006e7a073259d48f/longmemeval_s_cleaned.json",
+  sha256: "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+};
+const LOCOMO = {
+  url: "https://raw.githubusercontent.com/snap-research/locomo/cbfbc1dba6bc53d00625212a0f22d55ffee7c1fc/data/locomo10.json",
+  sha256: "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+};
+const SAFE_ID = /^[A-Za-z0-9_-]{1,80}$/;
 const LME_TYPES = 6;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -69,22 +79,28 @@ export function sampleLme(entries, count) {
   return [...byType.keys()].sort().flatMap((type) => byType.get(type).slice(0, each)).slice(0, count);
 }
 
+/** A dataset id that becomes one path segment: letters, digits, `_` and `-` only. */
+export function safeId(id) {
+  if (typeof id !== "string" || !SAFE_ID.test(id)) throw new Error(`dataset id ${JSON.stringify(id)} is not a safe path segment`);
+  return id;
+}
+
 function lmeWorld(entries) {
   return entries.map((e, i) => {
-    const workspace = `lme-${e.question_id.toLowerCase()}`;
+    const workspace = `lme-${safeId(e.question_id).toLowerCase()}`;
     const files = {};
-    e.haystack_session_ids.forEach((id, k) => {
+    e.haystack_session_ids.map(safeId).forEach((id, k) => {
       const turns = e.haystack_sessions[k].map((t) => [t.role, t.content]);
       files[`inbox/sessions/${id}.md`] = sessionNote(`Chat session ${id}`, lmeDate(e.haystack_dates[k]), turns);
     });
-    const expect = e.answer_session_ids.map((id) => `@${workspace}/inbox/sessions/${id}.md`);
+    const expect = e.answer_session_ids.map(safeId).map((id) => `@${workspace}/inbox/sessions/${id}.md`);
     return { workspace, person: `Lme${i + 1}`, files, questions: [{ text: e.question, expect, label: `LongMemEval ${e.question_type}` }] };
   });
 }
 
 function locomoWorld(conversations) {
   return conversations.map((c, i) => {
-    const workspace = `locomo-${c.sample_id.toLowerCase()}`;
+    const workspace = `locomo-${safeId(c.sample_id).toLowerCase()}`;
     const conv = c.conversation;
     const files = {};
     for (let k = 1; conv[`session_${k}`]; k++) {
@@ -120,10 +136,13 @@ export async function writeBenchFolder(out, worlds) {
   return n;
 }
 
-async function download(url) {
+async function download({ url, sha256 }) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-  return response.json();
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const got = createHash("sha256").update(bytes).digest("hex");
+  if (got !== sha256) throw new Error(`${url}: sha256 ${got}, expected ${sha256}`);
+  return JSON.parse(bytes.toString("utf8"));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -134,8 +153,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const locomoCount = flag("--locomo", 10);
   // One folder per benchmark, so each is scored on its own: mixed, LoCoMo's 1,500 questions drown LongMemEval's 30.
   for (const [name, worlds] of [
-    ["lme", lmeWorld(sampleLme(await download(LME_URL), lmeCount))],
-    ["locomo", locomoWorld((await download(LOCOMO_URL)).slice(0, locomoCount))],
+    ["lme", lmeWorld(sampleLme(await download(LME), lmeCount))],
+    ["locomo", locomoWorld((await download(LOCOMO)).slice(0, locomoCount))],
   ]) {
     const n = await writeBenchFolder(join(out, name), worlds);
     console.log(`${join(out, name)}: ${worlds.length} workspaces, ${n} questions`);
