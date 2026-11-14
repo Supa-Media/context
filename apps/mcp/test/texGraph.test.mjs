@@ -12,6 +12,7 @@
  *   fire() without its wire lookup             "fire runs one node over a config wire" fails
  *   sendBack() runs only the target            "work sent back passes the wait path" fails
  *   stopAt ignored in run()                    "stopAt runs a node" fails
+ *   carried() returns the output as it is      "a wire hands on the output without its when" fails
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -149,6 +150,17 @@ test("a node's schemas are its contract: a missing, mistyped or unnamed field fa
   await assert.rejects(run({ texts: ["1"] }, { to: "tex", score: 0 }), /output has no "why"/);
   await assert.rejects(run({ texts: ["1"] }, { ...good, leak: "x" }), /output has "leak"/);
   await assert.rejects(run({ texts: ["1"] }, "just text"), /output is not an object/);
+});
+
+test("a wire hands on the output without its when, so a tagged output feeds a node whose input schema names its fields", async () => {
+  const config = {
+    nodes: [node("a", { kind: "input", outSchema: [{ name: "x", type: "text" }] }), node("b", { inSchema: [{ name: "x", type: "text" }] })],
+    edges: [wire("a", "b", "wait", ["next"])],
+  };
+  let seen = null;
+  const { ran } = await createGraph(config, { a: async () => ({ x: "hi", when: ["next"] }), b: async (input) => ((seen = input), {}) }).run("a", {});
+  assert.deepEqual(ran, ["a", "b"]);
+  assert.deepEqual(seen, { x: "hi" });
 });
 
 test("a loop wire's rounds limit how often work goes back, before the target's own", async () => {

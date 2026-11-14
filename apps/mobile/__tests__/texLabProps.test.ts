@@ -145,12 +145,12 @@ describe("/lab properties panel, viewer and modules page", () => {
 
   test("a model that answers typed questions only sets a one-question schema and hides the free text switch", () => {
     mount();
-    act(() => set({ sel: { t: "node", id: "fd" } }));
+    act(() => set({ sel: { t: "node", id: "mail" } }));
 
     click('#nModel [data-v="clef"]');
 
-    expect(node("fd")!.model).toBe("clef");
-    expect(node("fd")!.outSchema).toEqual([{ name: "answer", type: "choice", options: "yes, no, unsure" }]);
+    expect(node("mail")!.model).toBe("clef");
+    expect(node("mail")!.outSchema).toEqual([{ name: "answer", type: "choice", options: "yes, no, unsure" }]);
     expect(q("#nOutKind")).toBeNull();
   });
 
