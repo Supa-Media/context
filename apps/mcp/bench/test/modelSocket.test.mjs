@@ -5,11 +5,12 @@
  *  1. `requestHash` ignoring the request -> "a call is named by exactly what would be sent" fails;
  *  2. replay answering a missing call with an empty reply -> "a replay refuses answers made for other code" fails;
  *  3. `reviewWait` keeping the 8 s timeout when socketed -> "a socketed review waits for the examiner" fails;
- *  4. `gate` letting a socketed run reach an area outside SOCKET_AREAS -> "an area whose calls don't go through the socket is refused" fails.
+ *  4. `gate` letting a socketed run reach an area outside SOCKET_AREAS -> "an area whose calls don't go through the socket is refused" fails;
+ *  5. `readExaminerNotes` reading part 1 only -> "a large answer set is split across notes and read back whole" fails.
  */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -17,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { reviewWait } from "../review.mjs";
-import { ANSWER_WAIT_MS, answerCall, collectAnswers, examinerNote, modelSocket, pendingCalls, readExaminerNote, requestHash, socketRequest, stableJson } from "../modelSocket.mjs";
+import { ANSWER_WAIT_MS, answerCall, collectAnswers, examinerNote, examinerNotes, examinerPath, modelSocket, NOTE_PART_BYTES, readExaminerNotes, splitAnswers, pendingCalls, readExaminerNote, requestHash, socketRequest, stableJson } from "../modelSocket.mjs";
 
 const RUN = fileURLToPath(new URL("../run.mjs", import.meta.url));
 const exec = promisify(execFile);
@@ -115,4 +116,37 @@ test("the note command writes the same note publish would, for a session with it
   const sha = "c".repeat(40);
   await socketCommand({ job: "note", dir, sha, by: "examiner", out: join(dir, "note.md") }, { write: () => {} });
   assert.deepEqual(readExaminerNote(await readFile(join(dir, "note.md"), "utf8"), sha).answers, {});
+});
+
+test("a large answer set is split across notes and read back whole", async () => {
+  // The core area's 371 answers made a 173 KB note, which a session's Context connector refused (2026-11-13, #3268).
+  const sha = "d".repeat(40);
+  const answers = Object.fromEntries(Array.from({ length: 371 }, (_, i) => [requestHash("claude", { i }), { text: `answer ${i} `.repeat(40) }]));
+  const notes = examinerNotes({ sha, by: "examiner", at: "2026-11-13T23:00:00Z", answers });
+  assert.ok(notes.length > 1, "it needs more than one note");
+  for (const note of notes) assert.ok(Buffer.byteLength(note.content) < NOTE_PART_BYTES + 1000, `${note.path} fits one note`);
+  assert.deepEqual(notes.map((note) => note.path).slice(0, 2), [examinerPath(sha), `ai/results/examiner/${sha}-2.md`]);
+  const byPath = new Map(notes.map((note) => [note.path, note.content]));
+  const read = (n) => byPath.get(examinerPath(sha, n)) ?? null;
+  assert.deepEqual((await readExaminerNotes(read, sha)).answers, answers);
+  // A missing part, or a part from another publish, is refused, never scored short.
+  await assert.rejects(readExaminerNotes((n) => (n === 2 ? null : read(n)), sha), /missing part 2 of/);
+  const other = examinerNotes({ sha, by: "examiner", at: "2026-11-13T23:30:00Z", answers });
+  await assert.rejects(readExaminerNotes((n) => (n === 2 ? other[1].content : read(n)), sha), /from another set/);
+  // A small set stays one note, as before.
+  assert.equal(examinerNotes({ sha, at: "t", answers: { x: { text: "ok" } } }).length, 1);
+  assert.throws(() => splitAnswers({ x: { text: "y".repeat(100) } }, 50), /alone is/);
+});
+
+test("the note command writes one file a part, named after --out", async () => {
+  const { socketCommand } = await import("../modelSocket.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "notes-"));
+  const sha = "e".repeat(40);
+  await mkdir(join(dir, "answers"));
+  for (let i = 0; i < 120; i += 1) await writeFile(join(dir, "answers", `${requestHash("claude", { i })}.json`), JSON.stringify({ text: "z".repeat(600) }));
+  const files = await socketCommand({ job: "note", dir, sha, by: "examiner", out: join(dir, "note.md") }, { write: () => {} });
+  assert.deepEqual(files.slice(0, 2), [join(dir, "note.md"), join(dir, "note-2.md")]);
+  const texts = await Promise.all(files.map((file) => readFile(file, "utf8")));
+  const answers = (await readExaminerNotes((n) => texts[n - 1] ?? null, sha)).answers;
+  assert.equal(Object.keys(answers).length, 120);
 });
