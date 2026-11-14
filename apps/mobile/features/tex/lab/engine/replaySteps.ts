@@ -6,7 +6,7 @@
  */
 import type { LedgerEntry } from "../../page/texPageTypes";
 import type { LabGraph } from "../types";
-import { realTimes, withReal } from "./realTimes";
+import { onlyWhatRan, realTimes, withReal, withWorkerSteps } from "./realTimes";
 import type { Bar, Moment } from "./replay";
 import { fmtS, simulate } from "./sim";
 import { G, node } from "./state";
@@ -21,14 +21,17 @@ export function stepRows(m: Moment, entries: LedgerEntry[], g: LabGraph = G()): 
   for (const b of m.lanes.Turn) {
     if (b.kind !== "turn" || !b.turn || b.zero === undefined || seen.has(b.turn)) continue;
     seen.add(b.turn);
-    const real = realTimes(entries, b.turn);
+    // The Worker's judgings and tapbacks in the moment are this turn's Decide and React, as the panel reads them.
+    const sent = Math.max(m.at, ...entries.filter((e) => e.turn === b.turn).map((e) => e.at));
+    const real = realTimes(withWorkerSteps(entries, b.turn, m.at - 1_000, sent), b.turn);
     if (!real) continue;
-    // From what started it: a text, or a check-in, a routine or a ping, whatever the canvas traced last.
-    const sim = withReal(simulate(g, "own", null, real, m.from), real, g);
+    // From what started it: a text, or a check-in, a routine or a ping, whatever the canvas traced last. Only the
+    // steps the log shows ran get a row (`onlyWhatRan`): no estimate stands in for one that didn't.
+    const sim = onlyWhatRan(withReal(simulate(g, "own", null, real, m.from), real, g), g);
     for (const [id, t] of Object.entries(sim.T)) {
       // The wait in the queue is the Queue row; a start step is the Texts row's.
       const n = node(id, g);
-      if (!n || id === "lanes" || n.kind === "input" || t.end - t.start <= 0) continue;
+      if (!n || id === "lanes" || n.kind === "input" || t.end < t.start) continue;
       const row = rows.get(id) ?? { id, label: n.label, helper: false, bars: [] };
       row.bars.push({ kind: "turn", start: Math.max(0, b.zero + t.start), end: Math.max(0, b.zero + t.end), label: fmtS(t.ms), turn: b.turn });
       rows.set(id, row);

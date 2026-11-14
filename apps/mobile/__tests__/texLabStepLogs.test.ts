@@ -5,6 +5,8 @@
  * panel without both sides.
  */
 import { describe, expect, test } from "@jest/globals";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { G } from "../features/tex/lab/engine/state";
 import { STEP_LOGS, nodeOfStep } from "../features/tex/lab/engine/stepLogs";
 import { momentAsSteps, stepIO } from "../features/tex/lab/engine/stepIO";
@@ -67,5 +69,16 @@ describe("every canvas step logs what went in and what came out", () => {
     expect(nodeOfStep("recheck")).toBe("decide");
     expect(nodeOfStep("timing")).toBeNull();
     expect(nodeOfStep("checks")).toBe("checks");
+  });
+
+  // The other way (Dev2, 2026-11-14: "Everything that's running should have a node"): every step the gateway writes to a
+  // chat's ledger, and every one the Worker keeps, lands on a drawn step. Timing lines are Door steps' gathering.
+  test("every step name the gateway or the Worker logs lands on a canvas step", () => {
+    const ledger = readFileSync(join(__dirname, "../../mcp/src/agent/ledger.js"), "utf8");
+    const names = JSON.parse(/export const STEP_NAMES = new Set\((\[[^\]]*\])\)/.exec(ledger)![1]) as string[];
+    const worker = readFileSync(join(__dirname, "../../agent/src/stepEvents.ts"), "utf8");
+    for (const m of worker.matchAll(/name: "([a-z]+)"/g)) names.push(m[1]);
+    const nowhere = [...new Set(names)].filter((name) => name !== "timing" && nodeOfStep(name) === null);
+    expect(nowhere).toEqual([]);
   });
 });
