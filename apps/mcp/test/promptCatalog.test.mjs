@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import { turnPrompt } from "../src/agent/turnPrompt.js";
 import { moduleTexts, setupPromptFor, MODULE_KINDS } from "../src/agent/promptModules.js";
@@ -39,4 +41,11 @@ test("every module a turn builds from the repository is in the prompt catalogue,
     }
   }
   assert.ok(seen >= 24);
+});
+
+// The builders import the gateway's packages, so the file's freshness is checked here, where they are installed.
+test("the prompt catalogue on disk is what this commit's builders write", () => {
+  const script = fileURLToPath(new URL("../../../scripts/tex-prompt-catalog.mjs", import.meta.url));
+  const run = spawnSync(process.execPath, [script, "--check"], { encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
 });
