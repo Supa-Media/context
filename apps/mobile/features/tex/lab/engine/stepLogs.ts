@@ -15,6 +15,7 @@ export const STEP_LOGS: Record<string, StepLog> = {
   routine: { got: "note (routine): the routine note it ran", gave: "note: what it texted and its outcome", settings: "door step; the routine's own settings" },
   notify: { got: "note (ping): what another AI asked it to say", gave: "note: the text as sent", settings: "their ping settings (no model)" },
   text: { got: "text: the words, picture or tapback as it arrived", gave: "text: kept in the chat's record, with its event id", settings: "the chat's service" },
+  triage: { got: "step triage: the ids of the texts code looked at", gave: "step triage: where code sent them (straight to Tex, to the judge, beside a running turn) and the rule that did", settings: "code" },
   decide: { got: "step decide / judge (moment): the ids of the texts it weighed, put back into words from the chat; whether a turn was running", gave: "its verdict, why, how sure, a tapback, what a running turn does", settings: "its model (Clef)" },
   react: { got: "step react: the text it reacted on", gave: "step react: the emoji sent, or that it failed", settings: "who chose it (judge, a tool starting)" },
   lanes: { got: "reply timing + door step: the texts the turn covers", gave: "reply timing waitMs: how long it waited for the turn ahead; step lane: the write lock", settings: "one turn per chat (groups three)" },
