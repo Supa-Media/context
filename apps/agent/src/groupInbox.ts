@@ -76,7 +76,7 @@ import { callsTex, groupCommand, type Command } from "./groupWords";
 import type { JobRun, JobSteer } from "./jobs";
 import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
 import { rememberChatReader } from "./chatRead";
-import { tapback } from "./stepEvents";
+import { logStep, tapback, triageStep } from "./stepEvents";
 import { runningTurn } from "./steer";
 import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
 import { chooseGroupTurn, coversOf, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
@@ -167,6 +167,9 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   }
   // Only the sender's own running turn: anybody else's text starts a turn of its own (Dev2, 2026-11-13, one turn per text).
   const running = runningTurn(storage, message.groupId, message.from);
+  // Triage, a step of its own (Dev2, 2026-11-14: "everything needs a node"): where code sent this line and why. Only in a
+  // bound chat, where the line itself is kept: a chat Tex is not set up in keeps nothing (above).
+  const triage = (ev: string, to: "tex" | "judge" | "running", why: string) => logStep(storage, message.groupId, triageStep([ev], to, why), now);
   // Not code's, in a bound chat: kept as what the chat said, and the judge's. `ev` given: it was logged already.
   const idleUntagged = async (logged?: string): Promise<"kept" | "ignored"> => {
     // Right after the sender's own waiting message, it goes with it.
@@ -175,6 +178,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     const ev = logged ?? (await logGroupInbound(storage, message, now));
     await enqueue(storage, message, { ev, soft: true, ...(follows ? { joins: true as const } : {}) }, repliesToTex, seen, now);
+    await triage(ev, "judge", follows ? "a line right after their own waiting one: it goes with it, to the judge" : "a line of the chat: the judge says whether it is for Tex");
     log("untagged_to_decide");
     return "kept";
   };
@@ -184,6 +188,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const extra: Partial<Pending> = { ...(ev ? { ev } : {}), ...(byCode ? { byCode: true as const } : {}) };
 
   if (running !== undefined && ev !== undefined && !byCode) {
+    await triage(ev, "running", "a turn of theirs is running: the judge says whether this joins it");
     // Seen before decide is asked: a webhook redelivered while decide is slow is a duplicate, never decided twice.
     await storage.put(seen, now);
     let how: Awaited<ReturnType<typeof whileRunning>>;
@@ -214,6 +219,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     return "kept";
   }
+  if (ev !== undefined) await triage(ev, "tex", "a command said to Tex by name: code answers it, no judge");
   // Code's to answer, every time: "Tex, stop" said again is answered again (Dev2, 2026-10-29).
   return await enqueue(storage, message, extra, repliesToTex, seen, now);
 }

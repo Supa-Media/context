@@ -24,6 +24,7 @@ const entries: LedgerEntry[] = [
   e({ kind: "note", turn: T, about: "(Not a text from them. This was your own check-in: you looked through their workspace.)", text: "Payroll is due." }),
   e({ kind: "note", turn: T, routine: "tex/routines/daily/news.md", outcome: "answered", text: "Nothing new." }),
   e({ kind: "note", turn: T, about: "(Not a text from them. Another of their agents asked you to get their attention, and you texted them what follows.)", text: "Deploy done." }),
+  step("triage", { input: { texts: ["1000-000001"] }, output: { to: "judge", why: "several texts waiting" } }),
   step("react", { input: { on: "1000-000001" }, output: { emoji: "👍" } }),
   step("lane", { name: "write_note", output: { before: "t0" } }),
   step("door", { input: { chat: "group", kind: "text", covers: ["1000-000001"] }, output: { model: "anthropic/claude-haiku-5-5", effort: "medium", reviewer: "on", advisor: "on", planner: "off" } }),

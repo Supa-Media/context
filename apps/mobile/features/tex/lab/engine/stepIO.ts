@@ -22,7 +22,7 @@ const secs = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000
 const count = (n: number) => n.toLocaleString("en-US");
 
 /** `step` names that are canvas steps of the same id. */
-export const STEP_NODES = new Set(["decide", "react", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "checks", "reviewer"]);
+export const STEP_NODES = new Set(["triage", "decide", "react", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "checks", "reviewer"]);
 
 /** A text of the chat by any id the steps log for it (its event id, its entry id), as "Who: words". */
 export function textById(entries: LedgerEntry[], id: string): string | null {
@@ -37,7 +37,6 @@ export function textById(entries: LedgerEntry[], id: string): string | null {
 function verdictWords(o: Record<string, unknown>): string {
   const act = str(o.verdict) || str(o.act);
   const parts = [act === "respond" ? "answer" : act === "quiet" || act === "silent" ? "stay quiet" : act || "judged"];
-  if (str(o.by) === "code") parts[0] += ", decided by code without asking the judge";
   if (str(o.why)) parts.push(str(o.why).replace(/_/g, " "));
   if (num(o.confidence) !== null) parts.push(`${Math.round(num(o.confidence)! * 100)}% sure`);
   if (str(o.midTurn)) parts.push(`while a turn ran: ${str(o.midTurn) === "fold" ? "fold it in" : str(o.midTurn)}`);

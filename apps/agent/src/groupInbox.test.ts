@@ -7,6 +7,7 @@ import { CHAT_FOR_MS, MAX_CHAT_LINES } from "./groupChat";
 import type { Fetch } from "./clients";
 import type { Decide } from "./groupWorld.testing";
 import { commandTo } from "./groupWords";
+import { unwritten } from "./events";
 import { LINE, ADA, BO, CY, GROUP, PICTURE, message, deps, world } from "./groupInboxWorld.testing";
 
 
@@ -93,6 +94,24 @@ describe("a group's queue", () => {
     expect(kept.filter((key) => key.startsWith("gpending:") || key.startsWith("gchat:") || key.startsWith("ev:"))).toEqual([]);
     expect(w.asks).toEqual([]);
     expect(w.control).toEqual([]);
+  });
+
+  it("logs Triage, code's routing of each line, as a step of its own: to the judge, or a command straight to Tex", async () => {
+    // Dev2, 2026-11-14: "everything needs a node ... where else is there random code running". Sabotage: drop a `triage`
+    // call in `acceptGroup` and its line here goes missing.
+    const storage = new MemoryStorage();
+    const w = world();
+    const control = { status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" };
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w, { control }));
+    expect(await acceptGroup(storage, message("thursday works?", { from: BO, messageId: "c1" }), 1)).toBe("kept");
+    const command = commandTo("Tex, stop") !== null ? "Tex, stop" : "Tex stop";
+    await acceptGroup(storage, message(command, { messageId: "c2" }), 2);
+    const triaged = (await unwritten(storage)).filter((event) => event.kind === "step" && event.step?.name === "triage").map((event) => event.step?.output?.to);
+    expect(triaged).toEqual(["judge", "tex"]);
+    expect(JSON.stringify(await unwritten(storage))).toContain("thursday works"); // the line itself is kept as a text
+    const steps = (await unwritten(storage)).filter((event) => event.kind === "step");
+    expect(JSON.stringify(steps)).not.toContain("thursday");
   });
 
   it("hands a tag what the chat said before it, by handle, then forgets its own copy", async () => {

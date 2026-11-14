@@ -26,7 +26,7 @@ import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
 import { chatEvents } from "./chatRead";
 import { decide, IDLE_DECIDE_MS, RUNNING_DECIDE_MS, type ControlDeps, type DecideAsk, type Decision } from "./decide";
-import { codeDecideStep, decideStep, logStep } from "./stepEvents";
+import { decideStep, logStep, triageStep } from "./stepEvents";
 import { sha256Hex } from "./groupChat";
 import { linkCode, type Message } from "./reply";
 import { restartTurn, runningTurn, steerInto } from "./steer";
@@ -187,11 +187,11 @@ export type Choice = { answer: Entry[]; react?: Message; emoji?: string; drop: E
  */
 export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { now: () => number }, waiting: Entry[]): Promise<Choice> {
   const [first] = waiting;
-  // Decide is a step even when code decides and the judge is never asked (Dev2, 2026-11-14: "WHY DOES IT STILL SAY NOTHING
-  // LOGGED"): what it was given, that code answered, and why, so Replay never shows Decide lit with nothing in it.
-  const byCode = (entries: Entry[], why: string) =>
-    logStep(storage, first[1].message.chatId, codeDecideStep(entries.flatMap(([, item]) => (item.ev ? [item.ev] : [])), why), deps.now());
-  if (decidedByCode(first[1].message)) return await byCode([first], "a command, a setting or a yes code answers by itself"), { answer: [first], drop: [] };
+  // Triage is a step of its own, logged on every path (Dev2, 2026-11-14: "I told you everything needs a node"): which
+  // texts it looked at, whether code sent them straight to Tex or to the judge, and the rule that did.
+  const triage = (entries: Entry[], to: "tex" | "judge", why: string, more?: Record<string, unknown>) =>
+    logStep(storage, first[1].message.chatId, triageStep(entries.flatMap(([, item]) => (item.ev ? [item.ev] : [])), to, why, more), deps.now());
+  if (decidedByCode(first[1].message)) return await triage([first], "tex", "a command, a setting or a yes code answers by itself"), { answer: [first], drop: [] };
   const chat = first[1].message.chatId;
   const burst: Entry[] = [];
   for (const entry of waiting) {
@@ -200,10 +200,13 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
   }
   const ids = burst.flatMap(([, item]) => (item.ev ? [item.ev] : []));
   // The simulator is answered directly, as before decide.
-  if (ids.length === 0 || first[1].message.channel === "simulator") return await byCode(burst, "the simulator is answered directly"), { answer: fallbackTurn(burst), drop: [] };
+  if (ids.length === 0 || first[1].message.channel === "simulator") return await triage(burst, "tex", "the simulator is answered directly"), { answer: fallbackTurn(burst), drop: [] };
   // Tex's front door (Seyi, 2026-10-31): one text goes straight to Tex. Decide is asked only when there is a choice: several texts waiting,
   // a bare "thanks" a tapback may answer, or an ask of Tex's this text may leave behind (`markStale`), so "never mind that email" still disarms it.
-  if (burst.length === 1 && !pureAck(burst[0][1].message) && (await waitingAsks(storage, deps.now(), await sha256Hex(first[1].message.from))).length === 0) return await byCode(burst, "one text and nothing of Tex's waiting on it: it goes straight to Tex"), { answer: burst, drop: [] };
+  const ack = burst.length === 1 && pureAck(burst[0][1].message);
+  const asks = burst.length === 1 && !ack ? (await waitingAsks(storage, deps.now(), await sha256Hex(first[1].message.from))).length : 0;
+  if (burst.length === 1 && !ack && asks === 0) return await triage(burst, "tex", "one text and nothing of Tex's waiting on it: it goes straight to Tex"), { answer: burst, drop: [] };
+  await triage(burst, "judge", burst.length > 1 ? "several texts waiting: the judge says which one turn answers" : ack ? "a bare thanks or tapback: the judge says whether it needs an answer" : "Tex is waiting on an answer of theirs: the judge says whether this leaves it behind", { waitingAsks: asks });
   const decision = await ask(storage, deps, burst.at(-1)![1].message, ids, false);
   if (!decision.ok) return { answer: fallbackTurn(burst), drop: [] };
   // Code's rule over the model's: only a pure acknowledgement may go unanswered here.
