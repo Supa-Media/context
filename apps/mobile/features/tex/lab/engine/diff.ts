@@ -80,23 +80,23 @@ export function diff(): Change[] {
   const ma = modsRaw(a);
   const mb = modsRaw(b);
   const users = (k: string) => b.nodes.filter((n) => n.ctx.includes(k));
-  const howOf = (kind: unknown): Change["how"] => (kind === "ailc" ? "setup" : kind === "store" ? "fixture" : "code");
+  const howOf = (kind: unknown): Change["how"] => (kind === "ailc" || kind === "prompt" ? "setup" : kind === "store" ? "fixture" : "code");
   for (const k in mb) {
     const x = mb[k];
     const y = ma[k];
     const ar = [...new Set(users(k).flatMap((n) => n.areas))];
     if (!y) {
-      out.push({ node: "module:" + k, label: x.name, what: "new context module", setup: x.kind === "ailc" ? x.path : undefined, to: `${x.name}, ${x.tok} tokens, ${x.stable ? "same every turn" : "changes every turn"}${x.text ? ": " + (x.text.length > 120 ? x.text.slice(0, 120) + "…" : x.text) : ""}`, how: howOf(x.kind), areas: ar });
+      out.push({ node: "module:" + k, label: x.name, what: "new context module", setup: x.kind === "ailc" || x.kind === "prompt" ? x.path : undefined, to: `${x.name}, ${x.tok} tokens, ${x.stable ? "same every turn" : "changes every turn"}${x.text ? ": " + (x.text.length > 120 ? x.text.slice(0, 120) + "…" : x.text) : ""}`, how: howOf(x.kind), areas: ar });
       continue;
     }
     if (x.text !== y.text) {
       const d = wdiff(y.text || "", x.text || "");
       const c = wcount(d);
-      out.push({ node: "module:" + k, mod: k, label: x.name, what: "wording", from: y.text ? fp(y.text) : "not in the Lab", to: `${fp(x.text || "")} · +${c.p} −${c.m} words${y.text ? "" : " (main's text isn't copied here: the run compares against the live note)"}`, how: howOf(x.kind), setup: x.kind === "ailc" ? x.path : undefined, areas: ar });
+      out.push({ node: "module:" + k, mod: k, label: x.name, what: "wording", from: y.text ? fp(y.text) : "not in the Lab", to: `${fp(x.text || "")} · +${c.p} −${c.m} words${y.text ? "" : " (main's text isn't copied here: the run compares against the live note)"}`, how: howOf(x.kind), setup: x.kind === "ailc" || x.kind === "prompt" ? x.path : undefined, areas: ar });
     }
     const ch = (["name", "tok", "stable", "about", "kind", "path"] as const).filter((f) => JSON.stringify(x[f]) !== JSON.stringify(y[f]));
     if (ch.length)
-      out.push({ node: "module:" + k, label: x.name, what: "context module changed", from: y.name, to: ch.map((f) => (f === "stable" ? (x.stable ? "same every turn" : "changes every turn") : f === "tok" ? x.tok + " tokens" : f + ": " + String(x[f]).slice(0, 120))).join("; "), how: ch.every((f) => f === "tok") ? "guess" : howOf(x.kind), setup: x.kind === "ailc" ? x.path : undefined, areas: ar });
+      out.push({ node: "module:" + k, label: x.name, what: "context module changed", from: y.name, to: ch.map((f) => (f === "stable" ? (x.stable ? "same every turn" : "changes every turn") : f === "tok" ? x.tok + " tokens" : f + ": " + String(x[f]).slice(0, 120))).join("; "), how: ch.every((f) => f === "tok") ? "guess" : howOf(x.kind), setup: x.kind === "ailc" || x.kind === "prompt" ? x.path : undefined, areas: ar });
   }
   const key = (e: LabGraph["edges"][number]) => e.from + ">" + e.to + ":" + e.mode + ":" + e.when.join("/");
   const ka = new Set(a.edges.map(key));

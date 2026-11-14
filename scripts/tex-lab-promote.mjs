@@ -9,8 +9,13 @@
  *
  * Refused, with the reason, rather than written: a graph whose steps or wires are malformed, a wire to a step that is
  * not there, a step on a model the config's table has no gateway id for (a model added in the Lab only), or a step
- * the gateway has no code for (a new id: build its code on a branch first, then promote), and, until the prompt words
- * move into the config, a version that edits prompt modules.
+ * the gateway has no code for (a new id: build its code on a branch first, then promote), or an edit to a module whose
+ * words are not a prompt module's (a code module, a chat view, a step's own instructions: those change in code).
+ *
+ * Prompt words are promoted too (Dev2, 2026-11-14: the words live "in the repo, beside the config"): a version's text
+ * for a prompt module, `p-<name>`, is written to `packages/shared/src/texPrompt/<name>.md` and the generated words
+ * file is rebuilt, so the pull request's fingerprints show the changed prompt and the replay gate runs. A new
+ * `p-<name>` module with words is a new file; which steps read it, and where, is the steps' context in the config.
  *
  *   node scripts/tex-lab-promote.mjs <graph.json>          write the config and the table
  *   node scripts/tex-lab-promote.mjs <graph.json> --check  only say whether it would be refused
@@ -21,17 +26,43 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CONFIG, PAGE, pageWithTable } from "./tex-config-table.mjs";
+import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptModuleFor, wordsOf } from "./tex-prompt-module.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ID = /^[a-z][a-z0-9_-]{0,30}$/;
 const MODES = new Set(["wait", "uses", "behind", "job", "loop"]);
 const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
+const PROMPT_KEY = /^p-([a-z][a-z0-9-]{0,47})$/;
+const MAX_WORDS = 40_000;
 
-/** The config a graph makes over the current one, or `{ refused }`. */
-export function configFrom(graph, current) {
+/**
+ * The prompt words a version's module edits make over the current words, `{ words }` (only the modules it changes),
+ * or `{ refused }`. An edit with no text (a renamed label, a cache flag) changes no words and is left out.
+ */
+export function wordsFrom(modules, currentWords) {
+  const words = {};
+  for (const [key, edit] of Object.entries(modules ?? {})) {
+    if (!edit || typeof edit !== "object" || typeof edit.text !== "string") continue;
+    const name = PROMPT_KEY.exec(key)?.[1];
+    if (name === undefined) {
+      if (edit.text.trim() === "") continue;
+      return { refused: `it changes the words of "${key}", which is not a prompt module: that text is built in code, so change it on a branch` };
+    }
+    const text = edit.text.replace(/^\uFEFF/, "").trim();
+    if (text === "") return { refused: `it empties the prompt module "${name}": take it out of the steps' context instead` };
+    if (text.length > MAX_WORDS) return { refused: `the prompt module "${name}" is longer than ${MAX_WORDS} characters` };
+    if (/^---\r?\n/.test(text)) return { refused: `the prompt module "${name}" starts with front matter, which Tex would be sent` };
+    if (text !== currentWords[name]) words[name] = text;
+  }
+  return { words };
+}
+
+/** The config a graph makes over the current one, `{ config, words }`, or `{ refused }`. */
+export function configFrom(graph, current, currentWords = {}) {
   const refuse = (why) => ({ refused: why });
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return refuse("the version has no steps and wires");
-  if (graph.modules && Object.keys(graph.modules).length > 0) return refuse("it edits prompt modules, which Tex's config does not hold yet: promote the steps without them, and move the words by hand");
+  const madeWords = wordsFrom(graph.modules, currentWords);
+  if (madeWords.refused) return madeWords;
   const known = new Set(current.nodes.map((n) => n.id));
   const ids = new Set();
   for (const n of graph.nodes) {
@@ -51,7 +82,14 @@ export function configFrom(graph, current) {
   // In the order main has them, so a promotion's diff shows only what changed.
   const order = new Map(current.nodes.map((n, i) => [n.id, i]));
   const nodes = [...graph.nodes].sort((a, b) => order.get(a.id) - order.get(b.id));
-  return { config: { ...current, nodes, edges: graph.edges.map(({ from, to, mode, when }) => ({ from, to, mode, when })) } };
+  // Every prompt module a step reads must have words, here or in this version.
+  for (const n of nodes) {
+    for (const entry of n.ctx ?? []) {
+      const name = PROMPT_KEY.exec(entry)?.[1];
+      if (name !== undefined && typeof currentWords[name] !== "string" && typeof madeWords.words[name] !== "string") return refuse(`step "${n.id}" reads the prompt module "${name}", which has no words`);
+    }
+  }
+  return { config: { ...current, nodes, edges: graph.edges.map(({ from, to, mode, when }) => ({ from, to, mode, when })) }, words: madeWords.words };
 }
 
 /** The config file's text: the head as JSON, then one step and one wire per line. */
@@ -66,26 +104,35 @@ function selfTest() {
     if (!cond) throw new Error(`self-test: ${what}`);
   };
   const current = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
+  const words = wordsOf(ROOT);
   expect(configText(current) === readFileSync(join(ROOT, CONFIG), "utf8"), "the committed config is not in the promote format");
-  const same = configFrom({ nodes: current.nodes, edges: current.edges }, current);
+  const same = configFrom({ nodes: current.nodes, edges: current.edges }, current, words);
   expect(same.config && configText(same.config) === configText(current), "main's own graph does not promote to main's config");
   const graph = () => JSON.parse(JSON.stringify({ nodes: current.nodes, edges: current.edges }));
   const g1 = graph();
   g1.nodes.find((n) => n.id === "reviewer").effort = "medium";
-  expect(configFrom(g1, current).config.nodes.find((n) => n.id === "reviewer").effort === "medium", "an effort change was lost");
+  expect(configFrom(g1, current, words).config.nodes.find((n) => n.id === "reviewer").effort === "medium", "an effort change was lost");
   const g2 = graph();
   g2.nodes.push({ ...g2.nodes[0], id: "brandnew" });
-  expect(/new/.test(configFrom(g2, current).refused ?? ""), "a step with no code passed");
+  expect(/new/.test(configFrom(g2, current, words).refused ?? ""), "a step with no code passed");
   const g3 = graph();
   g3.nodes.find((n) => n.id === "fd").model = "custom-1";
-  expect(/no gateway model id/.test(configFrom(g3, current).refused ?? ""), "a Lab-only model passed");
+  expect(/no gateway model id/.test(configFrom(g3, current, words).refused ?? ""), "a Lab-only model passed");
   const g4 = graph();
   g4.nodes = g4.nodes.filter((n) => n.id !== "selfreview");
-  expect(/gone/.test(configFrom(g4, current).refused ?? ""), "a deleted step passed");
+  expect(/gone/.test(configFrom(g4, current, words).refused ?? ""), "a deleted step passed");
   const g5 = graph();
   g5.edges.push({ from: "fd", to: "nowhere", mode: "wait", when: ["*"] });
-  expect(/not there/.test(configFrom(g5, current).refused ?? ""), "a wire to nowhere passed");
-  expect(/prompt modules/.test(configFrom({ ...graph(), modules: { "p-rules": { text: "x" } } }, current).refused ?? ""), "a module edit passed");
+  expect(/not there/.test(configFrom(g5, current, words).refused ?? ""), "a wire to nowhere passed");
+  const g6 = configFrom({ ...graph(), modules: { "p-rules": { text: `${words.rules}\n\nOne more rule.` } } }, current, words);
+  expect(g6.words?.rules?.endsWith("One more rule."), "a prompt module's new words were lost");
+  expect(Object.keys(configFrom({ ...graph(), modules: { "p-rules": { text: `${words.rules}\n` }, "p-tools": { tok: 9 } } }, current, words).words ?? {}).length === 0, "unchanged words were written");
+  expect(/not a prompt module/.test(configFrom({ ...graph(), modules: { caps: { text: "x" } } }, current, words).refused ?? ""), "a code module's words passed");
+  expect(/empties/.test(configFrom({ ...graph(), modules: { "p-rules": { text: " " } } }, current, words).refused ?? ""), "an emptied module passed");
+  const g7 = graph();
+  g7.nodes.find((n) => n.id === "fd").ctx.push("p-brand-new");
+  expect(/no words/.test(configFrom(g7, current, words).refused ?? ""), "a step reading a module with no words passed");
+  expect(configFrom({ ...g7, modules: { "p-brand-new": { text: "New words." } } }, current, words).words?.["brand-new"] === "New words.", "a new module's words were lost");
   console.log("tex-lab-promote self-test: ok");
 }
 
@@ -106,7 +153,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       process.exit(1);
     }
     const current = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
-    const made = configFrom(graph, current);
+    const made = configFrom(graph, current, wordsOf(ROOT));
     if (made.refused) {
       console.error(`tex-lab-promote: refused: ${made.refused}`);
       process.exit(1);
@@ -114,7 +161,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (!args.includes("--check")) {
       writeFileSync(join(ROOT, CONFIG), configText(made.config));
       writeFileSync(join(ROOT, PAGE), pageWithTable(readFileSync(join(ROOT, PAGE), "utf8"), made.config));
+      for (const [name, text] of Object.entries(made.words)) writeFileSync(join(ROOT, PROMPT_FOLDER, `${name}.md`), `${text}\n`);
+      writeFileSync(join(ROOT, PROMPT_MODULE), promptModuleFor(wordsOf(ROOT)));
     }
-    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG} and ${PAGE}'s steps table`);
+    const changed = Object.keys(made.words);
+    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG} and ${PAGE}'s steps table${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}`);
   }
 }

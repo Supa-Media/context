@@ -80,13 +80,13 @@ jobs:
             fi
             name=$(echo "$ask" | jq -r .name | tr -d '\r' | cut -c1-80)
             by=$(echo "$ask" | jq -r .by)
-            git add packages/shared/src/texConfig.json docs/architecture/tex.md
+            git add packages/shared/src/texConfig.json docs/architecture/tex.md packages/shared/src/texPrompt packages/shared/src/texPrompt.generated.json
             git commit -q -m "Promote the Lab version \"$name\" to Tex's config" -m "Asked for in the Tex Architecture Lab by $by. The pull request merges only on green CI and the replay gate."
             git push -q -f origin "HEAD:refs/heads/tex-lab/promote-$id-$at"
             {
               echo "Promoted from the Tex Architecture Lab (context.lc/lab) by $by: version \"$name\" (\`$id\`)."
               echo
-              echo "What changed is \`packages/shared/src/texConfig.json\` and the steps table it makes in \`docs/architecture/tex.md\`; the diff is the whole change. A changed model, effort or time limit changes the prompts and requests the replay gate fingerprints, so **Tex replay required** names the areas it reaches: run them on the examiner path before merging."
+              echo "What changed is \`packages/shared/src/texConfig.json\`, the steps table it makes in \`docs/architecture/tex.md\`, and any prompt words under \`packages/shared/src/texPrompt/\`; the diff is the whole change. A changed model, effort, time limit or word changes the prompts and requests the replay gate fingerprints, so **Tex replay required** names the areas it reaches: run them on the examiner path before merging."
               echo
               echo "No replay case: a Lab promotion changes settings the existing replay areas already measure."
             } > "$RUNNER_TEMP/body.md"

@@ -53,7 +53,7 @@ export type LabModel = {
   custom?: boolean;
 };
 
-export type SourceKind = "chat" | "store" | "ailc" | "code" | "derived" | "special";
+export type SourceKind = "chat" | "store" | "ailc" | "prompt" | "code" | "derived" | "special";
 
 export type LabModule = {
   name: string;
