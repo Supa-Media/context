@@ -133,7 +133,7 @@ export async function noteSendStatus(storage: InboxStorage, status: SendStatus, 
       outcome = "marked";
     }
   }
-  console.log(JSON.stringify({ event: "sendblue_status", status: status.status, ...(status.errorClass ? { error_class: status.errorClass } : {}), downgraded: status.downgraded, ...(ev ? { ev } : {}), outcome }));
+  console.log(JSON.stringify({ event: "sendblue_status", ...(status.report && status.report.name !== "sendblue" ? { provider: status.report.name } : {}), status: status.status, ...(status.errorClass ? { error_class: status.errorClass } : {}), downgraded: status.downgraded, ...(ev ? { ev } : {}), outcome }));
   return outcome;
 }
 

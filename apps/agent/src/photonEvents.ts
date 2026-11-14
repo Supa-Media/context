@@ -18,6 +18,7 @@ import { toChat } from "./handOver";
 import { inboxByName } from "./objectPlace";
 import { photonAttachmentUrl } from "./photon";
 import { arrivalOf } from "./providerTiming";
+import { photonSendStatusOf } from "./photonSendStatus";
 import { parsePhotonEvent, photonAttachmentGuids } from "./photonInbound";
 import { sendGroupName } from "./sendblueGroups";
 import { workerOrigin } from "./media";
@@ -35,6 +36,14 @@ function log(outcome: string, reason?: string): void {
 
 /** One event, read and handed over. See the module comment for what each status means. */
 export async function photonEvent(env: Env, body: unknown): Promise<number> {
+  // Tex's own text reaching Apple, or the person reading it: the chat's `send` step, as Sendblue's status callback is.
+  const sendStatus = photonSendStatusOf(body);
+  if (sendStatus !== null) {
+    const name = sendStatus.object.kind === "group" ? groupInboxName(sendStatus.object.groupId) : sendStatus.object.phone;
+    const result = await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/send-status", { method: "POST", body: JSON.stringify(sendStatus) });
+    console.log(JSON.stringify({ event: "photon_send_status", status: sendStatus.report?.status, outcome: result.ok ? "noted" : "failed" }));
+    return result.ok ? 200 : 503;
+  }
   // A read receipt is the one kind Tex never acts on, and the most frequent: counted, not read.
   if (typeof body === "object" && body !== null && (body as { type?: unknown }).type === "message.read") {
     console.log(JSON.stringify({ event: "photon_read", outcome: "ignored" }));
