@@ -101,7 +101,7 @@ export function texChatClass({ gateway, texts }) {
       if (this.name === null) return null;
       const { SenderInbox } = await import("../../agent/src/chatObject");
       const senderId = (await storage.get(SENDER_ID_KEY)) ?? "";
-      this.inner = new SenderInbox(chatState(this.state, senderId), await chatEnv(this.env, this.state, this.name, { gateway, texts }));
+      this.inner = new SenderInbox(chatState(this.state, senderId), await chatEnv(this.env, this.state, this.name, senderId, { gateway, texts }));
       return this.inner;
     }
   };
@@ -143,7 +143,7 @@ function chatState(state, senderId) {
 }
 
 /** The Worker's `Env`, as the chat object reads it, made of the gateway's bindings. */
-async function chatEnv(env, state, name, { gateway, texts }) {
+async function chatEnv(env, state, name, senderId, { gateway, texts }) {
   const { remoteLine, remoteGroupLine } = await import("../../agent/src/remoteLine");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
@@ -160,21 +160,27 @@ async function chatEnv(env, state, name, { gateway, texts }) {
     CONTROL_PLANE_ORIGIN: typeof env.CONTROL_PLANE_URL === "string" ? env.CONTROL_PLANE_URL : "",
     AGENT_WORKER_SECRET: typeof env.AGENT_WORKER_SECRET === "string" ? env.AGENT_WORKER_SECRET : "",
     // The Worker's other objects (a job's, a chat's directory entry), reached through the Worker.
-    SENDER_INBOX: workerObjects(rpc),
+    SENDER_INBOX: workerObjects(rpc, name, senderId),
     TEX_LINE: rpc === undefined ? undefined : { line: (chatId) => remoteLine(rpc, name, chatId), groupLine: (groupId) => remoteGroupLine(rpc, name, groupId) },
     // A group turn's retries stay the Worker's Workflow: it reaches this chat through the Worker's object by its old
     // id, which passes the call on here (`groupTurnWorkflow.ts`).
     ...(rpc === undefined ? {} : { GROUP_TURN: { create: (options) => rpc.groupTurn({ op: "create", ...options }), get: (id) => rpc.groupTurn({ op: "get", id }) } }),
     IMAGES: env.IMAGES,
+    // The Worker's datasets, bound here under the same names, so a text is timed and counted wherever its chat runs.
+    TEX_TEXTS: env.TEX_TEXTS,
+    TEX_COUNTS: env.TEX_COUNTS,
     LINQ_API_KEY: "",
     INTAKE: "gateway",
   };
 }
 
-/** A stand-in for the Worker's `SENDER_INBOX` namespace: each object reached by name through the Worker's RPC. */
-function workerObjects(rpc) {
+/**
+ * A stand-in for the Worker's `SENDER_INBOX` namespace: each object reached by name through the Worker's RPC. Only
+ * this chat's own id is known here (the one it had in the Worker, for counting: `objectPlace.ts` `inboxIdOf`).
+ */
+function workerObjects(rpc, chatName, senderId) {
   return {
-    idFromName: (name) => ({ name, toString: () => "" }),
+    idFromName: (name) => ({ name, toString: () => (name === `enam:${chatName}` ? senderId : "") }),
     idFromString: () => {
       throw new TypeError("a Worker object is reached by name here");
     },

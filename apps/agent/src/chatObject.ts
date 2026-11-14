@@ -18,6 +18,8 @@ import { textRoutine } from "./routines";
 import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { tellNewLine } from "./newLine";
+import type { Line } from "./line";
+import type { GroupLine } from "./groupLine";
 import { sendblueKeys } from "./sendblue";
 import { noteSendStatus, resendPlain, type SendStatus } from "./sendblueStatus";
 import { type GroupMessage } from "./sendblueGroups";
@@ -111,6 +113,7 @@ export class SenderInbox implements DurableObject {
           now: () => Date.now(),
           simulator: simulatorEnabled(this.env.SIMULATOR),
           textCounts: this.env.TEX_COUNTS,
+          ...this.remoteLines(),
         },
       );
       return Response.json({ status });
@@ -125,6 +128,7 @@ export class SenderInbox implements DurableObject {
         whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
         now: () => Date.now(),
         textCounts: this.env.TEX_COUNTS,
+        ...this.remoteLines(),
       });
       return Response.json({ told });
     }
@@ -279,6 +283,12 @@ export class SenderInbox implements DurableObject {
     }
   }
 
+  /** The line served by the Worker when this object runs in the gateway (`apps/mcp/src/texChat.js`); absent here. */
+  private remoteLines(): { remoteLine?: (chatId: string) => Line; remoteGroupLine?: (groupId: string) => GroupLine } {
+    const line = this.env.TEX_LINE;
+    return line === undefined ? {} : { remoteLine: (chatId) => line.line(chatId), remoteGroupLine: (groupId) => line.groupLine(groupId) };
+  }
+
   private deps(): InboxDeps & { startTurn?: (turn: string) => Promise<void>; answerFirst?: (work: Promise<unknown>) => void } {
     const workflow = this.env.GROUP_TURN;
     return {
@@ -300,6 +310,7 @@ export class SenderInbox implements DurableObject {
       threadsLink: () => mintThreadsLink(this.state.storage, this.state.id.toString(), Date.now()),
       images: this.env.IMAGES,
       now: () => Date.now(),
+      ...this.remoteLines(),
       spawnJob: async (id: string, run: JobRun) => {
         const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
         const response = await stub.fetch("https://inbox/job-start", { method: "POST", body: JSON.stringify(run) });

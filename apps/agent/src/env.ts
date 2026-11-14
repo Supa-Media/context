@@ -5,6 +5,8 @@ import type { JobRunParams } from "./jobWorkflow";
 import type { TextsBinding } from "./gatewaySession";
 import type { TimingDataset } from "./textTiming";
 import type { CountDataset } from "./textCounts";
+import type { Line } from "./line";
+import type { GroupLine } from "./groupLine";
 
 export interface Env {
   SENDER_INBOX: DurableObjectNamespace;
@@ -37,6 +39,8 @@ export interface Env {
   FETCH?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   /** Where an incoming text's head runs: "gateway" hands it to the gateway's TexChat (`/texts/arrive`); anything else keeps the SenderInbox queue (`handOver.ts`). */
   INTAKE?: string;
+  /** The chat's line, when this chat object runs in the gateway: the Worker's, over its RPC (`remoteLine.ts`). Absent in the Worker. */
+  TEX_LINE?: { line: (chatId: string) => Line; groupLine: (groupId: string) => GroupLine };
   /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
