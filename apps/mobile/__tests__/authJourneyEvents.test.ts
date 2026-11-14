@@ -68,3 +68,42 @@ describe("email funnel at the operation boundary", () => {
     expect(JSON.stringify(jest.mocked(trackEvent).mock.calls)).not.toMatch(/person@example.com|123456/);
   });
 });
+
+describe("the YC review account's password", () => {
+  test("on /login, the address asks for a password and sends no code", async () => {
+    mockSignIn.mockResolvedValue({ signingIn: true });
+    const signed = jest.fn();
+    const flow = mount(() => useEmailSignIn({ source: "login", onSignedIn: signed }));
+    act(() => flow().setEmail(" YC-Review@Supa.Media "));
+    await act(async () => { await flow().submitEmail(); });
+    expect(flow().step).toBe("password");
+    expect(mockSignIn).not.toHaveBeenCalled();
+    expect(mockEnter).not.toHaveBeenCalled();
+    act(() => flow().setPassword("Abcdefghjk23456789Zz"));
+    await act(async () => { await flow().verifyPassword(); });
+    expect(mockSignIn).toHaveBeenCalledWith("reviewer-password", { email: "yc-review@supa.media", password: "Abcdefghjk23456789Zz" });
+    expect(signed).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(jest.mocked(trackEvent).mock.calls)).not.toMatch(/Abcdefghjk|yc-review/);
+  });
+
+  test("a refused password is said, and signs nobody in", async () => {
+    mockSignIn.mockResolvedValue({ signingIn: false });
+    const signed = jest.fn();
+    const flow = mount(() => useEmailSignIn({ source: "login", onSignedIn: signed }));
+    act(() => flow().setEmail("yc-review@supa.media"));
+    await act(async () => { await flow().submitEmail(); });
+    act(() => flow().setPassword("wrong"));
+    await act(async () => { await flow().verifyPassword(); });
+    expect(flow().error).toMatch(/password didn't work/);
+    expect(signed).not.toHaveBeenCalled();
+  });
+
+  test("the homepage's card points to /login instead", async () => {
+    const flow = mount(() => useEmailSignIn({ source: "homepage", onSignedIn: jest.fn() }));
+    act(() => flow().setEmail("yc-review@supa.media"));
+    await act(async () => { await flow().submitEmail(); });
+    expect(flow().step).toBe("request");
+    expect(flow().error).toMatch(/context\.lc\/login/);
+    expect(mockSignIn).not.toHaveBeenCalled();
+  });
+});

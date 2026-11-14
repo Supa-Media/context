@@ -20,7 +20,12 @@ change. A session that wrote the change must never act as its examiner.
    with Tex replay in CI: a second user beside a running replay presents a
    retired token and the gateway revokes the whole grant (it happened on
    2026-11-13 and took a person's `pnpm ai connect` to restore).
-2. Name the areas with `pnpm ai gate areas --base-sha $(git merge-base origin/main HEAD)`.
+2. Name the areas with `pnpm ai gate areas --base-sha $(git merge-base origin/main HEAD)` **and** the areas its
+   prompts reach, `node apps/mcp/bench/run.mjs gate fingerprint --base-tree $MAIN` (one area a line; run
+   `pnpm install --frozen-lockfile` in `$MAIN` first): the areas to examine are both lists together, as
+   **Tex replay required** counts them. A change to the drawing's first section (it is in every prompt) reaches
+   every area by its prompts while its files reach none; on 2026-11-14 an examiner that read only the first list
+   found nothing to examine on such a change, and its check stayed red.
    `respond`, `review`, `core` and the four `advisor-*` roles can be examined (`SOCKET_AREAS` in
    `apps/mcp/bench/replayGate.mjs`). If the change reaches another area, stop
    and say so on the pull request. The core area also needs the live setup in

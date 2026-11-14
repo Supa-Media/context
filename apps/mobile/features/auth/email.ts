@@ -91,6 +91,18 @@ export const GOOGLE_REVIEW_PROVIDER_ID = "test-email-google-review";
 export const DIRECTORY_REVIEW_EMAIL = "directory-review@supa.media";
 export const DIRECTORY_REVIEW_PROVIDER_ID = "test-email-directory-review";
 
+/**
+ * The YC review account signs in with a password staff set, not a code
+ * (apps/convex/functions/lib/reviewerPassword.ts).
+ */
+export const YC_REVIEW_EMAIL = "yc-review@supa.media";
+export const REVIEWER_PASSWORD_PROVIDER_ID = "reviewer-password";
+
+/** Client routing only: whether this address gets a password box. The provider refuses every other address. */
+export function usesPassword(email: string): boolean {
+  return email === YC_REVIEW_EMAIL;
+}
+
 /** Client routing only; the provider repeats the exact check server-side. */
 export function signInProviderForEmail(
   email: string,

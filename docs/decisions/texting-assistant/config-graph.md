@@ -5,9 +5,14 @@ Architecture Lab's graph of main) set only each drawn step's model, effort,
 time limit and on or off. Which step ran after which, what waited, and what ran
 in the background were code. So code could run a step the drawing never showed.
 The drawing and what Tex is told about itself could both be wrong, and no test
-would fail. The owner's words on 2026-11-14: "it's fine for node to be code, but
-it's not fine for the connections between node to be code. They should be
-predefined."
+would fail. On 2026-11-14 Dev2 found the Lab drawing a text going straight to
+the queue with no wire, and asked "where else is there random code running".
+The audit found several model calls with no node at all (the egress judge, the
+picture maker, the memory nudge, reflect, dreams, day summaries, housekeeping,
+the thread reader, the claim check). Dev2 chose: "it's fine for node to be
+code, but it's not fine for the connections between node to be code. They
+should be predefined", and approved the design ("Tex Wiring Graph", 19:14Z)
+with: "Please make sure you do not deviate from this plan."
 
 The decision: **every node and every wire Tex runs is in the config.** A node is
 code. A wire is data, and one shared runner reads it. Nothing else decides what
@@ -40,9 +45,10 @@ output") and `apps/mcp/test/texArchitecture.test.mjs`.
 ## A node is code, and it never imports another node
 
 A node is `async (input, io) => output`. It reaches another node only through
-`io.use` (a `uses` wire), `io.back` (a `loop` wire) or `io.job` (a `job` wire).
-Each of those is a wire in the config, so a node can call only what its wires
-reach. A node file that imports another node's file is refused.
+`io.use` (a `uses` wire), `io.back` (a `loop` wire; the work goes back along
+the `wait` path to the sender) or `io.job` (a `job` wire). Each of those is a
+wire in the config, so a node can call only what its wires reach, and a handle
+with no wire throws. A node file that imports another node's file is refused.
 
 **What a simplification would cost:** a direct import is a wire nobody drew, and
 the drawing has no way to show it. Test: the import check in Fast repository
@@ -69,9 +75,9 @@ steps chain to each other with `when ["next"]`.
 A node that is `on: false` never runs. A graph with a `wait` cycle, an unknown
 mode, or a wire to a node that is not there is refused before any turn runs.
 
-The config still says `behind` for the background wires until the rename lands.
-The runner and the drawing read `behind` and `background` the same, so nothing
-changes in the meantime.
+`behind` is `background` (Dev2, on the design: "why not call it background?"),
+in the config, the runner, the Lab and Promote; a Lab version saved before the
+rename reads with the new name (`store.ts` `withCurrentModes`).
 
 **What a simplification would cost:** a runner that takes a mode it does not
 know, or a cycle of waiting steps, lets a turn hang or run a step nobody drew.
@@ -82,10 +88,11 @@ never runs").
 ## Output that does not match its schema fails
 
 Each node's `inSchema` and `outSchema` name the typed fields it takes and gives.
-An output that does not match its `outSchema` fails the node (decided by the
+A field is required unless `optional: true`, an unnamed field fails, and only
+`when` (the output's routing tags) is exempt. An output that does not match its `outSchema` fails the node (decided by the
 owner, 2026-11-14). The failure is logged, naming the field. Then the usual
-failure path runs: the node is tried again, and if it fails again the person
-gets the one failed line.
+failure path runs: the runner throws a `GraphError` naming the field, and the
+turn's own failure handling takes over.
 
 **What a simplification would cost:** a loose output reaches the next step as
 a field that step did not expect, and the wrong answer is sent as if it were
@@ -94,9 +101,10 @@ output names a field the schema does not give.
 
 ## The runner logs every node run
 
-The runner writes one `node` ledger entry for every run: the node, its input and
-output shaped by the schema, the milliseconds, ok or failed, the turn and the
-commit. No node writes that line itself.
+The runner writes one ledger entry for every run, a `step` entry with
+`step: "node"` (`apps/mcp/src/agent/ledger.js` `nodeEntry`): the node, its input
+and output, the milliseconds, ok or the error, and the wire that ran it (`via`).
+Replay reads those as each node's Got and Gave. No node writes that line itself.
 
 **What a simplification would cost:** a node that logs itself can skip the log
 when it fails, which is when the log is needed. Test: "every node run is logged
@@ -110,15 +118,23 @@ The texting Worker is plumbing only: it checks the webhook, hands the message
 over and delivers the reply. The per-chat queues move into the gateway with the
 nodes.
 
-The move is staged. `packages/shared/src/texGraphHome.json` lists each node's
-process. The `notYet` list names the nodes still wired by hand. Each node joins
-its process's node table, and leaves `notYet`, in its own pull request. The list
-only ever shrinks.
+The one graph is `apps/mcp/src/agent/graph/gatewayGraph.js`, over
+`GATEWAY_NODES` (`gatewayNodes.js`). The move is staged:
+`packages/shared/src/texGraphNotYet.json` names every node whose code is not on
+the runner yet. A node leaves it in the pull request that puts it in
+`GATEWAY_NODES`, and nothing goes back. Meanwhile code not yet a node calls one
+with `runNode(id, input, ctx, via)`, or over a config wire with
+`fire(from, to, ...)`. The migration lands in six steps, each its own pull
+request: the runner and guards; the turn after the door (the door as eleven
+nodes in a group); the Worker's head (triage, decide, lanes) moved into the
+gateway; jobs and starts; the missing nodes; and the Lab simulating on the same
+runner.
 
 **What a simplification would cost:** a second graph in the Worker means two
-places that decide what runs, which is the drift this decision removes. Test: the
-coverage check in `texGraph.test.mjs` and the gateway's `texGraphHome.test.mjs`,
-which fail when a config node has no code, or code has no config node.
+places that decide what runs, which is the drift this decision removes. Test:
+`texGraphHome.test.mjs`, which fails when a node is both on the runner and in
+`notYet` or neither, when `notYet` grows, when a node imports a sibling, or
+when a run does not reach the ledger.
 
 ## The door steps are one group
 
@@ -207,8 +223,7 @@ proves the change ([replay-gate](../testing/replay-gate.md)). Open the pull
 request. If the change alters what a person can get Tex to do, the change also
 edits its line in the capability list ([capabilities](./capabilities.md)).
 
-**A new node.** On a branch, write its code in the node table of the process
-that runs it, and its file. Add its config entry with `inSchema`, `outSchema`,
+**A new node.** On a branch, write its code and add it to `GATEWAY_NODES`. Add its config entry with `inSchema`, `outSchema`,
 `ctx` and its wires. If it calls a model, add its role to `ROLES` in
 `texArchitecture.js`. Run `node scripts/tex-architecture.mjs`. Add a replay case.
 A node with no code cannot be promoted.

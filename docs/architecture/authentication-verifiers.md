@@ -4,6 +4,12 @@ Context authenticates people with one-time codes and links. It has no
 user-selected password database. The controls below also apply to issued
 reviewer and test-account codes; those accounts have no fixed-code exception.
 
+The one password is the YC review account's, set by staff, never chosen by a
+person: 20 random characters, stored as a salted keyed HMAC (purpose
+`reviewer-password`), expiring after 30 days, revocable, and refused for an
+hour after ten wrong tries (`functions/lib/reviewerPassword.ts`; decision in
+[invitations and sign-in](../decisions/identity-and-access/invitations-and-signin.md)).
+
 ## Storage and verification
 
 1. The server generates a random code or token and delivers it through the

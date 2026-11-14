@@ -30,8 +30,10 @@ import { usePhoneSignIn } from "./usePhoneSignIn";
  *
  * Two steps against `@convex-dev/auth`'s email provider, configured by
  * `createSupaAuth` in `apps/convex/auth.ts`, which sends a six-digit code that
- * expires in ten minutes — the only reason this screen may say either. There
- * is no password anywhere in the product.
+ * expires in ten minutes — the only reason this screen may say either. The one
+ * password is the YC review account's, set by staff for its reviewers
+ * (`apps/convex/functions/lib/reviewerPassword.ts`): that address alone gets a
+ * password box instead of a code.
  *
  * A `?next=` parameter survives the round trip, narrowed by `safeNextRoute` on
  * the way through. It exists for the consent screen: an AI client sends someone
@@ -73,7 +75,7 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
   // link under the field.
   const [mode, setMode] = useState<"phone" | "email">("email");
   const phoneFlow = usePhoneSignIn({ onSignedIn, onUnavailable: () => setMode("email") });
-  const { step, email, code, submitting, error, resent, canSubmit } = flow;
+  const { step, email, code, password, submitting, error, resent, canSubmit } = flow;
   const view = signInView(join, step);
   const asking = view === "request" || view === "wrongEmail";
 
@@ -147,6 +149,31 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
             />
           </View>
         </>
+      ) : view === "password" ? (
+        <>
+          <Text role="heading" aria-level={1} style={styles.pitch}>
+            Enter your password.
+          </Text>
+          <Text variant="rowSub" style={styles.sent}>
+            <Text style={styles.strong}>{email.trim()}</Text> signs in with the password you were given.
+          </Text>
+          <View style={styles.field}>
+            <TextField
+              label="Password"
+              value={password}
+              onChangeText={flow.setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="current-password"
+              editable={!submitting}
+              onSubmitEditing={() => {
+                if (canSubmit && !submitting) void flow.verifyPassword();
+              }}
+              testID="login-password"
+            />
+          </View>
+        </>
       ) : (
         <>
           <Text role="heading" aria-level={1} style={styles.pitch}>
@@ -216,6 +243,29 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
                 testID="login-submit"
               />
             </View>
+          ) : view === "password" ? (
+            <>
+              <View style={styles.primaryRow}>
+                <Button
+                  label="Sign in"
+                  variant="accent"
+                  disabled={submitting || !canSubmit}
+                  onPress={() => void flow.verifyPassword()}
+                  trailing={spinner}
+                  style={phone ? styles.submitPhone : undefined}
+                  testID="login-submit"
+                />
+              </View>
+              <Text
+                variant="foot"
+                role="link"
+                style={styles.link}
+                onPress={flow.changeEmail}
+                testID="login-change-email"
+              >
+                Change email →
+              </Text>
+            </>
           ) : (
             <>
               <View style={styles.verifyRow}>
@@ -247,7 +297,7 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
             </>
           )}
 
-          {view !== "waitlist" ? (
+          {view !== "waitlist" && view !== "password" ? (
             <Text variant="foot" style={styles.foot}>
               {view === "verify"
                 ? "Next: pick the name your notes live under."

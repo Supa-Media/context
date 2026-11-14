@@ -1,5 +1,6 @@
 import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
+import { YC_REVIEW_EMAIL } from "./reviewerPassword";
 
 /**
  * The accounts outside reviewers sign in to: the Claude and ChatGPT directory
@@ -68,7 +69,7 @@ async function emailOf(ctx: QueryCtx, userId: Id<"users">): Promise<string | und
 
 /**
  * Is this one of the accounts an outside reviewer signs in to: the directory
- * and App Store one, or Google's?
+ * and App Store one, Google's, or YC's (`reviewerPassword.ts`)?
  *
  * Their codes are handed to people outside the company. So these accounts are
  * held to their own workspace: they
@@ -81,7 +82,9 @@ async function emailOf(ctx: QueryCtx, userId: Id<"users">): Promise<string | und
  */
 export async function isReservedReviewer(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
   const email = await emailOf(ctx, userId);
-  return email === REVIEWER_EMAIL || email === GOOGLE_REVIEW_EMAIL || email === DIRECTORY_REVIEW_EMAIL;
+  return (
+    email === REVIEWER_EMAIL || email === GOOGLE_REVIEW_EMAIL || email === DIRECTORY_REVIEW_EMAIL || email === YC_REVIEW_EMAIL
+  );
 }
 
 /**
@@ -91,5 +94,5 @@ export async function isReservedReviewer(ctx: QueryCtx, userId: Id<"users">): Pr
  */
 export async function mayHoldGoogleConnection(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
   const email = await emailOf(ctx, userId);
-  return email !== REVIEWER_EMAIL && email !== DIRECTORY_REVIEW_EMAIL;
+  return email !== REVIEWER_EMAIL && email !== DIRECTORY_REVIEW_EMAIL && email !== YC_REVIEW_EMAIL;
 }

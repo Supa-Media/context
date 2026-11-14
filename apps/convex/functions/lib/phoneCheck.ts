@@ -2,6 +2,7 @@ import { twilioVerifyKeys } from "@supa-media/convex/auth";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import { REVIEWER_EMAIL } from "./reviewerAccount";
+import { YC_REVIEW_EMAIL } from "./reviewerPassword";
 import { TEST_ACCOUNT_EMAIL } from "./testAccount";
 import { stagingStorageIsFree } from "./managedStorage";
 
@@ -22,7 +23,7 @@ import { stagingStorageIsFree } from "./managedStorage";
  *
  * ## Who is never asked
  *
- * Accounts nobody can hand a phone to: the connector-directory reviewer, the
+ * Accounts nobody can hand a phone to: the connector-directory and YC reviewers, the
  * production test account, the staging personas (on the isolated staging
  * deployment only), and the addresses in `PHONE_CHECK_EXEMPT_EMAILS`. An
  * exempt entry also covers its `+tag` addresses, because test inboxes use them.
@@ -81,7 +82,7 @@ function withoutTag(email: string): string {
 export function isExemptEmail(email: string | undefined, env: Environment = process.env): boolean {
   if (email === undefined || email.trim() === "") return false;
   const exact = email.trim().toLowerCase();
-  if (exact === REVIEWER_EMAIL || exact === TEST_ACCOUNT_EMAIL) return true;
+  if (exact === REVIEWER_EMAIL || exact === YC_REVIEW_EMAIL || exact === TEST_ACCOUNT_EMAIL) return true;
   const listed = (env[PHONE_CHECK_EXEMPT_ENV] ?? "")
     .split(/[\s,]+/)
     .map(withoutTag)

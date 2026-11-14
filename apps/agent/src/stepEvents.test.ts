@@ -59,22 +59,22 @@ function world(decision: (body: Decided) => unknown, decideStatus = 200) {
 const steps = (events: readonly TexEvent[]) => events.filter((event) => event.kind === "step");
 
 describe("the Worker's own steps", () => {
-  it("one text that code sends straight to Tex is still a Decide step: what it covered, that code answered, and why", async () => {
-    // Dev2, 2026-11-14: "WHY DOES IT STILL SAY NOTHING LOGGED". Sabotage: drop `byCode` on the front-door return in
-    // `chooseTurn` and no decide step is kept.
+  it("one text that code sends straight to Tex is a Triage step of its own: what it looked at, where it went, and why", async () => {
+    // Dev2, 2026-11-14: "I told you everything needs a node but I dont see a code node that sends it to tex?". Sabotage:
+    // drop `triage` on the front-door return in `chooseTurn` and no step is kept.
     const storage = new MemoryStorage();
     const w = world(() => ({ ok: true, act: "answer", covers: [], stale: [], movedOn: false, confidence: 0.9 }));
     await accept(storage, msg("e1", "whats on the cal tomorrow"), 1_000);
     await drain(storage, w.deps);
     expect(w.decided).toEqual([]);
-    const [judged, ...rest] = steps([...w.posted, ...(await unwritten(storage))]);
+    const [triaged, ...rest] = steps([...w.posted, ...(await unwritten(storage))]);
+    // Decide never ran, so it logged nothing: only what ran is kept.
     expect(rest).toEqual([]);
-    expect(judged.step).toMatchObject({ name: "decide", of: "waiting", ok: true, ms: 0, output: { act: "answer", by: "code" } });
-    expect(judged.step?.input?.candidates).toHaveLength(1);
-    expect(judged.step?.output?.covers).toEqual(judged.step?.input?.candidates);
-    expect(String(judged.step?.output?.why)).toContain("straight to Tex");
+    expect(triaged.step).toMatchObject({ name: "triage", of: "tex", ok: true, ms: 0, output: { to: "tex" } });
+    expect(triaged.step?.input?.texts).toHaveLength(1);
+    expect(String(triaged.step?.output?.why)).toContain("straight to Tex");
     // Ids and reasons only: never the text's words.
-    expect(JSON.stringify(judged)).not.toContain("cal tomorrow");
+    expect(JSON.stringify(triaged)).not.toContain("cal tomorrow");
   });
 
   it("the judge's verdict and its tapback are kept, with what each was given and gave", async () => {
@@ -83,8 +83,10 @@ describe("the Worker's own steps", () => {
     await accept(storage, msg("e1", "thanks"), 1_000);
     await drain(storage, w.deps);
     expect(w.reactions).toEqual(["🙏"]);
-    const kept = steps(await unwritten(storage));
-    expect(kept.map((event) => [event.step?.name, event.step?.of, event.step?.ok])).toEqual([["decide", "waiting", true], ["react", "decide", true]]);
+    const all = steps(await unwritten(storage));
+    expect(all.map((event) => [event.step?.name, event.step?.of, event.step?.ok])).toEqual([["triage", "judge", true], ["decide", "waiting", true], ["react", "decide", true]]);
+    expect(String(all[0].step?.output?.why)).toContain("thanks");
+    const kept = all.slice(1);
     const [judged, tapped] = kept;
     expect(judged.from).toEqual({ kind: "system" });
     expect(judged.text).toBeUndefined();
@@ -121,14 +123,14 @@ describe("the Worker's own steps", () => {
     await accept(storage, msg("e1", "what's on today"), 1_000);
     await accept(storage, msg("e2", "and tomorrow"), 1_500);
     await drain(storage, w.deps);
-    expect(steps(w.posted).map((event) => event.step?.name)).toEqual(["decide"]);
+    expect(steps(w.posted).map((event) => event.step?.name)).toEqual(["triage", "decide"]);
     expect(steps(w.posted)[0].chat).toBe(CHAT);
     // The next judging reads the chat: the step is in no reader's view of it.
     await accept(storage, msg("e3", "thanks"), 2_000);
     await accept(storage, msg("e4", "ok"), 2_500);
     await drain(storage, w.deps);
     expect(w.decided).toHaveLength(2);
-    expect(w.decided[1].transcript).not.toMatch(/step|decide/);
+    expect(w.decided[1].transcript).not.toMatch(/step|decide|triage/);
     expect(steps(await keptEvents(storage, CHAT))).toEqual([]);
     expect(steps(await recentEvents(storage, CHAT))).toEqual([]);
   });
