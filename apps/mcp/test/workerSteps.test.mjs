@@ -64,6 +64,18 @@ test("Triage, code's routing before any judge, is taken as a step of its own (De
   assert.deepEqual([entry.kind, entry.step, entry.name, entry.output.to], ["step", "triage", "tex", "tex"]);
 });
 
+test("a text's arrival and a send's provider status are steps of their own, with the provider's times (Dev2, 2026-11-14)", () => {
+  // Sabotage: drop "text" or "send" from log.js WORKER_STEPS or ledger.js STEP_NAMES and this fails.
+  const now = Date.now();
+  const provider = { name: "sendblue", providerAt: now - 120_000, receivedAt: now, lagMs: 120_000 };
+  const [arrived, sent] = checkEvents(CHAT, [
+    step(now, { step: { name: "text", of: "one", ok: true, ms: 120_000, input: { provider }, output: { outcome: "queued", queuedAt: now, lagMs: 120_000 } } }),
+    step(now, { step: { name: "send", of: "failed", ok: false, ms: 300_000, input: { provider: "sendblue", handle: "mh-1" }, output: { status: "failed", error: { code: "4001" } }, cause: "4001" } }),
+  ]).map(eventEntry);
+  assert.deepEqual([arrived.step, arrived.name, arrived.ms, arrived.input.provider.lagMs], ["text", "one", 120_000, 120_000]);
+  assert.deepEqual([sent.step, sent.name, sent.ok, sent.ms], ["send", "failed", false, 300_000]);
+});
+
 test("a step becomes a step entry with its input, output, time and outcome, kept once by its event id", () => {
   const now = Date.now();
   const event = checkEvents(CHAT, [step(now, { turn: "turn-step-0001" })])[0];

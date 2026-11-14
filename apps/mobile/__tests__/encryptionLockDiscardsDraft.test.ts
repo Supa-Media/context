@@ -262,6 +262,16 @@ function type(label: string, value: string): void {
   });
 }
 
+/**
+ * Settles until `done()` holds, or ten seconds pass. A lock derives its key with Argon2id in JavaScript first, so a
+ * fixed count of turns raced the derivation on a busy CI runner (2026-11-14: the write had not happened after six).
+ */
+async function settleUntil(done: () => boolean, ms = 10_000) {
+  const until = Date.now() + ms;
+  while (!done() && Date.now() < until) await settle(1);
+  await settle();
+}
+
 async function settle(turns = 6) {
   for (let turn = 0; turn < turns; turn += 1) {
     await act(async () => {
@@ -305,7 +315,7 @@ describe("BrowsePane's onLock handler", () => {
 
     mount(dataWith({ discardLocalCopies, select }));
     lockWith("a genuinely long passphrase");
-    await settle();
+    await settleUntil(() => select.mock.calls.length > 0);
 
     expect(writeCalls).toHaveLength(1);
     expect(discardLocalCopies).toHaveBeenCalledTimes(1);
@@ -331,7 +341,7 @@ describe("BrowsePane's onLock handler", () => {
 
     const container = mount(dataWith({ discardLocalCopies, select }));
     lockWith("a genuinely long passphrase");
-    await settle();
+    await settleUntil(() => (container.ownerDocument.body.textContent ?? "").includes("the bucket refused this write"));
 
     expect(discardLocalCopies).not.toHaveBeenCalled();
     expect(select).not.toHaveBeenCalled();

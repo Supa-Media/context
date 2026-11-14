@@ -31,6 +31,7 @@ export const ADMIN_ACTIONS = [
   "rows.source_set",
   "feature.switched",
   "flag.mode_set",
+  "tex.old_line_set",
   "flag.person_added",
   "flag.person_removed",
   "flag.cleared",

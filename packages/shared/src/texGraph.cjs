@@ -125,6 +125,16 @@ function typeProblem(v, field) {
 }
 
 /**
+ * What a wire hands on: the output without its `when`, which picked the wires and is not the next node's input (a node's
+ * input schema never names it, so a tagged output fed on as it is would fail the node it feeds).
+ */
+function carried(output) {
+  if (!plain(output) || !("when" in output)) return output;
+  const { when, ...rest } = output;
+  return rest;
+}
+
+/**
  * Check a node's input or output against its schema (`which`: "input" or "output"). Throws a `GraphError` naming the
  * node and the field; a node with no schema for it is not checked.
  */
@@ -240,18 +250,21 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     }
     let backs = 0;
     const handles = (mode, run) => Object.fromEntries(out(id, mode).map((e) => [e.to, run(e.to, e)]));
+    // `lend` (the second argument of `use` and `job`) is extra ctx for that one call: the callee's io.ctx gets it, and
+    // this node's ctx does not. It is never part of the input, so it is never logged.
+    const withLend = (lend) => (lend ? { ...ctx, ...lend } : ctx);
     const io = {
       node,
       ctx,
-      use: handles("uses", (to) => async (arg) => (await runNode(to, arg, ctx, `${id}:uses`)).output),
+      use: handles("uses", (to) => async (arg, lend) => (await runNode(to, arg, withLend(lend), `${id}:uses`)).output),
       back: handles("loop", (to, wire) => async (arg) => {
         const most = [wire.rounds, byId.get(to)?.rounds].find((r) => Number.isInteger(r) && r > 0) ?? 1;
         if (backs >= most) throw new GraphError(`"${id}" sent work back to "${to}" more than ${most} times`);
         backs += 1;
         return sendBack(to, id, arg, ctx);
       }),
-      job: handles("job", (to) => (arg) => {
-        const run = runNode(to, arg, ctx, `${id}:job`);
+      job: handles("job", (to) => (arg, lend) => {
+        const run = runNode(to, arg, withLend(lend), `${id}:job`);
         if (background) background(run.catch(() => {}));
         return run;
       }),
@@ -299,7 +312,7 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       const r = await runNode(n, given, ctx, `${caller}:loop`);
       if (!r.ran) continue;
       last = r.output;
-      for (const e of wait) if (e.from === n && e.to !== caller && path.includes(e.to) && fires(e, r.output)) fed.set(e.to, [...(fed.get(e.to) ?? []), r.output]);
+      for (const e of wait) if (e.from === n && e.to !== caller && path.includes(e.to) && fires(e, r.output)) fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]);
     }
     return last;
   }
@@ -333,9 +346,9 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       outputs[id] = r.output;
       ran.push(id);
       if (r.handedOff || stops.has(id)) continue;
-      for (const e of out(id, "wait")) if (fires(e, r.output)) fed.set(e.to, [...(fed.get(e.to) ?? []), r.output]);
+      for (const e of out(id, "wait")) if (fires(e, r.output)) fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]);
       for (const e of out(id, "background")) if (fires(e, r.output)) {
-        fed.set(e.to, [...(fed.get(e.to) ?? []), r.output]);
+        fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]);
         later.set(e.to, true);
       }
     }

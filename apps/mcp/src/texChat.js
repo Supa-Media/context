@@ -8,8 +8,9 @@
  *   - the gateway's own routes (`/agent`, `/agent/steer`, ...) and `TexTexts` are called in-process, with no HTTP hop;
  *   - the line (sending, typing, read, tapback, members) is the texting Worker's, over its `TEXTING` RPC entrypoint
  *     (`lineCall`, `groupLineCall`), because the line's keys stay in the Worker;
- *   - the Worker's other objects this one reaches (a job's object, a chat's directory entry) are reached the same
- *     way (`inboxFetch`), until step 4 moves jobs here;
+ *   - the Worker's other objects this one reaches (a chat's directory entry, and a job's object while jobs run in the
+ *     Worker) are reached the same way (`inboxFetch`); a job's calls go through `apps/agent/src/jobPlace.ts`, which starts
+ *     a new job in the gateway's `TEX_JOB` while `TEX_JOBS` is "gateway" and sends every later call where it was born;
  *   - a group turn's retries stay the Worker's Workflow, started over the same RPC (`groupTurn`);
  *   - the control plane is reached as the Worker reached it, with `AGENT_WORKER_SECRET`.
  *
@@ -22,6 +23,8 @@
  */
 
 import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
+import { objectByName } from "./objectPlace.js";
+import { JOB_NAME } from "./texJobName.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`apps/agent/src/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed" });
@@ -139,7 +142,7 @@ async function copyIn(rpc, storage, name) {
  * The state the chat object runs on: this object's storage and work, with the id it had in the Worker, so the
  * addresses it mints for pictures and pages still reach it (the Worker's object passes them on).
  */
-function chatState(state, senderId) {
+export function chatState(state, senderId) {
   return {
     storage: state.storage,
     id: { toString: () => senderId },
@@ -148,8 +151,11 @@ function chatState(state, senderId) {
   };
 }
 
-/** The Worker's `Env`, as the chat object reads it, made of the gateway's bindings. */
-async function chatEnv(env, state, name, senderId, { gateway, texts }) {
+/**
+ * The Worker's `Env`, as the chat object reads it, made of the gateway's bindings. `jobsHere`: this object's job calls
+ * (`job:<id>`) reach the gateway's `TEX_JOB` objects rather than the Worker's.
+ */
+export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false }) {
   const { remoteLine, remoteGroupLine } = await import("../../agent/src/gatewayChat.js");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
@@ -166,7 +172,9 @@ async function chatEnv(env, state, name, senderId, { gateway, texts }) {
     CONTROL_PLANE_ORIGIN: typeof env.CONTROL_PLANE_URL === "string" ? env.CONTROL_PLANE_URL : "",
     AGENT_WORKER_SECRET: typeof env.AGENT_WORKER_SECRET === "string" ? env.AGENT_WORKER_SECRET : "",
     // The Worker's other objects (a job's, a chat's directory entry), reached through the Worker.
-    SENDER_INBOX: workerObjects(rpc, name, senderId),
+    // Where a new background job starts (`apps/agent/src/jobPlace.ts`): its calls then follow where it was born.
+    JOBS: env.TEX_JOBS === "gateway" && env.TEX_JOB !== undefined ? "gateway" : "worker",
+    SENDER_INBOX: senderObjects(env, rpc, name, senderId, jobsHere),
     TEX_LINE: rpc === undefined ? undefined : { line: (chatId) => remoteLine(rpc, name, chatId), groupLine: (groupId) => remoteGroupLine(rpc, name, groupId) },
     // A group turn's retries stay the Worker's Workflow: it reaches this chat through the Worker's object by its old
     // id, which passes the call on here (`groupTurnWorkflow.ts`).
@@ -188,15 +196,52 @@ async function chatEnv(env, state, name, senderId, { gateway, texts }) {
  */
 function workerObjects(rpc, chatName, senderId) {
   return {
-    idFromName: (name) => ({ name, toString: () => (name === `enam:${chatName}` ? senderId : "") }),
+    idFromName: (name) => workerId(name, chatName, senderId),
     idFromString: () => {
       throw new TypeError("a Worker object is reached by name here");
     },
-    get: (id) => ({
-      fetch: (input, init) => {
-        if (rpc === undefined) return Promise.resolve(new Response(null, { status: 503 }));
-        return rpc.inboxFetch({ name: id.name }, new Request(input, init));
-      },
-    }),
+    get: (id) => workerStub(rpc, id),
   };
+}
+
+/** The id a Worker's object has under `name`: its name, and for this chat's own name, the id it had in the Worker. */
+function workerId(name, chatName, senderId) {
+  return { name, toString: () => (name === `enam:${chatName}` ? senderId : "") };
+}
+
+/** A stub for the Worker's object `id`, reached over the Worker's RPC. */
+function workerStub(rpc, id) {
+  return {
+    fetch: (input, init) => {
+      if (rpc === undefined) return Promise.resolve(new Response(null, { status: 503 }));
+      return rpc.inboxFetch({ name: id.name }, new Request(input, init));
+    },
+  };
+}
+
+/**
+ * The `SENDER_INBOX` the chat object reads: a job's name (`enam:job:<id>`, as `inboxByName` makes it) goes to the
+ * gateway's `TEX_JOB` object of that name, and every other name to the Worker's objects, as before. Only the job
+ * objects are made here by namespace, through `objectByName`; the Worker's are named and reached over RPC.
+ */
+function senderObjects(env, rpc, chatName, senderId, jobsHere) {
+  if (!jobsHere) return workerObjects(rpc, chatName, senderId);
+  return {
+    idFromName: (name) => (jobNameOf(name) === null ? workerId(name, chatName, senderId) : { name, toString: () => "" }),
+    idFromString: () => {
+      throw new TypeError("a job is reached by name here");
+    },
+    get: (id) => {
+      const job = jobNameOf(id.name);
+      if (job === null) return workerStub(rpc, id);
+      const stub = objectByName(env.TEX_JOB, job);
+      return { fetch: (input, init) => stub.fetch(new Request(input, init)) };
+    },
+  };
+}
+
+/** The job's object name (`job:<id>`) inside a name a `SENDER_INBOX` lookup was made with, or null for any other name. */
+function jobNameOf(name) {
+  const bare = typeof name === "string" && name.startsWith("enam:") ? name.slice("enam:".length) : name;
+  return typeof bare === "string" && JOB_NAME.test(bare) ? bare : null;
 }

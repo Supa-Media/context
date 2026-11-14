@@ -173,6 +173,22 @@ describe("TexChat runs the Worker's chat object", () => {
     assert.equal(sent[0].args[0], "answer to hi");
   });
 
+  it("a text's provider times become the chat's text step, and never ride on with the text", async () => {
+    controlPlane();
+    const worker = fakeWorker();
+    const { chat, storage } = chatObject(worker.rpc);
+    const provider = { name: "sendblue", providerAt: Date.now() - 120_000, receivedAt: Date.now(), lagMs: 120_000 };
+    await arrive(chat, { kind: "one", inbox: PHONE, message: { ...message("m1", "hi"), provider } });
+    const { unwritten } = await import("../../agent/src/events.ts");
+    const step = (await unwritten(storage)).find((event) => event.kind === "step" && event.step.name === "text");
+    assert.equal(step?.step.ms, 120_000);
+    assert.deepEqual(step?.step.input.provider, provider);
+    assert.equal(step?.step.output.outcome, "queued");
+    const pending = [...(await storage.list({ prefix: "pending:" })).values()];
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].message.provider, undefined);
+  });
+
   it("the same text again is a duplicate, and the copy is made once", async () => {
     controlPlane();
     const worker = fakeWorker();

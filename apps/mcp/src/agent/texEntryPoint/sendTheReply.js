@@ -12,8 +12,8 @@ import { chatHubUrl } from "../hubLinks.js";
 import { keepGroupExchange } from "../groupTurn.js";
 import { jobFields, jobTurnFields } from "../jobCheck.js";
 import { gatewayGraph } from "../graph/gatewayGraph.js";
-import { jobCheckOnGraph } from "../graph/bridges.js";
-import { stepLog, wordsEntry } from "../ledger.js";
+import { jobCheckFor } from "../graph/bridges.js";
+import { wordsEntry } from "../ledger.js";
 import { briefEntry } from "../judgeBrief.js";
 import { readInstructions } from "../customInstructions.js";
 import { exchangeEntries } from "../ledgerConversation.js";
@@ -21,7 +21,6 @@ import { sentPicturesLine } from "../outgoingPictures.js";
 import { withoutFlattery } from "../pushback.js";
 import { reactedLine, tapbackLine } from "../quoted.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "../replyChecks.js";
-import { reviewAfterTurn } from "../selfReview.js";
 import { steeredLine } from "../steer.js";
 import { deskEligible, learnDeskKeys } from "../texDesk.js";
 import { changedCalendar, refreshCalendarCache } from "../calendarCache.js";
@@ -86,8 +85,8 @@ export async function sendTheReply(t) {
   // So does one shown an earlier tainted answer: its words never mark the turn, but they never become a skill or about-me either (`turn-trust.md`).
   const taintedTurn = ledger.untrusted === true || showsOutsideWords(history), ownText = !runner && job === null && group === null, canWrite = textingWriting.some((tool) => tool.name === "write_note"); // the background wires' inputs (`reflect.js`)
   const afterCtx = { env, controlPlane, store, session, offered, turn, learned, timeZone }, afterGraph = gatewayGraph({ writer: chatLog, turn: ledgerTurn }); // each run kept in the chat's ledger as a node step
-  await tex.after("reflect", async () => afterGraph.fire("send", "reflect", { question, tainted: taintedTurn, ownText, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: send's background wire once send is a node
-  await tex.after("memory_nudge", async () => afterGraph.fire("send", "nudge", { question, answer: turn.answer ?? "", tainted: taintedTurn, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: send's background wire once send is a node
+  await tex.after("reflect", async () => afterGraph.fire("send", "reflect", { question, tainted: taintedTurn, ownText, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: fired by this code with its own input over the wire (tagged "fired", so the run never fires it with send's output) until send's output carries it
+  await tex.after("memory_nudge", async () => afterGraph.fire("send", "nudge", { question, answer: turn.answer ?? "", tainted: taintedTurn, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: fired by this code with its own input over the wire (tagged "fired", so the run never fires it with send's output) until send's output carries it
 
   if (group !== null && job === null && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
   const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (hushed ? QUIET_ACK_LINE : quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
@@ -104,8 +103,7 @@ export async function sendTheReply(t) {
 
   // Their next 7 days, read again behind the reply when the copy is stale or this turn changed the calendar (`calendarCache.js`).
   if (job === null && group === null && conversation === "texts" && deskEligible(store)) await tex.after("calendar_copy", () => refreshCalendarCache(dispatch, { timeZone, force: changedCalendar(turn.steps) }));
-  // "fix this" or frustration scores the conversation now (`selfReview.js`); quiet ends do it from the Worker.
-  if (!turn.exhausted) await tex.after("self_review", () => stepLog(chatLog, { turn: ledgerTurn }).timed("selfreview", question, () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null })).catch(() => null)); // what it filed and why, a step in the chat's ledger
+  // "fix this" or frustration scores the conversation after the reply: the Self-review node, on Text them's background wire (`../graph/nodes/selfreview.js`).
   const reply = {
     answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
     ...(hushed && report === null && sent === "" ? { react: "" } : {}), // a tapback in place of a text: a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)
@@ -131,7 +129,7 @@ export async function sendTheReply(t) {
   if (job !== null && typeof answered === "function") await tex.step("answer_early", () => answered({ ...withoutSteps(reply), ...jobFields(null, { exhausted: turn.exhausted === true, unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true }), ...(turn.steps?.length ? {} : { idle: true }) }));
   return json({
     ...reply,
-    ...(await tex.step("job_fields", () => jobChecked(session, { job, steps: turn.steps?.length ?? 0, turn: body.turn }, () => jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter, check: jobCheckOnGraph(gatewayGraph({ writer: session.ledger ?? null, turn: typeof body.turn === "string" ? body.turn : null })) })))), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
+    ...(await tex.step("job_fields", () => jobChecked(session, { job, steps: turn.steps?.length ?? 0, turn: body.turn }, () => jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter, check: jobCheckFor(job?.id, gatewayGraph({ writer: session.ledger ?? null, turn: typeof body.turn === "string" ? body.turn : null })) })))), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
     ...{ warm: (await tex.step("seal_warm", () => hot.seal({ wrote: turn.steps.length > 0 }))) ?? undefined }, // the copy the Worker hands back with the next text (`warmCopy.js`)
   });
 }

@@ -208,6 +208,11 @@ export async function agentTextsPhonesHandler(ctx: ActionCtx): Promise<Response>
   return json({ phones });
 }
 
+/** `POST /agent-texts/old-line` — `{}` → `{ mode, number, archiveOn }`, Tex's old number (`functions/texOldLine.ts`). */
+export async function agentTextsOldLineHandler(ctx: ActionCtx): Promise<Response> {
+  return json(await ctx.runQuery(internal.functions.texOldLine.oldLineForWorker, {}));
+}
+
 function appOrigin(): string | null {
   const raw = process.env[APP_ORIGIN_ENV_VAR];
   if (typeof raw !== "string" || raw.length === 0) return null;

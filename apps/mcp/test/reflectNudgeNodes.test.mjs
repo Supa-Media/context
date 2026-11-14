@@ -62,3 +62,14 @@ test("the node files hand their input and the ctx to the gate", async () => {
   assert.deepEqual(await reflectNode({ question: "q", tainted: false, ownText: false, canWrite: true }, io), { outcome: "skipped" });
   assert.deepEqual(await nudgeNode({ question: "q", answer: "a", tainted: false, canWrite: true }, io), { outcome: "skipped" });
 });
+
+test("a turn's run never fires reflect or the nudge with Text them's output: their wires fire only when send's code fires them", async () => {
+  const ran = [];
+  const stub = (id, output = {}) => async () => (ran.push(id), output);
+  const nodes = { send: stub("send", { when: ["sent", "threads"], texts: 3 }), classifier: stub("classifier", { filed: 1 }), selfreview: stub("selfreview", { filed: true }), reflect: stub("reflect", { outcome: "done" }), nudge: stub("nudge", { outcome: "done" }) };
+  const config = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.map((node) => ({ ...node, inSchema: undefined, outSchema: undefined })) };
+  const pending = [];
+  await createGraph(config, nodes, { background: (run) => pending.push(run) }).run("send", {}, {});
+  await Promise.all(pending);
+  assert.deepEqual(ran.sort(), ["classifier", "selfreview", "send"]);
+});

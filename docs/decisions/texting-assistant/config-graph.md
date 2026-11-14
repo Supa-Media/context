@@ -70,7 +70,10 @@ guards (`scripts/tex-diagram-check.mjs`), with the runner's coverage tests.
 A wire's `when` tags say when it fires: only when the source's output carries
 the tag. `["*"]` means always. Early answers are wires. Each door step that can
 end the turn has a `wait` wire to `send` with `when ["answered"]`, and door
-steps chain to each other with `when ["next"]`.
+steps chain to each other with `when ["next"]`. A wire hands on the output
+without its `when`: the tags chose the wires and are no part of the next
+node's input. How a whole turn runs on these wires is
+[turn-graph](./turn-graph.md).
 
 A node that is `on: false` never runs. A graph with a `wait` cycle, an unknown
 mode, or a wire to a node that is not there is refused before any turn runs.
@@ -147,6 +150,12 @@ wires (`graph/bridges.js`), so a wire the config lacks is refused.
 
 **What a simplification would cost:** an early return in a start's code is a branch the Lab cannot draw. Tests that
 fail: `apps/mcp/test/texGraphStartNodes.test.mjs` (each with a sabotage record).
+
+A background job's object moves the way a chat's did: the gateway's `TexJob` runs the Worker's job code as it is, a
+job lives where it was born (`apps/agent/src/jobPlace.ts` asks `/job-here` before a steer, stop, resume or mail), and
+`TEX_JOBS` turns the gateway on per environment, so a job running in the Worker is never moved mid-run. The job node is on the runner now: `TexJob` runs each pass through `graph/nodes/job.js`, and while a pass runs its Job
+check, Hand-back judge and Advisor on job mail go over that node's own wires, lent through `graph/jobHandles.js`. The bridges
+stay for a job the Worker runs, and nothing moves in production until `TEX_JOBS` says so.
 
 ## The door steps are one group
 

@@ -109,8 +109,12 @@ export function checkEvent(event, { chat, now }) {
 
 /** One of the texting Worker's own steps for the chat's ledger (`apps/agent/src/stepEvents.ts`): never a line of the chat, so never an `EVENT_KINDS` kind. */
 export const STEP_KIND = "step";
-/** The steps the Worker takes itself: a person's own chat's judging, and a tapback (`ledger.js` `STEP_NAMES` holds both). */
-const WORKER_STEPS = new Set(["triage", "decide", "react"]);
+/**
+ * The steps the Worker's chat object takes itself (`ledger.js` `STEP_NAMES` holds each): triage, a person's own chat's
+ * judging, a tapback, a text's arrival with its provider's times, a send's provider status (`providerTiming.ts`) and
+ * the old-number step (`oldLineStep.ts`).
+ */
+const WORKER_STEPS = new Set(["triage", "decide", "react", "text", "send", "oldLine"]);
 const STEP_FIELDS = new Set(["id", "at", "chat", "from", "kind", "turn", "step"]);
 const STEP_PARTS = new Set(["name", "of", "ok", "ms", "input", "output", "cause"]);
 const STEP_CODE = /^[\w-]{1,40}$/;

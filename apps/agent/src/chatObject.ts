@@ -6,9 +6,11 @@
  */
 
 import { jobRoute } from "./jobRoutes";
+import { jobStub } from "./jobPlace";
 import { logged } from "./agentError";
 import { type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
+import { oldLineStep } from "./oldLineStep";
 import { carryOnAfterHandback } from "./handbackWatch";
 import { countInbound } from "./textCounts";
 import { checkReady } from "./ready";
@@ -43,6 +45,8 @@ import { noteCardDrawer } from "./noteCards";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 import { inboxByName, inboxIdOf, objectByName } from "./objectPlace";
+import { logStep, textStep, sendStep } from "./stepEvents";
+import { readArrival } from "./providerTiming";
 import { movedAlarm, placeGate, type MoveStorage } from "./inboxMove";
 
 import type { Env } from "./env";
@@ -110,6 +114,7 @@ export class SenderInbox implements DurableObject {
           linqApiKey: this.env.LINQ_API_KEY,
           sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
           whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
+          photon: this.env.PHOTON ?? null,
           now: () => Date.now(),
           simulator: simulatorEnabled(this.env.SIMULATOR),
           textCounts: this.env.TEX_COUNTS,
@@ -126,6 +131,7 @@ export class SenderInbox implements DurableObject {
         linqApiKey: this.env.LINQ_API_KEY,
         sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
         whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
+        photon: this.env.PHOTON ?? null,
         now: () => Date.now(),
         textCounts: this.env.TEX_COUNTS,
         ...this.remoteLines(),
@@ -136,10 +142,11 @@ export class SenderInbox implements DurableObject {
       await this.keepOrigin(request);
       // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
       // Nor its `heard`: only this object sets that, from the recording itself (`groupVoice.ts`).
-      const { routine: _routine, heard: _heard, ...sent } = (await request.json()) as GroupMessage;
+      const { routine: _routine, heard: _heard, provider: brought, ...sent } = (await request.json()) as GroupMessage & { provider?: unknown };
       await this.keepWhere(sent);
       const message = await heardInGroup(sent, { fetch: this.out, gateway: this.env.GATEWAY_TEXTS });
       const outcome = await acceptGroup(this.state.storage, message, Date.now());
+      await this.logArrival(message.groupId, message.reaction ? "react" : "group", brought, outcome);
       // Counted under the sender's own inbox id, so one person is one person in a group and 1:1 (`textCounts.ts`).
       if ((outcome === "kept" || outcome === "queued") && message.routine === undefined && !message.reaction) {
         countInbound(this.env.TEX_COUNTS, "group", outcome === "queued" ? "for_tex" : "heard", inboxIdOf(this.env.SENDER_INBOX, message.from));
@@ -188,15 +195,20 @@ export class SenderInbox implements DurableObject {
     if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
     if (path === "/send-status") {
       const status = (await request.json()) as SendStatus;
-      return Response.json({ outcome: await noteSendStatus(this.state.storage, status, Date.now(), resendPlain(this.state.storage, this.deps(), Date.now)) });
+      const outcome = await noteSendStatus(this.state.storage, status, Date.now(), resendPlain(this.state.storage, this.deps(), Date.now));
+      // The chat's `send` step: the provider's status for one of Tex's texts, with its own times (`providerTiming.ts`).
+      if (status.report !== undefined) await logStep(this.state.storage, status.chat, sendStep(status.report), Date.now());
+      return Response.json({ outcome });
     }
     if (path === "/host-picture") {
       // The Worker's line (`lineCalls.ts`) asks this object to host a picture its line sends; the same call `deps()` makes.
       return Response.json({ url: await this.hostPictureHere((await request.json()) as Picture) });
     }
     if (path === "/react") {
-      const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
-      return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
+      const { provider: brought, ...inbound } = (await request.json()) as Extract<Inbound, { kind: "reaction" }> & { provider?: unknown };
+      const outcome = await react(this.state.storage, inbound, Date.now());
+      await this.logArrival(inbound.chatId, "react", brought, outcome);
+      return Response.json({ outcome });
     }
     if (path.startsWith("/threads/")) {
       if (request.method !== "GET") return new Response(null, { status: 405 });
@@ -207,10 +219,31 @@ export class SenderInbox implements DurableObject {
       return serveMedia(this.state.storage, path.slice("/media/".length), Date.now());
     }
     await this.keepOrigin(request);
-    const message = (await request.json()) as Message;
+    const { provider: brought, ...message } = (await request.json()) as Message & { provider?: unknown };
+    // Node "oldLine": a text on Tex's old number gets the new one and takes no turn (`oldLineStep.ts`).
+    if (message.channel !== "simulator" && !message.tapback) {
+      const old = await oldLineStep(this.state.storage, message.chatId, { ...this.deps(), texts: this.env.GATEWAY_TEXTS });
+      if (old !== "pass") {
+        const outcome = old === "held" ? "held" : "redirected";
+        await this.logArrival(message.chatId, "one", brought, outcome);
+        return Response.json({ outcome });
+      }
+    }
     const outcome = await accept(this.state.storage, message, Date.now());
+    await this.logArrival(message.chatId, "one", brought, outcome);
     if (outcome === "queued" && message.channel !== "simulator" && !message.tapback) countInbound(this.env.TEX_COUNTS, "one", "text", inboxIdOf(this.env.SENDER_INBOX, message.from));
     return Response.json({ outcome });
+  }
+
+  /**
+   * The chat's `text` step: the provider's times for what just came in, and what the queue did with it
+   * (`providerTiming.ts`). The arrival is never stored with the message, which goes on to the gateway as it was.
+   */
+  private async logArrival(chat: string, kind: "one" | "group" | "react", brought: unknown, outcome: string): Promise<void> {
+    const provider = readArrival(brought);
+    if (provider === undefined) return;
+    const now = Date.now();
+    await logStep(this.state.storage, chat, textStep(undefined, kind, provider, outcome, now), now);
   }
 
   async alarm(): Promise<void> {
@@ -300,6 +333,7 @@ export class SenderInbox implements DurableObject {
       linqApiKey: this.env.LINQ_API_KEY,
       sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
       whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
+      photon: this.env.PHOTON ?? null,
       appCard: appCardConfig(this.env),
       waitUntil: (promise) => this.handOff(promise),
       textTiming: this.env.TEX_TEXTS,
@@ -312,12 +346,12 @@ export class SenderInbox implements DurableObject {
       now: () => Date.now(),
       ...this.remoteLines(),
       spawnJob: async (id: string, run: JobRun) => {
-        const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
+        const stub = jobStub(this.env, id, { spawn: true });
         const response = await stub.fetch("https://inbox/job-start", { method: "POST", body: JSON.stringify(run) });
         if (!response.ok) throw new Error("job not started");
       },
       steerJob: async (id: string, steer: JobSteer) => {
-        const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
+        const stub = jobStub(this.env, id, { spawn: false });
         const response = await stub.fetch("https://inbox/job-steer", { method: "POST", body: JSON.stringify(steer) });
         return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },

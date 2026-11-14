@@ -109,6 +109,22 @@ export function dayFromLedger(entries, chat, covers) {
  * maps a turn to the tools it used, `facts` to what its reply read for what it said; faded, `summaries` are the days before
  * every text shown, as summed up the night after (`daySummaries.js`).
  */
+/**
+ * Room steps for the earlier days (Dev2, 2026-11-14: "lets just look into the cache misses"). The days before today get
+ * what today's texts leave of `READ_CHARS`, and the oldest day is shown whole or not at all (`wholeDays`). Measured that
+ * day, a 1:1 chat's transcript went 496, 522, 522, 496, 522 lines on texts minutes apart: today's size moved by a text
+ * or two (and by which texts the stretch carried as messages instead), the oldest day dropped out or came back, and every
+ * line after the top changed, so each such text rewrote 30,000 to 60,000 tokens to the cache. Today's size is now
+ * counted in steps, so the oldest day moves only when today has grown by a step, a few times a day.
+ */
+export const ROOM_STEP = 20_000;
+
+/** The room the earlier days get beside `todayChars` of today's texts, in whole `ROOM_STEP`s. */
+export function earlierRoom(todayChars) {
+  const used = Math.ceil(Math.max(0, todayChars) / ROOM_STEP) * ROOM_STEP;
+  return Math.max(0, READ_CHARS - used);
+}
+
 export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTEGER, chars = READ_CHARS, known = new Set(), fade = false, fadeFrom = before, grant = null } = {}) {
   const tools = new Map();
   const facts = new Map();
@@ -131,7 +147,8 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
     if (found === null || (!found.byItself && !EVENT_ID.test(found.id ?? "")) || !EVENT_KINDS.has(found.kind) || seen.has(found.id)) continue;
     const shown = fade ? faded(found, fadeFrom) : found;
     room -= String(shown.text ?? "").length + 40;
-    if (room < 0) break;
+    // Past the room, the scan goes on for the tools and facts of the texts it kept, never ending at a point a text moves.
+    if (room < 0) continue;
     seen.add(shown.id);
     events.push(shown);
   }

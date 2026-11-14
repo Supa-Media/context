@@ -88,6 +88,18 @@ export const platformTables = {
     .index("by_flag_group", ["flagId", "groupId"]),
 
 
+  /**
+   * Tex's old Sendblue number (`functions/texOldLine.ts`): one row, staff set it in the console's Lines page. `redirect`
+   * makes the old line answer each chat once with the new number instead of a turn. A missing row is `off`.
+   */
+  texOldLine: defineTable({
+    mode: v.union(v.literal("off"), v.literal("redirect")),
+    number: v.optional(v.string()),
+    archiveOn: v.optional(v.string()),
+    updatedAt: v.number(),
+    updatedBy: v.id("users"),
+  }),
+
   renderAssets: defineTable({
     kind: v.literal("resvgWasm"),
     storageId: v.id("_storage"),

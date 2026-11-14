@@ -52,7 +52,7 @@ const NAMES: [RegExp, Tapback][] = [
   [/^Reacted .{1,16} to$/u, "Reacted"],
 ];
 
-const EMOJI: Record<Tapback, string> = {
+export const EMOJI: Record<Tapback, string> = {
   Loved: "❤️",
   Liked: "👍",
   Disliked: "👎",
