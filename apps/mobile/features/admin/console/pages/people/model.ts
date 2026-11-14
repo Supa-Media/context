@@ -7,13 +7,69 @@
  */
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
 import { handleLine } from "../../kit";
 import type { TexChange } from "../../../texAllowlist";
+import { shortDay } from "../dates";
 
-export type ConsolePeople = FunctionReturnType<typeof api.functions.consolePeople.everyone>;
-export type Person = ConsolePeople["accounts"][number];
-export type WaitRow = ConsolePeople["waitlist"][number];
-export type InviteRow = ConsolePeople["invites"][number];
+export type From = "waitlist" | "friend" | "ad" | "staff" | "direct";
+export type Role = "owner" | "editor" | "member";
+
+/** One account, as the People page shows it: `accountsPage` plus its usage (`peopleUsage`). */
+export type Person = {
+  userId: Id<"users">;
+  name: string | null;
+  handle: string | null;
+  emails: string[];
+  phone: string | null;
+  textingPhones: string[];
+  joinedAt: number;
+  archived: boolean;
+  /** The newest use of any of this person's grants, active or revoked. */
+  lastSeenAt: number | null;
+  from: From;
+  /** The inviter's handle, when `from` is `friend`. */
+  invitedBy: string | null;
+  workspaces: Array<{ slug: string; kind: "personal" | "shared"; role: Role }>;
+  /** Active grants only, newest use first. */
+  clients: Array<{ name: string; lastUsedAt: number | null }>;
+  aiUsd: number;
+  aiByFeature: Array<{ label: string; usd: number }>;
+};
+
+/** A waitlist row (`waitlistPage`). `email` and `phone` are the address it was joined with, when it has one. */
+export type WaitRow = {
+  id: Id<"waitlist">;
+  who: string;
+  email: string | null;
+  phone: string | null;
+  status: "waiting" | "admitted" | "removed";
+  joinedAt: number;
+  from: "waitlist" | "ad" | "staff";
+  campaign: string | null;
+  useFor: string | null;
+  /** False only for a let-in phone row that nobody has been texted about. */
+  told: boolean;
+};
+
+/** A referral invite that has not joined (`invitesPage`, joined ones left out). */
+export type InviteRow = {
+  id: Id<"referralInvites">;
+  to: string;
+  inviterHandle: string | null;
+  sentAt: number;
+  status: "pending" | "expired" | "cancelled" | "revoked";
+};
+
+/** The list the People page draws, assembled by `useEveryone` in `People.web.tsx`. */
+export type ConsolePeople = {
+  accounts: Person[];
+  waitlist: WaitRow[];
+  invites: InviteRow[];
+  invitesOff: boolean;
+  truncated: boolean;
+};
+
 export type TexLine = Awaited<FunctionReturnType<typeof api.functions.admin.texAllowlist>>;
 export type AiAccount = Awaited<FunctionReturnType<typeof api.functions.admin.aiCostsAccount>>;
 export type WaitId = WaitRow["id"];
@@ -60,7 +116,8 @@ export type PeopleMutations = {
   setInvitesOff(a: { off: boolean }): Promise<unknown>;
   closeInbox(a: { userId: PersonId }): Promise<{ changed: boolean }>;
   changeTex(a: { phone: string; change: "add" | "remove" }): Promise<TexChange>;
-  texRefresh(): Promise<void>;
+  /** Reads Tex's list again and returns it, so an act can work from what is there now. */
+  texRefresh(): Promise<TexLine>;
 };
 
 /** What `useData` hands the page. `people` is undefined while the first query loads. */
@@ -116,13 +173,8 @@ export const ROLE_LABEL: Record<Person["workspaces"][number]["role"], string> = 
 
 const WAIT_STATUS: Record<WaitRow["status"], Status> = { waiting: "waiting", admitted: "in", removed: "removed" };
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** The artifact's date: month and day, as "Nov 12". */
-export function fmtDate(ms: number): string {
-  const d = new Date(ms);
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
-}
+/** The artifact's date: month and day, as "Nov 12", in local time (`dates.ts`). */
+export const fmtDate = (ms: number): string => shortDay(ms);
 
 /** "2h ago", "30m ago", "3d ago"; "just now" under a minute. */
 export function ago(ms: number, now: number): string {
@@ -134,9 +186,9 @@ export function ago(ms: number, now: number): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-/** Name, else @handle, else email, else phone. */
+/** Name, else @handle, else email, else phone. A blank name counts as no name. */
 export function displayName(p: Person): string {
-  return p.name ?? handleLine({ handle: p.handle, email: p.emails[0] ?? null, phone: p.phone });
+  return p.name?.trim() || handleLine({ handle: p.handle, email: p.emails[0] ?? null, phone: p.phone });
 }
 
 export function rowsOf(people: ConsolePeople): Row[] {
@@ -147,7 +199,7 @@ export function rowsOf(people: ConsolePeople): Row[] {
       k: "acct",
       st: p.archived ? "archived" : "acct",
       name: displayName(p),
-      sub: p.name ? handleLine({ handle: p.handle, email: p.emails[0] ?? null, phone: p.phone }) : "",
+      sub: p.name?.trim() ? handleLine({ handle: p.handle, email: p.emails[0] ?? null, phone: p.phone }) : "",
       when: fmtDate(p.joinedAt),
       from: FROM_LABEL[p.from],
       by: p.invitedBy,
@@ -247,6 +299,11 @@ export function texView(line: TexLine | undefined): TexView {
       };
     }
   }
+}
+
+/** Whether a number is on Tex's list. */
+export function listedOn(tv: TexView, phone: string | null): boolean {
+  return tv.state === "shared" && phone !== null && tv.listed.has(phone);
 }
 
 /** Whether a person can text Tex: their phone or a texting phone is on the list (anyone with a phone, when unlimited). */

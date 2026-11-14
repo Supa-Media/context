@@ -201,6 +201,51 @@ describe("render", () => {
     expect(html).not.toContain("<img");
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
   });
+
+  it("escapes a hostile value in each field the page draws, in the list and in the side panel", () => {
+    const HOSTILE = "<img src=x onerror=1>";
+    const base = people();
+    const maya = base.accounts[0]!;
+    const hostile: ConsolePeople = {
+      ...base,
+      accounts: [
+        {
+          ...maya,
+          name: null,
+          handle: HOSTILE,
+          emails: [HOSTILE],
+          invitedBy: HOSTILE,
+          workspaces: [{ slug: HOSTILE, kind: "personal", role: "owner" }],
+          clients: [{ name: HOSTILE, lastUsedAt: null }],
+          aiUsd: 1,
+          aiByFeature: [{ label: HOSTILE, usd: 1 }],
+          from: "friend",
+        },
+      ],
+      waitlist: [{ ...base.waitlist[0]!, useFor: HOSTILE }],
+      invites: [{ id: "i_hostile", to: HOSTILE, inviterHandle: HOSTILE, sentAt: ms(2026, 11, 12), status: "pending" }] as ConsolePeople["invites"],
+    };
+    const d = data({ people: hostile });
+    const outputs = [render(d), props(d, "u_maya") ?? "", props(d, "i_hostile") ?? ""];
+    for (const html of outputs) expect(html).not.toContain("<img");
+    const everything = outputs.join("\n");
+    for (const field of ["@&lt;img", "invited by @&lt;img", "&lt;img src=x onerror=1&gt;"]) expect(everything).toContain(field);
+    expect(everything).toContain("&lt;img src=x onerror=1&gt;");
+  });
+
+  it("escapes a hostile email, use and invitee when they are the only thing a row shows", () => {
+    const HOSTILE = "<img src=x onerror=1>";
+    const base = people();
+    const d = data({
+      people: {
+        ...base,
+        accounts: [{ ...base.accounts[1]!, emails: [HOSTILE] }],
+        waitlist: [{ ...base.waitlist[0]!, who: HOSTILE, useFor: HOSTILE }],
+      },
+    });
+    expect(render(d)).not.toContain("<img");
+    expect(render(d)).toContain("&lt;img src=x onerror=1&gt;");
+  });
 });
 
 describe("props", () => {

@@ -3,7 +3,7 @@
  * and wording. Every value from the database goes through `esc` (kit) or a helper that does.
  */
 import { S } from "../../state";
-import { ic, esc, money, plural, pill, sw, panel, confirmBox, pop, handleLine } from "../../kit";
+import { ic, esc, money, plural, pill, sw, panel, confirmBox, pop } from "../../kit";
 import {
   CAME_LABEL,
   INVITE_TEXT,
@@ -169,6 +169,7 @@ function linePanel(tv: TexView, texOnCount: number): string {
       body = `<div class="sub">none</div>`;
       break;
     case "shared": {
+      // The add row only exists on a shared Tex line: a number is added to its list. The unlimited line has no list.
       meta = `Tex line: ${tv.used} of ${tv.cap} used`;
       const unowned = tv.unowned
         .map(
@@ -210,7 +211,7 @@ export function render(d: PeopleData | undefined, now = Date.now()): string {
   if (people) for (const id of [...S.sel]) if (!selectable.some((r) => r.id === id)) S.sel.delete(id);
   const chosen = all.filter((r) => S.sel.has(r.id));
   const nLet = chosen.filter((r) => r.st === "waiting" || r.st === "removed").length;
-  const nTell = chosen.filter((r) => r.st === "in").length;
+  const nTell = chosen.filter((r) => r.st === "in" && !r.told).length;
   const nRm = chosen.filter((r) => r.st === "waiting").length;
   const untold = all.filter((r) => r.st === "in" && !r.told).length;
   const invitesOn = people ? !people.invitesOff : false;

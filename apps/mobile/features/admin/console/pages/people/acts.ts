@@ -1,7 +1,8 @@
 /**
  * People's acts: the artifact's `A` entries for the page, one for one, with the same toasts,
  * confirms and undos. Each write goes through the page's mutations (`d.m`) and then redraws; a
- * failed write is a toast with the server's words, never an unhandled rejection.
+ * failed write is a toast with the server's words, never an unhandled rejection. Undo reads Tex's
+ * list again before it acts, so it works from what is there now and not from the list at the tap.
  */
 import { plural } from "../../kit";
 import { S, go, render, setF, toast } from "../../state";
@@ -9,6 +10,7 @@ import { changeSentence, type TexChange } from "../../../texAllowlist";
 import {
   displayName,
   failureText,
+  listedOn,
   pickable,
   rowsOf,
   texOn,
@@ -25,6 +27,9 @@ import {
 
 type Act = (el: HTMLElement, d: PeopleData | undefined) => void | Promise<void>;
 
+/** The most the server takes in one call (`checkBatch`). Bulk acts send the picked rows in batches of this. */
+export const BATCH = 200;
+
 /** A write that needs the list loaded; a failure becomes the toast, and the page redraws. */
 const writes = (fn: (el: HTMLElement, d: ReadyPeopleData) => Promise<void>): Act => {
   return async (el, d) => {
@@ -39,12 +44,29 @@ const writes = (fn: (el: HTMLElement, d: ReadyPeopleData) => Promise<void>): Act
   };
 };
 
+/** An undo: the same failure toast as a write when it fails, then a redraw. */
+const undoable = (fn: () => Promise<void>) => (): Promise<void> =>
+  fn().then(
+    () => render(),
+    (error: unknown) => {
+      toast(failureText(error));
+      render();
+    },
+  );
+
 const inputValue = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value ?? "";
 const accountOf = (d: PeopleData | undefined, id: string | undefined): Person | undefined =>
   d?.people?.accounts.find((a) => a.userId === id);
 /** The rows picked that match `pred`, in the list's order. */
 function chosen(d: ReadyPeopleData, pred: (r: Row) => boolean): Row[] {
   return rowsOf(d.people).filter((r) => S.sel.has(r.id) && pred(r));
+}
+
+/** Splits ids into batches of `BATCH`, in order. */
+export function batchesOf<T>(ids: readonly T[], size = BATCH): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
 }
 
 /** One Tex list change, then the list is read again so the switches match it. */
@@ -55,11 +77,12 @@ async function texChange(d: ReadyPeopleData, phone: string, change: "add" | "rem
 }
 
 /**
- * Puts a person on Tex's list, or takes them off. Returns the words for a refusal, or null when it
- * worked (an add that was already there, or a remove that was already gone, counts as worked).
+ * Puts a person on Tex's list, or takes them off, from Tex's list as it is now. Returns the words
+ * for a refusal, or null when it worked (an add that was already there, or a remove that was
+ * already gone, counts as worked).
  */
 async function setTex(d: ReadyPeopleData, p: Person, want: boolean): Promise<string | null> {
-  const tv = texView(d.tex);
+  const tv = texView(await d.m.texRefresh());
   if (tv.state !== "shared") return null;
   const phone = p.phone;
   if (want) {
@@ -75,7 +98,23 @@ async function setTex(d: ReadyPeopleData, p: Person, want: boolean): Promise<str
   return null;
 }
 
+/**
+ * Tex access follows a person's phone: when the old number was on the line, it comes off and the
+ * new one goes on. A number that was not on the line changes nothing. Returns a refusal, or null.
+ */
+async function followPhone(d: ReadyPeopleData, old: string | null, next: string | null): Promise<string | null> {
+  if (old === next) return null;
+  const tv = texView(await d.m.texRefresh());
+  if (!listedOn(tv, old) || old === null) return null;
+  const removed = await texChange(d, old, "remove");
+  if (removed.status !== "removed" && removed.status !== "absent") return changeSentence(removed).text;
+  if (next === null) return null;
+  const added = await texChange(d, next, "add");
+  return added.status === "added" || added.status === "already" ? null : changeSentence(added).text;
+}
+
 export const acts: Record<string, Act> = {
+  // Known senders only: there is no mutation that reopens the inbox, so this has no Undo (the artifact's has one).
   mailclose: writes(async (el, d) => {
     await d.m.closeInbox({ userId: el.dataset.id as PersonId });
     toast("Mail now only from known senders");
@@ -93,9 +132,11 @@ export const acts: Record<string, Act> = {
     const on = texOn(p, texView(d.tex));
     const refusal = await setTex(d, p, !on);
     if (refusal) toast(refusal);
-    else toast(on ? `${name} taken off the Tex line` : `${name} can text Tex`, () => {
-      void setTex(d, p, on).then(() => render());
-    });
+    else
+      toast(on ? `${name} taken off the Tex line` : `${name} can text Tex`, undoable(async () => {
+        const back = await setTex(d, p, on);
+        if (back) toast(back);
+      }));
     render();
   }),
 
@@ -135,7 +176,9 @@ export const acts: Record<string, Act> = {
       toast("Start with the country code, like +1");
       return;
     }
-    const r = await d.m.setPhone({ userId: el.dataset.id as PersonId, phone: v || null });
+    const userId = el.dataset.id as PersonId;
+    const old = accountOf(d, userId)?.phone ?? null;
+    const r = await d.m.setPhone({ userId, phone: v || null });
     if (r.status === "invalid") {
       toast("Start with the country code, like +1");
       return;
@@ -148,8 +191,11 @@ export const acts: Record<string, Act> = {
       toast("That account no longer exists.");
       return;
     }
+    const next = r.status === "saved" && r.phone ? r.phone : null;
+    const refusal = await followPhone(d, old, next);
     S.confirm = null;
-    toast(r.status === "saved" && r.phone ? `Saved ${r.phone}` : "Phone removed");
+    if (refusal) toast(refusal);
+    else toast(next ? `Saved ${next}` : "Phone removed");
     render();
   }),
 
@@ -157,21 +203,26 @@ export const acts: Record<string, Act> = {
     const p = accountOf(d, el.dataset.id);
     if (!p) return;
     const old = p.phone;
-    const tv = texView(d.tex);
-    const wasListed = old !== null && tv.state === "shared" && tv.listed.has(old);
     const userId = p.userId;
-    await d.m.setPhone({ userId, phone: null });
-    if (old !== null && wasListed) await texChange(d, old, "remove");
+    const wasListed = listedOn(texView(await d.m.texRefresh()), old);
+    await d.m.setPhone({ userId: userId, phone: null });
+    const refusal = await followPhone(d, old, null);
     S.confirm = null;
-    toast("Phone removed", () => {
-      void (async () => {
-        if (old !== null) {
-          await d.m.setPhone({ userId, phone: old });
-          if (wasListed) await texChange(d, old, "add");
+    toast(
+      refusal ?? "Phone removed",
+      undoable(async () => {
+        if (old === null) return;
+        const back = await d.m.setPhone({ userId: userId, phone: old });
+        if (back.status === "taken") {
+          toast(`That number belongs to ${back.heldBy ?? "another account"}.`);
+          return;
         }
-        render();
-      })();
-    });
+        if (wasListed) {
+          const r = await texChange(d, old, "add");
+          if (r.status !== "added" && r.status !== "already") toast(changeSentence(r).text);
+        }
+      }),
+    );
     render();
   }),
 
@@ -189,9 +240,9 @@ export const acts: Record<string, Act> = {
       toast("That account no longer exists.");
       return;
     }
-    toast(next ? `${name} archived` : `${name} back in People`, () => {
-      void d.m.setArchived({ userId: p.userId, archived: p.archived });
-    });
+    toast(next ? `${name} archived` : `${name} back in People`, undoable(async () => {
+      await d.m.setArchived({ userId: p.userId, archived: p.archived });
+    }));
     render();
   }),
 
@@ -245,31 +296,42 @@ export const acts: Record<string, Act> = {
 
   letin: writes(async (_el, d) => {
     const ids = chosen(d, (r) => r.st === "waiting" || r.st === "removed").map((r) => r.id as WaitId);
-    const r = await d.m.admit({ ids });
+    let changed = 0;
+    for (const part of batchesOf(ids)) changed += (await d.m.admit({ ids: part })).changed;
     S.sel.clear();
     S.confirm = null;
-    toast(`Let in ${r.changed}; each got one email or text`);
+    toast(`Let in ${changed}; each got one email or text`);
     render();
   }),
 
   tell: writes(async (_el, d) => {
-    const ids = chosen(d, (r) => r.st === "in").map((r) => r.id as WaitId);
-    const r = await d.m.tell({ ids });
+    const ids = chosen(d, (r) => r.st === "in" && !r.told).map((r) => r.id as WaitId);
+    let texted = 0;
+    let left = 0;
+    for (const part of batchesOf(ids)) {
+      const r = await d.m.tell({ ids: part });
+      texted += r.texted;
+      left += r.left;
+    }
     S.sel.clear();
     S.confirm = null;
-    toast(`Texted ${plural(r.texted, "person", "people")} that they're in`);
+    toast(`Texted ${plural(texted, "person", "people")} that they're in` + (left > 0 ? `. ${plural(left, "person", "people")} left to text.` : ""));
     if (S.f.told === "no") setF("told", "all");
     else render();
   }),
 
   remove: writes(async (_el, d) => {
     const ids = chosen(d, (r) => r.st === "waiting").map((r) => r.id as WaitId);
-    const r = await d.m.remove({ ids });
+    let changed = 0;
+    for (const part of batchesOf(ids)) changed += (await d.m.remove({ ids: part })).changed;
     S.sel.clear();
     S.confirm = null;
-    toast(`Removed ${r.changed}`, () => {
-      void d.m.restore({ ids });
-    });
+    toast(
+      `Removed ${changed}`,
+      undoable(async () => {
+        for (const part of batchesOf(ids)) await d.m.restore({ ids: part });
+      }),
+    );
     render();
   }),
 

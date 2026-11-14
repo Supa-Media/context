@@ -5,6 +5,8 @@
  * "Texted to Tex"). Nothing here reads Convex or React; the page hands the rows in.
  */
 
+import { shortDay } from "../dates";
+
 export type ReportSrc = "content" | "tex";
 
 /** One row of the list and of the side panel: the artifact's report shape, plus the note's path for a Tex one. */
@@ -79,16 +81,9 @@ const TEX_STATUS_WORDS: Record<string, string> = {
   retired: "Retired",
 };
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-
-/** `Nov 12`, in UTC like the desk's dates. */
-export function shortDay(at: number): string {
-  const d = new Date(at);
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
-}
 
 /** The artifact's relative time: `3h ago`, `2d ago`; a week or more, the date. */
 export function ago(at: number, now: number): string {

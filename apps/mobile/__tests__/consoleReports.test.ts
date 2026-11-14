@@ -1,10 +1,9 @@
-import { beforeAll, describe, expect, it } from "@jest/globals";
+import { beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
 /**
  * The Reports page (`features/admin/console/pages/Reports.web.tsx`): the artifact's `P.reports` and
  * its side panel, on the two sources merged. The model and the markup are pure; these tests keep
  * the artifact's labels, classes and rules, and that a title is never drawn as markup.
  */
-import { CONSOLE_CSS } from "../features/admin/console/consoleCss";
 import { esc } from "../features/admin/console/kit";
 import { setRoutes } from "../features/admin/console/state";
 import {
@@ -19,6 +18,8 @@ import {
   type TexBug,
 } from "../features/admin/console/pages/reports/model";
 import { renderProps, renderReports, renderTools } from "../features/admin/console/pages/reports/render";
+import { reportsPage, type ReportsData } from "../features/admin/console/pages/Reports.web";
+import { jest } from "@jest/globals";
 
 beforeAll(() => {
   setRoutes({
@@ -28,7 +29,7 @@ beforeAll(() => {
   });
 });
 
-const NOW = Date.UTC(2026, 10, 14, 12, 0);
+const NOW = new Date(2026, 10, 14, 12, 0).getTime();
 const hours = (n: number) => NOW - n * 3_600_000;
 const days = (n: number) => NOW - n * 86_400_000;
 
@@ -54,7 +55,7 @@ const content: ContentRow[] = [
     reporter: "leo@example.net",
     about: null,
     workspace: "@fieldwork",
-    handledAt: Date.UTC(2026, 10, 12, 9),
+    handledAt: new Date(2026, 10, 12, 9).getTime(),
     handledBy: "@staff1",
   },
 ];
@@ -268,5 +269,104 @@ describe("the note's text", () => {
   it("has no texts when the person did not share them", () => {
     const text = "---\nstatus: open\n---\n\n# A bug\n\n```text\nit broke\n```\n\nThey did not share their texts with this report.\n";
     expect(parseTexNote(text)).toEqual({ message: "it broke", texts: null });
+  });
+});
+
+const mockToasts: Array<{ text: string; undo?: () => unknown }> = [];
+jest.mock("../features/admin/console/state", () => {
+  const actual = jest.requireActual<Record<string, unknown>>("../features/admin/console/state");
+  return {
+    ...actual,
+    toast: (text: string, undo?: () => unknown) => {
+      mockToasts.push({ text, undo });
+    },
+    render: () => undefined,
+  };
+});
+
+/** An element the acts read: its id, and the side panel's comment box when it has one. */
+const el = (id: string, comment?: string) =>
+  ({ dataset: { id }, closest: () => ({ querySelector: () => (comment === undefined ? null : { value: comment }) }) }) as unknown as HTMLElement;
+const lastToast = () => mockToasts[mockToasts.length - 1]!;
+
+describe("the Reports acts", () => {
+  const flyerId = () => merged().find((r) => r.title.startsWith("Replied twice"))!.id;
+  const dentistId = () => merged().find((r) => r.title === "Forgot my dentist moved")!.id;
+  const flyerPath = () => tex.find((b) => b.title === "Replied twice to one picture")!.path;
+  const dentistPath = () => tex.find((b) => b.title === "Forgot my dentist moved")!.path;
+  let calls: Array<[string, ...unknown[]]>;
+  let failHandledOnUndo: boolean;
+
+  function data(): ReportsData {
+    return {
+      reports: merged(),
+      banner: null,
+      call: {
+        handled: async (id, handled) => {
+          calls.push(["handled", id, handled]);
+          if (failHandledOnUndo && !handled) throw { data: { message: "x" } };
+        },
+        note: async (path, action, comment) => {
+          calls.push(["note", path, action, comment]);
+        },
+        reload: (path) => {
+          calls.push(["reload", path]);
+        },
+      },
+    };
+  }
+
+  beforeEach(() => {
+    calls = [];
+    failHandledOnUndo = false;
+    mockToasts.length = 0;
+  });
+
+  it("marks a content report handled, and Undo reopens it", async () => {
+    await reportsPage.acts!.handle!(el("c1"), data());
+    expect(calls).toEqual([["handled", "c1", true]]);
+    expect(lastToast().text).toBe("Marked handled");
+    await lastToast().undo!();
+    expect(calls[calls.length - 1]).toEqual(["handled", "c1", false]);
+  });
+
+  it("an Undo that fails shows the page's failure toast", async () => {
+    failHandledOnUndo = true;
+    await reportsPage.acts!.handle!(el("c1"), data());
+    await lastToast().undo!();
+    expect(lastToast().text).toBe("That did not save. Try again.");
+  });
+
+  it("retires a Tex report with the comment, and Undo reopens it", async () => {
+    await reportsPage.acts!.handle!(el(flyerId(), "Found it"), data());
+    expect(calls).toEqual([
+      ["note", flyerPath(), "retire", "Found it"],
+      ["reload", flyerPath()],
+    ]);
+    expect(lastToast().text).toBe("Retired");
+    await lastToast().undo!();
+    expect(calls.slice(2)).toEqual([
+      ["note", flyerPath(), "reopen", undefined],
+      ["reload", flyerPath()],
+    ]);
+  });
+
+  it("sends a Tex report to triage with its comment", async () => {
+    await reportsPage.acts!.triage!(el(flyerId(), "Repro: reply twice"), data());
+    expect(calls).toEqual([
+      ["note", flyerPath(), "triage", "Repro: reply twice"],
+      ["reload", flyerPath()],
+    ]);
+    expect(lastToast().text).toBe("Sent to triage with your comment");
+  });
+
+  it("reopens a content report and a Tex report", async () => {
+    const d = data();
+    const invite = merged().find((r) => r.id === "c2")!;
+    await reportsPage.acts!.reopen!(el(invite.id), d);
+    expect(calls).toEqual([["handled", "c2", false]]);
+    expect(lastToast().text).toBe("Reopened");
+    await reportsPage.acts!.reopen!(el(dentistId()), d);
+    expect(calls[calls.length - 2]).toEqual(["note", dentistPath(), "reopen", undefined]);
   });
 });

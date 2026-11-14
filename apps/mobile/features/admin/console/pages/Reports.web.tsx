@@ -31,6 +31,9 @@ const NO_TEX: readonly TexBug[] = [];
 const NO_BUGS_BANNER = "No bugs workspace is pinned for Tex reports.";
 const NOT_A_MEMBER_BANNER = "Tex reports need the pinned bugs workspace; you are not a member.";
 const SAVE_FAILED = "That did not save. Try again.";
+const failed = (): void => toast(SAVE_FAILED);
+/** An undo: the same failure toast as the page's writes, when it fails. */
+const undoable = (fn: () => Promise<unknown>) => (): Promise<void> => fn().then(() => undefined, failed);
 
 function useReportsData(): ReportsData {
   const content = useQuery(api.functions.contentReports.listReports, { show: "all" });
@@ -117,16 +120,20 @@ export const reportsPage: ConsolePage<ReportsData> = {
       try {
         if (r.src === "content") {
           await d.call.handled(r.id, true);
-          toast("Marked handled", () => void d.call.handled(r.id, false));
+          toast("Marked handled", undoable(() => d.call.handled(r.id, false)));
         } else {
           await d.call.note(r.path!, "retire", commentOf(el));
           d.call.reload(r.path!);
-          toast("Retired", () => {
-            void d.call.note(r.path!, "reopen").then(() => d.call.reload(r.path!));
-          });
+          toast(
+            "Retired",
+            undoable(async () => {
+              await d.call.note(r.path!, "reopen");
+              d.call.reload(r.path!);
+            }),
+          );
         }
       } catch {
-        toast(SAVE_FAILED);
+        failed();
       }
     },
     triage: async (el, d) => {
@@ -137,7 +144,7 @@ export const reportsPage: ConsolePage<ReportsData> = {
         d.call.reload(r.path!);
         toast("Sent to triage with your comment");
       } catch {
-        toast(SAVE_FAILED);
+        failed();
       }
     },
     reopen: async (el, d) => {
@@ -151,7 +158,7 @@ export const reportsPage: ConsolePage<ReportsData> = {
         }
         toast("Reopened");
       } catch {
-        toast(SAVE_FAILED);
+        failed();
       }
     },
   },
