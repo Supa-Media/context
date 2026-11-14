@@ -6,8 +6,9 @@ import { isTexHost } from "../../../features/site/host";
 import { TexDashboard } from "../../../features/tex/dashboard/TexDashboard";
 
 /**
- * `/admin` — on context.lc, the staff console's front door, which is its
- * Growth tab; on tex.lc, the Tex dashboard, a page of its own (the owner,
+ * `/admin` — on context.lc, the staff console: on the web the redesigned one
+ * (`features/admin/console`), which keeps its place in the address hash; in
+ * the phone app the old one's front door, its Growth tab; on tex.lc, the Tex dashboard, a page of its own (the owner,
  * 2026-10-24: "an entirely new page ... put the new dashboard in
  * tex.lc/admin"). Both hosts serve this one app, and the host decides, as it
  * does for `/` (`features/home/RootScreen.tsx`).

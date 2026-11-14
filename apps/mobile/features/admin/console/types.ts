@@ -18,13 +18,15 @@ export type ConsolePage<D = unknown> = {
   windowed?: boolean | (() => boolean);
   /** React hook: Convex queries and mutations for this page. Called only while the page is open. */
   useData?: () => D;
+  // Methods rather than function-valued properties, so a page typed by its own data still fits
+  // the registry's `ConsolePage` (method parameters are checked bivariantly).
   /** The page's HTML. `d` is undefined while `useData`'s queries load. */
-  render?: (d: D | undefined) => string;
+  render?(d: D | undefined): string;
   /** The side panel's HTML for the picked thing `x`, or null when there is none. */
-  props?: (d: D | undefined, x: string) => string | null;
-  acts?: Record<string, (el: HTMLElement, d: D | undefined) => void | Promise<void>>;
+  props?(d: D | undefined, x: string): string | null;
+  acts?: Record<string, { act(el: HTMLElement, d: D | undefined): void | Promise<void> }["act"]>;
   /** Crumb parts after the page's name, e.g. Jobs / Check-in. */
-  crumb?: (d: D | undefined) => string;
+  crumb?(d: D | undefined): string;
   /** Until a page is ported: the old console's section, drawn in the page slot. */
   Legacy?: ComponentType;
 };

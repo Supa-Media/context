@@ -3,6 +3,7 @@
  * survives a trip through its hash, filters stay on the pages that own them, old `/admin/<tab>`
  * bookmarks land on the page each became, and no rule of the ported stylesheet escapes `.sc`.
  */
+import { beforeAll, describe, expect, it } from "@jest/globals";
 import { CONSOLE_CSS } from "../features/admin/console/consoleCss";
 import { esc, seg } from "../features/admin/console/kit";
 import { hashForOldPath } from "../features/admin/console/oldPaths";
@@ -60,7 +61,7 @@ describe("old console bookmarks", () => {
     ["/admin/waitlist/friends", "#people--ps-invited"],
     ["/admin", null],
     ["/admin/unknown", null],
-  ])("%s → %s", (path, hash) => {
+  ])("%s → %s", (path: string, hash: string | null) => {
     expect(hashForOldPath(path)).toBe(hash);
   });
 });
@@ -101,5 +102,18 @@ describe("console stylesheet", () => {
     expect(selectors.length).toBeGreaterThan(100);
     const loose = selectors.map((s) => s.trim()).filter((s) => !/^\.sc(\s|$|[:.[])/.test(s));
     expect(loose).toEqual([]);
+  });
+});
+
+describe("console page types", () => {
+  it("a page typed by its own data fits the registry", () => {
+    type Mine = { rows: string[] };
+    const page: import("../features/admin/console/types").ConsolePage<Mine> = {
+      key: "x",
+      render: (d) => (d ? d.rows.join() : ""),
+      acts: { a: (_el, d) => void d?.rows },
+    };
+    const rows: Array<import("../features/admin/console/types").ConsolePage> = [page];
+    expect(rows[0].render?.({ rows: ["a"] } as never)).toBe("a");
   });
 });

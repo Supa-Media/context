@@ -69,6 +69,12 @@ jest.mock("expo-router", () => {
 
 jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
 
+// context.lc/admin on the web is the redesigned staff console, which has tests of its own (`staffConsole.test.ts`).
+jest.mock("../features/admin/console/StaffConsole", () => {
+  const { createElement } = jest.requireActual<typeof import("react")>("react");
+  return { StaffConsole: () => createElement("div", { "data-testid": "staff-console" }) };
+});
+
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act, createElement } from "react";
@@ -268,7 +274,7 @@ function pick(testID: string, value: string): void {
 }
 
 describe("tex.lc/admin", () => {
-  test("is the dashboard on tex.lc, and still the console's redirect on context.lc", () => {
+  test("is the dashboard on tex.lc, and the staff console on context.lc", () => {
     asStaff();
     expect(find("tex-dashboard")).not.toBeNull();
     expect(find("redirect")).toBeNull();
@@ -276,7 +282,7 @@ describe("tex.lc/admin", () => {
     mockTexHost = false;
     mount();
     expect(find("tex-dashboard")).toBeNull();
-    expect(find("redirect")?.getAttribute("data-href")).toBe("/admin/growth");
+    expect(find("staff-console")).not.toBeNull();
   });
 
   test("do next names the worst problem nobody is fixing, and sends it to triage", async () => {

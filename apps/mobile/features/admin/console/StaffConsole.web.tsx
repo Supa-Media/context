@@ -11,7 +11,7 @@
  * Staff only: every query behind a page is `requireAdmin` on the server; `amIAdmin` here only
  * decides what to say, as the old console did.
  */
-import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { AdminChrome } from "../AdminPane";
@@ -22,7 +22,7 @@ import { CONSOLE_CSS } from "./consoleCss";
 import { fitCharts, ic, lgOpen, seg, shut } from "./kit";
 import { ROW, SECTIONS, hashForOldPath, windowedNow } from "./pages/registry";
 import { useNeeds } from "./pages/needs.web";
-import { S, closeProps, focus, focusKey, getVersion, go, onScrollTop, parse, phone, render, runUndo, sel, setD, setQ, store, subscribe, toastState } from "./state";
+import { FDEF, S, closeProps, focus, focusKey, getVersion, go, onScrollTop, parse, phone, render, runUndo, sel, setD, setQ, store, subscribe, toastState } from "./state";
 import type { ConsolePage, Need } from "./types";
 
 export const STAFF_CONSOLE_TITLE = "Staff console";
@@ -66,16 +66,21 @@ export function StaffConsole() {
   );
 }
 
-/** Calls the open page's `useData` and hands the result up; keyed by page, so hooks never change order. */
-function PageData({ page, onData }: { page: ConsolePage; onData: (d: unknown) => void }) {
+/**
+ * Calls the open page's `useData` and hands the result up; keyed by page, so hooks never change
+ * order. Memoized: it redraws only when its own queries change, never because the console redrew,
+ * so a `useData` that builds a fresh object each call cannot loop.
+ */
+const PageData = memo(function PageData({ page, onData }: { page: ConsolePage; onData: (d: unknown) => void }) {
   const d = page.useData ? page.useData() : undefined;
   useLayoutEffect(() => onData(d), [d, onData]);
   return null;
-}
+});
 
 type Factor = React.ComponentProps<typeof StaffFactorGate>["factor"];
 
-function Console({ offerFactor }: { offerFactor: Factor | null }) {
+/** The console once the staff check passed; exported for the visual check harness. */
+export function Console({ offerFactor }: { offerFactor: Factor | null }) {
   const root = useRef<HTMLDivElement>(null);
   const pg = useRef<HTMLDivElement>(null);
   const fk = useRef<string | null>(null);
@@ -335,8 +340,7 @@ const SHELL: Record<string, (e: HTMLElement, c: ShellCtx) => void> = {
   need(e, c) {
     const n = c.needs[+e.dataset.i!];
     if (!n) return;
-    const FD = { ...S.f };
-    go(n.to.p, n.to.subs ?? [], n.to.x ?? null, { f: n.to.f ? { ...FD, ...n.to.f } : null });
+    go(n.to.p, n.to.subs ?? [], n.to.x ?? null, { f: n.to.f ? { ...FDEF, ...n.to.f } : FDEF });
   },
   sel(e) {
     const id = e.dataset.id!;
