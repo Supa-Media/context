@@ -109,6 +109,13 @@ export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
         const words = step.ok === false ? "couldn't judge" : judgeWords(step.output, running);
         lanes.Judge.push({ kind: "judge", start: rel(e.at - ms), end: rel(e.at), label: words, detail: running ? "while a turn ran" : "waiting texts" });
       }
+      // A group's judgings, kept by the gateway as `judge` entries `by: "moment"`.
+      if (e.kind === "judge" && e.by === "moment") {
+        const ms = num(e.ms) ?? 300;
+        const running = e.running === true || !!str(e.midTurn);
+        const act = str(e.verdict) === "respond" ? "answer" : str(e.verdict);
+        lanes.Judge.push({ kind: "judge", start: rel(e.at - ms), end: rel(e.at), label: judgeWords({ act, midTurn: e.midTurn }, running), detail: running ? "while a turn ran" : "waiting texts" });
+      }
       if (e.kind === "reply" && typeof e.turn === "string") {
         const timing = rec(e.timing);
         const replyMs = num(timing?.replyMs) ?? num(e.ms);

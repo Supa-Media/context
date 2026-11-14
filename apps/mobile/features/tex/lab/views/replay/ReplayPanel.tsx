@@ -8,6 +8,7 @@
 import { NODE_INFO } from "../../data/graph";
 import { shortVersion, type TexVersion } from "../../engine/mine";
 import { startLabel, type Moment } from "../../engine/replay";
+import { STEP_LOGS } from "../../engine/stepLogs";
 import { fmtS } from "../../engine/sim";
 import { lab, MODELS, node, set } from "../../engine/state";
 import { useLab } from "../../store";
@@ -76,9 +77,20 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
               </div>
             ))
           ) : (
-            <p className="hint">This step kept nothing of its own for this turn.</p>
+            <p className="hint" id="rIONone">
+              Nothing logged for this step in this turn: it didn't run here, or ran before its logging went in.
+            </p>
           )}
         </div>
+        {/* What this step logs, every run (`stepLogs.ts`), so a missing line above is never a mystery. */}
+        {STEP_LOGS[n.id] ? (
+          <div className="grp" id="rLogs">
+            <h4>What it logs</h4>
+            <div className="io"><b>Going in</b><pre>{STEP_LOGS[n.id].got}</pre></div>
+            <div className="io"><b>Coming out</b><pre>{STEP_LOGS[n.id].gave}</pre></div>
+            <div className="io"><b>Settings</b><pre>{STEP_LOGS[n.id].settings}</pre></div>
+          </div>
+        ) : null}
       </div>
     );
   }

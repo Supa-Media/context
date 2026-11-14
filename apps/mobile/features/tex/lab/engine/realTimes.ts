@@ -12,6 +12,7 @@ import type { LedgerEntry } from "../../page/texPageTypes";
 import type { LabGraph } from "../types";
 import { simulate, type Sim } from "./sim";
 import { G, lab } from "./state";
+import { momentAsSteps, STEP_NODES, stepIO, type IoLine } from "./stepIO";
 
 export type RealTimes = {
   /** What the person waited: the Worker's wait plus the gateway's reply. */
@@ -36,8 +37,6 @@ export function roundUsd(r: Record<string, unknown>): number {
   return (n("input") * (m.cacheW / 1.25) + n("cacheRead") * (m.cacheR ?? 0) + n("cacheWrite") * m.cacheW + n("output") * (m.outP ?? 0)) / 1e6;
 }
 
-/** `step` names that are canvas steps of the same id. */
-const STEP_NODES = new Set(["decide", "react", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv"]);
 
 const rec = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
@@ -118,6 +117,8 @@ export function labSim(g: LabGraph = G()): Sim {
  */
 export function withWorkerSteps(entries: LedgerEntry[], turn: string, from: number, to: number): LedgerEntry[] {
   const out = entries.filter((e) => !(e.kind === "step" && rec(e.step)));
+  // A group's judgings, kept by the gateway as `judge` entries `by: "moment"`, are its Decide (and React) too.
+  for (const e of entries) if (e.kind === "judge" && e.by === "moment" && !e.turn && e.at >= from && e.at <= to) out.push(...momentAsSteps(e, turn));
   for (const e of entries) {
     const st = rec(e.step);
     if (e.kind !== "step" || !st || typeof st.name !== "string" || e.turn || e.at < from || e.at > to) continue;
@@ -146,39 +147,13 @@ function untimed(mine: LedgerEntry[], add: (id: string, t: number, n?: number) =
   return { reply: Math.max(0, last - first), ms, calls };
 }
 
-/** One thing a step got or gave in a real run, as the panel lists it. */
-export type IoLine = { k: string; v: string };
-
-/** Whole, never cut (Dev2, 2026-11-14: "we aren't properly showing the full input, thinkings, and outputs"): the panel folds a long one. */
-const show = (v: unknown): string => (typeof v === "string" ? v : v === undefined || v === null ? "" : JSON.stringify(v, null, 1));
+export type { IoLine } from "./stepIO";
 
 /**
  * What each step got and gave in one real turn, from the same ledger entries as its times (Dev2, 2026-11-14: "when a
  * node is highlighted, I cant see what the inputs or outputs are, It should show up in the right panel"). Only the
- * person's own chat is read, and only into this tab.
+ * person's own chats are read, and only into this tab. `stepIO.ts` reads each step.
  */
-export function realIO(entries: LedgerEntry[], turn: string | null, text: string, answer: string): Record<string, IoLine[]> {
-  const io: Record<string, IoLine[]> = { text: [{ k: "Your text", v: text }] };
-  const push = (id: string, k: string, v: unknown) => {
-    const s = show(v);
-    if (s.trim()) (io[id] ??= []).push({ k, v: s });
-  };
-  push("fd", "Got", text);
-  const mine = turn ? [...entries].filter((e) => e.turn === turn).sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || a.at - b.at) : [];
-  let round = 0;
-  for (const e of mine) {
-    if (e.kind === "thinking") push("fd", "Thought", e.text);
-    else if (e.kind === "said") push("fd", "Said", e.text);
-    else if (e.kind === "tool") push("tools", String(e.name ?? "tool") + (num(e.ms) !== null ? ` · ${num(e.ms)} ms` : ""), [show(e.args), e.result !== undefined ? "→ " + show(e.result) : ""].filter(Boolean).join("\n"));
-    else if (e.kind === "judge" && e.by === "review") {
-      round += 1;
-      push("reviewer", `Round ${round}: ${e.went ? "let it go" : "sent it back"}`, [e.text ? "Draft: " + show(e.text) : "", e.notice ?? e.reason ?? ""].filter(Boolean).join("\n"));
-    } else if (e.kind === "step" && typeof e.step === "string" && STEP_NODES.has(e.step)) {
-      push(e.step, "Got", e.input);
-      push(e.step, "Gave", e.output ?? (e.reason ? { reason: e.reason } : undefined));
-    }
-  }
-  push("fd", "Answer", answer);
-  push("send", "Sent", answer);
-  return io;
+export function realIO(entries: LedgerEntry[], turn: string | null, text: string, answer: string, startedBy?: string): Record<string, IoLine[]> {
+  return stepIO(entries, turn, text, answer, startedBy);
 }

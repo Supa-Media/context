@@ -129,6 +129,11 @@ test("the judge's verdict is kept in the group's ledger: what, why and the event
   assert.equal(entry.why, "tags_tex");
   assert.equal(entry.event, id(2));
   assert.equal(entry.went, true);
+  // What it was asked, as references the Lab puts the words back from (Dev2, 2026-11-14): the texts' ids, not their words.
+  assert.deepEqual(entry.input.candidates, groupBody().candidates);
+  assert.equal(entry.input.newest, id(2));
+  assert.equal(entry.input.running, false);
+  assert.equal(typeof entry.input.transcriptChars, "number");
   assert.ok(!JSON.stringify(entry).includes("pineapple"));
   // A 1:1 names no ledger key, so it writes nothing; a last look is no verdict, so it is a step (Dev2, 2026-11-13: every step logs).
   await decideForTexts(ask(TEXTS_DECIDE_PATH, body()), {}, { engine, ledger, waitUntil: (work) => pending.push(work) });

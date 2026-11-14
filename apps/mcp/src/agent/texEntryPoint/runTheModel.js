@@ -57,6 +57,28 @@ import { threadsSortAndWrite } from "../conversationThreads.js";
 import { withArchitecture } from "../texArchitecture.js";
 import { withChatWriteLock } from "../chatWriteLock.js";
 
+/** What Door steps got: what kind of turn it is and for whom, by reference; never the chat's words, which are in its ledger already. */
+function doorIn({ body, group, job, routine, runner, history }) {
+  return { chat: group ? "group" : "one", kind: job ? "job" : routine ? "routine" : runner ? "scheduled" : "text", covers: Array.isArray(body?.covers) ? body.covers.slice(0, 32) : undefined, history: Array.isArray(history) ? history.length : undefined, place: body?.place ? true : undefined };
+}
+
+/** What Door steps gave the front door: the settings this turn runs with. */
+function doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }) {
+  return {
+    model: productionModel ?? null,
+    effort: productionModel ? (production?.efforts?.[productionModel] ?? null) : null,
+    fallback: typeof fallback === "string" ? fallback : (fallback?.model ?? null),
+    router: router ? true : false,
+    reviewer: gated ? "on" : "off",
+    advisor: advising ? (production?.advisor ?? "on") : "off",
+    planner: planning ? "on" : "off",
+    computers: Array.isArray(computers) ? computers.length : 0,
+    skills: Array.isArray(skills) ? skills.length : undefined,
+    delegation: delegation ? true : false,
+    threads: threaded ? true : false,
+  };
+}
+
 /** The setup's rules with the drawing ahead, the box named for this kind of turn (`texArchitecture.js`). */
 const setupWithMap = (prompt, kind) => (typeof prompt === "string" && prompt !== "" ? withArchitecture(prompt, kind) : prompt);
 
@@ -93,6 +115,8 @@ export async function runTheModel(t) {
   const threaded = threadsRun ? await tex.wait("threads", threadsRun) : null;
   if (threaded?.sort) tex.after("threads_sort", () => stepLog(chatLog, ledgerAt ?? {}).timed("classifier", question, () => threadsSortAndWrite(threaded.sort, store, session)).catch(() => {})); // the threads it filed the text into, a step in the chat's ledger
   // Whether Tex answers at all was the Worker's one judge's, before this turn was asked for (`textDecide.cjs`).
+  // Door steps, as one step in the chat's ledger: what this turn was set up with, every setting that shapes it (Dev2, 2026-11-14: "every single block should have proper logging of what's going in and out and what parameters were set"). The prompt's modules are each model round's (`turnTiming.js`); the words are the chat's own, already in its ledger.
+  stepLog(chatLog, ledgerAt ?? {}).log({ step: "door", ok: true, input: doorIn({ body, group, job, routine, runner, history }), output: doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }), model: productionModel ?? null });
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),

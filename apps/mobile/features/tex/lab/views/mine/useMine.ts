@@ -11,7 +11,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../../../agent/useConsoleGrant";
 import { MCP_ENDPOINT } from "../../../../console/placeholderData";
 import { gatewaySource, type TexPageSource } from "../../../page/texPageSource";
-import { LATEST, type LedgerEntry } from "../../../page/texPageTypes";
+import { LATEST, type LedgerEntry, type LedgerKind } from "../../../page/texPageTypes";
 import { chatLines, myTexts, readsOf, type MyText } from "../../engine/mine";
 import { realIO, realTimes } from "../../engine/realTimes";
 import { emit, lab, toast } from "../../engine/state";
@@ -107,6 +107,9 @@ export const replayEntries = (): LedgerEntry[] => [...seen, ...detail.values()];
  * Replay a moment: read the details of the day it happened (the texting Worker's judgings, the turns' steps, tool
  * calls and thoughts), page by page back to its first text, once per chat and day.
  */
+/** Everything a turn's steps logged beyond its texts and reply: what the panel shows each step got and gave. */
+const DETAIL_KINDS: LedgerKind[] = ["step", "judge", "tool", "thinking", "said", "brief", "advisor", "mail_check", "job"];
+
 export async function readMomentDetail(at: number) {
   if (!source) return;
   const chat = lab.myChat;
@@ -115,7 +118,7 @@ export async function readMomentDetail(at: number) {
   detailDays.add(chat + "|" + day);
   let before = LATEST;
   for (let i = 0; i < PAGES_BACK; i++) {
-    const r = await source.ledger(chat, { kinds: ["step", "judge", "tool", "thinking", "said"], day, before });
+    const r = await source.ledger(chat, { kinds: DETAIL_KINDS, day, before });
     if (r.kind !== "ok" || chat !== lab.myChat) break;
     for (const e of r.value.entries) detail.set(e.id, e);
     const oldest = Math.min(...r.value.entries.map((e) => e.at));
@@ -142,7 +145,7 @@ export async function readTurnTimes(t: MyText) {
   const more: LedgerEntry[] = [];
   let before = LATEST;
   for (let i = 0; i < PAGES_BACK; i++) {
-    const r = await source.ledger(lab.myChat, { kinds: ["judge", "step", "tool", "thinking", "said"], day, before });
+    const r = await source.ledger(lab.myChat, { kinds: DETAIL_KINDS, day, before });
     if (r.kind !== "ok") break;
     more.push(...r.value.entries);
     const oldest = Math.min(...r.value.entries.map((e) => e.at));

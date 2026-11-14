@@ -87,7 +87,7 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
   // The verdict in the group's ledger, behind the answer: never on the text's path.
   // A look again, or a judging that failed, is a step there instead, so every judging of the chat is in its record (Dev2, 2026-11-13).
   if (body.ledger) {
-    const entry = !recheck && result.ok ? judgeVerdictEntry(body, result, meter.ms) : stepEntry({ step: "decide", name: recheck ? "recheck" : "decide", ok: result.ok === true, ms: meter.ms, input: { newest: body.newest ?? null, candidates: body.candidates?.length ?? 0 }, output: result.ok ? (recheck ? { fits: result.fits } : null) : { cause: result.cause ?? null }, model: DECISION_MODEL });
+    const entry = !recheck && result.ok ? judgeVerdictEntry(body, result, meter.ms, facts.length) : stepEntry({ step: "decide", name: recheck ? "recheck" : "decide", ok: result.ok === true, ms: meter.ms, input: judgedInput(body, facts.length), output: result.ok ? (recheck ? { fits: result.fits } : null) : { cause: result.cause ?? null }, model: DECISION_MODEL });
     const written = ledgerWriter(ledger(body.ledger), body.ledger)?.write(entry) ?? Promise.resolve();
     if (typeof waitUntil === "function") waitUntil(written);
   }
@@ -101,7 +101,7 @@ const VERDICT = { answer: "respond", react: "react", silent: "quiet", wait: "wai
  * One judging of a moment as a `judge` entry (`agent/ledger.js`): `by: "moment"`, the verdict, its why (one of the
  * judge's labels), the event judged, and when a turn ran, what that text does to it. Names and codes only.
  */
-export function judgeVerdictEntry(body, result, ms) {
+export function judgeVerdictEntry(body, result, ms, facts = 0) {
   return {
     v: 1,
     id: `judge${body.newest.replace(/[^0-9]/g, "")}${body.running ? "r" : ""}${Date.now().toString(36)}`,
@@ -116,7 +116,27 @@ export function judgeVerdictEntry(body, result, ms) {
     ...(result.emoji ? { emoji: result.emoji } : {}),
     ...(result.midTurn ? { midTurn: result.midTurn } : {}),
     confidence: result.confidence,
+    ...(Array.isArray(result.covers) && result.covers.length ? { covers: result.covers } : {}),
+    ...(body.running ? { running: true } : {}),
+    input: judgedInput(body, facts),
     ms,
+  };
+}
+
+/**
+ * What a judging was asked, as references the Lab puts the words back from (Dev2, 2026-11-14: "WHY CANT I SEE WHAT IS
+ * GOING IN AND OUT OF EVERY STEP"): the ids of the texts it weighed, which are the chat's own and already in this
+ * ledger, whether a turn was running, how it was told to answer, and how much it read. Never a word of the chat.
+ */
+export function judgedInput(body, facts = 0) {
+  return {
+    style: body.style ?? null,
+    running: body.running === true,
+    newest: body.newest ?? null,
+    candidates: Array.isArray(body.candidates) ? body.candidates : [],
+    ...(typeof body.transcript === "string" ? { transcriptChars: body.transcript.length } : {}),
+    ...(Array.isArray(body.waitingAsks) ? { waitingAsks: body.waitingAsks.length } : {}),
+    facts,
   };
 }
 

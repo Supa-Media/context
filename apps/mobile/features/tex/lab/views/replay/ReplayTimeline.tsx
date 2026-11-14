@@ -42,7 +42,7 @@ function showTurn(m: Moment, entries: LedgerEntry[], turn: string) {
   if (asked) {
     traceMine(asked.text);
     const times = realTimes(all, turn);
-    lab.real = times ? { text: asked.text, times, io: realIO(all, turn, asked.text, asked.then.text), turn } : null;
+    lab.real = times ? { text: asked.text, times, io: realIO(all, turn, asked.text, asked.then.text, asked.who ? `${asked.who}'s text` : "Your text"), turn } : null;
     return;
   }
   const own = m.lines[0];
@@ -51,7 +51,7 @@ function showTurn(m: Moment, entries: LedgerEntry[], turn: string) {
   const label = startLabel(own);
   traceMine(label, own.start);
   const times = realTimes(all, turn);
-  const io = realIO(all, turn, own.about || label, own.text);
+  const io = realIO(all, turn, own.about || label, own.text, label);
   io[own.start] = [{ k: "Started", v: own.about || label }];
   lab.real = times ? { text: label, times, io, turn } : null;
 }
