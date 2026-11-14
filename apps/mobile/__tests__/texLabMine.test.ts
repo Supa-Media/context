@@ -4,7 +4,7 @@
  * run config's replays, and a pasted "## Lab replay" read back.
  */
 import { describe, expect, test } from "@jest/globals";
-import { chatLines, myTexts, parseReplay, readsOf, replayConfig, shortVersion } from "../features/tex/lab/engine/mine";
+import { chatLines, myTexts, parseReplay, readsOf, replayConfig, routineName, shortVersion, startOf } from "../features/tex/lab/engine/mine";
 import { judgeWords, LOGGED_FROM, loggedMoments, momentsOf, turnAt } from "../features/tex/lab/engine/replay";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
@@ -125,5 +125,46 @@ describe("Replay's moments (Dev2, 2026-11-14: \"replay sequences of text, like s
     expect(judgeWords({ act: "answer" }, true)).toBe("queue it");
     expect(judgeWords({ act: "react" }, false)).toBe("tapback");
     expect(judgeWords(null, false)).toBe("no answer");
+  });
+});
+
+describe("Tex texting on its own (Dev2, 2026-11-14: \"the heartbeat and routine node, those are another way Tex gets prompted\")", () => {
+  const T = Date.UTC(2026, 10, 14, 12);
+  const e = (x: Partial<LedgerEntry> & { id: string; at: number; kind: string }) => x as LedgerEntry;
+  const entries: LedgerEntry[] = [
+    e({ id: "p", at: T, seq: 1, kind: "text", eid: "ep", from: { kind: "person" }, text: "hi" }),
+    e({ id: "x", at: T + 2_000, seq: 2, kind: "text", turn: "t0", covers: ["ep"], from: { kind: "tex" }, text: "Hello." }),
+    // A routine's run: its thinking and a tool call under its turn, then the note it texted.
+    e({ id: "th", at: T + 60_000, seq: 3, kind: "thinking", turn: "gw1", ms: 4_000, text: "Looking at what changed." }),
+    e({ id: "tl", at: T + 62_000, seq: 4, kind: "tool", turn: "gw1", name: "list_changes", ms: 900, args: {}, ok: true }),
+    e({ id: "rn", at: T + 66_000, seq: 5, kind: "note", turn: "gw1", routine: "tex/routines/daily/morning-context-changes.md", outcome: "answered", text: "Nothing new overnight." }),
+    // A check-in and a ping, as the conversation keeps them.
+    e({ id: "ci", at: T + 120_000, seq: 6, kind: "note", about: "(Not a text from them. This was your own check-in: you looked through their workspace.)", text: "Payroll is due today." }),
+    e({ id: "pg", at: T + 180_000, seq: 7, kind: "note", about: "(Not a text from them. Another of their agents asked you to get their attention, and you texted them what follows.)", text: "The deploy finished." }),
+    // Not a text Tex sent on its own: left out.
+    e({ id: "bk", at: T - 1, seq: 0, kind: "note", backfill: "mark", text: "(The chat before this ledger began was copied in here.)" }),
+  ];
+  const lines = chatLines(entries, myTexts(entries));
+
+  test("each is a line of the chat, saying what started it", () => {
+    expect(lines.map((l) => [l.id, l.start ?? null])).toEqual([["p", null], ["x", null], ["rn", "routine"], ["ci", "checkin"], ["pg", "notify"]]);
+    expect(startOf(entries[7])).toBeNull();
+    expect(routineName("tex/routines/daily/morning-context-changes.md")).toBe("morning context changes");
+  });
+
+  test("each starts a moment of its own, from its turn's first entry, from its own start step", () => {
+    const ms = momentsOf(lines, entries);
+    const run = ms.find((m) => m.id === "rn")!;
+    expect(run.from).toBe("routine");
+    expect(run.at).toBe(T + 56_000);
+    expect(run.lanes.Texts.map((b) => b.label)).toEqual(["Routine · morning context changes"]);
+    expect(run.lanes.Turn.map((b) => [b.kind, b.start, b.end, b.turn])).toEqual([["turn", 0, 10_000, "gw1"]]);
+    expect(run.turns).toEqual(["gw1"]);
+    expect(run.lines.map((l) => l.id)).toEqual(["rn"]);
+    expect(ms.find((m) => m.id === "ci")?.from).toBe("checkin");
+    expect(ms.find((m) => m.id === "ci")?.turns).toEqual([]);
+    expect(ms.find((m) => m.id === "pg")?.from).toBe("notify");
+    // The person's own text before them keeps its moment, and ends where the routine's begins.
+    expect(ms.find((m) => m.id === "p")?.lines.map((l) => l.id)).toEqual(["p", "x"]);
   });
 });

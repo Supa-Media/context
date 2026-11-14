@@ -96,6 +96,7 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
   const { lit, clock, running, toggle: play, scrub, total } = usePlayback(speed, `${s.scn}|${s.ownText}|${s.real?.text ?? ""}|${s.real ? 1 : 0}`);
   const [addOpen, setAddOpen] = useState(false);
   const [scnOpen, setScnOpen] = useState(false);
+  const [keyOpen, setKeyOpen] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const applyCam = () =>
@@ -188,7 +189,8 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
         </svg>
       </div>
       <div className="ctop">
-      <div className="float moment">
+      {/* Replay's chat on the left already shows the text (Dev2, 2026-11-14: "this feels redundant with the left panel"). */}
+      <div className="float moment" hidden={!!replay}>
         <Svg
           d='<path d="M4 5h16v11H9l-5 4z"/>'
           style={{ color: "var(--muted)" }}
@@ -233,11 +235,18 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
         dangerouslySetInnerHTML={{ __html: statsHtml(sim) }}
       />
       <div className="cbreak" />
+      {/* The wires' key, folded away until asked for (Dev2, 2026-11-14: "this legend could collapse into something more tucked away"). */}
+      {focused ? null : (
+        <button className="float keybtn" id="keyBtn" aria-expanded={keyOpen} title="What the wires mean" onClick={() => setKeyOpen(!keyOpen)}>
+          <Svg d='<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.5 16.5c3-1 2-8 9-9"/>' style={{ width: 16, height: 16 }} />
+          Key
+        </button>
+      )}
       <div
         className="float keyw"
         id="keyw"
-        hidden={!!focused}
-        dangerouslySetInnerHTML={{ __html: focused ? "" : keywHtml() }}
+        hidden={!!focused || !keyOpen}
+        dangerouslySetInnerHTML={{ __html: focused || !keyOpen ? "" : keywHtml() }}
       />
       <div className="float fbar" id="fbar" hidden={!focused}>
         {focused ? (
@@ -368,7 +377,7 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
       </div>
       </>
       )}
-      <div className="float zoom">
+      <div className={replay ? "float zoom ztop" : "float zoom"}>
         <button
           className="ib"
           id="zOut"

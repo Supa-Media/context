@@ -5,10 +5,10 @@
  * step running then is lit with a ring for how far through it is, and the newest is selected so the right panel shows
  * what it got and gave.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { fmtS } from "../../engine/sim";
-import { labSim, realIO, realTimes } from "../../engine/realTimes";
-import { turnAt, type Lane, type Moment } from "../../engine/replay";
+import { labSim, realIO, realTimes, withWorkerSteps } from "../../engine/realTimes";
+import { startLabel, turnAt, type Lane, type Moment } from "../../engine/replay";
 import { emit, lab, node, set } from "../../engine/state";
 import { traceMine } from "../../engine/traces";
 import type { LedgerEntry } from "../../../page/texPageTypes";
@@ -20,13 +20,30 @@ const LANES: Lane[] = ["Texts", "Judge", "Turn", "Sent"];
 /** A step too short to see stays lit for 150 ms of screen time, at most 0.4 s of the turn. */
 const minLit = (speed: number) => Math.min(150 * speed, 400);
 
-/** Point the canvas at one turn of the moment: its text traced, its measured times and inputs and outputs. */
+/**
+ * Point the canvas at one turn of the moment: what started it traced (a text someone sent, or a check-in, a routine or
+ * a ping from its own start step), its measured times and everything it got, thought and gave. The texting Worker's
+ * judgings in the moment before the turn's text was sent count as its Decide step.
+ */
 function showTurn(m: Moment, entries: LedgerEntry[], turn: string) {
-  const asked = lab.myLines.find((l) => l.play?.turn === turn)?.play ?? m.lines.find((l) => l.play)?.play;
-  if (!asked) return;
-  traceMine(asked.text);
-  const times = realTimes(entries, turn);
-  lab.real = times ? { text: asked.text, times, io: realIO(entries, turn, asked.text, asked.then.text), turn } : null;
+  const sent = Math.max(...entries.filter((e) => e.turn === turn).map((e) => e.at), m.at);
+  const all = withWorkerSteps(entries, turn, m.at - 1_000, sent);
+  const asked = lab.myLines.find((l) => l.play?.turn === turn)?.play ?? (m.from === "text" ? m.lines.find((l) => l.play)?.play : null);
+  if (asked) {
+    traceMine(asked.text);
+    const times = realTimes(all, turn);
+    lab.real = times ? { text: asked.text, times, io: realIO(all, turn, asked.text, asked.then.text), turn } : null;
+    return;
+  }
+  const own = m.lines[0];
+  if (!own?.start) return;
+  // Tex texting on its own: the start step's words are what it was asked, as the turn was given them.
+  const label = startLabel(own);
+  traceMine(label, own.start);
+  const times = realTimes(all, turn);
+  const io = realIO(all, turn, own.about || label, own.text);
+  io[own.start] = [{ k: "Started", v: own.about || label }];
+  lab.real = times ? { text: label, times, io, turn } : null;
 }
 
 export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: LedgerEntry[]; onLit: (lit: Lit | null) => void }) {
@@ -55,8 +72,9 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
       onLit(null);
       return;
     }
-    if (shown.current !== under.turn) {
-      shown.current = under.turn;
+    // Again when more of the day's entries arrive, so what the turn thought and did fills in once read.
+    if (shown.current !== under.turn + "|" + entries.length) {
+      shown.current = under.turn + "|" + entries.length;
       showTurn(m, entries, under.turn);
       emit();
     }
@@ -97,6 +115,16 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
     raf.current = requestAnimationFrame(tick);
   };
   const pct = (v: number) => `${((v / m.of) * 100).toFixed(2)}%`;
+  // Drag anywhere on the lanes to scrub (Dev2, 2026-11-14: "why not let me scrub with the bar").
+  const dragging = useRef(false);
+  const scrubTo = (e: RPointerEvent<HTMLDivElement>) => {
+    const track = e.currentTarget.querySelector<HTMLElement>(".rtrack");
+    if (!track) return;
+    const r = track.getBoundingClientRect();
+    if (r.width <= 0) return;
+    stop();
+    setAt(Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * m.of));
+  };
 
   return (
     <div className="float rtl" id="replayTimeline" aria-label="Timeline">
@@ -116,7 +144,19 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
           ))}
         </select>
       </div>
-      <div className="rlanes">
+      <div
+        className="rlanes"
+        onPointerDown={(e) => {
+          dragging.current = true;
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+          scrubTo(e);
+        }}
+        onPointerMove={(e) => {
+          if (dragging.current) scrubTo(e);
+        }}
+        onPointerUp={() => (dragging.current = false)}
+        onPointerCancel={() => (dragging.current = false)}
+      >
         {LANES.map((ln) => (
           <div key={ln} className="rrow">
             <span className="rln">{ln === "Judge" ? "Judge" : ln}</span>
@@ -127,7 +167,7 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
                   className={`rbar ${b.kind}`}
                   style={{ left: pct(b.start), width: `max(6px, ${pct(b.end - b.start)})` }}
                   title={`${b.label}${b.detail ? " · " + b.detail : ""} · ${fmtS(b.start)}–${fmtS(b.end)}`}
-                  onClick={() => (stop(), setAt(b.start))}
+                  tabIndex={-1}
                 >
                   {b.label}
                 </button>

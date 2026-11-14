@@ -7,11 +7,14 @@
  */
 import { NODE_INFO } from "../../data/graph";
 import { shortVersion, type TexVersion } from "../../engine/mine";
-import type { Moment } from "../../engine/replay";
+import { startLabel, type Moment } from "../../engine/replay";
 import { fmtS } from "../../engine/sim";
 import { lab, MODELS, node, set } from "../../engine/state";
 import { useLab } from "../../store";
 import { Ic } from "../ic";
+
+/** A got or gave longer than this shows its start, with the whole a click away; nothing is ever cut. */
+const FOLD = 1500;
 
 const time = (at: number) => new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
 
@@ -32,7 +35,7 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
     const real = lab.real;
     const ms = real?.times.ms[n.id];
     const io = real?.io?.[n.id] ?? [];
-    const version = (real?.turn ? m.lines.find((l) => l.play?.turn === real.turn)?.play?.then.version : null) as TexVersion | null | undefined;
+    const version = (real?.turn ? (m.lanes.Turn.find((b) => b.turn === real.turn && b.version)?.version ?? m.lines.find((l) => l.play?.turn === real.turn)?.play?.then.version) : null) as TexVersion | null | undefined;
     return (
       <div className="rpanel" id="replayPanel">
         <div className="ph">
@@ -59,7 +62,17 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
             io.map((l, i) => (
               <div key={i} className="io">
                 <b>{l.k}</b>
-                <pre>{l.v}</pre>
+                {l.v.length > FOLD ? (
+                  <>
+                    <pre>{l.v.slice(0, FOLD)}…</pre>
+                    <details className="iofold">
+                      <summary>Show all {l.v.length.toLocaleString("en-US")} characters</summary>
+                      <pre>{l.v}</pre>
+                    </details>
+                  </>
+                ) : (
+                  <pre>{l.v}</pre>
+                )}
               </div>
             ))
           ) : (
@@ -71,15 +84,15 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
   }
   // Nothing selected: what the chat on the left can't show, how Tex handled it. The texts themselves are already there.
   const first = m.lines[0];
-  const behind = m.lines.filter((l) => l.from === "person").length - 1;
+  const behind = m.lines.filter((l) => l.from === "person").length - (first.start ? 0 : 1);
   const turnBars = m.lanes.Turn.filter((b) => b.kind === "turn");
   const waitOf = (turn?: string) => m.lanes.Turn.find((b) => b.kind === "wait" && b.turn === turn);
   const judged = m.lanes.Judge;
   return (
     <div className="rpanel" id="replayPanel">
-      <h3>{first.who === "You" || !first.who ? "From your text" : `From ${first.who}'s text`}</h3>
+      <h3>{first.start ? startLabel(first) : first.who === "You" || !first.who ? "From your text" : `From ${first.who}'s text`}</h3>
       <p className="hint">
-        {time(first.at)} · {behind > 0 ? `${behind} more ${behind === 1 ? "text" : "texts"} came in behind it` : "nothing came in behind it"}
+        {time(first.at)} · {first.start ? (first.turn ? "Tex texted on its own" : "Tex texted on its own; its look kept no steps in this chat, only in tex/heartbeat/") : behind > 0 ? `${behind} more ${behind === 1 ? "text" : "texts"} came in behind it` : "nothing came in behind it"}
       </p>
       <div className="rset">
         <span className="pill">

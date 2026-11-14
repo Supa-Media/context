@@ -8,7 +8,8 @@ import type { LabCase } from "../types";
 import { allCases } from "./diff";
 import { lab } from "./state";
 
-export type Trace = { name: string; group: string; id?: string; tags: string[]; rounds: Record<string, number> };
+/** `from`: the step that starts it, a text arriving unless a check-in, a routine or another AI's ping (`texConfig.json` inputs). */
+export type Trace = { name: string; group: string; id?: string; tags: string[]; rounds: Record<string, number>; from?: string };
 
 export function readTrace(text: string, area: string): { tags: string[]; rounds: Record<string, number> } {
   const t = String(text || "").toLowerCase();
@@ -35,7 +36,7 @@ export function buildTraces(list: LabCase[]) {
   const own = readTrace(lab.ownText, "own");
   // A text from one of their group chats takes the group path, whatever its words say.
   if ((lab.tester === "me" || lab.mode === "replay") && lab.myChat !== "me") own.tags = own.tags.map((t) => (t === "one" ? "group" : t));
-  SCENARIOS.own = { name: lab.ownText || "Type a message…", group: "own", ...own };
+  SCENARIOS.own = { name: lab.ownText || "Type a message…", group: "own", ...own, from: lab.ownFrom };
   if (!SCENARIOS[lab.scn]) lab.scn = Object.keys(SCENARIOS)[0] || "own";
 }
 
@@ -46,9 +47,10 @@ export const scnLabel = (k: string) => (SCENARIOS[k] || SCENARIOS.own)?.name ?? 
  * and its label show what they actually sent rather than a bench test (Dev2, 2026-11-14: "When I switched to my
  * personal account, I expected to see the messages I've sent here not test cases").
  */
-export function traceMine(text: string) {
+export function traceMine(text: string, from = "text") {
   if (lab.real?.text !== text) lab.real = null;
   lab.ownText = text;
+  lab.ownFrom = from;
   buildTraces(allCases());
   lab.scn = "own";
 }

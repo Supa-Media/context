@@ -74,7 +74,9 @@ function timeLabel(sim: Sim, id: string): string {
 }
 
 export function statsHtml(sim: Sim): string {
-  return `<span>Reply <b>${fmtS(sim.reply)}</b>${sim.real ? ` <span class="real">real</span>` : ""}</span><span>Model calls <b>${sim.replyCalls.toFixed(1)}</b></span><span>Cost <b>${fmtUsd(sim.usd)}</b></span>`;
+  // One short line (Dev2, 2026-11-14: "any way it can be more condense"): the reply's time, its model calls, its cost.
+  const calls = sim.real ? String(Math.round(sim.replyCalls)) : sim.replyCalls.toFixed(1);
+  return `<span title="How long they waited for the reply"><b>${fmtS(sim.reply)}</b>${sim.real ? ` <span class="real">real</span>` : ""}</span><span title="Model calls in the reply"><b>${calls}</b> calls</span><span title="${sim.real ? "The front door's cost from its logged tokens; other steps estimated" : "Estimated"}"><b>${fmtUsd(sim.usd)}</b></span>`;
 }
 
 export function keywHtml(): string {

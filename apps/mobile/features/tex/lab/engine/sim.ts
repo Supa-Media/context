@@ -139,7 +139,8 @@ export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | nul
     return !LOGS_WHEN_RUN.has(e.to) && fires(e, tags, g);
   };
   const reach = new Map<string, { lane: string }>();
-  const start = node("text", g) || g.nodes[0];
+  // What started it: a text arriving, or a check-in, a routine or another AI's ping (`Trace.from`).
+  const start = node((SCENARIOS[s] || SCENARIOS.own)?.from ?? "text", g) || node("text", g) || g.nodes[0];
   if (!start) return { T: {}, reply: 0, usd: 0, replyCalls: 0, jobEnd: 0, reach, inside: new Set() };
   reach.set(start.id, { lane: "reply" });
   let ch = true;

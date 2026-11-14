@@ -65,6 +65,8 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
         { id: "s3", at: T2 + 1500, kind: "step", step: { name: "decide", of: "running", ok: true, ms: 300, output: { act: "answer", midTurn: "fold" } } },
         { id: "r2", at: T2 + 3700, kind: "reply", turn: "t2", text: "Done.", ms: 3400, timing },
         { id: "r3", at: T3 + 3700, kind: "reply", turn: "tg1", text: "Kemi does.", ms: 3400, timing },
+        { id: "gt", at: Date.UTC(2026, 10, 14, 10, 0, 4), kind: "thinking", turn: "gr1", ms: 4000, text: "Checking the news notes." },
+        { id: "gv", at: Date.UTC(2026, 10, 14, 10, 0, 9), kind: "judge", turn: "gr1", by: "review", went: true, ms: 2000, text: "Nothing new overnight." },
       ];
     },
     // A group chat they're in, as its history file would read: someone else's text and Tex's answer.
@@ -80,6 +82,8 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
                 { id: "o2", at: Date.UTC(2026, 10, 13, 20, 1), from: "tex", who: "Tex", text: "Old answer.", play: null },
                 { id: "o3", at: Date.UTC(2026, 10, 14, 9), from: "person", who: "Ada", text: "new question", play: null },
                 { id: "o4", at: Date.UTC(2026, 10, 14, 9, 1), from: "tex", who: "Tex", text: "New answer.", play: null },
+                // A routine's run: Tex texting on its own, from its own start step.
+                { id: "o5", at: Date.UTC(2026, 10, 14, 10, 0, 10), from: "tex", who: "Tex", text: "Nothing new overnight.", play: null, start: "routine", turn: "gr1", routine: "tex/routines/daily/morning-news.md" },
               ]
             : [
               { id: "g1", at: Date.UTC(2026, 10, 14, 18), from: "person", who: "Ada", text: "who has the van?", play: { id: "g1", at: Date.UTC(2026, 10, 14, 18), seq: 1, text: "who has the van?", earlier: [], then: { text: "Kemi does.", version: null }, turn: "tg1", who: "Ada" } },
@@ -191,7 +195,7 @@ describe("the Lab's test user as You", () => {
     await click(q('#scnPop [data-mine="ev1"]'));
     expect(q("#scnName")?.textContent).toBe("hey");
     // Its real times, not estimates: the reply as measured, each measured step as is, the rest marked "≈".
-    expect(q("#stats")?.textContent).toMatch(/Reply 6\.3 s real/);
+    expect(q("#stats")?.textContent).toMatch(/6\.3 s real/);
     // The front door with the tool call it made: 2.7 s of rounds and 0.65 s of the tool.
     expect(q('.nd[data-id="fd"] .tm')?.textContent).toBe("3.4 s");
     expect(q('.nd[data-id="reviewer"] .tm')?.textContent).toBe("2.1 s");
@@ -294,6 +298,17 @@ describe("the Lab's test user as You", () => {
 
   test("Replay is its own mode: your chats, the conversation in moments, a timeline of how they queued, read only", async () => {
     await click(q("#modeReplay"));
+    // The text box over the canvas repeats the chat, so it is hidden; the wires' key is folded until asked for.
+    expect(q(".ctop .moment")?.hasAttribute("hidden")).toBe(true);
+    expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
+    await click(q("#keyBtn"));
+    expect(q("#keyw")?.textContent).toMatch(/Next/);
+    await click(q("#keyBtn"));
+    // The chats hide from beside them, and come back from the canvas's edge.
+    await click(q("#rCollapse"));
+    expect(q("#side")?.hasAttribute("hidden")).toBe(true);
+    await click(q("#rExpand"));
+    expect(q("#side")?.hasAttribute("hidden")).toBe(false);
     // The Lab's editing goes away: no tools, no version controls.
     expect(q("#tSel")).toBeNull();
     expect(q("#saveBtn")).toBeNull();
@@ -343,9 +358,8 @@ describe("the Lab's test user as You", () => {
     });
     expect(lab.ownText).toBe("who has the van?");
     expect(SCENARIOS.own.tags).toContain("group");
-    expect(q("#rLoggedFrom")).toBeNull();
     // Texts from before every step was logged in full don't replay (Dev2: "make sure that replay only works after the
-    // proper logging is in place"): their moment is left out, Older texts goes away, and a note says where it starts.
+    // proper logging is in place"): their moment is left out and Older texts goes away.
     lab.myOlder = 123;
     await act(async () => {
       const pick = q<HTMLSelectElement>("#rChat")!;
@@ -353,9 +367,19 @@ describe("the Lab's test user as You", () => {
       pick.dispatchEvent(new Event("change", { bubbles: true }));
       await new Promise((r) => setTimeout(r, 0));
     });
-    expect(qa("#replaySide [data-moment]").map((x) => x.getAttribute("data-moment"))).toEqual(["o3"]);
-    expect(q("#rLoggedFrom")?.textContent).toMatch(/^Replay starts \w+, Nov 1[34], /);
+    expect(qa("#replaySide [data-moment]").map((x) => x.getAttribute("data-moment"))).toEqual(["o3", "o5"]);
     expect(q("#rOlder")).toBeNull();
+    // A routine's run is in the chat too, and replays from the routine's own start step with what it thought.
+    expect(q('[data-moment="o5"] .cds')?.textContent).toBe("Routine · morning news");
+    await click(q('[data-moment="o5"]'));
+    expect(q("#replayPanel h3")?.textContent).toBe("Routine · morning news");
+    await act(async () => {
+      setValue.call(q<HTMLInputElement>("#rScrub")!, "1000");
+      q("#rScrub")!.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(lab.ownFrom).toBe("routine");
+    expect(lab.real?.io?.fd?.map((l) => l.k)).toContain("Thought");
     // Back to the Lab: its tools and the version controls return, and no conversation.
     await click(q("#modeLab"));
     expect(q("#tSel")).not.toBeNull();
