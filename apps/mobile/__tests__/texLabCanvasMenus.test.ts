@@ -19,8 +19,8 @@
  *   `AddMenu` dropping `onPick`'s kind                   "a click on an add-step kind" fails
  *
  * Known drift: the golden's test list is older than `labData.generated.ts`. Four rows exist only in the
- * generated cases (core/q20, pipeline/job-sees-chat, pipeline/pdf-of-pictures, pipeline/reads-back); the
- * golden test removes exactly those four and compares the rest.
+ * generated cases (core/q20 and the pipeline replays added since the golden); the
+ * golden test removes exactly those and compares the rest.
  */
 
 import {
@@ -143,6 +143,7 @@ describe("the canvas's test picker", () => {
       "pipeline/reads-back",
       "pipeline/turn-steps-logged",
       "pipeline/worker-steps-logged",
+      "pipeline/cache-miss-named",
     ];
     const removed: string[] = [];
     for (const b of Array.from(
