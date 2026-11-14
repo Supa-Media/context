@@ -1,7 +1,8 @@
 /**
- * The Lab's "You" (`engine/mine.ts`): the signed-in person's workspaces, and their own one-to-one chat with Tex read
- * from its history file (`POST /tex/page/ledger`, the same route the Tex page's History reads, which answers only a
- * person's own chat). Reading is all it does: nothing here writes, sends or changes a setting.
+ * The Lab's "You" (`engine/mine.ts`): the signed-in person's workspaces, and their chats with Tex, their one-to-one
+ * and each group chat they're in, read from the chat's history file (`POST /tex/page/ledger`, the same route the Tex
+ * page's History reads, which answers only a person's own chat and a group's only for the chat's own people). Reading
+ * is all it does: nothing here writes, sends or changes a setting.
  */
 import { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "convex/react";
@@ -11,7 +12,7 @@ import { useConsoleGrant } from "../../../../agent/useConsoleGrant";
 import { MCP_ENDPOINT } from "../../../../console/placeholderData";
 import { gatewaySource, type TexPageSource } from "../../../page/texPageSource";
 import { LATEST, type LedgerEntry } from "../../../page/texPageTypes";
-import { myTexts, readsOf, type MyText } from "../../engine/mine";
+import { chatLines, myTexts, readsOf, type MyText } from "../../engine/mine";
 import { realIO, realTimes } from "../../engine/realTimes";
 import { emit, lab, toast } from "../../engine/state";
 import { traceMine } from "../../engine/traces";
@@ -21,12 +22,38 @@ let source: TexPageSource | null = null;
 let seen: LedgerEntry[] = [];
 let reading = false;
 
+/** The chats they can replay, from the Tex page's chat picker: their one-to-one first, then their group chats. */
+export async function readMyChats() {
+  if (!source) return;
+  const r = await source.overview("me", "chats");
+  if (r.kind !== "ok") return;
+  const chats = r.value.chats.length ? r.value.chats : [r.value.chat];
+  lab.myChats = chats.map((c) => ({ key: c.key, name: c.key === "me" ? "Just you and Tex" : c.name, ...(c.people ? { people: c.people } : {}) }));
+  emit();
+}
+
+/** Switch the chat the Lab reads: its texts, conversation and measured times start over. */
+export function pickChat(key: string) {
+  if (key === lab.myChat) return;
+  lab.myChat = key;
+  seen = [];
+  lab.myTexts = null;
+  lab.myLines = [];
+  lab.myOlder = null;
+  lab.myPicks = [];
+  lab.real = null;
+  emit();
+  void readMyTexts();
+}
+
 /** Read their newest texts, or the page before `lab.myOlder` with `older`. */
 export async function readMyTexts(older = false) {
   if (!source || reading) return;
   reading = true;
+  const chat = lab.myChat;
   try {
-    const r = await source.ledger("me", { kinds: ["text", "reply"], jobs: false, before: older && lab.myOlder !== null ? lab.myOlder : LATEST });
+    const r = await source.ledger(chat, { kinds: ["text", "reply"], jobs: false, before: older && lab.myOlder !== null ? lab.myOlder : LATEST });
+    if (chat !== lab.myChat) return;
     if (r.kind !== "ok") {
       if (!older) lab.myTexts = "failed";
       else toast("Couldn't read older texts");
@@ -36,6 +63,7 @@ export async function readMyTexts(older = false) {
     seen = [...seen, ...r.value.entries.filter((e) => !known.has(e.id))];
     const first = !Array.isArray(lab.myTexts);
     lab.myTexts = myTexts(seen);
+    lab.myLines = chatLines(seen, lab.myTexts, { group: chat !== "me" });
     // As You, the canvas traces your newest text until you pick another.
     if (first && lab.tester === "me" && lab.myTexts[0]) {
       traceMine(lab.myTexts[0].text);
@@ -46,6 +74,8 @@ export async function readMyTexts(older = false) {
     reading = false;
     emit();
   }
+  // The chat was switched while this read ran (it was skipped then): read the chat now picked.
+  if (chat !== lab.myChat && lab.myTexts === null) void readMyTexts();
 }
 
 const PAGES_BACK = 6;
@@ -67,7 +97,7 @@ export async function readTurnTimes(t: MyText) {
   const more: LedgerEntry[] = [];
   let before = LATEST;
   for (let i = 0; i < PAGES_BACK; i++) {
-    const r = await source.ledger("me", { kinds: ["judge", "step", "tool", "thinking", "said"], day, before });
+    const r = await source.ledger(lab.myChat, { kinds: ["judge", "step", "tool", "thinking", "said"], day, before });
     if (r.kind !== "ok") break;
     more.push(...r.value.entries);
     const oldest = Math.min(...r.value.entries.map((e) => e.at));
@@ -82,7 +112,7 @@ export async function readTurnReads(id: string) {
   const t = Array.isArray(lab.myTexts) ? lab.myTexts.find((x) => x.id === id) : null;
   if (!source || !t?.turn || lab.myReads[id]) return;
   const day = new Date(t.at).toLocaleDateString("en-CA");
-  const r = await source.ledger("me", { kinds: ["tool"], day, before: LATEST });
+  const r = await source.ledger(lab.myChat, { kinds: ["tool"], day, before: LATEST });
   if (r.kind !== "ok") return;
   lab.myReads = { ...lab.myReads, [id]: readsOf(r.value.entries, t.turn) };
   emit();
@@ -114,6 +144,7 @@ export function MineLoader() {
     lab.me = personal ? { handle: personal.slug, name: personal.displayName || personal.slug, workspaces: workspaces.map((w) => ({ n: w.slug, kind: w.kind, role: w.role })) } : null;
     if (lab.myTexts === null) void readMyTexts();
     else emit();
+    if (lab.myChats === null) void readMyChats();
   }, [workspaces, personal]);
   return null;
 }

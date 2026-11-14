@@ -218,7 +218,12 @@ label.num.chg{outline:2px solid var(--accent);border-radius:10px}
 .ttbl td{vertical-align:top}.tacts{display:flex;flex-wrap:wrap;gap:4px}.tact{font-family:var(--mono,monospace);font-size:11px;padding:1px 6px;border-radius:6px;background:var(--chip);color:var(--text2)}.tact b{color:var(--text);margin-left:4px}.tact.err{box-shadow:inset 0 0 0 1px var(--bad)}
 .vren{border:1px solid transparent;background:none;font:inherit;font-weight:600;padding:4px 6px;border-radius:8px;width:170px;color:var(--text)}.vren:hover,.vren:focus{border-color:var(--line);background:var(--page)}
 .moment{left:12px;top:12px;padding:5px 5px 5px 12px}
-.moment .pace{display:inline-flex;align-items:center;gap:6px;padding:0 6px;font-size:12px;color:var(--muted);white-space:nowrap}.moment .pace input{width:84px;accent-color:var(--accent)}.moment .clock{font-size:12.5px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;padding:0 8px 0 2px;white-space:nowrap}
+.ctop{position:absolute;left:12px;right:12px;top:12px;z-index:3;display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;pointer-events:none}.ctop>*{pointer-events:auto}.ctop>.float{position:static;min-width:0;max-width:100%}.ctop>.stats{margin-left:auto}.cbreak{flex-basis:100%;height:0}
+.moment .scnbtn{min-width:0}
+.playbar{left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom,0px));width:min(620px,calc(100% - 24px));padding:5px 12px;gap:10px}
+.playbar #playScrub{flex:1;min-width:0;accent-color:var(--accent)}
+.playbar .pace{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}.playbar .pace input{width:72px;accent-color:var(--accent)}.playbar .clock{font-size:12.5px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.nd .ring{fill:none;stroke:var(--accent);stroke-width:3.5;stroke-linecap:round;pointer-events:none}.nd.run .card{stroke:var(--accent-dim);stroke-width:3}
 .scnbtn{display:flex;align-items:center;gap:6px;border:none;background:none;font-weight:500;padding:4px 2px;max-width:320px}.scnbtn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .scnpop{position:absolute;left:12px;top:58px;z-index:6;width:min(420px,calc(100% - 24px));max-height:min(70vh,560px);display:flex;flex-direction:column;gap:6px;background:var(--page);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:8px}
 .scnpop .search{width:100%;max-width:none}.scnl{overflow:auto;min-height:0;flex:1}
@@ -242,6 +247,15 @@ label.num.chg{outline:2px solid var(--accent);border-radius:10px}
 .ph{display:flex;align-items:center;gap:10px;margin-bottom:4px}
 .ph .badge{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--s3);color:var(--accent);flex:none}
 .ph button.badge{border:1px solid transparent;padding:0}.ph button.badge:hover,.ph button.badge[aria-expanded="true"]{border-color:var(--line2)}
+a.rowi{text-decoration:none;cursor:pointer}
+.chatp{display:flex;flex-direction:column;height:100%;min-height:0}.chatp .ph{padding-right:36px}
+.cdtl{display:grid;gap:2px;min-width:0;flex:1}.cdtl b{font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cdtl .hint{font-size:12px}
+.cdl{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px;padding:10px 2px 4px;border-top:1px solid var(--line);margin-top:8px}
+.cdr{display:flex;flex-direction:column}.cdd{align-self:center;font-size:11.5px;color:var(--dim);margin:8px 0 4px}.cdo{align-self:center;font-size:12.5px}
+.cdb{max-width:86%;display:flex;flex-direction:column;gap:2px;text-align:left;font:inherit;font-size:13.5px;line-height:1.38;padding:7px 10px;border-radius:14px;border:1.5px solid transparent;color:var(--text);overflow-wrap:anywhere;white-space:pre-wrap}
+.cdb.me{align-self:flex-end;background:var(--accent);color:#fff;border-radius:14px 14px 4px 14px}.cdb.them{align-self:flex-start;background:var(--s3);border-radius:14px 14px 14px 4px}.cdb.tex{align-self:flex-start;background:var(--warn-wash);border-radius:14px 14px 14px 4px}
+.cdb.can{cursor:pointer}.cdb.can:hover{border-color:var(--line2)}.cdb.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}.cdb.me.on{border-color:var(--text)}
+.cdw{font-size:11px;font-weight:600;color:var(--muted)}.cdm{font-size:11px;opacity:.7;font-variant-numeric:tabular-nums}.cdb.me .cdm{color:#fff}
 .icpick{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin:8px 0 2px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--page)}.icpick button{display:grid;place-items:center;height:30px;border:none;border-radius:7px;background:none;color:var(--text2)}.icpick button:hover{background:var(--chip)}.icpick button[aria-selected="true"]{background:var(--accent-dim);color:var(--accent)}
 #nIO .io{margin:6px 0 0}#nIO .io b{display:block;font-size:11.5px;font-weight:600;color:var(--muted);margin-bottom:2px}#nIO pre{margin:0;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:12px/1.45 var(--mono);color:var(--text);background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
 .ph input{flex:1;min-width:0;border:1px solid transparent;background:none;font-size:17px;font-weight:600;padding:4px 6px;border-radius:7px}
@@ -354,9 +368,10 @@ textarea.code{width:100%;border:1px solid var(--line);background:var(--page);bor
   .app.sideopen .scrim{display:block;position:fixed;inset:56px 0 0 0;z-index:14;background:rgba(0,0,0,.2)}
   .main{border-radius:0;border-left:none}
   .props-pane{position:fixed;z-index:12;left:0;right:0;bottom:0;max-height:58%;border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:var(--shadow);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))}
+  .chatp{height:min(48vh,420px)}
   .stats,.keyw,.sync{display:none}
-  .moment .pace span{display:none}.moment .pace input{width:56px}
-  .zoom{bottom:calc(74px + env(safe-area-inset-bottom,0px))}
+  .playbar .pace span{display:none}.playbar .pace input{width:52px}
+  .zoom{bottom:calc(114px + env(safe-area-inset-bottom,0px))}
   .chipbtn{max-width:150px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
