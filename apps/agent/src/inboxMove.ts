@@ -72,7 +72,15 @@ export interface MoveStorage {
 /** The stub for the inbox object under exactly `name` (`objectPlace.ts` `objectByName`). */
 export type InboxStubs = (name: string) => { fetch(request: Request): Promise<Response> };
 
-const OLD_NAME = /^[^\0]{1,512}$/;
+/** An inbox's name as the old and placed objects carry it: 1 to 512 characters, no NUL. */
+export const OLD_NAME = /^[^\0]{1,512}$/;
+
+/** The `movedTo` of an inbox moved out to the gateway's chat object (`gatewayMove.ts`). */
+export const GATEWAY = "gateway";
+/** Where a call for a gateway-moved inbox goes: the gateway's chat route, the call's own path and query after it. */
+export const GATEWAY_CALL_PREFIX = "https://gateway/texts/chat-call";
+/** The gateway binding a call is passed to (`gatewaySession.ts` `TextsBinding`): the call's URL, its method, headers and bytes. */
+export type GatewayFetch = { fetch(input: string, init?: RequestInit): Promise<Response> };
 
 /** The name an inbox now lives under. */
 export function placedName(name: string): string {
@@ -151,16 +159,24 @@ async function fingerprint(dump: Record<string, unknown>): Promise<string> {
 export async function serveMoveOut(request: Request, storage: MoveStorage, busy: number, now: number): Promise<Response | null> {
   const path = new URL(request.url).pathname;
   if (path !== MOVE_OUT && path !== MOVE_BACK) return null;
-  // A placed inbox never moves out, and only another inbox, never the Worker's stub, asks.
-  if (request.headers.get(INBOX_NAME_HEADER) !== null) return new Response(null, { status: 400 });
   const place = ((await storage.get<Place>(PLACE_KEY)) ?? {}) as Place;
-  if (place.arrivedAt !== undefined) return new Response(null, { status: 400 });
+  // The Worker's name header marks a call through its stub: only the gateway move (`to: "gateway"`) may come that way.
+  const viaStub = request.headers.get(INBOX_NAME_HEADER) !== null;
   if (path === MOVE_BACK) {
+    // A gateway-moved inbox takes its calls back from the gateway's move (through the stub); any other is an old inbox's move back.
+    if (place.movedTo !== GATEWAY && (viaStub || place.arrivedAt !== undefined)) return new Response(null, { status: 400 });
     if (place.movedTo !== undefined && place.purgedAt === undefined) await moveBack(storage, place);
     return Response.json({ ok: true });
   }
-  const { name } = (await request.json()) as { name?: unknown };
-  if (typeof name !== "string" || !OLD_NAME.test(name)) return new Response(null, { status: 400 });
+  const ask = await readMoveAsk(request);
+  if (ask === null || typeof ask.name !== "string" || !OLD_NAME.test(ask.name)) return new Response(null, { status: 400 });
+  if (ask.to !== undefined && ask.to !== GATEWAY) return new Response(null, { status: 400 });
+  const name = ask.name;
+  const toGateway = ask.to === GATEWAY;
+  // The sibling move: another inbox asks, never the Worker's stub, and a placed inbox that has arrived never moves that way.
+  if (!toGateway && (viaStub || place.arrivedAt !== undefined)) return new Response(null, { status: 400 });
+  const destination = toGateway ? GATEWAY : placedName(name);
+  if (place.movedTo !== undefined && place.movedTo !== destination) return Response.json({ error: "moved_elsewhere" }, { status: 409 });
   if (place.movedTo === undefined) {
     if (busy > 0) return Response.json({ busy: true }, { status: 409 });
     // Every value checked before anything is marked: one the copy cannot carry leaves this inbox as it was.
@@ -170,7 +186,9 @@ export async function serveMoveOut(request: Request, storage: MoveStorage, busy:
       return Response.json({ error: "uncarried" }, { status: 422 });
     }
     const alarmWas = await storage.getAlarm();
-    await storage.put(PLACE_KEY, { movedTo: placedName(name), name, movedAt: now, purgeAt: now + KEEP_OLD_MS, alarmWas } satisfies Place);
+    // An arrived inbox keeps its arrival fields; only the move's own fields are added.
+    const arrival = place.arrivedAt !== undefined ? { arrivedAt: place.arrivedAt, keys: place.keys ?? 0 } : {};
+    await storage.put(PLACE_KEY, { ...arrival, movedTo: destination, name, movedAt: now, purgeAt: now + KEEP_OLD_MS, alarmWas } satisfies Place);
     await storage.setAlarm(now + KEEP_OLD_MS);
   }
   if (place.purgedAt !== undefined) return Response.json({ error: "purged" }, { status: 409 });
@@ -179,17 +197,34 @@ export async function serveMoveOut(request: Request, storage: MoveStorage, busy:
   return Response.json({ entries, digest: await fingerprint(entries), alarm: kept.alarmWas ?? null });
 }
 
-/** An inbox marked moved takes its calls again, its alarm as it was. */
+/** The body of a move call, or null when it is not an object. */
+async function readMoveAsk(request: Request): Promise<{ name?: unknown; to?: unknown } | null> {
+  try {
+    const body = await request.json();
+    return body !== null && typeof body === "object" ? (body as { name?: unknown; to?: unknown }) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** An inbox marked moved takes its calls again, its alarm as it was; an arrived one keeps its arrival fields. */
 async function moveBack(storage: MoveStorage, place: Place): Promise<void> {
-  await storage.delete(PLACE_KEY);
+  if (place.arrivedAt !== undefined) await storage.put(PLACE_KEY, { arrivedAt: place.arrivedAt, keys: place.keys ?? 0 } satisfies Place);
+  else await storage.delete(PLACE_KEY);
   if (typeof place.alarmWas === "number") await storage.setAlarm(place.alarmWas);
   else await storage.deleteAlarm();
 }
 
 /** An ordinary call to an inbox that has moved, passed on with its bytes. */
-export async function forward(stubs: InboxStubs, place: Place, request: Request, body: ArrayBuffer | null): Promise<Response> {
+export async function forward(stubs: InboxStubs, place: Place, request: Request, body: ArrayBuffer | null, gateway?: GatewayFetch): Promise<Response> {
   const headers = new Headers(request.headers);
   headers.set(INBOX_NAME_HEADER, place.name!);
+  if (place.movedTo === GATEWAY) {
+    // Moved to the gateway: the same call, path, query and bytes, on the gateway's chat route. No binding, nothing to answer it.
+    if (gateway === undefined) return new Response(null, { status: 503 });
+    const url = new URL(request.url);
+    return await gateway.fetch(`${GATEWAY_CALL_PREFIX}${url.pathname}${url.search}`, { method: request.method, headers, body });
+  }
   return await stubs(place.movedTo!).fetch(new Request(request.url, { method: request.method, headers, body }));
 }
 
@@ -290,6 +325,7 @@ export async function placeGate(
   busy: number,
   blockConcurrencyWhile: <T>(run: () => Promise<T>) => Promise<T>,
   now: () => number = Date.now,
+  gateway?: GatewayFetch,
 ): Promise<{ response: Response } | { request: Request }> {
   const move = await serveMoveOut(request, storage, busy, now());
   if (move !== null) return { response: move };
@@ -298,7 +334,7 @@ export async function placeGate(
   if (place.movedTo !== undefined && place.purgedAt === undefined && request.headers.get(VIA_NEW_HEADER) !== null) {
     // The placed inbox handed this back: it holds nothing, so a move that marked this one never finished. Take the calls again.
     await moveBack(storage, place);
-  } else if (place.movedTo !== undefined) return { response: await forward(stubs, place, request, body) };
+  } else if (place.movedTo !== undefined) return { response: await forward(stubs, place, request, body, gateway) };
   const name = request.headers.get(INBOX_NAME_HEADER);
   if (name !== null && OLD_NAME.test(name) && place.arrivedAt === undefined) {
     const moved = await blockConcurrencyWhile(() => arrive(stubs, storage, name, now));

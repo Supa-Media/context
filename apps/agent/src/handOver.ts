@@ -16,8 +16,9 @@ export type Intake = "worker" | "gateway";
 /** The hand-over's kinds: a 1:1 text, a group message, a tapback, and a group whose members changed. */
 export type HandOverKind = "one" | "group" | "react" | "members";
 
-const OUTCOMES = ["queued", "duplicate", "full"] as const;
-export type HandOverOutcome = "queued" | "duplicate" | "full" | "failed";
+/** Every outcome the chat object's routes answer with (`inbox.ts` accept and react, `groupInbox.ts` acceptGroup). */
+const OUTCOMES = ["queued", "duplicate", "full", "preview", "kept", "ignored", "noted", "held", "dropped"] as const;
+export type HandOverOutcome = (typeof OUTCOMES)[number] | "failed";
 
 /** "gateway" only for exactly that string (trimmed); anything else, unset included, is "worker". */
 export function intakeOf(value: string | undefined): Intake {
@@ -65,7 +66,7 @@ function eventIdOf(message: unknown): string | undefined {
 
 /**
  * The Worker's one call site per forward. Returns the Response to answer the webhook with when the gateway took the
- * text (200 when queued or already queued, 503 when the gateway's queue is full, as the SenderInbox does), or null
+ * text (200 for every outcome, as the SenderInbox's own routes answer: the webhook is not asked to send it again), or null
  * when the SenderInbox should take it: the var says "worker", the binding is absent, or the hand-over failed.
  */
 export async function toChat(
@@ -81,5 +82,5 @@ export async function toChat(
     console.log(JSON.stringify({ event: "intake_handover_fallback", kind }));
     return null;
   }
-  return new Response(null, { status: outcome === "full" ? 503 : 200 });
+  return new Response(null, { status: 200 });
 }

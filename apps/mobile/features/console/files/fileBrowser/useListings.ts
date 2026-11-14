@@ -580,7 +580,7 @@ export function useListings(deps: ListingsDeps) {
     () =>
       createSearchOpenReporter({
         reportOpen: (row, position) => reportSearchOpen({ row: row as Id<"searchTimings">, position }),
-        reportAgain: (row) => reportSearchAgain({ row: row as Id<"searchTimings"> }),
+        reportAgain: (row, refined) => reportSearchAgain({ row: row as Id<"searchTimings">, ...(refined ? { refined } : {}) }),
       }),
     [reportSearchAgain, reportSearchOpen],
   );
@@ -592,7 +592,7 @@ export function useListings(deps: ListingsDeps) {
       // figure the admin console's Search tab leads with. Sent behind the
       // answer and never awaited — a timing must not slow or fail a search.
       const started = Date.now();
-      const answered = searchOpen.searchStarted(started);
+      const answered = searchOpen.searchStarted(started, query);
       const found = await searchContext({
         workspaceId: workspaceId as Id<"workspaces">,
         query,

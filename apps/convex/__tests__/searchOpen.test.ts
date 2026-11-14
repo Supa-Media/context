@@ -296,6 +296,20 @@ describe("reportAgain: the app's re-search, by row", () => {
     expect(await asUser(t, ada).mutation(api.functions.searchTimings.reportAgain, { row: unopened })).toBe(false);
   });
 
+  test("a refined search leaves the quality counts and keeps its timing, and cannot then be opened or re-searched", async () => {
+    const { t, ada, workspaceId } = await world();
+    const typed = await appSearch(t, ada, workspaceId);
+    expect(await asUser(t, ada).mutation(api.functions.searchTimings.reportAgain, { row: typed, refined: true })).toBe(true);
+    const [row] = await rows(t);
+    expect(row.who).toBeUndefined();
+    expect(row.again).toBeUndefined();
+    expect(row.pairUntil).toBeUndefined();
+    expect(row).toMatchObject({ surface: "screen", workspaceId });
+    expect(typeof row.ms).toBe("number");
+    expect(await asUser(t, ada).mutation(api.functions.searchTimings.reportOpen, { row: typed, position: 1 })).toBe(false);
+    expect(await asUser(t, ada).mutation(api.functions.searchTimings.reportAgain, { row: typed })).toBe(false);
+  });
+
   test("refused for a non-member, and after 60 s", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.UTC(2026, 10, 14, 9, 0, 0));

@@ -20,16 +20,21 @@ import { runScopedRoutine, textPhone, type RoutineDeps, type RoutineScope } from
 import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./texPage";
 import { readMailDelivery } from "./jobMail";
 import { inboxByName } from "./objectPlace";
+import { chatMove as moveChat } from "./gatewayMove";
+import { groupTurn, inboxFetch, inboxId } from "./chatCalls";
+import type { GroupTurnParams } from "./groupTurnWorkflow";
+import { checkGroupLineCall, checkLineCall, groupLineCallDeps, lineCallDeps, runGroupLineCall, runLineCall, type GroupLineCall, type LineCall, type LineCallEnv, type LineCallResult } from "./lineCalls";
 
 /** A person's owner is their personal workspace's id, as the gateway names its Tex store. */
 const PERSON_OWNER = /^person:([A-Za-z0-9_-]{1,128})$/;
 
-/** The Worker's bindings the entrypoint reads. */
-export type TexRoutineEnv = {
+/** The Worker's bindings the entrypoint reads: the line keys and media hosting too, for `lineCall` (`lineCalls.ts`). */
+export type TexRoutineEnv = LineCallEnv & {
   CONTROL_PLANE_ORIGIN: string;
   AGENT_WORKER_SECRET: string;
   GATEWAY_ORIGIN: string;
   SENDER_INBOX: DurableObjectNamespace;
+  GROUP_TURN?: Workflow<GroupTurnParams>;
 };
 
 export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
@@ -38,6 +43,26 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
     const scope = scopeOf(call);
     if (scope === null) throw new TypeError("an alarm names a person's owner and a routine path");
     return await runScopedRoutine(this.deps(), scope);
+  }
+
+  /** Moves a chat's inbox out to the gateway, or takes it back (`gatewayMove.ts`); rejects a name that never moves (`TypeError`). */
+  async chatMove(call: { inbox: string; op: "out" | "back" }): Promise<{ status: number; body: unknown }> {
+    return await moveChat(this.env.SENDER_INBOX, call);
+  }
+
+  /** One of this Worker's objects, called by the gateway's copy of a chat by its placed name (`chatCalls.ts`). */
+  async inboxFetch(call: { name?: unknown } | null, request: Request): Promise<Response> {
+    return await inboxFetch(this.env.SENDER_INBOX, call, request);
+  }
+
+  /** The id a chat had here, for the addresses its pictures and pages are served at (`chatCalls.ts`). */
+  async inboxId(call: { name?: unknown } | null): Promise<string> {
+    return inboxId(this.env.SENDER_INBOX, call);
+  }
+
+  /** Start or find a group turn's Workflow for the gateway's copy of a chat (`chatCalls.ts`). */
+  async groupTurn(call: { op?: unknown; id?: unknown; params?: unknown } | null): Promise<{ ok: true }> {
+    return await groupTurn(this.env.GROUP_TURN, call);
   }
 
   /** The Tex page's view of a chat's jobs (`texPage.ts`); rejects a chat that names neither a phone nor a group key (`TypeError`). */
@@ -76,6 +101,21 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
     const response = await job.fetch("https://inbox/job-mail", { method: "POST", body: JSON.stringify(delivery) });
     if (!response.ok) return { taken: false };
     return { taken: ((await response.json()) as { taken?: unknown }).taken === true };
+  }
+
+  /**
+   * One call on a chat's line, with the Worker's keys (`lineCalls.ts`): the gateway's remote line (`remoteLine.ts`) makes
+   * these. Rejects a call that names no line method or no chat (`TypeError`); a line's own failure is answered, not thrown.
+   */
+  async lineCall(call: LineCall): Promise<LineCallResult> {
+    const checked = checkLineCall(call);
+    return await runLineCall(lineCallDeps(this.env, checked.inbox), checked);
+  }
+
+  /** One call on a group's line, as `lineCall` (`lineCalls.ts`); rejects a call whose place names another group (`TypeError`). */
+  async groupLineCall(call: GroupLineCall): Promise<LineCallResult> {
+    const checked = checkGroupLineCall(call);
+    return await runGroupLineCall(groupLineCallDeps(this.env, checked.inbox), checked);
   }
 
   private deps(): RoutineDeps {

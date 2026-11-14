@@ -192,6 +192,18 @@ class_name = "TexChat"
 tag = "v5-tex-chat"
 new_sqlite_classes = ["TexChat"]
 
+# The root the search quality log's keyed hashes are derived from (src/search/qualityKeyObject.js): one object, one
+# random key it makes the first time it is asked. Only this Worker reaches it, so the control plane, which holds
+# GATEWAY_SECRET, can never compute the hashes it stores. Self-hosting on the free tier: leave it out, and the
+# admin console's search log carries timing only.
+[[durable_objects.bindings]]
+name = "SEARCH_QUALITY_KEY"
+class_name = "SearchQualityKey"
+
+[[migrations]]
+tag = "v6-search-quality-key"
+new_sqlite_classes = ["SearchQualityKey"]
+
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
 # account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
@@ -231,6 +243,18 @@ dataset = "mcp_entry"
 [[analytics_engine_datasets]]
 binding = "CALL_COUNTS"
 dataset = "context_calls"
+
+# The texting Worker's two datasets (`apps/agent/wrangler.jsonc`), bound here
+# too because a chat's object runs here once its text arrives here
+# (`src/texChat.js`): each text's wait, and each text in and out. Ids and
+# counts only. Optional: without them nothing is written.
+[[analytics_engine_datasets]]
+binding = "TEX_TEXTS"
+dataset = "tex_text_timing"
+
+[[analytics_engine_datasets]]
+binding = "TEX_COUNTS"
+dataset = "tex_text_counts"
 
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
@@ -360,6 +384,10 @@ class_name = "LiveTicket"
 name = "TEX_CHAT"
 class_name = "TexChat"
 
+[[env.staging.durable_objects.bindings]]
+name = "SEARCH_QUALITY_KEY"
+class_name = "SearchQualityKey"
+
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_TIMING"
 dataset = "tex_timing_staging"
@@ -379,6 +407,14 @@ dataset = "mcp_entry_staging"
 [[env.staging.analytics_engine_datasets]]
 binding = "CALL_COUNTS"
 dataset = "context_calls_staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "TEX_TEXTS"
+dataset = "tex_text_timing_staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "TEX_COUNTS"
+dataset = "tex_text_counts_staging"
 
 [[env.staging.services]]
 binding = "SITE_SHOTS"
