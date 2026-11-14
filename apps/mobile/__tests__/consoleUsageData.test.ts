@@ -1,0 +1,366 @@
+/**
+ * The console's Usage page as data (`features/admin/console/pages/usageData.ts`), in the staff console mock's
+ * wording (`staff-console.html`). Pure functions: no React, no native modules.
+ */
+
+import { describe, expect, test } from "@jest/globals";
+import {
+  DAY_MS,
+} from "../features/admin/console/pages/homeData";
+import {
+  ago,
+  analyticsNote,
+  captureRows,
+  clientRows,
+  eventRows,
+  journeys,
+  usageTiles,
+  type AnalyticsLike,
+  type ClientLike,
+  type Series,
+} from "../features/admin/console/pages/usageData";
+
+const NOW = 1_000_000_000_000;
+const DAY = DAY_MS;
+
+// -- usageData ---------------------------------------------------------------------------------------------------------
+
+describe("usageTiles", () => {
+  const ready: AnalyticsLike = {
+    connected: true,
+    error: null,
+    sites: [
+      { host: "context.lc", visits: 1240, visitors: 530, priorVisits: 1107 },
+      { host: "tex.lc", visits: 860, visitors: 410, priorVisits: 656 },
+    ],
+    time: { sessions: 110, people: 60, medianSeconds: 250, totalSeconds: 61 * 3600 },
+    priorTime: { sessions: 100, people: 60, medianSeconds: 212, totalSeconds: 50 * 3600 },
+  };
+  const byKey = (tiles: ReturnType<typeof usageTiles>) => Object.fromEntries(tiles.map((t) => [t.key, t]));
+
+  test("the four tiles read as the mock does", () => {
+    const t = byKey(usageTiles(ready));
+    expect(t.ctx).toEqual({
+      key: "ctx",
+      label: "context.lc visits",
+      value: "1240",
+      detail: "530 visitors · ",
+      delta: { text: "+12%", good: true },
+    });
+    expect(t.tex?.value).toBe("860");
+    expect(t.tex?.delta).toEqual({ text: "+31%", good: true });
+    expect(t.session).toEqual({
+      key: "session",
+      label: "Typical session",
+      value: "4m 10s",
+      detail: " · active time",
+      delta: { text: "+38s", good: true },
+    });
+    expect(t.hours).toEqual({
+      key: "hours",
+      label: "Hours in the app",
+      value: "61",
+      detail: "1.8 sessions a person",
+    });
+  });
+
+  test("a site change that fell is bad when visits are the good direction", () => {
+    const fell: AnalyticsLike = { ...ready, sites: [{ host: "context.lc", visits: 100, visitors: 5, priorVisits: 200 }] };
+    expect(byKey(usageTiles(fell)).ctx?.delta).toEqual({ text: "-50%", good: false });
+  });
+
+  test("a site with no prior visits has no delta", () => {
+    const fresh: AnalyticsLike = { ...ready, sites: [{ host: "tex.lc", visits: 5, visitors: 2, priorVisits: 0 }] };
+    expect(byKey(usageTiles(fresh)).tex?.delta).toBeUndefined();
+  });
+
+  test("a session that got shorter reads as a negative change", () => {
+    const shorter: AnalyticsLike = { ...ready, time: { ...ready.time!, medianSeconds: 200 }, priorTime: { ...ready.priorTime!, medianSeconds: 212 } };
+    expect(byKey(usageTiles(shorter)).session?.delta).toEqual({ text: "-12s", good: false });
+  });
+
+  test("without analytics every tile is an em dash", () => {
+    for (const a of [undefined, { connected: false } as AnalyticsLike, { connected: true, error: "down" } as AnalyticsLike]) {
+      const t = usageTiles(a);
+      expect(t.map((x) => x.value)).toEqual(["—", "—", "—", "—"]);
+      expect(t.every((x) => x.delta === undefined)).toBe(true);
+    }
+  });
+
+  test("a missing site on a ready answer reads an em dash", () => {
+    const t = byKey(usageTiles({ ...ready, sites: [] }));
+    expect(t.ctx).toEqual({ key: "ctx", label: "context.lc visits", value: "—", detail: "" });
+  });
+
+  test("hours and sessions need people to divide by", () => {
+    const none: AnalyticsLike = { ...ready, time: { sessions: 3, people: 0, medianSeconds: 60, totalSeconds: 3600 } };
+    expect(byKey(usageTiles(none)).hours?.detail).toBe("");
+  });
+
+  test("no prior time means no session delta", () => {
+    expect(byKey(usageTiles({ ...ready, priorTime: null })).session?.delta).toBeUndefined();
+  });
+});
+
+describe("analyticsNote", () => {
+  test("is null while loading and when PostHog answered", () => {
+    expect(analyticsNote(undefined)).toBeNull();
+    expect(analyticsNote({ connected: true, error: null, sites: [], time: null, priorTime: null })).toBeNull();
+  });
+
+  test("says PostHog is not connected in our words", () => {
+    expect(analyticsNote({ connected: false })).toBe("PostHog is not connected on this deployment.");
+  });
+
+  test("shows the error when it is connected but failed", () => {
+    expect(analyticsNote({ connected: true, error: "rate limited" })).toBe("rate limited");
+  });
+});
+
+describe("eventRows", () => {
+  const series = (metric: string, counts: number[], total: number): Series => ({
+    metric,
+    total,
+    points: counts.map((count, i) => ({ day: `2026-11-${String(i + 1).padStart(2, "0")}`, count })),
+  });
+
+  test("one row per counter, in the mock's order", () => {
+    expect(eventRows([], null).map((r) => r.label)).toEqual([
+      "Tool calls",
+      "Searches",
+      "Notes written",
+      "Notes created",
+      "AI client connections",
+      "App sessions",
+      "Sign-ins",
+    ]);
+  });
+
+  test("today against yesterday is the percentage change of the last two points", () => {
+    const [row] = eventRows([series("mcp.tool_call", [90, 100, 110], 4120)], null);
+    expect(row).toMatchObject({ label: "Tool calls", total: 4120, change: { text: "+10%", good: true } });
+  });
+
+  test("a fall today is a negative change", () => {
+    const [row] = eventRows([series("mcp.tool_call", [100, 89], 189)], null);
+    expect(row?.change).toEqual({ text: "-11%", good: false });
+  });
+
+  test("today against yesterday is null when yesterday was zero", () => {
+    const [row] = eventRows([series("mcp.tool_call", [0, 5], 5)], null);
+    expect(row?.change).toBeNull();
+  });
+
+  test("a single point has no yesterday, so no change", () => {
+    const [row] = eventRows([series("mcp.tool_call", [7], 7)], null);
+    expect(row?.change).toBeNull();
+  });
+
+  test("the trend is the last fourteen days at most", () => {
+    const counts = Array.from({ length: 20 }, (_, i) => i + 1);
+    const [row] = eventRows([series("mcp.tool_call", counts, 210)], null);
+    expect(row?.trend).toHaveLength(14);
+    expect(row?.trend).toEqual(counts.slice(-14));
+    expect(row?.trend[0]).toBe(7);
+  });
+
+  test("a short trend is kept whole", () => {
+    const [row] = eventRows([series("mcp.tool_call", [1, 2, 3], 6)], null);
+    expect(row?.trend).toEqual([1, 2, 3]);
+  });
+
+  test("a counter with no series reads zero with no trend and no change", () => {
+    const row = eventRows([], null).find((r) => r.label === "Searches");
+    expect(row).toEqual({ label: "Searches", total: 0, trend: [], change: null });
+  });
+
+  test("notes created comes from the workspace counts, not the usage series", () => {
+    const rows = eventRows([series("note.write", [1], 1)], { total: 214, points: [10, 12, 15] });
+    const notes = rows.find((r) => r.label === "Notes created");
+    expect(notes?.total).toBe(214);
+    expect(notes?.trend).toEqual([10, 12, 15]);
+    expect(notes?.change).toEqual({ text: "+25%", good: true });
+  });
+
+  test("notes created with no workspace counts reads zero", () => {
+    const notes = eventRows([], null).find((r) => r.label === "Notes created");
+    expect(notes).toEqual({ label: "Notes created", total: 0, trend: [], change: null });
+  });
+});
+
+describe("journeys", () => {
+  test("nothing without a ready analytics answer", () => {
+    expect(journeys(undefined)).toEqual([]);
+    expect(journeys({ connected: false })).toEqual([]);
+  });
+
+  test("a funnel missing from the answer is skipped, the rest are kept", () => {
+    const a: AnalyticsLike = {
+      connected: true,
+      error: null,
+      sites: [],
+      time: null,
+      priorTime: null,
+      funnels: [
+        {
+          id: "context_signin",
+          steps: [
+            { key: "code_sent", people: 140 },
+            { key: "code_submitted", people: 121 },
+            { key: "signed_in", people: 109 },
+          ],
+        },
+      ],
+    };
+    const got = journeys(a);
+    expect(got.map((j) => j.id)).toEqual(["context_signin"]);
+    expect(got[0]?.title).toBe("Context sign-in");
+  });
+
+  test("no funnels on the answer skips them all", () => {
+    expect(journeys({ connected: true, error: null, sites: [], time: null, priorTime: null })).toEqual([]);
+  });
+
+  test("steps are labelled, shares are of the first step, and a missing step counts zero", () => {
+    const a: AnalyticsLike = {
+      connected: true,
+      error: null,
+      sites: [],
+      time: null,
+      priorTime: null,
+      funnels: [
+        {
+          id: "context_signin",
+          steps: [
+            { key: "code_sent", people: 140 },
+            { key: "code_submitted", people: 121 },
+          ],
+        },
+      ],
+    };
+    const [j] = journeys(a);
+    expect(j?.steps.map((s) => [s.label, s.people, s.pct])).toEqual([
+      ["Code requested", 140, 100],
+      ["Code submitted", 121, 86],
+      ["Signed in", 0, 0],
+    ]);
+    expect(j?.steps[1]?.width).toBeCloseTo((121 / 140) * 100, 10);
+  });
+
+  test("a first step of zero leaves every share at zero", () => {
+    const a: AnalyticsLike = {
+      connected: true,
+      error: null,
+      sites: [],
+      time: null,
+      priorTime: null,
+      funnels: [{ id: "tex_handoff", steps: [{ key: "signed_in", people: 0 }, { key: "text_page", people: 4 }] }],
+    };
+    const [j] = journeys(a);
+    expect(j?.steps.map((s) => [s.pct, s.width])).toEqual([
+      [0, 0],
+      [0, 0],
+      [0, 0],
+    ]);
+  });
+});
+
+describe("ago", () => {
+  test("null is never", () => {
+    expect(ago(null, NOW)).toBe("never");
+  });
+
+  test("under a minute is just now, and so is a time in the future", () => {
+    expect(ago(NOW, NOW)).toBe("just now");
+    expect(ago(NOW - 59_000, NOW)).toBe("just now");
+    expect(ago(NOW + 5_000, NOW)).toBe("just now");
+  });
+
+  test("minutes, hours and days, rounding down", () => {
+    expect(ago(NOW - 60_000, NOW)).toBe("1m ago");
+    expect(ago(NOW - 120_000, NOW)).toBe("2m ago");
+    expect(ago(NOW - 3_599_000, NOW)).toBe("59m ago");
+    expect(ago(NOW - 3_600_000, NOW)).toBe("1h ago");
+    expect(ago(NOW - 86_399_000, NOW)).toBe("23h ago");
+    expect(ago(NOW - 86_400_000, NOW)).toBe("1d ago");
+    expect(ago(NOW - 4 * DAY, NOW)).toBe("4d ago");
+  });
+});
+
+describe("clientRows", () => {
+  const client = (clientId: string, active: number, accounts: number, lastUsedAt: number | null): ClientLike => ({
+    clientId,
+    clientName: clientId,
+    active,
+    accounts,
+    lastUsedAt,
+  });
+
+  test("drops clients with no active grants", () => {
+    const rows = clientRows([client("gone", 0, 3, NOW), client("live", 2, 1, NOW)], NOW);
+    expect(rows.map((r) => r.key)).toEqual(["live"]);
+  });
+
+  test("a client with only revoked grants is gone altogether", () => {
+    expect(clientRows([client("a", 0, 1, null), client("b", 0, 0, null)], NOW)).toEqual([]);
+  });
+
+  test("sorts by active grants, then by last use, and maps the columns", () => {
+    const rows = clientRows(
+      [
+        client("Cursor", 2, 1, NOW - 4 * DAY),
+        client("Codex", 3, 2, NOW - DAY),
+        client("ChatGPT", 6, 4, NOW - 3_600_000),
+        client("Claude", 14, 8, NOW - 120_000),
+        client("Tie-old", 3, 1, NOW - 10 * DAY),
+        client("Tie-never", 3, 1, null),
+      ],
+      NOW,
+    );
+    expect(rows.map((r) => r.name)).toEqual(["Claude", "ChatGPT", "Codex", "Tie-old", "Tie-never", "Cursor"]);
+    expect(rows[0]).toEqual({ key: "Claude", name: "Claude", grants: 14, people: 8, last: "2m ago" });
+    expect(rows[1]?.last).toBe("1h ago");
+    expect(rows[4]?.last).toBe("never");
+    expect(rows[5]?.last).toBe("4d ago");
+  });
+});
+
+describe("captureRows", () => {
+  test("the three rows read as the mock does", () => {
+    expect(
+      captureRows({
+        googleAccounts: 6,
+        gmail: 5,
+        calendar: 6,
+        chat: 1,
+        mailOpen: 1,
+        mailAllowlisted: 4,
+        obsidian: 2,
+        mailOpenSlugs: ["samw"],
+      }),
+    ).toEqual([
+      { k: "Google accounts", v: "6 · mail 5 · calendar 6 · chat 1", pills: [] },
+      { k: "Mail capture", v: "4 allowlisted · 1 open to anyone", pills: ["@samw"] },
+      { k: "Obsidian plugin", v: "2 workspaces", pills: [] },
+    ]);
+  });
+
+  test("one Obsidian workspace reads singular, none reads plural", () => {
+    const base = { googleAccounts: 0, gmail: 0, calendar: 0, chat: 0, mailOpen: 0, mailAllowlisted: 0 };
+    expect(captureRows({ ...base, obsidian: 1 })[2]?.v).toBe("1 workspace");
+    expect(captureRows({ ...base, obsidian: 0 })[2]?.v).toBe("0 workspaces");
+  });
+
+  test("no open mail inbox means no pills", () => {
+    const rows = captureRows({
+      googleAccounts: 1,
+      gmail: 1,
+      calendar: 1,
+      chat: 0,
+      mailOpen: 0,
+      mailAllowlisted: 2,
+      obsidian: 0,
+    });
+    expect(rows[1]).toEqual({ k: "Mail capture", v: "2 allowlisted · 0 open to anyone", pills: [] });
+  });
+});
