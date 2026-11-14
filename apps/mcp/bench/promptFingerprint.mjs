@@ -10,8 +10,9 @@
  * replay is required (`scripts/tex-replay-required.mjs`, `tex-replay.yml`).
  *
  * The core and jobs areas read the live setup from `@context-lc ai/production/`, which no tree holds: both trees run
- * on one stand-in setup in its shape (`fingerprint/setups/`, this tree's copy), so what is measured is every prompt the
- * code assembles around it. A change to the live setup's own words is a production edit, outside a pull request.
+ * on one stand-in setup in its shape (`fingerprint/setups/`, this tree's copy). It names no models and no modules, as
+ * production's note names none, so each tree builds its prompts from its own config and prompt words
+ * (`packages/shared/src/texPrompt/`, Dev2, 2026-11-14): one word changed there is a fingerprint changed.
  *
  *   pnpm ai gate fingerprint --base-tree <main checkout> [--areas a,b] [--json <file>]
  */
