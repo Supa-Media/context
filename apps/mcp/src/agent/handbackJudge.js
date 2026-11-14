@@ -25,6 +25,9 @@
  */
 
 import { requestViaGateway } from "./aiGateway.js";
+
+// The handback node (`graph/nodes/handback.js`) defaults its request to this one.
+export { requestViaGateway };
 import { withArchitecture } from "./texArchitecture.js";
 import { texEffort, texModel } from "./texConfig.js";
 
