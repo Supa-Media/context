@@ -29,8 +29,20 @@ export function formatNumber(number: string): string {
   return us ? `+1 (${us[1]}) ${us[2]}-${us[3]}` : number;
 }
 
-export function newNumberText(number: string): string {
-  return `Tex here. I have a new number: ${formatNumber(number)}. Text me there from now on; this number is going away. Same Tex, same notes.`;
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** " This number stops working on December 1." for a real `YYYY-MM-DD` day; "" when there is none or it is not a day. */
+export function archiveSentence(archiveOn: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(archiveOn ?? "");
+  if (m === null) return "";
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "";
+  return ` This number stops working on ${MONTHS[month - 1]} ${day}.`;
+}
+
+export function newNumberText(number: string, archiveOn?: string | null): string {
+  return `Tex here. I have a new number: ${formatNumber(number)}. Text me there from now on; this number is going away. Same Tex, same notes.${archiveSentence(archiveOn)}`;
 }
 
 /** What one phone came to. */
@@ -47,7 +59,7 @@ export type NewLineDeps = {
 /** Every phone, a few at a time; returns how many came to each outcome. */
 export async function tellEveryone(
   deps: NewLineDeps,
-  opts: { number: string; dryRun: boolean },
+  opts: { number: string; dryRun: boolean; archiveOn?: string | null },
 ): Promise<Record<Told, number> & { phones: number }> {
   const { status, json } = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/phones`, deps.workerSecret, {});
   const listed = record(json).phones;
@@ -55,7 +67,7 @@ export async function tellEveryone(
   const phones = [...new Set(listed.filter((phone): phone is string => typeof phone === "string" && E164.test(phone)))].slice(0, MAX_PHONES);
 
   const counts: Record<Told, number> = { told: 0, would: 0, already: 0, on_new_line: 0, no_chat: 0, failed: 0 };
-  const text = newNumberText(opts.number);
+  const text = newNumberText(opts.number, opts.archiveOn);
   let next = 0;
   const worker = async () => {
     while (next < phones.length) {
@@ -109,9 +121,10 @@ export async function bearerMatches(secret: string | undefined, header: string |
   return diff === 0;
 }
 
-/** `{ number, send }` from the request; `send` must be exactly true to text anyone. */
-export function parseTellRequest(body: unknown): { number: string; dryRun: boolean } | null {
+/** `{ number, send, archiveOn? }` from the request; `send` must be exactly true to text anyone; a day that is not one is dropped. */
+export function parseTellRequest(body: unknown): { number: string; dryRun: boolean; archiveOn: string | null } | null {
   const fields = record(body);
   if (typeof fields.number !== "string" || !E164.test(fields.number)) return null;
-  return { number: fields.number, dryRun: fields.send !== true };
+  const archiveOn = typeof fields.archiveOn === "string" && archiveSentence(fields.archiveOn) !== "" ? fields.archiveOn : null;
+  return { number: fields.number, dryRun: fields.send !== true, archiveOn };
 }

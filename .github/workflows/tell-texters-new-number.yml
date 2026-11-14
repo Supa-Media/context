@@ -12,6 +12,10 @@ on:
         description: "Tex's new number, E.164"
         required: true
         default: "+18133350746"
+      archive_on:
+        description: "Day the old number stops working, YYYY-MM-DD (blank = no day)"
+        required: false
+        default: ""
       send:
         description: "Text them for real (unticked = dry run)"
         type: boolean
@@ -40,6 +44,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
           NUMBER: ${{ inputs.number }}
+          ARCHIVE_ON: ${{ inputs.archive_on }}
           SEND: ${{ inputs.send }}
         run: |
           set -euo pipefail
@@ -49,7 +54,7 @@ jobs:
             | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).result?.subdomain??""))')"
           if [ -z "$sub" ]; then echo "No workers.dev subdomain on this account." >&2; exit 1; fi
           echo "::add-mask::$sub"
-          body="$(NUMBER="$NUMBER" SEND="$SEND" node -e 'process.stdout.write(JSON.stringify({number: process.env.NUMBER, send: process.env.SEND === "true"}))')"
+          body="$(NUMBER="$NUMBER" SEND="$SEND" ARCHIVE_ON="$ARCHIVE_ON" node -e 'process.stdout.write(JSON.stringify({number: process.env.NUMBER, send: process.env.SEND === "true", archiveOn: process.env.ARCHIVE_ON || null}))')"
           curl --fail-with-body --silent --show-error --max-time 600 \
             -X POST -H "Authorization: Bearer $AGENT_WORKER_SECRET" -H 'content-type: application/json' \
             -d "$body" "https://$WORKER_NAME.$sub.workers.dev/new-line" | tee /tmp/counts.json
