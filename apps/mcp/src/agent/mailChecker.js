@@ -29,8 +29,10 @@
 
 import { requestViaGateway } from "./aiGateway.js";
 import { withArchitecture } from "./texArchitecture.js";
+import { texEffort, texModel } from "./texConfig.js";
 
-export const MAIL_CHECKER_MODEL = "anthropic/claude-haiku-5-5";
+/** Tex's config's mail checker step (`texConfig.js`). */
+export const MAIL_CHECKER_MODEL = texModel("mail");
 /** The latest texts it reads, each side counted; the rest is older than any ask a YES could answer. */
 const CHECKED_TURNS = 12;
 /** Older texts are cut to this; the latest is read whole, since a "don't send" can end it. */
@@ -119,7 +121,7 @@ export function mailCheckerFor({ history, question, config, request = requestVia
           messages: [{ role: "user", text: `TEXTS\n\n${conversation}\n\nDRAFT\n\n${draftFor(email)}` }],
           tools: [],
           maxTokens: 800,
-          effort: "low",
+          ...texEffort("mail"),
         },
         config,
         { metadata },

@@ -17,7 +17,10 @@
  * (staff). Self-hosted deployments have no pinned workspace and use the
  * built-in words in `prompt.js`.
  *
- * The file is YAML front matter and a body:
+ * The file is YAML front matter and a body. `models`, `plan_big_asks` and `reply_judge` are Tex's config's
+ * (`texConfig.js`, Dev2, 2026-11-13): production's note names none of them, and is read with the config's. A bench
+ * variant may still name its own models, for the comparison it was written for; a live read of a note that does is
+ * logged (`tex_setup_not_from_config`).
  *
  *   models.main    the built-in model (`@cf/…`, `anthropic/claude-…`, a catalog
  *                  model like `openai/gpt-…`, or a gateway route `dynamic/<name>`)
@@ -103,6 +106,7 @@ import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
 import { staleToolNames } from "./promptNames.js";
 import { assembleSetup, moduleTexts, readModuleLists, splitAssembled } from "./promptModules.js";
+import { texSetupFront } from "./texConfig.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 
@@ -149,8 +153,14 @@ async function parse(kept) {
   if (typeof raw !== "string") return null;
   const match = FRONT_MATTER.exec(raw);
   if (!match) return null;
-  const front = readFront(match[1]);
-  if (front === null) return null;
+  const parsed = readFront(match[1]);
+  if (parsed === null) return null;
+  // Tex's models, efforts, planner and reviewer are Tex's config's (`texConfig.js`): a note that names no models,
+  // as production's does, is read with the config's, and any planner or reviewer line it still has is ignored. Only a
+  // bench variant names its own models, for the comparison it was written for (`ownModels`, logged on a live read).
+  const ownModels = parsed.models !== undefined;
+  const ignored = ownModels ? [] : ["plan_big_asks", "reply_judge"].filter((key) => parsed[key] !== undefined);
+  const front = ownModels ? parsed : { ...parsed, ...texSetupFront() };
 
   const models = front.models;
   if (!isMap(models) || typeof models.main !== "string" || !isBuiltinModelName(models.main)) return null;
@@ -277,6 +287,9 @@ async function parse(kept) {
     prompts,
     // Which modules each kind is built from, for the log and the AI tab; null without modules.
     modules: lists,
+    // Whether the note named its own models (a bench variant), and the lines the config answered instead.
+    ownModels,
+    ignored,
     // Tool names the six tools retired (`promptNames.js`): logged on every read until the note is fixed.
     staleNames: [...new Set((prompts === null ? [prompt] : Object.values(prompts)).flatMap((text) => staleToolNames(text)))],
     // Over the setup and its modules, so a changed module is a new version in the log.
@@ -407,6 +420,10 @@ async function pinnedReach(store, session) {
 export async function readProductionSetup(store, session, { texting, warm = null }) {
   if (!texting) return null;
   const setup = await readTextingSetup(store, session, warm);
+  // Production's note names no models: Tex's config does. One that does is a second copy, and is said on every read.
+  if (setup !== null && (setup.ownModels || setup.ignored.length > 0)) {
+    console.log(JSON.stringify({ event: "tex_setup_not_from_config", setup: setup.version, ownModels: setup.ownModels, ignored: setup.ignored }));
+  }
   if (setup !== null && setup.staleNames.length > 0) {
     console.log(JSON.stringify({ event: "tex_setup_stale_names", setup: setup.version, names: setup.staleNames }));
   }

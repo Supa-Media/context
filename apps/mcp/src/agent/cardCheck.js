@@ -22,8 +22,10 @@
 
 import { requestViaGateway } from "./aiGateway.js";
 import { withArchitecture } from "./texArchitecture.js";
+import { texEffort, texModel } from "./texConfig.js";
 
-export const CARD_CHECK_MODEL = "anthropic/claude-haiku-5-5";
+/** Tex's config's card check step (`texConfig.js`). */
+export const CARD_CHECK_MODEL = texModel("card");
 const MAX_QUESTION_CHARS = 2_000;
 const MAX_CRITIQUE_CHARS = 600;
 /** Pictures held back in one turn; after that the critique rides along with the picture instead, so a turn always ends. */
@@ -98,7 +100,7 @@ export function cardCheckFor({ question, config, request = requestViaGateway, me
           ],
           tools: [],
           maxTokens: 2_000,
-          effort: "medium",
+          ...texEffort("card"),
         },
         config,
         { metadata: { ...metadata, feature: "card-check" } },

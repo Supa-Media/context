@@ -26,8 +26,10 @@
 
 import { requestViaGateway } from "./aiGateway.js";
 import { withArchitecture } from "./texArchitecture.js";
+import { texEffort, texModel } from "./texConfig.js";
 
-export const HANDBACK_JUDGE_MODEL = "anthropic/claude-haiku-5-5";
+/** Tex's config's hand-back judge step (`texConfig.js`). */
+export const HANDBACK_JUDGE_MODEL = texModel("handback");
 const MAX_ANSWER_CHARS = 4_000;
 const MAX_QUESTION_CHARS = 2_000;
 const MAX_STEPS = 40;
@@ -130,7 +132,7 @@ export async function judgeAsks({ question, answer, steps = [], config, request 
         messages: [{ role: "user", text: `PERSON'S TEXT\n\n${asked}\n\nTOOLS THIS TURN RAN\n\n${ran}\n\nTEXT\n\n${String(answer ?? "").slice(0, MAX_ANSWER_CHARS)}` }],
         tools: [],
         maxTokens: 600,
-        effort: "low",
+        ...texEffort("handback"),
       },
       config,
       { metadata },

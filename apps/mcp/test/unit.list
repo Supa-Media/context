@@ -547,4 +547,5 @@ bench/test/stepLog.test.mjs
 test/runModel.test.mjs
 test/runModelWorker.test.mjs
 test/ledgerSteps.test.mjs
+test/texConfig.test.mjs
 test/workerSteps.test.mjs
