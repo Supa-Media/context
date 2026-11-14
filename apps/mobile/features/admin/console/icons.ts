@@ -1,0 +1,27 @@
+/** The console's icons, the artifact's `IC` map verbatim: 24-unit stroke paths drawn by `ic()` in `kit.ts`. */
+export const IC: Record<string, string> = {
+ home:'<path d="M4 11l8-6 8 6v8H4z"/><path d="M10 19v-5h4v5"/>',
+ people:'<circle cx="9" cy="9" r="3"/><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5"/><circle cx="17" cy="8" r="2.4"/><path d="M15.5 13.6c2.2.1 4 1.6 4.6 4.4"/>',
+ wait:'<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>',
+ flag:'<path d="M6 21V4M6 4h11l-2 4 2 4H6"/>',
+ report:'<path d="M12 4l9 15H3z"/><path d="M12 10v4M12 16.8v.2"/>',
+ growth:'<path d="M4 19h16"/><path d="M5 15l4-4 3 3 7-7"/><path d="M15 7h4v4"/>',
+ usage:'<path d="M3 12h4l2-5 4 10 2-5h6"/>',
+ text:'<path d="M4 5h16v11H9l-5 4z"/>',
+ cost:'<circle cx="12" cy="12" r="8"/><path d="M14.5 9.2c-.5-.8-1.4-1.2-2.5-1.2-1.5 0-2.5.8-2.5 2s1 1.6 2.5 2 2.5.9 2.5 2-1 2-2.5 2c-1.2 0-2.1-.5-2.6-1.3M12 6.5V8M12 16v1.5"/>',
+ jobs:'<rect x="4" y="7.5" width="16" height="11.5" rx="2"/><path d="M9 7.5V5.5h6v2M4 12.5h16"/>',
+ skill:'<path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/>',
+ box:'<path d="M4 8l8-4 8 4v8l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v8"/>',
+ search:'<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+ key:'<circle cx="8" cy="15" r="3.5"/><path d="M10.5 12.5L19 4M16 7l2.5 2.5M14 9l2 2"/>',
+ gear:'<circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',
+ scissors:'<circle cx="6" cy="7" r="2.5"/><circle cx="6" cy="17" r="2.5"/><path d="M8 8.5L20 17M8 15.5L20 7"/>',
+ car:'<path d="M6 9l6 6 6-6"/>',
+ next:'<path d="M9 6l6 6-6 6"/>',
+ filter:'<path d="M4 6h16M7 12h10M10 18h4"/>',
+ x:'<path d="M6 6l12 12M18 6L6 18"/>',
+ out:'<path d="M14 5h5v5M19 5l-8 8M17 14v5H5V7h5"/>',
+ sun:'<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/>',
+ moon:'<path d="M19 14.5A7.5 7.5 0 0 1 9.5 5a7.5 7.5 0 1 0 9.5 9.5z"/>',
+ auto:'<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>'
+};
