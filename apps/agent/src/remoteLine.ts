@@ -27,7 +27,7 @@ import type { CallError, GroupLineCall, LineCall, LineCallResult } from "./lineC
 export type LineRpc = { lineCall(call: LineCall): Promise<LineCallResult> };
 export type GroupLineRpc = { groupLineCall(call: GroupLineCall): Promise<LineCallResult> };
 
-const SERVICES: readonly string[] = ["linq", "sendblue", "whapi", "control_plane", "gateway"];
+const SERVICES: readonly string[] = ["linq", "sendblue", "whapi", "photon", "control_plane", "gateway"];
 
 /** The value a call answered with, or the error the Worker's line threw, rebuilt the way a local line would throw it. */
 export function unwrapLineCall(result: LineCallResult): unknown {

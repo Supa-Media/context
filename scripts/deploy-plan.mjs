@@ -99,6 +99,7 @@ export const TARGETS = {
       convex: { packages: ["@context/convex"], files: ["convex.json", "scripts/staging-env.mjs"] },
       transcribe: { packages: ["@context/transcribe-worker"], worker: "infra/transcribe-worker" },
       egress: { packages: ["@context/egress-service"], worker: "infra/egress-service" },
+      photon: { packages: ["@context/photon-bridge"], worker: "infra/photon-bridge" },
       email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
       agent: { packages: ["@context/agent"], worker: "apps/agent", files: [WORKER_SECRETS] },
       // The gateway's job deploys its screenshot Worker first (a service
@@ -123,6 +124,7 @@ export const TARGETS = {
       transcribe: { packages: ["@context/transcribe-worker"], files: [workflow("deploy-transcribe-worker")] },
       agent: { packages: ["@context/agent"], files: [workflow("deploy-agent-worker"), WORKER_SECRETS] },
       egress: { packages: ["@context/egress-service"], files: [workflow("deploy-egress-service")] },
+      photon: { packages: ["@context/photon-bridge"], files: [workflow("deploy-photon-bridge")] },
       sentry: { packages: ["@context/sentry-worker"], files: [workflow("deploy-sentry-worker")] },
       // The router publishes the web export as one Worker version. Either
       // half changing must rebuild and deploy both halves of that version.

@@ -95,6 +95,8 @@ export type GroupDeps = {
   sendblue?: SendblueKeys | null;
   /** Tex's WhatsApp line (`whapi.ts`); absent, a WhatsApp group is not answered. */
   whapi?: WhapiKeys | null;
+  /** Tex's iMessage line through the Photon bridge (`photonLine.ts`); absent, a Photon group is not answered. */
+  photon?: Fetcher | null;
   /** Converts a photo the model cannot read (`attachments.ts`); absent, it is described instead. */
   images?: ImagesLike;
   hostPicture?: (picture: Picture) => Promise<string>; // a picture Tex sends, at a short-lived address Sendblue fetches (`media.ts`); absent, none go

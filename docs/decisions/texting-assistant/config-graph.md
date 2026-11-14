@@ -70,7 +70,10 @@ guards (`scripts/tex-diagram-check.mjs`), with the runner's coverage tests.
 A wire's `when` tags say when it fires: only when the source's output carries
 the tag. `["*"]` means always. Early answers are wires. Each door step that can
 end the turn has a `wait` wire to `send` with `when ["answered"]`, and door
-steps chain to each other with `when ["next"]`.
+steps chain to each other with `when ["next"]`. A wire hands on the output
+without its `when`: the tags chose the wires and are no part of the next
+node's input. How a whole turn runs on these wires is
+[turn-graph](./turn-graph.md).
 
 A node that is `on: false` never runs. A graph with a `wait` cycle, an unknown
 mode, or a wire to a node that is not there is refused before any turn runs.
@@ -135,6 +138,23 @@ places that decide what runs, which is the drift this decision removes. Test:
 `texGraphHome.test.mjs`, which fails when a node is both on the runner and in
 `notYet` or neither, when `notYet` grows, when a node imports a sibling, or
 when a run does not reach the ledger.
+
+## Starts decide with a tag, and a job's helpers are reached over its wires
+
+A start is a node of `kind: "input"` whose code decides whether the run goes on: Check-in gives `to: "look"` or
+`to: "done"` with the route's own answer, and Send through Tex gives `to: "send"` or `"quiet"`; the wires out of them
+fire on those tags, so a quiet check-in is a branch in the config, not an early return in code. What the rest of a run
+reads but must not log (changed notes, mail, the settings note) rides on `ctx`. Until a job's part is a node of its own
+(step 4), the code that runs that part reaches Job check, the hand-back judge and the mail advisor only over the job's
+wires (`graph/bridges.js`), so a wire the config lacks is refused.
+
+**What a simplification would cost:** an early return in a start's code is a branch the Lab cannot draw. Tests that
+fail: `apps/mcp/test/texGraphStartNodes.test.mjs` (each with a sabotage record).
+
+A background job's object moves the way a chat's did: the gateway's `TexJob` runs the Worker's job code as it is, a
+job lives where it was born (`apps/agent/src/jobPlace.ts` asks `/job-here` before a steer, stop, resume or mail), and
+`TEX_JOBS` turns the gateway on per environment, so a job running in the Worker is never moved mid-run. The job node
+comes next, on that object.
 
 ## The door steps are one group
 

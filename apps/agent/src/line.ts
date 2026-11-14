@@ -16,6 +16,7 @@ import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } 
 import { isRefusal } from "./carousel";
 import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
 import { counted, type CountDataset } from "./textCounts";
+import { isPhotonChatId, photonLine } from "./photonLine";
 import {
   isSendblueChat,
   parseSendblueChat,
@@ -78,6 +79,8 @@ export type LineDeps = {
   sendblue?: SendblueKeys | null;
   /** Absent until the Whapi token and line are set; a WhatsApp chat then fails to send. */
   whapi?: WhapiKeys | null;
+  /** Tex's iMessage line through the Photon bridge (`photonLine.ts`, plan.md Contract B); absent, a Photon chat then fails to send. */
+  photon?: Fetcher | null;
   /** Serves a picture's bytes at a short-lived address (`media.ts`), for a line that only takes addresses. */
   hostPicture?: (picture: Picture) => Promise<string>;
   /** Set when a link to a note goes as a Context card (`appCards.ts`); absent, it goes as the link. */
@@ -94,7 +97,7 @@ export type LineDeps = {
 
 export function lineFor(deps: LineDeps, chatId: string): Line {
   if (deps.remote) return deps.remote(chatId);
-  const line = isWhapiChat(chatId) ? whapiLine(deps) : isSendblueChat(chatId) ? sendblueLine(deps) : linqLine(deps);
+  const line = isPhotonChatId(chatId) ? photonLine(deps) : isWhapiChat(chatId) ? whapiLine(deps) : isSendblueChat(chatId) ? sendblueLine(deps) : linqLine(deps);
   return countedLine(line, deps.textCounts);
 }
 

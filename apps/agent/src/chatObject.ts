@@ -6,6 +6,7 @@
  */
 
 import { jobRoute } from "./jobRoutes";
+import { jobStub } from "./jobPlace";
 import { logged } from "./agentError";
 import { type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
@@ -112,6 +113,7 @@ export class SenderInbox implements DurableObject {
           linqApiKey: this.env.LINQ_API_KEY,
           sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
           whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
+          photon: this.env.PHOTON ?? null,
           now: () => Date.now(),
           simulator: simulatorEnabled(this.env.SIMULATOR),
           textCounts: this.env.TEX_COUNTS,
@@ -128,6 +130,7 @@ export class SenderInbox implements DurableObject {
         linqApiKey: this.env.LINQ_API_KEY,
         sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
         whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
+        photon: this.env.PHOTON ?? null,
         now: () => Date.now(),
         textCounts: this.env.TEX_COUNTS,
         ...this.remoteLines(),
@@ -320,6 +323,7 @@ export class SenderInbox implements DurableObject {
       linqApiKey: this.env.LINQ_API_KEY,
       sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
       whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
+      photon: this.env.PHOTON ?? null,
       appCard: appCardConfig(this.env),
       waitUntil: (promise) => this.handOff(promise),
       textTiming: this.env.TEX_TEXTS,
@@ -332,12 +336,12 @@ export class SenderInbox implements DurableObject {
       now: () => Date.now(),
       ...this.remoteLines(),
       spawnJob: async (id: string, run: JobRun) => {
-        const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
+        const stub = jobStub(this.env, id, { spawn: true });
         const response = await stub.fetch("https://inbox/job-start", { method: "POST", body: JSON.stringify(run) });
         if (!response.ok) throw new Error("job not started");
       },
       steerJob: async (id: string, steer: JobSteer) => {
-        const stub = inboxByName(this.env.SENDER_INBOX, `job:${id}`);
+        const stub = jobStub(this.env, id, { spawn: false });
         const response = await stub.fetch("https://inbox/job-steer", { method: "POST", body: JSON.stringify(steer) });
         return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },

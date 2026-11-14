@@ -42,6 +42,7 @@ export type LineCallEnv = {
   SENDBLUE_STATUS_URL?: string;
   WHAPI_TOKEN?: string;
   WHAPI_LINE?: string;
+  PHOTON?: Fetcher;
   APP_CARDS?: string;
   APP_CARD_EXTENSION_ID?: string;
   APPLE_TEAM_ID?: string;
@@ -122,6 +123,7 @@ function sharedDeps(env: LineCallEnv, inbox: string) {
     fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
     sendblue: sendblueKeys(env.SENDBLUE_API_KEY_ID, env.SENDBLUE_API_SECRET, env.SENDBLUE_STATUS_URL),
     whapi: whapiKeys(env.WHAPI_TOKEN, env.WHAPI_LINE),
+    photon: env.PHOTON ?? null,
     hostPicture: (picture: Picture) => hostPictureAt(env, inbox, picture),
     noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET),
     textCounts: env.TEX_COUNTS,

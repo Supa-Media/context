@@ -44,7 +44,8 @@ export async function readChatSince(store, session, { since }) {
     // Newest first, so a long stretch keeps its end.
     while (entries.length < MAX_DAYS_ENTRIES) {
       const read = await ledger.read(ONE_TO_ONE_CHAT, { before, since, limit: PAGE });
-      entries.push(...(read?.entries ?? []));
+      // Steps are the record of what ran (a turn's, a night's own nodes), never the chat: a dream reads and counts what was said.
+      entries.push(...(read?.entries ?? []).filter((entry) => entry?.kind !== "step"));
       if (!Number.isSafeInteger(read?.before)) break;
       before = read.before;
     }

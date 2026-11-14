@@ -14,8 +14,10 @@ import { GATEWAY_NODES } from "./gatewayNodes.js";
 
 /**
  * One turn's graph. `writer` is the chat's ledger writer (`ledgerWriter`, `sessionLedger`), `turn` the turn's id,
- * `background` where a background wire's run goes (the request's `waitUntil`); `nodes` and `config` only for tests.
+ * `background` where a background wire's run goes (the request's `waitUntil`); `config` a turn's own copy of the config
+ * (`turnGraph.js`, a setup's switches flipped), `log` a turn's own log in place of one write a run (`turnGraph.js` batches
+ * them), `nodes` only for tests.
  */
-export function gatewayGraph({ writer = null, turn = null, background = null, nodes = GATEWAY_NODES, config = TEX_CONFIG, now = Date.now } = {}) {
-  return createGraph(config, nodes, { log: nodeLog(writer, { turn }), background, now });
+export function gatewayGraph({ writer = null, turn = null, background = null, nodes = GATEWAY_NODES, config = TEX_CONFIG, log = null, now = Date.now } = {}) {
+  return createGraph(config, nodes, { log: log ?? nodeLog(writer, { turn }), background, now });
 }

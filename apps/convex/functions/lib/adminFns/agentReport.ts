@@ -19,6 +19,7 @@
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
+import { agentTurnTraceEntry } from "../schema/agentTurns";
 import { dayKey } from "../usage";
 
 /** Turns are kept 30 days, so no window can usefully be longer. */
@@ -54,22 +55,6 @@ function spread(values: number[]): { p50: number; p95: number } {
   const sorted = [...values].sort((a, b) => a - b);
   return { p50: percentile(sorted, 50), p95: percentile(sorted, 95) };
 }
-
-// The turn log's entry shape (`lib/schema/agentTurns.ts`): a router's pick and
-// a fallback are entries too, and a model round may carry the status it got.
-const traceEntry = v.object({
-  kind: v.union(v.literal("model"), v.literal("tool"), v.literal("router"), v.literal("fallback")),
-  tool: v.optional(v.string()),
-  tier: v.optional(v.union(v.literal("main"), v.literal("think"))),
-  confidence: v.optional(v.number()),
-  model: v.optional(v.string()),
-  status: v.optional(v.number()),
-  retried: v.optional(v.boolean()),
-  cut: v.optional(v.boolean()),
-  held: v.optional(v.boolean()),
-  ok: v.boolean(),
-  ms: v.number(),
-});
 
 export const agentReportValidator = v.object({
   days: v.number(),
@@ -115,7 +100,8 @@ export const agentReportValidator = v.object({
       toolMs: v.number(),
       inputTokens: v.number(),
       outputTokens: v.number(),
-      trace: v.array(traceEntry),
+      // Returned as stored, so in the stored shape.
+      trace: v.array(agentTurnTraceEntry),
     }),
   ),
 });

@@ -2,7 +2,8 @@
  * The Cloudflare Workflow that sees one background job through (Dev2,
  * 2026-10-28). One instance per job, named by its id (`jobInstanceId`), so
  * starting the same job twice is refused rather than run twice. The job's
- * own object keeps its state and runs each pass (`jobRun.ts` `runJob`); the
+ * own object keeps its state and runs each pass (`jobRun.ts` `runJob`), here
+ * or in the gateway's `TexJob` where the job was born (`jobPlace.ts`); the
  * instance owns the waiting between passes, so a job never sets its object's
  * alarm.
  *
@@ -18,7 +19,7 @@ import type { JobNext } from "./jobRun";
 import { jobTag, MAX_JOB_ATTEMPTS, MAX_JOB_TRIES, MAX_MACHINE_JOB_ATTEMPTS } from "./jobs";
 import { logged } from "./agentError";
 import type { Env } from "./env";
-import { inboxByName } from "./objectPlace";
+import { jobStub } from "./jobPlace";
 
 export type JobRunParams = { job: string };
 /** More passes than a job can take: every part's tries, plus its last word offered again (10 parts since 2026-10-31). */
@@ -71,7 +72,9 @@ async function tellFailed(step: Pick<WorkflowStep, "do">, call: JobCall): Promis
 
 export class JobRunWorkflow extends WorkflowEntrypoint<Env, JobRunParams> {
   async run(event: Readonly<WorkflowEvent<JobRunParams>>, step: WorkflowStep): Promise<string> {
-    const stub = inboxByName(this.env.SENDER_INBOX, `job:${event.payload.job}`);
+    // Where the job was born: this Worker's object, or the gateway's `TexJob` (`jobPlace.ts`), asked on every pass.
+    // Strict: a gateway that can't say where the job is fails the pass, which is retried, never run on an empty object.
+    const stub = jobStub(this.env, event.payload.job, { spawn: false, strict: true });
     return await runJobFlow(step, (path) => stub.fetch(`https://inbox${path}`, { method: "POST" }), event.payload.job);
   }
 }

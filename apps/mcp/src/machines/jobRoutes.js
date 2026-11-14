@@ -38,9 +38,11 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { workspaceStub } from "../workspaceStore/api.js";
 import { callTexStore } from "../texStore/wire.js";
-import { checkJob, jobFields } from "../agent/jobCheck.js";
+import { jobFields } from "../agent/jobCheck.js";
+import { gatewayGraph } from "../agent/graph/gatewayGraph.js";
+import { jobCheckOnGraph } from "../agent/graph/bridges.js";
 import { readComputerJobSettings, readProductionSetup } from "../agent/production.js";
-import { storeLedger } from "../agent/ledger.js";
+import { jobTagged, storeLedger } from "../agent/ledger.js";
 import { advisorRequest } from "../agent/advisor.js";
 import { aiGatewayConfig } from "../agent/aiGateway.js";
 import { builtinModel, canRunBuiltin } from "../agent/builtin.js";
@@ -344,7 +346,9 @@ async function check(request, env, session, controlPlane, store, advise) {
       // A meter that could not be reached costs us a report, not the job its check.
     }
   };
-  const verdict = await checkJob({
+  // Job check runs on the graph, logged to the job's chat under the job (`graph/bridges.js`).
+  const writer = jobTagged(storeLedger(store, session), job);
+  const verdict = await jobCheckOnGraph(gatewayGraph({ writer }))({
     job,
     live: { system: MACHINE_PART_NOTE, messages: stepsAsTranscript(run.steps) },
     answer: words(run.result.answer, 20_000),
@@ -354,6 +358,7 @@ async function check(request, env, session, controlPlane, store, advise) {
     request: advise ?? advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }),
     meter,
   });
+  await writer?.flush?.();
   // A part on a computer read whatever the coding tool read there: its words are never trusted as the person's.
   const fields = jobFields(verdict, { exhausted, unfinished: false, untrusted: true });
   const { thinking: _thinking, ...shown } = fields;

@@ -1,0 +1,16 @@
+{
+  "name": "@context/photon-bridge-container",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Node process that holds the Photon gRPC streams for the photon-bridge Durable Object.",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "1.14.7",
+    "@photon-ai/advanced-imessage": "2.5.0",
+    "nice-grpc": "2.1.18",
+    "nice-grpc-common": "2.0.4"
+  }
+}
