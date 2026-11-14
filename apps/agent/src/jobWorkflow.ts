@@ -17,7 +17,7 @@ import { ANSWER_RETRIES, ANSWER_TIMEOUT } from "./groupTurnWorkflow";
 import type { JobNext } from "./jobRun";
 import { jobTag, MAX_JOB_ATTEMPTS, MAX_JOB_TRIES, MAX_MACHINE_JOB_ATTEMPTS } from "./jobs";
 import { logged } from "./agentError";
-import type { Env } from "./index";
+import type { Env } from "./env";
 import { inboxByName } from "./objectPlace";
 
 export type JobRunParams = { job: string };

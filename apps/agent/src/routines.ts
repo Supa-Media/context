@@ -29,7 +29,7 @@ import {
 import type { Fetch } from "./clients";
 import { textsFromAnswer } from "./format";
 import { CHAT_KEY, type InboxStorage, type RememberedChat } from "./inbox";
-import { lineFor, type LineDeps } from "./line";
+import { lineFor, lineSeam, type LineDeps } from "./line";
 import { record } from "./simulator";
 import { rememberText, threadUnder } from "./threads";
 import { keepBeside } from "./warm";
@@ -251,7 +251,7 @@ export async function textRoutine(
   let sent = 0;
   try {
     for (const [index, text] of texts.entries()) {
-      const handle = await lineFor(deps, chat.chatId).sendText(
+      const handle = await lineFor(lineSeam(deps), chat.chatId).sendText(
         chat.chatId,
         text,
         index === 0 ? body.idempotencyKey : `${body.idempotencyKey}:${index}`,

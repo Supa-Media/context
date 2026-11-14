@@ -88,11 +88,19 @@ export type LineDeps = {
   threadsLink?: () => Promise<string>;
   /** Where each message Tex sends is counted (`textCounts.ts`); absent, nowhere. */
   textCounts?: CountDataset;
+  /** A chat's line served from elsewhere (the gateway's remote line, `remoteLine.ts`); set, every call goes there and nothing is counted here. */
+  remote?: (chatId: string) => Line;
 };
 
 export function lineFor(deps: LineDeps, chatId: string): Line {
+  if (deps.remote) return deps.remote(chatId);
   const line = isWhapiChat(chatId) ? whapiLine(deps) : isSendblueChat(chatId) ? sendblueLine(deps) : linqLine(deps);
   return countedLine(line, deps.textCounts);
+}
+
+/** The line deps an object's deps stand for: its `remoteLine` (`chatObject.ts`) is the seam, and it is read as `remote`. */
+export function lineSeam<T extends LineDeps & { remoteLine?: (chatId: string) => Line }>(deps: T): LineDeps {
+  return { ...deps, remote: deps.remoteLine ?? deps.remote };
 }
 
 /** The line with every message it sends counted once the line took it (`textCounts.ts`). */

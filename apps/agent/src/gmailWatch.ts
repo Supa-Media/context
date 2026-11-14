@@ -18,7 +18,7 @@
 
 import { post, record as asRecord, ServiceError, type Fetch } from "./clients";
 import type { InboxStorage } from "./inbox";
-import { lineFor, type LineDeps } from "./line";
+import { lineFor, lineSeam, type LineDeps } from "./line";
 import { record } from "./simulator";
 import { noteTold } from "./told";
 
@@ -89,7 +89,7 @@ export async function checkGmail(storage: InboxStorage, deps: GmailWatchDeps): P
   const text = answer.main ? GMAIL_COPY.main(answer.address) : GMAIL_COPY.connected(answer.address);
   try {
     if (owed.channel === "simulator") await record(storage, "in", text, now);
-    else await lineFor(deps, owed.chatId).sendText(owed.chatId, text, `gmail:${owed.since}`);
+    else await lineFor(lineSeam(deps), owed.chatId).sendText(owed.chatId, text, `gmail:${owed.since}`);
   } catch {
     // The line refused or was unreachable: the idempotency key keeps a retry single.
     await lookAgain(storage, owed, now);

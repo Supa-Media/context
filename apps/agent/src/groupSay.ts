@@ -8,7 +8,7 @@ import { MAX_CANDIDATES } from "./decide";
 import { addEvent, type EventReason, type TexEvent } from "./events";
 import { noteHandle } from "./replyQuote";
 import { chatEvents } from "./chatRead";
-import { groupLineFor, type GroupLineDeps, type GroupPlace } from "./groupLine";
+import { groupLineFor, groupLineSeam, type GroupLineDeps, type GroupPlace } from "./groupLine";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import { sendPicturePart, sendWords, type PartLine } from "./sendOne";
 import type { ImagesLike } from "./attachments";
@@ -187,7 +187,7 @@ function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<
   const under = meta.plain ? undefined : threadUnder(message);
   return {
     sendText: async (text) => {
-      const handle = await groupLineFor(deps, message.groupId).sendText(place, text, under);
+      const handle = await groupLineFor(groupLineSeam(deps), message.groupId).sendText(place, text, under);
       // A threaded send Sendblue fails after taking it goes again plain, once (`sendblueStatus.ts`).
       if (under !== undefined) await keepThreaded(storage, handle, { text, place: { kind: "group", ...place }, at: deps.now() });
       return handle;
@@ -202,7 +202,7 @@ function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<
         log("picture_failed", "host");
         return null;
       }
-      await groupLineFor(deps, message.groupId).sendMedia(place, url, under);
+      await groupLineFor(groupLineSeam(deps), message.groupId).sendMedia(place, url, under);
       return url;
     },
     // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and
