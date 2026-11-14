@@ -8,5 +8,3 @@
 export { SenderInbox } from "./chatObject";
 export { arrive } from "./inboxMove";
 export { remoteLine, remoteGroupLine } from "./remoteLine";
-// A background job's pass loop, which the gateway's job workflow (`apps/mcp/src/texJobWorkflow.js`) runs over its own job object.
-export { runJobFlow } from "./jobWorkflow";

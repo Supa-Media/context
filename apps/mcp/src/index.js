@@ -187,8 +187,6 @@ export const TexChat = texChatClass({ gateway: () => gatewayWorker, texts: () =>
  * Idle unless `TEX_JOBS` is "gateway" (`wrangler.toml`).
  */
 export const TexJob = texJobClass({ gateway: () => gatewayWorker, texts: () => TexTexts });
-/** A background job's workflow, one instance per job, which runs its passes on `TexJob` (`texJobWorkflow.js`). */
-export { TexJobWorkflow } from "./texJobWorkflow.js";
 /** The search quality log's key root (`search/qualityKeyObject.js`), reached only from this Worker. */
 export const SearchQualityKey = SearchQualityKeyObject;
 /** Each workspace's notes, tree rows and access rules, one Durable Object per workspace (`workspaceStore.js`). */

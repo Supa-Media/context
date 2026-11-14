@@ -1,7 +1,9 @@
 /**
  * One background job's object in the gateway: the texting Worker's `SenderInbox` (`apps/agent/src/chatObject.ts`) run
- * here as it is, for a job (`job:<id>`) rather than a chat. Its job state, alarm, passes (`jobRun.ts`) and workflow
- * (`texJobWorkflow.js`) all run on this object's own storage, the way `texChat.js` runs a chat's.
+ * here as it is, for a job (`job:<id>`) rather than a chat. Its job state, alarm and passes (`jobRun.ts`) run on this
+ * object's own storage, the way `texChat.js` runs a chat's. The pass loop's durable timer is the Worker's job workflow
+ * (`apps/agent/src/jobWorkflow.ts`), started over the Worker's RPC (`TexRoutines.jobRun`), which calls each pass here
+ * through the Worker's job stub (`jobPlace.ts`): plumbing only, as a group turn's retries are (`texChat.js`).
  *
  * Differences from `TexChat`, which copies a chat in from the Worker:
  *   - nothing is copied. The object is born on its first `POST /job-start` (the job's name in `x-inbox-name`), which
@@ -9,8 +11,9 @@
  *     `{"here": false}`, so the Worker can tell a job it never started here from one it did;
  *   - the name header is taken off every call before the inner object sees it. The inner object's move gate would
  *     otherwise try to copy the object in from the Worker, which a job never was (`inboxMove.ts` `placeGate`);
- *   - the inner object runs its workflow in the gateway (`env.TEX_JOB_RUN`) and reaches other jobs' objects here
- *     (`chatEnv`'s `jobsHere`).
+ *   - the inner object starts its workflow in the Worker (`jobRunOver`) and reaches other jobs' objects here
+ *     (`chatEnv`'s `jobsHere`). With no Worker RPC bound (self-hosting without the texting Worker), it has no
+ *     workflow, and its alarm runs each pass (`jobRun.ts` `jobAlarm`).
  *
  * A chat starts a job here only while `TEX_JOBS` is "gateway" (`apps/agent/src/jobPlace.ts`, via `chatEnv`'s `JOBS`), and
  * the Worker hands calls to it through `jobCallForTexts`. Production keeps `TEX_JOBS` at "worker", so it is idle there.
@@ -78,8 +81,26 @@ export function texJobClass({ gateway, texts }) {
       const name = await this.state.storage.get(JOB_NAME_KEY);
       const { SenderInbox } = await import("../../agent/src/gatewayChat.js");
       const env = await chatEnv(this.env, this.state, name, id, { gateway, texts, jobsHere: true });
-      this.inner = new SenderInbox(chatState(this.state, id), { ...env, JOB_RUN: this.env.TEX_JOB_RUN });
+      this.inner = new SenderInbox(chatState(this.state, id), { ...env, JOB_RUN: jobRunOver(this.env.TEXTING) });
       return this.inner;
     }
+  };
+}
+
+/**
+ * The Worker's job workflow as the inner object's `JOB_RUN`, over the Worker's RPC (`TexRoutines.jobRun`): `create`
+ * and `get`, all `startJobFlow` uses. Undefined with no RPC, so the object's alarm drives the job instead.
+ */
+export function jobRunOver(rpc) {
+  if (rpc === undefined || rpc === null) return undefined;
+  return {
+    create: async (options) => {
+      await rpc.jobRun({ op: "create", ...options });
+      return { id: options?.id };
+    },
+    get: async (id) => {
+      await rpc.jobRun({ op: "get", id });
+      return { id };
+    },
   };
 }

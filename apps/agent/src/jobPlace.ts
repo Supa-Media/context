@@ -33,8 +33,12 @@ export type JobStub = { fetch(input: string | URL, init?: RequestInit): Promise<
  * The job's object, as the Worker reaches it from outside. `spawn` marks the one start (`/job-start`), which goes to
  * the gateway when `JOBS` says so; every other call goes where the gateway says the job is. The request's path, body
  * and answer are passed through unchanged.
+ *
+ * `strict` (the job workflow's passes): a gateway that does not say plainly whether it holds the job (an error, a
+ * throw, an answer other than 200 or 404) makes the call throw, so the pass is retried rather than sent to this
+ * Worker's object, where a job born in the gateway has no run and would end as done.
  */
-export function jobStub(env: JobStubEnv, jobId: string, { spawn }: { spawn: boolean }): JobStub {
+export function jobStub(env: JobStubEnv, jobId: string, { spawn, strict = false }: { spawn: boolean; strict?: boolean }): JobStub {
   const name = `job:${jobId}`;
   const inbox = inboxByName(env.SENDER_INBOX, name);
   const binding = env.GATEWAY_TEXTS;
@@ -50,14 +54,16 @@ export function jobStub(env: JobStubEnv, jobId: string, { spawn }: { spawn: bool
           return started;
         }
         // A start the gateway took but whose answer was lost must not run twice: it runs where it was born.
-        if (await gatewayHolds(binding, name)) {
+        if ((await gatewayHolds(binding, name)) === true) {
           logPlace(path, "gateway", "ok");
           return Response.json({ ok: true });
         }
         logPlace(path, "worker", "fallback");
         return await inbox.fetch(input, init);
       }
-      if (await gatewayHolds(binding, name)) return await callGateway(binding, name, path, init);
+      const held = await gatewayHolds(binding, name);
+      if (held === null && strict) throw new Error("the gateway did not say where the job is");
+      if (held === true) return await callGateway(binding, name, path, init);
       return await inbox.fetch(input, init);
     },
   };
@@ -70,15 +76,21 @@ function callGateway(binding: TextsBinding, name: string, path: string, init: Re
   return binding.fetch(`${JOB_CALL}${path}`, { ...init, headers });
 }
 
-/** Whether the gateway holds the job. Anything but a 200 with `{"here": true}`, a throw included, is false. */
-async function gatewayHolds(binding: TextsBinding, name: string): Promise<boolean> {
+/**
+ * Whether the gateway holds the job: true for a 200 `{"here": true}`, false for a 200 `{"here": false}`, a 404 (an
+ * unborn job) or a 501 (a gateway with no job home), null when it did not say (another status, a bad body, a throw).
+ */
+async function gatewayHolds(binding: TextsBinding, name: string): Promise<boolean | null> {
   try {
     const response = await binding.fetch(`${JOB_CALL}/job-here`, { method: "GET", headers: { "x-inbox-name": name } });
-    if (response.status !== 200) return false;
+    // 404: not born there; 501: a gateway with no job home (self-hosting), which holds no job.
+    if (response.status === 404 || response.status === 501) return false;
+    if (response.status !== 200) return null;
     const body: unknown = await response.json();
-    return typeof body === "object" && body !== null && (body as { here?: unknown }).here === true;
+    const here = typeof body === "object" && body !== null ? (body as { here?: unknown }).here : undefined;
+    return here === true ? true : here === false ? false : null;
   } catch {
-    return false;
+    return null;
   }
 }
 

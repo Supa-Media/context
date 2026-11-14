@@ -209,7 +209,8 @@ tag = "v6-search-quality-key"
 new_sqlite_classes = ["SearchQualityKey"]
 
 # One background job's object (src/texJob.js): the texting Worker's job object, run here, one per job (`job:<id>`).
-# Idle while TEX_JOBS is "worker" (below); its workflow is TEX_JOB_RUN. Self-hosting on the free tier: leave both out,
+# Idle while TEX_JOBS is "worker" (below); its passes are run by the texting Worker's job workflow, which reaches it
+# through the Worker's job stub, started over the Worker's RPC (`TexRoutines.jobRun`). Self-hosting on the free tier: leave both out,
 # and `POST /texts/job-call/` answers 501 (the texting Worker then keeps its own jobs).
 [[durable_objects.bindings]]
 name = "TEX_JOB"
@@ -218,13 +219,6 @@ class_name = "TexJob"
 [[migrations]]
 tag = "v7-tex-job"
 new_sqlite_classes = ["TexJob"]
-
-# Each background job's workflow, one instance per job, which runs its passes on TEX_JOB (src/texJobWorkflow.js). The
-# name is account-wide, so it is not the Worker's "job-run": a job run here and one run there never share a name.
-[[workflows]]
-name = "tex-job-run"
-binding = "TEX_JOB_RUN"
-class_name = "TexJobWorkflow"
 
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
@@ -413,11 +407,6 @@ class_name = "TexChat"
 [[env.staging.durable_objects.bindings]]
 name = "TEX_JOB"
 class_name = "TexJob"
-
-[[env.staging.workflows]]
-name = "tex-job-run-staging"
-binding = "TEX_JOB_RUN"
-class_name = "TexJobWorkflow"
 
 [[env.staging.durable_objects.bindings]]
 name = "SEARCH_QUALITY_KEY"

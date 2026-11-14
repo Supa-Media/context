@@ -1,7 +1,7 @@
 /**
  * The gateway's TexJob (`src/texJob.js`): a background job's object run here as the texting Worker's SenderInbox, born
  * on its first `/job-start`, answering nothing before that, and reached by a chat's job calls and by the Worker's
- * `/texts/job-call/` route. The job's workflow (`src/texJobWorkflow.js`) is the Worker's `runJobFlow` over this object.
+ * `/texts/job-call/` route. The job's workflow is the Worker's own (`jobWorkflow.ts`), started over its RPC (`jobRun`).
  *
  * Runs under `--experimental-transform-types` with `test/tsRegister.mjs` (`test/run.mjs`): the Worker's TypeScript
  * (`jobRun.ts`, `chatObject.ts`) is what answers, on in-memory storage, with a fake workflow that records each start.
@@ -132,7 +132,13 @@ function jobNamespace(env) {
 
 /** The gateway's environment for a job: the bindings a `TexJob` and its chat read. */
 function makeEnv({ jobs = true, job = true, workflow = fakeWorkflow(), rpc = fakeWorkerRpc() } = {}) {
-  const env = { TEX_JOBS: jobs ? "gateway" : "worker", TEX_JOB_RUN: workflow, TEXTING: rpc.rpc, rpc, workflow };
+  // The Worker's job workflow, as its RPC starts it (`chatCalls.ts` `jobRun`): the inner object's `JOB_RUN` is this.
+  rpc.rpc.jobRun = async (call) => {
+    if (call.op === "get") await workflow.get(call.id);
+    else await workflow.create({ id: call.id, params: call.params });
+    return { ok: true };
+  };
+  const env = { TEX_JOBS: jobs ? "gateway" : "worker", TEXTING: rpc.rpc, rpc, workflow };
   if (job) env.TEX_JOB = jobNamespace(env);
   return env;
 }
@@ -192,7 +198,7 @@ describe("a job's start", () => {
     const object = objectOf(env);
     assert.equal(typeof (await object.state.storage.get(BORN_KEY)), "number");
     assert.equal(await object.state.storage.get(JOB_NAME_KEY), NAME);
-    // The inner object received `/job-start`, kept the run, and started its workflow on the gateway's binding.
+    // The inner object received `/job-start`, kept the run, and started its workflow in the Worker, over its RPC.
     assert.equal(env.workflow.created.length, 1);
     assert.deepEqual(env.workflow.created[0].params, { job: JOB });
   });
@@ -293,5 +299,17 @@ describe("a chat's job calls", () => {
     await inbox.SENDER_INBOX.get(inbox.SENDER_INBOX.idFromName(`enam:${NAME}`)).fetch("https://inbox/job-here");
     assert.deepEqual(env.rpc.calls.inboxFetch.map((call) => call.name), [`enam:${NAME}`]);
     assert.equal(env.TEX_JOB.objects.size, 0, "no job object is made while jobs run in the Worker");
+  });
+});
+
+describe("jobRunOver", () => {
+  it("is the Worker's job workflow over its RPC, and nothing with no RPC (the alarm drives the job)", async () => {
+    const { jobRunOver } = await import("../src/texJob.js");
+    assert.equal(jobRunOver(undefined), undefined);
+    const calls = [];
+    const over = jobRunOver({ jobRun: async (call) => void calls.push(call) });
+    assert.deepEqual(await over.create({ id: "job-abc", params: { job: "abc" } }), { id: "job-abc" });
+    assert.deepEqual(await over.get("job-abc"), { id: "job-abc" });
+    assert.deepEqual(calls, [{ op: "create", id: "job-abc", params: { job: "abc" } }, { op: "get", id: "job-abc" }]);
   });
 });

@@ -232,6 +232,33 @@ describe("jobStub other calls (steer, mail, pass, failed)", () => {
   });
 });
 
+describe("jobStub strict (the job workflow's passes)", () => {
+  it("a gateway that can't say where the job is fails the pass, never runs it on the Worker's empty object", async () => {
+    for (const answer of [() => new Response(null, { status: 500 }), () => Promise.reject(new Error("down")), () => Response.json({})]) {
+      const sender = senderInbox();
+      const stub = jobStub({ SENDER_INBOX: sender.ns, GATEWAY_TEXTS: gateway(answer).binding }, JOB, { spawn: false, strict: true });
+      await expect(stub.fetch("https://inbox/job-pass", { method: "POST" })).rejects.toThrow("did not say");
+      expect(sender.hits).toEqual([]);
+    }
+  });
+
+  it("a plain no (here:false, 404, or 501 with no job home) runs the pass on the Worker's object, as before", async () => {
+    for (const answer of [holds(false), () => Response.json({ here: false }, { status: 404 }), () => Response.json({ error: "no_job_home" }, { status: 501 })]) {
+      const sender = senderInbox();
+      await jobStub({ SENDER_INBOX: sender.ns, GATEWAY_TEXTS: gateway(answer).binding }, JOB, { spawn: false, strict: true }).fetch("https://inbox/job-pass", { method: "POST" });
+      expect(sender.hits.map((hit) => hit.url)).toEqual(["https://inbox/job-pass"]);
+    }
+  });
+
+  it("a job the gateway holds has its pass run there", async () => {
+    const sender = senderInbox();
+    const gw = gateway(holds(true));
+    await jobStub({ SENDER_INBOX: sender.ns, GATEWAY_TEXTS: gw.binding }, JOB, { spawn: false, strict: true }).fetch("https://inbox/job-pass", { method: "POST" });
+    expect(gw.hits.map((hit) => hit.url)).toEqual(["https://gateway/texts/job-call/job-here", "https://gateway/texts/job-call/job-pass"]);
+    expect(sender.hits).toEqual([]);
+  });
+});
+
 describe("jobStub with no gateway binding", () => {
   it("sends every call to the SenderInbox, start and steer alike, whatever JOBS says", async () => {
     for (const JOBS of [undefined, "gateway"]) {
