@@ -24,7 +24,6 @@ export interface Env {
   SENDBLUE_WEBHOOK_SECRET?: string;
   SENDBLUE_STATUS_URL?: string; // where each send's status goes, `https://<worker>/sendblue/status/<secret>` (`sendblueStatus.ts`)
   /** Photon's bridge (`photon.ts`, `infra/photon-bridge`), reached over a service binding. Absent, Photon is off and `/photon/*` is 404. */
-  PHOTON?: Fetcher;
   /** Tex's WhatsApp line (`whapi.ts`): the Whapi channel's token and the line's own number (E.164). */
   WHAPI_TOKEN?: string;
   WHAPI_LINE?: string;
