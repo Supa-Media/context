@@ -85,6 +85,11 @@ export async function finalizeWorkspaceDeletion(
     .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const turn of turns) await ctx.db.delete(turn._id);
+  const marks = await ctx.db
+    .query("agentTurnMarks")
+    .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const mark of marks) await ctx.db.delete(mark._id);
 
   // The search timing log: durations and which index answered, at most 30
   // days. Bounded, because a busy workspace's month of searches could pass a

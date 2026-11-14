@@ -23,7 +23,14 @@ import { dayKey } from "../usage";
 
 /** Turns are kept 30 days, so no window can usefully be longer. */
 export const AGENT_REPORT_WINDOWS = [1, 7, 30] as const;
-export const MAX_TURNS_READ = 4_000;
+/**
+ * Whole turns read for the tool breakdown and the recent list: a turn carries
+ * its trace, and a month of them passes a query's 16 MiB read limit (it did
+ * on 2026-11-14), so only the newest are read whole.
+ */
+export const MAX_TURNS_READ = 1_000;
+/** Marks read per window, for the counts and timings: two windows stay under a query's document limit. */
+export const MAX_MARKS_READ = 12_000;
 export const RECENT_TURNS = 40;
 
 const DAY_MS = 86_400_000;
@@ -71,6 +78,8 @@ export const agentReportValidator = v.object({
   workspace: v.union(v.string(), v.null()),
   /** The window held more turns than were read. */
   truncated: v.boolean(),
+  /** How many of the newest turns the tool breakdown was read from (`MAX_TURNS_READ`). */
+  toolsFrom: v.number(),
   current: v.object({
     turns: v.number(),
     workspaces: v.number(),
@@ -113,20 +122,40 @@ export const agentReportValidator = v.object({
 
 export type AgentReport = Infer<typeof agentReportValidator>;
 
-async function turnsBetween(
+/**
+ * A window's marks (`agentTurnMarks`): one small row per turn, so a month of
+ * them fits a query where a month of whole turns does not.
+ */
+async function marksBetween(
   ctx: QueryCtx,
   from: number,
   to: number,
   workspaceId: Id<"workspaces"> | null,
-): Promise<{ rows: Doc<"agentTurns">[]; truncated: boolean }> {
+): Promise<{ rows: Doc<"agentTurnMarks">[]; truncated: boolean }> {
+  const query =
+    workspaceId === null
+      ? ctx.db.query("agentTurnMarks").withIndex("by_at", (q) => q.gt("at", from).lte("at", to))
+      : ctx.db
+          .query("agentTurnMarks")
+          .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId).gt("at", from).lte("at", to));
+  const rows = await query.order("desc").take(MAX_MARKS_READ + 1);
+  return { rows: rows.slice(0, MAX_MARKS_READ), truncated: rows.length > MAX_MARKS_READ };
+}
+
+/** The window's newest whole turns, for the tool and model breakdowns and the recent list. */
+async function newestTurns(
+  ctx: QueryCtx,
+  from: number,
+  to: number,
+  workspaceId: Id<"workspaces"> | null,
+): Promise<Doc<"agentTurns">[]> {
   const query =
     workspaceId === null
       ? ctx.db.query("agentTurns").withIndex("by_at", (q) => q.gt("at", from).lte("at", to))
       : ctx.db
           .query("agentTurns")
           .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId).gt("at", from).lte("at", to));
-  const rows = await query.order("desc").take(MAX_TURNS_READ + 1);
-  return { rows: rows.slice(0, MAX_TURNS_READ), truncated: rows.length > MAX_TURNS_READ };
+  return await query.order("desc").take(MAX_TURNS_READ);
 }
 
 export async function agentReportHandler(
@@ -142,12 +171,14 @@ export async function agentReportHandler(
   const workspaceId = named?._id ?? null;
 
   const windowMs = days * DAY_MS;
-  const keep = (row: Doc<"agentTurns">) => client === "all" || row.client === client;
-  const currentRead = await turnsBetween(ctx, now - windowMs, now, workspaceId);
-  const priorRead = await turnsBetween(ctx, now - 2 * windowMs, now - windowMs, workspaceId);
+  const keep = (row: { client: "texts" | "app" }) => client === "all" || row.client === client;
+  const nothing = slug !== "" && named === null;
+  const currentRead = await marksBetween(ctx, now - windowMs, now, workspaceId);
+  const priorRead = await marksBetween(ctx, now - 2 * windowMs, now - windowMs, workspaceId);
   // A slug that names nothing matches no turns, rather than every turn.
-  const current = slug !== "" && named === null ? [] : currentRead.rows.filter(keep);
-  const prior = slug !== "" && named === null ? [] : priorRead.rows.filter(keep);
+  const current = nothing ? [] : currentRead.rows.filter(keep);
+  const prior = nothing ? [] : priorRead.rows.filter(keep);
+  const whole = nothing ? [] : (await newestTurns(ctx, now - windowMs, now, workspaceId)).filter(keep);
 
   const currentSpread = spread(current.map((row) => row.ms));
   const priorSpread = spread(prior.map((row) => row.ms));
@@ -182,13 +213,16 @@ export async function agentReportHandler(
     totalMs += row.ms;
     modelMs += row.modelMs;
     toolMs += row.toolMs;
+    toolCalls += row.toolCalls;
     const modelKey = `${row.provider}\u0000${row.model}`;
     const entry = byModel.get(modelKey) ?? { provider: row.provider, model: row.model, ms: [] };
     entry.ms.push(row.ms);
     byModel.set(modelKey, entry);
+  }
+  // Tools from the newest whole turns: their traces are what a month of turns cannot all be read for.
+  for (const row of whole) {
     for (const step of row.trace) {
       if (step.kind !== "tool" || step.tool === undefined) continue;
-      toolCalls += 1;
       const tool = byTool.get(step.tool) ?? { failed: 0, ms: [] };
       tool.ms.push(step.ms);
       if (!step.ok) tool.failed += 1;
@@ -197,7 +231,7 @@ export async function agentReportHandler(
   }
 
   const slugs = new Map<string, string | null>();
-  const recentRows = current.slice(0, RECENT_TURNS);
+  const recentRows = whole.slice(0, RECENT_TURNS);
   for (const row of recentRows) {
     if (!slugs.has(row.workspaceId)) slugs.set(row.workspaceId, (await ctx.db.get(row.workspaceId))?.slug ?? null);
   }
@@ -207,6 +241,7 @@ export async function agentReportHandler(
     client,
     workspace: named === null ? null : named.slug,
     truncated: currentRead.truncated || priorRead.truncated,
+    toolsFrom: whole.length,
     current: {
       turns: current.length,
       workspaces: workspaces.size,

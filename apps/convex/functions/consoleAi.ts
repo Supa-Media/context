@@ -33,8 +33,11 @@ export const turns = query({
   },
 });
 
-/** How many turns the meter reads at most, newest first; an older rest is left out and flagged. */
-export const METER_ROW_LIMIT = 4000;
+/**
+ * How many turns the meter reads at most, newest first; an older rest is left out and flagged. It reads the turns'
+ * marks (`agentTurnMarks`): a month of whole turns passes a query's read limit.
+ */
+export const METER_ROW_LIMIT = 20000;
 
 /**
  * Our own turn log's read of a window: background jobs' spend (kind "job"; the
@@ -47,7 +50,7 @@ export const meter = internalQuery({
   returns: v.object({ jobUsd: v.number(), jobTurns: v.number(), answered: v.number(), truncated: v.boolean() }),
   handler: async (ctx, args) => {
     const read = await ctx.db
-      .query("agentTurns")
+      .query("agentTurnMarks")
       .withIndex("by_at", (q) => q.gte("at", args.from).lt("at", args.to))
       .order("desc")
       .take(METER_ROW_LIMIT + 1);
