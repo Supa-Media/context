@@ -24,6 +24,7 @@ export default {
       assert.equal(second.prefix.tools, first.prefix.tools, "the same tools");
       assert.deepEqual(second.prefix.toolPrints, first.prefix.toolPrints, "each tool fingerprinted, the same");
       assert.ok(second.prefix.firstChunks.length > 0, "the first history message is fingerprinted in chunks, so a changed transcript names where");
+      assert.ok(second.prefix.firstLines.length >= second.prefix.firstChunks.length, "and line by line, so an added or dropped line is named by its place");
       assert.deepEqual(second.prefix.systemParts, first.prefix.systemParts, "the same system blocks");
       assert.deepEqual(second.prefix.history.slice(0, first.prefix.history.length), first.prefix.history, "the second text's history starts with the first's, piece by piece");
       assert.ok(!JSON.stringify(lines).includes("plumber"), "fingerprints only, never a word");

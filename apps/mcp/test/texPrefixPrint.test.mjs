@@ -37,6 +37,15 @@ test("a moved cache mark never changes a fingerprint; a changed message does", (
   const changed = { ...lines, messages: [{ role: "user", content: Array.from({ length: 45 }, (_, i) => (i === 30 ? "edited" : `line ${i}`)).join("\n") }] };
   const c2 = prefixPrint(changed, 1).firstChunks;
   assert.deepEqual([c1[0] === c2[0], c1[1] === c2[1], c1[2] === c2[2]], [true, false, true], "the changed chunk is named");
+  const l1 = prefixPrint(lines, 1).firstLines;
+  const l2 = prefixPrint(changed, 1).firstLines;
+  assert.equal(l1.length, 45);
+  assert.deepEqual(l1.map((print, i) => print === l2[i]).flatMap((same, i) => (same ? [] : [i])), [30], "the changed line is named, by its place");
+  assert.match(l1[0], /^o[0-9a-f]{5}$/, "a line is its kind and a short fingerprint");
+  const top = { ...lines, messages: [{ role: "user", content: `[Sat] new line\n${lines.messages[0].content}` }] };
+  const l3 = prefixPrint(top, 1).firstLines;
+  assert.equal(l3[0][0], "t", "a stamped line says so");
+  assert.deepEqual(l3.slice(1), l1, "a line added at the top leaves the rest lined up");
   assert.equal(a.history.length, 2);
   assert.equal(a.historyBlocks, 2);
   assert.equal(a.blocks, 2);
