@@ -43,7 +43,7 @@ import type { GroupTurnParams } from "./groupTurnWorkflow";
 import { inboxByName, inboxIdOf, objectByName } from "./objectPlace";
 import { movedAlarm, placeGate, type MoveStorage } from "./inboxMove";
 
-import type { Env } from "./index";
+import type { Env } from "./env";
 
 export class SenderInbox implements DurableObject {
   /** Calls, alarms and handed-on work running now: an inbox moves only when there are none (`inboxMove.ts`). */
