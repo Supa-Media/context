@@ -44,3 +44,15 @@ test("every round's timing names its prompt, capped to ids and numbers", () => {
   assert.equal(timing.v, 2);
   assert.deepEqual(timing.rounds[0].prompt, { modules: prompt.modules, inputs: prompt.inputs });
 });
+
+test("a thread note in parts is sent as one block and named part by part, so a cache miss says which part changed", () => {
+  const parts = [["learned", "\nYour own skills: a.\n"], ["background", "JOBS"], ["plan", ""], ["hub", "HUB"]];
+  const whole = turnPrompt(null, null, { ...base, threadNote: parts.map(([, t]) => t).join("") });
+  const split = turnPrompt(null, null, { ...base, threadNote: parts });
+  assert.equal(split.system.context, whole.system.context, "the same bytes reach the model");
+  const ids = split.prompt.modules.map((m) => m.id);
+  assert.deepEqual(ids.filter((id) => id.startsWith("context/thread")), ["context/thread/learned", "context/thread/background", "context/thread/hub"]);
+  const changed = turnPrompt(null, null, { ...base, threadNote: parts.map(([id, t]) => [id, id === "background" ? "JOBS 2" : t]) });
+  assert.deepEqual(manifestDiff(split.prompt.modules, changed.prompt.modules), ["context/thread/background"]);
+  assert.ok(whole.prompt.modules.some((m) => m.id === "context/thread"), "a plain note keeps its one id");
+});

@@ -76,6 +76,33 @@ async function text(message, { timeoutMs = 3 * 60_000 } = {}) {
   }
 }
 
+// "intake": a text's chat runs in the gateway (step 3 of Tex's config graph, `INTAKE=gateway` on staging). An unlinked
+// fictional number texts once: the gateway's copy of the chat answers the send (`x-tex-chat-home`, set only there,
+// `apps/mcp/src/texChat.js`), and the chat's first reply, the link invite, comes back. No persona, no model.
+if (SUITE === "intake") {
+  const sent = await fetch(`${origin}/texts-simulator/api/send`, {
+    method: "POST",
+    headers: { "x-simulator-key": key, "content-type": "application/json" },
+    body: JSON.stringify({ phone, text: "hi" }),
+  });
+  assert.equal(sent.status, 200, `simulator send answered ${sent.status}`);
+  assert.equal(sent.headers.get("x-tex-chat-home"), "gateway", "the send was answered by the texting Worker's own chat object, not the gateway's");
+  pass("a simulated text is taken by the chat's gateway copy");
+  const started = Date.now();
+  let replies = [];
+  while (replies.length === 0) {
+    assert.ok(Date.now() - started < 90_000, "no reply from the gateway's chat within 90s");
+    await pause(2000);
+    const thread = await sim("thread");
+    replies = thread.typing ? [] : thread.messages.filter((entry) => entry.dir === "in").map((entry) => entry.text);
+  }
+  for (const reply of replies) console.log(`< ${redact(reply)}`);
+  assert.ok(replies.some((reply) => /Tex/.test(reply)), `reply: ${redact(replies.join(" | "))}`);
+  pass(`the gateway's chat answered in ${Math.round((Date.now() - started) / 1000)}s`);
+  await sim("clear", {});
+  process.exit(0);
+}
+
 const convex = new ConvexHttpClient(`https://${deployment}.convex.cloud`, { logger: false });
 const signedIn = await convex.action(ref("auth:signIn"), { provider: "email", params: { email: PERSONA, code: stagingSignInCode(PERSONA) } });
 assert.ok(signedIn.tokens?.token, "persona sign-in failed");

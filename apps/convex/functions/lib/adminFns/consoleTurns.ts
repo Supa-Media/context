@@ -34,6 +34,8 @@ export const CONSOLE_TURN_WINDOWS = [1, 7, 30, 90] as const;
 export const CONSOLE_DEFAULT_DAYS = 30;
 /** Rows read per window, held well under Convex's 8 MiB read. */
 export const CONSOLE_TURNS_READ = 2_000;
+/** Marks read for the window before (`agentTurnMarks`): counts and times only. */
+export const CONSOLE_MARKS_READ = 12_000;
 /** Reviews read for the handed-back share. */
 export const CONSOLE_REVIEWS_READ = 2_000;
 /** How far past now the window's end may reach: the client's minute, and clock skew. */
@@ -50,7 +52,7 @@ const HOUR_MS = 3_600_000;
 type TextKind = "one" | "group";
 
 /** The text turn's kind, or null when the row is not a text turn. */
-function textKindOf(row: Doc<"agentTurns">): TextKind | null {
+function textKindOf(row: Pick<Doc<"agentTurns">, "client" | "kind">): TextKind | null {
   if (row.client !== "texts") return null;
   const kind = row.kind ?? "one";
   return kind === "one" || kind === "group" ? kind : null;
@@ -167,6 +169,19 @@ async function turnsBetween(
   return { rows: rows.slice(0, CONSOLE_TURNS_READ), truncated: rows.length > CONSOLE_TURNS_READ };
 }
 
+async function marksBetween(
+  ctx: QueryCtx,
+  from: number,
+  to: number,
+): Promise<{ rows: Doc<"agentTurnMarks">[]; truncated: boolean }> {
+  const rows = await ctx.db
+    .query("agentTurnMarks")
+    .withIndex("by_at", (q) => q.gt("at", from).lte("at", to))
+    .order("desc")
+    .take(CONSOLE_MARKS_READ + 1);
+  return { rows: rows.slice(0, CONSOLE_MARKS_READ), truncated: rows.length > CONSOLE_MARKS_READ };
+}
+
 interface Who {
   slug: string | null;
   /** The owner's name, trimmed; null when there is none. */
@@ -200,7 +215,8 @@ export async function consoleTurnsHandler(
   const needle = normalizeConsoleQuery(args.q);
 
   const currentRead = await turnsBetween(ctx, windowEnd - windowMs, windowEnd);
-  const priorRead = await turnsBetween(ctx, windowEnd - 2 * windowMs, windowEnd - windowMs);
+  // The window before needs counts and times only, so it reads the turns' marks, not whole turns.
+  const priorRead = await marksBetween(ctx, windowEnd - 2 * windowMs, windowEnd - windowMs);
   const current = currentRead.rows.flatMap((row) => {
     const kind = textKindOf(row);
     return kind === null ? [] : [{ row, kind }];

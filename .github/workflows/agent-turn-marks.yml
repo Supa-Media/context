@@ -1,0 +1,33 @@
+# Build the small per-turn rows (`agentTurnMarks`) for turns written before
+# the table existed, so the staff console's month of counts is whole. Manual
+# only; it starts `functions/agentTurnMarks.ts`'s backfill, which pages
+# through the turn log on its own and skips a turn already marked, so running
+# it again changes nothing. It prints only the first page's count: this
+# repository is public, and so is this job's log.
+name: Agent turn marks
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Backfill
+        run: npx convex run functions/agentTurnMarks:backfill '{}' 2>/dev/null
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
