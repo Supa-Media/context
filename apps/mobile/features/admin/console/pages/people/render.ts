@@ -118,7 +118,10 @@ function wsPop(p: Person, name: string): string {
   return pop(String(p.workspaces.length), rows, "Workspaces of " + name);
 }
 
+const UNKNOWN = `<span class="sub">—</span>`;
+
 function clientsPop(p: Person, name: string, now: number): string {
+  if (p.usageKnown === false) return UNKNOWN;
   if (p.clients.length === 0) return `<span class="sub">none</span>`;
   const rows = p.clients
     .map((c) => `<span class="pr"><span>${esc(c.name)}</span><span class="sub">${c.lastUsedAt === null ? "never used" : esc(ago(c.lastUsedAt, now))}</span></span>`)
@@ -127,6 +130,7 @@ function clientsPop(p: Person, name: string, now: number): string {
 }
 
 function aiPop(p: Person, name: string, rowId: string): string {
+  if (p.usageKnown === false) return UNKNOWN;
   if (!(p.aiUsd > 0)) return `<span class="sub">$0</span>`;
   const rows =
     p.aiByFeature.map((f) => `<span class="pr"><span>${esc(f.label)}</span><span>${money(f.usd)}</span></span>`).join("") +
@@ -266,7 +270,7 @@ function accountProps(d: PeopleData, p: Person, tv: TexView, now: number): strin
  <div class="row"><span style="flex:1">Can text Tex</span>${texSwitch(p, tv, "needs a phone")}</div></div>
  ${mailOpen}<div class="ppb"><div class="h">Workspaces</div>${p.workspaces.map((w) => `<div class="row"><span style="flex:1">@${esc(w.slug)}</span>${pill(w.kind, w.kind === "personal" ? "ok" : "")}${pill(ROLE_LABEL[w.role])}</div>`).join("")}</div>
  <div class="ppb"><div class="h">Today against today's limits</div>${limitsHtml(d.acct)}</div>
- <div class="kv"><span class="k">Last seen</span><span class="v">${p.lastSeenAt === null ? "never" : esc(ago(p.lastSeenAt, now))}</span><span class="k">AI cost</span><span class="v"><button class="link" data-act="gocost" data-id="${esc(p.userId)}">${money(p.aiUsd)} in 30 days</button></span><span class="k">Their turns</span><span class="v"><button class="link" data-act="theirturns" data-id="${esc(p.handle ?? name)}">See in Turns</button></span><span class="k">Came from</span><span class="v">${camePill(p)}</span></div>
+ <div class="kv"><span class="k">Last seen</span><span class="v">${p.usageKnown === false ? "—" : p.lastSeenAt === null ? "never" : esc(ago(p.lastSeenAt, now))}</span><span class="k">AI cost</span><span class="v"><button class="link" data-act="gocost" data-id="${esc(p.userId)}">${p.usageKnown === false ? "Open AI costs" : `${money(p.aiUsd)} in 30 days`}</button></span><span class="k">Their turns</span><span class="v"><button class="link" data-act="theirturns" data-id="${esc(p.handle ?? name)}">See in Turns</button></span><span class="k">Came from</span><span class="v">${camePill(p)}</span></div>
  <div class="row"><button class="ghost${p.archived ? "" : " danger"}" data-act="archive" data-id="${esc(p.userId)}">${p.archived ? "Unarchive" : "Archive"}</button><span class="sub">${p.archived ? "" : "Hides them from People and Growth; deletes nothing"}</span></div>`;
 }
 

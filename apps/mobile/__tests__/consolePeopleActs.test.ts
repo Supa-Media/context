@@ -207,7 +207,7 @@ describe("bulk letin, tell and remove", () => {
     expect(S.sel.has("w0")).toBe(false);
     expect(S.sel.has("w200")).toBe(true);
     expect(S.confirm).toBeNull();
-    expect(lastToast().text).toBe("Stopped. Removed 200 before it stopped.");
+    expect(lastToast().text).toBe("Removed 200; the rest failed: Stopped.");
     await lastToast().undo!();
     expect(callsNamed(calls, "restore").map((ids) => (ids as string[]).length)).toEqual([200]);
   });
@@ -216,7 +216,7 @@ describe("bulk letin, tell and remove", () => {
     const { d } = fixture({ waitlist: [waitRow("w1", "waiting")], admitFails: "Too many at once." });
     S.sel = new Set(["w1"]);
     await acts.letin!(el(), d);
-    expect(lastToast().text).toBe("Too many at once.");
+    expect(lastToast().text).toBe("Let 0 in; the rest failed: Too many at once.");
   });
 });
 

@@ -28,7 +28,9 @@ import { archivedUserIds, personOf } from "./people";
 /**
  * The most rows one call of each page query reads. Convex allows about 4,096 reads per call; an
  * account costs roughly 15-20 (`personOf` + `cameFromFor`), a waitlist row at most 2, an invite
- * about 4. Requests for more are cut to these, whatever the client asks.
+ * about 4. Requests for more are cut to these, whatever the client asks. An account with very many
+ * workspace memberships costs more (one read per workspace, up to personOf's 100); none has that
+ * many today, and a page of such accounts would need a smaller cap.
  */
 export const PAGE_MAX = { accounts: 100, waitlist: 250, invites: 250 } as const;
 const capped = (opts: PaginationOptions, max: number): PaginationOptions => ({ ...opts, numItems: Math.max(1, Math.min(opts.numItems, max)) });

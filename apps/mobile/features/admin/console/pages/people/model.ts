@@ -17,6 +17,8 @@ export type Role = "owner" | "editor" | "member";
 
 /** One account, as the People page shows it: `accountsPage` plus its usage (`peopleUsage`). */
 export type Person = {
+  /** False when the usage read (clients, last seen, AI cost) failed: those show "—", the list still works. */
+  usageKnown?: boolean;
   userId: Id<"users">;
   name: string | null;
   handle: string | null;

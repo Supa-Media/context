@@ -283,3 +283,14 @@ describe("props", () => {
     expect(html).toContain("&lt;img src=x");
   });
 });
+
+describe("when the usage read failed", () => {
+  it("keeps the list and shows a dash for AI clients and AI cost", () => {
+    const d = data();
+    d.people = { ...d.people!, accounts: d.people!.accounts.map((a) => ({ ...a, usageKnown: false })) };
+    const html = render(d, Date.now());
+    expect(html).toContain("Maya Lindqvist");
+    expect(html).not.toContain("$41.20");
+    expect(html).toContain('<span class="sub">—</span>');
+  });
+});

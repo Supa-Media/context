@@ -6,9 +6,9 @@
  * last sign-in and clients, invites paused, truncated), assembled into the one shape the page draws.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useReportOnce } from "../../useReportOnce";
+import { useAction, useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
+import type { FunctionReturnType } from "convex/server";
 import { S } from "../state";
 import type { ConsolePage } from "../types";
 import { acts } from "./people/acts";
@@ -23,6 +23,26 @@ import {
   type TexLine,
   type WaitRow,
 } from "./people/model";
+
+/**
+ * Spend and AI clients, read once per visit rather than live (grants are stamped on every MCP call).
+ * A failure is caught here, not thrown at render: the list still works and those columns show "—".
+ */
+function usePeopleUsage(): FunctionReturnType<typeof api.functions.consolePeople.peopleUsage> | "failed" | undefined {
+  const convex = useConvex();
+  const [usage, setUsage] = useState<FunctionReturnType<typeof api.functions.consolePeople.peopleUsage> | "failed" | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    convex.query(api.functions.consolePeople.peopleUsage, {}).then(
+      (value) => live && setUsage(value),
+      () => live && setUsage("failed"),
+    );
+    return () => {
+      live = false;
+    };
+  }, [convex]);
+  return usage;
+}
 
 /** Keeps asking for the next page of a paginated query until all of it is here. */
 function useLoadAll(page: { status: string; loadMore: (n: number) => unknown }, pageSize: number): void {
@@ -42,24 +62,27 @@ function useEveryone(): ConsolePeople | undefined {
   const waitlist = usePaginatedQuery(api.functions.consolePeople.waitlistPage, {}, { initialNumItems: 250 });
   const invites = usePaginatedQuery(api.functions.consolePeople.invitesPage, {}, { initialNumItems: 250 });
   // Spend and AI clients read once per visit, not live: grants are stamped on every MCP call.
-  const usage = useReportOnce(api.functions.consolePeople.peopleUsage, {});
+  const usage = usePeopleUsage();
   useLoadAll(accounts, 100);
   useLoadAll(waitlist, 250);
   useLoadAll(invites, 250);
 
   return useMemo<ConsolePeople | undefined>(() => {
     if (usage === undefined) return undefined;
+    const known = usage !== "failed";
+    const u = known ? usage : { spend: [], clients: [], invitesOff: false, truncated: false };
     // Held until every page is here: a partial list would show wrong counts, and a waiting row whose
     // account had not loaded yet could be let in again.
     if (accounts.status !== "Exhausted" || waitlist.status !== "Exhausted" || invites.status !== "Exhausted") return undefined;
 
-    const spend = new Map(usage.spend.map((s) => [s.userId as string, s]));
-    const grants = new Map(usage.clients.map((c) => [c.userId as string, c]));
+    const spend = new Map(u.spend.map((s) => [s.userId as string, s]));
+    const grants = new Map(u.clients.map((c) => [c.userId as string, c]));
     const people: Person[] = accounts.results.map((a) => {
       const g = grants.get(a.userId);
       const s = spend.get(a.userId);
       return {
         ...a,
+        ...(known ? {} : { usageKnown: false }),
         lastSeenAt: g?.lastSeenAt ?? null,
         clients: g?.clients ?? [],
         aiUsd: s?.aiUsd ?? 0,
@@ -79,7 +102,7 @@ function useEveryone(): ConsolePeople | undefined {
     ) as WaitRow[];
     const open = invites.results.filter((i): i is InviteRow => i.status !== "joined");
 
-    return { accounts: people, waitlist: waiting, invites: open, invitesOff: usage.invitesOff, truncated: usage.truncated };
+    return { accounts: people, waitlist: waiting, invites: open, invitesOff: u.invitesOff, truncated: u.truncated };
   }, [accounts.status, accounts.results, waitlist.status, waitlist.results, invites.status, invites.results, usage]);
 }
 

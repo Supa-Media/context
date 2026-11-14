@@ -444,6 +444,7 @@ describe("cameFromFor", () => {
 });
 
 describe("a realistic size", () => {
+  // Arithmetic on the caps only: convex-test does not enforce or count Convex's read limit.
   test("a capped page stays inside Convex's per-call read limit", () => {
     // An account costs at most ~20 reads (personOf + cameFromFor with a few addresses and workspaces),
     // a waitlist row 2, an invite ~4 (invitesTo + the inviter's handle).

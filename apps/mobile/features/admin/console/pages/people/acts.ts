@@ -323,7 +323,13 @@ export const acts: Record<string, Act> = {
   letin: writes(async (_el, d) => {
     const ids = chosen(d, (r) => r.st === "waiting" || r.st === "removed").map((r) => r.id as WaitId);
     let changed = 0;
-    await inBatches(ids, (part) => d.m.admit({ ids: part }), (_p, r) => (changed += r.changed));
+    try {
+      await inBatches(ids, (part) => d.m.admit({ ids: part }), (_p, r) => (changed += r.changed));
+    } catch (error) {
+      toast(`Let ${changed} in; the rest failed: ${failureText(error)}`);
+      render();
+      return;
+    }
     S.sel.clear();
     S.confirm = null;
     toast(`Let in ${changed}; each got one email or text`);
@@ -334,10 +340,16 @@ export const acts: Record<string, Act> = {
     const ids = chosen(d, (r) => r.st === "in" && !r.told).map((r) => r.id as WaitId);
     let texted = 0;
     let left = 0;
-    await inBatches(ids, (part) => d.m.tell({ ids: part }), (_p, r) => {
-      texted += r.texted;
-      left += r.left;
-    });
+    try {
+      await inBatches(ids, (part) => d.m.tell({ ids: part }), (_p, r) => {
+        texted += r.texted;
+        left += r.left;
+      });
+    } catch (error) {
+      toast(`Texted ${plural(texted, "person", "people")}; the rest failed: ${failureText(error)}`);
+      render();
+      return;
+    }
     S.sel.clear();
     S.confirm = null;
     toast(`Texted ${plural(texted, "person", "people")} that they're in` + (left > 0 ? `. ${plural(left, "person", "people")} left to text.` : ""));
@@ -359,7 +371,7 @@ export const acts: Record<string, Act> = {
       });
     } catch (error) {
       // Some went through: say so with an Undo for them, and leave the rest picked.
-      toast(`${failureText(error)} Removed ${changed} before it stopped.`, removed.length ? undo : undefined);
+      toast(`Removed ${changed}; the rest failed: ${failureText(error)}`, removed.length ? undo : undefined);
       render();
       return;
     }
