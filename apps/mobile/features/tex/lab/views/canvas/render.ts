@@ -96,7 +96,7 @@ export function renderGraphHtml(
   sim: Sim,
   tags: string[],
   sel: Selection,
-  litId: string | null,
+  litId: string | ReadonlySet<string> | null,
   /** The artifact fades every step this text does not reach; the live Lab fades only steps switched off (Dev2, 2026-11-14). */
   fade: "unreached" | "off" = "unreached",
 ): string {
@@ -132,7 +132,7 @@ export function renderGraphHtml(
         ? "Code"
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
     const time = timeLabel(sim, n.id);
-    h += `<g class="nd ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${litId === n.id ? "lit" : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+    h += `<g class="nd ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? "lit" : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
       <rect class="card" width="${W}" height="${H}" rx="12"/>
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>

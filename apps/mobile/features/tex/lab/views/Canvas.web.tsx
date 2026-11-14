@@ -17,8 +17,8 @@ import {
   unfocus,
   undo,
 } from "../engine/state";
-import { simulate } from "../engine/sim";
-import { withReal } from "../engine/realTimes";
+import { fmtS } from "../engine/sim";
+import { labSim, tracedReal } from "../engine/realTimes";
 import { SCENARIOS, scnLabel } from "../engine/traces";
 import { useLab } from "../store";
 import { AddMenu } from "./canvas/AddMenu";
@@ -54,6 +54,26 @@ function Svg({
   );
 }
 
+/** Playback speeds against real time: a quarter speed up to eight times faster. */
+const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+const SPEED_KEY = "tex-lab-play-speed";
+const speedLabel = (v: number) => (v === 1 ? "Real time" : v < 1 ? `${1 / v}× slower` : `${v}× faster`);
+function readSpeed() {
+  try {
+    const v = Number(window.localStorage.getItem(SPEED_KEY));
+    return SPEEDS.includes(v) ? v : 1;
+  } catch {
+    return 1;
+  }
+}
+function keepSpeed(v: number) {
+  try {
+    window.localStorage.setItem(SPEED_KEY, String(v));
+  } catch {
+    // Storage blocked: the speed lasts for this page only.
+  }
+}
+
 export function Canvas() {
   const s = useLab();
   const stage = useRef<HTMLDivElement>(null);
@@ -65,7 +85,10 @@ export function Canvas() {
     y0: number;
     y1: number;
   } | null>(null);
-  const [litId, setLitId] = useState<string | null>(null);
+  const [lit, setLit] = useState<ReadonlySet<string> | null>(null);
+  const [clock, setClock] = useState<{ at: number; of: number } | null>(null);
+  const [speed, setSpeed] = useState(() => readSpeed());
+  const playing = useRef<number | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [scnOpen, setScnOpen] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -113,14 +136,14 @@ export function Canvas() {
   // The artifact's renderCanvas: a focused step that no longer exists drops the focus.
   const g = G();
   if (s.cfocus && !node(s.cfocus, g)) lab.cfocus = null;
-  const sim = withReal(simulate(g, s.scn, s.logRows), s.scn === "own" && s.real?.text === s.ownText ? s.real.times : null);
+  const sim = labSim(g);
   const tags = (SCENARIOS[s.scn] || SCENARIOS.own)?.tags || [];
   let html: string;
   if (lab.cfocus) {
     const f = renderFocusCanvasHtml(g, sim, lab.cfocus, s.sel);
     fBounds.current = f.fBounds;
     html = f.html;
-  } else html = renderGraphHtml(g, sim, tags, s.sel, litId, "off");
+  } else html = renderGraphHtml(g, sim, tags, s.sel, lit, "off");
   const focused = lab.cfocus ? node(lab.cfocus, g) : undefined;
 
   useLayoutEffect(applyCam);
@@ -139,19 +162,51 @@ export function Canvas() {
     return () => document.removeEventListener("pointerdown", away);
   }, [scnOpen]);
 
-  const play = () => {
-    const sm = withReal(simulate(G(), lab.scn, lab.logRows), lab.scn === "own" && lab.real?.text === lab.ownText ? lab.real.times : null);
-    const order = Object.entries(sm.T)
-      .sort((a, b) => a[1].start - b[1].start)
-      .map((x) => x[0]);
-    let i = 0;
-    const step = () => {
-      setLitId(order[i] ?? null);
-      if (++i < order.length) timers.current.push(setTimeout(step, 420));
-      else timers.current.push(setTimeout(() => setLitId(null), 700));
-    };
-    step();
+  // Playback at the moment's own pace (Dev2, 2026-11-14: "I want it to actually be as slow as the actuall logged
+  // times are, so we can debug what parts are causing slowdowns"): every step lights while it runs, side by side when
+  // they overlap, scaled by the speed slider; the step that started last is selected so its panel shows.
+  const stop = () => {
+    if (playing.current !== null) cancelAnimationFrame(playing.current);
+    playing.current = null;
+    setLit(null);
+    setClock(null);
   };
+  const play = () => {
+    if (playing.current !== null) return stop();
+    const sm = labSim();
+    const steps = Object.entries(sm.T).filter(([, t]) => t.lane === "reply" || t.lane === "behind");
+    const of = Math.max(sm.reply, ...steps.map(([, t]) => t.end));
+    const began = performance.now();
+    let last: string | null = null;
+    let drawn = "";
+    const tick = () => {
+      const at = (performance.now() - began) * speed;
+      // A step too short to see stays lit a little longer: 150 ms of screen time, at most 0.4 s of the turn.
+      const on = steps.filter(([, t]) => at >= t.start && at < Math.max(t.end, t.start + Math.min(150 * speed, 400))).sort((a, b) => b[1].start - a[1].start);
+      // Draw only when something shows differently: the lit steps, or the clock's tenth of a second.
+      const key = on.map(([id]) => id).join(",") + "|" + Math.floor(Math.min(at, of) / 100);
+      if (key !== drawn) {
+        drawn = key;
+        setLit(new Set(on.map(([id]) => id)));
+        setClock({ at: Math.min(at, of), of });
+      }
+      const newest = on[0]?.[0] ?? null;
+      if (newest && newest !== last && node(newest)) {
+        last = newest;
+        set({ sel: { t: "node", id: newest } });
+      }
+      if (at < of + 400 * speed) playing.current = requestAnimationFrame(tick);
+      else {
+        playing.current = null;
+        setLit(null);
+        timers.current.push(setTimeout(() => setClock(null), 1500));
+      }
+    };
+    playing.current = requestAnimationFrame(tick);
+  };
+  useEffect(() => () => {
+    if (playing.current !== null) cancelAnimationFrame(playing.current);
+  }, []);
 
   const tool = s.tool;
   const setTool = (t: typeof tool) => set({ tool: t });
@@ -196,13 +251,35 @@ export function Canvas() {
         <button
           className="ib"
           id="playBtn"
-          aria-label="Play the moment"
-          title="Play the moment"
+          aria-label={lit !== null ? "Stop" : "Play the moment"}
+          title={lit !== null ? "Stop" : tracedReal() ? "Play at the pace it really ran" : "Play the moment"}
           style={{ width: 30, height: 30, border: "none", background: "none" }}
           onClick={play}
         >
-          <Svg d='<path d="M8 5l10 7-10 7z"/>' />
+          <Svg d={lit !== null ? '<rect x="7" y="6" width="10" height="12" rx="1.5"/>' : '<path d="M8 5l10 7-10 7z"/>'} />
         </button>
+        <label className="pace" title="Playback speed against real time">
+          <input
+            id="playSpeed"
+            type="range"
+            min={0}
+            max={SPEEDS.length - 1}
+            step={1}
+            value={SPEEDS.indexOf(speed)}
+            aria-label="Playback speed"
+            onChange={(e) => {
+              const v = SPEEDS[Number(e.target.value)] ?? 1;
+              setSpeed(v);
+              keepSpeed(v);
+            }}
+          />
+          <span id="playSpeedLabel">{speedLabel(speed)}</span>
+        </label>
+        {clock ? (
+          <span className="clock" id="playClock">
+            {fmtS(clock.at)} / {fmtS(clock.of)}
+          </span>
+        ) : null}
       </div>
       <div
         className="float stats"

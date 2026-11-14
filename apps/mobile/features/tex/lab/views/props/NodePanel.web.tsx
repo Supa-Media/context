@@ -4,10 +4,11 @@
  * reads and output fields, wires, the scenario's own timing, the change note
  * and delete). Ported with the same markup, classes and ids.
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { AREAS, EXAMINABLE } from "../../data/areas";
-import { NODE_INFO, WIRES } from "../../data/graph";
-import { cacheShare, ctxTokens, fmtS, fmtUsd, outTok, simulate } from "../../engine/sim";
+import { ICONS, NODE_INFO, WIRES } from "../../data/graph";
+import { cacheShare, ctxTokens, fmtS, fmtUsd, outTok } from "../../engine/sim";
+import { labSim, tracedReal } from "../../engine/realTimes";
 import { delSel, edit, G, go, lab, MODELS, node, set } from "../../engine/state";
 import { scnLabel } from "../../engine/traces";
 import { useLab } from "../../store";
@@ -43,7 +44,9 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   useLab();
   const g = G();
   const m = MODELS[n.model] || MODELS.code;
-  const t = simulate(g, lab.scn, lab.logRows).T[n.id];
+  const t = labSim(g).T[n.id];
+  const io = tracedReal() ? lab.real?.io?.[n.id] : undefined;
+  const [picking, setPicking] = useState(false);
   const wires = g.edges.map((e, i) => [e, i] as const).filter(([e]) => e.to === n.id || e.from === n.id);
   const outTokens = outTok(n);
   const outLocked = !!n.outSchema?.length;
@@ -51,13 +54,47 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   return (
     <>
       <div className="ph">
-        <div className="badge" style={{ color: `var(${m.c})` }}>
+        {/* Not in the artifact: the badge picks the step's icon (Dev2, 2026-11-14: "there is no way to change the icons"). */}
+        <button className="badge" id="nIcon" aria-label="Change the icon" aria-expanded={picking} title="Change the icon" style={{ color: `var(${m.c})` }} onClick={() => setPicking(!picking)}>
           <Ic k={n.icon} />
-        </div>
+        </button>
         <input id="nLabel" aria-label="Step name" key={n.label} defaultValue={n.label} ref={onCommit<HTMLInputElement>((v) => setNode(n.id, "label", v))} />
         {extra}
       </div>
+      {picking ? (
+        <div className="icpick" id="nIconPick" role="listbox" aria-label="Icons">
+          {Object.keys(ICONS)
+            .filter((k) => k !== "trash" && k !== "wire")
+            .map((k) => (
+              <button
+                key={k}
+                data-icon={k}
+                role="option"
+                aria-selected={n.icon === k}
+                aria-label={k}
+                onClick={() => {
+                  setNode(n.id, "icon", k);
+                  setPicking(false);
+                }}
+              >
+                <Ic k={k} />
+              </button>
+            ))}
+        </div>
+      ) : null}
       <div className="file">{n.file || "new step"}</div>
+      {io?.length ? (
+        // Not in the artifact: what this step got and gave when it ran for one of your texts (`realTimes.ts` realIO).
+        <div className="grp" id="nIO">
+          <h4>{`In “${scnLabel(lab.scn)}”, it ran with`}</h4>
+          {io.map((l, i) => (
+            <div key={i} className="io">
+              <b>{l.k}</b>
+              <pre>{l.v}</pre>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="grp">
         <h4>Goal</h4>
         <textarea className="note" id="nGoal" rows={3} placeholder="Why this step exists: what goes wrong without it" key={n.goal || ""} defaultValue={n.goal || ""} ref={onCommit<HTMLTextAreaElement>((v) => setNode(n.id, "goal", v.trim()))} />

@@ -9,7 +9,7 @@
 import { describe, expect, jest, test } from "@jest/globals";
 import { BASE_MODELS } from "../features/tex/lab/data/models";
 import { realTimes, withReal } from "../features/tex/lab/engine/realTimes";
-import type { Sim } from "../features/tex/lab/engine/sim";
+import { simulate, type Sim } from "../features/tex/lab/engine/sim";
 
 const turn = "t1";
 const reply = {
@@ -50,14 +50,24 @@ describe("realTimes", () => {
     expect(realTimes([{ id: "r2", at: 1, kind: "reply", turn }], turn)).toBeNull();
   });
 
-  test("withReal puts measured times in and marks what was measured", () => {
-    const sim = { T: { fd: { start: 0, end: 9, ms: 9400, usd: 0, calls: 3, parts: [], lane: "reply" } }, reply: 17600, usd: 0, replyCalls: 5, jobEnd: 0, reach: new Map(), inside: new Set() } as Sim;
-    const out = withReal(sim, { reply: 6700, ms: { fd: 2700, tools: 650 }, calls: { fd: 2 } });
+  test("withReal places a measured step the run did not reach where it ran, and marks what was measured", () => {
+    const sim = { T: { door: { start: 900, end: 1600, ms: 700, usd: 0, calls: 0, parts: [], lane: "reply" }, fd: { start: 1600, end: 4300, ms: 2700, usd: 0, calls: 2, parts: [], lane: "reply" } }, reply: 17600, usd: 0, replyCalls: 5, jobEnd: 0, reach: new Map(), inside: new Set() } as Sim;
+    const out = withReal(sim, { reply: 6700, ms: { door: 700, fd: 2700, tools: 650 }, calls: { fd: 2 }, at: { tools: 1500 } });
     expect(out.reply).toBe(6700);
-    expect(out.T.fd.ms).toBe(2700);
-    expect(out.T.tools.ms).toBe(650);
-    expect([...out.real!]).toEqual(["fd", "tools"]);
+    expect(out.T.fd).toBe(sim.T.fd);
+    expect(out.T.tools).toMatchObject({ start: 2400, end: 3050, ms: 650 });
+    expect([...out.real!]).toEqual(["door", "fd", "tools"]);
     expect(withReal(sim, null)).toBe(sim);
+  });
+
+  test("a real run takes measured times, skips steps that log when they run but logged nothing, and adds no send-backs", () => {
+    const { G } = jest.requireActual<typeof import("../features/tex/lab/engine/state")>("../features/tex/lab/engine/state");
+    const real = { reply: 6700, ms: { lanes: 450, door: 700, fd: 2700, tools: 650, send: 150 }, calls: { fd: 2 } };
+    const sim = simulate(G(), "own", null, real);
+    expect(sim.T.fd.ms).toBe(2700 + 650);
+    expect(sim.T.reviewer).toBeUndefined();
+    expect(sim.T.fd.parts.some((p) => p.id === "sendback")).toBe(false);
+    expect(sim.T.door.start).toBe(sim.T.lanes.end);
   });
 });
 

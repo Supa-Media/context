@@ -13,7 +13,7 @@ import { mainGraph } from "../data/graph";
 import { BASE_MODELS } from "../data/models";
 import type { LabCase, LabGraph, LabModel, LabVersion, Selection, Tool, View } from "../types";
 import type { MyText, ReplayNow } from "./mine";
-import type { RealTimes } from "./realTimes";
+import type { IoLine, RealTimes } from "./realTimes";
 
 export const clone = <T,>(o: T): T => JSON.parse(JSON.stringify(o));
 
@@ -63,7 +63,7 @@ export type LabState = {
   /** What a version said now for each replayed text, from a pasted "## Lab replay": this tab only, never saved. */
   myNow: Record<string, ReplayNow>;
   /** The measured step times of the own text the canvas traces, when it is one the person sent (`realTimes.ts`). */
-  real: { text: string; times: RealTimes } | null;
+  real: { text: string; times: RealTimes; io?: Record<string, IoLine[]> } | null;
 };
 
 export const lab: LabState = {
