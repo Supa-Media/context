@@ -15,7 +15,6 @@ import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
 import type { Message } from "./reply";
 import { textRoutine } from "./routines";
-export { TexRoutines } from "./texRoutineDue";
 import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { tellNewLine } from "./newLine";
@@ -43,8 +42,6 @@ import { answerHanded, failHanded } from "./groupTurnRun";
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 import { inboxByName, inboxIdOf, objectByName } from "./objectPlace";
 import { movedAlarm, placeGate, type MoveStorage } from "./inboxMove";
-export { GroupTurnWorkflow } from "./groupTurnWorkflow";
-export { JobRunWorkflow } from "./jobWorkflow";
 
 import type { Env } from "./index";
 
