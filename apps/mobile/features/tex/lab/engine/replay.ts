@@ -13,7 +13,7 @@
  * - Sent: each text Tex sent.
  */
 import type { LedgerEntry } from "../../page/texPageTypes";
-import type { ChatLine } from "./mine";
+import { routineName, type ChatLine, type Start } from "./mine";
 
 export type BarKind = "text" | "judge" | "wait" | "turn" | "sent";
 /** `zero` is where a turn's own timeline starts (its wait in the queue included), for the canvas. */
@@ -39,7 +39,13 @@ export type Moment = {
   of: number;
   /** The turns that answered it, in the order they started. */
   turns: string[];
+  /** What started it: a text someone sent, or a check-in, a routine or another AI's ping. */
+  from: "text" | Start;
 };
+
+/** How a start step reads on the timeline and in the chat. */
+export const START_WORDS: Record<Start, string> = { checkin: "Check-in", routine: "Routine", notify: "Send through Tex" };
+export const startLabel = (l: ChatLine) => (l.start === "routine" && l.routine ? `Routine · ${routineName(l.routine)}` : l.start ? START_WORDS[l.start] : "");
 
 const rec = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
@@ -71,19 +77,22 @@ export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
   // Where each run of texts begins: a person's text that follows something Tex said.
   const breaks: number[] = [];
   lines.forEach((l, i) => {
-    if (i === 0 || (l.from === "person" && lines[i - 1].from === "tex")) breaks.push(l.at);
+    if (i === 0 || l.start || (l.from === "person" && lines[i - 1].from === "tex")) breaks.push(l.at);
   });
   const out: Moment[] = [];
   lines.forEach((first, i) => {
-    if (first.from !== "person") return;
-    const t0 = first.at;
-    const next = breaks.find((b) => b > t0);
+    if (first.from !== "person" && !first.start) return;
+    // Tex texting on its own: its turn ran before the text went, so the moment starts where that turn's first entry did.
+    const own = first.start && first.turn ? entries.filter((e) => e.turn === first.turn) : [];
+    const t0 = own.length ? Math.min(first.at, ...own.map((e) => e.at - (num(e.ms) ?? 0))) : first.at;
+    const next = breaks.find((b) => b > first.at);
     const last = lines[lines.length - 1].at;
-    const until = next ?? Math.max(t0, last) + 60_000;
+    const until = next ?? Math.max(first.at, last) + 60_000;
     const g = lines.slice(i).filter((l) => l.at < until);
     const inside = (at: number) => at >= t0 - 1_000 && at < until;
     const rel = (at: number) => Math.max(0, at - t0);
     const lanes: Record<Lane, Bar[]> = { Texts: [], Judge: [], Turn: [], Sent: [] };
+    if (first.start) lanes.Texts.push({ kind: "text", start: 0, end: 250, label: startLabel(first) });
     for (const l of g) {
       if (l.from === "person") lanes.Texts.push({ kind: "text", start: rel(l.at), end: rel(l.at) + 250, label: cut(l.text) });
       else lanes.Sent.push({ kind: "sent", start: rel(l.at), end: rel(l.at) + 400, label: cut(l.text) });
@@ -111,9 +120,14 @@ export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
         turns.push([zero, e.turn]);
       }
     }
+    // Its own turn kept no reply timing (a routine's or a check-in's): drawn from its first entry to the text it sent.
+    if (first.start && first.turn && !turns.some(([, t]) => t === first.turn)) {
+      lanes.Turn.push({ kind: "turn", start: 0, end: rel(first.at), label: cut(first.text, 22), turn: first.turn, zero: 0, detail: first.text });
+      turns.push([0, first.turn]);
+    }
     for (const k of Object.keys(lanes) as Lane[]) lanes[k].sort((a, b) => a.start - b.start);
     const of = Math.max(1_000, ...Object.values(lanes).flat().map((b) => b.end));
-    out.push({ id: first.id, at: t0, lines: g, lanes, of, turns: turns.sort((a, b) => a[0] - b[0]).map(([, t]) => t) });
+    out.push({ id: first.id, at: t0, lines: g, lanes, of, turns: turns.sort((a, b) => a[0] - b[0]).map(([, t]) => t), from: first.start ?? "text" });
   });
   return out;
 }

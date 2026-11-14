@@ -272,7 +272,7 @@ function Lab() {
         </div>
         <div className={"body" + (propsOn ? " props" : "") + (wide ? " wide" : "")} id="body" style={gridCols ? { gridTemplateColumns: gridCols } : undefined}>
           <nav className="side" id="side" aria-label={replay ? "Your chats" : "Lab"} hidden={s.sideHidden && !phone()}>
-            {replay ? <ReplaySide moments={moments} /> : <>
+            {replay ? <ReplaySide moments={moments} onHide={toggleSide} /> : <>
             {NAV.map(([v, name, icon, tag]) => (
               <button key={v} className="rowi" data-view={v} aria-current={s.view === v} onClick={() => (closeSide(), go(v))}>
                 <Svg d={icon} />
@@ -356,6 +356,12 @@ function Lab() {
           <div className="scrim" id="scrim" onClick={closeSide} />
           <main className="main" id="main">
             <div id="v-canvas" hidden={s.view !== "canvas"}>
+              {/* Replay's chats, hidden, come back from a tab at the canvas's left edge, where they went (Dev2, 2026-11-14). */}
+              {replay && s.sideHidden && !phone() ? (
+                <button className="float rexpand" id="rExpand" aria-label="Show your chats" title="Show your chats" onClick={toggleSide}>
+                  <Svg className="i" d='<path d="M9 6l6 6-6 6"/>' />
+                </button>
+              ) : null}
               {s.view === "canvas" ? <Canvas replay={replay ? { m: moment, entries } : null} /> : null}
             </div>
             {PAGES.map(([v, id, style, render]) => (

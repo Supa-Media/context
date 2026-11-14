@@ -38,6 +38,9 @@ export const ICONS: Record<string, string> = {
   queue:'<path d="M4 7h16M4 12h16M4 17h10"/>',
   trash:'<path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/>',
   emoji:'<circle cx="12" cy="12" r="8"/><path d="M9 14c1.5 1.5 4.5 1.5 6 0M9.5 10h.01M14.5 10h.01"/>',
+  beat:'<path d="M3 12h4l2-5 4 10 2-5h6"/>',
+  repeat:'<path d="M17 3l3 3-3 3"/><path d="M4 12V9a3 3 0 0 1 3-3h13"/><path d="M7 21l-3-3 3-3"/><path d="M20 12v3a3 3 0 0 1-3 3H4"/>',
+  plug:'<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>',
   wire:'<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.5 16.5c3-1 2-8 9-9"/>'
 };
 
@@ -46,6 +49,9 @@ export function N(id: string, label: string, o: Partial<LabNode>): LabNode {
 }
 
 export const NODE_INFO: Record<string, { goal: string; logs: string[] | null }> = {
+ checkin:{goal:"Three times a day, look at what changed in their workspace, mail and calendar, and text them only what can't wait; most looks stay quiet. Runs the front door with its own read-only tools and setup model.",logs:["note (check-in)"]},
+ routine:{goal:"Run a routine note under tex/routines/ on its schedule, as the person who wrote it, and text what it found unless it has nothing to say.",logs:["note (routine)","thinking","tool","judge"]},
+ notify:{goal:"Another AI connected to Context asks Tex to text the person (send notify) because something needs them now; their settings decide whether it goes, and it is texted as written, with no model.",logs:["note (ping)"]},
  text:{goal:"Take every text, picture or tapback from iMessage or WhatsApp and get it into the chat's record before anything decides about it.",logs:["text"]},
  decide:{goal:"Choose, from labelled examples, whether this text gets an answer, a reaction, a short wait or nothing, so Tex never answers what wasn't for it.",logs:["judge (moment)"]},
  react:{goal:"Put Decide's tapback on their text straight away, so a thanks or a win gets a reaction without a reply.",logs:null},

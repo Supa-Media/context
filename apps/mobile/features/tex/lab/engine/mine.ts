@@ -9,6 +9,7 @@
  * runs it again in a throwaway world, where nothing can text anyone or change a real note, and prints Then beside Now,
  * which `parseReplay` reads back.
  */
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import type { LedgerEntry } from "../../page/texPageTypes";
 
 export type TexVersion = { code?: string; deploy?: string; setup?: string };
@@ -26,8 +27,26 @@ export type MyText = {
   who?: string;
 };
 
-/** One line of a chat as the Lab's conversation shows it: every text in order, and the person's ones playable. */
-export type ChatLine = { id: string; at: number; from: "person" | "tex"; who: string; text: string; play: MyText | null };
+/** What made Tex text without a text from them first (`texConfig.json`'s other start steps). */
+export type Start = "checkin" | "routine" | "notify";
+
+/**
+ * One line of a chat as the Lab's conversation shows it: every text in order, and the person's ones playable. A text
+ * Tex sent on its own (a check-in, a routine's run, another AI's ping) carries `start`, and is playable too: from that
+ * start step, with its turn when one ran (`turn`), what it was asked (`about`) and the routine's note (`routine`).
+ */
+export type ChatLine = {
+  id: string;
+  at: number;
+  from: "person" | "tex";
+  who: string;
+  text: string;
+  play: MyText | null;
+  start?: Start;
+  turn?: string;
+  about?: string;
+  routine?: string;
+};
 
 /** One replayed text, as the pasted "## Lab replay" block gives it. */
 export type ReplayNow = { id: string; now: string; failed?: string };
@@ -82,16 +101,41 @@ export function myTexts(entries: LedgerEntry[]): MyText[] {
   return out.reverse();
 }
 
+const CHECK_IN = /^\(Not a text from them\. This was your own check-in/;
+const PING = /^\(Not a text from them\. Another of their agents asked you to get their attention/;
+
+/** Which start step a `note` entry was, or null for one that is not a text Tex sent on its own. */
+export function startOf(e: LedgerEntry): Start | null {
+  if (e.kind !== "note" || e.backfill || str(e.text).trim() === "") return null;
+  if (str(e.routine)) return "routine";
+  const about = str(e.about);
+  if (CHECK_IN.test(about)) return "checkin";
+  if (PING.test(about)) return "notify";
+  return null;
+}
+
+/** A routine's name from its note's path: `tex/routines/daily/morning-news.md` is "morning news". */
+/** A routine's note, named for display: its leaf without `.md`, contained like every other drawn name. */
+export const routineName = (path: string) => isolateForDisplay(path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "").replace(/[-_]+/g, " "));
+
 /**
- * The whole chat, oldest first, from the same entries: the person's texts (playable, joined to `myTexts`) and Tex's
- * answers, so the Lab can show the conversation and a click on a text plays it. Jobs and system lines are left out.
+ * The whole chat, oldest first, from the same entries: the person's texts (playable, joined to `myTexts`), Tex's
+ * answers, and what Tex texted on its own (a check-in, a routine, a ping: `note` entries), so the Lab can show the
+ * conversation and a click on a text plays it. Jobs and system lines are left out.
  */
 export function chatLines(entries: LedgerEntry[], texts: MyText[], { group = false } = {}): ChatLine[] {
   const byId = new Map(texts.map((t) => [t.id, t]));
   return [...entries]
-    .filter((e) => e.kind === "text" && !e.job && (fromKind(e) === "person" || fromKind(e) === "tex") && str(e.text).trim() !== "")
+    .filter((e) => startOf(e) !== null || (e.kind === "text" && !e.job && (fromKind(e) === "person" || fromKind(e) === "tex") && str(e.text).trim() !== ""))
     .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || a.at - b.at)
-    .map((e) => {
+    .map((e): ChatLine => {
+      const start = startOf(e);
+      if (start) {
+        const turn = str(e.turn);
+        const routine = str(e.routine);
+        const about = str(e.about);
+        return { id: e.id, at: e.at, from: "tex", who: "Tex", text: str(e.text), play: null, start, ...(turn ? { turn } : {}), ...(about ? { about } : {}), ...(routine ? { routine } : {}) };
+      }
       const tex = fromKind(e) === "tex";
       const name = str(rec(e.from)?.name);
       return { id: e.id, at: e.at, from: tex ? ("tex" as const) : ("person" as const), who: tex ? "Tex" : group ? name || "Someone" : "You", text: str(e.text), play: tex ? null : (byId.get(e.id) ?? null) };

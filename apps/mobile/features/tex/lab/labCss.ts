@@ -234,8 +234,10 @@ label.num.chg{outline:2px solid var(--accent);border-radius:10px}
 .stats{right:12px;top:12px;padding:6px 12px;gap:14px;font-size:12.5px;color:var(--muted)}
 .stats b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:600}
 .zoom{right:12px;bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+/* Replay: the zoom sits up top, off the timeline (Dev2, 2026-11-14: "You see this overlap? super annoying"). */
+.zoom.ztop{top:60px;bottom:auto}.keybtn{display:flex;align-items:center;gap:6px;padding:5px 10px;font:inherit;font-size:12px;color:var(--muted);cursor:pointer}.keybtn[aria-expanded=true]{color:var(--text)}
 .zoom .ib{width:30px;height:30px;border:none;background:none}
-.keyw{left:12px;top:60px;gap:12px;padding:6px 12px;font-size:12px;color:var(--muted)}
+.keyw{left:12px;top:60px;flex-wrap:wrap;gap:12px;padding:6px 12px;font-size:12px;color:var(--muted)}
 .keyw svg{width:30px;height:10px}
 .menu{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);background:var(--page);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px;min-width:250px;display:flex;flex-direction:column;z-index:5}
 .menu button{display:flex;gap:10px;align-items:center;border:none;background:none;padding:8px 10px;border-radius:8px;text-align:left}
@@ -250,13 +252,17 @@ label.num.chg{outline:2px solid var(--accent);border-radius:10px}
 a.rowi{text-decoration:none;cursor:pointer}
 .modes{display:inline-flex;background:var(--s3);border-radius:10px;padding:3px;gap:2px}.modes button{border:none;background:none;font-weight:600;font-size:13px;color:var(--muted);padding:5px 12px;border-radius:8px}.modes button[aria-pressed=true]{background:var(--page);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .rside{display:flex;flex-direction:column;min-height:0;height:100%;gap:8px}
-.rchat{width:100%;font:inherit;font-size:14px;font-weight:600;border:1px solid var(--line2);border-radius:9px;background:var(--page);color:var(--text);padding:7px 10px}
+.rsideh{display:flex;gap:6px;align-items:center}.rsideh .ib{width:34px;height:34px;flex:none}
+.rexpand{position:absolute;left:0;top:50%;transform:translateY(-50%);z-index:5;width:26px;height:56px;padding:0;display:grid;place-items:center;border-radius:0 10px 10px 0;cursor:pointer;color:var(--muted)}.rexpand .i{width:16px;height:16px}
+.rchat{flex:1;min-width:0;width:100%;font:inherit;font-size:14px;font-weight:600;border:1px solid var(--line2);border-radius:9px;background:var(--page);color:var(--text);padding:8px 34px 8px 12px}
+/* One drawn chevron, centred, instead of each browser's own arrow (Dev2, 2026-11-14: "how wonky this carat looks"). */
+.rchat,.rtlh select{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a857c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 10l5 5 5-5'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:right 10px center;background-size:16px 16px}.rtlh select{padding-right:30px!important;background-position:right 8px center;background-size:14px 14px}
 .rmoments{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:4px;padding:2px 0 8px}
 .rmw{display:flex;flex-direction:column}
-.rtl{left:12px;right:60px;bottom:calc(14px + env(safe-area-inset-bottom,0px));flex-direction:column;align-items:stretch;gap:6px;padding:8px 12px;max-width:none}
+.rtl{left:12px;right:12px;bottom:calc(14px + env(safe-area-inset-bottom,0px));flex-direction:column;align-items:stretch;gap:6px;padding:8px 12px;max-width:none}
 .rtlh{display:flex;align-items:center;gap:10px}.rtlh .ib{width:30px;height:30px}.rtlh .clock{font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}.rtlh select{font:inherit;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--page);color:var(--text);padding:2px 6px}
 .rlanes{display:grid;gap:4px}.rrow{display:grid;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:8px}.rln{font-size:11px;color:var(--muted)}
-.rtrack{position:relative;height:20px;background:var(--s3);border-radius:6px}
+.rtrack{position:relative;height:20px;background:var(--s3);border-radius:6px;cursor:ew-resize}.rlanes{touch-action:none;user-select:none}
 .rbar{position:absolute;top:2px;height:16px;border-radius:5px;border:1px solid transparent;padding:0 5px;font-size:10.5px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);text-align:left}
 .rbar.text{background:var(--accent);color:#fff}.rbar.judge{background:var(--warn-wash);border-color:var(--warn)}.rbar.turn{background:var(--accent-dim);border-color:var(--accent)}.rbar.sent{background:var(--ok-wash);border-color:var(--ok)}.rbar.wait{background:repeating-linear-gradient(135deg,var(--line2) 0 4px,transparent 4px 8px);border:1px dashed var(--line2)}
 .rhead{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--text);border-radius:2px;pointer-events:none}
@@ -267,7 +273,9 @@ a.rowi{text-decoration:none;cursor:pointer}
 .cdb{max-width:86%;display:flex;flex-direction:column;gap:2px;text-align:left;font:inherit;font-size:13.5px;line-height:1.38;padding:7px 10px;border-radius:14px;border:1.5px solid transparent;color:var(--text);overflow-wrap:anywhere;white-space:pre-wrap}
 .cdb.me{align-self:flex-end;background:var(--accent);color:#fff;border-radius:14px 14px 4px 14px}.cdb.them{align-self:flex-start;background:var(--s3);border-radius:14px 14px 14px 4px}.cdb.tex{align-self:flex-start;background:var(--warn-wash);border-radius:14px 14px 14px 4px}
 .cdb.can{cursor:pointer}.cdb.can:hover{border-color:var(--line2)}.cdb.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}.cdb.me.on{border-color:var(--text)}
-.cdw{font-size:11px;font-weight:600;color:var(--muted)}.cdm{font-size:11px;opacity:.7;font-variant-numeric:tabular-nums}.cdb.me .cdm{color:#fff}
+.cdw{font-size:11px;font-weight:600;color:var(--muted)}.cds{color:var(--accent)}.cdb.tex.can .cdm{color:var(--muted)}
+#rIO .io{margin:8px 0 0}#rIO .io b{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:3px}#rIO pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12.5px/1.5 var(--mono);color:var(--text);background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.iofold summary{cursor:pointer;font-size:12px;color:var(--accent);margin-top:2px}.io pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:none}.cdm{font-size:11px;opacity:.7;font-variant-numeric:tabular-nums}.cdb.me .cdm{color:#fff}
 .icpick{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin:8px 0 2px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--page)}.icpick button{display:grid;place-items:center;height:30px;border:none;border-radius:7px;background:none;color:var(--text2)}.icpick button:hover{background:var(--chip)}.icpick button[aria-selected="true"]{background:var(--accent-dim);color:var(--accent)}
 #nIO .io{margin:6px 0 0}#nIO .io b{display:block;font-size:11.5px;font-weight:600;color:var(--muted);margin-bottom:2px}#nIO pre{margin:0;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:12px/1.45 var(--mono);color:var(--text);background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
 .ph input{flex:1;min-width:0;border:1px solid transparent;background:none;font-size:17px;font-weight:600;padding:4px 6px;border-radius:7px}
@@ -381,7 +389,7 @@ textarea.code{width:100%;border:1px solid var(--line);background:var(--page);bor
   .main{border-radius:0;border-left:none}
   .props-pane{position:fixed;z-index:12;left:0;right:0;bottom:0;max-height:58%;border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:var(--shadow);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))}
   .rtl{bottom:calc(14px + env(safe-area-inset-bottom,0px))}
-  .stats,.keyw,.sync{display:none}
+  .stats,.keyw,.keybtn,.sync{display:none}
   .playbar .pace span{display:none}.playbar .pace input{width:52px}
   .zoom{bottom:calc(114px + env(safe-area-inset-bottom,0px))}
   .chipbtn{max-width:150px}

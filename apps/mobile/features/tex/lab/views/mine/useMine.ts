@@ -55,7 +55,7 @@ export async function readMyTexts(older = false) {
   reading = true;
   const chat = lab.myChat;
   try {
-    const r = await source.ledger(chat, { kinds: ["text", "reply"], jobs: false, before: older && lab.myOlder !== null ? lab.myOlder : LATEST });
+    const r = await source.ledger(chat, { kinds: ["text", "reply", "note"], jobs: false, before: older && lab.myOlder !== null ? lab.myOlder : LATEST });
     if (chat !== lab.myChat) return;
     if (r.kind !== "ok") {
       if (!older) lab.myTexts = "failed";

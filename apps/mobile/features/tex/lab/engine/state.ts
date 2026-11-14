@@ -38,6 +38,8 @@ export type LabState = {
   tArea: string;
   tQ: string;
   ownText: string;
+  /** What started the traced moment: "text" (a text arriving), "checkin", "routine" or "notify". */
+  ownFrom: string;
   /** Sidebar hidden on wide screens (the artifact's `#side[hidden]`). */
   sideHidden: boolean;
   /** Sidebar drawn over the page on a phone (the artifact's `.sideopen`). */
@@ -95,6 +97,7 @@ export const lab: LabState = {
   tArea: "core",
   tQ: "",
   ownText: "",
+  ownFrom: "text",
   sideHidden: false,
   sideOpen: false,
   viewer: null,

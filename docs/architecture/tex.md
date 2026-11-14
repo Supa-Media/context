@@ -208,6 +208,9 @@ Generated from `packages/shared/src/texConfig.json` by `scripts/tex-config-table
 
 | Step | | Model | Effort | Time limit | Reads, in order | Where |
 | --- | --- | --- | --- | --- | --- | --- |
+| Check-in | on | code |  |  |  | heartbeat.js |
+| Routine runs | on | code |  |  |  | routine.js · runARoutine.js |
+| Send through Tex | on | code |  |  |  | tools/attention.js · attention.js |
 | A text arrives | on | code |  |  |  | apps/agent |
 | Decide | on | Clef |  |  | examples, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
 | Queue | on | code |  |  |  | apps/agent inbox.ts · groupTurn.ts |
@@ -231,7 +234,7 @@ Generated from `packages/shared/src/texConfig.json` by `scripts/tex-config-table
 | Advisor on job mail | on | Opus 5.5 | high |  | own, brief, ask | jobNote.js · advisorRoles/jobMail.js |
 | Hand-back judge | on | Haiku 5.5 | low |  | own, brief, draft | handbackJudge.js · claimCheck.js |
 
-Wires: text → decide (wait) · decide → react (wait) · decide → lanes (wait) · lanes → door (wait) · door → fd (wait) · door → router (wait) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (behind) · send → selfreview (behind) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job)
+Wires: checkin → fd (wait) · routine → door (wait) · notify → send (wait) · text → decide (wait) · decide → react (wait) · decide → lanes (wait) · lanes → door (wait) · door → fd (wait) · door → router (wait) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (behind) · send → selfreview (behind) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job)
 <!-- tex-config: steps end -->
 
 ## Change log

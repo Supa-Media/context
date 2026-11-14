@@ -8,7 +8,7 @@
  */
 import { describe, expect, jest, test } from "@jest/globals";
 import { BASE_MODELS } from "../features/tex/lab/data/models";
-import { realTimes, withReal } from "../features/tex/lab/engine/realTimes";
+import { realTimes, roundUsd, withReal, withWorkerSteps } from "../features/tex/lab/engine/realTimes";
 import { simulate, type Sim } from "../features/tex/lab/engine/sim";
 
 const turn = "t1";
@@ -93,4 +93,38 @@ test("the wire key offers Next, Helper, Background and Send back: after-sending 
   const { WIRES } = jest.requireActual<typeof import("../features/tex/lab/data/graph")>("../features/tex/lab/data/graph");
   expect([...keywHtml().matchAll(/<\/svg>([^<]+)<\/span>/g)].map((m) => m[1])).toEqual(["Next", "Helper", "Background", "Send back"]);
   expect({ ...WIRES.behind, folded: undefined, tip: "" }).toEqual({ ...WIRES.job, folded: undefined, tip: "" });
+});
+
+describe("what a turn really cost, and turns that kept no reply timing (Dev2, 2026-11-14)", () => {
+  test("the front door's cost is read from its logged tokens at Haiku 5.5's prices", () => {
+    // $0.10 in, $0.125 cache write, $0.01 cache read, $0.50 out, per million.
+    const r = { model: "anthropic/claude-haiku-5-5", input: 1_000_000, cacheWrite: 1_000_000, cacheRead: 1_000_000, output: 1_000_000 };
+    expect(roundUsd(r)).toBeCloseTo(0.1 + 0.125 + 0.01 + 0.5, 6);
+    const timed = { ...reply, timing: { ...reply.timing, rounds: [{ at: 700, ms: 1500, model: "anthropic/claude-haiku-5-5", cacheWrite: 94_593, output: 159 }] } };
+    expect(realTimes([timed], turn)?.usd).toBeCloseTo((94_593 * 0.125 + 159 * 0.5) / 1e6, 8);
+    expect(realTimes([reply], turn)?.usd).toBeUndefined();
+  });
+
+  test("a routine's turn is measured from its own entries", () => {
+    const es = [
+      { id: "a", at: 10_000, kind: "thinking", turn: "gw", ms: 4_000, text: "…" },
+      { id: "b", at: 11_000, kind: "tool", turn: "gw", name: "fetch", ms: 900 },
+      { id: "c", at: 15_000, kind: "judge", turn: "gw", by: "review", ms: 3_000 },
+      { id: "d", at: 15_100, kind: "note", turn: "gw", text: "x" },
+    ];
+    expect(realTimes(es, "gw")).toEqual({ reply: 9_100, ms: { fd: 4_000, tools: 900, reviewer: 3_000 }, calls: { fd: 1, reviewer: 1 } });
+  });
+
+  test("the texting Worker's judgings, logged with no turn, count as the turn's Decide step", () => {
+    const es = [
+      { id: "w", at: 1_000, kind: "step", step: { name: "decide", of: "waiting", ok: true, ms: 280, input: { texts: 1 }, output: { act: "answer" } } },
+      { id: "late", at: 99_000, kind: "step", step: { name: "decide", of: "waiting", ok: true, ms: 280 } },
+      { ...reply, at: 5_000 },
+    ];
+    const got = withWorkerSteps(es, turn, 0, 5_000);
+    const decide = got.find((e) => e.id === "w")!;
+    expect([decide.turn, decide.step, decide.ms, decide.output]).toEqual([turn, "decide", 280, { act: "answer" }]);
+    expect(got.some((e) => e.id === "late")).toBe(false);
+    expect(realTimes(got, turn)?.ms.decide).toBe(280);
+  });
 });
