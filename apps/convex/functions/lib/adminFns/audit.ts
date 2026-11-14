@@ -41,6 +41,7 @@ export const ADMIN_ACTIONS = [
   "group.person_added",
   "group.person_removed",
   "storage.home_set",
+  "mail.inbox_closed",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];
