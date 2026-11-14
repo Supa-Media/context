@@ -227,6 +227,11 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    */
   /** `prefix` narrows to one folder and everything under it ("clients/"). */
   search: (query: string, prefix?: string) => Promise<SearchAnswer>;
+  /**
+   * A person opened the search result at this 1-based position in the list
+   * shown. Reported once per search (`searchOpenReport.ts`); fire and forget.
+   */
+  openSearchResult: (position: number) => void;
 
   editor: EditorState;
   setDraft: (text: string) => void;

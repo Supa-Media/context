@@ -97,13 +97,27 @@ const liveName = (page: JobPage): string | null => page.live ?? (page.row.setup 
 /** The list's Next column in the artifact's words; a gate to fix keeps its case numbers. */
 const NEXT_WORDS: Partial<Record<string, string>> = { "first-test": "Add cases", run: "Run tests" };
 
-/** The rows of the Jobs list, in the catalog's order, Tex's first. */
+/**
+ * The artifact's names for the jobs it lists (`JOBS` in staff-console.html), where the catalog's
+ * label differs: the console says "Dream" and "Search" (Dev2, 2026-11-14: exactly the artifact).
+ */
+const CONSOLE_NAME: Partial<Record<string, string>> = { dream: "Dream", search: "Search" };
+/** A job's name on this page: the artifact's, else the catalog's label. */
+export const jobName = (key: string, label: string) => CONSOLE_NAME[key] ?? label;
+
+/**
+ * The artifact's row order: Tex, Check-in, Dream, Housekeeping, Meeting summaries, Connected AIs,
+ * Search. A job the artifact did not draw (Meeting transcription) sits after its sibling.
+ */
+const ORDER = [LAB_JOB, "heartbeat", "dream", "housekeeping", "meeting-summaries", "meeting-transcription", "connected-ais", "search"];
+
+/** The rows of the Jobs list, in the artifact's order, Tex's first; a job it did not know comes last. */
 export function jobList(catalog: AiCatalog, reads: ReadonlyMap<string, RunRead>, now: number): JobListRow[] {
-  const keys = [LAB_JOB, ...AI_JOBS.map((job) => job.key).filter((key) => key !== LAB_JOB)];
+  const keys = [...ORDER, ...AI_JOBS.map((job) => job.key).filter((key) => !ORDER.includes(key))];
   return keys.flatMap((key): JobListRow[] => {
     const job = AI_JOBS.find((item) => item.key === key);
     if (!job) return [];
-    if (key === LAB_JOB) return [{ key, name: job.label, lab: true, live: null, score: null, trend: [], last: null, cand: false, next: null }];
+    if (key === LAB_JOB) return [{ key, name: jobName(key, job.label), lab: true, live: null, score: null, trend: [], last: null, cand: false, next: null }];
     const page = jobPage(catalog, key, reads);
     if (page === null) return [];
     const trend = scoreHistory(page).flatMap((point) => (point.score === null ? [] : [point.score]));
@@ -115,7 +129,7 @@ export function jobList(catalog: AiCatalog, reads: ReadonlyMap<string, RunRead>,
     return [
       {
         key,
-        name: job.label,
+        name: jobName(key, job.label),
         lab: false,
         live: liveName(page),
         score: live?.score ?? null,
@@ -136,7 +150,7 @@ export interface JobHead {
   /** `since Nov 6 · by seyi`. */
   since: string;
   score: string;
-  /** `36 of 42 checks pass`. */
+  /** `36 of 42 rule checks pass`. */
   checks: string;
   /** `$0.03 · 3.1 s`. */
   costSpeed: string;
@@ -156,7 +170,7 @@ export function jobHead(page: JobPage): JobHead {
     live: liveName(page) ?? "nothing live",
     since: [since ? `since ${since}` : null, by ? `by ${by}` : null].filter(Boolean).join(" · "),
     score: live?.score != null ? `${live.score}%` : "—",
-    checks: passed ? `${passed.passed} of ${passed.runs} checks pass` : live ? (live.gatesPassed ? "every gate passed" : "a gate failed") : "not run yet",
+    checks: passed ? `${passed.passed} of ${passed.runs} rule checks pass` : live ? (live.gatesPassed ? "every gate passed" : "a gate failed") : "not run yet",
     costSpeed: parts.length ? parts.join(" · ") : "—",
     trend: scoreHistory(page).flatMap((point) => (point.score === null ? [] : [point.score])),
   };
@@ -442,17 +456,42 @@ export interface ActivityRowView {
 
 const KIND: Record<ActivityWho, Exclude<WhoFilter, "all">> = { improver: "agents", ai: "agents", person: "people", bench: "bench" };
 
+/**
+ * What happened, in the artifact's words: "Drafted setup quiet-mornings", "Round 412 finished: live
+ * 86%, quiet-mornings 95%", "Made bge-m3 · hybrid live". The bench names live `production`; the
+ * page says live.
+ */
+export function activityWords(item: Pick<ActivityItem, "kind" | "what" | "detail">): string {
+  const drafted = /^(Drafted|Retired) (.+)$/.exec(item.what);
+  if (drafted && item.kind !== "bench" && !item.what.startsWith("Promoted")) return `${drafted[1]} setup ${drafted[2]}`;
+  const promoted = /^Promoted (.+)$/.exec(item.what);
+  if (promoted) return `Made ${promoted[1]} live`;
+  const ran = /^Ran .+ \((.+)\)$/.exec(item.what);
+  if (ran) {
+    const n = /^gh-(\d+)$/.exec(ran[1]!)?.[1];
+    const round = n ? `Round ${n}` : `Round of ${ran[1]}`;
+    return item.detail ? `${round} finished: ${item.detail.replace(/\bproduction\b/g, "live")}` : `${round} finished`;
+  }
+  return item.detail ? `${item.what}: ${item.detail}` : item.what;
+}
+
+/** Agents by their own names, as the artifact writes them ("improver"). */
+const whoWords = (item: Pick<ActivityItem, "kind" | "who">) => (item.kind === "improver" ? item.who.toLowerCase() : item.who);
+
 export function activityRows(catalog: AiCatalog, reads: ReadonlyMap<string, RunRead>, now: number): ActivityRowView[] {
   return activity(catalog, reads)
     .filter((item: ActivityItem) => item.job !== AI_JOBS.find((job) => job.key === LAB_JOB)?.label)
-    .map((item, index) => ({
-      key: `${item.path}#${index}`,
-      when: item.at > 0 ? whenLabel(item.at, now) : "—",
-      who: item.who,
-      kind: KIND[item.kind],
-      job: item.job ?? "—",
-      what: item.detail ? `${item.what}: ${item.detail}` : item.what,
-    }));
+    .map((item, index) => {
+      const key = AI_JOBS.find((job) => job.label === item.job)?.key;
+      return {
+        key: `${item.path}#${index}`,
+        when: item.at > 0 ? whenLabel(item.at, now) : "—",
+        who: whoWords(item),
+        kind: KIND[item.kind],
+        job: item.job ? (key ? jobName(key, item.job) : item.job) : "—",
+        what: activityWords(item),
+      };
+    });
 }
 
 export const filterActivity = (rows: readonly ActivityRowView[], who: WhoFilter) => rows.filter((row) => who === "all" || row.kind === who);

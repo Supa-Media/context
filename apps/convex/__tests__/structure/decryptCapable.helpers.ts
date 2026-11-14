@@ -156,6 +156,10 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       "functions.workspaceObjects.setHome",
       "functions.workspaceObjects.setHomeBySlug",
       "functions.workspaceObjects.syncRows",
+      // The staff console's one-workspace move (`adminStorage.ts`): an internalAction reached only by the scheduler edge
+      // from the staff-only `moveWorkspaceHome` mutation, which audits the request first. It runs the same unforced switch
+      // and copy as the workflows and records counts and fixed reasons only, never a key, a path or a body.
+      "functions.adminStorage.runMove",
       // Settles each key an object-home workspace's object and bucket disagree about (`workspaceObjectsRepair.ts`), run
       // by hand from the repair workflow. internalAction, reached only from that workflow's deploy key; it answers counts
       // and key shapes only, never a key, a path or a body.

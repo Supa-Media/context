@@ -94,6 +94,9 @@ export const aiCostsReportValidator = v.object({
     v.object({
       userId: v.string(),
       email: v.union(v.string(), v.null()),
+      /** The account's name and its personal workspace's slug, when it has them. */
+      name: v.optional(v.union(v.string(), v.null())),
+      handle: v.optional(v.union(v.string(), v.null())),
       /** "Premium", "Free" and the like, as the roster says it. */
       plan: v.string(),
       workspaces: v.number(),

@@ -107,6 +107,8 @@ export function useFileActions(deps: FileActionsDeps) {
     [searchContextAction, mintGrant, slug],
   );
   const reportSearchScreen = useMutation(api.functions.searchTimings.reportScreen);
+  const reportSearchOpen = useMutation(api.functions.searchTimings.reportOpen);
+  const reportSearchAgain = useMutation(api.functions.searchTimings.reportAgain);
   const notePathsAction = useAction(api.functions.files.notePaths);
   const exportAccessAction = useAction(api.functions.exportAccess.exportAccess);
   const listOldCopiesAction = useAction(api.functions.oldCopies.listForExport);
@@ -231,7 +233,7 @@ export function useFileActions(deps: FileActionsDeps) {
   const updateStorageLayoutAction = useAction(api.functions.files.updateStorageLayout);
 
   return {
-    workspaceId, workspaceGenerationRef, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, notePathsAction,
+    workspaceId, workspaceGenerationRef, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, reportSearchOpen, reportSearchAgain, notePathsAction,
     writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, readEmojiAction, imageCache, exportAccessAction,
     listOldCopiesAction, readOldCopiesAction, readMessagesLogAction, readChatLedgerAction, listChatLedgersAction,
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, undoNewFolder, moveEntry,

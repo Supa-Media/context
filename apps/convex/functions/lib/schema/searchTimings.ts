@@ -23,6 +23,13 @@ export const searchAnsweredByValidator = v.union(
 );
 
 /**
+ * Who searched, for the search quality log: set on the one quality row per
+ * search (the app's `screen` row, an AI client's or Tex's gateway row). Rows
+ * without it are timing-only and never counted as quality.
+ */
+export const searchWhoValidator = v.union(v.literal("app"), v.literal("ai"), v.literal("tex"));
+
+/**
  * One row per search: how long it took and which index answered, so search
  * speed can be watched rather than guessed at (asked for by the owner,
  * 2026-10-07: "make sure that we are able to track the average search
@@ -43,9 +50,39 @@ export const searchTimingTables = {
     found: v.boolean(),
     ms: v.number(),
     at: v.number(),
+    /**
+     * Quality rows only, and only as the gateway sent them: an HMAC-SHA-256
+     * (16 lowercase hex) of the searcher's grant or user id, under a key
+     * Convex never holds (`apps/mcp/src/search/quality.js`). Links a search to
+     * the same searcher's next gateway search, in any workspace. Cleared with
+     * `hits` by the pairing sweep once `pairUntil` passes.
+     */
+    who: v.optional(searchWhoValidator),
+    actor: v.optional(v.string()),
+    /**
+     * Gateway quality rows only: the results in order, each an HMAC-SHA-256
+     * (16 lowercase hex) of the address the caller reads the note by (the plain
+     * path, or `@name/path` for another workspace's). Cleared with `actor` by
+     * the pairing sweep once `pairUntil` passes.
+     */
+    hits: v.optional(v.array(v.string())),
+    /**
+     * Set when `actor` or `hits` is stored: `at` plus `SEARCH_PAIR_RETENTION_MS`
+     * (15 minutes). Nothing pairs a search with an open or a re-search after
+     * it, and the sweep clears `actor`, `hits` and this field together. Absent
+     * on a row that never held pairing data, and on every app row (the app
+     * pairs by row id, on the device; `reportOpen` and `reportAgain`).
+     */
+    pairUntil: v.optional(v.number()),
+    /** 1-based position of the first result opened. */
+    opened: v.optional(v.number()),
+    /** The same searcher searched this workspace again within 60 s with nothing opened. */
+    again: v.optional(v.boolean()),
   })
     .index("by_at", ["at"])
     .index("by_surface_at", ["surface", "at"])
     .index("by_workspace_at", ["workspaceId", "at"])
-    .index("by_workspace_surface_at", ["workspaceId", "surface", "at"]),
+    .index("by_workspace_surface_at", ["workspaceId", "surface", "at"])
+    .index("by_actor_at", ["actor", "at"])
+    .index("by_pairUntil", ["pairUntil"]),
 };

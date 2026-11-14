@@ -103,6 +103,18 @@ class Guard extends Component<{ onError?: (message: string) => void; children: R
   }
 }
 
+/** `fk` when the side panel's title had focus. */
+const PROPS_TITLE = "#props h3";
+
+/** Where the caret is in a box, or null for one that has none (a checkbox). */
+function caretOf(box: HTMLInputElement | HTMLTextAreaElement): number | null {
+  try {
+    return box.selectionStart;
+  } catch {
+    return null;
+  }
+}
+
 /** What a page that could not load says in its slot. */
 const failedHtml = (name: string, why: string) =>
   `<div class="banner" role="alert"><b>${esc(name)} could not load.</b> ${esc(why)}</div>`;
@@ -114,19 +126,18 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
   const root = useRef<HTMLDivElement>(null);
   const pg = useRef<HTMLDivElement>(null);
   const fk = useRef<string | null>(null);
+  const fkCaret = useRef<number | null>(null);
   const caret = useRef<number | null>(null);
   const dataRef = useRef<{ p: string; d: unknown } | null>(null);
   const [, bump] = useReducer((n: number) => n + 1, 0);
-  // Before each redraw, note what had focus, so the redrawn page puts it back (the artifact's `focusKey`).
-  const version = useSyncExternalStore(
-    (fn) =>
-      subscribe(() => {
-        fk.current = focusKey(document.activeElement);
-        fn();
-      }),
-    getVersion,
-    getVersion,
-  );
+  const version = useSyncExternalStore(subscribe, getVersion, getVersion);
+  // What has focus as this redraw starts, so the redrawn page puts it back (the artifact's `focusKey`,
+  // read at the top of its `render()`). Read on every draw, not only on the state's: a key kept from
+  // an earlier draw would pull focus back to a row after the side panel took it.
+  const active = typeof document === "undefined" ? null : document.activeElement;
+  // The side panel's title has no key of its own; it is named, so a redraw that replaces the panel keeps focus on it.
+  fk.current = active?.matches("#props h3") ? PROPS_TITLE : focusKey(active);
+  fkCaret.current = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? caretOf(active) : null;
   // The data is kept with the page it belongs to, so a page's first draw never gets the last page's data.
   const [onData] = useState(() => (d: unknown) => {
     dataRef.current = { p: S.p, d };
@@ -220,6 +231,7 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
         return;
       }
       const e = ev.target as HTMLElement;
+      if (!el.contains(e)) return;
       if ((ev.key === "Enter" || ev.key === " ") && e.matches("tr[data-act]")) {
         ev.preventDefault();
         e.click();
@@ -242,12 +254,14 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
     };
     el.addEventListener("click", onClick);
     el.addEventListener("change", onChange);
-    el.addEventListener("keydown", onKey);
+    // On the document, as the artifact's is: after a click redraws the button that had focus away,
+    // focus is on the body, outside the console, and Escape must still close what is open.
+    document.addEventListener("keydown", onKey);
     el.addEventListener("input", onInput);
     return () => {
       el.removeEventListener("click", onClick);
       el.removeEventListener("change", onChange);
-      el.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey);
       el.removeEventListener("input", onInput);
     };
   }, [ready]);
@@ -266,9 +280,22 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
       }
       caret.current = null;
     } else if (hasProps && S.x !== focus.lastX) el.querySelector<HTMLElement>("#props h3")?.focus({ preventScroll: true });
-    else if (fk.current) {
+    else if (fk.current === PROPS_TITLE) {
+      const h = el.querySelector<HTMLElement>("#props h3");
+      if (h && h !== document.activeElement) h.focus({ preventScroll: true });
+    } else if (fk.current) {
       const m = [...el.querySelectorAll("[data-act],[id]")].find((e) => focusKey(e) === fk.current) as HTMLElement | undefined;
-      if (m && m !== document.activeElement) m.focus({ preventScroll: true });
+      if (m && m !== document.activeElement) {
+        m.focus({ preventScroll: true });
+        // A box drawn again keeps the caret where it was, or typing would carry on at its start.
+        if (fkCaret.current != null && (m instanceof HTMLInputElement || m instanceof HTMLTextAreaElement)) {
+          try {
+            m.setSelectionRange(fkCaret.current, fkCaret.current);
+          } catch {
+            /* a box with no caret (a number field) keeps whatever the browser gave it */
+          }
+        }
+      }
     }
     focus.lastX = hasProps ? S.x : null;
   });

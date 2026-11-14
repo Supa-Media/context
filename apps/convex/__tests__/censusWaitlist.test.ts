@@ -15,6 +15,7 @@
  *   matching addresses without normalizing case                       1
  *   reading waiting rows instead of admitted ones                     3
  *   listing an account that signed up as "not signed up"             1
+ *   waitlist growth funnel reading every account, not let-in only    1
  */
 
 import { afterEach, describe, expect, test } from "vitest";
@@ -132,6 +133,42 @@ describe("the census's waitlist slice", () => {
     expect(steps).toMatchObject({ "let-in": 3, "signed-up": 2, "made-a-context": 1, paying: 0 });
     // The everyone funnel still counts everybody, staff included.
     expect(census.funnel[0]).toEqual({ step: "signed-up", count: 4 });
+  });
+
+  test("the waitlist growth funnel starts at let in, and counts only let-in accounts", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await seedUser(t, "ada@example.test");
+    await seedOwnedWorkspace(t, ada, "ada");
+    await seedUser(t, "grace@example.test");
+    const outsider = await seedUser(t, "outsider@example.test");
+    await seedRow(t, "ada@example.test", "admitted");
+    await seedRow(t, "grace@example.test", "admitted");
+    await seedRow(t, "pending@example.test", "admitted");
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("phoneLinks", { userId: ada, phone: "+15555550111", linkedAt: now });
+      // Texting outside the waitlist must not move the waitlist funnel.
+      await ctx.db.insert("phoneLinks", { userId: outsider, phone: "+15555550112", linkedAt: now });
+      const workspaceId = (await ctx.db.query("workspaces").first())!._id;
+      await ctx.db.insert("oauthGrants", {
+        workspaceId,
+        userId: ada,
+        clientId: "cid-waitlist",
+        scopes: ["context:read"],
+        hashedRefreshToken: "hash-waitlist",
+        status: "active",
+        lastUsedAt: now,
+        createdAt: now,
+      });
+    });
+
+    const census = await report(t);
+    expect(census.waitlist.growthFunnel).toEqual([
+      { step: "let-in", count: 3 },
+      { step: "signed-up", count: 2 },
+      { step: "texted-tex", count: 1 },
+      { step: "connected-a-client", count: 1 },
+    ]);
   });
 
   test("a stranger cannot read it", async () => {

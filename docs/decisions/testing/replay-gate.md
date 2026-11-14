@@ -216,3 +216,21 @@ prompt file); `apps/mcp/test/runModel.test.mjs` and
 `apps/mcp/test/runModelWorker.test.mjs` (a member, a session without
 `@context-lc` and a self-hosted deployment are refused; an editor gets the
 model's answer through the whole Worker).
+
+## The jobs area is examinable too (decided by the owner, 2026-11-14)
+
+Since Tex's drawing and what every Tex agent is told about itself are generated
+from `packages/shared/src/texConfig.json`
+([config-graph](../texting-assistant/config-graph.md)), every config change
+reaches every area's prompts, the background jobs' included, and jobs was the
+one area only API credits could replay. Its Claude calls (the job's parts and
+the quality judge) now go through the model socket like every other area's,
+so an examiner session answers them and CI replays the run from those answers;
+a run with a call left unanswered fails rather than score the path the code
+fell back to. Owner's words, asked whether to wire it: "yeah duh".
+
+**What a simplification would cost:** taking jobs back out of the socket means
+every config change waits on a paid run, or merges without the jobs replay.
+Test: `apps/mcp/bench/test/jobsSocket.test.mjs`, which fails when a socketed
+jobs run with no answers says ok.
+

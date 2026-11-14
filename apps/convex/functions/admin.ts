@@ -59,8 +59,8 @@ import { aiCostsAccountHandler, aiCostsReportHandler } from "./lib/adminFns/aiCo
 import { searchReportHandler, searchReportValidator } from "./lib/adminFns/searchReport";
 import { toConvexError } from "./lib/adminFns/errors";
 import { COUNT_CEILING, usageReportHandler, usageReportValidator, type CountedTotal, type MetricSeries } from "./lib/adminFns/usage";
-import { ROSTER_LIMIT, censusReportHandler, populationValidator } from "./lib/adminFns/census";
-import { censusWaitlistValidator } from "./lib/adminFns/censusWaitlist";
+import { ROSTER_LIMIT, censusReportHandler } from "./lib/adminFns/census";
+import { censusReportValidator } from "./lib/adminFns/censusShape";
 import { jevUsageReportHandler, jevUsageReportValidator, setJevSwitchHandler } from "./lib/jev/admin";
 import {
   applySecretHandler,
@@ -639,86 +639,7 @@ export const deleteCommunityLink = mutation({
  */
 export const censusReport = query({
   args: { days: v.optional(v.number()) },
-  returns: v.object({
-    days: v.number(),
-    window: v.array(v.string()),
-    truncated: v.boolean(),
-    accounts: v.object(populationValidator),
-    contexts: v.object({
-      ...populationValidator,
-      personal: v.number(),
-      shared: v.number(),
-      perAccount: v.union(v.number(), v.null()),
-      membersPerShared: v.union(v.number(), v.null()),
-    }),
-    storage: v.object({
-      managed: v.number(),
-      customer: v.number(),
-      unbound: v.number(),
-      byProvider: v.array(
-        v.object({
-          provider: v.string(),
-          managed: v.number(),
-          customer: v.number(),
-        }),
-      ),
-      byStatus: v.array(v.object({ status: v.string(), count: v.number() })),
-    }),
-    plans: v.object({
-      paying: v.number(),
-      pastDue: v.number(),
-      canceled: v.number(),
-      unresolved: v.number(),
-      free: v.number(),
-      mrrCents: v.number(),
-      servingManagedStorage: v.number(),
-      servingFastSearch: v.number(),
-      provisioningRunning: v.number(),
-      provisioningFailed: v.number(),
-    }),
-    clients: v.array(
-      v.object({
-        clientId: v.string(),
-        clientName: v.string(),
-        active: v.number(),
-        revoked: v.number(),
-        contexts: v.number(),
-        accounts: v.number(),
-        lastUsedAt: v.union(v.number(), v.null()),
-      }),
-    ),
-    sources: v.object({
-      googleAccounts: v.number(),
-      gmail: v.number(),
-      calendar: v.number(),
-      chat: v.number(),
-      mailOpen: v.number(),
-      mailAllowlisted: v.number(),
-      obsidian: v.number(),
-    }),
-    funnel: v.array(v.object({ step: v.string(), count: v.number() })),
-    roster: v.array(
-      v.object({
-        joinedAt: v.number(),
-        email: v.optional(v.string()),
-        contexts: v.number(),
-        owned: v.number(),
-        connectedStorage: v.number(),
-        clients: v.number(),
-        plan: v.string(),
-        lastSeenAt: v.union(v.number(), v.null()),
-        /** Jev cost in the census window, over owned workspaces (`lib/jev/spend.ts`). */
-        aiSpendMicroUsd: v.number(),
-        /** The read hit its budget, so `aiSpendMicroUsd` is a floor. */
-        aiSpendPartial: v.boolean(),
-        /** When staff let this address in from the waitlist (`lib/adminFns/censusWaitlist.ts`). */
-        letInAt: v.union(v.number(), v.null()),
-        /** Texting-linked phone, else the confirmed sign-in phone. */
-        phone: v.union(v.string(), v.null()),
-      }),
-    ),
-    waitlist: censusWaitlistValidator,
-  }),
+  returns: censusReportValidator,
   handler: async (ctx, args) => {
     await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);

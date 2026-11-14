@@ -167,20 +167,47 @@ function count(value) {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
+/** The caller's labels that pass the shape checks, in the order given. Ids only, never text. */
+function validLabels(metadata) {
+  return Object.entries(metadata || {}).filter(
+    ([key, value]) => /^[a-z]{1,32}$/.test(key) && typeof value === "string" && /^[\w.:-]{1,128}$/.test(value),
+  );
+}
+
 /**
  * Up to five labels the gateway files the call's cost under. Ids only, never
  * text: they are what the AI costs tab groups by.
  */
 export function gatewayMetadata(metadata) {
-  const entries = Object.entries(metadata || {})
-    .filter(([key, value]) => /^[a-z]{1,32}$/.test(key) && typeof value === "string" && /^[\w.:-]{1,128}$/.test(value))
-    .slice(0, 5);
+  const entries = validLabels(metadata).slice(0, 5);
   return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
 export function metadataHeader(metadata) {
   const labels = gatewayMetadata(metadata);
   return labels ? { "cf-aig-metadata": JSON.stringify(labels) } : {};
+}
+
+/**
+ * Who an attempt asks to pay, as a label: a stored key's alias, `plan` for the
+ * plan's key, `cloudflare` for the keyless attempt Unified Billing pays for.
+ */
+function payerLabel(payer) {
+  if (payer?.alias) return payer.alias;
+  return payer?.key ? "plan" : "cloudflare";
+}
+
+/**
+ * The labels one attempt files its cost under. The console's Who paid panel
+ * groups gateway cost by the `payer` label, so every attempt carries one. The
+ * caller's own labels are capped at four so `payer` is always the fifth and
+ * never dropped; a caller's label named `payer` is ignored, ours wins. Ids only.
+ */
+export function attemptMetadataHeader(metadata, payer) {
+  const own = validLabels(metadata)
+    .filter(([key]) => key !== "payer")
+    .slice(0, 4);
+  return { "cf-aig-metadata": JSON.stringify(Object.fromEntries([...own, ["payer", payerLabel(payer)]])) };
 }
 
 /**
@@ -370,7 +397,7 @@ async function send(config, body, { payer, metadata }, fetchImpl) {
           "anthropic-version": ANTHROPIC_VERSION,
           "cf-aig-authorization": `Bearer ${config.token}`,
           "cf-aig-collect-log": "false",
-          ...metadataHeader(metadata),
+          ...attemptMetadataHeader(metadata, payer),
           ...(body.context_management ? { "anthropic-beta": CONTEXT_BETA } : {}),
           // The plan's key appears here and nowhere else; a stored key is named, never sent.
           ...(payer?.key ? { "x-api-key": payer.key } : {}),

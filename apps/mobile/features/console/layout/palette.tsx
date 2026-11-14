@@ -118,6 +118,10 @@ export function consolePalette({
             data.files.select(item.id);
           }
         }}
+        // Only this workspace's rows: the position is this workspace's search's to report.
+        onSearchOpen={(item, position) => {
+          if (item.workspace === undefined || item.workspace.current) data.files.openSearchResult(position);
+        }}
         onDismiss={() => setPaletteOpen(false)}
         // The highlighted answer, read beside the list on a wide window (board B1).
         preview={read === null ? undefined : (item, query) => <NotePreview item={item} query={query} read={read} />}

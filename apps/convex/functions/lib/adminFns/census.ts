@@ -32,6 +32,15 @@ import { activeEntitlements, type PlanStatus } from "../premium";
 import { clampReportDays, dayKey, dayRange } from "../usage";
 import { countedTotalValidator } from "./usage";
 import { admittedWaitlist, letInAtFor, waitlistSummary } from "./censusWaitlist";
+import {
+  accountsInShared,
+  growthFunnelOf,
+  openMailSlugs,
+  texAccessOf,
+  textingUsers,
+  waitlistGrowthFunnelOf,
+  type GrowthFacts,
+} from "./censusGrowth";
 import { archivedUserIds } from "./people";
 import { normalizeEmail } from "@context/shared";
 
@@ -171,6 +180,7 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
     await ctx.db.query("obsidianPluginGrants").take(take),
   );
   const admitted = await admittedWaitlist(ctx);
+  const texting = await textingUsers(ctx);
 
   const truncated = [
     accountsPage,
@@ -184,6 +194,7 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
     mailPage,
     pluginsPage,
     admitted.page,
+    texting.page,
   ].some((page) => page.isFloor);
 
   // -- the two populations, over time ------------------------------------
@@ -369,6 +380,9 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
   );
 
   const facts: AccountFacts[] = [];
+  const growthFacts: GrowthFacts[] = [];
+  const waitlistGrowth: GrowthFacts[] = [];
+  const sharedAccounts = accountsInShared(membersPage.rows, sharedIds);
   const waitlistFacts: AccountFacts[] = [];
   const accountEmails = new Set<string>();
   const roster: {
@@ -408,6 +422,14 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
     if (typeof account.email === "string") accountEmails.add(normalizeEmail(account.email));
     const letInAt = letInAtFor(admitted.byEmail, account.email);
     if (letInAt !== null) waitlistFacts.push(accountFacts);
+    const growth: GrowthFacts = {
+      textsTex: texting.keys.has(key),
+      hasActiveClient: accountsWithClient.has(key),
+      inSharedWorkspace: sharedAccounts.has(key),
+      signsInWithPhone: account.phone !== undefined && account.phoneVerificationTime !== undefined,
+    };
+    growthFacts.push(growth);
+    if (letInAt !== null) waitlistGrowth.push(growth);
 
     if (roster.length < ROSTER_LIMIT) {
       roster.push({
@@ -431,6 +453,8 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
       });
     }
   }
+
+  const waitlist = waitlistSummary(admitted, accountEmails, waitlistFacts);
 
   return {
     days,
@@ -503,10 +527,16 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
           (row.allowedSenders.length > 0 || row.allowedDomains.length > 0),
       ).length,
       obsidian: obsidian.size,
+      mailOpenSlugs: await openMailSlugs(ctx, mailPage.rows),
     },
     funnel: funnelOf(facts),
+    growthFunnel: growthFunnelOf(growthFacts),
+    texAccess: texAccessOf(growthFacts),
     roster,
-    waitlist: waitlistSummary(admitted, accountEmails, waitlistFacts),
+    waitlist: {
+      ...waitlist,
+      growthFunnel: waitlistGrowthFunnelOf(waitlist.letIn.count, waitlistGrowth),
+    },
   };
 }
 

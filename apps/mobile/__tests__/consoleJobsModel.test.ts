@@ -191,19 +191,20 @@ describe("dayLabel and ago", () => {
 });
 
 describe("jobList", () => {
-  test("Tex's row is first, links to the Lab, and every job comes in catalog order", () => {
+  test("Tex's row is first, links to the Lab, and the jobs come in the artifact's order under its names", () => {
     const { catalog, reads } = fixture();
     const rows = jobList(catalog, reads, NOW);
     expect(rows.map((row) => row.key)).toEqual([
       "texting-assistant",
-      "connected-ais",
-      "dream",
       "heartbeat",
+      "dream",
       "housekeeping",
-      "meeting-transcription",
       "meeting-summaries",
+      "meeting-transcription",
+      "connected-ais",
       "search",
     ]);
+    expect(rows.map((row) => row.name)).toEqual(["Tex, by text", "Check-in", "Dream", "Housekeeping", "Meeting summaries", "Meeting transcription", "Connected AIs", "Search"]);
     expect(rows[0]).toEqual({ key: "texting-assistant", name: "Tex, by text", lab: true, live: null, score: null, trend: [], last: null, cand: false, next: null });
   });
 
@@ -243,7 +244,7 @@ describe("jobHead", () => {
       live: "checkin-v7",
       since: "since Nov 6 · by seyi",
       score: "71%",
-      checks: "30 of 42 checks pass",
+      checks: "30 of 42 rule checks pass",
       costSpeed: "$0.03 · 3.1 s",
       trend: [100, 71],
     });
@@ -473,29 +474,30 @@ describe("activity", () => {
   test("each maker maps to its kind: improver and Claude to agents, a person to people, the bench to bench", () => {
     const { catalog, reads } = fixture();
     const rows = activityRows(catalog, reads, NOW);
-    expect(rows.find((row) => row.what.startsWith("Drafted quiet-mornings"))).toEqual({
+    // In the artifact's words: "Drafted setup …", "Made … live", "Round N finished: live …", agents by their own name.
+    expect(rows.find((row) => row.what === "Drafted setup quiet-mornings")).toEqual({
       key: expect.any(String),
       when: "Nov 13",
-      who: "Improver",
+      who: "improver",
       kind: "agents",
       job: "Check-in",
-      what: "Drafted quiet-mornings: Stay quiet when nothing changed",
+      what: "Drafted setup quiet-mornings",
     });
-    expect(rows.find((row) => row.what.startsWith("Drafted gentler-evenings"))).toMatchObject({ who: "Claude", kind: "agents", when: "—" });
-    expect(rows.find((row) => row.what.startsWith("Promoted checkin-v7"))).toEqual({
+    expect(rows.find((row) => row.what === "Drafted setup gentler-evenings")).toMatchObject({ who: "Claude", kind: "agents", when: "—" });
+    expect(rows.find((row) => row.what === "Made checkin-v7 live")).toEqual({
       key: expect.any(String),
       when: "Nov 6",
       who: "seyi",
       kind: "people",
       job: "Check-in",
-      what: "Promoted checkin-v7: live since 2026-11-06",
+      what: "Made checkin-v7 live",
     });
-    expect(rows.find((row) => row.what.startsWith("Ran heartbeat (gh-412)"))).toMatchObject({
+    expect(rows.find((row) => row.what.startsWith("Round 412"))).toMatchObject({
       who: "Test bench",
       kind: "bench",
       job: "Check-in",
       when: "09:00",
-      what: "Ran heartbeat (gh-412): production 71%, quiet-mornings 95%",
+      what: "Round 412 finished: live 71%, quiet-mornings 95%",
     });
   });
 
@@ -511,7 +513,7 @@ describe("activity", () => {
     const { catalog, reads } = fixture();
     const rows = activityRows(catalog, reads, NOW);
     expect(filterActivity(rows, "all")).toHaveLength(6);
-    expect(filterActivity(rows, "agents").map((row) => row.who)).toEqual(["Improver", "Claude"]);
+    expect(filterActivity(rows, "agents").map((row) => row.who)).toEqual(["improver", "Claude"]);
     expect(filterActivity(rows, "people").map((row) => row.who)).toEqual(["seyi"]);
     expect(filterActivity(rows, "bench")).toHaveLength(3);
     expect(filterActivity(rows, "bench").every((row) => row.kind === "bench")).toBe(true);

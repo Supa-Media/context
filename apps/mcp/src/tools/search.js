@@ -23,6 +23,7 @@ import { notePrior } from "../search/priors.js";
 import { evidenceBonus } from "../search/evidence.js";
 import { matchesOnlyInLinks } from "../search/linkMatch.js";
 import { looksLikeCode, queryLooksLikeCode } from "../search/codeLike.js";
+import { reportCountedSearch } from "../search/quality.js";
 
 /** Most hits a search across every workspace shows. */
 const EVERYWHERE_HITS = 12;
@@ -241,6 +242,19 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
  * person's setting (`everywhere`) decides, as for an AI client.
  */
 export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
+  store.lastSearch = null;
+  // The one counted row for this search is written from here, after the answer is fused (`search/quality.js`).
+  store.searchRowPending = true;
+  try {
+    const answer = await findNotesUnrecorded(store, scope, rules, overrides, query, prefix, { only });
+    reportCountedSearch(store, answer.hits.map((hit) => hit.key));
+    return answer;
+  } finally {
+    store.searchRowPending = false;
+  }
+}
+
+async function findNotesUnrecorded(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
   // Context.LC's own pinned workspace is reached by every account for its guides and Tex's setup, never for the
   // person's notes: a search everywhere leaves it out unless they run it (owner or editor), or it is asked by name.
   // In the core benchmark (2026-11-05) Tex's own prompt, `@context-lc/ai/production/texting-assistant.md`, ranked
@@ -360,11 +374,19 @@ export async function toolOpenAiSearch(store, scope, rules, overrides, query, pr
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const { hits } = await searchBothWays(
-    store,
-    () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
-    { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) && (!prefix || path === prefix || path.startsWith(`${prefix}/`)) },
-  );
+  store.lastSearch = null;
+  store.searchRowPending = true;
+  let hits;
+  try {
+    ({ hits } = await searchBothWays(
+      store,
+      () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
+      { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) && (!prefix || path === prefix || path.startsWith(`${prefix}/`)) },
+    ));
+    reportCountedSearch(store, hits.map((hit) => hit.key));
+  } finally {
+    store.searchRowPending = false;
+  }
   // Titles come from the text already fetched for the snippets, so a result
   // costs no read of its own. This used to spend a second GET per hit, which
   // doubled the most expensive part of the old scan.

@@ -583,11 +583,12 @@ export async function runAgentGatewayChecks(check) {
       zeta: "6",
     },
   });
+  // Every attempt now carries `payer` as the fifth label, so the caller keeps four.
   const sent = labelled.calls[0].headers["cf-aig-metadata"];
   check(
-    "the metadata header keeps the first five valid labels, drops invalid keys and values, and nothing else",
+    "the metadata header keeps the first four valid labels, drops invalid keys and values, and adds the payer as the fifth",
     typeof sent === "string" &&
-      same(JSON.parse(sent), { workspace: "ws_texter", grant: "g-1.a:b", alpha: "1", beta: "2", gamma: "3" }),
+      same(JSON.parse(sent), { workspace: "ws_texter", grant: "g-1.a:b", alpha: "1", beta: "2", payer: "cloudflare" }),
   );
 
   resetCreditState();
@@ -595,8 +596,9 @@ export async function runAgentGatewayChecks(check) {
   await requestViaGateway(CALL, plain, { fetchImpl: unlabelled.fetchImpl, now: () => T0 });
   await requestViaGateway(CALL, plain, { fetchImpl: unlabelled.fetchImpl, now: () => T0, metadata: { path: "a/b", count: 1 } });
   check(
-    "no metadata, or metadata that is all invalid, sends no metadata header",
-    !("cf-aig-metadata" in unlabelled.calls[0].headers) && !("cf-aig-metadata" in unlabelled.calls[1].headers),
+    "no metadata, or metadata that is all invalid, sends only the payer label",
+    same(JSON.parse(unlabelled.calls[0].headers["cf-aig-metadata"]), { payer: "cloudflare" }) &&
+      same(JSON.parse(unlabelled.calls[1].headers["cf-aig-metadata"]), { payer: "cloudflare" }),
   );
 
   /* ---------------- which model the built-in turn uses ---------------- */

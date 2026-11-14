@@ -35,6 +35,8 @@ export const censusWaitlistValidator = v.object({
   signedUp: v.number(),
   /** The account funnel over waitlist accounts only, `let-in` first. */
   funnel: v.array(v.object({ step: v.string(), count: v.number() })),
+  /** The growth funnel over waitlist accounts: `let-in`, then the four account steps. */
+  growthFunnel: v.array(v.object({ step: v.string(), count: v.number() })),
   /** Newest let in first, at most `NOT_SIGNED_UP_LIMIT`. */
   notSignedUp: v.array(v.object({ email: v.string(), letInAt: v.number() })),
   notSignedUpTotal: v.number(),
