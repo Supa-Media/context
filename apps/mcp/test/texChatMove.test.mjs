@@ -192,6 +192,7 @@ describe("TexChat runs the Worker's chat object", () => {
       new Request("https://chat/chat-call/accept", { method: "POST", headers: { "x-inbox-name": PHONE }, body: JSON.stringify(message("m2", "again")) }),
     );
     assert.deepEqual(await passed.json(), { outcome: "queued" });
+    assert.equal(passed.headers.get("x-tex-chat-home"), "gateway", "a passed-on call says it was answered here");
     // A pass-on with no name, or a bad one, is refused before the chat object.
     const unnamed = await chat.fetch(new Request("https://chat/chat-call/accept", { method: "POST", body: "{}" }));
     assert.equal(unnamed.status, 400);
