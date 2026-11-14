@@ -48,6 +48,8 @@ export const consoleCostsValidator = v.union(
     meterTruncated: v.boolean(),
     /** Texts people sent Tex in the window (1:1 and group); null when they could not be counted. */
     texts: v.union(v.number(), v.null()),
+    perTextBasis: v.union(v.literal("answered"), v.literal("texts"), v.null()),
+    perTextDivisor: v.union(v.number(), v.null()),
     perTextUsd: v.union(v.number(), v.null()),
     priorPerTextUsd: v.union(v.number(), v.null()),
     /** Days the dev credit's remaining balance lasts at this window's pace; null without dev spend in the window. */

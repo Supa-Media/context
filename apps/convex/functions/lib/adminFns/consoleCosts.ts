@@ -56,6 +56,8 @@ const AI_LIMIT = 1_000;
 /** How far back each dataset keeps its analytics, and the longest range one sub-query may span. */
 export const GATEWAY_RETENTION_DAYS = 62;
 export const WORKERS_AI_RETENTION_DAYS = 32;
+/** How long agentTurns keeps a turn, so how far back the answered count reaches. */
+export const AGENT_TURNS_KEPT_DAYS = 30;
 export const MAX_RANGE_DAYS = 31;
 
 
@@ -279,7 +281,7 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
   if (typeof answer === "string") {
     return {
       configured: true, error: answer, days: win.days, from: win.from, to: win.to, totalUsd: 0, priorUsd: 0,
-      labRunsUsd: 0, billedUsd: 0, outOfPocketUsd: 0, outOfPocketPeopleUsd: 0, texts: null, perTextUsd: null,
+      labRunsUsd: 0, billedUsd: 0, outOfPocketUsd: 0, outOfPocketPeopleUsd: 0, texts: null, perTextBasis: null, perTextDivisor: null, perTextUsd: null,
       priorPerTextUsd: null, devDaysLeft: null, payers: [], features: [], daily: [], texUsd: 0, texSteps: [],
       coverageFrom, priorPartial, answered: null, meterTruncated: false,
     };
@@ -389,11 +391,20 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
   const texCounts = options.texCounts ?? defaultTexCounts(env, fetchImpl);
   // The texts are counted for at most MAX_STATS_DAYS back, so a prior window that starts before that is not counted.
   const priorTextsKnown = win.priorFrom >= now - MAX_STATS_DAYS * DAY_MS;
+  // Per text divides the spend by texts over the same span the spend covers: from the oldest day
+  // Cloudflare still holds, never from a window start it has already dropped.
+  const textsKnown = coverageFrom >= now - MAX_STATS_DAYS * DAY_MS;
   const [texts, priorTexts] = await Promise.all([
-    texCounts({ from: win.from, to: win.to }),
-    priorTextsKnown ? texCounts({ from: win.priorFrom, to: win.priorTo }) : null,
+    textsKnown ? texCounts({ from: coverageFrom, to: win.to }) : null,
+    priorTextsKnown && !priorPartial ? texCounts({ from: win.priorFrom, to: win.priorTo }) : null,
   ]);
   const perText = (usd: number, count: number | null) => (count !== null && count > 0 ? usd / count : null);
+  // The answered count is the better divisor, but only when the meter read every turn and its
+  // turns (kept AGENT_TURNS_KEPT_DAYS) reach back as far as the spend does.
+  const answeredUsable =
+    meter !== undefined && meter !== null && !meter.truncated && meter.answered > 0 && coverageFrom >= now - AGENT_TURNS_KEPT_DAYS * DAY_MS;
+  const perTextBasis: "answered" | "texts" | null = answeredUsable ? "answered" : texts !== null && texts > 0 ? "texts" : null;
+  const perTextDivisor = perTextBasis === "answered" ? meter!.answered : perTextBasis === "texts" ? texts : null;
 
   const payerRow = (key: string, label: string, note: string | null, capUsd: number | null, usedUsd: number | null) => {
     const leftUsd = capUsd !== null && usedUsd !== null ? Math.max(0, capUsd - usedUsd) : null;
@@ -437,8 +448,11 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
     priorPartial,
     answered: meter ? meter.answered : null,
     meterTruncated: meter?.truncated ?? false,
-    perTextUsd: perText(texUsd, texts),
-    priorPerTextUsd: perText(priorTexUsd, priorTexts),
+    perTextBasis,
+    perTextDivisor,
+    perTextUsd: perText(texUsd, perTextDivisor),
+    // The window before has no answered count, so its per text is only comparable on the texts basis.
+    priorPerTextUsd: perTextBasis === "texts" ? perText(priorTexUsd, priorTexts) : null,
     devDaysLeft,
     payers,
     features: FEATURES.map((f) => {

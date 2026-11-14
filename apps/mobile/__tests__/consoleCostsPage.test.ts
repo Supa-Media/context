@@ -28,6 +28,8 @@ const live = (over: Partial<Live> = {}): Live => ({
   outOfPocketUsd: 31.6,
   outOfPocketPeopleUsd: 24.1,
   texts: 612,
+  perTextBasis: "texts",
+  perTextDivisor: 600,
   perTextUsd: 0.2,
   priorPerTextUsd: 0.3,
   devDaysLeft: 21,
@@ -163,7 +165,7 @@ describe("AI costs page: figures", () => {
     expect(html).toContain('<div class="v">$170.00</div>');
     expect(html).toContain("-15%</span> on the window before");
     expect(html).toContain('<div class="v">$0.20</div>');
-    expect(html).toContain("Tex replies ÷ 612 texts");
+    expect(html).toContain("Tex spend ÷ 600 texts received");
     expect(html).toContain('<div class="v">$9.80</div>');
     expect(html).toContain("billed, not in the total");
     expect(html).toContain('<div class="v">$31.60</div>');
@@ -174,10 +176,11 @@ describe("AI costs page: figures", () => {
   });
 
   it("leaves the change out when nothing was spent the window before, and the per-text figure when texts are unknown", () => {
-    const html = costsPageHtml(live({ priorUsd: 0, texts: null, perTextUsd: null }), report());
+    const html = costsPageHtml(live({ priorUsd: 0, texts: null, perTextBasis: null, perTextDivisor: null, perTextUsd: null }), report());
     expect(html).not.toContain("on the window before");
     expect(html).toContain('<div class="v">—</div>');
-    expect(html).not.toContain("Tex replies ÷");
+    expect(html).not.toContain("Tex spend ÷");
+    expect(html).toContain("texts aren't counted over the days this spend covers");
   });
 
   it("lists who paid in order, with the cap bars and the days left", () => {
@@ -233,7 +236,7 @@ describe("AI costs page: figures", () => {
   });
 
   it("shows the Tex total without a per-text figure when texts are unknown", () => {
-    expect(panelOf(costsPageHtml(live({ texts: null }), report()), "c-tex")).toContain('<span class="meta">$120.00</span>');
+    expect(panelOf(costsPageHtml(live({ texts: null, perTextBasis: null, perTextDivisor: null }), report()), "c-tex")).toContain('<span class="meta">$120.00</span>');
   });
 });
 
@@ -288,9 +291,12 @@ describe("AI costs page: truncation and coverage", () => {
     expect(costsPageHtml(live({ meterTruncated: false }), report())).not.toContain("background job split");
   });
 
-  it("says the window before is partial when priorPartial, on the Spent on AI delta", () => {
+  it("says the window before is partial when priorPartial, naming the store that dropped it", () => {
+    // 30 days: the window before reaches 60 days back, past Workers AI's 32.
     const html = costsPageHtml(live({ priorPartial: true }), report());
-    expect(html).toContain("-15%</span> on the window before (Cloudflare keeps 62 days, so the window before is partial)");
+    expect(html).toContain("-15%</span> on the window before (Workers AI keeps 32 days, so the window before is partial)");
+    // 90 days: it reaches 180 days back, past the gateway's 62.
+    expect(costsPageHtml(live({ priorPartial: true, days: 90 }), report())).toContain("(Cloudflare keeps 62 days, so the window before is partial)");
     expect(costsPageHtml(live({ priorPartial: false }), report())).not.toContain("is partial");
   });
 
@@ -301,16 +307,26 @@ describe("AI costs page: truncation and coverage", () => {
   });
 });
 
-describe("AI costs page: per text is over the texts answered", () => {
-  it("divides Tex's header and per-step figures by the texts answered when there are some", () => {
-    const tex = panelOf(costsPageHtml(live({ answered: 300 }), report()), "c-tex");
+describe("AI costs page: per text divides by the server's count over the same span", () => {
+  it("divides Tex's header and per-step figures by the texts answered when the server chose them", () => {
+    const html = costsPageHtml(live({ answered: 300, perTextBasis: "answered", perTextDivisor: 300, perTextUsd: 0.4 }), report());
+    const tex = panelOf(html, "c-tex");
     expect(tex).toContain("$120.00 · $0.40 a text");
     expect(tex).toContain(`<td class="r hp">$${(44.4 / 300).toFixed(3)}</td>`);
+    expect(html).toContain("Tex spend ÷ 300 texts answered");
   });
 
-  it("falls back to the texts received when none were answered", () => {
-    expect(panelOf(costsPageHtml(live({ answered: 0 }), report()), "c-tex")).toContain("$120.00 · $0.20 a text");
-    expect(panelOf(costsPageHtml(live({ answered: null }), report()), "c-tex")).toContain("$120.00 · $0.20 a text");
+  it("never divides by an answered count the server did not choose (truncated, or a shorter span)", () => {
+    // The meter answered 50, but the server fell back to the 600 texts received over the spend's span.
+    const tex = panelOf(costsPageHtml(live({ answered: 50, meterTruncated: true }), report()), "c-tex");
+    expect(tex).toContain("$120.00 · $0.20 a text");
+    expect(tex).not.toContain("$2.40 a text");
+  });
+
+  it("shows no per-text figure when no count covers the spend's span", () => {
+    const html = costsPageHtml(live({ days: 90, answered: 40, texts: null, perTextBasis: null, perTextDivisor: null, perTextUsd: null }), report());
+    expect(panelOf(html, "c-tex")).toContain('<span class="meta">$120.00</span>');
+    expect(panelOf(html, "c-tex")).not.toContain("a text");
   });
 });
 

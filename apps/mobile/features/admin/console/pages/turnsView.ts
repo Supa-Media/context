@@ -9,6 +9,13 @@ import type { api } from "@context/convex/_generated/api";
 import { delta, esc, ic, kpi, legend, lines, panel, pill, REPLAY, seg } from "../kit";
 import { S, WIN } from "../state";
 
+/** How long agentTurns keeps a turn: a longer window would only draw empty days. */
+export const TURNS_KEPT_DAYS = 30;
+/** The days the turns query reads: the window, clamped to the days turns are kept. */
+export const turnsDays = (d: string): 1 | 7 | 30 => (d === "1" ? 1 : d === "7" ? 7 : 30);
+/** The window's label for the turns, which never reach past the days they are kept. */
+const turnsWin = (d: string): string => (Number(d) > TURNS_KEPT_DAYS ? WIN["30"] : WIN[d]);
+
 type ConsoleTurns = FunctionReturnType<typeof api.functions.consoleAi.turns>;
 type TextCounts = FunctionReturnType<typeof api.functions.texStats.report>;
 type Recent = ConsoleTurns["recent"][number];
@@ -106,7 +113,8 @@ export function turnsRender(d: TurnsData | undefined): string {
 
   return (
     toolsRow() +
-    `<div class="kpis">${kpi("Typical answer", typical, vsBefore)}${kpi("Turns", t.answered, texts && texts.configured ? `answers to ${asked} texts` : `in ${WIN[S.d]}`)}${kpi("Didn't finish", didnt, `${t.exhausted} out of steps · ${t.failed} failed`, `data-act="end" data-v="${trouble ? "all" : "trouble"}" aria-pressed="${trouble}"`)}</div>` +
+    `<div class="kpis">${kpi("Typical answer", typical, vsBefore)}${kpi("Turns", t.answered, texts && texts.configured ? `answers to ${asked} texts` : `in ${turnsWin(S.d)}`)}${kpi("Didn't finish", didnt, `${t.exhausted} out of steps · ${t.failed} failed`, `data-act="end" data-v="${trouble ? "all" : "trouble"}" aria-pressed="${trouble}"`)}</div>` +
+    (Number(S.d) > TURNS_KEPT_DAYS ? `<div class="banner"><span class="tx">Turns are kept ${TURNS_KEPT_DAYS} days, so this shows the last ${TURNS_KEPT_DAYS}.</span></div>` : "") +
     (t.truncated ? `<div class="banner warn"><span class="tx">More turns than one read holds: these figures cover the newest ones.</span></div>` : "") +
     panel("t-hurt", "Where Tex hurts", "against targets", hurtTargets(t, texts)) +
     panel("t-chart", "Answer time", "per " + (S.d === "1" ? "hour" : "day"), chart + legend("turns", [["c1", "Typical"], ["c4", "Slowest 1 in 20"]])) +

@@ -39,9 +39,20 @@ const dayLabel = (ms: number) => {
   const d = new Date(ms);
   return `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCDate()}`;
 };
-/** The texts the per-text figures divide by: the texts answered when the server counts them, else the texts received. */
-export const textsDenominator = (c: Pick<Live, "answered" | "texts">): number | null =>
-  typeof c.answered === "number" && c.answered > 0 ? c.answered : c.texts;
+/** The count the per-text figures divide by, chosen by the server so spend and texts cover the same span; null shows "—". */
+export const textsDenominator = (c: Pick<Live, "perTextDivisor">): number | null =>
+  typeof c.perTextDivisor === "number" && c.perTextDivisor > 0 ? c.perTextDivisor : null;
+
+/** Why the window before is partial: on 30 days or less it is Workers AI's 32 days, beyond that the gateway's 62. */
+export const priorPartialNote = (c: Pick<Live, "priorPartial" | "days">): string =>
+  !c.priorPartial ? "" : c.days <= 31 ? " (Workers AI keeps 32 days, so the window before is partial)" : " (Cloudflare keeps 62 days, so the window before is partial)";
+
+/** The Cost per text sub line: what it divided by, or why it shows "—". */
+export function perTextSub(c: Pick<Live, "perTextBasis" | "perTextDivisor">): string {
+  if (c.perTextBasis === "answered" && c.perTextDivisor) return `Tex spend ÷ ${num(c.perTextDivisor)} texts answered`;
+  if (c.perTextBasis === "texts" && c.perTextDivisor) return `Tex spend ÷ ${num(c.perTextDivisor)} texts received`;
+  return "texts aren't counted over the days this spend covers";
+}
 
 /** Module-level cache: one `consoleAi.costs` answer per window, shared by every mount for 60 seconds. */
 const COSTS_TTL_MS = 60_000;
@@ -102,11 +113,11 @@ function truncationBanners(c: Live): string {
 
 function kpisHtml(c: Live): string {
   const pct = c.priorUsd > 0 ? Math.round(((c.totalUsd - c.priorUsd) / c.priorUsd) * 100) : null;
-  const partial = c.priorPartial ? " (Cloudflare keeps 62 days, so the window before is partial)" : "";
+  const partial = priorPartialNote(c);
   return (
     `<div class="kpis">` +
     kpi("Spent on AI", money(c.totalUsd), pct === null ? "" : delta(pct, false, "%") + " on the window before" + partial) +
-    kpi("Cost per text", c.perTextUsd === null ? "—" : money(c.perTextUsd), c.texts === null ? "" : `Tex replies ÷ ${num(c.texts)} texts`) +
+    kpi("Cost per text", c.perTextUsd === null ? "—" : money(c.perTextUsd), perTextSub(c)) +
     kpi("Lab test runs", money(c.labRunsUsd), "billed, not in the total") +
     kpi("Out of pocket", money(c.outOfPocketUsd), `of ${money(c.billedUsd)} billed; credits paid the rest`) +
     `</div>`

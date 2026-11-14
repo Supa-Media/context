@@ -5,7 +5,7 @@
 import { floorToMinute, textWindow, turnsPage, TURNS_KEPT_DAYS } from "../features/admin/console/pages/Turns.web";
 import { beforeEach, describe, expect, it } from "@jest/globals";
 import { S } from "../features/admin/console/state";
-import { modelOf, whenOf, type TurnsData } from "../features/admin/console/pages/turnsView";
+import { modelOf, turnsDays, whenOf, type TurnsData } from "../features/admin/console/pages/turnsView";
 
 type Data = TurnsData;
 
@@ -235,3 +235,22 @@ describe("Turns page: one read per visit, the texts over the same span", () => {
   });
 });
 
+
+describe("Turns page: a window longer than turns are kept", () => {
+  it("reads at most the 30 days turns are kept, and labels it so", () => {
+    expect(turnsDays("1")).toBe(1);
+    expect(turnsDays("7")).toBe(7);
+    expect(turnsDays("30")).toBe(30);
+    expect(turnsDays("90")).toBe(TURNS_KEPT_DAYS);
+  });
+
+  it("on 90 days says the turns cover the last 30, never 'in 90 days'", () => {
+    S.d = "90";
+    const html = render({ turns: fixture().turns, texts: null });
+    expect(html).toContain("Turns are kept 30 days, so this shows the last 30.");
+    expect(html).toContain("in 30 days");
+    expect(html).not.toContain("in 90 days");
+    S.d = "30";
+    expect(render({ turns: fixture().turns, texts: null })).not.toContain("Turns are kept 30 days");
+  });
+});

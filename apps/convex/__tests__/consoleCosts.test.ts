@@ -413,16 +413,44 @@ describe("consoleCosts: calls, meter and texts", () => {
     expect(configured(none.result).meterTruncated).toBe(false);
   });
 
-  test("a prior window that starts more than 60 days back is not counted, and its per-text cost is null", async () => {
+  test("on 90 days the spend covers 62 days, so texts are counted over those days or not at all", async () => {
     const seen: number[] = [];
     const counts = async (w: { from: number }) => {
       seen.push(w.from);
       return 5;
     };
     const { result } = await run(90, { w1: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 4 })] }, { texCounts: counts });
+    // Cloudflare's 62 days reach past the 60 days texts are counted for, so nothing is divided.
+    expect(seen).toEqual([]);
+    expect(configured(result).texts).toBeNull();
+    expect(configured(result).perTextBasis).toBeNull();
+    expect(configured(result).perTextUsd).toBeNull();
     expect(configured(result).priorPerTextUsd).toBeNull();
+  });
+
+  test("per text divides by the answered texts when the meter read every turn over the same span", async () => {
+    const fixture = { w1: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 4 })] };
+    const counts = async () => 8;
+    const { result } = await run(7, fixture, { texCounts: counts, meter: { jobUsd: 0, jobTurns: 0, answered: 5, truncated: false } });
+    expect(configured(result).perTextBasis).toBe("answered");
+    expect(configured(result).perTextDivisor).toBe(5);
     expect(configured(result).perTextUsd).toBeCloseTo(0.8);
-    expect(seen).toEqual([NOW - 90 * DAY]);
+    // The window before has no answered count, so no like-for-like comparison.
+    expect(configured(result).priorPerTextUsd).toBeNull();
+  });
+
+  test("a truncated meter falls back to the texts received over the same span", async () => {
+    const fixture = { w1: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 4 })] };
+    const seen: number[] = [];
+    const counts = async (w: { from: number }) => {
+      seen.push(w.from);
+      return 8;
+    };
+    const { result } = await run(7, fixture, { texCounts: counts, meter: { jobUsd: 0, jobTurns: 0, answered: 5, truncated: true } });
+    expect(configured(result).perTextBasis).toBe("texts");
+    expect(configured(result).perTextDivisor).toBe(8);
+    expect(configured(result).perTextUsd).toBeCloseTo(0.5);
+    expect(seen[0]).toBe(configured(result).coverageFrom);
   });
 
   test("per-text cost divides Tex's spend by the texts people sent, and the prior window's the same", async () => {

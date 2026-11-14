@@ -11,12 +11,12 @@ import { api } from "@context/convex/_generated/api";
 import { useReportOnce } from "../../useReportOnce";
 import { setF, S } from "../state";
 import type { ConsolePage } from "../types";
-import { turnsProps, turnsRender, type TurnsData } from "./turnsView";
+import { TURNS_KEPT_DAYS, turnsDays, turnsProps, turnsRender, type TurnsData } from "./turnsView";
 
 const DAY_MS = 86_400_000;
 const MINUTE_MS = 60_000;
 /** The turns are kept this long, so the texts are counted over no more than this. */
-export const TURNS_KEPT_DAYS = 30;
+export { TURNS_KEPT_DAYS };
 
 /** `now` floored to the minute: the one `to` a page visit reads with. */
 export const floorToMinute = (now: number): number => Math.floor(now / MINUTE_MS) * MINUTE_MS;
@@ -59,7 +59,7 @@ export const turnsPage: ConsolePage<TurnsData> = {
     const q = S.q;
     // Computed once per days/end/q change: the read's `to` is the minute the page was asked for.
     const to = useMemo(() => floorToMinute(Date.now()), [days, end, q]);
-    const turns = useReportOnce(api.functions.consoleAi.turns, { days: +days, end, q, to });
+    const turns = useReportOnce(api.functions.consoleAi.turns, { days: turnsDays(days), end, q, to });
     const texts = useTexts(days, to);
     // Stable while nothing changes: the shell redraws on every new data object.
     return useMemo(() => ({ turns, texts }), [turns, texts]);
