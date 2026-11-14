@@ -53,7 +53,7 @@ describe("intakeOf", () => {
 });
 
 describe("handOver", () => {
-  it.each(["queued", "duplicate", "full"])("returns the gateway's %s outcome", async (outcome) => {
+  it.each(["queued", "duplicate", "full", "preview", "kept", "ignored", "noted", "held", "dropped"])("returns the gateway's %s outcome", async (outcome) => {
     const { binding: b, calls } = binding(answer(outcome));
     expect(await handOver(b, CALL)).toBe(outcome);
     expect(calls).toHaveLength(1);
@@ -114,16 +114,15 @@ describe("toChat", () => {
     expect(await toChat({ INTAKE: "gateway" }, "one", "chat:+15555550100", {})).toBeNull();
   });
 
-  it("answers 200 for queued and duplicate, 503 for full, and sends the event id it carries", async () => {
-    for (const outcome of ["queued", "duplicate"]) {
+  // The SenderInbox's routes answer 200 for every outcome, "full" included, and the webhook answers `result.ok`; the
+  // gateway's must too, or a full queue would be answered 503 only once the chat moved.
+  it("answers 200 for every outcome, full included, and sends the event id it carries", async () => {
+    for (const outcome of ["queued", "duplicate", "full", "held"]) {
       const { binding: b, calls } = binding(answer(outcome));
       const response = await toChat({ INTAKE: "gateway", GATEWAY_TEXTS: b }, "one", "chat:+15555550100", { eventId: "linq:evt_9", text: "hi" }, "https://agent.example");
       expect(response?.status).toBe(200);
       expect(calls[0].body).toMatchObject({ kind: "one", inbox: "chat:+15555550100", eventId: "linq:evt_9", origin: "https://agent.example" });
     }
-    const { binding: full } = binding(answer("full"));
-    const response = await toChat({ INTAKE: "gateway", GATEWAY_TEXTS: full }, "one", "chat:+15555550100", {});
-    expect(response?.status).toBe(503);
   });
 
   it("is null, so the SenderInbox takes the text, when the hand-over fails, and says so without the text", async () => {

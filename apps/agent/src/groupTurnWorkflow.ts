@@ -13,7 +13,7 @@
 
 import { logged } from "./agentError";
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
-import type { Env } from "./index";
+import type { Env } from "./env";
 import { objectById } from "./objectPlace";
 
 export type GroupTurnParams = { inbox: string; turn: string };

@@ -104,8 +104,8 @@ import { hearForTexts, TEXTS_HEAR_PATH } from "./agent/textsHear.js";
 import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "./agent/textsDecide.js";
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { TexStore as TexStoreDurableObject } from "./texStore.js";
-import { TexChatDurableObject } from "./texChat.js";
-import { arriveForTexts, TEXTS_ARRIVE_PATH } from "./agent/textsArrive.js";
+import { texChatClass } from "./texChat.js";
+import { arriveForTexts, chatCallForTexts, TEXTS_ARRIVE_PATH, TEXTS_CHAT_CALL_PREFIX } from "./agent/textsArrive.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
@@ -175,8 +175,11 @@ export const LiveTicket = LiveTicketObject;
 
 /** Tex's notes, one Durable Object per person and per group chat (`texStore.js`). */
 export const TexStore = TexStoreDurableObject;
-/** Each text chat's intake queue, one Durable Object per chat (`texChat.js`). Nothing live reaches it yet. */
-export const TexChat = TexChatDurableObject;
+/**
+ * Each text chat's object, one Durable Object per chat (`texChat.js`): the texting Worker's chat object run here, with
+ * this gateway's own routes and `TexTexts` called in-process. Read lazily: both are defined below.
+ */
+export const TexChat = texChatClass({ gateway: () => gatewayWorker, texts: () => TexTexts });
 /** Each workspace's notes, tree rows and access rules, one Durable Object per workspace (`workspaceStore.js`). */
 export const WorkspaceStore = WorkspaceStoreDurableObject;
 
@@ -196,6 +199,7 @@ export const TexTexts = {
       if (path === TEXTS_CHAT_PATH) return await chatForTexts(request, env);
       if (path === TEXTS_EVENTS_PATH) return await eventsForTexts(request, env);
       if (path === TEXTS_ARRIVE_PATH) return await arriveForTexts(request, env);
+      if (path.startsWith(TEXTS_CHAT_CALL_PREFIX)) return await chatCallForTexts(request, env);
       return await openTextsSession(request, env, ctx);
     } catch {
       // The Worker reads anything but a linked answer as "ask Convex".
@@ -204,7 +208,7 @@ export const TexTexts = {
   },
 };
 
-export default {
+const gatewayWorker = {
   async fetch(request, env, ctx) {
     try {
       // Before any route, so no request reaches a surface that would need the
@@ -240,3 +244,5 @@ export default {
     }
   },
 };
+
+export default gatewayWorker;

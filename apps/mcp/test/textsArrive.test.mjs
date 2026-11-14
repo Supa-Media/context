@@ -12,10 +12,25 @@ import assert from "node:assert/strict";
 
 import { TEXTS_ARRIVE_PATH, MAX_ARRIVE_BYTES, arriveForTexts } from "../src/agent/textsArrive.js";
 import { TexTexts, TexChat } from "../src/index.js";
-import { TexChatDurableObject } from "../src/texChat.js";
-import { chatState } from "./texChatFixture.mjs";
 
-/** A `TEX_CHAT` namespace over real `TexChat` objects, one per name, recording each stub's name and placement. */
+/**
+ * A chat object that answers an arrival as the chat's queue does (queued, then duplicate for the same event id); the
+ * real one is `TexChat` running the Worker's chat object (`test/texChatMove.test.mjs`).
+ */
+function fakeChat() {
+  const seen = new Set();
+  return {
+    async fetch(request) {
+      const body = await request.json();
+      const key = body.message?.eventId ?? body.eventId;
+      const outcome = seen.has(key) ? "duplicate" : "queued";
+      seen.add(key);
+      return Response.json({ outcome });
+    },
+  };
+}
+
+/** A `TEX_CHAT` namespace over fake chat objects, one per name, recording each stub's name and placement. */
 function chatNamespace() {
   const objects = new Map();
   const placements = [];
@@ -23,7 +38,7 @@ function chatNamespace() {
     idFromName: (name) => name,
     get(id, options) {
       placements.push({ id, locationHint: options?.locationHint });
-      if (!objects.has(id)) objects.set(id, new TexChatDurableObject(chatState(), {}, { now: () => 1_000_000 }));
+      if (!objects.has(id)) objects.set(id, fakeChat());
       const object = objects.get(id);
       return { fetch: (url, init) => object.fetch(new Request(url, init)) };
     },
@@ -56,7 +71,7 @@ test("a valid arrival is queued in its chat's object, placed with the hint", asy
   const { namespace, placements } = chatNamespace();
   const { result } = await logged(() => arriveForTexts(post(arrival()), { TEX_CHAT: namespace }));
   assert.equal(result.status, 200);
-  assert.deepEqual(await result.json(), { outcome: "queued", seq: 1 });
+  assert.deepEqual(await result.json(), { outcome: "queued" });
   assert.deepEqual(placements, [{ id: "chat:chat-one", locationHint: "enam" }]);
 });
 
@@ -73,7 +88,7 @@ test("the entrypoint routes the arrival path to the handler", async () => {
   const { namespace } = chatNamespace();
   const response = await TexTexts.fetch(post(arrival()), { TEX_CHAT: namespace }, undefined);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { outcome: "queued", seq: 1 });
+  assert.deepEqual(await response.json(), { outcome: "queued" });
 });
 
 test("without the binding the arrival is 501 no_chat_home, after the body is checked", async () => {

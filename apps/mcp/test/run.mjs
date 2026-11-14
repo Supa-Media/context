@@ -22,6 +22,9 @@ const unit = [...new Set(readFileSync(join(ROOT, "test/unit.list"), "utf8").spli
 const missing = unit.filter((file) => !existsSync(join(ROOT, file)));
 if (!unit.length || missing.length) throw new Error(`test/unit.list names files that do not exist: ${missing.join(", ") || "(empty list)"}`);
 
+// The texting Worker's TypeScript, which the gateway's chat object runs as it is (`src/texChat.js`), loaded the way
+// the deploy's bundler loads it (`test/tsHook.mjs`). Node passes these to each `--test` file's own process.
+const TS = ["--experimental-transform-types", "--disable-warning=ExperimentalWarning", "--import", "./test/tsRegister.mjs"];
 // test/isolated.mjs's suites, split across this many processes (see its header).
 const ISOLATED_SHARDS = 3;
 const ENTRIES = [
@@ -32,7 +35,7 @@ const ENTRIES = [
   ]),
   ["bulkMoves.mjs move", ["test/bulkMoves.mjs", "move"]],
   ["bulkMoves.mjs folder", ["test/bulkMoves.mjs", "folder"]],
-  ["node --test", ["--test", ...unit]],
+  ["node --test", [...TS, "--test", ...unit]],
 ];
 // `pnpm test:unit` (`run.mjs unit`) runs the `node --test` entry alone, and
 // `run.mjs integration` runs every other one. CI runs the two halves as two
@@ -56,7 +59,7 @@ if (shard !== undefined) {
   }
 }
 const only = (mode ? ENTRIES.filter(MODES[mode]) : ENTRIES).map(([name, args]) =>
-  shard && name === "node --test" ? [`${name} ${shard}`, ["--test", `--test-shard=${shard}`, ...args.slice(1)]] : [name, args],
+  shard && name === "node --test" ? [`${name} ${shard}`, [...TS, "--test", `--test-shard=${shard}`, ...args.slice(TS.length + 1)]] : [name, args],
 );
 
 function run([name, args]) {

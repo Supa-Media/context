@@ -56,7 +56,7 @@ import type { Offer } from "./dataCards";
 import { withAnswerCards } from "./answerCards";
 import { textsFromAnswer } from "./format"; import { isControlWord } from "./controlWords";
 import { noteCardDrawer } from "./noteCards";
-import { lineFor, type LineDeps } from "./line";
+import { lineFor, type Line, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
 import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
 import { isWhapiChat } from "./whapi";
@@ -98,7 +98,7 @@ export type InboxStorage = {
 };
 
 export type InboxDeps = ReplyDeps &
-  Omit<LineDeps, "fetch"> & {
+  Omit<LineDeps, "fetch" | "remote"> & {
     now: () => number;
     /** Where each answered text's wait is written (`textTiming.ts`); absent, nowhere. */
     textTiming?: TimingDataset;
@@ -108,6 +108,8 @@ export type InboxDeps = ReplyDeps &
     steerJob?: (id: string, steer: JobSteer) => Promise<boolean>;
     /** The object's `waitUntil`: keeps it alive while the work after a reply runs, which nothing waits on (`afterReply.ts`). */
     waitUntil?: (promise: Promise<unknown>) => void;
+    /** The chat's line served by the gateway (`remoteLine.ts`); absent, the line is Tex's own here. Read by `lineDeps`. */
+    remoteLine?: (chatId: string) => Line;
   };
 
 /**
@@ -488,9 +490,9 @@ function afterReply(storage: InboxStorage, deps: InboxDeps, item: Pending, parts
   );
 }
 
-function lineDeps(deps: InboxDeps): LineDeps {
+export function lineDeps(deps: InboxDeps): LineDeps {
   const fetch = deps.fetch as LineDeps["fetch"];
-  return { fetch, linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, whapi: deps.whapi, hostPicture: deps.hostPicture, appCard: deps.appCard, noteCardPicture: noteCardDrawer(fetch, deps.controlPlaneOrigin, deps.workerSecret), textCounts: deps.textCounts };
+  return { fetch, linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, whapi: deps.whapi, hostPicture: deps.hostPicture, appCard: deps.appCard, noteCardPicture: noteCardDrawer(fetch, deps.controlPlaneOrigin, deps.workerSecret), textCounts: deps.textCounts, remote: deps.remoteLine };
 }
 
 export { TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./presence";

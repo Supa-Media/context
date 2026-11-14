@@ -47,6 +47,15 @@ test("the texting assistant deploys only itself, to staging and to production", 
   assert.deepEqual(promote(".github/workflows/deploy-agent-worker.yml"), ["agent"]);
 });
 
+// The gateway's TexChat runs the Worker's chat object (`apps/mcp/src/texChat.js`), so its code deploys both; the
+// webhooks (`index.ts`) stay the Worker's alone.
+test("the chat object's code deploys the texting assistant and the gateway", () => {
+  for (const file of ["apps/agent/src/chatObject.ts", "apps/agent/src/inbox.ts", "apps/agent/src/remoteLine.ts"]) {
+    assert.deepEqual(on(plan(file)).sort(), ["agent", "mcp"], file);
+    assert.deepEqual(promote(file).sort(), ["agent", "gateway"], file);
+  }
+});
+
 test("a Convex-only change leaves the app alone: it reaches Convex only through what it imports", () => {
   // PR #1889: a new Convex function and its generated types rebuilt the web
   // export and published an OTA update the phone did not need.

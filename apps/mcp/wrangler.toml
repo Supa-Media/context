@@ -232,6 +232,18 @@ dataset = "mcp_entry"
 binding = "CALL_COUNTS"
 dataset = "context_calls"
 
+# The texting Worker's two datasets (`apps/agent/wrangler.jsonc`), bound here
+# too because a chat's object runs here once its text arrives here
+# (`src/texChat.js`): each text's wait, and each text in and out. Ids and
+# counts only. Optional: without them nothing is written.
+[[analytics_engine_datasets]]
+binding = "TEX_TEXTS"
+dataset = "tex_text_timing"
+
+[[analytics_engine_datasets]]
+binding = "TEX_COUNTS"
+dataset = "tex_text_counts"
+
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
 # only through this binding, so it has no address and holds no secret. It must
@@ -379,6 +391,14 @@ dataset = "mcp_entry_staging"
 [[env.staging.analytics_engine_datasets]]
 binding = "CALL_COUNTS"
 dataset = "context_calls_staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "TEX_TEXTS"
+dataset = "tex_text_timing_staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "TEX_COUNTS"
+dataset = "tex_text_counts_staging"
 
 [[env.staging.services]]
 binding = "SITE_SHOTS"

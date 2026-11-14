@@ -17,7 +17,7 @@
 
 import { post, record as asRecord, ServiceError, type Fetch } from "./clients";
 import type { InboxStorage } from "./inbox";
-import { lineFor, type LineDeps } from "./line";
+import { lineFor, lineSeam, type LineDeps } from "./line";
 import { record } from "./simulator";
 import { noteTold } from "./told";
 import { watchForGmail } from "./gmailWatch";
@@ -97,8 +97,8 @@ export async function checkReady(storage: InboxStorage, deps: ReadyDeps): Promis
       if (index < sent) continue;
       const key = `ready:${owed.since}:${index}`;
       if (owed.channel === "simulator") await record(storage, "in", typeof part === "string" ? part : `[picture ${part.url}]`, now);
-      else if (typeof part === "string") await lineFor(deps, owed.chatId).sendText(owed.chatId, part, key);
-      else await lineFor(deps, owed.chatId).sendMedia(owed.chatId, part, key);
+      else if (typeof part === "string") await lineFor(lineSeam(deps), owed.chatId).sendText(owed.chatId, part, key);
+      else await lineFor(lineSeam(deps), owed.chatId).sendMedia(owed.chatId, part, key);
       sent = index + 1;
     }
   } catch {
