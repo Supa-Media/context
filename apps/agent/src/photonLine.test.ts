@@ -85,17 +85,26 @@ describe("Photon 1:1 line (photonLine.ts)", () => {
     expect(b.ops()).not.toContain("send/text");
   });
 
-  it("a picture uploaded is kept as its bytes and sent as an attachment, not a link", async () => {
+  it("a picture is hosted and sent by its address, as an attachment, with the picture's own media type", async () => {
     const b = bridge();
-    const line = lineFor(deps(b.photon), DM);
-    const picture: Picture = { name: "flyer.png", mediaType: "image/png", data: "iVBORw0KGgo=" };
+    const hostedAt: Picture[] = [];
+    const line = lineFor(deps(b.photon, { hostPicture: async (picture) => (hostedAt.push(picture), "https://files.example.com/h/abc") }), DM);
+    // A name whose extension says jpeg: a guess from the name would send image/jpeg, so the test sees the media type used.
+    const picture: Picture = { name: "flyer.jpg", mediaType: "image/png", data: "iVBORw0KGgo=" };
     const media = await line.uploadPicture(picture);
-    expect(media).toEqual(picture);
+    expect(media).toEqual({ url: "https://files.example.com/h/abc" });
+    expect(hostedAt).toEqual([picture]);
     await line.sendMedia(DM, media, "k2", "r1");
     expect(b.calls.at(-1)).toEqual({
       op: "send/attachment",
-      body: { line: "+15550000001", chat: DM_GUID, name: "flyer.png", mimeType: "image/png", data: "iVBORw0KGgo=", replyTo: "r1" },
+      body: { line: "+15550000001", chat: DM_GUID, name: "flyer.jpg", mimeType: "image/png", url: "https://files.example.com/h/abc", replyTo: "r1" },
     });
+  });
+
+  it("with no host, a picture cannot be uploaded: a ServiceError with no status, and nothing is sent", async () => {
+    const b = bridge();
+    await expect(lineFor(deps(b.photon), DM).uploadPicture({ name: "a.png", mediaType: "image/png", data: "AAAA" })).rejects.toMatchObject({ service: "photon", status: null });
+    expect(b.calls).toEqual([]);
   });
 
   it("a picture given by address goes to the bridge as that address, with a type from its name", async () => {

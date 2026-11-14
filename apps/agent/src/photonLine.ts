@@ -133,14 +133,21 @@ function nameOfUrl(url: string): string {
   }
 }
 
-/** A media part as the bridge takes a file: bytes, or an address it fetches. A part with no file (Linq's id) is a 400. */
+/**
+ * The file of each picture this line hosted (`uploadPicture`), by its address: its own name and media type, so the
+ * bridge sends the type the picture has, not one guessed from a name. Kept in this isolate's memory only, never in
+ * storage; a picture from another isolate, or one given by address, falls back to the name's extension.
+ */
+const hosted = new Map<string, { name: string; mimeType: string }>();
+const HOSTED_KEPT = 500;
+
+/** A media part as the bridge takes a file: an address it fetches, with its name and type. A Linq attachment id is a 400. */
 function attachmentOf(media: Media): PhotonAttachment {
-  if ("url" in media) {
-    const name = nameOfUrl(media.url);
-    return { name, mimeType: mimeOf(name), url: media.url };
-  }
-  if ("data" in media) return { name: media.name, mimeType: media.mediaType, data: media.data };
-  throw new ServiceError("photon", 400);
+  if (!("url" in media)) throw new ServiceError("photon", 400);
+  const known = hosted.get(media.url);
+  if (known !== undefined) return { ...known, url: media.url };
+  const name = nameOfUrl(media.url);
+  return { name, mimeType: mimeOf(name), url: media.url };
 }
 
 /** An App Card as iMessage's CustomizedMiniApp (`appCards.ts` builds the card; the bridge sends it). */
@@ -234,8 +241,14 @@ export function photonLine(deps: LineDeps): Line {
       const parts = urls.map((url) => ({ attachment: attachmentOf({ url }) }));
       await sendPhotonMultipart(p, await dmPlace(p, chatId), parts, replyTo);
     },
-    // The bytes are kept as the picture's own file: the bridge sends them as an attachment, not a link.
-    uploadPicture: async (picture: Picture) => ({ name: picture.name, mediaType: picture.mediaType, data: picture.data }),
+    // Hosted at a short-lived address the bridge fetches and sends as a real attachment, not a link (as Sendblue's).
+    uploadPicture: async (picture: Picture) => {
+      if (!deps.hostPicture) throw new ServiceError("photon", null);
+      const url = await deps.hostPicture(picture);
+      if (hosted.size >= HOSTED_KEPT) hosted.clear();
+      hosted.set(url, { name: picture.name, mimeType: picture.mediaType });
+      return { url };
+    },
     startTyping: async (chatId) => {
       try {
         const p = photon();
