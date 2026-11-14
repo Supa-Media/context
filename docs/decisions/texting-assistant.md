@@ -237,8 +237,7 @@ Tex's own jobs, each with its record:
 - [Delegation](./texting-assistant/delegation.md): hands a whole sub-project
   to Claude Code, Codex, Claude, Claude Design or ChatGPT, with the task note's
   mail as the channel and a supervisor routine keeping the agent on track.
-- [Chat in the gateway](./texting-assistant/chat-in-gateway.md): the Worker's chat object runs in the gateway's `TexChat` as it is, the line over the Worker's RPC; a chat moves once, by copying (Dev2, 2026-11-14).
-- [Background jobs](./texting-assistant/background-jobs.md): a long ask runs in
+- [Chat in the gateway](./texting-assistant/chat-in-gateway.md): the Worker's chat object runs in the gateway's `TexChat` as it is, the line over the Worker's RPC (Dev2, 2026-11-14). [Background jobs](./texting-assistant/background-jobs.md): a long ask runs in
   an object of its own, up to three at once, its status shown to every turn,
   and always writes its deliverable; a later text steers or stops it; its steps
   are shown on asking; [machines](./texting-assistant/machines.md) run jobs on a person's own computer; [computer setup](./texting-assistant/computer-setup.md) is done by Tex from a text, and every feature ships with a Tex path; [settings by text](./texting-assistant/settings-by-text.md): Tex reads every setting from one list and changes it from a text, saved logins' sharing included; [job notes](./texting-assistant/job-notes.md) put the job, Tex and the advisor on one mail.

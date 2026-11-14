@@ -99,7 +99,7 @@ export function texChatClass({ gateway, texts }) {
       }
       this.name = name ?? (await storage.get("__inbox_name")) ?? null;
       if (this.name === null) return null;
-      const { SenderInbox } = await import("../../agent/src/chatObject");
+      const { SenderInbox } = await import("../../agent/src/gatewayChat.js");
       const senderId = (await storage.get(SENDER_ID_KEY)) ?? "";
       this.inner = new SenderInbox(chatState(this.state, senderId), await chatEnv(this.env, this.state, this.name, senderId, { gateway, texts }));
       return this.inner;
@@ -112,7 +112,7 @@ export function texChatClass({ gateway, texts }) {
  * id. Never throws; anything but `arrived` leaves this object empty and the Worker's answering.
  */
 async function copyIn(rpc, storage, name) {
-  const { arrive } = await import("../../agent/src/inboxMove");
+  const { arrive } = await import("../../agent/src/gatewayChat.js");
   const stubs = () => ({
     fetch: async (request) => {
       const op = new URL(request.url).pathname === "/__move_back" ? "back" : "out";
@@ -144,7 +144,7 @@ function chatState(state, senderId) {
 
 /** The Worker's `Env`, as the chat object reads it, made of the gateway's bindings. */
 async function chatEnv(env, state, name, senderId, { gateway, texts }) {
-  const { remoteLine, remoteGroupLine } = await import("../../agent/src/remoteLine");
+  const { remoteLine, remoteGroupLine } = await import("../../agent/src/gatewayChat.js");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
   const rpc = env.TEXTING;
