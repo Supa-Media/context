@@ -323,7 +323,7 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
 
 type ShellCtx = { root: HTMLElement; needs: Need[] };
 
-/** The shell's own acts (the artifact's `A.side`, `go`, `need`, `sel`, `close`, `cancel`, `pn`, `lg`, `win`, `theme`, `undo`). */
+/** The shell's own acts (the artifact's `A.side`, `go`, `need`, `sel`, `close`, `cancel`, `addppl`, `addcancel`, `pn`, `lg`, `win`, `theme`, `undo`). */
 const SHELL: Record<string, (e: HTMLElement, c: ShellCtx) => void> = {
   side() {
     if (phone()) S.sideOpen = !S.sideOpen;
@@ -352,6 +352,16 @@ const SHELL: Record<string, (e: HTMLElement, c: ShellCtx) => void> = {
   },
   cancel() {
     S.confirm = null;
+    render();
+  },
+  // The artifact's shared add form: People, Flags and Settings open it, and its Cancel closes it.
+  addppl(_e, c) {
+    S.adding = true;
+    render();
+    setTimeout(() => c.root.querySelector<HTMLElement>("#addbox,#ll,#gname")?.focus(), 0);
+  },
+  addcancel() {
+    S.adding = false;
     render();
   },
   undo() {
