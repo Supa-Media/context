@@ -202,13 +202,13 @@ describe("Photon 1:1 line (photonLine.ts)", () => {
     expect(ok.calls.at(-1)?.op).toBe("contact");
   });
 
-  it("a chat's guid is resolved once and remembered, so later sends do not ask again", async () => {
+  it("a 1:1 chat's guid is built from the phone, never looked up (a lookup can create an empty chat)", async () => {
     const b = bridge();
     const chat = "photon:+15550000001:+15550000009";
     const line = lineFor(deps(b.photon), chat);
     await line.sendText(chat, "one", "a");
-    await line.sendText(chat, "two", "b");
-    expect(b.resolves).toEqual(["+15550000009"]);
+    expect(b.resolves).toEqual([]);
+    expect(b.calls.find((c) => c.op === "send/text")?.body).toMatchObject({ line: "+15550000001", chat: "any;-;+15550000009" });
   });
 
   it("the bridge's calls log one line each: op, time, outcome and status, never the text or a number", async () => {

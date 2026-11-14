@@ -123,7 +123,7 @@ jobs:
     secrets: inherit
 
   photon:
-    needs: [validate, convex]
+    needs: [validate, convex, agent]
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.photon == 'true' }}
     uses: ./.github/workflows/deploy-photon-bridge.yml
     secrets: inherit

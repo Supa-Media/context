@@ -25,7 +25,6 @@ import {
   photonGroupMembers,
   reactPhoton,
   readPhoton,
-  resolvePhotonChat,
   sendPhotonApp,
   sendPhotonAttachment,
   sendPhotonMultipart,
@@ -86,19 +85,13 @@ function placeLine(place: GroupPlace): string {
   return place.line;
 }
 
-/** A 1:1 chat's guid for an address, remembered for the life of this isolate: the same phone always resolves to the same guid. */
-const guids = new Map<string, string>();
-const GUIDS_KEPT = 500;
-
-async function dmPlace(photon: Fetcher, chatId: string): Promise<PhotonPlace> {
+/**
+ * A 1:1 chat's guid is `any;-;<phone>` (Photon's chat guid form, as its events carry it), so it is built here, never
+ * looked up: a lookup (`chat/resolve`) can create an empty chat in Messages, and costs a call per isolate.
+ */
+async function dmPlace(_photon: Fetcher, chatId: string): Promise<PhotonPlace> {
   const { line, phone } = parsePhotonDm(chatId);
-  const key = `${line}|${phone}`;
-  const known = guids.get(key);
-  if (known !== undefined) return { line, chat: known };
-  const chat = await resolvePhotonChat(photon, line, phone);
-  if (guids.size >= GUIDS_KEPT) guids.clear();
-  guids.set(key, chat);
-  return { line, chat };
+  return { line, chat: `any;-;${phone}` };
 }
 
 // ---- media and cards ----
