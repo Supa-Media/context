@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { forwardContainerLogs, type LogCursor } from "./containerLogs";
 import {
   CHECKPOINT_PREFIX,
   pumpOnce,
@@ -51,6 +52,7 @@ export class PhotonBridge extends DurableObject<Env> {
   private live = false;
   private starting?: Promise<void>;
   private pumping?: Promise<void>;
+  private logCursor: LogCursor = { boot: "", next: 0 };
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -161,6 +163,7 @@ export class PhotonBridge extends DurableObject<Env> {
       return;
     }
     this.startPump();
+    this.logCursor = await forwardContainerLogs(this.port(), this.logCursor, log);
   }
 
   async alarm(): Promise<void> {

@@ -4,17 +4,18 @@
  * is read from a file or written to disk.
  */
 import { createApp } from "./app.mjs";
-import { createLogger } from "./log.mjs";
+import { createLogger, createLogRing } from "./log.mjs";
 import { createRuntime } from "./runtime.mjs";
 
-const log = createLogger();
+const ring = createLogRing();
+const log = createLogger(process.stdout, ring);
 const runtime = createRuntime({
   projectId: process.env.PHOTON_PROJECT_ID,
   projectSecret: process.env.PHOTON_PROJECT_SECRET,
   log,
 });
 
-const server = createApp({ runtime, log }).listen(8080, "0.0.0.0", () => {
+const server = createApp({ runtime, log, ring }).listen(8080, "0.0.0.0", () => {
   log({ event: "container.listening", ok: true, status: 8080 });
 });
 
