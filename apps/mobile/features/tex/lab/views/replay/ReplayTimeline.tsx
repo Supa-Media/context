@@ -141,13 +141,13 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
   };
   const play = () => {
     if (raf.current !== null) return stop();
-    const from = at >= m.of ? 0 : at;
+    const from = at >= of ? 0 : at;
     const began = performance.now();
     setPlaying(true);
     const tick = () => {
-      const now = Math.min(m.of, from + (performance.now() - began) * speed);
+      const now = Math.min(of, from + (performance.now() - began) * speed);
       setAt(Math.round(now / 20) * 20);
-      if (now < m.of) raf.current = requestAnimationFrame(tick);
+      if (now < of) raf.current = requestAnimationFrame(tick);
       else {
         raf.current = null;
         setPlaying(false);
@@ -171,8 +171,12 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [m.id, m.of, entries.length]);
-  const tracks = useMemo(() => (compact ? packTracks(rows, (8 / Math.max(1, width)) * m.of, (3 / Math.max(1, width)) * m.of) : []), [compact, rows, width, m.of]);
-  const pct = (v: number) => `${((v / m.of) * 100).toFixed(2)}%`;
+  // The clock runs to the last thing drawn, a step's bar included, so no bar runs off the end (Dev2, 2026-11-14: "why is a part of the block off the screen?").
+  const of = useMemo(() => Math.max(m.of, ...rows.flatMap((r) => r.bars.map((b) => b.end))), [m.of, rows]);
+  const tracks = useMemo(() => (compact ? packTracks(rows, (8 / Math.max(1, width)) * of, (3 / Math.max(1, width)) * of) : []), [compact, rows, width, of]);
+  // A bar too short to see is drawn 6px wide, kept inside the track's end.
+  const barStyle = (b: Bar) => ({ left: `${(Math.min(b.start / of, Math.max(0, 1 - 6 / Math.max(1, width))) * 100).toFixed(2)}%`, width: `max(6px, ${pct(b.end - b.start)})` });
+  const pct = (v: number) => `${((v / of) * 100).toFixed(2)}%`;
   // Drag anywhere on the lanes to scrub (Dev2, 2026-11-14: "why not let me scrub with the bar").
   const dragging = useRef(false);
   const scrubTo = (e: RPointerEvent<HTMLDivElement>) => {
@@ -181,7 +185,7 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
     const r = track.getBoundingClientRect();
     if (r.width <= 0) return;
     stop();
-    setAt(Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * m.of));
+    setAt(Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * of));
   };
 
   return (
@@ -191,11 +195,11 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
           <svg className="i" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: playing ? '<rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/>' : '<path d="M8 5l10 7-10 7z"/>' }} />
         </button>
         <span className="clock" id="rClock">
-          {fmtS(at)} / {fmtS(m.of)}
+          {fmtS(at)} / {fmtS(of)}
         </span>
         <span className="spacer" />
-        <button className="chipbtn" id="rCompact" aria-pressed={compact} title={compact ? "One row per step" : "Fit everything into as few rows as possible"} onClick={toggleCompact}>
-          {compact ? "By step" : "Compact"}
+        <button className="rmode" id="rCompact" aria-pressed={compact} title={compact ? "One row per step, each named" : "Fit everything into as few rows as possible"} onClick={toggleCompact}>
+          {compact ? "Expand" : "Compact"}
         </button>
         <select id="rSpeed" aria-label="Playback speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
           {SPEEDS.map((v) => (
@@ -225,13 +229,13 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
               <div key={ti} className="rrow compact">
                 <div className="rtrack" data-track={ti}>
                   {t.map((b, i) => {
-                    const px = ((b.end - b.start) / m.of) * width;
+                    const px = ((b.end - b.start) / of) * width;
                     const tipText = `${b.name}${b.detail ? " · " + b.detail : ""} · ${fmtS(b.start)}–${fmtS(b.end)}`;
                     return (
                       <button
                         key={i}
                         className={`rbar ${b.kind}`}
-                        style={{ left: pct(b.start), width: `max(6px, ${pct(b.end - b.start)})` }}
+                        style={barStyle(b)}
                         aria-label={tipText}
                         onPointerEnter={(e) => {
                           const host = lanesRef.current?.getBoundingClientRect();
@@ -257,7 +261,7 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
                 <button
                   key={i}
                   className={`rbar ${b.kind}`}
-                  style={{ left: pct(b.start), width: `max(6px, ${pct(b.end - b.start)})` }}
+                  style={barStyle(b)}
                   title={`${b.label}${b.detail ? " · " + b.detail : ""} · ${fmtS(b.start)}–${fmtS(b.end)}`}
                   tabIndex={-1}
                 >
@@ -278,7 +282,7 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
         id="rScrub"
         type="range"
         min={0}
-        max={Math.round(m.of)}
+        max={Math.round(of)}
         step={10}
         value={Math.round(at)}
         aria-label="Scrub through the moment"
