@@ -107,6 +107,41 @@ export function checkEvent(event, { chat, now }) {
   return kept;
 }
 
+/** One of the texting Worker's own steps for the chat's ledger (`apps/agent/src/stepEvents.ts`): never a line of the chat, so never an `EVENT_KINDS` kind. */
+export const STEP_KIND = "step";
+/** The steps the Worker takes itself: a person's own chat's judging, and a tapback (`ledger.js` `STEP_NAMES` holds both). */
+const WORKER_STEPS = new Set(["decide", "react"]);
+const STEP_FIELDS = new Set(["id", "at", "chat", "from", "kind", "turn", "step"]);
+const STEP_PARTS = new Set(["name", "of", "ok", "ms", "input", "output", "cause"]);
+const STEP_CODE = /^[\w-]{1,40}$/;
+/** What a step's input or output may hold, as JSON: ids, codes, counts and emoji, never anyone's words. */
+const MAX_STEP_JSON = 4_000;
+
+/**
+ * A step event as kept, or an `EventRefusal` naming its first wrong field. It
+ * is from the system, carries no words, and its input and output are plain
+ * objects of a bounded size; `checkEvent` refuses its kind, so no reader of
+ * the chat's events (`mergeEvents`, the bucket's log) ever takes one.
+ */
+export function checkStep(event, { chat, now }) {
+  if (!plainObject(event) || !onlyKeys(event, STEP_FIELDS)) throw new EventRefusal("event");
+  const { id, at, from, step } = event;
+  if (!Number.isSafeInteger(at) || Math.abs(at - now) > DAY_MS) throw new EventRefusal("at");
+  if (typeof id !== "string" || !EVENT_ID.test(id) || Number(id.slice(0, 13)) !== at) throw new EventRefusal("id");
+  if (event.chat !== chat) throw new EventRefusal("chat");
+  if (!plainObject(from) || Object.keys(from).length !== 1 || from.kind !== "system") throw new EventRefusal("from");
+  if (event.turn !== undefined && (typeof event.turn !== "string" || !TURN.test(event.turn))) throw new EventRefusal("turn");
+  if (!plainObject(step) || !onlyKeys(step, STEP_PARTS) || !WORKER_STEPS.has(step.name) || typeof step.ok !== "boolean") throw new EventRefusal("step");
+  if (step.ms !== undefined && (!Number.isSafeInteger(step.ms) || step.ms < 0)) throw new EventRefusal("step.ms");
+  for (const part of ["of", "cause"]) if (step[part] !== undefined && (typeof step[part] !== "string" || !STEP_CODE.test(step[part]))) throw new EventRefusal(`step.${part}`);
+  for (const part of ["input", "output"]) {
+    if (step[part] !== undefined && (!plainObject(step[part]) || JSON.stringify(step[part]).length > MAX_STEP_JSON)) throw new EventRefusal(`step.${part}`);
+  }
+  const kept = { name: step.name, ok: step.ok };
+  for (const part of ["of", "ms", "input", "output", "cause"]) if (step[part] !== undefined) kept[part] = step[part];
+  return { id, at, chat, from: { kind: "system" }, kind: STEP_KIND, ...(event.turn ? { turn: event.turn } : {}), step: kept };
+}
+
 /**
  * A post's events as kept, checked at the door: all of them, or an
  * `EventRefusal` naming the first wrong field (`events[i].field`). The same
@@ -117,7 +152,7 @@ export function checkEvents(chat, events, { now = Date.now() } = {}) {
   if (!Array.isArray(events) || events.length === 0 || events.length > MAX_EVENTS_PER_CALL) throw new EventRefusal("events");
   return events.map((event, index) => {
     try {
-      return checkEvent(event, { chat, now });
+      return event?.kind === STEP_KIND ? checkStep(event, { chat, now }) : checkEvent(event, { chat, now });
     } catch (error) {
       if (error instanceof EventRefusal) throw new EventRefusal(`events[${index}].${error.field}`);
       throw error;
@@ -135,6 +170,11 @@ export async function appendEvents(store, chat, events, { now = Date.now() } = {
   const prefix = await logPrefix(chat);
   const written = [];
   for (const event of checked) {
+    // A step is the ledger's alone: a chat on the old log keeps none, and the Worker is told it was taken.
+    if (event.kind === STEP_KIND) {
+      if (!written.includes(event.id)) written.push(event.id);
+      continue;
+    }
     const key = `${prefix}${event.id}.json`;
     if (!written.includes(event.id) && (await store.get(key)) === null) await store.put(key, JSON.stringify(event));
     if (!written.includes(event.id)) written.push(event.id);

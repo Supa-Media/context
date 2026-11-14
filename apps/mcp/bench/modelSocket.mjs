@@ -331,29 +331,80 @@ export function socketAi(socket) {
 
 /** Where an examiner's answers for one commit live: Context, never the repository (held-out answers are among them). */
 export const EXAMINER_FOLDER = "ai/results/examiner";
-export const examinerPath = (sha) => `${EXAMINER_FOLDER}/${sha}.md`;
+/** Part 1 is `<sha>.md`, part n `<sha>-<n>.md`. */
+export const examinerPath = (sha, part = 1) => `${EXAMINER_FOLDER}/${sha}${part > 1 ? `-${part}` : ""}.md`;
+/**
+ * The most JSON one note carries. A session saves each note through its own Context connector, which refused the
+ * core area's 173 KB note (2026-11-13, #3268), so a large answer set is split across notes this size and read back whole.
+ */
+export const NOTE_PART_BYTES = 40_000;
 
-/** The note an examiner publishes: who answered, when, and the { hash: answer } map in one JSON block. */
-export function examinerNote({ sha, by, at, answers }) {
+/** The `answers` map cut into maps whose JSON stays under `limit` bytes each, in hash order; at least one. */
+export function splitAnswers(answers, limit = NOTE_PART_BYTES) {
+  const parts = [];
+  let part = {};
+  let size = 2;
+  for (const hash of Object.keys(answers).sort()) {
+    const entry = Buffer.byteLength(JSON.stringify(hash)) + Buffer.byteLength(JSON.stringify(answers[hash])) + 2;
+    if (entry + 2 > limit) throw new Error(`the answer to call ${hash.slice(0, 12)} alone is ${entry} bytes, over one note's ${limit}`);
+    if (size + entry > limit && Object.keys(part).length) {
+      parts.push(part);
+      part = {};
+      size = 2;
+    }
+    part[hash] = answers[hash];
+    size += entry;
+  }
+  parts.push(part);
+  return parts;
+}
+
+/** The note an examiner publishes: who answered, when, and the { hash: answer } map in one JSON block (one part of `parts`). */
+export function examinerNote({ sha, by, at, answers, part = 1, parts = 1 }) {
   return [
-    `# Examiner answers for ${sha.slice(0, 12)}`,
+    `# Examiner answers for ${sha.slice(0, 12)}${parts > 1 ? `, part ${part} of ${parts}` : ""}`,
     "",
     `Answered by ${by || "an examiner session"} at ${at}. These are a model's answers to the replay gate's calls for this commit, made by a session that did not write the change; CI rebuilds every call from the commit and scores the answers itself (\`apps/mcp/bench/modelSocket.mjs\`). Never copy them into a prompt or a case.`,
     "",
     "```json",
-    JSON.stringify({ sha, by: by || null, at, answers }),
+    JSON.stringify({ sha, by: by || null, at, part, parts, answers }),
     "```",
     "",
   ].join("\n");
 }
 
-/** The answers in an examiner note, checked to be for `sha`. */
-export function readExaminerNote(text, sha) {
+/** Every note for one answer set: `[{ path, content }]`, one when it fits. */
+export function examinerNotes({ sha, by, at, answers, limit = NOTE_PART_BYTES }) {
+  const split = splitAnswers(answers, limit);
+  return split.map((part, i) => ({ path: examinerPath(sha, i + 1), content: examinerNote({ sha, by, at, answers: part, part: i + 1, parts: split.length }) }));
+}
+
+/** The answers in an examiner note, checked to be for `sha` (and, when given, to be part `part`). */
+export function readExaminerNote(text, sha, part = null) {
   const m = /```json\n([\s\S]*?)\n```/.exec(text);
   if (!m) throw new Error("the examiner note has no json block");
   const body = JSON.parse(m[1]);
   if (body.sha !== sha) throw new Error(`the examiner note is for ${String(body.sha).slice(0, 12)}, not ${sha.slice(0, 12)}`);
+  body.part ??= 1;
+  body.parts ??= 1;
+  if (part !== null && body.part !== part) throw new Error(`the examiner note at part ${part} says it is part ${body.part}`);
   return body;
+}
+
+/** Every part's answers as one map, read with `readPart(n)` (the note's text, or null when missing); parts must agree. */
+export async function readExaminerNotes(readPart, sha) {
+  const first = await readPart(1);
+  if (first === null) throw new Error(`no examiner answers for ${sha.slice(0, 12)} (${examinerPath(sha)})`);
+  const head = readExaminerNote(first, sha, 1);
+  const answers = { ...head.answers };
+  for (let n = 2; n <= head.parts; n += 1) {
+    const text = await readPart(n);
+    if (text === null) throw new Error(`examiner answers for ${sha.slice(0, 12)} are missing part ${n} of ${head.parts} (${examinerPath(sha, n)})`);
+    const body = readExaminerNote(text, sha, n);
+    if (body.parts !== head.parts || body.at !== head.at) throw new Error(`part ${n} of the examiner answers for ${sha.slice(0, 12)} is from another set`);
+    Object.assign(answers, body.answers);
+  }
+  return { ...head, answers };
 }
 
 /**
@@ -394,31 +445,38 @@ export async function socketCommand(options, { write = (text) => process.stdout.
     const answers = await collectAnswers(options.dir);
     const connection = await connect();
     const { callTool, splitNote } = await import("./context.mjs");
-    const path = examinerPath(options.sha);
-    const existing = await callTool(connection, "read_note", { path });
-    const etag = existing.isError ? null : (splitNote(existing.text).header.etag ?? null);
-    const written = await callTool(connection, "write_note", { path, content: examinerNote({ sha: options.sha, by: options.by, at: new Date().toISOString(), answers }), summary: `examiner answers for ${options.sha.slice(0, 12)}`, ...(etag ? { expected_etag: etag } : {}) });
-    if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
-    write(`published ${Object.keys(answers).length} answers to ${path}\n`);
-    return path;
+    const notes = examinerNotes({ sha: options.sha, by: options.by, at: new Date().toISOString(), answers });
+    for (const { path, content } of notes) {
+      const existing = await callTool(connection, "read_note", { path });
+      const etag = existing.isError ? null : (splitNote(existing.text).header.etag ?? null);
+      const written = await callTool(connection, "write_note", { path, content, summary: `examiner answers for ${options.sha.slice(0, 12)}`, ...(etag ? { expected_etag: etag } : {}) });
+      if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
+    }
+    write(`published ${Object.keys(answers).length} answers to ${notes.map((note) => note.path).join(", ")}\n`);
+    return notes.map((note) => note.path);
   }
   if (sub === "note") {
     if (!options.dir || !options.sha || !options.out) throw new Error("usage: pnpm ai socket note --dir <dir> --sha <full sha> [--by <who>] --out <file>");
     if (!/^[0-9a-f]{40}$/.test(options.sha)) throw new Error("--sha takes the full 40-character commit");
     const answers = await collectAnswers(options.dir);
-    await writeFile(options.out, examinerNote({ sha: options.sha, by: options.by, at: new Date().toISOString(), answers }), { mode: 0o600 });
-    write(`wrote ${Object.keys(answers).length} answers to ${options.out}; save it as ${examinerPath(options.sha)} in @context-lc\n`);
-    return options.out;
+    const notes = examinerNotes({ sha: options.sha, by: options.by, at: new Date().toISOString(), answers });
+    // One file a note: `--out note.md` holds part 1, `note-2.md` part 2, and so on.
+    const files = notes.map((_, i) => (i === 0 ? options.out : options.out.replace(/(\.md)?$/, `-${i + 1}$1`)));
+    for (const [i, note] of notes.entries()) await writeFile(files[i], note.content, { mode: 0o600 });
+    write(`wrote ${Object.keys(answers).length} answers in ${notes.length} note(s); save each in @context-lc: ${notes.map((note, i) => `${files[i]} as ${note.path}`).join(", ")}\n`);
+    return files;
   }
   if (sub === "pull") {
     if (!options.sha || !options.out) throw new Error("usage: pnpm ai socket pull --sha <full sha> --out <file>");
     const connection = await connect();
     const { callTool, splitNote } = await import("./context.mjs");
-    const read = await callTool(connection, "read_note", { path: examinerPath(options.sha) });
-    if (read.isError) throw new Error(`no examiner answers for ${options.sha.slice(0, 12)} (${examinerPath(options.sha)})`);
-    const body = readExaminerNote(splitNote(read.text).content, options.sha);
+    const readPart = async (n) => {
+      const read = await callTool(connection, "read_note", { path: examinerPath(options.sha, n) });
+      return read.isError ? null : splitNote(read.text).content;
+    };
+    const body = await readExaminerNotes(readPart, options.sha);
     await writeFile(options.out, JSON.stringify(body.answers), { mode: 0o600 });
-    write(`pulled ${Object.keys(body.answers).length} examiner answers, made by ${body.by ?? "an examiner session"} at ${body.at}\n`);
+    write(`pulled ${Object.keys(body.answers).length} examiner answers from ${body.parts} note(s), made by ${body.by ?? "an examiner session"} at ${body.at}\n`);
     return body;
   }
   throw new Error("usage: pnpm ai socket next | answer | publish | note | pull");

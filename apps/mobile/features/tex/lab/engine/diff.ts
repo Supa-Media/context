@@ -11,6 +11,7 @@ import { FTYPES } from "../data/models";
 import { CASES } from "../labData.generated";
 import type { LabCase, LabGraph, LabNode } from "../types";
 import { cvOf, fp, mods, modsRaw, wcount, wdiff } from "./modules";
+import { replayConfig, type MyText } from "./mine";
 import { G, lab, MAIN, MODELS, node } from "./state";
 
 export type Change = {
@@ -153,5 +154,13 @@ export function config() {
     cases,
     caseEdits: Object.values(lab.caseEdits).map(({ area, id, ask, expect, isNew }) => ({ area, id, ask, expect, isNew: !!isNew })),
     log: "one JSON line per model call: {node, model, ms, in, out, thinking, steps, output}",
+    // The person's own texts picked to replay read only, when the test user is "You" (`mine.ts`, `bench/labReplay.mjs`).
+    ...(lab.tester === "me" ? replayConfig(pickedTexts(), lab.myReads, lab.me ? { handle: lab.me.handle, name: lab.me.name } : null) : {}),
   };
+}
+
+/** The person's texts picked to replay, oldest first. */
+export function pickedTexts(): MyText[] {
+  const list = Array.isArray(lab.myTexts) ? lab.myTexts : [];
+  return list.filter((t) => lab.myPicks.includes(t.id)).sort((a, b) => a.at - b.at);
 }

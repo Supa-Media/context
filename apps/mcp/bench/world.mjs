@@ -32,6 +32,7 @@ import { rmSync } from "node:fs";
 
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
+import { benchMachines } from "./benchMachines.mjs";
 import { benchGroup } from "./groupChat.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
@@ -41,22 +42,6 @@ import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from 
 import { calendarAnswer, calendarWrites } from "./calendar.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
-
-/** An invented paired computer, in the person's own workspace only, as its object lists it (`ws.machine.list`, `ws.machine.get`). */
-export function benchMachines({ name, tools, slots }, workspaceId) {
-  const machine = { id: "mch_bench_computer", name, online: true, tools, folders: ["~/code"], ownerId: "bench-owner", limits: { slots } };
-  return {
-    idFromName: (id) => id,
-    get: (objectName) => ({
-      async fetch(request) {
-        const op = new URL(request.url).pathname.slice(1);
-        if (op === "ws.machine.list") return Response.json({ ok: true, machines: objectName === `workspace:${workspaceId}` ? [machine] : [] });
-        if (op === "ws.machine.get") return Response.json({ ok: true, machine });
-        return Response.json({ error: "unknown_op" }, { status: 400 });
-      },
-    }),
-  };
-}
 
 /** Brave's search endpoint (`src/agent/search.js`). */
 const BRAVE_SEARCH = "https://api.search.brave.com/";
@@ -493,6 +478,19 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       };
     },
 
+    /**
+     * A Lab replay's chat before its text (`labReplay.mjs`): each line posted to the chat's ledger as the texting
+     * Worker posts it, theirs as a text and Tex's as its delivered answer to the text before, so the replayed turn
+     * reads the chat it read then. Nothing is answered.
+     */
+    async earlier(lines) {
+      let last = null;
+      for (const line of lines) {
+        const event = textedEvent(line.text, line.from === "person" ? tagger : null);
+        if (line.from === "person") last = event;
+        await postEvents([line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true }]);
+      }
+    },
     /**
      * One housekeeping run over the person's own workspace, answered as a turn
      * is: its answer is the line it would text and the log it wrote.

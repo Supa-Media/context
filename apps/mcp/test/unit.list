@@ -380,6 +380,7 @@ test/backupBehind.test.mjs
 test/writeKeepsTier.test.mjs
 test/mcpEntryPoint.test.mjs
 test/texTiming.test.mjs
+test/texVersion.test.mjs
 test/workspaceTree.test.mjs
 test/workspaceRowsOwnership.test.mjs
 test/objectLookup.test.mjs
@@ -541,8 +542,10 @@ test/readsIndex.test.mjs
 test/pdfPictures.test.mjs
 bench/test/promptFingerprint.test.mjs
 bench/test/lab.test.mjs
+bench/test/labReplay.test.mjs
 bench/test/stepLog.test.mjs
 test/runModel.test.mjs
 test/runModelWorker.test.mjs
 test/ledgerSteps.test.mjs
 test/texConfig.test.mjs
+test/workerSteps.test.mjs

@@ -62,7 +62,6 @@ import type { ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
 import { groupReviewSharing } from "./groupSettings";
 import { answers, reactionLine, tapbackText, type Reaction } from "./reactions";
-import { ackEmoji } from "./ackEmoji";
 import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onMachineAsk, onTexText } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
@@ -77,7 +76,7 @@ import { callsTex, groupCommand, type Command } from "./groupWords";
 import type { JobRun, JobSteer } from "./jobs";
 import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
 import { rememberChatReader } from "./chatRead";
-import { reactionFor } from "./reactEmoji";
+import { tapback } from "./stepEvents";
 import { runningTurn } from "./steer";
 import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
 import { chooseGroupTurn, coversOf, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
@@ -190,7 +189,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     let how: Awaited<ReturnType<typeof whileRunning>>;
     try {
       how = await whileRunning(storage, message, ev, running, tagged, () => now, (emoji) =>
-        groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(emoji, ackEmoji(message.text))),
+        tapback(storage, { chat: message.groupId, now: () => now, by: "decide", asked: emoji, on: ev }, message.text, (sent) => groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)),
       );
     } catch {
       // It is seen already: a throw here must not lose it, so it is queued as when no turn runs.
@@ -406,7 +405,7 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       // Decide's reaction goes at once, whatever it decided about words, and only once per message.
       if (choice.react) {
         const [key, item] = choice.react;
-        await groupLineFor(deps, item.message.groupId).react({ line: item.message.line, groupId: item.message.groupId }, item.message.messageId, reactionFor(choice.emoji, ackEmoji(item.message.text)));
+        await tapback(storage, { chat: item.message.groupId, now: deps.now, by: "decide", asked: choice.emoji, on: item.ev }, item.message.text, (sent) => groupLineFor(deps, item.message.groupId).react({ line: item.message.line, groupId: item.message.groupId }, item.message.messageId, sent));
         await storage.put<Pending>(key, { ...item, reacted: true });
         for (const list of [choice.answer, choice.wait ?? []]) for (const entry of list) if (entry[0] === key) entry[1] = { ...entry[1], reacted: true };
       }

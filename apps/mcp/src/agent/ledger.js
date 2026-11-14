@@ -20,13 +20,13 @@
  * - `thinking`: `{text, ms?, output?}`, the model's thinking in words, as it came back, with its model round's milliseconds and output tokens
  * - `said`: `{text}`, what the model said between its tools
  * - `tool`: `{name, args, as?, ok, ms, held?, reason?, result?, cut?, withheld?}`; `as` is `{name, args}` as the model wrote the call, when that differs; `grant` is the carry key the call ran under (`stretch.js` `carryKey`: a person, workspace and scopes run to about 130 characters), which a later text replays its result only under
- * - `reply`: `{text, ms, model?, timing?, facts?, grant?}`, the turn's answer as it left the gateway; `timing` is where its time went (`turnTiming.js`); `facts` what it read for what it said, quoted from its source, with the carry key a note's quote was read under (`toldFacts.js`)
+ * - `reply`: `{text, ms, model?, timing?, facts?, grant?, version?}`, the turn's answer as it left the gateway; `version` which Tex answered (`texVersion.js`: the deployed commit, the Worker version, the live setup's version); `timing` is where its time went (`turnTiming.js`); `facts` what it read for what it said, quoted from its source, with the carry key a note's quote was read under (`toldFacts.js`)
  * - `advisor`: `{question, answer, ms, steps?}` / `mail_check`: `{to, subject, verdict, why, ref?}` / `job`: `{job, title?, state}`
  * - `note`: `{text}`, anything else worth keeping (a routine's text, a check-in)
  * - `judge`: `{text, by, model?, round, went, ms?, notice?, reason?, judges: [{id, yes, at, passed}], failed}`, one judging of a draft reply (`replyJudge.js`; `by` is `review` for the Haiku reviewer since 2026-11-06, with `turnKind` and the problems it named in `failed`, or `gates` before): `text` is the draft, `went` whether it went out
  * - `name`: `{guest, name, by?, text}`, a name someone in a group chat gave a guest label (`groupGuestNames.js`); the newest per guest is its name
  * - `brief`: `{asker?, ask?, tools?, places?, waiting?, about?, rules?}`, what a group turn knew when it ended, for the judge (`judgeBrief.js`)
- * - `step`: `{step, ok, ms, input?, output?, model?, reason?}`, one step of a turn that leaves nothing else of its own (`timing`: each named step of the turn with its time and outcome, `name` the step; the router, the fallback, the chat write lock, a front-door step, the card check, the classifier, the self-review, the hand-back judge, the job-mail advisor): what it was given and what it gave, kept like a tool's arguments and result, so a turn can be replayed and a regression traced from the chat alone (decided by the owner, 2026-11-13: "every step should log its input output time")
+ * - `step`: `{step, ok, ms, input?, output?, model?, reason?}`, one step of a turn that leaves nothing else of its own (`timing`: each named step of the turn with its time and outcome, `name` the step; the router, the fallback, the chat write lock, a front-door step, the card check, the classifier, the self-review, the hand-back judge, the job-mail advisor; and from the texting Worker, a 1:1 judging `decide` and every tapback `react`, posted as step events, `log.js` `checkStep`): what it was given and what it gave, kept like a tool's arguments and result, so a turn can be replayed and a regression traced from the chat alone (decided by the owner, 2026-11-13: "every step should log its input output time")
  * - `day`: `{day, text, model?}`, one finished day summed up the night after (`daySummaries.js`), id `day-<YYYY-MM-DD>` so a day keeps one; `at` is that day's last entry
  */
 
@@ -169,8 +169,19 @@ export function loggedCheck(writer, { turn = null } = {}, step, checker) {
   return (answer, context) => steps.timed(step, answer, () => checker.check(answer, context), (notice) => notice ?? null);
 }
 
+/**
+ * One of the texting Worker's own steps (`log.js` `checkStep`, checked
+ * already) as a `step` entry: a person's own chat's judging or a tapback. Its
+ * id is the event's, so a step posted twice is kept once; `of` is its `name`.
+ */
+function workerStepEntry({ id, at, turn, step }) {
+  const entry = stepEntry({ step: step.name, ok: step.ok, ms: step.ms, input: step.input, output: step.output, reason: step.cause ?? null, name: step.of ?? null }, { turn: turn ?? null, at });
+  return { ...entry, id: `ev${String(id).replace(/[^0-9A-Za-z]/g, "")}`, eid: id };
+}
+
 /** A chat event (`log.js` shape) as a `text` entry; its id is the event's, so the same event is kept once. */
 export function eventEntry(event) {
+  if (event?.kind === "step") return workerStepEntry(event);
   const { id, at, chat: _chat, kind: eventKind, text, ...rest } = event ?? {};
   const kept = cutText(text ?? "", MAX_WORDS_CHARS);
   return { v: 1, id: `ev${String(id).replace(/[^0-9A-Za-z]/g, "")}`, eid: id, at, kind: "text", event: eventKind, ...rest, text: kept.text, ...(kept.cut !== undefined ? { cut: kept.cut } : {}) };

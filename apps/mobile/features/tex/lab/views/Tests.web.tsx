@@ -13,6 +13,7 @@ import { dropCase, saveCase, useLab } from "../store";
 import type { LabCase } from "../types";
 import { Ic } from "./ic";
 import { CaseThread, CaseWant, IoPanel, WhoPanel, caseFit, setPipeScn } from "./tests/caseParts";
+import { MineMain } from "./mine/Mine.web";
 
 /** The case whose text is open for editing (the artifact's `tEdit`), shared by both pages. */
 let tEdit: string | null = null;
@@ -63,6 +64,21 @@ function AreaNav() {
   useLab();
   return (
     <nav className="anav" aria-label="Areas">
+      {lab.tester === "me" ? (
+        <>
+          <div className="anh">
+            Yours<small>replayed read only</small>
+          </div>
+          <button data-area="mine" aria-current={lab.tArea === "mine" ? "true" : "false"} onClick={() => ((lab.tArea = "mine"), (tEdit = null), emit())}>
+            <Ic k="text" style={{ width: 16, height: 16 }} />
+            <span className="an">
+              Your texts
+              <small>{lab.me?.name || "You"}</small>
+            </span>
+            <span className="ac">{Array.isArray(lab.myTexts) ? lab.myPicks.length + "/" + lab.myTexts.length : ""}</span>
+          </button>
+        </>
+      ) : null}
       {NAV_GROUPS.map(([h, sub, f]) => (
         <Fragment key={h}>
           <div className="anh">
@@ -186,7 +202,13 @@ function TestCard({ c, inArea }: { c: LabCase; inArea: LabCase[] }) {
 /** The area's main column: who runs it, the test panel, the toolbar and the case cards. */
 function TMain() {
   useLab();
-  const tArea = lab.tArea;
+  if (lab.tArea === "mine") return lab.tester === "me" ? <MineMain /> : <BenchMain />;
+  return <BenchMain />;
+}
+
+function BenchMain() {
+  useLab();
+  const tArea = lab.tArea === "mine" ? "core" : lab.tArea;
   const inArea = allCases().filter((c) => c.area === tArea);
   const list = inArea.filter((c) => !lab.tQ || (c.id + " " + c.ask + " " + c.expect).toLowerCase().includes(lab.tQ));
   return (
