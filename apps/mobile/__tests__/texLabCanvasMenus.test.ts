@@ -144,6 +144,7 @@ describe("the canvas's test picker", () => {
       "pipeline/turn-steps-logged",
       "pipeline/worker-steps-logged",
       "pipeline/cache-miss-named",
+      "pipeline/door-settings-logged",
     ];
     const removed: string[] = [];
     for (const b of Array.from(
