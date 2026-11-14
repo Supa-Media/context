@@ -10,6 +10,7 @@ name: Tex replay required
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -62,4 +63,6 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
           FINGERPRINT_AREAS: ${{ steps.prints.outputs.areas }}
+          # Read by the owner's temporary skip only (SKIP_LINE in the script); passed through env, never into a shell line.
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: node scripts/tex-replay-required.mjs

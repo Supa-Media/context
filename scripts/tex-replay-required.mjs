@@ -28,6 +28,25 @@ import { areasFor } from "../apps/mcp/bench/replayAreas.mjs";
 
 export const STATUS = "Tex replay";
 
+/**
+ * The owner's temporary skip (Dev2, 2026-11-14: "it's fine to bypass the replay
+ * checks just for now because the config changes are so monumental ... the
+ * replay should kind of wait for the config change first"). A pull request whose
+ * body has a line starting `Replay skipped on the owner's call:` and a reason
+ * passes without a run, until SKIP_ENDS; after that the line does nothing and
+ * the gate is whole again. Each use is printed in the check's log.
+ */
+export const SKIP_LINE = "Replay skipped on the owner's call:";
+export const SKIP_ENDS = "2026-11-22T00:00:00Z";
+
+/** The skip's reason when the body carries one and the skip has not ended, else null. */
+export function ownerSkip(body, now = new Date()) {
+  if (now >= new Date(SKIP_ENDS)) return null;
+  const line = String(body ?? "").split(/\r?\n/).find((text) => text.trim().startsWith(SKIP_LINE));
+  const reason = line?.trim().slice(SKIP_LINE.length).trim();
+  return reason ? reason : null;
+}
+
 /** The areas a change reaches: by its files, and by its prompts (`printed`, from the fingerprint run), in a fixed order. */
 export function reachedAreas(files, printed = []) {
   const byFiles = areasFor(files);
@@ -60,6 +79,18 @@ function selfTest() {
     ["unchanged prompts and no area file pass with no run", ["apps/mcp/src/agent/texArchitecture.generated.js"], [], true, []],
   ];
   let failed = 0;
+  const before = new Date("2026-11-15T00:00:00Z");
+  const after = new Date(SKIP_ENDS);
+  const skips = [
+    ["the owner's skip with a reason holds before it ends", ownerSkip(`Intro\n${SKIP_LINE} config graph lands first`, before) === "config graph lands first"],
+    ["the skip line with no reason is not a skip", ownerSkip(`${SKIP_LINE}   `, before) === null],
+    ["a body with no skip line is not a skip", ownerSkip("No replay case: docs only", before) === null],
+    ["the skip ends on its date", ownerSkip(`${SKIP_LINE} config graph`, after) === null],
+  ];
+  for (const [name, good] of skips) {
+    if (!good) failed += 1;
+    console.log(`${good ? "ok" : "FAIL"} - ${name}`);
+  }
   for (const [name, files, statuses, passes, printed = []] of cases) {
     const good = (verdict(files, statuses, printed) === null) === passes;
     if (!good) failed += 1;
@@ -85,6 +116,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const reached = reachedAreas(files, printed);
     const statuses = reached.length ? JSON.parse(execFileSync("gh", ["api", `repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/statuses`], { encoding: "utf8" })) : [];
     const problem = verdict(files, statuses, printed);
+    const skipped = problem ? ownerSkip(process.env.PR_BODY) : null;
+    if (skipped) {
+      console.log(`::warning::tex-replay-required: ${reached.join(", ")} not replayed, skipped on the owner's call until ${SKIP_ENDS}: ${skipped}`);
+      process.exit(0);
+    }
     if (problem) {
       console.error(`::error::${problem}`);
       process.exit(1);
