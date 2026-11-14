@@ -8,7 +8,8 @@ import { useMemo } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@context/convex/_generated/api";
-import { KNOWN_SECRETS, relativeTime, unsetKnownSecrets } from "../../report";
+import { KNOWN_SECRETS, unsetKnownSecrets } from "../../report";
+import { ago } from "./ago";
 import { confirmBox, esc, ic, panel } from "../kit";
 import { S, go, render, toast } from "../state";
 import type { ConsolePage } from "../types";
@@ -69,7 +70,7 @@ function setPanel(secrets: Secrets | undefined) {
     .map((s) => {
       const name = esc(s.name);
       const confirming = S.confirm === "del" + s.name;
-      return `<tr><td class="wrap"><div class="mono">${name}</div><div class="sub">${esc(s.description ?? "")}</div></td><td class="mono hp">${esc(s.fingerprint)}</td><td class="hp">${esc(relativeTime(s.updatedAt))}${s.updatedByEmail ? ` <span class="sub">by ${esc(s.updatedByEmail)}</span>` : ""}</td><td class="r acts">${
+      return `<tr><td class="wrap"><div class="mono">${name}</div><div class="sub">${esc(s.description ?? "")}</div></td><td class="mono hp">${esc(s.fingerprint)}</td><td class="hp">${esc(ago(s.updatedAt))}${s.updatedByEmail ? ` <span class="sub">by ${esc(s.updatedByEmail)}</span>` : ""}</td><td class="r acts">${
         confirming
           ? confirmBox(esc(unsetMeans(s.name)), "Delete", "delsecret", s.name, true)
           : `<button class="ghost" data-act="sel" data-id="${esc(`set-${s.name}`)}">Replace</button> <button class="ghost danger" data-act="askdel" data-id="${name}">Delete</button>`
@@ -80,7 +81,7 @@ function setPanel(secrets: Secrets | undefined) {
     "cr-set",
     "Set",
     `${secrets.length}`,
-    `<div class="tbl"><table><tr><th>Name</th><th class="hp">Fingerprint</th><th class="hp">Set</th><th></th></tr>${rows}</table></div>`,
+    `<div class="tbl"><table><tr><th>Name</th><th class="hp">Fingerprint</th><th class="hp">Set</th><th></th></tr>${rows || '<tr><td colspan="4" class="empty">Nothing is set yet</td></tr>'}</table></div>`,
     `<button class="ghost" data-act="sel" data-id="set-new">Add</button>`,
   );
 }

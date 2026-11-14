@@ -14,6 +14,9 @@ export type CostsData = { costs?: CostsResult; report?: AiCostsReport; account?:
 type Live = Extract<ConsoleCosts, { configured: true }>;
 
 const FEATURE_COLOUR: Record<string, string> = { tex: "c1", checkin: "c2", dream: "c3", meetings: "c4", search: "c5", other: "c6" };
+/** The artifact's names for the feature rows (its `FEATS`); a key it does not name keeps the server's label. */
+const FEATURE_LABEL: Record<string, string> = { tex: "Tex replies", meetings: "Meeting summaries", dream: "Dream", checkin: "Check-in", search: "Search by meaning" };
+const featureLabel = (f: { key: string; label: string }) => FEATURE_LABEL[f.key] ?? f.label;
 const PAYER_COLOUR: Record<string, string> = { dev: "c1", dev2: "c2", plan: "c3", cloudflare: "bad" };
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MODEL_NAMES: Array<[string, string]> = [
@@ -49,8 +52,8 @@ export const priorPartialNote = (c: Pick<Live, "priorPartial" | "days">): string
 
 /** The Cost per text sub line: what it divided by, or why it shows "—". */
 export function perTextSub(c: Pick<Live, "perTextBasis" | "perTextDivisor">): string {
-  if (c.perTextBasis === "answered" && c.perTextDivisor) return `Tex spend ÷ ${num(c.perTextDivisor)} texts answered`;
-  if (c.perTextBasis === "texts" && c.perTextDivisor) return `Tex spend ÷ ${num(c.perTextDivisor)} texts received`;
+  if (c.perTextBasis === "answered" && c.perTextDivisor) return `Tex replies ÷ ${c.perTextDivisor} texts answered`;
+  if (c.perTextBasis === "texts" && c.perTextDivisor) return `Tex replies ÷ ${c.perTextDivisor} texts`;
   return "texts aren't counted over the days this spend covers";
 }
 
@@ -148,7 +151,7 @@ function whoPaidPanel(c: Live): string {
       (p) =>
         `<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--${colour(p)});margin-right:6px"></span>${esc(p.label)}</td><td class="r">${money(p.usd)}</td><td>${leftCell(p, colour(p))}</td></tr>`,
     )
-    .join("");
+    .join("") || `<tr><td colspan="3" class="empty">Nothing spent in ${WIN[S.d]}</td></tr>`;
   const table = `<div class="tbl" style="margin-top:8px"><table><tr><th>Paid by</th><th class="r">In ${WIN[S.d]}</th><th>Left</th></tr>${rows}</table></div>`;
   const pace =
     c.devDaysLeft == null ? "" : `<div class="sub" style="margin-top:8px">At this pace dev credits last about ${c.devDaysLeft} more days; after that every call is out of pocket.</div>`;
@@ -162,7 +165,7 @@ function dayPanel(c: Live): string {
   const chart = bars([], { stack, fmt: (v) => "$" + +v.toFixed(2) });
   const key = legend(
     "feat",
-    c.features.map((f) => [colourOf(FEATURE_COLOUR, f.key), f.label]),
+    c.features.map((f) => [colourOf(FEATURE_COLOUR, f.key), featureLabel(f)]),
   );
   return panel("c-day", title, "", chart + key);
 }
@@ -172,10 +175,11 @@ function featPanel(c: Live): string {
     .filter((f) => f.usd > 0)
     .map(
       (f) =>
-        `<tr><td>${esc(f.label)}${f.key === "tex" ? ' <button class="link" data-act="totex">by step ↓</button>' : ""}</td><td class="hp">${esc(f.models.map(modelName).join(" · "))}</td><td class="r">${Math.round(f.share * 100)}%</td><td class="r">${money(f.usd)}</td></tr>`,
+        `<tr><td>${esc(featureLabel(f))}${f.key === "tex" ? ' <button class="link" data-act="totex">by step ↓</button>' : ""}</td><td class="hp">${esc(f.models.map(modelName).join(" · "))}</td><td class="r">${Math.round(f.share * 100)}%</td><td class="r">${money(f.usd)}</td></tr>`,
     )
     .join("");
-  return panel("c-feat", "By feature", "", `<div class="tbl"><table><tr><th>Feature</th><th class="hp">Model</th><th class="r">Share</th><th class="r">Cost</th></tr>${rows}</table></div>`);
+  const empty = `<tr><td colspan="4" class="empty">Nothing spent in ${WIN[S.d]}</td></tr>`;
+  return panel("c-feat", "By feature", "", `<div class="tbl"><table><tr><th>Feature</th><th class="hp">Model</th><th class="r">Share</th><th class="r">Cost</th></tr>${rows || empty}</table></div>`);
 }
 
 function texPanel(c: Live): string {
@@ -188,11 +192,11 @@ function texPanel(c: Live): string {
   const body = rows
     .map(
       (s) =>
-        `<tr><td>${esc(s.label)}</td><td class="hp">${esc(TEX_MODEL[s.model] ?? s.model)}</td><td class="r hp">${num(s.calls)}</td><td><span class="tr" style="display:inline-block;width:100%;max-width:160px;height:6px;border-radius:3px;background:var(--track);vertical-align:middle"><span style="display:block;height:100%;width:${top > 0 ? (s.share / top) * 100 : 0}%;border-radius:3px;background:var(--c1)"></span></span> <span class="sub">${(Math.round(s.share * 1000) / 10).toFixed(1)}%</span></td><td class="r">${money(s.usd)}</td><td class="r hp">${answered ? money(s.usd / answered, 3) : "—"}</td></tr>`,
+        `<tr><td>${esc(s.label)}</td><td class="hp">${esc(TEX_MODEL[s.model] ?? s.model)}</td><td class="r hp">${s.calls}</td><td><span class="tr" style="display:inline-block;width:100%;max-width:160px;height:6px;border-radius:3px;background:var(--track);vertical-align:middle"><span style="display:block;height:100%;width:${top > 0 ? (s.share / top) * 100 : 0}%;border-radius:3px;background:var(--c1)"></span></span> <span class="sub">${Math.round(s.share * 1000) / 10}%</span></td><td class="r">${money(s.usd)}</td><td class="r hp">${answered ? money(s.usd / answered, 3) : "—"}</td></tr>`,
     )
     .join("");
   const off = c.texSteps.filter((s) => !s.on).map((s) => s.label);
-  const table = `<div class="tbl"><table><tr><th>Step</th><th class="hp">Model</th><th class="r hp">Calls</th><th>Share of Tex</th><th class="r">Cost</th><th class="r hp">Per text</th></tr>${body}</table></div>`;
+  const table = `<div class="tbl"><table><tr><th>Step</th><th class="hp">Model</th><th class="r hp">Calls</th><th>Share of Tex</th><th class="r">Cost</th><th class="r hp">Per text</th></tr>${body || `<tr><td colspan="6" class="empty">Tex spent nothing in ${WIN[S.d]}</td></tr>`}</table></div>`;
   const footer = off.length ? `<div class="sub" style="margin-top:8px">Switched off now and costing nothing: ${esc(off.join(", "))}.</div>` : "";
   return panel("c-tex", "Tex replies by step", meta, table + footer, `<a class="link" href="https://context.lc/lab" target="_blank" rel="noopener">Each step in the Lab ↗</a>`);
 }

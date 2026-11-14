@@ -145,10 +145,10 @@ function movingPanel(d: StorageData | undefined) {
                     "move",
                     w.workspaceId,
                   )
-                      : `<button class="ghost" data-act="askmove" data-id="${id}">${w.home === "dual" ? "Switch reads" : "Start moving"}</button>${refusedLine(move)}`;
+                      : `${refusedLine(move)}<button class="ghost" data-act="askmove" data-id="${id}">${w.home === "dual" ? "Switch reads" : "Start moving"}</button>`;
           return `<tr><td>@${esc(w.slug)}</td><td class="hp">${esc(w.kind)}</td><td>${pill(w.home, HOME_TONE[w.home])}</td><td class="r hp">${w.notes == null ? "—" : count(w.notes)}</td><td class="hp">${w.since == null ? "—" : shortDay(w.since)}</td><td class="r">${action}</td></tr>`;
         })
-        .join("")}</table></div>`
+        .join("") || `<tr><td colspan="6" class="empty">${S.f.ws === "all" ? "No workspaces yet" : `No workspace is on ${esc(S.f.ws)}`}</td></tr>`}</table></div>`
     : d?.report instanceof Error
       ? '<div class="empty">Couldn\'t load the workspaces.</div>'
       : LOADING;
@@ -252,10 +252,11 @@ const storage: ConsolePage<StorageData> = {
       }
       render();
     },
-    askpause(e) {
+    askpause() {
       S.confirm = "pause";
       render();
-      setTimeout(() => (e.closest(".sc")?.querySelector("#why") as HTMLInputElement | null)?.focus(), 0);
+      // The clicked button is gone after the redraw, so the field is found from the page, not from it.
+      setTimeout(() => document.querySelector<HTMLInputElement>("#pgin #why")?.focus(), 0);
     },
     async pause(e, d) {
       const why = (e.closest(".sc")?.querySelector("#why") as HTMLInputElement | null)?.value.trim() ?? "";

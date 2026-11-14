@@ -175,19 +175,31 @@ describe("Turns page", () => {
     expect(html).toContain('data-act="end" data-v="all" aria-pressed="true"');
   });
 
-  it("draws the side panel's waterfall from the real trace, slowest marked", () => {
+  it("draws the side panel's waterfall from the real trace in the artifact's words, slowest marked", () => {
     const html = props(fixture(), "t-1")!;
     const labels = [...html.matchAll(/<div class="r[^"]*"><span>([^<]*)<\/span>/g)].map((m) => m[1]);
-    expect(labels).toEqual(["Queue", "Round 1", "search · fetch", "Round 2"]);
-    expect(html).toMatch(/<div class="r slow"><span>Round 2<\/span>/);
+    // The artifact's steps: Queue, Decide, Round 1, the tools by name, then Reply for the answering round.
+    expect(labels).toEqual(["Queue", "Round 1", "Search · fetch", "Reply"]);
+    expect(html).toMatch(/<div class="r slow"><span>Reply<\/span>/);
     expect(html).toContain("Step by step · 4.2 s");
     expect(html).toContain("Maya &lt;b&gt;L&lt;/b&gt;");
     expect(html).toContain("9.2k in · 0.4k out");
   });
 
+  it("calls the router step Decide, and keeps Round N when the turn did not answer", () => {
+    const routed = { ...answered, id: "t-9", trace: [{ kind: "router" as const, model: "clef", ok: true, ms: 600 }, ...answered.trace] };
+    const html = props(fixture({ recent: [routed, exhausted] }), "t-9")!;
+    const labels = [...html.matchAll(/<div class="r[^"]*"><span>([^<]*)<\/span>/g)].map((m) => m[1]);
+    expect(labels).toEqual(["Queue", "Decide", "Round 1", "Search · fetch", "Reply"]);
+    expect(html).toContain("background:var(--c2)");
+    const out = props(fixture({ recent: [routed, exhausted] }), "t-2")!;
+    expect(out).toContain("<span>Round 1</span>");
+    expect(out).not.toContain("Reply");
+  });
+
   it("marks a failed step and says when a turn is not in the list", () => {
     const html = props(fixture(), "t-3")!;
-    expect(html).toContain("calendar · write ✕");
+    expect(html).toContain("Calendar · write ✕");
     expect(props(fixture(), "nope")).toBeNull();
   });
 
