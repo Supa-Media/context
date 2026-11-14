@@ -55,8 +55,11 @@ export function noteLinkCheck({ origin = null, question = "", history = [] } = {
     /** The answer's note links that no tool result, earlier text or their own text gave. */
     unknown(answer) {
       if (origin === null) return [];
+      // A path a tool named backs a link only when no tool gave that path's link in another workspace: the same
+      // path in the wrong workspace opens "That file does not exist" too (2026-11-03, @seyi for @public-worship).
+      const elsewhere = (link) => [...links.values()].some((known) => fold(known.path) === fold(link.path) && known.slug.toLowerCase() !== link.slug.toLowerCase());
       return sentNoteLinks(String(answer ?? ""), origin, { limit: MAX_CHECKED }).filter(
-        (link) => !links.has(`${link.slug.toLowerCase()}\n${fold(link.path)}`) && !paths.has(fold(link.path)),
+        (link) => !links.has(`${link.slug.toLowerCase()}\n${fold(link.path)}`) && (!paths.has(fold(link.path)) || elsewhere(link)),
       );
     },
     /** The links the turn does have, newest last, as their addresses, for the notice. */

@@ -56,6 +56,14 @@ test("a link from an earlier text in the chat, or their own text, stands", () =>
   assert.deepEqual(links.unknown(`It's on the page from my last reply: ${GIVEN}, and ${ORIGIN}/note/@supa/a.md`), []);
 });
 
+test("the right path in the wrong workspace is sent back", () => {
+  const links = noteLinkCheck({ origin: ORIGIN });
+  const path = "projects/love-thy-neighbor/church-venues-150-seats.page.md";
+  links.read(written(path, `${ORIGIN}/note/@public-worship/${path}`));
+  assert.deepEqual(links.unknown(`${ORIGIN}/note/@seyi/${path}`), [{ slug: "seyi", path }]);
+  assert.deepEqual(links.unknown(`${ORIGIN}/note/@public-worship/${path}`), []);
+});
+
 test("links elsewhere, and a deployment with no origin, are not checked", () => {
   assert.deepEqual(noteLinkCheck({ origin: ORIGIN }).unknown("https://example.com/note/@supa/x.md https://context.lc/pricing"), []);
   assert.deepEqual(noteLinkCheck({ origin: null }).unknown(SHORTENED), []);

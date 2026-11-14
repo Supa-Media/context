@@ -72,10 +72,22 @@ export function noteLinkUrl(origin, slug, path) {
   return `${origin}/${route}/@${encodeURIComponent(slug)}/${encoded}`;
 }
 
-/** The context a call named (`context: "@name"`), else the turn's own. */
-function slugFor(args, contexts) {
+/**
+ * A path that opens with a workspace's name (`@band/gigs/show.md`) is routed
+ * there (`tools/session.js` `addressByPath`), and the write's answer names the
+ * rest of the path. Without this the link named the turn's own workspace:
+ * Tex saved `@public-worship/projects/love-thy-neighbor/church-venues-150-seats.page.md`
+ * and texted a link to that path in @seyi, which opened "That file does not
+ * exist" (owner, 2026-11-03).
+ */
+const BY_NAME = /^@([a-z0-9][a-z0-9-]*)\//i;
+
+/** The context a call named (`context: "@name"`, or a path opening with `@name/`), else the turn's own. */
+export function slugFor(args, contexts) {
   const named = typeof args?.context === "string" ? args.context.trim().replace(/^@/, "") : "";
   if (named !== "") return named;
+  const prefixed = BY_NAME.exec(typeof args?.path === "string" ? args.path.trim() : "")?.[1];
+  if (prefixed) return prefixed;
   // A context may be listed by its address ("@band"); the link names it once.
   const own = (contexts || []).find((entry) => entry?.current)?.name;
   const slug = typeof own === "string" ? own.trim().replace(/^@/, "") : "";
