@@ -4,7 +4,7 @@
  * One batched GraphQL request to the AI gateway's analytics (and Workers AI's)
  * for the window and the window before it, each row labelled by feature,
  * client, payer and model (`consoleCostsMap.ts` says what each label means).
- * Money is US dollars at what Cloudflare billed. Staff only: `admin.consoleCosts`
+ * Money is US dollars at what Cloudflare billed. Staff only: `consoleAi.costs`
  * checks before calling. Counts and totals only reach the page; an error is
  * reported in our words, never with Cloudflare's body.
  *
@@ -55,12 +55,12 @@ const GATEWAY_LIMIT = 10_000;
 const AI_LIMIT = 1_000;
 
 
-export interface ConsoleEnv extends TexStatsEnv {}
+export type ConsoleEnv = TexStatsEnv;
 
 export interface ConsoleCostsOptions {
   fetchImpl?: typeof fetch;
   now?: number;
-  /** The background jobs' spend from our own meter in the window (`consoleCostsMeter.jobSpend`). */
+  /** The background jobs' spend from our own meter in the window (`consoleAi.jobSpend`). */
   meter?: { usd: number; turns: number };
   /** Texts people sent in a window, or null when they could not be counted. Defaults to `texStats`. */
   texCounts?: (window: { from: number; to: number }) => Promise<number | null>;

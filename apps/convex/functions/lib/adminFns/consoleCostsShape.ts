@@ -1,5 +1,5 @@
 /**
- * THE AI COSTS PAGE'S SHAPE: what `admin.consoleCosts` returns, in one place
+ * THE AI COSTS PAGE'S SHAPE: what `consoleAi.costs` returns, in one place
  * so the action and the console agree. Logic is `consoleCosts.ts`; numbers,
  * labels and our own words only, never a question, an answer or a note.
  * Money is US dollars at what Cloudflare billed.
