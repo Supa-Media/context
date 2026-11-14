@@ -116,8 +116,9 @@
       "services": [{ "binding": "GATEWAY_TEXTS", "service": "context-mcp-staging", "entrypoint": "TexTexts" }],
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
-        // Where an incoming text's head runs (src/handOver.ts): "gateway" or "worker", as at the top level.
-        "INTAKE": "worker",
+        // Where an incoming text's head runs (src/handOver.ts): "gateway" or "worker", as at the top level. Staging runs
+        // its chats in the gateway first (2026-11-14, step 3 of Tex's config graph); production follows once proven.
+        "INTAKE": "gateway",
         "SIMULATOR": "on",
         "APP_CARDS": "app",
         "APP_CARD_EXTENSION_ID": "lc.context.staging.messages"

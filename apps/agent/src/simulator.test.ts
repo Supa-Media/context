@@ -173,4 +173,36 @@ describe("texts simulator", () => {
     ]);
     expect((await thread(storage, 2_000)).messages).toEqual([]);
   });
+
+  // Intake in the gateway (`handOver.ts`): the simulated chat is the gateway's copy, so the simulator proves the
+  // gateway's queue and turns; a gateway that cannot hold it (503) leaves the Worker's object answering.
+  it("sends a simulated chat's calls to the gateway when intake is there, and keeps them here when it can't take them", async () => {
+    const calls: { url: string; name: string | null; body: unknown }[] = [];
+    let status = 200;
+    const gateway = {
+      fetch: async (url: string, init: RequestInit = {}) => {
+        calls.push({ url, name: new Headers(init.headers).get("x-inbox-name"), body: JSON.parse(String(init.body)) });
+        return Response.json({ outcome: "queued" }, { status });
+      },
+    };
+    const { env, objects } = setup("on");
+    const there = { ...env, INTAKE: "gateway", GATEWAY_TEXTS: gateway };
+    const sent = await worker.fetch(api("/send", { key: KEY, body: { phone: PHONE, text: "hi" } }), there);
+    expect(await sent.json()).toEqual({ outcome: "queued" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://gateway/texts/chat-call/sim/send");
+    expect(calls[0].name).toBe(PHONE);
+    expect(calls[0].body).toMatchObject({ phone: PHONE, text: "hi" });
+    expect(JSON.stringify(calls[0].body)).not.toContain(KEY); // the key's hash travels, never the key
+    expect(objects.has(PHONE)).toBe(false);
+
+    status = 503;
+    const fallback = await worker.fetch(api("/send", { key: KEY, body: { phone: PHONE, text: "again" } }), there);
+    expect(fallback.status).toBe(200);
+    expect(objects.has(PHONE)).toBe(true);
+
+    calls.length = 0;
+    await worker.fetch(api("/send", { key: KEY, body: { phone: PHONE, text: "worker" } }), env);
+    expect(calls).toHaveLength(0);
+  });
 });
