@@ -81,3 +81,20 @@ describe("stepIO", () => {
     ]);
   });
 });
+
+describe("a node the config's graph runner ran", () => {
+  // The runner logs every node run itself (`ledger.js` `nodeEntry`), so its Got and Gave come from that one entry.
+  test("shows what the node got and gave, the wire that ran it, and why it failed", () => {
+    const runs: LedgerEntry[] = [
+      e({ id: "n1", kind: "step", turn: T, step: "node", name: "triage", via: "wait", ms: 2, ok: true, input: { texts: ["1-1"] }, output: { to: "tex", why: "one text" } }),
+      e({ id: "n2", kind: "step", turn: T, step: "node", name: "checks", via: "reviewer:loop", ms: 1_200, ok: false, input: { draft: "x" }, reason: "texGraph: \"checks\" output has no \"verdict\"" }),
+    ];
+    const io = stepIO(runs, T, "hi", "");
+    expect(io.triage).toEqual([
+      { k: "Got · wait · 2 ms", v: JSON.stringify({ texts: ["1-1"] }, null, 1) },
+      { k: "Gave", v: JSON.stringify({ to: "tex", why: "one text" }, null, 1) },
+    ]);
+    expect(io.checks?.map((l) => l.k)).toEqual(["Got · reviewer:loop · 1.2 s · failed", "Failed"]);
+    expect(io.checks?.[1].v).toMatch(/has no \\"verdict\\"/);
+  });
+});

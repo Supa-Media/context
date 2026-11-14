@@ -179,6 +179,11 @@ export function stepIO(entries: LedgerEntry[], turn: string | null, text: string
       const input = rec(e.input);
       push("react", "On", (input?.on && textById(entries, str(input.on))) || show(input));
       push("react", e.ok === false ? "Failed to send" : "Sent", rec(e.output)?.emoji ?? e.output);
+    } else if (e.kind === "step" && e.step === "node" && str(e.name)) {
+      // A node the config's graph runner ran: it logs every run itself, so this is what the node got and gave.
+      const tag = [str(e.via), num(e.ms) !== null ? secs(num(e.ms)!) : "", e.ok === false ? "failed" : ""].filter(Boolean).join(" · ");
+      push(str(e.name), "Got" + (tag ? ` · ${tag}` : ""), e.input ?? "(nothing went in)");
+      push(str(e.name), e.ok === false ? "Failed" : "Gave", e.ok === false ? { reason: e.reason ?? "failed" } : e.output ?? "(nothing came out)");
     } else if (e.kind === "step" && nodeOfStep(e.step)) {
       // Every other step the same way: what it got, what it gave, the model it ran on, how long, and why when it says.
       const node = nodeOfStep(e.step)!;

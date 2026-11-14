@@ -73,13 +73,14 @@ describe("every canvas step logs what went in and what came out", () => {
   });
 
   // The other way (Dev2, 2026-11-14: "Everything that's running should have a node"): every step the gateway writes to a
-  // chat's ledger, and every one the Worker keeps, lands on a drawn step. Timing lines are Door steps' gathering.
+  // chat's ledger, and every one the Worker keeps, lands on a drawn step. Timing lines are Door steps' gathering, and a
+  // "node" step is the graph runner's, which lands on the node it names (stepIO.ts).
   test("every step name the gateway or the Worker logs lands on a canvas step", () => {
     const ledger = readFileSync(join(__dirname, "../../mcp/src/agent/ledger.js"), "utf8");
     const names = JSON.parse(/export const STEP_NAMES = new Set\((\[[^\]]*\])\)/.exec(ledger)![1]) as string[];
     const worker = readFileSync(join(__dirname, "../../agent/src/stepEvents.ts"), "utf8");
     for (const m of worker.matchAll(/name: "([a-z]+)"/g)) names.push(m[1]);
-    const nowhere = [...new Set(names)].filter((name) => name !== "timing" && nodeOfStep(name) === null);
+    const nowhere = [...new Set(names)].filter((name) => name !== "timing" && name !== "node" && nodeOfStep(name) === null);
     expect(nowhere).toEqual([]);
   });
 });

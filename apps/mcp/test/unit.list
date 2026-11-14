@@ -552,3 +552,5 @@ test/texConfig.test.mjs
 test/workerSteps.test.mjs
 test/texPrefixPrint.test.mjs
 test/promptCatalog.test.mjs
+test/texGraph.test.mjs
+test/texGraphHome.test.mjs

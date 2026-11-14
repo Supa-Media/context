@@ -92,7 +92,7 @@ test("the wire key offers Next, Helper, Background and Send back: after-sending 
   const { keywHtml } = jest.requireActual<typeof import("../features/tex/lab/views/canvas/render")>("../features/tex/lab/views/canvas/render");
   const { WIRES } = jest.requireActual<typeof import("../features/tex/lab/data/graph")>("../features/tex/lab/data/graph");
   expect([...keywHtml().matchAll(/<\/svg>([^<]+)<\/span>/g)].map((m) => m[1])).toEqual(["Next", "Helper", "Background", "Send back"]);
-  expect({ ...WIRES.behind, folded: undefined, tip: "" }).toEqual({ ...WIRES.job, folded: undefined, tip: "" });
+  expect({ ...WIRES.background, folded: undefined, tip: "" }).toEqual({ ...WIRES.job, folded: undefined, tip: "" });
 });
 
 describe("what a turn really cost, and turns that kept no reply timing (Dev2, 2026-11-14)", () => {

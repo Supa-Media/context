@@ -58,6 +58,10 @@ export async function promoteVersion() {
   }
 }
 
+/** A version saved before the "behind" wire was renamed "background" (Dev2, 2026-11-14) reads with the new name. */
+export const withCurrentModes = <G extends { edges?: Array<{ mode: string }> },>(g: G): G =>
+  Array.isArray(g.edges) ? { ...g, edges: g.edges.map((e) => (e.mode === "behind" ? { ...e, mode: "background" } : e)) } : g;
+
 const parse = <T,>(s: string | null | undefined, fallback: T): T => {
   try {
     return s ? (JSON.parse(s) as T) : fallback;
@@ -106,7 +110,7 @@ export function useLabSync(enabled: boolean) {
         MAIN.results = parse(x.results, []);
         continue;
       }
-      list.push({ id: x.versionId, name: x.name, authorId: x.authorId, graph: parse(x.graph, { nodes: [], edges: [] }), picks: parse(x.picks, {}), areas: parse<string[] | null>(x.areas, null), results: parse(x.results, []), createdAt: x.createdAt, updatedAt: x.updatedAt, promote: x.promote });
+      list.push({ id: x.versionId, name: x.name, authorId: x.authorId, graph: withCurrentModes(parse(x.graph, { nodes: [], edges: [] })), picks: parse(x.picks, {}), areas: parse<string[] | null>(x.areas, null), results: parse(x.results, []), createdAt: x.createdAt, updatedAt: x.updatedAt, promote: x.promote });
     }
     lab.versions = list;
     lab.sync = `Shared · ${list.length - 1} saved version${list.length === 2 ? "" : "s"}`;

@@ -15,7 +15,7 @@ export const WIRES: Record<string, { name: string; dash: string; c: string; w?: 
   uses:{name:"Helper",dash:"",c:"--accent",w:3,tip:"Used in the middle of this step, then hands back to it"},
   // Drawn and named as Background, and not offered as its own kind (Dev2, 2026-11-14: "we already have background, so
   // next, and background is really all we need"). The key stays, so configs and the sim's after-the-reply lane are unchanged.
-  behind:{name:"Background",dash:"7 5",c:"--m-api",tip:"Starts it and moves on; nobody waits for it",folded:true},
+  background:{name:"Background",dash:"7 5",c:"--m-api",tip:"Starts it and moves on; nobody waits for it",folded:true},
   job:{name:"Background",dash:"7 5",c:"--m-api",tip:"Starts it and moves on; nobody waits for it"},
   loop:{name:"Send back",dash:"5 4",c:"--bad",tip:"Sometimes sends the draft back"}
 };

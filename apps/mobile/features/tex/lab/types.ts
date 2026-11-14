@@ -5,7 +5,7 @@
  */
 
 /** How a wire runs: the next step, a helper inside a step, after the reply, a background job, or a send-back. */
-export type WireMode = "wait" | "uses" | "behind" | "job" | "loop";
+export type WireMode = "wait" | "uses" | "background" | "job" | "loop";
 
 export type FieldType = "yesno" | "choice" | "score" | "text";
 export type OutField = { name: string; type: FieldType | string; options?: string };

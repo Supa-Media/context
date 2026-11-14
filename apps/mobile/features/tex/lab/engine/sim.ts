@@ -151,7 +151,7 @@ export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | nul
     for (const e of g.edges) {
       if (!reach.has(e.from) || !on(e) || e.mode === "uses" || e.mode === "loop") continue;
       const fl = reach.get(e.from)!.lane;
-      const lane = e.mode === "behind" ? "behind" : e.mode === "job" ? "job" : fl;
+      const lane = e.mode === "background" ? "behind" : e.mode === "job" ? "job" : fl;
       if (!reach.has(e.to)) {
         reach.set(e.to, { lane });
         ch = true;

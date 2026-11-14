@@ -108,7 +108,7 @@ function keptValue(value) {
 }
 
 /** The steps a `step` entry may name: a new one is added here, so a typo is never a new step. */
-export const STEP_NAMES = new Set(["timing", "triage", "decide", "router", "fallback", "model", "steer", "lane", "door", "card", "checks", "classifier", "selfreview", "handback", "mailadv", "react", "reviewer"]);
+export const STEP_NAMES = new Set(["timing", "triage", "decide", "router", "fallback", "model", "steer", "lane", "door", "card", "checks", "classifier", "selfreview", "handback", "mailadv", "react", "reviewer", "node"]);
 
 /** One step of a turn (`step` kind): its name, whether it went, its milliseconds, and what it was given and gave. */
 export function stepEntry({ step, ok = true, ms = null, input, output, model = null, reason = null, name = null }, { turn = null, at = Date.now() } = {}) {
@@ -123,6 +123,31 @@ export function stepEntry({ step, ok = true, ms = null, input, output, model = n
   if (typeof model === "string" && model !== "") entry.model = model.slice(0, 120);
   if (typeof reason === "string" && reason !== "") entry.reason = reason.slice(0, 400);
   return entry;
+}
+
+/**
+ * One node run of the config's graph (`packages/shared/src/texGraph.cjs`, which logs every run itself) as a `step`
+ * entry `step: "node"`, `name` the node's id, `via` the wire that ran it ("wait", "background", "fd:uses",
+ * "reviewer:loop"), so Replay reads what each node got and gave from the runner and no node logs by hand.
+ */
+export function nodeEntry({ node, input, output, ms, ok, error = null, via = null }, { turn = null, at = Date.now() } = {}) {
+  const entry = stepEntry({ step: "node", name: node, ok, ms, input, output, reason: error }, { turn, at });
+  if (!entry || typeof node !== "string" || node === "") return null;
+  if (typeof via === "string" && via !== "") entry.via = via.slice(0, 64);
+  return entry;
+}
+
+/** The graph runner's `log` for one turn: each node run written as a `nodeEntry`. Never throws; with no writer it does nothing. */
+export function nodeLog(writer, { turn = null } = {}) {
+  return (run) => {
+    if (!writer) return;
+    try {
+      const entry = nodeEntry(run, { turn: typeof turn === "string" && turn !== "" ? turn : null, at: Date.now() });
+      if (entry) writer.write(entry);
+    } catch {
+      /* a node's record never stops the node */
+    }
+  };
 }
 
 /**

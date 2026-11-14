@@ -74,6 +74,7 @@ export function realTimes(entries: LedgerEntry[], turn: string | null): RealTime
     const m = num(e.ms);
     if (m === null) continue;
     if (e.kind === "judge" && e.by === "review") add("reviewer", m, 1);
+    else if (e.kind === "step" && e.step === "node" && typeof e.name === "string" && e.name !== "") add(e.name, m, 1);
     else if (e.kind === "step" && typeof e.step === "string" && STEP_NODES.has(e.step)) add(e.step, m, 1);
   }
   // The rest of the reply (the code checks, the send) is what the steps above do not account for.
@@ -153,6 +154,7 @@ function untimed(mine: LedgerEntry[], add: (id: string, t: number, n?: number) =
     if (e.kind === "thinking") add("fd", m, 1);
     else if (e.kind === "tool") add("tools", m);
     else if (e.kind === "judge" && e.by === "review") add("reviewer", m, 1);
+    else if (e.kind === "step" && e.step === "node" && typeof e.name === "string" && e.name !== "") add(e.name, m, 1);
     else if (e.kind === "step" && typeof e.step === "string" && STEP_NODES.has(e.step)) add(e.step, m, 1);
   }
   if (!Object.keys(ms).length) return null;
