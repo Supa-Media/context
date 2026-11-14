@@ -10,15 +10,16 @@ import { AGAIN_WINDOW_MS, createSearchOpenReporter } from "../features/console/f
 function recorder() {
   const opened: [string, number][] = [];
   const again: string[] = [];
+  const refined: string[] = [];
   const reporter = createSearchOpenReporter({
     reportOpen: (row, position) => {
       opened.push([row, position]);
     },
-    reportAgain: (row) => {
-      again.push(row);
+    reportAgain: (row, wasRefined) => {
+      (wasRefined ? refined : again).push(row);
     },
   });
-  return { opened, again, reporter };
+  return { opened, again, refined, reporter };
 }
 
 const T0 = 1_000_000;
@@ -110,6 +111,48 @@ describe("createSearchOpenReporter: re-searches", () => {
     reporter.searchStarted(T0 + 1_000)("row-b");
     reporter.searchStarted(T0 + 2_000);
     expect(again).toEqual(["row-a", "row-b"]);
+  });
+});
+
+describe("createSearchOpenReporter: typing", () => {
+  test("a query that only extends or trims the last one takes the last one out of the counts, not re-searched", () => {
+    const { again, refined, reporter } = recorder();
+    reporter.searchStarted(T0, "pro")("row-a");
+    reporter.searchStarted(T0 + 400, "Project ")("row-b");
+    reporter.searchStarted(T0 + 900, "proj")("row-c");
+    expect(refined).toEqual(["row-a", "row-b"]);
+    expect(again).toEqual([]);
+  });
+
+  test("a different query is a re-search", () => {
+    const { again, refined, reporter } = recorder();
+    reporter.searchStarted(T0, "project")("row-a");
+    reporter.searchStarted(T0 + 5_000, "invoice");
+    expect(again).toEqual(["row-a"]);
+    expect(refined).toEqual([]);
+  });
+
+  test("a search followed before its row id arrives is settled when the id does", () => {
+    const { again, refined, reporter } = recorder();
+    const first = reporter.searchStarted(T0, "pro");
+    const second = reporter.searchStarted(T0 + 300, "project");
+    reporter.searchStarted(T0 + 5_000, "invoice");
+    expect(refined).toEqual([]);
+    first("row-a");
+    second("row-b");
+    expect(refined).toEqual(["row-a"]);
+    expect(again).toEqual(["row-b"]);
+  });
+
+  test("an open of the refined search counts against it, and nothing else is sent for it", () => {
+    const { opened, again, refined, reporter } = recorder();
+    reporter.searchStarted(T0, "pro")("row-a");
+    reporter.searchStarted(T0 + 400, "project")("row-b");
+    reporter.opened(2);
+    reporter.searchStarted(T0 + 5_000, "projects");
+    expect(opened).toEqual([["row-b", 2]]);
+    expect(refined).toEqual(["row-a"]);
+    expect(again).toEqual([]);
   });
 });
 

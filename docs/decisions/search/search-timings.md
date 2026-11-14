@@ -38,3 +38,46 @@ a member of the workspace may report one.
 What reversing it costs: search speed goes back to being guessed at. The test
 that fails is `apps/convex/__tests__/searchTimings.test.ts`, and on the gateway
 side the search-timing checks in `apps/mcp/test/usageReporting.test.mjs`.
+
+### Which result was opened, keyed so the control plane cannot read it back
+
+Decided 2026-11-14, when the owner asked the staff console's Search page to show
+how often a search finds something, which result people open, and what they do
+when they open nothing.
+
+**One counted row per search, marked with who searched** (`who`: `app`, `ai`
+or `tex`), with the 1-based place of the first result opened (`opened`) and
+whether the same searcher searched again within 60 s with nothing opened
+(`again`). Every other row stays timing only. Still never the query, a path, a
+title or a snippet.
+
+**The app pairs on the device.** The app's search answer comes back with its
+row id, and the device reports the open or the next search against that id
+(`apps/mobile/features/console/files/searchOpenReport.ts`). No person id
+crosses. When the next query only extends or trims the last one (the person was
+still typing), the device compares the two queries itself and the earlier row
+leaves the counts (`reportAgain` with `refined`), so keystrokes are not counted
+as searches nobody opened.
+
+**The gateway sends only keyed MACs, under a key the control plane cannot
+derive.** An AI client's or Tex's search carries the searcher (`actor`) and its
+hits as HMAC-SHA-256 under a key derived from a root that only the gateway
+holds. `GATEWAY_SECRET` cannot be that root, because Convex holds it as the
+bearer it checks. The root is 32 random bytes that one Durable Object in the
+gateway's account makes the first time it is asked and then keeps
+(`apps/mcp/src/search/qualityKeyObject.js`, binding `SEARCH_QUALITY_KEY`). So
+nobody adds a secret, and Convex never reaches it. Losing the object just
+rotates the key: pairing fields expire after 15 minutes anyway. Without the
+binding (a self-host on the free tier), the gateway sends timing only, never an
+unkeyed hash.
+
+**An open in another context is reported in both places it could have been
+searched**: against that context by its plain path, and against the caller's
+own context by `@name/path`, the key a search across every context gives it
+(`apps/mcp/src/tools/session.js`).
+
+What reversing it costs: an unkeyed hash of a grant id or a path can be
+reversed by anyone who reads the log, and counting keystrokes makes "gave up"
+read high. The tests that fail are `apps/mcp/test/searchQuality.test.mjs`,
+`apps/convex/__tests__/searchOpen.test.ts` and
+`apps/mobile/__tests__/searchOpenReport.test.ts`.

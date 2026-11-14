@@ -21,9 +21,11 @@ import { actorSeedOf, searchActorHash, searchHitHash, searchQualityKeyOf, search
  * on a host that cannot keep it alive — the line is in the customer's bucket
  * either way.
  */
-export function attachChangeReporters(store, workspaceId, controlPlane, { readLedger, env, searchKey } = {}) {
-  // The search quality key (`search/quality.js`): from the Worker's env unless a caller hands one in (a test).
-  const qualityKey = searchKey ?? searchQualityKeyOf(env);
+export function attachChangeReporters(store, workspaceId, controlPlane, { readLedger, env, searchEnv, searchKey } = {}) {
+  // The search quality key (`search/quality.js`): from the Worker's env (`searchEnv` for a store `openContext`
+  // built, which is given no `env`) unless a test hands one in. Asked for only when a search or an open is reported, so a request that
+  // searches nothing never reaches the key's object.
+  const qualityKey = () => searchKey ?? searchQualityKeyOf(searchEnv ?? env);
   attachSmallData(store, workspaceId, controlPlane, readLedger);
   store.reportTreeChange = (audiences) =>
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
@@ -45,7 +47,7 @@ export function attachChangeReporters(store, workspaceId, controlPlane, { readLe
     if (typeof store.defer !== "function") return;
     try {
       store.defer(
-        qualityKey
+        qualityKey()
           .then((key) => searchTimingFields(workspaceId, timing, key))
           .then((fields) => controlPlane.reportSearchTiming(fields))
           .catch(() => {}),
@@ -61,7 +63,7 @@ export function attachChangeReporters(store, workspaceId, controlPlane, { readLe
     if (typeof store.defer !== "function" || !seed) return;
     try {
       store.defer(
-        qualityKey
+        qualityKey()
           .then((key) =>
             key === null
               ? null

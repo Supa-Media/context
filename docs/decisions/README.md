@@ -384,6 +384,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The map's graph is read per shard at request time, and stored nowhere
 - Related notes are the map's links for one note, plus one search
 - Every search is timed, and the time is all that is kept
+- Which result was opened, keyed so the control plane cannot read it back
 - Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
 - Notes reach the index two ways, and a map in the bucket says which are in
 - Both indexes fill in tier order: T0 everything else, T1 the Inbox, T2 the Archive

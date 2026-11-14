@@ -32,9 +32,12 @@ change. A session that wrote the change must never act as its examiner.
    in `ai/production/skills/` to `setups/texting-assistant/skills/`, and every
    note in `ai/tests/` to `tests/` (skip each folder's `about.md`; write each
    note's text only, ending in a newline).
-   The `jobs` area stays out of the socket on purpose, and runs only with API
-   credits. One run is about 350 long tool-using calls (seven whole jobs, part
-   after part, each with Opus's done check), more than an examiner can answer.
+   The `jobs` area goes through the socket too (decided by the owner,
+   2026-11-14: every config change now reaches the job prompts, because what
+   Tex is told about itself is generated from the config). One run is about
+   350 long tool-using calls (seven whole jobs, part after part, each with
+   Opus's done check, and the quality judge), so split the answering across
+   several examiner subagents as for core, and expect it to take the longest.
 3. Start the gate in the background with the socket set:
 
    ```sh
