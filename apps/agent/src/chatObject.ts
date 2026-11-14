@@ -10,6 +10,7 @@ import { jobStub } from "./jobPlace";
 import { logged } from "./agentError";
 import { type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
+import { oldLineStep } from "./oldLineStep";
 import { carryOnAfterHandback } from "./handbackWatch";
 import { countInbound } from "./textCounts";
 import { checkReady } from "./ready";
@@ -219,6 +220,15 @@ export class SenderInbox implements DurableObject {
     }
     await this.keepOrigin(request);
     const { provider: brought, ...message } = (await request.json()) as Message & { provider?: unknown };
+    // Node "oldLine": a text on Tex's old number gets the new one and takes no turn (`oldLineStep.ts`).
+    if (message.channel !== "simulator" && !message.tapback) {
+      const old = await oldLineStep(this.state.storage, message.chatId, { ...this.deps(), texts: this.env.GATEWAY_TEXTS });
+      if (old !== "pass") {
+        const outcome = old === "held" ? "held" : "redirected";
+        await this.logArrival(message.chatId, "one", brought, outcome);
+        return Response.json({ outcome });
+      }
+    }
     const outcome = await accept(this.state.storage, message, Date.now());
     await this.logArrival(message.chatId, "one", brought, outcome);
     if (outcome === "queued" && message.channel !== "simulator" && !message.tapback) countInbound(this.env.TEX_COUNTS, "one", "text", inboxIdOf(this.env.SENDER_INBOX, message.from));

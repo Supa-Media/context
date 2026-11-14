@@ -1,37 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
-import { clearOldLineCache, OLD_LINE_CACHE_MS, oldLineReply, readOldLine, type OldLine } from "./oldLine";
+import { clearOldLineCache, OLD_LINE_CACHE_MS, readOldLine, type OldLine } from "./oldLine";
 
 const NUMBER = "+18133350746";
 const SECRET = "a-worker-secret-long-enough";
-const OLD_CHAT = "sendblue:+15555550199:+15555550100";
-const LINQ_CHAT = "chat_1";
-const DAY = 24 * 60 * 60 * 1000;
 const redirect: OldLine = { mode: "redirect", number: NUMBER, archiveOn: null };
-const TEXT = "I've moved to +1 (813) 335-0746. Text me there instead, same Tex, same notes.";
 
 beforeEach(() => clearOldLineCache());
-
-describe("the old-line reply", () => {
-  it("answers a Sendblue chat with the new number, and only in redirect mode", () => {
-    expect(oldLineReply(redirect, OLD_CHAT, null, 1_000)).toBe(TEXT);
-    expect(oldLineReply({ mode: "off", number: NUMBER, archiveOn: null }, OLD_CHAT, null, 1_000)).toBeNull();
-    expect(oldLineReply({ mode: "redirect", number: null, archiveOn: null }, OLD_CHAT, null, 1_000)).toBeNull();
-  });
-
-  it("says nothing to a chat that is not on the old Sendblue line", () => {
-    expect(oldLineReply(redirect, LINQ_CHAT, null, 1_000)).toBeNull();
-  });
-
-  it("tells each chat once in 24 hours", () => {
-    expect(oldLineReply(redirect, OLD_CHAT, 1_000, 1_000 + DAY - 1)).toBeNull();
-    expect(oldLineReply(redirect, OLD_CHAT, 1_000, 1_000 + DAY)).toBe(TEXT);
-  });
-
-  it("adds the day the old number stops working, when there is one", () => {
-    expect(oldLineReply({ ...redirect, archiveOn: "2026-12-01" }, OLD_CHAT, null, 1_000)).toBe(`${TEXT} This number stops working on December 1.`);
-  });
-});
 
 describe("reading the setting", () => {
   it("asks the control plane with the worker's secret, and keeps the answer for 60 seconds", async () => {

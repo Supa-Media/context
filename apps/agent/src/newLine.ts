@@ -18,28 +18,14 @@ import { post, record, ServiceError, type Fetch } from "./clients";
 import { CHAT_KEY, NEW_LINE_TOLD_KEY, type InboxStorage, type RememberedChat } from "./inbox";
 import { lineFor, lineSeam, type LineDeps } from "./line";
 import { isSendblueChat } from "./sendblue";
+import { archiveSentence, formatNumber } from "../../../packages/shared/src/texNumber.cjs";
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 const MAX_PHONES = 5_000;
 const CONCURRENCY = 5;
 
-/** "+18133350746" → "+1 (813) 335-0746"; any other number stays as given. */
-export function formatNumber(number: string): string {
-  const us = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(number);
-  return us ? `+1 (${us[1]}) ${us[2]}-${us[3]}` : number;
-}
-
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-/** " This number stops working on December 1." for a real `YYYY-MM-DD` day; "" when there is none or it is not a day. */
-export function archiveSentence(archiveOn: string | null | undefined): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(archiveOn ?? "");
-  if (m === null) return "";
-  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "";
-  return ` This number stops working on ${MONTHS[month - 1]} ${day}.`;
-}
+/** The number and archive-day wording, shared with the gateway's old-number node (`packages/shared/src/texNumber.cjs`). */
+export { archiveSentence, formatNumber };
 
 export function newNumberText(number: string, archiveOn?: string | null): string {
   return `Tex here. I have a new number: ${formatNumber(number)}. Text me there from now on; this number is going away. Same Tex, same notes.${archiveSentence(archiveOn)}`;
