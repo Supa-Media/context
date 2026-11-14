@@ -201,7 +201,7 @@ test("a computer part's brief always names its advisor, how to ask it, and that 
   }
 });
 
-test("the job's mail advisor leaves its step in the chat's ledger, tagged with the job (Dev2, 2026-11-13)", async () => {
+test("the job's mail advisor leaves its node run in the chat's ledger, tagged with the job (Dev2, 2026-11-13; on the graph runner 2026-11-14)", async () => {
   const fake = fakeNotes({ "tex/jobs/a.md": "# A\n\nRun it." });
   const appended = [];
   Object.assign(fake.store, { getSettings: async () => null, texLedger: () => ({ append: async (chat, entries) => appended.push(...entries.map((entry) => ({ chat, ...entry }))) }) });
@@ -209,10 +209,14 @@ test("the job's mail advisor leaves its step in the chat's ledger, tagged with t
   await ask(fake, "/agent/job/advise", { jobId: JOB, note: { path: "tex/jobs/a.md" }, advisor: "mb_00000009", from: "a", question: "it failed", title: "A" }, texting({ workspaceKind: "personal" }), { advise });
   const step = appended.find((entry) => entry.kind === "step");
   assert.ok(step, JSON.stringify(appended));
-  assert.equal(step.step, "mailadv");
+  // The runner writes it now, as the node's run over the job -> mailadv wire (`graph/nodes/mailadv.js`).
+  assert.equal(step.step, "node");
+  assert.equal(step.name, "mailadv");
+  assert.equal(step.via, "job:uses");
   assert.equal(step.chat, "texts");
   assert.equal(step.jobId, JOB);
-  assert.deepEqual(step.input, { question: "it failed", from: "a" });
-  assert.equal(step.output, "Try the web login.");
+  assert.equal(step.input.question, "it failed");
+  assert.equal(step.input.from, "a");
+  assert.equal(step.output.words, "Try the web login.");
   assert.equal(step.ok, true);
 });

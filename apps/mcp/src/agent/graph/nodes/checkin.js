@@ -3,15 +3,13 @@
  * (`agent/heartbeat.js`), from reading the person's check-in settings to the
  * model's provider being opened. A graph runner follows its `to` wire.
  *
- * It takes plain input, which is safe to log: { timeZone, since, attention,
- * started }. Everything live (the dispatcher, the store, the session, the
- * control plane, the attention deliverer) comes in through `io.ctx.checkin`,
+ * It takes plain input, which is safe to log: { timeZone, since, started }. Everything live (the dispatcher, the store, the session, the
+ * control plane) comes in through `io.ctx.checkin`,
  * and so does what the rest of the check-in reads: `io.ctx.checkin.look`,
  * set only on the `look` branch. Note text, mail and functions never go in the
  * output, so the output can be logged and replayed as it is.
  *
  * Outputs:
- *   - { to: "attention", outcome, answer?, until? }: a ping the person's agents asked for.
  *   - { to: "done", status, body }: the check-in ends here with that HTTP answer.
  *   - { to: "look", counts, calendar }: the model's look goes ahead; the values are in `io.ctx.checkin.look`.
  *
@@ -30,7 +28,6 @@ import { newChatSince, newSlackSince, todaysCalendar } from "../../checkInSource
 import { readConversation } from "../../conversation.js";
 import { RECENT_TEXTS_SHOWN } from "../../checkInTexts.js";
 import { openProvider } from "../../turn.js";
-import { disarmTexting } from "../../../tools/approvals.js";
 import {
   BUSY_WORDS,
   FIRST_LOOK_MS,
@@ -45,29 +42,12 @@ import {
 } from "../../checkInGather.js";
 
 export async function checkin(input, io) {
-  const { dispatch, store, session, env, controlPlane, deliver } = io.ctx.checkin;
-  const { timeZone, since, attention, started } = input;
+  const { dispatch, store, session, env, controlPlane } = io.ctx.checkin;
+  const { timeZone, since, started } = input;
 
   const settingsNote = await readWithEtag(dispatch, HEARTBEAT_SETTINGS_PATH);
   const until = quietHoursEnd(settingsNote?.body, started, timeZone); // their quiet hours: when to come back, or null
 
-  // A claim for the pings their agents asked for (`attention.js`): texted as they are, no look and no model.
-  if (attention) {
-    const delivered = await deliver(dispatch, store, { now: started, timeZone, onlyEmergencies: until !== null });
-    console.log(
-      JSON.stringify({
-        event: "attention_delivery",
-        workspace: session.workspaceId,
-        grant: session.grantId,
-        pings: delivered?.count ?? 0,
-        ms: Date.now() - started,
-      }),
-    );
-    // A text from Tex is something a bare "yes" may answer, so an older ask stops listening.
-    if (delivered) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
-    if (delivered) return { to: "attention", outcome: "speak", answer: delivered.text, ...(until === null ? {} : { until }) };
-    return { to: "attention", ...(until === null ? { outcome: "quiet" } : { outcome: "quiet_hours", until }) };
-  }
   const sinceAt = since ?? started - FIRST_LOOK_MS;
 
   const settings = readSettings(settingsNote?.body ?? "");

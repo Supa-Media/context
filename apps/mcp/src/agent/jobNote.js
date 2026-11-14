@@ -29,7 +29,8 @@ import { hasScope, SCOPE_WRITE } from "../session.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
 import { jobMailOf } from "./background.js";
-import { jobTagged, stepLog, storeLedger } from "./ledger.js";
+import { jobTagged, storeLedger } from "./ledger.js";
+import { gatewayGraph } from "./graph/gatewayGraph.js";
 import { readProductionSetup } from "./production.js";
 import { adviseOnce, advisorRequest } from "./advisorRoles/core.js";
 import { ADVISOR_MAIL_PROMPT } from "./advisorRoles/jobMail.js";
@@ -204,43 +205,18 @@ async function adviseRoute(request, env, store, session, controlPlane, advise, c
   if (question === "") return invalid("question");
   const noteText = ((await readNote(call, note)) ?? "").slice(-MAX_NOTE_SHOWN);
   const production = await readProductionSetup(store, session, { texting: true });
-  const model = [production?.advisor, production?.model, builtinModel(env)].find((name) => typeof name === "string" && canRunBuiltin(name, env));
-  if (typeof model !== "string") return json({ ok: await send("I can't look at this right now. Use your best judgement and carry on.") });
-  const request_ = advise ?? advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-advisor" } });
-  const started = Date.now();
-  let answer = null;
-  try {
-    answer = await adviseOnce({
-      request: request_,
-      model,
-      effort: production?.efforts?.[model],
-      prompt: ADVISOR_MAIL_PROMPT,
-      role: "jobAdvisor",
-      brief: jobMailBrief({ title: body.title, brief: body.brief, doneWhen: body.doneWhen, from, noteText, question }),
-    });
-  } catch {
-    answer = null;
-  }
-  try {
-    await controlPlane?.recordBuiltinUsage?.(session.accessToken, session.workspaceId, {
-      input: answer?.usage?.input ?? 0,
-      output: answer?.usage?.output ?? 0,
-      cacheRead: answer?.usage?.cacheRead ?? 0,
-      cacheWrite: answer?.usage?.cacheWrite ?? 0,
-      model,
-      decision: 0,
-      failed: answer === null,
-      ms: Date.now() - started,
-      background: true, // a job's advisor, like a job's turn, is never on the daily cap
-    });
-  } catch {
-    // A meter that could not be reached costs us a report, not the job its answer.
-  }
-  const words = typeof answer?.text === "string" ? answer.text.trim() : "";
-  // The job's mail advisor as a step in its chat's ledger, tagged with the job: what the job asked, what it was told (`stepLog`).
+  // The Advisor on job mail is a node on the graph, run over the job -> mailadv wire and logged by the runner to the job's
+  // chat under the job (`graph/nodes/mailadv.js`): what the job asked, what it was told.
   const record = jobTagged(storeLedger(store, session), { id: body.jobId, title: typeof body.title === "string" ? body.title : undefined });
-  stepLog(record).log({ step: "mailadv", ok: answer !== null, ms: Date.now() - started, input: { question, from }, output: words || null, model });
+  const advised = await gatewayGraph({ writer: record }).fire(
+    "job",
+    "mailadv",
+    { jobId: body.jobId, title: clip(body.title, MAX_TEXT), brief: clip(body.brief, MAX_TEXT), doneWhen: clip(body.doneWhen, MAX_TEXT), from, question, noteText },
+    { mailadv: { production, env, controlPlane, session, ...(advise ? { request: advise } : {}) } },
+  );
   await record?.flush();
+  if (advised.model === "") return json({ ok: await send("I can't look at this right now. Use your best judgement and carry on.") });
+  const words = advised.words;
   const ok = await send(words || "I can't look at this right now. Use your best judgement and carry on.");
   return json({ ok });
 }

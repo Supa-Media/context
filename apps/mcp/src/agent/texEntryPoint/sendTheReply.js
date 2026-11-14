@@ -11,6 +11,8 @@ import { canRunBuiltin } from "../builtin.js";
 import { chatHubUrl } from "../hubLinks.js";
 import { keepGroupExchange } from "../groupTurn.js";
 import { jobFields, jobTurnFields } from "../jobCheck.js";
+import { gatewayGraph } from "../graph/gatewayGraph.js";
+import { jobCheckOnGraph } from "../graph/bridges.js";
 import { stepLog, wordsEntry } from "../ledger.js";
 import { briefEntry } from "../judgeBrief.js";
 import { readInstructions } from "../customInstructions.js";
@@ -127,7 +129,7 @@ export async function sendTheReply(t) {
   if (job !== null && typeof answered === "function") await tex.step("answer_early", () => answered({ ...withoutSteps(reply), ...jobFields(null, { exhausted: turn.exhausted === true, unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true }), ...(turn.steps?.length ? {} : { idle: true }) }));
   return json({
     ...reply,
-    ...(await tex.step("job_fields", () => jobChecked(session, { job, steps: turn.steps?.length ?? 0, turn: body.turn }, () => jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter })))), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
+    ...(await tex.step("job_fields", () => jobChecked(session, { job, steps: turn.steps?.length ?? 0, turn: body.turn }, () => jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter, check: jobCheckOnGraph(gatewayGraph({ writer: session.ledger ?? null, turn: typeof body.turn === "string" ? body.turn : null })) })))), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
     ...{ warm: (await tex.step("seal_warm", () => hot.seal({ wrote: turn.steps.length > 0 }))) ?? undefined }, // the copy the Worker hands back with the next text (`warmCopy.js`)
   });
 }

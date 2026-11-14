@@ -38,6 +38,13 @@ the Worker's head (triage, decide, lanes) moved into the gateway; jobs and start
 picture maker, memory nudge, reflect, nightly dream and day summaries, housekeeping); and the Lab simulating on the same
 runner. Promote may rewire live Tex, behind the replay gate (Dev2: "yes").
 
+**Starts and a job's helpers** (step 4). A start is a node of `kind: "input"` whose code is what decides whether the
+run goes on: Check-in gives `to: "look"` or `to: "done"` with the route's own answer, and Send through Tex gives
+`to: "send"` or `"quiet"`; the wires out of them fire on those tags, so a quiet check-in is a branch in the config, not an
+early return in code. What the rest of a run reads but must not log (changed notes, mail, the settings note) rides on
+`ctx`. Until a job's part is a node of its own, the code that runs that part reaches Job check, the hand-back judge and
+the mail advisor only over the job's wires (`graph/bridges.js`), so a wire the config lacks is refused.
+
 **What a simplification would cost.** Putting a wire back in code is shadow code: the Lab would draw one Tex and run
 another, which is what Dev2 called "whack-a-mole". Tests that fail: `apps/mcp/test/texGraph.test.mjs` (the runner's
 semantics, each with a sabotage record) and `apps/mcp/test/texGraphHome.test.mjs` (every node on the runner or in
