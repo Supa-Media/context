@@ -16,7 +16,7 @@ const DM_GUID = "any;-;+15550000002";
 /** A group id as the gateway names it: `photon-group:<base64url(chatGuid)>`. */
 const base64url = (value: string): string => btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const GROUP = `photon-group:${base64url("iMessage;+;chat123")}`;
-const APP = { extensionBundleId: "lc.context.messages", teamId: "ABCDE12345", appStoreId: 1234 };
+const APP = { extensionBundleId: "lc.context.messages", teamId: "T".repeat(10), appStoreId: 1234 };
 const NOTE = "https://context.lc/note/@alice/1-projects/launch-plan.md";
 
 /** A fake PHOTON binding: records each op and its body, answers by `answer` or the default (a send gets a guid). */

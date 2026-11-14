@@ -101,15 +101,18 @@ async function sameText(a: string, b: string): Promise<boolean> {
   return diff === 0;
 }
 
-async function attachmentSignature(secret: string, guid: string): Promise<string> {
-  return hmacHex(secret.trim(), `photon-attachment:${guid}`);
+/** How long a picture's address opens: long enough for the turn and a retry of it, never for good. */
+export const ATTACHMENT_FOR_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function attachmentSignature(secret: string, guid: string, expires: number): Promise<string> {
+  return hmacHex(secret.trim(), `photon-attachment:${guid}:${expires}`);
 }
 
 /**
  * The address one picture is served at, under the origin this Worker last
  * saw a webhook at (`ORIGIN_KEY`, `media.ts`); null when either is unusable.
  */
-export async function photonAttachmentUrl(origin: string | undefined, secret: string | undefined, guid: string): Promise<string | null> {
+export async function photonAttachmentUrl(origin: string | undefined, secret: string | undefined, guid: string, now = Date.now()): Promise<string | null> {
   const key = (secret ?? "").trim();
   if (key.length < MIN_SECRET_LENGTH || origin === undefined || origin === "") return null;
   let base: URL;
@@ -119,12 +122,15 @@ export async function photonAttachmentUrl(origin: string | undefined, secret: st
     return null;
   }
   if (base.protocol !== "https:") return null;
-  return `${base.origin}/photon/attachment/${encodeURIComponent(guid)}?s=${await attachmentSignature(key, guid)}`;
+  const expires = Math.floor((now + ATTACHMENT_FOR_MS) / 1000);
+  return `${base.origin}/photon/attachment/${encodeURIComponent(guid)}?e=${expires}&s=${await attachmentSignature(key, guid, expires)}`;
 }
 
-/** Whether `given` is the signature of this attachment guid. */
-export async function verifyPhotonAttachment(secret: string | undefined, guid: string, given: string | null): Promise<boolean> {
+/** Whether `given` is the signature of this attachment guid and expiry (unix seconds), and the expiry has not passed. */
+export async function verifyPhotonAttachment(secret: string | undefined, guid: string, given: string | null, expiresAt: string | null, now = Date.now()): Promise<boolean> {
   const key = (secret ?? "").trim();
-  if (key.length < MIN_SECRET_LENGTH || given === null || given === "") return false;
-  return sameText(await attachmentSignature(key, guid), given);
+  if (key.length < MIN_SECRET_LENGTH || given === null || given === "" || expiresAt === null || !/^\d{1,12}$/.test(expiresAt)) return false;
+  const expires = Number(expiresAt);
+  if (expires * 1000 <= now) return false;
+  return sameText(await attachmentSignature(key, guid, expires), given);
 }

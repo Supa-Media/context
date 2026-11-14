@@ -152,7 +152,7 @@ describe("PhotonEvents.event: pictures", () => {
     const url = new URL(attachments[0].url);
     expect(url.origin).toBe(ORIGIN);
     expect(url.pathname).toBe("/photon/attachment/att-9");
-    expect(await verifyPhotonAttachment(SECRET, "att-9", url.searchParams.get("s"))).toBe(true);
+    expect(await verifyPhotonAttachment(SECRET, "att-9", url.searchParams.get("s"), url.searchParams.get("e"))).toBe(true);
   });
 
   it("leaves a picture off when the deploy named no origin, and keeps its words", async () => {

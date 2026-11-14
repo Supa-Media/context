@@ -5,6 +5,7 @@ import {
   isPhotonChat,
   isPhotonGroup,
   parsePhotonChat,
+  ATTACHMENT_FOR_MS,
   photonAttachmentUrl,
   photonChatId,
   photonGroupGuid,
@@ -82,11 +83,23 @@ describe("attachment addresses", () => {
     expect(parsed.origin).toBe(ORIGIN);
     expect(parsed.pathname).toBe("/photon/attachment/guid-1");
     const sig = parsed.searchParams.get("s");
-    expect(await verifyPhotonAttachment(SECRET, "guid-1", sig)).toBe(true);
-    expect(await verifyPhotonAttachment(SECRET, "guid-2", sig)).toBe(false);
-    expect(await verifyPhotonAttachment(SECRET, "guid-1", null)).toBe(false);
-    expect(await verifyPhotonAttachment(SECRET, "guid-1", "0".repeat(64))).toBe(false);
-    expect(await verifyPhotonAttachment("another-secret-long-enough-x", "guid-1", sig)).toBe(false);
+    const e = parsed.searchParams.get("e");
+    expect(await verifyPhotonAttachment(SECRET, "guid-1", sig, e)).toBe(true);
+    expect(await verifyPhotonAttachment(SECRET, "guid-2", sig, e)).toBe(false);
+    expect(await verifyPhotonAttachment(SECRET, "guid-1", null, e)).toBe(false);
+    expect(await verifyPhotonAttachment(SECRET, "guid-1", "0".repeat(64), e)).toBe(false);
+    expect(await verifyPhotonAttachment("another-secret-long-enough-x", "guid-1", sig, e)).toBe(false);
+  });
+
+  it("an address stops opening once it expires, and its expiry cannot be pushed out", async () => {
+    const now = Date.UTC(2026, 10, 14);
+    const parsed = new URL((await photonAttachmentUrl(ORIGIN, SECRET, "guid-1", now)) as string);
+    const sig = parsed.searchParams.get("s");
+    const e = parsed.searchParams.get("e") as string;
+    expect(await verifyPhotonAttachment(SECRET, "guid-1", sig, e, now + ATTACHMENT_FOR_MS - 1000)).toBe(true);
+    expect(await verifyPhotonAttachment(SECRET, "guid-1", sig, e, now + ATTACHMENT_FOR_MS + 1000)).toBe(false);
+    expect(await verifyPhotonAttachment(SECRET, "guid-1", sig, String(Number(e) + 86_400), now)).toBe(false);
+    expect(await verifyPhotonAttachment(SECRET, "guid-1", sig, null, now)).toBe(false);
   });
 
   it("gives no address for a plain http origin, a missing origin, a bad origin or a short secret", async () => {

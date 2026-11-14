@@ -347,7 +347,7 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
 }
 
 /**
- * `GET /photon/attachment/<guid>?s=<sig>`: a picture or file of a Photon message, streamed from the bridge
+ * `GET /photon/attachment/<guid>?e=<expiry>&s=<sig>`: a picture or file of a Photon message, streamed from the bridge
  * (`env.PHOTON`, `attachment/<guid>`), for the gateway to fetch. Served only with the signature `photon.ts` gives its
  * address. Every miss is the same 404.
  */
@@ -361,7 +361,7 @@ async function photonAttachment(request: Request, env: Env, url: URL): Promise<R
     return new Response(null, { status: 404 });
   }
   if (guid === "" || guid.length > 200 || guid.includes("/")) return new Response(null, { status: 404 });
-  if (!(await verifyPhotonAttachment(env.AGENT_WORKER_SECRET, guid, url.searchParams.get("s")))) return new Response(null, { status: 404 });
+  if (!(await verifyPhotonAttachment(env.AGENT_WORKER_SECRET, guid, url.searchParams.get("s"), url.searchParams.get("e")))) return new Response(null, { status: 404 });
   const upstream = await env.PHOTON.fetch(`https://bridge/attachment/${encodeURIComponent(guid)}`);
   if (!upstream.ok || upstream.body === null) {
     await upstream.body?.cancel();
