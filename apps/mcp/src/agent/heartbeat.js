@@ -60,6 +60,15 @@ import { SKIP_WORD } from "./routine.js";
 import { SAY_NOTHING } from "./sayNothing.js";
 import { READ_SOURCE_PREFIX } from "./sources.js";
 import { appendConversation, readConversation } from "./conversation.js";
+import { ONE_TO_ONE_CHAT, ledgerObserver, ledgerWriter } from "./ledger.js";
+import { turnTiming } from "./turnTiming.js";
+import { texVersion } from "./texVersion.js";
+
+/** The code a look ran on (`texVersion.js`), or nothing when none is known. */
+const versionOf = (env) => {
+  const version = texVersion(env, null);
+  return version === null ? {} : { version };
+};
 import { threadOf } from "./threadView.js";
 import { appendLogEntryWhy, builtinMeter, clock, dayOf, logSkipped, longDate, readWithEtag, refusedRun } from "./jobLog.js";
 import { actorFor, contextsFor } from "../context/identity.js";
@@ -472,6 +481,11 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
 
   const texted = textedLines(await recentLogs(dispatch, started, timeZone));
   const events = [];
+  // The look's steps go to their chat's one record under a turn of their own, as a text's do (Dev2, 2026-11-14:
+  // "we need to make sure we are logging everything so we can replay the results"), not only to the day's log.
+  const ledgerTurn = `ck${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
+  const chatLog = ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT);
+  const observe = ledgerObserver(chatLog, (event) => events.push(event), { turn: ledgerTurn, ownSlug: session.workspaceSlug }) ?? ((event) => events.push(event));
   const offered = await grantedToolsFor(session, store);
   // The check-in's setup note (`ai/production/heartbeat.md`): its words, and its
   // model when this deployment can call it. Missing or invalid is the built-in ones.
@@ -529,7 +543,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       // Who they are and what Tex keeps about them, so it judges what matters to them (`aboutMe.js`, `identity.js`).
       ...(({ aboutMe, identity }) => ({ aboutMe, identity }))(await readTexNotes(dispatch, { controlPlane, session })),
       localNow: { now: started, timeZone },
-      observe: (event) => events.push(event),
+      observe,
       maxRounds: HEARTBEAT_ROUNDS,
     });
   } catch (error) {
@@ -594,11 +608,14 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
         sources: (turn?.steps ?? []).flatMap((step) => step.sources ?? []), // the notes and emails it read, by name only
         // Sent as a reply under an earlier text: kept in that text's thread, so their reply there sees it (`threadView.js`).
         thread: marked.continues === null ? null : threadOf(conversation, marked.continues),
+        // Its run, for replay: the turn its steps were written under, how long it took, the code and the prompt it ran on.
+        entry: { turn: ledgerTurn, ms: now - started, ...versionOf(env), timing: turnTiming({ trace: turn?.timing?.trace, replyMs: now - started }) },
       });
     } catch {
       // A history that could not be written costs the next reply some context, never the check-in.
     }
   }
+  await chatLog?.flush();
   console.log(
     JSON.stringify({
       event: "heartbeat",

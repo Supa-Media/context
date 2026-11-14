@@ -30,6 +30,7 @@
  *     in tex/routines/" fails.
  */
 
+import { ONE_TO_ONE_CHAT, ledgerFor } from "../src/agent/ledger.js";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
@@ -177,6 +178,12 @@ export async function runAgentRoutineTexChecks(check) {
         userText(model.requests.at(-1)).includes("Routine: tex/routines/daily/standup.md") &&
         userText(model.requests.at(-1)).includes("Every day at 7:30 am") &&
         userText(model.requests.at(-1)).includes("Say what the new one says."),
+    );
+    // Dev2, 2026-11-14: a routine's run is replayed like a text's, so its note keeps the run's time, code and prompt.
+    const ranNote = (await ledgerFor(env, { person: "ws_texroutine" }).read(ONE_TO_ONE_CHAT, { kinds: ["note"] })).entries.find((entry) => entry.routine === "tex/routines/daily/standup.md");
+    check(
+      "a routine's note keeps its run's time and the prompt each round was sent",
+      ranNote?.ms >= 0 && ranNote.timing?.v === 2 && ranNote.timing.rounds.length === 1 && ranNote.timing.rounds[0].prompt?.modules?.length > 0,
     );
 
     model.install([{ text: "Old: the old one answered." }]);

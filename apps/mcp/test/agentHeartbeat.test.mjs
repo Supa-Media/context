@@ -51,6 +51,8 @@ import {
   calendarLooked,
 } from "../src/agent/heartbeat.js";
 import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
+import { ONE_TO_ONE_CHAT, ledgerFor } from "../src/agent/ledger.js";
+import { fakeModel } from "./heartbeatModelFixture.mjs";
 import { PENDING_PREFIX } from "../src/tools/approvalKeys.js";
 import { UNTRUSTED_READS } from "../src/privacy/egress.js";
 import { newMailQuery } from "../src/agent/newMail.js";
@@ -71,33 +73,6 @@ const PRIVACY_MANIFEST =
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  4-archive: private\n\nnote_overrides:\n  # none\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
-
-function fakeModel() {
-  const requests = [];
-  let script = [];
-  return {
-    requests,
-    install(replies) {
-      script = [...replies];
-    },
-    async handle(_url, init) {
-      requests.push(JSON.parse(init.body));
-      const step = script.shift();
-      if (!step) throw new Error("fake model: the script ran out");
-      const next = typeof step === "function" ? step(JSON.stringify(requests.at(-1))) : step;
-      const content = [];
-      if (next.thinking) content.push({ type: "thinking", thinking: next.thinking, signature: "sig" });
-      if (next.text) content.push({ type: "text", text: next.text });
-      for (const [i, call] of (next.toolCalls ?? []).entries()) {
-        content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
-      }
-      return new Response(
-        JSON.stringify({ content, stop_reason: (next.toolCalls ?? []).length > 0 ? "tool_use" : "end_turn" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    },
-  };
-}
 
 async function ask(env, token, body) {
   const { ctx, settle } = createWorkerCtx();
@@ -427,6 +402,18 @@ export async function runAgentHeartbeatChecks(check) {
         written.includes("**Texted:** Found the Tex branding image you asked for, in your branding notes: https://example.invalid/tex-chaos-scale.png") &&
         written.includes("> 💭 They asked for the branding image and only got the board.") &&
         written.includes("`write_note` `{\"path\":\"todo.md\""),
+    );
+    // Dev2, 2026-11-14: "we need to make sure we are logging everything so we can replay the results".
+    const chatLedger = (await ledgerFor(env, { person: "ws_beat" }).read(ONE_TO_ONE_CHAT)).entries;
+    const lookNote = chatLedger.find((entry) => entry.kind === "note" && entry.text.includes("tex-chaos-scale.png"));
+    const lookSteps = chatLedger.filter((entry) => entry.turn === lookNote?.turn && entry.kind !== "note");
+    check(
+      "the check-in's steps reach the chat's history under its own turn, and its note keeps the run's time and prompt",
+      /^ck[0-9a-f]{20}$/.test(lookNote?.turn ?? "") &&
+        lookSteps.some((entry) => entry.kind === "thinking" && entry.text.includes("only got the board")) &&
+        lookSteps.some((entry) => entry.kind === "tool" && entry.name === "read_note") &&
+        lookNote.ms >= 0 && lookNote.timing?.v === 2 && lookNote.timing.rounds.length === 3 &&
+        lookNote.timing.rounds.every((round) => round.prompt?.modules?.length > 0),
     );
     const conversation = { turns: conversationTurns(bucket) };
     check(
