@@ -44,6 +44,8 @@ export type LabModel = {
   runs: "subscription" | "api" | "code";
   base?: number;
   perTok?: number;
+  /** Milliseconds per input token not read from the cache; 0.006 when unset. */
+  perIn?: number;
   cacheR?: number;
   cacheW?: number;
   outP?: number;

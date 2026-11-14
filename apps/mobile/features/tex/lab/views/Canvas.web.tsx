@@ -18,6 +18,7 @@ import {
   undo,
 } from "../engine/state";
 import { simulate } from "../engine/sim";
+import { withReal } from "../engine/realTimes";
 import { SCENARIOS, scnLabel } from "../engine/traces";
 import { useLab } from "../store";
 import { AddMenu } from "./canvas/AddMenu";
@@ -112,14 +113,14 @@ export function Canvas() {
   // The artifact's renderCanvas: a focused step that no longer exists drops the focus.
   const g = G();
   if (s.cfocus && !node(s.cfocus, g)) lab.cfocus = null;
-  const sim = simulate(g, s.scn, s.logRows);
+  const sim = withReal(simulate(g, s.scn, s.logRows), s.scn === "own" && s.real?.text === s.ownText ? s.real.times : null);
   const tags = (SCENARIOS[s.scn] || SCENARIOS.own)?.tags || [];
   let html: string;
   if (lab.cfocus) {
     const f = renderFocusCanvasHtml(g, sim, lab.cfocus, s.sel);
     fBounds.current = f.fBounds;
     html = f.html;
-  } else html = renderGraphHtml(g, sim, tags, s.sel, litId);
+  } else html = renderGraphHtml(g, sim, tags, s.sel, litId, "off");
   const focused = lab.cfocus ? node(lab.cfocus, g) : undefined;
 
   useLayoutEffect(applyCam);
@@ -139,7 +140,7 @@ export function Canvas() {
   }, [scnOpen]);
 
   const play = () => {
-    const sm = simulate(G(), lab.scn, lab.logRows);
+    const sm = withReal(simulate(G(), lab.scn, lab.logRows), lab.scn === "own" && lab.real?.text === lab.ownText ? lab.real.times : null);
     const order = Object.entries(sm.T)
       .sort((a, b) => a[1].start - b[1].start)
       .map((x) => x[0]);

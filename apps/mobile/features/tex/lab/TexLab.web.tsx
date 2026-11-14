@@ -19,7 +19,7 @@ import { api } from "@context/convex/_generated/api";
 import { GROUP_CHATS, PEOPLE } from "./data/areas";
 import { allCases, cvDiff, diff } from "./engine/diff";
 import { G, go, isMain, lab, newVersion, openVersion, saveVersion, set, fit, emit } from "./engine/state";
-import { buildTraces } from "./engine/traces";
+import { buildTraces, traceMine } from "./engine/traces";
 import { LAB_CSS } from "./labCss";
 import { ensureFontsLoaded } from "../../design/fonts.web";
 import { promoteVersion, useLab, useLabSync } from "./store";
@@ -35,7 +35,8 @@ import { Sim } from "./views/Sim.web";
 import { Tests } from "./views/Tests.web";
 import { Tools } from "./views/Tools.web";
 import { Viewer } from "./views/Viewer.web";
-import { MineLoader } from "./views/mine/useMine";
+import { MineLoader, readTurnTimes } from "./views/mine/useMine";
+import { setLabTheme, THEMES, useLabTheme } from "./theme.web";
 
 export const TEX_LAB_TITLE = "Tex Architecture Lab";
 
@@ -67,10 +68,31 @@ function Svg({ d, className = "i ic", style }: { d: string; className?: string; 
   return <svg className={className} viewBox="0 0 24 24" style={style} dangerouslySetInnerHTML={{ __html: d }} />;
 }
 
+const THEME_ICON = {
+  auto: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>',
+  light: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>',
+  dark: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+};
+
+/** Not in the artifact: light, dark or auto (follow the system), kept in this browser (`theme.web.ts`). */
+function ThemeToggle() {
+  const theme = useLabTheme();
+  return (
+    <div className="thm" id="themeToggle" role="radiogroup" aria-label="Look">
+      {THEMES.map((t) => (
+        <button key={t} data-theme-pick={t} role="radio" aria-checked={theme === t} title={t === "auto" ? "Auto (follow the system)" : t === "light" ? "Light" : "Dark"} onClick={() => setLabTheme(t)}>
+          <Svg d={THEME_ICON[t]} style={{ width: 15, height: 15 }} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function TexLab() {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
   // Staff whose session has not typed its second-factor code are asked for it here, as the console asks (`AdminPane.tsx`), never told "Staff only".
   const factor = useQuery(api.functions.staffSecondFactor.myStaffFactor, {});
+  const theme = useLabTheme();
   useLabSync(isAdmin === true);
   useEffect(() => {
     ensureFontsLoaded();
@@ -85,7 +107,7 @@ export function TexLab() {
     );
   }
   return (
-    <div className="tl" data-testid="tex-lab">
+    <div className="tl" data-testid="tex-lab" data-theme={theme === "auto" ? undefined : theme}>
       <style href="tex-lab-css" precedence="default">{LAB_CSS}</style>
       <title>{TEX_LAB_TITLE}</title>
       {isAdmin === false ? (
@@ -114,6 +136,19 @@ function Lab() {
   // You or the bench's Maya; as You, Test cases opens on your own texts.
   const swapTester = () => {
     const toMe = s.tester !== "me";
+    // The canvas traces your newest text as You (once read, `useMine`), and a bench test again as Maya.
+    if (toMe && Array.isArray(lab.myTexts) && lab.myTexts[0]) {
+      traceMine(lab.myTexts[0].text);
+      void readTurnTimes(lab.myTexts[0]);
+    }
+    if (!toMe) {
+      if (lab.scn === "own") {
+        lab.scn = "";
+        lab.ownText = "";
+      }
+      lab.real = null;
+      buildTraces(allCases());
+    }
     set({ tester: toMe ? "me" : "bench", tArea: toMe ? "mine" : "core", tQ: "" });
     if (toMe) go("tests");
     closeSide();
@@ -194,6 +229,7 @@ function Lab() {
           <span className="sync" id="syncState">
             {s.sync}
           </span>
+          <ThemeToggle />
         </div>
         <div className={"body" + (propsOn ? " props" : "") + (wide ? " wide" : "")} id="body" style={gridCols ? { gridTemplateColumns: gridCols } : undefined}>
           <nav className="side" id="side" aria-label="Lab" hidden={s.sideHidden && !phone()}>

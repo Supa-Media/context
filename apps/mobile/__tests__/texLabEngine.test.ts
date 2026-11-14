@@ -15,6 +15,7 @@
 import { beforeAll, expect, jest, test } from "@jest/globals";
 
 // The artifact's own graph: main's is corrected to the code (`texLabMainGraph.test.ts`), the port is held to the artifact.
+jest.mock("../features/tex/lab/data/models", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModelsModule());
 jest.mock("../features/tex/lab/data/graph", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactGraphModule());
 import golden from "./fixtures/texLabGolden.json";
 import { config, diff } from "../features/tex/lab/engine/diff";

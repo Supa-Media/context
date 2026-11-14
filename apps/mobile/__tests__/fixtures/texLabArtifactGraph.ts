@@ -19,5 +19,17 @@ export function artifactGraphModule() {
     }
     return g;
   };
-  return { ...actual, mainGraph0, mainGraph };
+  // The artifact's own wires; the live Lab calls "Next step" Next and folds "After sending" into Background.
+  const WIRES = { ...actual.WIRES, wait: { name: "Next step", dash: "", c: "--text2", tip: "Runs when this step is done, before the reply" }, behind: { name: "After sending", dash: "2 4", c: "--dim", tip: "Runs once the reply has gone; nobody waits for it" }, job: { name: "Background", dash: "7 5", c: "--m-api", tip: "Starts a job; the reply doesn't wait" } };
+  return { ...actual, WIRES, mainGraph0, mainGraph };
+}
+
+/**
+ * The model table as the artifact timed it: main's Haiku is fitted to Tex's real calls (`data/models.ts`), so the
+ * golden tests put the artifact's 1400 ms + 4.1 ms per token back. Those tests mock `data/models` with this.
+ */
+export function artifactModelsModule() {
+  const actual = jest.requireActual<typeof import("../../features/tex/lab/data/models")>("../../features/tex/lab/data/models");
+  const { perIn: _fitted, ...haiku } = actual.BASE_MODELS["haiku-5-5"];
+  return { ...actual, BASE_MODELS: { ...actual.BASE_MODELS, "haiku-5-5": { ...haiku, base: 1400, perTok: 4.1 } } };
 }

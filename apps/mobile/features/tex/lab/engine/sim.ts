@@ -13,7 +13,7 @@ import { SCENARIOS } from "./traces";
 type Log = LabState["logRows"];
 export type StepTime = { start: number; end: number; ms: number; usd: number; calls: number; parts: Part[]; lane: string };
 export type Part = { id: string; ms: number; own?: boolean; note?: string };
-export type Sim = { T: Record<string, StepTime>; reply: number; usd: number; replyCalls: number; jobEnd: number; reach: Map<string, { lane: string }>; inside: Set<string> };
+export type Sim = { T: Record<string, StepTime>; reply: number; usd: number; replyCalls: number; jobEnd: number; reach: Map<string, { lane: string }>; inside: Set<string>; real?: Set<string> };
 
 export const schemaTok = (n: Pick<LabNode, "outSchema">) => 10 + (n.outSchema || []).reduce((a, f) => a + ((FTYPES as Record<string, { tok: number }>)[f.type]?.tok || 6), 0);
 export const outTok = (n: Pick<LabNode, "outSchema" | "out">) => (n.outSchema?.length ? schemaTok(n) : n.out || 0);
@@ -63,7 +63,7 @@ export function stepCost(n: LabNode, g: LabGraph, s: string, log: Log, hit?: num
     const outT = outTok(n) * (m.runs === "api" || n.outSchema?.length ? 1 : (EFFORT as Record<string, number>)[n.effort ?? ""] || 1);
     const inT = ctxTokens(n, g);
     const L = log?.[n.id];
-    const per = L ? L.prodMs / Math.max(1, L.calls) : (m.base ?? 0) + outT * (m.perTok ?? 0) + inT * (1 - hit) * 0.006;
+    const per = L ? L.prodMs / Math.max(1, L.calls) : (m.base ?? 0) + outT * (m.perTok ?? 0) + inT * (1 - hit) * (m.perIn ?? 0.006);
     ms = r * per;
     calls = r;
     usd = (r * (inT * (hit * (m.cacheR ?? 0) + (1 - hit) * (m.cacheW ?? 0)) + outT * (m.outP ?? 0))) / 1e6;

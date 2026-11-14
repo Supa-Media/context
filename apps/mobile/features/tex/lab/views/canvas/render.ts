@@ -66,12 +66,20 @@ export function wireIconHtml(mode: string): string {
   return `<svg class="w" viewBox="0 0 30 10" style="width:30px;height:10px;flex:none"><path d="M1,5 H26" stroke="var(${w.c})" stroke-width="${w.w || 1.6}" ${w.dash ? `stroke-dasharray="${w.dash}"` : ""} fill="none"/><path d="M24,2 L29,5 L24,8z" fill="var(${w.c})"/></svg>`;
 }
 
+/** A step's time over it: measured as is, an estimate beside measured ones marked "≈", or "inside" a step. */
+function timeLabel(sim: Sim, id: string): string {
+  const t = sim.T[id];
+  if (!t) return sim.inside.has(id) ? "inside" : "";
+  return sim.real && !sim.real.has(id) ? "≈ " + fmtS(t.ms) : fmtS(t.ms);
+}
+
 export function statsHtml(sim: Sim): string {
-  return `<span>Reply <b>${fmtS(sim.reply)}</b></span><span>Model calls <b>${sim.replyCalls.toFixed(1)}</b></span><span>Cost <b>${fmtUsd(sim.usd)}</b></span>`;
+  return `<span>Reply <b>${fmtS(sim.reply)}</b>${sim.real ? ` <span class="real">real</span>` : ""}</span><span>Model calls <b>${sim.replyCalls.toFixed(1)}</b></span><span>Cost <b>${fmtUsd(sim.usd)}</b></span>`;
 }
 
 export function keywHtml(): string {
   return Object.entries(WIRES)
+    .filter(([, w]) => !w.folded)
     .map(
       ([k, w]) =>
         `<span class="flex" style="gap:6px;flex-wrap:nowrap" title="${esc(w.tip)}">${wireIconHtml(k)}${w.name}</span>`,
@@ -89,8 +97,11 @@ export function renderGraphHtml(
   tags: string[],
   sel: Selection,
   litId: string | null,
+  /** The artifact fades every step this text does not reach; the live Lab fades only steps switched off (Dev2, 2026-11-14). */
+  fade: "unreached" | "off" = "unreached",
 ): string {
-  const lit = (id: string) => sim.reach.has(id) || sim.inside.has(id);
+  const reached = (id: string) => sim.reach.has(id) || sim.inside.has(id);
+  const lit = (id: string) => (fade === "off" ? !!node(id, g)?.on : reached(id));
   let h = `<defs>${Object.entries(WIRES)
     .map(
       ([k, w]) =>
@@ -104,7 +115,7 @@ export function renderGraphHtml(
     const b = node(e.to, g);
     if (!a || !b) return;
     const w = WIRES[e.mode] || WIRES.wait;
-    const on = fires(e, tags, g) && lit(e.from);
+    const on = fade === "off" ? lit(e.from) && lit(e.to) : fires(e, tags, g) && lit(e.from);
     const s = sel?.t === "edge" && sel.i === i;
     const p = wirePath(a, b, e.mode);
     h += `<path class="wire ${on || s ? "" : "dim"} ${s ? "sel" : ""}" d="${p.d}" stroke="var(${s ? "--accent" : w.c})" ${w.dash ? `stroke-dasharray="${w.dash}"` : ""} ${w.w && !s ? `stroke-width="${w.w}"` : ""} marker-end="url(#m-${s ? "sel" : e.mode})"/>`;
@@ -114,14 +125,13 @@ export function renderGraphHtml(
   });
   for (const n of g.nodes) {
     const m = MODELS[n.model] || MODELS.code;
-    const t = sim.T[n.id];
     const s = sel?.t === "node" && sel.id === n.id;
     const sub = !n.on
       ? "Off"
       : m.runs === "code"
         ? "Code"
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
-    const time = t ? fmtS(t.ms) : sim.inside.has(n.id) ? "inside" : "";
+    const time = timeLabel(sim, n.id);
     h += `<g class="nd ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${litId === n.id ? "lit" : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
       <rect class="card" width="${W}" height="${H}" rx="12"/>
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
@@ -146,14 +156,13 @@ export function ndSvg(
   sel: Selection,
 ): string {
   const m = MODELS[n.model] || MODELS.code;
-  const t = sim.T[n.id];
   const s = sel?.t === "node" && sel.id === n.id;
   const sub = !n.on
     ? "Off"
     : m.runs === "code"
       ? "Code"
       : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
-  const time = t ? fmtS(t.ms) : sim.inside.has(n.id) ? "inside" : "";
+  const time = timeLabel(sim, n.id);
   return `<g class="nd ${s ? "sel" : ""} ${lit || s ? "" : "dim"} ${n.on ? "" : "off"}" data-id="${n.id}" transform="translate(${x},${y})">
       <rect class="card" width="${W}" height="${H}" rx="12"/><rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>

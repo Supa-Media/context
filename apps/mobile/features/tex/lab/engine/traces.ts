@@ -5,6 +5,7 @@
  */
 import { TRACE_GROUPS } from "../data/areas";
 import type { LabCase } from "../types";
+import { allCases } from "./diff";
 import { lab } from "./state";
 
 export type Trace = { name: string; group: string; id?: string; tags: string[]; rounds: Record<string, number> };
@@ -36,3 +37,15 @@ export function buildTraces(list: LabCase[]) {
 }
 
 export const scnLabel = (k: string) => (SCENARIOS[k] || SCENARIOS.own)?.name ?? "";
+
+/**
+ * Trace one of the person's own texts (the test user is You): it becomes the typed message, so the canvas's picker
+ * and its label show what they actually sent rather than a bench test (Dev2, 2026-11-14: "When I switched to my
+ * personal account, I expected to see the messages I've sent here not test cases").
+ */
+export function traceMine(text: string) {
+  if (lab.real?.text !== text) lab.real = null;
+  lab.ownText = text;
+  buildTraces(allCases());
+  lab.scn = "own";
+}

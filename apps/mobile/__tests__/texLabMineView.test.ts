@@ -43,6 +43,11 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
       return null;
     },
     readMyTexts: async () => {},
+    // What that turn's reply timing and reviewer entries measured, as `realTimes` reads them.
+    readTurnTimes: async (t: { text: string }) => {
+      lab.real = { text: t.text, times: { reply: 6300, ms: { lanes: 450, door: 700, fd: 2700, tools: 650, reviewer: 2100, send: 150 }, calls: { fd: 2, reviewer: 1 } } };
+      emit();
+    },
     readTurnReads: async (id: string) => {
       lab.myReads = { ...lab.myReads, [id]: ["projects/shelves.md"] };
       emit();
@@ -117,6 +122,34 @@ describe("the Lab's test user as You", () => {
     expect(q('[data-area="mine"]')).toBeNull();
   });
 
+  test("as You, the canvas's picker lists the texts you sent, not test cases, and traces the one you pick", async () => {
+    await click(q("#tuserSwap"));
+    await click(q('[data-view="canvas"]'));
+    await click(q("#scnBtn"));
+    expect(qa("#scnPop [data-mine] .nm").map((x) => x.textContent)).toEqual(["remind me about the shelves", "hey"]);
+    expect(qa("#scnPop [data-tr]")).toEqual([]);
+    await click(q('#scnPop [data-mine="ev1"]'));
+    expect(q("#scnName")?.textContent).toBe("hey");
+    // Its real times, not estimates: the reply as measured, each measured step as is, the rest marked "≈".
+    expect(q("#stats")?.textContent).toMatch(/Reply 6\.3 s real/);
+    expect(q('.nd[data-id="fd"] .tm')?.textContent).toBe("2.7 s");
+    expect(q('.nd[data-id="reviewer"] .tm')?.textContent).toBe("2.1 s");
+    expect(q('.nd[data-id="checks"] .tm')?.textContent ?? "").toMatch(/^(≈ .* s)?$/);
+    // Back to Maya: a bench test again, and her picker lists tests.
+    await click(q("#tuserSwap"));
+    await click(q('[data-view="canvas"]'));
+    expect(q("#scnName")?.textContent).not.toBe("hey");
+    expect(q("#stats")?.textContent).not.toMatch(/real/);
+    await click(q("#scnBtn"));
+    expect(qa("#scnPop [data-mine]")).toEqual([]);
+    expect(qa("#scnPop [data-tr]").length).toBeGreaterThan(0);
+    await click(q("#scnBtn"));
+    // You again, with your texts already read: the canvas opens on your newest.
+    await click(q("#tuserSwap"));
+    await click(q('[data-view="canvas"]'));
+    expect(q("#scnName")?.textContent).toBe("remind me about the shelves");
+  });
+
   test("a ticked text goes into the run config and the prompt, with the notes its turn read", async () => {
     await click(q("#tuserSwap"));
     await click(q('[data-mypick="ev3"]'));
@@ -144,5 +177,21 @@ describe("the Lab's test user as You", () => {
     await click(q('[data-view="tests"]'));
     expect(qa(".tc .bb.tex .bw").map((x) => x.textContent)).toContain("Tex now");
     expect(document.body.textContent).toMatch(/Saturday at 9\./);
+  });
+});
+
+describe("the Lab's look", () => {
+  test("the toggle sets light or dark on the Lab, auto follows the system, and the choice is remembered here", async () => {
+    const root = () => q('[data-testid="tex-lab"]')!;
+    expect(root().getAttribute("data-theme")).toBeNull();
+    await click(q('[data-theme-pick="light"]'));
+    expect(root().getAttribute("data-theme")).toBe("light");
+    expect(window.localStorage.getItem("tex-lab-theme")).toBe("light");
+    await click(q('[data-theme-pick="dark"]'));
+    expect(root().getAttribute("data-theme")).toBe("dark");
+    expect(q('[data-theme-pick="dark"]')?.getAttribute("aria-checked")).toBe("true");
+    await click(q('[data-theme-pick="auto"]'));
+    expect(root().getAttribute("data-theme")).toBeNull();
+    expect(window.localStorage.getItem("tex-lab-theme")).toBeNull();
   });
 });
