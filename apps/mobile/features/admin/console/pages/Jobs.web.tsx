@@ -68,7 +68,7 @@ async function tryCase(d: JobsPageData, c: CaseCard) {
   render();
 }
 
-const page: ConsolePage<JobsPageData> = {
+export const jobsPage: ConsolePage<JobsPageData> = {
   key: "jobs",
   filters: { who: "all" },
   windowed: false,
@@ -201,6 +201,3 @@ const page: ConsolePage<JobsPageData> = {
     },
   },
 };
-
-/** The registry holds pages of every data shape; this one's acts and props take its own. */
-export const jobsPage = page as unknown as ConsolePage;
