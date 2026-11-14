@@ -11,11 +11,12 @@
  * - an SMS is kept only so it gets its fixed answer; its files are not read;
  * - a 1:1 message from one of our iMessage apps is read as the words the card
  *   stands for (`cardReply`), any other app's card is not a message;
- * - a tapback is a reaction, read as its name; a removal is marked `removed`.
+ * - a link's preview file is not something the person sent (`isPreviewFile`);
+ * - a tapback is a reaction, read as its name; a removal is marked `removed`;
+ *   and a tapback on Tex's own text carries that text (`onTex`), as Sendblue's does.
  *
- * Pure: no fetch, no storage. The route (`index.ts`) gives the attachment
- * addresses in `options.attachmentUrl`, signed by `photon.ts`; an attachment
- * with no address is left off.
+ * Pure: no fetch, no storage. The caller gives each picture's address in
+ * `options.attachmentUrl` (`photon.ts`); a picture with none is left off.
  */
 
 import { cardReply } from "./cardChats";
@@ -23,9 +24,9 @@ import { cutText, MAX_INBOUND_ATTACHMENTS, type Inbound, type InboundAttachment 
 import { photonChatId, photonGroupId } from "./photon";
 import type { Reaction, Tapback } from "./reactions";
 import type { GroupInbound, GroupMessage } from "./sendblueGroups";
-import { E164 } from "./sendblue";
+import { E164, isPreviewFile, MAX_QUOTED_TEXT } from "./sendblue";
 
-/** An edit or an unsend of a message in a chat: phase 1 only records it, so nothing answers it (plan.md, "Not now"). */
+/** An edit or an unsend of a message in a chat: recorded and counted only for now (plan.md, "Not now"). */
 export type PhotonSideEvent = {
   kind: "edited" | "unsent";
   eventId: string;
@@ -44,7 +45,7 @@ export type PhotonSideEvent = {
 export type PhotonParsed = Inbound | GroupInbound | PhotonSideEvent | { kind: "invalid" };
 
 export type PhotonParseOptions = {
-  /** The address an attachment is served at, by its guid; undefined leaves that attachment off. */
+  /** The address a picture is served at, by its guid; undefined leaves that picture off. */
   attachmentUrl?: (guid: string) => string | undefined;
 };
 
@@ -73,8 +74,11 @@ const TAPBACKS: Record<string, Tapback> = {
   question: "Questioned",
 };
 
-/** A group's Photon guid: `any;+;<id>`. Anything else is not a group this Worker can answer in. */
-const GROUP_GUID = /^any;\+;[^\s;]{1,190}$/;
+/**
+ * A group's Photon guid: `any;+;<id>`. Capped so the encoded id (`photonGroupId`, 6 more characters of prefix and
+ * about 4/3 of the guid) stays within the gateway's 128-character chat id limit (`log.js` CHAT).
+ */
+const GROUP_GUID = /^any;\+;[^\s;]{1,72}$/;
 const MAX_ID = 200;
 const MAX_NAME = 200;
 const MAX_PARTICIPANTS = 64;
@@ -94,7 +98,7 @@ type Where = { chatId: string; groupId?: undefined } | { groupId: string; chatId
 
 type Envelope = { type: string; eventId: string; line: string; where: Where | null; from: string | undefined; at: string };
 
-/** The fields every event carries, or null when one is missing or malformed. `where` is null only for a group whose guid is not one. */
+/** The fields every event carries, or null when one is missing or malformed. `where` is null for a 1:1 without a phone, or a group whose guid is not one. */
 function envelopeOf(body: Rec): Envelope | null {
   const type = body.type;
   const eventId = idOf(body.eventId);
@@ -121,30 +125,52 @@ function participantsOf(chat: Rec, from: string): string[] {
   return participants;
 }
 
+/**
+ * The words a tapback was on, as Sendblue's reads give them: Tex's own text carries its words (`onTex`), another
+ * person's message is flagged `onOther`, and a target the bridge could not tell is neither.
+ */
+function targetOf(reaction: Rec): Pick<Reaction, "words" | "onTex" | "onOther"> {
+  if (reaction.targetFromMe === true) {
+    const words = typeof reaction.targetText === "string" ? reaction.targetText.trim().slice(0, MAX_QUOTED_TEXT) : "";
+    return words === "" ? { words: "" } : { words, onTex: true as const };
+  }
+  if (reaction.targetFromMe === false) return { words: "", onOther: true as const };
+  return { words: "" };
+}
+
 /** A reaction's tapback, or null when it names nothing this Worker reads (a sticker, a kind it does not know). */
-function reactionOf(kind: unknown, emoji: unknown, removed: boolean): Reaction | null {
+function reactionOf(reaction: Rec, removed: boolean): Reaction | null {
+  const kind = reaction.kind;
   if (typeof kind !== "string") return null;
   const removal = removed ? { removed: true as const } : {};
+  const target = targetOf(reaction);
   const how = TAPBACKS[kind];
-  if (how !== undefined) return { how, words: "", ...removal };
-  if (kind === "emoji" && typeof emoji === "string" && emoji !== "") return { how: "Reacted", words: "", emoji: [...emoji].slice(0, MAX_EMOJI).join(""), ...removal };
+  if (how !== undefined) return { how, ...target, ...removal };
+  const emoji = reaction.emoji;
+  if (kind === "emoji" && typeof emoji === "string" && emoji !== "") {
+    return { how: "Reacted", ...target, emoji: [...emoji].slice(0, MAX_EMOJI).join(""), ...removal };
+  }
   return null;
 }
 
-/** The attachments a message carries that have an address, as `InboundAttachment`s; none for an SMS, whose files are not read. */
-function attachmentsOf(message: Rec, options: PhotonParseOptions): InboundAttachment[] {
+/**
+ * The pictures and files a message carries that have an address, as `InboundAttachment`s. None for an SMS, whose files
+ * are not read, and none that are a link's preview of the words (`isPreviewFile`).
+ */
+function attachmentsOf(message: Rec, text: string, options: PhotonParseOptions): InboundAttachment[] {
   const listed = Array.isArray(message.attachments) ? message.attachments : [];
   return listed
     .flatMap((item): InboundAttachment[] => {
       if (!isRecord(item)) return [];
       const guid = idOf(item.guid);
+      const name = typeof item.name === "string" ? item.name.slice(0, MAX_NAME) : "";
       const url = guid === null ? undefined : options.attachmentUrl?.(guid);
-      if (guid === null || url === undefined) return [];
+      if (guid === null || url === undefined || isPreviewFile(name, text)) return [];
       return [
         {
           url,
           mimeType: typeof item.mimeType === "string" ? item.mimeType.toLowerCase().slice(0, 100) : "",
-          filename: typeof item.name === "string" ? item.name.slice(0, MAX_NAME) : "",
+          filename: name,
           size: typeof item.size === "number" && Number.isFinite(item.size) ? item.size : null,
         },
       ];
@@ -161,21 +187,12 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
   const service = message.service;
   if (service !== "iMessage" && service !== "SMS") return { kind: "ignored", reason: "service" };
   const sms = service === "SMS";
-  const isGroup = env.where?.groupId !== undefined;
-  // A 1:1 message from one of our iMessage apps is what its card says, and another app's card is not a message (`cardChats.ts`).
-  let text = typeof message.text === "string" ? message.text.trim() : "";
-  let viaCard: { ask?: string } | undefined;
-  if (!isGroup && typeof message.balloonBundleId === "string") {
-    const card = typeof message.appUrl === "string" ? cardReply({ extensionBundleId: message.balloonBundleId, url: message.appUrl }) : null;
-    if (card === null) return { kind: "ignored", reason: "app_card" };
-    text = card.text;
-    viaCard = card.ask !== undefined ? { ask: card.ask } : {};
-  }
-  const attachments = sms ? [] : attachmentsOf(message, options);
-  if (text === "" && attachments.length === 0) return { kind: "ignored", reason: "empty" };
-  const replyTo = idOf(message.replyTo);
   const from = env.from;
   if (env.where?.groupId !== undefined) {
+    const text = typeof message.text === "string" ? message.text.trim() : "";
+    const attachments = sms ? [] : attachmentsOf(message, text, options);
+    if (text === "" && attachments.length === 0) return { kind: "ignored", reason: "empty" };
+    const replyTo = idOf(message.replyTo);
     const group: GroupMessage = {
       kind: "group-message",
       eventId: `photon:${guid}`,
@@ -192,6 +209,20 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
     return group;
   }
   if (env.where?.chatId === undefined) return { kind: "invalid" };
+  // A 1:1 message from one of our iMessage apps is what its card says, and another app's card is not a message (`cardChats.ts`).
+  let text = typeof message.text === "string" ? message.text.trim() : "";
+  let viaCard: { ask?: string } | undefined;
+  if (typeof message.balloonBundleId === "string") {
+    const card = typeof message.appUrl === "string" ? cardReply({ extensionBundleId: message.balloonBundleId, url: message.appUrl }) : null;
+    if (card === null) return { kind: "ignored", reason: "app_card" };
+    text = card.text;
+    viaCard = card.ask !== undefined ? { ask: card.ask } : {};
+  }
+  const attachments = sms ? [] : attachmentsOf(message, text, options);
+  if (text === "" && attachments.length === 0) return { kind: "ignored", reason: "empty" };
+  const replyTo = idOf(message.replyTo);
+  // The words an inline reply answers, when the bridge read them (`replyToText`): somebody else's words, carried as `quoted`.
+  const quoted = typeof message.replyToText === "string" ? message.replyToText.trim().slice(0, MAX_QUOTED_TEXT) : "";
   return {
     kind: "message",
     eventId: `photon:${guid}`,
@@ -200,8 +231,9 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
     messageId: guid,
     ...cutText(text),
     ...(attachments.length > 0 ? { attachments } : {}),
-    // An inline reply is answered inside its thread. Its words are not read here: Photon's gRPC event gives only the guid.
+    // An inline reply is answered inside its thread, and told it was a reply, even when its words are not there.
     ...(replyTo !== null ? { threaded: true as const } : {}),
+    ...(replyTo !== null && quoted !== "" ? { quoted } : {}),
     ...(viaCard !== undefined ? { viaCard } : {}),
     ...(sms ? { sms: true as const } : {}),
   };
@@ -210,10 +242,9 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
 /** A `message.reactionAdded` or `…Removed`, on any message in a chat. */
 function reacted(body: Rec, env: Envelope, removed: boolean): PhotonParsed {
   const reaction = isRecord(body.reaction) ? body.reaction : null;
-  const target = reaction === null ? null : idOf(reaction.targetGuid);
-  if (reaction === null || target === null) return { kind: "invalid" };
+  if (reaction === null || idOf(reaction.targetGuid) === null) return { kind: "invalid" };
   if (env.from === undefined || !E164.test(env.from)) return { kind: "ignored", reason: "sender" };
-  const tapback = reactionOf(reaction.kind, reaction.emoji, removed);
+  const tapback = reactionOf(reaction, removed);
   if (tapback === null) return { kind: "ignored", reason: "reaction" };
   if (env.where?.groupId !== undefined) {
     const group: GroupMessage = {
@@ -230,11 +261,10 @@ function reacted(body: Rec, env: Envelope, removed: boolean): PhotonParsed {
     return group;
   }
   if (env.where?.chatId === undefined) return { kind: "invalid" };
-  // `on` names the message it was on; its words are for the route to read, if it can (the bridge has no read yet).
-  return { kind: "reaction", eventId: env.eventId, chatId: env.where.chatId, from: env.from, messageId: env.eventId, reaction: tapback, on: target };
+  return { kind: "reaction", eventId: env.eventId, chatId: env.where.chatId, from: env.from, messageId: env.eventId, reaction: tapback };
 }
 
-/** A `message.edited` or `message.unsent`: recorded, never answered. */
+/** A `message.edited` or `message.unsent`: recorded and counted, never answered. */
 function sideEvent(body: Rec, env: Envelope, kind: "edited" | "unsent"): PhotonParsed {
   const target = kind === "edited" ? (isRecord(body.edited) ? body.edited : null) : isRecord(body.unsent) ? body.unsent : null;
   const messageId = target === null ? null : idOf(target.targetGuid);
@@ -254,7 +284,7 @@ function sideEvent(body: Rec, env: Envelope, kind: "edited" | "unsent"): PhotonP
   };
 }
 
-/** The guids of the attachments a message names, so the route can sign their addresses before the parse. */
+/** The guids of the pictures a message names, so their addresses can be signed before the event is read. */
 export function photonAttachmentGuids(body: unknown): string[] {
   const message = isRecord(body) && isRecord(body.message) ? body.message : null;
   const listed = message !== null && Array.isArray(message.attachments) ? message.attachments.slice(0, MAX_INBOUND_ATTACHMENTS) : [];

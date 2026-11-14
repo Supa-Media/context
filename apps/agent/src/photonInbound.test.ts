@@ -79,11 +79,33 @@ describe("parsePhotonEvent: messages in a 1:1 chat", () => {
     expect(parsePhotonEvent(body)).toEqual({ kind: "ignored", reason: "empty" });
   });
 
-  it("marks a reply as threaded, without its words or the Sendblue handle", () => {
-    const parsed = parsePhotonEvent(event({ message: { guid: "msg-r", text: "yes", service: "iMessage", replyTo: "msg-tex-1" } }));
-    expect(parsed).toMatchObject({ kind: "message", threaded: true });
+  it("marks a reply as threaded, and carries the words it answers as quoted", () => {
+    const parsed = parsePhotonEvent(event({ message: { guid: "msg-r", text: "yes", service: "iMessage", replyTo: "msg-tex-1", replyToText: "Book it?", replyToFromMe: true } }));
+    expect(parsed).toMatchObject({ kind: "message", threaded: true, quoted: "Book it?" });
     expect(parsed).not.toHaveProperty("replyTo");
+  });
+
+  it("marks a reply threaded with no quoted words when the bridge sent none", () => {
+    const parsed = parsePhotonEvent(event({ message: { guid: "msg-r2", text: "yes", service: "iMessage", replyTo: "msg-tex-1" } }));
+    expect(parsed).toMatchObject({ kind: "message", threaded: true });
     expect(parsed).not.toHaveProperty("quoted");
+  });
+
+  it("does not drop a file that is not a preview, and drops a link's preview file and any file sent with an address", () => {
+    const withFile = (name: string, text: string) =>
+      parsePhotonEvent(event({ message: { guid: "m-f", text, service: "iMessage", attachments: [{ guid: "a", name, mimeType: "image/png", size: 1 }] } }), {
+        attachmentUrl: () => "https://agent.example/photon/attachment/a?s=x",
+      });
+    expect(withFile("photo.png", "look")).toMatchObject({ kind: "message", attachments: [{ filename: "photo.png" }] });
+    // A rich link's card is a plugin payload, never something the person sent.
+    expect(withFile("Preview.pluginPayloadAttachment", "")).toEqual({ kind: "ignored", reason: "empty" });
+    // A file sent with an address in its words is that address's preview (`isPreviewFile`).
+    expect(withFile("photo.png", "https://example.com/page")).toMatchObject({ kind: "message", text: "https://example.com/page" });
+    expect(withFile("photo.png", "https://example.com/page")).not.toHaveProperty("attachments");
+  });
+
+  it("refuses a group whose guid is too long for the gateway's id limit, as invalid", () => {
+    expect(parsePhotonEvent(groupEvent({ chat: { guid: `any;+;${"A".repeat(73)}`, kind: "group" } }))).toEqual({ kind: "invalid" });
   });
 
   it("keeps an SMS, flagged, and reads none of its files", () => {
@@ -168,8 +190,30 @@ describe("parsePhotonEvent: tapbacks", () => {
       from: PHONE,
       messageId: "photon:message.reactionAdded:msg-1",
       reaction: { how, words: "" },
-      on: "msg-tex-1",
     });
+  });
+
+  it("carries Tex's own text a tapback was on, as its words, flagged onTex", () => {
+    const parsed = parsePhotonEvent(reactionEvent("like", { targetText: "  Want me to book it?  ", targetFromMe: true }));
+    expect(parsed).toMatchObject({ kind: "reaction", reaction: { how: "Liked", words: "Want me to book it?", onTex: true } });
+  });
+
+  it("flags a tapback on somebody else's message as onOther, with no words", () => {
+    const parsed = parsePhotonEvent(reactionEvent("like", { targetText: "lunch?", targetFromMe: false }));
+    expect(parsed).toMatchObject({ kind: "reaction", reaction: { how: "Liked", words: "", onOther: true } });
+    expect(parsed).toMatchObject({ reaction: expect.not.objectContaining({ onTex: true }) });
+  });
+
+  it("says nothing about a target it could not read: no words and no flag", () => {
+    const parsed = parsePhotonEvent(reactionEvent("love", { targetFromMe: true }));
+    expect(parsed).toMatchObject({ kind: "reaction", reaction: { how: "Loved", words: "" } });
+    expect(parsed).toMatchObject({ reaction: expect.not.objectContaining({ onTex: true }) });
+    expect(parsed).toMatchObject({ reaction: expect.not.objectContaining({ onOther: true }) });
+  });
+
+  it("carries a group tapback on Tex's text the same way", () => {
+    const parsed = parsePhotonEvent(groupEvent({ type: "message.reactionAdded", message: undefined, reaction: { kind: "question", targetGuid: "t", targetText: "Pick one", targetFromMe: true } }));
+    expect(parsed).toMatchObject({ kind: "group-message", reaction: { how: "Questioned", words: "Pick one", onTex: true } });
   });
 
   it("reads a removal as removed", () => {
