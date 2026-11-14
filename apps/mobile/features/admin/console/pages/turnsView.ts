@@ -27,6 +27,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const pad = (n: number) => String(n).padStart(2, "0");
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const secs = (ms: number) => (ms / 1000).toFixed(1);
+const capital = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
 
 /** Local HH:MM for today, else "Nov 12 14:02". */
 export function whenOf(at: number, now: number = Date.now()): string {
@@ -144,25 +145,28 @@ export function segmentsOf(r: Recent): Segment[] {
   const out: Segment[] = [];
   if (r.waitMs) out.push({ label: "Queue", ms: r.waitMs, c: "c6" });
   let round = 0;
-  for (const s of r.trace) {
+  // The last model round of an answered turn wrote the reply: the artifact calls it Reply.
+  const lastModel = r.outcome === "answered" ? r.trace.map((s) => s.kind).lastIndexOf("model") : -1;
+  r.trace.forEach((s, i) => {
     let label: string;
     let c: string;
     if (s.kind === "model") {
       round += 1;
-      label = `Round ${round}`;
+      label = i === lastModel && round > 1 ? "Reply" : `Round ${round}`;
       c = "c1";
     } else if (s.kind === "tool") {
-      label = [s.tool ?? "Tool", s.action].filter(Boolean).join(" · ");
+      label = [capital(s.tool ?? "Tool"), s.action].filter(Boolean).join(" · ");
       c = "c4";
     } else if (s.kind === "router") {
-      label = "Router";
+      // The router step is the artifact's "Decide" (Clef picks the path), drawn in its colour.
+      label = "Decide";
       c = "c2";
     } else {
       label = "Fallback";
       c = "c3";
     }
     out.push({ label: s.ok ? label : `${label} ✕`, ms: s.ms, c });
-  }
+  });
   return out;
 }
 

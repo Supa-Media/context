@@ -165,7 +165,7 @@ describe("AI costs page: figures", () => {
     expect(html).toContain('<div class="v">$170.00</div>');
     expect(html).toContain("-15%</span> on the window before");
     expect(html).toContain('<div class="v">$0.20</div>');
-    expect(html).toContain("Tex spend ÷ 600 texts received");
+    expect(html).toContain("Tex replies ÷ 600 texts");
     expect(html).toContain('<div class="v">$9.80</div>');
     expect(html).toContain("billed, not in the total");
     expect(html).toContain('<div class="v">$31.60</div>');
@@ -179,7 +179,7 @@ describe("AI costs page: figures", () => {
     const html = costsPageHtml(live({ priorUsd: 0, texts: null, perTextBasis: null, perTextDivisor: null, perTextUsd: null }), report());
     expect(html).not.toContain("on the window before");
     expect(html).toContain('<div class="v">—</div>');
-    expect(html).not.toContain("Tex spend ÷");
+    expect(html).not.toContain("Tex replies ÷");
     expect(html).toContain("texts aren't counted over the days this spend covers");
   });
 
@@ -230,13 +230,43 @@ describe("AI costs page: figures", () => {
     expect(tex).not.toContain("<td>Router</td>");
     expect(tex).not.toContain("<td>Big-ask planner</td>");
     expect(tex).toContain("Switched off now and costing nothing: Router, Big-ask planner.");
-    expect(tex).toContain("37.0%");
+    expect(tex).toContain(">37%<");
+    expect(tex).toContain(">0.5%<");
     expect(tex).toContain("$44.40");
     expect(tex).toContain('href="https://context.lc/lab"');
   });
 
   it("shows the Tex total without a per-text figure when texts are unknown", () => {
     expect(panelOf(costsPageHtml(live({ texts: null, perTextBasis: null, perTextDivisor: null }), report()), "c-tex")).toContain('<span class="meta">$120.00</span>');
+  });
+});
+
+describe("AI costs page: the artifact's words and empty tables", () => {
+  it("names the features as the artifact does, whatever the server calls them", () => {
+    const html = costsPageHtml(
+      live({
+        features: [
+          { key: "dream", label: "Dream and housekeeping", models: ["claude-sonnet-5-5"], usd: 12, share: 0.5 },
+          { key: "meetings", label: "Meetings", models: ["claude-sonnet-5-5"], usd: 12, share: 0.5 },
+        ],
+      }),
+      report(),
+    );
+    expect(panelOf(html, "c-feat")).toContain("<td>Dream</td>");
+    expect(panelOf(html, "c-feat")).toContain("<td>Meeting summaries</td>");
+    expect(html).not.toContain("Dream and housekeeping");
+  });
+
+  it("writes the step calls as the artifact does, with no thousands separator", () => {
+    const tex = panelOf(costsPageHtml(live(), report()), "c-tex");
+    expect(tex).toContain('<td class="r hp">1310</td>');
+  });
+
+  it("says nothing was spent in each table rather than drawing a bare header", () => {
+    const html = costsPageHtml(live({ payers: [], features: [], daily: [], texSteps: [], texUsd: 0 }), report());
+    expect(panelOf(html, "c-pay")).toContain('class="empty">Nothing spent in 30 days');
+    expect(panelOf(html, "c-feat")).toContain('class="empty">Nothing spent in 30 days');
+    expect(panelOf(html, "c-tex")).toContain('class="empty">Tex spent nothing in 30 days');
   });
 });
 
@@ -313,7 +343,7 @@ describe("AI costs page: per text divides by the server's count over the same sp
     const tex = panelOf(html, "c-tex");
     expect(tex).toContain("$120.00 · $0.40 a text");
     expect(tex).toContain(`<td class="r hp">$${(44.4 / 300).toFixed(3)}</td>`);
-    expect(html).toContain("Tex spend ÷ 300 texts answered");
+    expect(html).toContain("Tex replies ÷ 300 texts answered");
   });
 
   it("never divides by an answered count the server did not choose (truncated, or a shorter span)", () => {

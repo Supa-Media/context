@@ -234,6 +234,7 @@ describe("the storage report", () => {
         kind: "shared",
         home: "dual",
         notes: null,
+        notesFloor: false,
         since: 5,
         lastMove: null,
       },
@@ -243,6 +244,7 @@ describe("the storage report", () => {
         kind: "shared",
         home: "object",
         notes: null,
+        notesFloor: false,
         since: 7,
         lastMove: null,
       },
@@ -252,12 +254,48 @@ describe("the storage report", () => {
         kind: "personal",
         home: "bucket",
         notes: null,
+        notesFloor: false,
         since: null,
         lastMove: null,
       },
     ]);
     expect(report.counts).toEqual({ object: 1, dual: 1, bucket: 1, total: 3 });
     expect(report.truncated).toBe(false);
+  });
+
+  test("the notes column is the last walk's count, a floor when the walk was cut short, and null when nothing counted", async () => {
+    const t = convexTest(schema, modules);
+    const { as } = await seedStaff(t);
+    const alpha = await seedWorkspace(t, "alpha", "shared");
+    const beta = await seedWorkspace(t, "beta", "shared");
+    const gamma = await seedWorkspace(t, "gamma", "shared");
+    await t.run(async (ctx) => {
+      const boundBy = (await ctx.db.insert("users", {})) as Id<"users">;
+      const binding = (workspaceId: Id<"workspaces">) => ({
+        workspaceId,
+        provider: "r2" as const,
+        bucket: "fake-bucket",
+        capabilities: { conditionalWrite: true },
+        status: "connected" as const,
+        boundBy,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await ctx.db.insert("storageBindings", { ...binding(alpha), noteCount: 1284, noteCountedAt: 2 });
+      await ctx.db.insert("storageBindings", {
+        ...binding(beta),
+        noteCount: 5000,
+        noteCountedAt: 2,
+        noteCountTruncated: true,
+      });
+      await ctx.db.insert("storageBindings", binding(gamma));
+    });
+    const report = await as.query(api.functions.adminStorage.storageReport, {});
+    expect(report.workspaces.map((w) => [w.slug, w.notes, w.notesFloor])).toEqual([
+      ["alpha", 1284, false],
+      ["beta", 5000, true],
+      ["gamma", null, false],
+    ]);
   });
 
   test("the last move comes from the move rows, not the audit log, and a running row past its heartbeat is stale", async () => {

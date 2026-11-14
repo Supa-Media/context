@@ -76,7 +76,8 @@ export function qualityHtml(
   const k = fromKey(S.f.from);
   const v = quality?.[k] ?? EMPTY_VIEW;
   const found = v.found;
-  const none = 100 - found;
+  // With no searches there is no "nothing" either: 0%, not 100%.
+  const none = v.n > 0 ? 100 - found : 0;
   const val = (x: string) => (loading ? "…" : x);
   const body = (html: string) =>
     loading ? '<div class="empty">Loading…</div>' : html;
@@ -108,7 +109,7 @@ export function qualityHtml(
   const nothing = panel(
     "s-none",
     "When they open nothing",
-    none + "% of searches",
+    loading ? "" : none + "% of searches",
     body(
       `<div class="fun">${gaveUp.map(([l, x]) => `<div class="r"><span>${l}</span><span class="tr"><span class="bb" style="width:${none > 0 ? (x / none) * 100 : 0}%;background:var(--warn)"></span></span><span class="t">${x}%</span></div>`).join("")}</div><div class="sub" style="margin-top:8px">Searching again within a minute usually means the first words missed.</div>`,
     ),
@@ -187,7 +188,7 @@ export function qualityHtml(
                 : "";
             const name =
               row.slug === null ? "a deleted workspace" : `@${esc(row.slug)}`;
-            return `<tr${link}><td>${name}</td><td class="r">${count(row.n)}</td><td class="r">${row.found}%</td><td class="hp">${row.why === null ? '<span class="sub">—</span>' : pill(row.why, failed ? "bad" : "")}</td></tr>`;
+            return `<tr${link}><td>${name}</td><td class="r">${row.n}</td><td class="r">${row.found}%</td><td class="hp">${row.why === null ? '<span class="sub">—</span>' : pill(row.why, failed ? "bad" : "")}</td></tr>`;
           })
           .join("") ||
         '<tr><td colspan="4" class="empty">No misses in this window</td></tr>'

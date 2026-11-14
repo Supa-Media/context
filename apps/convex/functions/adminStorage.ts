@@ -63,10 +63,12 @@ export const storageReport = query({
         kind: v.union(v.literal("personal"), v.literal("shared")),
         home: homeValidator,
         /**
-         * Always null for now: the census shows no per-workspace note count, and counting notes per workspace is
-         * not cheap here. Kept so the page can show one without a shape change.
+         * Notes in the workspace when its storage was last walked (`storageBindings.noteCount`); null when nothing has
+         * counted them yet. A count is never made up: no walk, no number.
          */
         notes: v.union(v.number(), v.null()),
+        /** The walk hit its budget, so `notes` is a floor, not a total. */
+        notesFloor: v.boolean(),
         /** When `home` was last set; null while no record exists (bucket by default). */
         since: v.union(v.number(), v.null()),
         /** The workspace's newest move, from `storageMoves`; null when it has never been asked to move. */
@@ -108,6 +110,14 @@ export const storageReport = query({
       .query("workspaceObjectHomes")
       .take(ROW_LIMIT + 1);
     const moves = await ctx.db.query("storageMoves").take(ROW_LIMIT + 1);
+    const bindings = await ctx.db.query("storageBindings").take(ROW_LIMIT + 1);
+    const countByWorkspace = new Map<string, { notes: number; floor: boolean }>();
+    for (const row of bindings.slice(0, ROW_LIMIT))
+      if (row.noteCount !== undefined)
+        countByWorkspace.set(String(row.workspaceId), {
+          notes: row.noteCount,
+          floor: row.noteCountTruncated === true,
+        });
     const byWorkspace = new Map<string, Doc<"workspaceObjectHomes">>();
     for (const row of homes.slice(0, ROW_LIMIT))
       byWorkspace.set(String(row.workspaceId), row);
@@ -123,7 +133,8 @@ export const storageReport = query({
         slug: workspace.slug,
         kind: workspace.kind,
         home: record?.home ?? ("bucket" as const),
-        notes: null,
+        notes: countByWorkspace.get(String(workspace._id))?.notes ?? null,
+        notesFloor: countByWorkspace.get(String(workspace._id))?.floor ?? false,
         since: record?.since ?? null,
         lastMove:
           move === undefined
@@ -146,7 +157,8 @@ export const storageReport = query({
       truncated:
         workspaces.length > ROW_LIMIT ||
         homes.length > ROW_LIMIT ||
-        moves.length > ROW_LIMIT,
+        moves.length > ROW_LIMIT ||
+        bindings.length > ROW_LIMIT,
     };
   },
 });
