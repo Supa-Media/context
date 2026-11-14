@@ -53,6 +53,7 @@ import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE
 import { isBound, sha256Hex } from "./groupChat";
 import type { DueRoutine } from "./routineClients";
 import { textsSessionDeps, type TextsBinding } from "./gatewaySession";
+import { toChat } from "./handOver";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
 import { mintThreadsLink, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
@@ -104,6 +105,8 @@ export interface Env {
   /** The gateway origin, e.g. https://mcp.context.lc */
   GATEWAY_ORIGIN: string;
   GATEWAY_TEXTS?: TextsBinding; // the gateway's `TexTexts`: a text's session from the person object (`gatewaySession.ts`)
+  /** Where an incoming text's head runs: "gateway" hands it to the gateway's TexChat (`/texts/arrive`); anything else keeps the SenderInbox queue (`handOver.ts`). */
+  INTAKE?: string;
   /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
@@ -221,7 +224,7 @@ export default {
         delete inbound.on;
       }
       const stub = inboxByName(env.SENDER_INBOX, inbound.from);
-      const result = await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(inbound) });
+      const result = (await toChat(env, "react", inbound.from, inbound)) ?? (await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(inbound) }));
       return new Response(null, { status: result.ok ? 200 : 503 });
     }
 
@@ -236,10 +239,9 @@ export default {
 
     const stub = inboxByName(env.SENDER_INBOX, inbound.from);
     // The Worker's own address goes along, for pictures served back to Sendblue (`media.ts`).
-    const result = await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(url.origin)}`, {
-      method: "POST",
-      body: JSON.stringify(message),
-    });
+    const result =
+      (await toChat(env, "one", inbound.from, message, url.origin)) ??
+      (await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(url.origin)}`, { method: "POST", body: JSON.stringify(message) }));
     return new Response(null, { status: result.ok ? 200 : 503 });
   },
 
@@ -312,7 +314,9 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
   const stub = inboxByName(env.SENDER_INBOX, groupInboxName(grouped.groupId));
   // The Worker's own address goes along, as for a 1:1 text: without it the group's pictures had nowhere to be
   // served from, and every answer with a card failed after its words went out (2026-10-26).
-  const result = await stub.fetch(`https://inbox/group-accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(grouped) });
+  const result =
+    (await toChat(env, "group", groupInboxName(grouped.groupId), grouped, origin)) ??
+    (await stub.fetch(`https://inbox/group-accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(grouped) }));
   logWebhook(line, "accepted", "group");
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
@@ -351,7 +355,9 @@ async function whapiWebhook(request: Request, env: Env, origin: string): Promise
   // A group's people changed: its kept member list is read from the app before its next answer goes out (`groupMembers.ts`).
   const changed = whapiGroupChanges(payload);
   for (const groupId of changed) {
-    const result = await inboxByName(env.SENDER_INBOX, groupInboxName(groupId)).fetch("https://inbox/group-members-changed", { method: "POST" });
+    const result =
+      (await toChat(env, "members", groupInboxName(groupId), null)) ??
+      (await inboxByName(env.SENDER_INBOX, groupInboxName(groupId)).fetch("https://inbox/group-members-changed", { method: "POST" }));
     if (!result.ok) failed = true;
   }
   if (changed.length > 0) console.log(JSON.stringify({ event: "whapi_group_change", groups: changed.length, outcome: failed ? "failed" : "marked" }));
@@ -394,13 +400,15 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
     }
     logWebhook("whapi", "accepted", "reaction");
     const stub = inboxByName(env.SENDER_INBOX, event.from);
-    const result = await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(event) });
+    const result = (await toChat(env, "react", event.from, event)) ?? (await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(event) }));
     return new Response(null, { status: result.ok ? 200 : 503 });
   }
   logWebhook("whapi", "accepted");
   const { replyTo: _reply, threadRoot: _root, ...message } = event;
   const stub = inboxByName(env.SENDER_INBOX, event.from);
-  const result = await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(message) });
+  const result =
+    (await toChat(env, "one", event.from, message, origin)) ??
+    (await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(message) }));
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
 
