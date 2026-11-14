@@ -20,6 +20,7 @@ import { runScopedRoutine, textPhone, type RoutineDeps, type RoutineScope } from
 import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./texPage";
 import { readMailDelivery } from "./jobMail";
 import { inboxByName } from "./objectPlace";
+import { chatMove as moveChat } from "./gatewayMove";
 
 /** A person's owner is their personal workspace's id, as the gateway names its Tex store. */
 const PERSON_OWNER = /^person:([A-Za-z0-9_-]{1,128})$/;
@@ -38,6 +39,11 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
     const scope = scopeOf(call);
     if (scope === null) throw new TypeError("an alarm names a person's owner and a routine path");
     return await runScopedRoutine(this.deps(), scope);
+  }
+
+  /** Moves a chat's inbox out to the gateway, or takes it back (`gatewayMove.ts`); rejects a name that never moves (`TypeError`). */
+  async chatMove(call: { inbox: string; op: "out" | "back" }): Promise<{ status: number; body: unknown }> {
+    return await moveChat(this.env.SENDER_INBOX, call);
   }
 
   /** The Tex page's view of a chat's jobs (`texPage.ts`); rejects a chat that names neither a phone nor a group key (`TypeError`). */
