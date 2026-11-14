@@ -559,3 +559,4 @@ test/searchQuality.test.mjs
 test/textsArrive.test.mjs
 test/texChatMove.test.mjs
 test/texGraphStartNodes.test.mjs
+test/texGraphCheckin.test.mjs
