@@ -36,6 +36,7 @@ export const shownIn = (body) => JSON.stringify({ system: body?.system ?? null, 
 export const BEHIND_THE_RESPONSE = new Set([
   "/gateway/usage",
   "/gateway/search-timing",
+  "/gateway/search-open",
   "/gateway/search-index/progress",
   "/gateway/activity",
   "/gateway/tree",

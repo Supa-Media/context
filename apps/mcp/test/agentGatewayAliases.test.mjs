@@ -4,7 +4,9 @@
  * `AI_GATEWAY_KEY_ALIASES` lists keys stored on the gateway's Provider Keys
  * page. A call names each in order with `cf-aig-byok-alias`, then sends the
  * plan key, then goes keyless so Unified Billing pays; a spent payer rests on
- * its own. The rest of the gateway road is checked in agentGateway.test.mjs.
+ * its own, and every attempt names its payer in a `payer` label, which the
+ * console's Who paid reads. The rest of the gateway road is checked in
+ * agentGateway.test.mjs.
  */
 
 import { aiGatewayConfig, requestViaGateway, resetCreditState } from "../src/agent/aiGateway.js";
@@ -30,6 +32,12 @@ function scripted(replies) {
     return new Response(JSON.stringify(next.body), { status: next.status, headers: { "content-type": "application/json" } });
   };
   return { calls, fetchImpl };
+}
+
+/** Same keys and values, in any order. */
+function same(a, b) {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
 }
 
 function answer(text) {
@@ -100,6 +108,86 @@ export async function runAgentGatewayAliasChecks(check) {
   check(
     "a stored key refused with a plain 400 (an alias the gateway does not hold) moves to the next payer instead of failing the turn",
     unknownAlias.calls.length === 2 && unknownAlias.calls[1].headers["cf-aig-byok-alias"] === "second_credits" && pastUnknown.paidBy === "credit",
+  );
+
+  resetCreditState();
+
+  const plain = aiGatewayConfig(env());
+
+  /* ---------------- who each attempt asks to pay ---------------- */
+
+  const payerOf = (call) => JSON.parse(call.headers["cf-aig-metadata"]).payer;
+  const WORKSPACE = { workspace: "ws_texter" };
+
+  resetCreditState();
+  const byAlias = scripted([{ status: 200, body: answer("ok") }]);
+  await requestViaGateway(CALL, aiGatewayConfig(env({ AI_GATEWAY_KEY_ALIASES: "dev-claude-credits" })), {
+    fetchImpl: byAlias.fetchImpl,
+    now: () => T0,
+    metadata: WORKSPACE,
+  });
+  check(
+    "an alias attempt's header names the alias as its payer",
+    byAlias.calls[0].headers["cf-aig-byok-alias"] === "dev-claude-credits" && payerOf(byAlias.calls[0]) === "dev-claude-credits",
+  );
+
+  resetCreditState();
+  const byPlan = scripted([{ status: 200, body: answer("ok") }]);
+  await requestViaGateway(CALL, aiGatewayConfig(env({ ANTHROPIC_CREDIT_KEY: CREDIT })), {
+    fetchImpl: byPlan.fetchImpl,
+    now: () => T0,
+    metadata: WORKSPACE,
+  });
+  check(
+    "the plan key's attempt names `plan` as its payer, and the key itself stays out of the label",
+    byPlan.calls[0].headers["x-api-key"] === CREDIT && payerOf(byPlan.calls[0]) === "plan" &&
+      !JSON.stringify(byPlan.calls[0].headers["cf-aig-metadata"]).includes(CREDIT),
+  );
+
+  resetCreditState();
+  const keyless = scripted([{ status: 200, body: answer("ok") }]);
+  await requestViaGateway(CALL, plain, { fetchImpl: keyless.fetchImpl, now: () => T0, metadata: WORKSPACE });
+  check(
+    "the keyless Unified Billing attempt names `cloudflare` as its payer",
+    !("x-api-key" in keyless.calls[0].headers) && !("cf-aig-byok-alias" in keyless.calls[0].headers) &&
+      payerOf(keyless.calls[0]) === "cloudflare",
+  );
+
+  resetCreditState();
+  const spentChain = scripted([
+    { status: 400, body: CREDIT_SPENT },
+    { status: 400, body: CREDIT_SPENT },
+    { status: 200, body: answer("ok") },
+  ]);
+  await requestViaGateway(CALL, aiGatewayConfig(env({ AI_GATEWAY_KEY_ALIASES: "dev-claude-credits", ANTHROPIC_CREDIT_KEY: CREDIT })), {
+    fetchImpl: spentChain.fetchImpl,
+    now: () => T0,
+    metadata: WORKSPACE,
+  });
+  check(
+    "each attempt in a spent-credit chain carries its own payer: alias, then plan, then cloudflare",
+    spentChain.calls.map(payerOf).join(",") === "dev-claude-credits,plan,cloudflare",
+  );
+
+  resetCreditState();
+  const spoofed = scripted([{ status: 200, body: answer("ok") }]);
+  await requestViaGateway(CALL, plain, {
+    fetchImpl: spoofed.fetchImpl,
+    now: () => T0,
+    metadata: {
+      payer: "someone-else",
+      alpha: "1",
+      beta: "2",
+      gamma: "3",
+      delta: "4",
+      epsilon: "5",
+      zeta: "6",
+    },
+  });
+  const spoofedLabels = JSON.parse(spoofed.calls[0].headers["cf-aig-metadata"]);
+  check(
+    "a caller's own `payer` label is ignored, and five caller labels still leave exactly five with ours as payer",
+    Object.keys(spoofedLabels).length === 5 && same(spoofedLabels, { alpha: "1", beta: "2", gamma: "3", delta: "4", payer: "cloudflare" }),
   );
 
   resetCreditState();

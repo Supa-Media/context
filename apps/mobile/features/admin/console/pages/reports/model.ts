@@ -72,7 +72,7 @@ const KIND_WORDS: Record<string, string> = {
 };
 
 /** Statuses the desk leaves a report at once it has been sent on, or closed: only `open` still waits. */
-const TEX_CLOSED = new Set(["triage", "triaged", "fixing", "fixed", "retired"]);
+export const TEX_CLOSED = new Set(["triage", "triaged", "fixing", "fixed", "retired"]);
 const TEX_STATUS_WORDS: Record<string, string> = {
   triage: "Sent to triage",
   triaged: "Sent to triage",
@@ -166,7 +166,7 @@ function contentReport(row: ContentRow, now: number): Report {
     about: [row.workspace, row.about].filter((part) => part).join(" · "),
     details: row.details ?? "",
     open: !handled,
-    ...(handled ? { handled: `Handled by ${row.handledBy ?? "someone"} · ${shortDay(row.handledAt!)}` } : {}),
+    ...(handled ? { handled: `Handled by ${row.handledBy ?? "someone"} · ${ago(row.handledAt!, now)}` } : {}),
   };
 }
 

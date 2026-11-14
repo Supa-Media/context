@@ -81,8 +81,10 @@ function tiles(d: GrowthData | undefined): string {
 
 function newest(people: PersonLike[] | undefined): string {
   if (!people) return `<div class="empty">Loading…</div>`;
-  return `<div class="tl">${newestArrivals(people).map((p) => {
-    const pl = fromPill(p);
+  const newest = newestArrivals(people);
+  if (!newest.length) return `<div class="empty">Nobody has signed up yet.</div>`;
+  return `<div class="tl">${newest.map((p) => {
+    const pl = fromPill(p, people);
     return `<div class="it"><span class="sub">${esc(monthDay(p.joinedAt ?? 0))}</span><button class="link" data-act="person" data-id="${esc(p.id)}" style="color:var(--text)">${esc(displayName(p))}</button>${pl ? pill(pl.text, pl.tone) : ""}</div>`;
   }).join("")}</div>`;
 }

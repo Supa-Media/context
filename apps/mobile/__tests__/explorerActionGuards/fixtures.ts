@@ -337,6 +337,7 @@ export function browser(
       reducedRecall: false,
       reducedRecallNotes: [],
     }),
+    openSearchResult: () => {},
     editor: emptyEditor,
     setDraft: noop,
     save: noop,

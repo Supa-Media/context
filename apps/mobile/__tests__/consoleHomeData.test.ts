@@ -8,6 +8,7 @@ import {
   DAY_MS,
   STATS_MAX_DAYS,
   delta,
+  costsLikeOf,
   homeTiles,
   knownPerText,
   knownSpend,
@@ -153,10 +154,10 @@ describe("homeTiles", () => {
     expect(t.detail).toBe("8 with accounts · 4 guests");
   });
 
-  test("texts received sums one-to-one and group texts and reads 'N answered'", () => {
+  test("texts received sums one-to-one and group texts and reads 'N answered', with no thousands separator as the artifact draws it", () => {
     const t = byKey(homeTiles({ d: "7", stats, costs, accounts: 14, answered: 1000 })).texts;
-    expect(t.value).toBe("1,234");
-    expect(t.detail).toBe("1,000 answered");
+    expect(t.value).toBe("1234");
+    expect(t.detail).toBe("1000 answered");
     expect(t.spark).toEqual([5, 0]);
   });
 
@@ -513,6 +514,17 @@ describe("homeTiles with unknown costs and partial windows", () => {
     expect(t.cpt.detail).toContain("last 60 days");
   });
 
+  test("a partial window's note joins the tile's line with one separator, never a leading one", () => {
+    const t = byKey(homeTiles({ d: "90", stats: base, costs: null, accounts: null, answered: null, partial: true }));
+    expect(t.dap.detail).toBe("last 60 days");
+    expect(t.texts.detail).toBe("last 60 days");
+    expect(t.cpt.detail).toBe("last 60 days");
+    expect(t.spent.detail).toBe("last 60 days");
+    const withAccounts = byKey(homeTiles({ d: "90", stats: base, costs: null, accounts: 3, answered: 1714, partial: true }));
+    expect(withAccounts.dap.detail).toBe("of 3 people · last 60 days");
+    expect(withAccounts.texts.detail).toBe("1714 answered · last 60 days");
+  });
+
   test("a partial window with costs given says it on the stats tiles only; the spend line keeps its own detail", () => {
     const costs: CostsLike = { totalUsd: 9, outOfPocketUsd: 1, perTextUsd: 0.5, priorPerTextUsd: null };
     const t = byKey(homeTiles({ d: "90", stats: base, costs, accounts: 3, answered: null, partial: true }));
@@ -525,5 +537,34 @@ describe("homeTiles with unknown costs and partial windows", () => {
     expect(partial.spent.detail).toBe("last 60 days");
     const whole = byKey(homeTiles({ d: "30", stats: base, costs: null, accounts: 3, answered: null, partial: false }));
     expect(whole.spent.detail).toBe("");
+  });
+});
+
+describe("costsLikeOf", () => {
+  const live = {
+    configured: true,
+    error: null,
+    totalUsd: 37.66,
+    outOfPocketUsd: 9,
+    outOfPocketPeopleUsd: 6.5,
+    perTextUsd: 0.16,
+    priorPerTextUsd: 0.19,
+    daily: [{ byFeature: [{ usd: 1 }, { usd: 2.5 }] }, { byFeature: [] }],
+  };
+  test("reads people's spend, the lab-free out of pocket and each day's total", () => {
+    expect(costsLikeOf(live)).toEqual({ totalUsd: 37.66, outOfPocketUsd: 6.5, perTextUsd: 0.16, priorPerTextUsd: 0.19, daily: [{ usd: 3.5 }, { usd: 0 }] });
+  });
+  test("is null while loading, unconfigured or failed, so Home falls back to texStats", () => {
+    expect(costsLikeOf(undefined)).toBeNull();
+    expect(costsLikeOf({ configured: false })).toBeNull();
+    expect(costsLikeOf({ error: "Couldn't load costs" })).toBeNull();
+  });
+  test("gives Home the out-of-pocket line and no change line without a like-for-like window", () => {
+    const tiles = homeTiles({ d: "7", stats: null, costs: costsLikeOf({ ...live, priorPerTextUsd: null }), accounts: null, answered: null });
+    const spent = tiles.find((t) => t.key === "spent")!;
+    const cpt = tiles.find((t) => t.key === "cpt")!;
+    expect(spent.detail).toBe("$6.50 of it out of pocket");
+    expect(cpt.value).toBe("$0.16");
+    expect(cpt.delta).toBeUndefined();
   });
 });

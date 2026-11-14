@@ -6,6 +6,7 @@
  */
 
 import { syncRoutineAlarms } from "../texStore/routineAlarm.js";
+import { actorSeedOf, searchActorHash, searchHitHash, searchQualityKeyOf, searchTimingFields } from "../search/quality.js";
 
 /**
  * The two reporters every write's `recordChange` reaches for, bound to the
@@ -20,7 +21,9 @@ import { syncRoutineAlarms } from "../texStore/routineAlarm.js";
  * on a host that cannot keep it alive — the line is in the customer's bucket
  * either way.
  */
-export function attachChangeReporters(store, workspaceId, controlPlane, { readLedger, env } = {}) {
+export function attachChangeReporters(store, workspaceId, controlPlane, { readLedger, env, searchKey } = {}) {
+  // The search quality key (`search/quality.js`): from the Worker's env unless a caller hands one in (a test).
+  const qualityKey = searchKey ?? searchQualityKeyOf(env);
   attachSmallData(store, workspaceId, controlPlane, readLedger);
   store.reportTreeChange = (audiences) =>
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
@@ -33,14 +36,40 @@ export function attachChangeReporters(store, workspaceId, controlPlane, { readLe
   // A person's own Tex routines run on their Tex store's alarm, set from the file (`texStore/routineAlarm.js`).
   // Given the Worker's env only where the session's own workspace is the one written (never a cross-context store).
   if (env !== undefined) store.syncRoutineAlarms = (paths) => syncRoutineAlarms(env, workspaceId, store, paths);
-  // How long a search took and which index answered (`search/visibleNotes.js`),
-  // for the admin console's search timing log. Behind the answer, like the rest.
+  // How long a search took and which index answered (`search/visibleNotes.js`), and on the counted row its
+  // quality (`search/quality.js`), for the admin console's search log. Behind the answer, like the rest. The
+  // hashes are taken here, inside the deferred work, so a host that cannot defer computes and sends nothing.
   store.reportSearchTiming = (timing) => {
     // Checked before the request is built: `reportUsage`'s rule, a fetch
     // nothing keeps alive is a subrequest spent on nothing.
     if (typeof store.defer !== "function") return;
     try {
-      store.defer(controlPlane.reportSearchTiming({ ...timing, workspaceId }).catch(() => {}));
+      store.defer(
+        qualityKey
+          .then((key) => searchTimingFields(workspaceId, timing, key))
+          .then((fields) => controlPlane.reportSearchTiming(fields))
+          .catch(() => {}),
+      );
+    } catch {
+      // A host whose `waitUntil` refuses the work simply does not report.
+    }
+  };
+  // A search hit's note was opened (`search/quality.js` `reportOpenedNote`): the searcher's actor, and the hit's
+  // MAC of the address the note was read by. Behind the read, like the timing above. No key, no report.
+  store.reportSearchOpen = (address) => {
+    const seed = actorSeedOf(store.actor);
+    if (typeof store.defer !== "function" || !seed) return;
+    try {
+      store.defer(
+        qualityKey
+          .then((key) =>
+            key === null
+              ? null
+              : Promise.all([searchActorHash(key, seed), searchHitHash(key, address)])
+                  .then(([actor, hit]) => controlPlane.reportSearchOpen({ workspaceId, actor, hit })),
+          )
+          .catch(() => {}),
+      );
     } catch {
       // A host whose `waitUntil` refuses the work simply does not report.
     }

@@ -45,8 +45,22 @@ const ana: PersonLike = {
   phone: "+15555550100",
   joinedAt: Date.UTC(2026, 10, 13),
   from: "friend",
-  invitedBy: "Maya",
+  invitedBy: "maya",
   clients: 1,
+  lastSeenAt: null,
+  archived: false,
+};
+
+const maya: PersonLike = {
+  id: "u3",
+  name: "Maya Lindqvist",
+  handle: "maya",
+  emails: [],
+  phone: "+15555550101",
+  joinedAt: Date.UTC(2026, 7, 2),
+  from: "waitlist",
+  invitedBy: null,
+  clients: 2,
   lastSeenAt: null,
   archived: false,
 };
@@ -92,8 +106,8 @@ describe("console Growth page", () => {
     expect(html).toContain("Needs a nudge");
   });
 
-  it("shows who was invited by whom as a team pill", () => {
-    const html = render({ census, usage, people: [ana] });
+  it("shows who was invited by whom as a team pill, by the inviter's first name", () => {
+    const html = render({ census, usage, people: [ana, maya] });
     expect(html).toContain('<span class="pill team">invited by Maya</span>');
     expect(html).toContain('data-act="person" data-id="u1"');
   });
@@ -114,6 +128,11 @@ describe("console Growth page", () => {
     const html = render({ census, usage, people: [hostile] });
     expect(html).not.toContain("<script>alert");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
+
+  it("says so when nobody has signed up, rather than an empty panel", () => {
+    const html = render({ census, usage, people: [] });
+    expect(html).toContain('<div class="empty">Nobody has signed up yet.</div>');
   });
 
   it("says nobody when a nudge list is empty", () => {

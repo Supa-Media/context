@@ -162,13 +162,21 @@ async function accountCard(
   const owned = await ownedWorkspaces(ctx, account.id, budget);
   const statuses: PlanStatus[] = [];
   let askedToday = 0;
+  let handle: string | null = null;
   for (const workspaceId of owned) {
     statuses.push(await statusOfWorkspace(ctx, workspaceId));
+    // The person's own workspace names them, as `@handle` (the staff console's By account).
+    if (handle === null) {
+      const workspace = await ctx.db.get(workspaceId);
+      if (workspace?.kind === "personal" && typeof workspace.slug === "string") handle = workspace.slug;
+    }
     askedToday += workspaces.get(String(workspaceId))?.askedToday ?? 0;
   }
   return {
     userId: String(account.id),
     email: user?.email ?? null,
+    name: user?.name?.trim() || null,
+    handle,
     plan: planWording(strongestPlan(statuses)),
     workspaces: owned.length,
     costUsd: usd(account.micro),
