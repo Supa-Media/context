@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "./index";
 import { PhotonEvents } from "./photonEvents";
 import { photonAttachmentUrl, photonChatId, photonGroupId, verifyPhotonAttachment } from "./photon";
+import { groupInboxName } from "./groupInbox";
 
 const LINE = "+15555550199";
 const PHONE = "+15555550100";
@@ -117,9 +118,26 @@ describe("PhotonEvents.event: outcomes", () => {
     expect(routed).toEqual([]);
   });
 
-  it("resolves 200 and routes nothing for Tex's own side, a read receipt, or an edit or unsend", async () => {
+  it("hands Tex's own text reaching Apple, and the person reading it, to the chat's send status with Apple's times, and never as a text", async () => {
     const { env: e, routed } = env();
-    expect(await entrypoint(e).event(event({ fromMe: true }))).toEqual({ status: 200 });
+    expect(await entrypoint(e).event(event({ fromMe: true, from: undefined, message: { guid: "tex-1", text: "Tex's words", service: "iMessage" } }))).toEqual({ status: 200 });
+    expect(await entrypoint(e).event(event({ type: "message.read", eventId: "photon:message.read:tex-1:4", message: undefined, read: { targetGuid: "tex-1" }, at: "2026-11-14T10:05:00.000Z" }))).toEqual({ status: 200 });
+    expect(await entrypoint(e).event(event({ fromMe: true, from: undefined, chat: { guid: GUID, kind: "group" }, message: { guid: "tex-2", text: "hi all", service: "iMessage" } }))).toEqual({ status: 200 });
+    expect(routed.map((r) => [r.to, r.path])).toEqual([[PHONE, "/send-status"], [PHONE, "/send-status"], [groupInboxName(photonGroupId(GUID)), "/send-status"]]);
+    expect(routed[0].body).toMatchObject({ handle: "tex-1", status: "SENT", chat: photonChatId(LINE, PHONE), report: { name: "photon", handle: "tex-1", status: "sent", providerAt: Date.parse("2026-11-14T10:00:00.000Z") } });
+    expect(routed[1].body).toMatchObject({ handle: "tex-1", status: "READ", report: { status: "read", providerAt: Date.parse("2026-11-14T10:05:00.000Z") } });
+    expect(routed[2].body).toMatchObject({ handle: "tex-2", chat: photonGroupId(GUID), object: { kind: "group", groupId: photonGroupId(GUID) } });
+    expect(JSON.stringify(routed)).not.toContain("Tex's words");
+  });
+
+  it("routes nothing for Tex's own side reading the person's text", async () => {
+    const { env: e, routed } = env();
+    expect(await entrypoint(e).event(event({ type: "message.read", fromMe: true, message: undefined, read: { targetGuid: "msg-1" } }))).toEqual({ status: 200 });
+    expect(routed).toEqual([]);
+  });
+
+  it("resolves 200 and routes nothing for a read receipt that names no message, or an edit or unsend", async () => {
+    const { env: e, routed } = env();
     expect(await entrypoint(e).event(event({ type: "message.read", message: undefined }))).toEqual({ status: 200 });
     expect(await entrypoint(e).event(event({ type: "message.unsent", unsent: { targetGuid: "m" } }))).toEqual({ status: 200 });
     expect(await entrypoint(e).event(event({ type: "message.edited", message: { guid: "m", text: "new", service: "iMessage" }, edited: { targetGuid: "m" } }))).toEqual({ status: 200 });
