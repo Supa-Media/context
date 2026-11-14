@@ -78,7 +78,7 @@ import { mutedCheckIn, saysQuiet, withoutPreamble } from "./checkInGuards.js";
 import { newMailSection } from "./newMail.js";
 import { CALENDAR_SHOWN, calendarSection, chatSection, slackSection } from "./checkInSources.js";
 import { DAY_MS, heading, heartbeatPath } from "./checkInGather.js";
-import { checkin } from "./graph/nodes/checkin.js";
+import { gatewayGraph } from "./graph/gatewayGraph.js";
 
 /** The check-in's first-party client (`apps/convex/functions/lib/heartbeats/model.ts`). Decided by the grant. */
 export const HEARTBEAT_CLIENT_ID = "context_heartbeat";
@@ -308,24 +308,30 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const timeZone = readTimeZone(given.timeZone) ?? DEFAULT_TIME_ZONE;
   const started = Date.now();
   const since = typeof given.since === "number" && Number.isFinite(given.since) ? given.since : null;
-  // What the check-in node gathers: `ctxObj` holds its live parts, and `ctxObj.look` what the rest reads.
-  const ctxObj = { dispatch, store, session, env, controlPlane, deliver: deliverAttention, look: null };
-  // A graph runner will make this call in place of this one (graph/nodes/checkin.js); until then it is the same step.
-  const out = await checkin({ timeZone, since, attention: given.attention === true, started }, { ctx: { checkin: ctxObj } });
-  if (out.to === "attention") {
-    const { to: _to, ...reply } = out;
-    return json(reply);
+  // The look's steps, and each node the graph runs for it, go to their chat's one record under a turn of their own, as
+  // a text's do (Dev2, 2026-11-14: "we need to make sure we are logging everything so we can replay the results").
+  const ledgerTurn = `ck${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
+  const chatLog = ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT);
+  const graph = gatewayGraph({ writer: chatLog, turn: ledgerTurn });
+  // A claim for the pings their agents asked for starts at Send through Tex (`graph/nodes/notify.js`): no look, no model.
+  // The texting Worker sends its answer; once Text them is on the runner, the notify -> send wire does.
+  if (given.attention === true) {
+    const ping = await graph.runNode("notify", { now: started, timeZone }, { notify: { dispatch, store, session, deliver: deliverAttention } }, "handleHeartbeat");
+    await chatLog?.flush();
+    return json({ outcome: ping.output.outcome, ...(ping.output.to === "send" ? { answer: ping.output.answer } : {}), ...(ping.output.until === undefined ? {} : { until: ping.output.until }) });
   }
-  if (out.to === "done") return json(out.body, out.status);
+  // Every other claim starts at Check-in (`graph/nodes/checkin.js`): `ctxObj.look` is what the rest of the look reads.
+  const ctxObj = { dispatch, store, session, env, controlPlane, look: null };
+  const out = (await graph.runNode("checkin", { timeZone, since, started }, { checkin: ctxObj }, "handleHeartbeat")).output;
+  if (out.to === "done") {
+    await chatLog?.flush();
+    return json(out.body, out.status);
+  }
   // A look: the rest of the check-in reads what the node gathered.
   const { changed, mail, mailboxes, owed, calendar, slack, chat, conversation, settings, mutes } = ctxObj.look;
 
   const texted = textedLines(await recentLogs(dispatch, started, timeZone));
   const events = [];
-  // The look's steps go to their chat's one record under a turn of their own, as a text's do (Dev2, 2026-11-14:
-  // "we need to make sure we are logging everything so we can replay the results"), not only to the day's log.
-  const ledgerTurn = `ck${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
-  const chatLog = ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT);
   const observe = ledgerObserver(chatLog, (event) => events.push(event), { turn: ledgerTurn, ownSlug: session.workspaceSlug }) ?? ((event) => events.push(event));
   const offered = await grantedToolsFor(session, store);
   // The check-in's setup note (`ai/production/heartbeat.md`): its words, and its

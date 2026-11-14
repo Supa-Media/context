@@ -12,7 +12,7 @@ import { handback } from "../src/agent/graph/nodes/handback.js";
 import { mailadv } from "../src/agent/graph/nodes/mailadv.js";
 import { notify } from "../src/agent/graph/nodes/notify.js";
 import { ADVISOR_MAIL_PROMPT } from "../src/agent/advisorRoles/jobMail.js";
-import { attentionEntry, attentionHeading, attentionPath, ATTENTION_SETTINGS_PATH, WAITING } from "../src/agent/attention.js";
+import { attentionEntry, attentionHeading, attentionPath, ATTENTION_SETTINGS_PATH, WAITING, deliverAttention } from "../src/agent/attention.js";
 import { DEFAULT_BUILTIN_MODEL } from "../src/agent/builtin.js";
 
 const NODES = new URL("../src/agent/graph/nodes/", import.meta.url);
@@ -180,13 +180,27 @@ function noteStore(files) {
   return { dispatch, writes };
 }
 
+/** The notify node's live parts: the note store, a session, and today's delivery. */
+const ctxFor = (dispatch, delivered = deliverAttention) => ({ ctx: { notify: { dispatch, store: {}, session: { workspaceId: "w1", grantId: "g1", actorUserId: "u1" }, deliver: delivered } } });
+
+test("notify: in their quiet hours only an emergency goes, and it says when the hours end", async () => {
+  const asked = [];
+  // NOW is 12:00 UTC, so a window from 11:00 to 13:00 holds it.
+  const { dispatch } = noteStore({ "tex/heartbeat.md": { etag: "q1", body: "---\nquiet-hours: 11:00-13:00\n---\n" } });
+  const output = await notify({ now: NOW, timeZone: "UTC" }, ctxFor(dispatch, async (_d, _s, options) => (asked.push(options), null)));
+  assert.deepEqual(asked, [{ now: NOW, timeZone: "UTC", onlyEmergencies: true }]);
+  assert.equal(output.to, "quiet");
+  assert.equal(output.outcome, "quiet_hours");
+  assert.equal(typeof output.until, "number");
+});
+
 test("notify: one waiting ping is texted once and its log line is marked texted", async () => {
   const today = attentionPath(NOW, "UTC");
   const log = attentionHeading(NOW, "UTC") + "\n" + attentionEntry({ id: "p_0123456789ab", now: NOW, timeZone: "UTC", from: "Renewal bot", urgency: "asked", message: "The form needs your photo.", why: null, status: WAITING });
   const files = { [today]: { etag: "e1", body: log } };
   const { dispatch, writes } = noteStore(files);
-  const output = await notify({ now: NOW, timeZone: "UTC", onlyEmergencies: false }, { ctx: { notify: { dispatch, store: {} } } });
-  assert.deepEqual(output, { to: "send", answer: "Renewal bot: The form needs your photo.", count: 1 });
+  const output = await notify({ now: NOW, timeZone: "UTC" }, ctxFor(dispatch));
+  assert.deepEqual(output, { to: "send", outcome: "speak", answer: "Renewal bot: The form needs your photo.", count: 1 });
   assert.equal(writes.length, 1);
   assert.equal(writes[0].path, today);
   assert.match(writes[0].content, /\*\*Ping:\*\* p_0123456789ab · asked · texted /);
@@ -194,8 +208,8 @@ test("notify: one waiting ping is texted once and its log line is marked texted"
 
 test("notify: nothing waiting is quiet", async () => {
   const { dispatch, writes } = noteStore({ [ATTENTION_SETTINGS_PATH]: { etag: "s1", body: "---\ntolerance: strict\n---\n" } });
-  const output = await notify({ now: NOW, timeZone: "UTC", onlyEmergencies: false }, { ctx: { notify: { dispatch, store: {} } } });
-  assert.deepEqual(output, { to: "quiet", answer: "", count: 0 });
+  const output = await notify({ now: NOW, timeZone: "UTC" }, ctxFor(dispatch));
+  assert.deepEqual(output, { to: "quiet", outcome: "quiet", answer: "", count: 0 });
   assert.deepEqual(writes, []);
 });
 
@@ -203,7 +217,7 @@ test("notify: a ping from yesterday that is still waiting is found too", async (
   const yesterday = attentionPath(NOW - DAY_MS, "UTC");
   const log = attentionHeading(NOW - DAY_MS, "UTC") + "\n" + attentionEntry({ id: "p_aaaaaaaaaaaa", now: NOW - DAY_MS, timeZone: "UTC", from: "Routine", urgency: "emergency", message: "Water is leaking.", why: null, status: WAITING });
   const { dispatch } = noteStore({ [yesterday]: { etag: "y1", body: log } });
-  const output = await notify({ now: NOW, timeZone: "UTC", onlyEmergencies: true }, { ctx: { notify: { dispatch, store: {} } } });
+  const output = await notify({ now: NOW, timeZone: "UTC" }, ctxFor(dispatch));
   assert.equal(output.to, "send");
   assert.equal(output.count, 1);
   assert.match(output.answer, /^Urgent, Routine: Water is leaking\.$/);
@@ -218,4 +232,43 @@ test("no node imports a sibling node, so each runs on its own", () => {
     const text = readFileSync(new URL(file, NODES), "utf8");
     assert.doesNotMatch(text, /(?:from|import)\s*\(?\s*["']\.\/[^"']+["']/, `${file} imports a sibling`);
   }
+});
+
+// --- on the gateway's graph -------------------------------------------------
+// The bridges run these nodes over the config's own wires, so the runner checks each output against its outSchema and
+// writes the run to the chat's ledger (Dev2, 2026-11-14: a node's output not matching its shape fails it).
+// Sabotage record (temporary local edits, reverted, 2026-11-14): jobcheck returning advice: undefined fails
+// "Job check runs over the job -> jobcheck wire"; the bridge calling checkJob directly fails it too (no node entry).
+
+import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
+import { handbackOnGraph, jobCheckOnGraph } from "../src/agent/graph/bridges.js";
+
+const ledger = () => {
+  const written = [];
+  return { written, writer: { write: (e) => written.push(...(Array.isArray(e) ? e : [e])), flush: async () => {} } };
+};
+
+test("Job check runs over the job -> jobcheck wire, its shape checked, its run in the ledger, and checkJob's value kept", async () => {
+  const { written, writer } = ledger();
+  const check = jobCheckOnGraph(gatewayGraph({ writer, turn: "t9" }));
+  const got = await check({ job, live: { messages: [] }, answer: "Done: submitted.", exhausted: false, model: "fake-advisor", request: async () => ({ text: "VERDICT: done\nADVICE: nothing more" }), meter: async () => {} });
+  assert.deepEqual(got, { verdict: "done", advice: "nothing more" });
+  assert.deepEqual(written.map((e) => [e.step, e.name, e.via, e.turn, e.ok]), [["node", "jobcheck", "job:uses", "t9", true]]);
+  assert.equal(await check({ job: null, live: {}, answer: "", model: "m", request: async () => ({}) }), null);
+});
+
+test("the Hand-back judge runs over the job -> handback wire and gives the judge's notice, or null", async () => {
+  const { written, writer } = ledger();
+  const judge = handbackOnGraph(gatewayGraph({ writer }), { question: "renew it", config: { fake: true }, request: judgeReply([{ code: "Y1", quote: "pay" }]), log: () => {} });
+  assert.equal(await judge("It's paid.", [{ name: "browse", ok: true }]), null);
+  assert.deepEqual(written.map((e) => [e.name, e.ok]), [["handback", true]]);
+  assert.equal(handbackOnGraph(gatewayGraph({ writer }), { question: "", config: null }), null);
+});
+
+test("Send through Tex runs on the graph with its shape checked", async () => {
+  const { written, writer } = ledger();
+  const { dispatch } = noteStore({});
+  const r = await gatewayGraph({ writer }).runNode("notify", { now: NOW, timeZone: "UTC" }, ctxFor(dispatch).ctx, "handleHeartbeat");
+  assert.deepEqual(r.output, { to: "quiet", outcome: "quiet", answer: "", count: 0 });
+  assert.deepEqual(written.map((e) => [e.name, e.via, e.ok]), [["notify", "handleHeartbeat", true]]);
 });

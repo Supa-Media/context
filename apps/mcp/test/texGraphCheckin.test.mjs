@@ -61,7 +61,7 @@ function ioFor({ files = {}, tree = [], verdict = BUILTIN_ALLOWED, delivered = n
   return { io: { ctx: { checkin: checkinCtx } }, checkinCtx, writes, delivers };
 }
 
-const input = (overrides = {}) => ({ timeZone: "UTC", since: null, attention: false, started: NOW, ...overrides });
+const input = (overrides = {}) => ({ timeZone: "UTC", since: null, started: NOW, ...overrides });
 
 /** Plain data only: a JSON round trip changes nothing, and no note text is in it. */
 function assertPlain(output) {
@@ -86,25 +86,6 @@ test("nothing changed ends on done with nothing_new, and its one log line says w
   assert.equal(writes.length, 1);
   assert.match(writes[0].path, /^tex\/heartbeat\/\d{4}-\d{2}-\d{2}\.md$/);
   assert.ok(writes[0].content.includes(NOTHING_NEW_WORDS));
-});
-
-test("a ping the agents asked for goes to attention with the text it delivered", async () => {
-  const { io, delivers } = ioFor({ delivered: { text: "Your 3pm call moved to 4.", count: 1 } });
-  const out = await checkin(input({ attention: true }), io);
-  assert.deepEqual(out, { to: "attention", outcome: "speak", answer: "Your 3pm call moved to 4." });
-  assertPlain(out);
-  assert.deepEqual(delivers, [{ now: NOW, timeZone: "UTC", onlyEmergencies: false }]);
-});
-
-test("a ping with nothing to deliver is quiet, and quiet hours say when to come back", async () => {
-  const quiet = await checkin(input({ attention: true }), ioFor({}).io);
-  assert.deepEqual(quiet, { to: "attention", outcome: "quiet" });
-  // NOW is 15:00 UTC, so a window from 14:00 to 16:00 holds it.
-  const hours = ioFor({ files: { "tex/heartbeat.md": { body: "---\nquiet-hours: 14:00-16:00\n---\n", etag: "q1" } } });
-  const held = await checkin(input({ attention: true }), hours.io);
-  assert.equal(held.to, "attention");
-  assert.equal(held.outcome, "quiet_hours");
-  assert.equal(typeof held.until, "number");
 });
 
 test("a look with something changed goes on to look, with its counts and the live values on the ctx, never in the output", async () => {
