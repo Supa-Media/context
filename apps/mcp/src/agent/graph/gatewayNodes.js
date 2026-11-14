@@ -21,6 +21,7 @@ import nightly from "./nodes/nightly.js";
 import nudge from "./nodes/nudge.js";
 import picture from "./nodes/picture.js";
 import reflect from "./nodes/reflect.js";
+import { job } from "./nodes/job.js";
 import { advisorNode } from "./nodes/advisor.js";
 import { checkItMayRunNode } from "./nodes/checkItMayRun.js";
 import { checksNode } from "./nodes/checks.js";
@@ -81,6 +82,7 @@ export const GATEWAY_NODES = {
   get jobcheck() { return jobcheck; },
   get handback() { return handback; },
   get mailadv() { return mailadv; },
+  get job() { return job; },
   // What the front door\'s tools and Text them reach, and the nightly runs (graph step 5).
   get card() { return card; },
   get daysum() { return daysum; },

@@ -250,18 +250,21 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     }
     let backs = 0;
     const handles = (mode, run) => Object.fromEntries(out(id, mode).map((e) => [e.to, run(e.to, e)]));
+    // `lend` (the second argument of `use` and `job`) is extra ctx for that one call: the callee's io.ctx gets it, and
+    // this node's ctx does not. It is never part of the input, so it is never logged.
+    const withLend = (lend) => (lend ? { ...ctx, ...lend } : ctx);
     const io = {
       node,
       ctx,
-      use: handles("uses", (to) => async (arg) => (await runNode(to, arg, ctx, `${id}:uses`)).output),
+      use: handles("uses", (to) => async (arg, lend) => (await runNode(to, arg, withLend(lend), `${id}:uses`)).output),
       back: handles("loop", (to, wire) => async (arg) => {
         const most = [wire.rounds, byId.get(to)?.rounds].find((r) => Number.isInteger(r) && r > 0) ?? 1;
         if (backs >= most) throw new GraphError(`"${id}" sent work back to "${to}" more than ${most} times`);
         backs += 1;
         return sendBack(to, id, arg, ctx);
       }),
-      job: handles("job", (to) => (arg) => {
-        const run = runNode(to, arg, ctx, `${id}:job`);
+      job: handles("job", (to) => (arg, lend) => {
+        const run = runNode(to, arg, withLend(lend), `${id}:job`);
         if (background) background(run.catch(() => {}));
         return run;
       }),
