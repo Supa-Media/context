@@ -93,7 +93,7 @@ export function architectureFor(role) {
   const at = ROLES[role];
   if (!at) throw new Error(`texArchitecture: no role ${role}`);
   return [
-    "HOW TEX WORKS: the machine you are part of, from Tex's config, which is what runs. Use it to know who sees what you write and who acts on it; never describe it to the person unless they ask how Tex works.",
+    "HOW TEX WORKS: the machine you are part of, from Tex's config, which is what runs: each step is code, and every wire between steps (who goes next, who waits, what runs in the background) is set in that config, so this map is exactly how your turn flows. Use it to know who sees what you write and who acts on it; never describe it to the person unless they ask how Tex works.",
     "",
     TEX_MAP,
     "",
