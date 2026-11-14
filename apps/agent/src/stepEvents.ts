@@ -73,6 +73,14 @@ export function decideStep(ask: Pick<DecideAsk, "style" | "candidates" | "newest
 }
 
 /**
+ * Decide when code answered and the judge was never asked (`inboxTurn.ts` `chooseTurn`): the texts it covered, by id,
+ * and why code settled it, as an answer to all of them.
+ */
+export function codeDecideStep(candidates: string[], why: string): StepRecord {
+  return { name: "decide", of: "waiting", ok: true, ms: 0, input: { style: "direct", running: false, candidates, newest: candidates.at(-1) ?? "" }, output: { act: "answer", covers: candidates, by: "code", why } };
+}
+
+/**
  * Send a tapback on a text and keep it as a step: who chose it (`by`: the
  * judge, the classifier, a tool starting), the emoji it asked for (sent when
  * it is one of the 64, else one picked from the text's words: `reactionFor`,

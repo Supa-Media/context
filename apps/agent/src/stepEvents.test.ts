@@ -59,6 +59,24 @@ function world(decision: (body: Decided) => unknown, decideStatus = 200) {
 const steps = (events: readonly TexEvent[]) => events.filter((event) => event.kind === "step");
 
 describe("the Worker's own steps", () => {
+  it("one text that code sends straight to Tex is still a Decide step: what it covered, that code answered, and why", async () => {
+    // Dev2, 2026-11-14: "WHY DOES IT STILL SAY NOTHING LOGGED". Sabotage: drop `byCode` on the front-door return in
+    // `chooseTurn` and no decide step is kept.
+    const storage = new MemoryStorage();
+    const w = world(() => ({ ok: true, act: "answer", covers: [], stale: [], movedOn: false, confidence: 0.9 }));
+    await accept(storage, msg("e1", "whats on the cal tomorrow"), 1_000);
+    await drain(storage, w.deps);
+    expect(w.decided).toEqual([]);
+    const [judged, ...rest] = steps([...w.posted, ...(await unwritten(storage))]);
+    expect(rest).toEqual([]);
+    expect(judged.step).toMatchObject({ name: "decide", of: "waiting", ok: true, ms: 0, output: { act: "answer", by: "code" } });
+    expect(judged.step?.input?.candidates).toHaveLength(1);
+    expect(judged.step?.output?.covers).toEqual(judged.step?.input?.candidates);
+    expect(String(judged.step?.output?.why)).toContain("straight to Tex");
+    // Ids and reasons only: never the text's words.
+    expect(JSON.stringify(judged)).not.toContain("cal tomorrow");
+  });
+
   it("the judge's verdict and its tapback are kept, with what each was given and gave", async () => {
     const storage = new MemoryStorage();
     const w = world(() => ({ ok: true, act: "react", covers: [], stale: [], movedOn: false, confidence: 0.8, emoji: "🙏", why: "pure_ack" }));
