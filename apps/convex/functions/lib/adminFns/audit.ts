@@ -40,6 +40,7 @@ export const ADMIN_ACTIONS = [
   "group.deleted",
   "group.person_added",
   "group.person_removed",
+  "storage.home_set",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];
