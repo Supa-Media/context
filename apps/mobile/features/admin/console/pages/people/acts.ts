@@ -280,17 +280,6 @@ export const acts: Record<string, Act> = {
     setF("told", el.dataset.v ?? "all");
   },
 
-  addppl: () => {
-    S.adding = true;
-    render();
-    setTimeout(() => document.getElementById("addbox")?.focus(), 0);
-  },
-
-  addcancel: () => {
-    S.adding = false;
-    render();
-  },
-
   addgo: writes(async (_el, d) => {
     const r = await d.m.addToWaitlist({ emails: inputValue("addbox") });
     if (r.changed === 0) {

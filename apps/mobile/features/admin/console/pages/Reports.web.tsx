@@ -100,7 +100,7 @@ function reportOf(d: ReportsData | undefined, id: string | undefined): Report | 
   return d?.reports?.find((r) => r.id === id);
 }
 
-const reportsPageOf: ConsolePage<ReportsData> = {
+export const reportsPage: ConsolePage<ReportsData> = {
   key: "reports",
   filters: { src: "all", st: "open" },
   windowed: false,
@@ -157,5 +157,3 @@ const reportsPageOf: ConsolePage<ReportsData> = {
   },
 };
 
-/** The registry's page type: the shell hands every page `unknown` data, which this page's `ReportsData` is. */
-export const reportsPage = reportsPageOf as ConsolePage;
