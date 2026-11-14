@@ -555,3 +555,4 @@ test/promptCatalog.test.mjs
 test/texGraph.test.mjs
 test/texGraphHome.test.mjs
 test/texGraphStartNodes.test.mjs
+test/texGraphCheckin.test.mjs

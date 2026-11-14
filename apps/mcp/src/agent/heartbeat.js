@@ -35,21 +35,17 @@
  * The control plane hears an outcome code.
  */
 
-import { CONTACTS_FOLDER, asInboxKey } from "../../../../packages/communications/src/protocol.js";
 import { readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
-import { CHECK_IN_QUESTION, RECENT_TEXTS_SHOWN, checkInAbout, continuesFrom, lastThinking, recentTexts } from "./checkInTexts.js";
+import { CHECK_IN_QUESTION, checkInAbout, continuesFrom, lastThinking, recentTexts } from "./checkInTexts.js";
 export { CHECK_IN_QUESTION, checkInAbout, continuesFrom, isCheckInLine, lastThinking, recentTextLines, recentTexts } from "./checkInTexts.js";
-import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH, HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
+import { HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 import { deliverAttention } from "./attention.js";
-import { quietHoursEnd, readSettings } from "./quietHours.js";
+import { readSettings } from "./quietHours.js";
 export { readSettings };
 import { eventLines } from "./transcript.js";
 import { HISTORY_PATH } from "./historyFile.js";
-import { DREAMS_FOLDER } from "./dream.js";
-import { ABOUT_ME_PATH, OLD_ABOUT_ME_PATH } from "./aboutMe.js";
 import { readTexNotes } from "./jobs.js";
-import { LEARNED_SKILLS_FOLDER } from "./learnedSkills.js";
-import { openProvider, runTurn } from "./turn.js";
+import { runTurn } from "./turn.js";
 import { reportToolFailures } from "./toolFailures.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { PRODUCTION_HEARTBEAT_PATH, readJobSetup, readProductionSetup } from "./production.js";
@@ -59,7 +55,7 @@ import { ProviderError } from "./providers.js";
 import { SKIP_WORD } from "./routine.js";
 import { SAY_NOTHING } from "./sayNothing.js";
 import { READ_SOURCE_PREFIX } from "./sources.js";
-import { appendConversation, readConversation } from "./conversation.js";
+import { appendConversation } from "./conversation.js";
 import { ONE_TO_ONE_CHAT, ledgerObserver, ledgerWriter } from "./ledger.js";
 import { turnTiming } from "./turnTiming.js";
 import { texVersion } from "./texVersion.js";
@@ -70,27 +66,27 @@ const versionOf = (env) => {
   return version === null ? {} : { version };
 };
 import { threadOf } from "./threadView.js";
-import { appendLogEntryWhy, builtinMeter, clock, dayOf, logSkipped, longDate, readWithEtag, refusedRun } from "./jobLog.js";
+import { appendLogEntryWhy, builtinMeter, clock, readWithEtag } from "./jobLog.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
-import { isPlumbing } from "../privacy/engine.js";
-import { lookChangedEntries } from "./lookTree.js";
 import { json } from "../http/responses.js";
 import { disarmTexting } from "../tools/approvals.js";
-import { WORTH_SAYING, heartbeatMailSection, readMailHealth, withMailboxes } from "./mailHealth.js";
-import { checkInMutes, mutedCheckIn, saysQuiet, withoutPreamble } from "./checkInGuards.js";
-import { newMailSection, newMailSince } from "./newMail.js";
-import { CALENDAR_SHOWN, calendarSection, chatSection, newChatSince, newSlackSince, slackSection, todaysCalendar } from "./checkInSources.js";
+import { heartbeatMailSection, withMailboxes } from "./mailHealth.js";
+import { mutedCheckIn, saysQuiet, withoutPreamble } from "./checkInGuards.js";
+import { newMailSection } from "./newMail.js";
+import { CALENDAR_SHOWN, calendarSection, chatSection, slackSection } from "./checkInSources.js";
+import { DAY_MS, heading, heartbeatPath } from "./checkInGather.js";
+import { checkin } from "./graph/nodes/checkin.js";
 
 /** The check-in's first-party client (`apps/convex/functions/lib/heartbeats/model.ts`). Decided by the grant. */
 export const HEARTBEAT_CLIENT_ID = "context_heartbeat";
 
 export { HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH };
+// The gather helpers live in checkInGather.js (the check-in node imports them); these names stay public here.
+export { FIRST_LOOK_MS, NOTHING_NEW_WORDS, BUSY_WORDS, TREE_UNAVAILABLE_WORDS, QUIET_MS, calendarLooked, changedSince, heartbeatPath, midConversation, newsFirst } from "./checkInGather.js";
 
-/** A first look (or one whose `since` is unknown) goes back this far. */
-export const FIRST_LOOK_MS = 24 * 60 * 60 * 1000;
 /** The most changed notes one look is shown, newest first. */
 export const MAX_CHANGED_SHOWN = 30;
 /** Days of earlier check-in logs read for what was already texted. */
@@ -99,7 +95,6 @@ const MAX_TEXTED_SHOWN = 10;
 /** A check-in is a text or two, never an essay. */
 export const MAX_CHECK_IN_CHARS = 1_200;
 const HEARTBEAT_ROUNDS = 10;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * What a check-in may call: reading their own notes, opening one of the
@@ -110,63 +105,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes", "read_email", "read_calendar"]);
 
-/** Tex's own job output, which never counts as something that changed. */
-const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", "tex/handbacks/", `${ATTENTION_FOLDER}/`, `${LEARNED_SKILLS_FOLDER}/`];
-const OWN_NOTES = new Set([ABOUT_ME_PATH, OLD_ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
-
 export { HEARTBEAT_READS };
-
-/** Today's log: `tex/heartbeat/2026-10-17.md`, dated in their zone. */
-export function heartbeatPath(now, timeZone) {
-  return `${HEARTBEAT_FOLDER}/${dayOf(now, timeZone)}.md`;
-}
-
-function isOwnOutput(key) {
-  const lower = key.toLowerCase();
-  return OWN_NOTES.has(lower) || OWN_OUTPUT.some((prefix) => lower.startsWith(prefix));
-}
-
-/**
- * The notes changed since `since` from a tree listing (`store.treeEntries`),
- * newest first: Markdown notes only, never plumbing and never Tex's own job
- * output.
- */
-export function changedSince(entries, since) {
-  const changed = [];
-  for (const entry of Array.isArray(entries) ? entries : []) {
-    const key = entry?.key;
-    const uploaded = entry?.uploaded;
-    if (typeof key !== "string" || !key.toLowerCase().endsWith(".md")) continue;
-    if (!(uploaded instanceof Date) || Number.isNaN(uploaded.getTime()) || uploaded.getTime() <= since) continue;
-    if (isPlumbing(key) || isOwnOutput(key)) continue;
-    changed.push({ key, at: uploaded.getTime() });
-  }
-  return changed.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
-}
-
-/** A dated note (`…/2026-10-19.md`) older than this is a rewrite of the past, not news. */
-const RECENT_DAY_MS = 2 * DAY_MS;
-const DATED = /(\d{4}-\d{2}-\d{2})[^/]*\.md$/i;
-
-/**
- * The changed notes in the order a look should see them: news first, newest
- * first, then what a sync rewrote in bulk. A re-import that rewrites weeks of
- * chat days and a contact page per sender is newer than this morning's mail,
- * and the shown list is cut at `MAX_CHANGED_SHOWN`, so newest-first alone
- * buried Google's verification email below forty rewritten chat days
- * (production, 2026-10-19, the 12:11 look). A note dated more than two days
- * before `now`, and a contact page, go after everything else.
- */
-export function newsFirst(changed, now) {
-  const later = (key) => {
-    if (asInboxKey(key).toLowerCase().startsWith(`${CONTACTS_FOLDER}/`)) return true;
-    const dated = DATED.exec(key);
-    if (dated === null) return false;
-    const day = Date.parse(`${dated[1]}T00:00:00Z`);
-    return Number.isFinite(day) && day < now - RECENT_DAY_MS;
-  };
-  return [...changed.filter((note) => !later(note.key)), ...changed.filter((note) => later(note.key))];
-}
 
 /** The `**Texted:**` lines of earlier logs: what a check-in already said, so it never says it twice. */
 export function textedLines(logs) {
@@ -297,19 +236,6 @@ export function checkInText(answer) {
   return said.length > MAX_CHECK_IN_CHARS ? `${said.slice(0, MAX_CHECK_IN_CHARS - 1)}…` : said;
 }
 
-function heading(now, timeZone) {
-  return (
-    `# Tex checked in, ${longDate(now, timeZone)}\n\n` +
-    "What Tex looked at when it checked your workspace on its own, and what it texted you. " +
-    `Pause it with \`paused: true\` in \`${HEARTBEAT_SETTINGS_PATH}\`, or tell it there what you want to hear about.\n`
-  );
-}
-
-/** Whether a look in this day's log was shown today's calendar (`heartbeatEntry`'s "Looked at" line). */
-export function calendarLooked(log) {
-  return String(log ?? "").split("\n").some((line) => line.startsWith("_Looked at ") && line.includes(CALENDAR_SHOWN));
-}
-
 /** One look's part of the day's log. */
 export function heartbeatEntry({ now, timeZone, changed, mail = 0, calendar = false, slack = 0, chat = 0, model, text, events, outcome, muted = null }) {
   const lines = [`## ${clock(now, timeZone)}`, ""];
@@ -342,25 +268,6 @@ export function shortEntry({ now, timeZone, text, outcome, why }) {
       ? "_The check-in did not finish._"
       : "_Stayed quiet: nothing worth a text._";
   return `## ${clock(now, timeZone)}\n\n${said}\n\n_The rest of this look couldn't be written to the log (${why})._\n`;
-}
-
-/** What a look with nothing changed leaves in the day's log (`jobLog.js` `logSkipped`). */
-/** What a look that could not list the workspace leaves in the day's log. */
-export const TREE_UNAVAILABLE_WORDS = "Couldn't list what changed, so it read nothing; it tries again in a few minutes.";
-export const NOTHING_NEW_WORDS = "Nothing changed since the last look, so it read nothing and ran no model.";
-export const BUSY_WORDS = "They were texting with you, so it read nothing; it looks again once the chat has been quiet for ten minutes.";
-
-/** How long the chat must have been quiet before a check-in looks (the owner, 2026-10-19). */
-export const QUIET_MS = 10 * 60 * 1000;
-
-/**
- * Whether they are mid-conversation: a text of theirs kept less than
- * `QUIET_MS` ago. Tex's own texts (a check-in, a routine) never count, or a
- * check-in would hold back the next. Only the log (`events.js`) knows when an
- * exchange was; a check-in reading the old file goes ahead as before.
- */
-export function midConversation(conversation, now) {
-  return conversation.some((turn) => turn.theirs === true && Number.isFinite(turn.at) && now - turn.at < QUIET_MS);
 }
 
 /** The bodies of the last few days' logs, best effort. */
@@ -400,84 +307,18 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
 
   const timeZone = readTimeZone(given.timeZone) ?? DEFAULT_TIME_ZONE;
   const started = Date.now();
-
-  const settingsNote = await readWithEtag(dispatch, HEARTBEAT_SETTINGS_PATH);
-  const until = quietHoursEnd(settingsNote?.body, started, timeZone); // their quiet hours: when to come back, or null
-
-  // A claim for the pings their agents asked for (`attention.js`): texted as they are, no look and no model.
-  if (given.attention === true) {
-    const delivered = await deliverAttention(dispatch, store, { now: started, timeZone, onlyEmergencies: until !== null });
-    console.log(
-      JSON.stringify({
-        event: "attention_delivery",
-        workspace: session.workspaceId,
-        grant: session.grantId,
-        pings: delivered?.count ?? 0,
-        ms: Date.now() - started,
-      }),
-    );
-    // A text from Tex is something a bare "yes" may answer, so an older ask stops listening.
-    if (delivered) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
-    if (delivered) return json({ outcome: "speak", answer: delivered.text, ...(until === null ? {} : { until }) });
-    return json(until === null ? { outcome: "quiet" } : { outcome: "quiet_hours", until });
+  const since = typeof given.since === "number" && Number.isFinite(given.since) ? given.since : null;
+  // What the check-in node gathers: `ctxObj` holds its live parts, and `ctxObj.look` what the rest reads.
+  const ctxObj = { dispatch, store, session, env, controlPlane, deliver: deliverAttention, look: null };
+  // A graph runner will make this call in place of this one (graph/nodes/checkin.js); until then it is the same step.
+  const out = await checkin({ timeZone, since, attention: given.attention === true, started }, { ctx: { checkin: ctxObj } });
+  if (out.to === "attention") {
+    const { to: _to, ...reply } = out;
+    return json(reply);
   }
-  const since = typeof given.since === "number" && Number.isFinite(given.since) ? given.since : started - FIRST_LOOK_MS;
-
-  const settings = readSettings(settingsNote?.body ?? "");
-  if (settings.paused) return json({ outcome: "paused" });
-  if (until !== null) return json({ outcome: "quiet_hours", until }); // nothing looked at; what changed waits
-  // What they muted, here or for their agents' pings: never texted, whatever the model says.
-  const mutes = checkInMutes(settingsNote?.body ?? "", (await readWithEtag(dispatch, ATTENTION_SETTINGS_PATH))?.body ?? "");
-
-  // A look that runs no model still leaves its line in the day's log.
-  const skipped = (words) => {
-    const now = Date.now();
-    return logSkipped(dispatch, { path: heartbeatPath(now, timeZone), heading: heading(now, timeZone), now, timeZone, words });
-  };
-  const listed = await lookChangedEntries(store, since);
-  if (!listed.entries) {
-    // What changed can't be told while the tree cannot be read: tried again soon, from the same point.
-    console.log(JSON.stringify({ event: "heartbeat_tree", workspace: session.workspaceId, reason: listed.code, tries: listed.tries }));
-    await skipped(TREE_UNAVAILABLE_WORDS);
-    return json({ error: "tree_unavailable", reason: listed.code }, 503);
-  }
-  const entries = listed.entries;
-  const changed = newsFirst(changedSince(entries, since), Date.now());
-  // New mail is asked of Gmail: nothing of a mailbox is copied into notes (2026-10-21).
-  const mail = await newMailSince(store, since);
-  // A mailbox that stopped syncing changes no note, so it is asked after on its own (`mailHealth.js`).
-  const mailboxes = await readMailHealth(store);
-  const owed = mailboxes.filter((mailbox) => mailbox.tell && WORTH_SAYING.has(mailbox.state));
-  // Today's calendar, read live: copied day notes are gone (2026-10-21), so no changed note brings it.
-  const calendar = await todaysCalendar(store, started, timeZone);
-  const slack = await newSlackSince(store, since);
-  const chat = await newChatSince(store, since);
-  // A day with meetings gets one look for them alone; after that the calendar rides along with whatever changed.
-  const calendarNew =
-    calendar?.events === true &&
-    changed.length === 0 &&
-    mail.length === 0 &&
-    !calendarLooked((await readWithEtag(dispatch, heartbeatPath(started, timeZone)))?.body);
-  // Nothing changed since the last look, no new mail, Slack or Chat, no mailbox owed a word and no unseen day: no model turn spent.
-  if (changed.length === 0 && mail.length === 0 && slack.length === 0 && chat.length === 0 && owed.length === 0 && !calendarNew) {
-    await skipped(NOTHING_NEW_WORDS);
-    return json({ outcome: "nothing_new" });
-  }
-
-  // A check-in never lands in the middle of a chat: the control plane asks again once it has gone quiet.
-  // Only the last few: each exchange is a read, and a look's reads are counted (above).
-  const conversation = await readConversation(store, "texts", { entries: RECENT_TEXTS_SHOWN });
-  if (midConversation(conversation, Date.now())) {
-    await skipped(BUSY_WORDS);
-    return json({ outcome: "busy" });
-  }
-
-  try {
-    await openProvider(controlPlane, session, undefined, env);
-  } catch (error) {
-    const refused = await refusedRun(error, skipped);
-    return json(refused.body, refused.status);
-  }
+  if (out.to === "done") return json(out.body, out.status);
+  // A look: the rest of the check-in reads what the node gathered.
+  const { changed, mail, mailboxes, owed, calendar, slack, chat, conversation, settings, mutes } = ctxObj.look;
 
   const texted = textedLines(await recentLogs(dispatch, started, timeZone));
   const events = [];
