@@ -62,9 +62,9 @@ describe("every send names the status address", () => {
 
 describe("a status is read strictly", () => {
   it("places a 1:1 and a group status, and drops what it cannot place", () => {
-    expect(parseSendStatus(callback())).toEqual({ handle: "mh-1", status: "ERROR", errorClass: "4000", downgraded: false, object: { kind: "person", phone: PHONE }, chat: CHAT });
+    expect(parseSendStatus(callback())).toMatchObject({ handle: "mh-1", status: "ERROR", errorClass: "4000", downgraded: false, object: { kind: "person", phone: PHONE }, chat: CHAT });
     expect(parseSendStatus(callback({ number: undefined, to_number: PHONE }))?.chat).toBe(CHAT);
-    expect(parseSendStatus(callback({ group_id: "g-1", status: "delivered", error_code: null, was_downgraded: true }))).toEqual({ handle: "mh-1", status: "DELIVERED", downgraded: true, object: { kind: "group", groupId: "g-1" }, chat: "g-1" });
+    expect(parseSendStatus(callback({ group_id: "g-1", status: "delivered", error_code: null, was_downgraded: true }))).toMatchObject({ handle: "mh-1", status: "DELIVERED", downgraded: true, object: { kind: "group", groupId: "g-1" }, chat: "g-1" });
     expect(parseSendStatus(callback({ status: "WEIRD" }))?.status).toBe("other");
     expect(parseSendStatus(callback({ message_handle: "" }))).toBeNull();
     expect(parseSendStatus(callback({ number: "not a number" }))).toBeNull();

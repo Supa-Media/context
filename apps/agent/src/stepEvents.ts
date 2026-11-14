@@ -22,8 +22,9 @@ import { addEvent } from "./events";
 import { reactionFor } from "./reactEmoji";
 import type { Decision, DecideAsk } from "./decide";
 import type { InboxStorage } from "./inbox";
+import type { ProviderArrival, ProviderSend } from "./providerTiming";
 
-export type StepName = "triage" | "decide" | "react";
+export type StepName = "triage" | "decide" | "react" | "text" | "send";
 /** One step as the gateway takes it (`apps/mcp/src/agent/log.js` `checkStep`). */
 export type StepRecord = {
   name: StepName;
@@ -70,6 +71,38 @@ export function decideStep(ask: Pick<DecideAsk, "style" | "candidates" | "newest
   if (!decision.ok) return { name: "decide", of: ask.running ? "running" : "waiting", ok: false, ms: decision.ms, input, output: { reason: decision.reason }, cause: decision.cause ?? decision.reason };
   const { ok: _ok, ms, ...said } = decision;
   return { name: "decide", of: ask.running ? "running" : "waiting", ok: true, ms, input, output: said };
+}
+
+/**
+ * A text arrives (the config's `text` node): which provider brought it, its own time for the text, when the webhook
+ * came, the lag between, any status or error it gave, and what the chat's queue did with it (Dev2, 2026-11-14). `ms`
+ * is the provider's lag, so a slow provider shows as a slow step.
+ */
+export function textStep(ev: string | undefined, kind: "one" | "group" | "react", provider: ProviderArrival, outcome: string, queuedAt: number): StepRecord {
+  const ok = provider.error === undefined;
+  return {
+    name: "text",
+    of: kind,
+    ok,
+    ...(provider.lagMs !== undefined ? { ms: provider.lagMs } : {}),
+    input: { ...(ev ? { ev } : {}), provider },
+    output: { outcome, queuedAt, ...(provider.lagMs !== undefined ? { lagMs: provider.lagMs } : {}) },
+    ...(ok ? {} : { cause: provider.error!.code }),
+  };
+}
+
+/** A send's status from its provider (the config's `send` node): `ms` is how long the provider took to reach it. */
+export function sendStep(report: ProviderSend): StepRecord {
+  const ok = report.status !== "failed";
+  return {
+    name: "send",
+    of: report.status,
+    ok,
+    ...(report.lagMs !== undefined ? { ms: report.lagMs } : {}),
+    input: { provider: report.name, handle: report.handle },
+    output: { ...report },
+    ...(ok ? {} : { cause: report.error?.code ?? "failed" }),
+  };
 }
 
 /**
