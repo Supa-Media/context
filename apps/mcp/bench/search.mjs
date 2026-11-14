@@ -98,6 +98,25 @@ const median = (values) => {
   return sorted[Math.floor(sorted.length / 2)];
 };
 
+/**
+ * The 95% range of a mean, by bootstrap: resample the per-query scores with
+ * replacement 1,000 times and take the 2.5th and 97.5th percentile means. A
+ * fixed seed, so the same records give the same range on every run.
+ */
+export function bootstrapRange(values, rounds = 1000) {
+  if (values.length === 0) return [0, 0];
+  let seed = 1;
+  const next = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const means = [];
+  for (let r = 0; r < rounds; r++) {
+    let total = 0;
+    for (let i = 0; i < values.length; i++) total += values[Math.floor(next() * values.length)];
+    means.push(total / values.length);
+  }
+  means.sort((a, b) => a - b);
+  return [means[Math.floor(rounds * 0.025)], means[Math.floor(rounds * 0.975)]];
+}
+
 /** One row per setup, from its records. */
 export function scoreSearch(records, setups, bars) {
   return setups.map((setup) => {
@@ -123,6 +142,8 @@ export function scoreSearch(records, setups, bars) {
       top3,
       complete,
       mrr,
+      firstRange: bootstrapRange(mine.map((record) => (record.rank === 1 ? 1 : 0))),
+      mrrRange: bootstrapRange(mine.map((record) => (record.rank === null ? 0 : 1 / record.rank))),
       medianMs: median(mine.map((record) => record.ms)),
       hitsShown: mine.length === 0 ? 0 : mine.reduce((total, record) => total + record.hits.length, 0) / mine.length,
       leaks: leaks.map((record) => `q${record.question}`),
@@ -179,6 +200,8 @@ export function searchResultMarkdown({ testVersion, date, codeCommit, setups, qu
         .join(", ");
       return `| ${row.setup} | ${settings || "defaults"} | ${pct(row.found, row.queries)} | ${pct(row.first, row.queries)} | ${pct(row.top3, row.queries)} | ${row.mrr.toFixed(3)} | ${pct(row.complete, row.queries)} | ${row.leaks.length === 0 ? "passed" : `failed (${row.leaks.join(", ")})`} | ${(row.medianMs / 1000).toFixed(2)} s | ${row.hitsShown.toFixed(1)} | ${row.goodEnough ? "yes" : "no"} |`;
     }),
+    "",
+    ...rows.map((row) => `95% range (bootstrap), ${row.setup}: first ${(100 * row.firstRange[0]).toFixed(1)}% to ${(100 * row.firstRange[1]).toFixed(1)}%, MRR ${row.mrrRange[0].toFixed(3)} to ${row.mrrRange[1].toFixed(3)}.`),
     "",
     `Bars: found ${bars.found === null ? "none" : `${bars.found}%`}, first ${bars.first === null ? "none" : `${bars.first}%`}, in top 3 ${bars.top3 === null ? "none" : `${bars.top3}%`}.${best ? ` Best: ${best.setup}.` : ""}`,
     "",
