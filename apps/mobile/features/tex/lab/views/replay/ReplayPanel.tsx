@@ -79,7 +79,7 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
             ))
           ) : (
             <p className="hint" id="rIONone">
-              Nothing logged for this step in this turn: it didn't run here, or ran before its logging went in.
+              {real && ms === undefined ? "Didn't run in this turn: its log has no record of it, so Replay doesn't draw it." : "Nothing logged for this step in this turn: it didn't run here, or ran before its logging went in."}
             </p>
           )}
         </div>

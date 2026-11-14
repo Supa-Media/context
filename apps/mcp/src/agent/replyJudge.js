@@ -303,7 +303,11 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
       // A take-back is reviewed even with no action: "wasn't on any page I read" with nothing reopened is the Nov Babies retraction (`takesBack`).
       const unreviewed = on && !skip && scheduled === null && report === null && actionsOf(turn.messages).length === 0 && !takesBack(answer);
       const checks = unreviewed ? plain : inner;
+      const checked = clock();
       const before = typeof checks?.check === "function" ? await checks.check(answer, turn) : null;
+      // The code checks are a step whether or not they send it back (Dev2, 2026-11-14: "every single block should have proper
+      // logging"): what they read, which set ran, and that it passed; a send-back is the `judge` entry below as well.
+      if (typeof checks?.check === "function") turn.tell?.({ kind: "model", step: "checks", ok: true, ms: clock() - checked, input: { draftChars: String(answer ?? "").length, set: unreviewed ? "plain" : "full", actions: actionsOf(turn.messages).length }, output: { verdict: before !== null && before !== undefined ? "sent back" : "let it go" } });
       if (before !== null && before !== undefined) {
         // The code checks that run first: what they sent back, kept in the chat's history too.
         turn.tell?.(judgeEvent({ by: "code", round: sentBack, draft: answer, went: false, notice: before }));
@@ -314,6 +318,7 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
       if (isControlWord(answer)) return null;
       if (unreviewed) {
         log(JSON.stringify({ event: "tex_reply_review", model: REVIEW_MODEL, round: sentBack, kind: null, verdict: "skipped", problems: [], ms: 0 }));
+        turn.tell?.({ kind: "model", step: "reviewer", ok: true, ms: 0, model: REVIEW_MODEL, input: { draftChars: String(answer ?? "").length, actions: 0 }, output: { verdict: "skipped", why: "no search, read, write or send in this turn, so nothing to check its claims against" } });
         return null;
       }
       if (sentBack >= sendBacksFor(kindSoFar)) {
