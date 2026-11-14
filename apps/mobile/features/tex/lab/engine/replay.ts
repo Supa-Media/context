@@ -98,6 +98,18 @@ export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
   });
 }
 
+/**
+ * Replay reads only what was logged once every part of a turn was written down (Dev2, 2026-11-14: "the logging from
+ * before our changes are a little broken, can you make sure that replay only works after the proper logging is in
+ * place"). Every step's input, output and time (#3265), the Tex version on each reply (#3267) and the texting
+ * Worker's judging and tapbacks (#3269) were all live in production by this moment; a moment that began earlier
+ * would replay with holes, so it is left out.
+ */
+export const LOGGED_FROM = Date.UTC(2026, 10, 13, 23, 52);
+
+/** The moments Replay can show: cut from the whole chat first, so a moment's edges stay where they were. */
+export const loggedMoments = (ms: Moment[]) => ms.filter((m) => m.at >= LOGGED_FROM);
+
 /** The turn under the timeline's head: the one that started last at or before `at` (its wait included). */
 export function turnAt(m: Moment, at: number): { turn: string; start: number } | null {
   let best: { turn: string; start: number } | null = null;

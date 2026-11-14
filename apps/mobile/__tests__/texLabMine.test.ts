@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "@jest/globals";
 import { chatLines, myTexts, parseReplay, readsOf, replayConfig, shortVersion } from "../features/tex/lab/engine/mine";
-import { judgeWords, momentsOf, turnAt } from "../features/tex/lab/engine/replay";
+import { judgeWords, LOGGED_FROM, loggedMoments, momentsOf, turnAt } from "../features/tex/lab/engine/replay";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry => ({ at: 1_000, ...x }) as LedgerEntry;
@@ -100,6 +100,12 @@ describe("Replay's moments (Dev2, 2026-11-14: \"replay sequences of text, like s
     expect(turnAt(m, 100)).toBeNull();
     expect(turnAt(m, 1_500)).toEqual({ turn: "t1", start: 500 });
     expect(turnAt(m, 7_000)).toEqual({ turn: "t2", start: 2_200 });
+  });
+
+  test("only moments that began once every step was logged in full replay", () => {
+    const at = (t: number) => ({ id: String(t), at: t }) as never;
+    expect(loggedMoments([at(LOGGED_FROM - 1), at(LOGGED_FROM), at(LOGGED_FROM + 60_000)]).map((m: { at: number }) => m.at)).toEqual([LOGGED_FROM, LOGGED_FROM + 60_000]);
+    expect(new Date(LOGGED_FROM).toISOString()).toBe("2026-11-13T23:52:00.000Z");
   });
 
   test("the judge's calls in a few words", () => {

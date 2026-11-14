@@ -35,15 +35,15 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
       if (lab.me === null) {
         lab.me = { handle: "sam", name: "Sam", workspaces: [{ n: "sam", kind: "personal", role: "owner" }, { n: "band", kind: "shared", role: "member" }] };
         lab.myTexts = [
-          { id: "ev3", at: Date.UTC(2026, 10, 12, 15), seq: 4, text: "remind me about the shelves", earlier: [{ from: "person", text: "hey" }, { from: "tex", text: "Hi." }], then: { text: "Done.", version: { code: "abc1234def56", setup: "a1b2c3d4e5f6" } }, turn: "t2" },
-          { id: "ev1", at: Date.UTC(2026, 10, 12, 14), seq: 1, text: "hey", earlier: [], then: { text: "Hi.", version: null }, turn: "t1" },
+          { id: "ev3", at: Date.UTC(2026, 10, 14, 15), seq: 4, text: "remind me about the shelves", earlier: [{ from: "person", text: "hey" }, { from: "tex", text: "Hi." }], then: { text: "Done.", version: { code: "abc1234def56", setup: "a1b2c3d4e5f6" } }, turn: "t2" },
+          { id: "ev1", at: Date.UTC(2026, 10, 14, 14), seq: 1, text: "hey", earlier: [], then: { text: "Hi.", version: null }, turn: "t1" },
         ];
-        lab.myChats = [{ key: "me", name: "Just you and Tex" }, { key: "g1", name: "Band", people: 4 }];
+        lab.myChats = [{ key: "me", name: "Just you and Tex" }, { key: "g1", name: "Band", people: 4 }, { key: "g2", name: "Old pals", people: 1 }];
         lab.myLines = [
-          { id: "ev1", at: Date.UTC(2026, 10, 12, 14), from: "person", who: "You", text: "hey", play: lab.myTexts[1] },
-          { id: "ev2", at: Date.UTC(2026, 10, 12, 14, 0, 4), from: "tex", who: "Tex", text: "Hi.", play: null },
-          { id: "ev3", at: Date.UTC(2026, 10, 12, 15), from: "person", who: "You", text: "remind me about the shelves", play: lab.myTexts[0] },
-          { id: "ev4", at: Date.UTC(2026, 10, 12, 15, 0, 5), from: "tex", who: "Tex", text: "Done.", play: null },
+          { id: "ev1", at: Date.UTC(2026, 10, 14, 14), from: "person", who: "You", text: "hey", play: lab.myTexts[1] },
+          { id: "ev2", at: Date.UTC(2026, 10, 14, 14, 0, 4), from: "tex", who: "Tex", text: "Hi.", play: null },
+          { id: "ev3", at: Date.UTC(2026, 10, 14, 15), from: "person", who: "You", text: "remind me about the shelves", play: lab.myTexts[0] },
+          { id: "ev4", at: Date.UTC(2026, 10, 14, 15, 0, 5), from: "tex", who: "Tex", text: "Done.", play: null },
         ];
         setTimeout(emit, 0);
       }
@@ -54,9 +54,9 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
     readMomentDetail: async () => {},
     // Replay's details: the Worker's judgings and each turn's reply timing, as the ledger keeps them.
     replayEntries: () => {
-      const T1 = Date.UTC(2026, 10, 12, 14);
-      const T2 = Date.UTC(2026, 10, 12, 15);
-      const T3 = Date.UTC(2026, 10, 13, 18);
+      const T1 = Date.UTC(2026, 10, 14, 14);
+      const T2 = Date.UTC(2026, 10, 14, 15);
+      const T3 = Date.UTC(2026, 10, 14, 18);
       const timing = { waitMs: 300, replyMs: 3400, rounds: [{ at: 400, ms: 2700 }] };
       return [
         { id: "s1", at: T1 + 300, kind: "step", step: { name: "decide", of: "waiting", ok: true, ms: 250, output: { act: "answer" } } },
@@ -73,9 +73,17 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
       lab.myLines =
         key === "me"
           ? lab.myLines
-          : [
-              { id: "g1", at: Date.UTC(2026, 10, 13, 18), from: "person", who: "Ada", text: "who has the van?", play: { id: "g1", at: Date.UTC(2026, 10, 13, 18), seq: 1, text: "who has the van?", earlier: [], then: { text: "Kemi does.", version: null }, turn: "tg1", who: "Ada" } },
-              { id: "g2", at: Date.UTC(2026, 10, 13, 18, 1), from: "tex", who: "Tex", text: "Kemi does.", play: null },
+          : key === "g2"
+            ? [
+                // One exchange from before full logging (Nov 13, 23:52 UTC), one after: only the second replays.
+                { id: "o1", at: Date.UTC(2026, 10, 13, 20), from: "person", who: "Ada", text: "old question", play: null },
+                { id: "o2", at: Date.UTC(2026, 10, 13, 20, 1), from: "tex", who: "Tex", text: "Old answer.", play: null },
+                { id: "o3", at: Date.UTC(2026, 10, 14, 9), from: "person", who: "Ada", text: "new question", play: null },
+                { id: "o4", at: Date.UTC(2026, 10, 14, 9, 1), from: "tex", who: "Tex", text: "New answer.", play: null },
+              ]
+            : [
+              { id: "g1", at: Date.UTC(2026, 10, 14, 18), from: "person", who: "Ada", text: "who has the van?", play: { id: "g1", at: Date.UTC(2026, 10, 14, 18), seq: 1, text: "who has the van?", earlier: [], then: { text: "Kemi does.", version: null }, turn: "tg1", who: "Ada" } },
+              { id: "g2", at: Date.UTC(2026, 10, 14, 18, 1), from: "tex", who: "Tex", text: "Kemi does.", play: null },
             ];
       emit();
     },
@@ -290,7 +298,7 @@ describe("the Lab's test user as You", () => {
     expect(q("#tSel")).toBeNull();
     expect(q("#saveBtn")).toBeNull();
     // The chats are a drop-down (Dev2 on the mock: "Should probably be a drop down").
-    expect(qa("#rChat option").map((x) => x.textContent)).toEqual(["1:1 with Tex", "Band · 4 people"]);
+    expect(qa("#rChat option").map((x) => x.textContent)).toEqual(["1:1 with Tex", "Band · 4 people", "Old pals · 1 person"]);
     expect(qa("#replaySide [data-moment]").map((x) => x.getAttribute("data-moment"))).toEqual(["ev1", "ev3"]);
     // It opens on the newest moment, and the timeline shows its texts, the judge's calls and the turn.
     expect(q('[data-moment="ev3"]')?.getAttribute("aria-current")).toBe("true");
@@ -329,6 +337,19 @@ describe("the Lab's test user as You", () => {
     });
     expect(lab.ownText).toBe("who has the van?");
     expect(SCENARIOS.own.tags).toContain("group");
+    expect(q("#rLoggedFrom")).toBeNull();
+    // Texts from before every step was logged in full don't replay (Dev2: "make sure that replay only works after the
+    // proper logging is in place"): their moment is left out, Older texts goes away, and a note says where it starts.
+    lab.myOlder = 123;
+    await act(async () => {
+      const pick = q<HTMLSelectElement>("#rChat")!;
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(pick, "g2");
+      pick.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(qa("#replaySide [data-moment]").map((x) => x.getAttribute("data-moment"))).toEqual(["o3"]);
+    expect(q("#rLoggedFrom")?.textContent).toMatch(/^Replay starts \w+, Nov 1[34], /);
+    expect(q("#rOlder")).toBeNull();
     // Back to the Lab: its tools and the version controls return, and no conversation.
     await click(q("#modeLab"));
     expect(q("#tSel")).not.toBeNull();
