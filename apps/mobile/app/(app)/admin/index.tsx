@@ -1,4 +1,6 @@
+import { Platform } from "react-native";
 import { Redirect } from "expo-router";
+import { StaffConsole } from "../../../features/admin/console/StaffConsole";
 import { DEFAULT_PLACE, adminPath } from "../../../features/admin/place";
 import { isTexHost } from "../../../features/site/host";
 import { TexDashboard } from "../../../features/tex/dashboard/TexDashboard";
@@ -26,5 +28,7 @@ import { TexDashboard } from "../../../features/tex/dashboard/TexDashboard";
  */
 export default function AdminRoute() {
   if (isTexHost()) return <TexDashboard />;
+  // On the web, the redesigned staff console, its place in the address hash (`features/admin/console`).
+  if (Platform.OS === "web") return <StaffConsole />;
   return <Redirect href={adminPath(DEFAULT_PLACE)} />;
 }
