@@ -19,6 +19,7 @@ import schema from "../schema";
 import { modules } from "../test.setup";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 
+import { MOVE_STALE_MS } from "../functions/adminStorageRules";
 import { asUser, createUser, type TestConvex } from "./fixtures.helpers";
 import { withSession } from "./session.helpers";
 import { world } from "./workspaceObjectWorld.helpers";
@@ -279,8 +280,8 @@ describe("the storage report", () => {
         workspaceId: mid,
         to: "dual",
         state: "running",
-        startedAt: now - 10 * 60_000,
-        heartbeatAt: now - 10 * 60_000,
+        startedAt: now - MOVE_STALE_MS - 60_000,
+        heartbeatAt: now - MOVE_STALE_MS - 60_000,
         gaps: false,
       });
     });
@@ -541,7 +542,7 @@ describe("moving one workspace's home", () => {
     const w = await world();
     const { as } = await seedStaff(w.t);
     await seedKilledMove(w.t, w.workspaceId, {
-      ageMs: 3 * 60_000,
+      ageMs: MOVE_STALE_MS + 60_000,
       cursor: EXHAUSTED_CURSOR,
       gaps: false,
     });
@@ -581,7 +582,7 @@ describe("moving one workspace's home", () => {
     const w = await world();
     const { as } = await seedStaff(w.t);
     await seedKilledMove(w.t, w.workspaceId, {
-      ageMs: 3 * 60_000,
+      ageMs: MOVE_STALE_MS + 60_000,
       cursor: EXHAUSTED_CURSOR,
       gaps: true,
     });

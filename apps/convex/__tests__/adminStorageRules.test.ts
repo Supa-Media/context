@@ -1,6 +1,6 @@
 /** The staff storage move's pure rules (`functions/adminStorageRules.ts`): stages, staleness and the copy's paging. */
 import { describe, expect, test } from "vitest";
-import { copyStep, isStale, MOVE_STALE_MS, planMove, reportState } from "../functions/adminStorageRules";
+import { CONVEX_ACTION_LIMIT_MS, copyStep, isStale, MOVE_STALE_MS, planMove, reportState } from "../functions/adminStorageRules";
 
 describe("the move's rules", () => {
   const row = (over: Partial<Parameters<typeof reportState>[0]> = {}) => ({
@@ -11,7 +11,14 @@ describe("the move's rules", () => {
     ...over,
   });
 
-  test("a heartbeat older than two minutes is stale, and exactly two minutes is still running", () => {
+  test("a page that runs as long as an action can is never called stale", () => {
+    // The heartbeat is written after a page, and a page lives at most one action: anything shorter calls a
+    // healthy copy stopped and lets "Try again" start a second run beside it.
+    expect(MOVE_STALE_MS).toBeGreaterThan(CONVEX_ACTION_LIMIT_MS);
+    expect(isStale(row({ heartbeatAt: 0 }), CONVEX_ACTION_LIMIT_MS)).toBe(false);
+  });
+
+  test("a heartbeat older than the stale limit is stale, and exactly the limit is still running", () => {
     const now = 10 * MOVE_STALE_MS;
     expect(isStale(row({ heartbeatAt: now - MOVE_STALE_MS }), now)).toBe(false);
     expect(isStale(row({ heartbeatAt: now - MOVE_STALE_MS - 1 }), now)).toBe(

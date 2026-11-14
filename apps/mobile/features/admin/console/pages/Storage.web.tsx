@@ -14,7 +14,7 @@ import { S, render, setF, toast } from "../state";
 import type { ConsolePage } from "../types";
 
 type Home = "bucket" | "dual" | "object";
-/** A workspace's newest move. `stale`: running, and its last heartbeat is older than two minutes (the run was stopped). */
+/** A workspace's newest move. `stale`: running, and its last heartbeat is older than fifteen minutes, longer than any one copy page can run (the run was stopped). */
 type LastMove = {
   to: "dual" | "object";
   state: "running" | "stale" | "done" | "incomplete" | "refused" | "failed";
@@ -60,7 +60,8 @@ function useStorageData(): StorageData {
   const shown = useRef<StorageReport | undefined>(undefined);
   if (fresh !== undefined) shown.current = fresh;
   const report = fresh ?? shown.current;
-  const running = report?.workspaces.some((w) => w.lastMove?.state === "running") ?? false;
+  // A stale move keeps the refresh going too: it may be a slow page that is about to report.
+  const running = report?.workspaces.some((w) => w.lastMove?.state === "running" || w.lastMove?.state === "stale") ?? false;
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => setRound((n) => n + 1), RUNNING_POLL_MS);
@@ -135,6 +136,8 @@ function movingPanel(d: StorageData | undefined) {
                   ? `<div class="sub" style="color:var(--warn);font-size:12.5px">Stopped, try again</div><button class="ghost" data-act="again" data-id="${id}" data-to="${move.to}">Try again</button>`
                   : move?.state === "incomplete"
                     ? `<div class="sub" style="color:var(--warn);font-size:12.5px">Copied with gaps</div><button class="ghost" data-act="again" data-id="${id}" data-to="dual">Copy again</button>`
+                    : w.home === "dual" && move?.to === "dual" && (move.state === "failed" || move.state === "refused")
+                      ? `${refusedLine(move)}<button class="ghost" data-act="again" data-id="${id}" data-to="dual">Copy again</button>`
                     : S.confirm === "mv" + w.workspaceId
                 ? confirmBox(
                     w.home === "dual" ? `Point @${esc(w.slug)}'s reads at its object?` : `Start copying @${esc(w.slug)} into its object? Reads stay on the bucket.`,

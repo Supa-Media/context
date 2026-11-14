@@ -24,8 +24,14 @@ export type MoveRow = {
 export type ReportState =
   "running" | "stale" | "done" | "incomplete" | "refused" | "failed";
 
-/** A running move whose last heartbeat is older than this was killed, and may be resumed. */
-export const MOVE_STALE_MS = 2 * 60 * 1000;
+/**
+ * A running move whose last heartbeat is older than this was killed, and may be resumed. The heartbeat is
+ * written after each copy page, and one page runs inside one action, which Convex stops at 10 minutes: so
+ * anything shorter than an action's longest life would call a healthy page stopped and start a second run
+ * beside it. Fifteen minutes is past that with room to spare.
+ */
+export const CONVEX_ACTION_LIMIT_MS = 10 * 60 * 1000;
+export const MOVE_STALE_MS = 15 * 60 * 1000;
 
 export function isStale(
   row: Pick<MoveRow, "state" | "heartbeatAt">,

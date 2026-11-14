@@ -166,6 +166,18 @@ describe("Storage acts", () => {
     expect(html).not.toContain('data-act="askmove" data-id="w2"');
   });
 
+  it("a failed copy on dual offers Copy again, not a Switch reads the server would refuse", () => {
+    const at = Date.UTC(2026, 10, 14);
+    const failed = {
+      ...report,
+      workspaces: [{ ...report.workspaces[1], lastMove: { to: "dual" as const, state: "failed" as const, reason: "FAILED", at } }],
+    };
+    const html = page.render!(data({ report: failed }));
+    expect(html).toContain("Last try: the move failed");
+    expect(html).toContain('data-act="again" data-id="w2" data-to="dual">Copy again');
+    expect(html).not.toContain('data-act="askmove" data-id="w2"');
+  });
+
   it("a stopped switch offers Try again to the object, not the copy", () => {
     const at = Date.UTC(2026, 10, 14);
     const html = page.render!(
