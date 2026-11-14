@@ -175,8 +175,9 @@ test("a 1:1 text is shown the copy, and behind the reply a stale copy is read ag
   const answer = await request(world.env, TOKEN_TEXTS, "/agent", { question: "what's on today", conversation: "texts", timeZone: "UTC" });
   assert.equal(answer.status, 200, JSON.stringify(answer.body));
   const system = JSON.stringify(world.model.requests[from].system);
-  assert.match(system, /<calendar_copy>[\s\S]*COPY-MARK standup/);
-  assert.doesNotMatch(system, /minutes ago/);
+  // Said in their turn, never the cached system prompt: a refreshed copy there wrote the history after it to the cache again (2026-11-14).
+  assert.doesNotMatch(system, /COPY-MARK|minutes ago/);
+  assert.match(JSON.stringify(world.model.requests[from].messages), /<calendar_copy>[\s\S]*COPY-MARK standup/);
   assert.match(JSON.stringify(world.model.requests[from].messages), /Their calendar copy was checked 30 minutes ago\./);
   assert.doesNotMatch(JSON.stringify(world.model.requests[from].tools), /COPY-MARK/);
   assert.equal(asked?.days, 7);

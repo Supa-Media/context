@@ -63,7 +63,6 @@ export function turnPrompt(place, answering, o) {
     ["web", webPrompt(o.webNames)],
     ["progress", o.progress ? (o.progress.prompt ?? PROGRESS_PROMPT) : ""], // at the chat's progress level (`progress.js`)
     ["aboutMe", o.aboutMe === null ? "" : aboutMePrompt(o.aboutMe, { edits, identity: o.identity })],
-    ["calendar", o.calendar == null ? "" : calendarPrompt(o.calendar)], // their next 7 days, a copy (`calendarCache.js`); its age is in the preamble
     ["jobs", o.jobs === null ? "" : jobsPrompt(o.jobs, { edits })],
     ["voice", o.voice == null ? "" : personVoicePrompt(o.voice, { edits })], // how they talk, `tex/voice.md` (`personVoice.js`)
     ["transcripts", o.observe && o.texting ? TRANSCRIPTS_PROMPT : ""], // a dream (`dream.js`) is told to read them
@@ -75,6 +74,9 @@ export function turnPrompt(place, answering, o) {
   const now = o.localNow == null ? Date.now() : o.localNow.now;
   const facts = [
     ["now", o.localNow == null ? localNowPrompt(now, null) : localNowPrompt(now, o.localNow.timeZone)],
+    // Their next 7 days, a copy (`calendarCache.js`), said in their turn: the copy is refreshed between texts, and in the
+    // cached system prompt every refresh wrote the history after it to the cache again (2026-11-14 21:26Z: 79,000 tokens).
+    ["calendar", o.calendar == null ? "" : calendarPrompt(o.calendar)],
     ["calendarAge", o.calendar == null ? "" : calendarAge(o.calendar, o.localNow?.now ?? Date.now())],
     ["turnNote", o.turnNote], // per-text words from the entry point: who tagged it, the thread, the jobs running now (`runTheModel.js`)
     ["volatile", parts.volatile],
