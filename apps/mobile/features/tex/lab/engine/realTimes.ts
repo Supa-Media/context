@@ -77,7 +77,7 @@ export function realTimes(entries: LedgerEntry[], turn: string | null): RealTime
     else if (e.kind === "step" && typeof e.step === "string" && STEP_NODES.has(e.step)) add(e.step, m, 1);
   }
   // The rest of the reply (the code checks, the send) is what the steps above do not account for.
-  const counted = ["door", "fd", "tools", "reviewer"].reduce((a, id) => a + (ms[id] ?? 0), 0);
+  const counted = ["door", "fd", "tools", "reviewer", "checks"].reduce((a, id) => a + (ms[id] ?? 0), 0);
   add("send", Math.max(0, replyMs - counted));
   return { reply: wait + replyMs, ms, calls, ...(Object.keys(at).length ? { at } : {}), ...(usd !== undefined ? { usd } : {}) };
 }
@@ -101,13 +101,25 @@ export function withReal(sim: Sim, real: RealTimes | null, g?: LabGraph): Sim {
   return { ...sim, T, reply: real.reply, replyCalls, usd, real: new Set(Object.keys(real.ms)) };
 }
 
+/**
+ * Only what ran (Dev2, 2026-11-14: "If the step never ran, then why is it logged as running? ... Are you telling me
+ * that the replay is false?"): in Replay, a step the turn's log does not show is not drawn at all, never filled in
+ * with the Lab's estimate. What started it (a text, a check-in) stays, as the log's own first line.
+ */
+export function onlyWhatRan(sim: Sim, g: LabGraph = G()): Sim {
+  if (!sim.real) return sim;
+  const T = Object.fromEntries(Object.entries(sim.T).filter(([id]) => sim.real!.has(id) || g.nodes.find((n) => n.id === id)?.kind === "input"));
+  return { ...sim, T };
+}
+
 /** The real times of the text the canvas traces, when it is one the person sent. */
 export const tracedReal = (): RealTimes | null => (lab.scn === "own" && lab.real?.text === lab.ownText ? lab.real.times : null);
 
 /** The canvas's simulation of the traced moment: estimates, or the measured run of a real text. */
 export function labSim(g: LabGraph = G()): Sim {
   const real = tracedReal();
-  return withReal(simulate(g, lab.scn, lab.logRows, real), real, g);
+  const sim = withReal(simulate(g, lab.scn, lab.logRows, real), real, g);
+  return lab.mode === "replay" ? onlyWhatRan(sim, g) : sim;
 }
 
 /**

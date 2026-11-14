@@ -31,6 +31,7 @@ import { parseSetup } from "../src/agent/production.js";
 import { actionsOf, ADVISOR_WINDOW_MS, ASK_ADVISOR_FIRST, judgeState, MAX_SEND_BACKS, PROBLEMS, SEND_BACK_WINDOW_MS, TASK_SEND_BACKS, readReplyJudge, readReview, replyJudge, reviewMessage, REVIEW_MODEL, REVIEW_SYSTEM, sendBackNotice, takesBack } from "../src/agent/replyJudge.js";
 import { runTurn } from "../src/agent/turn.js";
 import { wireTraceEntry } from "../src/agent/turnLog.js";
+import { STEP_NAMES } from "../src/agent/ledger.js";
 
 const MAIN = "@cf/acme/main-model";
 const BROWSE = {
@@ -386,4 +387,22 @@ test("a send-back past the first waits on the turn's time, and the advisor is as
   assert.ok(third !== null && !third.includes(ASK_ADVISOR_FIRST), "too late for the advisor: sent back without it");
   now = SEND_BACK_WINDOW_MS;
   assert.equal(await judge.check("four", { messages: ACTED }), null, "out of time: it goes as it is");
+});
+
+// Dev2, 2026-11-14: "Everything that's running should have a node": the code checks and a skipped review are steps of
+// their own in the chat's ledger, passed or not, so Replay never draws one that ran as silent or one that didn't as run.
+// Sabotage record (2026-11-14, applied, run, failing, reverted): the `checks` tell removed from `check` → this test fails.
+test("the code checks are a step whether they pass or send back, and a skipped review is one too", async () => {
+  const told = [];
+  const tell = (event) => told.push(event);
+  let first = true;
+  const { judge } = judgeFor([pass], { inner: { check: () => (first ? ((first = false), "Fix it.") : null) }, plain: { check: () => null } });
+  await judge.check("Opened, it says 4.", { messages: ACTED, tell });
+  await judge.check("Opened, it says four.", { messages: ACTED, tell });
+  await judge.check("391.", { messages: [], tell });
+  const steps = told.filter((event) => event.kind === "model");
+  assert.deepEqual(steps.map((s) => [s.step, s.output?.verdict]), [["checks", "sent back"], ["checks", "let it go"], ["checks", "let it go"], ["reviewer", "skipped"]]);
+  assert.deepEqual(steps.map((s) => s.input?.set).slice(0, 3), ["full", "full", "plain"]);
+  assert.ok(steps.every((s) => !JSON.stringify(s).includes("it says")), "sizes and counts, never the draft's words");
+  assert.ok(STEP_NAMES.has("checks") && STEP_NAMES.has("reviewer"), "both reach the chat's ledger");
 });

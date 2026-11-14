@@ -108,7 +108,7 @@ function keptValue(value) {
 }
 
 /** The steps a `step` entry may name: a new one is added here, so a typo is never a new step. */
-export const STEP_NAMES = new Set(["timing", "decide", "router", "fallback", "model", "steer", "lane", "door", "card", "checks", "classifier", "selfreview", "handback", "mailadv", "react"]);
+export const STEP_NAMES = new Set(["timing", "decide", "router", "fallback", "model", "steer", "lane", "door", "card", "checks", "classifier", "selfreview", "handback", "mailadv", "react", "reviewer"]);
 
 /** One step of a turn (`step` kind): its name, whether it went, its milliseconds, and what it was given and gave. */
 export function stepEntry({ step, ok = true, ms = null, input, output, model = null, reason = null, name = null }, { turn = null, at = Date.now() } = {}) {
