@@ -33,6 +33,7 @@ import { runDueHeartbeats } from "./heartbeats";
 import { runDueHousekeeping } from "./housekeeping";
 import { OBJECT_ID } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, type Told } from "./newLine";
+import { verifyPhotonAttachment } from "./photon";
 import { parseSendblueInbound, repliedToText, sendblueKeys, statusPath, threadContext, verifySendblueSecret } from "./sendblue";
 import { logInboundLag, sendblueStatus } from "./sendblueStatus";
 import { groupNameOf, parseSendblueGroup, sendGroupName } from "./sendblueGroups";
@@ -96,6 +97,7 @@ export default {
     if (url.pathname.startsWith("/threads/")) return threads(request, env, url);
     if (url.pathname === "/new-line") return newLine(request, env);
     if (url.pathname === "/whapi") return whapiWebhook(request, env, url.origin);
+    if (url.pathname.startsWith("/photon/attachment/")) return photonAttachment(request, env, url);
     if (url.pathname.startsWith("/sendblue/status/")) return sendblueStatus(request, env.SENDER_INBOX, env.SENDBLUE_STATUS_URL, url);
     const line = url.pathname === "/sendblue" ? "sendblue" : url.pathname === "/linq" ? "linq" : null;
     if (line === null) return new Response(null, { status: 404 });
@@ -345,6 +347,33 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
 }
 
 /**
+ * `GET /photon/attachment/<guid>?s=<sig>`: a picture or file of a Photon message, streamed from the bridge
+ * (`env.PHOTON`, `attachment/<guid>`), for the gateway to fetch. Served only with the signature `photon.ts` gives its
+ * address. Every miss is the same 404.
+ */
+async function photonAttachment(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== "GET") return new Response(null, { status: 405 });
+  if (env.PHOTON === undefined) return new Response(null, { status: 404 });
+  let guid: string;
+  try {
+    guid = decodeURIComponent(url.pathname.slice("/photon/attachment/".length));
+  } catch {
+    return new Response(null, { status: 404 });
+  }
+  if (guid === "" || guid.length > 200 || guid.includes("/")) return new Response(null, { status: 404 });
+  if (!(await verifyPhotonAttachment(env.AGENT_WORKER_SECRET, guid, url.searchParams.get("s")))) return new Response(null, { status: 404 });
+  const upstream = await env.PHOTON.fetch(`https://bridge/attachment/${encodeURIComponent(guid)}`);
+  if (!upstream.ok || upstream.body === null) {
+    await upstream.body?.cancel();
+    return new Response(null, { status: 404 });
+  }
+  const headers = new Headers({ "content-type": upstream.headers.get("content-type") ?? "application/octet-stream", "cache-control": "no-store" });
+  const length = upstream.headers.get("content-length");
+  if (length !== null) headers.set("content-length", length);
+  return new Response(upstream.body, { status: 200, headers });
+}
+
+/**
  * `GET /media/<object id>/<token>.<ext>`: a picture from someone's notes,
  * fetched by Sendblue to send it (`media.ts`). Every miss is the same 404.
  */
@@ -417,3 +446,4 @@ async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat
 }
 
 export { SenderInbox } from "./chatObject";
+export { PhotonEvents } from "./photonEvents";

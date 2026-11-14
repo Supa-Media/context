@@ -561,6 +561,14 @@ export function isLinkPreview(mediaUrl: string, text: string): boolean {
   } catch {
     name = "";
   }
+  return isPreviewFile(name, text);
+}
+
+/**
+ * Whether a file named `name`, sent with `text`, is a link's preview rather than something the person sent. Shared by
+ * Sendblue's and Photon's files (`photonInbound.ts`): a rich link's card, or any file that comes with an address in the words.
+ */
+export function isPreviewFile(name: string, text: string): boolean {
   return /\.pluginpayloadattachment$/i.test(name) || WEB_ADDRESS.test(text);
 }
 
