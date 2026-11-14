@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { createApp } from "../container/app.mjs";
 import { RequestError } from "../container/errors.mjs";
+import { createLogger, createLogRing } from "../container/log.mjs";
 
 const LINE = "+15550100123";
 
@@ -29,8 +30,8 @@ function fakeRuntime(overrides = {}) {
   return runtime;
 }
 
-async function serve(runtime, logs = []) {
-  const server = createApp({ runtime, log: (record) => logs.push(record), now: () => 1000 }).listen(0, "127.0.0.1");
+async function serve(runtime, logs = [], ring) {
+  const server = createApp({ runtime, log: (record) => logs.push(record), ring, now: () => 1000 }).listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
   return {
@@ -215,6 +216,29 @@ test("an attachment streams its primary chunks", async () => {
     const response = await fetch(`${server.base}/attachment/at_0_fixture`);
     assert.equal(response.headers.get("content-type"), "image/png");
     assert.equal(await response.text(), "abcdef");
+  } finally {
+    await server.close();
+  }
+});
+
+test("logs reads the container's records after a number, allowlisted, with the process's boot id", async () => {
+  const ring = createLogRing(3, "boot1");
+  const log = createLogger({ write: () => {} }, ring);
+  log({ event: "line.start", line: LINE });
+  log({ event: "line.stream_failed", line: LINE, attempt: 1, error: "unavailable", text: "never logged" });
+  const server = await serve(fakeRuntime(), [], ring);
+  try {
+    const all = await call(server.base, "/logs?after=0");
+    assert.equal(all.body.boot, "boot1");
+    assert.equal(all.body.next, 2);
+    assert.deepEqual(all.body.records.map((record) => [record.id, record.event, record.line]), [[1, "line.start", "0123"], [2, "line.stream_failed", "0123"]]);
+    assert.equal("text" in all.body.records[1], false);
+    const after = await call(server.base, "/logs?after=1");
+    assert.deepEqual(after.body.records.map((record) => record.id), [2]);
+    log({ event: "a" });
+    log({ event: "b" });
+    const kept = await call(server.base, "/logs?after=0");
+    assert.deepEqual(kept.body.records.map((record) => record.id), [2, 3, 4], "only the last three are kept");
   } finally {
     await server.close();
   }

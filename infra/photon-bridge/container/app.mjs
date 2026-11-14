@@ -4,6 +4,7 @@
  *
  *   GET  /ready                 process is up
  *   GET  /health                frontiers and queue depth, last four digits only
+ *   GET  /logs?after=id         the container's log records since `id` (see log.mjs)
  *   POST /start                 {checkpoints} mint tokens and start listeners
  *   GET  /next?wait=ms          the oldest unacked event, or 204
  *   POST /ack                   {id} the object stored the event
@@ -58,11 +59,14 @@ function waitMs(raw) {
   return Math.min(value, MAX_WAIT_MS);
 }
 
-export function createApp({ runtime, log = () => {}, now = Date.now }) {
+export function createApp({ runtime, log = () => {}, ring, now = Date.now }) {
   async function handle(req, res, url) {
     const path = url.pathname;
     if (req.method === "GET" && path === "/ready") return send(res, 200, { ok: true });
     if (req.method === "GET" && path === "/health") return send(res, 200, runtime.health());
+    if (req.method === "GET" && path === "/logs") {
+      return send(res, 200, ring ? ring.after(Number(url.searchParams.get("after") ?? 0)) : { boot: "", next: 0, records: [] });
+    }
 
     if (req.method === "POST" && path === "/start") {
       const body = await readJson(req);

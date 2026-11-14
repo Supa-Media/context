@@ -142,7 +142,8 @@ export function createRuntime({
         startPromise = mintAndListen().then((expiresIn) => {
           scheduleRenewal(renewalDelayMs(expiresIn));
         });
-        startPromise.catch(() => {
+        startPromise.catch((error) => {
+          log({ event: "start.failed", error: typeof error?.code === "string" ? error.code : error?.name ?? "unknown" });
           startPromise = undefined;
         });
       }
