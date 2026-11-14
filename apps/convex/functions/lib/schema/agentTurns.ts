@@ -97,4 +97,32 @@ export const agentTurnTables = {
     .index("by_workspace_at", ["workspaceId", "at"])
     // A finished conversation's turns, for its review's cost (`texReviews.recordScores`).
     .index("by_grant_at", ["grantId", "at"]),
+
+  /**
+   * One small row per turn, beside its `agentTurns` row: the figures the staff
+   * console counts over a whole month (outcome, durations, how many tool
+   * calls), without the trace. A month of whole turns passes a query's read
+   * limit, so the counts and the timings read these and only the newest turns
+   * are read whole. Written with the turn, purged with it, and built for older
+   * turns by `agentTurnMarks.backfill`. Metadata only, as the turn is.
+   */
+  agentTurnMarks: defineTable({
+    turn: v.id("agentTurns"),
+    workspaceId: v.id("workspaces"),
+    client: v.union(v.literal("texts"), v.literal("app")),
+    kind: v.optional(v.union(v.literal("one"), v.literal("group"), v.literal("job"), v.literal("routine"), v.literal("app"))),
+    provider: v.string(),
+    model: v.string(),
+    outcome: v.union(v.literal("answered"), v.literal("exhausted"), v.literal("failed")),
+    at: v.number(),
+    ms: v.number(),
+    modelMs: v.number(),
+    toolMs: v.number(),
+    toolCalls: v.number(),
+    /** The turn's list-price cost in millionths of a dollar, as on the turn. */
+    costMicroUsd: v.optional(v.number()),
+  })
+    .index("by_at", ["at"])
+    .index("by_workspace_at", ["workspaceId", "at"])
+    .index("by_turn", ["turn"]),
 };
