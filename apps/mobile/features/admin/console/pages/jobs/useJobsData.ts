@@ -25,15 +25,35 @@ export interface JobsData {
   workspaceId: Id<"workspaces"> | null;
   me: string;
   reload: () => void;
+  /** How many times the notes were reloaded, so screens re-read their own notes too. */
+  reloads: number;
 }
 
 export function useJobsData(): JobsData {
-  const { state, reload } = useAiCatalog();
+  const { state, reload: reloadCatalog } = useAiCatalog();
+  const [reloads, setReloads] = useState(0);
   const ready = state.kind === "ready" ? state : null;
   const workspaceId = ready?.workspaceId ?? null;
   const paths = useMemo(() => ready?.catalog.results.map((row) => row.path) ?? [], [ready?.catalog]);
   const reads = useRuns(workspaceId ?? NONE, workspaceId ? paths : []);
-  return { state, catalog: ready?.catalog ?? null, reads, workspaceId, me: ready?.me ?? "staff", reload };
+  const me = ready?.me ?? "staff";
+  const catalog = ready?.catalog ?? null;
+  return useMemo(
+    () => ({
+      state,
+      catalog,
+      reads,
+      workspaceId,
+      me,
+      reloads,
+      reload: () => {
+        reloadCatalog();
+        setReloads((was) => was + 1);
+      },
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reloadCatalog is a fresh closure each render, over a stable setter
+    [state, catalog, reads, workspaceId, me, reloads],
+  );
 }
 
 /** Several notes' text, re-read whenever `round` moves (after a save). */
