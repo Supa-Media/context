@@ -33,6 +33,8 @@ import { runDueHeartbeats } from "./heartbeats";
 import { runDueHousekeeping } from "./housekeeping";
 import { OBJECT_ID } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, type Told } from "./newLine";
+import { parsePhotonEvent, photonAttachmentGuids } from "./photonInbound";
+import { photonAttachmentUrl, verifyPhotonAttachment, verifyPhotonBridge } from "./photon";
 import { parseSendblueInbound, repliedToText, sendblueKeys, statusPath, threadContext, verifySendblueSecret } from "./sendblue";
 import { logInboundLag, sendblueStatus } from "./sendblueStatus";
 import { groupNameOf, parseSendblueGroup, sendGroupName } from "./sendblueGroups";
@@ -96,6 +98,8 @@ export default {
     if (url.pathname.startsWith("/threads/")) return threads(request, env, url);
     if (url.pathname === "/new-line") return newLine(request, env);
     if (url.pathname === "/whapi") return whapiWebhook(request, env, url.origin);
+    if (url.pathname === "/photon/event") return photonEvent(request, env);
+    if (url.pathname.startsWith("/photon/attachment/")) return photonAttachment(request, env, url);
     if (url.pathname.startsWith("/sendblue/status/")) return sendblueStatus(request, env.SENDER_INBOX, env.SENDBLUE_STATUS_URL, url);
     const line = url.pathname === "/sendblue" ? "sendblue" : url.pathname === "/linq" ? "linq" : null;
     if (line === null) return new Response(null, { status: 404 });
@@ -228,12 +232,12 @@ export default {
  * apart from "nothing ever arrived": an outcome and, for a dropped event, why.
  * Never the sender's number, never the text (see `inbox.ts` on what is kept).
  */
-function logWebhook(line: "linq" | "sendblue" | "whapi", outcome: "unsigned" | "invalid" | "ignored" | "accepted", reason?: string): void {
+function logWebhook(line: "linq" | "sendblue" | "whapi" | "photon", outcome: "unsigned" | "invalid" | "ignored" | "accepted", reason?: string): void {
   console.log(JSON.stringify({ event: `${line}_webhook`, outcome, ...(reason ? { reason } : {}) }));
 }
 
 /** A group message: dropped, or handed to the group's own queue, keyed on the group alone. */
-async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>, origin: string, line: "sendblue" | "whapi" = "sendblue", name: string | null = null): Promise<Response> {
+async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>, origin: string, line: "sendblue" | "whapi" | "photon" = "sendblue", name: string | null = null): Promise<Response> {
   if (grouped.kind === "invalid") {
     logWebhook(line, "invalid");
     return new Response(null, { status: 200 });
@@ -342,6 +346,100 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
     (await toChat(env, "one", event.from, message, origin)) ??
     (await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(message) }));
   return new Response(null, { status: result.ok ? 200 : 503 });
+}
+
+/**
+ * `POST /photon/event`: one `PhotonEvent` from the bridge (`photon.ts`, Contract A), reached over the service binding only as
+ * far as its token goes: the token in `x-photon-bridge` is checked before anything is read, and no header of a request is
+ * copied anywhere else, so the public routes never forward it. 200 once queued, a duplicate or ignored (the bridge then
+ * moves on); 400 for an event that cannot be read (the bridge drops it); 503 when the hand-over failed (the bridge retries).
+ */
+async function photonEvent(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return new Response(null, { status: 405 });
+  if (env.PHOTON === undefined) return new Response(null, { status: 404 });
+  if (!(await verifyPhotonBridge(env.AGENT_WORKER_SECRET, request.headers))) {
+    logWebhook("photon", "unsigned");
+    return new Response(null, { status: 401 });
+  }
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return new Response(null, { status: 413 });
+  const raw = await request.text();
+  if (raw.length > MAX_BODY_BYTES) return new Response(null, { status: 413 });
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    logWebhook("photon", "invalid");
+    return new Response(null, { status: 400 });
+  }
+  // Counts only for a read receipt: the one kind Tex never acts on, and the most frequent.
+  if (typeof body === "object" && body !== null && (body as { type?: unknown }).type === "message.read") {
+    console.log(JSON.stringify({ event: "photon_read", outcome: "ignored" }));
+    return new Response(null, { status: 200 });
+  }
+  // A picture's address is signed before the event is read; one that cannot be signed is left off, not refused.
+  const addresses = new Map<string, string>();
+  for (const guid of photonAttachmentGuids(body)) {
+    const address = await photonAttachmentUrl(env.AGENT_ORIGIN, env.AGENT_WORKER_SECRET, guid);
+    if (address !== null) addresses.set(guid, address);
+  }
+  const parsed = parsePhotonEvent(body, { attachmentUrl: (guid) => addresses.get(guid) });
+  if (parsed.kind === "invalid") {
+    logWebhook("photon", "invalid");
+    return new Response(null, { status: 400 });
+  }
+  if (parsed.kind === "ignored") {
+    logWebhook("photon", "ignored", parsed.reason);
+    return new Response(null, { status: 200 });
+  }
+  // An edit or an unsend is not yet written to the chat's ledger (plan.md, phase 1): it is counted only.
+  if (parsed.kind === "edited" || parsed.kind === "unsent") {
+    console.log(JSON.stringify({ event: "photon_side", kind: parsed.kind, outcome: "not_recorded" }));
+    return new Response(null, { status: 200 });
+  }
+  const origin = env.AGENT_ORIGIN ?? "";
+  if (parsed.kind === "group-message") return groupWebhook(env, parsed, origin, "photon", null);
+  if (parsed.kind === "reaction") {
+    // The message it was on is not read yet (the bridge has no read of a message), so `on` is left off and the words are empty.
+    const { on: _on, ...tapback } = parsed;
+    const stub = inboxByName(env.SENDER_INBOX, tapback.from);
+    const result = (await toChat(env, "react", tapback.from, tapback)) ?? (await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(tapback) }));
+    logWebhook("photon", "accepted", "reaction");
+    return new Response(null, { status: result.ok ? 200 : 503 });
+  }
+  if (parsed.kind !== "message") return new Response(null, { status: 400 });
+  logWebhook("photon", "accepted");
+  const stub = inboxByName(env.SENDER_INBOX, parsed.from);
+  const result =
+    (await toChat(env, "one", parsed.from, parsed, origin)) ??
+    (await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(parsed) }));
+  return new Response(null, { status: result.ok ? 200 : 503 });
+}
+
+/**
+ * `GET /photon/attachment/<guid>?s=<sig>`: a picture or file of a Photon message, streamed from the bridge
+ * (`env.PHOTON`, `attachment/<guid>`). Served only with the signature `photon.ts` gives its address. Every miss is the same 404.
+ */
+async function photonAttachment(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== "GET") return new Response(null, { status: 405 });
+  if (env.PHOTON === undefined) return new Response(null, { status: 404 });
+  let guid: string;
+  try {
+    guid = decodeURIComponent(url.pathname.slice("/photon/attachment/".length));
+  } catch {
+    return new Response(null, { status: 404 });
+  }
+  if (guid === "" || guid.length > 200 || guid.includes("/")) return new Response(null, { status: 404 });
+  if (!(await verifyPhotonAttachment(env.AGENT_WORKER_SECRET, guid, url.searchParams.get("s")))) return new Response(null, { status: 404 });
+  const upstream = await env.PHOTON.fetch(`https://bridge/attachment/${encodeURIComponent(guid)}`);
+  if (!upstream.ok || upstream.body === null) {
+    await upstream.body?.cancel();
+    return new Response(null, { status: 404 });
+  }
+  const headers = new Headers({ "content-type": upstream.headers.get("content-type") ?? "application/octet-stream", "cache-control": "no-store" });
+  const length = upstream.headers.get("content-length");
+  if (length !== null) headers.set("content-length", length);
+  return new Response(upstream.body, { status: 200, headers });
 }
 
 /**
