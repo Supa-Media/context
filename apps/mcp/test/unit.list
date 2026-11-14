@@ -552,3 +552,6 @@ test/texConfig.test.mjs
 test/workerSteps.test.mjs
 test/texPrefixPrint.test.mjs
 test/promptCatalog.test.mjs
+test/chatQueue.test.mjs
+test/texChat.test.mjs
+test/textsArrive.test.mjs
