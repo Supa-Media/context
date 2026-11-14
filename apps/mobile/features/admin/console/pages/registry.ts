@@ -10,6 +10,7 @@ import { flagsPage } from "./Flags.web";
 import { growthPage } from "./Growth.web";
 import { homePage } from "./Home.web";
 import { jobsPage } from "./Jobs.web";
+import { linesPage } from "./Lines.web";
 import { peoplePage } from "./People.web";
 import { reportsPage } from "./Reports.web";
 import { searchPage } from "./Search.web";
@@ -51,6 +52,7 @@ export const SECTIONS: Array<[string | null, NavRow[]]> = [
     [
       { key: "storage", name: "Storage", icon: "box", page: storagePage },
       { key: "search", name: "Search", icon: "search", page: searchPage },
+      { key: "lines", name: "Lines", icon: "phone", page: linesPage },
       { key: "credentials", name: "Credentials", icon: "key", page: credentialsPage },
       { key: "flags", name: "Flags", icon: "flag", page: flagsPage },
       { key: "settings", name: "Settings", icon: "gear", page: settingsPage },

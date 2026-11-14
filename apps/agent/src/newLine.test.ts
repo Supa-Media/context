@@ -3,7 +3,7 @@ import type { Fetch } from "./clients";
 import worker, { type Env } from "./index";
 import { accept, CHAT_KEY, NEW_LINE_KEY, NEW_LINE_TOLD_KEY } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { bearerMatches, formatNumber, newNumberText, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
+import { archiveSentence, bearerMatches, formatNumber, newNumberText, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import type { Message } from "./reply";
 
 const PHONE = "+15555550100";
@@ -38,6 +38,24 @@ describe("the new-number text", () => {
     expect(formatNumber(NUMBER)).toBe("+1 (813) 335-0746");
     expect(formatNumber("+447700900123")).toBe("+447700900123");
     expect(TEXT).toContain("+1 (813) 335-0746");
+  });
+
+  it("keeps the current wording when no archive day is set", () => {
+    expect(newNumberText(NUMBER)).toBe(
+      "Tex here. I have a new number: +1 (813) 335-0746. Text me there from now on; this number is going away. Same Tex, same notes.",
+    );
+    expect(newNumberText(NUMBER, null)).toBe(TEXT);
+  });
+
+  it("says when the old number stops working, in words, when a day is set", () => {
+    expect(newNumberText(NUMBER, "2026-12-01")).toBe(`${TEXT} This number stops working on December 1.`);
+    expect(archiveSentence("2027-02-06")).toBe(" This number stops working on February 6.");
+  });
+
+  it("ignores a day that is not a real calendar day", () => {
+    expect(archiveSentence("2026-02-30")).toBe("");
+    expect(archiveSentence("Dec 1")).toBe("");
+    expect(newNumberText(NUMBER, "2026-02-30")).toBe(TEXT);
   });
 });
 
@@ -136,9 +154,11 @@ describe("the door", () => {
   });
 
   it("is a dry run unless send is exactly true", () => {
-    expect(parseTellRequest({ number: NUMBER })).toEqual({ number: NUMBER, dryRun: true });
-    expect(parseTellRequest({ number: NUMBER, send: "true" })).toEqual({ number: NUMBER, dryRun: true });
-    expect(parseTellRequest({ number: NUMBER, send: true })).toEqual({ number: NUMBER, dryRun: false });
+    expect(parseTellRequest({ number: NUMBER })).toEqual({ number: NUMBER, dryRun: true, archiveOn: null });
+    expect(parseTellRequest({ number: NUMBER, send: "true" })).toEqual({ number: NUMBER, dryRun: true, archiveOn: null });
+    expect(parseTellRequest({ number: NUMBER, send: true })).toEqual({ number: NUMBER, dryRun: false, archiveOn: null });
+    expect(parseTellRequest({ number: NUMBER, send: true, archiveOn: "2026-12-01" })).toEqual({ number: NUMBER, dryRun: false, archiveOn: "2026-12-01" });
+    expect(parseTellRequest({ number: NUMBER, send: true, archiveOn: "2026-02-30" })).toEqual({ number: NUMBER, dryRun: false, archiveOn: null });
     expect(parseTellRequest({ number: "8133350746", send: true })).toBeNull();
     expect(parseTellRequest(null)).toBeNull();
   });

@@ -30,6 +30,7 @@ on:
       - "infra/router/**"
       - "infra/transcribe-worker/**"
       - "infra/egress-service/**"
+      - "infra/photon-bridge/**"
       - "infra/site-shots/**"
       - "apps/agent/**"
       - "pnpm-lock.yaml"
@@ -143,6 +144,31 @@ jobs:
         if: ${{ !cancelled() && steps.egress.outputs.affected == 'true' }}
         working-directory: infra/egress-service
         run: npm test
+
+      # ── Photon Bridge ──
+      - uses: ./.github/actions/ci-scope
+        if: ${{ !cancelled() }}
+        id: photon
+        with:
+          packages: "@context/photon-bridge"
+          paths: ".github/workflows/workers.yml"
+
+      - name: Install (Photon Bridge)
+        if: ${{ !cancelled() && steps.photon.outputs.affected == 'true' }}
+        run: pnpm install --filter @context/photon-bridge... --frozen-lockfile
+
+      - name: Typecheck (Photon Bridge)
+        if: ${{ !cancelled() && steps.photon.outputs.affected == 'true' }}
+        working-directory: infra/photon-bridge
+        run: pnpm typecheck
+
+      # The container suite imports the Photon SDK, so its own install comes first.
+      - name: Photon Bridge tests
+        if: ${{ !cancelled() && steps.photon.outputs.affected == 'true' }}
+        working-directory: infra/photon-bridge
+        run: |
+          npm ci --prefix container
+          pnpm test
 
       # ── Site Shots Worker ──
       - uses: ./.github/actions/ci-scope

@@ -450,7 +450,7 @@ export async function runTurn(options) {
         happened, because this is what production does too.
       */
       // A turn carrying a picture names its fallback by the model that failed (`pictureFallback`, `attachments.js`).
-      const next = typeof fallback === "function" ? fallback(model) : fallback;
+      const next = error instanceof ProviderError && !fellBack ? (typeof fallback === "function" ? await fallback(model) : fallback) : null; // asked only when it would be taken: the Fallback node, through the front door's uses wire (`graph/nodes/fallback.js`)
       if (error instanceof ProviderError && next !== null && model !== next && !fellBack) {
         fellBack = true;
         const ms = clock() - asked;

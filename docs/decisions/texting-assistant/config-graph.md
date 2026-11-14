@@ -70,7 +70,10 @@ guards (`scripts/tex-diagram-check.mjs`), with the runner's coverage tests.
 A wire's `when` tags say when it fires: only when the source's output carries
 the tag. `["*"]` means always. Early answers are wires. Each door step that can
 end the turn has a `wait` wire to `send` with `when ["answered"]`, and door
-steps chain to each other with `when ["next"]`.
+steps chain to each other with `when ["next"]`. A wire hands on the output
+without its `when`: the tags chose the wires and are no part of the next
+node's input. How a whole turn runs on these wires is
+[turn-graph](./turn-graph.md).
 
 A node that is `on: false` never runs. A graph with a `wait` cycle, an unknown
 mode, or a wire to a node that is not there is refused before any turn runs.

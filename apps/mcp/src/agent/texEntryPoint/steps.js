@@ -1,4 +1,4 @@
-/** Every step of Tex's turn, in the order `../texEntryPoint.js` runs them. Each file is one step. */
+/** Every door step of Tex's turn, one file each, and the turn's failure path (`../texEntryPoint.js`). The config's nodes run them (`../graph/gatewayNodes.js`). */
 
 export { readTheText } from "./readTheText.js";
 export { runARoutine } from "./runARoutine.js";

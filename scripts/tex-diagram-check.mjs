@@ -51,8 +51,6 @@ export const PLUMBING = Object.freeze({
  * around a turn must be a config node"). Each is being given its node; the list only shrinks.
  */
 export const NOT_NODED_YET = Object.freeze({
-  "apps/mcp/src/agent/daySummaries.js": "Day summaries, a nightly start",
-  "apps/mcp/src/agent/pictureMaker.js": "Picture maker, called from Tools",
   "apps/mcp/src/agent/decide.js": "Clef's small choices on a person's computer",
 });
 /** Where a Tex agent's prompt is written: each file here that gives a model a system prompt puts the map ahead of it (`texArchitecture.js`). */
@@ -66,6 +64,27 @@ const UNCHANGED = /^\s*Tex diagram: unchanged because \S.{3,}/im;
 /** Problems with the agents' prompts: one that gives a model a system prompt without the drawing. */
 export function mapProblems(files) {
   return files.filter(({ path, source }) => !PROMPT_CARRIERS.has(path) && GIVES_A_PROMPT.test(source) && !WITH_MAP.test(source)).map(({ path }) => `${AGENT_FOLDER}/${path} gives a model a system prompt without the map: pass it through withArchitecture (texArchitecture.js) with its role`);
+}
+
+/**
+ * The steps a turn runs, in order, now that it runs the config's graph (`apps/mcp/src/agent/graph/turnGraph.js`): for
+ * each node of `texConfig.json`, in the config's order, the `texEntryPoint/` step files its gateway node's code runs,
+ * then each `steps.<name>(t` the entry file still calls itself (its failure path).
+ */
+export function graphSteps(root) {
+  const config = JSON.parse(readFileSync(join(root, "packages/shared/src/texConfig.json"), "utf8"));
+  const table = readFileSync(join(root, "apps/mcp/src/agent/graph/gatewayNodes.js"), "utf8");
+  const fileOf = new Map([...table.matchAll(/import \{ (\w+) \} from "\.\/nodes\/([\w-]+)\.js";/g)].map((m) => [m[1], m[2]]));
+  const steps = [];
+  for (const { id } of config.nodes) {
+    const impl = table.match(new RegExp(`^\\s+${id}: (\\w+),`, "m"))?.[1];
+    const file = impl ? fileOf.get(impl) : null;
+    if (!file) continue;
+    const source = readFileSync(join(root, "apps/mcp/src/agent/graph/nodes", `${file}.js`), "utf8");
+    for (const m of source.matchAll(/from "\.\.\/\.\.\/texEntryPoint\/(\w+)\.js"/g)) if (!steps.includes(m[1])) steps.push(m[1]);
+  }
+  for (const step of codeSteps(readFileSync(join(root, ENTRY), "utf8"))) if (!steps.includes(step)) steps.push(step);
+  return steps;
 }
 
 /** The steps the code runs, in order: each `steps.<name>(t` in the entry file. */
@@ -139,7 +158,7 @@ function filesUnder(dir) {
 function check(base) {
   const config = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
   const problems = generatedProblems(ROOT);
-  problems.push(...stepProblems(codeSteps(readFileSync(join(ROOT, ENTRY), "utf8")), config));
+  problems.push(...stepProblems(graphSteps(ROOT), config));
   const naming = [];
   for (const folder of MODEL_FOLDERS) for (const file of filesUnder(join(ROOT, folder))) if (MODEL_ID.test(readFileSync(file, "utf8"))) naming.push(relative(ROOT, file));
   problems.push(...modelFileProblems(naming, config));

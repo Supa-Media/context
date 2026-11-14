@@ -132,12 +132,18 @@ jobs:
           SENDBLUE_STATUS_URL="$(node ../../scripts/sendblue-status-url.mjs "$WORKER_NAME" "$sub")"
           if [ -n "$SENDBLUE_STATUS_URL" ]; then echo "::add-mask::$SENDBLUE_STATUS_URL"; fi
           export SENDBLUE_STATUS_URL
+          # Photon pictures reach Tex as signed addresses on this Worker
+          # (src/photonEvents.ts); an RPC call carries no URL to learn the
+          # origin from, so the deploy names it. Masked: it names the account.
+          AGENT_ORIGIN=""
+          if [ -n "$sub" ]; then AGENT_ORIGIN="https://$WORKER_NAME.$sub.workers.dev"; echo "::add-mask::$AGENT_ORIGIN"; fi
+          export AGENT_ORIGIN
           # One request and one new version for every secret; see
           # scripts/worker-secrets.mjs. `!` ones warn when unset (the texting
           # assistant stays inert until they are), `?` ones are simply off:
           # APPLE_TEAM_ID names the Messages extension on a note's card
           # (src/appCards.ts), and the WHAPI_* trio is Tex's WhatsApp line.
-          node ../../scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=CONTROL_PLANE_URL '?APPLE_TEAM_ID' '!AGENT_WORKER_SECRET' '!LINQ_API_KEY' '!LINQ_WEBHOOK_SECRET' '!SENDBLUE_API_KEY_ID' '!SENDBLUE_API_SECRET' '!SENDBLUE_WEBHOOK_SECRET' '!SENDBLUE_STATUS_URL' '?WHAPI_TOKEN' '?WHAPI_LINE' '?WHAPI_WEBHOOK_SECRET' \
+          node ../../scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=CONTROL_PLANE_URL '?APPLE_TEAM_ID' '!AGENT_WORKER_SECRET' '!LINQ_API_KEY' '!LINQ_WEBHOOK_SECRET' '!SENDBLUE_API_KEY_ID' '!SENDBLUE_API_SECRET' '!SENDBLUE_WEBHOOK_SECRET' '!SENDBLUE_STATUS_URL' '?AGENT_ORIGIN' '?WHAPI_TOKEN' '?WHAPI_LINE' '?WHAPI_WEBHOOK_SECRET' \
             | pnpm exec wrangler secret bulk
 
       # The same check staging runs: /health reports which settings the Worker

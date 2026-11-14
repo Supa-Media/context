@@ -33,7 +33,6 @@
 
 import { DREAMS_SETTINGS_PATH, isSwitchedOff } from "./texSwitches.js";
 import { ABOUT_ME_PATH, readAboutMe } from "./aboutMe.js";
-import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { eventLines } from "./transcript.js";
 import { HISTORY_PATH } from "./historyFile.js";
 import { chatTurns, readChatSince, renderChatDays } from "./ledgerDays.js";
@@ -41,16 +40,11 @@ import { AgentRefusal, openProvider, runTurn } from "./turn.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
-import { actorFor, contextsFor } from "../context/identity.js";
 import { PRODUCTION_DREAM_PATH, readJobSetup } from "./production.js";
-import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
-import { newLedger } from "../privacy/egress.js";
-import { json } from "../http/responses.js";
 import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.js";
 import { RETIRED_SKILLS_FOLDER, UNUSED_SKILL_DAYS, retireUnusedSkills } from "./learnedSkills.js";
 import { mineHandbacks } from "./handbackMiner.js";
-import { writeDaySummaries } from "./daySummaries.js";
 import { findMemories, memoriesLine } from "./dreamMemories.js";
 
 /** The dream runner's first-party client (`apps/convex/functions/lib/dreams/model.ts`). Decided by the grant. */
@@ -227,36 +221,20 @@ function writeLog(dispatch, path, entry, { now, timeZone }) {
 }
 
 /**
- * `/agent` for the dreams client (`http/route.js` sends it here by the
- * grant's client, never by the body): it dreams, and does nothing else. A
- * `dream` body from any other client goes to the ordinary turn, which has
- * no use for it.
+ * One night's dream, for the graph's `dream` node (`graph/nodes/dream.js`), which the nightly route starts
+ * (`nightlyRoute.js`). It dreams, and does nothing else: the caller has checked the client and the body, and the
+ * day summaries that follow are not this file's (`daySummaries.js`, the `daysum` node). The config's wires decide that
+ * from `when`.
+ *
+ * Answers `{ outcome, status, body, when, timeZone, now }`: `body` and `status` are the response, `outcome` is for the
+ * log, `when` is ["summarize"] on every branch that summed up the days before (and [] on the refusals that did not),
+ * and `now` is the time that branch summed them up at.
  */
-export async function handleDream(request, env, store, session, controlPlane) {
-  if (session.actorClientId !== DREAMS_CLIENT_ID) return json({ error: "invalid_request", error_description: "Only Tex's dreams dream." }, 403);
-  let body = null;
-  try {
-    body = await request.json();
-  } catch {
-    body = null;
-  }
-  const asked = body?.dream !== undefined && body.dream !== null && typeof body.dream === "object" && !Array.isArray(body.dream);
-  if (!asked) return json({ error: "invalid_request", error_description: "This connection only dreams." }, 400);
-
-  store.actor = actorFor(session);
-  store.contexts = contextsFor(session);
-  // Nothing a dream reads is sent anywhere, and the one thing it writes is in their own workspace.
-  session.egress = { complete: true, ledger: newLedger(), texting: false };
-  const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
-
-  const timeZone = readTimeZone(body.dream.timeZone) ?? DEFAULT_TIME_ZONE;
-  const since = typeof body.dream.since === "number" && Number.isFinite(body.dream.since) ? body.dream.since : null;
+export async function dreamNight({ env, store, session, controlPlane, dispatch, timeZone, since }) {
+  const answer = (body, status, { when = [], now = Date.now() } = {}) => ({ outcome: body.outcome ?? body.error, status, body, when, timeZone, now });
   const started = Date.now();
   // They switched it off (`texSwitches.js`): About me is left as it is; the summaries of their days still run.
-  if (await isSwitchedOff(dispatch, DREAMS_SETTINGS_PATH)) {
-    await summarizeDays(env, store, session, started, timeZone);
-    return json({ outcome: "nothing_new", paused: true });
-  }
+  if (await isSwitchedOff(dispatch, DREAMS_SETTINGS_PATH)) return answer({ outcome: "nothing_new", paused: true }, 200, { when: ["summarize"], now: started });
   // Their chat with Tex since the last dream (or the last few days), from its ledger: the one record of it.
   const entries = await readChatSince(store, session, { since: since ?? started - (FIRST_DREAM_DAYS - 1) * DAY_MS });
   const chat = renderChatDays(entries, { timeZone });
@@ -266,26 +244,23 @@ export async function handleDream(request, env, store, session, controlPlane) {
   // that wrote nothing must not leave them without one.
   const first = before === "";
   // Nothing new to read and a note already started: tonight is quiet, and costs no model turn.
-  if (chat === "" && memories.length === 0 && !first) {
-    // A quiet night still catches up the summaries of older days (`daySummaries.js`).
-    await summarizeDays(env, store, session, Date.now(), timeZone);
-    return json({ outcome: "nothing_new" });
-  }
+  // A quiet night still catches up the summaries of older days (`daySummaries.js`).
+  if (chat === "" && memories.length === 0 && !first) return answer({ outcome: "nothing_new" }, 200, { when: ["summarize"] });
 
   try {
     await openProvider(controlPlane, session, undefined, env);
   } catch (error) {
-    if (error instanceof AgentRefusal && error.code === "daily_limit") return json({ error: "daily_limit" }, 429);
-    if (error instanceof AgentRefusal) return json({ error: error.code }, 409);
-    return json({ error: "model_unavailable" }, 503);
+    if (error instanceof AgentRefusal && error.code === "daily_limit") return answer({ error: "daily_limit" }, 429);
+    if (error instanceof AgentRefusal) return answer({ error: error.code }, 409);
+    return answer({ error: "model_unavailable" }, 503);
   }
 
   // Learned skills nobody used in 60 days leave the index, by date and never by the model (`learnedSkills.js`).
   const retired = await retireUnusedSkills(dispatch, started);
   const events = [];
   const offered = await grantedToolsFor(session, store);
-  // The dream's setup note (`ai/production/dream.md`): its words, and its model
-  // when this deployment can call it. Missing or invalid is the built-in ones.
+  // The dream's setup note (`ai/production/dream.md`): its words, and its model when this deployment can call it.
+  // Missing or invalid is the built-in ones.
   const setup = await readJobSetup(store, session, PRODUCTION_DREAM_PATH);
   const chosen = setup !== null && canRunBuiltin(setup.model, env) ? setup.model : null;
   const model = chosen ?? builtinModel(env);
@@ -373,14 +348,6 @@ export async function handleDream(request, env, store, session, controlPlane) {
       metadata: { feature: "handback-miner", workspace: String(session.workspaceId) },
     }).catch(() => null);
   }
-  // Each finished day with no summary yet, summed up into the chat's ledger for later turns (`daySummaries.js`).
-  await summarizeDays(env, store, session, now, timeZone);
-  if (outcome === "failed") return json({ error: "model_unavailable", outcome }, 502);
-  return json({ outcome, steps: turn?.steps ?? [] });
-}
-
-/** Each finished day with no summary yet, summed up into the chat's ledger for later turns (`daySummaries.js`). Best effort. */
-async function summarizeDays(env, store, session, now, timeZone) {
-  if (env.DAY_SUMMARIES === "off") return;
-  await writeDaySummaries({ store, session, now, timeZone, config: aiGatewayConfig(env), metadata: { feature: "day-summary", workspace: String(session.workspaceId) } }).catch(() => null);
+  if (outcome === "failed") return answer({ error: "model_unavailable", outcome }, 502, { when: ["summarize"], now });
+  return answer({ outcome, steps: turn?.steps ?? [] }, 200, { when: ["summarize"], now });
 }

@@ -888,6 +888,7 @@ http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRou
 http.route({ path: "/agent-texts/gmail", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsGmailHandler) });
 for (const [path, handler] of vault.AGENT_CARRY_ON_ROUTES) http.route({ path, method: "POST", handler: agentWorkerRoute(handler) }); // a login saved, a browser handed back
 http.route({ path: "/agent-texts/phones", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsPhonesHandler) });
+http.route({ path: "/agent-texts/old-line", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsOldLineHandler) });
 // The picture Tex texts beside a note's link (`apps/agent/src/noteCards.ts`).
 http.route({ path: "/agent-texts/note-card", method: "POST", handler: agentWorkerRoute(noteCard.agentTextsNoteCardHandler) });
 

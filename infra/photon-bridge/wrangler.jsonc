@@ -1,0 +1,63 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "context-photon-bridge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  // No public address: the gateway's agent reaches this Worker only through
+  // its PHOTON service binding, and nothing else is routed here.
+  "workers_dev": false,
+  "services": [
+    { "binding": "AGENT", "service": "context-agent", "entrypoint": "PhotonEvents" }
+  ],
+  "containers": [
+    {
+      "class_name": "PhotonBridge",
+      "image": "./Dockerfile",
+      "instance_type": "lite",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "PHOTON_BRIDGE", "class_name": "PhotonBridge" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["PhotonBridge"]
+    }
+  ],
+  // The cron wakes the object after a deploy; the object's own alarm keeps it awake.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "context-photon-bridge-staging",
+      "workers_dev": false,
+      "services": [
+        { "binding": "AGENT", "service": "context-agent-staging", "entrypoint": "PhotonEvents" }
+      ],
+      "containers": [
+        {
+          "class_name": "PhotonBridge",
+          "image": "./Dockerfile",
+          "instance_type": "lite",
+          "max_instances": 1
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "PHOTON_BRIDGE", "class_name": "PhotonBridge" }
+        ]
+      },
+      "triggers": {
+        "crons": ["* * * * *"]
+      }
+    }
+  }
+}

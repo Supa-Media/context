@@ -228,6 +228,7 @@ import type * as functions_textGroupUsage from "../functions/textGroupUsage.js";
 import type * as functions_textGroupsMarked from "../functions/textGroupsMarked.js";
 import type * as functions_textGroupNames from "../functions/textGroupNames.js";
 import type * as functions_textPhones from "../functions/textPhones.js";
+import type * as functions_texOldLine from "../functions/texOldLine.js";
 import type * as functions_textSetup from "../functions/textSetup.js";
 import type * as functions_textSignIn from "../functions/textSignIn.js";
 import type * as functions_tokenTransport from "../functions/tokenTransport.js";
@@ -515,6 +516,7 @@ declare const fullApi: ApiFromModules<{
   "functions/textGroupsMarked": typeof functions_textGroupsMarked;
   "functions/textGroupNames": typeof functions_textGroupNames;
   "functions/textPhones": typeof functions_textPhones;
+  "functions/texOldLine": typeof functions_texOldLine;
   "functions/textSetup": typeof functions_textSetup;
   "functions/textSignIn": typeof functions_textSignIn;
   "functions/transcriptionConsent": typeof functions_transcriptionConsent;

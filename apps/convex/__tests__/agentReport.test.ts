@@ -134,6 +134,40 @@ describe("the agent report", () => {
     expect(nobody.recent).toEqual([]);
   });
 
+  test("a recent turn carrying every trace field the turn log keeps still answers (Home could not load, 2026-11-14)", async () => {
+    // The report returned each recent turn's trace as stored, but its own
+    // return shape lacked the tool step's action and six (added to the turn
+    // log 2026-11-13), so the first such turn failed the whole query.
+    const t = setupTest();
+    const { staff, adaWs, adaGrant } = await world(t);
+    await t.run((ctx) =>
+      insertTurn(ctx, {
+        workspaceId: adaWs,
+        grantId: adaGrant,
+        client: "texts",
+        provider: "builtin",
+        model: "m",
+        outcome: "answered",
+        at: Date.now() - 1000,
+        ms: 900,
+        modelMs: 500,
+        toolMs: 400,
+        rounds: 2,
+        inputTokens: 1,
+        outputTokens: 1,
+        trace: [
+          { kind: "router", tier: "think", confidence: 0.7, model: "m", ok: true, ms: 1 },
+          { kind: "tool", tool: "write", action: "save", six: "write", held: true, ok: true, ms: 400 },
+          { kind: "fallback", model: "m2", status: 529, ok: true, ms: 1 },
+          { kind: "model", model: "m", status: 500, retried: true, cut: true, ok: true, ms: 500 },
+        ],
+      }),
+    );
+    const report = await asUser(t, staff).query(api.functions.admin.agentReport, { days: 30 });
+    expect(report.recent).toHaveLength(1);
+    expect(report.recent[0].trace[1]).toMatchObject({ tool: "write", action: "save", six: "write", held: true });
+  });
+
   test("the helpers", () => {
     expect(percentile([], 50)).toBe(0);
     expect(percentile([1, 2, 3, 4], 50)).toBe(2);
