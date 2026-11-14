@@ -19,8 +19,8 @@ export function artifactGraphModule() {
     }
     return g;
   };
-  // The artifact's own "After sending" wire; the live Lab draws it so it can't be mistaken for "Next step".
-  const WIRES = { ...actual.WIRES, behind: { name: "After sending", dash: "2 4", c: "--dim", tip: "Runs once the reply has gone; nobody waits for it" } };
+  // The artifact's own "Next step" and "After sending" wires; the live Lab names them Sync and Async.
+  const WIRES = { ...actual.WIRES, wait: { name: "Next step", dash: "", c: "--text2", tip: "Runs when this step is done, before the reply" }, behind: { name: "After sending", dash: "2 4", c: "--dim", tip: "Runs once the reply has gone; nobody waits for it" } };
   return { ...actual, WIRES, mainGraph0, mainGraph };
 }
 
