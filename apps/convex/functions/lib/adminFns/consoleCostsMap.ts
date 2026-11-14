@@ -3,12 +3,12 @@
  * Workers AI model is, and which Tex step each call belongs to. Tables and
  * pure classifiers only; the arithmetic is `consoleCosts.ts`.
  *
- * The Tex step table mirrors `packages/shared/src/texConfig.json` (the nodes
- * whose model is not "code"). That file cannot be imported here: this
- * package's tsconfig has no `resolveJsonModule`. `__tests__/consoleCosts.test.ts`
- * reads the JSON with fs and fails when this table drifts, `on` included.
+ * The Tex step table is `packages/shared/src/texSteps.cjs`, read from
+ * `texConfig.json` (the nodes whose model is not "code"), so it cannot drift
+ * from the Lab.
  */
 
+import { TEX_STEPS, texStepForModel, type TexStepDef } from "@context/shared/src/texSteps.cjs";
 import { CLEF_MODEL, GLM_MODEL } from "../jev/models";
 
 export { CLEF_MODEL, GLM_MODEL };
@@ -38,7 +38,7 @@ export const CREDIT_KEYS: readonly CreditKey[] = [
 export const PAYER_LABEL_SINCE = "2026-11-14T20:00:00Z";
 
 export const PLAN_PAYER = { key: "plan", label: "Claude plan credit", note: "Comes back on the 1st" } as const;
-export const CLOUDFLARE_PAYER = { key: "cloudflare", label: "Out of pocket", note: "Cloudflare Unified Billing" } as const;
+export const CLOUDFLARE_PAYER = { key: "cloudflare", label: "Out of pocket", note: "Cloudflare Unified Billing and Workers AI" } as const;
 
 export const FEATURES = [
   { key: "tex", label: "Tex replies" },
@@ -52,33 +52,13 @@ export const FEATURES = [
 ] as const;
 export type FeatureKey = (typeof FEATURES)[number]["key"];
 
-export interface TexStepDef {
-  /** The texConfig node id. */
-  id: string;
-  label: string;
-  /** The texConfig model key (`models` in the json). */
-  model: string;
-  on: boolean;
-}
+export { TEX_STEPS, type TexStepDef };
 
-/** Every texConfig node whose model is not "code", in the json's order. */
-export const TEX_STEPS: readonly TexStepDef[] = [
-  { id: "decide", label: "Decide", model: "clef", on: true },
-  { id: "router", label: "Router", model: "clef", on: false },
-  { id: "fd", label: "Front door", model: "haiku-5-5", on: true },
-  { id: "fallback", label: "Fallback", model: "glm-4-7", on: true },
-  { id: "planner", label: "Big-ask planner", model: "opus-5-5", on: false },
-  { id: "advisor", label: "Advisor", model: "opus-5-5", on: true },
-  { id: "mail", label: "Mail checker", model: "haiku-5-5", on: true },
-  { id: "card", label: "Card check", model: "haiku-5-5", on: true },
-  { id: "reviewer", label: "Reply reviewer", model: "haiku-5-5", on: true },
-  { id: "classifier", label: "Classifier", model: "haiku-5-5", on: true },
-  { id: "selfreview", label: "Self-review", model: "haiku-5-5", on: true },
-  { id: "job", label: "Background job", model: "haiku-5-5", on: true },
-  { id: "jobcheck", label: "Job check", model: "opus-5-5", on: true },
-  { id: "mailadv", label: "Advisor on job mail", model: "opus-5-5", on: true },
-  { id: "handback", label: "Hand-back judge", model: "haiku-5-5", on: true },
-];
+/** The step a Workers AI call is billed to: the first step that is on and runs that texConfig model. */
+function workersAiStep(modelKey: string): Bucket {
+  const step = texStepForModel(modelKey);
+  return step ? { kind: "tex", step } : { kind: "feature", key: "other" };
+}
 
 /** Where one row's cost goes: the test suites, a Tex step, or a feature. */
 export type Bucket = { kind: "lab" } | { kind: "tex"; step: string } | { kind: "feature"; key: FeatureKey };
@@ -117,8 +97,8 @@ export function gatewayBucket(feature: string, client: string, model: string): B
 
 /** Where a Workers AI model's cost goes. */
 export function workersAiBucket(model: string): Bucket {
-  if (model === CLEF_MODEL) return { kind: "tex", step: "decide" };
-  if (model === GLM_MODEL) return { kind: "tex", step: "fallback" };
+  if (model === CLEF_MODEL) return workersAiStep("clef");
+  if (model === GLM_MODEL) return workersAiStep("glm-4-7");
   if (model.includes("bge")) return { kind: "feature", key: "search" };
   if (model.includes("whisper")) return { kind: "feature", key: "meetings" };
   return { kind: "feature", key: "other" };

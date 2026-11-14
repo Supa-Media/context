@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
-import { clampConsoleDays, normalizeConsoleQuery } from "../functions/lib/adminFns/consoleTurns";
+import { CONSOLE_REVIEWS_READ, CONSOLE_TURNS_READ, clampConsoleDays, normalizeConsoleQuery } from "../functions/lib/adminFns/consoleTurns";
 import { asUser, createUser, createWorkspace, seedGrant, setupTest } from "./fixtures.helpers";
 
 /**
@@ -262,3 +262,116 @@ describe("the console's read bounds", () => {
     expect(page.series).toHaveLength(30);
   });
 });
+
+describe("the console's window end and read caps", () => {
+  test("the window ends at the given to, so a past window holds its own turns", async () => {
+    const t = setupTest();
+    const { staff, adaWs, adaGrant } = await world(t);
+    const now = Date.now();
+    const to = Math.floor(now / 60_000) * 60_000 - DAY;
+    await seedTurn(t, adaWs, adaGrant, { at: to - 1000, ms: 1000 });
+    await seedTurn(t, adaWs, adaGrant, { at: now - 1000, ms: 2000 });
+    const past = await asUser(t, staff).query(api.functions.consoleAi.turns, { days: 1, to });
+    expect(past.turns).toBe(1);
+    expect(past.p95Ms).toBe(1000);
+    const present = await asUser(t, staff).query(api.functions.consoleAi.turns, { days: 1 });
+    expect(present.turns).toBe(1);
+    expect(present.p95Ms).toBe(2000);
+  });
+
+  test("a to past the clock is held to a minute ahead, so a row later than that is left out", async () => {
+    const t = setupTest();
+    const { staff, adaWs, adaGrant } = await world(t);
+    const now = Date.now();
+    await seedTurn(t, adaWs, adaGrant, { at: now - 1000, ms: 1000 });
+    await seedTurn(t, adaWs, adaGrant, { at: now + 30 * 60_000, ms: 1000 });
+    const far = await asUser(t, staff).query(api.functions.consoleAi.turns, { days: 1, to: now + 2 * HOUR });
+    expect(far.turns).toBe(1);
+  });
+
+  test("a window past the read cap says truncated and holds only the cap", async () => {
+    const t = setupTest();
+    const { staff, adaWs, adaGrant } = await world(t);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (let i = 0; i < CONSOLE_TURNS_READ + 1; i++) {
+        await ctx.db.insert("agentTurns", {
+          workspaceId: adaWs,
+          grantId: adaGrant,
+          client: "texts",
+          provider: "builtin",
+          model: "@cf/zai-org/glm-4.7-flash",
+          outcome: "answered",
+          at: now - 1000 - i,
+          ms: 1000,
+          waitMs: 500,
+          modelMs: 1000,
+          toolMs: 0,
+          rounds: 1,
+          inputTokens: 1,
+          outputTokens: 1,
+          trace: [],
+        });
+      }
+    });
+    const page = await asUser(t, staff).query(api.functions.consoleAi.turns, { days: 1 });
+    expect(page.truncated).toBe(true);
+    expect(page.turns).toBe(CONSOLE_TURNS_READ);
+  });
+
+  test("the review read has its own cap and says truncated past it", () => {
+    expect(CONSOLE_TURNS_READ).toBe(2_000);
+    expect(CONSOLE_REVIEWS_READ).toBe(2_000);
+  });
+});
+
+async function seedMeterRow(
+  t: T,
+  workspaceId: Id<"workspaces">,
+  grantId: Id<"oauthGrants">,
+  at: number,
+  extra: { kind?: "one" | "group" | "job"; outcome?: "answered" | "failed"; client?: "texts" | "app"; cost?: number },
+) {
+  await t.run((ctx) =>
+    ctx.db.insert("agentTurns", {
+      workspaceId,
+      grantId,
+      client: extra.client ?? "texts",
+      ...(extra.kind === undefined ? {} : { kind: extra.kind }),
+      provider: "builtin",
+      model: "@cf/zai-org/glm-4.7-flash",
+      outcome: extra.outcome ?? "answered",
+      at,
+      ms: 1000,
+      waitMs: 500,
+      modelMs: 1000,
+      toolMs: 0,
+      rounds: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+      ...(extra.cost === undefined ? {} : { costMicroUsd: extra.cost }),
+      trace: [],
+    }),
+  );
+}
+
+describe("the console's meter (turn log, newest first)", () => {
+  test("it sums job spend and counts answered texts, newest first, flagging a truncated read", async () => {
+    const t = setupTest();
+    const { adaWs, adaGrant } = await world(t);
+    const now = Date.now();
+    const row = (at: number, extra: { kind?: "one" | "group" | "job"; outcome?: "answered" | "failed"; client?: "texts" | "app"; cost?: number }) =>
+      seedMeterRow(t, adaWs, adaGrant, at, extra);
+    await row(now - 1000, { kind: "one" });
+    await row(now - 2000, {});
+    await row(now - 3000, { kind: "group" });
+    await row(now - 4000, { kind: "job", cost: 2_500_000, client: "texts" });
+    await row(now - 5000, { kind: "job", cost: 500_000, client: "app" });
+    await row(now - 6000, { kind: "one", outcome: "failed" });
+    await row(now - 7000, { kind: "one", client: "app" });
+    const from = now - DAY;
+    const meter = await t.query(internal.functions.consoleAi.meter, { from, to: now });
+    expect(meter).toEqual({ jobUsd: 3, jobTurns: 2, answered: 3, truncated: false });
+  });
+});
+

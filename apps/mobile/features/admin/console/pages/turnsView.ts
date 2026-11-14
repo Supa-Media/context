@@ -34,7 +34,7 @@ export function modelOf(id: string): string {
   if (m.includes("haiku")) return "Haiku";
   if (m.includes("opus")) return "Opus";
   if (m.includes("sonnet")) return "Sonnet";
-  return id.split("/").pop() || id;
+  return id.slice(id.lastIndexOf("/") + 1) || id;
 }
 
 const ENDED: Record<Recent["outcome"], [string, string]> = {
@@ -106,7 +106,8 @@ export function turnsRender(d: TurnsData | undefined): string {
 
   return (
     toolsRow() +
-    `<div class="kpis">${kpi("Typical answer", typical, vsBefore)}${kpi("Turns", t.turns, texts && texts.configured ? `answers to ${asked} texts` : `in ${WIN[S.d]}`)}${kpi("Didn't finish", didnt, `${t.exhausted} out of steps · ${t.failed} failed`, `data-act="end" data-v="${trouble ? "all" : "trouble"}" aria-pressed="${trouble}"`)}</div>` +
+    `<div class="kpis">${kpi("Typical answer", typical, vsBefore)}${kpi("Turns", t.answered, texts && texts.configured ? `answers to ${asked} texts` : `in ${WIN[S.d]}`)}${kpi("Didn't finish", didnt, `${t.exhausted} out of steps · ${t.failed} failed`, `data-act="end" data-v="${trouble ? "all" : "trouble"}" aria-pressed="${trouble}"`)}</div>` +
+    (t.truncated ? `<div class="banner warn"><span class="tx">More turns than one read holds: these figures cover the newest ones.</span></div>` : "") +
     panel("t-hurt", "Where Tex hurts", "against targets", hurtTargets(t, texts)) +
     panel("t-chart", "Answer time", "per " + (S.d === "1" ? "hour" : "day"), chart + legend("turns", [["c1", "Typical"], ["c4", "Slowest 1 in 20"]])) +
     `<div class="grid2">` +

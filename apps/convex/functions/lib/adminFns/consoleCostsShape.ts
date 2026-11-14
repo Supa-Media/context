@@ -38,6 +38,14 @@ export const consoleCostsValidator = v.union(
     outOfPocketUsd: v.number(),
     /** The same, lab runs excluded. */
     outOfPocketPeopleUsd: v.number(),
+    /** The earliest instant the window's gateway figures cover (after the retention clamp). */
+    coverageFrom: v.number(),
+    /** The prior window reaches back past what Cloudflare keeps, so its figures are partial. */
+    priorPartial: v.boolean(),
+    /** Answered texts (one-to-one and group) from our turn log in the window; null when the meter was not read. */
+    answered: v.union(v.number(), v.null()),
+    /** The turn log held more rows than the meter reads, so the job share is the newest part only. */
+    meterTruncated: v.boolean(),
     /** Texts people sent Tex in the window (1:1 and group); null when they could not be counted. */
     texts: v.union(v.number(), v.null()),
     perTextUsd: v.union(v.number(), v.null()),

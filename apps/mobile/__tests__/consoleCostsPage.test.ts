@@ -3,10 +3,10 @@
  * daily chart, feature and Tex step tables, accounts, and the side panel for one account. Fixtures
  * use fake numbers in the shapes the server returns.
  */
-import { beforeEach, describe, expect, it } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import type { AiCostsAccount, AiCostsReport } from "@context/convex/functions/lib/adminFns/aiCostsShape";
 import type { ConsoleCosts } from "@context/convex/functions/lib/adminFns/consoleCostsShape";
-import { accountPropsHtml, costsPageHtml } from "../features/admin/console/pages/costsView";
+import { accountPropsHtml, costsFor, costsPageHtml, featureKeyOf, resetCostsCache, type CostsResult } from "../features/admin/console/pages/costsView";
 import { S } from "../features/admin/console/state";
 
 type Live = Extract<ConsoleCosts, { configured: true }>;
@@ -14,6 +14,10 @@ type Live = Extract<ConsoleCosts, { configured: true }>;
 const live = (over: Partial<Live> = {}): Live => ({
   configured: true,
   error: null,
+  answered: null,
+  meterTruncated: false,
+  coverageFrom: 0,
+  priorPartial: false,
   days: 30,
   from: 0,
   to: 0,
@@ -95,7 +99,7 @@ const report = (over: Partial<AiCostsReport> = {}): AiCostsReport => ({
       costUsd: 40,
       byFeature: [
         { feature: "tex", costUsd: 30 },
-        { feature: "meetings", costUsd: 10 },
+        { feature: "meetingSummary", costUsd: 10 },
       ],
       questionsToday: 12,
       questionsCap: 50,
@@ -127,6 +131,7 @@ function panelOf(html: string, key: string): string {
 beforeEach(() => {
   S.d = "30";
   S.x = null;
+  resetCostsCache();
 });
 
 describe("AI costs page: states", () => {
@@ -267,5 +272,121 @@ describe("AI costs side panel for one account", () => {
   it("shows loading until the account answers, and a line when it is not found", () => {
     expect(accountPropsHtml(undefined, "u1")).toContain('<div class="empty">Loading…</div>');
     expect(accountPropsHtml(null, "u1")).toContain("Account not found");
+  });
+});
+
+const DAY = 86_400_000;
+
+describe("AI costs page: truncation and coverage", () => {
+  const from = Date.UTC(2026, 9, 16);
+
+  it("shows the meter's truncation banner only when the job split was cut short", () => {
+    const html = costsPageHtml(live({ meterTruncated: true }), report());
+    expect(html).toContain(
+      '<div class="banner warn"><span class="tx">More turns than one read holds: the background job split covers the newest ones.</span></div>',
+    );
+    expect(costsPageHtml(live({ meterTruncated: false }), report())).not.toContain("background job split");
+  });
+
+  it("says the window before is partial when priorPartial, on the Spent on AI delta", () => {
+    const html = costsPageHtml(live({ priorPartial: true }), report());
+    expect(html).toContain("-15%</span> on the window before (Cloudflare keeps 62 days, so the window before is partial)");
+    expect(costsPageHtml(live({ priorPartial: false }), report())).not.toContain("is partial");
+  });
+
+  it("adds the coverage banner from the first day kept when coverage starts after the window", () => {
+    const html = costsPageHtml(live({ from, coverageFrom: from + 5 * DAY }), report());
+    expect(html).toContain("Cloudflare keeps 62 days of gateway figures, so this covers from Oct 21.");
+    expect(costsPageHtml(live({ from, coverageFrom: from }), report())).not.toContain("Cloudflare keeps 62 days");
+  });
+});
+
+describe("AI costs page: per text is over the texts answered", () => {
+  it("divides Tex's header and per-step figures by the texts answered when there are some", () => {
+    const tex = panelOf(costsPageHtml(live({ answered: 300 }), report()), "c-tex");
+    expect(tex).toContain("$120.00 · $0.40 a text");
+    expect(tex).toContain(`<td class="r hp">$${(44.4 / 300).toFixed(3)}</td>`);
+  });
+
+  it("falls back to the texts received when none were answered", () => {
+    expect(panelOf(costsPageHtml(live({ answered: 0 }), report()), "c-tex")).toContain("$120.00 · $0.20 a text");
+    expect(panelOf(costsPageHtml(live({ answered: null }), report()), "c-tex")).toContain("$120.00 · $0.20 a text");
+  });
+});
+
+describe("AI costs page: the 24-hour window and the account meter", () => {
+  afterEach(() => {
+    S.d = "30";
+  });
+
+  it("says the by-account figures are 7 days when the page is on 24 hours", () => {
+    S.d = "1";
+    const acc = panelOf(costsPageHtml(live(), report()), "c-acc");
+    expect(acc).toContain("last 7 days; an account pays for the workspaces it owns");
+    expect(accountPropsHtml(account(), "u1", report())).toContain("AI, 7 days");
+  });
+
+  it("keeps the window's own label on the other windows", () => {
+    expect(panelOf(costsPageHtml(live(), report()), "c-acc")).toContain("an account pays for the workspaces it owns");
+    expect(accountPropsHtml(account(), "u1", report())).toContain("AI, 30 days");
+  });
+});
+
+describe("AI costs page: the account Split follows the feature colours", () => {
+  it("maps the meter's feature names to the page's feature keys", () => {
+    expect(featureKeyOf("assistant")).toBe("tex");
+    expect(featureKeyOf("textDecide")).toBe("tex");
+    expect(featureKeyOf("meetingSummary")).toBe("meetings");
+    expect(featureKeyOf("dream")).toBe("dream");
+    expect(featureKeyOf("housekeeping")).toBe("dream");
+    expect(featureKeyOf("checkIn")).toBe("checkin");
+    expect(featureKeyOf("ownerSuggest")).toBe("other");
+  });
+
+  it("colours each segment by its feature", () => {
+    const acc = panelOf(costsPageHtml(live(), report()), "c-acc");
+    expect(acc).toContain('<i style="width:75%;background:var(--c1)"></i><i style="width:25%;background:var(--c4)"></i>');
+  });
+});
+
+describe("AI costs cache: one answer per window for 60 seconds", () => {
+  const answer = (usd: number): CostsResult => ({ error: String(usd) });
+
+  it("two calls for the same window share one promise and one run", async () => {
+    const run = jest.fn(async (_days: number) => answer(1));
+    const a = costsFor(30, run);
+    const b = costsFor(30, run);
+    expect(b).toBe(a);
+    expect(run).toHaveBeenCalledTimes(1);
+    await a;
+  });
+
+  it("a different window is its own answer", () => {
+    const run = jest.fn(async (_days: number) => answer(1));
+    costsFor(30, run);
+    costsFor(7, run);
+    expect(run.mock.calls.map((c) => c[0])).toEqual([30, 7]);
+  });
+
+  it("asks again after 60 seconds", () => {
+    const now = jest.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const run = jest.fn(async (_days: number) => answer(1));
+    costsFor(30, run);
+    now.mockReturnValue(1_000_000 + 59_000);
+    costsFor(30, run);
+    expect(run).toHaveBeenCalledTimes(1);
+    now.mockReturnValue(1_000_000 + 61_000);
+    costsFor(30, run);
+    expect(run).toHaveBeenCalledTimes(2);
+    now.mockRestore();
+  });
+
+  it("does not keep a failure", async () => {
+    const run = jest.fn(async (_days: number): Promise<CostsResult> => {
+      throw new Error("boom");
+    });
+    await expect(costsFor(30, run)).rejects.toThrow("boom");
+    await expect(costsFor(30, run)).rejects.toThrow("boom");
+    expect(run).toHaveBeenCalledTimes(2);
   });
 });

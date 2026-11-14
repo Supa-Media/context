@@ -32,10 +32,12 @@ import { newBudget, ownersOf } from "./aiCostsRead";
 /** The page's windows. Anything else asked for is the default. */
 export const CONSOLE_TURN_WINDOWS = [1, 7, 30, 90] as const;
 export const CONSOLE_DEFAULT_DAYS = 30;
-/** Rows read per window, as `agentReport`'s `MAX_TURNS_READ`. */
-export const CONSOLE_TURNS_READ = 4_000;
+/** Rows read per window, held well under Convex's 8 MiB read. */
+export const CONSOLE_TURNS_READ = 2_000;
 /** Reviews read for the handed-back share. */
-export const CONSOLE_REVIEWS_READ = 3_000;
+export const CONSOLE_REVIEWS_READ = 2_000;
+/** How far past now the window's end may reach: the client's minute, and clock skew. */
+const TO_SLACK_MS = 60_000;
 export const CONSOLE_RECENT = 40;
 /** Owner rows read per workspace when naming who it belongs to. */
 const OWNER_ROWS_READ = 50;
@@ -93,7 +95,7 @@ const traceEntry = v.object({
 
 export const consoleTurnsValidator = v.object({
   days: v.number(),
-  /** A window held more rows than were read. */
+  /** A window or the reviews held more rows than were read. */
   truncated: v.boolean(),
   turns: v.number(),
   answered: v.number(),
@@ -149,6 +151,7 @@ export interface ConsoleTurnsArgs {
   days?: number;
   end?: "all" | "trouble";
   q?: string;
+  to?: number;
 }
 
 async function turnsBetween(
@@ -192,11 +195,12 @@ export async function consoleTurnsHandler(
 ): Promise<ConsoleTurns> {
   const days = clampConsoleDays(args.days);
   const windowMs = days * DAY_MS;
+  const windowEnd = typeof args.to === "number" && Number.isFinite(args.to) ? Math.min(args.to, now + TO_SLACK_MS) : now;
   const end = args.end === "trouble" ? "trouble" : "all";
   const needle = normalizeConsoleQuery(args.q);
 
-  const currentRead = await turnsBetween(ctx, now - windowMs, now);
-  const priorRead = await turnsBetween(ctx, now - 2 * windowMs, now - windowMs);
+  const currentRead = await turnsBetween(ctx, windowEnd - windowMs, windowEnd);
+  const priorRead = await turnsBetween(ctx, windowEnd - 2 * windowMs, windowEnd - windowMs);
   const current = currentRead.rows.flatMap((row) => {
     const kind = textKindOf(row);
     return kind === null ? [] : [{ row, kind }];
@@ -210,7 +214,7 @@ export async function consoleTurnsHandler(
   const hourly = days === 1;
   const step = hourly ? HOUR_MS : DAY_MS;
   const count = hourly ? 24 : days;
-  const bucketStart = hourly ? Math.floor(now / HOUR_MS) * HOUR_MS : Math.floor(now / DAY_MS) * DAY_MS;
+  const bucketStart = hourly ? Math.floor(windowEnd / HOUR_MS) * HOUR_MS : Math.floor(windowEnd / DAY_MS) * DAY_MS;
   const bucketMs: number[][] = Array.from({ length: count }, () => []);
   for (const { row } of current) {
     const index = count - 1 - Math.floor((bucketStart - Math.floor(row.at / step) * step) / step);
@@ -242,10 +246,11 @@ export async function consoleTurnsHandler(
 
   const reviewRead = await ctx.db
     .query("texReviewScores")
-    .withIndex("by_at", (q) => q.gt("at", now - windowMs).lte("at", now))
+    .withIndex("by_at", (q) => q.gt("at", windowEnd - windowMs).lte("at", windowEnd))
     .order("desc")
-    .take(CONSOLE_REVIEWS_READ);
-  const handedBack = reviewRead.filter(isHandedBack).length;
+    .take(CONSOLE_REVIEWS_READ + 1);
+  const reviews = reviewRead.slice(0, CONSOLE_REVIEWS_READ);
+  const handedBack = reviews.filter(isHandedBack).length;
 
   // The filters, then the newest-first cap. Names are looked up once per workspace.
   const whoCache = new Map<Id<"workspaces">, Who>();
@@ -269,7 +274,7 @@ export async function consoleTurnsHandler(
 
   return {
     days,
-    truncated: currentRead.truncated || priorRead.truncated,
+    truncated: currentRead.truncated || priorRead.truncated || reviewRead.length > CONSOLE_REVIEWS_READ,
     turns: current.length,
     answered: counts.answered,
     exhausted: counts.exhausted,
@@ -284,8 +289,8 @@ export async function consoleTurnsHandler(
     hurt: {
       troubledShare: current.length === 0 ? null : troubled / current.length,
       p95Ms: currentSpread.p95,
-      handedBackShare: reviewRead.length === 0 ? null : handedBack / reviewRead.length,
-      reviewed: reviewRead.length,
+      handedBackShare: reviews.length === 0 ? null : handedBack / reviews.length,
+      reviewed: reviews.length,
     },
     answeredOne: counts.answeredOne,
     recentTotal: matched.length,

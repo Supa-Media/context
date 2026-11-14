@@ -2,7 +2,7 @@
  * The staff console's Turns page, drawn from real data: the turns, the texts received, the side
  * panel's step-by-step waterfall, and that a name from the database is escaped.
  */
-import { turnsPage } from "../features/admin/console/pages/Turns.web";
+import { floorToMinute, textWindow, turnsPage, TURNS_KEPT_DAYS } from "../features/admin/console/pages/Turns.web";
 import { beforeEach, describe, expect, it } from "@jest/globals";
 import { S } from "../features/admin/console/state";
 import { modelOf, whenOf, type TurnsData } from "../features/admin/console/pages/turnsView";
@@ -204,3 +204,34 @@ describe("Turns page", () => {
     expect(modelOf("google/gemma")).toBe("gemma");
   });
 });
+
+describe("Turns page: one read per visit, the texts over the same span", () => {
+  it("floors the read's time to the minute", () => {
+    expect(floorToMinute(1_700_000_123_456)).toBe(1_700_000_100_000);
+    expect(floorToMinute(1_700_000_100_000)).toBe(1_700_000_100_000);
+  });
+
+  it("counts the texts over the window, clamped to the 30 days the turns are kept", () => {
+    expect(textWindow(7, NOW)).toEqual({ from: NOW - 7 * DAY, to: NOW });
+    expect(textWindow(30, NOW)).toEqual({ from: NOW - 30 * DAY, to: NOW });
+    expect(TURNS_KEPT_DAYS).toBe(30);
+    // 90 days of turns cover 30 days, so the texts cover the same 30.
+    expect(textWindow(90, NOW)).toEqual({ from: NOW - 30 * DAY, to: NOW });
+  });
+
+  it("shows the number answered as the Turns value, with the texts they answer", () => {
+    const html = render(fixture({ answered: 2 }));
+    expect(html).toContain('<div class="v">2</div>');
+    expect(html).toContain("answers to 120 texts");
+  });
+
+  it("shows the truncation banner under the KPIs only when the read was cut short", () => {
+    const cut = render(fixture({ truncated: true }));
+    expect(cut).toContain(
+      '<div class="banner warn"><span class="tx">More turns than one read holds: these figures cover the newest ones.</span></div>',
+    );
+    expect(cut.indexOf('class="banner warn"')).toBeGreaterThan(cut.indexOf('class="kpis"'));
+    expect(render(fixture())).not.toContain("More turns than one read holds");
+  });
+});
+

@@ -14,7 +14,7 @@
  */
 
 import { CLOUDFLARE_GRAPHQL_URL, USD_PER_THOUSAND_NEURONS } from "./aiCostsCloudflare";
-import { texStats, type TexStatsEnv } from "./texStats";
+import { MAX_STATS_DAYS, texStats, type TexStatsEnv } from "./texStats";
 import { consoleCostsValidator, type ConsoleCosts } from "./consoleCostsShape";
 import {
   CLOUDFLARE_PAYER,
@@ -53,15 +53,27 @@ const MAX_BODY_CHARS = 8_000_000;
 /** Cloudflare's group ceilings per question. */
 const GATEWAY_LIMIT = 10_000;
 const AI_LIMIT = 1_000;
+/** How far back each dataset keeps its analytics, and the longest range one sub-query may span. */
+export const GATEWAY_RETENTION_DAYS = 62;
+export const WORKERS_AI_RETENTION_DAYS = 32;
+export const MAX_RANGE_DAYS = 31;
 
 
 export type ConsoleEnv = TexStatsEnv;
 
+/** Our turn log's read of the window (`consoleAi.meter`). */
+export interface ConsoleMeter {
+  jobUsd: number;
+  jobTurns: number;
+  answered: number;
+  truncated: boolean;
+}
+
 export interface ConsoleCostsOptions {
   fetchImpl?: typeof fetch;
   now?: number;
-  /** The background jobs' spend from our own meter in the window (`consoleAi.jobSpend`). */
-  meter?: { usd: number; turns: number };
+  /** The background jobs' spend and the answered texts from our own meter in the window. */
+  meter?: ConsoleMeter;
   /** Texts people sent in a window, or null when they could not be counted. Defaults to `texStats`. */
   texCounts?: (window: { from: number; to: number }) => Promise<number | null>;
 }
@@ -94,12 +106,32 @@ const DIM_FEATURE = 'feature:metadataValue(key:"feature")';
 const DIM_CLIENT = 'client:metadataValue(key:"client")';
 const DIM_PAYER = 'payer:metadataValue(key:"payer")';
 
-interface Sub {
-  alias: string;
+/** One question the window needs, before it is fitted to what Cloudflare keeps. */
+interface Logical {
+  base: string;
   kind: "gw" | "ai";
   from: number;
   to: number;
   dims: string[];
+}
+
+/** One GraphQL sub-query: a chunk of a logical range, with its own alias. */
+interface Sub extends Logical {
+  alias: string;
+}
+
+/**
+ * A range held to its dataset's retention (less one hour of slack) and cut into
+ * chunks of at most MAX_RANGE_DAYS. `clamped` when its start moved to fit.
+ */
+function fit(range: Logical, now: number): { chunks: Array<{ from: number; to: number }>; clamped: boolean } {
+  const keep = (range.kind === "gw" ? GATEWAY_RETENTION_DAYS : WORKERS_AI_RETENTION_DAYS) * DAY_MS;
+  const start = Math.max(range.from, now - keep + HOUR_MS);
+  const chunks: Array<{ from: number; to: number }> = [];
+  for (let from = start; from < range.to; from += MAX_RANGE_DAYS * DAY_MS) {
+    chunks.push({ from, to: Math.min(from + MAX_RANGE_DAYS * DAY_MS, range.to) });
+  }
+  return { chunks, clamped: start > range.from };
 }
 
 /** One GraphQL request carrying every sub-query, each with its own window variables. */
@@ -201,10 +233,11 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
   const win = consoleWindow(clampConsoleDays(days), now);
   const buckets = consoleBuckets(win.days, now);
   const bucketDim = buckets.hourly ? "datetimeHour" : "date";
+  const size = buckets.hourly ? HOUR_MS : DAY_MS;
+  // A row from before the first bucket is dropped (-1), never clamped into bar 0.
   const bucketIndex = (ms: number) => {
-    const size = buckets.hourly ? HOUR_MS : DAY_MS;
     const index = Math.floor((Math.floor(ms / size) * size - buckets.starts[0]) / size);
-    return Math.min(Math.max(index, 0), buckets.starts.length - 1);
+    return index >= 0 && index < buckets.starts.length ? index : -1;
   };
   const rowTime = (dims: Record<string, unknown> | undefined) => {
     const raw = text(dims?.[bucketDim]);
@@ -214,54 +247,47 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
   // Every credit key that is still open needs its own spend since it began.
   const open = CREDIT_KEYS.filter((credit) => !credit.spent);
   const windowPieces = pieces(win.from, win.to, Date.parse(CREDIT_KEYS[0].since));
-  const windowSubs: Sub[] = windowPieces.map((piece, i) => ({
-    alias: `w${i}`,
-    kind: "gw",
-    from: piece.from,
-    to: piece.to,
-    dims: [DIM_FEATURE, DIM_CLIENT, DIM_PAYER, "model", "wholesale", "statusCode", bucketDim],
-  }));
-  const subs: Sub[] = [
-    ...windowSubs,
-    { alias: "pr", kind: "gw", from: win.priorFrom, to: win.priorTo, dims: [DIM_FEATURE, DIM_CLIENT, "model"] },
-    { alias: "aw", kind: "ai", from: win.from, to: win.to, dims: ["modelId", bucketDim] },
-    { alias: "ap", kind: "ai", from: win.priorFrom, to: win.priorTo, dims: ["modelId"] },
+  const logical: Logical[] = [
+    ...windowPieces.map((piece, i) => ({
+      base: `w${i}`,
+      kind: "gw" as const,
+      from: piece.from,
+      to: piece.to,
+      dims: [DIM_FEATURE, DIM_CLIENT, DIM_PAYER, "model", "wholesale", "statusCode", bucketDim],
+    })),
+    { base: "pr", kind: "gw", from: win.priorFrom, to: win.priorTo, dims: [DIM_FEATURE, DIM_CLIENT, "model"] },
+    { base: "aw", kind: "ai", from: win.from, to: win.to, dims: ["modelId", bucketDim] },
+    { base: "ap", kind: "ai", from: win.priorFrom, to: win.priorTo, dims: ["modelId"] },
     ...open.map((credit, i) => ({
-      alias: `u${i}`,
+      base: `u${i}`,
       kind: "gw" as const,
       from: Date.parse(credit.since),
       to: now,
       dims: [DIM_PAYER, "wholesale"],
     })),
   ];
+  const fitted = logical.map((range) => ({ range, ...fit(range, now) }));
+  const subs: Sub[] = fitted.flatMap(({ range, chunks }) =>
+    chunks.map((chunk, k) => ({ ...range, alias: `${range.base}_${k}`, from: chunk.from, to: chunk.to })),
+  );
+  const fittedOf = (base: string) => fitted.find((f) => f.range.base === base)!;
+  const windowStarts = fitted.filter((f) => /^w\d+$/.test(f.range.base)).flatMap((f) => f.chunks.map((c) => c.from));
+  const coverageFrom = windowStarts.length > 0 ? Math.min(...windowStarts) : win.to;
+  const priorPartial = fittedOf("pr").clamped || fittedOf("ap").clamped;
 
   const answer = await askCloudflare(fetchImpl, token, accountId, subs);
   if (typeof answer === "string") {
     return {
-      configured: true,
-      error: answer,
-      days: win.days,
-      from: win.from,
-      to: win.to,
-      totalUsd: 0,
-      priorUsd: 0,
-      labRunsUsd: 0,
-      billedUsd: 0,
-      outOfPocketUsd: 0,
-      outOfPocketPeopleUsd: 0,
-      texts: null,
-      perTextUsd: null,
-      priorPerTextUsd: null,
-      devDaysLeft: null,
-      payers: [],
-      features: [],
-      daily: [],
-      texUsd: 0,
-      texSteps: [],
+      configured: true, error: answer, days: win.days, from: win.from, to: win.to, totalUsd: 0, priorUsd: 0,
+      labRunsUsd: 0, billedUsd: 0, outOfPocketUsd: 0, outOfPocketPeopleUsd: 0, texts: null, perTextUsd: null,
+      priorPerTextUsd: null, devDaysLeft: null, payers: [], features: [], daily: [], texUsd: 0, texSteps: [],
+      coverageFrom, priorPartial, answered: null, meterTruncated: false,
     };
   }
 
+  const rowsOf = (base: string): Row[] => subs.filter((s) => s.base === base).flatMap((s) => answer[s.alias] ?? []);
   const payerUsd = new Map<string, number>();
+  const payerAdd = (key: string, usd: number) => payerUsd.set(key, (payerUsd.get(key) ?? 0) + usd);
   let outOfPocketUsd = 0;
   let outOfPocketPeopleUsd = 0;
   let labRunsUsd = 0;
@@ -280,16 +306,13 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
         step.calls += calls;
       }
     }
-    if (Number.isFinite(at)) {
-      const index = bucketIndex(at);
-      daily[index].set(key, (daily[index].get(key) ?? 0) + usd);
-    }
+    const index = Number.isFinite(at) ? bucketIndex(at) : -1;
+    if (index >= 0) daily[index].set(key, (daily[index].get(key) ?? 0) + usd);
   };
 
   // The window: gateway rows, each one's payer, and the Workers AI rows.
-  for (let i = 0; i < windowSubs.length; i++) {
-    const piece = windowPieces[i];
-    for (const row of answer[windowSubs[i].alias]) {
+  windowPieces.forEach((piece, i) => {
+    for (const row of rowsOf(`w${i}`)) {
       const dims = row.dimensions ?? {};
       const feature = text(dims.feature);
       const client = text(dims.client);
@@ -299,8 +322,7 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
       const usd = finite(row.sum?.cost);
       // A refused attempt costs nothing and is not a call.
       const calls = ok ? Math.round(finite(row.count)) : 0;
-      const payer = payerKeyOf(text(dims.payer), wholesale, piece.beforeSince);
-      payerUsd.set(payer, (payerUsd.get(payer) ?? 0) + usd);
+      payerAdd(payerKeyOf(text(dims.payer), wholesale, piece.beforeSince), usd);
       if (wholesale) {
         outOfPocketUsd += usd;
         if (!LAB_FEATURES.has(feature)) outOfPocketPeopleUsd += usd;
@@ -309,18 +331,22 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
       if (bucket.kind === "lab") labRunsUsd += usd;
       place(bucket, model, usd, calls, rowTime(dims));
     }
-  }
-  for (const row of answer.aw) {
+  });
+  for (const row of rowsOf("aw")) {
     const dims = row.dimensions ?? {};
     const model = text(dims.modelId) || "unknown";
     const usd = (finite(row.sum?.totalNeurons) / 1000) * USD_PER_THOUSAND_NEURONS;
+    // Cloudflare bills Workers AI directly: it is out of pocket, and all of it is people's.
+    payerAdd(CLOUDFLARE_PAYER.key, usd);
+    outOfPocketUsd += usd;
+    outOfPocketPeopleUsd += usd;
     place(workersAiBucket(model), model, usd, Math.round(finite(row.count)), rowTime(dims));
   }
 
   // The window before: totals only, the test suites kept out.
   let priorUsd = 0;
   let priorTexUsd = 0;
-  for (const row of answer.pr) {
+  for (const row of rowsOf("pr")) {
     const dims = row.dimensions ?? {};
     const bucket = gatewayBucket(text(dims.feature), text(dims.client), text(dims.model) || "unknown");
     if (bucket.kind === "lab") continue;
@@ -328,7 +354,7 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
     priorUsd += usd;
     if (bucket.kind === "tex") priorTexUsd += usd;
   }
-  for (const row of answer.ap) {
+  for (const row of rowsOf("ap")) {
     const bucket = workersAiBucket(text(row.dimensions?.modelId));
     const usd = (finite(row.sum?.totalNeurons) / 1000) * USD_PER_THOUSAND_NEURONS;
     priorUsd += usd;
@@ -339,7 +365,7 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
   const usedBy = new Map<string, number>();
   open.forEach((credit, i) => {
     let used = 0;
-    for (const row of answer[`u${i}`]) {
+    for (const row of rowsOf(`u${i}`)) {
       const dims = row.dimensions ?? {};
       if (payerKeyOf(text(dims.payer), Number(dims.wholesale) === 1, false) === credit.key) used += finite(row.sum?.cost);
     }
@@ -347,13 +373,13 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
   });
 
   // Background jobs come out of the front door's cost, never more than it.
-  const meter = options.meter ?? { usd: 0, turns: 0 };
+  const meter = options.meter;
   const front = steps.get("fd")!;
   const job = steps.get("job")!;
-  const movedUsd = Math.min(finite(meter.usd), front.usd);
+  const movedUsd = Math.min(finite(meter?.jobUsd), front.usd);
   front.usd -= movedUsd;
   job.usd += movedUsd;
-  const movedCalls = Math.min(Math.max(0, Math.round(meter.turns)), front.calls);
+  const movedCalls = Math.min(Math.max(0, Math.round(meter?.jobTurns ?? 0)), front.calls);
   front.calls -= movedCalls;
   job.calls += movedCalls;
 
@@ -361,9 +387,11 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
   for (const f of features.values()) totalUsd += f.usd;
   const texUsd = features.get("tex")!.usd;
   const texCounts = options.texCounts ?? defaultTexCounts(env, fetchImpl);
+  // The texts are counted for at most MAX_STATS_DAYS back, so a prior window that starts before that is not counted.
+  const priorTextsKnown = win.priorFrom >= now - MAX_STATS_DAYS * DAY_MS;
   const [texts, priorTexts] = await Promise.all([
     texCounts({ from: win.from, to: win.to }),
-    texCounts({ from: win.priorFrom, to: win.priorTo }),
+    priorTextsKnown ? texCounts({ from: win.priorFrom, to: win.priorTo }) : null,
   ]);
   const perText = (usd: number, count: number | null) => (count !== null && count > 0 ? usd / count : null);
 
@@ -387,9 +415,10 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
   payers.push(payerRow(CLOUDFLARE_PAYER.key, CLOUDFLARE_PAYER.label, CLOUDFLARE_PAYER.note, null, null));
   if ((payerUsd.get("unknown") ?? 0) > 0) payers.push(payerRow("unknown", "Other payer", null, null, null));
 
+  // The dev key only began paying at its `since`: its pace is over the shorter of the window and its life so far.
   const dev = payers.find((p) => p.key === CREDIT_KEYS[0].key);
-  const devDaysLeft =
-    dev && dev.leftUsd !== null && dev.usd > 0 ? Math.round(dev.leftUsd / (dev.usd / win.days)) : null;
+  const paceDays = Math.max(Math.min(win.days, (now - Date.parse(CREDIT_KEYS[0].since)) / DAY_MS), 1 / 24);
+  const devDaysLeft = dev && dev.leftUsd !== null && dev.usd > 0 ? Math.round(dev.leftUsd / (dev.usd / paceDays)) : null;
 
   return {
     configured: true,
@@ -404,6 +433,10 @@ export async function consoleCosts(env: ConsoleEnv, days: number, options: Conso
     outOfPocketUsd: round(outOfPocketUsd),
     outOfPocketPeopleUsd: round(outOfPocketPeopleUsd),
     texts,
+    coverageFrom,
+    priorPartial,
+    answered: meter ? meter.answered : null,
+    meterTruncated: meter?.truncated ?? false,
     perTextUsd: perText(texUsd, texts),
     priorPerTextUsd: perText(priorTexUsd, priorTexts),
     devDaysLeft,

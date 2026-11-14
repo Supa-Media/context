@@ -2,8 +2,8 @@
  * AI costs: the artifact's `P.costs` (thread "Build console Turns and AI costs" ports it). The
  * page's HTML is in `costsView.ts`; this module fetches the data and holds the two acts.
  *
- * The costs action asks Cloudflare, so its answer is kept with the window it was asked for and
- * never shown for another window. The account report and a picked account are live queries.
+ * The costs action asks Cloudflare, so its answer is shared per window for 60 seconds (`costsFor`)
+ * and never shown for another window. The account report and a picked account are live queries.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useAction, useQuery } from "convex/react";
@@ -11,7 +11,7 @@ import { api } from "@context/convex/_generated/api";
 import { go, render, S, store } from "../state";
 import type { ConsolePage } from "../types";
 import { shut } from "../kit";
-import { accountPropsHtml, costsPageHtml, type CostsData, type CostsResult } from "./costsView";
+import { accountPropsHtml, costsFor, costsPageHtml, type CostsData, type CostsResult } from "./costsView";
 
 /** The open window's AI costs (`consoleAi.costs`), shared with Home's "Spent on AI" tile so both read one answer. Undefined while it loads. */
 export function useCosts(): CostsResult | undefined {
@@ -20,7 +20,7 @@ export function useCosts(): CostsResult | undefined {
   const [got, setGot] = useState<{ key: string; result: CostsResult } | null>(null);
   useEffect(() => {
     let live = true;
-    costs({ days: +key }).then(
+    costsFor(+key, (days) => costs({ days })).then(
       (result) => {
         if (live) setGot({ key, result });
       },

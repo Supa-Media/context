@@ -21,6 +21,8 @@ export const turns = query({
     days: v.optional(v.number()),
     end: v.optional(v.union(v.literal("all"), v.literal("trouble"))),
     q: v.optional(v.string()),
+    /** The window's end (the client's now, floored to the minute); absent means now. */
+    to: v.optional(v.number()),
   },
   returns: consoleTurnsValidator,
   handler: async (ctx, args) => {
@@ -31,30 +33,36 @@ export const turns = query({
   },
 });
 
-/** How many turns the job meter reads at most; a busier window leaves the rest on the front door. */
+/** How many turns the meter reads at most, newest first; an older rest is left out and flagged. */
 export const METER_ROW_LIMIT = 4000;
 
 /**
- * Background jobs' spend from our own meter (`agentTurns`, kind "job"): the
- * gateway's labels cannot tell a job's calls from the front door's. Counts and
- * cost only. Internal: only `costs` below calls it, after its staff check.
+ * Our own turn log's read of a window: background jobs' spend (kind "job"; the
+ * gateway's labels cannot tell a job's calls from the front door's) and the
+ * answered texts. Counts and cost only. Internal: only `costs` calls it, after
+ * its staff check.
  */
-export const jobSpend = internalQuery({
+export const meter = internalQuery({
   args: { from: v.number(), to: v.number() },
-  returns: v.object({ usd: v.number(), turns: v.number() }),
+  returns: v.object({ jobUsd: v.number(), jobTurns: v.number(), answered: v.number(), truncated: v.boolean() }),
   handler: async (ctx, args) => {
-    const rows = await ctx.db
+    const read = await ctx.db
       .query("agentTurns")
       .withIndex("by_at", (q) => q.gte("at", args.from).lt("at", args.to))
-      .take(METER_ROW_LIMIT);
+      .order("desc")
+      .take(METER_ROW_LIMIT + 1);
     let micro = 0;
-    let turns = 0;
-    for (const row of rows) {
-      if (row.kind !== "job") continue;
-      turns += 1;
-      micro += row.costMicroUsd ?? 0;
+    let jobTurns = 0;
+    let answered = 0;
+    for (const row of read.slice(0, METER_ROW_LIMIT)) {
+      if (row.kind === "job") {
+        jobTurns += 1;
+        micro += row.costMicroUsd ?? 0;
+      }
+      const kind = row.kind ?? "one";
+      if (row.outcome === "answered" && row.client === "texts" && (kind === "one" || kind === "group")) answered += 1;
     }
-    return { usd: micro / 1_000_000, turns };
+    return { jobUsd: micro / 1_000_000, jobTurns, answered, truncated: read.length > METER_ROW_LIMIT };
   },
 });
 
@@ -74,7 +82,7 @@ export const costs = action({
     const days = clampConsoleDays(args.days);
     const now = Date.now();
     const window = consoleWindow(days, now);
-    const meter = await ctx.runQuery(internal.functions.consoleAi.jobSpend, { from: window.from, to: window.to });
+    const meter = await ctx.runQuery(internal.functions.consoleAi.meter, { from: window.from, to: window.to });
     return await consoleCostsFn(
       {
         CLOUDFLARE_ANALYTICS_TOKEN: process.env.CLOUDFLARE_ANALYTICS_TOKEN,

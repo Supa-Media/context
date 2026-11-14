@@ -15,7 +15,7 @@ type Live = Extract<ConsoleCosts, { configured: true }>;
 
 const FEATURE_COLOUR: Record<string, string> = { tex: "c1", checkin: "c2", dream: "c3", meetings: "c4", search: "c5", other: "c6" };
 const PAYER_COLOUR: Record<string, string> = { dev: "c1", dev2: "c2", plan: "c3", cloudflare: "bad" };
-const ACCOUNT_COLOURS = ["c1", "c2", "c3", "c4", "c5", "c6"];
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MODEL_NAMES: Array<[string, string]> = [
   ["claude-opus-5-5", "Opus"],
   ["claude-haiku-5-5", "Haiku"],
@@ -32,6 +32,48 @@ const num = (n: number) => n.toLocaleString("en-US");
 const colourOf = (map: Record<string, string>, key: string) => map[key] ?? "c6";
 const modelName = (m: string) => MODEL_NAMES.find(([k]) => m === k || m.includes(k))?.[1] ?? m;
 const banner = (text: string, tone = "warn") => `<div class="banner ${tone}"><span class="tx">${text}</span></div>`;
+/** The account report's meter has no 24-hour window: its figures are the last 7 days when the page asks for a day. */
+export const accountWindow = (d: string) => (d === "1" ? "7 days" : WIN[d]);
+/** A bucket's UTC day as "Nov 3", the same days the daily chart draws. */
+const dayLabel = (ms: number) => {
+  const d = new Date(ms);
+  return `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCDate()}`;
+};
+/** The texts the per-text figures divide by: the texts answered when the server counts them, else the texts received. */
+export const textsDenominator = (c: Pick<Live, "answered" | "texts">): number | null =>
+  typeof c.answered === "number" && c.answered > 0 ? c.answered : c.texts;
+
+/** Module-level cache: one `consoleAi.costs` answer per window, shared by every mount for 60 seconds. */
+const COSTS_TTL_MS = 60_000;
+const costsCache = new Map<number, { at: number; promise: Promise<CostsResult> }>();
+
+/** The answer for `days`: the cached promise while it is fresh, else `run(days)`. A failure is not kept. */
+export function costsFor(days: number, run: (days: number) => Promise<CostsResult>): Promise<CostsResult> {
+  const now = Date.now();
+  const hit = costsCache.get(days);
+  if (hit && now - hit.at < COSTS_TTL_MS) return hit.promise;
+  const promise = run(days);
+  const entry = { at: now, promise };
+  costsCache.set(days, entry);
+  promise.catch(() => {
+    if (costsCache.get(days) === entry) costsCache.delete(days);
+  });
+  return promise;
+}
+
+/** Forgets every cached answer (tests). */
+export function resetCostsCache(): void {
+  costsCache.clear();
+}
+
+/** The staff console's feature keys for a meter feature name (`JEV_FEATURES` and the job names). */
+export function featureKeyOf(feature: string): string {
+  if (feature === "assistant" || feature.startsWith("tex")) return "tex";
+  if (feature === "meetingSummary") return "meetings";
+  if (["dream", "reflect", "daySummary", "housekeeping"].includes(feature)) return "dream";
+  if (feature === "heartbeat" || feature === "checkIn") return "checkin";
+  return "other";
+}
 
 /** The whole page: loading, a banner for a read that failed, or the artifact's layout. */
 export function costsPageHtml(costs: CostsResult | undefined, report: AiCostsReport | undefined): string {
@@ -41,6 +83,7 @@ export function costsPageHtml(costs: CostsResult | undefined, report: AiCostsRep
   if (costs.error) return banner(esc(costs.error));
   return (
     kpisHtml(costs) +
+    truncationBanners(costs) +
     `<div class="banner ok"><span class="tx">Matches Cloudflare: ${money(costs.billedUsd)} billed = ${money(costs.totalUsd)} for people + ${money(costs.labRunsUsd)} Lab test runs.</span></div>` +
     whoPaidPanel(costs) +
     dayPanel(costs) +
@@ -50,11 +93,19 @@ export function costsPageHtml(costs: CostsResult | undefined, report: AiCostsRep
   );
 }
 
+/** The banners under the KPIs: the background job split was cut short, or Cloudflare keeps less than the window. */
+function truncationBanners(c: Live): string {
+  const meter = c.meterTruncated ? banner("More turns than one read holds: the background job split covers the newest ones.") : "";
+  const coverage = c.coverageFrom > c.from ? banner(`Cloudflare keeps 62 days of gateway figures, so this covers from ${dayLabel(c.coverageFrom)}.`) : "";
+  return meter + coverage;
+}
+
 function kpisHtml(c: Live): string {
   const pct = c.priorUsd > 0 ? Math.round(((c.totalUsd - c.priorUsd) / c.priorUsd) * 100) : null;
+  const partial = c.priorPartial ? " (Cloudflare keeps 62 days, so the window before is partial)" : "";
   return (
     `<div class="kpis">` +
-    kpi("Spent on AI", money(c.totalUsd), pct === null ? "" : delta(pct, false, "%") + " on the window before") +
+    kpi("Spent on AI", money(c.totalUsd), pct === null ? "" : delta(pct, false, "%") + " on the window before" + partial) +
     kpi("Cost per text", c.perTextUsd === null ? "—" : money(c.perTextUsd), c.texts === null ? "" : `Tex replies ÷ ${num(c.texts)} texts`) +
     kpi("Lab test runs", money(c.labRunsUsd), "billed, not in the total") +
     kpi("Out of pocket", money(c.outOfPocketUsd), `of ${money(c.billedUsd)} billed; credits paid the rest`) +
@@ -121,11 +172,12 @@ function texPanel(c: Live): string {
     .filter((s) => s.usd > 0 || s.calls > 0)
     .sort((a, b) => b.usd - a.usd);
   const top = Math.max(0, ...rows.map((s) => s.share));
-  const meta = c.texts ? `${money(c.texUsd)} · ${money(c.texUsd / c.texts)} a text` : money(c.texUsd);
+  const answered = textsDenominator(c);
+  const meta = answered ? `${money(c.texUsd)} · ${money(c.texUsd / answered)} a text` : money(c.texUsd);
   const body = rows
     .map(
       (s) =>
-        `<tr><td>${esc(s.label)}</td><td class="hp">${esc(TEX_MODEL[s.model] ?? s.model)}</td><td class="r hp">${num(s.calls)}</td><td><span class="tr" style="display:inline-block;width:100%;max-width:160px;height:6px;border-radius:3px;background:var(--track);vertical-align:middle"><span style="display:block;height:100%;width:${top > 0 ? (s.share / top) * 100 : 0}%;border-radius:3px;background:var(--c1)"></span></span> <span class="sub">${(Math.round(s.share * 1000) / 10).toFixed(1)}%</span></td><td class="r">${money(s.usd)}</td><td class="r hp">${c.texts ? money(s.usd / c.texts, 3) : "—"}</td></tr>`,
+        `<tr><td>${esc(s.label)}</td><td class="hp">${esc(TEX_MODEL[s.model] ?? s.model)}</td><td class="r hp">${num(s.calls)}</td><td><span class="tr" style="display:inline-block;width:100%;max-width:160px;height:6px;border-radius:3px;background:var(--track);vertical-align:middle"><span style="display:block;height:100%;width:${top > 0 ? (s.share / top) * 100 : 0}%;border-radius:3px;background:var(--c1)"></span></span> <span class="sub">${(Math.round(s.share * 1000) / 10).toFixed(1)}%</span></td><td class="r">${money(s.usd)}</td><td class="r hp">${answered ? money(s.usd / answered, 3) : "—"}</td></tr>`,
     )
     .join("");
   const off = c.texSteps.filter((s) => !s.on).map((s) => s.label);
@@ -134,18 +186,28 @@ function texPanel(c: Live): string {
   return panel("c-tex", "Tex replies by step", meta, table + footer, `<a class="link" href="https://context.lc/lab" target="_blank" rel="noopener">Each step in the Lab ↗</a>`);
 }
 
+/** The Split bar: one segment per feature key, coloured as the feature legend, widths from the account's cost. */
+function splitOf(byFeature: Array<{ feature: string; costUsd: number }>, total: number): string {
+  const sums = new Map<string, number>();
+  for (const f of byFeature) {
+    const key = featureKeyOf(f.feature);
+    sums.set(key, (sums.get(key) ?? 0) + f.costUsd);
+  }
+  return [...sums].map(([key, usd]) => `<i style="width:${(usd / total) * 100}%;background:var(--${colourOf(FEATURE_COLOUR, key)})"></i>`).join("");
+}
+
 function accountsPanel(report: AiCostsReport | undefined): string {
   const title = "By account";
-  const meta = "an account pays for the workspaces it owns";
+  const meta = S.d === "1" ? "last 7 days; an account pays for the workspaces it owns" : "an account pays for the workspaces it owns";
   if (!report) return panel("c-acc", title, meta, `<div class="empty">Loading…</div>`);
   const rows = report.accounts
     .map((a) => {
-      const split = a.costUsd > 0 ? a.byFeature.map((f, i) => `<i style="width:${(f.costUsd / a.costUsd) * 100}%;background:var(--${ACCOUNT_COLOURS[i % ACCOUNT_COLOURS.length]})"></i>`).join("") : "";
+      const split = a.costUsd > 0 ? splitOf(a.byFeature, a.costUsd) : "";
       return `<tr class="click" tabindex="0" data-act="sel" data-id="${esc(a.userId)}" aria-selected="${S.x === a.userId}"><td>${esc(a.name ?? a.email ?? a.userId)} <span class="sub">${esc(a.handle ? "@" + a.handle : a.name ? a.email ?? "" : "")}</span></td><td class="hp" style="width:140px"><div class="share">${split}</div></td><td class="r">${money(a.costUsd)}</td></tr>`;
     })
     .join("");
   const more = report.moreAccounts > 0 ? `<div class="sub" style="margin-top:8px">+ ${plural(report.moreAccounts, "more account", "more accounts")}</div>` : "";
-  const body = `<div class="tbl"><table><tr><th>Account</th><th class="hp">Split</th><th class="r">Cost</th></tr>${rows || `<tr><td colspan="3" class="empty">Nobody spent in ${WIN[S.d]}</td></tr>`}</table></div>${more}`;
+  const body = `<div class="tbl"><table><tr><th>Account</th><th class="hp">Split</th><th class="r">Cost</th></tr>${rows || `<tr><td colspan="3" class="empty">Nobody spent in ${accountWindow(S.d)}</td></tr>`}</table></div>${more}`;
   return panel("c-acc", title, meta, body);
 }
 
@@ -163,10 +225,10 @@ export function accountPropsHtml(account: AiCostsAccount | null | undefined, x: 
     : `<div class="sub">No capped features today</div>`;
   const ws = account.rows.length
     ? account.rows.map((r) => `<tr><td>@${esc(r.workspace)}</td><td>${esc(r.label)}</td><td class="r">${money(r.costUsd)}</td></tr>`).join("")
-    : `<tr><td colspan="3" class="empty">Nothing spent in ${WIN[S.d]}</td></tr>`;
+    : `<tr><td colspan="3" class="empty">Nothing spent in ${accountWindow(S.d)}</td></tr>`;
   return (
     head +
-    `<div class="kpis">${kpi("AI, " + WIN[S.d], money(account.totalUsd))}${kpi("Per text", account.perQuestionUsd === null ? "—" : money(account.perQuestionUsd))}</div>` +
+    `<div class="kpis">${kpi("AI, " + accountWindow(S.d), money(account.totalUsd))}${kpi("Per text", account.perQuestionUsd === null ? "—" : money(account.perQuestionUsd))}</div>` +
     `<div class="ppb"><div class="h">Today against today's limits</div>${limits}</div>` +
     `<div class="ppb"><div class="h">By workspace</div><div class="tbl"><table>${ws}</table></div></div>` +
     `<button class="link" data-act="person" data-id="${esc(account.userId)}">Open in People</button>`

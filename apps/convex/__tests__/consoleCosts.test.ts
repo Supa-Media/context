@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import {
   CREDIT_KEYS,
+  type ConsoleMeter,
   TEX_STEPS,
   clampConsoleDays,
   consoleBuckets,
@@ -11,6 +12,9 @@ import {
 } from "../functions/lib/adminFns/consoleCosts";
 import { USD_PER_THOUSAND_NEURONS } from "../functions/lib/adminFns/aiCostsCloudflare";
 import { CLEF_MODEL, GLM_MODEL } from "../functions/lib/adminFns/consoleCostsMap";
+import { GATEWAY_RETENTION_DAYS, MAX_RANGE_DAYS, WORKERS_AI_RETENTION_DAYS } from "../functions/lib/adminFns/consoleCosts";
+
+const DAY = 86_400_000;
 
 /**
  * THE AI COSTS PAGE'S NUMBERS, FROM A STUB CLOUDFLARE.
@@ -40,7 +44,9 @@ function cloudflare(fixture: Fixture, status = 200) {
     requests.push(body);
     if (status !== 200) return new Response("the body echoes Bearer fixture-analytics-token-not-real", { status });
     const aliases = [...body.query.matchAll(/(\w+):(?:aiGatewayRequestsAdaptiveGroups|aiInferenceAdaptiveGroups)\(/g)].map((m) => m[1]);
-    const rows = Object.fromEntries(aliases.map((alias) => [alias, fixture[alias] ?? []]));
+    // A chunk's rows are keyed by its full alias, or a single-chunk range by its base name (`w1` for `w1_0`).
+    const rowsFor = (alias: string) => fixture[alias] ?? (alias.endsWith("_0") ? fixture[alias.slice(0, -2)] : undefined) ?? [];
+    const rows = Object.fromEntries(aliases.map((alias) => [alias, rowsFor(alias)]));
     return new Response(JSON.stringify({ data: { viewer: { accounts: [rows] } }, errors: null }), { status: 200 });
   }) as unknown as typeof fetch;
   return { requests, fetchImpl };
@@ -82,7 +88,7 @@ const OPUS = "anthropic/claude-opus-5-5";
 const run = (
   days: number,
   fixture: Fixture,
-  options: { now?: number; texCounts?: typeof NO_TEXTS; meter?: { usd: number; turns: number } } = {},
+  options: { now?: number; texCounts?: typeof NO_TEXTS; meter?: ConsoleMeter } = {},
   status = 200,
 ) => {
   const stub = cloudflare(fixture, status);
@@ -138,11 +144,46 @@ describe("consoleCosts: configuration and the window", () => {
   test("a window that starts before the credit keys is cut at their start, and only then", async () => {
     const { requests } = await run(7, {});
     const variables = requests[0].variables;
-    expect(variables.w0E).toBe(new Date(SINCE).toISOString());
-    expect(variables.w1S).toBe(new Date(SINCE).toISOString());
+    expect(variables.w0_0E).toBe(new Date(SINCE).toISOString());
+    expect(variables.w1_0S).toBe(new Date(SINCE).toISOString());
     const after = await run(1, {}, { now: Date.UTC(2026, 10, 20, 12, 0) });
-    expect(after.requests[0].query).toContain("w0:aiGatewayRequestsAdaptiveGroups");
-    expect(after.requests[0].query).not.toContain("w1:");
+    expect(after.requests[0].query).toContain("w0_0:aiGatewayRequestsAdaptiveGroups");
+    expect(after.requests[0].query).not.toContain("w1_0:");
+  });
+
+  test("a 90-day request sends no range older than its dataset keeps, none over 31 days, and merges the chunks", async () => {
+    const { requests, result } = await run(90, {
+      w0_0: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 1 })],
+      w0_1: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 2 })],
+    });
+    const query = requests[0].query;
+    const kinds = new Map([...query.matchAll(/(\w+):(aiGatewayRequestsAdaptiveGroups|aiInferenceAdaptiveGroups)\(/g)].map((m) => [m[1], m[2]]));
+    expect([...kinds.keys()]).toContain("w0_1");
+    expect(MAX_RANGE_DAYS).toBe(31);
+    for (const [alias, field] of kinds) {
+      const variables = requests[0].variables;
+      const from = Date.parse(variables[`${alias}S`]);
+      const to = Date.parse(variables[`${alias}E`]);
+      const keep = field.startsWith("aiGateway") ? GATEWAY_RETENTION_DAYS : WORKERS_AI_RETENTION_DAYS;
+      expect(from).toBeGreaterThanOrEqual(NOW - keep * DAY);
+      expect(to).toBeGreaterThan(from);
+      expect(to - from).toBeLessThanOrEqual(MAX_RANGE_DAYS * DAY);
+    }
+    // Both chunks' rows count toward the front door.
+    expect(step(result, "fd").usd).toBeCloseTo(3);
+  });
+
+  test("the window's gateway figures start at the clamp, and a prior window past retention is partial", async () => {
+    const seven = await run(7, {});
+    expect(configured(seven.result).coverageFrom).toBe(NOW - 7 * DAY);
+    expect(configured(seven.result).priorPartial).toBe(false);
+    // Workers AI keeps 32 days, so a 30-day prior window reaches past it.
+    const thirty = await run(30, {});
+    expect(configured(thirty.result).coverageFrom).toBe(NOW - 30 * DAY);
+    expect(configured(thirty.result).priorPartial).toBe(true);
+    const ninety = await run(90, {});
+    expect(configured(ninety.result).coverageFrom).toBe(NOW - GATEWAY_RETENTION_DAYS * DAY + 3_600_000);
+    expect(configured(ninety.result).priorPartial).toBe(true);
   });
 
   test("the window's requests ask for the dimensions the attribution needs, and one request carries them all", async () => {
@@ -229,6 +270,24 @@ describe("consoleCosts: attribution", () => {
     expect(step(result, "fd").usd).toBeCloseTo(2);
   });
 
+  test("Workers AI is out of pocket and people's, and the payers sum to billed", async () => {
+    const fixture = {
+      w1: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 2 }), gw({ f: "benchmark", model: HAIKU, cost: 3 })],
+      aw: [ai(CLEF_MODEL, 1000), ai("@cf/baai/bge-m3", 4000)],
+    };
+    const { result } = await run(7, fixture);
+    const c = configured(result);
+    const workersUsd = c.features.reduce((sum, f) => (f.key === "tex" || f.key === "search" ? sum + f.usd : sum), 0);
+    expect(payer(result, "cloudflare").usd).toBeCloseTo(
+      (1000 / 1000 + 4000 / 1000) * USD_PER_THOUSAND_NEURONS,
+    );
+    expect(c.outOfPocketUsd).toBeCloseTo(payer(result, "cloudflare").usd);
+    expect(c.outOfPocketPeopleUsd).toBeCloseTo(payer(result, "cloudflare").usd);
+    expect(workersUsd).toBeGreaterThan(0);
+    const paid = c.payers.reduce((sum, p) => sum + p.usd, 0);
+    expect(paid).toBeCloseTo(c.billedUsd);
+  });
+
   test("wholesale spend is out of pocket, and it is the Cloudflare payer", async () => {
     const fixture = {
       w1: [
@@ -242,7 +301,7 @@ describe("consoleCosts: attribution", () => {
     expect(c.outOfPocketUsd).toBeCloseTo(5);
     expect(c.outOfPocketPeopleUsd).toBeCloseTo(2);
     expect(payer(result, "cloudflare").usd).toBeCloseTo(5);
-    expect(payer(result, "cloudflare").note).toBe("Cloudflare Unified Billing");
+    expect(payer(result, "cloudflare").note).toBe("Cloudflare Unified Billing and Workers AI");
     expect(payer(result, "dev").usd).toBe(0);
   });
 
@@ -269,7 +328,7 @@ describe("consoleCosts: attribution", () => {
       w1: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 0.9 })],
     };
     const { result, requests } = await run(7, fixture);
-    expect(requests[0].variables.w0S).toBe(new Date(NOW - 7 * 86_400_000).toISOString());
+    expect(requests[0].variables.w0_0S).toBe(new Date(NOW - 7 * 86_400_000).toISOString());
     expect(payer(result, "plan").usd).toBeCloseTo(0.7);
     expect(payer(result, "dev").usd).toBeCloseTo(0.9);
     expect(payer(result, "dev2").usd).toBe(0);
@@ -290,14 +349,28 @@ describe("consoleCosts: attribution", () => {
 
   test("days of the dev credit left is its left balance over its pace in the window", async () => {
     const fixture = {
-      w1: [gw({ f: "assistant", c: "texts", model: HAIKU, p: "dev-claude-credits", cost: 10 })],
+      w1: [gw({ f: "assistant", c: "texts", model: HAIKU, p: "dev-claude-credits", cost: 10, date: "2026-11-14" })],
       u0: [gw({ p: "dev-claude-credits", cost: 40 })],
     };
-    const { result } = await run(7, fixture);
-    // 60 left, spent 10 in 7 days: 60 / (10 / 7) = 42.
-    expect(configured(result).devDaysLeft).toBe(42);
+    // The key began two days before `now`, so the pace is over two days (shorter than the 7-day window): 10 / 2 = 5 a day.
+    const now = Date.parse(CREDIT_KEYS[0].since) + 2 * DAY;
+    const { result } = await run(7, fixture, { now });
+    // 60 left at 5 a day: 12 days.
+    expect(configured(result).devDaysLeft).toBe(12);
+    // A key older than the window is paced over the window: 60 / (10 / 7) = 42.
+    // With the key older than the window, the whole window is one piece: its spend sits in w0.
+    const olderFixture = { w0: fixture.w1, u0: fixture.u0 };
+    const older = await run(7, olderFixture, { now: Date.parse(CREDIT_KEYS[0].since) + 30 * DAY });
+    expect(configured(older.result).devDaysLeft).toBe(42);
     const none = await run(7, { u0: [gw({ p: "dev-claude-credits", cost: 40 })] });
     expect(configured(none.result).devDaysLeft).toBeNull();
+  });
+
+  test("the dev pace never divides by less than an hour's sliver of a day", async () => {
+    const fixture = { w1: [gw({ f: "assistant", c: "texts", model: HAIKU, p: "dev-claude-credits", cost: 1, date: "2026-11-14" })], u0: [gw({ p: "dev-claude-credits", cost: 40 })] };
+    const { result } = await run(7, fixture, { now: Date.parse(CREDIT_KEYS[0].since) + 60_000 });
+    // Pace floored at 1/24 day: 1 / (1/24) = 24 a day; 60 left is 2.5 days, rounded to 3.
+    expect(configured(result).devDaysLeft).toBe(3);
   });
 });
 
@@ -318,16 +391,38 @@ describe("consoleCosts: calls, meter and texts", () => {
     const fixture = {
       w1: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 1, count: 4 })],
     };
-    const { result } = await run(7, fixture, { meter: { usd: 0.4, turns: 3 } });
+    const { result } = await run(7, fixture, { meter: { jobUsd: 0.4, jobTurns: 3, answered: 4, truncated: false } });
     expect(step(result, "fd").usd).toBeCloseTo(0.6);
     expect(step(result, "job").usd).toBeCloseTo(0.4);
     expect(step(result, "job").calls).toBe(3);
     expect(step(result, "fd").calls).toBe(1);
     expect(configured(result).texUsd).toBeCloseTo(1);
 
-    const { result: capped } = await run(7, fixture, { meter: { usd: 9, turns: 9 } });
+    const { result: capped } = await run(7, fixture, { meter: { jobUsd: 9, jobTurns: 9, answered: 0, truncated: false } });
     expect(step(capped, "job").usd).toBeCloseTo(1);
     expect(step(capped, "fd").usd).toBe(0);
+  });
+
+  test("the meter's answered count and truncation come back; without a meter they are null and false", async () => {
+    const fixture = { w1: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 1 })] };
+    const { result } = await run(7, fixture, { meter: { jobUsd: 0, jobTurns: 0, answered: 12, truncated: true } });
+    expect(configured(result).answered).toBe(12);
+    expect(configured(result).meterTruncated).toBe(true);
+    const none = await run(7, fixture);
+    expect(configured(none.result).answered).toBeNull();
+    expect(configured(none.result).meterTruncated).toBe(false);
+  });
+
+  test("a prior window that starts more than 60 days back is not counted, and its per-text cost is null", async () => {
+    const seen: number[] = [];
+    const counts = async (w: { from: number }) => {
+      seen.push(w.from);
+      return 5;
+    };
+    const { result } = await run(90, { w1: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 4 })] }, { texCounts: counts });
+    expect(configured(result).priorPerTextUsd).toBeNull();
+    expect(configured(result).perTextUsd).toBeCloseTo(0.8);
+    expect(seen).toEqual([NOW - 90 * DAY]);
   });
 
   test("per-text cost divides Tex's spend by the texts people sent, and the prior window's the same", async () => {
@@ -363,6 +458,20 @@ describe("consoleCosts: calls, meter and texts", () => {
     ]);
     expect(daily.slice(0, 6).every((d) => d.byFeature.length === 0)).toBe(true);
     expect(daily[6].byFeature).toEqual([{ key: "tex", usd: 1 }]);
+  });
+
+  test("rows dated before the first bucket are dropped, not clamped into bar 0", async () => {
+    const fixture = {
+      w0_0: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 5, date: "2026-11-07" })],
+      w1_0: [gw({ f: "assistant", c: "texts", model: HAIKU, cost: 1, date: "2026-11-14" })],
+    };
+    const { result } = await run(7, fixture);
+    const c = configured(result);
+    expect(feature(result, "tex").usd).toBeCloseTo(6);
+    expect(c.daily[0].byFeature).toEqual([]);
+    const daily = c.daily.reduce((sum, d) => sum + d.byFeature.reduce((s, f) => s + f.usd, 0), 0);
+    expect(daily).toBeCloseTo(1);
+    expect(c.daily[6].byFeature).toEqual([{ key: "tex", usd: 1 }]);
   });
 
   test("a one-day window is 24 hourly buckets", async () => {
