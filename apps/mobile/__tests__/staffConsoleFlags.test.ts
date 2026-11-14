@@ -86,9 +86,10 @@ beforeEach(() => {
 });
 
 describe("Flags page: render", () => {
-  it("draws the Features and Tester groups panels while loading", () => {
+  it("draws no panel the artifact lacks while loading: a Loading line, then Tester groups", () => {
     const html = flagsPage.render!(undefined);
-    expect(html).toContain("Features");
+    expect(html).not.toContain("Features");
+    expect(html).not.toContain('data-k="fl-flags"');
     expect(html).toContain("Tester groups");
     expect(html.match(/class="empty">Loading…/g)?.length).toBe(2);
   });

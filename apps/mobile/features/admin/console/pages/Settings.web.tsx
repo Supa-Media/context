@@ -66,7 +66,7 @@ function linksPanel(d: SettingsData | undefined) {
               : `<button class="ghost danger" data-act="askrmlink" data-id="${id}">Delete</button>`;
           return `<tr><td>${esc(l.kind)}</td><td>${esc(l.label)}</td><td class="mono hp">${esc(l.url)}</td><td class="hp">${AUDIENCE[l.audience] ?? esc(l.audience)}</td><td class="r">${del}</td></tr>`;
         })
-        .join("")}</table></div>${adding}`
+        .join("") || '<tr><td colspan="5" class="empty">No community links yet</td></tr>'}</table></div>${adding}`
     : d?.links instanceof Error
       ? '<div class="empty">Couldn\'t load the community links.</div>'
       : LOADING;

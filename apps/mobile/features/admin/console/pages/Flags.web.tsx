@@ -7,7 +7,7 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { relativeTime } from "../../report";
+import { ago } from "./ago";
 import { confirmBox, esc, panel } from "../kit";
 import { S, render, toast } from "../state";
 import type { ConsolePage } from "../types";
@@ -99,7 +99,7 @@ function flagPanel(flag: Flag, confirmingAll: boolean) {
     label,
     `<span class="mono">${id}</span>`,
     `<div class="sub" style="margin-bottom:8px">${esc(flag.description)}</div><div class="row" style="margin-bottom:10px">${modeSeg(flag.id, flag.mode)}<span class="sub">${esc(expiryWords(flag.daysLeft, flag.expires))}${
-      flag.updatedAt === null ? "" : ` · changed ${esc(relativeTime(flag.updatedAt))}`
+      flag.updatedAt === null ? "" : ` · changed ${esc(ago(flag.updatedAt))}`
     }</span></div>${
       confirmingAll
         ? `<div class="row" style="margin-bottom:10px">${confirmBox(`Turn ${label} on for every account?`, "Turn on for everyone", "flagall", flag.id)}</div>`
@@ -139,7 +139,8 @@ export const flagsPage: ConsolePage<FlagsData> = {
   useData: useFlagsData,
   render: (d) => {
     const listed = d?.listed;
-    if (!listed) return panel("fl-flags", "Features", "", LOADING) + groupsPanel(undefined, false);
+    // The artifact has one panel per flag and no panel around them, so loading is the flags' place saying so.
+    if (!listed) return LOADING + groupsPanel(undefined, false);
     const flags = listed.flags.length
       ? listed.flags.map((f) => flagPanel(f, S.confirm === "flagall" + f.id)).join("")
       : '<div class="empty">No flags yet. A flag is added in code, in packages/shared/src/flags.cjs, with the day it expires.</div>';
