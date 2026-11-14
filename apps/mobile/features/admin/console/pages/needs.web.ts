@@ -17,17 +17,13 @@ import { esc } from "../kit";
 import { S } from "../state";
 import type { Need } from "../types";
 import { needsList, type NeedLine, type NeedsSources } from "./homeData";
+import { TEX_CLOSED } from "./reports/model";
 import { useSharedReport } from "./sharedReads.web";
 
 type LightNeeds = FunctionReturnType<typeof api.functions.consoleHome.needs>;
 type Turns = FunctionReturnType<typeof api.functions.admin.agentReport>;
 type Triage = FunctionReturnType<typeof api.functions.texDashboard.triage>;
 
-/**
- * A Tex report's statuses that are no longer open, as the Reports page reads them (`reports/model.ts`): "3 open
- * reports, 2 texted to Tex" counts the same reports that page lists as open.
- */
-const TEX_CLOSED = new Set(["triage", "triaged", "fixing", "fixed", "retired"]);
 
 /** Open Tex reports on the bugs desk; null when the desk is not pinned or this staff member is not on it. */
 export function openTexReports(triage: Triage | undefined): number | null | undefined {
