@@ -59,7 +59,12 @@ change. A session that wrote the change must never act as its examiner.
 5. When the gate exits, make the note with
    `pnpm ai socket note --dir $SOCK --sha <full head sha> --by "<this session's link>" --out note.md`
    and write it with your Context connection to
-   `@context-lc ai/results/examiner/<full head sha>.md`. Then dispatch **Tex replay** on the branch with `examiner: true`. CI
+   `@context-lc ai/results/examiner/<full head sha>.md`. A large answer set
+   (the core area's is about 170 KB) is split into notes of about 40 KB, which
+   a connector accepts: the command writes `note.md`, `note-2.md` and so on,
+   and prints where each goes (`<sha>.md`, `<sha>-2.md`, ...). Write every
+   part; CI reads them all back and refuses a set with a part missing or from
+   another run. Then dispatch **Tex replay** on the branch with `examiner: true`. CI
    rebuilds every call from the commit, answers each from the published
    answers (a call with no answer fails the run), and scores and compares
    against main itself.
