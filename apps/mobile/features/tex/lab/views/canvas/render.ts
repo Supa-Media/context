@@ -91,6 +91,59 @@ function splitHtml(sim: Sim, g: LabGraph, id: string, ownColour: string): string
   return `<g class="split"><title>${esc(tip)}</title>${segs}</g>`;
 }
 
+/**
+ * Where along a step's run it worked on its own and where it stood waiting on a helper, as fractions of its time in
+ * order (Dev2, 2026-11-14: "outlined green for the time spent doing the stuff in the node, but then start outlining
+ * blue when we got to the helpers ... like physically not temporaly"). Measured helpers sit where they ran; estimated
+ * ones are spread between equal stretches of its own work, as a model thinks, calls, then thinks again.
+ */
+export function ringSegments(sim: Sim, g: LabGraph, id: string): Array<{ a: number; b: number; wait: boolean }> {
+  const t = sim.T[id];
+  const helpers = g.edges.filter((e) => e.from === id && e.mode === "uses").map((e) => e.to);
+  if (!t || t.end <= t.start || !helpers.length) return [{ a: 0, b: 1, wait: false }];
+  const len = t.end - t.start;
+  const placed = helpers
+    .map((h) => sim.T[h])
+    .filter((h): h is NonNullable<typeof h> => !!h && h.end > h.start)
+    .map((h) => [Math.max(0, (h.start - t.start) / len), Math.min(1, (h.end - t.start) / len)] as [number, number])
+    .filter(([a, b]) => b > a);
+  let spans: Array<[number, number]> = placed;
+  if (!spans.length) {
+    const parts = (t.parts ?? []).filter((p) => p.ms > 0);
+    const total = parts.reduce((a, p) => a + p.ms, 0);
+    const waits = parts.filter((p) => !p.own);
+    if (!total || !waits.length) return [{ a: 0, b: 1, wait: false }];
+    const ownPiece = (parts.filter((p) => p.own).reduce((a, p) => a + p.ms, 0) / (waits.length + 1)) / total;
+    let x = ownPiece;
+    spans = waits.map((p) => {
+      const span: [number, number] = [x, x + p.ms / total];
+      x = span[1] + ownPiece;
+      return span;
+    });
+  }
+  spans.sort((p, q) => p[0] - q[0]);
+  const out: Array<{ a: number; b: number; wait: boolean }> = [];
+  let at = 0;
+  for (const [a, b] of spans) {
+    if (b <= at) continue;
+    if (a > at) out.push({ a: at, b: a, wait: false });
+    out.push({ a: Math.max(a, at), b, wait: true });
+    at = b;
+  }
+  if (at < 1) out.push({ a: at, b: 1, wait: false });
+  return out;
+}
+
+/** The ring around a running step, filled to `p` (0 to 1): green over its own work, blue over each helper's wait. */
+function ringHtml(sim: Sim, g: LabGraph, id: string, p: number): string {
+  const segs = ringSegments(sim, g, id);
+  if (segs.length === 1) return `<rect class="ring" width="${W}" height="${H}" rx="12" pathLength="100" stroke-dasharray="${(p * 100).toFixed(1)} 100"/>`;
+  return segs
+    .filter((x) => x.a < p)
+    .map((x) => `<rect class="ring seg${x.wait ? " wait" : ""}" width="${W}" height="${H}" rx="12" pathLength="100" stroke-dasharray="${((Math.min(x.b, p) - x.a) * 100).toFixed(1)} 200" stroke-dashoffset="${(-x.a * 100).toFixed(1)}"/>`)
+    .join("");
+}
+
 /** A step's time over it: measured as is, an estimate beside measured ones marked "≈", or "inside" a step. */
 function timeLabel(sim: Sim, id: string): string {
   const t = sim.T[id];
@@ -131,9 +184,6 @@ export function renderGraphHtml(
   // While playing, how far through each running step is (0 to 1), drawn as a ring filling around it.
   const ring = (id: string) => (litId instanceof Map ? (litId.get(id) ?? null) : null);
   const lit = (id: string) => (fade === "off" ? !!node(id, g)?.on : reached(id));
-  // Running and waiting on a helper that is running now (Dev2, 2026-11-14: "green when its running through its regular
-  // process/reasoning, and then blue whenever its making a helper call").
-  const waiting = (id: string) => litId instanceof Map && g.edges.some((e) => e.from === id && e.mode === "uses" && litId.has(e.to));
   let h = `<defs>${Object.entries(WIRES)
     .map(
       ([k, w]) =>
@@ -165,7 +215,7 @@ export function renderGraphHtml(
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
     const time = timeLabel(sim, n.id);
     h += `<g class="nd ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
-      <rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? `<rect class="ring${waiting(n.id) ? " wait" : ""}" width="${W}" height="${H}" rx="12" pathLength="100" stroke-dasharray="${(ring(n.id)! * 100).toFixed(1)} 100"/>` : ""}
+      <rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? ringHtml(sim, g, n.id, ring(n.id)!) : ""}
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>
       <text class="ttl" x="62" y="28">${esc(n.label.length > 15 ? n.label.slice(0, 14) + "…" : n.label)}</text>

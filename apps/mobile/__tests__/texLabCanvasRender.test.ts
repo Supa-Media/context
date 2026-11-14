@@ -26,6 +26,7 @@ import {
   keywHtml,
   renderFocusCanvasHtml,
   renderGraphHtml,
+  ringSegments,
   statsHtml,
   wirePath,
   zoomCam,
@@ -253,13 +254,25 @@ describe("a step that waits on helpers (Dev2, 2026-11-14: \"is the 3 second tool
   });
 });
 
-test("a running step's outline is green at its own work and blue while a helper it waits on runs (Dev2, 2026-11-14)", () => {
+test("a running step's outline is green along its own work and blue along each helper's wait, by place (Dev2, 2026-11-14)", () => {
   const s = simulate(G(), "own", null, { reply: 13000, ms: { door: 700, fd: 9800, tools: 3200 }, calls: { fd: 3 } });
-  const ringOf = (lit: Map<string, number>) => {
-    const html = renderGraphHtml(G(), s, [], null, lit);
-    const fd = html.slice(html.indexOf('data-id="fd"'));
-    return fd.slice(fd.indexOf("<rect class=\"ring"), fd.indexOf("pathLength"));
+  const ringsOf = (p: number) => {
+    const html = renderGraphHtml(G(), s, [], null, new Map([["fd", p]]));
+    const fd = html.slice(html.indexOf('data-id="fd"'), html.indexOf("</g>", html.indexOf('data-id="fd"')));
+    return [...fd.matchAll(/<rect class="(ring[^"]*)"[^>]*stroke-dasharray="([\d.]+) [^"]*"/g)].map((m) => [m[1], Number(m[2])]);
   };
-  expect(ringOf(new Map([["fd", 0.3]]))).toContain('class="ring"');
-  expect(ringOf(new Map([["fd", 0.5], ["tools", 0.2]]))).toContain('class="ring wait"');
+  // Estimated: its own work in two halves around the tools' wait: green, blue, green.
+  const segs = ringSegments(s, G(), "fd");
+  expect(segs.map((x) => x.wait)).toEqual([false, true, false]);
+  expect(segs[1].b - segs[1].a).toBeCloseTo(3200 / 13000, 5);
+  // Early on only the green stretch is drawn; past the wait the ring is green, blue, then green again.
+  expect(ringsOf(0.2)).toEqual([["ring seg", 20]]);
+  expect(ringsOf(0.9).map((r) => r[0])).toEqual(["ring seg", "ring seg wait", "ring seg"]);
+  // Measured: the helper sits where it ran.
+  const real = { ...s, T: { ...s.T, tools: { ...s.T.fd, start: s.T.fd.start + 1300, end: s.T.fd.start + 4500, parts: [] } } };
+  const at = ringSegments(real, G(), "fd");
+  expect(at[1].wait).toBe(true);
+  expect(at[1].a).toBeCloseTo(1300 / 13000, 5);
+  // A step with no helpers keeps its one green ring.
+  expect(ringSegments(s, G(), "send")).toEqual([{ a: 0, b: 1, wait: false }]);
 });

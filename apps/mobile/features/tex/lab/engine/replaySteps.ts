@@ -23,7 +23,8 @@ export function stepRows(m: Moment, entries: LedgerEntry[], g: LabGraph = G()): 
     seen.add(b.turn);
     const real = realTimes(entries, b.turn);
     if (!real) continue;
-    const sim = withReal(simulate(g, "own", null, real), real, g);
+    // From what started it: a text, or a check-in, a routine or a ping, whatever the canvas traced last.
+    const sim = withReal(simulate(g, "own", null, real, m.from), real, g);
     for (const [id, t] of Object.entries(sim.T)) {
       // The wait in the queue is the Queue row; a start step is the Texts row's.
       const n = node(id, g);
@@ -43,4 +44,34 @@ export function stepRows(m: Moment, entries: LedgerEntry[], g: LabGraph = G()): 
     for (const h of order) if (callerOf(h.id) === r.id) out.push({ ...h, helper: true });
   }
   return out;
+}
+
+/** A bar in the compact timeline: named, since its track no longer is. */
+export type PackedBar = Bar & { name: string };
+
+/**
+ * The compact timeline (Dev2, 2026-11-14: "a version where the tracks are not labeled but the items are, so we can fit
+ * everything into the minimum number of tracks needed to show whats happening simultaneously"). Every bar of every row
+ * goes into the first track free when it starts, so the number of tracks is the most things running at once. A bar
+ * takes at least `minMs` of the track (what the eye can see) and keeps `gapMs` clear after it.
+ */
+export function packTracks(rows: Array<{ key: string; label: string; bars: Bar[] }>, minMs = 0, gapMs = 0): PackedBar[][] {
+  const all: PackedBar[] = [];
+  for (const r of rows)
+    for (const b of r.bars) all.push({ ...b, name: r.key === "Texts" || r.key === "Sent" ? b.label : `${r.label} · ${b.label}` });
+  all.sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start));
+  const tracks: PackedBar[][] = [];
+  const free: number[] = [];
+  for (const b of all) {
+    const until = Math.max(b.end, b.start + minMs) + gapMs;
+    const i = free.findIndex((f) => f <= b.start);
+    if (i < 0) {
+      tracks.push([b]);
+      free.push(until);
+    } else {
+      tracks[i].push(b);
+      free[i] = until;
+    }
+  }
+  return tracks;
 }

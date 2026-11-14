@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEven
 import { fmtS } from "../../engine/sim";
 import { labSim, realIO, realTimes, withWorkerSteps } from "../../engine/realTimes";
 import { startLabel, turnAt, type Bar, type Moment } from "../../engine/replay";
-import { stepRows } from "../../engine/replaySteps";
+import { packTracks, stepRows } from "../../engine/replaySteps";
 import { emit, lab, node, set } from "../../engine/state";
 import { traceMine } from "../../engine/traces";
 import type { LedgerEntry } from "../../../page/texPageTypes";
@@ -19,6 +19,16 @@ const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
 const speedLabel = (v: number) => (v === 1 ? "Real time" : v < 1 ? `${1 / v}× slower` : `${v}× faster`);
 /** A step too short to see stays lit for 150 ms of screen time, at most 0.4 s of the turn. */
 const minLit = (speed: number) => Math.min(150 * speed, 400);
+/** About how wide a bar's name is drawn, to tell whether it fits inside (10.5px text, 5px padding each side). */
+const fits = (name: string, px: number) => px >= name.length * 6 + 12;
+const COMPACT_KEY = "texLab.replayCompact";
+const readCompact = () => {
+  try {
+    return localStorage.getItem(COMPACT_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
 
 /**
  * Point the canvas at one turn of the moment: what started it traced (a text someone sent, or a check-in, a routine or
@@ -53,6 +63,26 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
   const raf = useRef<number | null>(null);
   const shown = useRef<string | null>(null);
   const last = useRef<string | null>(null);
+  // Compact: unnamed tracks (so as wide as the lanes), as few as what ran at once needs, each bar named (Dev2, 2026-11-14).
+  const [compact, setCompact] = useState(readCompact);
+  const toggleCompact = () => {
+    setCompact(!compact);
+    try {
+      localStorage.setItem(COMPACT_KEY, compact ? "0" : "1");
+    } catch {
+      /* remembered for this view only */
+    }
+  };
+  const lanesRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(600);
+  useEffect(() => {
+    const el = lanesRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setWidth(el.getBoundingClientRect().width || 600));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null);
 
   // A new moment starts at its first text, stopped.
   useEffect(() => {
@@ -141,6 +171,7 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [m.id, m.of, entries.length]);
+  const tracks = useMemo(() => (compact ? packTracks(rows, (8 / Math.max(1, width)) * m.of, (3 / Math.max(1, width)) * m.of) : []), [compact, rows, width, m.of]);
   const pct = (v: number) => `${((v / m.of) * 100).toFixed(2)}%`;
   // Drag anywhere on the lanes to scrub (Dev2, 2026-11-14: "why not let me scrub with the bar").
   const dragging = useRef(false);
@@ -163,6 +194,9 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
           {fmtS(at)} / {fmtS(m.of)}
         </span>
         <span className="spacer" />
+        <button className="chipbtn" id="rCompact" aria-pressed={compact} title={compact ? "One row per step" : "Fit everything into as few rows as possible"} onClick={toggleCompact}>
+          {compact ? "By step" : "Compact"}
+        </button>
         <select id="rSpeed" aria-label="Playback speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
           {SPEEDS.map((v) => (
             <option key={v} value={v}>
@@ -172,7 +206,9 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
         </select>
       </div>
       <div
-        className="rlanes"
+        className={compact ? "rlanes compact" : "rlanes"}
+        ref={lanesRef}
+        onPointerLeave={() => setTip(null)}
         onPointerDown={(e) => {
           dragging.current = true;
           e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -184,7 +220,36 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
         onPointerUp={() => (dragging.current = false)}
         onPointerCancel={() => (dragging.current = false)}
       >
-        {rows.map((r) => (
+        {compact
+          ? tracks.map((t, ti) => (
+              <div key={ti} className="rrow compact">
+                <div className="rtrack" data-track={ti}>
+                  {t.map((b, i) => {
+                    const px = ((b.end - b.start) / m.of) * width;
+                    const tipText = `${b.name}${b.detail ? " · " + b.detail : ""} · ${fmtS(b.start)}–${fmtS(b.end)}`;
+                    return (
+                      <button
+                        key={i}
+                        className={`rbar ${b.kind}`}
+                        style={{ left: pct(b.start), width: `max(6px, ${pct(b.end - b.start)})` }}
+                        aria-label={tipText}
+                        onPointerEnter={(e) => {
+                          const host = lanesRef.current?.getBoundingClientRect();
+                          const r = e.currentTarget.getBoundingClientRect();
+                          if (host) setTip({ text: tipText, x: r.left - host.left + r.width / 2, y: r.top - host.top });
+                        }}
+                        onPointerLeave={() => setTip(null)}
+                        tabIndex={-1}
+                      >
+                        {fits(b.name, px) ? b.name : ""}
+                      </button>
+                    );
+                  })}
+                  <span className="rhead" style={{ left: pct(at) }} />
+                </div>
+              </div>
+            ))
+          : rows.map((r) => (
           <div key={r.key} className={r.helper ? "rrow helper" : "rrow"}>
             <span className="rln" title={r.label}>{r.label}</span>
             <div className="rtrack" data-lane={r.key}>
@@ -203,6 +268,11 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
             </div>
           </div>
         ))}
+        {compact && tip ? (
+          <span className="rtip" role="tooltip" style={{ left: tip.x, top: tip.y }}>
+            {tip.text}
+          </span>
+        ) : null}
       </div>
       <input
         id="rScrub"

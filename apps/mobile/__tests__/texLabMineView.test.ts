@@ -306,6 +306,8 @@ describe("the Lab's test user as You", () => {
     expect(q(".ctop .moment")?.hasAttribute("hidden")).toBe(true);
     expect(q("#keyw")?.textContent).toMatch(/Next/);
     expect(q("#keyBtn")?.previousElementSibling?.className).not.toBe("cbreak");
+    // In Replay the key leads the top row on the left (Dev2, 2026-11-14: "put the key back to float left").
+    expect(q(".ctop")?.className).toBe("ctop replay");
     await click(q("#keyBtn"));
     expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
     await click(q("#keyBtn"));
@@ -332,6 +334,18 @@ describe("the Lab's test user as You", () => {
     expect(rowNames).toContain("Front door");
     expect(rowNames).not.toContain("Judge");
     expect(rowNames.at(-1)).toBe("Sent");
+    // Compact: unnamed tracks, as few as what ran at once needs, each bar named (Dev2, 2026-11-14).
+    await click(q("#rCompact"));
+    expect(q("#rCompact")?.getAttribute("aria-pressed")).toBe("true");
+    expect(qa("#replayTimeline .rrow .rln")).toEqual([]);
+    const tracks = qa("#replayTimeline .rrow.compact");
+    expect(tracks.length).toBeGreaterThan(0);
+    expect(tracks.length).toBeLessThan(rowNames.length);
+    const named = qa("#replayTimeline .rrow.compact .rbar").map((x) => x.getAttribute("aria-label") ?? "");
+    expect(named.some((x) => x.startsWith("Front door · "))).toBe(true);
+    expect(named.some((x) => x.startsWith("Decide · answer"))).toBe(true);
+    await click(q("#rCompact"));
+    expect(qa("#replayTimeline .rrow .rln").length).toBe(rowNames.length);
     // The panel doesn't repeat the texts (they're on the left): it shows each turn and the judge's calls.
     expect(q("#replayPanel h3")?.textContent).toBe("From your text");
     expect(qa("#rTurns .rturnt").map((x) => x.textContent)).toEqual(["Done."]);

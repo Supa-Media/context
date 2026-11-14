@@ -188,7 +188,8 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
           />
         </svg>
       </div>
-      <div className="ctop">
+      {/* In Replay the key leads the row on the left and the numbers stay right (Dev2, 2026-11-14: "put the key back to float left"). */}
+      <div className={replay ? "ctop replay" : "ctop"}>
       {/* Replay's chat on the left already shows the text (Dev2, 2026-11-14: "this feels redundant with the left panel"). */}
       <div className="float moment" hidden={!!replay}>
         <Svg

@@ -3,7 +3,7 @@
  * conversation, newest at the bottom. A click on any text someone sent replays from it: the canvas and the timeline.
  */
 import { useEffect, useRef } from "react";
-import { LOGGED_FROM, startLabel, type Moment } from "../../engine/replay";
+import { LOGGED_FROM, QUIET_WORDS, startLabel, type Moment } from "../../engine/replay";
 import { lab, set } from "../../engine/state";
 import { pickChat, readMomentDetail, readMyTexts } from "../mine/useMine";
 
@@ -66,19 +66,20 @@ export function ReplaySide({ moments, onHide }: { moments: Moment[]; onHide?: ()
           // Tex texting on its own says what started it: a check-in, a routine, another AI's ping.
           const who = l.start ? <span className="cdw cds">{startLabel(l)}</span> : group || l.from === "tex" ? <span className="cdw">{l.who}</span> : null;
           const m = byId.get(l.id);
+          const words = l.quiet ? <span className="cdt cdq">{QUIET_WORDS}</span> : <span className="cdt">{l.text}</span>;
           return (
             <div key={l.id} className="rmw">
               {head}
               {m ? (
                 <button className={`cdb ${side} can${lab.moment === m.id ? " on" : ""}`} data-moment={m.id} aria-current={lab.moment === m.id} title={l.start ? "Replay this run" : "Replay from this text"} onClick={() => openMoment(m)}>
                   {who}
-                  <span className="cdt">{l.text}</span>
+                  {words}
                   <span className="cdm">{time(l.at)}</span>
                 </button>
               ) : (
-                <span className={`cdb ${side}`}>
+                <span className={`cdb ${side}`} title={l.start ? "Ran before its steps were logged, so it can't be walked through" : undefined}>
                   {who}
-                  <span className="cdt">{l.text}</span>
+                  {words}
                 </span>
               )}
             </div>
