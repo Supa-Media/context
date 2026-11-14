@@ -28,7 +28,6 @@ const COLUMNS: Array<[IndexKey, string]> = [
   ["meaning", "Search by meaning"],
 ];
 const BAD = /Failed|Retrying|Can't|Paused/;
-const count = (n: number) => n.toLocaleString("en-US");
 
 /** The index row's key in the address: the slug, or the id for a workspace that no longer has one. */
 export const rowKey = (row: Pick<WorkspaceIndexes, "slug" | "workspaceId">) =>

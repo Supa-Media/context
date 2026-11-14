@@ -21,11 +21,31 @@ import { callTool } from "../src/tools/dispatch.js";
 import { attachChangeReporters } from "../src/controlPlane/changeReporters.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { withServedTree } from "./servedTree.mjs";
+import { deriveSearchQualityKey, reportOpenedNote, searchQualityKeyOf } from "../src/search/quality.js";
 
 const HEX16 = /^[0-9a-f]{16}$/;
 
-async function sha16(text) {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+/** A test root, long enough to derive from. Not a secret: it exists only in this file. */
+const TEST_ROOT = "test-root-for-search-quality";
+const KEY_PROMISE = deriveSearchQualityKey(TEST_ROOT);
+
+/**
+ * The expected MAC, computed here with Web Crypto from an HKDF derivation written out independently of
+ * `search/quality.js`, so a wrong info string or a wrong seed format in the gateway fails these checks.
+ */
+const EXPECTED_KEY = (async () => {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(TEST_ROOT), "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: new TextEncoder().encode("context-search-quality-v1") },
+    base,
+    { name: "HMAC", hash: "SHA-256", length: 256 },
+    false,
+    ["sign"],
+  );
+})();
+
+async function mac(text) {
+  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", await EXPECTED_KEY, new TextEncoder().encode(text)));
   return [...digest.subarray(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -74,11 +94,11 @@ function fakeControlPlane({ failTiming = false, failOpen = false } = {}) {
 }
 
 /** A store the way a request builds one: deferral kept until settled, reporters attached for its workspace. */
-function wired(store, workspaceId, controlPlane, actor) {
+function wired(store, workspaceId, controlPlane, actor, searchKey = KEY_PROMISE) {
   const pending = [];
   store.defer = (work) => pending.push(Promise.resolve(work));
   store.actor = { workspaceId, ...actor };
-  attachChangeReporters(store, workspaceId, controlPlane, {});
+  attachChangeReporters(store, workspaceId, controlPlane, { searchKey });
   return { store, settle: async () => { while (pending.length) await Promise.allSettled(pending.splice(0)); } };
 }
 
@@ -92,14 +112,14 @@ function rulesFor() {
   return { rules: [], overrides: new Map() };
 }
 
-async function homeStore(controlPlane, actor, extra = {}) {
+async function homeStore(controlPlane, actor, extra = {}, searchKey = KEY_PROMISE) {
   const home = rowsOf(scannedStore(NOTES, extra));
-  return wired(home, "ws_home", controlPlane, actor);
+  return wired(home, "ws_home", controlPlane, actor, searchKey);
 }
 
 const ASK = "renewal";
 
-test("an AI client's search row carries who, actor and hashed hits, and nothing of the query or the paths", async () => {
+test("an AI client's search row carries who, actor and MAC'd hits, and nothing of the query or the paths", async () => {
   const cp = fakeControlPlane();
   const { store, settle } = await homeStore(cp, { grantId: "grant_ai", userId: "user_1", clientId: "mcp_client_ai" });
   const { rules, overrides } = rulesFor();
@@ -110,11 +130,11 @@ test("an AI client's search row carries who, actor and hashed hits, and nothing 
   const [row] = rows;
   assert.deepEqual(Object.keys(row).sort(), ["actor", "answeredBy", "found", "hits", "ms", "who", "workspaceId"]);
   assert.equal(row.who, "ai");
-  assert.equal(row.actor, await sha16("search-actor:grant_ai"));
+  assert.equal(row.actor, await mac("search-actor:grant_ai"));
   assert.ok(row.hits.length >= 1 && row.hits.length <= 10);
   assert.ok(row.hits.every((hit) => HEX16.test(hit)));
-  const expected = await Promise.all(found.hits.map((hit) => sha16(`search-hit:ws_home:${hit.key}`)));
-  assert.deepEqual([...row.hits].sort(), [...expected].sort(), "the hits are the answer's, hashed by path");
+  const expected = await Promise.all(found.hits.map((hit) => mac(`search-hit:${hit.key}`)));
+  assert.deepEqual([...row.hits].sort(), [...expected].sort(), "the hits are the answer's, MAC'd by the address they are read by");
   const serialized = JSON.stringify(cp.calls);
   for (const secret of [ASK, "inbox/todo.md", "areas/diagnosis.md", "Todo", "hunter2", "diagnosis"]) {
     assert.ok(!serialized.includes(secret), `"${secret}" crossed the wire`);
@@ -130,7 +150,7 @@ test("a Tex turn's search is tex, with its own grant as the actor", async () => 
     await settle();
     const [row] = cp.calls.map((c) => c.body);
     assert.equal(row.who, "tex", clientId);
-    assert.equal(row.actor, await sha16("search-actor:grant_tex"), clientId);
+    assert.equal(row.actor, await mac("search-actor:grant_tex"), clientId);
   }
 });
 
@@ -197,10 +217,10 @@ test("a fan-out target answers timing only; the asked-in workspace writes the on
   assert.equal(counted[0].body.workspaceId, "ws_home");
   const opsRow = cp.calls.find((c) => c.body.workspaceId === "ws_ops").body;
   assert.deepEqual(Object.keys(opsRow).sort(), ["answeredBy", "found", "ms", "workspaceId"]);
-  assert.ok(counted[0].body.hits.includes(await sha16("search-hit:ws_ops:areas/renewal.md")), "the other workspace's hit, hashed with its own id");
+  assert.ok(counted[0].body.hits.includes(await mac("search-hit:@ops/areas/renewal.md")), "the other workspace's hit, under its @name address");
 });
 
-test("a note found in workspace B by a search asked in A: the open from B matches A's counted hit", async () => {
+test("a note found in workspace B by a search asked in A: an open with context @ops matches A's counted hit", async () => {
   const cp = fakeControlPlane();
   const ops = wired(
     rowsOf(scannedStore({ "areas/renewal.md": "# Workers comp renewal\n\nCarrier quote due in March.\n" })),
@@ -223,16 +243,29 @@ test("a note found in workspace B by a search asked in A: the open from B matche
   await home.settle();
   assert.ok(found.hits.some((hit) => hit.key === "@ops/areas/renewal.md"), "B's note is in the answer");
   const [row] = cp.calls.filter((c) => c.body.who !== undefined).map((c) => c.body);
-  const aHit = await sha16("search-hit:ws_ops:areas/renewal.md");
+  const aHit = await mac("search-hit:@ops/areas/renewal.md");
   assert.ok(row.hits.includes(aHit));
 
-  const read = await callTool("read_note", { path: "areas/renewal.md" }, ops.store, "private");
-  await ops.settle();
-  assert.notEqual(read.isError, true);
+  // The caller reads it the way its search named it: with context "@ops". The open is reported from the asked-in store
+  // (`reportOpenedNote`), which computes the address the hit carries.
+  reportOpenedNote("read_note", { path: "areas/renewal.md", context: "@ops" }, home.store, { isError: false });
+  await home.settle();
   const open = cp.calls.find((c) => c.path === "/gateway/search-open").body;
-  assert.equal(open.workspaceId, "ws_ops", "the open names the workspace the note was read from");
-  assert.equal(open.actor, row.actor, "the same searcher in both workspaces");
-  assert.equal(open.hit, aHit, "the open's hit is the hit A's row carries");
+  assert.equal(open.actor, row.actor, "the same searcher");
+  assert.equal(open.hit, aHit, "an open with context @ops is the hit the search row carries");
+  const plain = await mac("search-hit:areas/renewal.md");
+  assert.ok(!cp.calls.some((c) => c.path === "/gateway/search-open" && c.body.hit === plain), "never as a plain path");
+});
+
+test("an open of the caller's own context, named or not, is the plain path", async () => {
+  const cp = fakeControlPlane();
+  const { store, settle } = await homeStore(cp, { grantId: "grant_ai", userId: "user_1", clientId: "mcp_client_ai" });
+  store.contexts = [{ name: "@home", current: true, role: "owner" }];
+  await callTool("read_note", { path: "inbox/todo.md", context: "@home" }, store, "private");
+  await callTool("read_note", { path: "inbox/todo.md" }, store, "private");
+  await settle();
+  const hits = cp.calls.filter((c) => c.path === "/gateway/search-open").map((c) => c.body.hit);
+  assert.deepEqual(hits, [await mac("search-hit:inbox/todo.md"), await mac("search-hit:inbox/todo.md")]);
 });
 
 test("an open reports the searcher's actor and the same hit hash the search row carried", async () => {
@@ -251,7 +284,7 @@ test("an open reports the searcher's actor and the same hit hash the search row 
   assert.deepEqual(Object.keys(open).sort(), ["actor", "hit", "workspaceId"]);
   assert.equal(open.workspaceId, "ws_home");
   assert.equal(open.actor, search.actor);
-  assert.equal(open.hit, await sha16("search-hit:ws_home:inbox/todo.md"));
+  assert.equal(open.hit, await mac("search-hit:inbox/todo.md"));
   assert.ok(search.hits.includes(open.hit));
 });
 
@@ -262,8 +295,8 @@ test("the ChatGPT fetch reports an open too, under the same hit", async () => {
   await settle();
   assert.notEqual(read.isError, true);
   const open = cp.calls.find((c) => c.path === "/gateway/search-open")?.body;
-  assert.equal(open.hit, await sha16("search-hit:ws_home:inbox/todo.md"));
-  assert.equal(open.actor, await sha16("search-actor:grant_ai"));
+  assert.equal(open.hit, await mac("search-hit:inbox/todo.md"));
+  assert.equal(open.actor, await mac("search-actor:grant_ai"));
 });
 
 test("a refused read reports no open", async () => {
@@ -297,4 +330,25 @@ test("a store that cannot defer sends nothing", async () => {
   await findNotes(store, "private", rules, overrides, ASK, "");
   await callTool("read_note", { path: "inbox/todo.md" }, store, "private");
   assert.equal(cp.calls.length, 0);
+});
+
+test("with no root, a search and an open send timing only: no actor, no hits, no who", async () => {
+  const cp = fakeControlPlane();
+  const { store, settle } = await homeStore(cp, { grantId: "grant_ai", userId: "user_1", clientId: "mcp_client_ai" }, {}, Promise.resolve(null));
+  const { rules, overrides } = rulesFor();
+  await findNotes(store, "private", rules, overrides, ASK, "");
+  await callTool("read_note", { path: "inbox/todo.md" }, store, "private");
+  await settle();
+  const search = cp.calls.find((c) => c.path === "/gateway/search-timing").body;
+  assert.deepEqual(Object.keys(search).sort(), ["answeredBy", "found", "ms", "workspaceId"]);
+  assert.ok(!cp.calls.some((c) => c.path === "/gateway/search-open"));
+});
+
+test("the key is HKDF of the root under the quality info string, and no deployment binding names one yet", async () => {
+  const key = await deriveSearchQualityKey(TEST_ROOT);
+  const seed = "grant_ai";
+  const fromModule = await (await import("../src/search/quality.js")).searchActorHash(key, seed);
+  assert.equal(fromModule, await mac(`search-actor:${seed}`));
+  assert.equal(await deriveSearchQualityKey("short"), null, "a root too short to derive from gives no key");
+  assert.equal(await searchQualityKeyOf({ GATEWAY_SECRET: "a-gateway-secret-convex-also-holds" }).then((k) => k), null);
 });

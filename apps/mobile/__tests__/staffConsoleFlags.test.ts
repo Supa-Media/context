@@ -117,11 +117,25 @@ describe("Flags page: render", () => {
     expect(html).toContain('data-tadd="mail.in-notes"');
   });
 
-  it("says testers are kept when a flag is on for everyone", () => {
+  it("says testers are kept when a flag is on for everyone, and shows no tester chips or add box", () => {
     const d = fakeData();
     d.listed.flags[0]!.mode = "everyone";
     const html = flagsPage.render!(asD(d));
     expect(html).toContain("Testers are kept for if you switch back.");
+    expect(html).not.toContain('data-act="rmtester" data-id="mail.in-notes"');
+    expect(html).not.toContain('data-tadd="mail.in-notes"');
+  });
+
+  it("shows nothing for testers when a flag is off, not even the kept note", () => {
+    const d = fakeData();
+    // search.v2 is off; give it testers so their absence is the mode's doing, not an empty list.
+    d.listed.flags[1]!.people = [{ userId: "u_maya", name: "@maya" }];
+    d.listed.flags[1]!.groups = [{ groupId: "g_staff", name: "Staff", size: 2 }];
+    const html = flagsPage.render!(asD(d));
+    expect(html).not.toContain('data-act="rmtester" data-id="search.v2"');
+    expect(html).not.toContain('data-tadd="search.v2"');
+    expect(html).not.toContain("Testers are kept for if you switch back.");
+    expect(html).toContain('data-act="flagmode" data-id="search.v2" data-v="off"');
   });
 
   it("lists the tester groups with their people and an add box per group", () => {

@@ -251,7 +251,7 @@ export async function findNotes(store, scope, rules, overrides, query, prefix = 
   store.searchRowPending = true;
   try {
     const answer = await findNotesUnrecorded(store, scope, rules, overrides, query, prefix, { only });
-    reportCountedSearch(store, searchHitRefs(store, answer));
+    reportCountedSearch(store, answer.hits.map((hit) => hit.key));
     return answer;
   } finally {
     store.searchRowPending = false;
@@ -262,21 +262,6 @@ export async function findNotes(store, scope, rules, overrides, query, prefix = 
  * The fused hits as `{workspaceId, path}`, in result order: a hit under `@name/` is that workspace's, any other
  * is this store's. A hit whose workspace cannot be named is left out of the row rather than hashed wrongly.
  */
-function searchHitRefs(store, answer) {
-  const here = store.actor?.workspaceId;
-  const refs = [];
-  for (const hit of answer.hits ?? []) {
-    const elsewhere = /^(@[^/]+)\/(.*)$/.exec(hit.key);
-    if (!elsewhere) {
-      if (typeof here === "string") refs.push({ workspaceId: here, path: hit.key });
-      continue;
-    }
-    const workspaceId = answer.workspaceOf?.[elsewhere[1]];
-    if (typeof workspaceId === "string") refs.push({ workspaceId, path: elsewhere[2] });
-  }
-  return refs;
-}
-
 async function findNotesUnrecorded(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
   // Context.LC's own pinned workspace is reached by every account for its guides and Tex's setup, never for the
   // person's notes: a search everywhere leaves it out unless they run it (owner or editor), or it is asked by name.
@@ -406,7 +391,7 @@ export async function toolOpenAiSearch(store, scope, rules, overrides, query, pr
       () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
       { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) && (!prefix || path === prefix || path.startsWith(`${prefix}/`)) },
     ));
-    reportCountedSearch(store, searchHitRefs(store, { hits }));
+    reportCountedSearch(store, hits.map((hit) => hit.key));
   } finally {
     store.searchRowPending = false;
   }

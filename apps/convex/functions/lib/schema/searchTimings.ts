@@ -51,19 +51,29 @@ export const searchTimingTables = {
     ms: v.number(),
     at: v.number(),
     /**
-     * Quality rows only. Opaque: 16 lowercase hex, the first 16 of SHA-256 of
-     * `search-actor:<principal>` (the user's id in the app, the grant's or the
-     * user's in the gateway). Links a search to the same searcher's next action,
-     * in any workspace, and is never shown.
+     * Quality rows only, and only as the gateway sent them: an HMAC-SHA-256
+     * (16 lowercase hex) of the searcher's grant or user id, under a key
+     * Convex never holds (`apps/mcp/src/search/quality.js`). Links a search to
+     * the same searcher's next gateway search, in any workspace. Cleared with
+     * `hits` by the pairing sweep once `pairUntil` passes.
      */
     who: v.optional(searchWhoValidator),
     actor: v.optional(v.string()),
     /**
-     * Gateway quality rows only: the results in order, each 16 hex (the first
-     * 16 of SHA-256 of `search-hit:<workspaceId>:<noteId or path>`). Cleared by
-     * the retention sweep 15 minutes after the search.
+     * Gateway quality rows only: the results in order, each an HMAC-SHA-256
+     * (16 lowercase hex) of the address the caller reads the note by (the plain
+     * path, or `@name/path` for another workspace's). Cleared with `actor` by
+     * the pairing sweep once `pairUntil` passes.
      */
     hits: v.optional(v.array(v.string())),
+    /**
+     * Set when `actor` or `hits` is stored: `at` plus `SEARCH_PAIR_RETENTION_MS`
+     * (15 minutes). Nothing pairs a search with an open or a re-search after
+     * it, and the sweep clears `actor`, `hits` and this field together. Absent
+     * on a row that never held pairing data, and on every app row (the app
+     * pairs by row id, on the device; `reportOpen` and `reportAgain`).
+     */
+    pairUntil: v.optional(v.number()),
     /** 1-based position of the first result opened. */
     opened: v.optional(v.number()),
     /** The same searcher searched this workspace again within 60 s with nothing opened. */
@@ -73,5 +83,6 @@ export const searchTimingTables = {
     .index("by_surface_at", ["surface", "at"])
     .index("by_workspace_at", ["workspaceId", "at"])
     .index("by_workspace_surface_at", ["workspaceId", "surface", "at"])
-    .index("by_actor_at", ["actor", "at"]),
+    .index("by_actor_at", ["actor", "at"])
+    .index("by_pairUntil", ["pairUntil"]),
 };

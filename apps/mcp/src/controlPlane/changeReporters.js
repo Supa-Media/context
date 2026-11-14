@@ -6,7 +6,7 @@
  */
 
 import { syncRoutineAlarms } from "../texStore/routineAlarm.js";
-import { actorSeedOf, searchActorHash, searchHitHash, searchTimingFields } from "../search/quality.js";
+import { actorSeedOf, searchActorHash, searchHitHash, searchQualityKeyOf, searchTimingFields } from "../search/quality.js";
 
 /**
  * The two reporters every write's `recordChange` reaches for, bound to the
@@ -21,7 +21,9 @@ import { actorSeedOf, searchActorHash, searchHitHash, searchTimingFields } from 
  * on a host that cannot keep it alive — the line is in the customer's bucket
  * either way.
  */
-export function attachChangeReporters(store, workspaceId, controlPlane, { readLedger, env } = {}) {
+export function attachChangeReporters(store, workspaceId, controlPlane, { readLedger, env, searchKey } = {}) {
+  // The search quality key (`search/quality.js`): from the Worker's env unless a caller hands one in (a test).
+  const qualityKey = searchKey ?? searchQualityKeyOf(env);
   attachSmallData(store, workspaceId, controlPlane, readLedger);
   store.reportTreeChange = (audiences) =>
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
@@ -43,7 +45,8 @@ export function attachChangeReporters(store, workspaceId, controlPlane, { readLe
     if (typeof store.defer !== "function") return;
     try {
       store.defer(
-        searchTimingFields(workspaceId, timing)
+        qualityKey
+          .then((key) => searchTimingFields(workspaceId, timing, key))
           .then((fields) => controlPlane.reportSearchTiming(fields))
           .catch(() => {}),
       );
@@ -52,14 +55,19 @@ export function attachChangeReporters(store, workspaceId, controlPlane, { readLe
     }
   };
   // A search hit's note was opened (`search/quality.js` `reportOpenedNote`): the searcher's actor, and the hit's
-  // hash in the workspace the note was read from. Behind the read, like the timing above.
-  store.reportSearchOpen = (path) => {
+  // MAC of the address the note was read by. Behind the read, like the timing above. No key, no report.
+  store.reportSearchOpen = (address) => {
     const seed = actorSeedOf(store.actor);
     if (typeof store.defer !== "function" || !seed) return;
     try {
       store.defer(
-        Promise.all([searchActorHash(seed), searchHitHash(workspaceId, path)])
-          .then(([actor, hit]) => controlPlane.reportSearchOpen({ workspaceId, actor, hit }))
+        qualityKey
+          .then((key) =>
+            key === null
+              ? null
+              : Promise.all([searchActorHash(key, seed), searchHitHash(key, address)])
+                  .then(([actor, hit]) => controlPlane.reportSearchOpen({ workspaceId, actor, hit })),
+          )
           .catch(() => {}),
       );
     } catch {

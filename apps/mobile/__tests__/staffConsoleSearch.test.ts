@@ -4,7 +4,11 @@
  * wrote, and that each act calls the right Convex mutation with the right arguments.
  */
 import { beforeAll, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import type { FunctionReturnType } from "convex/server";
+import type { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
 import { searchPage } from "../features/admin/console/pages/Search.web";
+import { qualityHtml } from "../features/admin/console/pages/searchQuality.web";
 import { S, go, setRoutes, toastState } from "../features/admin/console/state";
 
 beforeAll(() => {
@@ -76,28 +80,78 @@ const migration = {
   truncated: false,
 };
 
-const view = (over: Record<string, unknown> = {}) => ({ n: 1000, found: 60, pos: [40, 10, 5, 3, 2], next: [25, 15], ms: [180, 620], foundBefore: 57, ...over });
-const series = Array.from({ length: 30 }, (_, i) => ({ found: 50 + i, first: 30 + i, p50: 200, p95: 800 }));
-const quality = {
+type Report = FunctionReturnType<typeof api.functions.admin.searchReport>;
+type Quality = Report["quality"];
+type View = Quality["all"];
+type Miss = Quality["misses"][number];
+
+const ws = (slug: string) => `ws_${slug}` as Id<"workspaces">;
+const view = (over: Partial<View> = {}): View => ({ n: 1000, found: 60, pos: [40, 10, 5, 3, 2], next: [25, 15], ms: [180, 620], foundBefore: 57, ...over });
+const bucket = (i: number): Quality["series"][number]["all"] => ({ found: 40 + (i % 10) * 3, first: 20 + (i % 7) * 4, p50: 150 + i * 5, p95: 600 + (i % 5) * 40 });
+// One row per bucket, each searcher with its own figures, so the chart has to read the array by key.
+const series: Quality["series"] = Array.from({ length: 30 }, (_, i) => ({
+  label: `day ${i}`,
+  all: bucket(i),
+  app: { ...bucket(i), found: bucket(i).found - 5 },
+  ai: { ...bucket(i), first: bucket(i).first + 3 },
+  tex: bucket(i + 2),
+}));
+const misses: Miss[] = [
+  { workspaceId: ws("studio-ops"), slug: "studio-ops", n: 212, found: 58, why: "index failed" },
+  // The artifact's own data has a workspace with no reason yet: why is null, not a string.
+  { workspaceId: ws("leo"), slug: "leo", n: 14, found: 0, why: null },
+  { workspaceId: ws("evil"), slug: "<script>x</script>", n: 5, found: 10, why: "meaning off by owner" },
+  { workspaceId: ws("quote"), slug: 'a"b', n: 3, found: 0, why: "index failed" },
+];
+const quality: Quality = {
   all: view(),
   app: view({ n: 300 }),
   ai: view({ n: 500 }),
   tex: view({ n: 200 }),
-  series: { all: series, app: series, ai: series, tex: series },
+  series,
   byIndex: [{ answeredBy: "fast", share: 58, found: 82, first: 51, p50: 160 }],
-  misses: [
-    { workspaceId: "ws_studio-ops", slug: "studio-ops", n: 212, found: 58, why: "index failed" },
-    { workspaceId: "ws_evil", slug: "<script>x</script>", n: 5, found: 10, why: "" },
-    { workspaceId: "ws_quote", slug: 'a"b', n: 3, found: 0, why: "index failed" },
-  ],
+  misses,
 };
+
+const stats = { count: 0, avg: 0, p50: 0, p95: 0 };
+/** A whole `admin.searchReport` result, typed by the server's own return type. */
+function report(q: Quality): Report {
+  return {
+    days: 30,
+    view: "screen",
+    workspace: null,
+    truncated: false,
+    views: [],
+    quality: q,
+    buckets: [],
+    answeredBy: [],
+    found: { hits: stats, misses: stats },
+    slowest: [],
+  };
+}
 
 /** A `useData` result as the shell hands it over (the page reads it as `unknown`). */
 function data(over: Record<string, unknown> = {}) {
-  return { report: { quality }, meaning, migration, restartFast: jest.fn(), restartMeaning: jest.fn(), setPaused: jest.fn(), ...over } as never;
+  return { report: report(quality), meaning, migration, restartFast: jest.fn(), restartMeaning: jest.fn(), setPaused: jest.fn(), ...over };
 }
 
-const html = (d: unknown) => searchPage.render!(d as never);
+const html = (d: unknown) => searchPage.render!(d);
+
+/** The HTML of one panel: from its toggle's key to the next panel. */
+function panelBody(h: string, key: string) {
+  const start = h.indexOf(`data-k="${key}"`);
+  expect(start).toBeGreaterThan(-1);
+  const rest = h.slice(start + 1);
+  const next = rest.indexOf("<section");
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+/** The y values of one series' line, read back from its path (stroke by color name). */
+function pathYs(body: string, color: string): number[] {
+  const m = new RegExp(`<path d="([^"]+)" fill="none" stroke="var\\(--${color}\\)"`).exec(body);
+  expect(m).not.toBeNull();
+  return [...m![1]!.matchAll(/[ML][\d.-]+ ([\d.-]+)/g)].map((x) => Number(x[1]));
+}
 const el = (dataset: Record<string, string>, text = "") => ({ dataset, textContent: text }) as unknown as HTMLElement;
 
 describe("Search: speed and quality", () => {
@@ -122,11 +176,40 @@ describe("Search: speed and quality", () => {
     expect(h).toContain(">200<");
   });
 
-  it("draws zeros, not NaN, when the server has not sent the quality field yet", () => {
-    const h = html(data({ report: { truncated: false } }));
-    expect(h).toContain("Speed and quality");
+  it("draws zeros, not NaN, when there are no quality figures to draw", () => {
+    const h = qualityHtml("", null, false);
+    expect(h).toContain("Found what they wanted");
     expect(h).not.toContain("NaN");
     expect(h).toContain("0%");
+  });
+
+  it("draws the quality and time charts from the series array, with paths that move", () => {
+    const h = html(data());
+    const body = panelBody(h, "s-q");
+    const okLine = pathYs(body, "ok");
+    const firstLine = pathYs(body, "c1");
+    expect(okLine).toHaveLength(30);
+    expect(new Set(okLine.map((y) => y.toFixed(1))).size).toBeGreaterThan(1);
+    expect(new Set(firstLine.map((y) => y.toFixed(1))).size).toBeGreaterThan(1);
+    const timeBody = panelBody(h, "s-t");
+    expect(new Set(pathYs(timeBody, "c4").map((y) => y.toFixed(1))).size).toBeGreaterThan(1);
+  });
+
+  it("reads the chosen searcher's bucket from each series row", () => {
+    S.f.from = "tex";
+    const h = html(data());
+    // tex's first bucket is the all-searchers one two days later, so the first point differs from "all".
+    const texFirst = pathYs(panelBody(h, "s-q"), "ok")[0];
+    S.f.from = "all";
+    const allFirst = pathYs(panelBody(html(data()), "s-q"), "ok")[0];
+    expect(texFirst).not.toBe(allFirst);
+  });
+
+  it("renders a miss with no reason as a dash, with no link and no crash", () => {
+    const h = html(data());
+    expect(h).toContain("@leo");
+    expect(h).toContain('<span class="sub">—</span>');
+    expect(h).not.toMatch(/data-act="goidx" data-id="leo"/);
   });
 
   it("keeps the panels and shows Loading in their bodies while the report loads", () => {

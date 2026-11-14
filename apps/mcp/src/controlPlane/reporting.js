@@ -46,11 +46,11 @@ export function createReportingMethods({ post }) {
      * timing log (`apps/convex/functions/searchTimings.ts`), and, on the one
      * row per search that counts, its quality: which surface searched (`who`:
      * `tex` or `ai`, or `surface: "app"` for the app's own bar), the searcher's
-     * hashed `actor` and the hashed `hits` the answer showed.
+     * `actor` and the `hits` the answer showed, both HMACs under a key Convex never holds.
      *
      * `reportUsage`'s rule again: called behind the response, its rejection
      * swallowed. What crosses is a workspace id, words from closed lists, a
-     * boolean, numbers and hashes (`search/quality.js` makes them). Never the
+     * boolean, numbers and MACs (`search/quality.js` makes them). Never the
      * query, a path, a title, a snippet, or a count of what the workspace holds.
      * A field left out is left out of the body, so a timing-only row sends
      * exactly `workspaceId`, `answeredBy`, `found` and `ms`.
@@ -78,8 +78,8 @@ export function createReportingMethods({ post }) {
      * the searcher's latest search that showed this hit as opened.
      *
      * The same rule as `reportSearchTiming`: deferred, failure swallowed, and
-     * what crosses is a workspace id and two hashes, the searcher's actor and
-     * the hit's (`search-hit:<workspaceId>:<path>`), never the path itself.
+     * what crosses is a workspace id and two MACs, the searcher's actor and the
+     * hit's (of the address the note was read by), never the path itself.
      *
      * @param {{workspaceId: string, actor: string, hit: string}} open
      */

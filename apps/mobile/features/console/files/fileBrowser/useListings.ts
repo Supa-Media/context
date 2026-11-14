@@ -31,7 +31,7 @@ import type { OfflineQueueValues } from "./useOfflineQueue";
 import { createSearchOpenReporter } from "../searchOpenReport";
 
 type ListingsDeps =
-  & Pick<FileActionsValues, "listFiles" | "notePathsAction" | "searchContext" | "reportSearchScreen" | "reportSearchOpen" | "workspaceId" | "workspaceGenerationRef">
+  & Pick<FileActionsValues, "listFiles" | "notePathsAction" | "searchContext" | "reportSearchScreen" | "reportSearchOpen" | "reportSearchAgain" | "workspaceId" | "workspaceGenerationRef">
   & Pick<
     BrowserStateValues,
     | "confirmOnlineMoves"
@@ -58,7 +58,7 @@ type ListingsDeps =
 export function useListings(deps: ListingsDeps) {
   const {
     confirmOnlineMoves, setBusy, setToasts, renamingRef, dispatch, expanded, selectedPath, listFiles, listedAtRef, nextListingStamp, listings, notePathsAction, offlineRef, openRun,
-    searchContext, reportSearchScreen, reportSearchOpen, setClipboard, setExpanded, setIndexedPaths, setListings, setLoading, setNotice,
+    searchContext, reportSearchScreen, reportSearchOpen, reportSearchAgain, setClipboard, setExpanded, setIndexedPaths, setListings, setLoading, setNotice,
     setOpening, setSelectedPath, workspaceId, workspaceGenerationRef,
   } = deps;
 
@@ -573,25 +573,26 @@ export function useListings(deps: ListingsDeps) {
    * palette that asked rather than to the console's notice bar.
    */
   /*
-    One per workspace: a search re-arms it, and the first result opened after
-    that is reported once (`searchOpenReport.ts`).
+    One per workspace: each search's row is paired on this device with the first result opened in it, and with the
+    next search (`searchOpenReport.ts`). The rows are the control plane's own ids; nothing identifies the person.
   */
   const searchOpen = useMemo(
     () =>
-      createSearchOpenReporter((position) =>
-        reportSearchOpen({ workspaceId: workspaceId as Id<"workspaces">, position }),
-      ),
-    [reportSearchOpen, workspaceId],
+      createSearchOpenReporter({
+        reportOpen: (row, position) => reportSearchOpen({ row: row as Id<"searchTimings">, position }),
+        reportAgain: (row) => reportSearchAgain({ row: row as Id<"searchTimings"> }),
+      }),
+    [reportSearchAgain, reportSearchOpen],
   );
   const openSearchResult = useCallback((position: number) => searchOpen.opened(position), [searchOpen]);
 
   const search = useCallback(
     async (query: string, prefix?: string) => {
-      searchOpen.rearm();
       // What the person waited, from asking to the answer on this device: the
       // figure the admin console's Search tab leads with. Sent behind the
       // answer and never awaited — a timing must not slow or fail a search.
       const started = Date.now();
+      const answered = searchOpen.searchStarted(started);
       const found = await searchContext({
         workspaceId: workspaceId as Id<"workspaces">,
         query,
@@ -604,7 +605,9 @@ export function useListings(deps: ListingsDeps) {
             ms: Date.now() - started,
             found: found.hits.length > 0,
           }),
-        ).catch(() => {});
+        )
+          .then((reported) => answered(reported.row))
+          .catch(() => {});
       } catch {
         // See above: never the reason a search fails.
       }

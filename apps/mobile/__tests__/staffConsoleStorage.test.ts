@@ -136,7 +136,7 @@ describe("Storage acts", () => {
     const busy = {
       ...report,
       workspaces: [
-        { ...report.workspaces[2], lastMove: { to: "dual" as const, state: "started" as const, reason: null, at } },
+        { ...report.workspaces[2], lastMove: { to: "dual" as const, state: "running" as const, reason: null, at } },
         { ...report.workspaces[1], lastMove: { to: "object" as const, state: "refused" as const, reason: "PARITY_DIFFERS", at } },
         { ...report.workspaces[3], lastMove: { to: "dual" as const, state: "refused" as const, reason: "<b>odd</b>", at } },
       ],
@@ -146,6 +146,63 @@ describe("Storage acts", () => {
     expect(html).not.toContain('data-act="askmove" data-id="w3"');
     expect(html).toContain("Last try: its object and bucket differ");
     expect(html).toContain("Last try: &lt;b&gt;odd&lt;/b&gt;");
+  });
+
+  it("a stopped move says so and offers Try again to its own target; a copy with gaps says so and offers Copy again", () => {
+    const at = Date.UTC(2026, 10, 14);
+    const stopped = {
+      ...report,
+      workspaces: [
+        { ...report.workspaces[2], lastMove: { to: "dual" as const, state: "stale" as const, reason: null, at } },
+        { ...report.workspaces[1], lastMove: { to: "dual" as const, state: "incomplete" as const, reason: null, at } },
+      ],
+    };
+    const html = page.render!(data({ report: stopped }));
+    expect(html).toContain("Stopped, try again");
+    expect(html).toContain('data-act="again" data-id="w3" data-to="dual">Try again');
+    expect(html).not.toContain('data-act="askmove" data-id="w3"');
+    expect(html).toContain("Copied with gaps");
+    expect(html).toContain('data-act="again" data-id="w2" data-to="dual">Copy again');
+    expect(html).not.toContain('data-act="askmove" data-id="w2"');
+  });
+
+  it("a stopped switch offers Try again to the object, not the copy", () => {
+    const at = Date.UTC(2026, 10, 14);
+    const html = page.render!(
+      data({
+        report: {
+          ...report,
+          workspaces: [{ ...report.workspaces[1], lastMove: { to: "object" as const, state: "stale" as const, reason: null, at } }],
+        },
+      }),
+    );
+    expect(html).toContain('data-act="again" data-id="w2" data-to="object">Try again');
+  });
+
+  it("a refused move under its button shows why, with the button for the next step", () => {
+    const at = Date.UTC(2026, 10, 14);
+    const html = page.render!(
+      data({
+        report: {
+          ...report,
+          workspaces: [{ ...report.workspaces[1], lastMove: { to: "object" as const, state: "refused" as const, reason: "NOT_BACKFILLED", at } }],
+        },
+      }),
+    );
+    expect(html).toContain("Last try: not copied yet");
+    expect(html).toContain('data-act="askmove" data-id="w2">Switch reads');
+    expect(html).not.toContain("Copied with gaps");
+  });
+
+  it("again moves the workspace to the target the button names, and toasts it", async () => {
+    const d = data();
+    await acts.again(el({ id: "w3", to: "dual" }), d);
+    expect(d.moveHome).toHaveBeenCalledWith({ workspaceId: "w3", to: "dual" });
+    expect(toastState.text).toBe("Copying @studio-ops again");
+
+    await acts.again(el({ id: "w2", to: "object" }), d);
+    expect(d.moveHome).toHaveBeenLastCalledWith({ workspaceId: "w2", to: "object" });
+    expect(toastState.text).toBe("Switching @<script>x</script>'s reads to its object");
   });
 
   it("move toasts a thrown error's message, short", async () => {

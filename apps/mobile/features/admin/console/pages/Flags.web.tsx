@@ -84,13 +84,16 @@ function testerChip(flag: Flag, kind: "group" | "person", key: string, name: str
 function flagPanel(flag: Flag, confirmingAll: boolean) {
   const id = esc(flag.id);
   const label = esc(flag.label);
+  // Testers show only in Testers mode; in Everyone they are kept (say so), and in Off nothing is drawn.
   const testers =
-    flag.mode === "everyone"
-      ? '<div class="sub">Testers are kept for if you switch back.</div>'
-      : `<div class="chips">${[
+    flag.mode === "people"
+      ? `<div class="chips">${[
           ...flag.people.map((p) => testerChip(flag, "person", p.userId, p.name)),
           ...flag.groups.map((g) => testerChip(flag, "group", g.groupId, `group: ${g.name}`)),
-        ].join("")}<input class="search" data-tadd="${id}" placeholder="@handle, email or group" style="min-width:210px;max-width:260px" aria-label="Add a tester to ${label}"><button class="ghost" data-act="addtester" data-id="${id}">Add</button></div>`;
+        ].join("")}<input class="search" data-tadd="${id}" placeholder="@handle, email or group" style="min-width:210px;max-width:260px" aria-label="Add a tester to ${label}"><button class="ghost" data-act="addtester" data-id="${id}">Add</button></div>`
+      : flag.mode === "everyone"
+        ? '<div class="sub">Testers are kept for if you switch back.</div>'
+        : "";
   return panel(
     "fl-" + flag.id,
     label,

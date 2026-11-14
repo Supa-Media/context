@@ -1,11 +1,10 @@
 import { internal } from "../../../_generated/api";
-import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { json, stringField } from "../gatewayAuth";
 import { isActorId, isHitId } from "../searchTimingIds";
 
 /**
- * `POST /gateway/search-open { workspaceId, actor, hit }` — the gateway handed
+ * `POST /gateway/search-open { workspaceId, actor, hit }` (`workspaceId` is the workspace the note was read from, checked for shape only: a match is by hash, across workspaces) — the gateway handed
  * back a note's content to an AI client or Tex, for a result of its search:
  * the first such open is the search's quality (`functions/searchTimings.ts`).
  *
@@ -24,11 +23,7 @@ export async function gatewaySearchOpenHandler(
     return json({ recorded: false });
   }
   try {
-    await ctx.runMutation(internal.functions.searchTimings.markOpened, {
-      workspaceId: workspaceId as Id<"workspaces">,
-      actor,
-      hit,
-    });
+    await ctx.runMutation(internal.functions.searchTimings.markOpened, { actor, hit });
     return json({ recorded: true });
   } catch {
     return json({ recorded: false });

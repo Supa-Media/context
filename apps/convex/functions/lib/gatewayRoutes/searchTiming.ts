@@ -42,7 +42,7 @@ export function searchTimingFields(body: Record<string, unknown>): SearchTimingF
  * reason the workspace id is taken as given: the gateway has just resolved a
  * grant to get it, and an id for a workspace that does not exist writes
  * nothing. What crosses is a workspace id, a word from a closed list, a
- * boolean, a number, and the opaque hashes of `searchTimingIds.ts`. No query,
+ * boolean, a number, and the opaque keyed MACs of `search/quality.js`, which Convex cannot reverse. No query,
  * no path, no count of anything in the workspace.
  *
  * **A failure here is answered 200**, `/gateway/usage`'s rule: the gateway

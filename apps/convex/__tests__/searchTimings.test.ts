@@ -7,7 +7,6 @@ import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { MAX_SEARCH_MS } from "../functions/lib/searchTiming";
 import { SEARCH_TIMING_RETENTION_MS } from "../functions/searchTimings";
 import { summarize } from "../functions/lib/adminFns/searchReport";
-import { actorFor } from "../functions/lib/searchTimingIds";
 import { memoryS3 } from "./storeStub.helpers";
 import {
   FAKE_STORAGE,
@@ -131,30 +130,30 @@ describe("what a person waited, reported by their device", () => {
     return { t, ada, bo, workspaceId };
   }
 
-  test("a member's report is kept as an on-screen row, with nothing but the number", async () => {
+  test("a member's report is kept as an on-screen row, with nothing but the number and who searched", async () => {
     const { t, ada, workspaceId } = await member();
-    expect(await asUser(t, ada).mutation(api.functions.searchTimings.reportScreen, { workspaceId, ms: 412, found: true })).toBe(true);
+    const result = await asUser(t, ada).mutation(api.functions.searchTimings.reportScreen, { workspaceId, ms: 412, found: true });
+    expect(result).toEqual({ ok: true, row: expect.any(String) });
     const [row] = await rows(t);
-    expect(row).toMatchObject({ workspaceId, surface: "screen", found: true, ms: 412 });
+    expect(result.row).toBe(row._id);
+    expect(row).toMatchObject({ workspaceId, surface: "screen", found: true, ms: 412, who: "app" });
     expect(row.answeredBy).toBeUndefined();
-    // The quality fields: who searched, and an opaque actor that links the next action. Never shown.
-    expect(row).toMatchObject({ who: "app", actor: await actorFor(ada) });
-    expect(Object.keys(row).sort()).toEqual(
-      [...ROW_FIELDS.filter((key) => key !== "answeredBy"), "actor", "who"].sort(),
-    );
+    // No actor: the device pairs its own open and re-search by the row id (`searchOpen.test.ts`).
+    expect(row.actor).toBeUndefined();
+    expect(Object.keys(row).sort()).toEqual([...ROW_FIELDS.filter((key) => key !== "answeredBy"), "who"].sort());
   });
 
   test("somebody outside the workspace, or signed out, writes nothing and is told nothing", async () => {
     const { t, bo, workspaceId } = await member();
-    expect(await asUser(t, bo).mutation(api.functions.searchTimings.reportScreen, { workspaceId, ms: 5, found: true })).toBe(false);
-    expect(await t.mutation(api.functions.searchTimings.reportScreen, { workspaceId, ms: 5, found: true })).toBe(false);
+    expect(await asUser(t, bo).mutation(api.functions.searchTimings.reportScreen, { workspaceId, ms: 5, found: true })).toEqual({ ok: false, row: null });
+    expect(await t.mutation(api.functions.searchTimings.reportScreen, { workspaceId, ms: 5, found: true })).toEqual({ ok: false, row: null });
     expect(await rows(t)).toEqual([]);
   });
 
   test("a member of a shared workspace may report for it", async () => {
     const { t, ada, bo, workspaceId } = await member();
     await addMember(t, workspaceId, bo, "member", ada);
-    expect(await asUser(t, bo).mutation(api.functions.searchTimings.reportScreen, { workspaceId, ms: 90, found: false })).toBe(true);
+    expect((await asUser(t, bo).mutation(api.functions.searchTimings.reportScreen, { workspaceId, ms: 90, found: false })).ok).toBe(true);
   });
 
   test("the device's number is clamped, not trusted", async () => {
@@ -216,7 +215,7 @@ describe("AI clients' searches, from the gateway", () => {
 });
 
 describe("the log keeps a month", () => {
-  test("rows past their retention are swept, newer ones kept", async () => {
+  test("rows past their retention are swept, newer ones kept, and the pairing sweep leaves no lapsed actor behind", async () => {
     const t = setupTest();
     const ada = await createUser(t, "ada@example.invalid");
     const workspaceId = await createWorkspace(t, ada, "ada-context");

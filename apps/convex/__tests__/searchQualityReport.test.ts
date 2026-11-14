@@ -46,7 +46,8 @@ async function seed(t: TestConvex, rows: Seed[]) {
         ms: row.ms,
         at: row.at,
         ...(row.answeredBy === undefined ? {} : { answeredBy: row.answeredBy }),
-        ...(row.who === undefined ? {} : { who: row.who, actor: "aaaaaaaaaaaaaaaa" }),
+        // The app's row has no actor (it pairs on the device); a gateway row carries its HMAC.
+        ...(row.who === undefined ? {} : { who: row.who, ...(row.who === "app" ? {} : { actor: "aaaaaaaaaaaaaaaa" }) }),
         ...(row.opened === undefined ? {} : { opened: row.opened }),
         ...(row.again === undefined ? {} : { again: row.again }),
       });

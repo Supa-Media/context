@@ -3,45 +3,18 @@
  * field of `admin.searchReport` (what people do with the results: opened, first result, nothing).
  * Percentages are 0-100 numbers from the server; `series` has one bucket per hour (one day) or per day.
  */
+import type { FunctionReturnType } from "convex/server";
+import type { api } from "@context/convex/_generated/api";
 import { days, delta, esc, kpi, legend, lines, panel, pill, seg } from "../kit";
 import { S, WIN } from "../state";
 
+/** The report the server returns (`admin.searchReport`); the quality figures are its `quality` field. */
+export type SearchReport = FunctionReturnType<typeof api.functions.admin.searchReport>;
+export type SearchQuality = SearchReport["quality"];
 export type QualityKey = "all" | "app" | "ai" | "tex";
-export type QualityView = {
-  n: number;
-  found: number;
-  pos: number[];
-  next: number[];
-  ms: number[];
-  foundBefore: number;
-};
-export type QualityBucket = {
-  found: number;
-  first: number;
-  p50: number;
-  p95: number;
-};
-export type SearchQuality = {
-  all: QualityView;
-  app: QualityView;
-  ai: QualityView;
-  tex: QualityView;
-  series: Record<QualityKey, QualityBucket[]>;
-  byIndex: Array<{
-    answeredBy: string;
-    share: number;
-    found: number;
-    first: number;
-    p50: number;
-  }>;
-  misses: Array<{
-    workspaceId: string;
-    slug: string | null;
-    n: number;
-    found: number;
-    why: string;
-  }>;
-};
+type QualityView = SearchQuality[QualityKey];
+/** One x-axis point: the same bucket shape for each searcher, under its key. */
+type QualityBucket = SearchQuality["series"][number][QualityKey];
 
 /** The "Who searched" options: the artifact's keys and labels. */
 export const FROM_OPTIONS: Array<[QualityKey, string]> = [
@@ -69,8 +42,8 @@ const EMPTY_VIEW: QualityView = {
 };
 
 /** The quality figures, when the server sends them; the page draws zeros until then. */
-export const qualityOf = (report: unknown): SearchQuality | null =>
-  (report as { quality?: SearchQuality } | undefined)?.quality ?? null;
+export const qualityOf = (report: SearchReport | undefined): SearchQuality | null =>
+  report?.quality ?? null;
 
 /** The "Who searched" value in the address, when it names one of the four. */
 export function fromKey(raw: string): QualityKey {
@@ -141,7 +114,8 @@ export function qualityHtml(
     ),
   );
 
-  const sr = quality?.series?.[k] ?? [];
+  // The server sends one row per bucket, each with every searcher's figures; this page draws the chosen one.
+  const sr: QualityBucket[] = (quality?.series ?? []).map((row) => row[k]);
   const qpanel = panel(
     "s-q",
     "Quality per " + (S.d === "1" ? "hour" : "day"),
@@ -205,14 +179,15 @@ export function qualityHtml(
       `<div class="tbl"><table><tr><th>Workspace</th><th class="r">Searches</th><th class="r">Found</th><th class="hp">Why</th></tr>${
         misses
           .map((row) => {
-            const failed = row.why.includes("failed");
+            // `why` is null when nothing explains the miss yet: no reason, no pill, and no link.
+            const failed = row.why !== null && row.why.includes("failed");
             const link =
               failed && row.slug !== null
                 ? ` class="click" tabindex="0" data-act="goidx" data-id="${esc(row.slug)}"`
                 : "";
             const name =
               row.slug === null ? "a deleted workspace" : `@${esc(row.slug)}`;
-            return `<tr${link}><td>${name}</td><td class="r">${count(row.n)}</td><td class="r">${row.found}%</td><td class="hp">${row.why ? pill(row.why, failed ? "bad" : "") : '<span class="sub">—</span>'}</td></tr>`;
+            return `<tr${link}><td>${name}</td><td class="r">${count(row.n)}</td><td class="r">${row.found}%</td><td class="hp">${row.why === null ? '<span class="sub">—</span>' : pill(row.why, failed ? "bad" : "")}</td></tr>`;
           })
           .join("") ||
         '<tr><td colspan="4" class="empty">No misses in this window</td></tr>'

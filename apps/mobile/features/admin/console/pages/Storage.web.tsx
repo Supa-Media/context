@@ -5,18 +5,27 @@
  * `managedEncryption`'s rollout, the same one the Estate card reads.
  */
 import { useMutation, useQueries } from "convex/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@context/convex/_generated/api";
+import { useReportOnce } from "../../useReportOnce";
 import { LOAD_FAILED, failureLine, type RolloutStatus } from "../../encryption";
 import { confirmBox, esc, kpi, legend, panel, pill } from "../kit";
 import { S, render, setF, toast } from "../state";
 import type { ConsolePage } from "../types";
 
 type Home = "bucket" | "dual" | "object";
-type LastMove = { to: "dual" | "object"; state: "started" | "done" | "refused" | "failed"; reason: string | null; at: number } | null;
+/** A workspace's newest move. `stale`: running, and its last heartbeat is older than two minutes (the run was stopped). */
+type LastMove = {
+  to: "dual" | "object";
+  state: "running" | "stale" | "done" | "incomplete" | "refused" | "failed";
+  reason: string | null;
+  at: number;
+} | null;
 type StorageWorkspace = { workspaceId: string; slug: string; kind: "personal" | "shared"; home: Home; notes: number | null; since: number | null; lastMove?: LastMove };
 type StorageReport = { counts: { object: number; dual: number; bucket: number; total: number }; workspaces: StorageWorkspace[] };
 type Loaded<T> = T | Error | undefined;
+/** While a move runs, the report is read again this often; a finished visit reads it once. */
+const RUNNING_POLL_MS = 10_000;
 
 export type StorageData = {
   report: Loaded<StorageReport>;
@@ -44,18 +53,33 @@ const errorWords = (e: unknown) => {
 const ok = <T,>(v: Loaded<T>): T | undefined => (v instanceof Error ? undefined : v);
 
 function useStorageData(): StorageData {
-  const specs = useMemo(
-    () => ({
-      report: { query: api.functions.adminStorage.storageReport, args: {} },
-      rollout: { query: api.functions.managedEncryption.rolloutStatus, args: {} },
-    }),
-    [],
-  );
+  // Read once per visit (`useReportOnce`), then again after a move and every few seconds while one runs.
+  const [round, setRound] = useState(0);
+  const fresh = useReportOnce(api.functions.adminStorage.storageReport, { refresh: round }) as unknown as StorageReport | undefined;
+  // A re-read holds the last answer on screen until the new one lands, rather than blanking the table.
+  const shown = useRef<StorageReport | undefined>(undefined);
+  if (fresh !== undefined) shown.current = fresh;
+  const report = fresh ?? shown.current;
+  const running = report?.workspaces.some((w) => w.lastMove?.state === "running") ?? false;
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setRound((n) => n + 1), RUNNING_POLL_MS);
+    return () => clearInterval(timer);
+  }, [running]);
+
+  const specs = useMemo(() => ({ rollout: { query: api.functions.managedEncryption.rolloutStatus, args: {} } }), []);
   const got = useQueries(specs);
+  const moveMutation = useMutation(api.functions.adminStorage.moveWorkspaceHome) as unknown as StorageData["moveHome"];
   return {
-    report: got.report as Loaded<StorageReport>,
+    report,
     rollout: got.rollout as Loaded<RolloutStatus>,
-    moveHome: useMutation(api.functions.adminStorage.moveWorkspaceHome) as unknown as StorageData["moveHome"],
+    moveHome: async (a) => {
+      try {
+        return await moveMutation(a);
+      } finally {
+        setRound((n) => n + 1);
+      }
+    },
     retry: useMutation(api.functions.managedEncryption.retryWorkspace) as unknown as StorageData["retry"],
     pause: useMutation(api.functions.managedEncryption.pauseRollout) as StorageData["pause"],
     resume: useMutation(api.functions.managedEncryption.resumeRollout) as StorageData["resume"],
@@ -105,16 +129,20 @@ function movingPanel(d: StorageData | undefined) {
           const action =
             w.home === "object"
               ? ""
-              : move?.state === "started"
+              : move?.state === "running"
                 ? `<span class="sub">${move.to === "dual" ? "Copying…" : "Switching…"}</span>`
-                : S.confirm === "mv" + w.workspaceId
+                : move?.state === "stale"
+                  ? `<div class="sub" style="color:var(--warn);font-size:12.5px">Stopped, try again</div><button class="ghost" data-act="again" data-id="${id}" data-to="${move.to}">Try again</button>`
+                  : move?.state === "incomplete"
+                    ? `<div class="sub" style="color:var(--warn);font-size:12.5px">Copied with gaps</div><button class="ghost" data-act="again" data-id="${id}" data-to="dual">Copy again</button>`
+                    : S.confirm === "mv" + w.workspaceId
                 ? confirmBox(
                     w.home === "dual" ? `Point @${esc(w.slug)}'s reads at its object?` : `Start copying @${esc(w.slug)} into its object? Reads stay on the bucket.`,
                     w.home === "dual" ? "Switch reads" : "Start",
                     "move",
                     w.workspaceId,
                   )
-                : `<button class="ghost" data-act="askmove" data-id="${id}">${w.home === "dual" ? "Switch reads" : "Start moving"}</button>${refusedLine(move)}`;
+                      : `<button class="ghost" data-act="askmove" data-id="${id}">${w.home === "dual" ? "Switch reads" : "Start moving"}</button>${refusedLine(move)}`;
           return `<tr><td>@${esc(w.slug)}</td><td class="hp">${esc(w.kind)}</td><td>${pill(w.home, HOME_TONE[w.home])}</td><td class="r hp">${w.notes == null ? "—" : count(w.notes)}</td><td class="hp">${w.since == null ? "—" : shortDay(w.since)}</td><td class="r">${action}</td></tr>`;
         })
         .join("")}</table></div>`
@@ -191,6 +219,19 @@ const storage: ConsolePage<StorageData> = {
         await d.moveHome({ workspaceId: row.workspaceId, to });
         S.confirm = null;
         toast(to === "dual" ? `@${row.slug} is copying to its object; reads stay on the bucket` : `Switching @${row.slug}'s reads to its object`);
+      } catch (err) {
+        toast(errorWords(err));
+      }
+      render();
+    },
+    async again(e, d) {
+      const id = e.dataset.id;
+      const to = e.dataset.to === "object" ? "object" : "dual";
+      const row = ok(d?.report)?.workspaces.find((w) => w.workspaceId === id);
+      if (!d || !row) return;
+      try {
+        await d.moveHome({ workspaceId: row.workspaceId, to });
+        toast(to === "dual" ? `Copying @${row.slug} again` : `Switching @${row.slug}'s reads to its object`);
       } catch (err) {
         toast(errorWords(err));
       }
