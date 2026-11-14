@@ -193,6 +193,28 @@ export function displayName(p: Person): string {
   return p.name?.trim() || handleLine({ handle: p.handle, email: p.emails[0] ?? null, phone: p.phone });
 }
 
+/**
+ * How the artifact names an inviter: by their name (the From pill takes its first word, the invite
+ * panel all of it), looked up from the handle among the accounts; the @handle when that account
+ * has no name or is not in the list.
+ */
+export function inviterName(people: ConsolePeople, handle: string | null): string | null {
+  if (handle === null) return null;
+  return people.accounts.find((a) => a.handle === handle)?.name?.trim() || null;
+}
+
+/** "invited by Maya": the inviter's first name, else their @handle. */
+export function invitedBy(people: ConsolePeople, handle: string): string {
+  const name = inviterName(people, handle);
+  return "invited by " + (name ? name.split(/\s+/)[0]! : "@" + handle);
+}
+
+/** The artifact's joined date in the side panel: `2026-08-02`, local time. */
+export function isoDay(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function rowsOf(people: ConsolePeople): Row[] {
   const out: Row[] = [];
   for (const p of people.accounts) {

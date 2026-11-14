@@ -7,6 +7,7 @@
 import { confirmBox, esc, ic, kpi, lines, panel, pill, seg, spark } from "../../kit";
 import { S } from "../../state";
 import { promptDiff } from "../../../aiModel";
+import { AI_JOBS } from "../../../aiCatalog";
 import {
   LAB_JOB,
   LAB_URL,
@@ -18,6 +19,7 @@ import {
   jobCases,
   jobHead,
   jobList,
+  jobName,
   runRows,
   setupRows,
   type CaseCard,
@@ -193,7 +195,9 @@ function compareBody(d: JobsPageData): string {
 
 export function jobCrumb(d: JobsPageData | undefined): string {
   if (S.subs[0] === undefined || S.subs[0] === "activity" || S.subs[0] === LAB_JOB) return "";
-  const name = d?.page?.job.label ?? S.subs[0];
+  // The job's name from the catalog's list, so the crumb names it while its notes still load.
+  const job = AI_JOBS.find((item) => item.key === S.subs[0]);
+  const name = job ? jobName(job.key, job.label) : S.subs[0];
   let parts = `<span class="sep">/</span><button data-act="go" data-p="jobs" data-subs="${esc(S.subs[0])}">${esc(name)}</button>`;
   if (S.subs[1] === "compare") parts += `<span class="sep">/</span><span>${esc(S.subs[2] || d?.candidate?.name || "")}</span>`;
   return parts;
