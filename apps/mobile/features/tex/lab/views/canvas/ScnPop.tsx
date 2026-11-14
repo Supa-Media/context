@@ -3,15 +3,17 @@
  * wrapper). The artifact's `renderScnPop`: a search box, the test groups with
  * their tests, and "Your own" with a message box and a Trace button. A click
  * on a test sets the scenario and closes the picker; Trace keeps the typed
- * message as the own scenario.
+ * message as the own scenario. When the test user is You, the tests give way to the texts you sent Tex, newest
+ * first; a click traces that text.
  */
 import { Fragment, useEffect, useRef, useState } from "react";
 import { TRACE_GROUPS } from "../../data/areas";
 import { allCases } from "../../engine/diff";
 import { emit, lab } from "../../engine/state";
-import { buildTraces, SCENARIOS } from "../../engine/traces";
+import { buildTraces, SCENARIOS, traceMine } from "../../engine/traces";
 
 const GROUPS = ["core", "jobs", "pipeline"];
+const when = (at: number) => new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 export function ScnPop({ onClose }: { onClose: () => void }) {
   const [q, setQ] = useState("");
@@ -28,6 +30,13 @@ export function ScnPop({ onClose }: { onClose: () => void }) {
     onClose();
     emit();
   };
+  const pickMine = (text: string) => {
+    traceMine(text);
+    onClose();
+    emit();
+  };
+  const me = lab.tester === "me";
+  const mine = Array.isArray(lab.myTexts) ? lab.myTexts.filter((t) => !ql || t.text.toLowerCase().includes(ql)) : [];
   const trace = () => {
     lab.ownText = (own.current?.value ?? "").trim();
     buildTraces(allCases());
@@ -42,14 +51,28 @@ export function ScnPop({ onClose }: { onClose: () => void }) {
         ref={search}
         className="search"
         id="scnQ"
-        placeholder="Search tests"
+        placeholder={me ? "Search your texts" : "Search tests"}
         value={q}
         onChange={(e) => setQ(e.target.value)}
         spellCheck={false}
-        aria-label="Search tests"
+        aria-label={me ? "Search your texts" : "Search tests"}
       />
       <div className="scnl">
-        {GROUPS.map((gk) => {
+        {me ? (
+          <>
+            <div className="scng">Your texts</div>
+            {lab.myTexts === null ? <div className="scne">Reading your texts…</div> : null}
+            {lab.myTexts === "failed" ? <div className="scne">Couldn't read your texts</div> : null}
+            {Array.isArray(lab.myTexts) && !mine.length ? <div className="scne">{ql ? "No texts match" : "No texts yet"}</div> : null}
+            {mine.map((t) => (
+              <button key={t.id} data-mine={t.id} aria-current={lab.scn === "own" && lab.ownText === t.text ? "true" : "false"} onClick={() => pickMine(t.text)}>
+                <span className="nm">{t.text}</span>
+                <small>{when(t.at)}</small>
+              </button>
+            ))}
+          </>
+        ) : null}
+        {!me && GROUPS.map((gk) => {
           const items = Object.entries(SCENARIOS).filter(
             ([, v]) =>
               v.group === gk &&

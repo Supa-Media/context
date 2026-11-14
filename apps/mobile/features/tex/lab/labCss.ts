@@ -56,6 +56,7 @@ svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-widt
 .spacer{flex:1}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
 .sync{font-size:12.5px;color:var(--dim);white-space:nowrap}
+.thm{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--chip)}.thm button{display:grid;place-items:center;width:26px;height:24px;padding:0;border:none;border-radius:6px;background:none;color:var(--dim)}.thm button:hover{color:var(--text)}.thm button[aria-checked="true"]{background:var(--page);color:var(--text);box-shadow:var(--shadow)}
 
 .body{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:0}
 .body.props{grid-template-columns:260px minmax(0,1fr) 320px}
@@ -221,7 +222,7 @@ label.num.chg{outline:2px solid var(--accent);border-radius:10px}
 .scnpop .search{width:100%;max-width:none}.scnl{overflow:auto;min-height:0;flex:1}
 .scng{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:8px 8px 3px}
 .scnl button{display:flex;flex-direction:column;align-items:flex-start;width:100%;border:none;background:none;text-align:left;padding:6px 8px;border-radius:8px;gap:1px}
-.scnl button:hover,.scnl button[aria-current="true"]{background:var(--chip)}.scnl .nm{font-size:13px;line-height:1.3}.scnl small{color:var(--dim);font-size:11px}
+.scnl button:hover,.scnl button[aria-current="true"]{background:var(--chip)}.scnl .nm{font-size:13px;line-height:1.3}.scnl small{color:var(--dim);font-size:11px}.scne{color:var(--dim);font-size:12px;padding:6px 8px}
 .scnown{display:flex;gap:6px;align-items:flex-end;padding:0 4px 2px}.scnown textarea{flex:1;font:inherit;font-size:13px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--chrome);color:var(--text);resize:vertical}
 .stats{right:12px;top:12px;padding:6px 12px;gap:14px;font-size:12.5px;color:var(--muted)}
 .stats b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:600}

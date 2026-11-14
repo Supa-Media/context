@@ -13,6 +13,7 @@ import { gatewaySource, type TexPageSource } from "../../../page/texPageSource";
 import { LATEST, type LedgerEntry } from "../../../page/texPageTypes";
 import { myTexts, readsOf } from "../../engine/mine";
 import { emit, lab, toast } from "../../engine/state";
+import { traceMine } from "../../engine/traces";
 
 let source: TexPageSource | null = null;
 /** Every text and reply entry read so far, so an older page joins the texts it continues. */
@@ -32,7 +33,10 @@ export async function readMyTexts(older = false) {
     }
     const known = new Set(seen.map((e) => e.id));
     seen = [...seen, ...r.value.entries.filter((e) => !known.has(e.id))];
+    const first = !Array.isArray(lab.myTexts);
     lab.myTexts = myTexts(seen);
+    // As You, the canvas traces your newest text until you pick another.
+    if (first && lab.tester === "me" && lab.myTexts[0]) traceMine(lab.myTexts[0].text);
     lab.myOlder = r.value.older ?? null;
   } finally {
     reading = false;
