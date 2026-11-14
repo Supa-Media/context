@@ -556,6 +556,5 @@ test/promptCatalog.test.mjs
 test/texGraph.test.mjs
 test/texGraphHome.test.mjs
 test/searchQuality.test.mjs
-test/chatQueue.test.mjs
-test/texChat.test.mjs
 test/textsArrive.test.mjs
+test/texChatMove.test.mjs

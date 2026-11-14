@@ -30,7 +30,7 @@ import { askAgent, askAgentStream, openSession, post, ServiceError, type AgentAn
 import { textsFromAnswer, textsWithExact } from "./format";
 import { askControlPlane, GROUP_LINES } from "./groupInbox";
 import { peopleHash, peopleOf, sha256Hex } from "./groupChat";
-import { groupLineFor } from "./groupLine";
+import { groupLineFor, groupLineSeam } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
@@ -579,7 +579,7 @@ export async function jobToken(run: JobRun, deps: JobDeps): Promise<string | nul
 async function groupGrant(run: JobRun, deps: JobDeps): Promise<string | null> {
   if (run.origin.kind !== "group") return null;
   const message = run.origin.message;
-  const app = groupLineFor(deps, message.groupId);
+  const app = groupLineFor(groupLineSeam(deps), message.groupId);
   const members = await app.readMembers({ line: message.line, groupId: message.groupId });
   const asked = await askControlPlane(deps, message, peopleOf(message.line, message.participants, members), null);
   return asked.status === "ready" && asked.accessToken !== undefined ? asked.accessToken : null;
@@ -588,7 +588,7 @@ async function groupGrant(run: JobRun, deps: JobDeps): Promise<string | null> {
 async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, onStep: (text: string, how?: StepHow) => Promise<void>): Promise<Outcome> {
   if (run.origin.kind !== "group") return { kind: "stop" };
   const message = run.origin.message;
-  const app = groupLineFor(deps, message.groupId);
+  const app = groupLineFor(groupLineSeam(deps), message.groupId);
   const place = { line: message.line, groupId: message.groupId };
   // Read again now: more people only ever narrow what Tex may use.
   const members = await app.readMembers(place);

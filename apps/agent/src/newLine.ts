@@ -16,7 +16,7 @@
 
 import { post, record, ServiceError, type Fetch } from "./clients";
 import { CHAT_KEY, NEW_LINE_TOLD_KEY, type InboxStorage, type RememberedChat } from "./inbox";
-import { lineFor, type LineDeps } from "./line";
+import { lineFor, lineSeam, type LineDeps } from "./line";
 import { isSendblueChat } from "./sendblue";
 
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -87,7 +87,7 @@ export async function tellNewLine(
   if (isSendblueChat(chat.chatId)) return "on_new_line";
   if (body.dryRun) return "would";
   try {
-    await lineFor(deps, chat.chatId).sendText(chat.chatId, body.text, `new-line:${chat.chatId}`);
+    await lineFor(lineSeam(deps), chat.chatId).sendText(chat.chatId, body.text, `new-line:${chat.chatId}`);
   } catch {
     return "failed";
   }

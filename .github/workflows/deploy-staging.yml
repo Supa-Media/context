@@ -321,8 +321,10 @@ jobs:
               # scripts/worker-secrets.mjs. Optional (`?`): web search
               # (without it the assistant has no search tool), maps on Tex's
               # cards (OpenStreetMap without it), and model routing through
-              # Cloudflare AI Gateway (Workers AI without it).
-              node scripts/worker-secrets.mjs CONTROL_PLANE_URL GATEWAY_SECRET '?TRANSCRIBE_WORKER_SECRET' '?TRANSCRIBE_WORKER_URL' '!BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?AI_GATEWAY_KEY_ALIASES' '?ANTHROPIC_CREDIT_KEY' \
+              # Cloudflare AI Gateway (Workers AI without it), and the texting
+              # Worker's control-plane key for a chat's object run here
+              # (apps/mcp/src/texChat.js).
+              node scripts/worker-secrets.mjs CONTROL_PLANE_URL GATEWAY_SECRET '?TRANSCRIBE_WORKER_SECRET' '?TRANSCRIBE_WORKER_URL' '!BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?AI_GATEWAY_KEY_ALIASES' '?ANTHROPIC_CREDIT_KEY' '?AGENT_WORKER_SECRET' \
                 | pnpm --dir apps/mcp exec wrangler secret bulk --env staging
               # Tex's Browserbase browser lives in the screenshot Worker:
               # both or neither, and with neither Tex drives Cloudflare's.

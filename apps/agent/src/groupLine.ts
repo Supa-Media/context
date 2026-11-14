@@ -72,10 +72,13 @@ export type GroupLineDeps = {
   noteCardPicture?: NoteCardDrawer;
   /** Where each message Tex sends is counted (`textCounts.ts`); absent, nowhere. */
   textCounts?: CountDataset;
+  /** A group's line served from elsewhere (the gateway's remote group line, `remoteLine.ts`); set, every call goes there and nothing is counted here. */
+  remote?: (groupId: string) => GroupLine;
 };
 
 export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
-  const line = isWhapiGroup(groupId) ? whapiGroupLine(deps) : sendblueGroupLine(deps);
+  if (deps.remote) return deps.remote(groupId);
+  const line = isWhapiGroup(groupId) ? whapiGroupLine(deps, groupId) : sendblueGroupLine(deps);
   const dataset = deps.textCounts;
   if (dataset === undefined) return line;
   // Every message Tex sends in a group, counted once the app took it (`textCounts.ts`).
@@ -84,6 +87,19 @@ export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
     sendText: (place, text, replyTo) => counted(dataset, "group", "text", () => line.sendText(place, text, replyTo)),
     sendMedia: (place, url, replyTo) => counted(dataset, "group", "media", () => line.sendMedia(place, url, replyTo)),
   };
+}
+
+/**
+ * The two webhook flags a group's line sets, by the same rule `groupLineFor` picks the line with: WhatsApp groups
+ * (`whapi:<jid>`) only. Synchronous, so the gateway's remote group line (`remoteLine.ts`) reads them without a call.
+ */
+export function groupLineFlags(groupId: string): Pick<GroupLine, "senderOnlyWebhook" | "membershipEvents"> {
+  return isWhapiGroup(groupId) ? { senderOnlyWebhook: true, membershipEvents: true } : {};
+}
+
+/** The group line deps an object's deps stand for: its `remoteGroupLine` (`chatObject.ts`) is the seam, read as `remote`. */
+export function groupLineSeam<T extends GroupLineDeps & { remoteGroupLine?: (groupId: string) => GroupLine }>(deps: T): GroupLineDeps {
+  return { ...deps, remote: deps.remoteGroupLine ?? deps.remote };
 }
 
 function sendblueGroupLine(deps: GroupLineDeps): GroupLine {
@@ -122,7 +138,7 @@ function sendblueGroupLine(deps: GroupLineDeps): GroupLine {
   };
 }
 
-function whapiGroupLine(deps: GroupLineDeps): GroupLine {
+function whapiGroupLine(deps: GroupLineDeps, groupId: string): GroupLine {
   const keys = (): WhapiKeys => {
     if (!deps.whapi) throw new ServiceError("whapi", null);
     return deps.whapi;
@@ -133,8 +149,7 @@ function whapiGroupLine(deps: GroupLineDeps): GroupLine {
     return found;
   };
   return {
-    senderOnlyWebhook: true,
-    membershipEvents: true,
+    ...groupLineFlags(groupId),
     sendText: async (place, text, replyTo) => {
       // A note's link carries its own preview, as in a 1:1 chat (`noteCards.ts`); one Whapi refuses goes plain.
       const preview = await whapiNotePreview(text, deps.noteCardPicture, deps.hostPicture);
