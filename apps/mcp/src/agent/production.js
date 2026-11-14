@@ -105,10 +105,12 @@ import { readReplyJudge } from "./replyJudge.js";
 import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
 import { staleToolNames } from "./promptNames.js";
-import { assembleSetup, moduleTexts, readModuleLists, splitAssembled } from "./promptModules.js";
-import { texSetupFront } from "./texConfig.js";
+import { assembleSetup, moduleBody, moduleTexts, namedModules, readModuleLists, splitAssembled } from "./promptModules.js";
+import { TEX_PROMPT_WORDS, texModules, texSetupFront } from "./texConfig.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
+/** The `job:` a texting setup names (or none); only such a setup is read with Tex's config (`texConfig.js`). */
+const TEXTING_JOB = "texting-assistant";
 
 const MAX_BODY_LINES = 1_000;
 const MAX_BODY_CHARS = 40_000;
@@ -158,7 +160,10 @@ async function parse(kept) {
   // Tex's models, efforts, planner and reviewer are Tex's config's (`texConfig.js`): a note that names no models,
   // as production's does, is read with the config's, and any planner or reviewer line it still has is ignored. Only a
   // bench variant names its own models, for the comparison it was written for (`ownModels`, logged on a live read).
-  const ownModels = parsed.models !== undefined;
+  // The config is Tex's, so only a texting setup is read with it: the dream, the check-in and the other jobs' notes name
+  // their own models as they always have.
+  const texting = parsed.job === undefined || parsed.job === TEXTING_JOB;
+  const ownModels = parsed.models !== undefined || !texting;
   const ignored = ownModels ? [] : ["plan_big_asks", "reply_judge"].filter((key) => parsed[key] !== undefined);
   const front = ownModels ? parsed : { ...parsed, ...texSetupFront() };
 
@@ -253,9 +258,16 @@ async function parse(kept) {
   }
 
   // With `modules`, each kind of turn is given its modules (`promptModules.js`) and the body is for people only.
-  const lists = readModuleLists(front.modules);
+  // Tex's own modules and their words are Tex's config's (`texConfig.js`, Dev2, 2026-11-14): a note that names neither
+  // models nor modules, as production's does, is given them; only a bench variant names its own (`ownModules`).
+  const ownModules = front.modules !== undefined || !texting;
+  const fromConfig = !ownModules && !ownModels;
+  const lists = fromConfig ? texModules() : readModuleLists(front.modules);
   if (lists === undefined) return null;
-  const prompts = lists === null ? null : moduleTexts(lists, modules);
+  const texts = fromConfig ? TEX_PROMPT_WORDS : modules;
+  const prompts = lists === null ? null : moduleTexts(lists, texts);
+  // While a note still names Tex's modules, the ones whose words differ from the repository's, so the move is proved live.
+  const wordsDiffer = ownModules && lists !== null ? namedModules(lists).filter((name) => typeof TEX_PROMPT_WORDS[name] === "string" && moduleBody(texts?.[name]) !== TEX_PROMPT_WORDS[name]) : [];
   if (prompts === undefined) return null;
   const prompt = prompts === null ? raw.slice(match[0].length).trim() : prompts.texts;
   for (const text of prompts === null ? [prompt] : Object.values(prompts)) {
@@ -287,13 +299,15 @@ async function parse(kept) {
     prompts,
     // Which modules each kind is built from, for the log and the AI tab; null without modules.
     modules: lists,
-    // Whether the note named its own models (a bench variant), and the lines the config answered instead.
+    // Whether the note named its own models or modules (a bench variant), and the lines the config answered instead.
     ownModels,
+    ownModules,
+    wordsDiffer,
     ignored,
     // Tool names the six tools retired (`promptNames.js`): logged on every read until the note is fixed.
     staleNames: [...new Set((prompts === null ? [prompt] : Object.values(prompts)).flatMap((text) => staleToolNames(text)))],
     // Over the setup and its modules, so a changed module is a new version in the log.
-    version: await versionOf(kept),
+    version: await versionOf(fromConfig ? `${kept}\n${JSON.stringify(prompts)}` : kept),
   };
 }
 
@@ -421,8 +435,8 @@ export async function readProductionSetup(store, session, { texting, warm = null
   if (!texting) return null;
   const setup = await readTextingSetup(store, session, warm);
   // Production's note names no models: Tex's config does. One that does is a second copy, and is said on every read.
-  if (setup !== null && (setup.ownModels || setup.ignored.length > 0)) {
-    console.log(JSON.stringify({ event: "tex_setup_not_from_config", setup: setup.version, ownModels: setup.ownModels, ignored: setup.ignored }));
+  if (setup !== null && (setup.ownModels || setup.ownModules || setup.ignored.length > 0)) {
+    console.log(JSON.stringify({ event: "tex_setup_not_from_config", setup: setup.version, ownModels: setup.ownModels, ownModules: setup.ownModules, wordsDiffer: setup.wordsDiffer, ignored: setup.ignored }));
   }
   if (setup !== null && setup.staleNames.length > 0) {
     console.log(JSON.stringify({ event: "tex_setup_stale_names", setup: setup.version, names: setup.staleNames }));

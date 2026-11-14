@@ -12,8 +12,16 @@
  * `test/texConfig.test.mjs`, so the file never says something the gateway does not do.
  */
 import CONFIG from "../../../../packages/shared/src/texConfig.json" with { type: "json" };
+import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" with { type: "json" };
 
 export const TEX_CONFIG = CONFIG;
+
+/** Tex's prompt words by module name, from `packages/shared/src/texPrompt/<name>.md` (`scripts/tex-prompt-module.mjs`). */
+export const TEX_PROMPT_WORDS = PROMPT.modules;
+const TEX_PROMPT = PROMPT.modules;
+
+/** The context entry that names a prompt module: `p-<name>`. */
+const PROMPT_ENTRY = /^p-([a-z][a-z0-9-]{0,47})$/;
 
 /** One step of the config by its id. Throws for an id the file has not: a typo here must fail the suite, not a turn. */
 export function texStep(id) {
@@ -65,4 +73,20 @@ export function texSetupFront() {
   if (texStep("planner").on) front.plan_big_asks = "on";
   front.reply_judge = texStep("reviewer").on ? "haiku" : "off";
   return front;
+}
+
+/**
+ * Which prompt modules each kind of turn is built from, in order, as `promptModules.js` reads a setup's `modules:`:
+ * the `p-<name>` entries of the front door's context for a 1:1 text and a group (one step answers both), and of the
+ * background job's for a job. Throws when a step names a module the repository has no words for.
+ */
+export function texModules() {
+  const of = (id) => {
+    const names = (texStep(id).ctx ?? []).map((entry) => PROMPT_ENTRY.exec(entry)?.[1]).filter(Boolean);
+    if (names.length === 0) throw new Error(`texConfig: step "${id}" reads no prompt module`);
+    for (const name of names) if (typeof TEX_PROMPT[name] !== "string") throw new Error(`texConfig: step "${id}" reads module "${name}", which has no words`);
+    return names;
+  };
+  const texts = of("fd");
+  return { texts, group: texts, job: of("job") };
 }

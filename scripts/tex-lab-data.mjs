@@ -168,7 +168,10 @@ async function buildModText() {
   const { CAPABILITY_LIST } = await import(pathToFileURL(abs("apps/mcp/src/agent/capabilities.js")).href);
   const { EXAMPLES_TEXT } = require(abs("packages/shared/src/textDecide.cjs"));
   const about = readText("apps/mcp/bench/ai/workspaces/maya/tex/about-me.md");
-  return { map: TEX_MAP, caps: CAPABILITY_LIST, examples: EXAMPLES_TEXT, about };
+  // Tex's prompt words, the repository's own (`scripts/tex-prompt-module.mjs`), under the Lab's module keys.
+  const prompt = JSON.parse(readText("packages/shared/src/texPrompt.generated.json")).modules;
+  const words = Object.fromEntries(Object.entries(prompt).map(([name, text]) => [`p-${name}`, text]));
+  return { map: TEX_MAP, caps: CAPABILITY_LIST, examples: EXAMPLES_TEXT, about, ...words };
 }
 
 function buildWs() {

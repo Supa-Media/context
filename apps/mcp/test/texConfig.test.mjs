@@ -7,13 +7,19 @@
  *   replyJudge.js back to its own `effort: "low"`             "each judge asks the config how hard to think" fails
  *   texSetupFront() giving main effort high                   "a setup note with no models runs on the config's" fails
  *   the router on in texConfig.json                           "a step the code cannot run is never on" fails
+ * (2026-11-14)
+ *   texModules() giving a job the front door's modules         "each step's prompt modules are the p- entries" fails
+ *   wordsDiffer always []                                      "a note that names its own modules keeps them" fails
+ *   one word changed in texPrompt/rules.md, not regenerated    "the generated words are the Markdown files'" fails
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { TEX_CONFIG, texEffort, texModel, texSetupFront, texStep, texTimeoutMs } from "../src/agent/texConfig.js";
-import { parseSetup } from "../src/agent/production.js";
+import { TEX_CONFIG, TEX_PROMPT_WORDS, texEffort, texModel, texModules, texSetupFront, texStep, texTimeoutMs } from "../src/agent/texConfig.js";
+import { frontOf, parseSetup } from "../src/agent/production.js";
+import { assembleSetup, modulePath } from "../src/agent/promptModules.js";
+import { moduleIsCurrent as promptModuleIsCurrent } from "../../../scripts/tex-prompt-module.mjs";
 import { REVIEW_MODEL, REVIEW_TIMEOUT_MS } from "../src/agent/replyJudge.js";
 import { MAIL_CHECKER_MODEL } from "../src/agent/mailChecker.js";
 import { CARD_CHECK_MODEL } from "../src/agent/cardCheck.js";
@@ -59,7 +65,8 @@ test("a setup note with no models runs on the config's, exactly as the same note
   const named = await parseSetup(bare.replace(/^---\n/, `---\nmodels:\n${lines}\nreply_judge: ${front.reply_judge}\n`));
   const fromConfig = await parseSetup(bare);
   assert.ok(named && fromConfig, "both parse");
-  const strip = ({ version, ownModels, ...rest }) => rest;
+  // Only the models are under test here: a note naming no modules also gets the config's words (the test below).
+  const strip = ({ version, ownModels, prompt, prompts, modules, staleNames, ownModules, wordsDiffer, ...rest }) => rest;
   assert.deepEqual(strip(fromConfig), strip(named), "the config's models are what naming them would give");
   assert.deepEqual([named.ownModels, fromConfig.ownModels], [true, false]);
   assert.equal(fromConfig.model, texModel("fd"));
@@ -92,4 +99,44 @@ test("a step the code cannot run is never on: the router needs a thinking model 
 test("both send-backs reach the front door: the reviewer's after an action, and the answer checks' on any draft (sendBack.js)", () => {
   const loops = TEX_CONFIG.edges.filter((e) => e.mode === "loop" && e.to === "fd").map((e) => [e.from, e.when.join()]);
   assert.deepEqual(loops, [["reviewer", "action"], ["checks", "*"]]);
+});
+
+test("the generated words are the Markdown files' (scripts/tex-prompt-module.mjs)", () => {
+  assert.ok(promptModuleIsCurrent(), "run node scripts/tex-prompt-module.mjs");
+});
+
+test("each step's prompt modules are the p- entries of its context, in order, and each has words", () => {
+  const of = (id) => texStep(id).ctx.filter((c) => c.startsWith("p-")).map((c) => c.slice(2));
+  assert.deepEqual(texModules(), { texts: of("fd"), group: of("fd"), job: of("job") });
+  for (const name of new Set([...of("fd"), ...of("job")])) assert.equal(typeof TEX_PROMPT_WORDS[name], "string", name);
+});
+
+test("a note naming neither models nor modules, as production's does, is given the config's modules and the repository's words", async () => {
+  const bare = readFileSync(FINGERPRINT_SETUP, "utf8").replace(/^modules:\n(?: {2}.*\n)+/m, "");
+  const setup = await parseSetup(bare);
+  const { texts, job } = texModules();
+  assert.deepEqual(setup.modules, texModules());
+  assert.equal(setup.prompts.texts, texts.map((n) => TEX_PROMPT_WORDS[n]).join("\n\n"));
+  assert.equal(setup.prompts.group, setup.prompts.texts);
+  assert.equal(setup.prompts.job, job.map((n) => TEX_PROMPT_WORDS[n]).join("\n\n"));
+  assert.deepEqual([setup.ownModules, setup.wordsDiffer], [false, []]);
+});
+
+test("a note that names its own modules keeps them, and says which of Tex's modules it words differently", async () => {
+  const raw = readFileSync(FINGERPRINT_SETUP, "utf8");
+  assert.match(raw, /^modules:/m);
+  const words = (path) => {
+    const name = path.slice(path.lastIndexOf("/") + 1, -3);
+    const text = TEX_PROMPT_WORDS[name];
+    return Promise.resolve(path === modulePath("rules") ? `---\nmodule: rules\n---\n\n${text} One more line.\n` : `---\nmodule: ${name}\n---\n\n${text}\n`);
+  };
+  const setup = await parseSetup(await assembleSetup(raw, words, frontOf));
+  assert.deepEqual([setup.ownModules, setup.wordsDiffer], [true, ["rules"]]);
+  assert.match(setup.prompts.texts, /One more line\./);
+});
+
+test("only a texting setup is read with Tex's config: another job's note with no models is refused, as before", async () => {
+  assert.equal(await parseSetup("---\njob: dream\n---\n\nDream words.\n"), null);
+  const named = await parseSetup("---\njob: dream\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nDream words.\n");
+  assert.equal(named.prompt, "Dream words.");
 });

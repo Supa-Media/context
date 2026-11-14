@@ -52,8 +52,21 @@ another model or effort than the file.
 workflow (`.github/workflows/tex-lab-promote.yml`, every quarter hour) writes the version's graph into the config
 with `scripts/tex-lab-promote.mjs` on a branch of its own and opens the pull request, which merges like any Tex
 change. It refuses a new step (its code comes first, on a branch), a deleted one (turn it off), a model with no
-gateway id, and, until the words move into the config, prompt module edits. Production's setup note names no models;
+gateway id, and new words for a module built in code. Production's setup note names no models;
 AI Promote refuses a texting setup that names its own (`bench/promote.mjs` `configRefusal`).
+
+**Tex's prompt words live in the repository, beside the config** (Dev2, 2026-11-14, choosing "In the repo, beside
+the config" over keeping them in `@context-lc` pinned by fingerprint: a pinned copy is a second copy that can only
+fail). Each module is `packages/shared/src/texPrompt/<name>.md`, the words exactly as Tex is given them;
+`scripts/tex-prompt-module.mjs` writes them into `texPrompt.generated.json`, which the gateway and the Lab import, and
+`tex-diagram-check.mjs` and `texConfig.test.mjs` fail when it is stale. Which modules a turn gets, in order, is the
+config's: the `p-<name>` entries of the front door's context for a 1:1 text and a group, and of the background
+job's for a job (`texConfig.js` `texModules`). A texting setup that names neither models nor modules, as
+production's does, is given them (`production.js`); a bench variant naming its own keeps them, a live read says so
+(`tex_setup_not_from_config`, with the modules whose words differ from the repository's), and AI Promote refuses one.
+The Lab shows the repository's words, and Promote writes a version's new words for a `p-` module into its file in the
+same pull request as the config, so a word change is a prompt change the fingerprints see and the replay gate runs.
+The `ai/production/prompt/` notes are retired. Skills stay in `@context-lc` for now.
 
 **Its data is the bench's own.** `scripts/tex-lab-data.mjs` writes the cases,
 the module texts (the map, the capability list, the judge examples, the test

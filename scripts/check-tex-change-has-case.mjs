@@ -27,7 +27,7 @@
 import { execFileSync } from "node:child_process";
 
 /** Files whose change changes what Tex does. */
-export const TEX_CODE = [/^apps\/mcp\/src\/agent\//, /^apps\/agent\/src\//, /^packages\/shared\/src\/text[^/]*$/, /^packages\/shared\/src\/texConfig\.json$/];
+export const TEX_CODE = [/^apps\/mcp\/src\/agent\//, /^apps\/agent\/src\//, /^packages\/shared\/src\/text[^/]*$/, /^packages\/shared\/src\/texConfig\.json$/, /^packages\/shared\/src\/texPrompt/];
 /** Files that are cases Tex is replayed or benchmarked against. */
 export const CASES = [/^apps\/mcp\/test\/replay\/cases\//, /^apps\/mcp\/bench\/respond\//, /^apps\/mcp\/bench\/review\//, /^apps\/mcp\/bench\/advisor\//, /^apps\/mcp\/bench\/ai\/tests\//];
 const EXEMPT = /^\s*No replay case:\s*(.+?)\s*$/im;

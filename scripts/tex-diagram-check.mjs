@@ -27,6 +27,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MODULE as MAP_MODULE, moduleIsCurrent } from "./tex-architecture-module.mjs";
+import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleIsCurrent as promptIsCurrent } from "./tex-prompt-module.mjs";
 import { configProblems, labelProblems } from "./tex-config-table.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -128,6 +129,7 @@ function check(base) {
   problems.push(...mapProblems(agentFiles));
   problems.push(...configProblems(ROOT));
   if (!moduleIsCurrent(ROOT)) problems.push(`${MAP_MODULE} is not what ${DIAGRAM} makes: run node scripts/tex-architecture-module.mjs`);
+  if (!promptIsCurrent(ROOT)) problems.push(`${PROMPT_MODULE} is not what ${PROMPT_FOLDER}/*.md make: run node scripts/tex-prompt-module.mjs`);
   if (base) {
     const changed = execFileSync("git", ["diff", "--name-only", base, "HEAD"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
     problems.push(...changeProblems(changed, page, process.env.TEX_PR_BODY));

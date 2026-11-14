@@ -272,8 +272,9 @@ async function archive(connection, { job, raw, stamp }, fetchImpl) {
 
 const TEXTING_JOB = "texting-assistant";
 const NAMES_MODELS = "it names its own models, and Tex's models are Tex's config's (packages/shared/src/texConfig.json): change them with the Lab's Promote";
-/** Why a parsed setup cannot go live as `job`'s file, or null: a texting setup naming its own models would be a second copy that wins. */
-export const configRefusal = (job, parsed) => (job === TEXTING_JOB && parsed?.ownModels ? NAMES_MODELS : null);
+const NAMES_MODULES = "it names its own prompt modules, and Tex's prompt words are Tex's config's (packages/shared/src/texPrompt/): change them with the Lab's Promote";
+/** Why a parsed setup cannot go live as `job`'s file, or null: a texting setup naming its own models or modules would be a second copy that wins. */
+export const configRefusal = (job, parsed) => (job !== TEXTING_JOB ? null : parsed?.ownModels ? NAMES_MODELS : parsed?.ownModules ? NAMES_MODULES : null);
 
 /** Puts `setup` live when the gate passes. Returns `{ promoted, reasons, proof }`. */
 export async function promote({ job, setup, rounds, connection, runUrl = null, now = new Date(), fetchImpl = fetch }) {
@@ -284,7 +285,8 @@ export async function promote({ job, setup, rounds, connection, runUrl = null, n
   const [liveSetup, candSetup] = [await parseSetup(live.content), await parseSetup(cand.content)];
   if (!liveSetup || !candSetup) return { promoted: false, reasons: ["a file the gateway would refuse"], proof: [] };
   // Tex's models, efforts, planner and reviewer are Tex's config's (packages/shared/src/texConfig.json; Dev2,
-  // 2026-11-13): a texting setup that names its own cannot go live, or the note would be a second copy that wins.
+  // 2026-11-13), and so are its prompt words (2026-11-14): a texting setup that names its own cannot go live, or the note
+  // would be a second copy that wins.
   if (configRefusal(job, candSetup)) return { promoted: false, reasons: [configRefusal(job, candSetup)], proof: [] };
   const verdict = promotionVerdict({ job, setup, rounds, liveVersion: liveSetup.version, candidateVersion: candSetup.version });
   // A skill only the candidate's folder has would not be live with it.

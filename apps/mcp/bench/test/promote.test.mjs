@@ -168,7 +168,7 @@ test("a round's row prices its answers plus a fifth, and the total follows", () 
   assert.equal(parseSpend(next).rows.length, 3);
 });
 
-test("a texting setup that names its own models never goes live: Tex's models are Tex's config's", async () => {
+test("a texting setup that names its own models or modules never goes live: they are Tex's config's", async () => {
   const { configRefusal } = await import("../promote.mjs");
   const { parseSetup } = await import("../../src/agent/production.js");
   const named = await parseSetup(["---", "job: texting-assistant", "models:", "  main: anthropic/claude-sonnet-5-5", "---", "", "You are Tex.", ""].join("\n"));
@@ -176,4 +176,5 @@ test("a texting setup that names its own models never goes live: Tex's models ar
   assert.match(configRefusal("texting-assistant", named) ?? "", /texConfig\.json/);
   assert.equal(configRefusal("texting-assistant", bare), null);
   assert.equal(configRefusal("dream", named), null, "another job's file keeps its own model");
+  assert.match(configRefusal("texting-assistant", { ...bare, ownModules: true }) ?? "", /texPrompt/, "a setup naming its own prompt modules never goes live either");
 });
