@@ -186,6 +186,10 @@ export class SenderInbox implements DurableObject {
       const status = (await request.json()) as SendStatus;
       return Response.json({ outcome: await noteSendStatus(this.state.storage, status, Date.now(), resendPlain(this.state.storage, this.deps(), Date.now)) });
     }
+    if (path === "/host-picture") {
+      // The Worker's line (`lineCalls.ts`) asks this object to host a picture its line sends; the same call `deps()` makes.
+      return Response.json({ url: await this.hostPictureHere((await request.json()) as Picture) });
+    }
     if (path === "/react") {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
@@ -255,6 +259,18 @@ export class SenderInbox implements DurableObject {
     if (response.ok) await this.state.storage.put(WHERE_KEPT_KEY, true);
   }
 
+  /** A picture served at a short-lived address from this object (`media.ts`); the gateway's remote line asks for it at `/host-picture`. */
+  private async hostPictureHere(picture: Picture): Promise<string> {
+    return await hostPicture(
+      this.state.storage,
+      await this.state.storage.get<string>(ORIGIN_KEY),
+      this.state.id.toString(),
+      picture,
+      Date.now(),
+      picture.title ? CARD_FOR_MS : MEDIA_FOR_MS,
+    );
+  }
+
   /** The Worker's own address, kept for pictures served back to Sendblue (`media.ts`). */
   private async keepOrigin(request: Request): Promise<void> {
     const origin = workerOrigin(new URL(request.url).searchParams.get("origin"));
@@ -280,15 +296,7 @@ export class SenderInbox implements DurableObject {
       textCounts: this.env.TEX_COUNTS,
       ...(this.env.GATEWAY_TEXTS ? { texts: textsSessionDeps(this.env.GATEWAY_TEXTS, this.state.storage) } : {}),
       noteCardPicture: noteCardDrawer(this.out, this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
-      hostPicture: async (picture: Picture) =>
-        hostPicture(
-          this.state.storage,
-          await this.state.storage.get<string>(ORIGIN_KEY),
-          this.state.id.toString(),
-          picture,
-          Date.now(),
-          picture.title ? CARD_FOR_MS : MEDIA_FOR_MS,
-        ),
+      hostPicture: (picture: Picture) => this.hostPictureHere(picture),
       threadsLink: () => mintThreadsLink(this.state.storage, this.state.id.toString(), Date.now()),
       images: this.env.IMAGES,
       now: () => Date.now(),

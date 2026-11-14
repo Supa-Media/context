@@ -22,8 +22,8 @@ import { groupInboxName } from "./groupInbox";
 import { inboxByName } from "./objectPlace";
 import { E164, isRecord, sendblueChatId, statusPath } from "./sendblue";
 import { takeThreaded, type Threaded } from "./threadedResend";
-import { groupLineFor, type GroupLineDeps } from "./groupLine";
-import { lineFor, type LineDeps } from "./line";
+import { groupLineFor, groupLineSeam, type GroupLineDeps } from "./groupLine";
+import { lineFor, lineSeam, type LineDeps } from "./line";
 import { MAX_SENT, SENT_KEY } from "./groupSay";
 import { rememberText } from "./threads";
 
@@ -85,14 +85,14 @@ export type Resend = (sent: Threaded) => Promise<string | undefined>;
 export function resendPlain(storage: InboxStorage, deps: LineDeps & GroupLineDeps, now: () => number): Resend {
   return async (sent) => {
     if (sent.place.kind === "group") {
-      const handle = await groupLineFor(deps, sent.place.groupId).sendText({ line: sent.place.line, groupId: sent.place.groupId }, sent.text);
+      const handle = await groupLineFor(groupLineSeam(deps), sent.place.groupId).sendText({ line: sent.place.line, groupId: sent.place.groupId }, sent.text);
       if (handle !== undefined) {
         const kept = (await storage.get<string[]>(SENT_KEY)) ?? [];
         await storage.put(SENT_KEY, [...kept.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
       }
       return handle;
     }
-    const handle = await lineFor(deps, sent.place.chatId).sendText(sent.place.chatId, sent.text, `resend:${sent.h}`);
+    const handle = await lineFor(lineSeam(deps), sent.place.chatId).sendText(sent.place.chatId, sent.text, `resend:${sent.h}`);
     await rememberText(storage, sent.place.chatId, handle, sent.text, now());
     return handle;
   };

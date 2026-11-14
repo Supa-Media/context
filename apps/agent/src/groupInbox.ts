@@ -66,7 +66,7 @@ import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onMachi
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
-import { groupLineFor } from "./groupLine";
+import { groupLineFor, groupLineSeam, type GroupLine } from "./groupLine";
 import { inRoom, readMembersNow, withKeptMembers } from "./groupMembers";
 import type { NoteCardDrawer } from "./noteCards";
 import { isBound, isMuted, keepChatLine, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
@@ -110,6 +110,8 @@ export type GroupDeps = {
   startTurn?: (turn: string) => Promise<void>;
   /** Present, a chosen turn is answered here at once and its workflow only retries a failure (`groupTurnRun.ts`); keeps that answer alive. */
   answerFirst?: (work: Promise<unknown>) => void;
+  /** The group's line served by the gateway (`remoteLine.ts`); read by `groupLineSeam`. */
+  remoteGroupLine?: (groupId: string) => GroupLine;
 };
 
 /** A group's queue is named apart from every phone's, which always starts with "+". */
@@ -189,7 +191,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     let how: Awaited<ReturnType<typeof whileRunning>>;
     try {
       how = await whileRunning(storage, message, ev, running, tagged, () => now, (emoji) =>
-        tapback(storage, { chat: message.groupId, now: () => now, by: "decide", asked: emoji, on: ev }, message.text, (sent) => groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)),
+        tapback(storage, { chat: message.groupId, now: () => now, by: "decide", asked: emoji, on: ev }, message.text, (sent) => groupLineFor(groupLineSeam(running.deps as GroupDeps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)),
       );
     } catch {
       // It is seen already: a throw here must not lose it, so it is queued as when no turn runs.
@@ -405,7 +407,7 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       // Decide's reaction goes at once, whatever it decided about words, and only once per message.
       if (choice.react) {
         const [key, item] = choice.react;
-        await tapback(storage, { chat: item.message.groupId, now: deps.now, by: "decide", asked: choice.emoji, on: item.ev }, item.message.text, (sent) => groupLineFor(deps, item.message.groupId).react({ line: item.message.line, groupId: item.message.groupId }, item.message.messageId, sent));
+        await tapback(storage, { chat: item.message.groupId, now: deps.now, by: "decide", asked: choice.emoji, on: item.ev }, item.message.text, (sent) => groupLineFor(groupLineSeam(deps), item.message.groupId).react({ line: item.message.line, groupId: item.message.groupId }, item.message.messageId, sent));
         await storage.put<Pending>(key, { ...item, reacted: true });
         for (const list of [choice.answer, choice.wait ?? []]) for (const entry of list) if (entry[0] === key) entry[1] = { ...entry[1], reacted: true };
       }
@@ -500,7 +502,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   // What the chat said before the first message it answers is its context; the rest it answers.
   const acceptedAt = entries[0][1].at ?? deps.now();
   const covers = coversOf(entries);
-  const app = groupLineFor(deps, message.groupId);
+  const app = groupLineFor(groupLineSeam(deps), message.groupId);
   // A green-bubble group is never answered from anyone's notes: SMS vouches for no sender.
   if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms, { system: true }));
   const chat = { line: message.line, groupId: message.groupId };
