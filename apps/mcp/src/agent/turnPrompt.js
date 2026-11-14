@@ -56,8 +56,10 @@ export function turnPrompt(place, answering, o) {
     used: usedTools(o.history),
   });
   // Each module in the order it is sent, named, so the call's manifest (`promptManifest.js`) says which ran.
+  // The thread note may come in named parts (`runTheModel.js`): sent as one block, each named in the manifest.
+  const threadParts = Array.isArray(o.threadNote) ? o.threadNote : [["", o.threadNote ?? ""]];
   const context = [
-    ["thread", o.threadNote],
+    ["thread", threadParts.map(([, text]) => text ?? "").join("")],
     ["web", webPrompt(o.webNames)],
     ["progress", o.progress ? (o.progress.prompt ?? PROGRESS_PROMPT) : ""], // at the chat's progress level (`progress.js`)
     ["aboutMe", o.aboutMe === null ? "" : aboutMePrompt(o.aboutMe, { edits, identity: o.identity })],
@@ -85,7 +87,7 @@ export function turnPrompt(place, answering, o) {
     system: { stable: parts.stable, context: context.map(([, text]) => text ?? "").join("") },
     preamble,
     prompt: {
-      modules: manifestOf([[stableId, parts.stable], ...context.map(([id, text]) => [`context/${id}`, text]), ...facts.map(([id, text]) => [`preamble/${id}`, typeof text === "string" ? text.trim() : text])]),
+      modules: manifestOf([[stableId, parts.stable], ...context.flatMap(([id, text]) => (id === "thread" ? threadParts.map(([part, words]) => [part === "" ? "context/thread" : `context/thread/${part}`, words]) : [[`context/${id}`, text]])), ...facts.map(([id, text]) => [`preamble/${id}`, typeof text === "string" ? text.trim() : text])]),
       // The builder inputs a rebuild cannot read from the notes: when, where, and which model it was said to.
       inputs: { at: Math.round(now), ...(o.localNow?.timeZone ? { timeZone: o.localNow.timeZone } : {}), ...(typeof answering === "string" ? { model: answering } : {}), history: o.history.length },
     },
