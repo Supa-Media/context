@@ -113,6 +113,14 @@ test("every step of a texted turn leaves its time and outcome in the ledger, und
     assert.equal(model.ok, true);
     assert.ok(Number.isFinite(model.ms));
     assert.ok(timed.length >= 5, `the front door's steps are there too (${timed.length})`);
+    // Door steps is a step of its own: what kind of turn, which texts it covers, and every setting it ran with (Dev2, 2026-11-14).
+    const door = steps.find((entry) => entry.step === "door");
+    assert.ok(door, "door steps is logged");
+    assert.equal(door.turn, "turn-ledger-0009");
+    assert.deepEqual(door.input.covers, [text.id]);
+    assert.equal(door.input.chat, "one");
+    assert.ok("model" in door.output && "effort" in door.output && "reviewer" in door.output && "advisor" in door.output, JSON.stringify(door.output));
+    assert.ok(!JSON.stringify(door).includes("what's in my notes"), "the chat's words stay in its text entries");
   } finally {
     world.restore();
   }

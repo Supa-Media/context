@@ -418,7 +418,7 @@ describe("the Lab's test user as You", () => {
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(lab.ownFrom).toBe("routine");
-    expect(lab.real?.io?.fd?.map((l) => l.k)).toContain("Thought");
+    expect(lab.real?.io?.fd?.map((l) => l.k)).toContain("Thought · 4.0 s");
     // Back to the Lab: its tools and the version controls return, and no conversation.
     await click(q("#modeLab"));
     expect(q("#tSel")).not.toBeNull();
