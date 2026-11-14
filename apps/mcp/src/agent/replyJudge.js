@@ -283,7 +283,7 @@ export const takesBack = (answer) => typeof answer === "string" && TAKE_BACK.tes
  * all (Dev2, 2026-11-07: a routine texted "the say_nothing action isn't
  * available to me in this session").
  */
-export function replyJudge({ setting, question, history = [], inner = null, plain = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = REVIEW_TIMEOUT_MS, clock = Date.now, log = console.log, advisor = false }) {
+export function replyJudge({ setting, question, history = [], inner = null, plain = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = REVIEW_TIMEOUT_MS, clock = Date.now, log = console.log, advisor = false, byRunner = false }) {
   const on = Boolean(setting) && (config !== null || request !== requestViaGateway);
   const verdicts = [];
   const feedbackSoFar = [];
@@ -294,9 +294,13 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
   const began = clock();
   // The kind the reviewer last named: the budget is the turn's, so a task stays a task on its rewrites.
   let kindSoFar = null;
-  return {
+  const judge = {
     verdicts,
-    async check(answer, turn = {}) {
+    /**
+     * The Answer checks node's half (`graph/nodes/checks.js`): the code checks a draft gets first, and whether the
+     * Reviewer reads it next. `{ notice }` sends it back; `{ review: true }` hands it to `review`; neither lets it go.
+     */
+    async codeCheck(answer, turn = {}) {
       // A text answered with no action (no search, read, write or send) is not reviewed (Dev2, 2026-11-11, one-judge PR 3): the reviewer's faults
       // are claims and figures this turn's actions do not back. `plain`, the code checks a setup without the reviewer runs, reads it instead.
       // A routine's text and a job's report are still reviewed.
@@ -307,20 +311,25 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
       const before = typeof checks?.check === "function" ? await checks.check(answer, turn) : null;
       // The code checks are a step whether or not they send it back (Dev2, 2026-11-14: "every single block should have proper
       // logging"): what they read, which set ran, and that it passed; a send-back is the `judge` entry below as well.
-      if (typeof checks?.check === "function") turn.tell?.({ kind: "model", step: "checks", ok: true, ms: clock() - checked, input: { draftChars: String(answer ?? "").length, set: unreviewed ? "plain" : "full", actions: actionsOf(turn.messages).length }, output: { verdict: before !== null && before !== undefined ? "sent back" : "let it go" } });
+      // On the graph the runner logs the Answer checks node itself (`graph/nodes/checks.js`); `byRunner` drops this hand-written copy.
+      if (!byRunner && typeof checks?.check === "function") turn.tell?.({ kind: "model", step: "checks", ok: true, ms: clock() - checked, input: { draftChars: String(answer ?? "").length, set: unreviewed ? "plain" : "full", actions: actionsOf(turn.messages).length }, output: { verdict: before !== null && before !== undefined ? "sent back" : "let it go" } });
       if (before !== null && before !== undefined) {
         // The code checks that run first: what they sent back, kept in the chat's history too.
         turn.tell?.(judgeEvent({ by: "code", round: sentBack, draft: answer, went: false, notice: before }));
-        return before;
+        return { notice: before, review: false };
       }
-      if (!on || skip) return null;
+      if (!on || skip) return { notice: null, review: false };
       // A quiet word is never a text: nothing is sent, so there is nothing to judge (Tex Devs, 2026-11-05: a SKIP sent back three times; `sayNothing.js`).
-      if (isControlWord(answer)) return null;
+      if (isControlWord(answer)) return { notice: null, review: false };
       if (unreviewed) {
         log(JSON.stringify({ event: "tex_reply_review", model: REVIEW_MODEL, round: sentBack, kind: null, verdict: "skipped", problems: [], ms: 0 }));
-        turn.tell?.({ kind: "model", step: "reviewer", ok: true, ms: 0, model: REVIEW_MODEL, input: { draftChars: String(answer ?? "").length, actions: 0 }, output: { verdict: "skipped", why: "no search, read, write or send in this turn, so nothing to check its claims against" } });
-        return null;
+        if (!byRunner) turn.tell?.({ kind: "model", step: "reviewer", ok: true, ms: 0, model: REVIEW_MODEL, input: { draftChars: String(answer ?? "").length, actions: 0 }, output: { verdict: "skipped", why: "no search, read, write or send in this turn, so nothing to check its claims against" } });
+        return { notice: null, review: false };
       }
+      return { notice: null, review: true };
+    },
+    /** The Reply reviewer node's half (`graph/nodes/reviewer.js`): one review of a draft the code checks let through; a notice sends it back. */
+    async review(answer, turn = {}) {
       if (sentBack >= sendBacksFor(kindSoFar)) {
         turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: true, reason: `sent back ${sentBack === 1 ? "once" : `${sentBack} times`} already, so it goes as it is` }));
         return null;
@@ -352,7 +361,14 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
       sentBack += 1;
       return notice;
     },
+    /** Both halves on one draft, as a caller with no graph runs them (`heartbeat.js`): the code checks, then the review. */
+    async check(answer, turn = {}) {
+      const { notice, review } = await judge.codeCheck(answer, turn);
+      if (notice !== null && notice !== undefined) return notice;
+      return review ? judge.review(answer, turn) : null;
+    },
   };
+  return judge;
 }
 
 /**

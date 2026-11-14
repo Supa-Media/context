@@ -244,6 +244,7 @@ Tex's own jobs, each with its record:
 - [Golden tasks](./texting-assistant/golden-tasks.md): jobs Tex must always
   get right, gating a setup; the task skills it reads before doing one, and
   why a read skill may vouch for an address.
+- [Turn graph](./texting-assistant/turn-graph.md): Tex's turn is one run of the config's graph; each door step is a node, the wires between them come from `texConfig.json`, and the runner logs every node run.
 
 ### The built-in model is free, capped at 500 a day, and metered like Jev
 

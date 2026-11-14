@@ -11,7 +11,7 @@ import { canRunBuiltin } from "../builtin.js";
 import { chatHubUrl } from "../hubLinks.js";
 import { keepGroupExchange } from "../groupTurn.js";
 import { jobFields, jobTurnFields } from "../jobCheck.js";
-import { stepLog, wordsEntry } from "../ledger.js";
+import { wordsEntry } from "../ledger.js";
 import { briefEntry } from "../judgeBrief.js";
 import { readInstructions } from "../customInstructions.js";
 import { exchangeEntries } from "../ledgerConversation.js";
@@ -20,7 +20,6 @@ import { withoutFlattery } from "../pushback.js";
 import { reactedLine, tapbackLine } from "../quoted.js";
 import { afterTextedTurn } from "../reflect.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "../replyChecks.js";
-import { reviewAfterTurn } from "../selfReview.js";
 import { steeredLine } from "../steer.js";
 import { deskEligible, learnDeskKeys } from "../texDesk.js";
 import { changedCalendar, refreshCalendarCache } from "../calendarCache.js";
@@ -100,8 +99,7 @@ export async function sendTheReply(t) {
 
   // Their next 7 days, read again behind the reply when the copy is stale or this turn changed the calendar (`calendarCache.js`).
   if (job === null && group === null && conversation === "texts" && deskEligible(store)) await tex.after("calendar_copy", () => refreshCalendarCache(dispatch, { timeZone, force: changedCalendar(turn.steps) }));
-  // "fix this" or frustration scores the conversation now (`selfReview.js`); quiet ends do it from the Worker.
-  if (!turn.exhausted) await tex.after("self_review", () => stepLog(chatLog, { turn: ledgerTurn }).timed("selfreview", question, () => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null })).catch(() => null)); // what it filed and why, a step in the chat's ledger
+  // "fix this" or frustration scores the conversation after the reply: the Self-review node, on Text them's background wire (`../graph/nodes/selfreview.js`).
   const reply = {
     answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
     ...(hushed && report === null && sent === "" ? { react: "" } : {}), // a tapback in place of a text: a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)

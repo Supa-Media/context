@@ -125,6 +125,16 @@ function typeProblem(v, field) {
 }
 
 /**
+ * What a wire hands on: the output without its `when`, which picked the wires and is not the next node's input (a node's
+ * input schema never names it, so a tagged output fed on as it is would fail the node it feeds).
+ */
+function carried(output) {
+  if (!plain(output) || !("when" in output)) return output;
+  const { when, ...rest } = output;
+  return rest;
+}
+
+/**
  * Check a node's input or output against its schema (`which`: "input" or "output"). Throws a `GraphError` naming the
  * node and the field; a node with no schema for it is not checked.
  */
@@ -299,7 +309,7 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       const r = await runNode(n, given, ctx, `${caller}:loop`);
       if (!r.ran) continue;
       last = r.output;
-      for (const e of wait) if (e.from === n && e.to !== caller && path.includes(e.to) && fires(e, r.output)) fed.set(e.to, [...(fed.get(e.to) ?? []), r.output]);
+      for (const e of wait) if (e.from === n && e.to !== caller && path.includes(e.to) && fires(e, r.output)) fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]);
     }
     return last;
   }
@@ -333,9 +343,9 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       outputs[id] = r.output;
       ran.push(id);
       if (r.handedOff || stops.has(id)) continue;
-      for (const e of out(id, "wait")) if (fires(e, r.output)) fed.set(e.to, [...(fed.get(e.to) ?? []), r.output]);
+      for (const e of out(id, "wait")) if (fires(e, r.output)) fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]);
       for (const e of out(id, "background")) if (fires(e, r.output)) {
-        fed.set(e.to, [...(fed.get(e.to) ?? []), r.output]);
+        fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]);
         later.set(e.to, true);
       }
     }

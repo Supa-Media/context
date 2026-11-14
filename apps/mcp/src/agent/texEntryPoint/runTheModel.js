@@ -57,12 +57,7 @@ import { threadsSortAndWrite } from "../conversationThreads.js";
 import { withArchitecture } from "../texArchitecture.js";
 import { withChatWriteLock } from "../chatWriteLock.js";
 
-/** What Door steps got: what kind of turn it is and for whom, by reference; never the chat's words, which are in its ledger already. */
-function doorIn({ body, group, job, routine, runner, history }) {
-  return { chat: group ? "group" : "one", kind: job ? "job" : routine ? "routine" : runner ? "scheduled" : "text", covers: Array.isArray(body?.covers) ? body.covers.slice(0, 32) : undefined, history: Array.isArray(history) ? history.length : undefined, place: body?.place ? true : undefined };
-}
-
-/** What Door steps gave the front door: the settings this turn runs with. */
+/** The settings this turn runs the front door with, as the Front door node logs them (`../graph/nodes/fd.js`). */
 function doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }) {
   return {
     model: productionModel ?? null,
@@ -82,8 +77,17 @@ function doorOut({ production, productionModel, fallback, router, gated, advisin
 /** The setup's rules with the drawing ahead, the box named for this kind of turn (`texArchitecture.js`). */
 const setupWithMap = (prompt, kind) => (typeof prompt === "string" && prompt !== "" ? withArchitecture(prompt, kind) : prompt);
 
+/** The reviewer's two halves, or the code checks alone with no reviewer (`replyJudge.js`); null when a turn has neither. */
+function answerChecksFor({ judge, doIt, claims, tries, chatLog, ledgerAt }) {
+  if (judge !== null) return { code: judge.codeCheck, review: judge.review };
+  const codeChecks = doIt ?? claims ?? tries;
+  const plainCheck = doIt === null && claims !== null ? loggedCheck(chatLog, ledgerAt ?? {}, "handback", claims) : typeof codeChecks?.check === "function" ? (answer, context) => codeChecks.check(answer, context) : null;
+  if (plainCheck === null) return null;
+  return { code: async (answer, context) => ({ notice: (await plainCheck(answer, context)) ?? null, review: false }), review: null };
+}
+
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
-export async function runTheModel(t) {
+export async function runTheModel(t, via) {
   const { allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, computersRead, controlPlane, keptReads = null, delegation: delegated, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, threadsRun, timeZone, view = null } = t;
   // What this chat has read before, under this turn's own carry key: listed in the per-text block, opened with read_back (`readsIndex.js`).
   const reads = keptReads === null ? null : readsOf(keptReads.entries, { grant: carryKey(session), before: logged?.parts?.since ?? null, notes: group === null });
@@ -107,16 +111,18 @@ export async function runTheModel(t) {
   // The advisor, when the setup names one this deployment can run: offered on every chat turn, a job's included (`advisor.js`).
   const advising = chatTurn && productionModel !== null && Boolean(production.advisor) && canRunBuiltin(production.advisor, env);
   const judge = gated ? replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, report, scheduled, timeZone, question: askedNow, history: logged?.history ?? shown, inner: claims, plain: doIt ?? claims ?? tries, advisor: advising }) : null;
+  // What the Answer checks and Reply reviewer nodes run on each draft (`../graph/nodes/checks.js`, `reviewer.js`): the reviewer's two halves, or the code checks alone.
+  // A job's claim check is still the Hand-back judge's own step in the ledger (`loggedCheck`) until the job's nodes move onto the runner.
+  t.answerChecks = answerChecksFor({ judge, doIt, claims, tries, chatLog, ledgerAt });
   // A progress line goes unreviewed (Dev2, 2026-11-11, one-judge PR 3): it says what Tex is doing, and a review held each one up to 8 s.
-  if (planning) background.plan = planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) });
+  if (planning) background.plan = via.planner(planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) }));
   if (planning) splitFirst(background); // a lone job is offered the planner once
   // The chat by conversation: the thread list as it stood after the text before, then the last 24 hours (`threadedTurn.js`), in 1:1 and in groups.
   // The new text is sorted only after the answer has gone, and its verdict kept for the next turn (Dev2, 2026-11-12: "Never wait for it").
   const threaded = threadsRun ? await tex.wait("threads", threadsRun) : null;
-  if (threaded?.sort) tex.after("threads_sort", () => stepLog(chatLog, ledgerAt ?? {}).timed("classifier", question, () => threadsSortAndWrite(threaded.sort, store, session)).catch(() => {})); // the threads it filed the text into, a step in the chat's ledger
-  // Whether Tex answers at all was the Worker's one judge's, before this turn was asked for (`textDecide.cjs`).
-  // Door steps, as one step in the chat's ledger: what this turn was set up with, every setting that shapes it (Dev2, 2026-11-14: "every single block should have proper logging of what's going in and out and what parameters were set"). The prompt's modules are each model round's (`turnTiming.js`); the words are the chat's own, already in its ledger.
-  stepLog(chatLog, ledgerAt ?? {}).log({ step: "door", ok: true, input: doorIn({ body, group, job, routine, runner, history }), output: doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }), model: productionModel ?? null });
+  t.threadsSort = threaded?.sort ? () => threadsSortAndWrite(threaded.sort, store, session) : null; // the Classifier node files the text after the reply (`../graph/nodes/classifier.js`), on Text them's background wire
+  // What this turn runs the front door with, every setting that shapes it, logged as the Front door node's (Dev2, 2026-11-14: "every single block should have proper logging of what's going in and out and what parameters were set").
+  t.settings = doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded });
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
@@ -133,15 +139,15 @@ export async function runTheModel(t) {
     onModel: (model) => void (store.usageModel = model),
     // A group turn's tool start goes down the stream as a step line: the Worker taps the asked message once on the first (`groupModelTurn.ts`).
     ...(group !== null && job === null && typeof step === "function" ? { onToolStart: (name) => void Promise.resolve(step(name)).catch(() => {}) } : {}),
-    answerCheck: judge?.check ?? loggedCheck(chatLog, ledgerAt ?? {}, doIt !== null ? "checks" : claims !== null ? "handback" : "checks", doIt ?? claims ?? tries), endsTurn: background?.endsTurn ?? null, sayNothing: job === null, mustAnswer: group?.tagged === true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
-    // With no reviewer, the answer check is a step of its own in the ledger (`loggedCheck`, `ledger.js`).
+    answerCheck: t.answerChecks === null ? null : via.answerCheck, endsTurn: background?.endsTurn ?? null, sayNothing: job === null, mustAnswer: group?.tagged === true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
+    // Each draft is checked by the nodes the config wires after the front door (`../graph/draftBridge.js`): Answer checks, then the Reply reviewer.
     // A group turn's changing calls take the chat's write lock, one at a time across its turns side by side (`chatWriteLock.js`).
-    callTool: allowedFirst(tex.lean ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
+    callTool: via.tools(allowedFirst(tex.lean ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
         withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), groupWriting, { store, group, outside: () => ledger.outside === true }) : textingAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
       ))),
-    ))))))))),
+    )))))))))),
     pictures: texted || group !== null,
     attachments,
     env,
@@ -157,12 +163,12 @@ export async function runTheModel(t) {
         ...(production !== null ? { setup: production.version } : {}),
       },
     },
-    web: steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
+    web: via.web(steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb), // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: threaded?.history ? [...threaded.history, ...(logged?.carried ?? [])] : logged?.history ?? shown, // the stretch's turns after it (`stretch.js`)
     // Per text, so said in their turn after the cached prefix (`turnPrompt.js`): who tagged it, the thread, the jobs running now, whether their computers are online.
     turnNote: [group !== null ? taggedLine(group) : "", threaded?.note ?? "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), readsNote(reads?.listed ?? []), background?.runningNow ?? "", job === null ? computersLine(computers, { planning }) : ""].map((part) => part.trim()).filter(Boolean).join("\n\n"),
     threadNote: (group !== null ? groupPrompt(group, home) : "") + learnedSkillsLine(learned) + (background?.prompt ?? "") + (planning ? PLAN_HINT : "") + (chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : "") + jobPrompt(job) + jobAdvisorLine(job, advising) + jobReportPrompt(report) + (chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""), steer,
-    local: (doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(reads !== null ? [readBackTool({ reads: reads.all, open: keptReads.open, reread: dispatch, onRead: (read) => markRead(ledger, read) })] : []), ...(threaded?.read_thread ? [threaded.read_thread] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env), snapshot: () => settingsSnapshot({ session, controlPlane, group, dispatch }) }) : []), ...(chatTurn && job === null && !routine ? computerTools({ env, session, controlPlane, group, words: question, judge: judgeFor(env) }) : []), ...(chatTurn && job === null && !routine ? settingsTools({ session, controlPlane, group, dispatch, words: question, judge: judgeFor(env), onInvite: (invite) => void (ledger.chatInvite = invite) }) : []), ...personalTex(chatTurn && job === null && !routine ? personalTexTool({ group, ledger, say: channel ? (line) => channel.say(line) : null, asker: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }) : null), ...personalTex(chatTurn && job === null && !routine && group !== null ? guestNameTool({ group, ledger: groupLedger(store, group) }) : null), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])]), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
+    local: via.local((doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(reads !== null ? [readBackTool({ reads: reads.all, open: keptReads.open, reread: dispatch, onRead: (read) => markRead(ledger, read) })] : []), ...(threaded?.read_thread ? [threaded.read_thread] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentForTurn(question, env), snapshot: () => settingsSnapshot({ session, controlPlane, group, dispatch }) }) : []), ...(chatTurn && job === null && !routine ? computerTools({ env, session, controlPlane, group, words: question, judge: judgeFor(env) }) : []), ...(chatTurn && job === null && !routine ? settingsTools({ session, controlPlane, group, dispatch, words: question, judge: judgeFor(env), onInvite: (invite) => void (ledger.chatInvite = invite) }) : []), ...personalTex(chatTurn && job === null && !routine ? personalTexTool({ group, ledger, say: channel ? (line) => channel.say(line) : null, asker: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }) : null), ...personalTex(chatTurn && job === null && !routine && group !== null ? guestNameTool({ group, ledger: groupLedger(store, group) }) : null), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])])), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
     localNow: { now: Date.now(), timeZone },
@@ -173,7 +179,7 @@ export async function runTheModel(t) {
     builtinModelOverride: productionModel ?? undefined,
     router,
     efforts: turnEfforts(production, job), // a job's turn thinks as `models.job_effort` says (`production.js`)
-    fallback,
+    fallback: via.fallback(fallback),
     maxRounds: production?.maxSteps ?? undefined,
     // A browser call can open a page and settle it (`infra/site-shots`
     // budgets 17 s); the default would cut a slow one short and lose it. A captcha on the page

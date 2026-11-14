@@ -17,7 +17,9 @@ and a handle with no wire throws. A node never imports another node's code.
 
 **Shapes are strict** (Dev2's call on the artifact: "fail"). A node's `inSchema` and `outSchema` name every field it
 takes and gives; a field is required unless `optional: true`, an unnamed field fails, and only `when` (the output's
-routing tags) is exempt. A mismatch fails the node with a `GraphError` naming the field.
+routing tags) is exempt. A wire hands on the output without its `when`, which chose the wires and is no part of the
+next node's input. A mismatch fails the node with a `GraphError` naming the field. How a whole turn runs on these
+wires is [turn-graph](./turn-graph.md).
 
 **The runner logs every node run itself**: node, input, output, milliseconds, ok or the error, and the wire that ran
 it (`via`), written to the chat's ledger as a `step` entry `step: "node"` (`apps/mcp/src/agent/ledger.js` `nodeEntry`).
