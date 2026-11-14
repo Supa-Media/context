@@ -196,7 +196,7 @@ describe("consoleCosts: attribution", () => {
     expect(feature(result, "tex").usd).toBeCloseTo(tex);
   });
 
-  test("the other features: check-in, dream, housekeeping, meetings, search, transcription and other", async () => {
+  test("the other features: check-in, dream with housekeeping, meetings with transcription, search and other", async () => {
     const fixture = {
       w1: [
         gw({ c: "heartbeat", model: HAIKU, cost: 1 }),
@@ -210,13 +210,11 @@ describe("consoleCosts: attribution", () => {
     };
     const { result } = await run(7, fixture);
     expect(feature(result, "checkin").usd).toBeCloseTo(1);
-    expect(feature(result, "dream").usd).toBeCloseTo(6);
-    expect(feature(result, "housekeeping").usd).toBeCloseTo(8);
-    expect(feature(result, "meetings").usd).toBeCloseTo(16);
+    expect(feature(result, "dream").usd).toBeCloseTo(14);
+    expect(feature(result, "meetings").usd).toBeCloseTo(16.022);
     expect(feature(result, "other").usd).toBeCloseTo(32);
     expect(feature(result, "search").usd).toBeCloseTo(0.011);
-    expect(feature(result, "transcription").usd).toBeCloseTo(0.022);
-    expect(configured(result).features.map((f) => f.key)).toEqual(["tex", "checkin", "dream", "housekeeping", "meetings", "search", "transcription", "other"]);
+    expect(configured(result).features.map((f) => f.key)).toEqual(["tex", "checkin", "dream", "meetings", "search", "other"]);
   });
 
   test("lab runs are shown apart and kept out of the people total, and billed includes them", async () => {

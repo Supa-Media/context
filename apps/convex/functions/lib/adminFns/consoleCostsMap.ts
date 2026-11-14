@@ -43,11 +43,11 @@ export const CLOUDFLARE_PAYER = { key: "cloudflare", label: "Out of pocket", not
 export const FEATURES = [
   { key: "tex", label: "Tex replies" },
   { key: "checkin", label: "Check-in" },
-  { key: "dream", label: "Dream" },
-  { key: "housekeeping", label: "Housekeeping" },
-  { key: "meetings", label: "Meeting summaries" },
+  // The nightly jobs on someone's notes: dream, reflect, day summaries and housekeeping.
+  { key: "dream", label: "Dream and housekeeping" },
+  // Meeting summaries and the transcription (Whisper) under them.
+  { key: "meetings", label: "Meetings" },
   { key: "search", label: "Search by meaning" },
-  { key: "transcription", label: "Transcription" },
   { key: "other", label: "Other" },
 ] as const;
 export type FeatureKey = (typeof FEATURES)[number]["key"];
@@ -111,7 +111,7 @@ export function gatewayBucket(feature: string, client: string, model: string): B
   if (/meeting/i.test(feature) || /meeting/i.test(client)) return { kind: "feature", key: "meetings" };
   if (client === "heartbeat") return { kind: "feature", key: "checkin" };
   if (DREAM_CLIENTS.has(client) || DREAM_FEATURES.has(feature)) return { kind: "feature", key: "dream" };
-  if (client === "housekeeping") return { kind: "feature", key: "housekeeping" };
+  if (client === "housekeeping") return { kind: "feature", key: "dream" };
   return { kind: "feature", key: "other" };
 }
 
@@ -120,7 +120,7 @@ export function workersAiBucket(model: string): Bucket {
   if (model === CLEF_MODEL) return { kind: "tex", step: "decide" };
   if (model === GLM_MODEL) return { kind: "tex", step: "fallback" };
   if (model.includes("bge")) return { kind: "feature", key: "search" };
-  if (model.includes("whisper")) return { kind: "feature", key: "transcription" };
+  if (model.includes("whisper")) return { kind: "feature", key: "meetings" };
   return { kind: "feature", key: "other" };
 }
 
