@@ -214,3 +214,37 @@ test("work sent back passes the wait path from its target to the sender again, e
   const direct = createGraph(config, { fd: async () => ({ d: 1 }), checks: async (_x, io) => ({ again: await io.back.fd({}) }), reviewer: async () => ({}), send: async () => ({}) });
   assert.deepEqual((await direct.run("fd", {})).outputs.checks, { again: { d: 1 } });
 });
+
+// Sabotage record (run 2026-11-14, reverted): withLend() ignoring `lend` -> "lend reaches the callee's io.ctx" fails;
+// `{ ...ctx, ...lend }` replaced by the caller's ctx mutated in place -> "lend does not leak" fails.
+test("a lend given to uses or job reaches the callee's io.ctx for that one call only, never the caller's ctx, and is never logged", async () => {
+  const config = {
+    nodes: [node("caller", { kind: "input" }), node("callee"), node("bg")],
+    edges: [wire("caller", "callee", "uses"), wire("caller", "bg", "job")],
+  };
+  const logs = [];
+  const seen = [];
+  const g = createGraph(
+    config,
+    {
+      caller: async (input, io) => {
+        const first = await io.use.callee({ q: 1 }, { lent: "yes" });
+        const second = await io.use.callee({ q: 2 });
+        const run = await io.job.bg({ q: 3 }, { lent: "job" });
+        seen.push(["caller", io.ctx.lent ?? null]);
+        return { first, second, job: run.output };
+      },
+      callee: async (input, io) => {
+        seen.push([input.q, io.ctx.lent ?? null]);
+        return { lent: io.ctx.lent ?? null };
+      },
+      bg: async (input, io) => (seen.push([input.q, io.ctx.lent ?? null]), { lent: io.ctx.lent ?? null }),
+    },
+    { log: (e) => logs.push(e) },
+  );
+  const { outputs } = await g.run("caller", { start: true }, { base: "kept" });
+  assert.deepEqual(seen, [[1, "yes"], [2, null], [3, "job"], ["caller", null]]);
+  assert.deepEqual(outputs.caller, { first: { lent: "yes" }, second: { lent: null }, job: { lent: "job" } });
+  // The lend is not in any logged input: only the wires' own inputs are.
+  assert.deepEqual(logs.map((l) => l.input), [{ q: 1 }, { q: 2 }, { q: 3 }, { start: true }]);
+});

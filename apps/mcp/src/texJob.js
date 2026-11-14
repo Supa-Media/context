@@ -21,6 +21,8 @@
 
 import { chatEnv, chatState } from "./texChat.js";
 import { JOB_NAME } from "./texJobName.js";
+import { gatewayGraph } from "./agent/graph/gatewayGraph.js";
+import { jobNodeWriter, readJobNodes } from "./texJobLog.js";
 
 /** The header a job's name travels in between objects (`inboxMove.ts` `INBOX_NAME_HEADER`). */
 export const JOB_NAME_HEADER = "x-inbox-name";
@@ -32,6 +34,12 @@ export const JOB_NAME_KEY = "__inbox_name";
 export const JOB_START_PATH = "/job-start";
 /** Whether the object is born, as JSON: `{"here": true | false}`. */
 export const JOB_HERE_PATH = "/job-here";
+/** The node log of the job's passes, as JSON: `{"nodes": [...]}` (`texJobLog.js`). */
+export const JOB_NODES_PATH = "/job-nodes";
+/** The Worker's run of a job, as the workflow's steps reach the object (`apps/agent/src/jobRoutes.ts`). */
+const PASS_STEPS = { "/job-pass": "pass", "/job-failed": "failed" };
+/** The key the texting Worker keeps a job's run under (`apps/agent/src/jobs.ts` `RUN_KEY`). */
+const RUN_KEY = "jobrun";
 
 /**
  * The `TexJob` class, given the gateway's own handlers (`index.js`), read when a call needs them, as `texChatClass`
@@ -61,11 +69,38 @@ export function texJobClass({ gateway, texts }) {
           }
         });
       }
+      if (url.pathname === JOB_NODES_PATH && request.method === "GET") return Response.json({ nodes: await readJobNodes(this.state.storage) });
+      if (PASS_STEPS[url.pathname] !== undefined && request.method === "POST") return await this.pass(PASS_STEPS[url.pathname]);
       const inner = await this.job();
       const headers = new Headers(request.headers);
       headers.delete(JOB_NAME_HEADER);
       const body = request.method === "GET" || request.method === "HEAD" ? null : await request.arrayBuffer();
       return await inner.fetch(new Request(`https://inbox${url.pathname}${url.search}`, { method: request.method, headers, body }));
+    }
+
+    /**
+     * One pass of the job, run through the job node on the gateway's graph (`graph/nodes/job.js`): the node calls the
+     * Worker's pass on this object, and reads the run back. Answers the same JSON the pass answers
+     * (`apps/agent/src/jobRoutes.ts`); a failed node answers 500, which the workflow retries.
+     */
+    async pass(step) {
+      const jobId = String(await this.state.storage.get(JOB_NAME_KEY)).replace(/^job:/, "");
+      const writer = jobNodeWriter(this.state.storage, jobId);
+      const inner = await this.job();
+      const call = (path) => inner.fetch(new Request(`https://inbox${path}`, { method: "POST" }));
+      const read = async () => {
+        const run = await this.state.storage.get(RUN_KEY);
+        return { attempt: run?.attempt, sent: run?.sent, running: run !== undefined };
+      };
+      try {
+        const { output } = await gatewayGraph({ writer }).runNode("job", { step, jobId }, { job: { call, read } }, "TexJob");
+        return Response.json({ next: output.next === "after" ? { kind: "after", ms: output.ms } : { kind: output.next } });
+      } catch (error) {
+        console.log(JSON.stringify({ event: "job_pass_failed", job: jobId, step, name: error?.name ?? "error" }));
+        return Response.json({ error: "job_pass_failed" }, { status: 500 });
+      } finally {
+        await writer.flush();
+      }
     }
 
     /** The job's alarm, passed on once the object is born; an unborn object has no job to run. */

@@ -31,6 +31,7 @@ import { callToolForSession } from "../tools/session.js";
 import { jobMailOf } from "./background.js";
 import { jobTagged, storeLedger } from "./ledger.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";
+import { borrowJob } from "./graph/jobHandles.js";
 import { readProductionSetup } from "./production.js";
 import { adviseOnce, advisorRequest } from "./advisorRoles/core.js";
 import { ADVISOR_MAIL_PROMPT } from "./advisorRoles/jobMail.js";
@@ -208,12 +209,11 @@ async function adviseRoute(request, env, store, session, controlPlane, advise, c
   // The Advisor on job mail is a node on the graph, run over the job -> mailadv wire and logged by the runner to the job's
   // chat under the job (`graph/nodes/mailadv.js`): what the job asked, what it was told.
   const record = jobTagged(storeLedger(store, session), { id: body.jobId, title: typeof body.title === "string" ? body.title : undefined });
-  const advised = await gatewayGraph({ writer: record }).fire(
-    "job",
-    "mailadv",
-    { jobId: body.jobId, title: clip(body.title, MAX_TEXT), brief: clip(body.brief, MAX_TEXT), doneWhen: clip(body.doneWhen, MAX_TEXT), from, question, noteText },
-    { mailadv: { production, env, controlPlane, session, ...(advise ? { request: advise } : {}) } },
-  );
+  const advisorInput = { jobId: body.jobId, title: clip(body.title, MAX_TEXT), brief: clip(body.brief, MAX_TEXT), doneWhen: clip(body.doneWhen, MAX_TEXT), from, question, noteText };
+  const advisorLend = { mailadv: { production, env, controlPlane, session, ...(advise ? { request: advise } : {}) } };
+  // While the job's pass runs here, its own mailadv wire is used (`graph/jobHandles.js`); otherwise the config's job wire.
+  const lent = borrowJob(body.jobId);
+  const advised = lent !== null ? await lent.use.mailadv(advisorInput, advisorLend) : await gatewayGraph({ writer: record }).fire("job", "mailadv", advisorInput, advisorLend);
   await record?.flush();
   if (advised.model === "") return json({ ok: await send("I can't look at this right now. Use your best judgement and carry on.") });
   const words = advised.words;
