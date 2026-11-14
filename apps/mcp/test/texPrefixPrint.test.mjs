@@ -29,6 +29,14 @@ test("a moved cache mark never changes a fingerprint; a changed message does", (
   const a = prefixPrint(body(true), 2);
   const b = prefixPrint(body(false), 2);
   assert.deepEqual(a, b);
+  assert.equal(a.toolPrints.length, 1);
+  assert.equal(a.firstChunks.length, 1);
+  const lines = { ...body(true), messages: [{ role: "user", content: Array.from({ length: 45 }, (_, i) => `line ${i}`).join("\n") }] };
+  const c1 = prefixPrint(lines, 1).firstChunks;
+  assert.equal(c1.length, 3, "45 lines are three chunks of 20");
+  const changed = { ...lines, messages: [{ role: "user", content: Array.from({ length: 45 }, (_, i) => (i === 30 ? "edited" : `line ${i}`)).join("\n") }] };
+  const c2 = prefixPrint(changed, 1).firstChunks;
+  assert.deepEqual([c1[0] === c2[0], c1[1] === c2[1], c1[2] === c2[2]], [true, false, true], "the changed chunk is named");
   assert.equal(a.history.length, 2);
   assert.equal(a.historyBlocks, 2);
   assert.equal(a.blocks, 2);
@@ -73,6 +81,7 @@ test("two texts in a stretch: same tools and system, and the second's history st
   assert.ok(first?.prefix && second?.prefix && first !== second, "each text's first round logs its prefix");
   assert.equal(typeof second.turn, "string");
   assert.equal(second.prefix.tools, first.prefix.tools);
+  assert.deepEqual(second.prefix.toolPrints, first.prefix.toolPrints);
   assert.deepEqual(second.prefix.systemParts, first.prefix.systemParts);
   assert.ok(second.prefix.modules.some((module) => module.startsWith("context/")) || second.prefix.modules.length > 0, "the prompt modules ride along, by id and fingerprint");
   assert.deepEqual(second.prefix.modules.filter((m) => m.startsWith("stable")), first.prefix.modules.filter((m) => m.startsWith("stable")));
