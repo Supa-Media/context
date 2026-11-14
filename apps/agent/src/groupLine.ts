@@ -22,6 +22,7 @@ import { counted, type CountDataset } from "./textCounts";
 import type { Picture } from "./line";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import type { SendblueKeys } from "./sendblue";
+import { isPhotonGroupId, photonGroupLine } from "./photonLine";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupMedia, sendGroupText } from "./sendblueGroups";
 import {
   groupJidOf,
@@ -66,6 +67,8 @@ export type GroupLineDeps = {
   fetch: Fetch;
   sendblue?: SendblueKeys | null;
   whapi?: WhapiKeys | null;
+  /** Tex's iMessage line through the Photon bridge (`photonLine.ts`); absent, a Photon group then fails to send. */
+  photon?: Fetcher | null;
   /** Serves a picture at a short-lived address the app fetches (`media.ts`). */
   hostPicture?: (picture: Picture) => Promise<string>;
   /** Draws a note link's picture (`noteCards.ts`), sent before the link on iMessage, as in a 1:1 chat. */
@@ -78,7 +81,7 @@ export type GroupLineDeps = {
 
 export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
   if (deps.remote) return deps.remote(groupId);
-  const line = isWhapiGroup(groupId) ? whapiGroupLine(deps, groupId) : sendblueGroupLine(deps);
+  const line = isPhotonGroupId(groupId) ? photonGroupLine(deps) : isWhapiGroup(groupId) ? whapiGroupLine(deps, groupId) : sendblueGroupLine(deps);
   const dataset = deps.textCounts;
   if (dataset === undefined) return line;
   // Every message Tex sends in a group, counted once the app took it (`textCounts.ts`).
