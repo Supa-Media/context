@@ -8,7 +8,6 @@
 import { AREAS, AREA_INFO } from "../data/areas";
 import { focusOn, lab, node, set, unfocus } from "../engine/state";
 import { useLab } from "../store";
-import { ChatPanel } from "./props/ChatPanel.web";
 import { EmptyPanel } from "./props/EmptyPanel.web";
 import { resetModelFormOnSel } from "./props/ModelForm.web";
 import { NodePanel } from "./props/NodePanel.web";
@@ -45,28 +44,11 @@ function TestCases({ id }: { id: string }) {
   );
 }
 
-/** The conversation shows in the right panel: the test user is You, on the canvas, with the panel left open. */
-export const chatShown = () => lab.tester === "me" && lab.view === "canvas" && lab.chatOpen;
-
 export function Props() {
   useLab();
   resetModelFormOnSel();
   const sel = lab.sel;
-  if (!sel) {
-    // As You with nothing selected, the panel holds the chat's conversation; closing a step's panel comes back here.
-    if (!chatShown()) return null;
-    return (
-      <ChatPanel
-        extra={
-          <button className="ib pclose" id="chatX" aria-label="Hide the conversation" style={{ width: 32, height: 32 }} onClick={() => set({ chatOpen: false })}>
-            <svg className="i" viewBox="0 0 24 24">
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
-        }
-      />
-    );
-  }
+  if (!sel) return null;
 
   const extra = (
     <>

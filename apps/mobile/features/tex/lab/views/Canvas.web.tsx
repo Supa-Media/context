@@ -33,7 +33,10 @@ import {
   type Cam,
 } from "./canvas/render";
 import { ScnPop } from "./canvas/ScnPop";
-import { usePlayback } from "./canvas/usePlayback";
+import { usePlayback, type Lit } from "./canvas/usePlayback";
+import { ReplayTimeline } from "./replay/ReplayTimeline";
+import type { Moment } from "../engine/replay";
+import type { LedgerEntry } from "../../page/texPageTypes";
 import { useStageInput } from "./canvas/useStageInput.web";
 
 function Svg({
@@ -75,8 +78,10 @@ function keepSpeed(v: number) {
   }
 }
 
-export function Canvas() {
+export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries: LedgerEntry[] } | null }) {
   const s = useLab();
+  // Replay draws the same graph, read only, lit by its own timeline (`replay/ReplayTimeline.tsx`).
+  const [replayLit, setReplayLit] = useState<Lit | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const world = useRef<SVGGElement>(null);
   const cam = useRef<Cam>({ x: 40, y: 40, k: 0.6 });
@@ -88,7 +93,7 @@ export function Canvas() {
   } | null>(null);
   const [speed, setSpeed] = useState(() => readSpeed());
   // The moment the playback runs over: a new trace or new measured times start it over.
-  const { lit, clock, running, toggle: play, restart, scrub, total } = usePlayback(speed, `${s.scn}|${s.ownText}|${s.real?.text ?? ""}|${s.real ? 1 : 0}`);
+  const { lit, clock, running, toggle: play, scrub, total } = usePlayback(speed, `${s.scn}|${s.ownText}|${s.real?.text ?? ""}|${s.real ? 1 : 0}`);
   const [addOpen, setAddOpen] = useState(false);
   const [scnOpen, setScnOpen] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -143,7 +148,7 @@ export function Canvas() {
     const f = renderFocusCanvasHtml(g, sim, lab.cfocus, s.sel);
     fBounds.current = f.fBounds;
     html = f.html;
-  } else html = renderGraphHtml(g, sim, tags, s.sel, lit, "off");
+  } else html = renderGraphHtml(g, sim, tags, s.sel, replay ? replayLit : lit, "off");
   const focused = lab.cfocus ? node(lab.cfocus, g) : undefined;
 
   useLayoutEffect(applyCam);
@@ -161,15 +166,6 @@ export function Canvas() {
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
   }, [scnOpen]);
-
-  // A text clicked in the conversation (`ChatPanel`) asks for its moment to play once its times are read.
-  const asked = useRef(s.playReq);
-  useEffect(() => {
-    if (s.playReq === asked.current) return;
-    asked.current = s.playReq;
-    restart();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.playReq]);
 
   const tool = s.tool;
   const setTool = (t: typeof tool) => set({ tool: t });
@@ -197,6 +193,12 @@ export function Canvas() {
           d='<path d="M4 5h16v11H9l-5 4z"/>'
           style={{ color: "var(--muted)" }}
         />
+        {replay ? (
+          <span className="scnbtn" id="scnName">
+            {replay.m ? scnLabel(s.scn) : "Pick a moment"}
+          </span>
+        ) : (
+        <>
         <button
           className="scnbtn"
           id="scnBtn"
@@ -222,6 +224,8 @@ export function Canvas() {
         >
           <Svg d={running ? '<rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/>' : '<path d="M8 5l10 7-10 7z"/>'} />
         </button>
+        </>
+        )}
       </div>
       <div
         className="float stats"
@@ -247,6 +251,10 @@ export function Canvas() {
         ) : null}
       </div>
       </div>
+      {replay ? (
+        replay.m ? <ReplayTimeline m={replay.m} entries={replay.entries} onLit={setReplayLit} /> : null
+      ) : (
+      <>
       <div className="float playbar" aria-label="Playback">
         <input
           id="playScrub"
@@ -358,6 +366,8 @@ export function Canvas() {
       <div className="scnpop" id="scnPop" hidden={!scnOpen}>
         {scnOpen ? <ScnPop onClose={() => setScnOpen(false)} /> : null}
       </div>
+      </>
+      )}
       <div className="float zoom">
         <button
           className="ib"
