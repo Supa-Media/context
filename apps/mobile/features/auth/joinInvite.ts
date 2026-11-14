@@ -25,7 +25,7 @@ export type JoinVariant = { kind: "invite"; inviterHandle: string | null } | { k
 export type JoinScreenState = { kind: "loading" } | JoinVariant;
 
 /** What the one field shows at a step, for `/login` (no variant) or `/join`. */
-export type SignInView = "request" | "verify" | "waitlist" | "wrongEmail";
+export type SignInView = "request" | "verify" | "password" | "waitlist" | "wrongEmail";
 
 export const WRONG_EMAIL = "This invite is for a different email. Use the one it went to.";
 export const JOIN_HELPER = "Use the email the invite went to. You'll get a sign-in code here.";
@@ -49,7 +49,7 @@ export function joinScreenFor(token: string | undefined, preview: JoinPreview): 
  * wrong-email error; `/login` and a dead invite keep the waitlist answer.
  */
 export function signInView(variant: JoinVariant | undefined, step: EmailSignInStep): SignInView {
-  if (step === "request" || step === "verify") return step;
+  if (step === "request" || step === "verify" || step === "password") return step;
   return variant?.kind === "invite" ? "wrongEmail" : "waitlist";
 }
 

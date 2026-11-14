@@ -5,6 +5,7 @@ import type { Id } from "../_generated/dataModel";
 import { asUser, captureError, createUser, createWorkspace, errorCode, setupTest, type TestConvex } from "./fixtures.helpers";
 import { isExemptEmail, normalizePhone, phoneCheckRequired } from "../functions/lib/phoneCheck";
 import { REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
+import { YC_REVIEW_EMAIL } from "../functions/lib/reviewerPassword";
 import { TEST_ACCOUNT_EMAIL } from "../functions/lib/testAccount";
 
 /**
@@ -109,6 +110,7 @@ describe("when it asks", () => {
   test("the reviewer, the test account and listed addresses are never asked", async () => {
     vi.stubEnv("PHONE_CHECK_EXEMPT_EMAILS", "qa@example.invalid, inbox@example.invalid");
     expect(isExemptEmail(REVIEWER_EMAIL)).toBe(true);
+    expect(isExemptEmail(YC_REVIEW_EMAIL)).toBe(true);
     expect(isExemptEmail(TEST_ACCOUNT_EMAIL)).toBe(true);
     expect(isExemptEmail("QA@example.invalid")).toBe(true);
     expect(isExemptEmail("inbox+run-42@example.invalid")).toBe(true);

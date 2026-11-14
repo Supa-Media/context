@@ -27,6 +27,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { GOOGLE_REVIEW_EMAIL, DIRECTORY_REVIEW_EMAIL, REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
+import { YC_REVIEW_EMAIL } from "../functions/lib/reviewerPassword";
 import { asUser, captureError, createUser, createWorkspace, errorCode, setupTest } from "./fixtures.helpers";
 import { grantUser, noteIdOf, PLAN, PLAN_MARKER, readByNoteId, world } from "./grants/outsider.helpers";
 
@@ -34,7 +35,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe.each([REVIEWER_EMAIL, DIRECTORY_REVIEW_EMAIL])("the reserved reviewer %s stays in its own workspace", (reviewEmail) => {
+describe.each([REVIEWER_EMAIL, DIRECTORY_REVIEW_EMAIL, YC_REVIEW_EMAIL])("the reserved reviewer %s stays in its own workspace", (reviewEmail) => {
   test("cannot start a Google connection, while any other owner can", async () => {
     const t = setupTest();
     const reviewer = await createUser(t, reviewEmail);
@@ -207,7 +208,7 @@ describe("what the review accounts already hold, as counts", () => {
     await w.t.run((ctx) => ctx.db.insert("workspaceMembers", { workspaceId: w.ws, userId: reviewer, role: "member", joinedAt: 1 } as never));
 
     const rows = await w.t.query(internal.functions.reviewerReachAudit.counts, {});
-    expect(rows.map((row) => row.address)).toEqual([REVIEWER_EMAIL, GOOGLE_REVIEW_EMAIL, DIRECTORY_REVIEW_EMAIL]);
+    expect(rows.map((row) => row.address)).toEqual([REVIEWER_EMAIL, GOOGLE_REVIEW_EMAIL, DIRECTORY_REVIEW_EMAIL, YC_REVIEW_EMAIL]);
     expect(rows[0]).toMatchObject({ accounts: 1, ownedWorkspaces: 1, otherMemberships: 1, grantsByAccount: 1, googleConnections: 0 });
     expect(rows[1]).toMatchObject({ accounts: 0, ownedWorkspaces: 0, otherMemberships: 0, grantsByAccount: 0 });
     expect(JSON.stringify(rows)).not.toMatch(/"[a-z0-9]{20,}"/);

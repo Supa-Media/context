@@ -41,6 +41,7 @@ import { recordAudit } from "../audit";
 import { isAdminEmail } from "../admin";
 import { planIsPaying, type PlanStatus } from "../premium";
 import { APP_REVIEW_PHONE, REVIEWER_EMAIL } from "../reviewerAccount";
+import { YC_REVIEW_EMAIL } from "../reviewerPassword";
 import { TEST_ACCOUNT_EMAIL } from "../testAccount";
 import { planFor, statusOf } from "./plan";
 import { activateWithoutStripe } from "./upgradeSelection";
@@ -51,7 +52,7 @@ export const FOUNDING_PREMIUM_ACCOUNTS = 100;
 type Env = Record<string, string | undefined>;
 
 /**
- * Staff, the production CUJ account, the directory reviewer and the staging
+ * Staff, the production CUJ account, the directory and YC reviewers and the staging
  * personas take no founding slot. Read from the address alone, unverified on
  * purpose: excluding is the safe direction, and costs a stranger who types
  * one of these addresses only a free plan.
@@ -63,7 +64,7 @@ export function excludedFromFounding(
   if (user.phone === APP_REVIEW_PHONE) return true;
   const email = user.email?.trim().toLowerCase();
   if (email === undefined || email === "") return false;
-  if (email === TEST_ACCOUNT_EMAIL || email === REVIEWER_EMAIL) return true;
+  if (email === TEST_ACCOUNT_EMAIL || email === REVIEWER_EMAIL || email === YC_REVIEW_EMAIL) return true;
   if (PERSONAS.some((persona) => email === `${persona}@supa.media`)) return true;
   return isAdminEmail(email, env);
 }

@@ -34,7 +34,8 @@ export type OneTimeCodePurpose =
   | "text-link"
   | "email-proof"
   | "sign-in-email"
-  | "email-recovery";
+  | "email-recovery"
+  | "reviewer-password";
 
 type Environment = Record<string, string | undefined>;
 

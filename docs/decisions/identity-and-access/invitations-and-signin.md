@@ -396,6 +396,34 @@ must fail the old-code and orphan-code tests.
 The implementation and database-only compromise model are described in
 [authentication verifiers](../../architecture/authentication-verifiers.md).
 
+### The YC review account signs in with a staff-set password (2026-11-14)
+
+The decision above says a long review window is not a reason to extend a
+verifier's lifetime. The owner made one exception on 2026-11-14, after the
+tradeoff was put to them: YC's partners review an application whenever they
+get to it, and a ten-minute code cannot sit in that form. So one account,
+`yc-review@supa.media`, signs in with a password instead, and nothing else
+does (`functions/lib/reviewerPassword.ts`, `functions/reviewerPasswords.ts`,
+the "Set a reviewer password" workflow):
+
+- staff set it with the deploy key; it is 20 random characters (about 117
+  bits), mailed to the team inbox, never in the repository or a log;
+- only a salted HMAC-SHA256 under the code key is stored, purpose
+  `reviewer-password`;
+- it lasts 30 days, setting another replaces it, and revoking ends it;
+- after ten wrong passwords in an hour it refuses everyone until the hour is
+  up. Guesses never delete it, because the address is public and a stranger
+  could otherwise end the reviewer's access;
+- the account is a reserved reviewer (`isReservedReviewer`): its own workspace
+  only, no Google connection, no founding slot, no phone check.
+
+What it costs: until it expires, everyone holding the password shares one
+account, and it is a second kind of verifier for an assessor to read. Adding
+another password account is a line in `PASSWORD_ACCOUNTS` and so a diff a
+reviewer sees. `reviewerPasswords.test.ts` fails if the password stops
+expiring, loses its guess limit, is stored readable, or opens any other
+address.
+
 ### The reviewer account reaches nothing beyond its own workspace
 
 The reviewers' codes are handed to people outside the company, and the phone

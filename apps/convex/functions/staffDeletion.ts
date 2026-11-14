@@ -29,6 +29,7 @@ import { soleOwnerOf } from "./lib/account/soleOwner";
 import { managedBucketName } from "./lib/managedStorage";
 import { isProductionTestAccount } from "./lib/testAccount";
 import { REVIEWER_EMAIL } from "./lib/reviewerAccount";
+import { YC_REVIEW_EMAIL } from "./lib/reviewerPassword";
 import { userIsStaff } from "./lib/admin";
 import { deleteAccountFor } from "./account";
 
@@ -98,7 +99,8 @@ export async function staffDeletionReport(
   if (user === null) return { report: { ...empty, blockers: ["not_found"] }, userId: null };
   if (!(await isArchived(ctx, userId))) blockers.push("not_archived");
   if (isProductionTestAccount(user)) blockers.push("production_test_account");
-  if (user.email?.trim().toLowerCase() === REVIEWER_EMAIL) blockers.push("reviewer_account");
+  const address = user.email?.trim().toLowerCase();
+  if (address === REVIEWER_EMAIL || address === YC_REVIEW_EMAIL) blockers.push("reviewer_account");
   if (await userIsStaff(ctx, userId)) blockers.push("staff");
 
   const memberships = await ctx.db.query("workspaceMembers").withIndex("by_user", (q) => q.eq("userId", userId)).collect();
