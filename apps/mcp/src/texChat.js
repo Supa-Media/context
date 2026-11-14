@@ -169,6 +169,8 @@ async function chatEnv(env, state, name, senderId, { gateway, texts }) {
     // The Worker's datasets, bound here under the same names, so a text is timed and counted wherever its chat runs.
     TEX_TEXTS: env.TEX_TEXTS,
     TEX_COUNTS: env.TEX_COUNTS,
+    // The texts simulator's chats answer here only where the gateway's own var says so (staging).
+    ...(env.SIMULATOR === "on" ? { SIMULATOR: "on" } : {}),
     LINQ_API_KEY: "",
     INTAKE: "gateway",
   };

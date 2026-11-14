@@ -356,6 +356,9 @@ name = "context-mcp-staging"
 workers_dev = true
 
 [env.staging.vars]
+# The texts simulator's chats, once their chat object runs here (`src/texChat.js`); as the texting Worker's staging
+# `SIMULATOR`, never set in production.
+SIMULATOR = "on"
 SHARING_JUDGE = "on"
 HANDBACK_JUDGE = "on"
 TEX_REVIEW = "on"
