@@ -108,6 +108,7 @@ function browser(
       reducedRecall: false,
       reducedRecallNotes: [],
     }),
+    openSearchResult: () => {},
     // A note already open at mount, which is what reloading the console on a
     // note looks like. Without one, a redundant reset at mount hits
     // `useReducer`'s bail-out and is invisible.

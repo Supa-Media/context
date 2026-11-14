@@ -11,16 +11,10 @@ import { ActivitySection } from "../ActivitySection";
 import { AgentSection } from "../AgentSection";
 import { AiCostsSection } from "../AiCostsSection";
 import { AiSection, aiPlaceOf } from "../AiSection";
-import { CommunityLinks } from "../CommunityLinks";
-import { EstateSection } from "../EstateSection";
-import { FeaturesSection } from "../FeaturesSection";
 import { GrowthSection } from "../GrowthSection";
 import { PeopleSection } from "../PeopleSection";
 import { ReportsSection } from "../ReportsSection";
 import { unsetKnownSecrets } from "../report";
-import { SearchSection } from "../SearchSection";
-import { SecretsSection } from "../SecretsSection";
-import { SignupAlerts } from "../SignupAlerts";
 import { TexBasics } from "../TexBasics";
 import { UsageSection } from "../UsageSection";
 import { WaitlistSection } from "../WaitlistSection";
@@ -70,16 +64,3 @@ export function LegacyJobs() {
   const [sub, setSub] = useState<string | null>(null);
   return <AiSection days={days()} place={aiPlaceOf(sub)} onPlace={setSub} />;
 }
-export const LegacyStorage = () => <EstateSection days={days()} />;
-export const LegacySearch = () => <SearchSection />;
-export function LegacyCredentials() {
-  const { secrets, unset } = useUnset();
-  return <SecretsSection secrets={secrets} unset={unset} />;
-}
-export const LegacyFlags = () => <FeaturesSection />;
-export const LegacySettings = () => (
-  <Col>
-    <SignupAlerts />
-    <CommunityLinks />
-  </Col>
-);

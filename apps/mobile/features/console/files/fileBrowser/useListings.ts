@@ -14,7 +14,7 @@
    it. What it reports here is refs, state setters and `dispatch` that now
    arrive through `deps` instead of from a `useRef`, `useState` or `useReducer`
    in the same function, so the rule can no longer see they are stable. */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -28,9 +28,10 @@ import { useLiveTree } from "./useLiveTree";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { OfflineQueueValues } from "./useOfflineQueue";
+import { createSearchOpenReporter } from "../searchOpenReport";
 
 type ListingsDeps =
-  & Pick<FileActionsValues, "listFiles" | "notePathsAction" | "searchContext" | "reportSearchScreen" | "workspaceId" | "workspaceGenerationRef">
+  & Pick<FileActionsValues, "listFiles" | "notePathsAction" | "searchContext" | "reportSearchScreen" | "reportSearchOpen" | "workspaceId" | "workspaceGenerationRef">
   & Pick<
     BrowserStateValues,
     | "confirmOnlineMoves"
@@ -57,7 +58,7 @@ type ListingsDeps =
 export function useListings(deps: ListingsDeps) {
   const {
     confirmOnlineMoves, setBusy, setToasts, renamingRef, dispatch, expanded, selectedPath, listFiles, listedAtRef, nextListingStamp, listings, notePathsAction, offlineRef, openRun,
-    searchContext, reportSearchScreen, setClipboard, setExpanded, setIndexedPaths, setListings, setLoading, setNotice,
+    searchContext, reportSearchScreen, reportSearchOpen, setClipboard, setExpanded, setIndexedPaths, setListings, setLoading, setNotice,
     setOpening, setSelectedPath, workspaceId, workspaceGenerationRef,
   } = deps;
 
@@ -571,8 +572,22 @@ export function useListings(deps: ListingsDeps) {
    * nothing, a `member` must be able to run one, and a failure belongs to the
    * palette that asked rather than to the console's notice bar.
    */
+  /*
+    One per workspace: a search re-arms it, and the first result opened after
+    that is reported once (`searchOpenReport.ts`).
+  */
+  const searchOpen = useMemo(
+    () =>
+      createSearchOpenReporter((position) =>
+        reportSearchOpen({ workspaceId: workspaceId as Id<"workspaces">, position }),
+      ),
+    [reportSearchOpen, workspaceId],
+  );
+  const openSearchResult = useCallback((position: number) => searchOpen.opened(position), [searchOpen]);
+
   const search = useCallback(
     async (query: string, prefix?: string) => {
+      searchOpen.rearm();
       // What the person waited, from asking to the answer on this device: the
       // figure the admin console's Search tab leads with. Sent behind the
       // answer and never awaited — a timing must not slow or fail a search.
@@ -601,11 +616,11 @@ export function useListings(deps: ListingsDeps) {
         reducedRecallNotes: found.reducedRecallNotes,
       };
     },
-    [searchContext, reportSearchScreen, workspaceId],
+    [searchContext, reportSearchScreen, searchOpen, workspaceId],
   );
 
   return {
-    refresh, reportRefreshFailure, ensureListing, contextId, toggleFolder, collapseAll, search, subscribeVanished,
+    refresh, reportRefreshFailure, ensureListing, contextId, toggleFolder, collapseAll, search, openSearchResult, subscribeVanished,
   };
 }
 

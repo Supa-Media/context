@@ -62,6 +62,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
       reducedRecall: false,
       reducedRecallNotes: [],
     }),
+    openSearchResult: () => {},
     editor: emptyEditor,
     setDraft: noop,
     save: noop,
