@@ -6,8 +6,9 @@
  * Answers: 200 once the event is queued, a duplicate, ignored, or an edit or unsend (counted only); 400 for an event
  * that cannot be read (the bridge drops it); 503 when the chat's queue could not take it (the bridge retries).
  *
- * A picture's address is signed with the origin this Worker last saw a webhook at, which the chat object keeps
- * (`ORIGIN_KEY`, `media.ts`), so it is read from the chat's own object before the event is read.
+ * A picture's address is signed under this Worker's own public origin, `AGENT_ORIGIN`, which the deploy works out
+ * from the Worker's name (`deploy-agent-worker.yml`); an RPC call has no URL to learn it from. Unset, pictures are
+ * dropped and logged as `no_origin`.
  */
 
 import { WorkerEntrypoint } from "cloudflare:workers";
@@ -31,25 +32,6 @@ function log(outcome: string, reason?: string): void {
   console.log(JSON.stringify({ event: "photon_webhook", outcome, ...(reason ? { reason } : {}) }));
 }
 
-/** The inbox an event's routed message goes to, read from a probe parse; null for an event that goes to none. */
-function inboxNameOf(parsed: ReturnType<typeof parsePhotonEvent>): string | null {
-  if (parsed.kind === "message" || parsed.kind === "reaction") return parsed.from;
-  if (parsed.kind === "group-message") return groupInboxName(parsed.groupId);
-  return null;
-}
-
-/** The origin a chat object last saw, from its own storage (`chatObject.ts`, `/origin`); null for any failure. */
-async function originOf(env: Env, inbox: string): Promise<string | null> {
-  try {
-    const response = await inboxByName(env.SENDER_INBOX, inbox).fetch("https://inbox/origin");
-    if (!response.ok) return null;
-    const body = (await response.json()) as { origin?: unknown };
-    return typeof body.origin === "string" ? workerOrigin(body.origin) : null;
-  } catch {
-    return null;
-  }
-}
-
 /** One event, read and handed over. See the module comment for what each status means. */
 export async function photonEvent(env: Env, body: unknown): Promise<number> {
   // A read receipt is the one kind Tex never acts on, and the most frequent: counted, not read.
@@ -57,14 +39,9 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     console.log(JSON.stringify({ event: "photon_read", outcome: "ignored" }));
     return 200;
   }
-  // The pictures' addresses need the origin of the chat they go to, so the chat is found first, by a probe read.
-  let origin: string | null = null;
   const guids = photonAttachmentGuids(body);
-  if (guids.length > 0) {
-    const inbox = inboxNameOf(parsePhotonEvent(body, { attachmentUrl: () => "probe" }));
-    origin = inbox === null ? null : await originOf(env, inbox);
-    if (origin === null) log("ignored", "no_origin");
-  }
+  const origin = guids.length > 0 && env.AGENT_ORIGIN ? workerOrigin(env.AGENT_ORIGIN) : null;
+  if (guids.length > 0 && origin === null) log("ignored", "no_origin");
   const addresses = new Map<string, string>();
   if (origin !== null) {
     for (const guid of guids) {

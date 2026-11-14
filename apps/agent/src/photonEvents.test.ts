@@ -143,8 +143,8 @@ describe("PhotonEvents.event: outcomes", () => {
 });
 
 describe("PhotonEvents.event: pictures", () => {
-  it("signs the picture's address under the origin the chat last saw, and the turn gets that address", async () => {
-    const { env: e, routed } = env();
+  it("signs the picture's address under the Worker's own origin, and the turn gets that address", async () => {
+    const { env: e, routed } = env({ AGENT_ORIGIN: ORIGIN });
     const withPicture = event({ message: { guid: "pic-1", text: "", service: "iMessage", attachments: [{ guid: "att-9", name: "p.png", mimeType: "image/png", size: 13 }] } });
     expect(await entrypoint(e).event(withPicture)).toEqual({ status: 200 });
     const attachments = routed[0].body.attachments as { url: string }[];
@@ -155,8 +155,8 @@ describe("PhotonEvents.event: pictures", () => {
     expect(await verifyPhotonAttachment(SECRET, "att-9", url.searchParams.get("s"))).toBe(true);
   });
 
-  it("leaves a picture off when the chat has never seen an origin, and keeps its words", async () => {
-    const { env: e, routed } = env({}, { origin: null });
+  it("leaves a picture off when the deploy named no origin, and keeps its words", async () => {
+    const { env: e, routed } = env({ AGENT_ORIGIN: undefined });
     const withPicture = event({ message: { guid: "pic-2", text: "look", service: "iMessage", attachments: [{ guid: "att-10", name: "p.png", mimeType: "image/png", size: 13 }] } });
     expect(await entrypoint(e).event(withPicture)).toEqual({ status: 200 });
     expect(routed[0].body).not.toHaveProperty("attachments");
