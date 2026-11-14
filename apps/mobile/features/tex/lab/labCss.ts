@@ -250,7 +250,7 @@ label.num.chg{outline:2px solid var(--accent);border-radius:10px}
 a.rowi{text-decoration:none;cursor:pointer}
 .modes{display:inline-flex;background:var(--s3);border-radius:10px;padding:3px;gap:2px}.modes button{border:none;background:none;font-weight:600;font-size:13px;color:var(--muted);padding:5px 12px;border-radius:8px}.modes button[aria-pressed=true]{background:var(--page);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .rside{display:flex;flex-direction:column;min-height:0;height:100%;gap:8px}
-.rchips{display:flex;flex-wrap:wrap;gap:6px}.rchip{border:1px solid var(--line2);background:var(--page);color:var(--text);border-radius:999px;padding:4px 10px;font-size:12.5px}.rchip small{color:inherit;opacity:.75}.rchip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+.rchat{width:100%;font:inherit;font-size:14px;font-weight:600;border:1px solid var(--line2);border-radius:9px;background:var(--page);color:var(--text);padding:7px 10px}
 .rmoments{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:4px;padding:2px 0 8px}
 .rmw{display:flex;flex-direction:column}
 .rmoment{display:flex;flex-direction:column;gap:4px;text-align:left;border:1.5px solid transparent;background:none;border-radius:12px;padding:6px;color:var(--text);width:100%}.rmoment:hover{border-color:var(--line2)}.rmoment[aria-current=true]{border-color:var(--accent);background:var(--accent-dim)}

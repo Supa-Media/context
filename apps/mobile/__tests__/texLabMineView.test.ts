@@ -289,7 +289,8 @@ describe("the Lab's test user as You", () => {
     // The Lab's editing goes away: no tools, no version controls.
     expect(q("#tSel")).toBeNull();
     expect(q("#saveBtn")).toBeNull();
-    expect(qa("#replaySide .rchip").map((x) => x.textContent)).toEqual(["1:1 with Tex", "Band · 4"]);
+    // The chats are a drop-down (Dev2 on the mock: "Should probably be a drop down").
+    expect(qa("#rChat option").map((x) => x.textContent)).toEqual(["1:1 with Tex", "Band · 4 people"]);
     expect(qa("#replaySide [data-moment]").map((x) => x.getAttribute("data-moment"))).toEqual(["ev1", "ev3"]);
     // It opens on the newest moment, and the timeline shows its texts, the judge's calls and the turn.
     expect(q('[data-moment="ev3"]')?.getAttribute("aria-current")).toBe("true");
@@ -314,7 +315,12 @@ describe("the Lab's test user as You", () => {
     expect(q("#replayPanel .pill")?.textContent).toMatch(/Haiku/);
     expect(q("#replayPanel .pill:nth-child(2)")?.textContent).toBe("2.7 s real");
     // A group chat they're in: other people's names, and its texts trace the group path.
-    await click(q('[data-rchat="g1"]'));
+    await act(async () => {
+      const pick = q<HTMLSelectElement>("#rChat")!;
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(pick, "g1");
+      pick.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
     expect(q("#replaySide .cdw")?.textContent).toBe("Ada");
     await act(async () => {
       setValue.call(q<HTMLInputElement>("#rScrub")!, "500");

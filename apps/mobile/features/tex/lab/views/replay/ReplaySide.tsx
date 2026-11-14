@@ -27,14 +27,13 @@ export function ReplaySide({ moments }: { moments: Moment[] }) {
   let lastDay = "";
   return (
     <div className="rside" id="replaySide">
-      <div className="rchips" role="group" aria-label="Chats">
+      <select className="rchat" id="rChat" aria-label="Chat" value={lab.myChat} onChange={(e) => pickChat(e.target.value)}>
         {chats.map((c) => (
-          <button key={c.key} className="rchip" data-rchat={c.key} aria-pressed={c.key === lab.myChat} onClick={() => pickChat(c.key)}>
-            {c.key === "me" ? "1:1 with Tex" : c.name}
-            {c.people ? <small> · {c.people}</small> : null}
-          </button>
+          <option key={c.key} value={c.key}>
+            {(c.key === "me" ? "1:1 with Tex" : c.name) + (c.people ? ` · ${c.people} people` : "")}
+          </option>
         ))}
-      </div>
+      </select>
       <div className="rmoments" ref={list}>
         {lab.myOlder !== null && Array.isArray(lab.myTexts) ? (
           <button className="ghost cdo" id="rOlder" onClick={() => void readMyTexts(true)}>
