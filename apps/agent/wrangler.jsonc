@@ -71,8 +71,9 @@
     // "worker" keeps the SenderInbox queue. The move is step 3 of Tex's config graph (docs/architecture/tex.md).
     "INTAKE": "worker",
     // Where a background job's object runs (src/jobPlace.ts): "gateway" starts new jobs in the gateway's TexJob, "worker"
-    // keeps them in the SenderInbox. A job the gateway holds is reached there whatever this says.
-    "JOBS": "worker",
+    // keeps them in the SenderInbox. A job the gateway holds is reached there whatever this says. Production moved on
+    // Dev2's go (2026-11-14); a job that started in the SenderInbox finishes there.
+    "JOBS": "gateway",
     // Context cards (src/appCards.ts, src/cardChats.ts): "on" for every
     // chat, "app" only for chats whose person has shown they have the
     // Context app (a card from its Messages extension reached Tex), "off".
