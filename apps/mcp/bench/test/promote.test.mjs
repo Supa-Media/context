@@ -167,3 +167,13 @@ test("a round's row prices its answers plus a fifth, and the total follows", () 
   assert.match(next, /\| 2026-10-17 \| gh-60 \| core \| production, cand \| 2 \| \$0.02 \|\n\nTotal: \$15.80 of the \$20.00 cap.\n$/);
   assert.equal(parseSpend(next).rows.length, 3);
 });
+
+test("a texting setup that names its own models never goes live: Tex's models are Tex's config's", async () => {
+  const { configRefusal } = await import("../promote.mjs");
+  const { parseSetup } = await import("../../src/agent/production.js");
+  const named = await parseSetup(["---", "job: texting-assistant", "models:", "  main: anthropic/claude-sonnet-5-5", "---", "", "You are Tex.", ""].join("\n"));
+  const bare = await parseSetup(["---", "job: texting-assistant", "---", "", "You are Tex.", ""].join("\n"));
+  assert.match(configRefusal("texting-assistant", named) ?? "", /texConfig\.json/);
+  assert.equal(configRefusal("texting-assistant", bare), null);
+  assert.equal(configRefusal("dream", named), null, "another job's file keeps its own model");
+});

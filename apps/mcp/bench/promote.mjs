@@ -270,6 +270,11 @@ async function archive(connection, { job, raw, stamp }, fetchImpl) {
   return path;
 }
 
+const TEXTING_JOB = "texting-assistant";
+const NAMES_MODELS = "it names its own models, and Tex's models are Tex's config's (packages/shared/src/texConfig.json): change them with the Lab's Promote";
+/** Why a parsed setup cannot go live as `job`'s file, or null: a texting setup naming its own models would be a second copy that wins. */
+export const configRefusal = (job, parsed) => (job === TEXTING_JOB && parsed?.ownModels ? NAMES_MODELS : null);
+
 /** Puts `setup` live when the gate passes. Returns `{ promoted, reasons, proof }`. */
 export async function promote({ job, setup, rounds, connection, runUrl = null, now = new Date(), fetchImpl = fetch }) {
   const livePath = `${PRODUCTION_FOLDER}/${job}.md`;
@@ -278,6 +283,9 @@ export async function promote({ job, setup, rounds, connection, runUrl = null, n
   if (!live || !cand) return { promoted: false, reasons: [`${live ? `${SETUPS_FOLDER}/${job}/${setup}.md` : livePath} is not in Context`], proof: [] };
   const [liveSetup, candSetup] = [await parseSetup(live.content), await parseSetup(cand.content)];
   if (!liveSetup || !candSetup) return { promoted: false, reasons: ["a file the gateway would refuse"], proof: [] };
+  // Tex's models, efforts, planner and reviewer are Tex's config's (packages/shared/src/texConfig.json; Dev2,
+  // 2026-11-13): a texting setup that names its own cannot go live, or the note would be a second copy that wins.
+  if (configRefusal(job, candSetup)) return { promoted: false, reasons: [configRefusal(job, candSetup)], proof: [] };
   const verdict = promotionVerdict({ job, setup, rounds, liveVersion: liveSetup.version, candidateVersion: candSetup.version });
   // A skill only the candidate's folder has would not be live with it.
   const liveSkills = notePaths((await callTool(connection, "list_notes", { prefix: `${PRODUCTION_FOLDER}/skills` }, fetchImpl)).text).map((p) => basename(p, ".md"));
@@ -301,7 +309,9 @@ export async function revert({ job, connection, now = new Date(), fetchImpl = fe
   const newest = notePaths(listed.text).sort().at(-1);
   if (!newest) throw new Error(`nothing in ${HISTORY_FOLDER}/${job}/ to revert to`);
   const [live, back] = [await readNote(connection, livePath, fetchImpl), await readNote(connection, newest, fetchImpl)];
-  if (!live || !back || !(await parseSetup(back.content))) throw new Error(`${newest} cannot go live`);
+  const backSetup = live && back ? await parseSetup(back.content) : null;
+  if (!backSetup) throw new Error(`${newest} cannot go live`);
+  if (configRefusal(job, backSetup)) throw new Error(`${newest} cannot go live: ${configRefusal(job, backSetup)}`);
   const archived = await archive(connection, { job, raw: live.content, stamp: now.toISOString().slice(0, 16).replace(":", "") }, fetchImpl);
   await writeNote(connection, { path: livePath, content: back.content, expected_etag: live.etag, summary: `revert live ${job} to ${newest}` }, fetchImpl);
   return { restored: newest, archived };

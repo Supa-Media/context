@@ -23,6 +23,12 @@ export const texLabTables = {
     results: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    /**
+     * Promote (Dev2, 2026-11-13: the Lab's config is "the only source of truth"): a staff member asked for this
+     * version to become Tex's config; the Lab promote workflow opens the pull request that changes
+     * `packages/shared/src/texConfig.json` and records its address here.
+     */
+    promote: v.optional(v.object({ state: v.union(v.literal("asked"), v.literal("opened"), v.literal("refused")), by: v.id("users"), at: v.number(), pr: v.optional(v.string()), why: v.optional(v.string()) })),
   }).index("by_version", ["versionId"]),
   texLabCaseEdits: defineTable({
     /** `<area>/<case id>`. */

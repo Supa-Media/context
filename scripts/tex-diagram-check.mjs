@@ -27,6 +27,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MODULE as MAP_MODULE, moduleIsCurrent } from "./tex-architecture-module.mjs";
+import { configProblems, labelProblems } from "./tex-config-table.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export const DIAGRAM = "docs/architecture/tex.md";
@@ -125,6 +126,7 @@ function check(base) {
   }
   const agentFiles = filesUnder(join(ROOT, AGENT_FOLDER)).map((file) => ({ path: relative(join(ROOT, AGENT_FOLDER), file), source: readFileSync(file, "utf8") }));
   problems.push(...mapProblems(agentFiles));
+  problems.push(...configProblems(ROOT));
   if (!moduleIsCurrent(ROOT)) problems.push(`${MAP_MODULE} is not what ${DIAGRAM} makes: run node scripts/tex-architecture-module.mjs`);
   if (base) {
     const changed = execFileSync("git", ["diff", "--name-only", base, "HEAD"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
@@ -154,6 +156,11 @@ function selfTest() {
   expect(mapProblems([{ path: "judge.js", source: "request({ system: SYSTEM })" }]).length === 1, "a prompt without the drawing passed");
   expect(mapProblems([{ path: "judge.js", source: "request({ system: withArchitecture(SYSTEM, \"x\") })" }]).length === 0, "a prompt with the drawing refused");
   expect(mapProblems([{ path: "aiGateway.js", source: "{ system: systemText }" }]).length === 0, "the transport refused");
+  const config = { models: { h: "anthropic/claude-haiku-5-5" }, nodes: [{ id: "r", model: "h", effort: "low", on: true, file: "judge.js" }], edges: [] };
+  const drawing = (label) => `## 1. x\n  A --> R["${label}"]\n## The rule`;
+  expect(labelProblems(drawing("Reviewer<br/>Haiku 5.5 · effort low<br/>judge.js"), config).length === 0, "a box that matches the config refused");
+  expect(labelProblems(drawing("Reviewer<br/>Haiku 5.5 · effort high<br/>judge.js"), config).length === 1, "a box at another effort than the config passed");
+  expect(labelProblems(drawing("Reviewer<br/>Opus 5.5<br/>judge.js"), config).length === 1, "a box on another model than the config passed");
   console.log("tex-diagram-check self-test: ok");
 }
 

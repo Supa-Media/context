@@ -43,6 +43,21 @@ export async function dropCase(k: string) {
 let mainSaver: (() => Promise<unknown>) | null = null;
 export const saveMainResults = () => mainSaver?.();
 
+/**
+ * Promote the open version (Dev2, 2026-11-13: the Lab's config is "the only source of truth"): asks for the pull
+ * request that makes it Tex's config (`texLabPromote.ts`); it merges only through CI and the replay gate.
+ */
+let promoter: ((versionId: string) => Promise<unknown>) | null = null;
+export async function promoteVersion() {
+  if (isMain() || lab.dirty || !promoter) return;
+  try {
+    await promoter(lab.cur.id);
+    toast("Promote asked: its pull request opens within 15 minutes");
+  } catch {
+    toast("Couldn't ask to promote this version");
+  }
+}
+
 const parse = <T,>(s: string | null | undefined, fallback: T): T => {
   try {
     return s ? (JSON.parse(s) as T) : fallback;
@@ -55,6 +70,7 @@ export function useLabSync(enabled: boolean) {
   const data = useQuery(api.functions.texLab.list, enabled ? {} : "skip");
   const save = useMutation(api.functions.texLab.saveVersion);
   const saveCaseRow = useMutation(api.functions.texLab.saveCase);
+  const askPromote = useMutation(api.functions.texLabPromote.ask);
 
   useEffect(() => {
     const toRow = (v: LabVersion) => ({
@@ -70,13 +86,15 @@ export function useLabSync(enabled: boolean) {
       await save(toRow(v));
     });
     caseSaver = (key, d) => saveCaseRow({ key, data: d });
+    promoter = (versionId) => askPromote({ versionId });
     mainSaver = () => save(toRow({ ...MAIN, graph: { nodes: [], edges: [] } }));
     return () => {
       setSaver(null);
       caseSaver = null;
       mainSaver = null;
+      promoter = null;
     };
-  }, [save, saveCaseRow]);
+  }, [save, saveCaseRow, askPromote]);
 
   useEffect(() => {
     if (!data) return;
@@ -88,7 +106,7 @@ export function useLabSync(enabled: boolean) {
         MAIN.results = parse(x.results, []);
         continue;
       }
-      list.push({ id: x.versionId, name: x.name, authorId: x.authorId, graph: parse(x.graph, { nodes: [], edges: [] }), picks: parse(x.picks, {}), areas: parse<string[] | null>(x.areas, null), results: parse(x.results, []), createdAt: x.createdAt, updatedAt: x.updatedAt });
+      list.push({ id: x.versionId, name: x.name, authorId: x.authorId, graph: parse(x.graph, { nodes: [], edges: [] }), picks: parse(x.picks, {}), areas: parse<string[] | null>(x.areas, null), results: parse(x.results, []), createdAt: x.createdAt, updatedAt: x.updatedAt, promote: x.promote });
     }
     lab.versions = list;
     lab.sync = `Shared · ${list.length - 1} saved version${list.length === 2 ? "" : "s"}`;
