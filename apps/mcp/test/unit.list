@@ -561,3 +561,5 @@ test/texChatMove.test.mjs
 test/reflectNudgeNodes.test.mjs
 test/nightlyGraph.test.mjs
 test/egressPictureNodes.test.mjs
+test/texGraphStartNodes.test.mjs
+test/texGraphCheckin.test.mjs

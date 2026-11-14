@@ -13,7 +13,10 @@ jest.mock("../features/tex/lab/data/graph", () => jest.requireActual<typeof impo
 // since 2026-11-14 (packages/shared/src/texPrompt). The golden is the artifact's drawing, so it is drawn without them.
 jest.mock("../features/tex/lab/labData.generated", () => {
   const real = jest.requireActual<typeof import("../features/tex/lab/labData.generated")>("../features/tex/lab/labData.generated");
-  return { ...real, MODTEXT: Object.fromEntries(Object.entries(real.MODTEXT).filter(([key]) => !key.startsWith("p-"))) };
+  // The map is generated from the config (scripts/tex-architecture.mjs), so it grows with every node's shape; the golden
+  // holds it at the size it had when the golden was drawn (6,995 characters), so a config change never moves this test.
+  const kept = Object.fromEntries(Object.entries(real.MODTEXT).filter(([key]) => !key.startsWith("p-")));
+  return { ...real, MODTEXT: { ...kept, map: "m".repeat(6995) } };
 });
 import golden from "./fixtures/texLabCanvasGolden.json";
 import { allCases } from "../features/tex/lab/engine/diff";

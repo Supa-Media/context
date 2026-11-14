@@ -5,7 +5,8 @@ import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesPictures } from "../attachments.js";
 import { claimCheck, correctsTheAsk } from "../claimCheck.js";
 import { asksDetailed, readInstructions } from "../customInstructions.js";
-import { handbackJudgeFor } from "../handbackJudge.js";
+import { gatewayGraph } from "../graph/gatewayGraph.js";
+import { handbackOnGraph } from "../graph/bridges.js";
 import { readTexNotes } from "../jobs.js";
 import { keptIdsOf, keptInHistory } from "../keptFiles.js";
 import { turnPictures } from "../pictureMaker.js";
@@ -23,7 +24,7 @@ export async function prepareTheAnswer(t) {
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? [...(await tex.step("forward_tools", () => standingForwardTools(store, routine.path, offered))), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
-  const claims = !runner && (!front || job !== null) && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: asksDetailed(readInstructions(body.instructions)), origin: noteLinking.origin, visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
+  const claims = !runner && (!front || job !== null) && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: asksDetailed(readInstructions(body.instructions)), origin: noteLinking.origin, visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackOnGraph(gatewayGraph({ writer: chatLog, turn: ledgerTurn }), { question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   const tries = claims === null && !runner && (texted || group !== null) ? untriedWebCheck() : null; // on the front door, "I can't open it" with nothing tried still goes back once (`untriedWeb.js`)
   // A page's cover it draws is kept for the page's link card (`/gateway/page-cover`).
   const keepCover = async (path, png) => controlPlane.recordPageCover(session.accessToken, session.workspaceId, path, png);
