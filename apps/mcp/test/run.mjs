@@ -35,7 +35,8 @@ const ENTRIES = [
   ]),
   ["bulkMoves.mjs move", ["test/bulkMoves.mjs", "move"]],
   ["bulkMoves.mjs folder", ["test/bulkMoves.mjs", "folder"]],
-  ["node --test", [...TS, "--test", ...unit]],
+  // One test that never settles fails by its name after two minutes, rather than holding its slice to the job timeout.
+  ["node --test", [...TS, "--test", "--test-timeout=120000", ...unit]],
 ];
 // `pnpm test:unit` (`run.mjs unit`) runs the `node --test` entry alone, and
 // `run.mjs integration` runs every other one. CI runs the two halves as two
@@ -59,8 +60,10 @@ if (shard !== undefined) {
   }
 }
 const only = (mode ? ENTRIES.filter(MODES[mode]) : ENTRIES).map(([name, args]) =>
-  shard && name === "node --test" ? [`${name} ${shard}`, [...TS, "--test", `--test-shard=${shard}`, ...args.slice(TS.length + 1)]] : [name, args],
+  shard && name === "node --test" ? [`${name} ${shard}`, [...TS, "--test", "--test-timeout=120000", `--test-shard=${shard}`, ...args.slice(TS.length + 2)]] : [name, args],
 );
+
+const STUCK_MS = Number(process.env.TEST_STUCK_MS) || 7 * 60_000;
 
 function run([name, args]) {
   return new Promise((resolve) => {
@@ -69,7 +72,16 @@ function run([name, args]) {
     const output = [];
     child.stdout.on("data", (chunk) => output.push(chunk));
     child.stderr.on("data", (chunk) => output.push(chunk));
-    const done = (ok, detail) => resolve({ name, ok, output, detail, seconds: Math.round((Date.now() - started) / 1000) });
+    // An entry still running after STUCK_MS is stopped and its output so far printed, so a hang in CI names the
+    // test it hung in instead of a job cancelled at its timeout with nothing printed (2026-11-14, #3326).
+    const stuck = setTimeout(() => {
+      output.push(Buffer.from(`\n${name} still running after ${STUCK_MS / 1000}s: stopped; the output above ends where it hung\n`));
+      child.kill("SIGKILL");
+    }, STUCK_MS);
+    const done = (ok, detail) => {
+      clearTimeout(stuck);
+      resolve({ name, ok, output, detail, seconds: Math.round((Date.now() - started) / 1000) });
+    };
     child.on("error", (error) => done(false, error.message));
     child.on("close", (code, signal) => done(code === 0, signal ? `signal ${signal}` : `exit ${code}`));
   });
