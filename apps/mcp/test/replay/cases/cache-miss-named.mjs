@@ -22,7 +22,7 @@ export default {
       const second = lines.filter((line) => line.round === 1).at(-1);
       assert.ok(first?.prefix && second?.prefix && first !== second, "each text's first round logs its cached prefix as fingerprints");
       assert.equal(second.prefix.tools, first.prefix.tools, "the same tools");
-      assert.deepEqual(second.prefix.system, first.prefix.system, "the same system blocks");
+      assert.deepEqual(second.prefix.systemParts, first.prefix.systemParts, "the same system blocks");
       assert.deepEqual(second.prefix.history.slice(0, first.prefix.history.length), first.prefix.history, "the second text's history starts with the first's, piece by piece");
       assert.ok(!JSON.stringify(lines).includes("plumber"), "fingerprints only, never a word");
     } finally {

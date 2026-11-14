@@ -73,7 +73,7 @@ test("two texts in a stretch: same tools and system, and the second's history st
   assert.ok(first?.prefix && second?.prefix && first !== second, "each text's first round logs its prefix");
   assert.equal(typeof second.turn, "string");
   assert.equal(second.prefix.tools, first.prefix.tools);
-  assert.deepEqual(second.prefix.system, first.prefix.system);
+  assert.deepEqual(second.prefix.systemParts, first.prefix.systemParts);
   assert.ok(second.prefix.modules.some((module) => module.startsWith("context/")) || second.prefix.modules.length > 0, "the prompt modules ride along, by id and fingerprint");
   assert.deepEqual(second.prefix.modules.filter((m) => m.startsWith("stable")), first.prefix.modules.filter((m) => m.startsWith("stable")));
   assert.ok(second.prefix.history.length > first.prefix.history.length);

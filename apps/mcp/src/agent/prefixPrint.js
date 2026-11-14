@@ -22,7 +22,7 @@ export const MAX_HISTORY_PRINTS = 80;
 const unmarked = (value) => JSON.stringify(value, (key, inner) => (key === "cache_control" ? undefined : inner));
 
 /**
- * `{tools, system, history, blocks, more}` for a body laid out with a history
+ * `{tools, systemParts, history, historyBlocks, blocks, more}` for a body laid out with a history
  * breakpoint, or null without one. `historyEnd` is how many wire messages the
  * history is; `blocks` counts the content blocks from the history's end to the
  * body's end (the API looks back about 20 blocks from a breakpoint for an
@@ -35,7 +35,7 @@ export function prefixPrint(body, historyEnd) {
   const blocksOf = (message) => (Array.isArray(message?.content) ? message.content.length : 1);
   return {
     tools: fingerprint(unmarked(body.tools ?? [])),
-    system: (Array.isArray(body.system) ? body.system : []).map((block) => fingerprint(unmarked(block))),
+    systemParts: (Array.isArray(body.system) ? body.system : []).map((block) => fingerprint(unmarked(block))),
     history: history.slice(0, MAX_HISTORY_PRINTS).map((message) => fingerprint(unmarked(message))),
     historyBlocks: history.reduce((sum, message) => sum + blocksOf(message), 0),
     blocks: messages.slice(historyEnd).reduce((sum, message) => sum + blocksOf(message), 0),
