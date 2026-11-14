@@ -22,7 +22,7 @@ const minLit = (speed: number) => Math.min(150 * speed, 400);
 
 /** Point the canvas at one turn of the moment: its text traced, its measured times and inputs and outputs. */
 function showTurn(m: Moment, entries: LedgerEntry[], turn: string) {
-  const asked = m.lines.find((l) => l.play?.turn === turn)?.play ?? m.lines.find((l) => l.play)?.play;
+  const asked = lab.myLines.find((l) => l.play?.turn === turn)?.play ?? m.lines.find((l) => l.play)?.play;
   if (!asked) return;
   traceMine(asked.text);
   const times = realTimes(entries, turn);

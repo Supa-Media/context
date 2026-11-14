@@ -38,7 +38,7 @@ import { Viewer } from "./views/Viewer.web";
 import { MineLoader, readTurnTimes, replayEntries } from "./views/mine/useMine";
 import { ReplayPanel } from "./views/replay/ReplayPanel";
 import { openMoment, ReplaySide } from "./views/replay/ReplaySide";
-import { momentsOf } from "./engine/replay";
+import { loggedMoments, momentsOf } from "./engine/replay";
 import { setLabTheme, THEMES, useLabTheme } from "./theme.web";
 
 export const TEX_LAB_TITLE = "Tex Architecture Lab";
@@ -136,7 +136,7 @@ function Lab() {
   // Replay: the picked chat cut into moments, and the one shown (`engine/replay.ts`).
   const entries = replay ? replayEntries() : [];
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const moments = useMemo(() => (replay ? momentsOf(s.myLines, entries) : []), [replay, s.myLines, entries.length]);
+  const moments = useMemo(() => (replay ? loggedMoments(momentsOf(s.myLines, entries)) : []), [replay, s.myLines, entries.length]);
   const moment = moments.find((m) => m.id === s.moment) ?? null;
   useEffect(() => {
     if (replay && !moment && moments.length) openMoment(moments[moments.length - 1]);

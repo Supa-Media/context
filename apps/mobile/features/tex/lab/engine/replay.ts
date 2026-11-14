@@ -4,7 +4,7 @@
  * through different chats and click through different conversations and see how that went through ... replay
  * sequences of text, like see how queuing works when like multiple texts are sent").
  *
- * A chat's conversation is cut into moments: the person's texts in a row and what Tex said back. Each moment gets a
+ * A chat's conversation is cut into moments, one from each text someone sent. Each moment gets a
  * timeline read from the chat's ledger, in milliseconds from its first text:
  * - Texts: each text that came in;
  * - Judge: each judging by the texting Worker's decide (`step` entries named "decide": while nothing ran, which texts
@@ -17,7 +17,17 @@ import type { ChatLine } from "./mine";
 
 export type BarKind = "text" | "judge" | "wait" | "turn" | "sent";
 /** `zero` is where a turn's own timeline starts (its wait in the queue included), for the canvas. */
-export type Bar = { kind: BarKind; start: number; end: number; label: string; turn?: string; zero?: number; detail?: string };
+export type Bar = {
+  kind: BarKind;
+  start: number;
+  end: number;
+  label: string;
+  turn?: string;
+  zero?: number;
+  detail?: string;
+  /** On a turn: the Tex version that ran it, from its reply. */
+  version?: { code?: string; deploy?: string; setup?: string } | null;
+};
 export type Lane = "Texts" | "Judge" | "Turn" | "Sent";
 export type Moment = {
   id: string;
@@ -50,19 +60,27 @@ export function judgeWords(output: unknown, running: boolean): string {
   return act || "judged";
 }
 
-/** The chat's lines cut into moments: a moment starts at a person's text that follows something Tex said. */
+/**
+ * One moment per text someone sent, so any text can be replayed from (Dev2, 2026-11-14: "why not just have the ability
+ * to replay from any text"). A moment runs from its text until the next text that follows something Tex said, so the
+ * texts that came in behind it, the judge's calls on them and the turns that answered them all show on its clock. A
+ * turn already running when the text came in starts before zero; its bar is drawn from zero and it plays from where it
+ * was.
+ */
 export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
-  const groups: ChatLine[][] = [];
-  for (const l of lines) {
-    const last = groups[groups.length - 1];
-    if (!last || (l.from === "person" && last[last.length - 1].from === "tex")) groups.push([l]);
-    else last.push(l);
-  }
-  const starts = groups.map((g) => g[0].at);
-  return groups.map((g, i) => {
-    const t0 = g[0].at;
-    // A moment's work runs until the next one starts (or a minute past its last line, for the newest).
-    const until = starts[i + 1] ?? g[g.length - 1].at + 60_000;
+  // Where each run of texts begins: a person's text that follows something Tex said.
+  const breaks: number[] = [];
+  lines.forEach((l, i) => {
+    if (i === 0 || (l.from === "person" && lines[i - 1].from === "tex")) breaks.push(l.at);
+  });
+  const out: Moment[] = [];
+  lines.forEach((first, i) => {
+    if (first.from !== "person") return;
+    const t0 = first.at;
+    const next = breaks.find((b) => b > t0);
+    const last = lines[lines.length - 1].at;
+    const until = next ?? Math.max(t0, last) + 60_000;
+    const g = lines.slice(i).filter((l) => l.at < until);
     const inside = (at: number) => at >= t0 - 1_000 && at < until;
     const rel = (at: number) => Math.max(0, at - t0);
     const lanes: Record<Lane, Bar[]> = { Texts: [], Judge: [], Turn: [], Sent: [] };
@@ -85,18 +103,32 @@ export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
         const replyMs = num(timing?.replyMs) ?? num(e.ms);
         if (replyMs === null) continue;
         const wait = num(timing?.waitMs) ?? 0;
-        const end = rel(e.at);
-        const start = Math.max(0, end - replyMs - wait);
-        if (wait > 0) lanes.Turn.push({ kind: "wait", start, end: start + wait, label: "waiting", turn: e.turn, zero: start });
-        lanes.Turn.push({ kind: "turn", start: start + wait, end, label: cut(str(e.text) || "answer", 22), turn: e.turn, zero: start });
-        turns.push([start, e.turn]);
+        const end = e.at - t0;
+        const zero = end - replyMs - wait;
+        const version = rec(e.version) ? (e.version as Bar["version"]) : undefined;
+        if (wait > 0 && zero + wait > 0) lanes.Turn.push({ kind: "wait", start: Math.max(0, zero), end: zero + wait, label: "waiting", turn: e.turn, zero, version });
+        lanes.Turn.push({ kind: "turn", start: Math.max(0, zero + wait), end: Math.max(0, end), label: cut(str(e.text) || "answer", 22), turn: e.turn, zero, version, detail: str(e.text) });
+        turns.push([zero, e.turn]);
       }
     }
     for (const k of Object.keys(lanes) as Lane[]) lanes[k].sort((a, b) => a.start - b.start);
     const of = Math.max(1_000, ...Object.values(lanes).flat().map((b) => b.end));
-    return { id: g[0].id, at: t0, lines: g, lanes, of, turns: turns.sort((a, b) => a[0] - b[0]).map(([, t]) => t) };
+    out.push({ id: first.id, at: t0, lines: g, lanes, of, turns: turns.sort((a, b) => a[0] - b[0]).map(([, t]) => t) });
   });
+  return out;
 }
+
+/**
+ * Replay reads only what was logged once every part of a turn was written down (Dev2, 2026-11-14: "the logging from
+ * before our changes are a little broken, can you make sure that replay only works after the proper logging is in
+ * place"). Every step's input, output and time (#3265), the Tex version on each reply (#3267) and the texting
+ * Worker's judging and tapbacks (#3269) were all live in production by this moment; a moment that began earlier
+ * would replay with holes, so it is left out.
+ */
+export const LOGGED_FROM = Date.UTC(2026, 10, 13, 23, 52);
+
+/** The moments Replay can show: cut from the whole chat first, so a moment's edges stay where they were. */
+export const loggedMoments = (ms: Moment[]) => ms.filter((m) => m.at >= LOGGED_FROM);
 
 /** The turn under the timeline's head: the one that started last at or before `at` (its wait included). */
 export function turnAt(m: Moment, at: number): { turn: string; start: number } | null {
