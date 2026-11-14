@@ -136,6 +136,18 @@ places that decide what runs, which is the drift this decision removes. Test:
 `notYet` or neither, when `notYet` grows, when a node imports a sibling, or
 when a run does not reach the ledger.
 
+## Starts decide with a tag, and a job's helpers are reached over its wires
+
+A start is a node of `kind: "input"` whose code decides whether the run goes on: Check-in gives `to: "look"` or
+`to: "done"` with the route's own answer, and Send through Tex gives `to: "send"` or `"quiet"`; the wires out of them
+fire on those tags, so a quiet check-in is a branch in the config, not an early return in code. What the rest of a run
+reads but must not log (changed notes, mail, the settings note) rides on `ctx`. Until a job's part is a node of its own
+(step 4), the code that runs that part reaches Job check, the hand-back judge and the mail advisor only over the job's
+wires (`graph/bridges.js`), so a wire the config lacks is refused.
+
+**What a simplification would cost:** an early return in a start's code is a branch the Lab cannot draw. Tests that
+fail: `apps/mcp/test/texGraphStartNodes.test.mjs` (each with a sabotage record).
+
 ## The door steps are one group
 
 The eleven door steps (`readTheText` through `prepareTheAnswer`) carry

@@ -18,6 +18,7 @@ import { internalMutation } from "./lib/rowWatch/mutations";
 import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { writingCostMicroUsd } from "./lib/jev/meter";
+import { insertTurn } from "./lib/agentTurnMark";
 
 /** How long a turn's row is kept. Long enough to compare weeks, no longer. */
 export const AGENT_TURN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -127,7 +128,7 @@ export const recordAgentTurn = internalMutation({
       }
     }
 
-    await ctx.db.insert("agentTurns", {
+    await insertTurn(ctx, {
       workspaceId: session.workspaceId,
       grantId: session.grantId,
       client: session.clientId === TEXTS_CLIENT_ID ? "texts" : "app",
@@ -184,6 +185,11 @@ export const purgeOldAgentTurns = internalMutation({
       .withIndex("by_at", (q) => q.lt("at", Date.now() - AGENT_TURN_RETENTION_MS))
       .take(500);
     for (const row of old) await ctx.db.delete(row._id);
+    const oldMarks = await ctx.db
+      .query("agentTurnMarks")
+      .withIndex("by_at", (q) => q.lt("at", Date.now() - AGENT_TURN_RETENTION_MS))
+      .take(500);
+    for (const row of oldMarks) await ctx.db.delete(row._id);
     return null;
   },
 });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { insertTurn } from "../functions/lib/agentTurnMark";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
@@ -32,7 +33,7 @@ async function seedTurn(t: T, workspaceId: Id<"workspaces">, grantId: Id<"oauthG
   const tools = turn.tools ?? [];
   const toolMs = tools.reduce((sum, [, ms]) => sum + ms, 0);
   await t.run((ctx) =>
-    ctx.db.insert("agentTurns", {
+    insertTurn(ctx, {
       workspaceId,
       grantId,
       client: turn.client ?? "texts",
@@ -295,7 +296,7 @@ describe("the console's window end and read caps", () => {
     const now = Date.now();
     await t.run(async (ctx) => {
       for (let i = 0; i < CONSOLE_TURNS_READ + 1; i++) {
-        await ctx.db.insert("agentTurns", {
+        await insertTurn(ctx, {
           workspaceId: adaWs,
           grantId: adaGrant,
           client: "texts",
@@ -333,7 +334,7 @@ async function seedMeterRow(
   extra: { kind?: "one" | "group" | "job"; outcome?: "answered" | "failed"; client?: "texts" | "app"; cost?: number },
 ) {
   await t.run((ctx) =>
-    ctx.db.insert("agentTurns", {
+    insertTurn(ctx, {
       workspaceId,
       grantId,
       client: extra.client ?? "texts",

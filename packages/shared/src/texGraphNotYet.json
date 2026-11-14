@@ -1,9 +1,7 @@
 {
   "about": "Nodes of texConfig.json whose code is not on the graph runner yet (apps/mcp/src/agent/graph/gatewayNodes.js). The migration ratchet: a node leaves this list in the pull request that puts it in GATEWAY_NODES, and nothing is ever added back (apps/mcp/test/texGraphHome.test.mjs).",
   "notYet": [
-    "checkin",
     "routine",
-    "notify",
     "text",
     "decide",
     "lanes",
@@ -26,16 +24,12 @@
     "advisor",
     "checks",
     "mail",
-    "card",
     "reviewer",
     "send",
     "react",
     "classifier",
     "selfreview",
     "job",
-    "jobcheck",
-    "mailadv",
-    "handback",
     "triage"
   ]
 }

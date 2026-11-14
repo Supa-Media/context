@@ -3,6 +3,7 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { clampAgentDays, percentile } from "../functions/lib/adminFns/agentReport";
+import { insertTurn } from "../functions/lib/agentTurnMark";
 import { asUser, createUser, createWorkspace, seedGrant, setupTest } from "./fixtures.helpers";
 
 /**
@@ -26,7 +27,7 @@ async function seedTurn(
 ) {
   const tools = turn.tools ?? [];
   await t.run((ctx) =>
-    ctx.db.insert("agentTurns", {
+    insertTurn(ctx, {
       workspaceId,
       grantId,
       client: turn.client ?? "texts",

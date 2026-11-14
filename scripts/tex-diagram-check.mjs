@@ -51,8 +51,6 @@ export const PLUMBING = Object.freeze({
  * around a turn must be a config node"). Each is being given its node; the list only shrinks.
  */
 export const NOT_NODED_YET = Object.freeze({
-  "apps/mcp/src/agent/daySummaries.js": "Day summaries, a nightly start",
-  "apps/mcp/src/agent/pictureMaker.js": "Picture maker, called from Tools",
   "apps/mcp/src/agent/decide.js": "Clef's small choices on a person's computer",
 });
 /** Where a Tex agent's prompt is written: each file here that gives a model a system prompt puts the map ahead of it (`texArchitecture.js`). */
