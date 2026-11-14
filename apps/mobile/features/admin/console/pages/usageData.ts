@@ -5,7 +5,7 @@
  * it copies is the staff console artifact's `P.usage`.
  */
 
-import { USAGE_FUNNELS, USAGE_STEP_LABELS } from "@context/shared";
+import type { UsageFunnelId, UsageStepId } from "@context/shared";
 import { formatDuration } from "../../usage";
 import { delta, percentChange, type Delta } from "./homeData";
 
@@ -46,7 +46,7 @@ function siteTile(key: string, host: string, a: AnalyticsLike | undefined): Usag
     key,
     label: `${host} visits`,
     value: String(site.visits),
-    detail: `${site.visitors.toLocaleString("en-US")} visitors · `,
+    detail: `${site.visitors} visitors · `,
     delta: change === null ? undefined : delta(change, true, "%"),
   };
 }
@@ -68,7 +68,8 @@ export function usageTiles(a: AnalyticsLike | undefined): UsageTile[] {
     {
       key: "hours",
       label: "Hours in the app",
-      value: time ? Math.round(time.totalSeconds / 3600).toLocaleString("en-US") : "—",
+      // Tile figures carry no thousands separator, as the artifact draws them.
+      value: time ? String(Math.round(time.totalSeconds / 3600)) : "—",
       detail: time && time.people > 0 ? `${(Math.round((time.sessions / time.people) * 10) / 10).toFixed(1)} sessions a person` : "",
     },
   ];
@@ -105,19 +106,35 @@ export function eventRows(
     const total = notes ? (notesCreated?.total ?? 0) : (totals.find((s) => s.metric === metric)?.total ?? 0);
     const today = points.at(-1) ?? 0;
     const yesterday = points.at(-2) ?? 0;
-    const pct = percentChange(today, yesterday);
+    // Two days with nothing on either read +0%, as the artifact's flat rows do; something after nothing, or no days at
+    // all, has no percentage.
+    const pct = points.length >= 2 && today === 0 && yesterday === 0 ? 0 : percentChange(today, yesterday);
     return { label, total, trend: points.slice(-14), change: pct === null ? null : delta(pct, true, "%") };
   });
 }
 
 export type Journey = { id: string; title: string; steps: { label: string; people: number; pct: number; width: number }[] };
 
+/**
+ * The six journeys as the artifact names them, over the funnels PostHog counts (`USAGE_FUNNELS` in `@context/shared`).
+ * Where the artifact names a step nothing records ("Opened sign-in", "Invited someone", "Sent first text"), the
+ * nearest recorded step stands in; the handoff has no recorded third step, so it shows two.
+ */
+export const JOURNEYS: readonly { id: UsageFunnelId; title: string; steps: readonly [UsageStepId, string][] }[] = [
+  { id: "context_waitlist", title: "Context waitlist", steps: [["landing", "Opened context.lc"], ["signup_started", "Started the form"], ["waitlist_joined", "Joined"]] },
+  { id: "tex_waitlist", title: "Tex waitlist", steps: [["landing", "Opened tex.lc"], ["signup_started", "Typed a phone"], ["waitlist_joined", "Joined"]] },
+  { id: "context_signin", title: "Context sign-in", steps: [["code_sent", "Sent a code"], ["code_submitted", "Typed the code"], ["signed_in", "Signed in"]] },
+  { id: "tex_signin", title: "Tex sign-in", steps: [["code_sent", "Got the code"], ["code_submitted", "Typed the code"], ["signed_in", "Signed in"]] },
+  { id: "context_setup", title: "New workspace", steps: [["setup_started", "Opened"], ["workspace_created", "Named it"], ["setup_completed", "Finished setup"]] },
+  { id: "tex_handoff", title: "Tex Messages handoff", steps: [["text_page", "Shown"], ["messages_opened", "Opened Messages"]] },
+];
+
 export function journeys(a: AnalyticsLike | undefined): Journey[] {
   if (!analyticsReady(a)) return [];
-  return USAGE_FUNNELS.flatMap((def) => {
+  return JOURNEYS.flatMap((def) => {
     const value = a.funnels?.find((f) => f.id === def.id);
     if (!value) return [];
-    const steps = def.steps.map((key) => ({ key, people: value.steps.find((s) => s.key === key)?.people ?? 0 }));
+    const steps = def.steps.map(([key, label]) => ({ label, people: value.steps.find((s) => s.key === key)?.people ?? 0 }));
     const first = steps[0]?.people ?? 0;
     return [
       {
@@ -125,7 +142,7 @@ export function journeys(a: AnalyticsLike | undefined): Journey[] {
         title: def.title,
         steps: steps.map((s) => {
           const share = first > 0 ? s.people / first : 0;
-          return { label: USAGE_STEP_LABELS[s.key as keyof typeof USAGE_STEP_LABELS] ?? s.key, people: s.people, pct: Math.round(share * 100), width: share * 100 };
+          return { label: s.label, people: s.people, pct: Math.round(share * 100), width: share * 100 };
         }),
       },
     ];

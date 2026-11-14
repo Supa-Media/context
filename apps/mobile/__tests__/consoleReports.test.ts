@@ -107,7 +107,7 @@ describe("merging the two sources", () => {
   it("marks a content report handled with who and when, and a Tex report by its status", () => {
     const reports = merged();
     const invite = reports.find((r) => r.id === "c2")!;
-    expect(invite).toMatchObject({ open: false, handled: "Handled by @staff1 · Nov 12", kind: "An invitation" });
+    expect(invite).toMatchObject({ open: false, handled: "Handled by @staff1 · 2d ago", kind: "An invitation" });
     const dentist = reports.find((r) => r.title === "Forgot my dentist moved")!;
     expect(dentist).toMatchObject({ src: "tex", open: false, handled: "Retired", reporter: "someone using Tex", when: "4d ago" });
   });
@@ -203,7 +203,7 @@ describe("the side panel", () => {
 
   it("shows a closed report its handled text and Reopen", () => {
     const html = renderProps(merged().find((r) => r.id === "c2"))!;
-    expect(html).toContain("Handled by @staff1 · Nov 12");
+    expect(html).toContain("Handled by @staff1 · 2d ago");
     expect(html).toContain('data-act="reopen" data-id="c2"');
     expect(html).not.toContain("Mark handled");
   });
