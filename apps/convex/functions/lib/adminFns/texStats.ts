@@ -35,11 +35,8 @@ const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 const TIMEOUT_MS = 15_000;
 const MAX_BODY_BYTES = 1_000_000;
-/**
- * The widest window. Analytics Engine keeps about three months of points, so this is the most it can hold. The
- * gateway's cost figures are kept for less, so cost older than the gateway keeps reads as zero.
- */
-export const MAX_STATS_DAYS = 90;
+/** The widest window: Cloudflare keeps the gateway's figures about two months. */
+export const MAX_STATS_DAYS = 60;
 /** Up to this, the window is drawn by the hour. */
 const HOURLY_UP_TO_MS = 2 * DAY_MS;
 /** The widest span one GraphQL question may cover. */
@@ -68,11 +65,8 @@ export const texStatsValidator = v.union(
     bucket: v.union(v.literal("hour"), v.literal("day")),
     /** Each source's failure, in our words; null when it answered. A failed source's figures are zero. */
     errors: v.object({ texts: v.union(v.string(), v.null()), notes: v.union(v.string(), v.null()), cost: v.union(v.string(), v.null()) }),
-    /**
-     * Distinct people in the whole window: 1:1, in groups, and either. `accounts` are the 1:1 people who have an
-     * account (a personal workspace), `guests` the rest of `any`.
-     */
-    people: v.object({ one: v.number(), group: v.number(), any: v.number(), accounts: v.number(), guests: v.number() }),
+    /** Distinct people in the whole window: 1:1, in groups, and either. */
+    people: v.object({ one: v.number(), group: v.number(), any: v.number() }),
     /** The average of each UTC day's distinct people. */
     dailyActive: v.number(),
     texts: v.object({
@@ -123,17 +117,16 @@ export function bucketsOf(from: number, to: number): { bucket: "hour" | "day"; s
 const seconds = (ms: number) => Math.floor(ms / 1000);
 
 /** The datasets' names on this deployment: staging's Workers write to `_staging` twins. */
-function datasets(env: TexStatsEnv): { texts: string; calls: string; entry: string } {
+function datasets(env: TexStatsEnv): { texts: string; calls: string } {
   const staging = env.APP_ENV?.trim().toLowerCase() === "staging";
-  const names = staging ? { texts: `${TEXT_COUNTS_DATASET}_staging`, calls: `${CALL_COUNTS_DATASET}_staging` } : { texts: TEXT_COUNTS_DATASET, calls: CALL_COUNTS_DATASET };
-  return { ...names, entry: beforeNames(staging).entry };
+  return staging ? { texts: `${TEXT_COUNTS_DATASET}_staging`, calls: `${CALL_COUNTS_DATASET}_staging` } : { texts: TEXT_COUNTS_DATASET, calls: CALL_COUNTS_DATASET };
 }
 
 /**
  * The SQL asked of Analytics Engine, built from numbers and fixed names only, never from a request's text.
  * Exported so a test can read what is asked.
  */
-export function statsQueries(names: { texts: string; calls: string; entry: string }, from: number, to: number, bucket: "hour" | "day"): Record<string, string> {
+export function statsQueries(names: { texts: string; calls: string }, from: number, to: number, bucket: "hour" | "day"): Record<string, string> {
   const when = `timestamp >= toDateTime(${seconds(from)}) AND timestamp < toDateTime(${seconds(to)})`;
   const slot = `toStartOfInterval(timestamp, INTERVAL '1' ${bucket === "hour" ? "HOUR" : "DAY"})`;
   const day = "toStartOfInterval(timestamp, INTERVAL '1' DAY)";
@@ -144,7 +137,6 @@ export function statsQueries(names: { texts: string; calls: string; entry: strin
     peopleByDay: `SELECT ${day} AS slot, count(DISTINCT index1) AS n FROM ${names.texts} WHERE ${when} AND ${asked} GROUP BY slot FORMAT JSON`,
     peopleByChat: `SELECT blob2 AS chat, count(DISTINCT index1) AS n FROM ${names.texts} WHERE ${when} AND ${asked} GROUP BY chat FORMAT JSON`,
     peopleAll: `SELECT count(DISTINCT index1) AS n FROM ${names.texts} WHERE ${when} AND ${asked} FORMAT JSON`,
-    accounts: `SELECT count(DISTINCT index1) AS n FROM ${names.entry} WHERE ${when} AND blob1 = 'gateway' AND blob2 = 'one' FORMAT JSON`,
     notes: `SELECT ${slot} AS slot, blob2 AS what, sum(_sample_interval) AS saves, count(DISTINCT blob3) AS notes FROM ${names.calls} WHERE ${when} AND blob1 = 'note' GROUP BY slot, what FORMAT JSON`,
     notesAll: `SELECT blob2 AS what, sum(_sample_interval) AS saves, count(DISTINCT blob3) AS notes FROM ${names.calls} WHERE ${when} AND blob1 = 'note' GROUP BY what FORMAT JSON`,
   };
@@ -222,20 +214,19 @@ export async function texStats(env: TexStatsEnv, window: { from: number; to: num
   const { bucket, starts } = bucketsOf(from, to);
   const size = bucket === "hour" ? HOUR_MS : DAY_MS;
   const queries = statsQueries(datasets(env), from, to, bucket);
-  const [texts, peopleBySlot, peopleByDay, peopleByChat, peopleAll, accountsAnswer, notes, notesAll, cost] = await Promise.all([
+  const [texts, peopleBySlot, peopleByDay, peopleByChat, peopleAll, notes, notesAll, cost] = await Promise.all([
     sql(fetchImpl, token, accountId, queries.texts),
     sql(fetchImpl, token, accountId, queries.peopleBySlot),
     sql(fetchImpl, token, accountId, queries.peopleByDay),
     sql(fetchImpl, token, accountId, queries.peopleByChat),
     sql(fetchImpl, token, accountId, queries.peopleAll),
-    sql(fetchImpl, token, accountId, queries.accounts),
     sql(fetchImpl, token, accountId, queries.notes),
     sql(fetchImpl, token, accountId, queries.notesAll),
     costGroups(fetchImpl, token, accountId, from, to, bucket),
   ]);
   const older = beforeQueries(beforeNames(env.APP_ENV?.trim().toLowerCase() === "staging"), from, to, bucket);
-  const [oldTexts, oldCreated, oldPeopleBySlot, oldPeopleByDay] =
-    older === null ? [[], [], [], []] : await Promise.all([older.texts, older.created, older.peopleBySlot, older.peopleByDay].map((query) => sql(fetchImpl, token, accountId, query)));
+  const [oldTexts, oldCreated, oldPeopleBySlot, oldPeopleByDay, oldPeopleAll] =
+    older === null ? [[], [], [], [], []] : await Promise.all([older.texts, older.created, older.peopleBySlot, older.peopleByDay, older.peopleAll].map((query) => sql(fetchImpl, token, accountId, query)));
   const rows = (answer: Row[] | string): Row[] => (typeof answer === "string" ? [] : answer);
   const firstError = (...answers: Array<Row[] | string>) => (answers.find((a) => typeof a === "string") as string | undefined) ?? null;
 
@@ -290,16 +281,14 @@ export async function texStats(env: TexStatsEnv, window: { from: number; to: num
   }
   const dayCount = Math.max(1, Math.ceil((to - Math.floor(from / DAY_MS) * DAY_MS) / DAY_MS));
   const dailyActive = [...byDay.values()].reduce((sum, n) => sum + n, 0) / dayCount;
-  const people = { one: 0, group: 0, any: num(rows(peopleAll)[0]?.n), accounts: num(rows(accountsAnswer)[0]?.n), guests: 0 };
+  const people = { one: 0, group: 0, any: num(rows(peopleAll)[0]?.n) };
   for (const row of rows(peopleByChat)) {
     if (row.chat === "one") people.one = num(row.n);
     if (row.chat === "group") people.group = num(row.n);
   }
-  // Every account that texted 1:1 is a 1:1 person and a person; when the entry points saw more, the higher count stands.
-  people.one = Math.max(people.one, people.accounts);
+  const oldPeople = num(rows(oldPeopleAll)[0]?.n);
+  people.one = Math.max(people.one, oldPeople);
   people.any = Math.max(people.any, people.one);
-  people.accounts = Math.min(people.accounts, people.any);
-  people.guests = Math.max(0, people.any - people.accounts);
 
   for (const row of rows(notes)) {
     const slot = slotOf(slotMs(row.slot));
@@ -342,7 +331,7 @@ export async function texStats(env: TexStatsEnv, window: { from: number; to: num
     to,
     bucket,
     errors: {
-      texts: firstError(texts, peopleBySlot, peopleByDay, peopleByChat, peopleAll, accountsAnswer, oldTexts, oldPeopleBySlot, oldPeopleByDay),
+      texts: firstError(texts, peopleBySlot, peopleByDay, peopleByChat, peopleAll, oldTexts, oldPeopleBySlot, oldPeopleByDay, oldPeopleAll),
       notes: firstError(notes, notesAll, oldCreated),
       cost: typeof cost === "string" ? cost : null,
     },

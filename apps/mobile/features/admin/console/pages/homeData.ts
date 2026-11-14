@@ -46,17 +46,51 @@ export function percentChange(now: number, prior: number): number | null {
   return Math.round(((now - prior) / prior) * 100);
 }
 
+/** `texStats` reads at most this many days back: Cloudflare keeps the gateway's costs about two months (`MAX_STATS_DAYS`). */
+export const STATS_MAX_DAYS = 60;
+
+/**
+ * The windows Home asks `texStats` for: the window, cut to the days the gateway keeps (`partial` when cut), and the
+ * window before it only when all of it is still kept, so a change is never measured against a window cut short
+ * (review of #3291).
+ */
+export function statsWindows(d: ConsoleWindow, now: number): { from: number; to: number; partial: boolean; prior: { from: number; to: number } | null } {
+  const span = Number(d) * DAY_MS;
+  const earliest = now - STATS_MAX_DAYS * DAY_MS;
+  const from = Math.max(now - span, earliest);
+  const priorFrom = now - 2 * span;
+  return { from, to: now, partial: from > now - span, prior: priorFrom >= earliest ? { from: priorFrom, to: now - span } : null };
+}
+
+/** Texts in, 1:1 and group. */
+const textsIn = (stats: TexStatsLike) => stats.texts.inOne + stats.texts.inGroup;
+
+/** Cost per text, or null when the cost is unknown: texts with no cost behind them read as unknown, never as free. */
+export function knownPerText(stats: TexStatsLike | null | undefined): number | null {
+  if (!stats) return null;
+  if (textsIn(stats) > 0 && !(stats.cost.totalUsd > 0)) return null;
+  return stats.costPerTextUsd;
+}
+
+/** The window's spend, or null when texts came in and no cost is known for them. */
+export function knownSpend(stats: TexStatsLike | null | undefined): number | null {
+  if (!stats) return null;
+  if (textsIn(stats) > 0 && !(stats.cost.totalUsd > 0)) return null;
+  return stats.cost.totalUsd;
+}
+
 // -- tiles -------------------------------------------------------------------------------------------------------------
 
-/** What `texStats.report` answers, the parts Home reads. */
+/** What `texStats.report` answers, the parts Home and Usage read. */
 export type TexStatsLike = {
   configured: true;
   dailyActive: number;
-  people: { one: number; group: number; any: number; accounts?: number; guests?: number };
+  people: { one: number; group: number; any: number };
   texts: { inOne: number; inGroup: number; outOne: number; outGroup: number };
   cost: { totalUsd: number };
   costPerTextUsd: number | null;
-  series: { at: number; people: number; textsIn: number; usd: number }[];
+  notes: { created: number };
+  series: { at: number; people: number; textsIn: number; usd: number; notesCreated: number }[];
 };
 
 /** What the AI costs action answers, the parts Home reads (`admin.consoleCosts`). */
@@ -95,24 +129,29 @@ export function homeTiles(input: {
   answered: number | null;
   /** Cost per text in the window before, when `costs` does not say (from `texStats` of that window). */
   priorPerText?: number | null;
+  /** The window was cut to the days `texStats` keeps; its tiles say so. */
+  partial?: boolean;
 }): Tile[] {
   const { d, stats, costs, accounts, answered } = input;
   const series = stats?.series ?? [];
   const dash = "—";
   const people = stats?.people;
-  const withAccounts = people?.accounts ?? people?.one ?? 0;
-  const guests = people?.guests ?? Math.max(0, (people?.any ?? 0) - withAccounts);
-  const textsIn = stats ? stats.texts.inOne + stats.texts.inGroup : null;
-  const perText = costs?.perTextUsd ?? stats?.costPerTextUsd ?? null;
-  const priorPerText = costs?.priorPerTextUsd ?? input.priorPerText ?? null;
-  const total = costs?.totalUsd ?? stats?.cost.totalUsd ?? null;
+  // Both sides counted by the same id, the sender's inbox: whoever texts Tex 1:1 has an account (or was let in to
+  // make one), and a guest is somebody Tex only hears from in group chats.
+  const withAccounts = people?.one ?? 0;
+  const guests = Math.max(0, (people?.any ?? 0) - withAccounts);
+  const received = stats ? textsIn(stats) : null;
+  const perText = costs ? costs.perTextUsd : knownPerText(stats);
+  const priorPerText = costs ? costs.priorPerTextUsd : (input.priorPerText ?? null);
+  const total = costs ? costs.totalUsd : knownSpend(stats);
+  const cut = input.partial && stats ? ` · last ${STATS_MAX_DAYS} days` : "";
   const daily = stats?.dailyActive;
   return [
     {
       key: "dap",
       label: "Daily active people",
       value: daily == null ? dash : d === "1" ? String(people?.any ?? 0) : (Math.round(daily * 10) / 10).toString(),
-      detail: accounts == null ? "" : `of ${accounts} people`,
+      detail: (accounts == null ? "" : `of ${accounts} people`) + cut,
       go: "people",
       spark: series.map((p) => p.people),
       color: "c5",
@@ -121,7 +160,7 @@ export function homeTiles(input: {
       key: "texters",
       label: "People texting Tex",
       value: people ? String(people.any) : dash,
-      detail: people ? `${withAccounts} with accounts · ${guests} guests` : "",
+      detail: people ? `${withAccounts} with accounts · ${guests} guests${cut}` : "",
       go: "turns",
       spark: series.map((p) => p.people),
       color: "c4",
@@ -129,8 +168,8 @@ export function homeTiles(input: {
     {
       key: "texts",
       label: "Texts received",
-      value: textsIn == null ? dash : textsIn.toLocaleString("en-US"),
-      detail: answered == null ? "" : `${answered.toLocaleString("en-US")} answered`,
+      value: received == null ? dash : received.toLocaleString("en-US"),
+      detail: (answered == null ? "" : `${answered.toLocaleString("en-US")} answered`) + cut,
       go: "turns",
       spark: series.map((p) => p.textsIn),
       color: "c1",
@@ -139,7 +178,7 @@ export function homeTiles(input: {
       key: "cpt",
       label: "Cost per text",
       value: perText == null ? dash : money(perText),
-      detail: perText != null && priorPerText != null ? " vs the window before" : "",
+      detail: (perText != null && priorPerText != null ? " vs the window before" : "") + (costs ? "" : cut),
       delta: perText != null && priorPerText != null ? delta(perText - priorPerText, false) : undefined,
       go: "costs",
       spark: series.map((p) => (p.textsIn > 0 ? p.usd / p.textsIn : 0)),
@@ -149,7 +188,7 @@ export function homeTiles(input: {
       key: "spent",
       label: "Spent on AI",
       value: total == null ? dash : money(total),
-      detail: costs ? `${money(costs.outOfPocketUsd)} of it out of pocket` : "",
+      detail: costs ? `${money(costs.outOfPocketUsd)} of it out of pocket` : cut.replace(/^ · /, ""),
       go: "costs",
       spark: costs?.daily?.length ? costs.daily.map((p) => p.usd) : series.map((p) => p.usd),
       color: "c3",
@@ -188,8 +227,8 @@ export type NeedsSources = {
   failedIndexes: number | undefined;
   /** Workspaces (slugs) whose backup encryption check failed. */
   failedBackups: string[] | undefined;
-  /** Workspaces (slugs) whose mail inbox takes mail from anyone. */
-  mailOpen: string[] | undefined;
+  /** Workspaces whose mail inbox takes mail from anyone, and the account that owns each. */
+  mailOpen: { slug: string; ownerId: string }[] | undefined;
 };
 
 /** The list, in the mock's order. A source still loading adds nothing; it never reads as "nothing needs you". */
@@ -215,8 +254,8 @@ export function needsList(s: NeedsSources): NeedLine[] {
   const backups = s.failedBackups ?? [];
   if (backups.length === 1) out.push({ key: "backup", tone: "bad", bold: `@${backups[0]}`, rest: " failed its backup encryption check", where: "Storage", target: { page: "storage" } });
   else if (backups.length > 1) out.push({ key: "backup", tone: "bad", bold: plural(backups.length, "workspace", "workspaces"), rest: " failed their backup encryption check", where: "Storage", target: { page: "storage" } });
-  for (const slug of s.mailOpen ?? []) {
-    out.push({ key: `mail-${slug}`, tone: "warn", bold: `@${slug}'s mail inbox`, rest: " takes mail from anyone", where: "People", target: { page: "people" } });
+  for (const { slug, ownerId } of s.mailOpen ?? []) {
+    out.push({ key: `mail-${slug}`, tone: "warn", bold: `@${slug}'s mail inbox`, rest: " takes mail from anyone", where: "People", target: { page: "people", x: ownerId } });
   }
   return out;
 }

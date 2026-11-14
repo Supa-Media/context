@@ -6,12 +6,16 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   DAY_MS,
+  STATS_MAX_DAYS,
   delta,
   homeTiles,
+  knownPerText,
+  knownSpend,
   money,
   needsList,
   percentChange,
   plural,
+  statsWindows,
   windowRange,
   type CostsLike,
   type NeedsSources,
@@ -101,13 +105,14 @@ describe("homeTiles", () => {
   const stats: TexStatsLike = {
     configured: true,
     dailyActive: 6.44,
-    people: { one: 6, group: 4, any: 9, accounts: 6, guests: 3 },
+    people: { one: 6, group: 4, any: 9 },
     texts: { inOne: 1000, inGroup: 234, outOne: 0, outGroup: 0 },
     cost: { totalUsd: 4.7 },
     costPerTextUsd: 0.16,
+    notes: { created: 12 },
     series: [
-      { at: 1, people: 2, textsIn: 5, usd: 0.5 },
-      { at: 2, people: 3, textsIn: 0, usd: 0 },
+      { at: 1, people: 2, textsIn: 5, usd: 0.5, notesCreated: 1 },
+      { at: 2, people: 3, textsIn: 0, usd: 0, notesCreated: 0 },
     ],
   };
   const costs: CostsLike = {
@@ -142,7 +147,7 @@ describe("homeTiles", () => {
   });
 
   test("people texting Tex reads '8 with accounts · 4 guests' from the counts given", () => {
-    const withCounts: TexStatsLike = { ...stats, people: { one: 6, group: 4, any: 12, accounts: 8, guests: 4 } };
+    const withCounts: TexStatsLike = { ...stats, people: { one: 8, group: 4, any: 12 } };
     const t = byKey(homeTiles({ d: "7", stats: withCounts, costs, accounts: 14, answered: null })).texters;
     expect(t.value).toBe("12");
     expect(t.detail).toBe("8 with accounts · 4 guests");
@@ -202,16 +207,22 @@ describe("homeTiles", () => {
     expect(t.spent.detail).toBe("$1.80 of it out of pocket");
   });
 
-  test("the guests count falls back to any minus one when accounts is missing", () => {
-    const noAccounts: TexStatsLike = { ...stats, people: { one: 6, group: 4, any: 9 } };
-    const t = byKey(homeTiles({ d: "7", stats: noAccounts, costs, accounts: 14, answered: null })).texters;
+  test("guests are everyone who texted minus those with accounts, on the same id space", () => {
+    const t = byKey(homeTiles({ d: "7", stats, costs, accounts: 14, answered: null })).texters;
     expect(t.detail).toBe("6 with accounts · 3 guests");
   });
 
-  test("the guests fallback never goes negative", () => {
+  test("guests never go negative when the one-to-one count is ahead of the total", () => {
     const odd: TexStatsLike = { ...stats, people: { one: 6, group: 4, any: 2 } };
     const t = byKey(homeTiles({ d: "7", stats: odd, costs, accounts: 14, answered: null })).texters;
     expect(t.detail).toBe("6 with accounts · 0 guests");
+  });
+
+  test("the sparklines read the per-day series fields", () => {
+    const t = byKey(homeTiles({ d: "7", stats, costs, accounts: 14, answered: null }));
+    expect(t.dap.spark).toEqual([2, 3]);
+    expect(t.texters.spark).toEqual([2, 3]);
+    expect(t.cpt.spark).toEqual([0.1, 0]);
   });
 });
 
@@ -224,7 +235,7 @@ describe("needsList", () => {
     untold: 1,
     failedIndexes: 2,
     failedBackups: ["studio-ops"],
-    mailOpen: ["samw"],
+    mailOpen: [{ slug: "samw", ownerId: "user_samw" }],
   };
   const none: NeedsSources = {
     secretsUnset: undefined,
@@ -321,7 +332,7 @@ describe("needsList", () => {
       bold: "@samw's mail inbox",
       rest: " takes mail from anyone",
       where: "People",
-      target: { page: "people" },
+      target: { page: "people", x: "user_samw" },
     });
   });
 
@@ -357,8 +368,162 @@ describe("needsList", () => {
   });
 
   test("each open mail inbox gets its own row, keyed by slug", () => {
-    const list = needsList({ ...none, mailOpen: ["samw", "crystal"] });
+    const list = needsList({
+      ...none,
+      mailOpen: [
+        { slug: "samw", ownerId: "user_samw" },
+        { slug: "crystal", ownerId: "user_crystal" },
+      ],
+    });
     expect(list.map((n) => n.key)).toEqual(["mail-samw", "mail-crystal"]);
-    expect(list.map((n) => n.target)).toEqual([{ page: "people" }, { page: "people" }]);
+    expect(list.map((n) => n.target)).toEqual([
+      { page: "people", x: "user_samw" },
+      { page: "people", x: "user_crystal" },
+    ]);
+  });
+});
+
+// -- statsWindows, known costs, the partial-window tiles (review of #3291) ----------------------------------------------
+
+describe("statsWindows", () => {
+  test("the gateway keeps sixty days, and the constant says so", () => {
+    expect(STATS_MAX_DAYS).toBe(60);
+  });
+
+  test("a 90-day window is cut to the sixty days kept and says it is partial, with no prior window", () => {
+    const w = statsWindows("90", NOW);
+    expect(w).toEqual({ from: NOW - 60 * DAY, to: NOW, partial: true, prior: null });
+  });
+
+  test("a 30-day window is whole, and its prior window reaches exactly sixty days back, which is still kept", () => {
+    // The edge is inclusive: `priorFrom >= earliest`. Pinned as the code has it, so a change of edge shows up here.
+    const w = statsWindows("30", NOW);
+    expect(w.from).toBe(NOW - 30 * DAY);
+    expect(w.to).toBe(NOW);
+    expect(w.partial).toBe(false);
+    expect(w.prior).toEqual({ from: NOW - 60 * DAY, to: NOW - 30 * DAY });
+  });
+
+  test("a 7-day window's prior window is the seven days before it", () => {
+    expect(statsWindows("7", NOW)).toEqual({
+      from: NOW - 7 * DAY,
+      to: NOW,
+      partial: false,
+      prior: { from: NOW - 14 * DAY, to: NOW - 7 * DAY },
+    });
+  });
+
+  test("a 1-day window has a prior window", () => {
+    const w = statsWindows("1", NOW);
+    expect(w.partial).toBe(false);
+    expect(w.prior).toEqual({ from: NOW - 2 * DAY, to: NOW - DAY });
+  });
+
+  test("a 7-day window is never cut by the gateway's limit", () => {
+    expect(statsWindows("7", NOW).from).toBeGreaterThan(NOW - STATS_MAX_DAYS * DAY);
+  });
+});
+
+describe("knownPerText and knownSpend", () => {
+  const base: TexStatsLike = {
+    configured: true,
+    dailyActive: 1,
+    people: { one: 1, group: 0, any: 1 },
+    texts: { inOne: 0, inGroup: 0, outOne: 0, outGroup: 0 },
+    cost: { totalUsd: 0 },
+    costPerTextUsd: null,
+    notes: { created: 0 },
+    series: [],
+  };
+
+  test("no stats means no known figure", () => {
+    expect(knownPerText(null)).toBeNull();
+    expect(knownPerText(undefined)).toBeNull();
+    expect(knownSpend(null)).toBeNull();
+    expect(knownSpend(undefined)).toBeNull();
+  });
+
+  test("texts with a known cost give the cost per text and the spend", () => {
+    const s: TexStatsLike = { ...base, texts: { inOne: 10, inGroup: 5, outOne: 0, outGroup: 0 }, cost: { totalUsd: 3 }, costPerTextUsd: 0.2 };
+    expect(knownPerText(s)).toBe(0.2);
+    expect(knownSpend(s)).toBe(3);
+  });
+
+  test("texts with zero cost are unknown, never free: both read null", () => {
+    const s: TexStatsLike = { ...base, texts: { inOne: 10, inGroup: 0, outOne: 0, outGroup: 0 }, cost: { totalUsd: 0 }, costPerTextUsd: 0 };
+    expect(knownPerText(s)).toBeNull();
+    expect(knownSpend(s)).toBeNull();
+  });
+
+  test("group texts count as texts too: zero cost with only group texts is still unknown", () => {
+    const s: TexStatsLike = { ...base, texts: { inOne: 0, inGroup: 4, outOne: 0, outGroup: 0 }, cost: { totalUsd: 0 }, costPerTextUsd: 0 };
+    expect(knownPerText(s)).toBeNull();
+    expect(knownSpend(s)).toBeNull();
+  });
+
+  test("no texts and a zero cost is a true zero, not unknown", () => {
+    const free: TexStatsLike = { ...base, costPerTextUsd: 0 };
+    expect(knownPerText(free)).toBe(0);
+    expect(knownSpend(free)).toBe(0);
+  });
+});
+
+describe("homeTiles with unknown costs and partial windows", () => {
+  const byKey = (tiles: ReturnType<typeof homeTiles>) => Object.fromEntries(tiles.map((t) => [t.key, t]));
+  const base: TexStatsLike = {
+    configured: true,
+    dailyActive: 2,
+    people: { one: 2, group: 1, any: 4 },
+    texts: { inOne: 4, inGroup: 0, outOne: 0, outGroup: 0 },
+    cost: { totalUsd: 0 },
+    costPerTextUsd: 0,
+    notes: { created: 0 },
+    series: [{ at: 1, people: 1, textsIn: 2, usd: 0, notesCreated: 0 }],
+  };
+
+  test("texts with zero cost: cost per text reads an em dash and no delta, even with a prior to compare", () => {
+    const t = byKey(homeTiles({ d: "7", stats: base, costs: null, accounts: 3, answered: null, priorPerText: 0.19 }));
+    expect(t.cpt.value).toBe("—");
+    expect(t.cpt.delta).toBeUndefined();
+  });
+
+  test("texts with zero cost: spent on AI reads an em dash, not $0.00", () => {
+    const t = byKey(homeTiles({ d: "7", stats: base, costs: null, accounts: 3, answered: null }));
+    expect(t.spent.value).toBe("—");
+    expect(t.spent.detail).toBe("");
+  });
+
+  test("zero texts and zero cost: cost per text and spend read $0.00", () => {
+    const quiet: TexStatsLike = { ...base, texts: { inOne: 0, inGroup: 0, outOne: 0, outGroup: 0 } };
+    const t = byKey(homeTiles({ d: "7", stats: quiet, costs: null, accounts: 3, answered: null }));
+    expect(t.cpt.value).toBe("$0.00");
+    expect(t.spent.value).toBe("$0.00");
+  });
+
+  test("a whole window adds no 'last 60 days' to any tile", () => {
+    const tiles = homeTiles({ d: "30", stats: base, costs: null, accounts: 3, answered: 4, partial: false });
+    for (const t of tiles) expect(t.detail).not.toContain("last 60 days");
+  });
+
+  test("a partial window says 'last 60 days' on the tiles that read the stats", () => {
+    const t = byKey(homeTiles({ d: "90", stats: base, costs: null, accounts: 3, answered: 4, partial: true }));
+    expect(t.dap.detail).toContain("last 60 days");
+    expect(t.texters.detail).toBe("2 with accounts · 2 guests · last 60 days");
+    expect(t.texts.detail).toContain("last 60 days");
+    expect(t.cpt.detail).toContain("last 60 days");
+  });
+
+  test("a partial window with costs given says it on the stats tiles only; the spend line keeps its own detail", () => {
+    const costs: CostsLike = { totalUsd: 9, outOfPocketUsd: 1, perTextUsd: 0.5, priorPerTextUsd: null };
+    const t = byKey(homeTiles({ d: "90", stats: base, costs, accounts: 3, answered: null, partial: true }));
+    expect(t.spent.detail).toBe("$1.00 of it out of pocket");
+    expect(t.texters.detail).toContain("last 60 days");
+  });
+
+  test("without costs, spent on AI says 'last 60 days' as its detail only when the window is partial", () => {
+    const partial = byKey(homeTiles({ d: "90", stats: base, costs: null, accounts: 3, answered: null, partial: true }));
+    expect(partial.spent.detail).toBe("last 60 days");
+    const whole = byKey(homeTiles({ d: "30", stats: base, costs: null, accounts: 3, answered: null, partial: false }));
+    expect(whole.spent.detail).toBe("");
   });
 });

@@ -9,7 +9,7 @@ import { api } from "@context/convex/_generated/api";
 import { esc, kpi, panel, pill, seg } from "../kit";
 import { S, go, setF } from "../state";
 import type { ConsolePage } from "../types";
-import { useReportOnce } from "../../useReportOnce";
+import { useSharedReport } from "./sharedReads.web";
 import {
   displayName,
   firstName,
@@ -48,8 +48,8 @@ type GrowthData = {
 const TILE_LABELS = ["Accounts", "Workspaces", "Active workspaces", "Can text Tex"] as const;
 
 function useGrowthData(): GrowthData {
-  const census = useReportOnce(api.functions.admin.censusReport, { days: 30 });
-  const usage = useReportOnce(api.functions.admin.usageReport, { days: 30 });
+  const census = useSharedReport(api.functions.admin.censusReport, { days: 30 }).value;
+  const usage = useSharedReport(api.functions.admin.usageReport, { days: 30 }).value;
   const everyone: { accounts: EveryoneAccount[] } | undefined = useQuery(api.functions.consolePeople.everyone, {});
   const people = useMemo<PersonLike[] | undefined>(
     () =>

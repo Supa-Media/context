@@ -57,6 +57,7 @@ const fake = (): UsageData => ({
       },
     ],
   },
+  // The window's totals (here, 30 days' worth).
   usage: {
     series: [
       series("mcp.tool_call", [1, 2, 3, 4], 4120),
@@ -64,7 +65,15 @@ const fake = (): UsageData => ({
       series("mcp.session", [0, 0, 1, 1], 38),
     ],
   } as unknown as UsageData["usage"],
-  notes: { total: 214, points: [3, 4, 5, 6] },
+  // The last 14 calendar days, whatever the window: the trend and today against yesterday.
+  daily: {
+    series: [
+      series("mcp.tool_call", [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], 105),
+      series("search.query", [0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 2], 8),
+      series("mcp.session", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1], 2),
+    ],
+  } as unknown as UsageData["daily"],
+  notes: { total: 214, daily: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] },
   census: {
     clients: [
       {
@@ -107,6 +116,13 @@ const fake = (): UsageData => ({
     },
   } as unknown as UsageData["census"],
 });
+
+/** The Events panel's markup, from its id to the next panel. */
+function eventsPanel(html: string): string {
+  const from = html.indexOf('data-k="u-ev"');
+  const to = html.indexOf('data-k="u-j"');
+  return html.slice(from, to === -1 ? undefined : to);
+}
 
 describe("console Usage page", () => {
   test("is the Usage page, windowed, with no filters and no legacy section", () => {
@@ -170,9 +186,38 @@ describe("console Usage page", () => {
       expect(html).toContain(`data-k="${key}"`);
   });
 
-  test("keeps the events table while notes are still loading as a loading panel", () => {
+  test("the events panel waits for usage, the 14-day daily report and the notes count, all three", () => {
+    const noUsage = fake();
+    noUsage.usage = undefined;
+    expect(eventsPanel(renderUsage(noUsage))).toContain("Loading…");
+
+    const noDaily = fake();
+    noDaily.daily = undefined;
+    expect(eventsPanel(renderUsage(noDaily))).toContain("Loading…");
+
+    const noNotes = fake();
+    noNotes.notes = undefined;
+    expect(eventsPanel(renderUsage(noNotes))).toContain("Loading…");
+
+    expect(eventsPanel(renderUsage(fake()))).not.toContain("Loading…");
+  });
+
+  test("the events panel reads the window's totals and the daily trend, with today against yesterday", () => {
+    const panel = eventsPanel(renderUsage(fake()));
+    // Window total for tool calls, not the 14-day sum; yesterday's 14 against today's 15 is +7%.
+    expect(panel).toContain("<td class=\"r\">4,120</td>");
+    expect(panel).not.toContain("105");
+    expect(panel).toContain("+7%");
+    // Notes created: the workspace count, and its own trend.
+    expect(panel).toContain("<td class=\"r\">214</td>");
+  });
+
+  test("a notes read that failed does not hold the events table on Loading", () => {
+    // Pinned as it is: a failed notes read (null) still draws the table, with Notes created at zero.
     const data = fake();
-    data.notes = undefined;
-    expect(renderUsage(data)).toContain("Loading…");
+    data.notes = null;
+    const panel = eventsPanel(renderUsage(data));
+    expect(panel).not.toContain("Loading…");
+    expect(panel).toContain("Notes created");
   });
 });

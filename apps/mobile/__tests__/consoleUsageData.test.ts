@@ -123,9 +123,10 @@ describe("eventRows", () => {
     total,
     points: counts.map((count, i) => ({ day: `2026-11-${String(i + 1).padStart(2, "0")}`, count })),
   });
+  const notes = (daily: number[], total: number) => ({ total, daily });
 
   test("one row per counter, in the mock's order", () => {
-    expect(eventRows([], null).map((r) => r.label)).toEqual([
+    expect(eventRows([], [], null).map((r) => r.label)).toEqual([
       "Tool calls",
       "Searches",
       "Notes written",
@@ -136,55 +137,76 @@ describe("eventRows", () => {
     ]);
   });
 
-  test("today against yesterday is the percentage change of the last two points", () => {
-    const [row] = eventRows([series("mcp.tool_call", [90, 100, 110], 4120)], null);
-    expect(row).toMatchObject({ label: "Tool calls", total: 4120, change: { text: "+10%", good: true } });
+  test("the total is the window's, read from totals", () => {
+    const [row] = eventRows([series("mcp.tool_call", [1, 2], 4120)], [series("mcp.tool_call", [1, 2], 3)], null);
+    expect(row).toMatchObject({ label: "Tool calls", total: 4120 });
+  });
+
+  test("the trend and today against yesterday come from the 14-day daily series", () => {
+    const [row] = eventRows([series("mcp.tool_call", [1], 5)], [series("mcp.tool_call", [90, 100, 110], 300)], null);
+    expect(row).toMatchObject({ total: 5, trend: [90, 100, 110], change: { text: "+10%", good: true } });
+  });
+
+  test("a one-day window with a single totals point still gets today vs yesterday from the daily series", () => {
+    const totals = [series("search.query", [4], 4)];
+    const daily = [series("search.query", [40, 50], 90)];
+    const row = eventRows(totals, daily, null).find((r) => r.label === "Searches");
+    expect(row).toEqual({ label: "Searches", total: 4, trend: [40, 50], change: { text: "+25%", good: true } });
   });
 
   test("a fall today is a negative change", () => {
-    const [row] = eventRows([series("mcp.tool_call", [100, 89], 189)], null);
+    const [row] = eventRows([], [series("mcp.tool_call", [100, 89], 189)], null);
     expect(row?.change).toEqual({ text: "-11%", good: false });
   });
 
   test("today against yesterday is null when yesterday was zero", () => {
-    const [row] = eventRows([series("mcp.tool_call", [0, 5], 5)], null);
+    const [row] = eventRows([], [series("mcp.tool_call", [0, 5], 5)], null);
     expect(row?.change).toBeNull();
   });
 
-  test("a single point has no yesterday, so no change", () => {
-    const [row] = eventRows([series("mcp.tool_call", [7], 7)], null);
+  test("a single daily point has no yesterday, so no change", () => {
+    const [row] = eventRows([], [series("mcp.tool_call", [7], 7)], null);
     expect(row?.change).toBeNull();
   });
 
   test("the trend is the last fourteen days at most", () => {
     const counts = Array.from({ length: 20 }, (_, i) => i + 1);
-    const [row] = eventRows([series("mcp.tool_call", counts, 210)], null);
+    const [row] = eventRows([], [series("mcp.tool_call", counts, 210)], null);
     expect(row?.trend).toHaveLength(14);
     expect(row?.trend).toEqual(counts.slice(-14));
     expect(row?.trend[0]).toBe(7);
   });
 
   test("a short trend is kept whole", () => {
-    const [row] = eventRows([series("mcp.tool_call", [1, 2, 3], 6)], null);
+    const [row] = eventRows([], [series("mcp.tool_call", [1, 2, 3], 6)], null);
     expect(row?.trend).toEqual([1, 2, 3]);
   });
 
   test("a counter with no series reads zero with no trend and no change", () => {
-    const row = eventRows([], null).find((r) => r.label === "Searches");
+    const row = eventRows([], [], null).find((r) => r.label === "Searches");
     expect(row).toEqual({ label: "Searches", total: 0, trend: [], change: null });
   });
 
-  test("notes created comes from the workspace counts, not the usage series", () => {
-    const rows = eventRows([series("note.write", [1], 1)], { total: 214, points: [10, 12, 15] });
-    const notes = rows.find((r) => r.label === "Notes created");
-    expect(notes?.total).toBe(214);
-    expect(notes?.trend).toEqual([10, 12, 15]);
-    expect(notes?.change).toEqual({ text: "+25%", good: true });
+  test("notes created take their total and trend from the workspace counts, not the usage series", () => {
+    const rows = eventRows(
+      [series("notes.created", [9], 9)],
+      [series("note.write", [1], 1)],
+      notes([10, 12, 15], 214),
+    );
+    const created = rows.find((r) => r.label === "Notes created");
+    expect(created).toEqual({ label: "Notes created", total: 214, trend: [10, 12, 15], change: { text: "+25%", good: true } });
+  });
+
+  test("notes created keep the last fourteen days of their own trend", () => {
+    const daily = Array.from({ length: 16 }, (_, i) => i + 1);
+    const created = eventRows([], [], notes(daily, 136)).find((r) => r.label === "Notes created");
+    expect(created?.trend).toEqual(daily.slice(-14));
+    expect(created?.change).toEqual({ text: "+7%", good: true });
   });
 
   test("notes created with no workspace counts reads zero", () => {
-    const notes = eventRows([], null).find((r) => r.label === "Notes created");
-    expect(notes).toEqual({ label: "Notes created", total: 0, trend: [], change: null });
+    const created = eventRows([], [], null).find((r) => r.label === "Notes created");
+    expect(created).toEqual({ label: "Notes created", total: 0, trend: [], change: null });
   });
 });
 

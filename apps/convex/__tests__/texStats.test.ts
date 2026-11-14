@@ -43,10 +43,7 @@ function stub(answers: Answers) {
 
 const slot = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace("T", " ");
 
-/** The accounts figure: distinct workspaces with a 1:1 turn over the whole window (`tex_entry`). */
-const ACCOUNTS = "FROM tex_entry";
-
-function sqlAnswers(from: number, accounts: string = "2"): (query: string) => unknown[] | null {
+function sqlAnswers(from: number): (query: string) => unknown[] | null {
   return (query) => {
     if (query.includes("blob1 AS way")) {
       return [
@@ -57,7 +54,6 @@ function sqlAnswers(from: number, accounts: string = "2"): (query: string) => un
         { slot: slot(from + H), way: "out", chat: "group", what: "media", n: "1" },
       ];
     }
-    if (query.includes(ACCOUNTS)) return [{ n: accounts }];
     if (query.includes("GROUP BY chat")) return [{ chat: "one", n: "3" }, { chat: "group", n: "2" }];
     if (query.includes("count(DISTINCT index1)") && !query.includes("GROUP BY")) return [{ n: "4" }];
     if (query.includes("count(DISTINCT index1)")) return [{ slot: slot(from), n: "4" }];
@@ -74,12 +70,8 @@ describe("texStats", () => {
     expect(asked).toEqual([]);
   });
 
-  test("a window is held to ninety days back and at least an hour", () => {
-    expect(MAX_STATS_DAYS).toBe(90);
+  test("a window is held to sixty days back and at least an hour", () => {
     expect(clampStatsWindow(0, NOW, NOW)).toEqual({ from: NOW - MAX_STATS_DAYS * D, to: NOW });
-    // Ninety days is accepted as asked; ninety-one is held back to ninety.
-    expect(clampStatsWindow(NOW - 90 * D, NOW, NOW)).toEqual({ from: NOW - 90 * D, to: NOW });
-    expect(clampStatsWindow(NOW - 91 * D, NOW, NOW)).toEqual({ from: NOW - 90 * D, to: NOW });
     expect(clampStatsWindow(NOW, NOW + 5 * D, NOW)).toEqual({ from: NOW - H, to: NOW });
     expect(clampStatsWindow(undefined, undefined, NOW)).toEqual({ from: NOW - D, to: NOW });
     expect(bucketsOf(NOW - D, NOW).bucket).toBe("hour");
@@ -88,14 +80,10 @@ describe("texStats", () => {
   });
 
   test("the SQL is built from numbers and fixed names, and staging reads its own twins", () => {
-    const queries = statsQueries({ texts: "tex_text_counts", calls: "context_calls", entry: "tex_entry" }, NOW - D, NOW, "hour");
+    const queries = statsQueries({ texts: "tex_text_counts", calls: "context_calls" }, NOW - D, NOW, "hour");
     for (const query of Object.values(queries)) expect(query).toMatch(/toDateTime\(\d+\) AND timestamp < toDateTime\(\d+\)/);
     expect(queries.texts).toContain("FROM tex_text_counts");
     expect(queries.notes).toContain("FROM context_calls");
-    // Accounts: distinct workspaces with a 1:1 turn, over the whole window, never a bucket.
-    expect(queries.accounts).toContain("count(DISTINCT index1) AS n FROM tex_entry");
-    expect(queries.accounts).toContain("blob1 = 'gateway' AND blob2 = 'one'");
-    expect(queries.accounts).not.toContain("GROUP BY");
   });
 
   test("counts texts to Tex, never group chatter it only heard, and prices them", async () => {
@@ -109,7 +97,7 @@ describe("texStats", () => {
     const stats = await texStats(ENV, { from, to: NOW }, { fetchImpl });
     if (!stats.configured) throw new Error("not configured");
     expect(stats.texts).toEqual({ inOne: 6, inGroup: 2, heardGroup: 40, outOne: 7, outGroup: 1 });
-    expect(stats.people).toEqual({ one: 3, group: 2, any: 4, accounts: 2, guests: 2 });
+    expect(stats.people).toEqual({ one: 3, group: 2, any: 4 });
     expect(stats.notes).toEqual({ created: 2, edited: 3, saves: 11 });
     expect(stats.cost).toEqual({ totalUsd: 0.8, testsUsd: 5 });
     expect(stats.costPerTextUsd).toBeCloseTo(0.1);
@@ -119,42 +107,10 @@ describe("texStats", () => {
     expect(asked.some((q) => q.includes("_staging"))).toBe(false);
   });
 
-  test("accounts are the 1:1 workspaces, guests are the rest of everyone who texted", async () => {
-    const from = NOW - 30 * D;
-    const { fetchImpl } = stub({ sql: sqlAnswers(from, "1"), gw: [] });
-    const stats = await texStats(ENV, { from, to: NOW }, { fetchImpl });
-    if (!stats.configured) throw new Error("not configured");
-    // Text counts saw 4 people in all, 3 one-to-one; one workspace texted 1:1. Guests are the other 3 of the 4.
-    expect(stats.people).toEqual({ one: 3, group: 2, any: 4, accounts: 1, guests: 3 });
-  });
-
-  test("accounts never exceed any, and guests are never negative", async () => {
-    // Text counts see 4 in all and 3 one-to-one; the workspaces saw 9 one-to-one. Everyone is at least as many as the accounts.
-    const from = NOW - 30 * D;
-    const { fetchImpl } = stub({ sql: sqlAnswers(from, "9"), gw: [] });
-    const stats = await texStats(ENV, { from, to: NOW }, { fetchImpl });
-    if (!stats.configured) throw new Error("not configured");
-    expect(stats.people.accounts).toBeLessThanOrEqual(stats.people.any);
-    expect(stats.people.any).toBe(9);
-    expect(stats.people.guests).toBe(0);
-    expect(stats.people.guests).toBeGreaterThanOrEqual(0);
-  });
-
-  test("a failed accounts query sets the errors and the figure to zero, leaving guests as all of any", async () => {
-    const from = NOW - D;
-    const { fetchImpl } = stub({ sql: (query) => (query.includes(ACCOUNTS) ? null : sqlAnswers(from)(query)), gw: [] });
-    const stats = await texStats(ENV, { from, to: NOW }, { fetchImpl });
-    if (!stats.configured) throw new Error("not configured");
-    expect(stats.errors.texts).toBe("Cloudflare answered 500");
-    expect(JSON.stringify(stats)).not.toContain("internals");
-    expect(stats.people).toEqual({ one: 3, group: 2, any: 4, accounts: 0, guests: 4 });
-  });
-
   test("staging reads the _staging datasets", async () => {
     const { asked, fetchImpl } = stub({ sql: () => [], gw: [] });
     await texStats({ ...ENV, APP_ENV: "staging" }, { from: NOW - D, to: NOW }, { fetchImpl });
     expect(asked.filter((q) => q.startsWith("SELECT")).every((q) => q.includes("_staging"))).toBe(true);
-    expect(asked.some((q) => q.includes("FROM tex_entry_staging") && q.includes("blob2 = 'one'"))).toBe(true);
   });
 
   test("a failed source says so in our words and leaves the others standing", async () => {
@@ -196,19 +152,14 @@ describe("texStats", () => {
     // The higher of the two people counts, never their sum.
     expect(stats.people.one).toBe(3);
     expect(stats.people.any).toBe(3);
-    expect(stats.people.accounts).toBe(3);
-    expect(stats.people.guests).toBe(0);
     const after = stats.series.find((s) => s.at === Math.floor((COUNTS_BEGAN + D) / D) * D)!;
     expect(after.people).toBe(2);
     expect(stats.countedSince).toBe(COUNTS_BEGAN);
   });
 
-  test("a window after counting began asks the workspaces' whole-window count and no older slot-by-slot source", async () => {
+  test("a window after counting began never asks the older sources", async () => {
     const { asked, fetchImpl } = stub({ sql: () => [], gw: [] });
     await texStats(ENV, { from: NOW - D, to: NOW }, { fetchImpl });
-    expect(asked.some((q) => q.includes("tex_text_timing"))).toBe(false);
-    const entry = asked.filter((q) => q.includes("tex_entry"));
-    expect(entry).toHaveLength(1);
-    expect(entry[0]).not.toContain("GROUP BY");
+    expect(asked.some((q) => q.includes("tex_text_timing") || q.includes("tex_entry"))).toBe(false);
   });
 });

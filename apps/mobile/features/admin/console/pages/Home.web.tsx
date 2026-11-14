@@ -3,30 +3,31 @@
  * on top, Needs you under them"). The figures are `homeData.ts`'s; the needs are `needs.web.ts`'s, the same list the
  * sidebar badges count.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@context/convex/_generated/api";
-import { useReportOnce } from "../../useReportOnce";
 import { esc, ic, kpi, panel, spark } from "../kit";
 import { S } from "../state";
 import type { ConsolePage, Need } from "../types";
-import { DAY_MS, homeTiles, type ConsoleWindow, type TexStatsLike } from "./homeData";
-import { useNeeds } from "./needs.web";
+import { homeTiles, knownPerText, statsWindows, type ConsoleWindow, type TexStatsLike } from "./homeData";
+import { useNeeds, useTurns } from "./needs.web";
+import { useSharedReport } from "./sharedReads.web";
 
 type TexStats = FunctionReturnType<typeof api.functions.texStats.report>;
 
-/** Windows are keyed to the minute, so a render never asks again on its own. */
-const MINUTE = 60_000;
-
-/** `texStats.report` for `[from, to)`, asked again when the window changes; null when it failed or is not set up. */
-export function useTexStats(from: number, to: number): TexStatsLike | null | undefined {
+/**
+ * `texStats.report` for `[from, to)`, asked again when the window changes; null when it failed or is not set up. The
+ * last answer stays on screen while the next window loads, so the tiles never blank out.
+ */
+export function useTexStats(span: { from: number; to: number } | null): TexStatsLike | null | undefined {
   const ask = useRef(useAction(api.functions.texStats.report));
-  const key = `${from}:${to}`;
+  const key = span === null ? "none" : `${span.from}:${span.to}`;
   const [answer, setAnswer] = useState<{ key: string; stats: TexStatsLike | null } | null>(null);
   useEffect(() => {
+    if (span === null) return;
     let live = true;
-    ask.current({ from, to })
+    ask.current({ from: span.from, to: span.to })
       .then((stats: TexStats) => live && setAnswer({ key, stats: stats.configured ? stats : null }))
       .catch(() => live && setAnswer({ key, stats: null }));
     return () => {
@@ -35,13 +36,15 @@ export function useTexStats(from: number, to: number): TexStatsLike | null | und
     // The key stands for the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  return answer !== null && answer.key === key ? answer.stats : undefined;
+  if (span === null) return null;
+  return answer?.stats;
 }
 
 export type HomeData = {
   d: ConsoleWindow;
   stats: TexStatsLike | null | undefined;
   prior: TexStatsLike | null | undefined;
+  partial: boolean;
   accounts: number | null;
   answered: number | null;
   needs: Need[];
@@ -49,18 +52,18 @@ export type HomeData = {
 
 function useHomeData(): HomeData {
   const d = (["1", "7", "30", "90"].includes(S.d) ? S.d : "30") as ConsoleWindow;
-  const to = Math.floor(Date.now() / MINUTE) * MINUTE;
-  const span = Number(d) * DAY_MS;
-  const stats = useTexStats(to - span, to);
-  // The window before, for the change in cost per text. Older than the gateway keeps, it reads as no change.
-  const prior = useTexStats(to - 2 * span, to - span);
-  const census = useReportOnce(api.functions.admin.censusReport, { days: 30 });
-  const turns = useReportOnce(api.functions.admin.agentReport, { days: Number(d), client: "texts" });
+  // The window is fixed when the page opens or the window changes, never per render (review of #3291).
+  const windows = useMemo(() => statsWindows(d, Date.now()), [d]);
+  const stats = useTexStats(windows);
+  const prior = useTexStats(windows.prior);
+  const census = useSharedReport(api.functions.admin.censusReport, { days: 30 }).value;
+  const turns = useTurns();
   const needs = useNeeds();
   return {
     d,
     stats,
     prior,
+    partial: windows.partial,
     accounts: census === undefined ? null : census.accounts.total.count,
     answered: turns === undefined ? null : turns.current.answered,
     needs,
@@ -74,7 +77,8 @@ export function renderHome(data: HomeData | undefined): string {
     costs: null,
     accounts: data?.accounts ?? null,
     answered: data?.answered ?? null,
-    priorPerText: data?.prior?.costPerTextUsd ?? null,
+    priorPerText: knownPerText(data?.prior),
+    partial: data?.partial ?? false,
   });
   const needs = data?.needs ?? [];
   const row = (tile: (typeof tiles)[number]) => {

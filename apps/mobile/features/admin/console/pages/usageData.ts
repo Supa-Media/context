@@ -90,14 +90,19 @@ export type Series = { metric: string; points: { day: string; count: number }[];
 export type EventRow = { label: string; total: number; trend: number[]; change: Delta | null };
 
 /**
- * One row per counter. `notesCreated` comes from the workspace objects' own counts (`texStats` series), the rest from
- * `usageReport`. The trend is the last 14 days; "today vs yesterday" is the last two points.
+ * One row per counter. The total is the window's (`totals`); the trend and "today vs yesterday" are always the last 14
+ * calendar days (`daily`), whatever the window, so a 24-hour window never compares two hours (review of #3291).
+ * Notes created come from the workspace objects' own counts (`texStats`), the rest from `usageReport`.
  */
-export function eventRows(series: readonly Series[], notesCreated: { total: number; points: number[] } | null): EventRow[] {
+export function eventRows(
+  totals: readonly Series[],
+  daily: readonly Series[],
+  notesCreated: { total: number; daily: number[] } | null,
+): EventRow[] {
   return EVENT_ROWS.map(({ label, metric }) => {
-    const points =
-      metric === "notes.created" ? (notesCreated?.points ?? []) : (series.find((s) => s.metric === metric)?.points.map((p) => p.count) ?? []);
-    const total = metric === "notes.created" ? (notesCreated?.total ?? 0) : (series.find((s) => s.metric === metric)?.total ?? 0);
+    const notes = metric === "notes.created";
+    const points = notes ? (notesCreated?.daily ?? []) : (daily.find((s) => s.metric === metric)?.points.map((p) => p.count) ?? []);
+    const total = notes ? (notesCreated?.total ?? 0) : (totals.find((s) => s.metric === metric)?.total ?? 0);
     const today = points.at(-1) ?? 0;
     const yesterday = points.at(-2) ?? 0;
     const pct = percentChange(today, yesterday);

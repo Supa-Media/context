@@ -6,8 +6,7 @@
  * - texts: `tex_text_timing` (`apps/agent/src/textTiming.ts`, since 2026-10-31), one point per text Tex answered,
  *   1:1 or group, with how many parts went out. Several texts answered together count once.
  * - people: `tex_entry` (`apps/mcp/src/agent/texEntryPoint.js`, since 2026-11-01), indexed by workspace: each
- *   personal workspace with a 1:1 turn is one person (the whole window's count is `texStats.ts`'s `accounts`). Still
- *   written, so it is read over the whole window and the
+ *   personal workspace with a 1:1 turn is one person. Still written, so it is read over the whole window and the
  *   higher of it and the new count is kept, slot by slot: a person is never counted twice that way, only possibly
  *   under-counted where the two sources saw different people in one slot.
  * - notes created: `context_calls` workspace-object calls `ws.create` (since 2026-11-06), the one-call create path.
@@ -45,5 +44,6 @@ export function beforeQueries(names: BeforeNames, from: number, to: number, buck
     created: `SELECT ${slot} AS slot, sum(_sample_interval) AS n FROM ${names.calls} WHERE ${early} AND blob1 = 'object' AND blob2 = 'ws.create' GROUP BY slot FORMAT JSON`,
     peopleBySlot: `SELECT ${slot} AS slot, count(DISTINCT index1) AS n FROM ${names.entry} WHERE ${whole} AND ${turn} GROUP BY slot FORMAT JSON`,
     peopleByDay: `SELECT ${day} AS slot, count(DISTINCT index1) AS n FROM ${names.entry} WHERE ${whole} AND ${turn} GROUP BY slot FORMAT JSON`,
+    peopleAll: `SELECT count(DISTINCT index1) AS n FROM ${names.entry} WHERE ${whole} AND ${turn} FORMAT JSON`,
   };
 }

@@ -174,13 +174,41 @@ describe("the census's growth slice", () => {
     expect(report.sources.mailOpenSlugs).not.toContain("closed");
     expect([...report.sources.mailOpenSlugs]).toEqual([...report.sources.mailOpenSlugs].sort());
     // Home's "Needs you" reads the same list from its own light query.
-    expect(await as.query(api.functions.consoleHome.openMail, {})).toEqual(report.sources.mailOpenSlugs);
+    const home = (await as.query(api.functions.consoleHome.needs, {})).openMail;
+    expect(home.map((row) => row.slug)).toEqual(report.sources.mailOpenSlugs);
+    expect(home.every((row) => row.ownerId === userId)).toBe(true);
   });
 
-  test("Home's open-mail list refuses everyone who is not staff", async () => {
+  test("Home's needs count the waiting, the failed indexes, and refuse everyone who is not staff", async () => {
     const t = convexTest(schema, modules);
+    const { userId, as } = await staff(t);
+    const failed = await seedContext(t, userId, "broken", "shared");
+    const failedToo = await seedContext(t, userId, "broken-too", "shared");
+    const fine = await seedContext(t, userId, "fine", "shared");
+    await t.run(async (ctx) => {
+      for (const phone of ["+15550000001", "+15550000002"]) await ctx.db.insert("waitlist", { phone, status: "waiting", joinedAt: NOON, source: "login" });
+      await ctx.db.insert("waitlist", { phone: "+15550000003", status: "admitted", joinedAt: NOON, source: "login" });
+      for (const [workspaceId, status] of [[failed, "failed"], [failedToo, "failed"], [fine, "backfilling"]] as const) {
+        await ctx.db.insert("meaningIndexes", {
+          workspaceId,
+          enabled: true,
+          enabledAt: 1,
+          status,
+          indexName: `context-meaning-${workspaceId}`,
+          ...(status === "failed" ? { errorCode: "UNAVAILABLE" } : {}),
+          createdAt: 1,
+          updatedAt: 1,
+        });
+      }
+    });
+    const needs = await as.query(api.functions.consoleHome.needs, {});
+    expect(needs.waiting).toBe(2);
+    expect(needs.failedIndexes).toBe(2);
+    expect(needs.failedBackups).toEqual([]);
+    expect(needs.openMail).toEqual([]);
+
     const outsider = await seedUser(t, "someone@example.test");
-    await expect(withSession(t, outsider).query(api.functions.consoleHome.openMail, {})).rejects.toThrow();
-    await expect(t.query(api.functions.consoleHome.openMail, {})).rejects.toThrow();
+    await expect(withSession(t, outsider).query(api.functions.consoleHome.needs, {})).rejects.toThrow();
+    await expect(t.query(api.functions.consoleHome.needs, {})).rejects.toThrow();
   });
 });
