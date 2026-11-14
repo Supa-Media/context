@@ -12,6 +12,7 @@ name: Deploy to Production
 #             │          ├─ email ───────────────┤
 #             │          ├─ transcribe ──────────┼─ mobile-update (publish)
 #             │          ├─ egress ──────────────┤
+#             │          ├─ photon ──────────────┤
 #             │          └─ agent                │
 #             ├─ mobile-bundle (export) ─────────┘
 #             └─ sentry
@@ -59,6 +60,7 @@ jobs:
       transcribe: ${{ steps.plan.outputs.transcribe }}
       agent: ${{ steps.plan.outputs.agent }}
       egress: ${{ steps.plan.outputs.egress }}
+      photon: ${{ steps.plan.outputs.photon }}
       sentry: ${{ steps.plan.outputs.sentry }}
       web: ${{ steps.plan.outputs.web }}
       router: ${{ steps.plan.outputs.router }}
@@ -118,6 +120,12 @@ jobs:
     needs: [validate, convex]
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.egress == 'true' }}
     uses: ./.github/workflows/deploy-egress-service.yml
+    secrets: inherit
+
+  photon:
+    needs: [validate, convex]
+    if: ${{ !cancelled() && !failure() && needs.validate.outputs.photon == 'true' }}
+    uses: ./.github/workflows/deploy-photon-bridge.yml
     secrets: inherit
 
   sentry:

@@ -182,6 +182,10 @@ jobs:
       # Only this Worker and what it imports, as production's deploy jobs do: a
       # full install is ~20s of Expo this job never loads.
       - run: pnpm install --filter "${{ matrix.worker.package }}..." --frozen-lockfile
+      # The Photon container suite imports the SDK, which only its own install has.
+      - name: Install the Photon container's dependencies
+        if: ${{ matrix.worker.name == 'photon' }}
+        run: npm ci --prefix infra/photon-bridge/container
       - name: Test ${{ matrix.worker.package }}
         run: pnpm --filter "${{ matrix.worker.package }}" test
 
@@ -232,6 +236,9 @@ jobs:
       TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
       TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
       PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
+      # Optional: unset, the bridge deploys unconfigured and idle (infra/photon-bridge).
+      PHOTON_PROJECT_ID: ${{ secrets.PHOTON_PROJECT_ID }}
+      PHOTON_PROJECT_SECRET: ${{ secrets.PHOTON_PROJECT_SECRET }}
       AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
       LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
       LINQ_WEBHOOK_SECRET: ${{ secrets.LINQ_WEBHOOK_SECRET }}
@@ -288,6 +295,15 @@ jobs:
               ;;
             egress)
               printf '%s' "$PLUGIN_EGRESS_SECRET" | pnpm --dir infra/egress-service exec wrangler secret put EGRESS_SERVICE_SECRET --env staging
+              ;;
+            photon)
+              # Both or neither: a half-set pair would leave the bridge unable to mint a token.
+              if [ -z "${PHOTON_PROJECT_ID:-}" ] || [ -z "${PHOTON_PROJECT_SECRET:-}" ]; then
+                echo "WARNING: PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET are not both set; the staging bridge stays unconfigured and idle."
+              else
+                printf '%s' "$PHOTON_PROJECT_ID" | pnpm --dir infra/photon-bridge exec wrangler secret put PHOTON_PROJECT_ID --env staging
+                printf '%s' "$PHOTON_PROJECT_SECRET" | pnpm --dir infra/photon-bridge exec wrangler secret put PHOTON_PROJECT_SECRET --env staging
+              fi
               ;;
             email)
               printf '%s' "$EMAIL_WORKER_SECRET" | pnpm --dir infra/email-worker exec wrangler secret put EMAIL_WORKER_SECRET --env staging

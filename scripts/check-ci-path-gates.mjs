@@ -556,6 +556,7 @@ export function check(root = ROOT) {
     router: { packages: ["@context/router"], runs: "infra/router" },
     transcribe: { packages: ["@context/transcribe-worker"], runs: "infra/transcribe-worker" },
     egress: { packages: ["@context/egress-service"], runs: "infra/egress-service" },
+    photon: { packages: ["@context/photon-bridge"], runs: "infra/photon-bridge" },
     siteshots: { packages: ["@context/site-shots"], runs: "infra/site-shots" },
     agent: { packages: ["@context/agent"], runs: "apps/agent" },
   });
