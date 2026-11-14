@@ -195,7 +195,7 @@ async function admitRow(ctx: MutationCtx, row: Doc<"waitlist">, actor: AdminActo
   return true;
 }
 
-function checkBatch(size: number) {
+export function checkBatch(size: number) {
   if (size > WAITLIST_BATCH) throw new Error(`At most ${WAITLIST_BATCH} at a time.`);
 }
 
