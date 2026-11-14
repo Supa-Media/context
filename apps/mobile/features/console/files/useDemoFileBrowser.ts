@@ -194,6 +194,7 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       search: async () => {
         throw new Error("This console cannot search.");
       },
+      openSearchResult: () => {},
       editor,
       setDraft: noop,
       setCollaborationOwned: noop,

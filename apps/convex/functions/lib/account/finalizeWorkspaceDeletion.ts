@@ -96,6 +96,13 @@ export async function finalizeWorkspaceDeletion(
     .take(4000);
   for (const timing of timings) await ctx.db.delete(timing._id);
 
+  // A staff move of the workspace's home (`functions/adminStorage.ts`): one row, gone with the workspace.
+  const moves = await ctx.db
+    .query("storageMoves")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const move of moves) await ctx.db.delete(move._id);
+
   const events = await ctx.db
     .query("auditEvents")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

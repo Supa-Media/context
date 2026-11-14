@@ -75,6 +75,7 @@ import { workspaceObjectTables } from "./functions/lib/schema/workspaceObjects";
 import { workspaceObjectOutboxTables } from "./functions/lib/schema/workspaceObjectOutbox";
 import { accessObjectOutboxTables } from "./functions/lib/schema/accessObjectOutbox";
 import { texMachineTables } from "./functions/lib/schema/texMachines";
+import { storageMoveTables } from "./functions/lib/schema/storageMoves";
 
 /**
  * Control-plane schema for Context.
@@ -186,6 +187,7 @@ const schema = defineSchema({
   ...contentReportTables,
   ...workspaceObjectTables,
   ...texMachineTables,
+  ...storageMoveTables,
 });
 
 export default schema;

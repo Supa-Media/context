@@ -13,6 +13,7 @@ import type * as functions_stagingPersonas from "../functions/stagingPersonas.js
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as functions_admin from "../functions/admin.js";
+import type * as functions_adminStorage from "../functions/adminStorage.js";
 import type * as functions_account from "../functions/account.js";
 import type * as functions_accountDeletion from "../functions/accountDeletion.js";
 import type * as functions_accountSetup from "../functions/accountSetup.js";
@@ -265,6 +266,7 @@ import type * as functions_connectionClients from "../functions/connectionClient
 import type * as functions_connectionConsent from "../functions/connectionConsent.js";
 import type * as functions_connectionSettings from "../functions/connectionSettings.js";
 import type * as functions_connections from "../functions/connections.js";
+import type * as functions_consoleAi from "../functions/consoleAi.js";
 import type * as functions_featureFlags from "../functions/featureFlags.js";
 import type * as functions_flagObjects from "../functions/flagObjects.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
@@ -296,6 +298,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   crons: typeof crons;
   "functions/admin": typeof functions_admin;
+  "functions/adminStorage": typeof functions_adminStorage;
   "functions/account": typeof functions_account;
   "functions/accountDeletion": typeof functions_accountDeletion;
   "functions/accountSetup": typeof functions_accountSetup;
@@ -550,6 +553,7 @@ declare const fullApi: ApiFromModules<{
   "functions/connectionConsent": typeof functions_connectionConsent;
   "functions/connectionSettings": typeof functions_connectionSettings;
   "functions/connections": typeof functions_connections;
+  "functions/consoleAi": typeof functions_consoleAi;
   "functions/featureFlags": typeof functions_featureFlags;
   "functions/flagObjects": typeof functions_flagObjects;
   "functions/waitlist": typeof functions_waitlist;

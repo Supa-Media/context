@@ -1,3 +1,5 @@
+import { holdSearchTiming } from "./quality.js";
+
 /**
  * What one search actually spent, and where.
  *
@@ -109,13 +111,24 @@ export function logSearchTrace(trace) {
  * a store without a reporter (a test, a host that cannot defer) simply does
  * not report.
  *
- * @param {{reportSearchTiming?: Function}} store
+ * A timing row carries no quality fields. While an entry point is collecting
+ * its counted row (`store.searchRowPending`), the time is held for that row
+ * instead (`search/quality.js`), so one search writes one row.
+ *
+ * @param {object} store
  * @param {"fast" | "index" | "scan"} answeredBy
+ * @param {{key: string}[]} hits
  */
-export function reportSearchTiming(store, trace, answeredBy, found) {
+export function reportSearchTiming(store, trace, answeredBy, hits) {
   try {
+    const ms = trace.toJSON().ms.total;
+    if (store?.searchRowPending === true) {
+      holdSearchTiming(store, answeredBy, ms);
+      return;
+    }
     if (typeof store?.reportSearchTiming !== "function") return;
-    store.reportSearchTiming({ answeredBy, found: Boolean(found), ms: trace.toJSON().ms.total });
+    const list = Array.isArray(hits) ? hits : [];
+    store.reportSearchTiming({ answeredBy, found: list.length > 0, ms });
   } catch {
     // Instrumentation must never be how a search fails.
   }

@@ -10,7 +10,8 @@ import { api } from "@context/convex/_generated/api";
 import { esc, ic, kpi, panel, spark } from "../kit";
 import { S } from "../state";
 import type { ConsolePage, Need } from "../types";
-import { homeTiles, knownPerText, statsWindows, type ConsoleWindow, type TexStatsLike } from "./homeData";
+import { useCosts } from "./Costs.web";
+import { costsLikeOf, homeTiles, knownPerText, statsWindows, type ConsoleWindow, type CostsLike, type TexStatsLike } from "./homeData";
 import { useNeedsState, useTurns } from "./needs.web";
 import { useSharedReport } from "./sharedReads.web";
 
@@ -50,6 +51,7 @@ export type HomeData = {
   needs: Need[];
   /** A needs source is still loading: the list says so rather than "Nothing needs you". */
   needsLoading: boolean;
+  costs: CostsLike | null;
 };
 
 function useHomeData(): HomeData {
@@ -61,6 +63,7 @@ function useHomeData(): HomeData {
   const census = useSharedReport(api.functions.admin.censusReport, { days: 30 }).value;
   const turns = useTurns();
   const { needs, loading: needsLoading } = useNeedsState();
+  const costs = costsLikeOf(useCosts());
   return {
     d,
     stats,
@@ -70,6 +73,7 @@ function useHomeData(): HomeData {
     answered: turns === undefined ? null : turns.current.answered,
     needs,
     needsLoading,
+    costs,
   };
 }
 
@@ -77,7 +81,7 @@ export function renderHome(data: HomeData | undefined): string {
   const tiles = homeTiles({
     d: data?.d ?? "30",
     stats: data?.stats ?? null,
-    costs: null,
+    costs: data?.costs ?? null,
     accounts: data?.accounts ?? null,
     answered: data?.answered ?? null,
     priorPerText: knownPerText(data?.prior),
