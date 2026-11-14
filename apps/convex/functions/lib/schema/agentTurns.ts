@@ -2,6 +2,37 @@ import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
 /**
+ * One entry of a turn's trace, as the table keeps it. Anything that hands a
+ * stored trace back (the staff console's reports) returns it in this shape, so
+ * a field added here cannot fail their return check.
+ */
+export const agentTurnTraceEntry = v.object({
+  kind: v.union(v.literal("model"), v.literal("tool"), v.literal("router"), v.literal("fallback")),
+  tool: v.optional(v.string()),
+  // tool: which of the tool's actions ran (`write`'s `save`), a name from its fixed list, never an argument's value.
+  action: v.optional(v.string()),
+  // tool: which of the six it was called as (`write`), when it ran as an older tool (`write_note`).
+  six: v.optional(v.string()),
+  // router: the tier picked and the model it runs on; fallback: the model
+  // the turn went on with. Model names only, as the turn's own `model`.
+  tier: v.optional(v.union(v.literal("main"), v.literal("think"))),
+  // router: how sure it was the text needs thinking (0 to 1) when it
+  // said so, kept whether or not that cleared the setup's cutoff.
+  confidence: v.optional(v.number()),
+  model: v.optional(v.string()),
+  // model: the HTTP status a failed or retried round got; fallback: the
+  // status that caused it. A number, never a provider's words.
+  status: v.optional(v.number()),
+  retried: v.optional(v.boolean()),
+  // model: the round stopped at the output cap, out of room to think and answer.
+  cut: v.optional(v.boolean()),
+  // tool: the egress gate held the call for the person's yes; it ran later or not at all.
+  held: v.optional(v.boolean()),
+  ok: v.boolean(),
+  ms: v.number(),
+});
+
+/**
  * One row per agent turn: where its time went and which tools it called, so
  * the agent can be audited and made faster (asked for by the owner,
  * 2026-10-07: "see how much time and what tool calls are being made").
@@ -65,33 +96,7 @@ export const agentTurnTables = {
       ),
     ),
     /** In order: each model round, and each tool call between them. */
-    trace: v.array(
-      v.object({
-        kind: v.union(v.literal("model"), v.literal("tool"), v.literal("router"), v.literal("fallback")),
-        tool: v.optional(v.string()),
-        // tool: which of the tool's actions ran (`write`'s `save`), a name from its fixed list, never an argument's value.
-        action: v.optional(v.string()),
-        // tool: which of the six it was called as (`write`), when it ran as an older tool (`write_note`).
-        six: v.optional(v.string()),
-        // router: the tier picked and the model it runs on; fallback: the model
-        // the turn went on with. Model names only, as `model` above.
-        tier: v.optional(v.union(v.literal("main"), v.literal("think"))),
-        // router: how sure it was the text needs thinking (0 to 1) when it
-        // said so, kept whether or not that cleared the setup's cutoff.
-        confidence: v.optional(v.number()),
-        model: v.optional(v.string()),
-        // model: the HTTP status a failed or retried round got; fallback: the
-        // status that caused it. A number, never a provider's words.
-        status: v.optional(v.number()),
-        retried: v.optional(v.boolean()),
-        // model: the round stopped at the output cap, out of room to think and answer.
-        cut: v.optional(v.boolean()),
-        // tool: the egress gate held the call for the person's yes; it ran later or not at all.
-        held: v.optional(v.boolean()),
-        ok: v.boolean(),
-        ms: v.number(),
-      }),
-    ),
+    trace: v.array(agentTurnTraceEntry),
   })
     .index("by_at", ["at"])
     .index("by_workspace_at", ["workspaceId", "at"])
