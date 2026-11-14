@@ -5,16 +5,17 @@
  * refused, never overwritten.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Linking } from "react-native";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { RUN_TESTS_URL, type AiCatalog } from "../../../aiCatalog";
-import { jobPage, promotedText, withFrontKey, type Candidate, type JobPage, type RunRead } from "../../../aiModel";
-import { experimentText } from "../../../aiExperiments";
+import type { AiCatalog } from "../../../aiCatalog";
+import { jobPage, type Candidate, type RunRead } from "../../../aiModel";
 import { parseReplies, repliesPathOf, type RepliesCase } from "../../../aiCompareModel";
 import { useAiCatalog, type AiCatalogState } from "../../../useAiCatalog";
 import { messageOf, useIo, useNoteWriter, useRuns } from "../../../useAiNote";
-import { withCaseCopied, withCaseEdited, withCaseRemoved, withNewCase, type CaseDraft } from "./caseEdits";
+import { makeJobWrites, type JobWrites } from "./jobWrites";
+
+export type { JobWrites };
 
 const NONE = "" as Id<"workspaces">;
 
@@ -90,98 +91,28 @@ export function useReplies(workspaceId: Id<"workspaces"> | null, candidate: Cand
   return useMemo(() => (text ? parseReplies(text) : null), [text]);
 }
 
-export interface JobWrites {
-  saveCase(path: string, number: number, draft: CaseDraft): Promise<void>;
-  newCase(path: string): Promise<number>;
-  copyCase(path: string, number: number): Promise<number>;
-  /** Removes it and answers the list's text before, for Undo. */
-  deleteCase(path: string, number: number): Promise<string>;
-  restoreList(path: string, text: string): Promise<void>;
-  newExperiment(page: JobPage): Promise<string>;
-  makeLive(page: JobPage, candidate: Candidate): Promise<void>;
-  runBoth(): void;
-}
-
 export function useJobWrites(workspaceId: Id<"workspaces"> | null, me: string): JobWrites {
   const write = useNoteWriter(workspaceId ?? NONE);
   const { readNote } = useIo();
-  const read = useCallback(async (path: string) => (await readNote({ workspaceId: workspaceId ?? NONE, path })).text, [readNote, workspaceId]);
   return useMemo<JobWrites>(() => {
     const need = () => {
       if (workspaceId === null) throw new Error("The AI notes are not open yet");
     };
-    return {
-      async saveCase(path, number, draft) {
-        need();
-        await write(path, (text) => (text === null ? null : withCaseEdited(text, number, draft)));
+    return makeJobWrites(
+      {
+        read: async (path) => {
+          need();
+          return (await readNote({ workspaceId: workspaceId!, path })).text;
+        },
+        write: async (path, change) => {
+          need();
+          await write(path, change);
+        },
+        open: (url) => Linking.openURL(url).then(() => true, () => false),
       },
-      async newCase(path) {
-        need();
-        let number = 0;
-        await write(path, (text) => {
-          if (text === null) return null;
-          const made = withNewCase(text);
-          number = made.number;
-          return made.text;
-        });
-        return number;
-      },
-      async copyCase(path, number) {
-        need();
-        let made = 0;
-        await write(path, (text) => {
-          if (text === null) return null;
-          const copy = withCaseCopied(text, number);
-          made = copy.number;
-          return copy.text;
-        });
-        return made;
-      },
-      async deleteCase(path, number) {
-        need();
-        let before = "";
-        await write(path, (text) => {
-          if (text === null) return null;
-          before = text;
-          return withCaseRemoved(text, number);
-        });
-        return before;
-      },
-      async restoreList(path, text) {
-        need();
-        await write(path, () => text);
-      },
-      async newExperiment(page) {
-        need();
-        if (page.row.setup === null) throw new Error("Nothing is live on this job to copy");
-        const liveText = await read(page.row.setup.path);
-        const taken = new Set([...page.candidates, ...page.retired].map((item) => item.name));
-        let n = page.candidates.length + 1;
-        while (taken.has(`experiment-${n}`)) n += 1;
-        const name = `experiment-${n}`;
-        const change = "Name the one thing that changes";
-        await write(`ai/setups/${page.job.key}/${name}.md`, (existing) =>
-          existing === null ? experimentText(liveText, { job: page.job.key, basedOn: page.live ?? page.row.setup!.name, change, by: me }) : null,
-        );
-        return name;
-      },
-      async makeLive(page, candidate) {
-        need();
-        const liveRow = page.row.setup;
-        if (liveRow === null) throw new Error("Nothing is live on this job to replace");
-        const mineText = await read(candidate.row.path);
-        const day = new Date().toISOString().slice(0, 10);
-        await write(liveRow.path, () => promotedText(mineText, { job: page.job.key, from: candidate.name, day, by: me }));
-        await write(candidate.row.path, (text) => withFrontKey(text ?? mineText, "status", "live"));
-        const was = page.candidates.find((item) => item.name === page.live);
-        if (was && was.name !== candidate.name) await write(was.row.path, (text) => (text === null ? null : withFrontKey(text, "status", "retired")));
-      },
-      // The bench runs on GitHub Actions; its dispatch form takes the job and both setups.
-      runBoth() {
-        void Linking.openURL(RUN_TESTS_URL).catch(() => {});
-      },
-    };
-  }, [workspaceId, write, read, me]);
+      me,
+    );
+  }, [workspaceId, write, readNote, me]);
 }
 
 export { jobPage, messageOf };

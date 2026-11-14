@@ -43,8 +43,8 @@ export function useJobsPage(): JobsPageData {
   const texts = useTexts(data.workspaceId, page?.row.tests.map((test) => test.path) ?? [], round + data.reloads);
   const candidate = useMemo(() => {
     if (!page || S.subs[1] !== "compare") return null;
-    const open = page.candidates.filter((item) => item.status !== "live" && item.status !== "retired");
-    return open.find((item) => item.name === compareName) ?? open[0] ?? null;
+    // Only the setup the address names: Compare never shows one the crumb does not.
+    return page.candidates.find((item) => item.name === compareName && item.status !== "live" && item.status !== "retired") ?? null;
   }, [page, compareName]);
   const prompts = useTexts(data.workspaceId, candidate && page?.row.setup ? [page.row.setup.path, candidate.row.path] : [], data.reloads);
   const replies = useReplies(data.workspaceId, candidate);

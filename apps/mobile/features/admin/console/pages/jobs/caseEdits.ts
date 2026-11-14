@@ -65,6 +65,33 @@ export function withCaseCopied(text: string, number: number): { text: string; nu
   return { text: serializeTestList(next), number: next.cases.reduce((max, item) => Math.max(max, item.number), 0) };
 }
 
-export function withCaseRemoved(text: string, number: number): string {
-  return serializeTestList(removeCase(parseTestList(text), number));
+/** The list without case `number`, and the case's own lines, for Undo. */
+export function withCaseRemoved(text: string, number: number): { text: string; block: string[] } {
+  const list = parseTestList(text);
+  const block = caseLines(list, number);
+  return { text: serializeTestList(removeCase(list, number)), block };
+}
+
+/**
+ * A deleted case put back into the list as it is now: under its old number
+ * when nobody took it since, so earlier rounds' scores still name it, else as
+ * the next case. Edits made to the list since are kept.
+ */
+export function withCaseRestored(text: string, block: readonly string[]): string {
+  const list = parseTestList(text);
+  const number = Number(/^## (\d+)\./.exec(block[0] ?? "")?.[1]);
+  if (!Number.isInteger(number) || list.cases.some((item) => item.number === number)) return serializeTestList(appendCase(list, block));
+  const lines = [...list.lines];
+  const trailingNewline = lines[lines.length - 1] === "";
+  const body = trailingNewline ? lines.slice(0, -1) : lines;
+  // Back where it was in number order: before the first case numbered after it.
+  const after = list.cases.find((item) => item.number > number);
+  if (after) {
+    body.splice(after.headingIndex, 0, ...block, "");
+  } else {
+    if (body.length > 0 && body[body.length - 1] !== "") body.push("");
+    body.push(...block);
+  }
+  if (trailingNewline) body.push("");
+  return serializeTestList(parseTestList(body.join("\n")));
 }

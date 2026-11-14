@@ -11,7 +11,7 @@ import { parseTestList } from "../../testList";
 import { S, closeProps, go, render, sel, setF, toast } from "../state";
 import type { ConsolePage } from "../types";
 import { caseId, type CaseCard } from "./jobs/jobsModel";
-import { caseProps, casesFor, draftOf, drafts, jobCrumb, jobView, listView, notReady, tries } from "./jobs/jobsView";
+import { caseProps, casesFor, draftOf, drafts, jobCrumb, jobView, listView, notReady, tries, tryKey, type TryResult } from "./jobs/jobsView";
 import { messageOf } from "./jobs/useJobsData";
 import { useJobsPage, type JobsPageData } from "./jobs/useJobsPage";
 import { LAB_JOB } from "./jobs/jobsModel";
@@ -23,16 +23,22 @@ function caseFrom(el: HTMLElement, d: JobsPageData | undefined): CaseCard | null
   return d ? (casesFor(d).find((item) => item.id === el.dataset.id) ?? null) : null;
 }
 
-/** What is typed in the case panel now, kept as its draft so a redraw does not lose it. */
+/**
+ * What is typed in the case panel now, kept as its draft so a redraw (a toast, a try coming back)
+ * never loses it. Only when the panel on screen is this case's.
+ */
 function capture(c: CaseCard) {
   const draft = draftOf(c);
+  if (typeof document === "undefined") return draft;
   const root = document.querySelector(".sc") ?? document;
   const when = root.querySelector<HTMLTextAreaElement>("#cw");
+  // Only the same rows: after a rule was added or removed, the panel on screen is one step behind.
+  if (!when || when.dataset.case !== c.id || root.querySelectorAll("[data-rule-text]").length !== draft.rules.length) return draft;
   const rules = draft.rules.map((rule, i) => ({
     kind: root.querySelector<HTMLSelectElement>(`[data-rule-kind="${i}"]`)?.value ?? rule.kind,
     text: root.querySelector<HTMLInputElement>(`[data-rule-text="${i}"]`)?.value ?? rule.text,
   }));
-  const next = { name: draft.name, when: when ? when.value : draft.when, rules };
+  const next = { name: draft.name, when: when.value, rules };
   drafts.set(c.id, next);
   return next;
 }
@@ -42,18 +48,18 @@ async function tryCase(d: JobsPageData, c: CaseCard) {
   const live = d.page?.row.setup;
   const origin = gatewayOriginFrom(MCP_ENDPOINT);
   const text = d.texts.get(c.path);
-  if (!live || !origin || !text) {
-    tries.set(c.id, { key: c.id, running: false, question: c.name, answer: null, error: "Live can't be asked from here right now.", missed: [], passed: false });
-    return render();
-  }
+  capture(c);
+  if (!live || !origin || !text) return toast("Live can't be asked from here right now");
+  // Try it reads the asker's own notes: never the shared workspace's, so no personal workspace, no try.
+  if (d.ownWorkspace === null) return toast("Try it needs your own workspace, and this account has none");
   const testCase = parseTestList(text).cases.find((item) => item.number === c.number) ?? null;
   const question = firstQuestion(testCase) || c.name;
-  const key = `${c.id}|${live.path}`;
+  const key = tryKey(c.id, live.path);
   tries.set(c.id, { key, running: true, question, answer: null, error: null, missed: [], passed: false });
   render();
+  let result: TryResult;
   try {
-    const workspaceId = d.ownWorkspace ?? d.workspaceId!;
-    const grant = await d.mint({ workspaceId });
+    const grant = await d.mint({ workspaceId: d.ownWorkspace });
     const response = await fetch(`${origin}/agent/try`, {
       method: "POST",
       headers: { Authorization: `Bearer ${grant.accessToken}`, "Content-Type": "application/json" },
@@ -61,10 +67,12 @@ async function tryCase(d: JobsPageData, c: CaseCard) {
     });
     const got = readTry(live.name, question, response.status, await response.json().catch(() => null));
     const missed = got.checks.filter((check) => check.pass === false).map((check) => `${check.key} ${check.value}`);
-    tries.set(c.id, { key, running: false, question, answer: got.answer, error: got.error, missed, passed: got.error === null && missed.length === 0 });
+    result = { key, running: false, question, answer: got.answer, error: got.error, missed, passed: got.error === null && missed.length === 0 };
   } catch (error) {
-    tries.set(c.id, { key, running: false, question, answer: null, error: messageOf(error), missed: [], passed: false });
+    result = { key, running: false, question, answer: null, error: messageOf(error), missed: [], passed: false };
   }
+  // A newer try (or a change of live) since this one started wins.
+  if (tries.get(c.id)?.key === key && tries.get(c.id)?.running) tries.set(c.id, result);
   render();
 }
 
@@ -80,15 +88,10 @@ export const jobsPage: ConsolePage<JobsPageData> = {
     return j && j !== "activity" && j !== LAB_JOB ? jobView(d!) : listView(d!);
   },
   props: (d, x) => {
-    const html = caseProps(d, x);
     const c = d ? casesFor(d).find((item) => item.id === x) : undefined;
-    // The panel opens with live's answer to the case, as the artifact draws it.
-    if (html && d && c && d.page?.row.setup && !tries.has(c.id)) {
-      // The shell asks for the panel more than once a draw: hold the place now so it is asked once.
-      tries.set(c.id, { key: c.id, running: true, question: c.name, answer: null, error: null, missed: [], passed: false });
-      queueMicrotask(() => void tryCase(d, c));
-    }
-    return html;
+    // Keep what is typed: the panel is drawn again from its draft, never from the note alone.
+    if (c) capture(c);
+    return caseProps(d, x);
   },
   crumb: jobCrumb,
   acts: {
@@ -106,6 +109,8 @@ export const jobsPage: ConsolePage<JobsPageData> = {
       S.confirm = null;
       try {
         await d.writes.makeLive(page, candidate);
+        // Every try was answered by the setup that just stopped being live.
+        tries.clear();
         toast(`${candidate.name} is live`);
         d.reload();
         go("jobs", [page.job.key, "setups"]);
@@ -113,9 +118,12 @@ export const jobsPage: ConsolePage<JobsPageData> = {
         failed(error);
       }
     },
-    runboth: (el, d) => {
-      d?.writes.runBoth();
-      toast(`Opened the test bench: run live and ${el.dataset.id} on ${d?.page?.job.key ?? "this job"}`);
+    runboth: async (el, d) => {
+      if (!d?.page) return;
+      const opened = await d.writes.runBoth();
+      if (!opened) return toast("The test bench didn't open");
+      toast(`Opened the test bench: run live and ${el.dataset.id} on ${d.page.job.key}`);
+      go("jobs", [d.page.job.key, "runs"]);
     },
     newcase: async (_el, d) => {
       const test = d?.page?.row.tests[0];
@@ -144,11 +152,12 @@ export const jobsPage: ConsolePage<JobsPageData> = {
       const c = caseFrom(el, d);
       if (!c || !d) return;
       try {
-        const before = await d.writes.deleteCase(c.path, c.number);
+        const block = await d.writes.deleteCase(c.path, c.number);
         drafts.delete(c.id);
         d.rereadTests();
+        // Undo puts the one case back into the list as it is by then, keeping any edit made since.
         toast("Case deleted", () => {
-          void d.writes.restoreList(c.path, before).then(d.rereadTests, failed);
+          void d.writes.restoreCase(c.path, block).then(d.rereadTests, failed);
         });
         closeProps(null);
       } catch (error) {
@@ -183,10 +192,9 @@ export const jobsPage: ConsolePage<JobsPageData> = {
         failed(error);
       }
     },
-    tryagain: (el, d) => {
+    tryit: (el, d) => {
       const c = caseFrom(el, d);
       if (!c || !d) return;
-      tries.delete(c.id);
       void tryCase(d, c);
     },
     newsetup: async (_el, d) => {

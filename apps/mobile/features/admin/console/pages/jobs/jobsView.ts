@@ -8,6 +8,7 @@ import { confirmBox, esc, ic, kpi, lines, panel, pill, seg, spark } from "../../
 import { S } from "../../state";
 import { promptDiff } from "../../../aiModel";
 import {
+  LAB_JOB,
   LAB_URL,
   RULE_KINDS,
   activityRows,
@@ -39,6 +40,8 @@ export interface TryResult {
   passed: boolean;
 }
 export const tries = new Map<string, TryResult>();
+/** Which live setup a try asked: the case and live's note. */
+export const tryKey = (id: string, livePath: string) => `${id}|${livePath}`;
 
 /** One sentence where the page has nothing to draw yet. */
 function quiet(text: string) {
@@ -160,7 +163,7 @@ export function jobView(d: JobsPageData): string {
 function compareBody(d: JobsPageData): string {
   const page = d.page!;
   const s = d.candidate;
-  if (!s) return quiet("No setup to compare with live yet.");
+  if (!s) return quiet(S.subs[2] ? `No setup called ${S.subs[2]} to compare with live.` : "No setup to compare with live yet.");
   const v = compareView(page, s, d.replies);
   const diff = d.liveText !== null && d.candidateText !== null ? promptDiff(d.liveText, d.candidateText, 1) : null;
   const added = diff ? diff.filter((line) => line.kind === "added").length : 0;
@@ -189,7 +192,7 @@ function compareBody(d: JobsPageData): string {
 }
 
 export function jobCrumb(d: JobsPageData | undefined): string {
-  if (S.subs[0] === undefined || S.subs[0] === "activity") return "";
+  if (S.subs[0] === undefined || S.subs[0] === "activity" || S.subs[0] === LAB_JOB) return "";
   const name = d?.page?.job.label ?? S.subs[0];
   let parts = `<span class="sep">/</span><button data-act="go" data-p="jobs" data-subs="${esc(S.subs[0])}">${esc(name)}</button>`;
   if (S.subs[1] === "compare") parts += `<span class="sep">/</span><span>${esc(S.subs[2] || d?.candidate?.name || "")}</span>`;
@@ -209,16 +212,21 @@ export function caseProps(d: JobsPageData | undefined, id: string): string | nul
   if (!c) return null;
   const draft = draftOf(c);
   const kinds = (kind: string) => [...new Set([...RULE_KINDS, kind])];
-  const tried = tries.get(c.id);
-  const tryBody = !d.page.row.setup
+  const live = d.page.row.setup;
+  // A try answered by an earlier live setup no longer says anything about this one.
+  const found = tries.get(c.id);
+  const tried = found && live && found.key === tryKey(c.id, live.path) ? found : null;
+  const tryBody = !live
     ? '<div class="sub">Nothing is live on this job to try.</div>'
-    : !tried || tried.running
-      ? `<div class="thr"><div class="bub">${esc(draft.when || draft.name || "…")}</div><div class="bub tex">…</div></div><span class="sub">Asking live…</span>`
-      : tried.error
-        ? `<div class="sub">${esc(tried.error)}</div><button class="link" data-act="tryagain" data-id="${esc(c.id)}">Try again</button>`
-        : `<div class="thr"><div class="bub">${esc(tried.question)}</div><div class="bub tex">${esc(tried.answer?.trim() ? tried.answer : "(stays quiet)")}</div></div>${tried.passed ? pill("passes every rule", "ok") : pill(`misses: ${tried.missed[0] ?? "a rule"}`, "bad")}`;
+    : !tried
+      ? `<div class="thr"><div class="bub">${esc(draft.when || draft.name || "…")}</div></div><button class="ghost" data-act="tryit" data-id="${esc(c.id)}">Try it on live</button>`
+      : tried.running
+        ? `<div class="thr"><div class="bub">${esc(tried.question)}</div><div class="bub tex">…</div></div><span class="sub">Asking live…</span>`
+        : tried.error
+          ? `<div class="sub">${esc(tried.error)}</div><button class="link" data-act="tryit" data-id="${esc(c.id)}">Try again</button>`
+          : `<div class="thr"><div class="bub">${esc(tried.question)}</div><div class="bub tex">${esc(tried.answer?.trim() ? tried.answer : "(stays quiet)")}</div></div><div class="row">${tried.passed ? pill("passes every rule", "ok") : pill(`misses: ${tried.missed[0] ?? "a rule"}`, "bad")}<button class="link" data-act="tryit" data-id="${esc(c.id)}">Try again</button></div>`;
   return `<div class="pph"><h3 tabindex="-1">${esc(draft.name)}</h3><button class="ib sm" data-act="close" aria-label="Close">${ic("x")}</button></div>
- <label class="field">When this happens<textarea id="cw">${esc(draft.when)}</textarea></label>
+ <label class="field">When this happens<textarea id="cw" data-case="${esc(c.id)}">${esc(draft.when)}</textarea></label>
  <div class="ppb"><div class="h">Rules</div>${draft.rules
    .map(
      (rule, i) =>
