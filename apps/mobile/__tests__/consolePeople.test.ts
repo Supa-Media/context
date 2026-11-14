@@ -1,3 +1,4 @@
+import { beforeEach, describe, expect, it } from "@jest/globals";
 /**
  * The People page's model, HTML and props against the artifact's (`staff-console.html`, `P.people`).
  * Fixtures are fake: every name, address and phone here is invented.
