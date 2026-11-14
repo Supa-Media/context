@@ -19,7 +19,7 @@ import { WAITLIST_BATCH } from "./waitlist";
 /** Let-in rows read per call; the backlog is days of phone sign-ups, far below this. */
 const SCAN_LIMIT = 10_000;
 
-async function untoldRows(ctx: QueryCtx): Promise<Doc<"waitlist">[]> {
+export async function untoldRows(ctx: QueryCtx): Promise<Doc<"waitlist">[]> {
   const admitted = await ctx.db
     .query("waitlist")
     .withIndex("by_status_joinedAt", (q) => q.eq("status", "admitted"))
@@ -40,9 +40,15 @@ export async function untoldCountHandler(ctx: QueryCtx): Promise<number> {
   return (await untoldRows(ctx)).length;
 }
 
-/** Claim and schedule one text per untold row, at most `WAITLIST_BATCH` a press. */
-export async function textUntoldHandler(ctx: MutationCtx): Promise<{ texted: number; left: number }> {
-  const rows = await untoldRows(ctx);
+/**
+ * Claim and schedule one text per row given, at most `WAITLIST_BATCH` a press.
+ * The rows must already be untold (`untoldRows`); this trusts its caller for that.
+ * `left` counts the rows given that this press did not reach.
+ */
+export async function textRowsHandler(
+  ctx: MutationCtx,
+  rows: Doc<"waitlist">[],
+): Promise<{ texted: number; left: number }> {
   const now = Date.now();
   const batch = rows.slice(0, WAITLIST_BATCH);
   for (const row of batch) {
@@ -50,4 +56,9 @@ export async function textUntoldHandler(ctx: MutationCtx): Promise<{ texted: num
     await ctx.scheduler.runAfter(0, internal.functions.waitlistText.sendAdmitted, { waitlistId: row._id });
   }
   return { texted: batch.length, left: rows.length - batch.length };
+}
+
+/** Claim and schedule one text per untold row, at most `WAITLIST_BATCH` a press. */
+export async function textUntoldHandler(ctx: MutationCtx): Promise<{ texted: number; left: number }> {
+  return await textRowsHandler(ctx, await untoldRows(ctx));
 }

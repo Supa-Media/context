@@ -101,7 +101,7 @@ export async function usernameOf(ctx: QueryCtx, userId: Id<"users">): Promise<st
   return await handleForUser(ctx, userId);
 }
 
-async function personOf(ctx: QueryCtx, user: Doc<"users">, archived: boolean): Promise<Person> {
+export async function personOf(ctx: QueryCtx, user: Doc<"users">, archived: boolean): Promise<Person> {
   const emails = [
     ...(user.email === undefined ? [] : [user.email.toLowerCase()]),
     ...(await attachedEmailsOf(ctx, user._id)),
