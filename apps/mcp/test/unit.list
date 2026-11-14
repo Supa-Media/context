@@ -563,3 +563,5 @@ test/nightlyGraph.test.mjs
 test/egressPictureNodes.test.mjs
 test/texGraphStartNodes.test.mjs
 test/texGraphCheckin.test.mjs
+test/texGraphDoor.test.mjs
+test/texGraphTurn.test.mjs
