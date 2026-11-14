@@ -67,6 +67,9 @@
   ],
   "vars": {
     "GATEWAY_ORIGIN": "https://mcp.context.lc",
+    // Where an incoming text's head runs (src/handOver.ts): "gateway" hands it to the gateway's TexChat (`/texts/arrive`),
+    // "worker" keeps the SenderInbox queue. The move is step 3 of Tex's config graph (docs/architecture/tex.md).
+    "INTAKE": "worker",
     // Context cards (src/appCards.ts, src/cardChats.ts): "on" for every
     // chat, "app" only for chats whose person has shown they have the
     // Context app (a card from its Messages extension reached Tex), "off".
@@ -113,6 +116,8 @@
       "services": [{ "binding": "GATEWAY_TEXTS", "service": "context-mcp-staging", "entrypoint": "TexTexts" }],
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
+        // Where an incoming text's head runs (src/handOver.ts): "gateway" or "worker", as at the top level.
+        "INTAKE": "worker",
         "SIMULATOR": "on",
         "APP_CARDS": "app",
         "APP_CARD_EXTENSION_ID": "lc.context.staging.messages"
