@@ -106,7 +106,8 @@ import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DE
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { TexStore as TexStoreDurableObject } from "./texStore.js";
 import { texChatClass } from "./texChat.js";
-import { arriveForTexts, chatCallForTexts, TEXTS_ARRIVE_PATH, TEXTS_CHAT_CALL_PREFIX } from "./agent/textsArrive.js";
+import { arriveForTexts, chatCallForTexts, jobCallForTexts, TEXTS_ARRIVE_PATH, TEXTS_CHAT_CALL_PREFIX, TEXTS_JOB_CALL_PREFIX } from "./agent/textsArrive.js";
+import { texJobClass } from "./texJob.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
@@ -181,6 +182,13 @@ export const TexStore = TexStoreDurableObject;
  * this gateway's own routes and `TexTexts` called in-process. Read lazily: both are defined below.
  */
 export const TexChat = texChatClass({ gateway: () => gatewayWorker, texts: () => TexTexts });
+/**
+ * Each background job's object, one Durable Object per job (`texJob.js`): the texting Worker's job object run here.
+ * Idle unless `TEX_JOBS` is "gateway" (`wrangler.toml`).
+ */
+export const TexJob = texJobClass({ gateway: () => gatewayWorker, texts: () => TexTexts });
+/** A background job's workflow, one instance per job, which runs its passes on `TexJob` (`texJobWorkflow.js`). */
+export { TexJobWorkflow } from "./texJobWorkflow.js";
 /** The search quality log's key root (`search/qualityKeyObject.js`), reached only from this Worker. */
 export const SearchQualityKey = SearchQualityKeyObject;
 /** Each workspace's notes, tree rows and access rules, one Durable Object per workspace (`workspaceStore.js`). */
@@ -203,6 +211,7 @@ export const TexTexts = {
       if (path === TEXTS_EVENTS_PATH) return await eventsForTexts(request, env);
       if (path === TEXTS_ARRIVE_PATH) return await arriveForTexts(request, env);
       if (path.startsWith(TEXTS_CHAT_CALL_PREFIX)) return await chatCallForTexts(request, env);
+      if (path.startsWith(TEXTS_JOB_CALL_PREFIX)) return await jobCallForTexts(request, env);
       return await openTextsSession(request, env, ctx);
     } catch {
       // The Worker reads anything but a linked answer as "ask Convex".

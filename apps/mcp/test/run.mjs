@@ -11,7 +11,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // The `node --test` files, one path per line. They lived on one line of
@@ -25,6 +25,13 @@ if (!unit.length || missing.length) throw new Error(`test/unit.list names files 
 // The texting Worker's TypeScript, which the gateway's chat object runs as it is (`src/texChat.js`), loaded the way
 // the deploy's bundler loads it (`test/tsHook.mjs`). Node passes these to each `--test` file's own process.
 const TS = ["--experimental-transform-types", "--disable-warning=ExperimentalWarning", "--import", "./test/tsRegister.mjs"];
+// Every process an entry starts gets the same hook through NODE_OPTIONS, and so do the children the tests start (the
+// bench's lab runs, the harness's exit checks). The reason is `src/index.js`: it loads the job workflow's
+// `cloudflare:workers` import (`src/texJobWorkflow.js`), which only this hook resolves, and every test imports it.
+const HOOK_ENV = {
+  ...process.env,
+  NODE_OPTIONS: [process.env.NODE_OPTIONS, "--experimental-transform-types", "--disable-warning=ExperimentalWarning", "--import", pathToFileURL(join(ROOT, "test/tsRegister.mjs")).href].filter(Boolean).join(" "),
+};
 // test/isolated.mjs's suites, split across this many processes (see its header).
 const ISOLATED_SHARDS = 3;
 const ENTRIES = [
@@ -65,7 +72,7 @@ const only = (mode ? ENTRIES.filter(MODES[mode]) : ENTRIES).map(([name, args]) =
 function run([name, args]) {
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn(process.execPath, args, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, args, { cwd: ROOT, env: HOOK_ENV, stdio: ["ignore", "pipe", "pipe"] });
     const output = [];
     child.stdout.on("data", (chunk) => output.push(chunk));
     child.stderr.on("data", (chunk) => output.push(chunk));

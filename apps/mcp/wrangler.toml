@@ -69,6 +69,10 @@ TEX_REVIEW = "on"
 # production traffic, and set it to your own origin, never someone else's.
 PUBLIC_ORIGIN = "https://mcp.context.lc"
 
+# Where a text chat's background jobs run (src/texJob.js): "worker" keeps them in the texting Worker, as they are today;
+# "gateway" runs them in TEX_JOB here. Only staging moves them, until the switch is decided.
+TEX_JOBS = "worker"
+
 # OpenAI verifies ownership of the MCP hostname by reading this public token
 # from `/.well-known/openai-apps-challenge`. It is issued for the current
 # Context Plugin draft and is public by design once the endpoint is deployed.
@@ -203,6 +207,24 @@ class_name = "SearchQualityKey"
 [[migrations]]
 tag = "v6-search-quality-key"
 new_sqlite_classes = ["SearchQualityKey"]
+
+# One background job's object (src/texJob.js): the texting Worker's job object, run here, one per job (`job:<id>`).
+# Idle while TEX_JOBS is "worker" (below); its workflow is TEX_JOB_RUN. Self-hosting on the free tier: leave both out,
+# and `POST /texts/job-call/` answers 501 (the texting Worker then keeps its own jobs).
+[[durable_objects.bindings]]
+name = "TEX_JOB"
+class_name = "TexJob"
+
+[[migrations]]
+tag = "v7-tex-job"
+new_sqlite_classes = ["TexJob"]
+
+# Each background job's workflow, one instance per job, which runs its passes on TEX_JOB (src/texJobWorkflow.js). The
+# name is account-wide, so it is not the Worker's "job-run": a job run here and one run there never share a name.
+[[workflows]]
+name = "tex-job-run"
+binding = "TEX_JOB_RUN"
+class_name = "TexJobWorkflow"
 
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
@@ -366,6 +388,7 @@ PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
 ALLOWED_ORIGINS = "https://staging.context.lc https://tex-staging.context.lc"
 APP_ORIGIN = "https://staging.context.lc"
 SEARCH_SUBREQUEST_BUDGET = "600"
+TEX_JOBS = "gateway"
 
 [[env.staging.durable_objects.bindings]]
 name = "PRESENCE_ROOM"
@@ -386,6 +409,15 @@ class_name = "LiveTicket"
 [[env.staging.durable_objects.bindings]]
 name = "TEX_CHAT"
 class_name = "TexChat"
+
+[[env.staging.durable_objects.bindings]]
+name = "TEX_JOB"
+class_name = "TexJob"
+
+[[env.staging.workflows]]
+name = "tex-job-run-staging"
+binding = "TEX_JOB_RUN"
+class_name = "TexJobWorkflow"
 
 [[env.staging.durable_objects.bindings]]
 name = "SEARCH_QUALITY_KEY"
