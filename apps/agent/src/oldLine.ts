@@ -1,20 +1,17 @@
 /**
  * Tex's old number (Dev2's Photon plan, "Old-number switch"): when staff switch the old Sendblue line to `redirect`, a text
  * that arrives on it gets one short reply, "I've moved to <number>", once per chat per day, and no turn. The setting is
- * staff's, in the control plane (`functions/texOldLine.ts`); this reads it and says what the reply is. The auto-reply
- * itself is a config-graph node, so this module only reads and words; it sends nothing.
+ * staff's, in the control plane (`functions/texOldLine.ts`); this reads it. The reply is the gateway's config-graph node
+ * `oldLine` (`apps/mcp/src/agent/graph/nodes/oldLine.js`), asked and sent by `oldLineStep.ts`.
  */
 
 import { post, record, ServiceError, type Fetch } from "./clients";
-import { archiveSentence, formatNumber } from "./newLine";
-import { isSendblueChat } from "./sendblue";
+import { archiveSentence } from "./newLine";
 
 export type OldLine = { mode: "off" | "redirect"; number: string | null; archiveOn: string | null };
 
 /** How long a read of the setting is kept in this isolate. Staff's change reaches every chat within a minute. */
 export const OLD_LINE_CACHE_MS = 60_000;
-/** The one reply a chat gets, at most, in this many milliseconds. */
-export const OLD_LINE_EVERY_MS = 24 * 60 * 60 * 1000;
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 const OFF: OldLine = { mode: "off", number: null, archiveOn: null };
@@ -52,15 +49,4 @@ export function parseOldLine(json: unknown): OldLine {
   if (number === null) return OFF;
   const archiveOn = typeof fields.archiveOn === "string" && archiveSentence(fields.archiveOn) !== "" ? fields.archiveOn : null;
   return { mode: "redirect", number, archiveOn };
-}
-
-/**
- * The reply to a text on the old line, or null when there is none: the line is not redirecting, the chat is not a
- * Sendblue chat, or this chat was told within the last 24 hours (`lastToldAt`, the caller's record, null if never).
- */
-export function oldLineReply(setting: OldLine, chatId: string, lastToldAt: number | null | undefined, now: number): string | null {
-  if (setting.mode !== "redirect" || setting.number === null) return null;
-  if (!isSendblueChat(chatId)) return null;
-  if (lastToldAt !== null && lastToldAt !== undefined && now - lastToldAt < OLD_LINE_EVERY_MS) return null;
-  return `I've moved to ${formatNumber(setting.number)}. Text me there instead, same Tex, same notes.${archiveSentence(setting.archiveOn)}`;
 }

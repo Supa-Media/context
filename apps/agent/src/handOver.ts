@@ -17,7 +17,7 @@ export type Intake = "worker" | "gateway";
 export type HandOverKind = "one" | "group" | "react" | "members";
 
 /** Every outcome the chat object's routes answer with (`inbox.ts` accept and react, `groupInbox.ts` acceptGroup). */
-const OUTCOMES = ["queued", "duplicate", "full", "preview", "kept", "ignored", "noted", "held", "dropped"] as const;
+const OUTCOMES = ["queued", "duplicate", "full", "preview", "kept", "ignored", "noted", "held", "dropped", "redirected"] as const;
 export type HandOverOutcome = (typeof OUTCOMES)[number] | "failed";
 
 /** "gateway" only for exactly that string (trimmed); anything else, unset included, is "worker". */

@@ -83,6 +83,22 @@ describe("PhotonEvents.event: outcomes", () => {
     expect(routed[0]).toMatchObject({ to: PHONE, path: "/accept", body: { kind: "message", chatId: photonChatId(LINE, PHONE), text: "hello", messageId: "msg-1" } });
   });
 
+  it("carries Apple's time for the text and the lag to this Worker, for the chat's text step, on a text, a group's text and a tapback", async () => {
+    vi.useFakeTimers({ now: Date.parse("2026-11-14T10:00:07.000Z"), toFake: ["Date"] });
+    try {
+      vi.stubGlobal("fetch", async () => Response.json({}));
+      const { env: e, routed } = env();
+      await entrypoint(e).event(event());
+      await entrypoint(e).event(event({ eventId: "photon:message.received:g-2", chat: { guid: GUID, kind: "group", participants: [PHONE, OTHER] }, from: OTHER, message: { guid: "g-2", text: "hi all", service: "iMessage" } }));
+      await entrypoint(e).event(event({ eventId: "photon:message.reactionAdded:msg-1:3", type: "message.reactionAdded", message: undefined, reaction: { kind: "love", targetGuid: "msg-1" } }));
+      const provider = { name: "photon", providerAt: Date.parse("2026-11-14T10:00:00.000Z"), receivedAt: Date.parse("2026-11-14T10:00:07.000Z"), lagMs: 7000 };
+      expect(routed.map((r) => r.path)).toEqual(["/accept", "/group-accept", "/react"]);
+      for (const r of routed) expect((r.body as { provider?: unknown }).provider).toEqual(provider);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("resolves 200 for a duplicate the inbox already holds, so the bridge moves on", async () => {
     const { env: e } = env({}, { status: 200 });
     expect(await entrypoint(e).event(event())).toEqual({ status: 200 });
