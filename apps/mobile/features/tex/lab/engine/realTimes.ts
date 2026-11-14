@@ -74,6 +74,7 @@ export function realTimes(entries: LedgerEntry[], turn: string | null): RealTime
     const m = num(e.ms);
     if (m === null) continue;
     if (e.kind === "judge" && e.by === "review") add("reviewer", m, 1);
+    else if (e.kind === "step" && e.step === "node" && typeof e.name === "string" && e.name !== "") add(e.name, m, 1);
     else if (e.kind === "step" && typeof e.step === "string" && STEP_NODES.has(e.step)) add(e.step, m, 1);
   }
   // The rest of the reply (the code checks, the send) is what the steps above do not account for.
@@ -134,7 +135,9 @@ export function withWorkerSteps(entries: LedgerEntry[], turn: string, from: numb
   for (const e of entries) {
     const st = rec(e.step);
     if (e.kind !== "step" || !st || typeof st.name !== "string" || e.turn || e.at < from || e.at > to) continue;
-    out.push({ ...e, turn, step: st.name, ok: st.ok !== false, ...(num(st.ms) !== null ? { ms: num(st.ms)! } : {}), input: st.input, output: st.output, ...(typeof st.of === "string" ? { of: st.of } : {}) } as LedgerEntry);
+    // Before Triage had a node (2026-11-14), code's straight-to-Tex was kept as a Decide `by: "code"`: it is Triage's.
+    const name = st.name === "decide" && rec(st.output)?.by === "code" ? "triage" : st.name;
+    out.push({ ...e, turn, step: name, ok: st.ok !== false, ...(num(st.ms) !== null ? { ms: num(st.ms)! } : {}), input: st.input, output: st.output, ...(typeof st.of === "string" ? { of: st.of } : {}) } as LedgerEntry);
   }
   return out;
 }
@@ -151,6 +154,7 @@ function untimed(mine: LedgerEntry[], add: (id: string, t: number, n?: number) =
     if (e.kind === "thinking") add("fd", m, 1);
     else if (e.kind === "tool") add("tools", m);
     else if (e.kind === "judge" && e.by === "review") add("reviewer", m, 1);
+    else if (e.kind === "step" && e.step === "node" && typeof e.name === "string" && e.name !== "") add(e.name, m, 1);
     else if (e.kind === "step" && typeof e.step === "string" && STEP_NODES.has(e.step)) add(e.step, m, 1);
   }
   if (!Object.keys(ms).length) return null;

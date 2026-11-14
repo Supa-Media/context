@@ -13,6 +13,8 @@
  *   2. `copyIn` stopped checking the outcome (`moved.outcome !== "arrived"` dropped): "a copy the Worker refuses
  *      leaves the Worker answering" failed, the object answering a chat it never copied.
  *   3. `workerObjects` answered "" for the chat's own id: "the chat's own id is the Worker's" failed.
+ *   4. `chatEnv` passed `SIMULATOR: "on"` whatever the gateway's var: "a simulated chat ... only where the simulator is
+ *      on" failed (the gateway without it answered the simulator).
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
@@ -130,13 +132,13 @@ function controlPlane() {
   return seen;
 }
 
-function chatObject(rpc) {
+function chatObject(rpc, extra = {}) {
   const { gateway, texts, asked } = fakeGateway();
   const TexChat = texChatClass({ gateway: () => gateway, texts: () => texts });
   const storage = new DoStorage();
   const work = [];
   const state = { storage, waitUntil: (promise) => work.push(promise), blockConcurrencyWhile: (run) => run() };
-  const env = { TEXTING: rpc, PUBLIC_ORIGIN: SELF, CONTROL_PLANE_URL: "https://cp.example", AGENT_WORKER_SECRET: "s" };
+  const env = { TEXTING: rpc, PUBLIC_ORIGIN: SELF, CONTROL_PLANE_URL: "https://cp.example", AGENT_WORKER_SECRET: "s", ...extra };
   return { chat: new TexChat(state, env), storage, asked, work };
 }
 
@@ -213,6 +215,28 @@ describe("TexChat runs the Worker's chat object", () => {
     assert.equal(chat.inner.state.id.toString(), `worker-id-of-${PHONE}`);
     assert.equal(chat.inner.env.SENDER_INBOX.idFromName(`enam:${PHONE}`).toString(), `worker-id-of-${PHONE}`);
     assert.equal(chat.inner.env.SENDER_INBOX.idFromName("enam:+15555550111").toString(), "");
+  });
+
+  it("a simulated chat is copied in and answered here, its reply in its log and never on the line, only where the simulator is on", async () => {
+    controlPlane();
+    const SIM = "+12125550100";
+    const worker = fakeWorker();
+    const { chat, asked, work } = chatObject(worker.rpc, { SIMULATOR: "on" });
+    const sim = (action, body) =>
+      chat.fetch(new Request(`https://chat/chat-call/sim/${action}`, { method: "POST", headers: { "x-inbox-name": SIM }, body: JSON.stringify(body) }));
+    const keyHash = "ab".repeat(32);
+    assert.deepEqual(await (await sim("send", { keyHash, phone: SIM, text: "hello sim" })).json(), { outcome: "queued" });
+    assert.deepEqual(worker.calls.move, [{ inbox: SIM, op: "out" }]);
+    await chat.alarm();
+    await Promise.allSettled(work);
+    assert.deepEqual(asked, ["hello sim"]);
+    const log = await (await sim("thread", { keyHash, phone: SIM, text: "" })).json();
+    assert.deepEqual(log.messages.map((m) => [m.dir, m.text]), [["out", "hello sim"], ["in", "answer to hello sim"]]);
+    assert.equal(worker.calls.line.filter((call) => call.method === "sendText").length, 0);
+
+    const off = chatObject(fakeWorker().rpc).chat;
+    const refused = await off.fetch(new Request("https://chat/chat-call/sim/send", { method: "POST", headers: { "x-inbox-name": SIM }, body: JSON.stringify({ keyHash, phone: SIM, text: "x" }) }));
+    assert.equal(refused.status, 404);
   });
 
   it("a bad arrival is refused before anything is copied", async () => {

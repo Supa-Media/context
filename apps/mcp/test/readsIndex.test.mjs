@@ -124,7 +124,10 @@ test("a job's part is shown the chat's earlier read and opens it with read_back"
   const world = await createEgressWorld();
   try {
     const CHAT = "sendblue:line:+15555550100";
-    const asked = { id: `${Date.now() - 60_000}-000001`, at: Date.now() - 60_000, chat: CHAT, from: { kind: "person" }, kind: "text", text: "what does fifth say?" };
+    // One clock read for both: `checkEvent` refuses an id whose time is not its `at` (`src/agent/log.js`), and two
+    // reads a millisecond apart made this fail now and then (#3306).
+    const at = Date.now() - 60_000;
+    const asked = { id: `${at}-000001`, at, chat: CHAT, from: { kind: "person" }, kind: "text", text: "what does fifth say?" };
     assert.equal((await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [asked] })).status, 200);
     world.model.install([{ toolCalls: [{ name: "read_note", args: { path: "2-areas/fifth.md" } }] }, { text: "Fifth is a short note." }]);
     const one = await request(world.env, TOKEN_TEXTS, "/agent", { question: asked.text, conversation: "texts", covers: [asked.id], chat: CHAT, recent: [asked], turn: "turn-reads-0001" });

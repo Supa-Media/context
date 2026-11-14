@@ -22,7 +22,7 @@ const secs = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000
 const count = (n: number) => n.toLocaleString("en-US");
 
 /** `step` names that are canvas steps of the same id. */
-export const STEP_NODES = new Set(["decide", "react", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "checks", "reviewer"]);
+export const STEP_NODES = new Set(["triage", "decide", "react", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "checks", "reviewer"]);
 
 /** A text of the chat by any id the steps log for it (its event id, its entry id), as "Who: words". */
 export function textById(entries: LedgerEntry[], id: string): string | null {
@@ -37,7 +37,6 @@ export function textById(entries: LedgerEntry[], id: string): string | null {
 function verdictWords(o: Record<string, unknown>): string {
   const act = str(o.verdict) || str(o.act);
   const parts = [act === "respond" ? "answer" : act === "quiet" || act === "silent" ? "stay quiet" : act || "judged"];
-  if (str(o.by) === "code") parts[0] += ", decided by code without asking the judge";
   if (str(o.why)) parts.push(str(o.why).replace(/_/g, " "));
   if (num(o.confidence) !== null) parts.push(`${Math.round(num(o.confidence)! * 100)}% sure`);
   if (str(o.midTurn)) parts.push(`while a turn ran: ${str(o.midTurn) === "fold" ? "fold it in" : str(o.midTurn)}`);
@@ -180,6 +179,11 @@ export function stepIO(entries: LedgerEntry[], turn: string | null, text: string
       const input = rec(e.input);
       push("react", "On", (input?.on && textById(entries, str(input.on))) || show(input));
       push("react", e.ok === false ? "Failed to send" : "Sent", rec(e.output)?.emoji ?? e.output);
+    } else if (e.kind === "step" && e.step === "node" && str(e.name)) {
+      // A node the config's graph runner ran: it logs every run itself, so this is what the node got and gave.
+      const tag = [str(e.via), num(e.ms) !== null ? secs(num(e.ms)!) : "", e.ok === false ? "failed" : ""].filter(Boolean).join(" · ");
+      push(str(e.name), "Got" + (tag ? ` · ${tag}` : ""), e.input ?? "(nothing went in)");
+      push(str(e.name), e.ok === false ? "Failed" : "Gave", e.ok === false ? { reason: e.reason ?? "failed" } : e.output ?? "(nothing came out)");
     } else if (e.kind === "step" && nodeOfStep(e.step)) {
       // Every other step the same way: what it got, what it gave, the model it ran on, how long, and why when it says.
       const node = nodeOfStep(e.step)!;

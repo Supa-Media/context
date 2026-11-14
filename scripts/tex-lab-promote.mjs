@@ -30,7 +30,7 @@ import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptMo
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ID = /^[a-z][a-z0-9_-]{0,30}$/;
-const MODES = new Set(["wait", "uses", "behind", "job", "loop"]);
+const MODES = new Set(["wait", "uses", "background", "job", "loop"]);
 const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
 const PROMPT_KEY = /^p-([a-z][a-z0-9-]{0,47})$/;
 const MAX_WORDS = 40_000;
@@ -76,6 +76,8 @@ export function configFrom(graph, current, currentWords = {}) {
   }
   for (const id of known) if (!ids.has(id)) return refuse(`step "${id}" is gone: the gateway still runs it, so turn it off instead of deleting it`);
   for (const e of graph.edges) {
+    // A version saved before "behind" was renamed "background" (Dev2, 2026-11-14) promotes with the new name.
+    if (e && e.mode === "behind") e.mode = "background";
     if (!e || !ids.has(e.from) || !ids.has(e.to)) return refuse(`a wire joins a step that is not there (${e?.from} → ${e?.to})`);
     if (!MODES.has(e.mode) || !Array.isArray(e.when) || !e.when.every((w) => typeof w === "string")) return refuse(`the wire ${e.from} → ${e.to} is malformed`);
   }
@@ -133,6 +135,10 @@ function selfTest() {
   g7.nodes.find((n) => n.id === "fd").ctx.push("p-brand-new");
   expect(/no words/.test(configFrom(g7, current, words).refused ?? ""), "a step reading a module with no words passed");
   expect(configFrom({ ...g7, modules: { "p-brand-new": { text: "New words." } } }, current, words).words?.["brand-new"] === "New words.", "a new module's words were lost");
+  const g8 = graph();
+  const bg = g8.edges.find((e) => e.mode === "background");
+  bg.mode = "behind";
+  expect(configFrom(g8, current, words).config?.edges.find((e) => e.from === bg.from && e.to === bg.to)?.mode === "background", "a version saved with the old \"behind\" wire did not promote as background");
   console.log("tex-lab-promote self-test: ok");
 }
 
