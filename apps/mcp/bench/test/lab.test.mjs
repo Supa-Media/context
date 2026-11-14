@@ -126,13 +126,10 @@ test("a production note maps to its file in the bench copy of the setup, and any
 // ---------------------------------------------------------------- the plan
 
 test("the plan runs the examinable areas in config order and skips the rest with the reason", () => {
-  // Every area is examinable since jobs joined the socket (2026-11-14); an area outside the examinable set is skipped.
   const plan = labPlan(readLabConfig(fixture()));
-  assert.deepEqual(plan.areas.run, ["core", "review", "jobs"]);
+  assert.deepEqual(plan.areas.run, ["core", "review"]);
   assert.equal(plan.areas.pipeline, false);
-  assert.deepEqual(plan.areas.skipped, []);
-  const narrow = labPlan(readLabConfig(fixture()), { examinable: new Set(["core", "review"]) });
-  assert.deepEqual(narrow.areas.skipped, [{ area: "jobs", why: "needs API credits" }]);
+  assert.deepEqual(plan.areas.skipped, [{ area: "jobs", why: "needs API credits" }]);
 });
 
 test("pipeline is runnable and free, so it is named apart from the examiner's areas", () => {
@@ -369,7 +366,7 @@ test("lab run starts the gate with the examinable areas, the socket and the step
   assert.equal(calls.length, 1);
   const { command, args, options } = calls[0];
   assert.equal(command, process.execPath);
-  assert.deepEqual(args, ["apps/mcp/bench/run.mjs", "gate", "--base", base, "--areas", "core,review,jobs", "--held-out", join(root, "held"), "--scratch", scratch, "--out", join(scratch, "lab-gate.json")]);
+  assert.deepEqual(args, ["apps/mcp/bench/run.mjs", "gate", "--base", base, "--areas", "core,review", "--held-out", join(root, "held"), "--scratch", scratch, "--out", join(scratch, "lab-gate.json")]);
   assert.equal(options.cwd, cwd);
   assert.equal(options.env.BENCH_MODEL_SOCKET, socket);
   assert.equal(options.env.BENCH_STEP_LOG, join(scratch, "lab-steps.jsonl"));
@@ -403,7 +400,7 @@ test("lab run refuses a plan with no examinable area, before it writes anything"
   const base = await gitRepo("main");
   const bench = await benchCopy(cwd);
   const before = await readFile(join(bench, SETUP_DIR, "production.md"), "utf8");
-  const config = await configFile(root, minimal({ areas: ["pipeline"], setup: { plan_big_asks: "on" } }));
+  const config = await configFile(root, minimal({ areas: ["jobs"], setup: { plan_big_asks: "on" } }));
   const { spawn, calls } = fakeGate();
   await assert.rejects(labCommand({ job: "run", config, base, socket: join(root, "s") }, { spawn, cwd, out: () => {} }), /no area the examiner can run/);
   assert.equal(calls.length, 0);
