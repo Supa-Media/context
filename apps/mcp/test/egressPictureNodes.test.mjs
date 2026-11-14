@@ -54,7 +54,7 @@ test("the egress node asks the gateway for the config's model, and refuses to ru
 test("fire(tools, egress) runs the judge through its wire, and no step without that wire can", async () => {
   const { result } = await withJudgeFetch(false, async () => {
     const out = await gatewayGraph().fire("tools", "egress", { words: WORDS, action: ACTION }, { env: AI_GATEWAY_ENV });
-    await assert.rejects(gatewayGraph().fire("send", "egress", { words: WORDS, action: ACTION }, { env: AI_GATEWAY_ENV }), /no wire send -> egress/);
+    await assert.rejects(gatewayGraph().fire("send", "egress", { words: WORDS, action: ACTION }, { env: AI_GATEWAY_ENV }), /no wire from "send" to "egress"/);
     return out;
   });
   assert.deepEqual(result, { allow: false, reason: "They asked for it." });

@@ -20,8 +20,8 @@ const personalStore = { contexts: [{ current: true, kind: "personal" }] };
 
 test("send's background wires run reflect and the nudge, behind the reply, and tools has no wire to reflect", () => {
   const send = TEX_CONFIG.edges.filter((edge) => edge.from === "send");
-  assert.deepEqual(send.find((edge) => edge.to === "reflect")?.mode, "behind");
-  assert.deepEqual(send.find((edge) => edge.to === "nudge")?.mode, "behind");
+  assert.deepEqual(send.find((edge) => edge.to === "reflect")?.mode, "background");
+  assert.deepEqual(send.find((edge) => edge.to === "nudge")?.mode, "background");
   assert.ok(wired("send", "reflect") && wired("send", "nudge"));
   assert.ok(!wired("tools", "reflect"), "tools has no wire to reflect, so a fire from it is refused");
 });
@@ -29,15 +29,15 @@ test("send's background wires run reflect and the nudge, behind the reply, and t
 test("send's reflect and nudge run through the runner and are logged by it", async () => {
   const logged = [];
   const impls = {
-    reflect: async (input, io) => ({ outcome: "stub-reflect", question: input.question, from: io.ctx.tag }),
-    nudge: async (input) => ({ outcome: "stub-nudge", answer: input.answer }),
+    reflect: async (input, io) => ({ outcome: `stub-reflect ${input.question} ${io.ctx.tag}` }),
+    nudge: async (input) => ({ outcome: `stub-nudge ${input.answer}` }),
   };
   const graph = createGraph(TEX_CONFIG, impls, { log: (entry) => logged.push(entry) });
   const ctx = { tag: "ctx-tag" };
   const reflected = await graph.runNode("reflect", { question: "q1", tainted: false, ownText: true, canWrite: true }, ctx, "send:fire");
   const nudged = await graph.runNode("nudge", { question: "q1", answer: "a1", tainted: false, canWrite: true }, ctx, "send:fire");
-  assert.deepEqual(reflected.output, { outcome: "stub-reflect", question: "q1", from: "ctx-tag" });
-  assert.deepEqual(nudged.output, { outcome: "stub-nudge", answer: "a1" });
+  assert.deepEqual(reflected.output, { outcome: "stub-reflect q1 ctx-tag" });
+  assert.deepEqual(nudged.output, { outcome: "stub-nudge a1" });
   assert.deepEqual(logged.map((entry) => [entry.node, entry.ok, entry.via]), [["reflect", true, "send:fire"], ["nudge", true, "send:fire"]]);
 });
 

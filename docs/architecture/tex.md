@@ -143,10 +143,10 @@ flowchart TB
   T -->|send_email| MC["Mail checker<br/>Haiku 5.5, reads the draft<br/>mailChecker.js"]:::judge
   MC --> YES([Waits for the person's yes, in code]):::rail
   T -->|write_note of a page| PW["Page pictures, code, before the save<br/>fills each option with no photo, or one it names but never attached<br/>a photo address the turn read goes in as bytes, no judge<br/>pagePhotos.js · pageReadImages.js"]:::tool
-  PW -->|an address the turn never read| SJ["Sharing judge<br/>the person's own words must ask for it<br/>widening.js · judge.js"]:::judge
+  PW -->|an address the turn never read| SJ["Egress judge, Haiku 5.5<br/>the person's own words must ask for it<br/>widening.js · judge.js · graph/nodes/egress.js"]:::judge
   T -->|draw_visual, draw_picture| PIC["Cards and graphics<br/>HTML, photographed by site-shots<br/>an item with no photo is a No photo found tile, never a blank slot"]:::tool
-  T -->|make_picture| IMG["Photos<br/>Gemini 2.5 Flash Image<br/>pictureMaker.js"]:::tool
-  PIC --> CC["Card check<br/>Haiku 5.5 looks before it goes<br/>told which places have no pin<br/>cardCheck.js"]:::judge
+  T -->|make_picture| IMG["Picture maker: photos<br/>Gemini 2.5 Flash Image<br/>pictureMaker.js · graph/nodes/picture.js"]:::tool
+  PIC --> CC["Card check<br/>Haiku 5.5 looks before it goes<br/>told which places have no pin<br/>cardCheck.js · graph/nodes/card.js"]:::judge
   IMG --> CC
 
   FD --> CHK["Front-door answer checks, code<br/>doItChecks.js · untriedWeb.js, without the reviewer or on a draft it skips<br/>web findings texted as a wall go back to be a page, workPage.js<br/>a page saved with no picture and no cover call goes back to draw it, pageCoverFloor.js<br/>sent back once"]:::judge
@@ -157,6 +157,11 @@ flowchart TB
   SB -->|revise the draft| FD
   CHK --> SEND([sendTheReply]):::door
   SEND -. behind the reply .-> SR["Self-review<br/>Haiku 5.5 scores the chat<br/>selfReview.js"]:::judge
+  SEND -. behind the reply .-> RFL["Reflect<br/>Haiku 5.5, after a hard or corrected turn<br/>writes a learned skill<br/>reflect.js · graph/nodes/reflect.js"]:::judge
+  SEND -. behind the reply .-> MN["Memory nudge<br/>Haiku 5.5, every 10 texts<br/>writes About me now<br/>memoryNudge.js · graph/nodes/nudge.js"]:::judge
+  NI(["Nightly, a start of its own<br/>nightlyRoute.js · graph/nodes/nightly.js"]) --> DR["Dream<br/>Haiku 5.5 keeps About me true<br/>dream.js · graph/nodes/dream.js"]:::judge
+  DR --> DS["Day summaries<br/>Haiku 5.5, each finished day<br/>daySummaries.js · graph/nodes/daysum.js"]:::judge
+  NI --> HK["Housekeeping<br/>Haiku 5.5 tidies the workspace<br/>housekeeping.js · graph/nodes/housekeep.js"]:::judge
 
   classDef you fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef haiku fill:#dcf7f3,stroke:#11b5a4,stroke-width:3px,color:#1d1838
@@ -234,13 +239,22 @@ Generated from `packages/shared/src/texConfig.json` by `scripts/tex-config-table
 | Job check | on | Opus 5.5 | high |  | own, brief, ask, ledger, out:job | jobCheck.js |
 | Advisor on job mail | on | Opus 5.5 | high |  | own, brief, ask | jobNote.js · advisorRoles/jobMail.js |
 | Hand-back judge | on | Haiku 5.5 | low |  | own, brief, draft | handbackJudge.js · claimCheck.js |
+| Egress judge | on | Haiku 5.5 | low |  |  | privacy/judge.js |
+| Picture maker | on | google/gemini-2.5-flash-image | off |  |  | pictureMaker.js |
+| Memory nudge | on | Haiku 5.5 | off |  |  | memoryNudge.js |
+| Reflect | on | Haiku 5.5 | off |  |  | reflect.js |
+| Nightly | on | code |  |  |  | dream.js · housekeeping.js |
+| Dream | on | Haiku 5.5 | off |  |  | dream.js |
+| Day summaries | on | Haiku 5.5 | off |  |  | daySummaries.js |
+| Housekeeping | on | Haiku 5.5 | off |  |  | housekeeping.js |
 
-Wires: checkin → fd (wait) · routine → door (wait) · notify → send (wait) · text → triage (wait) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · lanes → door (wait) · door → fd (wait) · door → router (wait) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background) · send → selfreview (background) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job)
+Wires: checkin → fd (wait) · routine → door (wait) · notify → send (wait) · text → triage (wait) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · lanes → door (wait) · door → fd (wait) · door → router (wait) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background) · send → selfreview (background) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · send → nudge (background) · send → reflect (background) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping)
 <!-- tex-config: steps end -->
 
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-14: the steps that ran with no node now each have one, run by the config's graph (Dev2: "There should not be any code or any node that's running that isn't shown in the config"): the egress judge (`graph/nodes/egress.js`, every widening and consent check of a turn, and the turn's sharing gate), the picture maker (`graph/nodes/picture.js`) and Card check (`graph/nodes/card.js`, reached only through the picture maker), Reflect and Memory nudge behind the reply (`graph/nodes/reflect.js`, `nudge.js`, split out of `afterTextedTurn`), and a Nightly start (`nightlyRoute.js`, `graph/nodes/nightly.js`) that runs the Dream and then the Day summaries, or Housekeeping (`graph/nodes/dream.js`, `daysum.js`, `housekeep.js`). Each has strict input and output shapes in `texConfig.json` and logs as a node step; the turn's callers reach the egress judge, the picture maker, Reflect and the nudge over their config wires (`fire`) until Tools and Text them are nodes. The handback miner still runs inside the Dream node. Tests: `apps/mcp/test/egressPictureNodes.test.mjs`, `reflectNudgeNodes.test.mjs`, `nightlyGraph.test.mjs`.
 - 2026-11-14: the config's wires run Tex, not code (Dev2: "it's not fine for the connections between node to be code. They should be predefined"; [config-graph](../decisions/texting-assistant/config-graph.md)). `packages/shared/src/texGraph.cjs` is the one runner of `texConfig.json`'s graph: wait, background (was "behind"), uses, loop and job wires with `when` tags, strict input and output shapes, and every node run written to the chat's ledger by the runner (`ledger.js` `nodeEntry`). The gateway's graph is `apps/mcp/src/agent/graph/gatewayGraph.js`; nodes move onto it one pull request at a time, and `texGraphNotYet.json` names those not there yet. No node moves in this change, so no box changes. Tests: `apps/mcp/test/texGraph.test.mjs`, `texGraphHome.test.mjs`.
 - 2026-11-14: Triage is a step of its own (Dev2: "I told you everything needs a node but I dont see a code node that sends it to tex?"). Code's rules before any judge, which sent a 1:1 text straight to Tex or a group command straight on with no box or wire, now log a `triage` step on every path, saying where the text went (straight to Tex, to the judge, beside a running turn) and the rule that did it (`apps/agent/src/inboxTurn.ts` `chooseTurn`, `groupInbox.ts` `acceptGroup`, `stepEvents.ts` `triageStep`; the gateway takes it, `log.js` `WORKER_STEPS`). In the config it sits between "A text arrives" and Decide with wires to Decide and the queue. A Decide step is kept only when the judge ran. The isItForTex box becomes Triage. Tests: `apps/agent/src/stepEvents.test.ts`, `groupInbox.test.ts`, `apps/mcp/test/workerSteps.test.mjs`, `apps/mobile/__tests__/texLabOnlyWhatRan.test.ts`.
 - 2026-11-14: every model round keeps the prompt it was sent as its modules' ids, lengths and fingerprints plus the builder inputs a rebuild cannot read from notes (when, the time zone, the model, how much history), never the words (Dev2: "keep the ids of the prompt modules loaded in, so they can be reconstructed along with the date and version control"; `promptManifest.js`, `turnPrompt.js`, `turnTiming.js` v2); with the reply's `version.code`, a rebuild runs the builders of the commit that ran ("run the exact version from the day it ran"). A check-in's steps (thinking, tools, judging) now reach the person's chat ledger under a turn of their own (`ck…`), and a texted check-in's and a routine's note keep the run's milliseconds, code version and timing, so Replay shows them like a text's turn (`heartbeat.js`, `conversation.js`, `finishARoutine.js`). The prompt's bytes are unchanged, so no box changes. Tests: `apps/mcp/test/promptManifest.test.mjs`, `turnTiming.test.mjs`, `agentHeartbeat.test.mjs`, `agentRoutineTex.test.mjs`.

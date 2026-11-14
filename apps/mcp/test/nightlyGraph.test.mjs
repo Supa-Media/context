@@ -34,7 +34,7 @@ function nightGraph({ dreamWhen = ["summarize"] } = {}) {
       },
       housekeep: async (input) => {
         seen.push(["housekeep", input]);
-        return { outcome: "unchanged", status: 200 };
+        return { outcome: "unchanged", status: 200, body: { outcome: "unchanged" } };
       },
     },
     { log: () => {} },
