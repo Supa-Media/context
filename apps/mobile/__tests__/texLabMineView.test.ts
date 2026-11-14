@@ -337,6 +337,12 @@ describe("the Lab's test user as You", () => {
     // Compact: unnamed tracks, as few as what ran at once needs, each bar named (Dev2, 2026-11-14).
     await click(q("#rCompact"));
     expect(q("#rCompact")?.getAttribute("aria-pressed")).toBe("true");
+    // Back to one row per step reads "Expand" (Dev2, 2026-11-14: "Instead of saying by step, just say expand").
+    expect(q("#rCompact")?.textContent).toBe("Expand");
+    // Every bar stays inside its track: the clock runs to the last bar's end, and a tiny bar keeps clear of the edge.
+    const lefts = qa("#replayTimeline .rbar").map((x) => parseFloat(x.style.left));
+    expect(lefts.length).toBeGreaterThan(0);
+    expect(lefts.every((l) => l >= 0 && l < 100)).toBe(true);
     expect(qa("#replayTimeline .rrow .rln")).toEqual([]);
     const tracks = qa("#replayTimeline .rrow.compact");
     expect(tracks.length).toBeGreaterThan(0);
