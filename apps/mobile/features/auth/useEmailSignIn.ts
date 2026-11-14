@@ -12,7 +12,7 @@ import { reportWaitlistSignUp } from "./xPixel";
 import { metaBrowserIds } from "./metaBrowserIds";
 import { reportMetaLead } from "./metaPixel";
 import { OTP_LENGTH } from "./CodeBoxes";
-import { normalizeSignInEmail, signInProviderForEmail } from "./email";
+import { REVIEWER_PASSWORD_PROVIDER_ID, normalizeSignInEmail, signInProviderForEmail, usesPassword } from "./email";
 
 /**
  * The one email field, as state: sign in if you're let in, join the list if not.
@@ -28,14 +28,19 @@ import { normalizeSignInEmail, signInProviderForEmail } from "./email";
  * The fixed-code test accounts (`signInProviderForEmail`) skip the question:
  * their providers only ever sign in their own address.
  *
+ * The YC review account (`usesPassword`) asks for a password instead of
+ * sending a code, on `/login` only; the homepage's cards point there.
+ *
  * Shared by `/login` and the homepage's `JoinCard`, so the two can never tell
  * one address two different things.
  */
-export type EmailSignInStep = "request" | "verify" | "joined" | "already";
+export type EmailSignInStep = "request" | "verify" | "password" | "joined" | "already";
 
 export const SEND_FAILED = "Couldn't send your code. Check the address and try again.";
 export const CODE_FAILED = "That code didn't work. Codes last ten minutes, so ask for a new one if it's been a while.";
 export const BUSY = "Lots of people are joining right now. Try again in a minute.";
+export const PASSWORD_FAILED = "That password didn't work. Check it against the one you were given.";
+export const PASSWORD_AT_LOGIN = "This account signs in with a password at context.lc/login.";
 
 /**
  * Said when an address has been sent as many codes as it may be for now
@@ -63,6 +68,7 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
   const [step, setStep] = useState<EmailSignInStep>("request");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const engaged = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +89,11 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
     const normalized = normalizeSignInEmail(email);
     trackEvent("signup_submitted", { method: "email", source: options.source, resend: false });
     try {
+      if (usesPassword(normalized)) {
+        if (options.source === "login") setStep("password");
+        else setError(PASSWORD_AT_LOGIN);
+        return;
+      }
       if (signInProviderForEmail(normalized) !== "email") {
         await sendCode(normalized, false);
         return;
@@ -152,6 +163,24 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
     }
   }
 
+  async function verifyPassword() {
+    if (password.length === 0) return;
+    setError(null);
+    setSubmitting(true);
+    trackEvent("signin_code_submitted", { method: "password", source: options.source });
+    try {
+      const result = await signIn(REVIEWER_PASSWORD_PROVIDER_ID, { email: normalizeSignInEmail(email), password: password.trim() });
+      trackEvent("signin_code_result", { method: "password", source: options.source, result: result.signingIn ? "success" : "failed" });
+      if (result.signingIn) options.onSignedIn();
+      else setError(PASSWORD_FAILED);
+    } catch {
+      trackEvent("signin_code_result", { method: "password", source: options.source, result: "failed" });
+      setError(PASSWORD_FAILED);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   /** The optional "what would you use it for?" answer. Best effort, said once. */
   async function sendUseFor(answer: string) {
     if (answer.trim().length === 0) return;
@@ -167,6 +196,7 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
     if (submitting) return;
     setStep("request");
     setCode("");
+    setPassword("");
     setError(null);
     setResent(false);
     setDescribed(false);
@@ -188,14 +218,21 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
       setCode(value);
       setError(null);
     },
+    password,
+    setPassword: (value: string) => {
+      setPassword(value);
+      setError(null);
+    },
     submitting,
     error,
     resent,
     described,
-    canSubmit: step === "request" ? email.trim().length > 3 : code.trim().length === OTP_LENGTH,
+    canSubmit:
+      step === "request" ? email.trim().length > 3 : step === "password" ? password.trim().length > 0 : code.trim().length === OTP_LENGTH,
     submitEmail,
     resend,
     verify,
+    verifyPassword,
     sendUseFor,
     changeEmail,
   };

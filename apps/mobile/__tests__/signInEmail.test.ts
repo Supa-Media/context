@@ -4,6 +4,7 @@ import { normalizeEmail } from "@context/shared";
 import {
   normalizeSignInEmail,
   signInProviderForEmail,
+  usesPassword,
 } from "../features/auth/email";
 
 /**
@@ -99,5 +100,14 @@ describe("production CUJ provider routing", () => {
   test("only Google's reviewer's address uses its own provider", () => {
     expect(signInProviderForEmail(normalizeSignInEmail(" Google-Review@Supa.Media "))).toBe("test-email-google-review");
     expect(signInProviderForEmail(normalizeSignInEmail("google-review@supa.media.evil.test"))).toBe("email");
+  });
+});
+
+describe("usesPassword", () => {
+  test("only the YC review address, exactly, after normalizing", () => {
+    expect(usesPassword(normalizeSignInEmail(" YC-Review@Supa.Media "))).toBe(true);
+    expect(usesPassword(normalizeSignInEmail("yc-review@supa.media.evil.test"))).toBe(false);
+    expect(usesPassword(normalizeSignInEmail("connector-review@supa.media"))).toBe(false);
+    expect(signInProviderForEmail("yc-review@supa.media")).toBe("email");
   });
 });

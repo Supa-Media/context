@@ -93,8 +93,8 @@ importers:
         specifier: ^2.6.2
         version: 2.6.2
       '@supa-media/convex':
-        specifier: ^1.11.2
-        version: 1.11.2(@convex-dev/auth@0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
+        specifier: ^1.13.0
+        version: 1.13.0(@convex-dev/auth@0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
       convex:
         specifier: ^1.31.3
         version: 1.45.0(react@19.1.0)
@@ -391,7 +391,7 @@ importers:
         version: 2.1.5
       posthog-js:
         specifier: ^1.429.2
-        version: 1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11)(react@19.1.0)
+        version: 1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11(preact@10.24.3))(react@19.1.0)
       posthog-react-native:
         specifier: ^4.68.6
         version: 4.68.9(ohiom62wyrczzcsohh7isxq75a)
@@ -3509,8 +3509,8 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@supa-media/convex@1.11.2':
-    resolution: {integrity: sha512-CS+fQgMo2e7i28YGOh8eB4wS4QvZzFk6m5HP07CwE94EmMl00aYJ1XGJ+QwmPVXNPOnpWUVNjlTUzOlijzdIAA==}
+  '@supa-media/convex@1.13.0':
+    resolution: {integrity: sha512-KjFVqsLKMUzSxDB5KSvfzfWeZsq9FlGr4y6SJSTLIdHVOQBWoVbsz9hsUt5i63a631oEIICLOQrVj2nMOJVV5A==}
     peerDependencies:
       '@convex-dev/auth': '>=0.0.90'
       convex: '>=1.31.0'
@@ -12000,7 +12000,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@supa-media/convex@1.11.2(@convex-dev/auth@0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
+  '@supa-media/convex@1.13.0(@convex-dev/auth@0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
     dependencies:
       '@convex-dev/auth': 0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
@@ -16700,7 +16700,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
-  posthog-js@1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11)(react@19.1.0):
+  posthog-js@1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11(preact@10.24.3))(react@19.1.0):
     dependencies:
       '@posthog/browser-common': 0.8.2
       '@posthog/core': 1.53.1
@@ -16708,7 +16708,7 @@ snapshots:
       core-js: 3.50.0
       dompurify: 3.4.17
       fflate: 0.4.9
-      preact: 10.29.8(preact-render-to-string@6.5.11)
+      preact: 10.29.8(preact-render-to-string@6.5.11(preact@10.24.3))
       query-selector-shadow-dom: 1.0.1
       web-vitals: 6.2.1
       web-vitals-soft-navs: web-vitals@6.2.1
@@ -16742,16 +16742,11 @@ snapshots:
     dependencies:
       preact: 10.24.3
 
-  preact-render-to-string@6.5.11(preact@10.29.8):
-    dependencies:
-      preact: 10.29.8(preact-render-to-string@6.5.11)
-    optional: true
-
   preact@10.24.3: {}
 
-  preact@10.29.8(preact-render-to-string@6.5.11):
+  preact@10.29.8(preact-render-to-string@6.5.11(preact@10.24.3)):
     optionalDependencies:
-      preact-render-to-string: 6.5.11(preact@10.29.8)
+      preact-render-to-string: 6.5.11(preact@10.24.3)
 
   prelude-ls@1.2.1: {}
 

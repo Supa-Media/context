@@ -12,6 +12,7 @@ import { scheduleXConversion } from "./functions/xConversions";
 import { scheduleMetaConversion } from "./functions/metaConversions";
 import { checkCode } from "./functions/phoneCodes";
 import { SIGN_IN_CODE_LENGTH, checkLinkCode } from "./functions/textSignIn";
+import { REVIEWER_PASSWORD_PROVIDER_ID, passwordAccount } from "./functions/lib/reviewerPassword";
 
 // Before the providers are built, because they read `DEV_OTP_BYPASS` while
 // they are being built. See `functions/lib/otpBypass.ts` for why this is a
@@ -113,6 +114,21 @@ const supaAuth = createSupaAuth({
   // only codes they accept are ones staff issue (`functions/signInCodes.ts`),
   // single-use, expiring and attempt-limited like any customer's, and starting
   // a sign-in through one mints nothing (`patches/@convex-dev__auth.patch`).
+  // The YC review account signs in with a password staff set, because its
+  // reviewers come whenever they get to it (`functions/lib/reviewerPassword.ts`).
+  // Every other address is refused before anything is read; `check` holds the
+  // expiry and the guess limit, and names only the account it was set for.
+  credentials: [
+    {
+      id: REVIEWER_PASSWORD_PROVIDER_ID,
+      authorize: async (params, ctx) => {
+        const email = passwordAccount(params.email);
+        if (email === null || typeof params.password !== "string") return null;
+        const userId = await ctx.runMutation(internal.functions.reviewerPasswords.check, { email, password: params.password });
+        return userId === null ? null : { userId: userId as never };
+      },
+    },
+  ],
   testEmail: [...testAccountEmail(), ...reviewerTestEmail(), ...googleReviewTestEmail(), ...directoryReviewTestEmail()],
   // The framework honours `DEV_OTP_BYPASS` — which changes what the ORDINARY
   // customer provider mints, for every address — unless this is truthy and

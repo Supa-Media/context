@@ -37,6 +37,7 @@ import {
 } from "../../functions/lib/billing/founding";
 import { TEST_ACCOUNT_EMAIL } from "../../functions/lib/testAccount";
 import { REVIEWER_EMAIL } from "../../functions/lib/reviewerAccount";
+import { YC_REVIEW_EMAIL } from "../../functions/lib/reviewerPassword";
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -147,6 +148,7 @@ describe("who is founding", () => {
     expect(excludedFromFounding({ email: " Staff@Example.invalid " }, env)).toBe(true);
     expect(excludedFromFounding({ email: TEST_ACCOUNT_EMAIL }, env)).toBe(true);
     expect(excludedFromFounding({ email: REVIEWER_EMAIL }, env)).toBe(true);
+    expect(excludedFromFounding({ email: YC_REVIEW_EMAIL }, env)).toBe(true);
     expect(excludedFromFounding({ email: "alpha@supa.media" }, env)).toBe(true);
     expect(excludedFromFounding({ email: "person@example.invalid" }, env)).toBe(false);
     expect(excludedFromFounding({ phone: "+15555550111" }, env)).toBe(false);
