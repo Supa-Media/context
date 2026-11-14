@@ -6,7 +6,7 @@
  * Sabotage checks: drop the judge branch in `realTimes` and "a turn's reply timing..." fails on the reviewer; put
  * Haiku back to the artifact's 1400 ms + 4.1 ms per token and "Haiku's estimate..." fails on the median miss.
  */
-import { describe, expect, test } from "@jest/globals";
+import { describe, expect, jest, test } from "@jest/globals";
 import { BASE_MODELS } from "../features/tex/lab/data/models";
 import { realTimes, withReal } from "../features/tex/lab/engine/realTimes";
 import type { Sim } from "../features/tex/lab/engine/sim";
@@ -75,4 +75,12 @@ test("Haiku's estimate misses Tex's real calls by a median of under 300 ms", () 
   const m = BASE_MODELS["haiku-5-5"];
   const miss = CALLS.map(([ms, out, cold]) => Math.abs((m.base ?? 0) + out * (m.perTok ?? 0) + cold * (m.perIn ?? 0.006) - ms)).sort((a, b) => a - b);
   expect(miss[Math.floor(miss.length / 2)]).toBeLessThan(300);
+});
+
+test("the wire key offers Next, Helper, Background and Send back: after-sending wires are drawn as Background", () => {
+  // Dev2, 2026-11-14: "next, and background is really all we need".
+  const { keywHtml } = jest.requireActual<typeof import("../features/tex/lab/views/canvas/render")>("../features/tex/lab/views/canvas/render");
+  const { WIRES } = jest.requireActual<typeof import("../features/tex/lab/data/graph")>("../features/tex/lab/data/graph");
+  expect([...keywHtml().matchAll(/<\/svg>([^<]+)<\/span>/g)].map((m) => m[1])).toEqual(["Next", "Helper", "Background", "Send back"]);
+  expect({ ...WIRES.behind, folded: undefined, tip: "" }).toEqual({ ...WIRES.job, folded: undefined, tip: "" });
 });

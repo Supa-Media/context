@@ -176,7 +176,7 @@ svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-widt
 .nd .tm{font-size:11.5px;font-weight:600;fill:var(--text2);font-variant-numeric:tabular-nums}
 .port{fill:var(--page);stroke:var(--accent);stroke-width:1.5;opacity:0;cursor:crosshair}
 .nd:hover .port,.connect .port,.nd.sel .port{opacity:1}
-.wire{fill:none;stroke-width:1.6;pointer-events:none}.wire[stroke-dasharray="1 5"]{stroke-linecap:round}
+.wire{fill:none;stroke-width:1.6;pointer-events:none}
 #ghost,.wlabel,.tm{pointer-events:none}
 .wire.dim{opacity:.18}
 .wire.sel{stroke-width:3}

@@ -79,6 +79,7 @@ export function statsHtml(sim: Sim): string {
 
 export function keywHtml(): string {
   return Object.entries(WIRES)
+    .filter(([, w]) => !w.folded)
     .map(
       ([k, w]) =>
         `<span class="flex" style="gap:6px;flex-wrap:nowrap" title="${esc(w.tip)}">${wireIconHtml(k)}${w.name}</span>`,
@@ -124,7 +125,6 @@ export function renderGraphHtml(
   });
   for (const n of g.nodes) {
     const m = MODELS[n.model] || MODELS.code;
-    const t = sim.T[n.id];
     const s = sel?.t === "node" && sel.id === n.id;
     const sub = !n.on
       ? "Off"
@@ -156,7 +156,6 @@ export function ndSvg(
   sel: Selection,
 ): string {
   const m = MODELS[n.model] || MODELS.code;
-  const t = sim.T[n.id];
   const s = sel?.t === "node" && sel.id === n.id;
   const sub = !n.on
     ? "Off"

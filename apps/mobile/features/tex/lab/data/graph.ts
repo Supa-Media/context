@@ -9,13 +9,14 @@ import type { LabGraph, LabNode } from "../types";
 
 export const BASE_SHA: string = "888afb0";
 
-export const WIRES: Record<string, { name: string; dash: string; c: string; w?: number; tip: string }> = {
-  // Sync and async, not the artifact's "Next step" and "After sending" (Dev2, 2026-11-14: "we probably want a connector
-  // that does its operation async, so we have both a sync and async connector"). The keys stay, so configs are unchanged.
-  wait:{name:"Sync",dash:"",c:"--text2",tip:"Runs when this step is done; what follows waits for it"},
+export const WIRES: Record<string, { name: string; dash: string; c: string; w?: number; tip: string; folded?: boolean }> = {
+  // "Next", not the artifact's "Next step" (Dev2, 2026-11-14).
+  wait:{name:"Next",dash:"",c:"--text2",tip:"Runs when this step is done; what follows waits for it"},
   uses:{name:"Helper",dash:"",c:"--accent",w:3,tip:"Used in the middle of this step, then hands back to it"},
-  behind:{name:"Async",dash:"1 5",c:"--team",w:2.2,tip:"Starts when this step is done and runs on its own; nothing waits for it"},
-  job:{name:"Background",dash:"7 5",c:"--m-api",tip:"Starts a job; the reply doesn't wait"},
+  // Drawn and named as Background, and not offered as its own kind (Dev2, 2026-11-14: "we already have background, so
+  // next, and background is really all we need"). The key stays, so configs and the sim's after-the-reply lane are unchanged.
+  behind:{name:"Background",dash:"7 5",c:"--m-api",tip:"Starts it and moves on; nobody waits for it",folded:true},
+  job:{name:"Background",dash:"7 5",c:"--m-api",tip:"Starts it and moves on; nobody waits for it"},
   loop:{name:"Send back",dash:"5 4",c:"--bad",tip:"Sometimes sends the draft back"}
 };
 

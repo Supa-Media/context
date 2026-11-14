@@ -61,8 +61,8 @@ export function WirePanel({ extra }: { extra?: ReactNode }) {
       <div className="grp">
         <h4>Kind</h4>
         <div className="wk" id="eMode">
-          {Object.entries(WIRES).map(([k, w]) => (
-            <button key={k} data-v={k} aria-pressed={e.mode === k} onClick={() => edit(() => (G().edges[i].mode = k as LabEdge["mode"]))}>
+          {Object.entries(WIRES).filter(([, w]) => !w.folded).map(([k, w]) => (
+            <button key={k} data-v={k} aria-pressed={e.mode === k || (k === "job" && !!WIRES[e.mode]?.folded)} onClick={() => edit(() => (G().edges[i].mode = k as LabEdge["mode"]))}>
               <WireIcon mode={k} />
               <span>
                 <b>{w.name}</b>
