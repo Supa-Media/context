@@ -68,10 +68,11 @@ export function StaffConsole() {
 
 /**
  * Calls the open page's `useData` and hands the result up; keyed by page, so hooks never change
- * order. Memoized: it redraws only when its own queries change, never because the console redrew,
- * so a `useData` that builds a fresh object each call cannot loop.
+ * order. Memoized: it redraws when its own queries change or the console's state does (`v`, so a
+ * `useData` that reads `S.d` or a filter asks again), never because the data it handed up redrew
+ * the console, so a `useData` that builds a fresh object each call cannot loop.
  */
-const PageData = memo(function PageData({ page, onData }: { page: ConsolePage; onData: (d: unknown) => void }) {
+const PageData = memo(function PageData({ page, onData }: { page: ConsolePage; onData: (d: unknown) => void; v: number }) {
   const d = page.useData ? page.useData() : undefined;
   useLayoutEffect(() => onData(d), [d, onData]);
   return null;
@@ -263,7 +264,7 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
 
   return (
     <div className={"app" + (S.sideOpen ? " sideopen" : "")} id="app" ref={root} data-v={version}>
-      <PageData key={S.p} page={page} onData={onData} />
+      <PageData key={S.p} page={page} onData={onData} v={version} />
       <div className="bar">
         <button className="ib" id="sideBtn" aria-label="Show or hide the sidebar" data-act="side">
           <svg className="i" viewBox="0 0 24 24">
