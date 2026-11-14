@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "@jest/globals";
  * Fixtures are fake: every name, address and phone here is invented.
  */
 import { render, props } from "../features/admin/console/pages/people/render";
-import { rowsOf, texView, type ConsolePeople, type PeopleData, type TexLine } from "../features/admin/console/pages/people/model";
+import { invitedBy, isoDay, rowsOf, texView, type ConsolePeople, type PeopleData, type TexLine } from "../features/admin/console/pages/people/model";
 import { S } from "../features/admin/console/state";
 
 const ms = (y: number, m: number, d: number) => new Date(y, m - 1, d).getTime();
@@ -248,6 +248,21 @@ describe("render", () => {
   });
 });
 
+describe("the artifact's words for who invited whom, and when they joined", () => {
+  it("names an inviter with an account by their first name, and one without by their handle", () => {
+    expect(invitedBy(people(), "maya")).toBe("invited by Maya");
+    expect(invitedBy(people(), "amara")).toBe("invited by @amara");
+    // The From column draws the same words.
+    const d = data({ people: { ...people(), accounts: people().accounts.map((a) => (a.userId === "u_maya" ? { ...a, invitedBy: "maya" } : a)) } });
+    expect(render(d)).toContain("invited by Maya</span>");
+  });
+
+  it("dates the side panel's joined line as the artifact does, year first", () => {
+    expect(isoDay(new Date(2026, 7, 2, 23, 30).getTime())).toBe("2026-08-02");
+    expect(props(data(), "u_maya") ?? "").toMatch(/joined \d{4}-\d{2}-\d{2}</);
+  });
+});
+
 describe("props", () => {
   it("shows an account's email, phone, workspaces and archive control", () => {
     const html = props(data(), "u_maya", Date.now()) ?? "";
@@ -273,7 +288,8 @@ describe("props", () => {
 
   it("shows an invite's history", () => {
     const html = props(data(), "i_pending") ?? "";
-    expect(html).toContain("Invited by <b>@maya</b> on Nov 12");
+    // The artifact names the inviter: their name when they have an account here.
+    expect(html).toContain("Invited by <b>Maya Lindqvist</b> on Nov 12");
     expect(html).toContain("Not used yet");
   });
 

@@ -11,6 +11,9 @@ import {
   STATUS,
   ago,
   countOf,
+  invitedBy,
+  inviterName,
+  isoDay,
   displayName,
   fmtDate,
   pickable,
@@ -19,6 +22,7 @@ import {
   texView,
   visibleRows,
   type AiAccount,
+  type ConsolePeople,
   type InviteRow,
   type PeopleData,
   type Person,
@@ -138,13 +142,13 @@ function aiPop(p: Person, name: string, rowId: string): string {
   return pop(money(p.aiUsd), rows, "AI cost of " + name);
 }
 
-function rowHtml(r: Row, tv: TexView, now: number): string {
+function rowHtml(people: ConsolePeople, r: Row, tv: TexView, now: number): string {
   const open = r.k !== "wl";
   const attrs = open ? ` class="click" tabindex="0" data-act="sel" data-id="${esc(r.id)}" aria-selected="${S.x === r.id}"` : "";
   const check = pickable(r)
     ? `<input type="checkbox" data-act="pick" data-id="${esc(r.id)}" ${S.sel.has(r.id) ? "checked" : ""} aria-label="Select ${esc(r.name)}">`
     : "";
-  const from = r.by ? pill(`invited by @${r.by}`, "team") : esc(r.from);
+  const from = r.by ? pill(invitedBy(people, r.by), "team") : esc(r.from);
   const cells =
     r.k === "acct" && r.p
       ? `<td class="r hp" data-stop>${wsPop(r.p, r.name)}</td><td class="r hp" data-stop>${clientsPop(r.p, r.name, now)}</td><td class="r hp" data-stop>${aiPop(r.p, r.name, r.id)}</td>`
@@ -242,15 +246,15 @@ export function render(d: PeopleData | undefined, now = Date.now()): string {
       : "";
   const bulk = S.sel.size ? `<div class="bulk"><b>${S.sel.size} selected</b>${bulkActions(nLet, nTell, nRm)}</div>` : "";
   const head = `<tr><th style="width:36px">${selectable.length ? `<input type="checkbox" data-act="selall" aria-label="Select all you can act on" ${selectable.every((r) => S.sel.has(r.id)) ? "checked" : ""}>` : ""}</th><th>Person</th><th class="hp">Status</th><th class="hp">Since</th><th class="hp">From</th><th class="r hp">Workspaces</th><th class="r hp">AI clients</th><th class="r hp">AI cost</th><th></th></tr>`;
-  const body = rows.map((r) => rowHtml(r, tv, now)).join("") || `<tr><td colspan="9" class="empty">Nobody matches</td></tr>`;
+  const body = rows.map((r) => rowHtml(people, r, tv, now)).join("") || `<tr><td colspan="9" class="empty">Nobody matches</td></tr>`;
   const texOnCount = all.filter((r) => r.p !== null && texOn(r.p, tv)).length;
   const line = ps === "all" || ps === "acct" ? linePanel(tv, texOnCount) : "";
 
   return `${tools}${adding}${truncated}${untoldBanner}${bulk}<div class="pn"><div class="tbl"><table>${head}${body}</table></div></div>${line}`;
 }
 
-function camePill(p: Person): string {
-  return p.from === "friend" && p.invitedBy ? pill(`invited by @${p.invitedBy}`, "team") : esc(CAME_LABEL[p.from]);
+function camePill(people: ConsolePeople, p: Person): string {
+  return p.from === "friend" && p.invitedBy ? pill(invitedBy(people, p.invitedBy), "team") : esc(CAME_LABEL[p.from]);
 }
 
 function accountProps(d: PeopleData, p: Person, tv: TexView, now: number): string {
@@ -259,7 +263,7 @@ function accountProps(d: PeopleData, p: Person, tv: TexView, now: number): strin
   const mailOpen = d.mailOpen.has(p.userId)
     ? `<div class="ppb"><div class="row"><span style="flex:1">Their mail inbox takes mail from anyone</span><button class="ghost" data-act="mailclose" data-id="${esc(p.userId)}">Known senders only</button></div></div>`
     : "";
-  const sub = `${p.handle ? esc("@" + p.handle) + " · " : ""}joined ${esc(fmtDate(p.joinedAt))}`;
+  const sub = `${p.handle ? esc("@" + p.handle) + " · " : ""}joined ${esc(isoDay(p.joinedAt))}`;
   return `<div class="pph"><span class="av">${esc((name || "?")[0])}</span><h3 tabindex="-1">${esc(name)}<div class="sub">${sub}</div></h3><button class="ib sm" data-act="close" aria-label="Close">${ic("x")}</button></div>
  <div class="ppb"><div class="h">Email</div>${p.emails.map((e, i) => `<div class="row"><span style="flex:1;overflow-wrap:anywhere">${esc(e)}</span>${i ? "" : pill("mail goes here")}</div>`).join("")}</div>
  <div class="ppb"><div class="row"><span class="h" style="flex:1">Phone</span>${editing ? "" : `<button class="link" data-act="phone">${p.phone ? "Change" : "Add"}</button>`}</div>${
@@ -270,12 +274,12 @@ function accountProps(d: PeopleData, p: Person, tv: TexView, now: number): strin
  <div class="row"><span style="flex:1">Can text Tex</span>${texSwitch(p, tv, "needs a phone")}</div></div>
  ${mailOpen}<div class="ppb"><div class="h">Workspaces</div>${p.workspaces.map((w) => `<div class="row"><span style="flex:1">@${esc(w.slug)}</span>${pill(w.kind, w.kind === "personal" ? "ok" : "")}${pill(ROLE_LABEL[w.role])}</div>`).join("")}</div>
  <div class="ppb"><div class="h">Today against today's limits</div>${limitsHtml(d.acct)}</div>
- <div class="kv"><span class="k">Last seen</span><span class="v">${p.usageKnown === false ? "—" : p.lastSeenAt === null ? "never" : esc(ago(p.lastSeenAt, now))}</span><span class="k">AI cost</span><span class="v"><button class="link" data-act="gocost" data-id="${esc(p.userId)}">${p.usageKnown === false ? "Open AI costs" : `${money(p.aiUsd)} in 30 days`}</button></span><span class="k">Their turns</span><span class="v"><button class="link" data-act="theirturns" data-id="${esc(p.handle ?? name)}">See in Turns</button></span><span class="k">Came from</span><span class="v">${camePill(p)}</span></div>
+ <div class="kv"><span class="k">Last seen</span><span class="v">${p.usageKnown === false ? "—" : p.lastSeenAt === null ? "never" : esc(ago(p.lastSeenAt, now))}</span><span class="k">AI cost</span><span class="v"><button class="link" data-act="gocost" data-id="${esc(p.userId)}">${p.usageKnown === false ? "Open AI costs" : `${money(p.aiUsd)} in 30 days`}</button></span><span class="k">Their turns</span><span class="v"><button class="link" data-act="theirturns" data-id="${esc(p.handle ?? name)}">See in Turns</button></span><span class="k">Came from</span><span class="v">${camePill(d.people!, p)}</span></div>
  <div class="row"><button class="ghost${p.archived ? "" : " danger"}" data-act="archive" data-id="${esc(p.userId)}">${p.archived ? "Unarchive" : "Archive"}</button><span class="sub">${p.archived ? "" : "Hides them from People and Growth; deletes nothing"}</span></div>`;
 }
 
-function inviteProps(i: InviteRow): string {
-  const by = i.inviterHandle ? `@${i.inviterHandle}` : "an account that no longer exists";
+function inviteProps(people: ConsolePeople, i: InviteRow): string {
+  const by = inviterName(people, i.inviterHandle) ?? (i.inviterHandle ? `@${i.inviterHandle}` : "an account that no longer exists");
   return `<div class="pph"><h3 tabindex="-1">${esc(i.to)}</h3><button class="ib sm" data-act="close" aria-label="Close">${ic("x")}</button></div>
  <div class="ppb"><div class="h">How they got here</div><div class="thr"><div>Invited by <b>${esc(by)}</b> on ${esc(fmtDate(i.sentAt))}</div><div>${esc(INVITE_TEXT[i.status])}</div></div></div>`;
 }
@@ -287,5 +291,5 @@ export function props(d: PeopleData | undefined, x: string, now = Date.now()): s
   const p = people.accounts.find((a) => a.userId === x);
   if (p) return accountProps(d, p, texView(d.tex), now);
   const inv = people.invites.find((i) => i.id === x);
-  return inv ? inviteProps(inv) : null;
+  return inv ? inviteProps(people, inv) : null;
 }

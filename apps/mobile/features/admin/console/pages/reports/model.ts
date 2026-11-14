@@ -166,7 +166,7 @@ function contentReport(row: ContentRow, now: number): Report {
     about: [row.workspace, row.about].filter((part) => part).join(" · "),
     details: row.details ?? "",
     open: !handled,
-    ...(handled ? { handled: `Handled by ${row.handledBy ?? "someone"} · ${shortDay(row.handledAt!)}` } : {}),
+    ...(handled ? { handled: `Handled by ${row.handledBy ?? "someone"} · ${ago(row.handledAt!, now)}` } : {}),
   };
 }
 

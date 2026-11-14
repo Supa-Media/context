@@ -66,7 +66,7 @@ describe("the Jobs list", () => {
     const html = listView(data());
     expect(html).toContain("Nothing from them yet");
     at(["activity"], null, { who: "agents" });
-    expect(listView(data())).toContain("Improver");
+    expect(listView(data())).toContain("<td>improver</td>");
   });
 
   test("a page with no access says why instead of drawing", () => {
@@ -83,6 +83,9 @@ describe("a job", () => {
     expect(html).toContain("&lt;img");
     expect(html).toContain('data-act="newcase"');
     expect(jobCrumb(data())).toContain("Check-in");
+    // While the notes load, the crumb already names the job, never its key.
+    expect(jobCrumb(undefined)).toContain(">Check-in</button>");
+    expect(jobCrumb(undefined)).not.toContain(">heartbeat<");
   });
 
   test("setups show the change escaped and offer Compare to everything but live", () => {
