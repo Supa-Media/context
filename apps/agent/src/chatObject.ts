@@ -49,7 +49,12 @@ export class SenderInbox implements DurableObject {
   /** Calls, alarms and handed-on work running now: an inbox moves only when there are none (`inboxMove.ts`). */
   private busy = 0;
 
-  constructor(private readonly state: DurableObjectState, private readonly env: Env) {}
+  /** The object's way out to the network; the gateway's copy routes its own origin in-process (`apps/mcp/src/texChat.js`). */
+  private readonly out: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+  constructor(private readonly state: DurableObjectState, private readonly env: Env) {
+    this.out = env.FETCH ?? ((input, init) => fetch(input, init));
+  }
 
   async fetch(request: Request): Promise<Response> {
     const stubs = (name: string) => objectByName(this.env.SENDER_INBOX, name);
@@ -99,7 +104,7 @@ export class SenderInbox implements DurableObject {
         this.state.storage,
         { text: body.text, idempotencyKey: body.idempotencyKey, ...(typeof body.continues === "string" ? { continues: body.continues } : {}), ...(typeof body.beside === "string" ? { beside: body.beside } : {}) },
         {
-          fetch: (input, init) => fetch(input, init),
+          fetch: this.out,
           linqApiKey: this.env.LINQ_API_KEY,
           sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
           whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
@@ -114,7 +119,7 @@ export class SenderInbox implements DurableObject {
       const body = (await request.json()) as { text?: unknown; dryRun?: unknown };
       if (typeof body.text !== "string" || typeof body.dryRun !== "boolean") return new Response(null, { status: 400 });
       const told = await tellNewLine(this.state.storage, { text: body.text, dryRun: body.dryRun }, {
-        fetch: (input, init) => fetch(input, init),
+        fetch: this.out,
         linqApiKey: this.env.LINQ_API_KEY,
         sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
         whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
@@ -129,7 +134,7 @@ export class SenderInbox implements DurableObject {
       // Nor its `heard`: only this object sets that, from the recording itself (`groupVoice.ts`).
       const { routine: _routine, heard: _heard, ...sent } = (await request.json()) as GroupMessage;
       await this.keepWhere(sent);
-      const message = await heardInGroup(sent, { fetch: (input, init) => fetch(input, init), gateway: this.env.GATEWAY_TEXTS });
+      const message = await heardInGroup(sent, { fetch: this.out, gateway: this.env.GATEWAY_TEXTS });
       const outcome = await acceptGroup(this.state.storage, message, Date.now());
       // Counted under the sender's own inbox id, so one person is one person in a group and 1:1 (`textCounts.ts`).
       if ((outcome === "kept" || outcome === "queued") && message.routine === undefined && !message.reaction) {
@@ -139,7 +144,7 @@ export class SenderInbox implements DurableObject {
       if (outcome === "kept" || outcome === "queued") this.handOff(this.flushChatter(message));
       // The group-typing experiment: ask Whapi for this group's presences once a day (`whapi.ts`); never blocks a message.
       const whapi = whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE);
-      if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, (input, init) => fetch(input, init), whapi, message.groupId, Date.now());
+      if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, this.out, whapi, message.groupId, Date.now());
       return Response.json({ outcome });
     }
     // Whapi said this group's people changed (`index.ts` whapiWebhook): only this Worker's webhook reaches it.
@@ -262,7 +267,7 @@ export class SenderInbox implements DurableObject {
     const workflow = this.env.GROUP_TURN;
     return {
       ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn), answerFirst: (work: Promise<unknown>) => this.handOff(work) } : {}),
-      fetch: (input, init) => fetch(input, init),
+      fetch: this.out,
       controlPlaneOrigin: this.env.CONTROL_PLANE_ORIGIN,
       workerSecret: this.env.AGENT_WORKER_SECRET,
       gatewayOrigin: this.env.GATEWAY_ORIGIN,
@@ -274,7 +279,7 @@ export class SenderInbox implements DurableObject {
       textTiming: this.env.TEX_TEXTS,
       textCounts: this.env.TEX_COUNTS,
       ...(this.env.GATEWAY_TEXTS ? { texts: textsSessionDeps(this.env.GATEWAY_TEXTS, this.state.storage) } : {}),
-      noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
+      noteCardPicture: noteCardDrawer(this.out, this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
       hostPicture: async (picture: Picture) =>
         hostPicture(
           this.state.storage,

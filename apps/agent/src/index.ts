@@ -83,6 +83,8 @@ export interface Env {
   /** The gateway origin, e.g. https://mcp.context.lc */
   GATEWAY_ORIGIN: string;
   GATEWAY_TEXTS?: TextsBinding; // the gateway's `TexTexts`: a text's session from the person object (`gatewaySession.ts`)
+  /** The chat object's way out to the network, when it runs in the gateway (`apps/mcp/src/texChat.js`); absent, the global fetch. */
+  FETCH?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   /** Where an incoming text's head runs: "gateway" hands it to the gateway's TexChat (`/texts/arrive`); anything else keeps the SenderInbox queue (`handOver.ts`). */
   INTAKE?: string;
   /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
