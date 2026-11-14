@@ -56,7 +56,7 @@ export class SenderInbox implements DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const stubs = (name: string) => objectByName(this.env.SENDER_INBOX, name);
-    const gate = await placeGate(request, this.state.storage as unknown as MoveStorage, stubs, this.busy, (run) => this.state.blockConcurrencyWhile(run));
+    const gate = await placeGate(request, this.state.storage as unknown as MoveStorage, stubs, this.busy, (run) => this.state.blockConcurrencyWhile(run), Date.now, this.env.GATEWAY_TEXTS);
     if ("response" in gate) return gate.response;
     return await this.counted(() => this.serve(gate.request));
   }
