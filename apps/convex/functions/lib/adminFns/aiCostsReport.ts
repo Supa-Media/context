@@ -88,7 +88,7 @@ function priceOf(model: string): AiCostsReport["models"][number]["price"] {
   return price ? { ...price } : null;
 }
 
-interface WorkspaceSpend {
+export interface WorkspaceSpend {
   id: Id<"workspaces">;
   micro: number;
   byFeature: Map<string, number>;
@@ -96,10 +96,58 @@ interface WorkspaceSpend {
   askedToday: number;
 }
 
-interface AccountSpend {
+export interface AccountSpend {
   id: Id<"users">;
   micro: number;
   byFeature: Map<string, number>;
+}
+
+/**
+ * Each workspace's spend over usage rows the caller has already cut to the
+ * window. The first half of the attribution; `accountSpendOf` is the second.
+ */
+export function workspaceSpendOf(rows: readonly Doc<"jevUsage">[], today: string): Map<string, WorkspaceSpend> {
+  const workspaces = new Map<string, WorkspaceSpend>();
+  for (const row of rows) {
+    const key = String(row.workspaceId);
+    const workspace = workspaces.get(key) ?? {
+      id: row.workspaceId,
+      micro: 0,
+      byFeature: new Map<string, number>(),
+      askedToday: 0,
+    };
+    workspace.micro += row.costMicroUsd;
+    bump(workspace.byFeature, row.feature, row.costMicroUsd);
+    if (row.feature === "assistant" && row.day === today) workspace.askedToday += row.calls + row.failed;
+    workspaces.set(key, workspace);
+  }
+  return workspaces;
+}
+
+/**
+ * Each owner's share of those workspaces, and who owns each one. An account
+ * pays for the workspaces it owns (`aiCostsRead.ts`); a workspace with two
+ * owners counts for both, so per-account figures are never a total to add up.
+ */
+export async function accountSpendOf(
+  ctx: QueryCtx,
+  workspaces: ReadonlyMap<string, WorkspaceSpend>,
+  budget: ReadBudget,
+): Promise<{ accounts: Map<string, AccountSpend>; ownersByWorkspace: Map<string, Id<"users">[]> }> {
+  const ownersByWorkspace = new Map<string, Id<"users">[]>();
+  for (const [key, workspace] of workspaces) {
+    ownersByWorkspace.set(key, await ownersOf(ctx, workspace.id, budget));
+  }
+  const accounts = new Map<string, AccountSpend>();
+  for (const [key, workspace] of workspaces) {
+    for (const owner of ownersByWorkspace.get(key) ?? []) {
+      const account = accounts.get(String(owner)) ?? { id: owner, micro: 0, byFeature: new Map<string, number>() };
+      account.micro += workspace.micro;
+      for (const [feature, micro] of workspace.byFeature) bump(account.byFeature, feature, micro);
+      accounts.set(String(owner), account);
+    }
+  }
+  return { accounts, ownersByWorkspace };
 }
 
 type AccountCard = AiCostsReport["accounts"][number];
@@ -164,7 +212,6 @@ export async function aiCostsReportHandler(
   const featureMicro = new Map<string, number>();
   const featureCalls = new Map<string, number>();
   const dailyMicro = new Map<string, Map<string, number>>();
-  const workspaces = new Map<string, WorkspaceSpend>();
   for (const row of usage) {
     if (row.day < win.since) {
       priorMicro += row.costMicroUsd;
@@ -176,13 +223,11 @@ export async function aiCostsReportHandler(
     const day = dailyMicro.get(row.day) ?? new Map<string, number>();
     bump(day, row.feature, row.costMicroUsd);
     dailyMicro.set(row.day, day);
-    const key = String(row.workspaceId);
-    const workspace = workspaces.get(key) ?? { id: row.workspaceId, micro: 0, byFeature: new Map(), askedToday: 0 };
-    workspace.micro += row.costMicroUsd;
-    bump(workspace.byFeature, row.feature, row.costMicroUsd);
-    if (row.feature === "assistant" && row.day === win.today) workspace.askedToday += row.calls + row.failed;
-    workspaces.set(key, workspace);
   }
+  const workspaces = workspaceSpendOf(
+    usage.filter((row) => row.day >= win.since),
+    win.today,
+  );
 
   // -- which model answered: priced at list, and summed per feature --------
   let modelMicro = 0;
@@ -245,23 +290,12 @@ export async function aiCostsReportHandler(
     for (const owner of await ownersOf(ctx, plan.workspaceId, budget)) payingAccounts.add(String(owner));
   }
 
-  const ownersByWorkspace = new Map<string, Id<"users">[]>();
-  for (const [key, workspace] of workspaces) {
-    ownersByWorkspace.set(key, await ownersOf(ctx, workspace.id, budget));
-  }
-
-  const accounts = new Map<string, AccountSpend>();
+  const { accounts, ownersByWorkspace } = await accountSpendOf(ctx, workspaces, budget);
   let payingMicro = 0;
   for (const [key, workspace] of workspaces) {
     const owners = ownersByWorkspace.get(key) ?? [];
     // Counted once, however many of its owners are paying.
     if (owners.some((owner) => payingAccounts.has(String(owner)))) payingMicro += workspace.micro;
-    for (const owner of owners) {
-      const account = accounts.get(String(owner)) ?? { id: owner, micro: 0, byFeature: new Map<string, number>() };
-      account.micro += workspace.micro;
-      for (const [feature, micro] of workspace.byFeature) bump(account.byFeature, feature, micro);
-      accounts.set(String(owner), account);
-    }
   }
   const ranked = [...accounts.values()]
     .filter((account) => account.micro > 0)
