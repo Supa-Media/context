@@ -9,6 +9,7 @@ import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { DREAMS_CLIENT_ID } from "./dream.js";
 import { HOUSEKEEPING_CLIENT_ID } from "./housekeeping.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";
+import { sessionLedger } from "./ledger.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
 import { newLedger } from "../privacy/egress.js";
@@ -37,7 +38,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
 
   const timeZone = readTimeZone(body.dream.timeZone) ?? DEFAULT_TIME_ZONE;
   const since = typeof body.dream.since === "number" && Number.isFinite(body.dream.since) ? body.dream.since : null;
-  const { outputs } = await gatewayGraph().run("nightly", { run: "dream", timeZone, ...(since !== null ? { since } : {}) }, { env, store, session, controlPlane, dispatch });
+  const { outputs } = await night(env, session, { run: "dream", timeZone, ...(since !== null ? { since } : {}) }, { env, store, session, controlPlane, dispatch });
   return json(outputs.dream.body, outputs.dream.status);
 }
 
@@ -63,6 +64,16 @@ export async function handleHousekeeping(request, env, store, session, controlPl
   const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
 
   const timeZone = readTimeZone(body.housekeeping.timeZone) ?? DEFAULT_TIME_ZONE;
-  const { outputs } = await gatewayGraph().run("nightly", { run: "housekeeping", timeZone }, { env, store, session, controlPlane, dispatch });
+  const { outputs } = await night(env, session, { run: "housekeeping", timeZone }, { env, store, session, controlPlane, dispatch });
   return json(outputs.housekeep.body, outputs.housekeep.status);
+}
+
+/** The night's run on the graph, every node of it kept as a node step in the person's own chat ledger, flushed before the answer. */
+async function night(env, session, input, ctx) {
+  const writer = sessionLedger(env, session);
+  try {
+    return await gatewayGraph({ writer }).run("nightly", input, ctx);
+  } finally {
+    await writer?.flush();
+  }
 }
