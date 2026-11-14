@@ -3,8 +3,8 @@
  * "Newest arrivals" and "Needs a nudge", as the mock draws them. The numbers come from `growthData.ts`; the reads come
  * from `censusReport` and `usageReport` (read once, see `useReportOnce`) and the People page's list of everyone.
  */
-import { useQuery } from "convex/react";
-import { useMemo } from "react";
+import { usePaginatedQuery } from "convex/react";
+import { useEffect, useMemo } from "react";
 import { api } from "@context/convex/_generated/api";
 import { esc, kpi, panel, pill, seg } from "../kit";
 import { S, go, setF } from "../state";
@@ -24,36 +24,35 @@ import {
   type UsageLike,
 } from "./growthData";
 
-/** One row of `consolePeople.everyone`'s `accounts`, as the People page's query returns it. */
-type EveryoneAccount = {
-  userId: string;
-  name: string | null;
-  handle: string | null;
-  emails: string[];
-  phone: string | null;
-  joinedAt: number;
-  archived: boolean;
-  lastSeenAt: number | null;
-  from: PersonLike["from"];
-  invitedBy: string | null;
-  clients: { name: string; lastUsedAt: number | null }[];
-};
-
 type GrowthData = {
   census: CensusLike | undefined;
   usage: UsageLike | undefined;
   people: PersonLike[] | undefined;
 };
 
+/** Accounts per page: well under Convex's per-call read limits, as the People page asks. */
+const ACCOUNTS_PAGE = 100;
+
 const TILE_LABELS = ["Accounts", "Workspaces", "Active workspaces", "Can text Tex"] as const;
 
 function useGrowthData(): GrowthData {
   const census = useSharedReport(api.functions.admin.censusReport, { days: 30 }).value;
   const usage = useSharedReport(api.functions.admin.usageReport, { days: 30 }).value;
-  const everyone: { accounts: EveryoneAccount[] } | undefined = useQuery(api.functions.consolePeople.everyone, {});
-  const people = useMemo<PersonLike[] | undefined>(
-    () =>
-      everyone?.accounts.map((a) => ({
+  // Every account, a page at a time (the People page's paginated read), and each one's AI clients and last use, read
+  // once per visit: grants are stamped on every MCP call.
+  const accounts = usePaginatedQuery(api.functions.consolePeople.accountsPage, {}, { initialNumItems: ACCOUNTS_PAGE });
+  const { status, loadMore } = accounts;
+  useEffect(() => {
+    if (status === "CanLoadMore") loadMore(ACCOUNTS_PAGE);
+  }, [status, loadMore]);
+  const peopleUsage = useSharedReport(api.functions.consolePeople.peopleUsage, {}).value;
+  const people = useMemo<PersonLike[] | undefined>(() => {
+    // Held until every page is here: a partial list would put the wrong people in "Needs a nudge".
+    if (status !== "Exhausted" || peopleUsage === undefined) return undefined;
+    const grants = new Map(peopleUsage.clients.map((c) => [c.userId as string, c]));
+    return accounts.results.map((a) => {
+      const g = grants.get(a.userId);
+      return {
         id: a.userId,
         name: a.name,
         handle: a.handle,
@@ -62,12 +61,12 @@ function useGrowthData(): GrowthData {
         joinedAt: a.joinedAt,
         from: a.from,
         invitedBy: a.invitedBy,
-        clients: a.clients.length,
-        lastSeenAt: a.lastSeenAt,
+        clients: g?.clients.length ?? 0,
+        lastSeenAt: g?.lastSeenAt ?? null,
         archived: a.archived,
-      })),
-    [everyone],
-  );
+      };
+    });
+  }, [status, accounts.results, peopleUsage]);
   return { census, usage, people };
 }
 
