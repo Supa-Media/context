@@ -11,7 +11,7 @@
  * Staff only: every query behind a page is `requireAdmin` on the server; `amIAdmin` here only
  * decides what to say, as the old console did.
  */
-import { memo, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { Component, memo, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { AdminChrome } from "../AdminPane";
@@ -19,7 +19,7 @@ import { StaffFactorGate } from "../StaffFactorGate";
 import { isTexHost } from "../../site/host";
 import { ensureFontsLoaded } from "../../design/fonts.web";
 import { CONSOLE_CSS } from "./consoleCss";
-import { fitCharts, ic, lgOpen, seg, shut } from "./kit";
+import { esc, fitCharts, ic, lgOpen, seg, shut } from "./kit";
 import { ROW, SECTIONS, hashForOldPath, windowedNow } from "./pages/registry";
 import { useNeeds } from "./pages/needs.web";
 import { FDEF, S, closeProps, focus, focusKey, getVersion, go, onScrollTop, parse, phone, render, runUndo, sel, setD, setQ, store, subscribe, toastState } from "./state";
@@ -68,14 +68,44 @@ export function StaffConsole() {
 
 /**
  * Calls the open page's `useData` and hands the result up; keyed by page, so hooks never change
- * order. Memoized: it redraws only when its own queries change, never because the console redrew,
- * so a `useData` that builds a fresh object each call cannot loop.
+ * order. Memoized: it redraws when its own queries change or the console's state does (`v`, so a
+ * `useData` that reads `S.d` or a filter asks again), never because the data it handed up redrew
+ * the console, so a `useData` that builds a fresh object each call cannot loop.
  */
-const PageData = memo(function PageData({ page, onData }: { page: ConsolePage; onData: (d: unknown) => void }) {
+const PageData = memo(function PageData({ page, onData }: { page: ConsolePage; onData: (d: unknown) => void; v: number }) {
   const d = page.useData ? page.useData() : undefined;
   useLayoutEffect(() => onData(d), [d, onData]);
   return null;
 });
+
+/** Hands up the "Needs you" lines (every page's sidebar badges), the same way `PageData` does. */
+const NeedsData = memo(function NeedsData({ onNeeds }: { onNeeds: (n: Need[]) => void; v: number }) {
+  const needs = useNeeds();
+  useLayoutEffect(() => onNeeds(needs), [needs, onNeeds]);
+  return null;
+});
+
+/**
+ * One failing query must not take the console down with it: a page's data, its old section, or a
+ * "Needs you" source that throws (a read limit, a timeout) is caught here and named, and the rest
+ * of the console keeps working. Keyed by what it guards, so moving on tries again.
+ */
+class Guard extends Component<{ onError?: (message: string) => void; children: React.ReactNode; fallback?: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: unknown) {
+    this.props.onError?.(error instanceof Error ? error.message : String(error));
+  }
+  render() {
+    return this.state.failed ? (this.props.fallback ?? null) : this.props.children;
+  }
+}
+
+/** What a page that could not load says in its slot. */
+const failedHtml = (name: string, why: string) =>
+  `<div class="banner" role="alert"><b>${esc(name)} could not load.</b> ${esc(why)}</div>`;
 
 type Factor = React.ComponentProps<typeof StaffFactorGate>["factor"];
 
@@ -85,7 +115,7 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
   const pg = useRef<HTMLDivElement>(null);
   const fk = useRef<string | null>(null);
   const caret = useRef<number | null>(null);
-  const dataRef = useRef<unknown>(undefined);
+  const dataRef = useRef<{ p: string; d: unknown } | null>(null);
   const [, bump] = useReducer((n: number) => n + 1, 0);
   // Before each redraw, note what had focus, so the redrawn page puts it back (the artifact's `focusKey`).
   const version = useSyncExternalStore(
@@ -97,13 +127,24 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
     getVersion,
     getVersion,
   );
+  // The data is kept with the page it belongs to, so a page's first draw never gets the last page's data.
   const [onData] = useState(() => (d: unknown) => {
-    dataRef.current = d;
+    dataRef.current = { p: S.p, d };
+    if (failed.current?.p === S.p) failed.current = null;
     bump();
   });
-  const needs = useNeeds();
-  const needsRef = useRef<Need[]>(needs);
-  needsRef.current = needs;
+  const needsRef = useRef<Need[]>([]);
+  const [onNeeds] = useState(() => (n: Need[]) => {
+    needsRef.current = n;
+    bump();
+  });
+  const needs = needsRef.current;
+  // Why the open page's data failed, for the page it failed on.
+  const failed = useRef<{ p: string; why: string } | null>(null);
+  const [onPageError] = useState(() => (why: string) => {
+    failed.current = { p: S.p, why };
+    bump();
+  });
 
   // The place comes from the address; an old `/admin/<tab>` bookmark becomes the page it turned into.
   const [ready, setReady] = useState(false);
@@ -139,7 +180,7 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
 
   const row = ROW[S.p] ?? ROW.home;
   const page = row.page;
-  const data = dataRef.current;
+  const data = dataRef.current?.p === S.p ? dataRef.current.d : undefined;
 
   // Clicks, changes, keys and the search box, delegated as the artifact's are.
   useEffect(() => {
@@ -150,7 +191,7 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
       const shellAct = SHELL[name];
       if (!pageAct && !shellAct) return false;
       if (ev && (e as HTMLInputElement).type !== "checkbox") ev.preventDefault();
-      if (pageAct) void pageAct(e, dataRef.current);
+      if (pageAct) void pageAct(e, dataRef.current?.p === S.p ? dataRef.current.d : undefined);
       else shellAct(e, { root: el, needs: needsRef.current });
       return true;
     };
@@ -256,14 +297,28 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
         .join(""),
   ).join("");
   const crumb = `<button data-act="go" data-p="${S.p}">${row.name}</button>` + (page.crumb ? page.crumb(data) : "");
-  const html = page.render ? (win ? `<div class="winrow tools">${wseg}</div>` : "") + page.render(data) : null;
+  const pageFailed = failed.current?.p === S.p ? failed.current.why : null;
+  let body: string | null = null;
+  if (page.render) {
+    try {
+      body = pageFailed != null ? failedHtml(row.name, pageFailed) : page.render(data);
+    } catch (error) {
+      body = failedHtml(row.name, error instanceof Error ? error.message : String(error));
+    }
+  }
+  const html = body != null ? (win ? `<div class="winrow tools">${wseg}</div>` : "") + body : null;
   const pr = S.x && page.props ? page.props(data, S.x) : null;
   const theme = store.get<Theme>("theme", "auto");
   const sideHidden = S.sideHidden && !phone();
 
   return (
     <div className={"app" + (S.sideOpen ? " sideopen" : "")} id="app" ref={root} data-v={version}>
-      <PageData key={S.p} page={page} onData={onData} />
+      <Guard key={"p-" + S.p + "-" + S.d} onError={onPageError}>
+        <PageData page={page} onData={onData} v={version} />
+      </Guard>
+      <Guard key={"n-" + S.d}>
+        <NeedsData onNeeds={onNeeds} v={version} />
+      </Guard>
       <div className="bar">
         <button className="ib" id="sideBtn" aria-label="Show or hide the sidebar" data-act="side">
           <svg className="i" viewBox="0 0 24 24">
@@ -304,7 +359,11 @@ export function Console({ offerFactor }: { offerFactor: Factor | null }) {
             ) : (
               <div className="pgin" id="pgin" key={"l-" + S.p}>
                 {win ? <div className="winrow tools" dangerouslySetInnerHTML={{ __html: wseg }} /> : null}
-                {page.Legacy ? <page.Legacy key={S.d} /> : null}
+                {page.Legacy ? (
+                  <Guard key={S.d} fallback={<div className="banner" role="alert"><b>{row.name} could not load.</b></div>}>
+                    <page.Legacy />
+                  </Guard>
+                ) : null}
               </div>
             )}
           </div>
