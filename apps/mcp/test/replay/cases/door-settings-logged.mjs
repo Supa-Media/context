@@ -26,7 +26,7 @@ export default {
       assert.equal(fd.turn, reply.turn, "the front door's too");
       assert.equal(door.output.chat, "one", "with the kind of chat it was");
       for (const setting of ["model", "effort", "reviewer", "advisor", "planner", "fallback"]) assert.ok(setting in fd.output, `and the ${setting} the turn ran with`);
-      const nodes = JSON.stringify(entries.filter((entry) => entry.kind === "step" && entry.step === "node")); // a tool's arguments and result are its tool entry, kept by that entry's rules
+      const nodes = JSON.stringify(entries.filter((entry) => entry.kind === "step" && entry.step === "node" && !["reflect", "nudge"].includes(entry.name))); // a tool's arguments and result are its tool entry, kept by that entry's rules; Reflect and the nudge take the question as their input by design
       assert.ok(!nodes.includes("bike shop") && !nodes.includes("saturday"), "never the chat's words, which are its text entries");
     } finally {
       chat.restore();

@@ -122,7 +122,9 @@ test("every step of a texted turn leaves its time and outcome in the ledger, und
     assert.equal(door.output.chat, "one");
     const fd = nodes.find((entry) => entry.name === "fd" && entry.via === "wait");
     assert.ok(fd && "model" in fd.output && "effort" in fd.output && "reviewer" in fd.output && "advisor" in fd.output, JSON.stringify(fd?.output));
-    assert.ok(!JSON.stringify(nodes).includes("what's in my notes"), "the chat's words stay in its text entries");
+    // The turn's own nodes carry ids, lengths and settings; Reflect and the nudge take the question as their input by design (graph step 5).
+    const turnNodes = nodes.filter((entry) => !["reflect", "nudge"].includes(entry.name));
+    assert.ok(!JSON.stringify(turnNodes).includes("what's in my notes"), "the chat's words stay in its text entries");
     assert.ok(!JSON.stringify(door).includes("what's in my notes"), "the chat's words stay in its text entries");
   } finally {
     world.restore();
