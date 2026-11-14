@@ -13,11 +13,12 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: "all runs every check; visuals runs only the visual-answer checks (a card for options, a plan and the persona's week, words for one fact)"
+        description: "all runs every check; visuals runs only the visual-answer checks (a card for options, a plan and the persona's week, words for one fact); intake checks only that a text's chat runs in the gateway (no persona, no model)"
         type: choice
         options:
           - all
           - visuals
+          - intake
         default: all
 
 permissions:
