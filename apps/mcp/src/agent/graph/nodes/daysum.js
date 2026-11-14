@@ -1,5 +1,5 @@
 /**
- * Tex's day summaries: sums up each finished day of the chat that has no summary yet, after the dream
+ * Tex's day summaries: sums up each finished day of the chat not yet summed up, after the dream
  * (`daySummaries.js`). Its wire from `dream` lives in texConfig.json, and fires only on the dream's `summarize` tag.
  */
 import { summarizeDays } from "../../daySummaries.js";

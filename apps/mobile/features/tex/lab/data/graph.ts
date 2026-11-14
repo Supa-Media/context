@@ -81,7 +81,7 @@ export const NODE_INFO: Record<string, { goal: string; logs: string[] | null }> 
  reflect:{goal:"After a hard or corrected turn, write down what worked as a learned skill for next time.",logs:["step reflect"]},
  nightly:{goal:"Start each night's work for a person: the dream and the summaries of their days, and housekeeping, each on the schedule the control plane keeps.",logs:["step nightly"]},
  dream:{goal:"Read the chat since the last dream and the memories that fit, and keep About me true: add what was learned, take out what is no longer so.",logs:["step dream"]},
- daysum:{goal:"Sum up each finished day of the chat that has no summary yet, into the chat's ledger, for later turns.",logs:["step daysum"]},
+ daysum:{goal:"Sum up each finished day of the chat not yet summed up, into the chat's ledger, for later turns.",logs:["step daysum"]},
  housekeep:{goal:"Tidy their workspace once a day within its time limit: fix what the health check names, change nothing it cannot undo, and log each change.",logs:["step housekeep"]}
 };
 
