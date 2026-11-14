@@ -40,6 +40,8 @@ import { groupInboxName } from "./groupInbox";
 import { chatDirectoryName, chatWhereOf } from "./groupRoutines";
 import type { DueRoutine } from "./routineClients";
 import { toChat } from "./handOver";
+import { arrivalOf, providerTime, type ProviderArrival } from "./providerTiming";
+import { isRecord } from "./sendblue";
 import { verifyLinqSignature } from "./signature";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -129,8 +131,10 @@ export default {
     const grouped = line === "sendblue" ? parseSendblueGroup(payload) : null;
     // How late Sendblue handed it over, by its own sent time (`sendblueStatus.ts`).
     if (line === "sendblue") logInboundLag(payload, Date.now(), grouped !== null);
+    // The provider's own times for this text, for the chat's `text` step (`providerTiming.ts`).
+    const provider = arrivalOf(line, providerSentAt(line, payload), Date.now());
     if (grouped?.kind === "invalid") logSendblueShape(payload, "group_invalid");
-    if (grouped !== null) return groupWebhook(env, grouped, url.origin, "sendblue", groupNameOf(payload));
+    if (grouped !== null) return groupWebhook(env, grouped, url.origin, "sendblue", groupNameOf(payload), provider);
     // Sendblue retries a 400, so only Linq gets one; typing, calls, statuses and the rest are described by shape.
     const inbound = line === "sendblue" ? parseSendblueInbound(payload) : parseInbound(payload);
     if (inbound.kind === "invalid") {
@@ -156,7 +160,8 @@ export default {
         delete inbound.on;
       }
       const stub = inboxByName(env.SENDER_INBOX, inbound.from);
-      const result = (await toChat(env, "react", inbound.from, inbound)) ?? (await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(inbound) }));
+      const reacted = { ...inbound, provider };
+      const result = (await toChat(env, "react", inbound.from, reacted)) ?? (await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(reacted) }));
       return new Response(null, { status: result.ok ? 200 : 503 });
     }
 
@@ -171,9 +176,10 @@ export default {
 
     const stub = inboxByName(env.SENDER_INBOX, inbound.from);
     // The Worker's own address goes along, for pictures served back to Sendblue (`media.ts`).
+    const brought = { ...message, provider };
     const result =
-      (await toChat(env, "one", inbound.from, message, url.origin)) ??
-      (await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(url.origin)}`, { method: "POST", body: JSON.stringify(message) }));
+      (await toChat(env, "one", inbound.from, brought, url.origin)) ??
+      (await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(url.origin)}`, { method: "POST", body: JSON.stringify(brought) }));
     return new Response(null, { status: result.ok ? 200 : 503 });
   },
 
@@ -233,7 +239,7 @@ function logWebhook(line: "linq" | "sendblue" | "whapi", outcome: "unsigned" | "
 }
 
 /** A group message: dropped, or handed to the group's own queue, keyed on the group alone. */
-async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>, origin: string, line: "sendblue" | "whapi" = "sendblue", name: string | null = null): Promise<Response> {
+async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>, origin: string, line: "sendblue" | "whapi" = "sendblue", name: string | null = null, provider?: ProviderArrival): Promise<Response> {
   if (grouped.kind === "invalid") {
     logWebhook(line, "invalid");
     return new Response(null, { status: 200 });
@@ -246,9 +252,10 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
   const stub = inboxByName(env.SENDER_INBOX, groupInboxName(grouped.groupId));
   // The Worker's own address goes along, as for a 1:1 text: without it the group's pictures had nowhere to be
   // served from, and every answer with a card failed after its words went out (2026-10-26).
+  const brought = provider === undefined ? grouped : { ...grouped, provider };
   const result =
-    (await toChat(env, "group", groupInboxName(grouped.groupId), grouped, origin)) ??
-    (await stub.fetch(`https://inbox/group-accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(grouped) }));
+    (await toChat(env, "group", groupInboxName(grouped.groupId), brought, origin)) ??
+    (await stub.fetch(`https://inbox/group-accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(brought) }));
   logWebhook(line, "accepted", "group");
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
@@ -293,15 +300,19 @@ async function whapiWebhook(request: Request, env: Env, origin: string): Promise
     if (!result.ok) failed = true;
   }
   if (changed.length > 0) console.log(JSON.stringify({ event: "whapi_group_change", groups: changed.length, outcome: failed ? "failed" : "marked" }));
-  for (const event of parseWhapiWebhook(payload, keys.line)) {
-    const response = await whapiEvent(env, keys, event, origin, whapiGroupNames(payload)); // names beside, never in, messages
+  // Each message's own time, in the order the parse keeps (`whapiInbound.ts` reads `messages` one for one).
+  const times = isRecord(payload) && Array.isArray(payload.messages) ? payload.messages.map((m: unknown) => (isRecord(m) ? m.timestamp : undefined)) : [];
+  const receivedAt = Date.now();
+  for (const [index, event] of parseWhapiWebhook(payload, keys.line).entries()) {
+    const provider = arrivalOf("whapi", times[index], receivedAt);
+    const response = await whapiEvent(env, keys, event, origin, whapiGroupNames(payload), provider); // names beside, never in, messages
     if (response.status >= 500) failed = true;
   }
   // A queue that could not take one asks Whapi to deliver again; the inbox and the group queue drop what they already have.
   return new Response(null, { status: failed ? 503 : 200 });
 }
 
-async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof parseWhapiWebhook>[number], origin: string, names: Map<string, string>): Promise<Response> {
+async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof parseWhapiWebhook>[number], origin: string, names: Map<string, string>, provider?: ProviderArrival): Promise<Response> {
   if (event.kind === "group-message") {
     if (event.reactionOn !== undefined && event.reaction !== undefined) {
       // Every reaction is read (Dev2, 2026-11-01); the words come only from a text Tex sent in this same group, so a
@@ -312,9 +323,9 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
       );
       const reaction = { ...event.reaction, words: (words ?? "").slice(0, 500), ...(words === null ? { onOther: true as const } : { onTex: true as const }) };
       const { reactionOn: _on, ...message } = event;
-      return groupWebhook(env, { ...message, reaction }, origin, "whapi", names.get(event.groupId) ?? null);
+      return groupWebhook(env, { ...message, reaction }, origin, "whapi", names.get(event.groupId) ?? null, provider);
     }
-    return groupWebhook(env, event, origin, "whapi", names.get(event.groupId) ?? null);
+    return groupWebhook(env, event, origin, "whapi", names.get(event.groupId) ?? null, provider);
   }
   // One message that can't be read, or is not one we answer, leaves the rest of the delivery to be read.
   if (event.kind === "invalid" || event.kind === "ignored") {
@@ -332,11 +343,13 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
     }
     logWebhook("whapi", "accepted", "reaction");
     const stub = inboxByName(env.SENDER_INBOX, event.from);
-    const result = (await toChat(env, "react", event.from, event)) ?? (await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(event) }));
+    const reacted = { ...event, provider };
+    const result = (await toChat(env, "react", event.from, reacted)) ?? (await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(reacted) }));
     return new Response(null, { status: result.ok ? 200 : 503 });
   }
   logWebhook("whapi", "accepted");
-  const { replyTo: _reply, threadRoot: _root, ...message } = event;
+  const { replyTo: _reply, threadRoot: _root, ...rest } = event;
+  const message = { ...rest, provider };
   const stub = inboxByName(env.SENDER_INBOX, event.from);
   const result =
     (await toChat(env, "one", event.from, message, origin)) ??
@@ -417,3 +430,18 @@ async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat
 }
 
 export { SenderInbox } from "./chatObject";
+
+/**
+ * The provider's own time for an inbound text: Sendblue's `date_sent`; for Linq, the event's `sent_at` or
+ * `created_at` (on its `data` or the event itself). Null when it names none; `arrivalOf` then keeps no lag.
+ */
+function providerSentAt(line: "sendblue" | "linq", payload: unknown): number | null {
+  if (!isRecord(payload)) return null;
+  if (line === "sendblue") return providerTime(payload.date_sent);
+  const data = isRecord(payload.data) ? payload.data : {};
+  for (const value of [data.sent_at, data.created_at, payload.sent_at, payload.created_at]) {
+    const at = providerTime(value);
+    if (at !== null) return at;
+  }
+  return null;
+}

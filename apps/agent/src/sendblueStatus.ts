@@ -26,6 +26,7 @@ import { groupLineFor, groupLineSeam, type GroupLineDeps } from "./groupLine";
 import { lineFor, lineSeam, type LineDeps } from "./line";
 import { MAX_SENT, SENT_KEY } from "./groupSay";
 import { rememberText } from "./threads";
+import { providerError, sendReportOf, type ProviderSend, type SendStatusName } from "./providerTiming";
 
 /** A status body is small; anything this big is not one. */
 const MAX_BODY = 64 * 1024;
@@ -48,6 +49,14 @@ export type SendStatus = {
   /** The chat's object (the person's number, or the group's object name) and its chat id in the event log. */
   object: { kind: "person"; phone: string } | { kind: "group"; groupId: string };
   chat: string;
+  /** The status as the chat's `send` step keeps it, with Sendblue's own times (`providerTiming.ts`). */
+  report?: ProviderSend;
+};
+
+/** Sendblue's statuses as the `send` step names them. */
+const AS_SEND: Record<string, SendStatusName> = {
+  REGISTERED: "queued", PENDING: "queued", QUEUED: "queued", ACCEPTED: "queued",
+  SENT: "sent", DELIVERED: "delivered", READ: "read", ERROR: "failed", DECLINED: "failed", FAILED: "failed",
 };
 
 /**
@@ -66,7 +75,10 @@ export function parseSendStatus(payload: unknown): SendStatus | null {
   const code = payload.error_code;
   const errorClass = typeof code === "number" && Number.isFinite(code) ? String(Math.floor(code / 1000) * 1000) : undefined;
   const downgraded = payload.was_downgraded === true;
-  const base = { handle, status, ...(errorClass !== undefined ? { errorClass } : {}), downgraded };
+  // Sendblue's own times for the send and for this status: the gap is how long Sendblue took to get it there.
+  const error = NEVER_WENT.has(status) ? (providerError(code, payload.error_message) ?? { code: status.toLowerCase() }) : providerError(code, payload.error_message);
+  const report = sendReportOf("sendblue", handle, AS_SEND[status] ?? "other", { providerAt: payload.date_updated, sentAt: payload.date_created }, error);
+  const base = { handle, status, ...(errorClass !== undefined ? { errorClass } : {}), downgraded, report };
   const group = payload.group_id;
   if (typeof group === "string" && group !== "") return { ...base, object: { kind: "group", groupId: group }, chat: group };
   const line = payload.from_number;
