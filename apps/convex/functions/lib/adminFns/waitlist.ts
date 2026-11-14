@@ -132,7 +132,7 @@ function answerMatches(row: Doc<"waitlist">, needle: string): boolean {
 
 /** A floor past the ceiling, like the census: `10000` means "at least". */
 const COUNT_LIMIT = 10_000;
-async function countStatus(ctx: QueryCtx, status: Doc<"waitlist">["status"]): Promise<number> {
+export async function countStatus(ctx: QueryCtx, status: Doc<"waitlist">["status"]): Promise<number> {
   const rows = await ctx.db
     .query("waitlist")
     .withIndex("by_status_joinedAt", (q) => q.eq("status", status))
