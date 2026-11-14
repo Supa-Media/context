@@ -563,6 +563,7 @@ test/nightlyGraph.test.mjs
 test/egressPictureNodes.test.mjs
 test/texGraphStartNodes.test.mjs
 test/texGraphJobNode.test.mjs
+test/texGraphRoutineStart.test.mjs
 test/texGraphCheckin.test.mjs
 test/texJob.test.mjs
 test/texGraphDoor.test.mjs

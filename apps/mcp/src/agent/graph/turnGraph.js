@@ -11,9 +11,11 @@
 import { nodeEntry } from "../ledger.js";
 import { TEX_CONFIG } from "../texConfig.js";
 import { gatewayGraph } from "./gatewayGraph.js";
+import { startsAtRoutine } from "./nodes/routine.js";
 
-/** Where a turn's run starts: the first door step. */
+/** Where a turn's run starts: the first door step, or, for a routine's run, Routine runs, which is wired to it. */
 export const TURN_START = "readTheText";
+export const ROUTINE_START = "routine";
 
 /**
  * The runner's log for one turn: each node run as a `step` entry `step: "node"` of the chat's ledger (`ledger.js` `nodeEntry`). Kept
@@ -71,7 +73,7 @@ export async function runTurnGraph(t) {
     background: (running) => void t.tex.after("graph_background", running.finally(() => (log.write(), t.chatLog?.flush?.()))),
   });
   try {
-    await graph.run(TURN_START, {}, { turn: t, useSetup });
+    await graph.run(startsAtRoutine(t) ? ROUTINE_START : TURN_START, {}, { turn: t, useSetup });
   } finally {
     log.write();
   }
