@@ -11,7 +11,7 @@
  * (`ledgerHistory.js` `summaryLines`): the old stays in context at a few hundred characters a day.
  */
 
-import { requestViaGateway } from "./aiGateway.js";
+import { aiGatewayConfig, requestViaGateway } from "./aiGateway.js";
 import { dayOf } from "./jobLog.js";
 import { ledgerPlace, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { renderChatDays } from "./ledgerDays.js";
@@ -140,4 +140,20 @@ export async function writeDaySummaries({ store, session, now, timeZone, config,
   // Counts only: never a summary's words.
   log(JSON.stringify({ event: "tex_day_summaries", workspace: metadata?.workspace ?? null, days: days.length, missing: missing.length, written }));
   return { written, missing: missing.length };
+}
+
+/**
+ * Each finished day with no summary yet, summed up into the chat's ledger for later turns, after the nightly dream
+ * (the graph's `daysum` node, `nodes/daysum.js`). Best effort: it never throws, and answers what it did, as a short
+ * word for the log: "off" when `DAY_SUMMARIES` is off, "done" when the write finished, "failed" when it rejected.
+ */
+export async function summarizeDays(env, store, session, now, timeZone) {
+  if (env.DAY_SUMMARIES === "off") return "off";
+  const pending = writeDaySummaries({ store, session, now, timeZone, config: aiGatewayConfig(env), metadata: { feature: "day-summary", workspace: String(session.workspaceId) } });
+  try {
+    await pending;
+    return "done";
+  } catch {
+    return "failed";
+  }
 }

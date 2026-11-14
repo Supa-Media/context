@@ -73,7 +73,15 @@ export const NODE_INFO: Record<string, { goal: string; logs: string[] | null }> 
  job:{goal:"Do long work (browsing, forms, many steps) without holding up the reply.",logs:["job"]},
  jobcheck:{goal:"Check a job's work as it goes and steer it when it drifts.",logs:["advisor (check)"]},
  mailadv:{goal:"Decide what to tell the person when a job gets mail it can't handle alone.",logs:null},
- handback:{goal:"Make sure what a job hands back is true and finished before the person hears it.",logs:null}
+ handback:{goal:"Make sure what a job hands back is true and finished before the person hears it.",logs:null},
+ egress:{goal:"Let a step that widens who can see something, or acts in the person's name, run only when the person's own words ask for it; anything but a clear yes is a no.",logs:["judge (egress)"]},
+ picture:{goal:"Draw a card or graphic, or make a photo with Gemini, for a texted answer; every one is looked at by Card check before it may go.",logs:["tool (picture)"]},
+ nudge:{goal:"Every ten texts, or when an answer was about them, write what was learned into About me now instead of waiting for the dream.",logs:["step nudge"]},
+ reflect:{goal:"After a hard or corrected turn, write down what worked as a learned skill for next time.",logs:["step reflect"]},
+ nightly:{goal:"Start each night's work for a person: the dream and the summaries of their days, and housekeeping, each on the schedule the control plane keeps.",logs:["step nightly"]},
+ dream:{goal:"Read the chat since the last dream and the memories that fit, and keep About me true: add what was learned, take out what is no longer so.",logs:["step dream"]},
+ daysum:{goal:"Sum up each finished day of the chat that has no summary yet, into the chat's ledger, for later turns.",logs:["step daysum"]},
+ housekeep:{goal:"Tidy their workspace once a day within its time limit: fix what the health check names, change nothing it cannot undo, and log each change.",logs:["step housekeep"]}
 };
 
 /**

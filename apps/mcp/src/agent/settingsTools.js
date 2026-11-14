@@ -188,7 +188,7 @@ const VAULT_WORDS = /\b(shar\w*|give|let|access|use|everyone|everybody|workspace
 
 /**
  * `send setting` and `send vault_access` for a texted turn. `consent(kind)` is the turn's own-words check
- * (`consentForTurn`), asked only before a widening.
+ * (`consentFor`), asked only before a widening.
  */
 export function settingsTools({ session, controlPlane, group, dispatch, words = "", judge = null, onInvite = null }) {
   const tools = [];

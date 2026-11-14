@@ -696,5 +696,5 @@ export function groupAwareCallTool(callTool, writeTools, { store = null, group =
 }
 
 // Tex's chat commands as tools (`commandTools.js`), imported by `texEntryPoint.js` with the rest of a chat turn's pieces.
-export { commandTools, consentForTurn } from "./commandTools.js";
+export { commandTools } from "./commandTools.js";
 export { settingsChanged } from "./pageSettings.js";

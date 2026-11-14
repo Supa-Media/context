@@ -164,7 +164,9 @@ function log(session, fields) {
 /**
  * After a texted turn that could write in their personal workspace: nudge
  * once `NUDGE_EVERY` of their texts have come since the last time. Never
- * throws, never texts.
+ * throws, never texts. Returns `{ outcome }`: "counting" (the first turn only
+ * sets the count), "not_yet" (below `NUDGE_EVERY`), "nothing_shown", "wrote",
+ * "exhausted", "none" or "failed".
  */
 export async function memoryNudge({ env, controlPlane, store, session, offered, dispatch, now = Date.now(), current = null }) {
   try {
@@ -174,17 +176,20 @@ export async function memoryNudge({ env, controlPlane, store, session, offered, 
       // Counting starts now, not over texts from before there was a nudge.
       const latest = history.reduce((most, turn) => (Number.isFinite(turn.at) ? Math.max(most, turn.at) : most), 0);
       await store.put(NUDGE_MARKER, JSON.stringify({ at: latest || now }));
-      return;
+      return { outcome: "counting" };
     }
     const counted = textsSince(history, marker);
     // This turn's own exchange is saved after this runs, so it is added here to see what it answered.
     const withCurrent = withThisTurn(history, current, now);
     const asked = withCurrent !== history && answersAskAboutThem(withCurrent);
-    if (counted.count < NUDGE_EVERY && !asked) return;
+    if (counted.count < NUDGE_EVERY && !asked) return { outcome: "not_yet" };
     const since = asked ? textsSince(withCurrent, marker) : counted;
     // Counted whatever comes of it, so a failing nudge is not retried every text.
     await store.put(NUDGE_MARKER, JSON.stringify({ at: since.newest }));
-    if (since.shown.length === 0) return log(session, { outcome: "nothing_shown", texts: since.count });
+    if (since.shown.length === 0) {
+      log(session, { outcome: "nothing_shown", texts: since.count });
+      return { outcome: "nothing_shown" };
+    }
 
     const tools = (Array.isArray(offered) ? offered : []).filter((tool) => tool.name === "read_note" || tool.name === "write_note");
     const model = builtinModel(env);
@@ -208,11 +213,15 @@ export async function memoryNudge({ env, controlPlane, store, session, offered, 
       });
     } catch (error) {
       await meter(null, true, error instanceof ProviderError ? error.model : model);
-      return log(session, { outcome: "failed", code: error instanceof ProviderError ? "provider" : "error" });
+      log(session, { outcome: "failed", code: error instanceof ProviderError ? "provider" : "error" });
+      return { outcome: "failed" };
     }
     await meter(ran.usage, false, ran.model);
-    log(session, { outcome: callTool.wrote() ? "wrote" : ran.exhausted ? "exhausted" : "none", texts: since.count });
+    const outcome = callTool.wrote() ? "wrote" : ran.exhausted ? "exhausted" : "none";
+    log(session, { outcome, texts: since.count });
+    return { outcome };
   } catch (error) {
     log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
+    return { outcome: "failed" };
   }
 }

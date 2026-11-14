@@ -126,7 +126,7 @@ export function fold(n: LabNode, g: LabGraph, s: string, tags: string[], log: Lo
 }
 
 /** Steps whose every run leaves a ledger entry for its turn (`realTimes.ts`), so no entry means it did not run. */
-const LOGS_WHEN_RUN = new Set(["reviewer", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "tools"]);
+const LOGS_WHEN_RUN = new Set(["reviewer", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "tools", "egress", "picture", "nudge", "reflect", "nightly", "dream", "daysum", "housekeep"]);
 
 /** `from` names the start step outright, for a run not traced on the canvas (Replay's timeline rows). */
 export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | null = null, from?: string): Sim {

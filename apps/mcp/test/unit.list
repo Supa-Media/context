@@ -554,3 +554,6 @@ test/texPrefixPrint.test.mjs
 test/promptCatalog.test.mjs
 test/texGraph.test.mjs
 test/texGraphHome.test.mjs
+test/reflectNudgeNodes.test.mjs
+test/nightlyGraph.test.mjs
+test/egressPictureNodes.test.mjs

@@ -186,34 +186,51 @@ function log(session, fields) {
 }
 
 /**
- * After a turn has answered: stamp the learned skills it read, reflect when
- * the turn qualifies (`reflectReason`), and nudge the memory every 10 texts
- * (`memoryNudge.js`). Never throws, never texts.
+ * The reflect step after a texted turn: gate it (texted, could write, personal workspace), stamp the learned skills it
+ * read, and reflect when the turn qualifies (`reflectReason`). Background (`send`'s `reflect` node, `nodes/reflect.js`):
+ * never throws, never texts. Returns `{ outcome, reason? }`, "skipped" when the gate fails.
  *
  * @param {object} options
  * @param {{index: Array, used: Set<string>} | null} options.learned the turn's `learnedSkillSession`
  */
-export async function afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted, ownText = false, learned, canWrite, now = Date.now(), timeZone }) {
+export async function reflectAfterTurn({ env, controlPlane, store, session, offered, question, turn, tainted, ownText = false, learned, canWrite, now = Date.now(), timeZone }) {
   try {
     const texted = session?.actorClientId === TEXTS_CLIENT_ID;
     const personal = (store?.contexts ?? []).find((entry) => entry.current)?.kind === "personal";
-    if (!texted || !canWrite || !personal) return;
+    if (!texted || !canWrite || !personal) return { outcome: "skipped" };
     const dispatch = ownDispatch(store, session);
     const today = dayOf(now, timeZone);
     const used = [...(learned?.used ?? [])];
     if (used.length > 0) await stampUsed(dispatch, used, today);
-    await reflect({ env, controlPlane, session, offered, question, turn, tainted, ownText, learned, canWrite, texted, dispatch, used, today });
-    // Every 10 texts, what was learned goes to about-me now, not at the dream (`memoryNudge.js`).
-    await memoryNudge({ env, controlPlane, store, session, offered, dispatch, now, current: { question, answer: turn?.answer, tainted } });
+    return await reflect({ env, controlPlane, session, offered, question, turn, tainted, ownText, learned, canWrite, texted, dispatch, used, today });
   } catch (error) {
     log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
+    return { outcome: "failed" };
+  }
+}
+
+/**
+ * The memory nudge after a texted turn: the same gate as `reflectAfterTurn`, then nudge once 10 of the person's texts
+ * have come since the last time (`memoryNudge.js`). Background (`send`'s `nudge` node, `nodes/nudge.js`): never throws,
+ * never texts. Returns `{ outcome }`.
+ */
+export async function nudgeAfterTurn({ env, controlPlane, store, session, offered, question, turn, tainted, canWrite, now = Date.now() }) {
+  try {
+    const texted = session?.actorClientId === TEXTS_CLIENT_ID;
+    const personal = (store?.contexts ?? []).find((entry) => entry.current)?.kind === "personal";
+    if (!texted || !canWrite || !personal) return { outcome: "skipped" };
+    const dispatch = ownDispatch(store, session);
+    return await memoryNudge({ env, controlPlane, store, session, offered, dispatch, now, current: { question, answer: turn?.answer, tainted } });
+  } catch (error) {
+    log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
+    return { outcome: "failed" };
   }
 }
 
 async function reflect({ env, controlPlane, session, offered, question, turn, tainted, ownText, learned, canWrite, texted, dispatch, used, today }) {
   try {
     const reason = reflectReason({ texted, canWrite, tainted, ownText, exhausted: turn?.exhausted === true, steps: turn?.steps, question });
-    if (reason === null) return;
+    if (reason === null) return { outcome: "skipped" };
     const model = builtinModel(env);
     const started = Date.now();
     const meter = builtinMeter(controlPlane, session, model, started);
@@ -237,12 +254,14 @@ async function reflect({ env, controlPlane, session, offered, question, turn, ta
     } catch (error) {
       await meter(null, true, error instanceof ProviderError ? error.model : model);
       log(session, { outcome: "failed", reason, code: error instanceof ProviderError ? "provider" : "error" });
-      return;
+      return { outcome: "failed", reason };
     }
     await meter(ran.usage, false, ran.model);
     const outcome = callTool.wrote() ? "wrote" : ran.exhausted ? "exhausted" : "none";
     log(session, { outcome, reason, tainted, steps: ran.steps.length });
+    return { outcome, reason };
   } catch (error) {
     log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
+    return { outcome: "failed" };
   }
 }

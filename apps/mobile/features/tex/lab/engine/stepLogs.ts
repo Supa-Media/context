@@ -37,6 +37,14 @@ export const STEP_LOGS: Record<string, StepLog> = {
   jobcheck: { got: "advisor (check): the job's work so far", gave: "advisor (check): keep going or done, and why", settings: "the advisor's model" },
   mailadv: { got: "step mailadv: the mail and who sent it", gave: "step mailadv: what to tell them", settings: "its model" },
   handback: { got: "step handback: the job's answer", gave: "step handback: passed, or what's wrong", settings: "its model" },
+  egress: { got: "step egress: the words, the action, the workspace and the subject", gave: "step egress: allow or not, and why", settings: "its model and effort" },
+  picture: { got: "step picture: the tool (draw_visual, draw_picture or make_picture) and its args", gave: "step picture: the result", settings: "its model (Gemini)" },
+  nudge: { got: "step nudge: the question, the answer and whether the chat is tainted", gave: "step nudge: what it wrote into About me", settings: "its model" },
+  reflect: { got: "step reflect: the question, tainted, own text and can write", gave: "step reflect: what it wrote down, and why not", settings: "its model" },
+  nightly: { got: "step nightly: which run (dream or housekeeping), the time zone and since", gave: "step nightly: which step it started and with what", settings: "code; the control plane's schedule" },
+  dream: { got: "step dream: the time zone and since", gave: "step dream: the outcome, the status and when", settings: "its model" },
+  daysum: { got: "step daysum: the time zone and now", gave: "step daysum: the outcome", settings: "its model" },
+  housekeep: { got: "step housekeep: the time zone", gave: "step housekeep: the outcome and the status", settings: "its model" },
 };
 
 /** Step names the gateway and Worker log under another canvas step's name. */

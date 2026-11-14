@@ -409,10 +409,10 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
    * picture, so it is redrawn or answered in words. After `MAX_HELD` the
    * critique rides along with the picture instead, so a turn always ends.
    */
-  async function looked(name, args, result) {
+  async function looked(name, args, result, using) {
     const image = Array.isArray(result?.content) ? result.content.find((part) => part?.type === "image") : null;
-    if (typeof check !== "function" || result?.isError || !image) return result;
-    const verdict = await check({ tool: name, template: typeof args?.template === "string" ? args.template : "", picture: { data: image.data, mediaType: image.mimeType }, unpinned: Array.isArray(result?.unpinned) ? result.unpinned : [] });
+    if (typeof using !== "function" || result?.isError || !image) return result;
+    const verdict = await using({ tool: name, template: typeof args?.template === "string" ? args.template : "", picture: { data: image.data, mediaType: image.mimeType }, unpinned: Array.isArray(result?.unpinned) ? result.unpinned : [] });
     if (verdict === null || verdict.send) return result;
     if (held < MAX_HELD) {
       held += 1;
@@ -427,7 +427,11 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     useWeb: (call) => void (web = typeof call === "function" ? call : null),
     // A page's write passes through too, so its options get the pictures a card's do (`./visuals/pagePhotos.js`).
     has: (name) => ((name === DRAW_TOOL || name === VISUAL_TOOL) && shots !== null) || (name === MAKE_TOOL && gateway !== null) || (name === "write_note" && (web !== null || shots !== null)),
-    call: async (name, args, callTool) => (name === "write_note" ? pageWrite(args, callTool) : looked(name, args, await (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args, callTool) : make(args)))),
+    // `options.check`, when the key is present, replaces this maker's own check for this one call (the graph's card node, `graph/nodes/picture.js`).
+    call: async (name, args, callTool, options = null) => {
+      const using = options !== null && Object.hasOwn(options, "check") ? options.check : check;
+      return name === "write_note" ? pageWrite(args, callTool) : looked(name, args, await (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args, callTool) : make(args)), using);
+    },
   };
 }
 
@@ -448,6 +452,8 @@ export function loggedCardCheck(steps, check) {
 
 export async function turnPictures(env, { texted, question, attachments, store, keep, meter, workspaceId, keepCover = null, steps = null }) {
   const outgoing = outgoingPictures({ enabled: texted, question });
+  // Every picture is looked at before it may go (owner, 2026-10-27: "always look at a card before sending it"). Made once: the maker and the graph's card node share it.
+  const cardCheck = texted && env?.CARD_CHECK !== "off" ? loggedCardCheck(steps, cardCheckFor({ question, config: aiGatewayConfig(env), metadata: { workspace: String(workspaceId), client: "texts" } })) : null;
   const maker = texted
     ? pictureMaker(env, {
         gateway: aiGatewayConfig(env),
@@ -458,13 +464,12 @@ export async function turnPictures(env, { texted, question, attachments, store, 
         meter: (usage, failed, model) => meter(usage, failed, model, false),
         metadata: { workspace: String(workspaceId), client: "texts" },
         keepCover,
-        // Every picture is looked at before it may go (owner, 2026-10-27: "always look at a card before sending it").
-        check: env?.CARD_CHECK === "off" ? null : loggedCardCheck(steps, cardCheckFor({ question, config: aiGatewayConfig(env), metadata: { workspace: String(workspaceId), client: "texts" } })),
+        check: cardCheck,
       })
     : null;
   // Kept before the turn runs, so a later "try again" has them whatever this turn does.
   if (maker !== null && keep) await keepPhotos(store, attachments);
-  return { outgoing, maker };
+  return { outgoing, maker, cardCheck };
 }
 
 const DRAWN_REF = /^picture:(\d{1,2})$/;
@@ -495,9 +500,10 @@ export function withDrawnImages(outgoing, callTool) {
   };
 }
 
-export function withPictureMaker(maker, callTool) {
+/** `run(name, args, callTool)`, when given, makes the call in place of `maker.call` (the graph's picture node, `graph/nodes/picture.js`). */
+export function withPictureMaker(maker, callTool, run = null) {
   if (maker === null) return callTool;
-  return (name, args) => (maker.has(name) ? maker.call(name, args, callTool) : callTool(name, args));
+  return (name, args) => (maker.has(name) ? (run ? run(name, args, callTool) : maker.call(name, args, callTool)) : callTool(name, args));
 }
 
 /**

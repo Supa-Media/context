@@ -46,6 +46,15 @@ const entries: LedgerEntry[] = [
   e({ kind: "advisor", turn: T, check: true, jobTitle: "Flights", question: "Done?", answer: "Not yet.", ms: 8_000 }),
   step("mailadv", { input: { question: "reply?", from: "airline" }, output: "Tell them." }),
   step("handback", { input: "Here are flights.", output: null }),
+  step("egress", { input: { words: "share the trip", action: "share", workspace: "band" }, output: { allow: false, reason: "not clear" } }),
+  step("picture", { input: { tool: "draw_visual", args: { title: "Route" } }, output: { result: "drawn" } }),
+  step("nudge", { input: { question: "who has the van?", answer: "Kemi does.", tainted: false }, output: { outcome: "wrote one line" } }),
+  step("reflect", { input: { question: "plan the trip", tainted: false, ownText: true, canWrite: true }, output: { outcome: "nothing new", reason: "routine turn" } }),
+  // The night's steps run on the control plane's schedule, not in a text's turn; the fixture logs them under this turn.
+  step("nightly", { input: { run: "dream", timeZone: "Europe/London", since: 1 }, output: { to: "dream", timeZone: "Europe/London", since: 1 } }),
+  step("dream", { input: { timeZone: "Europe/London", since: 1 }, output: { outcome: "kept", status: 200, when: [] } }),
+  step("daysum", { input: { timeZone: "Europe/London", now: 2 }, output: { outcome: "summed one day" } }),
+  step("housekeep", { input: { timeZone: "Europe/London" }, output: { outcome: "tidied", status: 200 } }),
   e({ kind: "reply", turn: T, text: "Started.", timing: { v: 2, waitMs: 1_200, replyMs: 9_000, steps: [{ name: "history", at: 10, ms: 300 }], rounds: [{ at: 900, ms: 4_000, model: "anthropic/claude-haiku-5-5", output: 200, prompt: { modules: [{ id: "stable/texting", n: 90_000, h: "aa" }] } }] } }),
 ];
 

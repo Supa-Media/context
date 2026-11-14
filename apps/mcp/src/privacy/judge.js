@@ -111,7 +111,7 @@ export function subjectLines(subject) {
  * Ask the judge. Never throws: anything but a clear yes is a no, with a reason
  * the asking model can pass on.
  */
-export async function judgeWords({ words, action, workspace, subject }, config, { fetchImpl } = {}) {
+export async function judgeWords({ words, action, workspace, subject }, config, { fetchImpl, model = DEFAULT_GATEWAY_MODEL, effort = "low" } = {}) {
   const said = judgedWords(words);
   if (said === "") return { allow: false, reason: "the person has not said anything about it yet" };
   // The tag the words sit in cannot be closed from inside them.
@@ -124,13 +124,13 @@ export async function judgeWords({ words, action, workspace, subject }, config, 
   try {
     const answer = await requestViaGateway(
       {
-        model: DEFAULT_GATEWAY_MODEL,
+        model,
         system: SYSTEM,
         messages: [{ role: "user", text: user }],
         tools: [VERDICT_TOOL],
         toolChoice: VERDICT_TOOL.name,
         maxTokens: 1024,
-        effort: "low",
+        effort,
       },
       config,
       { metadata: { feature: "egress-judge" }, fetchImpl },

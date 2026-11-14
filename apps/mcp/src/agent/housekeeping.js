@@ -29,7 +29,6 @@
  * any other change, attributed to the client that ran it.
  */
 
-import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { eventLines } from "./transcript.js";
 import { openProvider, runTurn } from "./turn.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
@@ -37,11 +36,7 @@ import { PRODUCTION_HOUSEKEEPING_PATH, readJobSetup } from "./production.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { readAboutMe } from "./aboutMe.js";
-import { actorFor, contextsFor } from "../context/identity.js";
-import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
-import { newLedger } from "../privacy/egress.js";
-import { json } from "../http/responses.js";
 import { appendLogEntry, builtinMeter, clock, dayOf, logSkipped, longDate, refusedRun } from "./jobLog.js";
 import { factJobs } from "../tree/facts.js";
 import { HOUSEKEEPING_GRANTS, housekeepingCallTool, housekeepingTools, undoLine } from "./housekeepingGuard.js";
@@ -206,31 +201,17 @@ export async function healthOf(dispatch, tries = HEALTH_TRIES) {
 }
 
 /**
- * One housekeeping run, for whichever turn handler the caller's client is
- * routed to (`http/route.js`). The caller decides when; this decides what.
+ * One housekeeping run, for the graph's `housekeep` node (`graph/nodes/housekeep.js`), which the nightly route starts
+ * (`nightlyRoute.js`). The caller decides when; this decides what. The caller has checked the client and the body.
+ *
+ * Answers `{ outcome, status, body }`: `body` and `status` are the response, and `outcome` is for the log.
  */
-export async function handleHousekeeping(request, env, store, session, controlPlane) {
+export async function housekeepNight({ env, store, session, controlPlane, dispatch, timeZone }) {
   // `HOUSEKEEPING_WALL_MS` in the environment shortens it for a test; it is never longer than the Worker waits.
   const wallMs = Math.min(HOUSEKEEPING_WALL_MS, Number(env?.HOUSEKEEPING_WALL_MS) > 0 ? Number(env.HOUSEKEEPING_WALL_MS) : HOUSEKEEPING_WALL_MS);
-  if (session.actorClientId !== HOUSEKEEPING_CLIENT_ID) return json({ error: "invalid_request", error_description: "Only Tex's housekeeping keeps house." }, 403);
-  let body = null;
-  try {
-    body = await request.json();
-  } catch {
-    body = null;
-  }
-  const asked = body?.housekeeping !== undefined && body.housekeeping !== null && typeof body.housekeeping === "object" && !Array.isArray(body.housekeeping);
-  if (!asked) return json({ error: "invalid_request", error_description: "This connection only keeps house." }, 400);
-
-  store.actor = actorFor(session);
-  store.contexts = contextsFor(session);
-  // Nothing housekeeping reads is sent anywhere, and nothing it changes widens who sees it.
-  session.egress = { complete: true, ledger: newLedger(), texting: false };
-  const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
-
-  const timeZone = readTimeZone(body.housekeeping.timeZone) ?? DEFAULT_TIME_ZONE;
+  const answer = (body, status) => ({ outcome: body.outcome ?? body.error, status, body });
   // They switched it off (`texSwitches.js`): nothing is read, changed or logged, and tomorrow asks again.
-  if (await isSwitchedOff(dispatch, HOUSEKEEPING_SETTINGS_PATH)) return json({ outcome: "unchanged", changes: 0, paused: true });
+  if (await isSwitchedOff(dispatch, HOUSEKEEPING_SETTINGS_PATH)) return answer({ outcome: "unchanged", changes: 0, paused: true }, 200);
   const started = Date.now();
   const offered = await grantedToolsFor(session, store);
   const health = await healthOf(dispatch);
@@ -244,7 +225,7 @@ export async function handleHousekeeping(request, env, store, session, controlPl
       const now = Date.now();
       return logSkipped(dispatch, { path: housekeepingPath(now, timeZone), heading: heading(now, timeZone), now, timeZone, words });
     });
-    return json(refused.body, refused.status);
+    return answer(refused.body, refused.status);
   }
 
   const events = [];
@@ -348,12 +329,12 @@ export async function handleHousekeeping(request, env, store, session, controlPl
       ms: now - started,
     }),
   );
-  if (outcome === "failed") return json({ error: "model_unavailable", outcome }, 502);
-  return json({
+  if (outcome === "failed") return answer({ error: "model_unavailable", outcome }, 502);
+  return answer({
     outcome,
     changes: changes.length,
     chaos: { before, after },
     line: summaryLine(turn?.answer, changes),
     log: logged ? housekeepingPath(now, timeZone) : null,
-  });
+  }, 200);
 }

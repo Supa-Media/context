@@ -39,7 +39,6 @@
  * holds, and a muted chat has no turn to call a tool from.
  */
 
-import { judgeFor } from "../privacy/judge.js";
 
 const INSTRUCTIONS_SCHEMA = {
   type: "object",
@@ -92,11 +91,6 @@ export function consentFor(words, judge = null) {
       return false;
     }
   };
-}
-
-/** `consentFor` with this deployment's judge, or the code check alone where there is none (self-hosting). */
-export function consentForTurn(words, env) {
-  return consentFor(words, judgeFor(env));
 }
 
 /** One tool's answer, as words the turn may repeat. Anything unexpected is a failure, never a success. */
