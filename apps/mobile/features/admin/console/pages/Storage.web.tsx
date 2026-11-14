@@ -21,7 +21,7 @@ type LastMove = {
   reason: string | null;
   at: number;
 } | null;
-type StorageWorkspace = { workspaceId: string; slug: string; kind: "personal" | "shared"; home: Home; notes: number | null; since: number | null; lastMove?: LastMove };
+type StorageWorkspace = { workspaceId: string; slug: string; kind: "personal" | "shared"; home: Home; notes: number | null; notesFloor?: boolean; since: number | null; lastMove?: LastMove };
 type StorageReport = { counts: { object: number; dual: number; bucket: number; total: number }; workspaces: StorageWorkspace[] };
 type Loaded<T> = T | Error | undefined;
 /** While a move runs, the report is read again this often; a finished visit reads it once. */
@@ -146,7 +146,7 @@ function movingPanel(d: StorageData | undefined) {
                     w.workspaceId,
                   )
                       : `${refusedLine(move)}<button class="ghost" data-act="askmove" data-id="${id}">${w.home === "dual" ? "Switch reads" : "Start moving"}</button>`;
-          return `<tr><td>@${esc(w.slug)}</td><td class="hp">${esc(w.kind)}</td><td>${pill(w.home, HOME_TONE[w.home])}</td><td class="r hp">${w.notes == null ? "—" : count(w.notes)}</td><td class="hp">${w.since == null ? "—" : shortDay(w.since)}</td><td class="r">${action}</td></tr>`;
+          return `<tr><td>@${esc(w.slug)}</td><td class="hp">${esc(w.kind)}</td><td>${pill(w.home, HOME_TONE[w.home])}</td><td class="r hp">${w.notes == null ? "—" : count(w.notes) + (w.notesFloor ? "+" : "")}</td><td class="hp">${w.since == null ? "—" : shortDay(w.since)}</td><td class="r">${action}</td></tr>`;
         })
         .join("") || `<tr><td colspan="6" class="empty">${S.f.ws === "all" ? "No workspaces yet" : `No workspace is on ${esc(S.f.ws)}`}</td></tr>`}</table></div>`
     : d?.report instanceof Error
