@@ -37,7 +37,7 @@ import { priceUsd } from "./report.mjs";
 import { readHeldOut } from "./replayGate.mjs";
 import { readSetups, readSkills, setupInWorld } from "./run.mjs";
 import { prepareRun } from "./warm.mjs";
-import { modelSocket, socketSend } from "./modelSocket.mjs";
+import { assertAnswered, modelSocket, socketRequest, socketSend } from "./modelSocket.mjs";
 import { cachedEmbeddings, fakeAi } from "./models.mjs";
 import { benchModels } from "./worldModels.mjs";
 import { createWorld } from "./world.mjs";
@@ -220,7 +220,11 @@ export async function jobTasksCommand(options, { write = (text) => process.stdou
   // answers it with stand-in words: no key, nothing spent, and the quality grade is the stand-in's too.
   const socket = options.fake ? null : modelSocket(process.env, { blocking: true });
   const fingerprint = socket?.mode === "fingerprint";
-  if (!options.fake && !fingerprint && config === null) throw new Error("set AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID and AI_GATEWAY_TOKEN");
+  // Through the model socket an examiner session answers every Claude call, the quality judge's included, and CI
+  // replays the run from those answers alone (Dev2, 2026-11-13, no API credits; 2026-11-14: every config change now
+  // reaches every area's prompts, jobs' too, since what Tex is told about itself is the config's).
+  const socketed = socket !== null && socket.covers("claude");
+  if (!options.fake && !socketed && config === null) throw new Error("set AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID and AI_GATEWAY_TOKEN");
   const bench = await readBenchFolder(REPO_BENCH_FOLDER);
   const setupsDir = benchFolder(options);
   const setupName = options.setup ?? "production";
@@ -230,11 +234,11 @@ export async function jobTasksCommand(options, { write = (text) => process.stdou
   const cases = [...(await loadCases()), ...(await readHeldOut(options["held-out"], "jobs"))].filter((item) => !only || only.has(item.id));
   const maxParts = Number(options["max-parts"] ?? MAX_PARTS);
   const maxUsd = Number(options["max-usd"] ?? MAX_USD);
-  const models = { ...benchModels(options, { scripted: true, sites: bench.sites, ...(fingerprint ? { send: socketSend(socket) } : {}) }), skills };
+  const models = { ...benchModels(options, { scripted: true, sites: bench.sites, ...(socketed ? { send: socketSend(socket) } : {}) }), skills };
   // Workers AI (embeddings, Clef) answers with the scripted stand-in, as a socketed run's does (`run.mjs`): a real model's
   // numbers would change what a turn reads, and so its prompts.
-  if (fingerprint) models.ai = cachedEmbeddings(fakeAi());
-  const request = options.fake || fingerprint ? fakeQuality : (params) => requestViaGateway(params, config, { metadata: { feature: "bench", client: "job-tasks" } });
+  if (socketed) models.ai = cachedEmbeddings(fakeAi());
+  const request = options.fake || fingerprint ? fakeQuality : socketed ? socketRequest(socket) : (params) => requestViaGateway(params, config, { metadata: { feature: "bench", client: "job-tasks" } });
   const records = [];
   let spent = 0;
   for (const item of cases) {
@@ -273,6 +277,8 @@ export async function jobTasksCommand(options, { write = (text) => process.stdou
     process.stderr.write(`${item.id}: ${record.right ? "right" : "wrong"}, ended ${record.status} after ${record.parts.length} part(s), $${record.usd.toFixed(2)}\n`);
   }
   for (const record of records) record.right ??= false;
+  // A call the examiner never answered fails the run rather than score the path the code fell back to.
+  if (socketed && !fingerprint) assertAnswered(socket, "the jobs run");
   // A held-out case's words never reach the report: it counts, and is named by its cause alone.
   const held = records.filter((record) => record.heldOut);
   const heldWrong = held.filter((record) => !record.right);

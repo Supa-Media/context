@@ -536,6 +536,7 @@ bench/test/advisor.test.mjs
 bench/test/modelSocket.test.mjs
 bench/test/coreArea.test.mjs
 bench/test/coreSocket.test.mjs
+bench/test/jobsSocket.test.mjs
 bench/test/nightly.test.mjs
 test/texWindowStep.test.mjs
 bench/test/jobTasks.test.mjs
@@ -553,3 +554,6 @@ test/workerSteps.test.mjs
 test/texPrefixPrint.test.mjs
 test/promptCatalog.test.mjs
 test/searchQuality.test.mjs
+test/chatQueue.test.mjs
+test/texChat.test.mjs
+test/textsArrive.test.mjs

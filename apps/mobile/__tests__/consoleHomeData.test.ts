@@ -154,10 +154,10 @@ describe("homeTiles", () => {
     expect(t.detail).toBe("8 with accounts · 4 guests");
   });
 
-  test("texts received sums one-to-one and group texts and reads 'N answered'", () => {
+  test("texts received sums one-to-one and group texts and reads 'N answered', with no thousands separator as the artifact draws it", () => {
     const t = byKey(homeTiles({ d: "7", stats, costs, accounts: 14, answered: 1000 })).texts;
-    expect(t.value).toBe("1,234");
-    expect(t.detail).toBe("1,000 answered");
+    expect(t.value).toBe("1234");
+    expect(t.detail).toBe("1000 answered");
     expect(t.spark).toEqual([5, 0]);
   });
 
@@ -512,6 +512,17 @@ describe("homeTiles with unknown costs and partial windows", () => {
     expect(t.texters.detail).toBe("2 with accounts · 2 guests · last 60 days");
     expect(t.texts.detail).toContain("last 60 days");
     expect(t.cpt.detail).toContain("last 60 days");
+  });
+
+  test("a partial window's note joins the tile's line with one separator, never a leading one", () => {
+    const t = byKey(homeTiles({ d: "90", stats: base, costs: null, accounts: null, answered: null, partial: true }));
+    expect(t.dap.detail).toBe("last 60 days");
+    expect(t.texts.detail).toBe("last 60 days");
+    expect(t.cpt.detail).toBe("last 60 days");
+    expect(t.spent.detail).toBe("last 60 days");
+    const withAccounts = byKey(homeTiles({ d: "90", stats: base, costs: null, accounts: 3, answered: 1714, partial: true }));
+    expect(withAccounts.dap.detail).toBe("of 3 people · last 60 days");
+    expect(withAccounts.texts.detail).toBe("1714 answered · last 60 days");
   });
 
   test("a partial window with costs given says it on the stats tiles only; the spend line keeps its own detail", () => {

@@ -114,6 +114,10 @@ Moved to [Related notes are the map's links for one note, plus one search](./sea
 
 Moved to [Every search is timed, and the time is all that is kept](./search/search-timings.md#every-search-is-timed-and-the-time-is-all-that-is-kept).
 
+### Which result was opened, keyed so the control plane cannot read it back
+
+Moved to [Which result was opened, keyed so the control plane cannot read it back](./search/search-timings.md#which-result-was-opened-keyed-so-the-control-plane-cannot-read-it-back).
+
 ### Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
 
 Moved to [Search by meaning is on for every workspace, free and Premium, and an owner can turn it off](./search/meaning-search.md#search-by-meaning-is-on-for-every-workspace-free-and-premium-and-an-owner-can-turn-it-off).

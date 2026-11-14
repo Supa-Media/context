@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "@jest/globals";
 import { KNOWN_SECRETS } from "../features/admin/report";
-import { needsSourcesOf, toNeed } from "../features/admin/console/pages/needs.web";
+import { needsSourcesOf, openTexReports, toNeed } from "../features/admin/console/pages/needs.web";
 import { needsList, type NeedLine } from "../features/admin/console/pages/homeData";
 
 type Raw = Parameters<typeof needsSourcesOf>[0];
@@ -29,54 +29,74 @@ const allSecrets = () => KNOWN_SECRETS.map((k) => ({ name: k.name }));
 
 describe("needsSourcesOf", () => {
   test("a fully set list of known credentials leaves none unset", () => {
-    const s = needsSourcesOf({ secrets: allSecrets(), reports: [], turns: undefined, light: undefined });
+    const s = needsSourcesOf({ secrets: allSecrets(), reports: [], texReports: undefined, turns: undefined, light: undefined });
     expect(s.secretsUnset).toBe(0);
   });
 
   test("a list missing one known credential counts exactly that one", () => {
     const missing = KNOWN_SECRETS[0]!.name;
     const secrets = allSecrets().filter((row) => row.name !== missing);
-    const s = needsSourcesOf({ secrets, reports: undefined, turns: undefined, light: undefined });
+    const s = needsSourcesOf({ secrets, reports: undefined, texReports: undefined, turns: undefined, light: undefined });
     expect(s.secretsUnset).toBe(1);
   });
 
   test("an unknown name in the list does not stand in for a missing known one", () => {
     const secrets = allSecrets().slice(1).concat([{ name: "SOMETHING_ELSE" }]);
-    const s = needsSourcesOf({ secrets, reports: undefined, turns: undefined, light: undefined });
+    const s = needsSourcesOf({ secrets, reports: undefined, texReports: undefined, turns: undefined, light: undefined });
     expect(s.secretsUnset).toBe(1);
   });
 
   test("no credentials set at all counts every known one", () => {
-    const s = needsSourcesOf({ secrets: [], reports: undefined, turns: undefined, light: undefined });
+    const s = needsSourcesOf({ secrets: [], reports: undefined, texReports: undefined, turns: undefined, light: undefined });
     expect(s.secretsUnset).toBe(KNOWN_SECRETS.length);
   });
 
   test("a credentials read still loading is undefined, never zero", () => {
-    const s = needsSourcesOf({ secrets: undefined, reports: undefined, turns: undefined, light: undefined });
+    const s = needsSourcesOf({ secrets: undefined, reports: undefined, texReports: undefined, turns: undefined, light: undefined });
     expect(s.secretsUnset).toBeUndefined();
   });
 
-  test("open reports are their count, with no Tex split yet", () => {
-    const s = needsSourcesOf({ secrets: undefined, reports: [{ id: 1 }, { id: 2 }], turns: undefined, light: undefined });
+  test("open reports are the content reports alone when the Tex desk cannot be read", () => {
+    const s = needsSourcesOf({ secrets: undefined, reports: [{ id: 1 }, { id: 2 }], texReports: null, turns: undefined, light: undefined });
     expect(s.openReports).toEqual({ count: 2, viaTex: null });
   });
 
   test("no open reports is a count of zero, and a loading read is undefined", () => {
-    expect(needsSourcesOf({ secrets: undefined, reports: [], turns: undefined, light: undefined }).openReports).toEqual({
+    expect(needsSourcesOf({ secrets: undefined, reports: [], texReports: null, turns: undefined, light: undefined }).openReports).toEqual({
       count: 0,
       viaTex: null,
     });
-    expect(needsSourcesOf({ secrets: undefined, reports: undefined, turns: undefined, light: undefined }).openReports).toBeUndefined();
+    expect(needsSourcesOf({ secrets: undefined, reports: undefined, texReports: null, turns: undefined, light: undefined }).openReports).toBeUndefined();
+  });
+
+  test("open Tex reports add to the count and say how many came by text, as the artifact's line does", () => {
+    const s = needsSourcesOf({ secrets: undefined, reports: [{ id: 1 }], texReports: 2, turns: undefined, light: undefined });
+    expect(s.openReports).toEqual({ count: 3, viaTex: 2 });
+    const [line] = needsList(s);
+    expect(toNeed(line!).html).toBe("<b>3 open reports</b>, 2 texted to Tex");
+  });
+
+  test("the reports line waits for the Tex desk rather than showing a count that is about to change", () => {
+    const s = needsSourcesOf({ secrets: undefined, reports: [{ id: 1 }], texReports: undefined, turns: undefined, light: undefined });
+    expect(s.openReports).toBeUndefined();
+  });
+
+  test("open Tex reports are the desk's bugs not yet triaged, fixed or retired", () => {
+    const bug = (status: string) => ({ path: `bugs/${status}.md`, filed: 1, status, reporter: null, textsShared: false, title: null, theme: null, themes: [] });
+    const desk = { available: true as const, slug: "bugs", bugs: ["new", "Open", "triaged", "fixing", "fixed", "retired", "triage"].map(bug), reviews: [], themes: [] };
+    expect(openTexReports(desk)).toBe(2);
+    expect(openTexReports({ available: false, reason: "not_a_member" })).toBeNull();
+    expect(openTexReports(undefined)).toBeUndefined();
   });
 
   test("unfinished turns are the window's exhausted and failed counts", () => {
-    const s = needsSourcesOf({ secrets: undefined, reports: undefined, turns: turns(9, 4), light: undefined });
+    const s = needsSourcesOf({ secrets: undefined, reports: undefined, texReports: undefined, turns: turns(9, 4), light: undefined });
     expect(s.unfinished).toEqual({ exhausted: 9, failed: 4 });
   });
 
   test("the light read passes its counts and lists through unchanged", () => {
     const l = light();
-    const s = needsSourcesOf({ secrets: undefined, reports: undefined, turns: undefined, light: l });
+    const s = needsSourcesOf({ secrets: undefined, reports: undefined, texReports: undefined, turns: undefined, light: l });
     expect(s.waiting).toBe(5);
     expect(s.untold).toBe(1);
     expect(s.failedIndexes).toBe(2);
@@ -85,7 +105,7 @@ describe("needsSourcesOf", () => {
   });
 
   test("with every read undefined, every field is undefined", () => {
-    const s = needsSourcesOf({ secrets: undefined, reports: undefined, turns: undefined, light: undefined });
+    const s = needsSourcesOf({ secrets: undefined, reports: undefined, texReports: undefined, turns: undefined, light: undefined });
     expect(s).toEqual({
       secretsUnset: undefined,
       openReports: undefined,
@@ -99,7 +119,7 @@ describe("needsSourcesOf", () => {
   });
 
   test("a loaded read and a loading read are kept apart: only the loading fields are undefined", () => {
-    const s = needsSourcesOf({ secrets: allSecrets(), reports: undefined, turns: turns(0, 0), light: undefined });
+    const s = needsSourcesOf({ secrets: allSecrets(), reports: undefined, texReports: undefined, turns: turns(0, 0), light: undefined });
     expect(s.secretsUnset).toBe(0);
     expect(s.openReports).toBeUndefined();
     expect(s.unfinished).toEqual({ exhausted: 0, failed: 0 });
@@ -111,6 +131,7 @@ describe("needsSourcesOf", () => {
     const s = needsSourcesOf({
       secrets: undefined,
       reports: undefined,
+      texReports: undefined,
       turns: undefined,
       light: light({ waiting: 0, untold: 0, failedIndexes: 0, failedBackups: [], openMail: [] }),
     });
@@ -123,6 +144,7 @@ describe("needsSourcesOf", () => {
     const sources = needsSourcesOf({
       secrets: allSecrets().slice(1),
       reports: [{ id: 1 }],
+      texReports: 0,
       turns: turns(2, 1),
       light: light(),
     });
@@ -195,6 +217,7 @@ describe("the sources end to end", () => {
     const sources = needsSourcesOf({
       secrets: allSecrets().slice(1),
       reports: undefined,
+      texReports: undefined,
       turns: undefined,
       light: undefined,
     });

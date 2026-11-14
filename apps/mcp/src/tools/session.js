@@ -9,6 +9,7 @@ import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity
 import { activityHintOf } from "../live/activityHint.js";
 import { recordAgentRead } from "../live/readLog.js";
 import { callTool } from "./dispatch.js";
+import { reportOpenedNote } from "../search/quality.js";
 import { inWordsOf, translateV2Params } from "./v2/translate.js";
 import { SAVE_MANY_TOOL, saveMany } from "./v2/saveMany.js";
 import { readNotesAcross, readsAcross } from "./readNotesAcross.js";
@@ -562,6 +563,13 @@ async function routeToolCall(params, store, session, routed, options = {}) {
   // Whether the model now holds words from outside the workspace, for the turn's ledger.
   recordRead(session.egress?.ledger, { name: params?.name, args, result, writing: toolIsWriting(params?.name) });
   noteAgentActivity(targetStore, params?.name, args, result);
+  // A note read in another context is an open of a search hit in two places (`search/quality.js`): `callTool`
+  // reports it against that context by its plain path, for a search asked there with `context`, and this reports it
+  // against the caller's own by `@name/path`, the key a search across every context gives it. `context` was taken
+  // off `args` above, so the address is rebuilt from the context the call was routed to.
+  if (target.workspaceId !== session.workspaceId && typeof target.workspaceSlug === "string") {
+    reportOpenedNote(params?.name, { ...args, context: `@${target.workspaceSlug}` }, store, result);
+  }
   // When the caller joined a note's mail, the news rides on every answer.
   result = await withMailFooter(result, args, params?.name, { store, session, targetStore, target });
   // Counted after the call, against the context the call was *routed to* —

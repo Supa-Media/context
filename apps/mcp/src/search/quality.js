@@ -5,7 +5,8 @@
  *
  * **Only keyed MACs cross, and Convex never holds the key.** Every identifier that leaves the gateway here is
  * the first 16 lowercase hex of HMAC-SHA-256 under a key derived with HKDF (info `context-search-quality-v1`)
- * from a root secret this gateway holds and the control plane does not. The inputs are `search-actor:<grant id,
+ * from a root only this gateway holds, made at random and kept in a Durable Object of its own
+ * (`search/qualityKeyObject.js`); the control plane never reaches it. The inputs are `search-actor:<grant id,
  * or user id>` for the searcher and `search-hit:<address>` for a hit, where the address is the one the caller
  * reads the note by: the plain path in the workspace it asked in, `@<name>/<path>` for another workspace's note.
  * An unkeyed hash of an id or a path is reversible by anyone who can read the log, so none is ever sent. With no
@@ -30,6 +31,7 @@ const TEX_CLIENTS = new Set([
 export const MAX_QUALITY_HITS = 10;
 
 import { normalizePath } from "../notes/paths.js";
+import { fetchSearchQualityRoot } from "./qualityKeyObject.js";
 
 const HKDF_INFO = "context-search-quality-v1";
 const encoder = new TextEncoder();
@@ -55,31 +57,26 @@ export async function deriveSearchQualityKey(root) {
   return crypto.subtle.importKey("raw", okm, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
 }
 
-/**
- * The root the search quality key is derived from, read from the Worker's env. None is named yet, so this is
- * always null and the log carries timing only. `GATEWAY_SECRET` is not a candidate: the control plane holds it
- * (it is the bearer it checks on every gateway call), so a key derived from it is a key Convex can compute.
- * Name a binding here that only this Worker holds, then nothing else in this file changes.
- *
- * @param {object | undefined} env
- * @returns {string | null}
- */
-export function searchQualityRoot(env) {
-  void env;
-  return null;
-}
-
 const keyCache = new WeakMap();
 
 /**
- * The quality key for a Worker env, derived once per env object. Resolves to null when there is no root.
+ * The quality key for a Worker env, derived once per env object from the root its `SEARCH_QUALITY_KEY` object keeps
+ * (`search/qualityKeyObject.js`). Resolves to null with no binding: the log then carries timing only. A failed fetch
+ * is not remembered, so the next request asks again. `GATEWAY_SECRET` is never a candidate: the control plane holds
+ * it (it is the bearer it checks on every gateway call), so a key derived from it is a key Convex can compute.
  *
  * @param {object | undefined} env
  * @returns {Promise<CryptoKey | null>}
  */
 export function searchQualityKeyOf(env) {
-  if (env === null || typeof env !== "object") return deriveSearchQualityKey(null);
-  if (!keyCache.has(env)) keyCache.set(env, deriveSearchQualityKey(searchQualityRoot(env)));
+  if (env === null || typeof env !== "object" || !env.SEARCH_QUALITY_KEY) return Promise.resolve(null);
+  if (!keyCache.has(env)) {
+    const pending = fetchSearchQualityRoot(env).then((root) => {
+      if (root === null) keyCache.delete(env);
+      return deriveSearchQualityKey(root);
+    });
+    keyCache.set(env, pending);
+  }
   return keyCache.get(env);
 }
 

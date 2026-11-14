@@ -38,6 +38,18 @@ describe("usageTiles", () => {
   };
   const byKey = (tiles: ReturnType<typeof usageTiles>) => Object.fromEntries(tiles.map((t) => [t.key, t]));
 
+  test("tile figures carry no thousands separator, as the artifact's 90-day tiles read", () => {
+    const big: AnalyticsLike = {
+      ...ready,
+      sites: [{ host: "context.lc", visits: 3472, visitors: 1484, priorVisits: 3100 }],
+      time: { sessions: 110, people: 60, medianSeconds: 250, totalSeconds: 1714 * 3600 },
+    };
+    const t = byKey(usageTiles(big));
+    expect(t.ctx?.value).toBe("3472");
+    expect(t.ctx?.detail).toBe("1484 visitors · ");
+    expect(t.hours?.value).toBe("1714");
+  });
+
   test("the four tiles read as the mock does", () => {
     const t = byKey(usageTiles(ready));
     expect(t.ctx).toEqual({
@@ -204,6 +216,11 @@ describe("eventRows", () => {
     expect(created?.change).toEqual({ text: "+7%", good: true });
   });
 
+  test("two days with nothing on either read +0%, as the artifact's flat rows do", () => {
+    const row = eventRows([], [series("search.query", [0, 0, 0], 0)], null).find((r) => r.label === "Searches");
+    expect(row?.change).toEqual({ text: "+0%", good: true });
+  });
+
   test("notes created with no workspace counts reads zero", () => {
     const created = eventRows([], [], null).find((r) => r.label === "Notes created");
     expect(created).toEqual({ label: "Notes created", total: 0, trend: [], change: null });
@@ -261,9 +278,10 @@ describe("journeys", () => {
       ],
     };
     const [j] = journeys(a);
+    expect(j?.title).toBe("Context sign-in");
     expect(j?.steps.map((s) => [s.label, s.people, s.pct])).toEqual([
-      ["Code requested", 140, 100],
-      ["Code submitted", 121, 86],
+      ["Sent a code", 140, 100],
+      ["Typed the code", 121, 86],
       ["Signed in", 0, 0],
     ]);
     expect(j?.steps[1]?.width).toBeCloseTo((121 / 140) * 100, 10);
@@ -276,7 +294,7 @@ describe("journeys", () => {
       sites: [],
       time: null,
       priorTime: null,
-      funnels: [{ id: "tex_handoff", steps: [{ key: "signed_in", people: 0 }, { key: "text_page", people: 4 }] }],
+      funnels: [{ id: "context_setup", steps: [{ key: "setup_started", people: 0 }, { key: "workspace_created", people: 4 }] }],
     };
     const [j] = journeys(a);
     expect(j?.steps.map((s) => [s.pct, s.width])).toEqual([
@@ -284,6 +302,31 @@ describe("journeys", () => {
       [0, 0],
       [0, 0],
     ]);
+  });
+
+  test("the journeys carry the artifact's titles and step words, three steps each but the handoff's two", () => {
+    const steps = (id: string, keys: string[]) => ({ id, steps: keys.map((key, i) => ({ key, people: 100 - i * 10 })) });
+    const a: AnalyticsLike = {
+      connected: true,
+      error: null,
+      sites: [],
+      time: null,
+      priorTime: null,
+      funnels: [
+        steps("context_waitlist", ["landing", "signup_started", "signup_submitted", "waitlist_joined"]),
+        steps("tex_waitlist", ["landing", "signup_started", "signup_submitted", "waitlist_joined"]),
+        steps("context_setup", ["setup_started", "workspace_created", "setup_completed", "note_opened"]),
+        steps("tex_handoff", ["signed_in", "text_page", "messages_opened"]),
+      ],
+    };
+    expect(journeys(a).map((j) => [j.title, j.steps.map((s) => s.label)])).toEqual([
+      ["Context waitlist", ["Opened context.lc", "Started the form", "Joined"]],
+      ["Tex waitlist", ["Opened tex.lc", "Typed a phone", "Joined"]],
+      ["New workspace", ["Opened", "Named it", "Finished setup"]],
+      ["Tex Messages handoff", ["Shown", "Opened Messages"]],
+    ]);
+    // "Joined" is the last recorded step, not "Submitted signup": 70 of 100, not 80.
+    expect(journeys(a)[0]?.steps[2]).toMatchObject({ people: 70, pct: 70 });
   });
 });
 

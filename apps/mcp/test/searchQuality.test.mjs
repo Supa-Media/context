@@ -11,6 +11,8 @@
  *
  *   every searcher reported as "ai", Tex included                  → 1 fails: "a Tex turn's search is tex"
  *   another workspace's hit hashed with the asked-in workspace's id → 2 fail: "the fan-out…", "a note found in workspace B…"
+ *   session.js's open against the caller's own workspace removed     → 1 fails: "through real dispatch, a read in another context…"
+ *   contextOpener.js attaching reporters with no searchEnv           → 1 fails: "a context a call opens reports…"
  */
 
 import test from "node:test";
@@ -18,6 +20,8 @@ import assert from "node:assert/strict";
 import { handleAppSearch } from "../src/http/appSearch.js";
 import { findNotes } from "../src/tools/search.js";
 import { callTool } from "../src/tools/dispatch.js";
+import { callToolForSession } from "../src/tools/session.js";
+import { fetchSearchQualityRoot, SearchQualityKeyObject } from "../src/search/qualityKeyObject.js";
 import { attachChangeReporters } from "../src/controlPlane/changeReporters.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { withServedTree } from "./servedTree.mjs";
@@ -344,11 +348,171 @@ test("with no root, a search and an open send timing only: no actor, no hits, no
   assert.ok(!cp.calls.some((c) => c.path === "/gateway/search-open"));
 });
 
-test("the key is HKDF of the root under the quality info string, and no deployment binding names one yet", async () => {
+test("the key is HKDF of the root under the quality info string, and GATEWAY_SECRET is never a root", async () => {
   const key = await deriveSearchQualityKey(TEST_ROOT);
   const seed = "grant_ai";
   const fromModule = await (await import("../src/search/quality.js")).searchActorHash(key, seed);
   assert.equal(fromModule, await mac(`search-actor:${seed}`));
   assert.equal(await deriveSearchQualityKey("short"), null, "a root too short to derive from gives no key");
-  assert.equal(await searchQualityKeyOf({ GATEWAY_SECRET: "a-gateway-secret-convex-also-holds" }).then((k) => k), null);
+  assert.equal(await searchQualityKeyOf({ GATEWAY_SECRET: "a-gateway-secret-convex-also-holds" }), null, "no key object, no key");
+});
+
+/** A Durable Object namespace over one in-memory `SearchQualityKeyObject`, counting the asks. */
+function keyNamespace({ fail = false } = {}) {
+  const data = new Map();
+  const object = new SearchQualityKeyObject({
+    storage: { get: async (k) => data.get(k), put: async (k, v) => void data.set(k, v) },
+  });
+  const ns = {
+    asks: 0,
+    names: [],
+    data,
+    idFromName(name) {
+      ns.names.push(name);
+      return { name };
+    },
+    get(_id, options) {
+      ns.options = options;
+      return {
+        fetch: async (request) => {
+          ns.asks += 1;
+          if (fail) throw new Error("object unreachable");
+          return object.fetch(request);
+        },
+      };
+    },
+  };
+  return ns;
+}
+
+test("the key object makes one random root and keeps it, and refuses anything but POST", async () => {
+  const ns = keyNamespace();
+  const first = await fetchSearchQualityRoot({ SEARCH_QUALITY_KEY: ns });
+  const second = await fetchSearchQualityRoot({ SEARCH_QUALITY_KEY: ns });
+  assert.match(first, /^[0-9a-f]{64}$/);
+  assert.equal(second, first, "the same root on every ask");
+  assert.deepEqual(ns.names, ["search-quality-key:v1", "search-quality-key:v1"], "one object");
+  assert.equal(ns.options?.locationHint, "enam");
+  const other = await fetchSearchQualityRoot({ SEARCH_QUALITY_KEY: keyNamespace() });
+  assert.notEqual(other, first, "a new object makes a new random root");
+  const object = new SearchQualityKeyObject({ storage: { get: async () => undefined, put: async () => {} } });
+  assert.equal((await object.fetch(new Request("https://x.invalid/", { method: "GET" }))).status, 405);
+});
+
+test("the quality key comes from the key object once per env, and a failed ask is asked again", async () => {
+  const ns = keyNamespace();
+  const env = { SEARCH_QUALITY_KEY: ns, GATEWAY_SECRET: "a-gateway-secret-convex-also-holds" };
+  const key = await searchQualityKeyOf(env);
+  assert.ok(key, "a key");
+  assert.equal(await searchQualityKeyOf(env), key, "derived once per env");
+  assert.equal(ns.asks, 1);
+  const root = ns.data.get("root");
+  const expected = await deriveSearchQualityKey(root);
+  const sign = async (k) => [...new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode("x")))].join(",");
+  assert.equal(await sign(key), await sign(expected), "derived from the object's root");
+  const fromSecret = await deriveSearchQualityKey(env.GATEWAY_SECRET);
+  assert.notEqual(await sign(key), await sign(fromSecret), "never from GATEWAY_SECRET");
+
+  const down = keyNamespace({ fail: true });
+  const downEnv = { SEARCH_QUALITY_KEY: down };
+  assert.equal(await searchQualityKeyOf(downEnv), null, "unreachable: no key, timing only");
+  assert.equal(await searchQualityKeyOf(downEnv), null);
+  assert.equal(down.asks, 2, "a failure is not remembered");
+});
+
+test("reporters built with an env and no searchKey use the key object, and only when something is reported", async () => {
+  const ns = keyNamespace();
+  const cp = fakeControlPlane();
+  const store = rowsOf(scannedStore(NOTES));
+  const pending = [];
+  store.defer = (work) => pending.push(Promise.resolve(work));
+  store.actor = { workspaceId: "ws_home", grantId: "grant_ai", userId: "user_1", clientId: "mcp_client_ai" };
+  attachChangeReporters(store, "ws_home", cp, { searchEnv: { SEARCH_QUALITY_KEY: ns } });
+  assert.equal(ns.asks, 0, "attaching asks nothing");
+  const { rules, overrides } = rulesFor();
+  await findNotes(store, "private", rules, overrides, ASK, "");
+  while (pending.length) await Promise.allSettled(pending.splice(0));
+  const row = cp.calls.find((c) => c.body.who !== undefined)?.body;
+  assert.ok(row, "a counted row");
+  const key = await deriveSearchQualityKey(ns.data.get("root"));
+  const { searchActorHash } = await import("../src/search/quality.js");
+  assert.equal(row.actor, await searchActorHash(key, "grant_ai"));
+});
+
+/**
+ * A connection whose own workspace is `@home`, reaching `@ops` as a member, both wired the way a request wires them,
+ * and every call made through `callToolForSession`, which takes `context` off the arguments before the tool sees it.
+ */
+async function twoContexts(cp) {
+  const actor = { grantId: "grant_ai", userId: "user_1", clientId: "mcp_client_ai" };
+  const ops = wired(rowsOf(scannedStore({ "areas/renewal.md": "# Renewal\n\nThe renewal plan.\n" })), "ws_ops", cp, actor);
+  ops.store.contexts = [{ name: "@ops", current: true, role: "member" }];
+  const opsSession = { workspaceId: "ws_ops", workspaceSlug: "ops", workspaceKind: "shared", scope: "private", role: "owner", grantId: "grant_ai", actorUserId: "user_1", actorClientId: "mcp_client_ai" };
+  const home = await homeStore(cp, actor, {
+    async openContext(name) {
+      if (name !== "@ops") throw new Error("not reachable");
+      return { session: opsSession, store: ops.store };
+    },
+  });
+  home.store.contexts = [
+    { name: "@home", current: true, role: "owner" },
+    { name: "@ops", current: false, role: "member" },
+  ];
+  const session = { workspaceId: "ws_home", workspaceSlug: "home", workspaceKind: "personal", scope: "private", role: "owner", grantId: "grant_ai", actorUserId: "user_1", actorClientId: "mcp_client_ai" };
+  const settle = async () => {
+    await home.settle();
+    await ops.settle();
+  };
+  return { home, ops, session, settle };
+}
+
+test("through real dispatch, a read in another context opens the search hit wherever the search was asked", async () => {
+  const cp = fakeControlPlane();
+  const { home, session, settle } = await twoContexts(cp);
+  const read = await callToolForSession({ name: "read_note", arguments: { path: "areas/renewal.md", context: "@ops" } }, home.store, session, { legacy: true });
+  await settle();
+  assert.notEqual(read.isError, true, JSON.stringify(read));
+  const opens = cp.calls.filter((c) => c.path === "/gateway/search-open").map((c) => c.body);
+  const actor = await mac("search-actor:grant_ai");
+  assert.deepEqual(
+    opens.map((o) => [o.workspaceId, o.hit]).sort(),
+    [
+      ["ws_home", await mac("search-hit:@ops/areas/renewal.md")],
+      ["ws_ops", await mac("search-hit:areas/renewal.md")],
+    ].sort(),
+    "the caller's own workspace by @ops/path (a search across contexts), and @ops by its plain path (a search asked there)",
+  );
+  assert.ok(opens.every((o) => o.actor === actor), "one searcher in both");
+});
+
+test("through real dispatch, a read in the caller's own context opens one hit, by its plain path", async () => {
+  const cp = fakeControlPlane();
+  const { home, session, settle } = await twoContexts(cp);
+  await callToolForSession({ name: "read_note", arguments: { path: "inbox/todo.md" } }, home.store, session, { legacy: true });
+  await settle();
+  const opens = cp.calls.filter((c) => c.path === "/gateway/search-open").map((c) => c.body);
+  assert.deepEqual(opens.map((o) => [o.workspaceId, o.hit]), [["ws_home", await mac("search-hit:inbox/todo.md")]]);
+});
+
+test("a context a call opens reports its searches and opens under the connection's key, not timing only", async () => {
+  const { attachContextOpener, onceEach } = await import("../src/http/contextOpener.js");
+  const ns = keyNamespace();
+  const cp = { ...fakeControlPlane(), reportSearchIndexProgress: async () => {}, notifyFormSubmission: async () => {} };
+  const caller = { workspaceId: "ws_mine", grantId: "grant_ai", actorUserId: "user_1", actorClientId: "mcp_client_ai", grantScopes: ["context:read"], workspaces: [{ workspaceId: "ws_w2", slug: "team-w2", kind: "shared", role: "member" }] };
+  Object.defineProperty(caller, "accessToken", { value: "fake-token" });
+  const pending = [];
+  const store = { defer: (work) => pending.push(Promise.resolve(work)) };
+  const opened = {};
+  attachContextOpener(store, caller, { env: { SEARCH_QUALITY_KEY: ns }, controlPlane: cp, origin: "https://example.test", openOnce: onceEach(async () => opened), pinnedName: "@context-lc" });
+  const { store: other } = await store.openContext("@team-w2");
+  assert.equal(other, opened);
+  other.reportSearchOpen("areas/renewal.md");
+  while (pending.length) await Promise.allSettled(pending.splice(0));
+  const open = cp.calls.find((c) => c.path === "/gateway/search-open")?.body;
+  assert.ok(open, "the opened context reports an open (with no key it would send nothing)");
+  const key = await deriveSearchQualityKey(ns.data.get("root"));
+  const { searchActorHash, searchHitHash } = await import("../src/search/quality.js");
+  assert.equal(open.workspaceId, "ws_w2");
+  assert.equal(open.actor, await searchActorHash(key, "grant_ai"));
+  assert.equal(open.hit, await searchHitHash(key, "areas/renewal.md"));
 });

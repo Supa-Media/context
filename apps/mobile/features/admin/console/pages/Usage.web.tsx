@@ -93,16 +93,19 @@ export function renderUsage(d: UsageData | undefined): string {
           )
           .join("")}</table></div>`;
 
+  const journeyList = journeys(analytics);
   const journeysBody =
     analytics === undefined
       ? LOADING
-      : `<div class="grid2">${journeys(analytics)
+      : !journeyList.length
+        ? `<div class="empty">${esc(note ?? "No journeys counted in this window.")}</div>`
+        : `<div class="grid2">${journeyList
           .map(
             (j) =>
               `<div><div style="font-weight:600;margin-bottom:6px">${esc(j.title)}</div><div class="fun">${j.steps
                 .map(
                   (s) =>
-                    `<div class="r"><span>${esc(s.label)}</span><span class="tr"><span class="bb" style="width:${s.width}%;background:var(--c2)"></span></span><span class="t">${s.people.toLocaleString("en-US")} · ${s.pct}%</span></div>`,
+                    `<div class="r"><span>${esc(s.label)}</span><span class="tr"><span class="bb" style="width:${s.width}%;background:var(--c2)"></span></span><span class="t">${s.people} · ${s.pct}%</span></div>`,
                 )
                 .join("")}</div></div>`,
           )

@@ -180,6 +180,30 @@ class_name = "LiveTicket"
 tag = "v4-live-ticket"
 new_sqlite_classes = ["LiveTicket"]
 
+# One text chat's intake queue (src/texChat.js): an object per chat, holding the texts waiting for Tex's answer under
+# the texting Worker's keys, and each event id seen in the last day. Queued texts are the only copy of a waiting
+# text, so the object keeps them until a turn answers them. Nothing live reaches it yet. Self-hosting on the free
+# tier: leave it out, and `POST /texts/arrive` answers 501 (the texting Worker then keeps its own queue).
+[[durable_objects.bindings]]
+name = "TEX_CHAT"
+class_name = "TexChat"
+
+[[migrations]]
+tag = "v5-tex-chat"
+new_sqlite_classes = ["TexChat"]
+
+# The root the search quality log's keyed hashes are derived from (src/search/qualityKeyObject.js): one object, one
+# random key it makes the first time it is asked. Only this Worker reaches it, so the control plane, which holds
+# GATEWAY_SECRET, can never compute the hashes it stores. Self-hosting on the free tier: leave it out, and the
+# admin console's search log carries timing only.
+[[durable_objects.bindings]]
+name = "SEARCH_QUALITY_KEY"
+class_name = "SearchQualityKey"
+
+[[migrations]]
+tag = "v6-search-quality-key"
+new_sqlite_classes = ["SearchQualityKey"]
+
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
 # account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
@@ -343,6 +367,14 @@ class_name = "WorkspaceStore"
 [[env.staging.durable_objects.bindings]]
 name = "LIVE_TICKET"
 class_name = "LiveTicket"
+
+[[env.staging.durable_objects.bindings]]
+name = "TEX_CHAT"
+class_name = "TexChat"
+
+[[env.staging.durable_objects.bindings]]
+name = "SEARCH_QUALITY_KEY"
+class_name = "SearchQualityKey"
 
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_TIMING"
