@@ -560,7 +560,6 @@ export function check(root = ROOT) {
     siteshots: { packages: ["@context/site-shots"], runs: "infra/site-shots" },
     agent: { packages: ["@context/agent"], runs: "apps/agent" },
   });
-
   assertUnitSlices(readFileSync(join(root, ".github/workflows/mcp.yml"), "utf8"));
 
   for (const [workflow, job, packages] of scoped) {
