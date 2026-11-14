@@ -155,7 +155,7 @@ A background job's object moves the way a chat's did: the gateway's `TexJob` run
 job lives where it was born (`apps/agent/src/jobPlace.ts` asks `/job-here` before a steer, stop, resume or mail), and
 `TEX_JOBS` turns the gateway on per environment, so a job running in the Worker is never moved mid-run. The job node is on the runner now: `TexJob` runs each pass through `graph/nodes/job.js`, and while a pass runs its Job
 check, Hand-back judge and Advisor on job mail go over that node's own wires, lent through `graph/jobHandles.js`. The bridges
-stay for a job the Worker runs, and nothing moves in production until `TEX_JOBS` says so.
+stay for a job the Worker runs. Production moved its new jobs on Dev2's go (2026-11-14), and the Worker's job code goes once none is left running there.
 
 ## The door steps are one group
 
