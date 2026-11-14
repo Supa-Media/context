@@ -30,6 +30,7 @@ export default {
       assert.ok(!second.prefix.modules.some((module) => module.startsWith("context/thread:")), "a thread note is only ever named part by part (`context/thread/<part>`), so a changed system block says which part (2026-11-14 20:29Z: a third text rewrote 54,000 tokens when the thread note changed)");
       assert.deepEqual(second.prefix.history.slice(0, first.prefix.history.length), first.prefix.history, "the second text's history starts with the first's, piece by piece");
       assert.equal(earlierRoom(30_100), earlierRoom(31_900), "the earlier days' room moves in steps, so a text or two more today never drops the oldest day (2026-11-14 21:11Z-21:24Z: 496, 522, 496, 522 lines)");
+      assert.ok(!second.prefix.modules.some((module) => module.startsWith("context/calendar")), "the calendar copy is said in their turn, never the cached system prompt (2026-11-14 21:26Z: a refreshed copy rewrote 79,000 tokens)");
       assert.ok(!JSON.stringify(lines).includes("plumber"), "fingerprints only, never a word");
     } finally {
       console.log = realLog;
