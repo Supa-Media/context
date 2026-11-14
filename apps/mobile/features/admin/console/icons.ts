@@ -8,6 +8,7 @@ export const IC: Record<string, string> = {
  growth:'<path d="M4 19h16"/><path d="M5 15l4-4 3 3 7-7"/><path d="M15 7h4v4"/>',
  usage:'<path d="M3 12h4l2-5 4 10 2-5h6"/>',
  text:'<path d="M4 5h16v11H9l-5 4z"/>',
+ phone:'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1z"/>',
  cost:'<circle cx="12" cy="12" r="8"/><path d="M14.5 9.2c-.5-.8-1.4-1.2-2.5-1.2-1.5 0-2.5.8-2.5 2s1 1.6 2.5 2 2.5.9 2.5 2-1 2-2.5 2c-1.2 0-2.1-.5-2.6-1.3M12 6.5V8M12 16v1.5"/>',
  jobs:'<rect x="4" y="7.5" width="16" height="11.5" rx="2"/><path d="M9 7.5V5.5h6v2M4 12.5h16"/>',
  skill:'<path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/>',
