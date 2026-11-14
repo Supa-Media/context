@@ -92,7 +92,7 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
     <div className="rpanel" id="replayPanel">
       <h3>{first.start ? startLabel(first) : first.who === "You" || !first.who ? "From your text" : `From ${first.who}'s text`}</h3>
       <p className="hint">
-        {time(first.at)} · {first.start ? (first.turn ? "Tex texted on its own" : "Tex texted on its own; its look kept no steps in this chat, only in tex/heartbeat/") : behind > 0 ? `${behind} more ${behind === 1 ? "text" : "texts"} came in behind it` : "nothing came in behind it"}
+        {time(first.at)} · {first.start ? (first.quiet ? "Tex looked on its own and sent nothing" : "Tex texted on its own") : behind > 0 ? `${behind} more ${behind === 1 ? "text" : "texts"} came in behind it` : "nothing came in behind it"}
       </p>
       <div className="rset">
         <span className="pill">

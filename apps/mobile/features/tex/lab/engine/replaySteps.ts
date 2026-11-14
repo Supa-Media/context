@@ -23,7 +23,8 @@ export function stepRows(m: Moment, entries: LedgerEntry[], g: LabGraph = G()): 
     seen.add(b.turn);
     const real = realTimes(entries, b.turn);
     if (!real) continue;
-    const sim = withReal(simulate(g, "own", null, real), real, g);
+    // From what started it: a text, or a check-in, a routine or a ping, whatever the canvas traced last.
+    const sim = withReal(simulate(g, "own", null, real, m.from), real, g);
     for (const [id, t] of Object.entries(sim.T)) {
       // The wait in the queue is the Queue row; a start step is the Texts row's.
       const n = node(id, g);

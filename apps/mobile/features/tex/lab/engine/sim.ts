@@ -128,7 +128,8 @@ export function fold(n: LabNode, g: LabGraph, s: string, tags: string[], log: Lo
 /** Steps whose every run leaves a ledger entry for its turn (`realTimes.ts`), so no entry means it did not run. */
 const LOGS_WHEN_RUN = new Set(["reviewer", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "tools"]);
 
-export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | null = null): Sim {
+/** `from` names the start step outright, for a run not traced on the canvas (Replay's timeline rows). */
+export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | null = null, from?: string): Sim {
   const tags = (SCENARIOS[s] || SCENARIOS.own)?.tags ?? [];
   // A real run goes where it was measured: a measured step ran, a step that always logs when it runs and logged
   // nothing did not, and the rest follow the guess from the text's words.
@@ -140,7 +141,7 @@ export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | nul
   };
   const reach = new Map<string, { lane: string }>();
   // What started it: a text arriving, or a check-in, a routine or another AI's ping (`Trace.from`).
-  const start = node((SCENARIOS[s] || SCENARIOS.own)?.from ?? "text", g) || node("text", g) || g.nodes[0];
+  const start = node(from ?? (SCENARIOS[s] || SCENARIOS.own)?.from ?? "text", g) || node("text", g) || g.nodes[0];
   if (!start) return { T: {}, reply: 0, usd: 0, replyCalls: 0, jobEnd: 0, reach, inside: new Set() };
   reach.set(start.id, { lane: "reply" });
   let ch = true;

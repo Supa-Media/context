@@ -46,6 +46,8 @@ export type Moment = {
 /** How a start step reads on the timeline and in the chat. */
 export const START_WORDS: Record<Start, string> = { checkin: "Check-in", routine: "Routine", notify: "Send through Tex" };
 export const startLabel = (l: ChatLine) => (l.start === "routine" && l.routine ? `Routine · ${routineName(l.routine)}` : l.start ? START_WORDS[l.start] : "");
+/** What a quiet check-in's line reads, where a text would be. */
+export const QUIET_WORDS = "Looked, and nothing was worth a text";
 
 const rec = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
@@ -95,7 +97,7 @@ export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
     if (first.start) lanes.Texts.push({ kind: "text", start: 0, end: 250, label: startLabel(first) });
     for (const l of g) {
       if (l.from === "person") lanes.Texts.push({ kind: "text", start: rel(l.at), end: rel(l.at) + 250, label: cut(l.text) });
-      else lanes.Sent.push({ kind: "sent", start: rel(l.at), end: rel(l.at) + 400, label: cut(l.text) });
+      else if (!l.quiet) lanes.Sent.push({ kind: "sent", start: rel(l.at), end: rel(l.at) + 400, label: cut(l.text) });
     }
     const turns: Array<[number, string]> = [];
     for (const e of entries) {
@@ -122,7 +124,7 @@ export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
     }
     // Its own turn kept no reply timing (a routine's or a check-in's): drawn from its first entry to the text it sent.
     if (first.start && first.turn && !turns.some(([, t]) => t === first.turn)) {
-      lanes.Turn.push({ kind: "turn", start: 0, end: rel(first.at), label: cut(first.text, 22), turn: first.turn, zero: 0, detail: first.text });
+      lanes.Turn.push({ kind: "turn", start: 0, end: rel(first.at), label: cut(first.text || QUIET_WORDS, 22), turn: first.turn, zero: 0, detail: first.text || QUIET_WORDS });
       turns.push([0, first.turn]);
     }
     for (const k of Object.keys(lanes) as Lane[]) lanes[k].sort((a, b) => a.start - b.start);
@@ -141,8 +143,12 @@ export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
  */
 export const LOGGED_FROM = Date.UTC(2026, 10, 13, 23, 52);
 
-/** The moments Replay can show: cut from the whole chat first, so a moment's edges stay where they were. */
-export const loggedMoments = (ms: Moment[]) => ms.filter((m) => m.at >= LOGGED_FROM);
+/**
+ * The moments Replay can show: cut from the whole chat first, so a moment's edges stay where they were. A text Tex sent
+ * on its own with no turn logged (a check-in before #3280 kept its steps only in tex/heartbeat/) has nothing to walk
+ * through from what started it to what it sent, so it is left out like any moment from before full logging.
+ */
+export const loggedMoments = (ms: Moment[]) => ms.filter((m) => m.at >= LOGGED_FROM && (m.from === "text" || !!m.lines[0]?.turn));
 
 /** The turn under the timeline's head: the one that started last at or before `at` (its wait included). */
 export function turnAt(m: Moment, at: number): { turn: string; start: number } | null {

@@ -6,6 +6,8 @@
 import { describe, expect, test } from "@jest/globals";
 import { chatLines, myTexts, parseReplay, readsOf, replayConfig, routineName, shortVersion, startOf } from "../features/tex/lab/engine/mine";
 import { judgeWords, LOGGED_FROM, loggedMoments, momentsOf, turnAt } from "../features/tex/lab/engine/replay";
+import { stepRows } from "../features/tex/lab/engine/replaySteps";
+import { G } from "../features/tex/lab/engine/state";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry => ({ at: 1_000, ...x }) as LedgerEntry;
@@ -113,7 +115,7 @@ describe("Replay's moments (Dev2, 2026-11-14: \"replay sequences of text, like s
   });
 
   test("only moments that began once every step was logged in full replay", () => {
-    const at = (t: number) => ({ id: String(t), at: t }) as never;
+    const at = (t: number) => ({ id: String(t), at: t, from: "text", lines: [] }) as never;
     expect(loggedMoments([at(LOGGED_FROM - 1), at(LOGGED_FROM), at(LOGGED_FROM + 60_000)]).map((m: { at: number }) => m.at)).toEqual([LOGGED_FROM, LOGGED_FROM + 60_000]);
     expect(new Date(LOGGED_FROM).toISOString()).toBe("2026-11-13T23:52:00.000Z");
   });
@@ -166,5 +168,63 @@ describe("Tex texting on its own (Dev2, 2026-11-14: \"the heartbeat and routine 
     expect(ms.find((m) => m.id === "pg")?.from).toBe("notify");
     // The person's own text before them keeps its moment, and ends where the routine's begins.
     expect(ms.find((m) => m.id === "p")?.lines.map((l) => l.id)).toEqual(["p", "x"]);
+  });
+
+  test("one with no turn logged (a check-in from before its steps were kept) has nothing to walk through, so it doesn't replay", () => {
+    const ms = momentsOf(lines, entries);
+    expect(loggedMoments(ms).map((m) => m.id)).toEqual(["p", "rn"]);
+  });
+});
+
+describe("check-ins walk from what started them to what they sent (Dev2, 2026-11-14: \"is the check in/routines even wired in at all?\")", () => {
+  const T = Date.UTC(2026, 10, 14, 16);
+  const e = (x: Partial<LedgerEntry> & { id: string; at: number; kind: string }) => x as LedgerEntry;
+  const entries: LedgerEntry[] = [
+    e({ id: "p", at: T, seq: 1, kind: "text", eid: "ep", from: { kind: "person" }, text: "hi" }),
+    e({ id: "x", at: T + 2_000, seq: 2, kind: "text", turn: "t0", covers: ["ep"], from: { kind: "tex" }, text: "Hello." }),
+    // A check-in that looked and texted: its steps under its turn, then its note.
+    e({ id: "k1", at: T + 60_000, seq: 3, kind: "thinking", turn: "ck01", ms: 3_000, text: "Looking at the calendar." }),
+    e({ id: "k2", at: T + 61_000, seq: 4, kind: "tool", turn: "ck01", name: "calendar", ms: 800, args: {}, ok: true }),
+    e({ id: "ci", at: T + 64_000, seq: 5, kind: "note", turn: "ck01", ms: 7_000, about: "(Not a text from them. This was your own check-in: you looked through their workspace.)", text: "Payroll is due today." }),
+    // A check-in that looked and sent nothing: only its steps.
+    e({ id: "q1", at: T + 120_000, seq: 6, kind: "thinking", turn: "ck02", ms: 2_000, text: "Nothing new." }),
+    e({ id: "q2", at: T + 121_000, seq: 7, kind: "tool", turn: "ck02", name: "list_changes", ms: 500, args: {}, ok: true }),
+    e({ id: "p2", at: T + 180_000, seq: 8, kind: "text", eid: "ep2", from: { kind: "person" }, text: "thanks" }),
+  ];
+  const lines = chatLines(entries, myTexts(entries));
+
+  test("a quiet one is a line of the chat where it ran, with no text", () => {
+    expect(lines.map((l) => [l.id, l.start ?? null, l.quiet ?? false])).toEqual([
+      ["p", null, false],
+      ["x", null, false],
+      ["ci", "checkin", false],
+      ["ck:ck02", "checkin", true],
+      ["p2", null, false],
+    ]);
+    expect(lines[3].text).toBe("");
+    expect(lines[3].turn).toBe("ck02");
+  });
+
+  test("each replays from its first step, through its turn, to what it sent or to its last step", () => {
+    const ms = loggedMoments(momentsOf(lines, entries));
+    const sent = ms.find((m) => m.id === "ci")!;
+    expect(sent.from).toBe("checkin");
+    expect(sent.at).toBe(T + 57_000);
+    expect(sent.turns).toEqual(["ck01"]);
+    expect(sent.lanes.Sent.map((b) => b.label)).toEqual(["Payroll is due today."]);
+    const quiet = ms.find((m) => m.id === "ck:ck02")!;
+    expect(quiet.from).toBe("checkin");
+    expect(quiet.at).toBe(T + 118_000);
+    expect(quiet.lanes.Sent).toEqual([]);
+    expect(quiet.lanes.Turn.map((b) => [b.start, b.end, b.turn])).toEqual([[0, 3_000, "ck02"]]);
+    expect(quiet.lines.map((l) => l.id)).toEqual(["ck:ck02"]);
+  });
+
+  test("its timeline rows start from Check-in, not from a text arriving", () => {
+    const quiet = momentsOf(lines, entries).find((m) => m.id === "ck:ck02")!;
+    const ids = stepRows(quiet, entries, G()).map((r) => r.id);
+    expect(ids).toContain("fd");
+    expect(ids).toContain("tools");
+    for (const not of ["decide", "lanes", "queue", "text"]) expect(ids).not.toContain(not);
   });
 });

@@ -46,6 +46,8 @@ export type ChatLine = {
   turn?: string;
   about?: string;
   routine?: string;
+  /** A check-in that looked and sent nothing: no text, only its steps (Dev2, 2026-11-14: "is the check in/routines even wired in at all?"). */
+  quiet?: boolean;
 };
 
 /** One replayed text, as the pasted "## Lab replay" block gives it. */
@@ -125,6 +127,24 @@ export const routineName = (path: string) => isolateForDisplay(path.slice(path.l
  */
 export function chatLines(entries: LedgerEntry[], texts: MyText[], { group = false } = {}): ChatLine[] {
   const byId = new Map(texts.map((t) => [t.id, t]));
+  const lines = textLines(entries, byId, group);
+  // A check-in that sent nothing still ran (its steps are logged under its `ck…` turn): a line of its own, so it can be replayed too.
+  const said = new Set(lines.map((l) => l.turn).filter(Boolean));
+  const looks = new Map<string, LedgerEntry[]>();
+  for (const e of entries) if (typeof e.turn === "string" && e.turn.startsWith("ck") && !said.has(e.turn)) looks.set(e.turn, [...(looks.get(e.turn) ?? []), e]);
+  const quiet: ChatLine[] = [...looks]
+    .map(([turn, es]): ChatLine => ({ id: "ck:" + turn, at: Math.max(...es.map((e) => e.at)), from: "tex", who: "Tex", text: "", play: null, start: "checkin", turn, quiet: true }))
+    .sort((a, b) => a.at - b.at);
+  // Each goes in where it ran, the chat's own order kept.
+  const out: ChatLine[] = [];
+  for (const l of lines) {
+    while (quiet.length && quiet[0].at <= l.at) out.push(quiet.shift()!);
+    out.push(l);
+  }
+  return [...out, ...quiet];
+}
+
+function textLines(entries: LedgerEntry[], byId: Map<string, MyText>, group: boolean): ChatLine[] {
   return [...entries]
     .filter((e) => startOf(e) !== null || (e.kind === "text" && !e.job && (fromKind(e) === "person" || fromKind(e) === "tex") && str(e.text).trim() !== ""))
     .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || a.at - b.at)
