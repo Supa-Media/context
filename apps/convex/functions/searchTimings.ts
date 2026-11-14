@@ -230,16 +230,20 @@ export const reportOpen = mutation({
 /**
  * The app's search that `row` names was followed by another within 60 s with
  * nothing opened: the device calls this on the earlier row when the new search
- * starts. Same membership rule as `reportOpen`; `false` on refusal.
+ * starts, with `refined` when the new query only extends or trims the old one.
+ * Same membership rule as `reportOpen`; `false` on refusal.
  */
 export const reportAgain = mutation({
-  args: { row: v.id("searchTimings") },
+  args: { row: v.id("searchTimings"), refined: v.optional(v.boolean()) },
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const found = await appRowFor(ctx, args.row);
     if (found === null || found.opened !== undefined || found.again !== undefined) return false;
     if (Date.now() - found.at > AGAIN_WINDOW_MS) return false;
-    await ctx.db.patch(found._id, { again: true });
+    // `refined`: the next search only extended or trimmed this one's query (the device compares them; the query
+    // never leaves it), so this was one search still being typed. It leaves the quality counts and keeps its timing.
+    if (args.refined === true) await ctx.db.patch(found._id, { who: undefined, pairUntil: undefined });
+    else await ctx.db.patch(found._id, { again: true });
     return true;
   },
 });

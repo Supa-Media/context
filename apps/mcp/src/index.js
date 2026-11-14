@@ -99,6 +99,7 @@
  * from tools/readImage.js by the email worker's and control plane's tests.
  */
 import { LiveTicketObject } from "./live/ticket.js";
+import { SearchQualityKeyObject } from "./search/qualityKeyObject.js";
 import { openTextsSession } from "./agent/textsSession.js";
 import { hearForTexts, TEXTS_HEAR_PATH } from "./agent/textsHear.js";
 import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "./agent/textsDecide.js";
@@ -177,6 +178,8 @@ export const LiveTicket = LiveTicketObject;
 export const TexStore = TexStoreDurableObject;
 /** Each text chat's intake queue, one Durable Object per chat (`texChat.js`). Nothing live reaches it yet. */
 export const TexChat = TexChatDurableObject;
+/** The search quality log's key root (`search/qualityKeyObject.js`), reached only from this Worker. */
+export const SearchQualityKey = SearchQualityKeyObject;
 /** Each workspace's notes, tree rows and access rules, one Durable Object per workspace (`workspaceStore.js`). */
 export const WorkspaceStore = WorkspaceStoreDurableObject;
 
