@@ -19,7 +19,7 @@ import { WAITLIST_BATCH } from "./waitlist";
 /** Let-in rows read per call; the backlog is days of phone sign-ups, far below this. */
 const SCAN_LIMIT = 10_000;
 
-async function untoldRows(ctx: QueryCtx): Promise<Doc<"waitlist">[]> {
+export async function untoldRows(ctx: QueryCtx): Promise<Doc<"waitlist">[]> {
   const admitted = await ctx.db
     .query("waitlist")
     .withIndex("by_status_joinedAt", (q) => q.eq("status", "admitted"))
