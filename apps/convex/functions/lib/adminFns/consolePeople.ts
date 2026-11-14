@@ -26,6 +26,14 @@ import { accountSpendOf, workspaceSpendOf } from "./aiCostsReport";
 import { archivedUserIds, personOf } from "./people";
 
 /**
+ * The most rows one call of each page query reads. Convex allows about 4,096 reads per call; an
+ * account costs roughly 15-20 (`personOf` + `cameFromFor`), a waitlist row at most 2, an invite
+ * about 4. Requests for more are cut to these, whatever the client asks.
+ */
+export const PAGE_MAX = { accounts: 100, waitlist: 250, invites: 250 } as const;
+const capped = (opts: PaginationOptions, max: number): PaginationOptions => ({ ...opts, numItems: Math.max(1, Math.min(opts.numItems, max)) });
+
+/**
  * Grants one usage read may scan. Every grant in the table, not one account's:
  * the client list is per person, so the whole table is the only honest source.
  * Hitting it sets `truncated`, and the page says so.
@@ -189,7 +197,7 @@ export async function accountsPageHandler(
 ): Promise<{ page: AccountRow[]; isDone: boolean; continueCursor: string }> {
   // One read of the archive list per page, shared by every row on it.
   const hidden = await archivedUserIds(ctx);
-  const result = await ctx.db.query("users").order("desc").paginate(paginationOpts);
+  const result = await ctx.db.query("users").order("desc").paginate(capped(paginationOpts, PAGE_MAX.accounts));
   const page: AccountRow[] = [];
   for (const user of result.page) {
     const person = await personOf(ctx, user, hidden.has(user._id));
@@ -239,7 +247,7 @@ export async function waitlistPageHandler(
   ctx: QueryCtx,
   paginationOpts: PaginationOptions,
 ): Promise<{ page: WaitlistRow[]; isDone: boolean; continueCursor: string }> {
-  const result = await ctx.db.query("waitlist").order("desc").paginate(paginationOpts);
+  const result = await ctx.db.query("waitlist").order("desc").paginate(capped(paginationOpts, PAGE_MAX.waitlist));
   const page: WaitlistRow[] = [];
   for (const row of result.page) {
     page.push({
@@ -268,7 +276,7 @@ export async function invitesPageHandler(
     .query("referralInvites")
     .withIndex("by_createdAt")
     .order("desc")
-    .paginate(paginationOpts);
+    .paginate(capped(paginationOpts, PAGE_MAX.invites));
   // Statuses are per address, so one address's invites are read once per page.
   const statusesByEmail = new Map<string, Map<Id<"referralInvites">, InviteStatus>>();
   const handles = new Map<Id<"users">, string | null>();

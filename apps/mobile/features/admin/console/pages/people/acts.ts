@@ -81,21 +81,46 @@ async function texChange(d: ReadyPeopleData, phone: string, change: "add" | "rem
  * for a refusal, or null when it worked (an add that was already there, or a remove that was
  * already gone, counts as worked).
  */
-async function setTex(d: ReadyPeopleData, p: Person, want: boolean): Promise<string | null> {
+/** Puts a person on Tex's line or takes them off. Returns a refusal, and the numbers it moved (for Undo). */
+async function setTex(d: ReadyPeopleData, p: Person, want: boolean): Promise<{ refusal: string | null; moved: string[] }> {
   const tv = texView(await d.m.texRefresh());
-  if (tv.state !== "shared") return null;
-  const phone = p.phone;
+  if (tv.state !== "shared") return { refusal: null, moved: [] };
   if (want) {
-    if (phone === null) return null;
-    const r = await texChange(d, phone, "add");
-    return r.status === "added" || r.status === "already" ? null : changeSentence(r).text;
+    const phone = p.phone ?? p.textingPhones[0] ?? null;
+    if (phone === null) return { refusal: null, moved: [] };
+    return await moveNumbers(d, [phone], "add");
   }
-  for (const n of [phone, ...p.textingPhones]) {
-    if (n === null || !tv.listed.has(n)) continue;
-    const r = await texChange(d, n, "remove");
-    if (r.status !== "removed" && r.status !== "absent") return changeSentence(r).text;
+  return await moveNumbers(d, [p.phone, ...p.textingPhones].filter((n): n is string => n !== null && tv.listed.has(n)), "remove");
+}
+
+/** Adds or removes each number on Tex's line, stopping at the first refusal. */
+async function moveNumbers(d: ReadyPeopleData, numbers: readonly string[], change: "add" | "remove"): Promise<{ refusal: string | null; moved: string[] }> {
+  const moved: string[] = [];
+  for (const n of numbers) {
+    const r = await texChange(d, n, change);
+    const ok = change === "add" ? r.status === "added" || r.status === "already" : r.status === "removed" || r.status === "absent";
+    if (!ok) return { refusal: changeSentence(r).text, moved };
+    moved.push(n);
   }
-  return null;
+  return { refusal: null, moved };
+}
+
+/**
+ * Sends ids in batches of `BATCH`. When a batch fails, the ones already done leave the selection
+ * and the rest stay picked, so the bulk bar offers exactly what is left; then the failure is thrown.
+ */
+async function inBatches<T extends string, R>(ids: readonly T[], call: (part: T[]) => Promise<R>, done: (part: T[], r: R) => void): Promise<void> {
+  for (const part of batchesOf(ids)) {
+    let r: R;
+    try {
+      r = await call(part);
+    } catch (error) {
+      S.confirm = null;
+      throw error;
+    }
+    done(part, r);
+    for (const id of part) S.sel.delete(id);
+  }
 }
 
 /**
@@ -130,12 +155,13 @@ export const acts: Record<string, Act> = {
     if (!p) return;
     const name = displayName(p);
     const on = texOn(p, texView(d.tex));
-    const refusal = await setTex(d, p, !on);
+    const { refusal, moved } = await setTex(d, p, !on);
     if (refusal) toast(refusal);
     else
       toast(on ? `${name} taken off the Tex line` : `${name} can text Tex`, undoable(async () => {
-        const back = await setTex(d, p, on);
-        if (back) toast(back);
+        const back = await moveNumbers(d, moved, on ? "add" : "remove");
+        await d.m.texRefresh();
+        if (back.refusal) toast(back.refusal);
       }));
     render();
   }),
@@ -297,7 +323,7 @@ export const acts: Record<string, Act> = {
   letin: writes(async (_el, d) => {
     const ids = chosen(d, (r) => r.st === "waiting" || r.st === "removed").map((r) => r.id as WaitId);
     let changed = 0;
-    for (const part of batchesOf(ids)) changed += (await d.m.admit({ ids: part })).changed;
+    await inBatches(ids, (part) => d.m.admit({ ids: part }), (_p, r) => (changed += r.changed));
     S.sel.clear();
     S.confirm = null;
     toast(`Let in ${changed}; each got one email or text`);
@@ -308,11 +334,10 @@ export const acts: Record<string, Act> = {
     const ids = chosen(d, (r) => r.st === "in" && !r.told).map((r) => r.id as WaitId);
     let texted = 0;
     let left = 0;
-    for (const part of batchesOf(ids)) {
-      const r = await d.m.tell({ ids: part });
+    await inBatches(ids, (part) => d.m.tell({ ids: part }), (_p, r) => {
       texted += r.texted;
       left += r.left;
-    }
+    });
     S.sel.clear();
     S.confirm = null;
     toast(`Texted ${plural(texted, "person", "people")} that they're in` + (left > 0 ? `. ${plural(left, "person", "people")} left to text.` : ""));
@@ -322,16 +347,25 @@ export const acts: Record<string, Act> = {
 
   remove: writes(async (_el, d) => {
     const ids = chosen(d, (r) => r.st === "waiting").map((r) => r.id as WaitId);
+    const removed: WaitId[] = [];
     let changed = 0;
-    for (const part of batchesOf(ids)) changed += (await d.m.remove({ ids: part })).changed;
+    const undo = undoable(async () => {
+      for (const part of batchesOf(removed)) await d.m.restore({ ids: part });
+    });
+    try {
+      await inBatches(ids, (part) => d.m.remove({ ids: part }), (part, r) => {
+        removed.push(...part);
+        changed += r.changed;
+      });
+    } catch (error) {
+      // Some went through: say so with an Undo for them, and leave the rest picked.
+      toast(`${failureText(error)} Removed ${changed} before it stopped.`, removed.length ? undo : undefined);
+      render();
+      return;
+    }
     S.sel.clear();
     S.confirm = null;
-    toast(
-      `Removed ${changed}`,
-      undoable(async () => {
-        for (const part of batchesOf(ids)) await d.m.restore({ ids: part });
-      }),
-    );
+    toast(`Removed ${changed}`, undo);
     render();
   }),
 

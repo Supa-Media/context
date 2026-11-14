@@ -62,6 +62,8 @@ type Options = {
   tellLeft?: number;
   archiveUndoFails?: string;
   admitFails?: string;
+  /** remove refuses from this call on (1-based). */
+  removeFailsFrom?: number;
 };
 
 /** A fake `d`: every write is recorded, and Tex's list changes as the calls say. `d.tex` is the list as it was at the start. */
@@ -78,6 +80,7 @@ function fixture(opts: Options = {}) {
     },
     remove: async (a: { ids: string[] }) => {
       calls.push(["remove", a.ids]);
+      if (opts.removeFailsFrom && calls.filter(([n]) => n === "remove").length >= opts.removeFailsFrom) throw { data: { message: "Stopped." } };
       return { changed: a.ids.length };
     },
     restore: async (a: { ids: string[] }) => {
@@ -194,6 +197,21 @@ describe("bulk letin, tell and remove", () => {
     expect(lastToast().text).toBe("Texted 250 people that they're in. 2 people left to text.");
   });
 
+  it("a remove that fails partway keeps only the rows not done picked, and undoes the batches that went", async () => {
+    const rows = Array.from({ length: 450 }, (_, i) => waitRow(`w${i}`, "waiting"));
+    const { d, calls } = fixture({ waitlist: rows, removeFailsFrom: 2 });
+    S.sel = new Set(rows.map((r) => r.id));
+    S.confirm = "remove";
+    await acts.remove!(el(), d);
+    expect(S.sel.size).toBe(250);
+    expect(S.sel.has("w0")).toBe(false);
+    expect(S.sel.has("w200")).toBe(true);
+    expect(S.confirm).toBeNull();
+    expect(lastToast().text).toBe("Stopped. Removed 200 before it stopped.");
+    await lastToast().undo!();
+    expect(callsNamed(calls, "restore").map((ids) => (ids as string[]).length)).toEqual([200]);
+  });
+
   it("a server refusal becomes the toast with the server's words", async () => {
     const { d } = fixture({ waitlist: [waitRow("w1", "waiting")], admitFails: "Too many at once." });
     S.sel = new Set(["w1"]);
@@ -203,6 +221,15 @@ describe("bulk letin, tell and remove", () => {
 });
 
 describe("Tex access", () => {
+  it("switching off someone with only a texting phone, then Undo puts that number back", async () => {
+    const p = { ...maya(), phone: null, textingPhones: ["+1 555 555 0177"] };
+    const { d, contacts } = fixture({ accounts: [p], texPhones: ["+1 555 555 0177"] });
+    await acts.tex!(el("u_maya"), d);
+    expect(contacts()).toEqual([]);
+    await lastToast().undo!();
+    expect(contacts()).toEqual(["+1 555 555 0177"]);
+  });
+
   it("switching on, then Undo takes the number off the line", async () => {
     const { d, contacts } = fixture({ accounts: [maya()], texPhones: [] });
     await acts.tex!(el("u_maya"), d);

@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useReportOnce } from "../../useReportOnce";
 import { api } from "@context/convex/_generated/api";
 import { S } from "../state";
 import type { ConsolePage } from "../types";
@@ -32,21 +33,25 @@ function useLoadAll(page: { status: string; loadMore: (n: number) => unknown }, 
 }
 
 /**
- * Everyone, as the People page's model: undefined until the first page of each list and the usage
- * have loaded, then the rows as they stand (a list still loading more renders what it has).
+ * Everyone, as the People page's model: undefined (the page shows Loading) until every page of
+ * each list and the usage have loaded.
  */
 function useEveryone(): ConsolePeople | undefined {
+  // Page sizes keep each call well under Convex's per-call read limits (the server clamps them too).
   const accounts = usePaginatedQuery(api.functions.consolePeople.accountsPage, {}, { initialNumItems: 100 });
-  const waitlist = usePaginatedQuery(api.functions.consolePeople.waitlistPage, {}, { initialNumItems: 500 });
-  const invites = usePaginatedQuery(api.functions.consolePeople.invitesPage, {}, { initialNumItems: 500 });
-  const usage = useQuery(api.functions.consolePeople.peopleUsage, {});
-  useLoadAll(accounts, 500);
-  useLoadAll(waitlist, 500);
-  useLoadAll(invites, 500);
+  const waitlist = usePaginatedQuery(api.functions.consolePeople.waitlistPage, {}, { initialNumItems: 250 });
+  const invites = usePaginatedQuery(api.functions.consolePeople.invitesPage, {}, { initialNumItems: 250 });
+  // Spend and AI clients read once per visit, not live: grants are stamped on every MCP call.
+  const usage = useReportOnce(api.functions.consolePeople.peopleUsage, {});
+  useLoadAll(accounts, 100);
+  useLoadAll(waitlist, 250);
+  useLoadAll(invites, 250);
 
   return useMemo<ConsolePeople | undefined>(() => {
     if (usage === undefined) return undefined;
-    if (accounts.status === "LoadingFirstPage" || waitlist.status === "LoadingFirstPage" || invites.status === "LoadingFirstPage") return undefined;
+    // Held until every page is here: a partial list would show wrong counts, and a waiting row whose
+    // account had not loaded yet could be let in again.
+    if (accounts.status !== "Exhausted" || waitlist.status !== "Exhausted" || invites.status !== "Exhausted") return undefined;
 
     const spend = new Map(usage.spend.map((s) => [s.userId as string, s]));
     const grants = new Map(usage.clients.map((c) => [c.userId as string, c]));

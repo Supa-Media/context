@@ -4,6 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import {
   cameFromFor,
+  PAGE_MAX,
   type AccountRow,
   type InviteRow,
   type PeopleUsage,
@@ -31,12 +32,15 @@ afterEach(() => vi.unstubAllEnvs());
 type Page<T> = { page: T[]; isDone: boolean; continueCursor: string };
 
 /** Every row of a paged query, fetched `numItems` at a time. */
+let largestPage = 0;
 async function drain<T>(load: (paginationOpts: { numItems: number; cursor: string | null }) => Promise<Page<T>>, numItems = 50): Promise<T[]> {
   const rows: T[] = [];
+  largestPage = 0;
   let cursor: string | null = null;
   for (let guard = 0; guard < 10_000; guard += 1) {
     const result = await load({ numItems, cursor });
     rows.push(...result.page);
+    largestPage = Math.max(largestPage, result.page.length);
     if (result.isDone) return rows;
     cursor = result.continueCursor;
   }
@@ -440,6 +444,14 @@ describe("cameFromFor", () => {
 });
 
 describe("a realistic size", () => {
+  test("a capped page stays inside Convex's per-call read limit", () => {
+    // An account costs at most ~20 reads (personOf + cameFromFor with a few addresses and workspaces),
+    // a waitlist row 2, an invite ~4 (invitesTo + the inviter's handle).
+    expect(PAGE_MAX.accounts * 20).toBeLessThan(4_096 / 2);
+    expect(PAGE_MAX.waitlist * 2).toBeLessThan(4_096 / 2);
+    expect(PAGE_MAX.invites * 4).toBeLessThan(4_096 / 2);
+  });
+
   test("500 accounts and 3,000 waitlist rows page through exactly once each", async () => {
     const t = setupTest();
     vi.stubEnv(ADMIN_EMAILS_ENV_VAR, STAFF);
@@ -471,14 +483,17 @@ describe("a realistic size", () => {
       }
     });
 
-    const people = await accountsOf(t, staff, 100);
+    // Asking for more than a page may read gets the capped page (Convex allows ~4,096 reads a call).
+    const people = await accountsOf(t, staff, 1_000);
+    expect(largestPage).toBe(PAGE_MAX.accounts);
     expect(people).toHaveLength(501);
     expect(new Set(people.map((row) => row.userId)).size).toBe(501);
     // Every scale account has its personal workspace as handle; the staff account has none.
     const scale = people.filter((row) => row.userId !== staff);
     expect(scale.every((row) => row.workspaces.length === 1 && row.handle !== null)).toBe(true);
 
-    const waiting = await waitlistOf(t, staff, 500);
+    const waiting = await waitlistOf(t, staff, 1_000);
+    expect(largestPage).toBe(PAGE_MAX.waitlist);
     expect(waiting).toHaveLength(3_000);
     expect(new Set(waiting.map((row) => row.id)).size).toBe(3_000);
   }, 60_000);
