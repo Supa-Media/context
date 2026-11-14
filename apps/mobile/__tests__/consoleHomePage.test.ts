@@ -32,6 +32,7 @@ const data = (over: Partial<HomeData> = {}): HomeData => ({
   answered: 1394,
   needs: [],
   needsLoading: false,
+  costs: null,
   ...over,
 });
 
