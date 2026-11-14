@@ -27,6 +27,8 @@ import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed" });
 /** The header the Worker's object names itself with (`inboxMove.ts` `INBOX_NAME_HEADER`). */
 export const INBOX_NAME_HEADER = "x-inbox-name";
+/** Set on every answer this object gives a passed-on call: the chat answered in the gateway. */
+export const CHAT_HOME_HEADER = "x-tex-chat-home";
 /** Where this chat's copy stands (`inboxMove.ts` `PLACE_KEY`): set once the copy arrived. */
 const PLACE_KEY = "__inbox_place";
 /** The Worker's object id this chat had there, for the addresses its pictures and pages are served at. */
@@ -83,7 +85,11 @@ export function texChatClass({ gateway, texts }) {
       const headers = new Headers(request.headers);
       headers.delete(INBOX_NAME_HEADER);
       const body = request.method === "GET" || request.method === "HEAD" ? null : await request.arrayBuffer();
-      return await chat.fetch(new Request(`https://inbox${path}${url.search}`, { method: request.method, headers, body }));
+      const answer = await chat.fetch(new Request(`https://inbox${path}${url.search}`, { method: request.method, headers, body }));
+      // Where the chat answered, for a caller that has to tell (the staging intake check, `scripts/staging-tex-live.mjs`).
+      const marked = new Headers(answer.headers);
+      marked.set(CHAT_HOME_HEADER, "gateway");
+      return new Response(answer.body, { status: answer.status, statusText: answer.statusText, headers: marked });
     }
 
     /** The Worker's chat object, running on this chat's copy; null while the copy cannot be made. */
