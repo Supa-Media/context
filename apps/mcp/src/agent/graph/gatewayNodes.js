@@ -12,6 +12,15 @@ import { notify } from "./nodes/notify.js";
 import { jobcheck } from "./nodes/jobcheck.js";
 import { handback } from "./nodes/handback.js";
 import { mailadv } from "./nodes/mailadv.js";
+import card from "./nodes/card.js";
+import daysum from "./nodes/daysum.js";
+import dream from "./nodes/dream.js";
+import egress from "./nodes/egress.js";
+import housekeep from "./nodes/housekeep.js";
+import nightly from "./nodes/nightly.js";
+import nudge from "./nodes/nudge.js";
+import picture from "./nodes/picture.js";
+import reflect from "./nodes/reflect.js";
 
 /** @type {Record<string, (input: any, io: any) => Promise<any>>} */
-export const GATEWAY_NODES = { checkin, notify, jobcheck, handback, mailadv };
+export const GATEWAY_NODES = { checkin, notify, jobcheck, handback, mailadv, card, daysum, dream, egress, housekeep, nightly, nudge, picture, reflect };

@@ -53,6 +53,14 @@ flowchart LR
   n_jobcheck["Job check<br/>Opus 5.5 · effort high<br/>graph/nodes/jobcheck.js · jobCheck.js"]:::model
   n_mailadv["Advisor on job mail<br/>Opus 5.5 · effort high<br/>graph/nodes/mailadv.js · jobNote.js · advisorRoles/jobMail.js"]:::model
   n_handback["Hand-back judge<br/>Haiku 5.5 · effort low<br/>graph/nodes/handback.js · handbackJudge.js · claimCheck.js"]:::model
+  n_egress["Egress judge<br/>Haiku 5.5 · effort low<br/>privacy/judge.js"]:::model
+  n_picture["Picture maker<br/>google/gemini-2.5-flash-image · effort off<br/>pictureMaker.js"]:::model
+  n_nudge["Memory nudge<br/>Haiku 5.5 · effort off<br/>memoryNudge.js"]:::model
+  n_reflect["Reflect<br/>Haiku 5.5 · effort off<br/>reflect.js"]:::model
+  n_nightly(["Nightly<br/>code<br/>dream.js · housekeeping.js"]):::start
+  n_dream["Dream<br/>Haiku 5.5 · effort off<br/>dream.js"]:::model
+  n_daysum["Day summaries<br/>Haiku 5.5 · effort off<br/>daySummaries.js"]:::model
+  n_housekeep["Housekeeping<br/>Haiku 5.5 · effort off<br/>housekeeping.js"]:::model
   subgraph n_group_door["Door steps"]
     n_readTheText["Read the text<br/>code<br/>texEntryPoint/readTheText.js"]:::code
     n_runARoutine["Run a routine<br/>code<br/>texEntryPoint/runARoutine.js"]:::code
@@ -112,6 +120,14 @@ flowchart LR
   n_job -.->|uses: job| n_jobcheck
   n_job ==>|job: job| n_handback
   n_job -.->|uses: job| n_mailadv
+  n_tools -.->|uses: share| n_egress
+  n_tools -.->|uses: picture| n_picture
+  n_picture -.->|uses| n_card
+  n_send -.->|background| n_nudge
+  n_send -.->|background| n_reflect
+  n_nightly -->|dream| n_dream
+  n_dream -->|summarize| n_daysum
+  n_nightly -->|housekeeping| n_housekeep
   classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
   classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
@@ -164,8 +180,16 @@ every wire, from the same config.
 | Job check | jobcheck |  | on | Opus 5.5 | high |  | own, brief, ask, ledger, out:job | graph/nodes/jobcheck.js · jobCheck.js |
 | Advisor on job mail | mailadv |  | on | Opus 5.5 | high |  | own, brief, ask | graph/nodes/mailadv.js · jobNote.js · advisorRoles/jobMail.js |
 | Hand-back judge | handback |  | on | Haiku 5.5 | low |  | own, brief, draft | graph/nodes/handback.js · handbackJudge.js · claimCheck.js |
+| Egress judge | egress |  | on | Haiku 5.5 | low |  |  | privacy/judge.js |
+| Picture maker | picture |  | on | google/gemini-2.5-flash-image | off |  |  | pictureMaker.js |
+| Memory nudge | nudge |  | on | Haiku 5.5 | off |  |  | memoryNudge.js |
+| Reflect | reflect |  | on | Haiku 5.5 | off |  |  | reflect.js |
+| Nightly | nightly |  | on | code |  |  |  | dream.js · housekeeping.js |
+| Dream | dream |  | on | Haiku 5.5 | off |  |  | dream.js |
+| Day summaries | daysum |  | on | Haiku 5.5 | off |  |  | daySummaries.js |
+| Housekeeping | housekeep |  | on | Haiku 5.5 | off |  |  | housekeeping.js |
 
-Wires: checkin → fd (wait, look) · routine → readTheText (wait) · notify → send (wait, send) · text → triage (wait) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · lanes → readTheText (wait) · readTheText → runARoutine (wait, next) · runARoutine → checkTheQuestion (wait, next) · checkTheQuestion → settleAYesOrNo (wait, next) · settleAYesOrNo → watchWhatLeaves (wait, next) · watchWhatLeaves → checkItMayRun (wait, next) · checkItMayRun → readTheHistory (wait, next) · readTheHistory → openTheWeb (wait, next) · openTheWeb → readTheSetup (wait, next) · readTheSetup → prepareBookkeeping (wait, next) · prepareBookkeeping → prepareTheAnswer (wait, next) · readTheText → send (wait, answered) · runARoutine → send (wait, answered) · checkTheQuestion → send (wait, answered) · settleAYesOrNo → send (wait, answered) · checkItMayRun → send (wait, answered) · prepareTheAnswer → fd (wait) · prepareTheAnswer → router (wait) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background) · send → selfreview (background) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job)
+Wires: checkin → fd (wait, look) · routine → readTheText (wait) · notify → send (wait, send) · text → triage (wait) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · lanes → readTheText (wait) · readTheText → runARoutine (wait, next) · runARoutine → checkTheQuestion (wait, next) · checkTheQuestion → settleAYesOrNo (wait, next) · settleAYesOrNo → watchWhatLeaves (wait, next) · watchWhatLeaves → checkItMayRun (wait, next) · checkItMayRun → readTheHistory (wait, next) · readTheHistory → openTheWeb (wait, next) · openTheWeb → readTheSetup (wait, next) · readTheSetup → prepareBookkeeping (wait, next) · prepareBookkeeping → prepareTheAnswer (wait, next) · readTheText → send (wait, answered) · runARoutine → send (wait, answered) · checkTheQuestion → send (wait, answered) · settleAYesOrNo → send (wait, answered) · checkItMayRun → send (wait, answered) · prepareTheAnswer → fd (wait) · prepareTheAnswer → router (wait) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background) · send → selfreview (background) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · send → nudge (background) · send → reflect (background) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping)
 <!-- tex-config: steps end -->
 
 ## The rule
@@ -216,6 +240,7 @@ Newest first. One line per pull request that changed the drawing.
 - 2026-11-14: Answer checks and the reviewer are steps in the chat's ledger every time they run, not only when they send a draft back: the code checks keep which set ran, the draft's length, the turn's action count and whether it let the draft go (`replyJudge.js`); a review skipped for a turn with no action keeps that it was skipped and why. A 1:1 text code sends straight to Tex keeps a Decide step saying code answered and why (`apps/agent/src/inboxTurn.ts`). Replay draws only the steps a turn's log shows ran (Dev2: "If the step never ran, then why is it logged as running?"). Ledger writes only, so no box changes. Tests: `apps/mcp/test/replyJudge.test.mjs`, replay case `checks-step-logged`, `apps/agent/src/stepEvents.test.ts`.
 - 2026-11-14: Tex's prompt words are the repository's, `packages/shared/src/texPrompt/<name>.md`, and which modules each kind of turn reads, in order, is the config's (the `p-` entries of the front door's and the background job's context; `texConfig.js` `texModules`), so the texting setup note names no modules (Dev2 chose "In the repo, beside the config"). The Lab's Promote writes a version's new words into those files in the same pull request as the config. The words and their order are unchanged, so no box changes. Tests: `apps/mcp/test/texConfig.test.mjs`.
 - 2026-11-14: Check-in, Send through Tex, Job check, the Hand-back judge and the Advisor on job mail run on the graph runner (step 4 of [config-graph](../decisions/texting-assistant/config-graph.md)). Each is a node in `apps/mcp/src/agent/graph/nodes/` with its input and output shape in `texConfig.json`, checked strictly and logged by the runner; none logs by hand. A check-in claim starts at Check-in (its reads, pause, quiet hours, nothing new and busy checks, then a `to` of `look` or `done`; the checkin -> fd wire fires on `look`), and a claim for agents' pings starts at Send through Tex, which reads the quiet hours itself (notify -> send fires on `send`). A job's part is still the door's path, so Job check, the hand-back judge and the mail advisor are reached over the job's own wires (`graph/bridges.js`, `fire`) until the job itself is a node. Behaviour is the same. Tests: `apps/mcp/test/texGraphStartNodes.test.mjs`, `texGraphCheckin.test.mjs`, `jobNote.test.mjs`.
+- 2026-11-14: the steps that ran with no node now each have one, run by the config's graph (Dev2: "There should not be any code or any node that's running that isn't shown in the config"): the egress judge (`graph/nodes/egress.js`, every widening and consent check of a turn, and the turn's sharing gate), the picture maker (`graph/nodes/picture.js`) and Card check (`graph/nodes/card.js`, reached only through the picture maker), Reflect and Memory nudge behind the reply (`graph/nodes/reflect.js`, `nudge.js`, split out of `afterTextedTurn`), and a Nightly start (`nightlyRoute.js`, `graph/nodes/nightly.js`) that runs the Dream and then the Day summaries, or Housekeeping (`graph/nodes/dream.js`, `daysum.js`, `housekeep.js`). Each has strict input and output shapes in `texConfig.json`, so the drawing above shows them, and logs as a node step; the turn's callers reach the egress judge, the picture maker, Reflect and the nudge over their config wires (`fire`) until Tools and Text them are nodes. A dream reads and counts the chat's words only, never its step entries (`ledgerDays.js` `readChatSince`). The handback miner still runs inside the Dream node. Tests: `apps/mcp/test/egressPictureNodes.test.mjs`, `reflectNudgeNodes.test.mjs`, `nightlyGraph.test.mjs`, replay case `hidden-steps-are-nodes`.
 
 - 2026-11-13: "Every step, from Tex's config" is generated from `packages/shared/src/texConfig.json` (`scripts/tex-config-table.mjs`), and `tex-diagram-check.mjs` fails when it is stale or when a box in sections 1 to 3 names another model or effort than the config's step for that file (Dev2: the Lab's config is "the only source of truth"). It sits after "The rule", so it is not in any prompt.
 - 2026-11-13: every model, effort, on or off and time limit in sections 1 to 3 is Tex's one config's, `packages/shared/src/texConfig.json`, the Lab's graph of main (Dev2: "I want the config generated by the lab to become the production code, and to be the only source of truth"). The judges ask `texConfig.js` for their step's model, effort and time limit, and the texting setup's models come from it, not from the setup note. The boxes are unchanged: the values are the same.
