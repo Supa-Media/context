@@ -19,7 +19,11 @@ import { LINQ_API, MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 export type OutgoingPicture = { name: string; mediaType: string; data: string; title?: string } | { url: string };
 
 /** A picture ready to send: an attachment uploaded to Linq, or an address the line fetches. */
-export type Media = { attachment_id: string } | { url: string };
+/**
+ * `bytes`: a picture the line takes as its own file (Photon's `send/attachment`, `photonLine.ts`); Linq and Sendblue
+ * never get one (their `"url" in media` checks refuse it, and Linq's `attachment_id` is its own).
+ */
+export type Media = { attachment_id: string } | { url: string } | { name: string; mediaType: string; data: string };
 
 /** What the inbox sends after the words: a text, a media part ready for the line, or a Context card (`pickCard.ts`). */
 export type SendPart = string | { media: Media; title?: string } | { card: AppCard; fallback?: Media };

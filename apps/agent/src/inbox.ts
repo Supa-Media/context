@@ -492,7 +492,7 @@ function afterReply(storage: InboxStorage, deps: InboxDeps, item: Pending, parts
 
 export function lineDeps(deps: InboxDeps): LineDeps {
   const fetch = deps.fetch as LineDeps["fetch"];
-  return { fetch, linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, whapi: deps.whapi, hostPicture: deps.hostPicture, appCard: deps.appCard, noteCardPicture: noteCardDrawer(fetch, deps.controlPlaneOrigin, deps.workerSecret), textCounts: deps.textCounts, remote: deps.remoteLine };
+  return { fetch, linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, whapi: deps.whapi, photon: deps.photon, hostPicture: deps.hostPicture, appCard: deps.appCard, noteCardPicture: noteCardDrawer(fetch, deps.controlPlaneOrigin, deps.workerSecret), textCounts: deps.textCounts, remote: deps.remoteLine };
 }
 
 export { TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./presence";

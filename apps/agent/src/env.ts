@@ -28,6 +28,7 @@ export interface Env {
   WHAPI_LINE?: string;
   /** The value Whapi's webhook settings send in `x-tex-webhook-secret`. Absent, every WhatsApp delivery is refused. */
   WHAPI_WEBHOOK_SECRET?: string;
+  PHOTON?: Fetcher; // service binding to the Photon bridge (infra/photon-bridge)
   /** Opens the control plane's /agent-texts/* routes and nothing else. */
   AGENT_WORKER_SECRET: string;
   /** The Convex HTTP origin (…convex.site). */
