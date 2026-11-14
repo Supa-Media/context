@@ -17,6 +17,7 @@ import {
   monthDay,
   newestArrivals,
   nudges,
+  AWAY_MS,
   type CensusLike,
   type PersonLike,
   type UsageLike,
@@ -92,6 +93,18 @@ describe("growthFunnel", () => {
       ["Let in from the waitlist", 31, 100],
       ["Signed up", 20, 65],
     ]);
+  });
+
+  test("the waitlist audience stops at 'Connected an AI client', four rows as the artifact draws it", () => {
+    const steps = ["let-in", "signed-up", "texted-tex", "connected-a-client", "in-a-shared-workspace"];
+    const five: CensusLike = { ...census, waitlist: { growthFunnel: steps.map((step, i) => ({ step, count: 31 - i * 5 })) } };
+    expect(growthFunnel(five, "wait").map((r) => r.label)).toEqual([
+      "Let in from the waitlist",
+      "Signed up",
+      "Texted Tex",
+      "Connected an AI client",
+    ]);
+    expect(growthFunnel({ ...five, growthFunnel: steps.slice(1).map((step) => ({ step, count: 1 })) }, "all")).toHaveLength(4);
   });
 
   test("a census without a funnel gives an empty funnel", () => {
@@ -205,8 +218,13 @@ describe("fromPill", () => {
     expect(fromPill({ ...base, from: "waitlist" })).toEqual({ text: "waitlist", tone: "" });
   });
 
-  test("a friend reads 'invited by' whoever invited them, in the team tone", () => {
-    expect(fromPill({ ...base, from: "friend", invitedBy: "Ana" })).toEqual({ text: "invited by Ana", tone: "team" });
+  test("a friend reads 'invited by' the inviter's first name, as the artifact has it, in the team tone", () => {
+    const maya = { ...base, id: "u-maya", name: "Maya Lindqvist", handle: "maya" };
+    expect(fromPill({ ...base, from: "friend", invitedBy: "maya" }, [maya])).toEqual({ text: "invited by Maya", tone: "team" });
+  });
+
+  test("a friend invited by somebody not in the list reads their @handle, never a bare handle", () => {
+    expect(fromPill({ ...base, from: "friend", invitedBy: "ana" })).toEqual({ text: "invited by @ana", tone: "team" });
   });
 
   test("a friend with nobody named reads 'invited'", () => {
@@ -295,32 +313,32 @@ describe("nudges", () => {
     expect(find(rows, "No AI client")).toEqual(["none"]);
   });
 
-  test("never came back: an account more than two days old and not seen after its first day", () => {
+  test("never came back: last seen more than 100 hours ago, as the artifact's lastN > 100", () => {
+    const H = 3_600_000;
     const rows = nudges(
       [
-        person("gone", { joinedAt: NOW - 3 * DAY, lastSeenAt: NOW - 3 * DAY + 1000 }),
-        person("never-seen", { joinedAt: NOW - 3 * DAY, lastSeenAt: null }),
-        person("back", { joinedAt: NOW - 3 * DAY, lastSeenAt: NOW - 2 * DAY }),
-        person("new", { joinedAt: NOW - DAY, lastSeenAt: NOW - DAY }),
+        person("sam", { joinedAt: NOW - 40 * DAY, lastSeenAt: NOW - 288 * H }),
+        person("kai", { joinedAt: NOW - 5 * DAY, lastSeenAt: NOW - 144 * H }),
+        person("leo", { joinedAt: NOW - 60 * DAY, lastSeenAt: NOW - 72 * H }),
+        person("maya", { joinedAt: NOW - 90 * DAY, lastSeenAt: NOW - 2 * H }),
       ],
       NOW,
     );
-    expect(find(rows, "Never came back")).toEqual(["gone", "never-seen"]);
+    expect(find(rows, "Never came back")).toEqual(["sam", "kai"]);
   });
 
-  test("never came back: exactly two days old is not yet, one millisecond older is", () => {
-    const exact = nudges([person("exact", { joinedAt: NOW - 2 * DAY, lastSeenAt: null })], NOW);
-    const older = nudges([person("older", { joinedAt: NOW - 2 * DAY - 1, lastSeenAt: null })], NOW);
+  test("never came back: exactly 100 hours is not yet, one millisecond more is", () => {
+    const exact = nudges([person("exact", { joinedAt: NOW - 9 * DAY, lastSeenAt: NOW - AWAY_MS })], NOW);
+    const older = nudges([person("older", { joinedAt: NOW - 9 * DAY, lastSeenAt: NOW - AWAY_MS - 1 })], NOW);
     expect(find(exact, "Never came back")).toEqual([]);
     expect(find(older, "Never came back")).toEqual(["older"]);
   });
 
-  test("never came back: seen within the first day counts as not gone, seen exactly a day later does not", () => {
-    const joinedAt = NOW - 5 * DAY;
-    const within = nudges([person("within", { joinedAt, lastSeenAt: joinedAt + DAY - 1 })], NOW);
-    const onDayOne = nudges([person("onday", { joinedAt, lastSeenAt: joinedAt + DAY })], NOW);
-    expect(find(within, "Never came back")).toEqual(["within"]);
-    expect(find(onDayOne, "Never came back")).toEqual([]);
+  test("never came back: somebody never seen counts from when they joined, so a new account is not on it", () => {
+    const fresh = nudges([person("fresh", { joinedAt: NOW - 3_600_000, lastSeenAt: null })], NOW);
+    const stale = nudges([person("stale", { joinedAt: NOW - 5 * DAY, lastSeenAt: null })], NOW);
+    expect(find(fresh, "Never came back")).toEqual([]);
+    expect(find(stale, "Never came back")).toEqual(["stale"]);
   });
 
   test("no phone for Tex lists accounts without a phone, empty or missing", () => {
