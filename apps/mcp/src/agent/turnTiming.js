@@ -16,7 +16,7 @@
  * stay in its own entry. Capped, so a long job's turn cannot grow its reply.
  */
 
-export const TIMING_VERSION = 1;
+export const TIMING_VERSION = 2; // 2: each round carries its prompt's manifest
 const MAX_STEPS = 60;
 const MAX_ROUNDS = 40;
 const MAX_TOOLS = 80;
@@ -35,6 +35,25 @@ function workerPart(worker) {
   const sessionMs = ms(worker.sessionMs), beforeAskMs = ms(worker.beforeAskMs);
   if (sessionMs === null && beforeAskMs === null) return {};
   return { worker: { ...(sessionMs === null ? {} : { sessionMs }), ...(beforeAskMs === null ? {} : { beforeAskMs }) } };
+}
+
+/**
+ * The round's prompt as module ids and fingerprints (`promptManifest.js`), so a
+ * rebuild at the commit in the reply's `version.code` can prove it is the
+ * prompt that ran. Ids and numbers only, capped like everything here.
+ */
+const MAX_MODULES = 40;
+function promptPart(prompt) {
+  if (prompt === null || typeof prompt !== "object" || !Array.isArray(prompt.modules)) return {};
+  const modules = prompt.modules.slice(0, MAX_MODULES).filter((m) => typeof m?.id === "string" && typeof m.h === "string").map((m) => ({ id: name(m.id), n: whole(m.n), h: name(m.h) }));
+  const i = prompt.inputs ?? {};
+  const inputs = {
+    ...(Number.isFinite(i.at) ? { at: Math.round(i.at) } : {}),
+    ...(typeof i.timeZone === "string" ? { timeZone: name(i.timeZone) } : {}),
+    ...(typeof i.model === "string" ? { model: name(i.model) } : {}),
+    ...(Number.isFinite(i.history) ? { history: whole(i.history) } : {}),
+  };
+  return { prompt: { modules, inputs } };
 }
 
 const whole = (value) => (Number.isFinite(value) && value > 0 ? Math.round(value) : 0);
@@ -79,6 +98,7 @@ export function turnTiming({ steps = [], trace = [], waitMs = null, worker = nul
         ...(entry.retried ? { retried: true } : {}),
         ...(entry.cut ? { cut: true } : {}),
         ...(entry.usage ? { input: whole(usage.input), output: whole(usage.output), cacheRead: whole(usage.cacheRead), cacheWrite: whole(usage.cacheWrite), said: whole(entry.said), calls: whole(entry.calls) } : {}),
+        ...promptPart(entry.prompt),
       });
     }
   }

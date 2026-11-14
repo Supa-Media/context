@@ -35,7 +35,8 @@ test("a texted turn's reply keeps where its time went: the wait, each step, each
     const { entries } = await ledgerOf(world).read(ONE_TO_ONE_CHAT);
     const reply = entries.find((entry) => entry.kind === "reply");
     const { timing } = reply;
-    assert.equal(timing.v, 1);
+    assert.equal(timing.v, 2);
+    assert.ok(timing.rounds.every((r) => r.prompt?.modules?.[0]?.id?.startsWith("stable/") && r.prompt.inputs.at > 0), "each round names the prompt it was sent (`promptManifest.js`)");
     assert.ok(timing.waitMs >= 1_400 && timing.waitMs < 60_000, `the wait before the gateway: ${timing.waitMs}`);
     assert.ok(timing.replyMs >= 0);
     assert.deepEqual(timing.worker, { sessionMs: 412, beforeAskMs: 37 }, "the Worker's own wait inside it, numbers only (Dev, 2026-11-04)");

@@ -480,7 +480,7 @@ export function systemPromptParts(
 
   const where = describePlace(place);
   if (where) tail.push("", where);
-  return { stable: lines.join("\n"), volatile: tail.join("\n") };
+  return { stable: lines.join("\n"), volatile: tail.join("\n"), production: production !== null };
 }
 
 /**
