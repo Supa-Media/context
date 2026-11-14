@@ -141,7 +141,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     trace.set("matchesIsFloor", Boolean(fromObject.matchCountIsFloor));
     trace.set("maintain", "none");
     logSearchTrace(trace);
-    reportSearchTiming(store, trace, "fast", fromObject.hits.length > 0);
+    reportSearchTiming(store, trace, "fast", fromObject.hits);
     return {
       hits: fromObject.hits,
       matchCount: fromObject.matchCount,
@@ -173,7 +173,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     // owner, 2026-10-17). A pass here was hundreds of calls behind every search.
     trace.set("maintain", "none");
     logSearchTrace(trace);
-    reportSearchTiming(store, trace, "fast", (fast?.hits.length ?? 0) > 0);
+    reportSearchTiming(store, trace, "fast", fast?.hits ?? []);
     return {
       hits: fast?.hits ?? [],
       matchCount: fast?.matchCount ?? 0,
@@ -229,7 +229,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
       await maintainIndexAfter(store, budget, isIndexable, found)
     );
     logSearchTrace(trace);
-    reportSearchTiming(store, trace, "index", found.hits.length > 0);
+    reportSearchTiming(store, trace, "index", found.hits);
     return {
       hits: found.hits,
       matchCount: found.matchCount,
@@ -276,7 +276,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     await maintainIndexAfter(store, budget, isIndexable, null)
   );
   logSearchTrace(trace);
-  reportSearchTiming(store, trace, "scan", scan.hits.length > 0);
+  reportSearchTiming(store, trace, "scan", scan.hits);
   return {
     hits: scan.hits,
     matchCount: scan.hits.length,

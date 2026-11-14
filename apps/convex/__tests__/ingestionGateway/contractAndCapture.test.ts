@@ -40,15 +40,32 @@ describe("the wire contract matches the worker's", () => {
     eager: true,
   }) as Record<string, string>;
 
+  // The handlers' bodies live in `functions/lib/gatewayRoutes/ingestEmail.ts`; http.ts declares and routes them.
+  const INGEST_SOURCES = import.meta.glob("../../functions/lib/gatewayRoutes/ingestEmail.ts", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+
   const workerSource = Object.values(WORKER_SOURCES)[0];
-  const httpSource = Object.values(HTTP_SOURCES)[0];
+  const routesSource = Object.values(HTTP_SOURCES)[0];
+  const ingestSource = Object.values(INGEST_SOURCES)[0];
+  const httpSource = `${routesSource}\n${ingestSource}`;
+  /** The handler each declared route wraps, by its name in ingestEmail.ts. */
+  const HANDLER_OF: Record<string, string> = {
+    gatewayIngestResolve: "ingestResolveHandler",
+    gatewayIngestBinding: "ingestBindingHandler",
+    gatewayIngestRecord: "ingestRecordHandler",
+  };
 
   test("the worker's source is actually being read", () => {
     // Non-vacuity. If the glob stops matching, every assertion below passes
     // over an empty string and proves nothing.
     expect(typeof workerSource).toBe("string");
     expect(workerSource).toContain("/gateway/ingest/resolve");
-    expect(typeof httpSource).toBe("string");
+    expect(typeof routesSource).toBe("string");
+    expect(typeof ingestSource).toBe("string");
+    expect(ingestSource).toContain("export async function ingestResolveHandler(");
   });
 
   /** `post("/gateway/ingest/resolve", { a, b, c })` → `["a", "b", "c"]` */
@@ -66,10 +83,13 @@ describe("the wire contract matches the worker's", () => {
 
   /** The body keys a handler reads, from its `stringField(body, "x")` calls. */
   function fieldsReadBy(routeName: string): string[] {
-    const start = httpSource.indexOf(`export const ${routeName} =`);
-    expect(start, `${routeName} is not declared in http.ts`).toBeGreaterThan(-1);
-    const rest = httpSource.slice(start);
-    const end = rest.indexOf("\nexport const ");
+    expect(routesSource, `${routeName} is not declared in http.ts`).toContain(
+      `export const ${routeName} = emailWorkerRoute(${HANDLER_OF[routeName]})`,
+    );
+    const start = ingestSource.indexOf(`export async function ${HANDLER_OF[routeName]}(`);
+    expect(start, `${HANDLER_OF[routeName]} is not in ingestEmail.ts`).toBeGreaterThan(-1);
+    const rest = ingestSource.slice(start);
+    const end = rest.indexOf("\nexport ", 1);
     const handler = end === -1 ? rest : rest.slice(0, end);
     return [
       ...new Set([

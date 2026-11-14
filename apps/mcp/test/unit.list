@@ -552,3 +552,4 @@ test/texConfig.test.mjs
 test/workerSteps.test.mjs
 test/texPrefixPrint.test.mjs
 test/promptCatalog.test.mjs
+test/searchQuality.test.mjs

@@ -13,6 +13,7 @@ import type * as functions_stagingPersonas from "../functions/stagingPersonas.js
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as functions_admin from "../functions/admin.js";
+import type * as functions_adminStorage from "../functions/adminStorage.js";
 import type * as functions_account from "../functions/account.js";
 import type * as functions_accountDeletion from "../functions/accountDeletion.js";
 import type * as functions_accountSetup from "../functions/accountSetup.js";
@@ -297,6 +298,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   crons: typeof crons;
   "functions/admin": typeof functions_admin;
+  "functions/adminStorage": typeof functions_adminStorage;
   "functions/account": typeof functions_account;
   "functions/accountDeletion": typeof functions_accountDeletion;
   "functions/accountSetup": typeof functions_accountSetup;

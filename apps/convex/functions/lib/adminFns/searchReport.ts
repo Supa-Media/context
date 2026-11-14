@@ -25,6 +25,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { dayKey } from "../usage";
 import { percentile } from "./agentReport";
+import { qualityHandler, searchQualityValidator } from "./searchQuality";
 
 export const SEARCH_REPORT_WINDOWS = [1, 7, 30] as const;
 export const SEARCH_VIEWS = ["screen", "app", "ai"] as const;
@@ -86,6 +87,8 @@ export const searchReportValidator = v.object({
   truncated: v.boolean(),
   /** Every view's figures this window, and the window before, for the tiles. */
   views: v.array(v.object({ view: viewValidator, ...stats, workspaces: v.number(), prior: v.object(stats) })),
+  /** The quality figures (`lib/adminFns/searchQuality.ts`): searches that opened a result, by who searched. */
+  quality: searchQualityValidator,
   /** The chosen view, hourly for a one-day window and daily otherwise; oldest first, zero-filled. */
   buckets: v.array(v.object({ label: v.string(), ...stats })),
   /** The chosen view by which index answered. Empty for `screen`, which cannot know. */
@@ -157,6 +160,9 @@ export async function searchReportHandler(
   let truncated = false;
   const views: SearchReport["views"] = [];
   let chosen: Doc<"searchTimings">[] = [];
+  // The quality rows are the screen's and the AI's: read once here, for the quality figures.
+  const qualityNow: Doc<"searchTimings">[] = [];
+  const qualityPrior: Doc<"searchTimings">[] = [];
   for (const each of SEARCH_VIEWS) {
     const current = nothing ? { rows: [], truncated: false } : await viewRows(ctx, each, now - windowMs, now, workspaceId);
     const prior = nothing
@@ -170,6 +176,10 @@ export async function searchReportHandler(
       prior: summarize(prior.rows.map((row) => row.ms)),
     });
     if (each === view) chosen = current.rows;
+    if (each === "screen" || each === "ai") {
+      qualityNow.push(...current.rows);
+      qualityPrior.push(...prior.rows);
+    }
   }
 
   // Buckets: hours for one day, days otherwise.
@@ -206,6 +216,7 @@ export async function searchReportHandler(
     workspace: named === null ? null : named.slug,
     truncated,
     views,
+    quality: await qualityHandler(ctx, { days, now, current: qualityNow, prior: qualityPrior }),
     buckets,
     answeredBy,
     found: {
