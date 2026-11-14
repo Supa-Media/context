@@ -14,6 +14,9 @@ import { lab, MODELS, node, set } from "../../engine/state";
 import { useLab } from "../../store";
 import { Ic } from "../ic";
 import { PromptAt } from "./PromptAt";
+import { JobRuns } from "./JobRuns";
+import { jobsOf } from "../../engine/jobRuns";
+import { replayEntries } from "../mine/useMine";
 
 /** A got or gave longer than this shows its start, with the whole a click away; nothing is ever cut. */
 const FOLD = 1500;
@@ -85,6 +88,7 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
         </div>
         {/* The prompt it ran on, walked back from the version (`engine/promptAt.ts`). */}
         {(n.id === "fd" || n.id === "door") && real?.prompt ? <PromptAt p={real.prompt} /> : null}
+        {n.id === "job" ? jobsOf(replayEntries(), m.turns).map((j) => <JobRuns key={j.id} id={j.id} entries={replayEntries()} />) : null}
         {/* What this step logs, every run (`stepLogs.ts`), so a missing line above is never a mystery. */}
         {STEP_LOGS[n.id] ? (
           <div className="grp" id="rLogs">
@@ -103,6 +107,7 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
   const turnBars = m.lanes.Turn.filter((b) => b.kind === "turn");
   const waitOf = (turn?: string) => m.lanes.Turn.find((b) => b.kind === "wait" && b.turn === turn);
   const judged = m.lanes.Judge;
+  const entries = replayEntries();
   return (
     <div className="rpanel" id="replayPanel">
       <h3>{first.start ? startLabel(first) : first.who === "You" || !first.who ? "From your text" : `From ${first.who}'s text`}</h3>
@@ -152,6 +157,10 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
           <p className="hint">The judge kept no calls for this text.</p>
         )}
       </div>
+      {/* A text sent from a background job, or a turn that ran one: every run that led up to it (`JobRuns`). */}
+      {jobsOf(entries, m.turns).map((j) => (
+        <JobRuns key={j.id} id={j.id} entries={entries} />
+      ))}
       <p className="hint">Click a step on the canvas, or a bar on the timeline, to see what it got and gave.</p>
     </div>
   );
