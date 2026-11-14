@@ -4,7 +4,7 @@
  * production code, and to be the only source of truth").
  *
  * Reads a saved Lab version's graph (the JSON the Lab keeps in `texLabVersions.graph`) and writes it into
- * `packages/shared/src/texConfig.json`, one step and one wire per line, then regenerates tex.md's steps table. The
+ * `packages/shared/src/texConfig.json`, one step and one wire per line, then regenerates tex.md's drawing and table and the map every Tex agent reads (`tex-architecture.mjs`). The
  * Lab promote workflow runs this on a branch of its own and opens the pull request; the pull request's gates decide.
  *
  * Refused, with the reason, rather than written: a graph whose steps or wires are malformed, a wire to a step that is
@@ -25,12 +25,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CONFIG, PAGE, pageWithTable } from "./tex-config-table.mjs";
+import { CONFIG, MODULE as MAP_MODULE, PAGE, moduleFor as mapModuleFor, pageFor } from "./tex-architecture.mjs";
 import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptModuleFor, wordsOf } from "./tex-prompt-module.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const ID = /^[a-z][a-z0-9_-]{0,30}$/;
-const MODES = new Set(["wait", "uses", "behind", "job", "loop"]);
+const ID = /^[a-z][A-Za-z0-9_-]{0,30}$/;
+const MODES = new Set(["wait", "uses", "background", "behind", "job", "loop"]);
 const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
 const PROMPT_KEY = /^p-([a-z][a-z0-9-]{0,47})$/;
 const MAX_WORDS = 40_000;
@@ -89,14 +89,19 @@ export function configFrom(graph, current, currentWords = {}) {
       if (name !== undefined && typeof currentWords[name] !== "string" && typeof madeWords.words[name] !== "string") return refuse(`step "${n.id}" reads the prompt module "${name}", which has no words`);
     }
   }
-  return { config: { ...current, nodes, edges: graph.edges.map(({ from, to, mode, when }) => ({ from, to, mode, when })) }, words: madeWords.words };
+  // Wires in the order main has them too (the Lab unfolds a group's wires in its own order), new ones last.
+  const wireKey = (e) => `${e.from}>${e.to}>${e.mode}`;
+  const wireOrder = new Map(current.edges.map((e, i) => [wireKey(e), i]));
+  const edges = graph.edges.map(({ from, to, mode, when }) => ({ from, to, mode, when })).map((e, i) => ({ e, at: wireOrder.get(wireKey(e)) ?? current.edges.length + i })).sort((a, b) => a.at - b.at).map(({ e }) => e);
+  return { config: { ...current, nodes, edges }, words: madeWords.words };
 }
 
 /** The config file's text: the head as JSON, then one step and one wire per line. */
 export function configText(config) {
   const lines = (a) => "[\n" + a.map((x) => "    " + JSON.stringify(x)).join(",\n") + "\n  ]";
   const models = JSON.stringify(config.models, null, 4).replace(/\n}$/, "\n  }");
-  return `{\n  "texConfig": ${config.texConfig},\n  "about": ${JSON.stringify(config.about)},\n  "models": ${models},\n  "nodes": ${lines(config.nodes)},\n  "edges": ${lines(config.edges)}\n}\n`;
+  const groups = config.groups ? `\n  "groups": ${JSON.stringify(config.groups)},` : "";
+  return `{\n  "texConfig": ${config.texConfig},\n  "about": ${JSON.stringify(config.about)},\n  "models": ${models},${groups}\n  "nodes": ${lines(config.nodes)},\n  "edges": ${lines(config.edges)}\n}\n`;
 }
 
 function selfTest() {
@@ -160,11 +165,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     if (!args.includes("--check")) {
       writeFileSync(join(ROOT, CONFIG), configText(made.config));
-      writeFileSync(join(ROOT, PAGE), pageWithTable(readFileSync(join(ROOT, PAGE), "utf8"), made.config));
+      // The drawing and the map every Tex agent reads are the config's, so a promoted wire changes Tex's prompts and the replay gate runs on it.
+      writeFileSync(join(ROOT, PAGE), pageFor(readFileSync(join(ROOT, PAGE), "utf8"), made.config));
+      writeFileSync(join(ROOT, MAP_MODULE), mapModuleFor(made.config));
       for (const [name, text] of Object.entries(made.words)) writeFileSync(join(ROOT, PROMPT_FOLDER, `${name}.md`), `${text}\n`);
       writeFileSync(join(ROOT, PROMPT_MODULE), promptModuleFor(wordsOf(ROOT)));
     }
     const changed = Object.keys(made.words);
-    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG} and ${PAGE}'s steps table${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}`);
+    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG}, ${PAGE}'s drawing and table and ${MAP_MODULE}${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}`);
   }
 }

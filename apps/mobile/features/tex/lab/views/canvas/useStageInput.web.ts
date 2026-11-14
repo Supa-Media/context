@@ -25,6 +25,7 @@ import {
   unfocus,
 } from "../../engine/state";
 import { mods } from "../../engine/modules";
+import { stepsShownFor } from "../../engine/groups";
 import { H, W, wheelCam, type Cam } from "./render";
 
 type Act =
@@ -189,7 +190,9 @@ export function useStageInput({
         return;
       }
       if (a.k === "fpick") {
-        if (a.id !== lab.cfocus) focusOn(a.id);
+        // A step an open group draws is picked for its properties; it does not become a focus of its own.
+        const shown = stepsShownFor(G(), lab.cfocus).some((n) => n.id === a.id);
+        if (a.id !== lab.cfocus && !shown) focusOn(a.id);
         else set({ sel: { t: "node", id: a.id } });
         return;
       }

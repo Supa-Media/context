@@ -5,21 +5,25 @@ import { readFileSync } from "node:fs";
 import { ROLES, TEX_MAP, architectureFor, withArchitecture } from "../src/agent/texArchitecture.js";
 import { replyJudge } from "../src/agent/replyJudge.js";
 import { backgroundedBrief } from "../src/machines/jobBackground.js";
-import { mapOf } from "../../../scripts/tex-architecture-module.mjs";
+import { mapFor } from "../../../scripts/tex-architecture.mjs";
+import { TEX_CONFIG } from "../src/agent/texConfig.js";
 
 // Dev2, 2026-11-06: "make sure the architecture in code is loaded into every agents context, and tell them what part of the graph they are".
 
-test("the map is the drawing's three sections, without colours", () => {
-  const page = readFileSync(new URL("../../../docs/architecture/tex.md", import.meta.url), "utf8");
-  assert.equal(TEX_MAP, mapOf(page), "regenerate with node scripts/tex-architecture-module.mjs");
-  assert.match(TEX_MAP, /## 1\. A text on its way to the door/);
-  assert.match(TEX_MAP, /## 3\. The answer maker/);
-  assert.doesNotMatch(TEX_MAP, /classDef|:::|<br\/>|## The rule|## Change log/);
+// Dev2, 2026-11-14: Tex is told its own structure from the config, the config being what runs.
+test("the map is Tex's config in words: every node, and every wire by its mode", () => {
+  assert.equal(TEX_MAP, mapFor(TEX_CONFIG), "regenerate with node scripts/tex-architecture.mjs");
+  for (const n of TEX_CONFIG.nodes) assert.ok(TEX_MAP.includes(`- ${n.label} (`), `node ${n.id} is not in the map`);
+  assert.match(TEX_MAP, /Front door \(Haiku 5\.5\)/);
+  assert.match(TEX_MAP, /may call: Tools \(when action\)/);
+  assert.doesNotMatch(TEX_MAP, /classDef|:::|<br\/>|```/);
 });
 
-test("every role names a box that is drawn, and says where it is", () => {
+test("every role names a node of the config, and says where it is", () => {
+  const labels = new Map(TEX_CONFIG.nodes.map((n) => [n.id, n.label]));
   for (const [role, at] of Object.entries(ROLES)) {
-    assert.ok(TEX_MAP.includes(at.box), `${role}: box "${at.box}" is not in the drawing`);
+    assert.ok(labels.has(at.node), `${role}: node "${at.node}" is not in Tex's config`);
+    assert.ok(TEX_MAP.includes(labels.get(at.node)), `${role}: node "${at.node}" is not in the map`);
     const text = architectureFor(role);
     assert.ok(text.includes(TEX_MAP), `${role}: the map is whole`);
     assert.match(text, /WHERE YOU ARE: you are /);
@@ -45,6 +49,6 @@ test("the reviewer's call carries the map and its box", async () => {
 test("a computer job's brief opens with the map and its box", () => {
   const brief = backgroundedBrief({ actorClientId: "x" }, "Do the thing.", { machineName: "mac", fromOwner: true });
   assert.match(brief, /^HOW TEX WORKS/);
-  assert.match(brief, /WHERE YOU ARE: you are the job on A person's computer/);
+  assert.match(brief, /WHERE YOU ARE: you are a Background job running on a person's computer/);
   assert.ok(brief.endsWith("Do the thing."));
 });

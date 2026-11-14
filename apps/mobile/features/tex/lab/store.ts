@@ -12,7 +12,8 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { buildTraces } from "./engine/traces";
 import { allCases } from "./engine/diff";
-import { clone, emit, isMain, lab, MAIN, setSaver, snapshot, subscribe, toast } from "./engine/state";
+import { clone, emit, isMain, lab, MAIN, setSaver, shownGraph, snapshot, subscribe, toast } from "./engine/state";
+import { unfoldGroups } from "./engine/groups";
 import type { LabCase, LabVersion } from "./types";
 
 /** Draw again whenever the Lab's state changes; returns the state. */
@@ -76,7 +77,8 @@ export function useLabSync(enabled: boolean) {
     const toRow = (v: LabVersion) => ({
       versionId: v.id,
       name: v.name,
-      graph: JSON.stringify(v.graph),
+      // The saved graph is the config's own steps, unfolded: Promote writes it into the config (Dev2, 2026-11-14).
+      graph: JSON.stringify(unfoldGroups(v.graph)),
       picks: JSON.stringify(v.picks || {}),
       ...(v.areas ? { areas: JSON.stringify(v.areas) } : {}),
       results: JSON.stringify(v.results || []),
@@ -106,7 +108,7 @@ export function useLabSync(enabled: boolean) {
         MAIN.results = parse(x.results, []);
         continue;
       }
-      list.push({ id: x.versionId, name: x.name, authorId: x.authorId, graph: parse(x.graph, { nodes: [], edges: [] }), picks: parse(x.picks, {}), areas: parse<string[] | null>(x.areas, null), results: parse(x.results, []), createdAt: x.createdAt, updatedAt: x.updatedAt, promote: x.promote });
+      list.push({ id: x.versionId, name: x.name, authorId: x.authorId, graph: shownGraph(parse(x.graph, { nodes: [], edges: [] }), lab.cfocus), picks: parse(x.picks, {}), areas: parse<string[] | null>(x.areas, null), results: parse(x.results, []), createdAt: x.createdAt, updatedAt: x.updatedAt, promote: x.promote });
     }
     lab.versions = list;
     lab.sync = `Shared · ${list.length - 1} saved version${list.length === 2 ? "" : "s"}`;
