@@ -24,3 +24,19 @@ page or giving the reason line. Its self-test breaks each of those on purpose.
 artifact outside the repository, drifts from the code within days, which is
 what happened to the 2026-10-30 and 2026-11-01 maps. Pictures elsewhere (the
 illustrated maps) are views of this page, never a second source.
+
+## The diagram is generated from the config (decided by the owner, 2026-11-14)
+
+This supersedes "The rule" above. The drawing is no longer changed by hand. What
+Tex runs is set in `packages/shared/src/texConfig.json`, and
+`scripts/tex-architecture.mjs` regenerates the drawing and steps table in
+[`docs/architecture/tex.md`](../../architecture/tex.md), and the words Tex is
+given about itself. So the rule now reads: a change to what Tex runs changes the
+config, and the page is regenerated from it. A pull request that changes a
+node's code and not the config must say `Tex diagram: unchanged because
+<reason>`, as before. `scripts/tex-diagram-check.mjs` still fails when a
+generated file is stale.
+
+**What a simplification would cost:** a hand-drawn page again drifts from the
+wires the code runs, and the wires in code are the thing the owner asked to be
+predefined. See [config-graph](./config-graph.md).

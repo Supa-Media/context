@@ -28,6 +28,9 @@ import type { InboxStorage } from "./inbox";
 import { cut } from "./inbound";
 import type { Message } from "./reply";
 import { inboxByName } from "./objectPlace";
+import { intakeOf } from "./handOver";
+import { GATEWAY_CALL_PREFIX, INBOX_NAME_HEADER } from "./inboxMove";
+import type { TextsBinding } from "./gatewaySession";
 
 export const SIMULATOR_PATH = "/texts-simulator";
 
@@ -90,7 +93,8 @@ export async function clear(storage: InboxStorage): Promise<void> {
 
 // ── The Worker's routes ───────────────────────────────────────────────────
 
-export type SimulatorEnv = { SENDER_INBOX: DurableObjectNamespace };
+/** `INTAKE` and `GATEWAY_TEXTS`: with intake in the gateway, a simulated chat runs there too (`handOver.ts`). */
+export type SimulatorEnv = { SENDER_INBOX: DurableObjectNamespace; INTAKE?: string; GATEWAY_TEXTS?: TextsBinding };
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const KEY_PATTERN = /^[0-9a-f]{32,128}$/;
@@ -148,11 +152,15 @@ export async function handleSimulator(request: Request, env: SimulatorEnv, page:
   }
   if (phone === null || !SIMULATED_PHONE.test(phone)) return new Response(null, { status: 400 });
 
-  const stub = inboxByName(env.SENDER_INBOX, phone);
-  return stub.fetch(`https://inbox/sim/${action}`, {
-    method: "POST",
-    body: JSON.stringify({ keyHash: await sha256Hex(key), phone, text }),
-  });
+  const body = JSON.stringify({ keyHash: await sha256Hex(key), phone, text });
+  // Intake in the gateway: the simulated chat is the gateway's copy, copied in on its first call, so the simulator
+  // proves the gateway's queue and turns (step 3 of Tex's config graph). A copy that cannot be made answers 503 and
+  // the Worker's own object answers, as a real text's hand-over falls back (`handOver.ts`).
+  if (intakeOf(env.INTAKE) === "gateway" && env.GATEWAY_TEXTS !== undefined) {
+    const there = await env.GATEWAY_TEXTS.fetch(`${GATEWAY_CALL_PREFIX}/sim/${action}`, { method: "POST", headers: { [INBOX_NAME_HEADER]: phone }, body }).catch(() => null);
+    if (there !== null && there.status !== 503) return there;
+  }
+  return inboxByName(env.SENDER_INBOX, phone).fetch(`https://inbox/sim/${action}`, { method: "POST", body });
 }
 
 /** The Durable Object's side: one sender's claim, log and queue. */

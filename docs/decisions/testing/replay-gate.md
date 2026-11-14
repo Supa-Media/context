@@ -234,3 +234,22 @@ every config change waits on a paid run, or merges without the jobs replay.
 Test: `apps/mcp/bench/test/jobsSocket.test.mjs`, which fails when a socketed
 jobs run with no answers says ok.
 
+
+## A skip for the config-graph migration, until 2026-11-22 (decided by the owner, 2026-11-14)
+
+Dev2, 2026-11-14: "I think it's fine to bypass the replay checks just for now
+because the config changes are so monumental that it doesn't matter. I feel
+like the replay should kind of wait for the config change first." Moving Tex
+onto its config graph regenerates the map every agent is told, so each of
+those pull requests reaches every area, and examining all seven for each one
+would hold the migration for hours.
+
+So until 2026-11-22, a pull request whose body has a line starting
+`Replay skipped on the owner's call:` followed by a reason passes **Tex replay
+required** without a run, and the check's log names the areas it did not
+replay (`SKIP_LINE`, `SKIP_ENDS` and `ownerSkip` in
+`scripts/tex-replay-required.mjs`). After that date the line does nothing and
+the gate is whole again; delete the skip then. Once the graph has landed,
+replays are tied to the config they ran on. Test:
+`node scripts/tex-replay-required.mjs --self-test` ("the skip ends on its
+date").
