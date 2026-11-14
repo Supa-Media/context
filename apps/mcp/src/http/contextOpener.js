@@ -174,7 +174,10 @@ export function attachContextOpener(store, session, { env, controlPlane, origin,
     targetStore.presenceRooms = store.presenceRooms;
     // Its tree hint and activity dot go to the context written into: the
     // people watching `@theirs` are the ones whose console must move.
-    attachChangeReporters(targetStore, target.workspaceId, controlPlane);
+    // The search quality key is the connection's (the Worker's env), so a search or an open made in another context
+    // is reported with the same keyed actor as one in the caller's own. Not `env` itself: that would also hand this
+    // store the caller's routine alarms.
+    attachChangeReporters(targetStore, target.workspaceId, controlPlane, { searchEnv: env });
     targetStore.actor = actorFor(target);
     targetStore.contexts = contextsFor(target);
     // The connection's own listing, wherever orient was addressed.

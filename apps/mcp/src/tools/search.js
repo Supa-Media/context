@@ -209,16 +209,13 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
         const privacy = await loadPrivacyState(targetStore);
         if (privacy.error) return null;
         const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed, AS_ONE_OF_SEVERAL);
-        // The workspace the hits are read from, for the search row's hashes (`search/quality.js`).
-        return { name, found, workspaceId: target.workspaceId ?? targetStore.actor?.workspaceId ?? null };
+        return { name, found };
       } catch {
         return null;
       }
     }),
   ]);
   const elsewhere = answers.filter(Boolean);
-  // Which workspace each other workspace's hits come from, by the `@name` their keys carry.
-  const workspaceOf = Object.fromEntries(elsewhere.map(({ name, workspaceId }) => [name, workspaceId]));
   const annotated = (found, name = null) =>
     found.hits.map((hit) => ({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: name ? `${name}/${hit.key}` : hit.key }));
   const hits = fuseEverywhere(
@@ -233,7 +230,6 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
     matchCount: elsewhere.reduce((total, { found }) => total + found.matchCount, base.matchCount),
     matchCountIsFloor: base.matchCountIsFloor || elsewhere.some(({ found }) => found.matchCountIsFloor),
     crossWorkspace: hits.some((hit) => hit.key.startsWith("@")),
-    workspaceOf,
   };
 }
 
@@ -258,10 +254,6 @@ export async function findNotes(store, scope, rules, overrides, query, prefix = 
   }
 }
 
-/**
- * The fused hits as `{workspaceId, path}`, in result order: a hit under `@name/` is that workspace's, any other
- * is this store's. A hit whose workspace cannot be named is left out of the row rather than hashed wrongly.
- */
 async function findNotesUnrecorded(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
   // Context.LC's own pinned workspace is reached by every account for its guides and Tex's setup, never for the
   // person's notes: a search everywhere leaves it out unless they run it (owner or editor), or it is asked by name.
