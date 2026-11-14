@@ -87,7 +87,7 @@ on:
         required: false
         default: ""
       public_set:
-        description: "With job search: run a public memory benchmark (bench/publicSets.mjs, downloaded at run time) instead of the committed test: lme (30 LongMemEval-S questions) or locomo (one LoCoMo conversation)"
+        description: "With job search: run a public memory benchmark (bench/publicSets.mjs, downloaded at run time) instead of the committed test: lme (60 LongMemEval-S questions) or locomo (one LoCoMo conversation)"
         type: choice
         options:
           - "no"
@@ -334,7 +334,7 @@ jobs:
         run: |
           args=(--out "$RESULT")
           if [ "$BENCH_PUBLIC_SET" != "no" ]; then
-            node apps/mcp/bench/publicSets.mjs "$RUNNER_TEMP/public" --lme 30 --locomo 1
+            node apps/mcp/bench/publicSets.mjs "$RUNNER_TEMP/public" --lme 60 --locomo 1
             args+=(--dir "$RUNNER_TEMP/public/$BENCH_PUBLIC_SET")
           fi
           [ -n "$BENCH_SETUPS" ] && [ "$BENCH_SETUPS" != "all" ] && args+=(--setups "$BENCH_SETUPS")
