@@ -47,8 +47,8 @@ describe("folding the config's door group", () => {
       g.edges.some((e) => e.from === from && e.to === to && e.mode === mode && e.when.join(",") === when.join(","));
     expect(has("lanes", "door", "wait", ["*"])).toBe(true);
     expect(has("routine", "door", "wait", ["*"])).toBe(true);
-    expect(has("door", "fd", "wait", ["*"])).toBe(true);
-    expect(has("door", "router", "wait", ["*"])).toBe(true);
+    expect(has("door", "fd", "wait", ["next"])).toBe(true);
+    expect(has("door", "router", "wait", ["next"])).toBe(true);
     expect(has("door", "send", "wait", ["answered"])).toBe(true);
     expect(g.edges.filter((e) => e.from === "door" && e.to === "send")).toHaveLength(1);
     expect(g.edges.filter((e) => e.from === "door" && e.to === "door")).toHaveLength(0);

@@ -113,13 +113,16 @@ test("every step of a texted turn leaves its time and outcome in the ledger, und
     assert.equal(model.ok, true);
     assert.ok(Number.isFinite(model.ms));
     assert.ok(timed.length >= 5, `the front door's steps are there too (${timed.length})`);
-    // Door steps is a step of its own: what kind of turn, which texts it covers, and every setting it ran with (Dev2, 2026-11-14).
-    const door = steps.find((entry) => entry.step === "door");
-    assert.ok(door, "door steps is logged");
+    // Each door step is a node of its own, logged by the runner: what kind of turn and which texts it covers; the front door's node, every setting it ran with (Dev2, 2026-11-14).
+    const nodes = entries.filter((entry) => entry.kind === "step" && entry.step === "node");
+    const door = nodes.find((entry) => entry.name === "readTheText");
+    assert.ok(door, "the first door step is logged as its node");
     assert.equal(door.turn, "turn-ledger-0009");
-    assert.deepEqual(door.input.covers, [text.id]);
-    assert.equal(door.input.chat, "one");
-    assert.ok("model" in door.output && "effort" in door.output && "reviewer" in door.output && "advisor" in door.output, JSON.stringify(door.output));
+    assert.deepEqual(door.output.covers, [text.id]);
+    assert.equal(door.output.chat, "one");
+    const fd = nodes.find((entry) => entry.name === "fd" && entry.via === "wait");
+    assert.ok(fd && "model" in fd.output && "effort" in fd.output && "reviewer" in fd.output && "advisor" in fd.output, JSON.stringify(fd?.output));
+    assert.ok(!JSON.stringify(nodes).includes("what's in my notes"), "the chat's words stay in its text entries");
     assert.ok(!JSON.stringify(door).includes("what's in my notes"), "the chat's words stay in its text entries");
   } finally {
     world.restore();

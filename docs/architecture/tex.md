@@ -41,10 +41,10 @@ flowchart LR
   n_planner["Big-ask planner<br/>Opus 5.5 · effort high · off<br/>planBigAsk.js"]:::off
   n_tools["Tools<br/>code<br/>callToolForSession"]:::tool
   n_advisor["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js · advisorRoles/chat.js"]:::model
-  n_checks["Answer checks<br/>code<br/>doItChecks.js"]:::code
+  n_checks["Answer checks<br/>code<br/>graph/nodes/checks.js · doItChecks.js · replyJudge.js codeCheck"]:::code
   n_mail["Mail checker<br/>Haiku 5.5 · effort low<br/>mailChecker.js"]:::model
   n_card["Card check<br/>Haiku 5.5 · effort medium<br/>cardCheck.js"]:::model
-  n_reviewer["Reply reviewer<br/>Haiku 5.5 · effort low<br/>replyJudge.js · sendBack.js"]:::model
+  n_reviewer["Reply reviewer<br/>Haiku 5.5 · effort low<br/>graph/nodes/reviewer.js · replyJudge.js review · sendBack.js"]:::model
   n_send["Text them<br/>code<br/>sendTheReply · sendOne.ts · recoverFromFailure.js"]:::code
   n_react["React<br/>code<br/>decide.ts reactionFor · reactions.ts"]:::code
   n_classifier["Classifier<br/>Haiku 5.5 · effort off<br/>conversationThreads.js"]:::model
@@ -98,8 +98,8 @@ flowchart LR
   n_checkTheQuestion -->|answered| n_send
   n_settleAYesOrNo -->|answered| n_send
   n_checkItMayRun -->|answered| n_send
-  n_prepareTheAnswer --> n_fd
-  n_prepareTheAnswer --> n_router
+  n_prepareTheAnswer -->|next| n_fd
+  n_prepareTheAnswer -->|next| n_router
   n_router --> n_fd
   n_fd -.->|uses: action| n_tools
   n_fd -.->|uses: stuck| n_advisor
@@ -113,8 +113,8 @@ flowchart LR
   n_reviewer -->|action| n_send
   n_reviewer ==>|loop: action| n_fd
   n_checks ==>|loop| n_fd
-  n_send -.->|background| n_classifier
-  n_send -.->|background| n_selfreview
+  n_send -.->|background: threads| n_classifier
+  n_send -.->|background: sent| n_selfreview
   n_fd ==>|job: job| n_job
   n_job -.->|uses: job| n_tools
   n_job -.->|uses: job| n_jobcheck
@@ -123,8 +123,8 @@ flowchart LR
   n_tools -.->|uses: share| n_egress
   n_tools -.->|uses: picture| n_picture
   n_picture -.->|uses| n_card
-  n_send -.->|background| n_nudge
-  n_send -.->|background| n_reflect
+  n_send -.->|background: fired| n_nudge
+  n_send -.->|background: fired| n_reflect
   n_nightly -->|dream| n_dream
   n_dream -->|summarize| n_daysum
   n_nightly -->|housekeeping| n_housekeep
@@ -168,10 +168,10 @@ every wire, from the same config.
 | Big-ask planner | planner |  | off | Opus 5.5 | high |  | own, ask, caps | planBigAsk.js |
 | Tools | tools |  | on | code |  |  |  | callToolForSession |
 | Advisor | advisor |  | on | Opus 5.5 | high | 40 s | own, caps, about, ask, ledger, hist, date | advisor.js · advisorRoles/chat.js |
-| Answer checks | checks |  | on | code |  |  |  | doItChecks.js |
+| Answer checks | checks |  | on | code |  |  |  | graph/nodes/checks.js · doItChecks.js · replyJudge.js codeCheck |
 | Mail checker | mail |  | on | Haiku 5.5 | low |  | own, draft, ask | mailChecker.js |
 | Card check | card |  | on | Haiku 5.5 | medium |  | own, draft | cardCheck.js |
-| Reply reviewer | reviewer |  | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | replyJudge.js · sendBack.js |
+| Reply reviewer | reviewer |  | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | graph/nodes/reviewer.js · replyJudge.js review · sendBack.js |
 | Text them | send |  | on | code |  |  |  | sendTheReply · sendOne.ts · recoverFromFailure.js |
 | React | react |  | on | code |  |  |  | decide.ts reactionFor · reactions.ts |
 | Classifier | classifier |  | on | Haiku 5.5 | off | 4 s | own, threads, recent | conversationThreads.js |
@@ -189,7 +189,7 @@ every wire, from the same config.
 | Day summaries | daysum |  | on | Haiku 5.5 | off |  |  | daySummaries.js |
 | Housekeeping | housekeep |  | on | Haiku 5.5 | off |  |  | housekeeping.js |
 
-Wires: checkin → fd (wait, look) · routine → readTheText (wait) · notify → send (wait, send) · text → triage (wait) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · lanes → readTheText (wait) · readTheText → runARoutine (wait, next) · runARoutine → checkTheQuestion (wait, next) · checkTheQuestion → settleAYesOrNo (wait, next) · settleAYesOrNo → watchWhatLeaves (wait, next) · watchWhatLeaves → checkItMayRun (wait, next) · checkItMayRun → readTheHistory (wait, next) · readTheHistory → openTheWeb (wait, next) · openTheWeb → readTheSetup (wait, next) · readTheSetup → prepareBookkeeping (wait, next) · prepareBookkeeping → prepareTheAnswer (wait, next) · readTheText → send (wait, answered) · runARoutine → send (wait, answered) · checkTheQuestion → send (wait, answered) · settleAYesOrNo → send (wait, answered) · checkItMayRun → send (wait, answered) · prepareTheAnswer → fd (wait) · prepareTheAnswer → router (wait) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background) · send → selfreview (background) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · send → nudge (background) · send → reflect (background) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping)
+Wires: checkin → fd (wait, look) · routine → readTheText (wait) · notify → send (wait, send) · text → triage (wait) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · lanes → readTheText (wait) · readTheText → runARoutine (wait, next) · runARoutine → checkTheQuestion (wait, next) · checkTheQuestion → settleAYesOrNo (wait, next) · settleAYesOrNo → watchWhatLeaves (wait, next) · watchWhatLeaves → checkItMayRun (wait, next) · checkItMayRun → readTheHistory (wait, next) · readTheHistory → openTheWeb (wait, next) · openTheWeb → readTheSetup (wait, next) · readTheSetup → prepareBookkeeping (wait, next) · prepareBookkeeping → prepareTheAnswer (wait, next) · readTheText → send (wait, answered) · runARoutine → send (wait, answered) · checkTheQuestion → send (wait, answered) · settleAYesOrNo → send (wait, answered) · checkItMayRun → send (wait, answered) · prepareTheAnswer → fd (wait, next) · prepareTheAnswer → router (wait, next) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background, threads) · send → selfreview (background, sent) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · send → nudge (background, fired) · send → reflect (background, fired) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping)
 <!-- tex-config: steps end -->
 
 ## The rule
@@ -225,9 +225,86 @@ Wires: checkin → fd (wait, look) · routine → readTheText (wait) · notify �
    change. CI fails any file under `apps/mcp/src/agent/` that gives a model a
    system prompt without `withArchitecture`.
 
+## How a turn runs: the config's graph
+
+A turn is one run of `packages/shared/src/texConfig.json`'s graph, from
+`readTheText` to the send, with the background wires after it. The runner is
+`packages/shared/src/texGraph.cjs`, and the gateway's code of each node is in
+`apps/mcp/src/agent/graph/gatewayNodes.js`. The wires are the config's, never
+code: an early answer is an `answered` wire to Text them, a draft's checks and
+the reviewer's loops are `loop` wires back to the front door, and the front
+door reaches its tools, advisor, fallback and planner through `uses` wires. The
+runner logs every node run into the chat's ledger. The decision is
+[the turn graph](../decisions/texting-assistant/turn-graph.md).
+
+```mermaid
+flowchart LR
+  readTheText["Read the text"] -->|next| runARoutine["Run a routine"]
+  runARoutine -->|next| checkTheQuestion["Check the question"]
+  checkTheQuestion -->|next| settleAYesOrNo["Settle a yes or no"]
+  settleAYesOrNo -->|next| watchWhatLeaves["Watch what leaves"]
+  watchWhatLeaves -->|next| checkItMayRun["Check it may run"]
+  checkItMayRun -->|next| readTheHistory["Read the history"]
+  readTheHistory -->|next| openTheWeb["Open the web"]
+  openTheWeb -->|next| readTheSetup["Read the setup"]
+  readTheSetup -->|next| prepareBookkeeping["Bookkeeping"]
+  prepareBookkeeping -->|next| prepareTheAnswer["Prepare the answer"]
+  prepareTheAnswer -->|next| fd["Front door"]
+  readTheText -.->|answered| send["Text them"]
+  runARoutine -.->|answered| send
+  checkTheQuestion -.->|answered| send
+  settleAYesOrNo -.->|answered| send
+  checkItMayRun -.->|answered| send
+  fd -->|uses: action| tools["Tools"]
+  fd -->|uses: stuck| advisor["Advisor"]
+  fd -->|uses: down| fallback["Fallback"]
+  fd -->|uses: big| planner["Big-ask planner"]
+  fd -->|every draft| checks["Answer checks"]
+  checks -->|loop| fd
+  checks -->|action| reviewer["Reply reviewer"]
+  reviewer -->|loop| fd
+  checks -->|every run| send
+  reviewer -->|action| send
+  send -.->|background: threads| classifier["Classifier"]
+  send -.->|background: sent| selfreview["Self-review"]
+  linkStyle 16,17,18,19 stroke-dasharray: 5 5
+```
+
+The front door stops at each draft and returns it, so the checks run as their
+own nodes. A draft the checks send back goes to the front door and comes back
+through Answer checks before the reviewer reads it. Send runs once, after the
+reviewer when the reviewer ran, because its wire from the checks has no
+condition. Mail and card checks sit inside Tools, and the router is off, so
+neither is drawn.
+
+| Node id | Label | Code file (under `apps/mcp/src/agent/`) |
+| --- | --- | --- |
+| `readTheText` | Read the text | `texEntryPoint/readTheText.js` |
+| `runARoutine` | Run a routine | `texEntryPoint/runARoutine.js` |
+| `checkTheQuestion` | Check the question | `texEntryPoint/checkTheQuestion.js` |
+| `settleAYesOrNo` | Settle a yes or no | `texEntryPoint/settleAYesOrNo.js` |
+| `watchWhatLeaves` | Watch what leaves | `texEntryPoint/watchWhatLeaves.js` |
+| `checkItMayRun` | Check it may run | `texEntryPoint/checkItMayRun.js` |
+| `readTheHistory` | Read the history | `texEntryPoint/readTheHistory.js` |
+| `openTheWeb` | Open the web | `texEntryPoint/openTheWeb.js` |
+| `readTheSetup` | Read the setup | `texEntryPoint/readTheSetup.js` |
+| `prepareBookkeeping` | Bookkeeping | `texEntryPoint/prepareBookkeeping.js` |
+| `prepareTheAnswer` | Prepare the answer | `texEntryPoint/prepareTheAnswer.js` |
+| `fd` | Front door | `texEntryPoint/runTheModel.js` (`turn.js` `runTurn`), `graph/nodes/fd.js` |
+| `tools` | Tools | `graph/nodes/tools.js` (`callToolForSession`) |
+| `advisor` | Advisor | `graph/nodes/advisor.js` (`advisor.js`, `advisorRoles/chat.js`) |
+| `fallback` | Fallback | `graph/nodes/fallback.js` (`builtin.js`) |
+| `planner` | Big-ask planner | `graph/nodes/planner.js` (`planBigAsk.js`) |
+| `checks` | Answer checks | `graph/nodes/checks.js` (`doItChecks.js`, `replyJudge.js`) |
+| `reviewer` | Reply reviewer | `graph/nodes/reviewer.js` (`replyJudge.js` `review`) |
+| `send` | Text them | `graph/nodes/send.js` (`texEntryPoint/sendTheReply.js`) |
+| `classifier` | Classifier | `graph/nodes/classifier.js` (`conversationThreads.js`) |
+| `selfreview` | Self-review | `graph/nodes/selfreview.js` (`selfReview.js`) |
+
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-14: the turn after the door runs as one run of `texConfig.json`'s graph (Dev2: "it's fine for node to be code, but it's not fine for the connections between node to be code"). Each door step is a node of group "door", eleven in all, whose code is its file under `texEntryPoint/`; an early answer is its `answered` wire to Text them. The front door stops at each draft, and Answer checks and the Reply reviewer send it back through their `loop` wires. Tools, advisor, fallback and planner are the front door's `uses` wires, Text them's Classifier and Self-review run on `background` wires, and the runner logs every node run. The drawing is in "How a turn runs: the config's graph", and the router, the mail check, the job itself, the routine start and Triage are not on the runner yet ([turn graph](../decisions/texting-assistant/turn-graph.md)). Tests: `apps/mcp/test/texGraphDoor.test.mjs`, `texGraphTurn.test.mjs`, `chatLedgerWrites.test.mjs`, `replay/cases/door-settings-logged.mjs`.
 - 2026-11-14: the config's wires run Tex, not code (Dev2: "it's not fine for the connections between node to be code. They should be predefined"; [config-graph](../decisions/texting-assistant/config-graph.md)). `packages/shared/src/texGraph.cjs` is the one runner of `texConfig.json`'s graph: wait, background (was "behind"), uses, loop and job wires with `when` tags, strict input and output shapes, and every node run written to the chat's ledger by the runner (`ledger.js` `nodeEntry`). The gateway's graph is `apps/mcp/src/agent/graph/gatewayGraph.js`; nodes move onto it one pull request at a time, and `texGraphNotYet.json` names those not there yet. No node moves in this change, so no box changes. Tests: `apps/mcp/test/texGraph.test.mjs`, `texGraphHome.test.mjs`.
 - 2026-11-14: Triage is a step of its own (Dev2: "I told you everything needs a node but I dont see a code node that sends it to tex?"). Code's rules before any judge, which sent a 1:1 text straight to Tex or a group command straight on with no box or wire, now log a `triage` step on every path, saying where the text went (straight to Tex, to the judge, beside a running turn) and the rule that did it (`apps/agent/src/inboxTurn.ts` `chooseTurn`, `groupInbox.ts` `acceptGroup`, `stepEvents.ts` `triageStep`; the gateway takes it, `log.js` `WORKER_STEPS`). In the config it sits between "A text arrives" and Decide with wires to Decide and the queue. A Decide step is kept only when the judge ran. The isItForTex box becomes Triage. Tests: `apps/agent/src/stepEvents.test.ts`, `groupInbox.test.ts`, `apps/mcp/test/workerSteps.test.mjs`, `apps/mobile/__tests__/texLabOnlyWhatRan.test.ts`.
 - 2026-11-14: the drawing and what every Tex agent is told about its own structure are generated from Tex's config, `packages/shared/src/texConfig.json`, by `scripts/tex-architecture.mjs`; the hand-drawn sections 1 to 3 are gone (they are in this file's history). Door steps is eleven nodes in the group `door`, one per step `texEntryPoint.js` runs before the front door, wired in that order with `wait` wires tagged `next`, and each one that can end the turn wired to Text them tagged `answered`. Each agent's role names its node by id. Dev2: "I want this new config system ... properly documented", and Tex is told its own structure from it. Decision: `docs/decisions/texting-assistant/config-graph.md`. Tests: `apps/mcp/test/texArchitecture.test.mjs`, `scripts/tex-diagram-check.mjs --self-test`.
