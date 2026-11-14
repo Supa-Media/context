@@ -23,11 +23,15 @@ export interface Env {
   /** The secret set on Sendblue's receive webhook; it arrives verbatim in `sb-signing-secret`. */
   SENDBLUE_WEBHOOK_SECRET?: string;
   SENDBLUE_STATUS_URL?: string; // where each send's status goes, `https://<worker>/sendblue/status/<secret>` (`sendblueStatus.ts`)
+  /** Photon's bridge (`photon.ts`, `infra/photon-bridge`), reached over a service binding. Absent, Photon is off and `/photon/*` is 404. */
   /** Tex's WhatsApp line (`whapi.ts`): the Whapi channel's token and the line's own number (E.164). */
   WHAPI_TOKEN?: string;
   WHAPI_LINE?: string;
   /** The value Whapi's webhook settings send in `x-tex-webhook-secret`. Absent, every WhatsApp delivery is refused. */
   WHAPI_WEBHOOK_SECRET?: string;
+  PHOTON?: Fetcher; // service binding to the Photon bridge (infra/photon-bridge)
+  /** This Worker's own https origin, worked out at deploy (`deploy-agent-worker.yml`): where Photon pictures are signed under. */
+  AGENT_ORIGIN?: string;
   /** Opens the control plane's /agent-texts/* routes and nothing else. */
   AGENT_WORKER_SECRET: string;
   /** The Convex HTTP origin (…convex.site). */

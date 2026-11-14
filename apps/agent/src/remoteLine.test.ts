@@ -91,6 +91,15 @@ describe("unwrapLineCall: errors come back the way a local line throws them", ()
     expect(isRefusal(error)).toBe(false);
   });
 
+  it("a Photon refusal (400) comes back as a Photon ServiceError, and is a refusal", async () => {
+    const chat = "photon:+15550100:+15550101";
+    const { rpc } = fakeRpc(() => failed({ name: "ServiceError", message: "photon request failed (400)", status: 400, service: "photon" }));
+    const error = await remoteLine(rpc, INBOX, chat).sendText(chat, "hi", "k").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ServiceError);
+    expect(error).toMatchObject({ service: "photon", status: 400 });
+    expect(isRefusal(error)).toBe(true);
+  });
+
   it("a 400 is a ServiceError that is a refusal", async () => {
     const { rpc } = fakeRpc(() => failed({ name: "ServiceError", message: "whapi request failed (400)", status: 400, service: "whapi" }));
     const error = await remoteLine(rpc, INBOX, "whapi:+15550100:+15550101").sendMedia("x", { url: "https://example.test/a.png" }, "k").catch((e: unknown) => e);
