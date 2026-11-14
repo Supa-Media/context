@@ -102,6 +102,30 @@ export type CostsLike = {
   daily?: { usd: number }[];
 };
 
+/** The costs action's answer as Home reads it: people's spend only, lab runs left out of both numbers. */
+export function costsLikeOf(
+  result:
+    | {
+        configured?: boolean;
+        error?: string | null;
+        totalUsd?: number;
+        outOfPocketPeopleUsd?: number;
+        perTextUsd?: number | null;
+        priorPerTextUsd?: number | null;
+        daily?: { byFeature: { usd: number }[] }[];
+      }
+    | undefined,
+): CostsLike | null {
+  if (result === undefined || result.configured !== true || result.totalUsd === undefined) return null;
+  return {
+    totalUsd: result.totalUsd,
+    outOfPocketUsd: result.outOfPocketPeopleUsd ?? 0,
+    perTextUsd: result.perTextUsd ?? null,
+    priorPerTextUsd: result.priorPerTextUsd ?? null,
+    daily: (result.daily ?? []).map((day) => ({ usd: day.byFeature.reduce((sum, f) => sum + f.usd, 0) })),
+  };
+}
+
 export type Tile = {
   key: string;
   label: string;

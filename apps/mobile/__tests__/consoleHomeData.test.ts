@@ -8,6 +8,7 @@ import {
   DAY_MS,
   STATS_MAX_DAYS,
   delta,
+  costsLikeOf,
   homeTiles,
   knownPerText,
   knownSpend,
@@ -525,5 +526,34 @@ describe("homeTiles with unknown costs and partial windows", () => {
     expect(partial.spent.detail).toBe("last 60 days");
     const whole = byKey(homeTiles({ d: "30", stats: base, costs: null, accounts: 3, answered: null, partial: false }));
     expect(whole.spent.detail).toBe("");
+  });
+});
+
+describe("costsLikeOf", () => {
+  const live = {
+    configured: true,
+    error: null,
+    totalUsd: 37.66,
+    outOfPocketUsd: 9,
+    outOfPocketPeopleUsd: 6.5,
+    perTextUsd: 0.16,
+    priorPerTextUsd: 0.19,
+    daily: [{ byFeature: [{ usd: 1 }, { usd: 2.5 }] }, { byFeature: [] }],
+  };
+  test("reads people's spend, the lab-free out of pocket and each day's total", () => {
+    expect(costsLikeOf(live)).toEqual({ totalUsd: 37.66, outOfPocketUsd: 6.5, perTextUsd: 0.16, priorPerTextUsd: 0.19, daily: [{ usd: 3.5 }, { usd: 0 }] });
+  });
+  test("is null while loading, unconfigured or failed, so Home falls back to texStats", () => {
+    expect(costsLikeOf(undefined)).toBeNull();
+    expect(costsLikeOf({ configured: false })).toBeNull();
+    expect(costsLikeOf({ error: "Couldn't load costs" })).toBeNull();
+  });
+  test("gives Home the out-of-pocket line and no change line without a like-for-like window", () => {
+    const tiles = homeTiles({ d: "7", stats: null, costs: costsLikeOf({ ...live, priorPerTextUsd: null }), accounts: null, answered: null });
+    const spent = tiles.find((t) => t.key === "spent")!;
+    const cpt = tiles.find((t) => t.key === "cpt")!;
+    expect(spent.detail).toBe("$6.50 of it out of pocket");
+    expect(cpt.value).toBe("$0.16");
+    expect(cpt.delta).toBeUndefined();
   });
 });
