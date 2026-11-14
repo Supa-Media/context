@@ -23,11 +23,11 @@
 import { conversationPath, readConversation } from "./conversation.js";
 import { readGroupMemory } from "./groupTurn.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
-import { EVENT_ID, isChatKey, READ_CHARS, readEvents } from "./log.js";
+import { EVENT_ID, isChatKey, readEvents } from "./log.js";
 import { oneLine, renderEvents, replyingTo, speaker, TIME_OF, words } from "./logRender.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
 import { sentByItself, withSentByItself } from "./sentByItself.js";
-import { dayFromLedger, earlierFromLedger, faded, readLedger, summaryLines } from "./ledgerHistory.js";
+import { dayFromLedger, earlierFromLedger, earlierRoom, faded, readLedger, summaryLines } from "./ledgerHistory.js";
 import { ledgerPlace } from "./ledger.js";
 import { deskLedger } from "./history.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
@@ -117,7 +117,7 @@ export function momentView(read, { chat = null, timeZone = "UTC", now = Date.now
   const key = isChatKey(chat) ? chat : read.chat;
   if (!isChatKey(key) || !isChatKey(read.chat)) return null;
   const day = dayFromLedger(read.entries, key, []) ?? [];
-  const room = Math.max(0, READ_CHARS - day.reduce((sum, event) => sum + String(event.text ?? "").length, 0));
+  const room = earlierRoom(day.reduce((sum, event) => sum + String(event.text ?? "").length, 0)); // in steps (`ledgerHistory.js` `ROOM_STEP`)
   const earlier = earlierFromLedger(read.entries, read.chat, { before: day.length > 0 ? day[0].at : Number.MAX_SAFE_INTEGER, chars: room, known: new Set(day.map((event) => event.id)), fade: true, fadeFrom: now, grant });
   const seen = [...earlier.events, ...day.map((event) => faded(event, now))];
   // A one-to-one chat's check-ins and routine texts kept in the person's record, as a reply shows them (`sentByItself.js`).
@@ -177,7 +177,7 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   // Days are aged from the newest text it answers: that day and the one before whole, older ones faded (`faded`).
   const answering = Math.max(...covered.map((event) => event.at));
   // Everything before the day the turn holds, from the chat's ledger (`ledgerHistory.js`).
-  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: Math.max(0, READ_CHARS - shown.filter(before).reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)), fade: true, fadeFrom: answering, grant }) : { events: [], tools: new Map(), facts: new Map(), summaries: [] }; // older days faded by age (`ledgerHistory.js` `faded`)
+  const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: earlierRoom(shown.reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)), fade: true, fadeFrom: answering, grant }) : { events: [], tools: new Map(), facts: new Map(), summaries: [] }; // older days faded by age (`ledgerHistory.js` `faded`)
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
   const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [] };
   const all = withSentByItself([...earlier.events, ...shown.map((event) => faded(event, answering))], own.shown);

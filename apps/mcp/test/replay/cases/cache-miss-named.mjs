@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { oneToOne } from "../chats.mjs";
+import { earlierRoom } from "../../../src/agent/ledgerHistory.js";
 
 export default {
   id: "cache-miss-named",
@@ -28,6 +29,7 @@ export default {
       assert.deepEqual(second.prefix.systemParts, first.prefix.systemParts, "the same system blocks");
       assert.ok(!second.prefix.modules.some((module) => module.startsWith("context/thread:")), "a thread note is only ever named part by part (`context/thread/<part>`), so a changed system block says which part (2026-11-14 20:29Z: a third text rewrote 54,000 tokens when the thread note changed)");
       assert.deepEqual(second.prefix.history.slice(0, first.prefix.history.length), first.prefix.history, "the second text's history starts with the first's, piece by piece");
+      assert.equal(earlierRoom(30_100), earlierRoom(31_900), "the earlier days' room moves in steps, so a text or two more today never drops the oldest day (2026-11-14 21:11Z-21:24Z: 496, 522, 496, 522 lines)");
       assert.ok(!JSON.stringify(lines).includes("plumber"), "fingerprints only, never a word");
     } finally {
       console.log = realLog;
