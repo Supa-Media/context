@@ -32,7 +32,10 @@ export function buildTraces(list: LabCase[]) {
       const text = c.area === "pipeline" ? path + " " + (c.ask || "") : c.ask || "";
       SCENARIOS[c.area + "/" + c.id] = { name: c.area === "pipeline" ? path || c.id : c.ask || String(c.title ?? "") || c.id, group: c.area, id: c.id, ...readTrace(text, c.area) };
     }
-  SCENARIOS.own = { name: lab.ownText || "Type a message…", group: "own", ...readTrace(lab.ownText, "own") };
+  const own = readTrace(lab.ownText, "own");
+  // A text from one of their group chats takes the group path, whatever its words say.
+  if (lab.tester === "me" && lab.myChat !== "me") own.tags = own.tags.map((t) => (t === "one" ? "group" : t));
+  SCENARIOS.own = { name: lab.ownText || "Type a message…", group: "own", ...own };
   if (!SCENARIOS[lab.scn]) lab.scn = Object.keys(SCENARIOS)[0] || "own";
 }
 

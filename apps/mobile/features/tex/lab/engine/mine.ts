@@ -22,7 +22,12 @@ export type MyText = {
   earlier: Array<{ from: "person" | "tex"; text: string }>;
   then: { text: string; version: TexVersion | null };
   turn: string | null;
+  /** Who sent it in a group chat (the name the chat knows them by); absent in a one-to-one. */
+  who?: string;
 };
+
+/** One line of a chat as the Lab's conversation shows it: every text in order, and the person's ones playable. */
+export type ChatLine = { id: string; at: number; from: "person" | "tex"; who: string; text: string; play: MyText | null };
 
 /** One replayed text, as the pasted "## Lab replay" block gives it. */
 export type ReplayNow = { id: string; now: string; failed?: string };
@@ -71,9 +76,26 @@ export function myTexts(entries: LedgerEntry[]): MyText[] {
       .slice(Math.max(0, i - EARLIER), i)
       .filter((x) => fromKind(x) === "person" || fromKind(x) === "tex")
       .map((x) => ({ from: fromKind(x) === "tex" ? ("tex" as const) : ("person" as const), text: str(x.text) }));
-    out.push({ id: e.id, at: e.at, seq: e.seq ?? 0, text: str(e.text), earlier, then: { text: str(answer?.text) || str(reply?.text), version: versionOf(reply?.version) }, turn });
+    const who = str(rec(e.from)?.name);
+    out.push({ id: e.id, at: e.at, seq: e.seq ?? 0, text: str(e.text), earlier, then: { text: str(answer?.text) || str(reply?.text), version: versionOf(reply?.version) }, turn, ...(who ? { who } : {}) });
   });
   return out.reverse();
+}
+
+/**
+ * The whole chat, oldest first, from the same entries: the person's texts (playable, joined to `myTexts`) and Tex's
+ * answers, so the Lab can show the conversation and a click on a text plays it. Jobs and system lines are left out.
+ */
+export function chatLines(entries: LedgerEntry[], texts: MyText[], { group = false } = {}): ChatLine[] {
+  const byId = new Map(texts.map((t) => [t.id, t]));
+  return [...entries]
+    .filter((e) => e.kind === "text" && !e.job && (fromKind(e) === "person" || fromKind(e) === "tex") && str(e.text).trim() !== "")
+    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || a.at - b.at)
+    .map((e) => {
+      const tex = fromKind(e) === "tex";
+      const name = str(rec(e.from)?.name);
+      return { id: e.id, at: e.at, from: tex ? ("tex" as const) : ("person" as const), who: tex ? "Tex" : group ? name || "Someone" : "You", text: str(e.text), play: tex ? null : (byId.get(e.id) ?? null) };
+    });
 }
 
 /** The notes one turn's tool calls read by name, from its tool entries. */

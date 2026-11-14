@@ -12,7 +12,7 @@
 import { mainGraph } from "../data/graph";
 import { BASE_MODELS } from "../data/models";
 import type { LabCase, LabGraph, LabModel, LabVersion, Selection, Tool, View } from "../types";
-import type { MyText, ReplayNow } from "./mine";
+import type { ChatLine, MyText, ReplayNow } from "./mine";
 import type { IoLine, RealTimes } from "./realTimes";
 
 export const clone = <T,>(o: T): T => JSON.parse(JSON.stringify(o));
@@ -53,6 +53,16 @@ export type LabState = {
   tester: "bench" | "me";
   /** The signed-in person, as the Lab's "You": their handle, name and workspaces; null until known. */
   me: { handle: string; name: string; workspaces: Array<{ n: string; kind: string; role: string }> } | null;
+  /** The chats they can replay: their one-to-one ("me") and each group chat they're in, from the Tex page. */
+  myChats: Array<{ key: string; name: string; people?: number }> | null;
+  /** The chat whose texts are read: "me" or a group's key. */
+  myChat: string;
+  /** That chat's whole conversation so far, oldest first, for the canvas's chat panel. */
+  myLines: ChatLine[];
+  /** The right panel shows the chat's conversation while the test user is You and no step or wire is selected. */
+  chatOpen: boolean;
+  /** Bumped to ask the canvas to play the traced moment (a text clicked in the conversation). */
+  playReq: number;
   /** Their texts read so far, newest first; null before the first read, "failed" when it could not be read. */
   myTexts: MyText[] | null | "failed";
   /** The ledger seq to read older texts before, when there are older ones. */
@@ -94,6 +104,11 @@ export const lab: LabState = {
   sync: "Shared with staff",
   tester: "bench",
   me: null,
+  myChats: null,
+  myChat: "me",
+  myLines: [],
+  chatOpen: true,
+  playReq: 0,
   myTexts: null,
   myOlder: null,
   myPicks: [],

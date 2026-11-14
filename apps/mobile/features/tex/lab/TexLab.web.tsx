@@ -29,13 +29,13 @@ import { Compare } from "./views/Compare.web";
 import { Convo } from "./views/Convo.web";
 import { Ic } from "./views/ic";
 import { Modules } from "./views/Modules.web";
-import { Props } from "./views/Props.web";
+import { chatShown, Props } from "./views/Props.web";
 import { Run } from "./views/Run.web";
 import { Sim } from "./views/Sim.web";
 import { Tests } from "./views/Tests.web";
 import { Tools } from "./views/Tools.web";
 import { Viewer } from "./views/Viewer.web";
-import { MineLoader, readTurnTimes } from "./views/mine/useMine";
+import { MineLoader, pickChat, readTurnTimes } from "./views/mine/useMine";
 import { setLabTheme, THEMES, useLabTheme } from "./theme.web";
 
 export const TEX_LAB_TITLE = "Tex Architecture Lab";
@@ -129,7 +129,7 @@ function Lab() {
   const cvn = cvDiff().length;
   const nm = Object.keys(G().modules || {}).length;
   const tags = { modTag: nm ? nm + " edited" : "", cvTag: cvn ? cvn + " changed" : "", toolTag: "", runTag: d.length ? d.length + " change" + (d.length > 1 ? "s" : "") : "" };
-  const propsOn = s.view === "canvas" && s.sel !== null;
+  const propsOn = s.view === "canvas" && (s.sel !== null || chatShown());
   const wide = propsOn && !!s.cfocus && s.sel?.t === "node" && s.sel.id === s.cfocus;
   const unsaved = !isMain() && !s.versions.some((v) => v.id === s.cur.id);
   const me = s.tester === "me";
@@ -164,6 +164,14 @@ function Lab() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // A chat in the sidebar: read its texts and show its conversation in the right panel, on the canvas.
+  const openChat = (key: string) => {
+    pickChat(key);
+    set({ chatOpen: true, sel: null });
+    go("canvas");
+    closeSide();
+  };
 
   const toggleSide = () => {
     if (phone()) {
@@ -257,15 +265,29 @@ function Lab() {
                 <div className="hint">{me ? "your texts replay read only" : "core and jobs run as her"}</div>
               </div>
             </div>
+            {me ? (
+              <>
+                <div className="sub">Chats</div>
+                <div id="myChatList">
+                  {(s.myChats ?? [{ key: "me", name: "Just you and Tex" }]).map((c) => (
+                    <button key={c.key} className="rowi" data-mychat={c.key} aria-current={c.key === s.myChat} onClick={() => openChat(c.key)}>
+                      <Ic k="text" style={{ color: "var(--muted)" }} />
+                      <span className="nm">{c.key === "me" ? "1:1 with Tex" : c.name}</span>
+                      <span className="meta">{c.people ? c.people + " people" : ""}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
             <div className="sub">Workspaces</div>
             <div id="wsList">
               {me
                 ? (s.me?.workspaces ?? []).map((w) => (
-                    <button key={w.n} className="rowi" data-myws={w.n}>
+                    <a key={w.n} className="rowi" data-myws={w.n} href={"/console/" + encodeURIComponent(w.n)} target="_blank" rel="noopener" title={"Open " + w.n + " in a new tab"}>
                       <Ic k={w.kind === "personal" ? "door" : "thread"} style={{ color: "var(--muted)" }} />
                       <span className="nm">{w.n}</span>
                       <span className="meta">{w.role}</span>
-                    </button>
+                    </a>
                   ))
                 : PEOPLE.Maya.ws.map((w) => (
                     <button key={w.n} className="rowi" data-sws={w.n} onClick={() => (closeSide(), set({ viewer: { kind: "ws", ws: w.n } }))}>

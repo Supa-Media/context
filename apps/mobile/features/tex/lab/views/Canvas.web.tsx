@@ -33,6 +33,7 @@ import {
   type Cam,
 } from "./canvas/render";
 import { ScnPop } from "./canvas/ScnPop";
+import { usePlayback } from "./canvas/usePlayback";
 import { useStageInput } from "./canvas/useStageInput.web";
 
 function Svg({
@@ -85,10 +86,9 @@ export function Canvas() {
     y0: number;
     y1: number;
   } | null>(null);
-  const [lit, setLit] = useState<ReadonlySet<string> | null>(null);
-  const [clock, setClock] = useState<{ at: number; of: number } | null>(null);
   const [speed, setSpeed] = useState(() => readSpeed());
-  const playing = useRef<number | null>(null);
+  // The moment the playback runs over: a new trace or new measured times start it over.
+  const { lit, clock, running, toggle: play, restart, scrub, total } = usePlayback(speed, `${s.scn}|${s.ownText}|${s.real?.text ?? ""}|${s.real ? 1 : 0}`);
   const [addOpen, setAddOpen] = useState(false);
   const [scnOpen, setScnOpen] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -162,51 +162,14 @@ export function Canvas() {
     return () => document.removeEventListener("pointerdown", away);
   }, [scnOpen]);
 
-  // Playback at the moment's own pace (Dev2, 2026-11-14: "I want it to actually be as slow as the actuall logged
-  // times are, so we can debug what parts are causing slowdowns"): every step lights while it runs, side by side when
-  // they overlap, scaled by the speed slider; the step that started last is selected so its panel shows.
-  const stop = () => {
-    if (playing.current !== null) cancelAnimationFrame(playing.current);
-    playing.current = null;
-    setLit(null);
-    setClock(null);
-  };
-  const play = () => {
-    if (playing.current !== null) return stop();
-    const sm = labSim();
-    const steps = Object.entries(sm.T).filter(([, t]) => t.lane === "reply" || t.lane === "behind");
-    const of = Math.max(sm.reply, ...steps.map(([, t]) => t.end));
-    const began = performance.now();
-    let last: string | null = null;
-    let drawn = "";
-    const tick = () => {
-      const at = (performance.now() - began) * speed;
-      // A step too short to see stays lit a little longer: 150 ms of screen time, at most 0.4 s of the turn.
-      const on = steps.filter(([, t]) => at >= t.start && at < Math.max(t.end, t.start + Math.min(150 * speed, 400))).sort((a, b) => b[1].start - a[1].start);
-      // Draw only when something shows differently: the lit steps, or the clock's tenth of a second.
-      const key = on.map(([id]) => id).join(",") + "|" + Math.floor(Math.min(at, of) / 100);
-      if (key !== drawn) {
-        drawn = key;
-        setLit(new Set(on.map(([id]) => id)));
-        setClock({ at: Math.min(at, of), of });
-      }
-      const newest = on[0]?.[0] ?? null;
-      if (newest && newest !== last && node(newest)) {
-        last = newest;
-        set({ sel: { t: "node", id: newest } });
-      }
-      if (at < of + 400 * speed) playing.current = requestAnimationFrame(tick);
-      else {
-        playing.current = null;
-        setLit(null);
-        timers.current.push(setTimeout(() => setClock(null), 1500));
-      }
-    };
-    playing.current = requestAnimationFrame(tick);
-  };
-  useEffect(() => () => {
-    if (playing.current !== null) cancelAnimationFrame(playing.current);
-  }, []);
+  // A text clicked in the conversation (`ChatPanel`) asks for its moment to play once its times are read.
+  const asked = useRef(s.playReq);
+  useEffect(() => {
+    if (s.playReq === asked.current) return;
+    asked.current = s.playReq;
+    restart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.playReq]);
 
   const tool = s.tool;
   const setTool = (t: typeof tool) => set({ tool: t });
@@ -228,6 +191,7 @@ export function Canvas() {
           />
         </svg>
       </div>
+      <div className="ctop">
       <div className="float moment">
         <Svg
           d='<path d="M4 5h16v11H9l-5 4z"/>'
@@ -251,13 +215,53 @@ export function Canvas() {
         <button
           className="ib"
           id="playBtn"
-          aria-label={lit !== null ? "Stop" : "Play the moment"}
-          title={lit !== null ? "Stop" : tracedReal() ? "Play at the pace it really ran" : "Play the moment"}
+          aria-label={running ? "Pause" : "Play the moment"}
+          title={running ? "Pause" : tracedReal() ? "Play at the pace it really ran" : "Play the moment"}
           style={{ width: 30, height: 30, border: "none", background: "none" }}
           onClick={play}
         >
-          <Svg d={lit !== null ? '<rect x="7" y="6" width="10" height="12" rx="1.5"/>' : '<path d="M8 5l10 7-10 7z"/>'} />
+          <Svg d={running ? '<rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/>' : '<path d="M8 5l10 7-10 7z"/>'} />
         </button>
+      </div>
+      <div
+        className="float stats"
+        id="stats"
+        dangerouslySetInnerHTML={{ __html: statsHtml(sim) }}
+      />
+      <div className="cbreak" />
+      <div
+        className="float keyw"
+        id="keyw"
+        hidden={!!focused}
+        dangerouslySetInnerHTML={{ __html: focused ? "" : keywHtml() }}
+      />
+      <div className="float fbar" id="fbar" hidden={!focused}>
+        {focused ? (
+          <>
+            <span className="hint">Focus</span>
+            <b>{focused.label}</b>
+            <button className="ghost" id="fbOut" onClick={unfocus}>
+              Whole graph
+            </button>
+          </>
+        ) : null}
+      </div>
+      </div>
+      <div className="float playbar" aria-label="Playback">
+        <input
+          id="playScrub"
+          type="range"
+          min={0}
+          max={Math.max(1, Math.round(clock?.of ?? total()))}
+          step={10}
+          value={Math.round(clock?.at ?? 0)}
+          aria-label="Scrub through the moment"
+          title="Drag to see any moment of the turn"
+          onChange={(e) => scrub(Number(e.target.value))}
+        />
+        <span className="clock" id="playClock">
+          {fmtS(clock?.at ?? 0)} / {fmtS(clock?.of ?? total())}
+        </span>
         <label className="pace" title="Playback speed against real time">
           <input
             id="playSpeed"
@@ -275,33 +279,6 @@ export function Canvas() {
           />
           <span id="playSpeedLabel">{speedLabel(speed)}</span>
         </label>
-        {clock ? (
-          <span className="clock" id="playClock">
-            {fmtS(clock.at)} / {fmtS(clock.of)}
-          </span>
-        ) : null}
-      </div>
-      <div
-        className="float stats"
-        id="stats"
-        dangerouslySetInnerHTML={{ __html: statsHtml(sim) }}
-      />
-      <div
-        className="float keyw"
-        id="keyw"
-        hidden={!!focused}
-        dangerouslySetInnerHTML={{ __html: focused ? "" : keywHtml() }}
-      />
-      <div className="float fbar" id="fbar" hidden={!focused}>
-        {focused ? (
-          <>
-            <span className="hint">Focus</span>
-            <b>{focused.label}</b>
-            <button className="ghost" id="fbOut" onClick={unfocus}>
-              Whole graph
-            </button>
-          </>
-        ) : null}
       </div>
       <div className="float tools" role="toolbar" aria-label="Tools">
         <button

@@ -96,11 +96,13 @@ export function renderGraphHtml(
   sim: Sim,
   tags: string[],
   sel: Selection,
-  litId: string | ReadonlySet<string> | null,
+  litId: string | ReadonlySet<string> | ReadonlyMap<string, number> | null,
   /** The artifact fades every step this text does not reach; the live Lab fades only steps switched off (Dev2, 2026-11-14). */
   fade: "unreached" | "off" = "unreached",
 ): string {
   const reached = (id: string) => sim.reach.has(id) || sim.inside.has(id);
+  // While playing, how far through each running step is (0 to 1), drawn as a ring filling around it.
+  const ring = (id: string) => (litId instanceof Map ? (litId.get(id) ?? null) : null);
   const lit = (id: string) => (fade === "off" ? !!node(id, g)?.on : reached(id));
   let h = `<defs>${Object.entries(WIRES)
     .map(
@@ -132,8 +134,8 @@ export function renderGraphHtml(
         ? "Code"
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
     const time = timeLabel(sim, n.id);
-    h += `<g class="nd ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? "lit" : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
-      <rect class="card" width="${W}" height="${H}" rx="12"/>
+    h += `<g class="nd ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+      <rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? `<rect class="ring" width="${W}" height="${H}" rx="12" pathLength="100" stroke-dasharray="${(ring(n.id)! * 100).toFixed(1)} 100"/>` : ""}
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>
       <text class="ttl" x="62" y="28">${esc(n.label.length > 15 ? n.label.slice(0, 14) + "…" : n.label)}</text>

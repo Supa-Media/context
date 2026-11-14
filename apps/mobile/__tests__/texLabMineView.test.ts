@@ -38,11 +38,31 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
           { id: "ev3", at: Date.UTC(2026, 10, 12, 15), seq: 4, text: "remind me about the shelves", earlier: [{ from: "person", text: "hey" }, { from: "tex", text: "Hi." }], then: { text: "Done.", version: { code: "abc1234def56", setup: "a1b2c3d4e5f6" } }, turn: "t2" },
           { id: "ev1", at: Date.UTC(2026, 10, 12, 14), seq: 1, text: "hey", earlier: [], then: { text: "Hi.", version: null }, turn: "t1" },
         ];
+        lab.myChats = [{ key: "me", name: "Just you and Tex" }, { key: "g1", name: "Band", people: 4 }];
+        lab.myLines = [
+          { id: "ev1", at: Date.UTC(2026, 10, 12, 14), from: "person", who: "You", text: "hey", play: lab.myTexts[1] },
+          { id: "ev2", at: Date.UTC(2026, 10, 12, 14, 1), from: "tex", who: "Tex", text: "Hi.", play: null },
+          { id: "ev3", at: Date.UTC(2026, 10, 12, 15), from: "person", who: "You", text: "remind me about the shelves", play: lab.myTexts[0] },
+          { id: "ev4", at: Date.UTC(2026, 10, 12, 15, 1), from: "tex", who: "Tex", text: "Done.", play: null },
+        ];
         setTimeout(emit, 0);
       }
       return null;
     },
     readMyTexts: async () => {},
+    readMyChats: async () => {},
+    // A group chat they're in, as its history file would read: someone else's text and Tex's answer.
+    pickChat: (key: string) => {
+      lab.myChat = key;
+      lab.myLines =
+        key === "me"
+          ? lab.myLines
+          : [
+              { id: "g1", at: Date.UTC(2026, 10, 13, 18), from: "person", who: "Ada", text: "who has the van?", play: { id: "g1", at: Date.UTC(2026, 10, 13, 18), seq: 1, text: "who has the van?", earlier: [], then: { text: "Kemi does.", version: null }, turn: "tg1", who: "Ada" } },
+              { id: "g2", at: Date.UTC(2026, 10, 13, 18, 1), from: "tex", who: "Tex", text: "Kemi does.", play: null },
+            ];
+      emit();
+    },
     // What that turn's reply timing and reviewer entries measured, as `realTimes` reads them.
     readTurnTimes: async (t: { text: string }) => {
       lab.real = {
@@ -69,6 +89,7 @@ import TexLabRoute from "../app/(app)/lab";
 import { config } from "../features/tex/lab/engine/diff";
 import { clone, emit, G, lab, MAIN } from "../features/tex/lab/engine/state";
 import { promptText } from "../features/tex/lab/views/run/runText";
+import { SCENARIOS } from "../features/tex/lab/engine/traces";
 
 const roots: Array<() => void> = [];
 const afterThis: Array<() => void> = [];
@@ -85,6 +106,10 @@ beforeEach(() => {
   lab.tArea = "core";
   lab.me = null;
   lab.myTexts = null;
+  lab.myChats = null;
+  lab.myChat = "me";
+  lab.myLines = [];
+  lab.chatOpen = true;
   lab.myPicks = [];
   lab.myReads = {};
   lab.myNow = {};
@@ -199,6 +224,29 @@ describe("the Lab's test user as You", () => {
     // Past the end nothing is lit, and the clock stops at the end.
     expect(await litAt(1500)).toEqual([]);
     expect(q("#playClock")?.textContent).toBe("7.2 s / 7.2 s");
+    // A running step shows a ring filling around it as its time passes: the front door runs 1.56-4.91 s.
+    const scrubber = q<HTMLInputElement>("#playScrub")!;
+    const scrubTo = (ms: number) =>
+      act(() => {
+        setValue.call(scrubber, String(ms));
+        scrubber.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    const filled = () => Number(q('.nd.run[data-id="fd"] .ring')?.getAttribute("stroke-dasharray")?.split(" ")[0]);
+    scrubTo(2000);
+    expect(q("#playClock")?.textContent).toBe("2.0 s / 7.2 s");
+    const early = filled();
+    scrubTo(4000);
+    const late = filled();
+    expect(early).toBeGreaterThan(0);
+    expect(late).toBeGreaterThan(early);
+    expect(late).toBeLessThan(100);
+    // Scrubbing pauses; Play carries on from there rather than from the top.
+    expect(q("#playBtn")?.getAttribute("aria-label")).toBe("Play the moment");
+    await click(q("#playBtn"));
+    expect(q("#playBtn")?.getAttribute("aria-label")).toBe("Pause");
+    expect(await litAt(1500 + 10)).toContain("fd");
+    await click(q("#playBtn"));
+    expect(q("#playBtn")?.getAttribute("aria-label")).toBe("Play the moment");
     clockSpy.mockRestore();
   });
 
@@ -217,6 +265,52 @@ describe("the Lab's test user as You", () => {
     await click(q('#nIconPick [data-icon="star"]'));
     expect(G().nodes.find((n) => n.id === "tools")?.icon).toBe("star");
     expect(q("#nIconPick")).toBeNull();
+  });
+
+  test("as You, your chats are in the sidebar, the conversation fills the right panel, and a click on a text plays it", async () => {
+    let clock = 0;
+    const now = jest.spyOn(performance, "now").mockImplementation(() => clock);
+    afterThis.push(() => now.mockRestore());
+    await click(q("#tuserSwap"));
+    expect(qa("#myChatList .nm").map((x) => x.textContent)).toEqual(["1:1 with Tex", "Band"]);
+    // Workspaces open in the app, in a new tab.
+    expect(q('#wsList a[data-myws="band"]')?.getAttribute("href")).toBe("/console/band");
+    await click(q('[data-mychat="me"]'));
+    expect(lab.view).toBe("canvas");
+    expect(q("#props")?.hidden).toBe(false);
+    expect(q("#chatName")?.textContent).toBe("Just you and Tex");
+    expect(qa("#chatPanel .cdt").map((x) => x.textContent)).toEqual(["hey", "Hi.", "remind me about the shelves", "Done."]);
+    // Only the person's texts can be played.
+    expect(qa("#chatPanel button.cdb").map((x) => x.getAttribute("data-line"))).toEqual(["ev1", "ev3"]);
+    await click(q('#chatPanel [data-line="ev3"]'));
+    expect(lab.ownText).toBe("remind me about the shelves");
+    expect(lab.real?.text).toBe("remind me about the shelves");
+    expect(q("#scnName")?.textContent).toBe("remind me about the shelves");
+    // It plays: the clock runs and the lit step's panel takes over from the conversation.
+    await act(async () => void (await new Promise((r) => setTimeout(r, 5))));
+    expect(q("#playClock")).not.toBeNull();
+    clock = 400;
+    await act(async () => void (await new Promise((r) => setTimeout(r, 5))));
+    expect(q("#chatPanel")).toBeNull();
+    expect(lab.sel?.t).toBe("node");
+    // Closing the step's panel comes back to the conversation.
+    clock = 100_000;
+    await act(async () => void (await new Promise((r) => setTimeout(r, 5))));
+    await click(q("#props .pclose"));
+    expect(q("#chatPanel")).not.toBeNull();
+    // A group chat they're in: other people's names, and its texts trace the group path.
+    await click(q('[data-mychat="g1"]'));
+    expect(q("#chatName")?.textContent).toBe("Band");
+    expect(q("#chatPanel .cdw")?.textContent).toBe("Ada");
+    await click(q('#chatPanel [data-line="g1"]'));
+    expect(lab.ownText).toBe("who has the van?");
+    expect(SCENARIOS.own.tags).toContain("group");
+    expect(SCENARIOS.own.tags).not.toContain("one");
+    clock = 300_000;
+    await act(async () => void (await new Promise((r) => setTimeout(r, 5))));
+    if (lab.sel) await click(q("#props .pclose"));
+    await click(q("#chatX"));
+    expect(q("#props")?.hidden).toBe(true);
   });
 
   test("a ticked text goes into the run config and the prompt, with the notes its turn read", async () => {
