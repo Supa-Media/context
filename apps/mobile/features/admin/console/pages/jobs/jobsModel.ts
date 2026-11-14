@@ -94,6 +94,9 @@ export interface JobListRow {
 
 const liveName = (page: JobPage): string | null => page.live ?? (page.row.setup ? page.row.setup.name : page.job.model ?? null);
 
+/** The list's Next column in the artifact's words; a gate to fix keeps its case numbers. */
+const NEXT_WORDS: Partial<Record<string, string>> = { "first-test": "Add cases", run: "Run tests" };
+
 /** The rows of the Jobs list, in the catalog's order, Tex's first. */
 export function jobList(catalog: AiCatalog, reads: ReadonlyMap<string, RunRead>, now: number): JobListRow[] {
   const keys = [LAB_JOB, ...AI_JOBS.map((job) => job.key).filter((key) => key !== LAB_JOB)];
@@ -119,7 +122,7 @@ export function jobList(catalog: AiCatalog, reads: ReadonlyMap<string, RunRead>,
         trend,
         last: latest ? ago(latest.row.updatedAt, now) ?? dayLabel(latest.row.day) : null,
         cand,
-        next: cand || step.kind === "none" || step.kind === "review" ? null : step.label,
+        next: cand || step.kind === "none" || step.kind === "review" ? null : (NEXT_WORDS[step.kind] ?? step.label),
       },
     ];
   });
@@ -291,6 +294,13 @@ export interface RunRowView {
   bars: "passed" | "failed" | "running";
 }
 
+/** `Round 412`, from the bench's run number; with several case groups, which one ran (`Round 412 · core`). */
+export function roundName(row: { name: string; test: string; day: string | null }, groups: boolean): string {
+  const n = /\bgh-(\d+)\b/.exec(row.name)?.[1];
+  const base = n ? `Round ${n}` : runLabel(row as Parameters<typeof runLabel>[0]);
+  return groups ? `${base} · ${row.test}` : base;
+}
+
 /** Every run, newest first. A run whose scores are not written yet is still running. */
 export function runRows(page: JobPage): RunRowView[] {
   return [...page.runs].reverse().map(({ row, read }) => {
@@ -299,7 +309,7 @@ export function runRows(page: JobPage): RunRowView[] {
     const best = others[0];
     return {
       path: row.path,
-      name: `${row.test} ${runLabel(row)}`,
+      name: roundName(row, page.row.tests.length > 1),
       day: dayLabel(row.day) ?? "—",
       live: live?.scoreText || (read ? "—" : "…"),
       best: best ? `${best.setup} ${best.scoreText}` : read ? "—" : "…",
@@ -407,7 +417,8 @@ export function compareView(page: JobPage, candidate: Candidate, replies: Readon
     passed: passedText(mine),
     vs,
     tone,
-    sure: chance === null ? "—" : `${Math.round(chance * 100)}%`,
+    // Never 0% or 100%: runs passed say how likely, not that it is certain.
+    sure: chance === null ? "—" : `${Math.min(99, Math.max(1, Math.round(chance * 100)))}%`,
     sureDetail: mine && theirs ? (sameRuns ? `${mine.runs} runs each` : `${mine.runs} and ${theirs.runs} runs`) : "not run against live yet",
     differ,
     canGoLive: page.row.setup !== null && failing === undefined,

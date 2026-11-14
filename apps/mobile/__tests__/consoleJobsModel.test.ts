@@ -226,7 +226,7 @@ describe("jobList", () => {
   test("a job with no tests asks for its first test", () => {
     const { catalog, reads } = fixture();
     const row = jobList(catalog, reads, NOW).find((item) => item.key === "dream")!;
-    expect(row).toMatchObject({ live: null, score: null, trend: [], last: null, cand: false, next: "Write its first test" });
+    expect(row).toMatchObject({ live: null, score: null, trend: [], last: null, cand: false, next: "Add cases" });
   });
 
   test("a job with no setup note shows the model it runs on", () => {
@@ -366,10 +366,10 @@ describe("runs", () => {
   test("runs are newest first, with a run whose scores are not read still running", () => {
     const { page } = fixture();
     const rows = runRows(page);
-    expect(rows.map((row) => row.name)).toEqual(["heartbeat gh-412", "heartbeat gh-411", "heartbeat gh-410"]);
-    expect(rows[0]).toEqual({ path: GH_412, name: "heartbeat gh-412", day: "Nov 12", live: "71%", best: "quiet-mornings 95%", bars: "failed" });
-    expect(rows[1]).toEqual({ path: GH_411, name: "heartbeat gh-411", day: "Nov 10", live: "…", best: "…", bars: "running" });
-    expect(rows[2]).toEqual({ path: GH_410, name: "heartbeat gh-410", day: "Nov 9", live: "100%", best: "—", bars: "passed" });
+    expect(rows.map((row) => row.name)).toEqual(["Round 412", "Round 411", "Round 410"]);
+    expect(rows[0]).toEqual({ path: GH_412, name: "Round 412", day: "Nov 12", live: "71%", best: "quiet-mornings 95%", bars: "failed" });
+    expect(rows[1]).toEqual({ path: GH_411, name: "Round 411", day: "Nov 10", live: "…", best: "…", bars: "running" });
+    expect(rows[2]).toEqual({ path: GH_410, name: "Round 410", day: "Nov 9", live: "100%", best: "—", bars: "passed" });
   });
 });
 
