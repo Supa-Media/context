@@ -231,13 +231,27 @@ export function earlierTextsTool(history) {
  * are the exchange's time and id when the caller chose them (`events.js`
  * `newExchange`). Answers the exchange's id. Throws when it can't be kept.
  */
-export async function appendConversation(store, name, question, answer, { tainted = false, tools = [], sources = [], thread = null, at = Date.now(), tag = null, id: chosen = null, theirs = false, ledger = true } = {}) {
+/**
+ * What a note from a run outside a chat turn (a check-in) keeps for replay beside its words: the run's turn id, so its
+ * steps are its own, its milliseconds, the code that ran and its timing (`turnTiming.js`, `promptManifest.js`).
+ */
+function noteExtras(entry) {
+  if (entry === null || typeof entry !== "object") return {};
+  return {
+    ...(typeof entry.turn === "string" && entry.turn !== "" ? { turn: entry.turn } : {}),
+    ...(Number.isFinite(entry.ms) && entry.ms >= 0 ? { ms: Math.round(entry.ms) } : {}),
+    ...(entry.version && typeof entry.version === "object" ? { version: entry.version } : {}),
+    ...(entry.timing && typeof entry.timing === "object" ? { timing: entry.timing } : {}),
+  };
+}
+
+export async function appendConversation(store, name, question, answer, { tainted = false, tools = [], sources = [], thread = null, at = Date.now(), tag = null, id: chosen = null, theirs = false, ledger = true, entry = null } = {}) {
   if (conversationPath(name) === null) return null;
   const exchange = typeof chosen === "string" ? { at, id: chosen } : tag !== null ? { at, id: idOfKey(eventKey(at, tag)) } : newExchange(at);
   const id = exchange.id;
   // A text Tex sent outside a chat turn (a check-in, a ping, a job's update, a settled yes) into the chat's one record too
   // (`ledger.js`); a chat turn writes its own steps and reply there, and passes `ledger: false`.
-  if (ledger && name === "texts") await ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT)?.write(wordsEntry("note", answer, { at: exchange.at, about: String(question ?? "").slice(0, 2_000), ...(tainted ? { tainted: true } : {}), ...(theirs === true ? { theirs: true } : {}), ...(typeof thread === "string" && thread !== "" ? { thread } : {}), ...(sourcesOf(sources).length > 0 ? { sources: sourcesOf(sources) } : {}) }));
+  if (ledger && name === "texts") await ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT)?.write(wordsEntry("note", answer, { at: exchange.at, about: String(question ?? "").slice(0, 2_000), ...(tainted ? { tainted: true } : {}), ...(theirs === true ? { theirs: true } : {}), ...(typeof thread === "string" && thread !== "" ? { thread } : {}), ...(sourcesOf(sources).length > 0 ? { sources: sourcesOf(sources) } : {}), ...noteExtras(entry) }));
   return id;
 }
 

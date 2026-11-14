@@ -28,6 +28,7 @@ import { personVoicePrompt } from "./personVoice.js";
 import { calendarAge, calendarPrompt } from "./calendarCache.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
+import { manifestOf } from "./promptManifest.js";
 
 /** Said ahead of the per-text facts in the person's turn, so the model reads them as Context's, not theirs. */
 const PREAMBLE_LABEL = "Context for this text, not written by them:";
@@ -41,7 +42,7 @@ function turnFacts(parts) {
   return facts.length === 0 ? "" : [PREAMBLE_LABEL, ...facts].join("\n\n");
 }
 
-/** `{system: {stable, context}, preamble}` for the model `answering` this round. */
+/** `{system: {stable, context}, preamble, prompt}` for the model `answering` this round; `prompt` is its manifest (`promptManifest.js`). */
 export function turnPrompt(place, answering, o) {
   const edits = o.tools.some((tool) => tool.name === "write_note");
   const parts = systemPromptParts(place, {
@@ -54,30 +55,39 @@ export function turnPrompt(place, answering, o) {
     continued: o.history.length > 0,
     used: usedTools(o.history),
   });
+  // Each module in the order it is sent, named, so the call's manifest (`promptManifest.js`) says which ran.
+  const context = [
+    ["thread", o.threadNote],
+    ["web", webPrompt(o.webNames)],
+    ["progress", o.progress ? (o.progress.prompt ?? PROGRESS_PROMPT) : ""], // at the chat's progress level (`progress.js`)
+    ["aboutMe", o.aboutMe === null ? "" : aboutMePrompt(o.aboutMe, { edits, identity: o.identity })],
+    ["calendar", o.calendar == null ? "" : calendarPrompt(o.calendar)], // their next 7 days, a copy (`calendarCache.js`); its age is in the preamble
+    ["jobs", o.jobs === null ? "" : jobsPrompt(o.jobs, { edits })],
+    ["voice", o.voice == null ? "" : personVoicePrompt(o.voice, { edits })], // how they talk, `tex/voice.md` (`personVoice.js`)
+    ["transcripts", o.observe && o.texting ? TRANSCRIPTS_PROMPT : ""], // a dream (`dream.js`) is told to read them
+    ["checkIns", o.observe && o.texting ? CHECK_IN_PROMPT : ""], // what its own check-ins do (`heartbeat.js`)
+    ["attention", o.observe && o.texting ? ATTENTION_PROMPT : ""], // the pings other agents ask it to text (`attention.js`)
+    ["workspaces", workspacesPrompt(o.workspaces)],
+  ];
+  // Always the day: a caller with no clock of its own (the memory nudge, a reflection) gets now, in the routines' default zone, named (Dev2, 2026-11-10).
+  const now = o.localNow == null ? Date.now() : o.localNow.now;
+  const facts = [
+    ["now", o.localNow == null ? localNowPrompt(now, null) : localNowPrompt(now, o.localNow.timeZone)],
+    ["calendarAge", o.calendar == null ? "" : calendarAge(o.calendar, o.localNow?.now ?? Date.now())],
+    ["turnNote", o.turnNote], // per-text words from the entry point: who tagged it, the thread, the jobs running now (`runTheModel.js`)
+    ["volatile", parts.volatile],
+    ["plan", o.plan === null ? "" : answering === o.plan.think ? PLANNER_PROMPT : DRIVER_PROMPT], // `modelPlan.js`
+    ["nudge", o.nudge], // said last, beside the question
+  ];
+  const preamble = turnFacts(facts.map(([, text]) => text));
+  const stableId = ["stable", o.texting ? "texting" : "notes", ...(o.pictures ? ["pictures"] : []), ...(edits ? ["edits"] : []), ...(parts.production ? ["production"] : [])].join("/");
   return {
-    system: {
-      stable: parts.stable,
-      context:
-        o.threadNote +
-        webPrompt(o.webNames) +
-        (o.progress ? (o.progress.prompt ?? PROGRESS_PROMPT) : "") + // at the chat's progress level (`progress.js`)
-        (o.aboutMe === null ? "" : aboutMePrompt(o.aboutMe, { edits, identity: o.identity })) +
-        (o.calendar == null ? "" : calendarPrompt(o.calendar)) + // their next 7 days, a copy (`calendarCache.js`); its age is in the preamble
-        (o.jobs === null ? "" : jobsPrompt(o.jobs, { edits })) +
-        (o.voice == null ? "" : personVoicePrompt(o.voice, { edits })) + // how they talk, `tex/voice.md` (`personVoice.js`)
-        (o.observe && o.texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
-        (o.observe && o.texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
-        (o.observe && o.texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
-        workspacesPrompt(o.workspaces),
+    system: { stable: parts.stable, context: context.map(([, text]) => text ?? "").join("") },
+    preamble,
+    prompt: {
+      modules: manifestOf([[stableId, parts.stable], ...context.map(([id, text]) => [`context/${id}`, text]), ...facts.map(([id, text]) => [`preamble/${id}`, typeof text === "string" ? text.trim() : text])]),
+      // The builder inputs a rebuild cannot read from the notes: when, where, and which model it was said to.
+      inputs: { at: Math.round(now), ...(o.localNow?.timeZone ? { timeZone: o.localNow.timeZone } : {}), ...(typeof answering === "string" ? { model: answering } : {}), history: o.history.length },
     },
-    preamble: turnFacts([
-      // Always the day: a caller with no clock of its own (the memory nudge, a reflection) gets now, in the routines' default zone, named (Dev2, 2026-11-10).
-      o.localNow == null ? localNowPrompt(Date.now(), null) : localNowPrompt(o.localNow.now, o.localNow.timeZone),
-      o.calendar == null ? "" : calendarAge(o.calendar, o.localNow?.now ?? Date.now()),
-      o.turnNote, // per-text words from the entry point: who tagged it, the thread, the jobs running now (`runTheModel.js`)
-      parts.volatile,
-      o.plan === null ? "" : answering === o.plan.think ? PLANNER_PROMPT : DRIVER_PROMPT, // `modelPlan.js`
-      o.nudge, // said last, beside the question
-    ]),
   };
 }
