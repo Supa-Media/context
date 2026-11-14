@@ -83,7 +83,18 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
     const on = Object.entries(sim.T)
       .filter(([, s]) => (s.lane === "reply" || s.lane === "behind") && t >= s.start && t < Math.max(s.end, s.start + minLit(speed)))
       .sort((a, b) => b[1].start - a[1].start);
-    onLit(on.length ? new Map(on.map(([id, s]) => [id, Math.min(1, Math.max(0, (t - s.start) / Math.max(1, s.end - s.start)))])) : null);
+    const lit = new Map(on.map(([id, s]) => [id, Math.min(1, Math.max(0, (t - s.start) / Math.max(1, s.end - s.start)))]));
+    // Every text that comes in lights its start step, and each judging lights Decide, on the moment's own clock, not
+    // only the turn's first (Dev2, 2026-11-14: "how come 'a text arrives' did not light up for the different texts").
+    const during = (bars: Bar[], id: string, min = 0) => {
+      for (const b of bars) {
+        const end = Math.max(b.end, b.start + Math.max(min, minLit(speed)));
+        if (at >= b.start && at < end && node(id)) lit.set(id, Math.min(1, (at - b.start) / Math.max(1, end - b.start)));
+      }
+    };
+    during(m.lanes.Texts, m.from === "text" ? "text" : m.from, 600);
+    during(m.lanes.Judge, "decide");
+    onLit(lit.size ? lit : null);
     const newest = on[0]?.[0];
     // Opened, the moment itself shows in the panel; once it plays or is scrubbed, the step running then.
     if (at > 0 && newest && newest !== last.current && node(newest)) {

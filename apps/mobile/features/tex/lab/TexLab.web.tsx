@@ -35,7 +35,8 @@ import { Sim } from "./views/Sim.web";
 import { Tests } from "./views/Tests.web";
 import { Tools } from "./views/Tools.web";
 import { Viewer } from "./views/Viewer.web";
-import { MineLoader, readTurnTimes, refreshChat, replayEntries } from "./views/mine/useMine";
+import { MineLoader, readMomentDetail, readTurnTimes, refreshChat, replayEntries } from "./views/mine/useMine";
+import { useLabUrl } from "./views/useLabUrl.web";
 import { ReplayPanel } from "./views/replay/ReplayPanel";
 import { openMoment, ReplaySide } from "./views/replay/ReplaySide";
 import { loggedMoments, momentsOf } from "./engine/replay";
@@ -135,6 +136,7 @@ function Lab() {
   const cvn = cvDiff().length;
   const nm = Object.keys(G().modules || {}).length;
   const tags = { modTag: nm ? nm + " edited" : "", cvTag: cvn ? cvn + " changed" : "", toolTag: "", runTag: d.length ? d.length + " change" + (d.length > 1 ? "s" : "") : "" };
+  useLabUrl();
   const replay = s.mode === "replay";
   // Replay: the picked chat cut into moments, and the one shown (`engine/replay.ts`).
   const entries = replay ? replayEntries() : [];
@@ -143,6 +145,8 @@ function Lab() {
   const moment = moments.find((m) => m.id === s.moment) ?? null;
   useEffect(() => {
     if (replay && !moment && moments.length) openMoment(moments[moments.length - 1]);
+    // A moment opened from the address (`useLabUrl`) reads its day's details as a click would; read once per day.
+    else if (replay && moment) void readMomentDetail(moment.at);
   }, [replay, moment, moments]);
   // Replay looks for new texts and runs every 10 s while the tab is in front (`refreshChat`).
   useEffect(() => {

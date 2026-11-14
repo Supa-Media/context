@@ -299,6 +299,9 @@ describe("the Lab's test user as You", () => {
 
   test("Replay is its own mode: your chats, the conversation in moments, a timeline of how they queued, read only", async () => {
     await click(q("#modeReplay"));
+    // Where they are is in the address, so a refresh or Back keeps it (Dev2, 2026-11-14).
+    expect(new URLSearchParams(window.location.search).get("mode")).toBe("replay");
+    expect(new URLSearchParams(window.location.search).get("moment")).toBe("ev3");
     // The text box over the canvas repeats the chat, so it is hidden; the wires' key is open, starting the top row, until put away.
     expect(q(".ctop .moment")?.hasAttribute("hidden")).toBe(true);
     expect(q("#keyw")?.textContent).toMatch(/Next/);
@@ -335,10 +338,18 @@ describe("the Lab's test user as You", () => {
     expect(q("#rTurns .rturnh")?.textContent).toMatch(/waited 0\.3 s.*ran 3\.4 s/);
     expect(qa("#rJudge .rjrow b").map((x) => x.textContent)).toEqual(["answer", "fold it in"]);
     expect(q("#replayPanel pre")).toBeNull();
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    // Each judging lights Decide when the head is on it, and each text that comes in its start step, on the moment's
+    // own clock, not only the turn's first (Dev2, 2026-11-14: "how come 'a text arrives' did not light up").
+    await act(async () => {
+      setValue.call(q<HTMLInputElement>("#rScrub")!, "1300");
+      q("#rScrub")!.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(q('.nd[data-id="decide"]')?.classList.contains("lit")).toBe(true);
     // Scrubbing plays the turn under the head at its measured times: at 2.5 s its front door (2.7 s long) is running.
     await click(q('[data-moment="ev1"]'));
     const scrubber = q<HTMLInputElement>("#rScrub")!;
-    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
     await act(async () => {
       setValue.call(scrubber, "2500");
       scrubber.dispatchEvent(new Event("input", { bubbles: true }));
