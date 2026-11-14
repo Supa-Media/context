@@ -35,12 +35,12 @@ export async function mintAccessToken(
   role: GoogleClientRole,
 ): Promise<MintOutcome> {
   const connection: ConnectionTokens | null = await ctx.runQuery(internal.functions.googleConnect.getConnectionForSync, { connectionId });
-  if (connection === null || connection.disconnectedAt !== undefined) return { kind: "refused" };
+  if (connection === null || connection.disconnectedAt !== undefined) return { kind: "refused", why: "no_connection" };
   const env = googleEnvForRow({ workspaceId: connection.workspaceId as string, consentPlan: connection.consentPlan });
   const grant = grantFor(role, connection.agentGrant !== undefined, env);
   // Once switched on, an agent call takes the agent grant or nothing.
   const tokens = grant === "agent" ? connection.agentGrant : connection;
-  if (tokens === undefined || tokens.encryptedRefreshToken.length === 0) return { kind: "refused" };
+  if (tokens === undefined || tokens.encryptedRefreshToken.length === 0) return { kind: "refused", why: "no_grant" };
 
   const keyset = requireKeyset();
   const context = { workspaceId: connection.workspaceId as string };
@@ -54,7 +54,7 @@ export async function mintAccessToken(
   }
 
   const client = googleClientFor(grant);
-  if (client === null) return { kind: "refused" };
+  if (client === null) return { kind: "refused", why: "no_client" };
   const refreshToken = await decryptSecret(tokens.encryptedRefreshToken, keyset, context);
   let refreshed;
   try {
@@ -69,7 +69,7 @@ export async function mintAccessToken(
         await ctx.runMutation(internal.functions.googleClients.dropAgentGrant, { connectionId });
         // Before the switch, the account goes back to the one grant everyone else reads through.
         if (!agentClientActive(env)) return await mintAccessToken(ctx, connectionId, forceRefresh, role);
-        return { kind: "refused" };
+        return { kind: "refused", why: "agent_grant_dropped" };
       }
       await ctx.runMutation(internal.functions.googleConnect.markReconnectRequired, { connectionId });
       return { kind: "reconnect_required" };
@@ -77,7 +77,7 @@ export async function mintAccessToken(
     if (error instanceof GoogleOAuthError && (error.errorCode === "GOOGLE_UNAVAILABLE" || error.errorCode === "RESPONSE_UNUSABLE")) {
       return { kind: "unavailable" };
     }
-    return { kind: "refused" };
+    return { kind: "refused", why: "refresh_refused" };
   }
 
   const encryptedAccessToken = await encryptSecret(refreshed.accessToken, keyset, context);

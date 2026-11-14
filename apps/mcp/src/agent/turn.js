@@ -261,6 +261,8 @@ export async function runTurn(options) {
     localNow = null,
     // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
     workspaces = null,
+    // Their connected mailboxes and each one's state (`mailAccounts.js`), so a mail search names the right one.
+    mail = null,
     // How hard each model thinks, by model name (`production.js`); absent: the model's own default.
     efforts = null,
     // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
@@ -349,7 +351,7 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
     tell({ kind: "model", step: "router", model, ms: clock() - asked, input: options.planned || nudge !== "" ? undefined : question, output: { tier: routed.tier, pick: routed.pick, ...confidence }, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, mail, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
@@ -564,8 +566,9 @@ export async function runTurn(options) {
       if (resolved.error) {
         messages.push({ role: "tool", id: made.id, name: made.name, text: resolved.error, isError: true });
         escalate = true;
-        tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: "no such action" });
-        failed({ tool: made.name, cause: "no_such_action", text: resolved.error, round });
+        const unknownArg = resolved.cause === "unknown_argument";
+        tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: unknownArg ? "unknown argument" : "no such action" });
+        failed({ tool: made.name, cause: unknownArg ? "unknown_argument" : "no_such_action", text: resolved.error, round });
         continue;
       }
       const call = { ...made, name: resolved.name, args: resolved.args };

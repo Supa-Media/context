@@ -197,3 +197,16 @@ test("the turn's trace names the six a call was made as and its action, for the 
   assert.equal(tool.six, "write");
   assert.equal(tool.action, "save");
 });
+
+test("an older tool name called with an argument its schema does not take is refused, naming the ones it does (2026-11-14)", () => {
+  const { resolve } = sixToolsOver(held("search_notes", "search_email", "read_email"));
+  const wrong = resolve("search_email", { query: "AMC ticket", address: "me@example.com" });
+  assert.equal(wrong.cause, "unknown_argument");
+  assert.match(wrong.error, /^search_email: unknown argument address; permitted here: query, account, limit, context, mailbox, person_said$/);
+  assert.deepEqual(resolve("search_email", { query: "AMC ticket", account: "me@example.com" }), {
+    name: "search_email",
+    args: { query: "AMC ticket", account: "me@example.com" },
+  });
+  // A schema that takes any argument is left as it was, and so is a tool this turn was not given.
+  assert.deepEqual(resolve("open_note", { anything: 1 }), { name: "open_note", args: { anything: 1 } });
+});

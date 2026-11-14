@@ -134,7 +134,7 @@ const mint = (t: Awaited<ReturnType<typeof alice>>["t"], connectionId: Id<"googl
 describe("a split row and a row made before, side by side with the switch off", () => {
   test("a new row's AI never mints from the standard grant; the person's own use still does", async () => {
     const { t, connectionId } = await alice("split");
-    expect(await mint(t, connectionId, "agent")).toEqual({ kind: "refused" });
+    expect(await mint(t, connectionId, "agent")).toMatchObject({ kind: "refused" });
     expect(await mint(t, connectionId, "standard")).toMatchObject({ kind: "minted", accessToken: "standard-access-token" });
   });
 

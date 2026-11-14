@@ -59,7 +59,11 @@ export function createEmailMethods({ post }) {
       const aiAccess = Array.isArray(answer?.aiAccess) ? answer.aiAccess.filter((address) => typeof address === "string") : [];
       if (answer?.ok === true && Array.isArray(answer.results) && Array.isArray(answer.mailboxes)) {
         const unanswered = Array.isArray(answer.unanswered) ? answer.unanswered.filter((address) => typeof address === "string") : [];
-        return { ok: true, results: answer.results, mailboxes: named(answer.mailboxes), incomplete: answer.incomplete === true, unanswered, reconnect, aiAccess };
+        // Why each gave nothing, as the control plane's fixed codes (`gmailFailureCode` in `personMail.ts`); anything else is dropped.
+        const why = Array.isArray(answer.unansweredWhy)
+          ? answer.unansweredWhy.filter((entry) => typeof entry?.address === "string" && typeof entry?.why === "string" && /^[A-Za-z0-9_]{1,80}$/.test(entry.why)).map(({ address, why: code }) => ({ address, why: code }))
+          : [];
+        return { ok: true, results: answer.results, mailboxes: named(answer.mailboxes), incomplete: answer.incomplete === true, unanswered, unansweredWhy: why, reconnect, aiAccess };
       }
       return {
         ok: false,

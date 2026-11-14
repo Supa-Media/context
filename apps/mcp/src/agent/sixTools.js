@@ -33,6 +33,19 @@ import { GUEST_NAME_SEND_ACTIONS } from "./groupGuestNames.js";
 import { PERSONAL_TEX_SEND_ACTIONS } from "./askPersonalTex.js";
 import { TEXTS_ID_PREFIX } from "../tools/texts.js";
 
+/**
+ * The first top-level argument a closed schema does not take, as the refusal to send back, or null. Only unknown names:
+ * a value of the wrong type is still the tool's own to answer, as it always was.
+ */
+export function unknownArgument(schema, args) {
+  if (!schema || schema.additionalProperties !== false || !args || typeof args !== "object" || Array.isArray(args)) return null;
+  const properties = schema.properties ?? {};
+  const permitted = Object.keys(properties);
+  const extra = Object.keys(args).find((key) => !Object.hasOwn(properties, key) && args[key] !== undefined);
+  if (extra === undefined) return null;
+  return permitted.length > 0 ? `unknown argument ${extra}; permitted here: ${permitted.join(", ")}` : `unknown argument ${extra}; this takes no arguments`;
+}
+
 /** The six, in the order they are listed. */
 export const SIX_TOOLS = ["orient", "search", "fetch", "write", "manage", "send"];
 const SIX = new Set(SIX_TOOLS);
@@ -227,8 +240,13 @@ export function sixToolsOver(granted, grants = null) {
   }
 
   function resolve(name, args) {
-    // An older name is itself: the turn's allowlist decides it.
-    if (!SIX.has(name)) return { name, args };
+    // An older name is itself: the turn's allowlist decides it. An argument its schema does not take is refused,
+    // naming the ones it does: `search_email { mailbox }` was run with the address dropped, over every mailbox, and Tex
+    // took the answer for that one mailbox's (2026-11-14).
+    if (!SIX.has(name)) {
+      const unknown = unknownArgument(held.get(name)?.inputSchema, args);
+      return unknown === null ? { name, args } : { error: `${name}: ${unknown}`, cause: "unknown_argument" };
+    }
     const call = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     if (name === "orient") return { name, args: call };
     // A file kept from a text reads as itself, whatever else the call carries (`keptFiles.js`): `fetch { id: "download:…",

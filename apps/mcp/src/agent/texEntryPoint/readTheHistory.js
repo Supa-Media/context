@@ -8,6 +8,7 @@ import { aiGatewayConfig } from "../aiGateway.js";
 import { hearVoiceMessages } from "../attachments.js";
 import { backgroundSession, runningJobsOf } from "../background.js";
 import { machinesFor } from "../../machines/forJobs.js";
+import { readMailHealth } from "../mailHealth.js";
 import { openChatSkills } from "../chatSkills.js";
 import { lastOffer } from "../claimCheck.js";
 import { checkerHistory } from "../groupTurn.js";
@@ -41,6 +42,8 @@ export async function readTheHistory(t) {
   if (group !== null) markChatWords(ledger); if (job?.tainted || report !== null || carry.outside) markUntrusted(ledger); // a chat's own words are no stranger's (`chatSkills.js`); a job planned after a read from outside still carries it, and a job's report is what it read
   // The computers a chat turn may name, read beside the rest so the turn is told they're there (`machines/forTurn.js`); a job's own turn names none.
   const computersRead = chatTurn && job === null && (group !== null || session.actorClientId === TEXTS_CLIENT_ID) ? tex.ahead("computers", () => machinesFor(env, session, controlPlane), []).catch(() => []) : null;
+  // Their own mailboxes, read beside the rest so a mail search is told which it reaches (`mailAccounts.js`); a group's shared mail is told by `groupMail.js`.
+  const mailRead = group === null ? tex.ahead("mail_accounts", () => readMailHealth(store), []).catch(() => []) : null;
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group !== null || session.actorClientId === TEXTS_CLIENT_ID ? () => computersRead ?? machinesFor(env, session, controlPlane) : null, inGroup: group !== null, opened: () => pagesOpenedBefore(history) }) : null; // a job starts with the pages the chat opened (`jobPages.js`)
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
@@ -62,6 +65,6 @@ export async function readTheHistory(t) {
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });
   }
-  Object.assign(t, { attachments, background, computersRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view });
+  Object.assign(t, { attachments, background, computersRead, mailRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view });
 }
 // TEX ENTRY POINT: end

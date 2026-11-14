@@ -129,8 +129,8 @@ describe("which grant a call uses", () => {
     configure({ active: true, agentClient: false });
     const asked = tokenEndpoint();
     const { t, connectionId } = await connection();
-    expect(await mint(t, connectionId, "agent")).toEqual({ kind: "refused" });
-    expect(await mint(t, connectionId, "agent", true)).toEqual({ kind: "refused" });
+    expect(await mint(t, connectionId, "agent")).toMatchObject({ kind: "refused" });
+    expect(await mint(t, connectionId, "agent", true)).toMatchObject({ kind: "refused" });
     expect(asked.length).toBe(0);
   });
 
@@ -138,8 +138,8 @@ describe("which grant a call uses", () => {
     configure({ active: true });
     const asked = tokenEndpoint();
     const { t, connectionId } = await connection();
-    expect(await mint(t, connectionId, "agent")).toEqual({ kind: "refused" });
-    expect(await mint(t, connectionId, "agent", true)).toEqual({ kind: "refused" });
+    expect(await mint(t, connectionId, "agent")).toMatchObject({ kind: "refused" });
+    expect(await mint(t, connectionId, "agent", true)).toMatchObject({ kind: "refused" });
     expect(asked.length).toBe(0);
   });
 
@@ -163,7 +163,7 @@ describe("which grant a call uses", () => {
     configure({ active: true });
     tokenEndpoint({ refused: true });
     const { t, connectionId } = await connection(true);
-    expect(await mint(t, connectionId, "agent", true)).toEqual({ kind: "refused" });
+    expect(await mint(t, connectionId, "agent", true)).toMatchObject({ kind: "refused" });
     const row = await t.run((ctx) => ctx.db.get(connectionId));
     expect(row?.agentGrant).toBeUndefined();
     expect(row?.health).toBe("active");

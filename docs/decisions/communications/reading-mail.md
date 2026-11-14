@@ -132,3 +132,30 @@ quota on what the notes already answer. Tests:
 nothing stored, attachment bytes), `apps/mcp/test/emailRead.test.mjs` (order,
 tiers, taint, attachment words), `apps/mcp/test/readFile.test.mjs` (a stored
 file's words, refused alike when hidden or missing).
+
+**A mailbox that gives nothing says why, and the turn knows its mailboxes**
+(Dev2, 2026-11-14). One of a person's four Gmails failed every live search for
+an afternoon; the answer said only "Gmail did not answer just now", nothing
+told the turn which mailboxes it had, the address it wrote under `mailbox`
+(every tool's id of a note's mail someone joined) was dropped, and Tex told
+the person its live search "only reaches" another of their addresses. So:
+
+- The control plane answers each mailbox it got nothing from with a fixed code
+  (`unansweredWhy`: `gmail_<status>[_<Google's reason word>]`, `timeout`,
+  `token_<why>` from the mint), never Google's message or a path; the gateway
+  says a refused mailbox as needing a reconnect and a busy one as worth one
+  more search on its own, and names the mailboxes the search did reach
+  (`emailRead.js` `unansweredKind`).
+- A Tex turn outside a group is told its connected mailboxes in the system
+  prompt's context part, and in the per-text preamble any that are not fine
+  (`agent/mailAccounts.js`, from `/gateway/mail-health`).
+- An address written as `mailbox` on an email search is the account.
+- `functions/googleMailProbe.ts:report`, run by the Google sync health
+  workflow, reads every connected Gmail once as a search does and prints where
+  each stopped, as counts.
+
+What a simplification costs: one broken mailbox reads as the whole search
+being narrow, and the person is told something false. Tests:
+`personMail.test.ts` ("a mailbox Google refuses to read…"),
+`emailRead.test.mjs` ("a mailbox Google refuses is named…", "an address
+written as mailbox…"), `mailAccounts.test.mjs`, `agentSixTools.test.mjs`.
