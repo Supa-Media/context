@@ -77,9 +77,9 @@ describe("Replay's moments (Dev2, 2026-11-14: \"replay sequences of text, like s
   ];
   const lines = chatLines(entries, myTexts(entries), { group: true });
 
-  test("a moment is the texts in a row and what Tex said back, with its judgings and turns on one clock", () => {
+  test("a moment starts at any text someone sent, with what came in behind it, its judgings and turns on one clock", () => {
     const ms = momentsOf(lines, entries);
-    expect(ms.map((m) => m.lines.map((l) => l.text))).toEqual([["book a table", "also the weather", "Booked.", "Sunny."], ["thanks"]]);
+    expect(ms.map((m) => m.lines.map((l) => l.text))).toEqual([["book a table", "also the weather", "Booked.", "Sunny."], ["also the weather", "Booked.", "Sunny."], ["thanks"]]);
     const [m] = ms;
     expect(m.lanes.Texts.map((b) => b.start)).toEqual([0, 2_000]);
     expect(m.lanes.Judge.map((b) => [b.start, b.end, b.label, b.detail])).toEqual([
@@ -100,6 +100,16 @@ describe("Replay's moments (Dev2, 2026-11-14: \"replay sequences of text, like s
     expect(turnAt(m, 100)).toBeNull();
     expect(turnAt(m, 1_500)).toEqual({ turn: "t1", start: 500 });
     expect(turnAt(m, 7_000)).toEqual({ turn: "t2", start: 2_200 });
+    // Replayed from the second text: the first turn was already running, so it starts before zero and plays from there.
+    const b = ms[1];
+    expect(b.lanes.Judge.map((x) => [x.start, x.end, x.label])).toEqual([[0, 400, "queue it"]]);
+    expect(b.lanes.Turn.map((x) => [x.kind, x.start, x.end, x.turn, x.zero])).toEqual([
+      ["turn", 0, 4_000, "t1", -1_500],
+      ["wait", 200, 4_100, "t2", 200],
+      ["turn", 4_100, 7_000, "t2", 200],
+    ]);
+    expect(b.turns).toEqual(["t1", "t2"]);
+    expect(turnAt(b, 0)).toEqual({ turn: "t1", start: -1_500 });
   });
 
   test("only moments that began once every step was logged in full replay", () => {

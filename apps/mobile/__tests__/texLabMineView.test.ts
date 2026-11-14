@@ -299,13 +299,19 @@ describe("the Lab's test user as You", () => {
     expect(q("#saveBtn")).toBeNull();
     // The chats are a drop-down (Dev2 on the mock: "Should probably be a drop down").
     expect(qa("#rChat option").map((x) => x.textContent)).toEqual(["1:1 with Tex", "Band · 4 people", "Old pals · 1 person"]);
+    // The chat reads as it was; every text someone sent replays from it (Dev2: "replay from any text").
+    expect(qa("#replaySide .cdb").map((x) => x.textContent)).toEqual(["hey" + qa("#replaySide .cdm")[0].textContent, "TexHi.", "remind me about the shelves" + qa("#replaySide .cdm")[1].textContent, "TexDone."]);
     expect(qa("#replaySide [data-moment]").map((x) => x.getAttribute("data-moment"))).toEqual(["ev1", "ev3"]);
     // It opens on the newest moment, and the timeline shows its texts, the judge's calls and the turn.
     expect(q('[data-moment="ev3"]')?.getAttribute("aria-current")).toBe("true");
     expect(qa('#replayTimeline [data-lane="Judge"] .rbar').map((x) => x.textContent)).toEqual(["answer", "fold it in"]);
     expect(qa('#replayTimeline [data-lane="Turn"] .rbar').map((x) => x.className)).toEqual(["rbar wait", "rbar turn"]);
-    expect(q("#replayPanel h3")?.textContent).toBe("One text");
-    expect(qa("#rJudge .io pre").map((x) => x.textContent)).toEqual(["answer", "fold it in"]);
+    // The panel doesn't repeat the texts (they're on the left): it shows each turn and the judge's calls.
+    expect(q("#replayPanel h3")?.textContent).toBe("From your text");
+    expect(qa("#rTurns .rturnt").map((x) => x.textContent)).toEqual(["Done."]);
+    expect(q("#rTurns .rturnh")?.textContent).toMatch(/waited 0\.3 s.*ran 3\.4 s/);
+    expect(qa("#rJudge .rjrow b").map((x) => x.textContent)).toEqual(["answer", "fold it in"]);
+    expect(q("#replayPanel pre")).toBeNull();
     // Scrubbing plays the turn under the head at its measured times: at 2.5 s its front door (2.7 s long) is running.
     await click(q('[data-moment="ev1"]'));
     const scrubber = q<HTMLInputElement>("#rScrub")!;
