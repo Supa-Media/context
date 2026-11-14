@@ -91,14 +91,6 @@ export function usePlayback(speed: number, moment: unknown) {
     start(from);
   };
 
-  /** Play from the top on a fresh timeline (a text clicked in the conversation). */
-  const restart = () => {
-    halt();
-    run.current = timeline();
-    last.current = null;
-    start(0);
-  };
-
   /** The scrubber: pause and show the moment at `at`. */
   const scrub = (at: number) => {
     halt();
@@ -124,5 +116,5 @@ export function usePlayback(speed: number, moment: unknown) {
 
   /** How long the whole moment takes, before it has played. */
   const total = () => (run.current ?? timeline()).of;
-  return { lit, clock, running, toggle, restart, scrub, total };
+  return { lit, clock, running, toggle, scrub, total };
 }

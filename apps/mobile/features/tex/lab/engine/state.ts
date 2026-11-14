@@ -57,12 +57,12 @@ export type LabState = {
   myChats: Array<{ key: string; name: string; people?: number }> | null;
   /** The chat whose texts are read: "me" or a group's key. */
   myChat: string;
-  /** That chat's whole conversation so far, oldest first, for the canvas's chat panel. */
+  /** That chat's whole conversation so far, oldest first, for Replay. */
   myLines: ChatLine[];
-  /** The right panel shows the chat's conversation while the test user is You and no step or wire is selected. */
-  chatOpen: boolean;
-  /** Bumped to ask the canvas to play the traced moment (a text clicked in the conversation). */
-  playReq: number;
+  /** The Lab, where a version is changed, or Replay, where a real chat is watched as it ran and nothing changes. */
+  mode: "lab" | "replay";
+  /** The moment Replay shows: its first text's entry id. */
+  moment: string | null;
   /** Their texts read so far, newest first; null before the first read, "failed" when it could not be read. */
   myTexts: MyText[] | null | "failed";
   /** The ledger seq to read older texts before, when there are older ones. */
@@ -73,7 +73,7 @@ export type LabState = {
   /** What a version said now for each replayed text, from a pasted "## Lab replay": this tab only, never saved. */
   myNow: Record<string, ReplayNow>;
   /** The measured step times of the own text the canvas traces, when it is one the person sent (`realTimes.ts`). */
-  real: { text: string; times: RealTimes; io?: Record<string, IoLine[]> } | null;
+  real: { text: string; times: RealTimes; io?: Record<string, IoLine[]>; turn?: string } | null;
 };
 
 export const lab: LabState = {
@@ -107,8 +107,8 @@ export const lab: LabState = {
   myChats: null,
   myChat: "me",
   myLines: [],
-  chatOpen: true,
-  playReq: 0,
+  mode: "lab",
+  moment: null,
   myTexts: null,
   myOlder: null,
   myPicks: [],

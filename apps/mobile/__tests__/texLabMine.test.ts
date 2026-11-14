@@ -4,7 +4,8 @@
  * run config's replays, and a pasted "## Lab replay" read back.
  */
 import { describe, expect, test } from "@jest/globals";
-import { myTexts, parseReplay, readsOf, replayConfig, shortVersion } from "../features/tex/lab/engine/mine";
+import { chatLines, myTexts, parseReplay, readsOf, replayConfig, shortVersion } from "../features/tex/lab/engine/mine";
+import { judgeWords, momentsOf, turnAt } from "../features/tex/lab/engine/replay";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry => ({ at: 1_000, ...x }) as LedgerEntry;
@@ -56,5 +57,57 @@ describe("the Lab's You", () => {
     const pasted = ['## Lab replay: My version', '', '### ev3', '', '**Text:** "remind me"', '', '**Then** (no version): "Done."', '', '**Now:** "Saturday, \\"9am\\"."', '', '### ev1', '', '**Now:** failed (socket closed)', ''].join("\n");
     expect(parseReplay(pasted)).toEqual([{ id: "ev3", now: 'Saturday, "9am".' }, { id: "ev1", now: "", failed: "socket closed" }]);
     expect(parseReplay("## Tex replay: ✅")).toEqual([]);
+  });
+});
+
+describe("Replay's moments (Dev2, 2026-11-14: \"replay sequences of text, like see how queuing works\")", () => {
+  const T = Date.UTC(2026, 10, 14, 1);
+  const e = (x: Partial<LedgerEntry> & { id: string; at: number; kind: string }) => x as LedgerEntry;
+  // Two texts close together, the second while the first's turn ran and queued; then a later one on its own.
+  const entries: LedgerEntry[] = [
+    e({ id: "a", at: T, seq: 1, kind: "text", eid: "ea", from: { kind: "person", name: "Ada" }, text: "book a table" }),
+    e({ id: "d1", at: T + 300, kind: "step", step: { name: "decide", of: "waiting", ok: true, ms: 280, output: { act: "answer" } } }),
+    e({ id: "b", at: T + 2_000, seq: 2, kind: "text", eid: "eb", from: { kind: "person", name: "Ada" }, text: "also the weather" }),
+    e({ id: "d2", at: T + 2_400, kind: "step", step: { name: "decide", of: "running", ok: true, ms: 400, output: { act: "answer", midTurn: "queue" } } }),
+    e({ id: "r1", at: T + 6_000, kind: "reply", turn: "t1", text: "Booked.", timing: { waitMs: 500, replyMs: 5_000 } }),
+    e({ id: "x", at: T + 6_100, seq: 3, kind: "text", turn: "t1", covers: ["ea"], from: { kind: "tex" }, text: "Booked." }),
+    e({ id: "r2", at: T + 9_000, kind: "reply", turn: "t2", text: "Sunny.", timing: { waitMs: 3_900, replyMs: 2_900 } }),
+    e({ id: "y", at: T + 9_100, seq: 4, kind: "text", turn: "t2", covers: ["eb"], from: { kind: "tex" }, text: "Sunny." }),
+    e({ id: "c", at: T + 600_000, seq: 5, kind: "text", eid: "ec", from: { kind: "person", name: "Ada" }, text: "thanks" }),
+  ];
+  const lines = chatLines(entries, myTexts(entries), { group: true });
+
+  test("a moment is the texts in a row and what Tex said back, with its judgings and turns on one clock", () => {
+    const ms = momentsOf(lines, entries);
+    expect(ms.map((m) => m.lines.map((l) => l.text))).toEqual([["book a table", "also the weather", "Booked.", "Sunny."], ["thanks"]]);
+    const [m] = ms;
+    expect(m.lanes.Texts.map((b) => b.start)).toEqual([0, 2_000]);
+    expect(m.lanes.Judge.map((b) => [b.start, b.end, b.label, b.detail])).toEqual([
+      [20, 300, "answer", "waiting texts"],
+      [2_000, 2_400, "queue it", "while a turn ran"],
+    ]);
+    // Each turn: its wait in the queue, then the turn; the second waited for the first.
+    expect(m.lanes.Turn.map((b) => [b.kind, b.start, b.end, b.turn])).toEqual([
+      ["wait", 500, 1_000, "t1"],
+      ["turn", 1_000, 6_000, "t1"],
+      ["wait", 2_200, 6_100, "t2"],
+      ["turn", 6_100, 9_000, "t2"],
+    ]);
+    expect(m.turns).toEqual(["t1", "t2"]);
+    expect(m.of).toBe(9_500);
+    expect(m.lines[0].who).toBe("Ada");
+    // The head picks the turn whose timeline it is in, from that turn's own start.
+    expect(turnAt(m, 100)).toBeNull();
+    expect(turnAt(m, 1_500)).toEqual({ turn: "t1", start: 500 });
+    expect(turnAt(m, 7_000)).toEqual({ turn: "t2", start: 2_200 });
+  });
+
+  test("the judge's calls in a few words", () => {
+    expect(judgeWords({ act: "answer" }, false)).toBe("answer");
+    expect(judgeWords({ act: "answer", midTurn: "fold" }, true)).toBe("fold it in");
+    expect(judgeWords({ act: "answer", midTurn: "restart" }, true)).toBe("restart");
+    expect(judgeWords({ act: "answer" }, true)).toBe("queue it");
+    expect(judgeWords({ act: "react" }, false)).toBe("tapback");
+    expect(judgeWords(null, false)).toBe("no answer");
   });
 });
