@@ -71,7 +71,9 @@ describe("Replay draws only what ran", () => {
 
   test("on the canvas, the text reaches the queue through Triage's wires, never by a jump", () => {
     const g = G();
-    expect(g.edges.some((w) => w.from === "text" && w.to === "triage")).toBe(true);
+    // A text goes through the old-number step first (the Photon switch), which passes every text on the current line to Triage.
+    expect(g.edges.some((w) => w.from === "text" && w.to === "oldLine")).toBe(true);
+    expect(g.edges.some((w) => w.from === "oldLine" && w.to === "triage" && w.when.includes("pass"))).toBe(true);
     expect(g.edges.some((w) => w.from === "triage" && w.to === "lanes")).toBe(true);
     expect(g.edges.some((w) => w.from === "text" && w.to === "decide")).toBe(false);
   });

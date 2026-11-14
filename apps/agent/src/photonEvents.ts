@@ -17,6 +17,7 @@ import { groupInboxName } from "./groupInbox";
 import { toChat } from "./handOver";
 import { inboxByName } from "./objectPlace";
 import { photonAttachmentUrl } from "./photon";
+import { arrivalOf } from "./providerTiming";
 import { parsePhotonEvent, photonAttachmentGuids } from "./photonInbound";
 import { sendGroupName } from "./sendblueGroups";
 import { workerOrigin } from "./media";
@@ -64,27 +65,32 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     return 200;
   }
   const known = origin ?? undefined;
+  // Apple's own time for the event (the bridge's `at`), for the chat's `text` step to show the provider's lag (`providerTiming.ts`).
+  const provider = arrivalOf("photon", (body as { at?: unknown }).at, Date.now());
   if (parsed.kind === "group-message") {
     // A group's message goes to the group's own queue, never a sender's (`groupWebhook`, `index.ts`).
     await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, parsed, null);
     const name = groupInboxName(parsed.groupId);
+    const brought = { ...parsed, provider };
     const result =
-      (await toChat(env, "group", name, parsed, known)) ??
-      (await inboxByName(env.SENDER_INBOX, name).fetch(`https://inbox/group-accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(parsed) }));
+      (await toChat(env, "group", name, brought, known)) ??
+      (await inboxByName(env.SENDER_INBOX, name).fetch(`https://inbox/group-accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(brought) }));
     log("accepted", "group");
     return result.ok ? 200 : 503;
   }
   if (parsed.kind === "reaction") {
+    const reacted = { ...parsed, provider };
     const result =
-      (await toChat(env, "react", parsed.from, parsed)) ??
-      (await inboxByName(env.SENDER_INBOX, parsed.from).fetch("https://inbox/react", { method: "POST", body: JSON.stringify(parsed) }));
+      (await toChat(env, "react", parsed.from, reacted)) ??
+      (await inboxByName(env.SENDER_INBOX, parsed.from).fetch("https://inbox/react", { method: "POST", body: JSON.stringify(reacted) }));
     log("accepted", "reaction");
     return result.ok ? 200 : 503;
   }
   if (parsed.kind !== "message") return 400;
   log("accepted");
+  const brought = { ...parsed, provider };
   const result =
-    (await toChat(env, "one", parsed.from, parsed, known)) ??
-    (await inboxByName(env.SENDER_INBOX, parsed.from).fetch(`https://inbox/accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(parsed) }));
+    (await toChat(env, "one", parsed.from, brought, known)) ??
+    (await inboxByName(env.SENDER_INBOX, parsed.from).fetch(`https://inbox/accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(brought) }));
   return result.ok ? 200 : 503;
 }

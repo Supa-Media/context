@@ -130,7 +130,8 @@ const LOGS_WHEN_RUN = new Set(["reviewer", "router", "fallback", "card", "classi
 
 /** `from` names the start step outright, for a run not traced on the canvas (Replay's timeline rows). */
 export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | null = null, from?: string): Sim {
-  const tags = (SCENARIOS[s] || SCENARIOS.own)?.tags ?? [];
+  // Every moment the Lab runs is a text on Tex's current line, so the old-number step (`oldLine`) passes it on to Triage.
+  const tags = [...((SCENARIOS[s] || SCENARIOS.own)?.tags ?? []), "pass"];
   // A real run goes where it was measured: a measured step ran, a step that always logs when it runs and logged
   // nothing did not, and the rest follow the guess from the text's words.
   const on = (e: LabEdge) => {
