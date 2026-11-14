@@ -109,9 +109,10 @@ for (const vp of ["desktop", "phone"] as const) {
     test("the world markup is the artifact's, byte for byte", () => {
       setupScn(v.scn);
       const sim = simulate(G(), lab.scn, null);
+      // The one addition since the artifact: a waiting step's split bar (Dev2, 2026-11-14), checked on its own below.
       const html = domSerialize(
         renderGraphHtml(G(), sim, SCENARIOS[lab.scn].tags, null, null),
-      );
+      ).replace(/<g class="split">.*?<\/g>/g, "");
       if (html !== v.world) throw new Error(firstDiff(html, v.world));
       expect(html).toBe(v.world);
     });
@@ -234,4 +235,31 @@ describe("camera and step helpers", () => {
       Math.round(((rect.height / 2 - cam.y) / cam.k - H / 2) / 10) * 10,
     );
   });
+});
+
+describe("a step that waits on helpers (Dev2, 2026-11-14: \"is the 3 second tool call essentially added to the front door?\")", () => {
+  test("its foot is split into its own work and each helper it waited on, summing to its time", () => {
+    const { simulate: sim, fmtS } = jest.requireActual<typeof import("../features/tex/lab/engine/sim")>("../features/tex/lab/engine/sim");
+    const real = { reply: 13000, ms: { lanes: 400, door: 700, fd: 9800, tools: 3200, send: 100 }, calls: { fd: 3 } };
+    const s = sim(G(), "own", null, real);
+    const html = renderGraphHtml(G(), s, [], null, null);
+    const fd = html.slice(html.indexOf('data-id="fd"'));
+    const split = fd.slice(fd.indexOf('<g class="split">'), fd.indexOf("</g>", fd.indexOf('<g class="split">')));
+    expect(split).toContain(`Its own work ${fmtS(9800)} · Waiting on Tools ${fmtS(3200)}`);
+    expect((split.match(/<rect /g) ?? []).length).toBe(2);
+    expect(s.T.fd.ms).toBe(9800 + 3200);
+    const send = html.slice(html.indexOf('data-id="send"'));
+    expect(send.slice(0, send.indexOf("</g>\n"))).not.toContain('class="split"');
+  });
+});
+
+test("a running step's outline is green at its own work and blue while a helper it waits on runs (Dev2, 2026-11-14)", () => {
+  const s = simulate(G(), "own", null, { reply: 13000, ms: { door: 700, fd: 9800, tools: 3200 }, calls: { fd: 3 } });
+  const ringOf = (lit: Map<string, number>) => {
+    const html = renderGraphHtml(G(), s, [], null, lit);
+    const fd = html.slice(html.indexOf('data-id="fd"'));
+    return fd.slice(fd.indexOf("<rect class=\"ring"), fd.indexOf("pathLength"));
+  };
+  expect(ringOf(new Map([["fd", 0.3]]))).toContain('class="ring"');
+  expect(ringOf(new Map([["fd", 0.5], ["tools", 0.2]]))).toContain('class="ring wait"');
 });

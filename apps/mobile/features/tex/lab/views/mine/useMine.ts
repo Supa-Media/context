@@ -81,6 +81,19 @@ export async function readMyTexts(older = false) {
   if (chat !== lab.myChat && lab.myTexts === null) void readMyTexts();
 }
 
+/**
+ * Replay keeps up with the chat as it goes (Dev2, 2026-11-14: "these chats don't update in real time"): the newest page
+ * of texts and replies joins what was read, and today's steps are read again from the newest back, so a text, a
+ * check-in or a routine shows up, with its run, within one look.
+ */
+export async function refreshChat() {
+  if (!source || reading || !Array.isArray(lab.myTexts)) return;
+  await readMyTexts();
+  const today = new Date().toLocaleDateString("en-CA");
+  detailDays.delete(lab.myChat + "|" + today);
+  await readMomentDetail(Date.now());
+}
+
 const PAGES_BACK = 6;
 
 /** Each step, judging, tool call and thought read for Replay so far, by entry id. */

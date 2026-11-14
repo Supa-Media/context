@@ -11,7 +11,7 @@
  * Staff only: every query behind it is `requireAdmin` (`functions/texLab.ts`);
  * the page asks `amIAdmin` only to say so kindly, as tex.lc/admin does.
  */
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { AdminChrome } from "../../admin/AdminPane";
 import { StaffFactorGate } from "../../admin/StaffFactorGate";
@@ -35,11 +35,15 @@ import { Sim } from "./views/Sim.web";
 import { Tests } from "./views/Tests.web";
 import { Tools } from "./views/Tools.web";
 import { Viewer } from "./views/Viewer.web";
-import { MineLoader, readTurnTimes, replayEntries } from "./views/mine/useMine";
+import { MineLoader, readMomentDetail, readTurnTimes, refreshChat, replayEntries } from "./views/mine/useMine";
+import { useLabUrl } from "./views/useLabUrl.web";
 import { ReplayPanel } from "./views/replay/ReplayPanel";
 import { openMoment, ReplaySide } from "./views/replay/ReplaySide";
 import { loggedMoments, momentsOf } from "./engine/replay";
 import { setLabTheme, THEMES, useLabTheme } from "./theme.web";
+
+/** How often Replay looks for new texts and runs. */
+const REFRESH_MS = 10_000;
 
 export const TEX_LAB_TITLE = "Tex Architecture Lab";
 
@@ -132,6 +136,7 @@ function Lab() {
   const cvn = cvDiff().length;
   const nm = Object.keys(G().modules || {}).length;
   const tags = { modTag: nm ? nm + " edited" : "", cvTag: cvn ? cvn + " changed" : "", toolTag: "", runTag: d.length ? d.length + " change" + (d.length > 1 ? "s" : "") : "" };
+  useLabUrl();
   const replay = s.mode === "replay";
   // Replay: the picked chat cut into moments, and the one shown (`engine/replay.ts`).
   const entries = replay ? replayEntries() : [];
@@ -140,8 +145,20 @@ function Lab() {
   const moment = moments.find((m) => m.id === s.moment) ?? null;
   useEffect(() => {
     if (replay && !moment && moments.length) openMoment(moments[moments.length - 1]);
+    // A moment opened from the address (`useLabUrl`) reads its day's details as a click would; read once per day.
+    else if (replay && moment) void readMomentDetail(moment.at);
   }, [replay, moment, moments]);
-  const propsOn = s.view === "canvas" && (s.sel !== null || replay);
+  // Replay looks for new texts and runs every 10 s while the tab is in front (`refreshChat`).
+  useEffect(() => {
+    if (!replay) return;
+    const look = setInterval(() => {
+      if (document.visibilityState === "visible") void refreshChat();
+    }, REFRESH_MS);
+    return () => clearInterval(look);
+  }, [replay]);
+  // Replay's right panel folds away to the canvas's right edge (Dev2, 2026-11-14: "no way to collapse this panel").
+  const [panelHidden, setPanelHidden] = useState(false);
+  const propsOn = s.view === "canvas" && (s.sel !== null || replay) && !(replay && panelHidden && !phone());
   const wide = propsOn && !!s.cfocus && s.sel?.t === "node" && s.sel.id === s.cfocus;
   const unsaved = !isMain() && !s.versions.some((v) => v.id === s.cur.id);
   const me = s.tester === "me";
@@ -223,7 +240,7 @@ function Lab() {
             </button>
           </div>
           {replay ? (
-            <span className="hint" id="replayNote">Read only · your chats as they ran</span>
+            <span className="hint" id="replayNote">Read only</span>
           ) : (
             <>
           <button className="chipbtn" id="verBtn" onClick={showVersions}>
@@ -362,6 +379,11 @@ function Lab() {
                   <Svg className="i" d='<path d="M9 6l6 6-6 6"/>' />
                 </button>
               ) : null}
+              {replay && panelHidden && !phone() ? (
+                <button className="float rexpand right" id="pExpand" aria-label="Show the panel" title="Show the panel" onClick={() => setPanelHidden(false)}>
+                  <Svg className="i" d='<path d="M15 6l-6 6 6 6"/>' />
+                </button>
+              ) : null}
               {s.view === "canvas" ? <Canvas replay={replay ? { m: moment, entries } : null} /> : null}
             </div>
             {PAGES.map(([v, id, style, render]) => (
@@ -373,6 +395,11 @@ function Lab() {
             ))}
           </main>
           <aside className="props-pane" id="props" aria-label="Properties" hidden={!propsOn}>
+            {propsOn && replay && !phone() ? (
+              <button className="ib pcollapse" id="pCollapse" aria-label="Hide the panel" title="Hide the panel" onClick={() => setPanelHidden(true)}>
+                <Svg className="i" d='<path d="M9 6l6 6-6 6"/>' />
+              </button>
+            ) : null}
             {propsOn ? replay ? <ReplayPanel m={moment} /> : <Props /> : null}
           </aside>
         </div>

@@ -5,10 +5,11 @@
  * step running then is lit with a ring for how far through it is, and the newest is selected so the right panel shows
  * what it got and gave.
  */
-import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { fmtS } from "../../engine/sim";
 import { labSim, realIO, realTimes, withWorkerSteps } from "../../engine/realTimes";
-import { startLabel, turnAt, type Lane, type Moment } from "../../engine/replay";
+import { startLabel, turnAt, type Bar, type Moment } from "../../engine/replay";
+import { stepRows } from "../../engine/replaySteps";
 import { emit, lab, node, set } from "../../engine/state";
 import { traceMine } from "../../engine/traces";
 import type { LedgerEntry } from "../../../page/texPageTypes";
@@ -16,7 +17,6 @@ import type { Lit } from "../canvas/usePlayback";
 
 const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
 const speedLabel = (v: number) => (v === 1 ? "Real time" : v < 1 ? `${1 / v}× slower` : `${v}× faster`);
-const LANES: Lane[] = ["Texts", "Judge", "Turn", "Sent"];
 /** A step too short to see stays lit for 150 ms of screen time, at most 0.4 s of the turn. */
 const minLit = (speed: number) => Math.min(150 * speed, 400);
 
@@ -83,7 +83,18 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
     const on = Object.entries(sim.T)
       .filter(([, s]) => (s.lane === "reply" || s.lane === "behind") && t >= s.start && t < Math.max(s.end, s.start + minLit(speed)))
       .sort((a, b) => b[1].start - a[1].start);
-    onLit(on.length ? new Map(on.map(([id, s]) => [id, Math.min(1, Math.max(0, (t - s.start) / Math.max(1, s.end - s.start)))])) : null);
+    const lit = new Map(on.map(([id, s]) => [id, Math.min(1, Math.max(0, (t - s.start) / Math.max(1, s.end - s.start)))]));
+    // Every text that comes in lights its start step, and each judging lights Decide, on the moment's own clock, not
+    // only the turn's first (Dev2, 2026-11-14: "how come 'a text arrives' did not light up for the different texts").
+    const during = (bars: Bar[], id: string, min = 0) => {
+      for (const b of bars) {
+        const end = Math.max(b.end, b.start + Math.max(min, minLit(speed)));
+        if (at >= b.start && at < end && node(id)) lit.set(id, Math.min(1, (at - b.start) / Math.max(1, end - b.start)));
+      }
+    };
+    during(m.lanes.Texts, m.from === "text" ? "text" : m.from, 600);
+    during(m.lanes.Judge, "decide");
+    onLit(lit.size ? lit : null);
     const newest = on[0]?.[0];
     // Opened, the moment itself shows in the panel; once it plays or is scrubbed, the step running then.
     if (at > 0 && newest && newest !== last.current && node(newest)) {
@@ -114,6 +125,22 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
     };
     raf.current = requestAnimationFrame(tick);
   };
+  // One row per step that ran, each helper under the step that waited on it, between what came in and what went out
+  // (Dev2, 2026-11-14: "the judge having its own seems weird, what about helpers?"). Decide is the texting Worker's step
+  // before the turn; Queue is the turn's wait for it.
+  const rows = useMemo(() => {
+    const steps = stepRows(m, entries);
+    const wait = m.lanes.Turn.filter((b) => b.kind === "wait");
+    const out: Array<{ key: string; label: string; helper?: boolean; bars: Bar[] }> = [{ key: "Texts", label: m.from === "text" ? "Texts" : "Start", bars: m.lanes.Texts }];
+    if (m.lanes.Judge.length) out.push({ key: "decide", label: "Decide", bars: m.lanes.Judge });
+    if (wait.length) out.push({ key: "queue", label: "Queue", bars: wait });
+    // The canvas's Decide step is the Decide row above.
+    if (steps.length) for (const r of steps.filter((x) => x.id !== "decide")) out.push({ key: r.id, label: r.label, helper: r.helper, bars: r.bars });
+    else out.push({ key: "Turn", label: "Turn", bars: m.lanes.Turn.filter((b) => b.kind === "turn") });
+    out.push({ key: "Sent", label: "Sent", bars: m.lanes.Sent });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [m.id, m.of, entries.length]);
   const pct = (v: number) => `${((v / m.of) * 100).toFixed(2)}%`;
   // Drag anywhere on the lanes to scrub (Dev2, 2026-11-14: "why not let me scrub with the bar").
   const dragging = useRef(false);
@@ -157,11 +184,11 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
         onPointerUp={() => (dragging.current = false)}
         onPointerCancel={() => (dragging.current = false)}
       >
-        {LANES.map((ln) => (
-          <div key={ln} className="rrow">
-            <span className="rln">{ln === "Judge" ? "Judge" : ln}</span>
-            <div className="rtrack" data-lane={ln}>
-              {m.lanes[ln].map((b, i) => (
+        {rows.map((r) => (
+          <div key={r.key} className={r.helper ? "rrow helper" : "rrow"}>
+            <span className="rln" title={r.label}>{r.label}</span>
+            <div className="rtrack" data-lane={r.key}>
+              {r.bars.map((b, i) => (
                 <button
                   key={i}
                   className={`rbar ${b.kind}`}
