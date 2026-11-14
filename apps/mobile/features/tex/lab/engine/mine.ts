@@ -9,6 +9,7 @@
  * runs it again in a throwaway world, where nothing can text anyone or change a real note, and prints Then beside Now,
  * which `parseReplay` reads back.
  */
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import type { LedgerEntry } from "../../page/texPageTypes";
 
 export type TexVersion = { code?: string; deploy?: string; setup?: string };
@@ -114,7 +115,8 @@ export function startOf(e: LedgerEntry): Start | null {
 }
 
 /** A routine's name from its note's path: `tex/routines/daily/morning-news.md` is "morning news". */
-export const routineName = (path: string) => (path.split("/").pop() ?? path).replace(/\.md$/, "").replace(/[-_]+/g, " ");
+/** A routine's note, named for display: its leaf without `.md`, contained like every other drawn name. */
+export const routineName = (path: string) => isolateForDisplay(path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "").replace(/[-_]+/g, " "));
 
 /**
  * The whole chat, oldest first, from the same entries: the person's texts (playable, joined to `myTexts`), Tex's
