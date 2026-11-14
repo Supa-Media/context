@@ -144,14 +144,18 @@ export function homeTiles(input: {
   const perText = costs ? costs.perTextUsd : knownPerText(stats);
   const priorPerText = costs ? costs.priorPerTextUsd : (input.priorPerText ?? null);
   const total = costs ? costs.totalUsd : knownSpend(stats);
-  const cut = input.partial && stats ? ` · last ${STATS_MAX_DAYS} days` : "";
+  // The window cut to the days `texStats` keeps reads "last 60 days" on the tiles it touches (review of #3291).
+  const cut = input.partial && stats ? `last ${STATS_MAX_DAYS} days` : "";
+  const line = (...parts: string[]) => parts.filter(Boolean).join(" · ");
   const daily = stats?.dailyActive;
+  // Counts are drawn as the artifact draws them, with no thousands separator ("1714 answered").
+  const count = (n: number) => String(n);
   return [
     {
       key: "dap",
       label: "Daily active people",
       value: daily == null ? dash : d === "1" ? String(people?.any ?? 0) : (Math.round(daily * 10) / 10).toString(),
-      detail: (accounts == null ? "" : `of ${accounts} people`) + cut,
+      detail: line(accounts == null ? "" : `of ${accounts} people`, cut),
       go: "people",
       spark: series.map((p) => p.people),
       color: "c5",
@@ -160,7 +164,7 @@ export function homeTiles(input: {
       key: "texters",
       label: "People texting Tex",
       value: people ? String(people.any) : dash,
-      detail: people ? `${withAccounts} with accounts · ${guests} guests${cut}` : "",
+      detail: line(people ? `${withAccounts} with accounts · ${guests} guests` : "", cut),
       go: "turns",
       spark: series.map((p) => p.people),
       color: "c4",
@@ -168,8 +172,8 @@ export function homeTiles(input: {
     {
       key: "texts",
       label: "Texts received",
-      value: received == null ? dash : received.toLocaleString("en-US"),
-      detail: (answered == null ? "" : `${answered.toLocaleString("en-US")} answered`) + cut,
+      value: received == null ? dash : count(received),
+      detail: line(answered == null ? "" : `${count(answered)} answered`, cut),
       go: "turns",
       spark: series.map((p) => p.textsIn),
       color: "c1",
@@ -178,7 +182,8 @@ export function homeTiles(input: {
       key: "cpt",
       label: "Cost per text",
       value: perText == null ? dash : money(perText),
-      detail: (perText != null && priorPerText != null ? " vs the window before" : "") + (costs ? "" : cut),
+      // The change is drawn first, so the words after it start with a space: "-0.03 vs the window before".
+      detail: perText != null && priorPerText != null ? " vs the window before" : costs ? "" : cut,
       delta: perText != null && priorPerText != null ? delta(perText - priorPerText, false) : undefined,
       go: "costs",
       spark: series.map((p) => (p.textsIn > 0 ? p.usd / p.textsIn : 0)),
@@ -188,7 +193,7 @@ export function homeTiles(input: {
       key: "spent",
       label: "Spent on AI",
       value: total == null ? dash : money(total),
-      detail: costs ? `${money(costs.outOfPocketUsd)} of it out of pocket` : cut.replace(/^ · /, ""),
+      detail: costs ? `${money(costs.outOfPocketUsd)} of it out of pocket` : cut,
       go: "costs",
       spark: costs?.daily?.length ? costs.daily.map((p) => p.usd) : series.map((p) => p.usd),
       color: "c3",

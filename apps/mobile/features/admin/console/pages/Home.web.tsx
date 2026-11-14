@@ -11,7 +11,7 @@ import { esc, ic, kpi, panel, spark } from "../kit";
 import { S } from "../state";
 import type { ConsolePage, Need } from "../types";
 import { homeTiles, knownPerText, statsWindows, type ConsoleWindow, type TexStatsLike } from "./homeData";
-import { useNeeds, useTurns } from "./needs.web";
+import { useNeedsState, useTurns } from "./needs.web";
 import { useSharedReport } from "./sharedReads.web";
 
 type TexStats = FunctionReturnType<typeof api.functions.texStats.report>;
@@ -48,6 +48,8 @@ export type HomeData = {
   accounts: number | null;
   answered: number | null;
   needs: Need[];
+  /** A needs source is still loading: the list says so rather than "Nothing needs you". */
+  needsLoading: boolean;
 };
 
 function useHomeData(): HomeData {
@@ -58,7 +60,7 @@ function useHomeData(): HomeData {
   const prior = useTexStats(windows.prior);
   const census = useSharedReport(api.functions.admin.censusReport, { days: 30 }).value;
   const turns = useTurns();
-  const needs = useNeeds();
+  const { needs, loading: needsLoading } = useNeedsState();
   return {
     d,
     stats,
@@ -67,6 +69,7 @@ function useHomeData(): HomeData {
     accounts: census === undefined ? null : census.accounts.total.count,
     answered: turns === undefined ? null : turns.current.answered,
     needs,
+    needsLoading,
   };
 }
 
@@ -92,7 +95,9 @@ export function renderHome(data: HomeData | undefined): string {
         `<button class="need" data-act="need" data-i="${i}"><span class="dt" style="background:var(--${n.tone})"></span><span class="tx">${n.html}</span><span class="where hp">${esc(n.label)}</span>${ic("next")}</button>`,
     )
     .join("");
-  return `<div class="kpis">${tiles.map(row).join("")}</div>` + panel("home-needs", "Needs you", String(needs.length), `<div class="needs">${list || '<div class="empty">Nothing needs you.</div>'}</div>`);
+  const loading = data === undefined || (data.needsLoading && needs.length === 0);
+  const empty = loading ? '<div class="empty">Loading…</div>' : '<div class="empty">Nothing needs you.</div>';
+  return `<div class="kpis">${tiles.map(row).join("")}</div>` + panel("home-needs", "Needs you", loading ? "" : String(needs.length), `<div class="needs">${list || empty}</div>`);
 }
 
 export const homePage: ConsolePage<HomeData> = {
