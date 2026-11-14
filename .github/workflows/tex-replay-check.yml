@@ -28,10 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
+      # No pnpm cache: most runs install nothing, and when the lockfile changed
+      # the cache misses, so the post-job save finds no store and fails the job
+      # ("Path Validation Error") although the rule passed.
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
+          package-manager-cache: false
       - name: The rule's own self-test
         run: node scripts/tex-replay-required.mjs --self-test
 
