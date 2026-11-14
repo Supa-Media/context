@@ -129,6 +129,31 @@ export async function readMomentDetail(at: number) {
   emit();
 }
 
+/** Jobs whose work was read, by chat and job id. */
+const jobsRead = new Set<string>();
+
+/**
+ * A background job's whole work (`engine/jobRuns.ts`), read by its id through the ledger's job filter, so a text Tex
+ * sent from a job opens to every run before it, however long before it they ran.
+ */
+export async function readJobWork(id: string) {
+  if (!source || jobsRead.has(lab.myChat + "|" + id)) return;
+  const chat = lab.myChat;
+  jobsRead.add(chat + "|" + id);
+  let before = LATEST;
+  for (let i = 0; i < 20; i++) {
+    const r = await source.ledger(chat, { kinds: [...DETAIL_KINDS, "reply"], job: id, before });
+    if (r.kind !== "ok" || chat !== lab.myChat) {
+      jobsRead.delete(chat + "|" + id);
+      break;
+    }
+    for (const e of r.value.entries) detail.set(e.id, e);
+    if (r.value.older === undefined || !r.value.entries.length) break;
+    before = r.value.older;
+  }
+  emit();
+}
+
 /**
  * The measured times of a traced text's turn, for the canvas: first from its reply's timing (already read), then with
  * the reviewer's and other model steps' entries from that day, read back page by page until the text's own time.
