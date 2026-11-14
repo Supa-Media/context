@@ -1,0 +1,288 @@
+/**
+ * The Photon side of the container: mints line tokens, runs one listener per
+ * line, and executes the ops. The only module that imports the SDK.
+ */
+import { createGrpcClient, MessageEffect } from "@photon-ai/advanced-imessage/grpc";
+import { createEnricher, createLru } from "./enrich.mjs";
+import { RequestError } from "./errors.mjs";
+import { fetchFile, nameFor } from "./files.mjs";
+import { runLine } from "./listener.mjs";
+import { createLedger } from "./ledger.mjs";
+import { last4 } from "./log.mjs";
+import { issueTokens, linesOf, renewalDelayMs, RETRY_MS } from "./tokens.mjs";
+
+function compact(object) {
+  for (const key of Object.keys(object)) {
+    if (object[key] === undefined) delete object[key];
+  }
+  return object;
+}
+
+/** {bytes, name} for an upload: inline base64, or an https URL fetched under the size cap. */
+export async function fileBytes(file, fetchImpl = fetch) {
+  if (file.data !== undefined) {
+    return { bytes: Buffer.from(file.data, "base64"), name: nameFor(file.name, file.mimeType) };
+  }
+  const fetched = await fetchFile(file.url, file.mimeType, fetchImpl);
+  return { bytes: fetched.bytes, name: nameFor(file.name, fetched.mimeType) };
+}
+
+export function createRuntime({
+  projectId,
+  projectSecret,
+  log,
+  makeClient = createGrpcClient,
+  issue = issueTokens,
+  fetchImpl = fetch,
+}) {
+  const configured = Boolean(projectId && projectSecret);
+  const ledger = createLedger();
+  // Shared by every line: message guids are unique across them.
+  const recent = createLru();
+  const rememberSent = (sent, text) => {
+    if (sent?.guid && typeof text === "string") recent.set(sent.guid, { text, fromMe: true });
+  };
+  const tokens = new Map();
+  const clients = new Map();
+  const controller = new AbortController();
+  let startPromise;
+
+  function tokenFor(instanceId) {
+    const token = tokens.get(instanceId);
+    if (!token) throw new Error("no line token");
+    return token;
+  }
+
+  async function mintAndListen() {
+    const data = await issue({ projectId, projectSecret, fetchImpl });
+    for (const [instanceId, token] of Object.entries(data.auth)) tokens.set(instanceId, token);
+    for (const { instanceId, line, address } of linesOf(data)) {
+      if (clients.has(line)) continue;
+      const client = makeClient({
+        address,
+        tls: true,
+        autoIdempotency: true,
+        retry: true,
+        token: async () => tokenFor(instanceId),
+      });
+      clients.set(line, client);
+      log({ event: "line.start", line });
+      const enricher = createEnricher({
+        cache: recent,
+        lookup: async (guid) => {
+          const message = await client.messages.get(guid);
+          return { text: message.content?.text ?? "", fromMe: message.isFromMe === true };
+        },
+      });
+      runLine({
+        client,
+        line,
+        ledger,
+        onQueued: () => {},
+        signal: controller.signal,
+        log,
+        enrich: enricher.enrich,
+      }).catch((error) => {
+        log({ event: "line.crashed", line, error: typeof error?.code === "string" ? error.code : "unknown" });
+      });
+    }
+    return data.expiresIn;
+  }
+
+  function scheduleRenewal(delay) {
+    setTimeout(async () => {
+      try {
+        const expiresIn = await mintAndListen();
+        scheduleRenewal(renewalDelayMs(expiresIn));
+      } catch (error) {
+        log({ event: "token.renew_failed", error: typeof error?.code === "string" ? error.code : "unknown", delay_ms: RETRY_MS });
+        scheduleRenewal(RETRY_MS);
+      }
+    }, delay);
+  }
+
+  function clientFor(line) {
+    const client = clients.get(line);
+    if (!client) throw new RequestError(404, "line_not_active");
+    return client;
+  }
+
+  function anyClient() {
+    const first = clients.values().next();
+    if (first.done) throw new RequestError(503, "no_line_active");
+    return first.value;
+  }
+
+  async function uploadFile(client, file) {
+    const { bytes, name } = await fileBytes(file, fetchImpl);
+    const uploaded = await client.attachments.upload({ fileName: name, data: bytes });
+    return uploaded.attachment.guid;
+  }
+
+  return {
+    configured,
+
+    /** The oldest unacked mapped event, waiting up to `ms` for one. */
+    nextEvent(ms) {
+      return ledger.wait(ms);
+    },
+
+    /** The object stored event `id`; returns {line, frontier}, or null if unknown. */
+    ack(id) {
+      return ledger.ack(id);
+    },
+
+    /** Mints tokens and starts the listeners. Idempotent; a failure can be retried. */
+    start(checkpoints) {
+      if (!configured) throw new RequestError(503, "unconfigured");
+      if (!startPromise) {
+        for (const [line, seq] of Object.entries(checkpoints ?? {})) {
+          if (Number.isSafeInteger(seq)) ledger.initialize(line, seq);
+        }
+        startPromise = mintAndListen().then((expiresIn) => {
+          scheduleRenewal(renewalDelayMs(expiresIn));
+        });
+        startPromise.catch(() => {
+          startPromise = undefined;
+        });
+      }
+      return startPromise;
+    },
+
+    health() {
+      const snapshot = ledger.snapshot();
+      return {
+        ok: true,
+        configured,
+        started: startPromise !== undefined,
+        lines: snapshot.lines.map(({ line, frontier }) => ({ line: last4(line), frontier })),
+        queued: snapshot.queued,
+      };
+    },
+
+    async execute(op, args) {
+      switch (op) {
+        case "send/text": {
+          const client = clientFor(args.line);
+          const sent = await client.messages.sendText(
+            args.chat,
+            args.text,
+            compact({
+              replyTo: args.replyTo,
+              effect: args.effect ? MessageEffect[args.effect] : undefined,
+              enableLinkPreview: args.linkPreview ? true : undefined,
+            }),
+          );
+          rememberSent(sent, args.text);
+          return { ok: true, guid: sent.guid };
+        }
+        case "send/attachment": {
+          const client = clientFor(args.line);
+          const attachment = await uploadFile(client, args.file);
+          const sent = await client.messages.sendAttachment(args.chat, attachment, compact({ replyTo: args.replyTo }));
+          return { ok: true, guid: sent.guid, attachment };
+        }
+        case "send/multipart": {
+          const client = clientFor(args.line);
+          const parts = [];
+          for (const part of args.parts) {
+            if (part.text !== undefined) {
+              parts.push({ text: part.text });
+            } else {
+              const guid = await uploadFile(client, part.attachment);
+              parts.push({ attachmentGuid: guid, attachmentName: part.attachment.name });
+            }
+          }
+          const sent = await client.messages.sendMultipart(args.chat, parts, compact({ replyTo: args.replyTo }));
+          return { ok: true, guid: sent.guid };
+        }
+        case "send/app": {
+          const client = clientFor(args.line);
+          const { card } = args;
+          const sent = await client.messages.sendCustomizedMiniApp(args.chat, compact({
+            appName: card.appName,
+            appStoreId: card.appStoreId,
+            extensionBundleId: card.extensionBundleId,
+            teamId: card.teamId,
+            url: card.url,
+            live: card.live,
+            layout: compact({
+              caption: card.layout.caption,
+              subcaption: card.layout.subcaption,
+              imageTitle: card.layout.imageTitle,
+              imageSubtitle: card.layout.imageSubtitle,
+              summary: card.layout.summary,
+              trailingCaption: card.layout.trailingCaption,
+              trailingSubcaption: card.layout.trailingSubcaption,
+              image: card.layout.image ? Buffer.from(card.layout.image, "base64") : undefined,
+            }),
+          }));
+          return { ok: true, guid: sent.guid, sessionId: sent.miniAppCardSession?.sessionId };
+        }
+        case "edit": {
+          const sent = await clientFor(args.line).messages.edit(args.chat, args.guid, args.text);
+          rememberSent({ guid: args.guid }, args.text);
+          return { ok: true, guid: sent.guid };
+        }
+        case "unsend":
+          await clientFor(args.line).messages.unsend(args.chat, args.guid);
+          return { ok: true };
+        case "react":
+          await clientFor(args.line).messages.setReaction(
+            args.chat,
+            args.guid,
+            compact({ kind: args.kind, emoji: args.emoji }),
+            args.on,
+          );
+          return { ok: true };
+        case "typing":
+          await clientFor(args.line).chats.setTyping(args.chat, args.on);
+          return { ok: true };
+        case "read":
+          await clientFor(args.line).chats.markRead(args.chat);
+          return { ok: true };
+        case "contact":
+          await clientFor(args.line).chats.shareContactInfo(args.chat);
+          return { ok: true };
+        case "chat/resolve": {
+          const created = await clientFor(args.line).chats.create([args.address]);
+          return { ok: true, guid: created.chat.guid };
+        }
+        case "group/members": {
+          const chat = await clientFor(args.line).chats.get(args.chat);
+          return { ok: true, participants: chat.participants.map((p) => p.address) };
+        }
+        default:
+          throw new RequestError(404, "unknown_op");
+      }
+    },
+
+    /** Opens an attachment's bytes: the header, then an async iterable of chunks. */
+    async openAttachment(guid, line) {
+      const client = line === undefined ? anyClient() : clientFor(line);
+      const stream = client.attachments.downloadStream(guid);
+      const iterator = stream[Symbol.asyncIterator]();
+      const first = await iterator.next();
+      if (first.done || first.value.type !== "header") {
+        await stream.close();
+        throw new RequestError(502, "attachment_header_missing");
+      }
+      async function* chunks() {
+        try {
+          for (;;) {
+            const next = await iterator.next();
+            if (next.done) return;
+            if (next.value.type === "primaryChunk") yield next.value.data;
+          }
+        } finally {
+          await stream.close();
+        }
+      }
+      return { info: first.value.info, chunks: chunks() };
+    },
+
+    stop() {
+      controller.abort();
+    },
+  };
+}
