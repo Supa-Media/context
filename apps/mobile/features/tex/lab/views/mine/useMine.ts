@@ -14,6 +14,7 @@ import { gatewaySource, type TexPageSource } from "../../../page/texPageSource";
 import { LATEST, type LedgerEntry, type LedgerKind } from "../../../page/texPageTypes";
 import { chatLines, myTexts, readsOf, type MyText } from "../../engine/mine";
 import { realIO, realTimes } from "../../engine/realTimes";
+import { turnPromptOf } from "../../engine/promptAt";
 import { emit, lab, toast } from "../../engine/state";
 import { traceMine } from "../../engine/traces";
 
@@ -136,7 +137,7 @@ export async function readTurnTimes(t: MyText) {
   const now = (entries: LedgerEntry[]) => {
     const times = realTimes(entries, t.turn);
     if (lab.ownText !== t.text) return false;
-    lab.real = times ? { text: t.text, times, io: realIO(entries, t.turn, t.text, t.then.text) } : null;
+    lab.real = times ? { text: t.text, times, io: realIO(entries, t.turn, t.text, t.then.text), prompt: turnPromptOf(entries, t.turn) } : null;
     emit();
     return times !== null;
   };

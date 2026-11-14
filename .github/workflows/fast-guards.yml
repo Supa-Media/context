@@ -201,3 +201,7 @@ jobs:
       # The Architecture Lab's cases, module texts and test workspaces are the bench's own (tex.lc/lab).
       - name: The Tex Lab's data matches the bench
         run: node scripts/tex-lab-data.mjs --check
+
+      # The words of every prompt module this commit builds, so Replay walks a turn back to the prompt that ran.
+      - name: The Tex prompt catalogue matches the prompt builders
+        run: node scripts/tex-prompt-catalog.mjs --check

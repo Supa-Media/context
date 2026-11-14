@@ -13,6 +13,7 @@ import { fmtS } from "../../engine/sim";
 import { lab, MODELS, node, set } from "../../engine/state";
 import { useLab } from "../../store";
 import { Ic } from "../ic";
+import { PromptAt } from "./PromptAt";
 
 /** A got or gave longer than this shows its start, with the whole a click away; nothing is ever cut. */
 const FOLD = 1500;
@@ -82,6 +83,8 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
             </p>
           )}
         </div>
+        {/* The prompt it ran on, walked back from the version (`engine/promptAt.ts`). */}
+        {(n.id === "fd" || n.id === "door") && real?.prompt ? <PromptAt p={real.prompt} /> : null}
         {/* What this step logs, every run (`stepLogs.ts`), so a missing line above is never a mystery. */}
         {STEP_LOGS[n.id] ? (
           <div className="grp" id="rLogs">
