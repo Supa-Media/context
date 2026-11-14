@@ -398,13 +398,6 @@ export const CAPABILITIES = Object.freeze([
     group: null,
     cant: [{ where: "everywhere", what: "take away an AI app's access", workaround: { kind: "app_path", text: "Context app → Settings → Connected apps → AI apps → Revoke" } }],
   },
-  {
-    name: "Tex's old number, staff only",
-    actions: [],
-    texts: "nothing: whether Tex's old number texts people the new one is set by Context staff, not in a text",
-    group: null,
-    cant: [{ where: "everywhere", what: "switch Tex's old number over to the new one, or tell everyone on the old line that Tex has a new number", workaround: { kind: "app_path", text: "a Context staff member opens the staff console (context.lc/admin) → Platform → Lines, sets the new number and archive day, and runs Tell everyone" } }],
-  },
 ]);
 
 /** Where each turn is, for the line under the list. */
