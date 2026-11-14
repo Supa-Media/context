@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { fmtS } from "../../engine/sim";
 import { labSim, realIO, realTimes, withWorkerSteps } from "../../engine/realTimes";
+import { turnPromptOf } from "../../engine/promptAt";
 import { startLabel, turnAt, type Bar, type Moment } from "../../engine/replay";
 import { packTracks, stepRows } from "../../engine/replaySteps";
 import { emit, lab, node, set } from "../../engine/state";
@@ -42,7 +43,7 @@ function showTurn(m: Moment, entries: LedgerEntry[], turn: string) {
   if (asked) {
     traceMine(asked.text);
     const times = realTimes(all, turn);
-    lab.real = times ? { text: asked.text, times, io: realIO(all, turn, asked.text, asked.then.text, asked.who ? `${asked.who}'s text` : "Your text"), turn } : null;
+    lab.real = times ? { text: asked.text, times, io: realIO(all, turn, asked.text, asked.then.text, asked.who ? `${asked.who}'s text` : "Your text"), turn, prompt: turnPromptOf(all, turn) } : null;
     return;
   }
   const own = m.lines[0];
@@ -53,7 +54,7 @@ function showTurn(m: Moment, entries: LedgerEntry[], turn: string) {
   const times = realTimes(all, turn);
   const io = realIO(all, turn, own.about || label, own.text, label);
   io[own.start] = [{ k: "Started", v: own.about || label }];
-  lab.real = times ? { text: label, times, io, turn } : null;
+  lab.real = times ? { text: label, times, io, turn, prompt: turnPromptOf(all, turn) } : null;
 }
 
 export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: LedgerEntry[]; onLit: (lit: Lit | null) => void }) {
