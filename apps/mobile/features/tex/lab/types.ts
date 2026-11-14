@@ -32,6 +32,8 @@ export type LabNode = {
   sendBack?: number;
   x: number;
   y: number;
+  /** The config group this step belongs to (`texConfig.json`'s node `group`); a folded group's box has none. */
+  group?: string;
 };
 
 export type LabEdge = { from: string; to: string; mode: WireMode; when: string[] };
@@ -82,6 +84,8 @@ export type ConvoSettings = {
 export type LabGraph = {
   nodes: LabNode[];
   edges: LabEdge[];
+  /** A folded group's steps and the wires that touch them, kept so a save can unfold it (`engine/groups.ts`). */
+  folded?: Record<string, { nodes: LabNode[]; edges: LabEdge[] }>;
   modules?: Record<string, Partial<LabModule>>;
   models?: Record<string, LabModel>;
   convo?: Partial<ConvoSettings>;

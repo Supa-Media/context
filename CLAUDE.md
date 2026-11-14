@@ -206,12 +206,16 @@ note setting wins, moving onto tree rows per
 its *plumbing* freely; changing its *semantics* is a decision for
 `docs/decisions/`.
 
-**Tex has one drawing**, [`docs/architecture/tex.md`](./docs/architecture/tex.md):
-the Worker's lanes, `texEntryPoint`'s steps and every model the answer maker
-calls. Any change to that architecture redraws it in the same pull request
-(decided by the owner, 2026-11-05;
-[architecture-diagram](./docs/decisions/texting-assistant/architecture-diagram.md));
-`scripts/tex-diagram-check.mjs` fails CI when it falls behind.
+**Tex has one graph**, `packages/shared/src/texConfig.json`: every node and
+every wire Tex runs; nodes are code, wires are config (decided by the owner,
+2026-11-14; [config-graph](./docs/decisions/texting-assistant/config-graph.md)).
+Its drawing, [`docs/architecture/tex.md`](./docs/architecture/tex.md), and the
+map every Tex agent is told (`texArchitecture.generated.js`) are generated from
+it by `node scripts/tex-architecture.mjs`, so an architecture change is a
+config change in the same pull request
+([architecture-diagram](./docs/decisions/texting-assistant/architecture-diagram.md));
+`scripts/tex-diagram-check.mjs` fails CI when either is stale or code runs a
+step or model call the config has no node for.
 
 **Tex has one capability list**, `apps/mcp/src/agent/capabilities.js`: what it
 can do in a 1:1 text, a group chat and a guest chat, who asks, drafts and
