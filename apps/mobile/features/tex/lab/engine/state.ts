@@ -9,9 +9,10 @@
  * as globals, and porting them with the same names and the same reads is what
  * keeps the Lab "EXACTLY like the artifact" (Dev2, 2026-11-13).
  */
-import { mainGraph } from "../data/graph";
+import { GROUPS, mainGraph } from "../data/graph";
 import { BASE_MODELS } from "../data/models";
 import type { LabCase, LabGraph, LabModel, LabVersion, Selection, Tool, View } from "../types";
+import { foldAround } from "./groups";
 import type { ChatLine, MyText, ReplayNow } from "./mine";
 import type { TurnPrompt } from "./promptAt";
 import type { IoLine, RealTimes } from "./realTimes";
@@ -148,6 +149,8 @@ export const setSaver = (f: ((v: LabVersion) => Promise<void>) | null) => {
 };
 
 export const G = (): LabGraph => lab.cur.graph;
+/** The graph as the Lab shows it at this focus: every group folded, the focused group open (`groups.ts`). */
+export const shownGraph = (g: LabGraph, focusId: string | null): LabGraph => foldAround(g, focusId, GROUPS);
 export const node = (id: string, g: LabGraph = G()) => g.nodes.find((n) => n.id === id);
 export const isMain = () => lab.cur.id === "main";
 
@@ -206,7 +209,7 @@ export function undo() {
     toast("Nothing to undo");
     return;
   }
-  lab.cur.graph = JSON.parse(last);
+  lab.cur.graph = shownGraph(JSON.parse(last), lab.cfocus);
   lab.sel = null;
   lab.dirty = true;
   emit();
@@ -218,6 +221,7 @@ export function openVersion(id: string) {
   const v = lab.versions.find((x) => x.id === id);
   if (!v) return;
   lab.cur = clone(v);
+  lab.cur.graph = shownGraph(lab.cur.graph, lab.cfocus);
   lab.dirty = false;
   lab.undoStack = [];
   lab.sel = null;
@@ -234,13 +238,21 @@ export function newVersion() {
 
 export function go(v: View) {
   lab.view = v;
-  if (v !== "canvas") lab.cfocus = null;
+  if (v !== "canvas") {
+    lab.cfocus = null;
+    lab.cur.graph = shownGraph(G(), null);
+  }
   emit();
   if (v === "canvas") requestAnimationFrame(() => fit());
 }
 
+/**
+ * Focus on a step. On the folded "door" box this opens its eleven steps: the whole graph drawn with them in it (Dev2,
+ * 2026-11-14: "Focus on it opens all eleven steps"). Any other focus folds the groups it is not inside.
+ */
 export function focusOn(id: string) {
   if (!node(id)) return;
+  lab.cur.graph = shownGraph(G(), id);
   lab.cfocus = id;
   lab.sel = { t: "node", id };
   lab.fArea = null;
@@ -251,8 +263,10 @@ export function focusOn(id: string) {
   }
 }
 
+/** "Whole graph": the focus ends and every group folds again. */
 export function unfocus() {
   lab.cfocus = null;
+  lab.cur.graph = shownGraph(G(), null);
   emit();
   requestAnimationFrame(() => fit());
 }

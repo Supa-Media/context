@@ -23,7 +23,8 @@ import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
 const { coverageProblems } = graphLib;
 
 /** The ratchet: lower it when a node leaves notYet; a pull request that raises it is adding shadow code back. */
-const NOT_YET_MOST = 26;
+// 36, not 26: the one "door" node became its eleven steps (group "door", Dev2-approved design, 2026-11-14), none on the runner yet.
+const NOT_YET_MOST = 36;
 
 test("every node is on the runner or in notYet, never both, and nothing on either is missing from the config", () => {
   assert.deepEqual(coverageProblems(TEX_CONFIG, { runner: Object.keys(GATEWAY_NODES), notYet: NOT_YET.notYet }), []);

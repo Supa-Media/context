@@ -11,12 +11,18 @@
  */
 import { describe, expect, test } from "@jest/globals";
 import { mainGraph } from "../features/tex/lab/data/graph";
+import { unfoldGroups } from "../features/tex/lab/engine/groups";
 import { BASE_MODELS } from "../features/tex/lab/data/models";
 import TEX_CONFIG from "@context/shared/src/texConfig.json";
 
 describe("the Lab's main graph is Tex's config", () => {
   test("main's graph is the config itself, and the config names each model as the Lab's table does", () => {
-    expect(mainGraph()).toEqual({ nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges });
+    // The Lab shows the config's door steps folded into one box; unfolded, the graph is the config (texLabGroups.test.ts).
+    // Unfolding restores the config's steps in order and its wires as a set (the order of wires may differ).
+    const unfolded = unfoldGroups(mainGraph());
+    const byText = (a: unknown[]) => a.map((x) => JSON.stringify(x)).sort();
+    expect(unfolded.nodes).toEqual(TEX_CONFIG.nodes);
+    expect(byText(unfolded.edges)).toEqual(byText(TEX_CONFIG.edges));
     for (const [key, id] of Object.entries(TEX_CONFIG.models)) expect([key, BASE_MODELS[key]?.id]).toEqual([key, id]);
     for (const n of TEX_CONFIG.nodes) expect([n.id, n.model === "code" || n.model in TEX_CONFIG.models]).toEqual([n.id, true]);
   });
