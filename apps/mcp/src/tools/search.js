@@ -23,6 +23,7 @@ import { notePrior } from "../search/priors.js";
 import { evidenceBonus } from "../search/evidence.js";
 import { matchesOnlyInLinks } from "../search/linkMatch.js";
 import { looksLikeCode, queryLooksLikeCode } from "../search/codeLike.js";
+import { reportCountedSearch } from "../search/quality.js";
 
 /** Most hits a search across every workspace shows. */
 const EVERYWHERE_HITS = 12;
@@ -208,13 +209,16 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
         const privacy = await loadPrivacyState(targetStore);
         if (privacy.error) return null;
         const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed, AS_ONE_OF_SEVERAL);
-        return { name, found };
+        // The workspace the hits are read from, for the search row's hashes (`search/quality.js`).
+        return { name, found, workspaceId: target.workspaceId ?? targetStore.actor?.workspaceId ?? null };
       } catch {
         return null;
       }
     }),
   ]);
   const elsewhere = answers.filter(Boolean);
+  // Which workspace each other workspace's hits come from, by the `@name` their keys carry.
+  const workspaceOf = Object.fromEntries(elsewhere.map(({ name, workspaceId }) => [name, workspaceId]));
   const annotated = (found, name = null) =>
     found.hits.map((hit) => ({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: name ? `${name}/${hit.key}` : hit.key }));
   const hits = fuseEverywhere(
@@ -229,6 +233,7 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
     matchCount: elsewhere.reduce((total, { found }) => total + found.matchCount, base.matchCount),
     matchCountIsFloor: base.matchCountIsFloor || elsewhere.some(({ found }) => found.matchCountIsFloor),
     crossWorkspace: hits.some((hit) => hit.key.startsWith("@")),
+    workspaceOf,
   };
 }
 
@@ -241,6 +246,38 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
  * person's setting (`everywhere`) decides, as for an AI client.
  */
 export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
+  store.lastSearch = null;
+  // The one counted row for this search is written from here, after the answer is fused (`search/quality.js`).
+  store.searchRowPending = true;
+  try {
+    const answer = await findNotesUnrecorded(store, scope, rules, overrides, query, prefix, { only });
+    reportCountedSearch(store, searchHitRefs(store, answer));
+    return answer;
+  } finally {
+    store.searchRowPending = false;
+  }
+}
+
+/**
+ * The fused hits as `{workspaceId, path}`, in result order: a hit under `@name/` is that workspace's, any other
+ * is this store's. A hit whose workspace cannot be named is left out of the row rather than hashed wrongly.
+ */
+function searchHitRefs(store, answer) {
+  const here = store.actor?.workspaceId;
+  const refs = [];
+  for (const hit of answer.hits ?? []) {
+    const elsewhere = /^(@[^/]+)\/(.*)$/.exec(hit.key);
+    if (!elsewhere) {
+      if (typeof here === "string") refs.push({ workspaceId: here, path: hit.key });
+      continue;
+    }
+    const workspaceId = answer.workspaceOf?.[elsewhere[1]];
+    if (typeof workspaceId === "string") refs.push({ workspaceId, path: elsewhere[2] });
+  }
+  return refs;
+}
+
+async function findNotesUnrecorded(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
   // Context.LC's own pinned workspace is reached by every account for its guides and Tex's setup, never for the
   // person's notes: a search everywhere leaves it out unless they run it (owner or editor), or it is asked by name.
   // In the core benchmark (2026-11-05) Tex's own prompt, `@context-lc/ai/production/texting-assistant.md`, ranked
@@ -360,11 +397,19 @@ export async function toolOpenAiSearch(store, scope, rules, overrides, query, pr
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const { hits } = await searchBothWays(
-    store,
-    () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
-    { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) && (!prefix || path === prefix || path.startsWith(`${prefix}/`)) },
-  );
+  store.lastSearch = null;
+  store.searchRowPending = true;
+  let hits;
+  try {
+    ({ hits } = await searchBothWays(
+      store,
+      () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
+      { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) && (!prefix || path === prefix || path.startsWith(`${prefix}/`)) },
+    ));
+    reportCountedSearch(store, searchHitRefs(store, { hits }));
+  } finally {
+    store.searchRowPending = false;
+  }
   // Titles come from the text already fetched for the snippets, so a result
   // costs no read of its own. This used to spend a second GET per hit, which
   // doubled the most expensive part of the old scan.

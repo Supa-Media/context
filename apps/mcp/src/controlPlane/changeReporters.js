@@ -6,6 +6,7 @@
  */
 
 import { syncRoutineAlarms } from "../texStore/routineAlarm.js";
+import { actorSeedOf, searchActorHash, searchHitHash, searchTimingFields } from "../search/quality.js";
 
 /**
  * The two reporters every write's `recordChange` reaches for, bound to the
@@ -33,14 +34,34 @@ export function attachChangeReporters(store, workspaceId, controlPlane, { readLe
   // A person's own Tex routines run on their Tex store's alarm, set from the file (`texStore/routineAlarm.js`).
   // Given the Worker's env only where the session's own workspace is the one written (never a cross-context store).
   if (env !== undefined) store.syncRoutineAlarms = (paths) => syncRoutineAlarms(env, workspaceId, store, paths);
-  // How long a search took and which index answered (`search/visibleNotes.js`),
-  // for the admin console's search timing log. Behind the answer, like the rest.
+  // How long a search took and which index answered (`search/visibleNotes.js`), and on the counted row its
+  // quality (`search/quality.js`), for the admin console's search log. Behind the answer, like the rest. The
+  // hashes are taken here, inside the deferred work, so a host that cannot defer computes and sends nothing.
   store.reportSearchTiming = (timing) => {
     // Checked before the request is built: `reportUsage`'s rule, a fetch
     // nothing keeps alive is a subrequest spent on nothing.
     if (typeof store.defer !== "function") return;
     try {
-      store.defer(controlPlane.reportSearchTiming({ ...timing, workspaceId }).catch(() => {}));
+      store.defer(
+        searchTimingFields(workspaceId, timing)
+          .then((fields) => controlPlane.reportSearchTiming(fields))
+          .catch(() => {}),
+      );
+    } catch {
+      // A host whose `waitUntil` refuses the work simply does not report.
+    }
+  };
+  // A search hit's note was opened (`search/quality.js` `reportOpenedNote`): the searcher's actor, and the hit's
+  // hash in the workspace the note was read from. Behind the read, like the timing above.
+  store.reportSearchOpen = (path) => {
+    const seed = actorSeedOf(store.actor);
+    if (typeof store.defer !== "function" || !seed) return;
+    try {
+      store.defer(
+        Promise.all([searchActorHash(seed), searchHitHash(workspaceId, path)])
+          .then(([actor, hit]) => controlPlane.reportSearchOpen({ workspaceId, actor, hit }))
+          .catch(() => {}),
+      );
     } catch {
       // A host whose `waitUntil` refuses the work simply does not report.
     }

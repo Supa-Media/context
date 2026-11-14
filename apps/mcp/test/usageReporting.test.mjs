@@ -252,16 +252,23 @@ export async function runUsageReportingChecks(check) {
     check("a search reports one timing for the workspace it was asked in", own.length === 1);
     check("every timing is one workspace's, never two in one", new Set(timings.map((timing) => timing?.workspaceId)).size === timings.length);
     const [timing] = own;
+    // The asked-in workspace's row is the counted one: it also carries the searcher (`who`, an AI client here),
+    // the hashed actor and the hashed hits (`search/quality.js`). A cross-workspace fan-out row is timing only.
     check(
       "a timing carries a workspace, which index answered, whether it found anything and a time, and nothing else",
-      timings.every(
-        (entry) =>
-          Object.keys(entry).sort().join(",") === "answeredBy,found,ms,workspaceId" &&
+      timings.every((entry) => {
+        const keys = Object.keys(entry).sort().join(",");
+        const timingOnly = keys === "answeredBy,found,ms,workspaceId";
+        const counted = keys === "actor,answeredBy,found,hits,ms,who,workspaceId";
+        return (
+          (timingOnly || counted) &&
           ["fast", "index", "scan"].includes(entry.answeredBy) &&
           typeof entry.found === "boolean" &&
           typeof entry.ms === "number" &&
-          entry.ms >= 0,
-      ) && timing !== undefined,
+          entry.ms >= 0 &&
+          (!counted || (entry.who === "ai" && /^[0-9a-f]{16}$/.test(entry.actor) && entry.hits.every((hit) => /^[0-9a-f]{16}$/.test(hit)) && entry.hits.length <= 10))
+        );
+      }) && timing !== undefined,
     );
     const serialized = JSON.stringify(timings);
     check(

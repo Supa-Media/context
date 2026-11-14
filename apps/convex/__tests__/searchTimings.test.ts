@@ -7,6 +7,7 @@ import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { MAX_SEARCH_MS } from "../functions/lib/searchTiming";
 import { SEARCH_TIMING_RETENTION_MS } from "../functions/searchTimings";
 import { summarize } from "../functions/lib/adminFns/searchReport";
+import { actorFor } from "../functions/lib/searchTimingIds";
 import { memoryS3 } from "./storeStub.helpers";
 import {
   FAKE_STORAGE,
@@ -136,7 +137,11 @@ describe("what a person waited, reported by their device", () => {
     const [row] = await rows(t);
     expect(row).toMatchObject({ workspaceId, surface: "screen", found: true, ms: 412 });
     expect(row.answeredBy).toBeUndefined();
-    expect(Object.keys(row).sort()).toEqual(ROW_FIELDS.filter((key) => key !== "answeredBy"));
+    // The quality fields: who searched, and an opaque actor that links the next action. Never shown.
+    expect(row).toMatchObject({ who: "app", actor: await actorFor(ada) });
+    expect(Object.keys(row).sort()).toEqual(
+      [...ROW_FIELDS.filter((key) => key !== "answeredBy"), "actor", "who"].sort(),
+    );
   });
 
   test("somebody outside the workspace, or signed out, writes nothing and is told nothing", async () => {

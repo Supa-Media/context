@@ -43,14 +43,20 @@ export function createReportingMethods({ post }) {
 
     /**
      * Say how long one search took and which index answered, for the search
-     * timing log (`apps/convex/functions/searchTimings.ts`).
+     * timing log (`apps/convex/functions/searchTimings.ts`), and, on the one
+     * row per search that counts, its quality: which surface searched (`who`:
+     * `tex` or `ai`, or `surface: "app"` for the app's own bar), the searcher's
+     * hashed `actor` and the hashed `hits` the answer showed.
      *
      * `reportUsage`'s rule again: called behind the response, its rejection
-     * swallowed, and what crosses is a workspace id, a word from a closed list,
-     * a boolean and a number. Never the query, a path, or a count of what the
-     * workspace holds.
+     * swallowed. What crosses is a workspace id, words from closed lists, a
+     * boolean, numbers and hashes (`search/quality.js` makes them). Never the
+     * query, a path, a title, a snippet, or a count of what the workspace holds.
+     * A field left out is left out of the body, so a timing-only row sends
+     * exactly `workspaceId`, `answeredBy`, `found` and `ms`.
      *
-     * @param {{workspaceId: string, answeredBy: string, found: boolean, ms: number}} timing
+     * @param {{workspaceId: string, answeredBy: string, found: boolean, ms: number,
+     *          surface?: string, who?: string, actor?: string, hits?: string[]}} timing
      */
     async reportSearchTiming(timing) {
       if (!timing || typeof timing.workspaceId !== "string" || !timing.workspaceId) return null;
@@ -59,6 +65,30 @@ export function createReportingMethods({ post }) {
         answeredBy: timing.answeredBy,
         found: Boolean(timing.found),
         ms: timing.ms,
+        ...(timing.surface !== undefined ? { surface: timing.surface } : {}),
+        ...(timing.who !== undefined ? { who: timing.who } : {}),
+        ...(timing.actor !== undefined ? { actor: timing.actor } : {}),
+        ...(timing.hits !== undefined ? { hits: timing.hits } : {}),
+      });
+    },
+
+    /**
+     * Say that a search hit's note was opened: its content went back to the
+     * caller (`search/quality.js` `reportOpenedNote`). The control plane marks
+     * the searcher's latest search that showed this hit as opened.
+     *
+     * The same rule as `reportSearchTiming`: deferred, failure swallowed, and
+     * what crosses is a workspace id and two hashes, the searcher's actor and
+     * the hit's (`search-hit:<workspaceId>:<path>`), never the path itself.
+     *
+     * @param {{workspaceId: string, actor: string, hit: string}} open
+     */
+    async reportSearchOpen(open) {
+      if (!open || typeof open.workspaceId !== "string" || !open.workspaceId) return null;
+      return await post("/gateway/search-open", {
+        workspaceId: open.workspaceId,
+        actor: open.actor,
+        hit: open.hit,
       });
     },
 

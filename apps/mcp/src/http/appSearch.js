@@ -53,6 +53,8 @@ export async function handleAppSearch(request, store, session) {
   if (prefix === null) return json({ error: "invalid_request", error_description: "invalid prefix" }, 400);
 
   store.contexts = contextsFor(session);
+  // The app's own bar, for the search timing log: a surface of its own, with no searcher id (`search/quality.js`).
+  store.searchSurface = "app";
   const privacy = await loadPrivacyState(store);
   // Fail closed, as a tool call does: the app then asks the control plane as before.
   if (privacy.error) return json({ error: "unavailable" }, 503);
