@@ -13,6 +13,21 @@ import { TEX_CONFIG } from "../agent/texConfig.js";
 
 const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
 
+/**
+ * Why a step's model would not promote. A draft may keep models of its own (`graph.models`, the Lab's model form and
+ * the `model` edit), which the Lab runs and prices like any other; Promote writes only models Tex's config already
+ * has, so a step on one is named as the draft's own model, with the config's key when its id is one Tex has.
+ */
+function modelProblem(n, own, models) {
+  const known = `${Object.keys(models).join(", ")}, or code`;
+  const mine = own && typeof own === "object" ? own[n.model] : undefined;
+  if (!mine) return `promote: step "${n.id}" runs on "${n.model}", which is neither one of this draft's own models nor in Tex's config (${known})`;
+  const same = Object.entries(models).find(([, id]) => id === mine.id)?.[0];
+  return same
+    ? `promote: step "${n.id}" runs on this draft's own model "${n.model}", whose id ${mine.id} is Tex's "${same}": set the step's model to "${same}" to promote`
+    : `promote: step "${n.id}" runs on this draft's own model "${n.model}"${typeof mine.id === "string" ? ` (${mine.id})` : ""}, which Tex's config has no gateway model for yet; add it to texConfig.json's models in a pull request first (${known})`;
+}
+
 /** Every problem the draft's graph has, as plain lines; [] when it would promote. */
 export function draftProblems(graph, current = TEX_CONFIG) {
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return ["the draft has no steps and wires"];
@@ -21,7 +36,7 @@ export function draftProblems(graph, current = TEX_CONFIG) {
   const ids = new Set(graph.nodes.map((n) => n?.id));
   for (const n of graph.nodes) {
     if (!known.has(n.id)) problems.push(`promote: step "${n.id}" is new; the gateway has no code for it yet, so build it on a branch first (apps/mcp/src/agent/graph/nodes/)`);
-    if (typeof n.model !== "string" || (n.model !== "code" && typeof current.models[n.model] !== "string")) problems.push(`promote: step "${n.id}" runs on "${n.model}", which has no gateway model id in Tex's config (${Object.keys(current.models).join(", ")}, or code)`);
+    if (typeof n.model !== "string" || (n.model !== "code" && typeof current.models[n.model] !== "string")) problems.push(modelProblem(n, graph.models, current.models));
     if (n.effort !== undefined && !EFFORTS.has(n.effort)) problems.push(`promote: step "${n.id}" has effort "${n.effort}" (${[...EFFORTS].join(", ")})`);
     if (typeof n.on !== "boolean") problems.push(`promote: step "${n.id}" is neither on nor off`);
   }

@@ -7,6 +7,11 @@
  *   overlaps() answers only a === b          "a removed step overlaps its fields and wires" fails
  *   applyOps() edits the graph it was given  "applying never changes the graph passed in" fails
  *   diffGraphs() skips moves                 "diff then apply gets the same graph" fails
+ * (and, 2026-11-15, with the Lab's other edits:)
+ *   remove keeps other steps' out:<id> reads   "remove takes the reads of the step's output with it ..." fails
+ *   remove without the text/send refusal       "remove takes the reads of the step's output with it ..." fails
+ *   convo_tool replacing the whole tool list   "a chat tool is merged one at a time ..." fails
+ *   diffGraphs() without the models part       "a draft's own model is an edit ..." fails
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

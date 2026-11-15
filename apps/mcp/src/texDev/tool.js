@@ -16,6 +16,7 @@ import { draftProblems, draftVsMain } from "./check.js";
 import { guideText } from "./guide.js";
 import { chatsOf, entriesOf, turnOf, turnsOf } from "./probe.js";
 import { snapshotGraph } from "./snapshot.js";
+import { createDraftWrites } from "./writes.js";
 
 export const TEX_DEV_WHO = "tex_dev is for people who edit @context-lc's AI setup.";
 const UNREACHABLE = "The Lab's drafts could not be reached just now. Try again in a minute.";
@@ -72,9 +73,14 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
     return { page: answer };
   }
 
+  // The Lab's other writes (rename, delete, run_setup, keep_results, revert) and `get` of main (`writes.js`).
+  const writes = createDraftWrites({ plane, json, linkOf });
+
   const needDraft = (args) => (typeof args?.draft === "string" && DRAFT.test(args.draft) ? null : toolError("Name the draft: { draft: \"v…\" } (list shows them)."));
 
   return async function call(action, args = {}) {
+    const written = await writes(action, args);
+    if (written !== null) return written;
     switch (action) {
       case "guide":
         return { content: [{ type: "text", text: guideText() }] };
@@ -196,7 +202,7 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
         }
       }
       default:
-        return toolError(`tex_dev has no action "${action}". Its actions: guide, list, create, get, edit, changes, snapshot, link, check, promote, tool_stats, cases, case, chats, turns, turn, entries.`);
+        return toolError(`tex_dev has no action "${action}". Its actions: guide, list, create, get, edit, changes, snapshot, link, check, promote, tool_stats, cases, case, chats, turns, turn, entries, rename, delete, run_setup, keep_results, revert.`);
     }
   };
 }

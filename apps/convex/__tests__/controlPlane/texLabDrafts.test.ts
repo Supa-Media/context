@@ -8,6 +8,9 @@
  *   `texDeveloper` without the staff check        "a stranger, a plain member ..." fails
  *   `texDeveloper` without the context_ check     "... Context's own clients (Tex's among them) are refused" fails
  *   `applyToDraft` without the conflicts() check   "the later edit to the same field is refused" fails
+ *   `revertDraft` without its conflicts() check   "revert undoes one change ..., refuses one a later change built on" fails
+ *   `keepResults` keeping the whole pasted text   "keep_results ... never keeps a replay" fails
+ *   `changesAfter` answering the short lines      "changes answers each line whole" fails
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
