@@ -108,6 +108,7 @@ import { TexStore as TexStoreDurableObject } from "./texStore.js";
 import { texChatClass } from "./texChat.js";
 import { arriveForTexts, chatCallForTexts, jobCallForTexts, TEXTS_ARRIVE_PATH, TEXTS_CHAT_CALL_PREFIX, TEXTS_JOB_CALL_PREFIX } from "./agent/textsArrive.js";
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "./agent/textsOldLine.js";
+import { moveForTexts, TEXTS_MOVE_PATH } from "./agent/textsMove.js";
 import { texJobClass } from "./texJob.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
 import { snippetLinesFor } from "./search/visible.js";
@@ -210,6 +211,7 @@ export const TexTexts = {
       if (path === TEXTS_EVENTS_PATH) return await eventsForTexts(request, env);
       if (path === TEXTS_ARRIVE_PATH) return await arriveForTexts(request, env);
       if (path === TEXTS_OLD_LINE_PATH) return await oldLineForTexts(request);
+      if (path === TEXTS_MOVE_PATH) return await moveForTexts(request);
       if (path.startsWith(TEXTS_CHAT_CALL_PREFIX)) return await chatCallForTexts(request, env);
       if (path.startsWith(TEXTS_JOB_CALL_PREFIX)) return await jobCallForTexts(request, env);
       return await openTextsSession(request, env, ctx);

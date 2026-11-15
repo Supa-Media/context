@@ -4,6 +4,8 @@
  * buttons open the tell-everyone job's run form on GitHub, the same way Jobs opens its test bench: no token here can
  * start it, and nobody is texted until Send is ticked there.
  *
+ * Move chats (`linesMoves.web.ts`) lists every person and group with a switch that moves that one chat.
+ *
  * A change not yet saved is kept in `draft` while the page is open, so flipping the switch never wipes what was typed.
  */
 import { useEffect, useMemo } from "react";
@@ -13,6 +15,7 @@ import { api } from "@context/convex/_generated/api";
 import { ago } from "./ago";
 import { confirmBox, esc, panel, sw } from "../kit";
 import { S, render, toast } from "../state";
+import { moveOfId, movesPanel, type MoveList } from "./linesMoves.web";
 import type { ConsolePage } from "../types";
 
 type Saved = NonNullable<FunctionReturnType<typeof api.functions.texOldLine.getTexOldLine>>;
@@ -24,6 +27,8 @@ type Draft = View & { base: number };
 export type LinesData = {
   setting: Saved | undefined;
   save: (args: { mode: Mode; number: string | null; archiveOn: string | null }) => Promise<unknown>;
+  moves: MoveList | undefined;
+  askMove: (args: { kind: "person" | "group"; key: string }) => Promise<unknown>;
 };
 
 /** The run form of `.github/workflows/tell-texters-new-number.yml`: a dry run unless Send is ticked there. */
@@ -51,10 +56,12 @@ export function forgetLinesDraft(): void {
 function useLinesData(): LinesData {
   const setting = useQuery(api.functions.texOldLine.getTexOldLine, {});
   const save = useMutation(api.functions.texOldLine.setTexOldLine);
+  const moves = useQuery(api.functions.texChatMoves.listTexChatMoves, {});
+  const askMove = useMutation(api.functions.texChatMoves.askTexChatMove);
   // The draft lives while this page is open: leaving and coming back shows the saved setting.
   useEffect(() => forgetLinesDraft, []);
   // Stable between renders: the shell calls `onData` whenever this object changes.
-  return useMemo(() => ({ setting, save }), [setting, save]);
+  return useMemo(() => ({ setting, save, moves, askMove }), [setting, save, moves, askMove]);
 }
 type LinesDataHook = ReturnType<typeof useLinesData>;
 
@@ -115,7 +122,7 @@ export const linesPage: ConsolePage<LinesDataHook> = {
   filters: {},
   windowed: false,
   useData: useLinesData,
-  render: (d) => oldLinePanel(d) + tellPanel(d),
+  render: (d) => oldLinePanel(d) + movesPanel(d?.moves, d?.setting?.number ?? null) + tellPanel(d),
 
   acts: {
     lnmode(_el, d) {
@@ -137,6 +144,25 @@ export const linesPage: ConsolePage<LinesDataHook> = {
         toast("Saved");
       } catch (error) {
         draft = view;
+        toast(errText(error));
+      }
+      render();
+    },
+
+    lnmv(el) {
+      if (moveOfId(el.dataset.id) === null) return;
+      S.confirm = `lnmv${el.dataset.id}`;
+      render();
+    },
+
+    async lnmvgo(el, d) {
+      S.confirm = null;
+      const move = moveOfId(el.dataset.id);
+      if (!d || move === null) return render();
+      try {
+        await d.askMove(move);
+        toast("Asked. The text goes out within a minute.");
+      } catch (error) {
         toast(errText(error));
       }
       render();

@@ -10,6 +10,7 @@
 import { checkin } from "./nodes/checkin.js";
 import { notify } from "./nodes/notify.js";
 import { oldLineNode } from "./nodes/oldLine.js";
+import { moveChatNode } from "./nodes/moveChat.js";
 import { jobcheck } from "./nodes/jobcheck.js";
 import { handback } from "./nodes/handback.js";
 import { mailadv } from "./nodes/mailadv.js";
@@ -83,6 +84,7 @@ export const GATEWAY_NODES = {
   get notify() { return notify; },
   // A text on the old number, before Triage (the Photon switch).
   get oldLine() { return oldLineNode; },
+  get moveChat() { return moveChatNode; },
   get jobcheck() { return jobcheck; },
   get handback() { return handback; },
   get mailadv() { return mailadv; },

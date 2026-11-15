@@ -27,6 +27,7 @@
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound } from "./inbound";
 import { runDueRoutines, textPhone } from "./routines";
+import { runDueMoves, type MoveOutcome } from "./moveChats";
 export { TexRoutines } from "./texRoutineDue";
 import { runDueDreams } from "./dreams";
 import { runDueHeartbeats } from "./heartbeats";
@@ -194,6 +195,20 @@ export default {
         gatewayOrigin: env.GATEWAY_ORIGIN,
         textPhone: (phone, text, idempotencyKey, continues, beside) => textPhone(env, phone, text, idempotencyKey, continues, beside),
         runInChat: (run) => runInChat(env, run),
+        log: (entry) => console.log(JSON.stringify(entry)),
+      }),
+    );
+    // Staff moving chats to Tex's new number one at a time (`moveChats.ts`, node `moveChat`): texts only a chat staff picked.
+    ctx.waitUntil(
+      runDueMoves({
+        fetch: (input, init) => fetch(input, init),
+        controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
+        workerSecret: env.AGENT_WORKER_SECRET,
+        movePerson: async (phone, body) => {
+          const response = await inboxByName(env.SENDER_INBOX, phone).fetch("https://inbox/move", { method: "POST", body: JSON.stringify(body) });
+          if (!response.ok) return "unreachable";
+          return ((await response.json()) as { outcome: MoveOutcome }).outcome;
+        },
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
     );

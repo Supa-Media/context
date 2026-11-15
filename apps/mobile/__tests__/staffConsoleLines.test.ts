@@ -132,3 +132,51 @@ describe("Lines page: acts", () => {
     open.mockRestore();
   });
 });
+
+describe("Lines page: move chats one at a time", () => {
+  const moves = {
+    people: [
+      { phone: "+15555550100", name: "Ada", move: null },
+      { phone: "+15555550101", name: "Bo", move: { status: "told", detail: null, askedAt: 1, toldAt: 2, movedAt: null, updatedAt: 2 } },
+      { phone: "+15555550102", name: "<Cy>", move: { status: "failed", detail: "send_failed", askedAt: 1, toldAt: null, movedAt: null, updatedAt: 2 } },
+      { phone: "+15555550103", name: "Di", move: { status: "moved", detail: null, askedAt: 1, toldAt: 2, movedAt: 3, updatedAt: 3 } },
+    ],
+    groups: [{ groupKey: "a".repeat(64), name: "Book club", people: 3, lastSeenAt: 1, move: null }],
+  };
+
+  it("lists every person with a switch and their move, and groups as coming next, names escaped", () => {
+    const html = linesPage.render!(asD(fakeData({ moves: moves as never, setting: { ...saved, number: "+15555550142" } })));
+    expect(html).toContain("Move chats");
+    expect(html).toContain("1 moved");
+    expect(html).toContain('aria-checked="false" aria-label="Move Ada" data-act="lnmv" data-id="person:+15555550100"');
+    expect(html).toContain('aria-checked="true" aria-label="Move Bo"');
+    expect(html).toContain("waiting for their first text on the new number");
+    expect(html).toContain("the old line refused the text");
+    expect(html).toContain("&lt;Cy&gt;");
+    expect(html).not.toContain("<Cy>");
+    expect(html).toContain("Book club");
+    expect(html).toContain("…0100");
+    expect(html).not.toContain("+15555550100</");
+  });
+
+  it("asks only after the confirm, with the chat's kind and key", async () => {
+    const askMove = jest.fn(async () => null);
+    const d = fakeData({ moves: moves as never, askMove });
+    acts.lnmv(el({ id: "person:+15555550100" }), asD(d));
+    expect(S.confirm).toBe("lnmvperson:+15555550100");
+    expect(askMove).not.toHaveBeenCalled();
+    expect(linesPage.render!(asD(d))).toContain('data-act="lnmvgo" data-id="person:+15555550100"');
+    await acts.lnmvgo(el({ id: "person:+15555550100" }), asD(d));
+    expect(askMove).toHaveBeenCalledWith({ kind: "person", key: "+15555550100" });
+    expect(S.confirm).toBeNull();
+    expect(toastState.text).toContain("within a minute");
+  });
+
+  it("shows the server's refusal", async () => {
+    const askMove = jest.fn(async () => {
+      throw Object.assign(new Error("x"), { data: { message: "Save the new number on this page first, under Old number." } });
+    });
+    await acts.lnmvgo(el({ id: "person:+15555550100" }), asD(fakeData({ askMove })));
+    expect(toastState.text).toContain("Save the new number");
+  });
+});

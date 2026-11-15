@@ -383,10 +383,11 @@ describe("worker", () => {
           });
         }
         if (path === "/agent") return Response.json({ outcome: "answered", answer: "hi", send: "text" });
-        // The same tick asks for dreams, check-ins and housekeeping too (`dreams.ts`, `heartbeats.ts`, `housekeeping.ts`); none are due here.
+        // The same tick asks for dreams, check-ins, housekeeping and chat moves too (`dreams.ts`, `heartbeats.ts`, `housekeeping.ts`, `moveChats.ts`); none are due here.
         if (path === "/agent-texts/dreams/due") return Response.json({ dreams: [] });
         if (path === "/agent-texts/heartbeats/due") return Response.json({ heartbeats: [] });
         if (path === "/agent-texts/housekeeping/due") return Response.json({ runs: [] });
+        if (path === "/agent-texts/moves") return Response.json({ moves: [], number: null, archiveOn: null });
         reported.push(JSON.parse(String(init.body)));
         return Response.json({ ok: true });
       });
@@ -421,6 +422,7 @@ describe("worker", () => {
           });
         }
         if (path === "/agent-texts/housekeeping/due") return Response.json({ runs: [] });
+        if (path === "/agent-texts/moves") return Response.json({ moves: [], number: null, archiveOn: null });
         if (path === "/agent") return Response.json({ outcome: "speak", answer: "Found it.", continues: "can you find it?" });
         reported.push(JSON.parse(String(init.body)));
         return Response.json({ status: "recorded" });

@@ -11,6 +11,7 @@ import { logged } from "./agentError";
 import { type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
 import { oldLineStep } from "./oldLineStep";
+import { movePerson, noteMoved, type MoveBody } from "./moveChats";
 import { carryOnAfterHandback } from "./handbackWatch";
 import { countInbound } from "./textCounts";
 import { checkReady } from "./ready";
@@ -138,6 +139,13 @@ export class SenderInbox implements DurableObject {
       });
       return Response.json({ told });
     }
+    if (path === "/move") {
+      // Staff moving this person to Tex's new number (`moveChats.ts`, node `moveChat`): only this Worker's cron posts here.
+      const body = (await request.json()) as Partial<MoveBody>;
+      if (typeof body.askedAt !== "number" || (body.number !== null && typeof body.number !== "string") || (body.archiveOn !== null && typeof body.archiveOn !== "string")) return new Response(null, { status: 400 });
+      const outcome = await movePerson(this.state.storage, body as MoveBody, { ...this.deps(), texts: this.env.GATEWAY_TEXTS });
+      return Response.json({ outcome });
+    }
     if (path === "/group-accept") {
       await this.keepOrigin(request);
       // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
@@ -231,6 +239,8 @@ export class SenderInbox implements DurableObject {
     }
     const outcome = await accept(this.state.storage, message, Date.now());
     await this.logArrival(message.chatId, "one", brought, outcome);
+    // A person staff moved, texting the new line for the first time since: their row in the console turns "moved".
+    if (message.channel !== "simulator") this.handOff(noteMoved(this.state.storage, message.from, message.chatId, { fetch: this.out, controlPlaneOrigin: this.env.CONTROL_PLANE_ORIGIN, workerSecret: this.env.AGENT_WORKER_SECRET }));
     if (outcome === "queued" && message.channel !== "simulator" && !message.tapback) countInbound(this.env.TEX_COUNTS, "one", "text", inboxIdOf(this.env.SENDER_INBOX, message.from));
     return Response.json({ outcome });
   }
