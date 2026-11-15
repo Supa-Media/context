@@ -41,7 +41,8 @@ describe("realTimes", () => {
       turn,
     )!;
     expect(r.reply).toBe(6700);
-    expect(r.ms).toEqual({ lanes: 400, door: 700, fd: 2700, tools: 650, reviewer: 2100, classifier: 900, send: 150 });
+    // No send is made up from what the other steps leave of the reply: Text them is measured or not drawn as measured.
+    expect(r.ms).toEqual({ lanes: 400, door: 700, fd: 2700, tools: 650, reviewer: 2100, classifier: 900 });
     expect(r.calls).toEqual({ fd: 2, reviewer: 1, classifier: 1 });
   });
 
@@ -126,5 +127,56 @@ describe("what a turn really cost, and turns that kept no reply timing (Dev2, 20
     expect([decide.turn, decide.step, decide.ms, decide.output]).toEqual([turn, "decide", 280, { act: "answer" }]);
     expect(got.some((e) => e.id === "late")).toBe(false);
     expect(realTimes(got, turn)?.ms.decide).toBe(280);
+  });
+});
+
+/**
+ * Dev2, 2026-11-15: "The Text them node doesnt seem to be logging the actual time it takes, 3 nodes are actually logging
+ * as 0s which is obviously wrong ... not sure how this is slipping by". The turn below is shaped like Dev2's own of that
+ * afternoon (fake ids and words): the front door drafted, Answer checks sent the draft back once, the reply went.
+ *
+ * What slipped by: the step-log contract (`stepLogs.ts`, `texLabStepLogs.test.ts`) asked that every step log a time, and
+ * 0 is a time. Three things made it 0: the runner's time for Answer checks held the front door's rewrite (so Replay added
+ * it to the front door from the rounds and again from its node runs, and Text them, drawn as "the reply less what the
+ * other steps took", fell to 0); Text them's own work, handing the reply to the chat's service, runs in the texting
+ * Worker after the gateway answered and was never logged; and plain code with no wait reads 0 on the Workers clock.
+ *
+ * Sabotage: count the rounds beside the front door's node runs and "no step counts..." fails on fd; drop
+ * `isDelivery` and Text them falls back to under 1 ms; use `ms` for `own` and Answer checks take 4.6 s.
+ */
+describe("every step's real time is its own, once (Dev2, 2026-11-15)", () => {
+  const T = "turn-0001";
+  const node = (name: string, ms: number, own: number, via = "wait") => ({ id: `n-${name}-${ms}`, at: 21_572, kind: "step", turn: T, step: "node", name, ms, own, via });
+  const entries = [
+    { id: "r", at: 21_572, kind: "reply", turn: T, timing: { waitMs: 740, replyMs: 12_260, rounds: [{ at: 970, ms: 6_695 }, { at: 7_665, ms: 4_517 }], tools: [] } },
+    node("readTheSetup", 693, 693),
+    node("fd", 6_761, 6_761),
+    node("fd", 4_517, 4_517, "checks:loop"),
+    node("fd", 78, 78, "checks:loop"),
+    node("checks", 4_595, 0),
+    node("send", 0, 0),
+    node("nudge", 83, 83, "send:background"),
+    node("reflect", 0, 0, "send:background"),
+    { id: "d", at: 22_042, kind: "step", turn: T, step: "send", name: "delivery", ok: true, ms: 470, input: { parts: 1 }, output: { sent: 1 } },
+    // A provider's later status for the same text, kept with no turn: never this turn's time.
+    { id: "p", at: 22_100, kind: "step", step: "send", name: "sent", ok: true, input: { provider: "photon" } },
+  ];
+
+  test("no step counts another's time, and none is made up from a remainder", () => {
+    const r = realTimes(entries, T)!;
+    expect(r.ms.fd).toBe(6_761 + 4_517 + 78);
+    expect(r.calls.fd).toBe(2); // model calls, from the rounds
+    expect(r.ms.checks).toBe(0);
+    expect(r.ms.send).toBe(470);
+    expect(r.ms.nudge).toBe(83);
+    // The steps the person waited on add up to the wait itself and its delivery, give or take the front door's first
+    // run starting while Door steps' last read (66 ms here) finished; counted twice, the front door alone was 22.6 s.
+    const waited = ["lanes", "door", "fd", "checks", "send"].reduce((a, id) => a + (r.ms[id] ?? 0), 0);
+    expect(Math.abs(waited - (r.reply + 470))).toBeLessThan(200);
+  });
+
+  test("a run with no wait says so, never 0.0 s", () => {
+    const { fmtReal } = jest.requireActual<typeof import("../features/tex/lab/engine/sim")>("../features/tex/lab/engine/sim");
+    expect([fmtReal(0), fmtReal(0.4), fmtReal(83), fmtReal(470), fmtReal(4_595)]).toEqual(["<1 ms", "<1 ms", "83 ms", "0.5 s", "4.6 s"]);
   });
 });

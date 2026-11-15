@@ -9,7 +9,7 @@ import { FTYPES } from "../../data/models";
 import { wireKey, type Marks } from "../../engine/changeMarks";
 import { hlClass } from "../../engine/live";
 import { mods } from "../../engine/modules";
-import { fires, fmtS, fmtUsd, outTok, type Sim } from "../../engine/sim";
+import { fires, fmtReal, fmtS, fmtUsd, outTok, type Sim } from "../../engine/sim";
 import { MODELS, node } from "../../engine/state";
 import type { LabEdge, LabGraph, LabNode, Selection } from "../../types";
 
@@ -150,7 +150,7 @@ function ringHtml(sim: Sim, g: LabGraph, id: string, p: number): string {
 function timeLabel(sim: Sim, id: string): string {
   const t = sim.T[id];
   if (!t) return sim.inside.has(id) ? "inside" : "";
-  return sim.real && !sim.real.has(id) ? "≈ " + fmtS(t.ms) : fmtS(t.ms);
+  return sim.real ? (sim.real.has(id) ? fmtReal(t.ms) : "≈ " + fmtS(t.ms)) : fmtS(t.ms);
 }
 
 export function statsHtml(sim: Sim): string {

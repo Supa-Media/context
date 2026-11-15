@@ -18,7 +18,9 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >=
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 /** Whole, never cut (Dev2, 2026-11-14: "we aren't properly showing the full input, thinkings, and outputs"): the panel folds a long one. */
 export const show = (v: unknown): string => (typeof v === "string" ? v : v === undefined || v === null ? "" : JSON.stringify(v, null, 1));
-const secs = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
+// Under 1 ms is what code with no waiting logs: the Workers clock moves only across a wait (a fetch, a storage read),
+// so a run of plain code reads 0, which is shown as what it is, never as "0 ms" or "0.0 s".
+const secs = (ms: number) => (ms < 1 ? "under 1 ms" : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
 const count = (n: number) => n.toLocaleString("en-US");
 
 /** `step` names that are canvas steps of the same id. */
@@ -181,7 +183,10 @@ export function stepIO(entries: LedgerEntry[], turn: string | null, text: string
       push("react", e.ok === false ? "Failed to send" : "Sent", rec(e.output)?.emoji ?? e.output);
     } else if (e.kind === "step" && e.step === "node" && str(e.name)) {
       // A node the config's graph runner ran: it logs every run itself, so this is what the node got and gave.
-      const tag = [str(e.via), num(e.ms) !== null ? secs(num(e.ms)!) : "", e.ok === false ? "failed" : ""].filter(Boolean).join(" · ");
+      // Its own time; when it called other nodes (Answer checks sending a draft back), the whole run beside it.
+      const [whole, own] = [num(e.ms), num(e.own)];
+      const took = whole === null ? "" : own !== null && own < whole ? `${secs(own)} own, ${secs(whole)} with the steps it called` : secs(whole);
+      const tag = [str(e.via), took, e.ok === false ? "failed" : ""].filter(Boolean).join(" · ");
       push(str(e.name), "Got" + (tag ? ` · ${tag}` : ""), e.input ?? "(nothing went in)");
       push(str(e.name), e.ok === false ? "Failed" : "Gave", e.ok === false ? { reason: e.reason ?? "failed" } : e.output ?? "(nothing came out)");
     } else if (e.kind === "step" && nodeOfStep(e.step)) {

@@ -17,7 +17,7 @@ import { textsWithExact } from "./format";
 import type { InboxStorage } from "./inbox";
 import { groupLineFor, groupLineSeam } from "./groupLine";
 import { membersBeforeSend } from "./groupMembers";
-import { tapback } from "./stepEvents";
+import { deliveryStep, logStep, tapback } from "./stepEvents";
 import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, peopleOf, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
@@ -259,11 +259,22 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   if (!routine && answer.place === "plain" && message.replyTo === undefined) meta.plain = true;
   // Every bubble under the message it answers, not only the first (Dev2's bug report, 2026-10-21).
   let firstSent: number | undefined; // when the person's wait ended (`textTiming.ts`)
-  for (const text of texts) {
-    await say(storage, deps, message, text, meta);
-    firstSent ??= deps.now();
+  // Text them's own time, on the wall clock (`now` can be fixed for the whole text): the parts handed to the line (`deliveryStep`).
+  const delivering = Date.now();
+  const parts = texts.length + (checkIn ? 0 : answer.pictures.length);
+  let went = 0;
+  try {
+    for (const text of texts) {
+      await say(storage, deps, message, text, meta);
+      firstSent ??= deps.now();
+      went += 1;
+    }
+    for (const picture of checkIn ? [] : answer.pictures) (await sendPicture(storage, deps, message, picture, meta), (went += 1)); // After the words, as in a 1:1.
+  } catch (error) {
+    if (meta.turn) await logStep(storage, message.groupId, deliveryStep(parts, went, Date.now() - delivering, error instanceof Error ? error.name : "error"), deps.now(), meta.turn);
+    throw error;
   }
-  for (const picture of checkIn ? [] : answer.pictures) await sendPicture(storage, deps, message, picture, meta); // After the words, as in a 1:1.
+  if (meta.turn) await logStep(storage, message.groupId, deliveryStep(parts, went, Date.now() - delivering), deps.now(), meta.turn);
   // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
   const askedWho = await sha256Hex(asks ?? message.from);
   for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));

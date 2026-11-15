@@ -72,7 +72,7 @@ import { MAX_CANDIDATES, staleAsks } from "./decide"; import { lookAgainTexts } 
 import { rememberText } from "./threads";
 import { noteHandle } from "./replyQuote";
 import { keepThreaded } from "./threadedResend";
-import { tapback } from "./stepEvents";
+import { deliveryStep, logStep, tapback } from "./stepEvents";
 import type { ReplyPlace } from "./clients";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
@@ -397,6 +397,10 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
 async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: Entry, timing?: TurnTiming): Promise<boolean> {
   const reply = [item.reply ?? []].flat();
   let sent = item.sent ?? 0;
+  let delivering: number | undefined;
+  // Kept under the turn it delivers; the Worker's own texts (a failure, a limit) belong to no turn.
+  const delivered = (count: number, cause?: string) =>
+    !item.system && item.turn && item.message.channel !== "simulator" ? logStep(storage, item.message.chatId, deliveryStep(reply.length, count, Date.now() - delivering!, cause), deps.now(), item.turn) : Promise.resolve();
   const out = (part: PartLogged, system = item.system === true) => {
     // Each part is logged once it went: the first is when the person's wait ended (`textTiming.ts`).
     if (timing && timing.firstSent === undefined) timing.firstSent = deps.now();
@@ -421,6 +425,8 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
     const thread = threadFor(item.message, overtaken, item.place);
     let carousels = true;
     if (timing) timing.sendStart = deps.now();
+    // Timed on the wall clock (`now` can be fixed for the whole text): Text them's own time (`deliveryStep`).
+    delivering = Date.now();
     for (const [index, part] of reply.entries()) {
       if (index < sent) continue;
       // Two or more pictures in a row go as one swipeable set where the line has carousels.
@@ -464,6 +470,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
       sent = index + 1;
     }
     if (timing) timing.sendEnd = deps.now();
+    await delivered(sent);
     // One ask event per approval the turn armed, after the words that ask it.
     for (const record of item.asks ?? []) {
       await logAsk(storage, { at: deps.now(), chat: item.message.chatId, from: { kind: "tex" }, ...(item.turn ? { turn: item.turn } : {}) }, record, await sha256Hex(item.message.from), item.askText ?? "");
@@ -472,7 +479,8 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
     // The network work after the reply (the flush, the card) runs behind the next text, not before it.
     deferAfterReply(storage, deps.waitUntil, () => afterReply(storage, deps, item, reply.length, timing));
     return true;
-  } catch {
+  } catch (error) {
+    if (delivering !== undefined) await delivered(sent, error instanceof Error ? error.name : "error");
     const attempts = item.attempts + 1;
     if (attempts >= MAX_SEND_ATTEMPTS) {
       await storage.delete(key);

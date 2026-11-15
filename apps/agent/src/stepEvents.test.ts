@@ -68,8 +68,8 @@ describe("the Worker's own steps", () => {
     await drain(storage, w.deps);
     expect(w.decided).toEqual([]);
     const [triaged, ...rest] = steps([...w.posted, ...(await unwritten(storage))]);
-    // Decide never ran, so it logged nothing: only what ran is kept.
-    expect(rest).toEqual([]);
+    // Decide never ran, so it logged nothing: only what ran is kept, Triage and then the reply's delivery (Text them).
+    expect(rest.map((event) => [event.step?.name, event.step?.of])).toEqual([["send", "delivery"]]);
     expect(triaged.step).toMatchObject({ name: "triage", of: "tex", ok: true, ms: 0, output: { to: "tex" } });
     expect(triaged.step?.input?.texts).toHaveLength(1);
     expect(String(triaged.step?.output?.why)).toContain("straight to Tex");

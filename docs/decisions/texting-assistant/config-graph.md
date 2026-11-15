@@ -114,6 +114,24 @@ when it fails, which is when the log is needed. Test: "every node run is logged
 by the runner" in `texGraph.test.mjs`, which breaks when the runner's `keep()`
 call is removed.
 
+Each run's time is its own (decided 2026-11-15, after Dev2 saw Text them,
+Answer checks, Memory nudge and Reflect at 0 s): `ms` is the whole run and `own`
+is that less the time it waited on the nodes it called (`use`, `back`), so
+Answer checks never carry the front door's rewrites. Replay draws `own`, takes
+the reply's rounds only for a node the runner has no run for, and never times a
+step as "what the others leave of the reply". Text them's delivery runs in the
+texting Worker after the gateway answered, so the Worker keeps it as a `send`
+step `of: "delivery"` under the turn, and Text them's time is the node plus
+that. Code with no wait reads 0 on the Workers clock, which moves only across a
+wait; Replay shows it as "<1 ms". Every canvas step names what its time measures
+(`stepLogs.ts` `time`).
+
+**What a simplification would cost:** a 0 or a doubled time passes a guard
+that only asks whether a time was logged. Tests: "a node logs its whole run and
+its own time" in `texGraph.test.mjs`, "every step's real time is its own, once"
+in `texLabRealTimes.test.ts`, and the delivery tests in `inbox.test.ts` and
+`groupToolTap.test.ts`.
+
 ## Where the nodes run
 
 All nodes run in the gateway, on one graph (decided by the owner, 2026-11-14).
