@@ -138,16 +138,19 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   // chat that keeps no ledger. A ledger that misses a text this turn covers is counted, never its words, and the turn is today's.
   const day = () => {
     if (ledger === null) return readEvents(store, body.chat);
-    return Promise.resolve(ledger).then((read) => dayFromLedger(read?.entries, body.chat, covers)).catch(() => null).then((events) => {
-      if (events !== null) return events;
-      console.log(JSON.stringify({ event: "tex_turn_day_missed" }));
-      return [];
-    });
+    // The whole day the ledger holds, whether or not it has the covered texts yet: a text the Worker has not posted is in
+    // its outbox (`warmCopy.js` `mergeEvents`). Before, a ledger without it gave the turn no day at all, so a quick
+    // second text was shown a different chat from the text before and wrote its history to the cache again (2026-11-15
+    // 00:40Z-00:45Z: 523, 476, 523 lines, in 12 of the day's 48 one-to-one turns).
+    return Promise.resolve(ledger).then((read) => dayFromLedger(read?.entries, body.chat, [])).catch(() => null).then((events) => events ?? []);
   };
   const [events, read] = await Promise.all([warm === null ? day() : warm.events(body.chat, day), ledger]);
   const wanted = new Set(covers);
   const covered = events.filter((event) => wanted.has(event.id));
-  if (covered.length !== wanted.size) return null;
+  if (covered.length !== wanted.size) {
+    console.log(JSON.stringify({ event: "tex_turn_day_missed" })); // counted, never a word: the turn is today's, from the question it was sent
+    return null;
+  }
   // The text as the Worker sent it (`body.question`) when the log kept less of it (2026-11-11: a pasted brief cut at 3,000 read
   // as missing). Only when the event provably is that text cut: the Worker's own `left` (never words a person can type), and the
   // kept words exactly the question's start with the Worker's mark; or, logged before `OLD_CAP_UNTIL`, exactly its first 3,000.
