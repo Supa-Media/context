@@ -4,17 +4,20 @@
 //   node scripts/tex-sets-check.mjs              problems in the repo's conversations, then the 60/20/20 ratio
 //   node scripts/tex-sets-check.mjs --self-test  a tiny built-in check of the checker itself
 //
-// Exits 1 on any problem, or when the ratio does not hold once the Test Set has unit tests (until then it warns). With TEX_EVAL_COUNTS_URL set, the Test Set's star count
+// Exits 1 on any problem, or when the ratio does not hold once every set has unit tests (until then it warns). With TEX_EVAL_COUNTS_URL set, the Test Set's star count
 // comes from that URL (JSON { stars: n }); while it is 0 (nobody has written the Test Set yet) or cannot be read, the ratio falls back to Training against Dev and
 // CI is not failed for an unreachable eval service. Prints counts and ids only, never message text.
 
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+import { createRequire } from "node:module";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const { loadSets, loadContract, problemsOf, ratioCheck } = await import(
   pathToFileURL(path.join(ROOT, "apps/mcp/bench/sets.mjs")).href
 );
+
+const { ratio } = createRequire(import.meta.url)(path.join(ROOT, "packages/shared/src/texSets.cjs"));
 
 const TIMEOUT_MS = 10_000;
 
@@ -79,9 +82,12 @@ async function main() {
   }
   const r = ratioCheck(convs, testStars);
   console.log(r.line);
-  if (!r.holds && testStars === null) {
-    // Nobody has written the Test Set yet, and Training fills from rewritten real chats: say so, don't fail every PR.
-    console.warn("warning: the ratio is not held yet; it fails CI once the Test Set has unit tests");
+  // A ratio is enforced once every set has unit tests. Until then (Training fills from rewritten real chats, Test from
+  // people), an empty set is named and CI is not failed for it.
+  const { counts } = ratio(convs);
+  const empty = [counts.training ? null : "Training", counts.dev ? null : "Dev", testStars ? null : "Test"].filter(Boolean);
+  if (!r.holds && empty.length > 0) {
+    console.warn(`warning: the ratio is not held yet; it fails CI once ${empty.join(" and ")} ${empty.length > 1 ? "have" : "has"} unit tests`);
     return;
   }
   if (!r.holds) {
