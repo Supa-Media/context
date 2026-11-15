@@ -214,6 +214,25 @@ describe("PhotonEvents.event: a group staff moved to the new number", () => {
     expect(reports).toEqual([{ kind: "group", key: "a".repeat(64), status: "moved" }]);
   });
 
+  it("reads the group's people from the bridge when the note's event lists only the old number (Dev2's first group move)", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({ outcome: "noted" }));
+    const calls: [string, unknown][] = [];
+    const photon = { fetch: async (url: string, init?: RequestInit) => (calls.push([new URL(url).pathname, JSON.parse(String(init?.body))]), Response.json({ ok: true, participants: [OLD_LINE, PHONE] })) } as unknown as Fetcher;
+    const matched = { groupKey: "a".repeat(64), line: OLD_LINE, groupId: "sb-group-1", askedAt: 7 };
+    const asked: unknown[] = [];
+    const moves = (path: string, body: Record<string, unknown>) => {
+      if (path !== "/group-move/arrive") return undefined;
+      asked.push(body.participants);
+      return (body.participants as string[]).includes(PHONE) ? { from: OLD, matched } : { waiting: true, people: 0 };
+    };
+    const { env: e, routed } = env({ PHOTON: photon }, { moves });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await entrypoint(e).event(event({ chat: { guid: GUID, kind: "group" }, from: OLD_LINE, message: { guid: "g-12", text: "swapping numbers", service: "iMessage" } }));
+    expect(asked).toEqual([[OLD_LINE], [OLD_LINE, PHONE]]);
+    expect(calls.map(([path]) => path)).toEqual(["/group/members", "/group/remove"]);
+    expect(routed).toEqual([]);
+  });
+
   it("reports the move failed when the new line could not take the old number out", async () => {
     const reports: unknown[] = [];
     vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => (reports.push(JSON.parse(String(init?.body))), Response.json({ outcome: "noted" })));
