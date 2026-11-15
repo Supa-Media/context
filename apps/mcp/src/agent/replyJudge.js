@@ -1,5 +1,5 @@
 /**
- * THE REPLY REVIEWER: ONE HAIKU CALL BETWEEN TEX AND THE PERSON (Dev2, 
+ * THE REPLY REVIEWER: ONE HAIKU CALL BETWEEN TEX AND THE PERSON (Dev2,
  * 2026-11-06: "replace the judges with one haiku model that is able to
  * understand nuances and give feedback").
  *
