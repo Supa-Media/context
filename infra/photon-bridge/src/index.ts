@@ -9,6 +9,7 @@ import {
   type Fetchish,
   type Log,
 } from "./pump";
+import { lineOn } from "./lineSwitch";
 import { isBridgeRoute } from "./routes";
 
 interface Env {
@@ -17,6 +18,8 @@ interface Env {
   AGENT: AgentEvents;
   PHOTON_PROJECT_ID?: string;
   PHOTON_PROJECT_SECRET?: string;
+  /** "off" keeps this deployment off the line (`lineSwitch.ts`); staging sets it. */
+  PHOTON_LINE?: string;
 }
 
 const PORT = 8080;
@@ -63,7 +66,7 @@ export class PhotonBridge extends DurableObject<Env> {
   }
 
   private get configured(): boolean {
-    return Boolean(this.env.PHOTON_PROJECT_ID && this.env.PHOTON_PROJECT_SECRET);
+    return lineOn(this.env);
   }
 
   private port(): Fetchish {
@@ -139,7 +142,7 @@ export class PhotonBridge extends DurableObject<Env> {
 
   private async pumpForever(): Promise<void> {
     let failures = 0;
-    for (;;) {
+    while (this.configured) {
       try {
         await this.ensure();
         await pumpOnce({ port: this.port(), agent: this.env.AGENT, store: this.store(), sleep, log });
@@ -167,6 +170,14 @@ export class PhotonBridge extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    if (!this.configured) {
+      // Off the line: a container still running from before stops, and the object stops waking itself.
+      if (this.ctx.container?.running) {
+        await this.ctx.container.destroy();
+        log({ event: "bridge.off", ok: true });
+      }
+      return;
+    }
     await this.ctx.storage.setAlarm(Date.now() + ALARM_MS);
     await this.wake();
   }
@@ -198,16 +209,14 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (!isBridgeRoute(request.method, url.pathname)) return new Response(null, { status: 404 });
-    if (!env.PHOTON_PROJECT_ID || !env.PHOTON_PROJECT_SECRET) {
-      return json({ ok: false, status: 503, error: "unconfigured" }, 503);
-    }
+    if (!lineOn(env)) return json({ ok: false, status: 503, error: "unconfigured" }, 503);
     // Placed in eastern North America like every object of ours (decided by the owner, 2026-11-01).
     const stub = env.PHOTON_BRIDGE.getByName("photon-bridge", { locationHint: "enam" });
     return stub.fetch(request);
   },
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (!env.PHOTON_PROJECT_ID || !env.PHOTON_PROJECT_SECRET) return;
+    if (!lineOn(env)) return;
     const stub = env.PHOTON_BRIDGE.getByName("photon-bridge", { locationHint: "enam" });
     ctx.waitUntil(stub.fetch(new Request("https://photon-bridge.internal/__wake", { method: "POST" })));
   },
