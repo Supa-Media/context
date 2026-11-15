@@ -22,6 +22,7 @@ const { check } = require("../packages/shared/src/texSets.cjs");
 const { WHY } = require("../packages/shared/src/textDecide.cjs");
 const CONFIG = JSON.parse(readFileSync(join(ROOT, "packages/shared/src/texConfig.json"), "utf8"));
 export const SETS_DIR = join(ROOT, "apps/mcp/bench/sets");
+const { jsonFile } = await import(new URL("../apps/mcp/bench/sets.mjs", import.meta.url).href);
 const ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const OPEN = ["training", "dev"];
 
@@ -64,7 +65,7 @@ export function promote(asks, dir = SETS_DIR) {
     const to = join(dir, convo.set, `${id}.json`);
     if (old && old !== to) rmSync(old);
     mkdirSync(dirname(to), { recursive: true });
-    writeFileSync(to, JSON.stringify(convo, null, 2) + "\n");
+    writeFileSync(to, jsonFile(convo));
     written.push(id);
   }
   return { written, removed, refused };

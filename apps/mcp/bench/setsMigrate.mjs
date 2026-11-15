@@ -9,6 +9,7 @@
  *
  * Sets: non-stars are split so dev holds about a quarter of the unit tests (stars), so Training:Dev is near 3:1.
  */
+import { jsonFile } from "./sets.mjs";
 import { createRequire } from "node:module";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -227,7 +228,7 @@ export async function migrateAll(repoRoot) {
 export function setFiles(repoRoot, convs) {
   const out = new Map();
   for (const c of convs) {
-    out.set(join(repoRoot, "apps/mcp/bench/sets", c.set, `${c.id}.json`), `${JSON.stringify(c, null, 2)}\n`);
+    out.set(join(repoRoot, "apps/mcp/bench/sets", c.set, `${c.id}.json`), jsonFile(c));
   }
   return out;
 }

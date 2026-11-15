@@ -10,7 +10,7 @@
     {
       "id": "m1",
       "who": "Pia",
-      "text": "@⁨Tex⁩ recap the schedule the coach sent",
+      "text": "@\u2068Tex\u2069 recap the schedule the coach sent",
       "labels": {
         "decide": {
           "act": "respond",

@@ -16,6 +16,13 @@ const textDecide = require("../../../packages/shared/src/textDecide.cjs");
 
 const { SETS, TARGET, DRIFT, check, ratio } = texSets;
 
+/**
+ * A conversation file's text: 2-space JSON, with invisible and direction characters written as escapes, since a
+ * literal one fails the repository's identifiers guard (`check-identifiers`) and can't be seen in review.
+ */
+export const jsonFile = (value) =>
+  JSON.stringify(value, null, 2).replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")) + "\n";
+
 export const SETS_DIR = fileURLToPath(new URL("./sets", import.meta.url));
 const CONFIG_PATH = fileURLToPath(new URL("../../../packages/shared/src/texConfig.json", import.meta.url));
 
