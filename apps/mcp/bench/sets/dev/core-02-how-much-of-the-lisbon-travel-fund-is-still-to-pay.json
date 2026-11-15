@@ -1,0 +1,27 @@
+{
+  "id": "core-02-how-much-of-the-lisbon-travel-fund-is-still-to-pay",
+  "title": "How much of the Lisbon travel fund is still to pay?",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "How much of the Lisbon travel fund is still to pay?",
+      "labels": {
+        "fd": {
+          "must": [
+            "say 800 paid so far out of 1,200 in total",
+            "say 400 is still to pay"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/2"
+}

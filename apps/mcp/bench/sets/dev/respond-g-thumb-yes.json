@@ -1,0 +1,29 @@
+{
+  "id": "respond-g-thumb-yes",
+  "title": "Thumb yes",
+  "set": "dev",
+  "kind": "group",
+  "members": [
+    "Omar"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Tex",
+      "tex": true,
+      "text": "Want me to reserve the grill area for Sunday? 👍 or 👎   (your newest question)"
+    },
+    {
+      "id": "m2",
+      "who": "Omar",
+      "text": "👍 (yes) on Tex's message \"Want me to reserve the grill area for Sunday?\"",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "respond/g-thumb-yes"
+}

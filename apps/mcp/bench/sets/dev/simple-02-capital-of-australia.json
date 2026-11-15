@@ -1,0 +1,29 @@
+{
+  "id": "simple-02-capital-of-australia",
+  "title": "Capital of Australia",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "quick one, what's the capital of australia",
+      "labels": {
+        "fd": {
+          "must": [
+            "say Canberra"
+          ],
+          "never": [
+            "send more than one text"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/simple-2"
+}

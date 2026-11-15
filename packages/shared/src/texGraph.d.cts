@@ -18,7 +18,7 @@ export interface NodeIO<Ctx = Record<string, unknown>> {
 }
 export type NodeImpl<Ctx = Record<string, unknown>> = (input: any, io: NodeIO<Ctx>) => Promise<any>;
 
-export interface NodeRun { node: string; input: unknown; output: unknown; ms: number; ok: boolean; error?: string; at: number; via: string; handedOff?: boolean }
+export interface NodeRun { node: string; input: unknown; output: unknown; ms: number; /** `ms` less the time it waited on the nodes it called. */ own: number; ok: boolean; error?: string; at: number; via: string; handedOff?: boolean }
 
 export interface Graph<Ctx = Record<string, unknown>> {
   run(start: string, input: unknown, ctx?: Ctx, options?: { stopAt?: string[] }): Promise<{ outputs: Record<string, any>; ran: string[] }>;

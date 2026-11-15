@@ -1,0 +1,43 @@
+{
+  "id": "jobcheck-texted-code-is-waiting",
+  "title": "Change the electric autopay",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "switch my brightline autopay to the card ending 4417",
+      "labels": {
+        "jobcheck": {
+          "verdict": "waiting",
+          "star": true
+        }
+      },
+      "rec": {
+        "job": {
+          "title": "Change the electric autopay",
+          "brief": "Sign in to her Brightline Energy account and switch autopay to the card ending 4417.",
+          "doneWhen": "Autopay shows the card ending 4417.",
+          "did": [
+            [
+              "browse",
+              {
+                "url": "https://brightline.example/login",
+                "steps": [
+                  "email",
+                  "Continue"
+                ]
+              },
+              "We texted a 6-digit code to (•••) •••-0192. Enter it to continue. The code expires in 10 minutes."
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "from": "advisor/job-check/texted-code-is-waiting"
+}

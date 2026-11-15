@@ -54,6 +54,7 @@ import { promoteCommand } from "./promote.mjs";
 import { spendCommand } from "./spend.mjs";
 import { stepsCommand } from "./steps.mjs";
 import { nodesCommand } from "./nodeCases.mjs";
+import { setsCommand } from "./setsRun.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 import { filedNotes } from "./checks.mjs";
@@ -603,6 +604,7 @@ const COMMANDS = new Map([
   ["spend", (options) => spendCommand(options)],
   ["steps", stepsCommand],
   ["nodes", nodesCommand],
+  ["sets", (options) => setsCommand(options.job, options)],
   ["improve", async (options) => improveCommand(options, { publish: async (draft) => publishSetup({ ...draft, connection: await signIn({ env: process.env }) }) })],
 ]);
 

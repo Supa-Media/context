@@ -248,3 +248,47 @@ test("a lend given to uses or job reaches the callee's io.ctx for that one call 
   // The lend is not in any logged input: only the wires' own inputs are.
   assert.deepEqual(logs.map((l) => l.input), [{ q: 1 }, { q: 2 }, { q: 3 }, { start: true }]);
 });
+
+// Dev2, 2026-11-15: "3 nodes are actually logging as 0s which is obviously wrong ... not sure how this is slipping by".
+// A node's logged time is its own: what it waited on the nodes it called (Answer checks sending a draft back to the
+// front door, the front door calling a tool) is the callee's, logged by the callee, and never counted twice.
+// Sabotage: `waited()` not wrapping io.back makes "own" equal "ms" and this fails on checks.
+test("a node logs its whole run and its own time, less its waits on the nodes it called", async () => {
+  let clock = 0;
+  const config = {
+    nodes: [node("fd"), node("tools"), node("checks"), node("send")],
+    edges: [wire("fd", "tools", "uses"), wire("fd", "checks"), wire("checks", "send"), { ...wire("checks", "fd", "loop"), rounds: 2 }],
+  };
+  const runs = [];
+  let backs = 0;
+  const g = createGraph(
+    config,
+    {
+      fd: async (_x, io) => {
+        clock += 1000; // the model
+        await Promise.all([io.use.tools({}), io.use.tools({})]); // two tools in flight together: 250 ms waited, once
+        clock += 200;
+        return {};
+      },
+      tools: async () => {
+        const until = clock + 250;
+        await null;
+        clock = Math.max(clock, until);
+        return {};
+      },
+      checks: async (_x, io) => {
+        clock += 3; // its own code
+        if (backs++ === 0) await io.back.fd({});
+        return {};
+      },
+      send: async () => ((clock += 40), {}),
+    },
+    { log: (r) => runs.push(r), now: () => clock },
+  );
+  await g.run("fd", {});
+  const of = (id) => runs.filter((r) => r.node === id).map((r) => [r.ms, r.own]);
+  assert.deepEqual(of("tools"), [[250, 250], [250, 250], [250, 250], [250, 250]]);
+  assert.deepEqual(of("fd"), [[1450, 1200], [1450, 1200]]);
+  assert.deepEqual(of("checks"), [[1453, 3]]);
+  assert.deepEqual(of("send"), [[40, 40]]);
+});

@@ -94,3 +94,72 @@ jobs:
             echo "$id: $url"
             answer "$(jq -cn --arg v "$id" --argjson at "$at" --arg pr "$url" '{versionId: $v, at: $at, pr: $pr}')"
           done
+
+      # The Testing tab's conversations (`functions/texSets.ts`): every draft asked for goes into one pull request
+      # writing apps/mcp/bench/sets; once that pull request merges, the drafts it carried are cleared.
+      - name: Read the test conversations asked for
+        id: sets
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          npx convex run functions/texSets:asked '{}' 2>/dev/null > "$RUNNER_TEMP/sets.json"
+          echo "count=$(jq length "$RUNNER_TEMP/sets.json")" >> "$GITHUB_OUTPUT"
+          echo "Test conversations waiting: $(jq length "$RUNNER_TEMP/sets.json")"
+
+      - name: Open a pull request for the test conversations
+        if: steps.sets.outputs.count != '0'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "Tex Lab"
+          git config user.email "tex-lab@users.noreply.github.com"
+          stamp=$(date -u +%Y%m%d%H%M%S)
+          git checkout -q -B "tex-lab/sets-$stamp" origin/main
+          result=$(node scripts/tex-sets-promote.mjs "$RUNNER_TEMP/sets.json")
+          echo "$result" | jq -c '{written: (.written | length), removed: (.removed | length), refused: (.refused | length)}'
+          refused=$(echo "$result" | jq -c '[.refused[] | {id, why}]')
+          ats=$(jq -c 'map({key: .id, value: .at}) | from_entries' "$RUNNER_TEMP/sets.json")
+          answer() { npx convex run functions/texSets:answered "$1" > /dev/null 2>&1; }
+          if [ "$(echo "$refused" | jq length)" != "0" ]; then
+            answer "$(jq -cn --argjson r "$refused" --argjson at "$ats" '{items: [$r[] | {id, at: $at[.id], why}]}')"
+          fi
+          git add apps/mcp/bench/sets packages/shared/src/texSetsRepo.generated.json apps/mcp/src/texDev apps/mobile/features/tex/lab/labData.generated.ts
+          if git diff --cached --quiet; then
+            done_ids=$(echo "$result" | jq -c '[.written[], .removed[]]')
+            [ "$(echo "$done_ids" | jq length)" = "0" ] || answer "$(jq -cn --argjson d "$done_ids" --argjson at "$ats" '{items: [$d[] | {id: ., at: $at[.], why: "it is the same as main"}]}')"
+            exit 0
+          fi
+          n=$(echo "$result" | jq '(.written | length) + (.removed | length)')
+          by=$(jq -r '[.[].by] | unique | join(", ")' "$RUNNER_TEMP/sets.json" | cut -c1-120)
+          git commit -q -m "Promote $n test conversations from the Lab's Testing tab" -m "Asked for in the Tex Lab by $by. Training and Dev conversations only; the Test Set never enters the repo."
+          git push -q -f origin "HEAD:refs/heads/tex-lab/sets-$stamp"
+          {
+            echo "Promoted from the Tex Lab's Testing tab (context.lc/lab) by $by: Training and Dev conversations written into \`apps/mcp/bench/sets\`, and the data the gateway and the Lab read from that folder rebuilt."
+            echo
+            echo "$result" | jq -r '"Written: \(.written | join(", "))\nRemoved: \(.removed | join(", "))"'
+            echo
+            echo "No replay case: test conversations are the cases themselves; Training conversations reach a step's prompt only through its examples module, whose replay its own pull request carries."
+          } > "$RUNNER_TEMP/sets-body.md"
+          url=$(gh pr create --base main --head "tex-lab/sets-$stamp" --title "Promote $n test conversations from the Lab" --body-file "$RUNNER_TEMP/sets-body.md")
+          echo "test conversations: $url"
+          ids=$(echo "$result" | jq -c '[.written[], .removed[]]')
+          answer "$(jq -cn --argjson d "$ids" --argjson at "$ats" --arg pr "$url" '{items: [$d[] | {id: ., at: $at[.], pr: $pr}]}')"
+
+      - name: Clear the test conversations whose pull request merged
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx convex run functions/texSets:opened '{}' 2>/dev/null > "$RUNNER_TEMP/opened.json"
+          for pr in $(jq -r '[.[].pr] | unique | .[]' "$RUNNER_TEMP/opened.json"); do
+            [[ "$pr" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]{1,7}$ ]] || continue
+            state=$(gh pr view "$pr" --json state -q .state 2>/dev/null || echo "")
+            if [ "$state" = "MERGED" ]; then
+              npx convex run functions/texSets:merged "$(jq -cn --arg pr "$pr" '{pr: $pr}')" > /dev/null 2>&1 && echo "cleared the drafts of $pr"
+            fi
+          done
+

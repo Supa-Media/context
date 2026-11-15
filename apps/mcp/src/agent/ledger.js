@@ -128,11 +128,13 @@ export function stepEntry({ step, ok = true, ms = null, input, output, model = n
 /**
  * One node run of the config's graph (`packages/shared/src/texGraph.cjs`, which logs every run itself) as a `step`
  * entry `step: "node"`, `name` the node's id, `via` the wire that ran it ("wait", "background", "fd:uses",
- * "reviewer:loop"), so Replay reads what each node got and gave from the runner and no node logs by hand.
+ * "reviewer:loop"), `ms` its whole run and `own` that less its waits on the nodes it called, so Replay reads what each node got and gave from the runner and no node logs by hand.
  */
-export function nodeEntry({ node, input, output, ms, ok, error = null, via = null }, { turn = null, at = Date.now() } = {}) {
+export function nodeEntry({ node, input, output, ms, own = null, ok, error = null, via = null }, { turn = null, at = Date.now() } = {}) {
   const entry = stepEntry({ step: "node", name: node, ok, ms, input, output, reason: error }, { turn, at });
   if (!entry || typeof node !== "string" || node === "") return null;
+  // Its own time, less what it waited on the nodes it called: Answer checks' send-backs are the front door's time.
+  if (Number.isFinite(own) && own >= 0 && entry.ms !== undefined) entry.own = Math.min(entry.ms, Math.round(own));
   if (typeof via === "string" && via !== "") entry.via = via.slice(0, 64);
   return entry;
 }

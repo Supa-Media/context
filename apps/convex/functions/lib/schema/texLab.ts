@@ -76,4 +76,37 @@ export const texLabTables = {
     data: v.string(),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+  /**
+   * Lab drafts of Tex's test conversations (Dev2, 2026-11-15; `functions/texSets.ts`): a Training or Dev conversation
+   * as a staff member in the Lab's Testing tab, or an AI over the MCP's `tex_dev`, changed it, over the file in
+   * `apps/mcp/bench/sets/<set>/<id>.json`. Promote opens the pull request that writes it there. Never the Test Set:
+   * its conversations live only in the eval service.
+   */
+  texSetConvos: defineTable({
+    convoId: v.string(),
+    set: v.union(v.literal("training"), v.literal("dev")),
+    /** The conversation as `packages/shared/src/texSets.cjs` reads it, as JSON. */
+    data: v.string(),
+    /** A conversation the repo does not have yet. */
+    isNew: v.boolean(),
+    /** Asked to be deleted from the repo at the next Promote. */
+    removed: v.boolean(),
+    rev: v.number(),
+    by: v.id("users"),
+    /** "lab" for the Lab page, or the AI client's name. */
+    via: v.string(),
+    updatedAt: v.number(),
+    /** Promote: asked at a revision, then the pull request it went into (or why it was refused). */
+    promote: v.optional(v.object({ state: v.union(v.literal("asked"), v.literal("opened"), v.literal("refused")), by: v.id("users"), at: v.number(), rev: v.number(), pr: v.optional(v.string()), why: v.optional(v.string()) })),
+  }).index("by_convo", ["convoId"]),
+  /** What each revision of a conversation draft changed (`texSetOps.cjs` keys and lines), for the conflict check. */
+  texSetChanges: defineTable({
+    convoId: v.string(),
+    rev: v.number(),
+    by: v.id("users"),
+    via: v.string(),
+    keys: v.array(v.string()),
+    said: v.array(v.string()),
+    at: v.number(),
+  }).index("by_convo_rev", ["convoId", "rev"]),
 };

@@ -1,0 +1,29 @@
+{
+  "id": "review-chat-roast-sent-to-everyone",
+  "title": "Roast sent to everyone",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "Tex roast Lena",
+      "labels": {
+        "reviewer": {
+          "sentBack": "1",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "Lena replies-all like it's a sport. I already sent this roast to her whole team so they can enjoy it too.",
+          "did": []
+        }
+      }
+    }
+  ],
+  "from": "review/chat/roast-sent-to-everyone"
+}

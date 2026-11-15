@@ -1,0 +1,29 @@
+{
+  "id": "simple-03-thanks",
+  "title": "thanks",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "thanks!",
+      "labels": {
+        "fd": {
+          "must": [
+            "reply in a few words, the way a friend takes thanks"
+          ],
+          "never": [
+            "send more than one text, or offer a list of what it can do"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/simple-3"
+}

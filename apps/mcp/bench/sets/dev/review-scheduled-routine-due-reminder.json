@@ -1,0 +1,35 @@
+{
+  "id": "review-scheduled-routine-due-reminder",
+  "title": "Routine due reminder",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "This is a scheduled routine: Saturday, November 7 at 2:30 pm. Do what the routine below asks. If there is nothing worth telling this time, call send with action say_nothing: nothing is texted.\n\nRemind them to pick up the envelopes in Mara's room.",
+      "labels": {
+        "reviewer": {
+          "sentBack": "0",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "Time to pick up the envelopes in Mara's room.",
+          "did": []
+        }
+      }
+    },
+    {
+      "id": "m2",
+      "who": "Tex",
+      "tex": true,
+      "text": "Time to pick up the envelopes in Mara's room."
+    }
+  ],
+  "from": "review/scheduled/routine-due-reminder"
+}

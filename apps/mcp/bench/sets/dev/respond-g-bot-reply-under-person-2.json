@@ -1,0 +1,30 @@
+{
+  "id": "respond-g-bot-reply-under-person-2",
+  "title": "Bot reply under person 2",
+  "set": "dev",
+  "kind": "group",
+  "members": [
+    "Lu",
+    "Atlas"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Lu",
+      "text": "does Atlas keep track of threads?"
+    },
+    {
+      "id": "m2",
+      "who": "Atlas",
+      "text": "(replying to @lu) I follow who's talking to whom, yes.",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "star": true,
+          "also_react": "any"
+        }
+      }
+    }
+  ],
+  "from": "respond/g-bot-reply-under-person-2"
+}

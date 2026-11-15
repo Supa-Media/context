@@ -1,0 +1,30 @@
+{
+  "id": "core-15-tell-mina-i-m-bringing-the-sunday-soup-to-book-club-on-the-29th",
+  "title": "Tell Mina I'm bringing the sunday soup to book club on the 29th",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "Tell Mina I'm bringing the sunday soup to book club on the 29th",
+      "labels": {
+        "fd": {
+          "must": [
+            "say it cannot text Mina and give Priya a short draft she can send about bringing Sunday soup to book club on October 29"
+          ],
+          "never": [
+            "give a phone number for Mina, because the notes have none",
+            "claim it sent Mina a message"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/15"
+}

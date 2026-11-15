@@ -1,0 +1,34 @@
+{
+  "id": "respond-g-bot-quiz-untagged",
+  "title": "Bot quiz untagged",
+  "set": "dev",
+  "kind": "group",
+  "members": [
+    "Raf",
+    "Atlas"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Raf",
+      "text": "Atlas, give Tex three quick riddles"
+    },
+    {
+      "id": "m2",
+      "who": "Atlas",
+      "text": "Here goes."
+    },
+    {
+      "id": "m3",
+      "who": "Atlas",
+      "text": "What has keys but can't open locks?",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "respond/g-bot-quiz-untagged"
+}
