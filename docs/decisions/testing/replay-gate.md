@@ -7,6 +7,10 @@ passing and being better", "Can we get each change to be less than $1?", and
 "if we can split up the tests into different areas that we know, like the
 code only affects that area, that'll be nice."
 
+**Since 2026-11-15** the model half gates on the sealed Test Set alone
+([test-set-service](./test-set-service.md)); the full replay below is the Dev
+Set's, on demand, and the held-out cases moved into the eval service.
+
 ## Why
 
 Most of the breaks people saw in November were not the model. They were the

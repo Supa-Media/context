@@ -34,6 +34,20 @@ plan in [test-sets](./test-sets.md), piece 4.
   counts and run results, never a word, a title or an id (the one gap in
   Lab = tex_dev parity, by design).
 
+## The gate
+
+"Tex replay required" (`scripts/tex-replay-required.mjs`) passes a change that
+reaches a model area only on a successful `Tex test set` status on its head
+commit. When the rule fails it dispatches `tex-test-set.yml` with ref main and
+the pull request's number; that run takes the Test Set from the service, runs
+it with main's harness on the change's nodes and on main's
+(`apps/mcp/bench/setsRun.mjs --tree`, output to /dev/null), has the service
+score it, marks the commit and re-runs the check. The full replay
+(`tex-replay.yml`) no longer gates and no longer starts by itself; Training and
+Dev never slow CI. The held-out cases that lived in `@context-lc ai/held-out/`
+are moved in once by `tex-test-set-seed.yml` (same OIDC rule, seed door), which
+then empties and archives those notes.
+
 ## What a "simplification" would cost
 
 A read route, a copy in Context, or letting a branch's workflow fetch the cases

@@ -86,7 +86,7 @@ jobs:
             {
               echo "Promoted from the Tex Architecture Lab (context.lc/lab) by $by: version \"$name\" (\`$id\`)."
               echo
-              echo "What changed is \`packages/shared/src/texConfig.json\`, the drawing and table it makes in \`docs/architecture/tex.md\`, the map every Tex agent reads (\`texArchitecture.generated.js\`), and any prompt words under \`packages/shared/src/texPrompt/\`; the diff is the whole change. A changed model, effort, time limit or word changes the prompts and requests the replay gate fingerprints, so **Tex replay required** names the areas it reaches: run them on the examiner path before merging."
+              echo "What changed is \`packages/shared/src/texConfig.json\`, the drawing and table it makes in \`docs/architecture/tex.md\`, the map every Tex agent reads (\`texArchitecture.generated.js\`), and any prompt words under \`packages/shared/src/texPrompt/\`; the diff is the whole change. A changed model, effort, time limit or word changes the prompts and requests the replay gate fingerprints, so **Tex replay required** names the areas it reaches and starts the sealed Test Set on main for this pull request; it merges when that passes."
               echo
               echo "No replay case: a Lab promotion changes settings the existing replay areas already measure."
             } > "$RUNNER_TEMP/body.md"

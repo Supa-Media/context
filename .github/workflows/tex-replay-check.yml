@@ -1,10 +1,10 @@
-# The pull request's required check for the replay gate's model half
-# (docs/decisions/testing/replay-gate.md; scripts/tex-replay-required.mjs).
+# The pull request's required check for Tex's gate, the Test Set
+# (docs/decisions/testing/test-set-service.md; scripts/tex-replay-required.mjs).
 # Holds no secret: it reads which model areas the change reaches (by its
 # files, and by its prompts: every area's prompts are built free on main and on
 # the change, and one that differs by a byte is reached) and, when
-# any, passes only on a successful "Tex replay" status on the head commit,
-# which the dispatched "Tex replay" run sets, then re-runs this.
+# any, passes only on a successful "Tex test set" status on the head commit,
+# which main's "Tex test set" run sets, then re-runs this.
 
 name: Tex replay required
 
@@ -72,23 +72,22 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: node scripts/tex-replay-required.mjs
 
-      # Dev2, 2026-11-15: the replay starts the moment this check goes red, instead of waiting for an hourly examiner.
-      # "Tex replay" runs main's workflow file on this branch with Claude Code answering on the subscription
-      # (apps/mcp/bench/socketAnswerer.mjs), marks the commit, and re-runs this check. Started once a commit: only when
-      # the head has no "Tex replay" status yet, or only the one asking for the token. Never for a fork, whose token
-      # cannot start a workflow and whose code must not reach production's secrets.
-      - name: Start Tex replay on this branch
+      # Dev2, 2026-11-15: the Test Set is the only gate. When the rule fails this starts main's "Tex test set" for
+      # this pull request (its OIDC token must name the file on main, so the ref is always main); it marks the head
+      # commit and re-runs this check. Started once a commit: only when the head has no "Tex test set" status yet.
+      # Never for a fork, whose code must not reach production's secrets.
+      - name: Start Tex test set for this pull request
         if: failure() && github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          latest="$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses" --jq '[.[] | select(.context == "Tex replay")][0].description // ""')"
-          if [ -n "$latest" ] && [[ "$latest" != Needs\ CLAUDE_CODE_OAUTH_TOKEN* ]]; then
-            echo "Tex replay already ran or is running on this commit: $latest"
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses" --jq '[.[] | select(.context == "Tex test set")][0].description // ""')"
+          if [ -n "$latest" ]; then
+            echo "Tex test set already ran or is running on this commit: $latest"
             exit 0
           fi
-          gh workflow run tex-replay.yml --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f claude_code=true
-          echo "Started Tex replay (Claude Code) on $HEAD_REF; it re-runs this check when it ends." | tee -a "$GITHUB_STEP_SUMMARY"
+          gh workflow run tex-test-set.yml --repo "$GITHUB_REPOSITORY" --ref main -f pr="$PR_NUMBER"
+          echo "Started Tex test set on main for #$PR_NUMBER; it re-runs this check when it ends." | tee -a "$GITHUB_STEP_SUMMARY"
