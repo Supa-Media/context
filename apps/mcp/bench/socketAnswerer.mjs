@@ -120,7 +120,8 @@ export function answerFrom(request, stdout) {
 export function failureText(stdout, stderr) {
   try {
     const result = JSON.parse(stdout);
-    const text = String(result.result ?? result.subtype ?? "").trim();
+    // An error result's text is the CLI's own message; a non-error result could be the model's words, so it is not kept.
+    const text = result.is_error ? String(result.result ?? result.subtype ?? "").trim() : String(result.subtype ?? "");
     if (text) return text.slice(0, 300);
   } catch {}
   return (String(stderr ?? "").trim() || "no output").slice(0, 300);

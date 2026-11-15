@@ -118,6 +118,7 @@ test("the loop answers every waiting call, a few at a time, and ends once stoppe
 
 test("a failed CLI run says why: the JSON result's error first, stderr after", () => {
   assert.equal(failureText(cliResult({ is_error: true, result: "Invalid bearer token" }), ""), "Invalid bearer token");
+  assert.equal(failureText(cliResult({ result: "a model's private words" }), ""), "success", "a non-error result's text is never logged");
   assert.equal(failureText("", "boom"), "boom");
   assert.equal(failureText("", ""), "no output");
 });
