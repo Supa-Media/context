@@ -201,3 +201,13 @@ jobs:
       # The Architecture Lab's cases, module texts and test workspaces are the bench's own (tex.lc/lab).
       - name: The Tex Lab's data matches the bench
         run: node scripts/tex-lab-data.mjs --check
+
+      # Tex's test conversations (packages/shared/src/texSets.cjs; plan: tex-sets/plan.md). The Test Set is never in the
+      # repo: its star count comes from the eval service, and an unreachable service falls back to Training against Dev.
+      - name: Tex's test conversations are sound and hold 60/20/20
+        env:
+          TEX_EVAL_COUNTS_URL: https://mcp.context.lc/tex-eval/counts
+        run: node scripts/tex-sets-check.mjs
+
+      - name: Tex's test conversations data is current
+        run: node scripts/tex-sets-data.mjs --check

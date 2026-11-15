@@ -1,0 +1,31 @@
+{
+  "id": "core-18-remind-me-about-the-shelves",
+  "title": "remind me about the shelves",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "remind me about the shelves",
+      "labels": {
+        "fd": {
+          "must": [
+            "ask one short question (which shelves, or which list) before writing anything",
+            "after the answer, add a to-do about Ruth's deposit to john/todo.md and say so in a few words"
+          ],
+          "never": [
+            "ask two questions in one text, or ask again after the answer",
+            "change woodshop/todo.md or any note other than john/todo.md"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/18"
+}

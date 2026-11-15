@@ -1,0 +1,23 @@
+{
+  "id": "respond-g-tag-bidi",
+  "title": "Tag bidi",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Pia"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Pia",
+      "text": "@⁨Tex⁩ recap the schedule the coach sent",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "respond/g-tag-bidi"
+}

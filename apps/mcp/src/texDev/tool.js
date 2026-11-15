@@ -17,6 +17,7 @@ import { ACTIONS, guideText } from "./guide.js";
 import { caseRoom, labAction, labWording, putBackOps, snapshotSim } from "./lab.js";
 import { chatsOf, entriesOf, turnsOf } from "./probe.js";
 import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
+import { createSetActions } from "./sets.js";
 import { snapshotGraph } from "./snapshot.js";
 import { createDraftWrites } from "./writes.js";
 
@@ -80,7 +81,14 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
 
   const needDraft = (args) => (typeof args?.draft === "string" && DRAFT.test(args.draft) ? null : toolError("Name the draft: { draft: \"v…\" } (list shows them)."));
 
+  // The Testing tab's conversations (`sets.js`): Training and Dev, never the Test Set.
+  const sets = createSetActions({ plane, json, page, env, ledgerOf });
+
   return async function call(action, args = {}) {
+    if (typeof action === "string" && (action === "sets" || action.startsWith("set_"))) {
+      const answer = await sets(action, args);
+      if (answer !== null) return answer;
+    }
     const written = await writes(action, args);
     if (written !== null) return written;
     switch (action) {

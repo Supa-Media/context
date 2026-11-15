@@ -1,0 +1,43 @@
+{
+  "id": "review-does-it-searched-inbox",
+  "title": "Searched inbox",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "did the landlord ever reply about the leak?",
+      "labels": {
+        "reviewer": {
+          "sentBack": "0",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "Yes, Rick said Oct 30 the plumber's coming Tuesday.",
+          "did": [
+            [
+              "search_email",
+              {
+                "query": "landlord leak"
+              },
+              "1 message from Rick, Oct 30: 'Plumber coming Tuesday'"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "m2",
+      "who": "Tex",
+      "tex": true,
+      "text": "Yes, Rick said Oct 30 the plumber's coming Tuesday."
+    }
+  ],
+  "from": "review/does_it/searched-inbox"
+}

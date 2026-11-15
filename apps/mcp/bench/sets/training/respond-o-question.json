@@ -1,0 +1,23 @@
+{
+  "id": "respond-o-question",
+  "title": "O question",
+  "set": "training",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "how long do hard boiled eggs last",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "respond/o-question"
+}

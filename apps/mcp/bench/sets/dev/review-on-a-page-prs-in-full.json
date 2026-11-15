@@ -1,0 +1,29 @@
+{
+  "id": "review-on-a-page-prs-in-full",
+  "title": "Prs in full",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.)",
+      "labels": {
+        "reviewer": {
+          "sentBack": "1",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "Your last ten merged PRs: #2839 search rework (risk: index rebuild on deploy), #2812 calendar sync (duplicate events), #2790 mail labels (none), #2754 billing page (tax rounding), #2731 sign-in (session expiry), #2702 export (large files), #2684 a 74-file rework (high), #2655 tests only, #2610 docs, #2563 queue retries (double sends).",
+          "did": []
+        }
+      }
+    }
+  ],
+  "from": "review/on_a_page/prs-in-full"
+}

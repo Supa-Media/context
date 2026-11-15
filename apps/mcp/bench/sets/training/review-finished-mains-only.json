@@ -1,0 +1,37 @@
+{
+  "id": "review-finished-mains-only",
+  "title": "Mains only",
+  "set": "training",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "three dinner options around $10 a person for 30 people",
+      "labels": {
+        "reviewer": {
+          "sentBack": "1",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "Mains run about $1 to $2 a person. The sides, dessert and drinks aren't priced yet, next step is pricing those.",
+          "did": [
+            [
+              "web_search",
+              {
+                "q": "catering trays price"
+              },
+              "results"
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "from": "review/finished/mains-only"
+}

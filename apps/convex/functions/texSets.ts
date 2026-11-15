@@ -118,7 +118,7 @@ async function editConvo(ctx: MutationCtx, who: Who, a: { id: unknown; rev: unkn
   if (baseRev < 0 || baseRev > rowRev) return { status: "bad_request", error: `rev is the revision you read (now ${rowRev})` };
   let applied;
   try {
-    applied = applyOps(current, a.ops as never);
+    applied = applyOps(current as never, a.ops as never) as { convo: Convo; keys: string[]; said: string[]; full: string[] };
   } catch (error) {
     if (error instanceof OpError) return { status: "bad_request", error: error.message };
     throw error;
@@ -173,6 +173,7 @@ async function removeConvo(ctx: MutationCtx, who: Who, a: { id?: unknown; base?:
   const row = await rowOf(ctx, id);
   if (a.restore === true) {
     if (!row) return { status: "ok", id, restored: true };
+    if (row.isNew) return { status: "bad_request", error: `${id} is new: it has no repo copy to go back to (delete it instead)` };
     await deleteRows(ctx, id);
     return { status: "ok", id, restored: true };
   }

@@ -1,0 +1,31 @@
+{
+  "id": "core-05-what-do-i-need-to-do-before-lisbon",
+  "title": "what do I need to do before lisbon",
+  "set": "training",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "what do I need to do before lisbon",
+      "labels": {
+        "fd": {
+          "must": [
+            "give the Lisbon to-dos from her list: confirm the flat check-in time, ask Ana which train she wants on the first day, and finish the packing list before October 13",
+            "give them as one short line per item, in at most three texts"
+          ],
+          "never": [
+            "include unrelated to-dos (the electric bill, the tap, the dry cleaning, the library card)",
+            "invent a to-do that isn't in the notes"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/5"
+}

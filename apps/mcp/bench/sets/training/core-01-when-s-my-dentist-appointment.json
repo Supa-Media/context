@@ -1,0 +1,29 @@
+{
+  "id": "core-01-when-s-my-dentist-appointment",
+  "title": "When's my dentist appointment?",
+  "set": "training",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "When's my dentist appointment?",
+      "labels": {
+        "fd": {
+          "must": [
+            "say Tuesday, October 13 at 3 pm"
+          ],
+          "never": [
+            "make up a date that isn't in the notes"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/1"
+}

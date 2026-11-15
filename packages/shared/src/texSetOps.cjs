@@ -205,6 +205,8 @@ function applyOne(c, op) {
       return;
     case "move": {
       const i = msgAt(c, op.msg);
+      if (op.before === op.msg) return; // before itself: where it already is
+      if (op.before !== null && op.before !== undefined) msgAt(c, op.before);
       const [m] = c.msgs.splice(i, 1);
       const at = op.before === null || op.before === undefined ? c.msgs.length : msgAt(c, op.before);
       c.msgs.splice(at, 0, m);

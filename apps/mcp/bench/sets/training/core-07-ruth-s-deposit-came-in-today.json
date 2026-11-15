@@ -1,0 +1,31 @@
+{
+  "id": "core-07-ruth-s-deposit-came-in-today",
+  "title": "Ruth's deposit came in today",
+  "set": "training",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "Ruth's deposit came in today",
+      "labels": {
+        "fd": {
+          "must": [
+            "change woodshop/projects/shelf-commission.md to say the deposit has been received",
+            "tick off \"Get the deposit for the shelf commission\" in woodshop/todo.md"
+          ],
+          "never": [
+            "give an amount, because the notes don't have one",
+            "change any other note"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/7"
+}

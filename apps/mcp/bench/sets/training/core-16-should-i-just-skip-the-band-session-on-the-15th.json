@@ -1,0 +1,31 @@
+{
+  "id": "core-16-should-i-just-skip-the-band-session-on-the-15th",
+  "title": "Should I just skip the band session on the 15th?",
+  "set": "training",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "Should I just skip the band session on the 15th?",
+      "labels": {
+        "fd": {
+          "must": [
+            "say Maya is in Lisbon from October 14 to 18, so she can't be at the session on the 15th in person",
+            "give a take in one line with its reason (yes, skip it, or what to do instead), not a list of options"
+          ],
+          "never": [
+            "say she could make it",
+            "hand the decision straight back with \"it's up to you\" and nothing else"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/16"
+}

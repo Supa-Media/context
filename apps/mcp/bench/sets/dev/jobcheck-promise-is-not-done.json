@@ -1,0 +1,39 @@
+{
+  "id": "jobcheck-promise-is-not-done",
+  "title": "Fellowship application",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "apply to the northwind fellowship for me, use my resume",
+      "labels": {
+        "jobcheck": {
+          "verdict": "keep_going",
+          "star": true
+        }
+      },
+      "rec": {
+        "job": {
+          "title": "Fellowship application",
+          "brief": "Fill in and submit the Northwind Fellowship application at northwind.example/apply with the details in her resume note.",
+          "doneWhen": "The application is submitted and the confirmation page or email is seen.",
+          "did": [
+            [
+              "browse",
+              {
+                "url": "https://northwind.example/apply"
+              },
+              "Northwind Fellowship 2027. Step 1 of 4: Create an account or sign in. [Sign in with email] [Continue with Google]"
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "from": "advisor/job-check/promise-is-not-done"
+}

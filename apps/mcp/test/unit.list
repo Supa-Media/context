@@ -560,6 +560,8 @@ test/texEarlierRoomStep.test.mjs
 test/promptCatalog.test.mjs
 test/texGraph.test.mjs
 test/texSets.test.mjs
+test/sets.test.mjs
+test/setsMigrate.test.mjs
 test/texGraphHome.test.mjs
 test/searchQuality.test.mjs
 test/textsArrive.test.mjs
@@ -584,5 +586,8 @@ test/texDevReplay.test.mjs
 test/texDevWrites.test.mjs
 test/texDevLab.test.mjs
 test/texDevCases.test.mjs
+test/texDevSets.test.mjs
+test/texSetOps.test.mjs
+test/setsRun.test.mjs
 bench/test/nodeCases.test.mjs
 bench/test/nodeCases.test.mjs

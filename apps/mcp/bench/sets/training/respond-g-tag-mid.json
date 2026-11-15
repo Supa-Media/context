@@ -1,0 +1,28 @@
+{
+  "id": "respond-g-tag-mid",
+  "title": "Tag mid",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Raf"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Raf",
+      "text": "need last spring's water bill"
+    },
+    {
+      "id": "m2",
+      "who": "Raf",
+      "text": "could @Tex dig up the water bill from April",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "respond/g-tag-mid"
+}
