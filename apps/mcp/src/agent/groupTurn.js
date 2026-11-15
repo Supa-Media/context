@@ -58,7 +58,7 @@ import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
 import { toolError } from "../tools/results.js";
 import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.js";
-import { playbookPrompt, readPlaybook, withPlaybookGate } from "./groupPlaybook.js";
+import { playbookPrompt, readPlaybook } from "./groupPlaybook.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { guestsOf, namesOf, numbersOf, shownWho, sizeOf, taggerLabel, whoIsWhoLine } from "./groupNames.js";
 import { GROUP_SIGN_IN_LINES } from "./groupSignIns.js";
@@ -677,7 +677,7 @@ const WRITE_TOOL_NAMES = new Set(toolDefinitions().filter((tool) => tool.annotat
  * it (`groupRoutines.js`); one that wouldn't run is refused with the reason
  * rather than saved to sit there.
  */
-export function groupAwareCallTool(callTool, writeTools, { store = null, group = null, outside = () => false } = {}) {
+export function groupAwareCallTool(callTool, writeTools, { store = null, group = null } = {}) {
   const texting = textingAwareCallTool(callTool, writeTools.filter((tool) => !GROUP_OWN_ACCOUNT_TOOLS.includes(tool.name)));
   const writes = new Set(writeTools.map((tool) => tool.name));
   const grouped = async (name, args) => {
@@ -689,10 +689,8 @@ export function groupAwareCallTool(callTool, writeTools, { store = null, group =
   };
   // A guest chat's narrower writes go first (`groupGuests.js`).
   if (group?.guestChat) return guestAwareCallTool(grouped, { store, group, guestTagger: group.guestTagger === true });
-  // Tex decides when to change the workspace's playbook, never on a turn that read from outside the chat (`groupPlaybook.js`).
-  const taught = withPlaybookGate(grouped, { outside });
   // An invited person's tag sends nothing from the binder's account: only from a member's, on their own yes.
-  return group?.guestTagger === true ? noAccountTaggerCallTool(taught, group) : taught;
+  return group?.guestTagger === true ? noAccountTaggerCallTool(grouped, group) : grouped;
 }
 
 // Tex's chat commands as tools (`commandTools.js`), imported by `texEntryPoint.js` with the rest of a chat turn's pieces.
