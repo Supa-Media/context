@@ -44,7 +44,7 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
   `apps/mcp/bench/sets/<training|dev>/<id>.json`, checked by
   `scripts/tex-sets-check.mjs` in Fast guards (every file sound, in its set's
   folder, no `test/` folder, and the ratio: all three sets once the eval
-  service answers its counts, Training against Dev at 3:1 until then). The
+  service counts a unit test in the Test Set, Training against Dev at 3:1 until then). The
   gateway and the Lab read them as generated data
   (`texSetsRepo.generated.json`, the Lab's `SETS`).
 - **A change is a draft first.** The Lab's Testing tab and `tex_dev` edit a
