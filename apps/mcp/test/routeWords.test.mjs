@@ -34,6 +34,7 @@ import { TEX_STORE_PATH } from "../src/texStore/door.js";
 import { THREADS_BACKFILL_PATH } from "../src/agent/threadsBackfillDoor.js";
 import { WORKSPACE_STORE_PATH } from "../src/workspaceStore/door.js";
 import { IMAGE_UPLOAD_PATH } from "../src/notes/imageUploads.js";
+import { TEX_EVAL_PREFIX } from "../src/http/texTestSet.js";
 
 /** Every route set `http/route.js` dispatches on by exact path, by name. */
 const ROUTE_SETS = {
@@ -55,6 +56,7 @@ const ROUTE_SETS = {
   THREADS_BACKFILL_PATH: [THREADS_BACKFILL_PATH],
   WORKSPACE_STORE_PATH: [WORKSPACE_STORE_PATH],
   IMAGE_UPLOAD_PATH: [IMAGE_UPLOAD_PATH],
+  TEX_EVAL: [`${TEX_EVAL_PREFIX}counts`],
   // Exact paths `route.js` names inline.
   INLINE: ["/mcp", "/mcp/chatgpt", "/mcp/chatgpt/v2", "/inbox", "/agent", "/agent/try", "/agent/review", "/presence", "/collaboration", "/agent-activity", "/approvals"],
 };
