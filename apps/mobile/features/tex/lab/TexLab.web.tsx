@@ -18,7 +18,7 @@ import { StaffFactorGate } from "../../admin/StaffFactorGate";
 import { api } from "@context/convex/_generated/api";
 import { GROUP_CHATS, PEOPLE } from "./data/areas";
 import { allCases, cvDiff, diff } from "./engine/diff";
-import { G, go, isMain, lab, newVersion, openVersion, saveVersion, set, fit, emit } from "./engine/state";
+import { G, go, isMain, lab, newVersion, openVersion, set, fit, emit } from "./engine/state";
 import { buildTraces, traceMine } from "./engine/traces";
 import { LAB_CSS } from "./labCss";
 import { ensureFontsLoaded } from "../../design/fonts.web";
