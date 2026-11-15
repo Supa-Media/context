@@ -1,0 +1,30 @@
+{
+  "id": "core-17-what-s-due-in-the-last-week-of-october",
+  "title": "What's due in the last week of October?",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "What's due in the last week of October?",
+      "labels": {
+        "fd": {
+          "must": [
+            "say the conference slides are due October 28 (day-job)",
+            "say the book club meets October 29 at Mina's flat (book-club)"
+          ],
+          "never": [
+            "invent any date that isn't in the notes"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/17"
+}

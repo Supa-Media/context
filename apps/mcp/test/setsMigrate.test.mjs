@@ -87,13 +87,9 @@ test("caseToConversation ignores a cause field", () => {
   assert.deepEqual(caused, plain);
 });
 
-test("the Training:Dev star split is near 3:1", () => {
-  const stars = { training: 0, dev: 0 };
-  for (const c of convs) stars[c.set] += sets.unitTests(c).length;
-  const total = stars.training + stars.dev;
-  const devShare = (stars.dev * 100) / total;
-  assert.ok(devShare >= 15 && devShare <= 35, `dev share ${devShare}`);
-  assert.ok(Math.abs(devShare - 25) <= 10, `dev share ${devShare} is more than ten points from 25`);
+test("every migrated case goes to Dev, never into the steps' Training examples", () => {
+  // Training is read by the steps as examples; these are the cases today's replays score.
+  for (const c of convs) assert.equal(c.set, "dev", c.id);
 });
 
 test("--check agrees with the files that --write produces", async () => {

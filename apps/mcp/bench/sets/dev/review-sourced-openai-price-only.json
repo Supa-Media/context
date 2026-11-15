@@ -1,0 +1,43 @@
+{
+  "id": "review-sourced-openai-price-only",
+  "title": "Openai price only",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "what does gpt-6 luna cost?",
+      "labels": {
+        "reviewer": {
+          "sentBack": "0",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "$0.10 in, $0.50 out per million tokens.",
+          "did": [
+            [
+              "browse",
+              {
+                "url": "https://openai.example/pricing"
+              },
+              "GPT-6 Luna: $0.10 in, $0.50 out per million tokens"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "m2",
+      "who": "Tex",
+      "tex": true,
+      "text": "$0.10 in, $0.50 out per million tokens."
+    }
+  ],
+  "from": "review/sourced/openai-price-only"
+}

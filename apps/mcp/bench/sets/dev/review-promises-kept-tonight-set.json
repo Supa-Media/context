@@ -1,0 +1,43 @@
+{
+  "id": "review-promises-kept-tonight-set",
+  "title": "Tonight set",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "remind me how the call went later",
+      "labels": {
+        "reviewer": {
+          "sentBack": "0",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "I'll check in tonight at 8.",
+          "did": [
+            [
+              "write_note",
+              {
+                "path": "tex/routines/once/call-check.md"
+              },
+              "written (at: 20:00)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "m2",
+      "who": "Tex",
+      "tex": true,
+      "text": "I'll check in tonight at 8."
+    }
+  ],
+  "from": "review/promises_kept/tonight-set"
+}

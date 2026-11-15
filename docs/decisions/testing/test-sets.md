@@ -57,8 +57,9 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
 - **Training and Dev are files**, one conversation each, at
   `apps/mcp/bench/sets/<training|dev>/<id>.json`, checked by
   `scripts/tex-sets-check.mjs` in Fast guards (every file sound, in its set's
-  folder, no `test/` folder, and the ratio: all three sets once the eval
-  service answers its counts, Training against Dev at 3:1 until then). The
+  folder, no `test/` folder, and the ratio over all three sets, which fails
+  CI once the eval service counts a unit test in the Test Set and is only
+  reported until then). The
   gateway and the Lab read them as generated data
   (`texSetsRepo.generated.json`, the Lab's `SETS`).
 - **A change is a draft first.** The Lab's Testing tab and `tex_dev` edit a
@@ -83,8 +84,10 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
   Maya world once the texting setup is pulled; any other node says it can't
   run alone yet rather than passing.
 - Today's repo cases (respond, review, the job check, core and simple asks)
-  were migrated into conversations (`apps/mcp/bench/setsMigrate.mjs`), Training
-  and Dev only, since they are already public; `caseToConversation` converts a
+  were migrated into conversations (`apps/mcp/bench/setsMigrate.mjs`), all in
+  Dev: they are what today's replays score, and Training is shown to the steps
+  as examples, so in Training they would hand the steps their answers. They are
+  already public, so none go to Test; `caseToConversation` converts a
   held-out case the same way inside the eval service.
 
 Reverting to cases outside conversations, or to a store an agent can write
