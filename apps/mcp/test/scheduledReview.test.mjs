@@ -272,14 +272,13 @@ test("a routine that texts other people is never reviewed: the reviewer reads on
 });
 
 // Sabotage record (2026-11-11, applied, run, failing, reverted): `channel.review` set again in runTheModel.js → this test fails on `reviews().length`.
-test("no reviewer reads a progress line (Dev2, 2026-11-11): each goes as written, and only the reply is reviewed", async () => {
+test("no reviewer reads a progress line (Dev2, 2026-11-11), nor since 2026-11-15 a chat turn's reply: each goes as written", async () => {
   const first = "Opening OpenTable for Friday.";
   const second = "Checking Nopa now.";
   script.push(calls("send", { action: "progress", args: { text: first } }), calls("send", { action: "progress", args: { text: second } }), says("Nopa has a table for four at 7 on Friday."));
   const lines = await streamed("find me a table for four on Friday");
   const texted = lines.filter((line) => typeof line.progress === "string").map((line) => line.progress);
   assert.deepEqual(texted, [first, second], "both lines went, unreviewed");
-  assert.equal(reviews().length, 1, "the one review is of the reply");
-  assert.match(JSON.stringify(reviews()[0].body.messages), /The reply about to be sent: Nopa has a table/);
+  assert.equal(reviews().length, 0, "a chat turn's reply gets the code checks alone (Dev2, 2026-11-15)");
   assert.equal(lines.at(-1)?.status, 200);
 });

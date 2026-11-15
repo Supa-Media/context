@@ -196,3 +196,12 @@ brief kept when each turn ends.
 2. Does "irreversible" cover calendar invites and note shares to others, or only email, posts and texts to third parties?
 3. PR 2 lets the model open a page it can name without a search returning it first. Is that the same as turning on `open_web` for every setup, or should it stay per setup?
 4. Is "one restart per turn" in PR 4 a limit Dev2 accepts, given that it lives in code?
+
+## The reviewer reads only job reports and scheduled texts (Dev2, 2026-11-15)
+
+A week of production logs (2026-11-09 to 11-15) put the Haiku reviewer at 25.5% of reviewed turns sent back, "unsourced" the most common reason. Of six send-backs read in full from a 1:1, three were useful and two were false alarms, both "unsourced": the reviewer saw a 50K ledger read cut to 16K characters, and judged a search by the words searched for rather than its results. A chat turn's rewrite is not reviewed again, so a wrong send-back shipped a worse reply. Dev2 chose two changes:
+
+- **A figure check in code on every chat turn** (`sourcedFigures.js` `seenFiguresNotice`, run by the front door's code checks in `untriedWeb.js`). Once a turn that took an action, a price, percentage or score in the draft must be in something the model saw: its prompt, their texts and the earlier texts, and every tool result as the model got it. Otherwise the draft goes back once, naming the figures. A picture in the turn skips it, and a check's own note quoting a draft is no source.
+- **The reviewer only on a job's report and a scheduled text** (`runTheModel.js` `gated`, and heartbeat check-ins as before). Every other chat turn gets the code checks alone.
+
+Reversing either: `apps/mcp/test/agentSeenFigures.test.mjs`, `agentJobHaiku.test.mjs` ("nor since 2026-11-15 an ordinary text"), `scheduledReview.test.mjs` and the replay case `figures-read-whole` fail.

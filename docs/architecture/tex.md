@@ -43,7 +43,7 @@ flowchart LR
   n_planner["Big-ask planner<br/>Opus 5.5 · effort high · off<br/>planBigAsk.js"]:::off
   n_tools["Tools<br/>code<br/>callToolForSession"]:::tool
   n_advisor["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js · advisorRoles/chat.js"]:::model
-  n_checks["Answer checks<br/>code<br/>graph/nodes/checks.js · doItChecks.js · replyJudge.js codeCheck"]:::code
+  n_checks["Answer checks<br/>code<br/>graph/nodes/checks.js · doItChecks.js · untriedWeb.js · sourcedFigures.js seenFiguresNotice · replyJudge.js codeCheck"]:::code
   n_mail["Mail checker<br/>Haiku 5.5 · effort low<br/>mailChecker.js"]:::model
   n_card["Card check<br/>Haiku 5.5 · effort medium<br/>cardCheck.js"]:::model
   n_reviewer["Reply reviewer<br/>Haiku 5.5 · effort low<br/>graph/nodes/reviewer.js · replyJudge.js review · sendBack.js"]:::model
@@ -175,7 +175,7 @@ every wire, from the same config.
 | Big-ask planner | planner |  | off | Opus 5.5 | high |  | own, ask, caps | planBigAsk.js |
 | Tools | tools |  | on | code |  |  |  | callToolForSession |
 | Advisor | advisor |  | on | Opus 5.5 | high | 40 s | own, caps, about, ask, ledger, hist, date | advisor.js · advisorRoles/chat.js |
-| Answer checks | checks |  | on | code |  |  |  | graph/nodes/checks.js · doItChecks.js · replyJudge.js codeCheck |
+| Answer checks | checks |  | on | code |  |  |  | graph/nodes/checks.js · doItChecks.js · untriedWeb.js · sourcedFigures.js seenFiguresNotice · replyJudge.js codeCheck |
 | Mail checker | mail |  | on | Haiku 5.5 | low |  | own, draft, ask | mailChecker.js |
 | Card check | card |  | on | Haiku 5.5 | medium |  | own, draft | cardCheck.js |
 | Reply reviewer | reviewer |  | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | graph/nodes/reviewer.js · replyJudge.js review · sendBack.js |

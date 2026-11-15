@@ -14,15 +14,22 @@
  * on it, gets one more round to try. It is a regex over the answer and a flag
  * on the web's calls, so a turn that tried, or never says it couldn't, pays
  * nothing. The rest of the claim check stays off the front door.
+ *
+ * Since 2026-11-15 it also runs the figure check over what the model saw
+ * (`sourcedFigures.js` `seenFiguresNotice`), once a turn: the reply reviewer
+ * no longer reads chat turns (Dev2), and "unsourced" was most of what it sent
+ * back.
  */
 
 import { TRY_NOTICE, saysItCouldNot } from "./claimCheck.js";
+import { seenFiguresNotice } from "./sourcedFigures.js";
 
 /** `{ wrapWeb, check }`, shaped like `claimCheck`'s, for `runTurn`'s `web` and `answerCheck`. */
 export function untriedWebCheck() {
   let hadWeb = false;
   let triedWeb = false;
   let noticed = false;
+  let figuresChecked = false;
   return {
     wrapWeb(web) {
       if (web === null || web === undefined) return null;
@@ -35,10 +42,15 @@ export function untriedWebCheck() {
         },
       };
     },
-    check(answer) {
-      if (noticed || !hadWeb || triedWeb || !saysItCouldNot(answer)) return null;
-      noticed = true;
-      return TRY_NOTICE;
+    /** `context` is the turn so far (`turn.js`): `messages`, and `system`, the prompt the model answered with. */
+    check(answer, context = {}) {
+      if (!noticed && hadWeb && !triedWeb && saysItCouldNot(answer)) {
+        noticed = true;
+        return TRY_NOTICE;
+      }
+      if (figuresChecked) return null;
+      figuresChecked = true;
+      return seenFiguresNotice(answer, context ?? {}); // the prompt it answered with and the messages so far
     },
   };
 }

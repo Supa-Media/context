@@ -196,7 +196,7 @@ test("the setup before it put a job's first two rounds on Opus: the cost this ch
   assert.deepEqual(turnCalls().slice(0, 2).map(modelOf), [OPUS, OPUS]);
 });
 
-test("a job's own turn is never reviewed; an ordinary text is (review, 2026-11-05; the reviewer, 2026-11-06)", async () => {
+test("a job's own turn is never reviewed, nor since 2026-11-15 an ordinary text (review, 2026-11-05; the reviewer, 2026-11-06; Dev2, 2026-11-15)", async () => {
   // Sabotage: drop `job === null` from `gated` in runTheModel.js: the job turn is reviewed.
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: SETUP.replace("open_web: yes", "open_web: yes\nreply_judge: haiku"), etag: "s-review" });
   script.push({ content: [{ type: "text", text: "Submitted it." }], stop_reason: "end_turn" });
@@ -204,9 +204,9 @@ test("a job's own turn is never reviewed; an ordinary text is (review, 2026-11-0
   assert.equal(reviews().length, 0, "nothing reviews a job's own turn");
   // The ordinary text asks the advisor first: a draft written with no action is not reviewed (2026-11-11, `replyJudge.js`).
   script.push(askAdvisor, { content: [{ type: "text", text: "Nothing on." }], stop_reason: "end_turn" }, { content: [{ type: "text", text: "Nothing tomorrow." }], stop_reason: "end_turn" });
+  // Sabotage: drop `report !== null` from `gated` in runTheModel.js: the ordinary text's reply is reviewed again.
   assert.equal((await ask(TOKEN_GUEST, { question: "what's on tomorrow" })).status, 200);
-  assert.equal(reviews().length, 1, "one review of an ordinary text's reply");
-  assert.equal(reviews()[0].body.model, "claude-haiku-5-5");
+  assert.equal(reviews().length, 0, "an ordinary text gets the code checks alone (Dev2, 2026-11-15); a job's report still gets the reviewer, below");
 });
 
 test("what Tex texts about a job's report is reviewed with the report in view (Dev2, 2026-11-05)", async () => {
