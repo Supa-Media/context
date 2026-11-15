@@ -156,7 +156,7 @@ every wire, from the same config.
 | Old number? | oldLine |  | on | code |  |  |  | graph/nodes/oldLine.js · apps/agent oldLineStep.ts · oldLine.ts |
 | Staff move a chat | moveChat |  | on | code |  |  |  | graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts · groupMoves.ts |
 | Triage | triage |  | on | code |  |  |  | inboxTurn.ts chooseTurn · groupInbox.ts acceptGroup |
-| Decide | decide |  | on | Clef |  |  | examples, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
+| Decide | decide |  | on | Clef |  |  | train:decide, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
 | Queue | lanes |  | on | code |  |  |  | apps/agent inbox.ts · groupTurn.ts |
 | Read the text | readTheText | door | on | code |  |  |  | texEntryPoint/readTheText.js |
 | Run a routine | runARoutine | door | on | code |  |  |  | texEntryPoint/runARoutine.js |
@@ -170,7 +170,7 @@ every wire, from the same config.
 | Bookkeeping | prepareBookkeeping | door | on | code |  |  |  | texEntryPoint/prepareBookkeeping.js |
 | Prepare the answer | prepareTheAnswer | door | on | code |  |  |  | texEntryPoint/prepareTheAnswer.js |
 | Router | router |  | off | Clef |  |  | recent | router.js |
-| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, caps, hist, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
+| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd, caps, hist, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
 | Fallback | fallback |  | on | GLM-4.7 Flash |  |  |  | builtin.js |
 | Big-ask planner | planner |  | off | Opus 5.5 | high |  | own, ask, caps | planBigAsk.js |
 | Tools | tools |  | on | code |  |  |  | callToolForSession |
@@ -183,7 +183,7 @@ every wire, from the same config.
 | React | react |  | on | code |  |  |  | decide.ts reactionFor · reactions.ts |
 | Classifier | classifier |  | on | Haiku 5.5 | off | 4 s | own, threads, recent | conversationThreads.js |
 | Self-review | selfreview |  | on | Haiku 5.5 | low |  | own, hist | selfReview.js |
-| Background job | job |  | on | Haiku 5.5 | medium |  | tools, map, p-about-tex, p-rules, p-tools, p-working, brief, ask, date | graph/nodes/job.js · texJob.js · apps/agent jobRun.ts |
+| Background job | job |  | on | Haiku 5.5 | medium |  | tools, map, p-about-tex, p-rules, p-tools, p-working, train:job, brief, ask, date | graph/nodes/job.js · texJob.js · apps/agent jobRun.ts |
 | Job check | jobcheck |  | on | Opus 5.5 | high |  | own, brief, ask, ledger, out:job | graph/nodes/jobcheck.js · jobCheck.js |
 | Advisor on job mail | mailadv |  | on | Opus 5.5 | high |  | own, brief, ask | graph/nodes/mailadv.js · jobNote.js · advisorRoles/jobMail.js |
 | Hand-back judge | handback |  | on | Haiku 5.5 | low |  | own, brief, draft | graph/nodes/handback.js · handbackJudge.js · claimCheck.js |

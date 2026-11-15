@@ -1,0 +1,28 @@
+{
+  "id": "decide-07-assistant-answers-person",
+  "title": "Another assistant answers a person",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Mia",
+    "Nova"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Mia",
+      "text": "Nova, what's 12 times 9?"
+    },
+    {
+      "id": "m2",
+      "who": "Nova",
+      "text": "108.",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "asks_someone_else"
+        }
+      }
+    }
+  ]
+}

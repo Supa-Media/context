@@ -1,7 +1,8 @@
 /**
  * The canvas graph exactly as the Lab artifact drew it (Version 16, `mainGraph0`), kept so the port's golden tests
  * (`texLabEngine`, `texLabCanvasRender`) still compare like with like after main's graph is corrected to what the code
- * runs (`texLabMainGraph.test.ts`). Those tests mock `data/graph` with `artifactGraphModule()`.
+ * runs (`texLabMainGraph.test.ts`). Those tests mock `data/graph` with `artifactGraphModule()`. One rename: Decide's
+ * `examples` read is `train:decide` since 2026-11-15, the same words now built from the Training Set.
  */
 import { jest } from "@jest/globals";
 import type { LabGraph } from "../../features/tex/lab/types";

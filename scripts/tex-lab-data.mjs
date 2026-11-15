@@ -186,12 +186,22 @@ function buildCases() {
 async function buildModText() {
   const { TEX_MAP } = await import(pathToFileURL(abs("apps/mcp/src/agent/texArchitecture.generated.js")).href);
   const { CAPABILITY_LIST } = await import(pathToFileURL(abs("apps/mcp/src/agent/capabilities.js")).href);
-  const { EXAMPLES_TEXT } = require(abs("packages/shared/src/textDecide.cjs"));
+  const { judgeExamplesText } = require(abs("packages/shared/src/textDecide.cjs"));
+  // Each step's Training module (`train:<nodeId>`, `texTraining.cjs`), as the steps that name it are given it: Decide's
+  // in the judge's own form, the others' in the Training form. A step with no labels has no text.
+  const { moduleText } = require(abs("packages/shared/src/texTraining.cjs"));
+  const training = JSON.parse(readText("packages/shared/src/texTraining.generated.json"));
+  const config = JSON.parse(readText("packages/shared/src/texConfig.json"));
+  const train = {};
+  for (const n of config.nodes) {
+    const text = n.id === "decide" ? judgeExamplesText(["decide"]) : moduleText(`train:${n.id}`, training);
+    if (text !== "") train[`train:${n.id}`] = text;
+  }
   const about = readText("apps/mcp/bench/ai/workspaces/maya/tex/about-me.md");
   // Tex's prompt words, the repository's own (`scripts/tex-prompt-module.mjs`), under the Lab's module keys.
   const prompt = JSON.parse(readText("packages/shared/src/texPrompt.generated.json")).modules;
   const words = Object.fromEntries(Object.entries(prompt).map(([name, text]) => [`p-${name}`, text]));
-  return { map: TEX_MAP, caps: CAPABILITY_LIST, examples: EXAMPLES_TEXT, about, ...words };
+  return { map: TEX_MAP, caps: CAPABILITY_LIST, ...train, about, ...words };
 }
 
 function buildWs() {

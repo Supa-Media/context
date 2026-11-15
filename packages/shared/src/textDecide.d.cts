@@ -15,6 +15,8 @@ export declare const WHY: Readonly<Record<string, string>>;
 export type JudgeExample = { chat: "group" | "one"; setting?: string; lines: string[]; text: string; verdict: "respond" | "react" | "quiet" | "wait"; emoji?: string; why: string };
 export declare const JUDGE_EXAMPLES: readonly JudgeExample[];
 export declare const EXAMPLES_TEXT: string;
+/** The judge's examples block for the Training modules named (node ids), as `train:<nodeId>` in its context reads them. */
+export declare function judgeExamplesText(sources: readonly string[]): string;
 export declare const REACT_EMOJI: Readonly<Record<string, { readonly emoji: string; readonly when: string }>>;
 
 /** `{ state, questions }`: what the decision model reads and the typed questions it answers. */

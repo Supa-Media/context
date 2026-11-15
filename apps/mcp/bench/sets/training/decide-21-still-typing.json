@@ -1,0 +1,32 @@
+{
+  "id": "decide-21-still-typing",
+  "title": "A burst still being typed",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Dev"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Dev",
+      "text": "Tex can you check this"
+    },
+    {
+      "id": "m2",
+      "who": "Dev",
+      "text": "sending the photo now"
+    },
+    {
+      "id": "m3",
+      "who": "Dev",
+      "text": "it's the one from",
+      "labels": {
+        "decide": {
+          "act": "wait",
+          "why": "still_typing"
+        }
+      }
+    }
+  ]
+}

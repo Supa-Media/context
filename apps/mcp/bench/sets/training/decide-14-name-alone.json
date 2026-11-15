@@ -1,0 +1,33 @@
+{
+  "id": "decide-14-name-alone",
+  "title": "Tex's name alone as the ask",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Luis",
+    "Rosa"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Luis",
+      "text": "can someone find the ferry times"
+    },
+    {
+      "id": "m2",
+      "who": "Rosa",
+      "text": "no clue"
+    },
+    {
+      "id": "m3",
+      "who": "Luis",
+      "text": "tex",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "tags_tex"
+        }
+      }
+    }
+  ]
+}
