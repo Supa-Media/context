@@ -58,6 +58,19 @@ describe("moving chats, as staff see it", () => {
     expect(list.groups).toEqual([{ groupKey: GROUP_KEY, name: "Book club", people: 1, lastSeenAt: 5, move: null }]);
   });
 
+  test("lists a phone let in off the waitlist that has no account yet, once", async () => {
+    const t = tester();
+    const { staff } = await setUp(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("waitlist", { phone: "+15555550177", status: "admitted", joinedAt: 1, source: "login" });
+      await ctx.db.insert("waitlist", { phone: PHONE, status: "admitted", joinedAt: 2, source: "login" });
+      await ctx.db.insert("waitlist", { phone: "+15555550178", status: "waiting", joinedAt: 3, source: "login" });
+    });
+    const people = (await staff.query(api.functions.texChatMoves.listTexChatMoves, {})).people;
+    expect(people.map((row) => row.phone).sort()).toEqual([PHONE, "+15555550177"]);
+    expect(people.find((row) => row.phone === "+15555550177")?.name).toBe("Not signed up yet");
+  });
+
   test("a stranger can neither list nor ask", async () => {
     const t = tester();
     await setUp(t);

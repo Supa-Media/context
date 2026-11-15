@@ -103,6 +103,15 @@ export const listTexChatMoves = query({
       const name = (typeof user?.name === "string" && user.name.trim()) || (handle ? `@${handle}` : "Someone");
       people.push({ phone: link.phone, name, move: shown(moves.get(`person:${link.phone}`)) });
     }
+    // People let in off the waitlist by number text Tex too, before they link an account (`textPhones.knownPhones`).
+    const listed = new Set(people.map((row) => row.phone));
+    const admitted = ctx.db.query("waitlist").withIndex("by_status_joinedAt", (q) => q.eq("status", "admitted"));
+    for await (const row of admitted) {
+      if (people.length >= MAX_LISTED) break;
+      if (row.phone === undefined || !isPhoneNumber(row.phone) || listed.has(row.phone)) continue;
+      listed.add(row.phone);
+      people.push({ phone: row.phone, name: "Not signed up yet", move: shown(moves.get(`person:${row.phone}`)) });
+    }
     people.sort((a, b) => a.name.localeCompare(b.name));
 
     const groups = [];
