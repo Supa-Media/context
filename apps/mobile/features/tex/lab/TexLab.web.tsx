@@ -22,12 +22,14 @@ import { G, go, isMain, lab, newVersion, openVersion, saveVersion, set, fit, emi
 import { buildTraces, traceMine } from "./engine/traces";
 import { LAB_CSS } from "./labCss";
 import { ensureFontsLoaded } from "../../design/fonts.web";
-import { promoteVersion, useLab, useLabSync } from "./store";
+import { promoteVersion, useLab, useLabSync, useLiveFeed } from "./store";
+import { isLive, saveNow } from "./engine/live";
 import type { View } from "./types";
 import { Canvas } from "./views/Canvas.web";
 import { Compare } from "./views/Compare.web";
 import { Convo } from "./views/Convo.web";
 import { Ic } from "./views/ic";
+import { LiveChanges, LiveChips } from "./views/LiveChanges.web";
 import { Modules } from "./views/Modules.web";
 import { Props } from "./views/Props.web";
 import { Run } from "./views/Run.web";
@@ -131,6 +133,7 @@ export function TexLab() {
 
 function Lab() {
   const s = useLab();
+  useLiveFeed();
   const closeSide = () => set({ sideOpen: false });
   const d = diff();
   const cvn = cvDiff().length;
@@ -187,7 +190,7 @@ function Lab() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        if (!isMain()) void saveVersion();
+        if (!isMain()) void saveNow();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -259,9 +262,11 @@ function Lab() {
             }}
           />
           <span className="dot" id="dirtyDot" title="Unsaved changes" hidden={!s.dirty} />
-          <button className="primary" id="saveBtn" disabled={isMain() || !s.dirty} onClick={() => void saveVersion()}>
+          {/* A saved version is live: each edit is saved as it happens, so Save stays only for a rename (`engine/live.ts`). */}
+          <button className="primary" id="saveBtn" hidden={isLive() && !s.dirty} disabled={isMain() || !s.dirty} onClick={() => void saveNow()}>
             Save
           </button>
+          <LiveChips />
           {/* Not in the artifact: a saved version becomes Tex's config through a pull request (texLabPromote.ts). */}
           <button
             id="promoteBtn"
@@ -366,6 +371,7 @@ function Lab() {
                 </button>
               ) : null}
             </div>
+            <LiveChanges />
             </>}
           </nav>
           <div className="scrim" id="scrim" onClick={closeSide} />

@@ -6,6 +6,7 @@
  */
 import { ICONS, NODE_INFO, WIRES } from "../../data/graph";
 import { FTYPES } from "../../data/models";
+import { hlClass } from "../../engine/live";
 import { mods } from "../../engine/modules";
 import { fires, fmtS, fmtUsd, outTok, type Sim } from "../../engine/sim";
 import { MODELS, node } from "../../engine/state";
@@ -214,7 +215,7 @@ export function renderGraphHtml(
         ? "Code"
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
     const time = timeLabel(sim, n.id);
-    h += `<g class="nd ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+    h += `<g class="nd${hlClass(n.id)} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
       <rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? ringHtml(sim, g, n.id, ring(n.id)!) : ""}
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>

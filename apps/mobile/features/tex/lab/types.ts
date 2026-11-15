@@ -103,6 +103,9 @@ export type LabVersion = {
   authorId: string | null;
   createdAt?: number;
   updatedAt?: number;
+  /** Its revision on the server, and the AI client last in it over the MCP (`engine/live.ts`). */
+  rev?: number;
+  live?: { client: string; at: number } | null;
   /** Where its Promote stands (`texLabPromote.ts`): asked, its pull request opened, or why it was refused. */
   promote?: { state: string; pr: string | null; why: string | null } | null;
 };
