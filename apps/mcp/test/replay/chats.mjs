@@ -212,6 +212,7 @@ export async function groupChat({ key = "a".repeat(64), members = "b".repeat(64)
   return {
     model,
     team,
+    controlPlane,
     async tag(from, words, reply, said = [], { tagged = false } = {}) {
       const before = model.requests.length;
       model.install(script(reply));

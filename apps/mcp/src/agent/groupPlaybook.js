@@ -17,15 +17,16 @@
  * when something said in the chat is worth keeping there (the owner,
  * 2026-11-05: "we should let the advisor choose to create new memories"); a
  * word list of teaching phrases decided it before and refused "Tex store this
- * in your memories". What still stops a write is a turn that read something
- * from outside the chat (an email, a page, a file: `ledger.outside`), so words
- * planted there never become the chat's standing instructions. A guest chat
+ * in your memories". Nothing in code refuses a write after the turn read an
+ * email, a page or a file (the owner, 2026-11-15): a gate on that refused a
+ * member's own "yes and any subsequent ones" because the turn before had read
+ * the referral email the rule was about. The prompt still tells Tex that only
+ * what the people in the chat say can change it. A guest chat
  * never reads or writes it: it reads only what is shared with the chat's
  * group.
  */
 
 import { readWithEtag } from "./jobLog.js";
-import { toolError } from "../tools/results.js";
 
 export const PLAYBOOK_PATH = "tex/groups/playbook.md";
 /** The most of it a turn is shown; the rest is read with read_note when needed. */
@@ -60,21 +61,4 @@ export function playbookPrompt(group) {
     text +
     "\nPLAYBOOK>>>\n"
   );
-}
-
-/** Whether a call writes, moves or archives the playbook. */
-function touchesPlaybook(name, args) {
-  if (!["write_note", "append_note", "move_note", "archive_note", "edit_note"].includes(name)) return false;
-  const paths = [args?.path, args?.source, args?.destination, args?.note].filter((value) => typeof value === "string");
-  return paths.some((path) => path.trim().replace(/^\/+/, "").toLowerCase() === PLAYBOOK_PATH);
-}
-
-/** `callTool`, refusing a change to the playbook once the turn read something from outside the chat (`outside()`). */
-export function withPlaybookGate(callTool, { outside = () => false } = {}) {
-  return async (name, args) => {
-    if (outside() && touchesPlaybook(name, args ?? {})) {
-      return toolError(`This turn read something from outside this chat, so it can't change ${PLAYBOOK_PATH}. Nothing was changed. If it should be kept, say what you would save and ask them to confirm it; their answer is a new turn that can save it.`);
-    }
-    return await callTool(name, args);
-  };
 }
