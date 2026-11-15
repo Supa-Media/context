@@ -23,9 +23,11 @@ change. A session that wrote the change must never act as its examiner.
 2. Name the areas with `pnpm ai gate areas --base-sha $(git merge-base origin/main HEAD)` **and** the areas its
    prompts reach, `node apps/mcp/bench/run.mjs gate fingerprint --base-tree $MAIN` (one area a line; run
    `pnpm install --frozen-lockfile` in `$MAIN` first): the areas to examine are both lists together, as
-   **Tex replay required** counts them. A change to the drawing's first section (it is in every prompt) reaches
-   every area by its prompts while its files reach none; on 2026-11-14 an examiner that read only the first list
-   found nothing to examine on such a change, and its check stayed red.
+   **Tex replay required** counts them. A change to a file no area names (the capability list, a tool's
+   description) can reach every area by its prompts while its files reach none; on 2026-11-14 an examiner that read
+   only the first list found nothing to examine on such a change, and its check stayed red. A change to Tex's map
+   alone (`texArchitecture.generated.js`) reaches no area since 2026-11-15: fingerprints compare prompts with the
+   map taken out.
    `respond`, `review`, `core` and the four `advisor-*` roles can be examined (`SOCKET_AREAS` in
    `apps/mcp/bench/replayGate.mjs`). If the change reaches another area, stop
    and say so on the pull request. The core area also needs the live setup in
@@ -39,10 +41,13 @@ change. A session that wrote the change must never act as its examiner.
    note's text only, ending in a newline).
    The `jobs` area goes through the socket too (decided by the owner,
    2026-11-14: every config change now reaches the job prompts, because what
-   Tex is told about itself is generated from the config). One run is about
-   350 long tool-using calls (seven whole jobs, part after part, each with
-   Opus's done check, and the quality judge), so split the answering across
-   several examiner subagents as for core, and expect it to take the longest.
+   Tex is told about itself is generated from the config). A change's run is
+   three whole jobs, one of each kind (`GATE_JOB_TASKS` in
+   `apps/mcp/bench/gateSample.mjs`), plus any task the change adds or edits:
+   long tool-using calls, part after part, each with Opus's done check, and
+   the quality judge. Split the answering across several examiner subagents
+   as for core, and expect it to take the longest. The review and respond
+   areas keep only 20 cases each (every step does, 2026-11-15), and every held-out case runs too.
 3. Start the gate in the background with the socket set:
 
    ```sh

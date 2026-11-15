@@ -8,7 +8,7 @@ import { CV_TOOLS } from "../data/convo";
 import { BASE_SHA, WIRES } from "../data/graph";
 import { SETUP_FIELDS } from "../data/areas";
 import { FTYPES } from "../data/models";
-import { CASES } from "../labData.generated";
+import { isNodeArea, liveCases } from "./cases";
 import type { LabCase, LabGraph, LabNode } from "../types";
 import { cvOf, fp, mods, modsRaw, wcount, wdiff } from "./modules";
 import { replayConfig, type MyText } from "./mine";
@@ -111,14 +111,17 @@ export function diff(): Change[] {
 export const picks = () => lab.cur.picks || (lab.cur.picks = {});
 export const isPicked = (c: LabCase) => {
   const p = picks()[c.area];
-  return p ? p.includes(c.id) : true;
+  // With no picks of its own, an area runs what a change's replay runs (`gate: false` marks a case outside it).
+  return p ? p.includes(c.id) : c.gate !== false;
 };
-export const allCases = (): LabCase[] => CASES.map((c) => Object.assign({}, c, lab.caseEdits[c.area + "/" + c.id] || {})).concat(Object.values(lab.caseEdits).filter((e) => e.isNew));
+/** Every case as the Lab shows it, swapped-out ones gone (`engine/cases.ts`). */
+export const allCases = (): LabCase[] => liveCases();
 
 export function runAreas(): string[] {
   if (lab.cur.areas) return lab.cur.areas;
   const s = new Set(diff().filter(runs).flatMap((x) => x.areas || []));
-  for (const c of Object.values(lab.caseEdits)) s.add(c.area);
+  // A step's own node cases run as one area, "nodes" (`apps/mcp/bench/nodeCases.mjs`).
+  for (const c of Object.values(lab.caseEdits)) s.add(isNodeArea(c.area) ? "nodes" : c.area);
   return [...s];
 }
 
@@ -152,7 +155,7 @@ export function config() {
     wires: G0.edges,
     areas,
     cases,
-    caseEdits: Object.values(lab.caseEdits).map(({ area, id, ask, expect, isNew }) => ({ area, id, ask, expect, isNew: !!isNew })),
+    caseEdits: Object.values(lab.caseEdits).map(({ area, id, ask, expect, isNew, given, want, removed, replaces }) => ({ area, id, ask, expect, isNew: !!isNew, ...(given ? { given, want } : {}), ...(removed ? { removed: true } : {}), ...(replaces ? { replaces } : {}) })),
     log: "one JSON line per model call: {node, model, ms, in, out, thinking, steps, output}",
     // The person's own texts picked to replay read only, when the test user is "You" (`mine.ts`, `bench/labReplay.mjs`).
     ...(lab.tester === "me" ? replayConfig(pickedTexts(), lab.myReads, lab.me ? { handle: lab.me.handle, name: lab.me.name } : null) : {}),

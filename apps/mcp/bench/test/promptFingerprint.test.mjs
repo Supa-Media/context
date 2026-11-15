@@ -77,3 +77,34 @@ test("a tree's areas are run with the fingerprint file and no key, and what they
   assert.match(out.respond.error, /bench failed/);
   assert.ok(seen.every(({ env }) => env.BENCH_MODEL_FINGERPRINT && !("AI_GATEWAY_TOKEN" in env)));
 });
+
+// Dev2, 2026-11-15: "we shouldn't treat this as changing if the map changes". Sabotage: `maskedHash` ignoring `map`
+// -> "a change to Tex's map alone" fails; `changedAreas` always comparing `hash` -> the same test fails.
+test("a change to Tex's map alone reaches no area; any other change to the prompt still does", async () => {
+  const { maskedHash } = await import("../modelSocket.mjs");
+  const prompt = (map, own) => ({ model: "m", system: `${map}\n\nWHERE YOU ARE: the reviewer\n\n---\n\n${own}`, messages: [{ role: "user", content: "hi" }] });
+  const oldMap = 'Tex is a graph. "fd" runs first.\nThen the reviewer.';
+  const newMap = 'Tex is a graph. "fd" runs first.\nThen the reviewer, then send.';
+  const a = maskedHash("claude", prompt(oldMap, "Check the draft."), oldMap);
+  assert.equal(maskedHash("claude", prompt(newMap, "Check the draft."), newMap), a, "only the map moved");
+  assert.notEqual(maskedHash("claude", prompt(newMap, "Check the draft!"), newMap), a, "the reviewer's own words moved");
+  assert.notEqual(requestHash("claude", prompt(newMap, "Check the draft.")), requestHash("claude", prompt(oldMap, "Check the draft.")), "an answer is still named with the map in");
+
+  const fp = (hashes, masked) => fingerprintOf(hashes, masked);
+  const base = { review: fp(["h1", "h2"], ["m1", "m2"]), core: fp(["c1"], ["n1"]), jobs: fp(["j1"]) };
+  const head = { review: fp(["h1b", "h2b"], ["m1", "m2"]), core: fp(["c1b"], ["n1b"]), jobs: fp(["j1b"], ["k1"]) };
+  assert.deepEqual(changedAreas(base, head), ["core", "jobs"], "review differs only by the map; jobs is compared whole, since main wrote no masked hashes");
+  assert.equal(fp(["h1", "h2"], ["m1", null]).masked, undefined, "a file with a line missing its masked hash is compared whole");
+});
+
+test("the socket's fingerprint mode writes each call's map-masked hash beside its hash", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "fp-masked-"));
+  const file = join(dir, "calls.jsonl");
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(file, "");
+  const socket = modelSocket({ BENCH_MODEL_FINGERPRINT: file });
+  await socket.ask("claude", { model: "m", system: "x", messages: [] });
+  const line = JSON.parse((await readFile(file, "utf8")).trim());
+  assert.match(line.hash, /^[0-9a-f]{64}$/);
+  assert.match(line.masked, /^[0-9a-f]{64}$/);
+});

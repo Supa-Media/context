@@ -22,7 +22,8 @@ export type Answer =
 export type Send = (versionId: string, baseRev: number, ops: string) => Promise<Answer>;
 /** The Run tab's test picks and areas for a live draft, sent whole (`texLabDrafts.setRunSetup`). */
 export type SendSetup = (versionId: string, picks: string, areas: string | null) => Promise<{ status: string; rev?: number; error?: string }>;
-export type Change = { rev: number; who: string; via: string; said: string[]; at: number };
+/** One revision of a draft: who, through which door, what it said, and the keys it touched (`n:<step>`, `e:<from>><to>>…`). */
+export type Change = { rev: number; who: string; via: string; said: string[]; at: number; keys?: string[] };
 export type Feed = { rev: number; live: { client: string; who: string; at: number } | null; changes: Change[] };
 export type Hl = { by: "ai" | "lab"; until: number };
 

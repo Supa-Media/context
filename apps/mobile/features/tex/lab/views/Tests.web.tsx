@@ -4,16 +4,17 @@
  * edit forms and fit warnings. `FocusTests` is the same main column for the
  * canvas's focus side panel.
  */
-import { Fragment } from "react";
-import { AREAS, AREA_INFO, EXAMINABLE } from "../data/areas";
+import { AREAS, AREA_INFO } from "../data/areas";
 import { CASES } from "../labData.generated";
+import { CASE_CAP, isNodeArea, modelLine, nextId } from "../engine/cases";
+import { cancelSwap, drafts, keepSwap, pickSwapOut, startSwap, stepOfArea } from "../engine/caseDraft";
 import { allCases, isPicked, picks } from "../engine/diff";
 import { MAIN, emit, forkFromMain, isMain, lab, node } from "../engine/state";
 import { dropCase, saveCase, useLab } from "../store";
 import type { LabCase } from "../types";
-import { Ic } from "./ic";
-import { CaseThread, CaseWant, IoPanel, WhoPanel, caseFit, setPipeScn } from "./tests/caseParts";
-import { areaCounts } from "./tests/caseInfo";
+import { CaseThread, CaseWant, IoPanel, WhoPanel, caseFit } from "./tests/caseParts";
+import { NodeCases } from "./tests/NodeCases";
+import { Meter, StepNav } from "./tests/StepNav";
 import { MineMain } from "./mine/Mine.web";
 
 /** The case whose text is open for editing (the artifact's `tEdit`), shared by both pages. */
@@ -25,76 +26,6 @@ function pickEdit(fn: () => void) {
   fn();
   lab.dirty = true;
   emit();
-}
-
-const NAV_GROUPS: Array<[string, string, (k: string) => boolean]> = [
-  ["Unit", "one step alone", (k) => !AREA_INFO[k]?.int],
-  ["Integration", "the whole turn", (k) => !!AREA_INFO[k]?.int],
-];
-
-function AreaButton({ k, v }: { k: string; v: string }) {
-  const n = areaCounts(k);
-  const st = node(AREA_INFO[k]?.step ?? "", MAIN.graph);
-  const b = n.unfit;
-  return (
-    <button
-      data-area={k}
-      aria-current={k === lab.tArea ? "true" : "false"}
-      onClick={() => {
-        lab.tArea = k;
-        tEdit = null;
-        setPipeScn(null);
-        emit();
-      }}
-    >
-      <Ic k={st?.icon || "judge"} style={{ width: 16, height: 16 }} />
-      <span className="an">
-        {v}
-        <small>{st?.label || ""}</small>
-      </span>
-      <span className="ac">
-        {n.picked}/{n.total}
-      </span>
-      {b ? <span className="pill warn" title="Cases that can't test this version as written">{b}</span> : null}
-      {EXAMINABLE.has(k) ? null : <span className="pill warn" title="Needs API credits">credits</span>}
-    </button>
-  );
-}
-
-function AreaNav() {
-  useLab();
-  return (
-    <nav className="anav" aria-label="Areas">
-      {lab.tester === "me" ? (
-        <>
-          <div className="anh">
-            Yours<small>replayed read only</small>
-          </div>
-          <button data-area="mine" aria-current={lab.tArea === "mine" ? "true" : "false"} onClick={() => ((lab.tArea = "mine"), (tEdit = null), emit())}>
-            <Ic k="text" style={{ width: 16, height: 16 }} />
-            <span className="an">
-              Your texts
-              <small>{lab.me?.name || "You"}</small>
-            </span>
-            <span className="ac">{Array.isArray(lab.myTexts) ? lab.myPicks.length + "/" + lab.myTexts.length : ""}</span>
-          </button>
-        </>
-      ) : null}
-      {NAV_GROUPS.map(([h, sub, f]) => (
-        <Fragment key={h}>
-          <div className="anh">
-            {h}
-            <small>{sub}</small>
-          </div>
-          {Object.entries(AREAS)
-            .filter(([k]) => f(k))
-            .map(([k, v]) => (
-              <AreaButton key={k} k={k} v={v} />
-            ))}
-        </Fragment>
-      ))}
-    </nav>
-  );
 }
 
 /** Keep the case: the edited texts from the two boxes, saved for everyone. */
@@ -121,8 +52,10 @@ function TestCard({ c, inArea }: { c: LabCase; inArea: LabCase[] }) {
   const on = isPicked(c);
   const id = c.id;
   const fit = caseFit(c);
+  const sw = drafts.swap?.area === c.area ? drafts.swap : null;
+  const going = sw?.out === c.id;
   return (
-    <article className={`tc ${on ? "" : "off"}`}>
+    <article className={`tc ${on ? "" : "off"}${going ? " going" : ""}`} data-case={id}>
       <div className="tch">
         <label className="inrun" title="In the run">
           <input
@@ -135,7 +68,7 @@ function TestCard({ c, inArea }: { c: LabCase; inArea: LabCase[] }) {
               pickEdit(() => {
                 const p = picks();
                 const area = lab.tArea;
-                if (!p[area]) p[area] = inArea.map((x) => x.id);
+                if (!p[area]) p[area] = inArea.filter(isPicked).map((x) => x.id);
                 p[area] = checked ? [...new Set([...p[area], id])] : p[area].filter((x) => x !== id);
               });
             }}
@@ -146,7 +79,13 @@ function TestCard({ c, inArea }: { c: LabCase; inArea: LabCase[] }) {
         {meta.must ? <span className="pill acc">tagged</span> : null}
         {meta.group ? <span className="pill">{meta.group}</span> : null}
         {ed ? <span className="pill acc">{ed.isNew ? "new" : "edited"}</span> : null}
+        {going ? <span className="pill">picked to go</span> : null}
         <span className="spacer"></span>
+        {sw ? (
+          <button className="ghost sm" data-swapout={id} aria-pressed={going} onClick={() => pickSwapOut(going ? null : id)}>
+            {going ? "Keep it" : "Swap out"}
+          </button>
+        ) : null}
         <button
           className="ib sm"
           data-edit={id}
@@ -204,7 +143,88 @@ function TestCard({ c, inArea }: { c: LabCase; inArea: LabCase[] }) {
 function TMain() {
   useLab();
   if (lab.tArea === "mine") return lab.tester === "me" ? <MineMain /> : <BenchMain />;
+  if (isNodeArea(lab.tArea)) return <NodeMain />;
   return <BenchMain />;
+}
+
+/** The step's title row: its name, its model, how many of its 20 it holds. */
+function StepTitle({ title, model, n }: { title: string; model: string; n: number }) {
+  return (
+    <div className="sth">
+      <h2>{title}</h2>
+      {model ? <span className="pill">{model}</span> : null}
+      <span className="spacer"></span>
+      <span className="stc">
+        {n} of {CASE_CAP}
+      </span>
+      <Meter n={n} w={120} />
+    </div>
+  );
+}
+
+/** The case going into a full step: written here, a card picked to go, then Keep. */
+function SwapCard({ inArea }: { inArea: LabCase[] }) {
+  const sw = drafts.swap;
+  if (!sw) return null;
+  const base = CASES.find((c) => c.area === sw.area && c.id === sw.out);
+  return (
+    <article className="tc swapin" id="swapCard">
+      <div className="tch">
+        <span className="cid">{sw.id}</span>
+        <span className="pill warn">swapping in</span>
+        <span className="spacer"></span>
+        <span className="hint">replaces</span>
+        <span className="cid gone">{sw.out ?? "pick one"}</span>
+      </div>
+      <textarea className="note" rows={2} id="swapAsk" aria-label="The text" placeholder="The text" value={sw.ask} onChange={(e) => ((sw.ask = e.target.value), emit())} />
+      <textarea className="note" rows={2} id="swapExp" aria-label="What's right" placeholder="What's right" value={sw.expect} onChange={(e) => ((sw.expect = e.target.value), emit())} />
+      <div className="hint">Pick the case it replaces with Swap out on its card, then Keep. Nothing leaves until you Keep.</div>
+      <div className="flex" style={{ justifyContent: "flex-end" }}>
+        <button className="ghost" id="swapCancel" onClick={cancelSwap}>
+          Cancel
+        </button>
+        <button className="primary" id="swapKeep" disabled={!sw.out || !sw.ask.trim() || !inArea.some((c) => c.id === sw.out)} onClick={() => void keepSwap(base)}>
+          Keep
+        </button>
+      </div>
+    </article>
+  );
+}
+
+/** The reviewer's checks, each with how many of the step's cases test it. */
+function Coverage({ inArea }: { inArea: LabCase[] }) {
+  const by = new Map<string, number>();
+  for (const c of inArea) {
+    const g = typeof c.group === "string" ? c.group : null;
+    if (g) by.set(g, (by.get(g) || 0) + 1);
+  }
+  if (by.size < 2) return null;
+  return (
+    <div className="cov" id="coverage">
+      <span className="hint">Covers all {by.size} checks</span>
+      {[...by].map(([g, n]) => (
+        <span key={g} className="pill">
+          {g} {n}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** The cases this Lab traded out of the step, each one put back with a tap. */
+function SwappedOut({ area }: { area: string }) {
+  const gone = Object.values(lab.caseEdits).filter((e) => e.area === area && e.removed);
+  if (!gone.length) return null;
+  return (
+    <p className="hint" id="swappedOut">
+      Swapped out:{" "}
+      {gone.map((e) => (
+        <button key={e.id} className="ghost sm" data-putback={e.id} onClick={() => void dropCase(area + "/" + e.id)}>
+          {e.id} · put back
+        </button>
+      ))}
+    </p>
+  );
 }
 
 function BenchMain() {
@@ -212,8 +232,24 @@ function BenchMain() {
   const tArea = lab.tArea === "mine" ? "core" : lab.tArea;
   const inArea = allCases().filter((c) => c.area === tArea);
   const list = inArea.filter((c) => !lab.tQ || (c.id + " " + c.ask + " " + c.expect).toLowerCase().includes(lab.tQ));
+  const full = inArea.length >= CASE_CAP;
+  const st = node(AREA_INFO[tArea]?.step ?? "") ?? node(AREA_INFO[tArea]?.step ?? "", MAIN.graph);
   return (
     <section className="tmain">
+      <StepTitle title={AREAS[tArea] ?? tArea} model={st ? modelLine(st) : ""} n={inArea.length} />
+      {full ? (
+        <div className="capb" id="capBanner">
+          <svg className="i" viewBox="0 0 24 24" style={{ width: 16, height: 16 }} aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 8v5M12 16v.5" />
+          </svg>
+          <span style={{ flex: 1 }}>This step is full. A new case goes in by swapping out one you pick, so the run stays at {CASE_CAP}.</span>
+          <button className="primary" id="swapIn" disabled={!!drafts.swap} onClick={() => startSwap(tArea)}>
+            + Swap in a case
+          </button>
+        </div>
+      ) : null}
+      <Coverage inArea={inArea} />
       <WhoPanel area={tArea} inArea={inArea} />
       <IoPanel area={tArea} />
       <div className="tbar">
@@ -232,35 +268,55 @@ function BenchMain() {
           {inArea.filter(isPicked).length} of {inArea.length} in the run
         </span>
         <span className="spacer"></span>
-        <button className="ghost" id="selAll" onClick={() => pickEdit(() => { delete picks()[lab.tArea]; })}>
+        <button className="ghost" id="selGate" title="The cases a change's replay runs" onClick={() => pickEdit(() => { delete picks()[lab.tArea]; })}>
+          Replay's
+        </button>
+        <button className="ghost" id="selAll" onClick={() => pickEdit(() => { picks()[lab.tArea] = inArea.map((x) => x.id); })}>
           All
         </button>
         <button className="ghost" id="selNone" onClick={() => pickEdit(() => { picks()[lab.tArea] = []; })}>
           None
         </button>
-        <button
-          className="primary"
-          id="addCase"
-          onClick={() => {
-            let i = 1;
-            while (lab.caseEdits[lab.tArea + "/new-" + i]) i++;
-            tEdit = "new-" + i;
-            void saveCase({ area: lab.tArea, id: "new-" + i, ask: "The text", expect: "What's right", isNew: true, by: lab.myId, at: Date.now() });
-          }}
-        >
-          <svg className="i" viewBox="0 0 24 24" style={{ width: 15, height: 15 }}>
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          Case
-        </button>
+        {full ? null : (
+          <button
+            className="primary"
+            id="addCase"
+            onClick={() => {
+              const id = nextId(lab.tArea);
+              tEdit = id;
+              void saveCase({ area: lab.tArea, id, ask: "The text", expect: "What's right", isNew: true, by: lab.myId, at: Date.now() });
+            }}
+          >
+            <svg className="i" viewBox="0 0 24 24" style={{ width: 15, height: 15 }}>
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Case
+          </button>
+        )}
       </div>
       <div className="tgrid">
+        {drafts.swap?.area === tArea ? <SwapCard inArea={inArea} /> : null}
         {/* Keyed by place too: the bench has ids that repeat inside an area (review/plain-answer). */}
         {list.map((c, i) => (
           <TestCard key={c.area + "/" + c.id + "/" + i} c={c} inArea={inArea} />
         ))}
         {list.length ? null : <p className="hint">No cases match.</p>}
       </div>
+      <SwappedOut area={tArea} />
+    </section>
+  );
+}
+
+/** A step's own cases (area node:<id>): its title, then the form and the kept cases. */
+function NodeMain() {
+  useLab();
+  const n = stepOfArea(lab.tArea);
+  if (!n) return <p className="hint">That step is not in this version.</p>;
+  const count = allCases().filter((c) => c.area === lab.tArea).length;
+  return (
+    <section className="tmain" id="nodeMain">
+      <StepTitle title={n.label} model={modelLine(n)} n={count} />
+      <NodeCases id={n.id} />
     </section>
   );
 }
@@ -270,7 +326,7 @@ export function Tests() {
   useLab();
   return (
     <div className="tlay">
-      <AreaNav />
+      <StepNav />
       <TMain />
     </div>
   );

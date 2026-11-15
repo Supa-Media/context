@@ -221,6 +221,11 @@ export async function deleteDraftRows(ctx: MutationCtx, versionId: string) {
     .withIndex("by_version_rev", (q) => q.eq("versionId", versionId))
     .collect())
     await ctx.db.delete(change._id);
+  for (const before of await ctx.db
+    .query("texLabRevBefore")
+    .withIndex("by_version_rev", (q) => q.eq("versionId", versionId))
+    .collect())
+    await ctx.db.delete(before._id);
   return row !== null;
 }
 

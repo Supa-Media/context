@@ -33,7 +33,7 @@ export const ACTIONS = [
   ["promote", "{ draft }", "the Lab's Promote: a pull request within 15 minutes that merges only through CI and the replay gate"],
   ["tool_stats", "{ days? }", "the Lab's Tools tab: how often each tool ran, failed and how long it took, over 1 to 30 days"],
   ["cases", "{}", "the Lab's shared edits to the bench cases, and its new cases"],
-  ["case", "{ key: \"<area>/<case id>\", data: {...} | null }", "keep a case edit or a new case for every staff member, or drop it with null"],
+  ["case", "{ key: \"<area>/<case id>\" (a step's own: \"node:<step>/<case id>\"), data: {...} | null }", "keep a case edit or a new case for every staff member, or drop it with null"],
   ["chats", "{}", "the chats whose turns you can probe: your one-to-one with Tex and each group chat you are in"],
   ["turns", "{ chat?, day?, before?, limit? }", "a chat's recent replies, 20 unless `limit` (at most 100), with each turn's id, time and how long it took; `day` YYYY-MM-DD, `before` to page back"],
   ["moments", "{ chat?, before?, limit?, moment?, at? }", "Replay's conversation: every moment (a text someone sent, a check-in, a routine, a ping, a quiet look) newest first, 20 unless `limit`, with the texts that came in behind, its turns (waited, ran, which Tex, what it said), the judge's calls, its jobs and time to the last send; `moment` gives one whole: its lines, the timeline's lanes and its rows by step"],

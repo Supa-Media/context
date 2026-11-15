@@ -193,3 +193,19 @@ export function useLiveFeed() {
     emit();
   }, [feed]);
 }
+
+/** The draft as it was before the revision "against last rev" compares with (`engine/changeMarks.ts`). */
+export function useRevBase() {
+  const rev = typeof lab.chgVs === "number" && lab.chg !== "off" ? lab.chgVs : null;
+  const id = live.id && live.synced && rev !== null ? live.id : null;
+  const before = useQuery(api.functions.texLabDrafts.graphBefore, id && rev !== null ? { versionId: id, rev } : "skip");
+  useEffect(() => {
+    if (rev === null || before === undefined) return;
+    if (before === null) {
+      lab.revBase = null;
+      toast("That revision's earlier graph wasn't kept; showing changes against main");
+      lab.chgVs = "main";
+    } else lab.revBase = { rev, graph: shownGraph(withCurrentModes(parse(before, { nodes: [], edges: [] })), lab.cfocus) };
+    emit();
+  }, [before, rev]);
+}

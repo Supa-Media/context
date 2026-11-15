@@ -28,7 +28,7 @@ import { resolveLiveGrant } from "./lib/controlPlane/liveGrants";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { getMembership } from "./lib/workspaceAuth";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
-import { MAX_JSON } from "./texLab";
+import { CASE_KEY, MAX_JSON } from "./texLab";
 import { pageForUser } from "./texPage";
 import { clampDays } from "./texLabToolStats";
 import { toolStatsReport } from "./lib/adminFns/texToolStats";
@@ -43,7 +43,7 @@ export const MAX_COMPARE = 20;
 const NAME_MAX = 120;
 
 type Row = Doc<"texLabVersions">;
-type Change = { rev: number; who: string; via: string; said: string[]; at: number };
+type Change = { rev: number; who: string; via: string; said: string[]; at: number; keys: string[] };
 
 const parseGraph = (s: string) => {
   try {
@@ -78,7 +78,7 @@ async function changesAfter(ctx: QueryCtx, versionId: string, since: number, ful
     .take(MAX_CHANGES);
   const names = new Map<string, string>();
   const out: Change[] = [];
-  for (const r of rows) out.push({ rev: r.rev, who: await whoIs(ctx, names, r.by), via: r.via, said: full ? (r.full ?? r.said) : r.said, at: r.at });
+  for (const r of rows) out.push({ rev: r.rev, who: await whoIs(ctx, names, r.by), via: r.via, said: full ? (r.full ?? r.said) : r.said, at: r.at, keys: r.keys });
   return out;
 }
 
@@ -122,7 +122,21 @@ export async function applyToDraft(ctx: MutationCtx, row: Row, baseRev: number, 
   await ctx.db.patch(row._id, { graph: text, rev: rev + 1, updatedAt: now });
   // The undo is the edits back to the graph before (`tex_dev` `revert`).
   await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev: rev + 1, by, via, keys: applied.keys, said: applied.said, full: applied.full, undo: undoText({ ops: diffGraphs(applied.graph, graph) }), at: now });
+  await keepBefore(ctx, row.versionId, rev + 1, row.graph);
   return { status: "ok", rev: rev + 1, said: applied.said, others };
+}
+
+/** How many revisions back a draft's earlier graphs are kept for "against last rev" (older ones are deleted). */
+export const KEEP_BEFORE = 30;
+
+/** Keep the graph a draft had just before revision `rev`, and drop the ones older than the last `KEEP_BEFORE`. */
+async function keepBefore(ctx: MutationCtx, versionId: string, rev: number, graph: string) {
+  await ctx.db.insert("texLabRevBefore", { versionId, rev, graph });
+  for (const old of await ctx.db
+    .query("texLabRevBefore")
+    .withIndex("by_version_rev", (q) => q.eq("versionId", versionId).lte("rev", rev - KEEP_BEFORE))
+    .take(10))
+    await ctx.db.delete(old._id);
 }
 
 /** What a draft holds now at each refused piece: a field's value, a whole step, a wire or null when it is gone. */
@@ -172,6 +186,7 @@ export async function recordSave(ctx: MutationCtx, row: Row, newGraph: string, b
   if (keys.length === 0) return row.rev ?? 0;
   const rev = (row.rev ?? 0) + 1;
   await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev, by, via: "lab", keys, said, full, undo, at: now });
+  await keepBefore(ctx, row.versionId, rev, row.graph);
   return rev;
 }
 
@@ -223,13 +238,27 @@ export const setRunSetup = mutation({
 /** The Lab's change list for a draft: every change after `since`, and the AI client in it now, if any. */
 export const changes = query({
   args: { versionId: v.string(), since: v.number() },
-  returns: v.object({ rev: v.number(), live: v.union(v.null(), v.object({ client: v.string(), who: v.string(), at: v.number() })), changes: v.array(v.object({ rev: v.number(), who: v.string(), via: v.string(), said: v.array(v.string()), at: v.number() })) }),
+  returns: v.object({ rev: v.number(), live: v.union(v.null(), v.object({ client: v.string(), who: v.string(), at: v.number() })), changes: v.array(v.object({ rev: v.number(), who: v.string(), via: v.string(), said: v.array(v.string()), at: v.number(), keys: v.array(v.string()) })) }),
   handler: async (ctx, { versionId, since }) => {
     await requireAdmin(ctx);
     const row = await rowOf(ctx, versionId);
     if (row === null) return { rev: 0, live: null, changes: [] };
     const live = row.live ? { client: row.live.client, who: await whoIs(ctx, new Map(), row.live.by), at: row.live.at } : null;
     return { rev: row.rev ?? 0, live, changes: await changesAfter(ctx, versionId, Math.max(0, since)) };
+  },
+});
+
+/** The draft as it was before revision `rev`, for the Lab's "against last rev" marks; null when it was not kept. */
+export const graphBefore = query({
+  args: { versionId: v.string(), rev: v.number() },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, { versionId, rev }) => {
+    await requireAdmin(ctx);
+    const row = await ctx.db
+      .query("texLabRevBefore")
+      .withIndex("by_version_rev", (q) => q.eq("versionId", versionId).eq("rev", rev))
+      .first();
+    return row?.graph ?? null;
   },
 });
 
@@ -339,7 +368,7 @@ export const forGateway = internalMutation({
     if (action === "case") {
       const key = typeof a.key === "string" ? a.key : "";
       const data = a.data === null ? null : typeof a.data === "string" ? a.data : undefined;
-      if (!/^[\w-]{1,40}\/[\w.-]{1,80}$/.test(key) || data === undefined) return { status: "bad_request", error: "case takes key <area>/<case id> and data (the case as JSON text, or null to drop the edit)" };
+      if (!CASE_KEY.test(key) || data === undefined) return { status: "bad_request", error: "case takes key <area>/<case id> and data (the case as JSON text, or null to drop the edit)" };
       if (data !== null && data.length > MAX_JSON) return { status: "bad_request", error: "this case is too big to save" };
       const row = await ctx.db
         .query("texLabCaseEdits")

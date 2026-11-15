@@ -41,6 +41,10 @@ const run = promisify(execFile);
 export { AREAS, areasFor } from "./replayAreas.mjs";
 import { AREAS, areasFor } from "./replayAreas.mjs";
 
+/** The areas a change's replay samples rather than runs whole (Dev2, 2026-11-15; `gateSample.mjs`): the jobs alone, now
+ * every other step keeps at most 20 cases and runs them all. */
+export const GATE_SAMPLED = new Set(["jobs"]);
+
 export const HELD_OUT_FOLDER = "ai/held-out";
 export const HELD_OUT_PREFIX = "held-out/";
 
@@ -142,8 +146,10 @@ export function feedback({ areas, results }) {
 }
 
 /** One bench command in a tree, its rows written to a file. `only` limits it to some ids. */
-async function benchRows(tree, area, { heldOut, only, fake, out, records = null }) {
+async function benchRows(tree, area, { heldOut, only, fake, out, records = null, sampleBase = null }) {
   const args = [join(tree, "apps/mcp/bench/run.mjs"), area, "--json", out];
+  // The gate's sample of the jobs (`gateSample.mjs`), its new and changed tasks read against main's tree.
+  if (sampleBase && GATE_SAMPLED.has(area)) args.push("--gate-sample", sampleBase);
   if (records) args.push("--out", records);
   if (heldOut) args.push("--held-out", heldOut);
   if (only) args.push("--only", only.join(","));
@@ -191,9 +197,9 @@ export function mergeRuns(runs) {
 }
 
 /** A scorer that writes rows (`--json`), run `runs` times: the judge's and the reviewer's areas. */
-const benchRunner = (area) => async (tree, { heldOut, only, fake, scratch, tag, runs = 1 }) => {
+const benchRunner = (area) => async (tree, { heldOut, only, fake, scratch, tag, runs = 1, sampleBase = null }) => {
   const all = [];
-  for (let i = 1; i <= runs; i += 1) all.push(await benchRows(tree, area, { heldOut, only, fake, out: join(scratch, `${area}-${tag}-${i}.json`) }));
+  for (let i = 1; i <= runs; i += 1) all.push(await benchRows(tree, area, { heldOut, only, fake, sampleBase, out: join(scratch, `${area}-${tag}-${i}.json`) }));
   const rows = mergeRuns(all);
   // Answered through the model socket (an examiner session, or its recorded answers), a run spends no credits.
   const socketed = Boolean(process.env.BENCH_MODEL_SOCKET || process.env.BENCH_MODEL_REPLAY);
@@ -224,11 +230,11 @@ export const RUNNERS = {
   "advisor-job-check": advisorRunner("advisor-job-check"),
   "advisor-planner": advisorRunner("advisor-planner"),
   "advisor-job-mail": advisorRunner("advisor-job-mail"),
-  jobs: async (tree, { heldOut, only, fake, scratch, tag, runs = 1 }) => {
+  jobs: async (tree, { heldOut, only, fake, scratch, tag, runs = 1, sampleBase = null }) => {
     const all = [];
     for (let i = 1; i <= runs; i += 1) {
       // Each practice task's page, parts and checks too (`--out`), kept by the workflow so a pass can be read, not trusted.
-      all.push(await benchRows(tree, "jobs", { heldOut, only, fake, out: join(scratch, `jobs-${tag}-${i}.json`), records: join(scratch, `jobs-${tag}-${i}-records.json`) }));
+      all.push(await benchRows(tree, "jobs", { heldOut, only, fake, sampleBase, out: join(scratch, `jobs-${tag}-${i}.json`), records: join(scratch, `jobs-${tag}-${i}-records.json`) }));
     }
     // Each task prices itself (`usd` on its row); a row without one is counted at the estimate.
     const usd = all.flat().reduce((sum, row) => sum + (typeof row.usd === "number" ? row.usd : AREA_LIMITS.jobs.usdPerCase), 0);
@@ -257,7 +263,8 @@ export async function gate({ branch, base, areas, heldOut = null, fake = false, 
   for (const area of areas) {
     const limit = limits[area];
     const runner = runners[area];
-    const first = await runner(branch, { heldOut, fake, scratch, tag: "branch-1", runs: 1 });
+    // The first run is the change's whole look at the area: for jobs, the gate's sample (`gateSample.mjs`).
+    const first = await runner(branch, { heldOut, fake, scratch, tag: "branch-1", runs: 1, sampleBase: base });
     const wrongRows = first.rows.filter((row) => !row.right);
     const wrong = wrongRows.map((row) => row.id);
     const perCase = first.rows.length ? first.usd / first.rows.length : limit.usdPerCase;

@@ -160,6 +160,26 @@ function buildCases() {
     });
   }
 
+  // A step's own cases (apps/mcp/bench/nodes/<step>.json, run by `pnpm ai nodes`), written in the Lab from the
+  // step's input and output shapes; area `node:<step>`.
+  const nodesDir = "apps/mcp/bench/nodes";
+  for (const f of fs.existsSync(abs(nodesDir)) ? listSorted(nodesDir) : []) {
+    if (!f.endsWith(".json")) continue;
+    const set = JSON.parse(readText(nodesDir + "/" + f));
+    for (const c of set.cases || []) {
+      const given = Object.fromEntries(Object.entries(c.given || {}).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]));
+      const want = c.want || {};
+      out.push({
+        area: "node:" + set.node,
+        id: c.id,
+        given,
+        want,
+        ask: cut(Object.entries(given).filter(([, v]) => v !== "").map(([k, v]) => `${k}: ${v}`).join("; ")),
+        expect: cut(Object.entries(want).filter(([, w]) => w?.is || w?.judge).map(([k, w]) => (w.is ? `${k} = ${w.is}` : `${k}: a judge reads it for "${w.judge}"`)).join("; ")),
+      });
+    }
+  }
+
   return out;
 }
 
@@ -193,6 +213,26 @@ function buildWs() {
 }
 
 const cases = buildCases();
+
+// What a change's replay runs by default: the gate's own sample of the jobs (`apps/mcp/bench/gateSample.mjs`), so the
+// Lab picks the same tasks; a task outside it says `gate: false`. Every other step keeps at most 20 cases and runs them all.
+const sample = await import(pathToFileURL(abs("apps/mcp/bench/gateSample.mjs")).href);
+{
+  const jobs = readJsonList("apps/mcp/bench/job-tasks/cases.json");
+  const picked = sample.jobsSample(jobs, jobs);
+  for (const c of cases) if (c.area === "jobs" && !picked.has(c.id)) c.gate = false;
+}
+
+// No step holds more than 20 cases (Dev2, 2026-11-15: "a max of 20 test cases per unit"; docs/decisions/testing/replay-gate.md).
+{
+  const per = {};
+  for (const c of cases) per[c.area] = (per[c.area] || 0) + 1;
+  const over = Object.entries(per).filter(([, n]) => n > sample.UNIT_LIMIT);
+  if (over.length) {
+    console.error(`Each step keeps at most ${sample.UNIT_LIMIT} cases; trade one out before adding: ${over.map(([a, n]) => `${a} has ${n}`).join(", ")}`);
+    process.exit(1);
+  }
+}
 const modtext = await buildModText();
 const ws = buildWs();
 

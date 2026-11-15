@@ -6,6 +6,7 @@
  */
 import { ICONS, NODE_INFO, WIRES } from "../../data/graph";
 import { FTYPES } from "../../data/models";
+import { wireKey, type Marks } from "../../engine/changeMarks";
 import { hlClass } from "../../engine/live";
 import { mods } from "../../engine/modules";
 import { fires, fmtS, fmtUsd, outTok, type Sim } from "../../engine/sim";
@@ -180,6 +181,10 @@ export function renderGraphHtml(
   litId: string | ReadonlySet<string> | ReadonlyMap<string, number> | null,
   /** The artifact fades every step this text does not reach; the live Lab fades only steps switched off (Dev2, 2026-11-14). */
   fade: "unreached" | "off" = "unreached",
+  /** Each step's test case count, drawn as a chip at its corner, a dashed "+" where there are none (Dev2, 2026-11-15). */
+  counts: Record<string, number> | null = null,
+  /** A draft's changes against main or its last revision, drawn on the steps and wires (`engine/changeMarks.ts`). */
+  marks: Marks | null = null,
 ): string {
   const reached = (id: string) => sim.reach.has(id) || sim.inside.has(id);
   // While playing, how far through each running step is (0 to 1), drawn as a ring filling around it.
@@ -201,33 +206,84 @@ export function renderGraphHtml(
     const on = fade === "off" ? lit(e.from) && lit(e.to) : fires(e, tags, g) && lit(e.from);
     const s = sel?.t === "edge" && sel.i === i;
     const p = wirePath(a, b, e.mode);
-    h += `<path class="wire ${on || s ? "" : "dim"} ${s ? "sel" : ""}" d="${p.d}" stroke="var(${s ? "--accent" : w.c})" ${w.dash ? `stroke-dasharray="${w.dash}"` : ""} ${w.w && !s ? `stroke-width="${w.w}"` : ""} marker-end="url(#m-${s ? "sel" : e.mode})"/>`;
+    const wm = marks ? (marks.newWires.has(wireKey(e)) ? " wnew" : " wsame") : "";
+    h += `<path class="wire ${on || s ? "" : "dim"} ${s ? "sel" : ""}${wm}" d="${p.d}" stroke="var(${s ? "--accent" : w.c})" ${w.dash ? `stroke-dasharray="${w.dash}"` : ""} ${w.w && !s ? `stroke-width="${w.w}"` : ""} marker-end="url(#m-${s ? "sel" : e.mode})"/>`;
     h += `<path class="hit" d="${p.d}" data-edge="${i}"><title>${esc(w.name + ": " + a.label + " → " + b.label)}</title></path>`;
     if (e.mode === "loop" && (on || s))
       h += `<text class="wlabel" x="${p.lx}" y="${p.ly}" text-anchor="middle">send back</text>`;
   });
+  if (marks) h += goneHtml(marks);
   for (const n of g.nodes) {
     const m = MODELS[n.model] || MODELS.code;
     const s = sel?.t === "node" && sel.id === n.id;
+    const mk = marks ? (marks.nodes[n.id] ? ` chg-${marks.nodes[n.id].kind}` : " chg-same") : "";
     const sub = !n.on
       ? "Off"
       : m.runs === "code"
         ? "Code"
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
     const time = timeLabel(sim, n.id);
-    h += `<g class="nd${hlClass(n.id)} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+    h += `<g class="nd${hlClass(n.id)}${mk} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
       <rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? ringHtml(sim, g, n.id, ring(n.id)!) : ""}
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>
       <text class="ttl" x="62" y="28">${esc(n.label.length > 15 ? n.label.slice(0, 14) + "…" : n.label)}</text>
       <circle cx="66" cy="43" r="3.5" fill="var(${n.on ? m.c : "--dim"})"/><text class="sub" x="74" y="47">${esc(sub)}</text>
-      ${time ? `<text class="tm" x="${W - 4}" y="-7" text-anchor="end">${time}</text>` : ""}${n.on ? splitHtml(sim, g, n.id, m.c) : ""}
+      ${time ? `<text class="tm" x="${counts ? W - 26 : W - 4}" y="-7" text-anchor="end">${time}</text>` : ""}${n.on ? splitHtml(sim, g, n.id, m.c) : ""}${counts && counts[n.id] !== undefined ? caseChip(n.id, counts[n.id]) : ""}${marks ? markHtml(marks, n.id) : ""}
       <circle class="port" data-port="${n.id}" cx="${W}" cy="${H / 2}" r="6"/>
       <circle class="port" data-port="${n.id}" cx="0" cy="${H / 2}" r="6"/>
     </g>`;
   }
   h += `<path id="ghost" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4" d=""/>`;
   return h;
+}
+
+/** A step's case count at its top-right corner; none is a dashed "+" that opens its add form. */
+export function caseChip(id: string, n: number): string {
+  const x = W - 24;
+  return n > 0
+    ? `<g class="tcc" data-cases="${esc(id)}"><title>${n} case${n === 1 ? "" : "s"} test this step</title><rect x="${x}" y="-10" width="30" height="19" rx="9.5"/><text x="${x + 15}" y="3.5" text-anchor="middle">${n}</text></g>`
+    : `<g class="tcc z" data-addcase="${esc(id)}"><title>No cases yet: click to add one</title><rect x="${x}" y="-10" width="30" height="19" rx="9.5"/><text x="${x + 15}" y="4" text-anchor="middle">+</text></g>`;
+}
+
+/** The key's line for the case chips. */
+export function caseKeyHtml(): string {
+  return `<span class="flex ckey" style="gap:6px;flex-wrap:nowrap"><svg viewBox="0 0 30 20" style="width:30px;height:20px;flex:none" class="ckc"><rect x="1" y="1" width="28" height="18" rx="9"/><text x="15" y="14" text-anchor="middle">12</text></svg>cases on this step</span><span class="flex ckey" style="gap:6px;flex-wrap:nowrap"><svg viewBox="0 0 30 20" style="width:30px;height:20px;flex:none" class="ckc z"><rect x="1" y="1" width="28" height="18" rx="9"/><text x="15" y="14.5" text-anchor="middle">+</text></svg>no cases yet: click to add</span>`;
+}
+
+/** What left the graph, and in Ghost the base's place of each changed step, drawn under the steps. */
+function goneHtml(m: Marks): string {
+  let h = "";
+  for (const w of m.goneWires) h += `<path class="wire wgone" d="${wirePath(w.from, w.to, w.mode).d}" fill="none"/>`;
+  if (m.mode === "ghost")
+    for (const [id, x] of Object.entries(m.nodes)) {
+      const o = x.base;
+      if (!o || x.kind !== "changed") continue;
+      h += `<g class="ghostn" data-mark="${esc(id)}" transform="translate(${o.x},${o.y})"><rect class="card" width="${W}" height="${H}" rx="12"/><text class="ttl" x="16" y="28">${esc(o.label.length > 18 ? o.label.slice(0, 17) + "…" : o.label)}</text><text class="sub" x="16" y="47">${esc(subOf(o))}</text></g>`;
+    }
+  for (const o of m.removed)
+    h += `<g class="rmv ${m.mode}" data-mark="${esc(o.id)}" transform="translate(${o.x},${o.y})"><title>${esc(o.label)}: ${m.mode === "ghost" ? "only on " + m.vs : "removed"}</title><rect class="card" width="${W}" height="${H}" rx="12"/><text class="ttl" x="16" y="28">${esc(o.label.length > 18 ? o.label.slice(0, 17) + "…" : o.label)}</text><text class="sub" x="16" y="47">${esc(subOf(o))} · ${m.mode === "ghost" ? "only on " + esc(m.vs) : "removed"}</text>${m.mode === "marks" ? badge("removed") : ""}</g>`;
+  return h;
+}
+
+const subOf = (n: LabNode) => {
+  const m = MODELS[n.model] || MODELS.code;
+  return !n.on ? "Off" : m.runs === "code" ? "Code" : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
+};
+
+const badge = (kind: "changed" | "new" | "removed") =>
+  `<g class="mk mk-${kind}"><circle cx="0" cy="0" r="10"/><text x="0" y="4.5" text-anchor="middle">${kind === "changed" ? "~" : kind === "new" ? "+" : "−"}</text></g>`;
+
+/** A changed or new step's mark: the badge at its corner, and what changed (Marks) or what it was (Ghost) beneath. */
+function markHtml(m: Marks, id: string): string {
+  const x = m.nodes[id];
+  if (!x) return "";
+  const words = x.kind === "new" ? (m.mode === "ghost" ? "not on " + m.vs : "new") : [...x.fields, ...(x.moved ? ["moved"] : [])].join(" · ");
+  if (!words) return badge(x.kind);
+  const t = words.length > 34 ? words.slice(0, 33) + "…" : words;
+  if (m.mode === "ghost") return badge(x.kind) + `<text class="was" x="0" y="${H + 16}">${x.kind === "new" ? esc(t) : "was: " + esc(t)}</text>`;
+  const w = t.length * 6.2 + 16;
+  return badge(x.kind) + `<g class="mtag mtag-${x.kind}"><rect x="${W - 8 - w}" y="${H - 9}" width="${w}" height="18" rx="9"/><text x="${W - 8 - w / 2}" y="${H + 4}" text-anchor="middle">${esc(t)}</text></g>`;
 }
 
 export function ndSvg(

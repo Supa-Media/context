@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 
 import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
 import { benchFolder, REPO_BENCH_FOLDER } from "./folder.mjs";
+import { inSample, jobsSample } from "./gateSample.mjs";
 import { readBenchFolder } from "./load.mjs";
 import { priceUsd } from "./report.mjs";
 import { readHeldOut } from "./replayGate.mjs";
@@ -231,7 +232,10 @@ export async function jobTasksCommand(options, { write = (text) => process.stdou
   const setup = options.fake ? FAKE_SETUP : (await readSetups(setupsDir, "texting-assistant", [setupName]))[0];
   const skills = options.fake ? [] : await readSkills(setupsDir, "texting-assistant");
   const only = options.only ? new Set(String(options.only).split(",")) : null;
-  const cases = [...(await loadCases()), ...(await readHeldOut(options["held-out"], "jobs"))].filter((item) => !only || only.has(item.id));
+  // `--gate-sample <main tree>`: the replay gate's tasks, plus every task new or changed against main's (`gateSample.mjs`).
+  const practice = await loadCases();
+  const sample = options["gate-sample"] ? jobsSample(practice, await loadCases(join(options["gate-sample"], "apps/mcp/bench/job-tasks/cases.json")).catch(() => [])) : null;
+  const cases = [...practice, ...(await readHeldOut(options["held-out"], "jobs"))].filter((item) => !only || only.has(item.id)).filter(inSample(sample));
   const maxParts = Number(options["max-parts"] ?? MAX_PARTS);
   const maxUsd = Number(options["max-usd"] ?? MAX_USD);
   const models = { ...benchModels(options, { scripted: true, sites: bench.sites, ...(socketed ? { send: socketSend(socket) } : {}) }), skills };

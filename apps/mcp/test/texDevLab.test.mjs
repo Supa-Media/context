@@ -195,8 +195,8 @@ test("bench shows the areas and an area's cases with the draft's picks and the s
   const g = mainGraph();
   const decide = g.nodes.find((n) => n.id === "decide");
   decide.ctx = decide.ctx.filter((c) => c !== "recent");
-  const picks = { respond: ["g-carpool"] };
-  const edit = { key: "respond/g-carpool", data: JSON.stringify({ area: "respond", id: "g-carpool", ask: "@omar: who has the cooler?", expect: "Stay quiet" }) };
+  const picks = { respond: ["g-bot-reply-under-person"] };
+  const edit = { key: "respond/g-bot-reply-under-person", data: JSON.stringify({ area: "respond", id: "g-bot-reply-under-person", ask: "@omar: who has the cooler?", expect: "Stay quiet" }) };
   const fresh = { key: "respond/new-1", data: JSON.stringify({ area: "respond", id: "new-1", ask: "The text", expect: "What's right", isNew: true }) };
   const dev = devWith({ get: draftRow(g, { picks: JSON.stringify(picks) }), cases: { status: "ok", caseEdits: [edit, fresh] } });
   const all = jsonOf(await dev("bench", { draft: "vbench" }));
@@ -208,14 +208,14 @@ test("bench shows the areas and an area's cases with the draft's picks and the s
   const area = jsonOf(await dev("bench", { draft: "vbench", area: "respond", limit: 5 }));
   assert.equal(area.cases.length, 5);
   assert.ok(area.more);
-  const carpool = area.cases.find((c) => c.id === "g-carpool");
+  const carpool = area.cases.find((c) => c.id === "g-bot-reply-under-person");
   assert.deepEqual([carpool.inRun, carpool.edit, carpool.ask, carpool.checks], [true, "edited", "@omar: who has the cooler?", "act = quiet"]);
   assert.ok(carpool.cantTest.some((w) => /no longer reads/.test(w)));
-  assert.ok(area.cases.filter((c) => c.id !== "g-carpool").every((c) => !c.inRun));
+  assert.ok(area.cases.filter((c) => c.id !== "g-bot-reply-under-person").every((c) => !c.inRun));
   assert.ok(area.panel.in.some((m) => m.is === "the step no longer reads it"));
   assert.equal(area.runsAs.workspace, "none");
   const found = jsonOf(await dev("bench", { draft: "vbench", area: "respond", query: "cooler" }));
-  assert.ok(found.cases.some((c) => c.id === "g-carpool"));
+  assert.ok(found.cases.some((c) => c.id === "g-bot-reply-under-person"));
   const core = jsonOf(await devWith({ cases: NO_CASES })("bench", { area: "core", limit: 1 }));
   assert.equal(core.runsAs.person, "Maya");
   assert.ok(core.panel.path.length > 2);
