@@ -9,8 +9,8 @@
  *  4. `blocking` keeping target ids -> "a target is reported, never blocks" fails;
  *  5. dropping `areasFor` from replayGate's own import -> "the areas command runs" fails.
  *  6. dropping the key-file filter in `publishCoreRecords` -> "the core area's judged answers go to Context" fails.
- *  7. dropping `expected_etag` in `retireHeldOut` -> "a held-out note is emptied with its etag, then archived" fails
- *     (2026-11-15; the first seed's write was refused as a conflict without it).
+ *  7. dropping either `expected_etag` in `retireHeldOut` (the write's or the archive's) -> "a held-out note is emptied
+ *     with its etag, then archived" fails (2026-11-15; the first two seeds were refused without them).
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -207,12 +207,13 @@ test("a held-out note is emptied with its etag, then archived", async () => {
   const fetchImpl = async (_url, init) => {
     const { params } = JSON.parse(init.body);
     calls.push([params.name, params.arguments]);
-    const text = params.name === "read_note" ? "---\netag: e1\n---\nold cases" : "ok";
-    const isError = params.name === "write_note" && params.arguments.expected_etag !== "e1";
+    const reads = calls.filter(([name]) => name === "read_note").length;
+    const text = params.name === "read_note" ? (reads === 1 ? "etag: e1\n\nold cases" : "etag: e2\n\nmoved") : "ok";
+    const isError = (params.name === "write_note" && params.arguments.expected_etag !== "e1") || (params.name === "archive_note" && params.arguments.expected_etag !== "e2");
     return new Response(JSON.stringify({ result: { content: [{ type: "text", text: isError ? "conflict" : text }], isError } }), { status: 200 });
   };
   const paths = await retireHeldOut({ dir, connection: { endpoint: "https://example.invalid/mcp", accessToken: "t" }, fetchImpl });
   assert.deepEqual(paths, ["ai/held-out/review.md"]);
-  assert.deepEqual(calls.map(([name]) => name), ["read_note", "write_note", "archive_note"]);
+  assert.deepEqual(calls.map(([name]) => name), ["read_note", "write_note", "read_note", "archive_note"]);
   assert.ok(!calls[1][1].content.includes("old cases"), "the cases are gone from the note");
 });
