@@ -43,7 +43,8 @@ export type LabModel = {
   full: string;
   id?: string;
   c: string;
-  runs: "subscription" | "api" | "code";
+  /** "claude": on the Claude subscription (saved before 2026-11-15 as "subscription", read the same). */
+  runs: "claude" | "subscription" | "api" | "code";
   base?: number;
   perTok?: number;
   /** Milliseconds per input token not read from the cache; 0.006 when unset. */

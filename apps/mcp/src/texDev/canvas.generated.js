@@ -599,9 +599,9 @@ function mainGraph0() {
 
 // apps/mobile/features/tex/lab/data/models.ts
 var BASE_MODELS = {
-  "haiku-5-5": { name: "Haiku", full: "Haiku 5.5", id: "anthropic/claude-haiku-5-5", c: "--m-haiku", runs: "subscription", base: 900, perTok: 4.3, perIn: 0.024, cacheR: 0.01, cacheW: 0.125, outP: 0.5, measured: true, typed: "schema" },
-  "sonnet-5-5": { name: "Sonnet", full: "Sonnet 5.5", id: "anthropic/claude-sonnet-5-5", c: "--m-sonnet", runs: "subscription", base: 1800, perTok: 8, cacheR: 0.2, cacheW: 2.5, outP: 10, typed: "schema" },
-  "opus-5-5": { name: "Opus", full: "Opus 5.5", id: "anthropic/claude-opus-5-5", c: "--m-opus", runs: "subscription", base: 2500, perTok: 13, cacheR: 0.2, cacheW: 5, outP: 20, typed: "schema" },
+  "haiku-5-5": { name: "Haiku", full: "Haiku 5.5", id: "anthropic/claude-haiku-5-5", c: "--m-haiku", runs: "claude", base: 900, perTok: 4.3, perIn: 0.024, cacheR: 0.01, cacheW: 0.125, outP: 0.5, measured: true, typed: "schema" },
+  "sonnet-5-5": { name: "Sonnet", full: "Sonnet 5.5", id: "anthropic/claude-sonnet-5-5", c: "--m-sonnet", runs: "claude", base: 1800, perTok: 8, cacheR: 0.2, cacheW: 2.5, outP: 10, typed: "schema" },
+  "opus-5-5": { name: "Opus", full: "Opus 5.5", id: "anthropic/claude-opus-5-5", c: "--m-opus", runs: "claude", base: 2500, perTok: 13, cacheR: 0.2, cacheW: 5, outP: 20, typed: "schema" },
   "clef": { name: "Clef", full: "Clef (Cloudflare)", id: "@cf/cloudflare/clef", c: "--m-api", runs: "api", base: 350, perTok: 1.5, cacheR: 0.24, cacheW: 0.24, outP: 0, typed: "only", note: "Answers typed questions only: yes or no, a choice, a score. It never writes text." },
   "glm-4-7": { name: "GLM", full: "GLM-4.7 Flash", id: "@cf/zai-org/glm-4.7-flash", c: "--m-api", runs: "api", base: 900, perTok: 6, cacheR: 0.06, cacheW: 0.06, outP: 0.4, typed: "json" },
   // Prices are list prices, $ per M tokens: $0.30 in, $30 out (image output). Cached input is priced as uncached, so the

@@ -45,7 +45,7 @@ function keep(f: FormV) {
     f[k] = Math.max(0, +val(i) || 0);
 }
 
-const RUNS = [["subscription", "Claude subscription"], ["api", "API call"]] as const;
+const RUNS = [["claude", "Claude subscription"], ["api", "API call"]] as const;
 const TYPED = [["", "Text"], ["schema", "Text or typed"], ["only", "Typed only"]] as const;
 
 function saveModel(f: FormV, key: string | null) {
