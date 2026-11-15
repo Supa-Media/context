@@ -37,6 +37,7 @@ import type * as functions_texTurnTiming from "../functions/texTurnTiming.js";
 import type * as functions_texToolFailures from "../functions/texToolFailures.js";
 import type * as functions_texLab from "../functions/texLab.js";
 import type * as functions_googleMailProbe from "../functions/googleMailProbe.js";
+import type * as functions_texLabDrafts from "../functions/texLabDrafts.js";
 import type * as functions_texLabPromote from "../functions/texLabPromote.js";
 import type * as functions_texLabToolStats from "../functions/texLabToolStats.js";
 import type * as functions_accessObjects from "../functions/accessObjects.js";
@@ -327,6 +328,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texToolFailures": typeof functions_texToolFailures;
   "functions/texLab": typeof functions_texLab;
   "functions/googleMailProbe": typeof functions_googleMailProbe;
+  "functions/texLabDrafts": typeof functions_texLabDrafts;
   "functions/texLabPromote": typeof functions_texLabPromote;
   "functions/texLabToolStats": typeof functions_texLabToolStats;
   "functions/accessObjects": typeof functions_accessObjects;

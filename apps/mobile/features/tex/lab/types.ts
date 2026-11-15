@@ -43,7 +43,8 @@ export type LabModel = {
   full: string;
   id?: string;
   c: string;
-  runs: "subscription" | "api" | "code";
+  /** "claude": on the Claude subscription (saved before 2026-11-15 as "subscription", read the same). */
+  runs: "claude" | "subscription" | "api" | "code";
   base?: number;
   perTok?: number;
   /** Milliseconds per input token not read from the cache; 0.006 when unset. */
@@ -103,6 +104,9 @@ export type LabVersion = {
   authorId: string | null;
   createdAt?: number;
   updatedAt?: number;
+  /** Its revision on the server, and the AI client last in it over the MCP (`engine/live.ts`). */
+  rev?: number;
+  live?: { client: string; at: number } | null;
   /** Where its Promote stands (`texLabPromote.ts`): asked, its pull request opened, or why it was refused. */
   promote?: { state: string; pr: string | null; why: string | null } | null;
 };

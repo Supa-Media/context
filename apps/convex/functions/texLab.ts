@@ -14,6 +14,7 @@ import { query } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { mutation } from "./lib/rowWatch/mutations";
+import { recordSave } from "./texLabDrafts";
 
 /** A version's JSON fields and a case edit must each fit well inside a row. */
 export const MAX_JSON = 400_000;
@@ -34,6 +35,9 @@ const versionRow = v.object({
   updatedAt: v.number(),
   /** Where its Promote stands (`texLabPromote.ts`): asked, the pull request opened, or why it was refused. */
   promote: v.union(v.null(), v.object({ state: v.string(), pr: v.union(v.string(), v.null()), why: v.union(v.string(), v.null()) })),
+  /** Its revision, and the AI client last in it over the MCP's `tex_dev` (`texLabDrafts.ts`). */
+  rev: v.number(),
+  live: v.union(v.null(), v.object({ client: v.string(), at: v.number() })),
 });
 
 /** Every saved version and every case edit, who made each version, and who is asking (for "yours" in the list). */
@@ -50,7 +54,7 @@ export const list = query({
     return {
       me: actor.userId,
       names,
-      versions: versions.map((r) => ({ versionId: r.versionId, name: r.name, authorId: r.authorId ?? null, graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results, createdAt: r.createdAt, updatedAt: r.updatedAt, promote: r.promote ? { state: r.promote.state, pr: r.promote.pr ?? null, why: r.promote.why ?? null } : null })),
+      versions: versions.map((r) => ({ versionId: r.versionId, name: r.name, authorId: r.authorId ?? null, graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results, createdAt: r.createdAt, updatedAt: r.updatedAt, promote: r.promote ? { state: r.promote.state, pr: r.promote.pr ?? null, why: r.promote.why ?? null } : null, rev: r.rev ?? 0, live: r.live ? { client: r.live.client, at: r.live.at } : null })),
       caseEdits: caseEdits.map((r) => ({ key: r.key, data: r.data })),
     };
   },
@@ -70,8 +74,9 @@ export const saveVersion = mutation({
       .withIndex("by_version", (q) => q.eq("versionId", a.versionId))
       .unique();
     const fields = { name: a.name.trim() || "Untitled", graph: a.graph, picks: a.picks, areas: a.areas, results: a.results, updatedAt: now };
-    if (row) await ctx.db.patch(row._id, fields);
-    else await ctx.db.insert("texLabVersions", { versionId: a.versionId, authorId: actor.userId, createdAt: a.createdAt || now, ...fields });
+    // Every save is a revision with what it changed, so an AI in the draft over `tex_dev` reads it (`texLabDrafts.ts`).
+    if (row) await ctx.db.patch(row._id, { ...fields, ...(a.versionId === "main" ? {} : { rev: await recordSave(ctx, row, a.graph, actor.userId, now) }) });
+    else await ctx.db.insert("texLabVersions", { versionId: a.versionId, authorId: actor.userId, createdAt: a.createdAt || now, ...fields, rev: 0 });
     return null;
   },
 });
@@ -86,6 +91,11 @@ export const deleteVersion = mutation({
       .withIndex("by_version", (q) => q.eq("versionId", versionId))
       .unique();
     if (row) await ctx.db.delete(row._id);
+    for (const change of await ctx.db
+      .query("texLabChanges")
+      .withIndex("by_version_rev", (q) => q.eq("versionId", versionId))
+      .collect())
+      await ctx.db.delete(change._id);
     return null;
   },
 });

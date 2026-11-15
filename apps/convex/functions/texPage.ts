@@ -190,74 +190,82 @@ export const pageFor = internalQuery({
   handler: async (ctx, args) => {
     const userId = await consolePerson(ctx, args.hashedAccessToken);
     if (userId === null) return { status: "refused" as const };
-    const workspaceId = await personalWorkspaceOf(ctx, userId);
-    const workspace = workspaceId === null ? null : await ctx.db.get(workspaceId);
-    if (workspace === null || workspaceId === null) return { status: "refused" as const };
-
-    const phone = (await ctx.db.query("phoneLinks").withIndex("by_user", (q) => q.eq("userId", userId)).first())?.phone ?? null;
-    const timeZone = (await ctx.db.query("accountTimeZones").withIndex("by_user", (q) => q.eq("userId", userId)).unique())?.timeZone ?? null;
-    const instructions = (await personRow(ctx, userId))?.instructions ?? null;
-
-    const slugOf = slugCache(ctx);
-    const routines = await personRoutines(ctx, workspaceId, slugOf);
-
-    const pinned = await pinnedContextWorkspace(ctx);
-    const handles = new Map<Id<"users">, Promise<string>>();
-    const handleOnce = (id: Id<"users">) => {
-      let handle = handles.get(id);
-      if (handle === undefined) {
-        handle = handleFor(ctx, id);
-        handles.set(id, handle);
-      }
-      return handle;
-    };
-
-    // No index on homeUsers: Tex has few group chats, so one bounded scan finds the person's.
-    const mine = (await ctx.db.query("textGroups").take(CHAT_SCAN))
-      .filter((chat) => (chat.homeUsers ?? []).includes(userId))
-      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
-      .slice(0, MAX_PAGE_CHATS);
-
-    const chats = await Promise.all(
-      mine.map(async (chat) => {
-        const homeUsers = chat.homeUsers ?? [];
-        const peopleNames = await Promise.all(
-          homeUsers.map(async (id) => (id === userId ? "You" : (await handleOnce(id)) || "Someone")),
-        );
-        const sponsorId = chat.sponsorId ?? chat.boundBy ?? null;
-        const sponsor = sponsorId === null ? null : (await handleOnce(sponsorId)) || null;
-        const homed = chat.homeWords !== undefined && pinned !== null;
-        return {
-          key: chat.groupKey,
-          name: chat.chatName ?? groupName(peopleNames),
-          people: Math.max(1, homeUsers.length),
-          peopleNames: homeUsers.length > 0 ? peopleNames : ["You"],
-          homeWords: chat.homeWords ?? null,
-          homeWorkspaceId: homed ? pinned._id : null,
-          homeSlug: homed ? pinned.slug : null,
-          muted: speaksUpOf(chat) === "off",
-          engagement: ((level) => (level === undefined || level === "off" ? null : level))(speaksUpOf(chat)),
-          instructions: chat.instructions ?? null,
-          sponsor,
-          routines: await chatRoutines(ctx, chat.groupKey, slugOf),
-        };
-      }),
-    );
-
-    return {
-      status: "ok" as const,
-      userId,
-      workspaceId,
-      handle: workspace.slug,
-      phone,
-      timeZone,
-      instructions,
-      picks: QUICK_PICKS.map(({ id, label }) => ({ id, label })),
-      routines,
-      chats,
-    };
+    return await pageForUser(ctx, userId);
   },
 });
+
+/**
+ * The Tex page's data for one person: the console's (`pageFor`) and, for a person who develops on Tex, the MCP's
+ * `tex_dev` probing (`texLabDrafts.forGateway`), which reads only that person's own chats the same way.
+ */
+export async function pageForUser(ctx: QueryCtx, userId: Id<"users">) {
+  const workspaceId = await personalWorkspaceOf(ctx, userId);
+  const workspace = workspaceId === null ? null : await ctx.db.get(workspaceId);
+  if (workspace === null || workspaceId === null) return { status: "refused" as const };
+
+  const phone = (await ctx.db.query("phoneLinks").withIndex("by_user", (q) => q.eq("userId", userId)).first())?.phone ?? null;
+  const timeZone = (await ctx.db.query("accountTimeZones").withIndex("by_user", (q) => q.eq("userId", userId)).unique())?.timeZone ?? null;
+  const instructions = (await personRow(ctx, userId))?.instructions ?? null;
+
+  const slugOf = slugCache(ctx);
+  const routines = await personRoutines(ctx, workspaceId, slugOf);
+
+  const pinned = await pinnedContextWorkspace(ctx);
+  const handles = new Map<Id<"users">, Promise<string>>();
+  const handleOnce = (id: Id<"users">) => {
+    let handle = handles.get(id);
+    if (handle === undefined) {
+      handle = handleFor(ctx, id);
+      handles.set(id, handle);
+    }
+    return handle;
+  };
+
+  // No index on homeUsers: Tex has few group chats, so one bounded scan finds the person's.
+  const mine = (await ctx.db.query("textGroups").take(CHAT_SCAN))
+    .filter((chat) => (chat.homeUsers ?? []).includes(userId))
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+    .slice(0, MAX_PAGE_CHATS);
+
+  const chats = await Promise.all(
+    mine.map(async (chat) => {
+      const homeUsers = chat.homeUsers ?? [];
+      const peopleNames = await Promise.all(
+        homeUsers.map(async (id) => (id === userId ? "You" : (await handleOnce(id)) || "Someone")),
+      );
+      const sponsorId = chat.sponsorId ?? chat.boundBy ?? null;
+      const sponsor = sponsorId === null ? null : (await handleOnce(sponsorId)) || null;
+      const homed = chat.homeWords !== undefined && pinned !== null;
+      return {
+        key: chat.groupKey,
+        name: chat.chatName ?? groupName(peopleNames),
+        people: Math.max(1, homeUsers.length),
+        peopleNames: homeUsers.length > 0 ? peopleNames : ["You"],
+        homeWords: chat.homeWords ?? null,
+        homeWorkspaceId: homed ? pinned._id : null,
+        homeSlug: homed ? pinned.slug : null,
+        muted: speaksUpOf(chat) === "off",
+        engagement: ((level) => (level === undefined || level === "off" ? null : level))(speaksUpOf(chat)),
+        instructions: chat.instructions ?? null,
+        sponsor,
+        routines: await chatRoutines(ctx, chat.groupKey, slugOf),
+      };
+    }),
+  );
+
+  return {
+    status: "ok" as const,
+    userId,
+    workspaceId,
+    handle: workspace.slug,
+    phone,
+    timeZone,
+    instructions,
+    picks: QUICK_PICKS.map(({ id, label }) => ({ id, label })),
+    routines,
+    chats,
+  };
+}
 
 /** A settings call, read from the wire: `me` or a chat key, with the whole text or a quick pick, and `answers` for a chat. */
 export type TexPageSettings =

@@ -102,7 +102,9 @@ test("the full list stays compact", () => {
   // Raised to 16,300 on 2026-10-26 for search_texts, list_texts and
   // read_texts, which are unlisted (reached through search and fetch) but
   // still defined: the list stood at 15,821 with 74.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 16_300);
+  // Raised to 16,600 on 2026-11-15 for `tex_dev`, the Tex developer tool (offered only to people who edit
+  // @context-lc's AI setup): the list stood at 16,357 with 76.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 16_600);
 });
 
 /* -------------------------------------------------------------------------- */

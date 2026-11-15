@@ -49,6 +49,8 @@ import { NOTE_SOURCE_PREFIX } from "./sources.js";
 export const WITHHELD_TOOLS = new Map([
   // The Architecture Lab's staff tool: a model run by the gateway's binding for people who edit @context-lc's AI setup (`tools/runModel.js`).
   ["run_model", "the Architecture Lab's staff tool"],
+  // Developing on Tex from an MCP session (`texDev/tool.js`): drafts of Tex's own config and its chats' logs, never Tex's.
+  ["tex_dev", "the Tex developer tool"],
 ]);
 
 /** Fields of an offered tool a text never passes, with the reason. None. */

@@ -18,16 +18,18 @@ import { StaffFactorGate } from "../../admin/StaffFactorGate";
 import { api } from "@context/convex/_generated/api";
 import { GROUP_CHATS, PEOPLE } from "./data/areas";
 import { allCases, cvDiff, diff } from "./engine/diff";
-import { G, go, isMain, lab, newVersion, openVersion, saveVersion, set, fit, emit } from "./engine/state";
+import { G, go, isMain, lab, newVersion, openVersion, set, fit, emit } from "./engine/state";
 import { buildTraces, traceMine } from "./engine/traces";
 import { LAB_CSS } from "./labCss";
 import { ensureFontsLoaded } from "../../design/fonts.web";
-import { promoteVersion, useLab, useLabSync } from "./store";
+import { promoteVersion, useLab, useLabSync, useLiveFeed } from "./store";
+import { isLive, saveNow } from "./engine/live";
 import type { View } from "./types";
 import { Canvas } from "./views/Canvas.web";
 import { Compare } from "./views/Compare.web";
 import { Convo } from "./views/Convo.web";
 import { Ic } from "./views/ic";
+import { LiveChanges, LiveChips } from "./views/LiveChanges.web";
 import { Modules } from "./views/Modules.web";
 import { Props } from "./views/Props.web";
 import { Run } from "./views/Run.web";
@@ -95,12 +97,31 @@ function ThemeToggle() {
   );
 }
 
+/**
+ * `/lab?v=<draft>`, the link the MCP's `tex_dev` hands out (`apps/mcp/src/texDev/tool.js` `link`): open that draft
+ * once the shared list has it, live.
+ */
+function useOpenFromLink() {
+  const s = useLab();
+  const [opened, setOpened] = useState(false);
+  useEffect(() => {
+    if (opened || typeof window === "undefined") return;
+    const id = new URLSearchParams(window.location.search).get("v");
+    if (!id) return setOpened(true);
+    if (s.versions.some((v) => v.id === id)) {
+      openVersion(id);
+      setOpened(true);
+    }
+  }, [s.versions, opened]);
+}
+
 export function TexLab() {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
   // Staff whose session has not typed its second-factor code are asked for it here, as the console asks (`AdminPane.tsx`), never told "Staff only".
   const factor = useQuery(api.functions.staffSecondFactor.myStaffFactor, {});
   const theme = useLabTheme();
   useLabSync(isAdmin === true);
+  useOpenFromLink();
   useEffect(() => {
     ensureFontsLoaded();
     if (!lab.scn) buildTraces(allCases());
@@ -131,6 +152,7 @@ export function TexLab() {
 
 function Lab() {
   const s = useLab();
+  useLiveFeed();
   const closeSide = () => set({ sideOpen: false });
   const d = diff();
   const cvn = cvDiff().length;
@@ -187,7 +209,7 @@ function Lab() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        if (!isMain()) void saveVersion();
+        if (!isMain()) void saveNow();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -259,9 +281,11 @@ function Lab() {
             }}
           />
           <span className="dot" id="dirtyDot" title="Unsaved changes" hidden={!s.dirty} />
-          <button className="primary" id="saveBtn" disabled={isMain() || !s.dirty} onClick={() => void saveVersion()}>
+          {/* A saved version is live: each edit is saved as it happens, so Save stays only for a rename (`engine/live.ts`). */}
+          <button className="primary" id="saveBtn" hidden={isLive() && !s.dirty} disabled={isMain() || !s.dirty} onClick={() => void saveNow()}>
             Save
           </button>
+          <LiveChips />
           {/* Not in the artifact: a saved version becomes Tex's config through a pull request (texLabPromote.ts). */}
           <button
             id="promoteBtn"
@@ -366,6 +390,7 @@ function Lab() {
                 </button>
               ) : null}
             </div>
+            <LiveChanges />
             </>}
           </nav>
           <div className="scrim" id="scrim" onClick={closeSide} />

@@ -1,0 +1,52 @@
+/**
+ * `tex_dev` action `check`: what a draft would meet on its way to being Tex's config, without promoting it.
+ *
+ * Two sets of checks, both the ones the real path runs: the runner's own (`texGraph.cjs` `problemsOf`: unique ids,
+ * wires that join real steps with a real mode, no cycle over wait and background wires), and Promote's
+ * (`scripts/tex-lab-promote.mjs` `configFrom`: a new step needs code first, a step is turned off rather than deleted,
+ * every model has a gateway id, efforts and on/off are real values). The pull request Promote opens runs CI and the
+ * replay gate on top; those are named, not run, here.
+ */
+
+import { problemsOf } from "../../../../packages/shared/src/texGraph.cjs";
+import { TEX_CONFIG } from "../agent/texConfig.js";
+
+const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
+
+/** Every problem the draft's graph has, as plain lines; [] when it would promote. */
+export function draftProblems(graph, current = TEX_CONFIG) {
+  if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return ["the draft has no steps and wires"];
+  const problems = problemsOf({ nodes: graph.nodes, edges: graph.edges }).map((p) => `runner: ${p}`);
+  const known = new Set(current.nodes.map((n) => n.id));
+  const ids = new Set(graph.nodes.map((n) => n?.id));
+  for (const n of graph.nodes) {
+    if (!known.has(n.id)) problems.push(`promote: step "${n.id}" is new; the gateway has no code for it yet, so build it on a branch first (apps/mcp/src/agent/graph/nodes/)`);
+    if (typeof n.model !== "string" || (n.model !== "code" && typeof current.models[n.model] !== "string")) problems.push(`promote: step "${n.id}" runs on "${n.model}", which has no gateway model id in Tex's config (${Object.keys(current.models).join(", ")}, or code)`);
+    if (n.effort !== undefined && !EFFORTS.has(n.effort)) problems.push(`promote: step "${n.id}" has effort "${n.effort}" (${[...EFFORTS].join(", ")})`);
+    if (typeof n.on !== "boolean") problems.push(`promote: step "${n.id}" is neither on nor off`);
+  }
+  for (const id of known) if (!ids.has(id)) problems.push(`promote: step "${id}" is gone; the gateway still runs it, so turn it off instead of deleting it`);
+  return problems;
+}
+
+/** The fields each step differs in from main, `{ changed: {id: [fields]}, added: [ids], removed: [ids], wires: {added, removed} }`. */
+export function draftVsMain(graph, current = TEX_CONFIG) {
+  const main = new Map(current.nodes.map((n) => [n.id, n]));
+  const changed = {};
+  const added = [];
+  for (const n of graph.nodes) {
+    const m = main.get(n.id);
+    if (!m) {
+      added.push(n.id);
+      continue;
+    }
+    const fields = [...new Set([...Object.keys(m), ...Object.keys(n)])].filter((k) => k !== "x" && k !== "y" && JSON.stringify(m[k]) !== JSON.stringify(n[k]));
+    if (fields.length) changed[n.id] = fields;
+  }
+  const ids = new Set(graph.nodes.map((n) => n.id));
+  const removed = current.nodes.map((n) => n.id).filter((id) => !ids.has(id));
+  const key = (e) => `${e.from} → ${e.to} (${e.mode}, when ${(e.when ?? ["*"]).join(",")})`;
+  const before = new Set(current.edges.map(key));
+  const after = new Set(graph.edges.map(key));
+  return { changed, added, removed, wires: { added: [...after].filter((k) => !before.has(k)), removed: [...before].filter((k) => !after.has(k)) } };
+}

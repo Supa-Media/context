@@ -73,10 +73,12 @@ const UNLISTED_TOOLS = new Set(["create_form", "search_texts", "list_texts", "re
  * assistant's guards are written against the full list (`shape: "v1"`), and
  * it is shown the six over whatever those guards leave (`agent/sixTools.js`).
  */
-export const V2_TOOLS = new Set(["orient", "search", "fetch", "write", "manage", "send"]);
+export const V2_TOOLS = new Set(["orient", "search", "fetch", "write", "manage", "send", "tex_dev"]);
 
 /** The v2-only names, which the full (v1) list does not show. */
 const V2_ONLY_TOOLS = new Set(["write", "manage", "send"]);
+// `tex_dev` (Dev2, 2026-11-15: a seventh tool) is in both lists, and only for people who edit `@context-lc`'s AI
+// setup (`STAFF_ONLY_TOOLS`): everyone else is still offered six.
 
 /** The advertised schema for a name, for `v2/translate.js`. */
 export function advertisedSchema(name) {

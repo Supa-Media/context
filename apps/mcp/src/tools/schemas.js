@@ -32,6 +32,7 @@ import { fillDatesToolDefinitions } from "./schemas/fillDates.js";
 import { deviceToolDefinitions } from "./schemas/devices.js";
 import { attentionToolDefinitions } from "./schemas/attention.js";
 import { v2ToolDefinitions } from "./v2/schemas.js";
+import { texDevToolDefinitions } from "./schemas/texDev.js";
 
 export function baseToolDefinitions() {
   return [
@@ -55,6 +56,7 @@ export function baseToolDefinitions() {
     ...connectorToolDefinitions(),
     ...dreamToolDefinitions(),
     ...runModelToolDefinitions(),
+    ...texDevToolDefinitions(),
     ...fillDatesToolDefinitions(),
     ...deviceToolDefinitions(),
     ...attentionToolDefinitions(),

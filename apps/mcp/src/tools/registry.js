@@ -67,7 +67,7 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
  * them, and a call to one is refused before it is routed (`tools/runModel.js`).
  * Tex is never offered them either (`WITHHELD_TOOLS`).
  */
-export const STAFF_ONLY_TOOLS = new Set(["run_model"]);
+export const STAFF_ONLY_TOOLS = new Set(["run_model", "tex_dev"]);
 
 /**
  * The subset of those whose *existence* is masked, not merely refused.
