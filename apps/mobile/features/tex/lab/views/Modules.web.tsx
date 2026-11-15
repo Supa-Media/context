@@ -6,8 +6,8 @@
  */
 import { useEffect, useRef } from "react";
 import { SRC_KINDS } from "../data/modules";
-import { mods, newModule } from "../engine/modules";
-import { G, MAIN, edit, go, set } from "../engine/state";
+import { moduleList, newModule } from "../engine/modules";
+import { G, edit, go, set } from "../engine/state";
 import type { LabModule, LabNode } from "../types";
 import { useLab } from "../store";
 import { Ic } from "./ic";
@@ -19,9 +19,6 @@ export function Modules() {
   const lab = useLab();
   const selectNew = useRef<string | null>(null);
   const g = G();
-  const M = mods(g);
-  const main = mods(MAIN.graph);
-  const used = (k: string) => g.nodes.filter((n) => n.ctx.includes(k));
   // The artifact drew the focus ring once and kept it until the page drew again; a toast coming or going did not
   // redraw the page, so a redraw that changed nothing but the toast keeps the ring.
   const shown = useRef<{ key: string | null; sig: string }>({ key: null, sig: "" });
@@ -72,32 +69,20 @@ export function Modules() {
           New module
         </button>
       </div>
-      {Object.entries(SRC_KINDS).map(([kk, K]) => {
-        const list = Object.entries(M)
-          .filter(([, v]) => v.kind === kk)
-          .sort((x, y) => (y[1].custom ? 1 : 0) - (x[1].custom ? 1 : 0));
-        if (!list.length) return null;
-        return (
-          <section className="ksec" key={kk}>
-            <div className="kh">
-              <Ic k={K.icon} style={{ width: 16, height: 16 }} />
-              <b>{K.name}</b>
-              <span className="hint">{K.tip}</span>
-            </div>
-            <div className="mgrid">
-              {list.map(([k, v]) => (
-                <ModCard focus={focusKey === k}
-                  key={k}
-                  k={k}
-                  v={v}
-                  ch={!v.custom && JSON.stringify(v) !== JSON.stringify(main[k])}
-                  u={used(k)}
-                />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+      {moduleList(g).map((sec) => (
+        <section className="ksec" key={sec.kind}>
+          <div className="kh">
+            <Ic k={SRC_KINDS[sec.kind].icon} style={{ width: 16, height: 16 }} />
+            <b>{sec.name}</b>
+            <span className="hint">{sec.tip}</span>
+          </div>
+          <div className="mgrid">
+            {sec.cards.map((c) => (
+              <ModCard focus={focusKey === c.key} key={c.key} k={c.key} v={c.mod} ch={c.edited} u={c.usedBy} />
+            ))}
+          </div>
+        </section>
+      ))}
     </>
   );
 }

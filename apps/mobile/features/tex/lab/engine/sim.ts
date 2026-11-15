@@ -194,5 +194,22 @@ export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | nul
   };
 }
 
+export const LANE_ORDER: Record<string, number> = { reply: 0, job: 1, behind: 2 };
+export const LANE_NAME: Record<string, string> = { reply: "Before the reply", job: "Background job", behind: "After the reply" };
+
+/** The Speed and cost view's "Where the time goes" rows: every step that takes time or runs off the reply, by lane, then by start. */
+export function whereTimeGoes(sim: Sim): Array<[string, StepTime]> {
+  return Object.entries(sim.T)
+    .filter(([, t]) => t.ms > 0 || t.lane !== "reply")
+    .sort((x, y) => LANE_ORDER[x[1].lane] - LANE_ORDER[y[1].lane] || x[1].start - y[1].start);
+}
+
+/** A KPI card's line under its number: "same as main", or "+1.2 s vs main" / "−$0.004 vs main". */
+export function deltaText(x: number, y: number, f: (n: number) => string, baseName: string): string {
+  const d = x - y;
+  if (Math.abs(d) < 1e-9) return "same as " + baseName;
+  return (d > 0 ? "+" : "−") + f(Math.abs(d)) + " vs " + baseName;
+}
+
 export const fmtS = (ms: number) => (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + " s";
 export const fmtUsd = (u: number) => (u < 0.01 ? "$" + u.toFixed(4) : "$" + u.toFixed(u < 1 ? 3 : 2));
