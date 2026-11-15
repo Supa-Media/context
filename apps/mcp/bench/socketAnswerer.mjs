@@ -200,8 +200,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error("socketAnswerer: CLAUDE_CODE_OAUTH_TOKEN is not set (make one with `claude setup-token` and add it as the production secret)");
     process.exit(1);
   }
-  // A vault copy of the token often ends in a line break, which the CLI reads as "Not logged in".
-  process.env.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN.trim();
+  // `claude setup-token` output is wrapped by the terminal, so a pasted copy carries line breaks, which the CLI reads
+  // as "Not logged in". A token has no whitespace.
+  process.env.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN.replace(/\s+/g, "");
   answerLoop(dir, { parallel: Number(option("parallel", "4")), stopped: () => existsSync(stop), log: (line) => console.log(line) })
     .then((count) => console.log(`socketAnswerer: answered ${count} call(s)`))
     .catch((error) => {
