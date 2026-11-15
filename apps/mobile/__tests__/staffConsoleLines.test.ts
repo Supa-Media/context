@@ -145,7 +145,7 @@ describe("Lines page: move chats one at a time", () => {
   };
 
   it("lists every person with a switch and their move, and groups as coming next, names escaped", () => {
-    const html = linesPage.render!(asD(fakeData({ moves: moves as never, setting: { ...saved, number: "+15555550142" } })));
+    const html = linesPage.render!(asD(fakeData({ moves: moves as never, setting: { ...saved, number: "+15555550142" } as never })));
     expect(html).toContain("Move chats");
     expect(html).toContain("1 moved");
     expect(html).toContain('aria-checked="false" aria-label="Move Ada" data-act="lnmv" data-id="person:+15555550100"');
