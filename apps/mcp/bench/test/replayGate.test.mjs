@@ -104,8 +104,8 @@ test("the areas command runs: it names a change's areas from git (it once threw,
 /** A scripted area: `answers[tree][id]` is the list of results it gives, one a run, taken in order. */
 function scripted(answers, cost = 0.01) {
   const calls = [];
-  const runner = async (tree, { only, runs = 1, tag }) => {
-    calls.push({ tree, tag, only, runs });
+  const runner = async (tree, { only, runs = 1, tag, sampleBase = null }) => {
+    calls.push({ tree, tag, only, runs, sampleBase });
     const ids = only ?? Object.keys(answers[tree]);
     const rows = ids.filter((id) => id in answers[tree]).map((id) => {
       const results = answers[tree][id].splice(0, runs);
@@ -126,6 +126,13 @@ test("only the change's wrong cases run again, on the change and on main, and a 
   assert.deepEqual(result.results[0].regressed.map((row) => row.id), ["broke"]);
   assert.equal(result.pass, false);
   assert.deepEqual(calls.map((call) => [call.tree, call.runs, call.only?.join(",") ?? "all"]), [["branch", 1, "all"], ["branch", 2, "broke,flaky,t-known"], ["main", 3, "broke,flaky,t-known"]]);
+});
+
+// Sabotage: passing `sampleBase` to the reruns too -> this fails (a wrong case outside the sample would never rerun).
+test("only the change's first run is sampled, against main's tree; its reruns name their cases", async () => {
+  const { runner, calls } = scripted({ branch: { ok: [true], broke: [false, false, false] }, main: { broke: [true, true, true] } });
+  await gate({ branch: "branch", base: "main", areas: ["core"], scratch: "/nowhere", runners: { core: runner }, limits: LIMITS, hasArea: async () => true });
+  assert.deepEqual(calls.map((call) => call.sampleBase), ["main", null, null]);
 });
 
 test("a main without the area gives main no runs, and the change must pass its own cases", async () => {

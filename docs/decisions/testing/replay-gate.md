@@ -206,8 +206,11 @@ edit to the live prompt is outside the gate; held-out cases by cause alone);
 `apps/mcp/bench/test/promptFingerprint.test.mjs` and
 `node scripts/tex-replay-required.mjs --self-test` (one changed prompt changes
 an area's fingerprint; a changed area with no replay run fails the check;
-sabotage on the real trees: one letter of the drawing's map changed seven
-areas whose file rules named none of it).
+sabotage on the real trees: one letter of the capability list changed four
+areas whose file rules named none of it, and since 2026-11-15 one letter of
+the map changes none).
+`apps/mcp/bench/test/gateSample.test.mjs` (the reviewer and job samples, a
+case the change adds or edits always runs, held-out cases always run).
 `apps/mcp/bench/test/lab.test.mjs` (a module path that leaves `ai/production` is
 refused; a setup file cannot be written outside the setup folder; a version
 that leaves the setup unreadable is refused at apply);
@@ -253,3 +256,37 @@ the gate is whole again; delete the skip then. Once the graph has landed,
 replays are tied to the config they ran on. Test:
 `node scripts/tex-replay-required.mjs --self-test` ("the skip ends on its
 date").
+
+## A change's replay runs a sample, and the map alone reaches nothing (decided by the owner, 2026-11-15)
+
+Dev2, 2026-11-15: "Is there a way we could cut the big tests to be less big? ...
+I'm a little bit more concerned about the speed of things", choosing "Reply
+checker and jobs". A full run had grown to about 494 examiner answers
+(2026-11-15), mostly the reviewer's 211 cases, one call each with the whole
+reviewer prompt, and seven whole background jobs. So a change's first run
+takes a fixed sample of those two areas (`apps/mcp/bench/gateSample.mjs`):
+the first two faults and the first two good replies of each reviewer set
+(about 60), and three job tasks, one of each kind. Every held-out case still
+runs, and so does any case the change adds or edits against main's, so a
+change still passes the case that proves it. The full sets stay in the
+repository and run whole without `--gate-sample` (`pnpm ai review`,
+`pnpm ai jobs`). The core area and the advisor roles were already small and
+are run whole.
+
+And on the map (same day): "I feel like we shouldn't treat this as changing
+if the map changes. It's more so the fact that it can see its current
+existing map. We're never really going to quiz or test on ... what it knows
+about its own map." A fingerprint run also writes each call's hash with
+`TEX_MAP` taken out (`maskedHash` in `apps/mcp/bench/modelSocket.mjs`), and
+two trees that both wrote them are compared by those, so a change to the map
+alone reaches no area. The capability list, a role's own words and every
+other prompt byte still count. The examiner's answers are still named by the
+whole call, map included, so a replay never reuses an answer made for
+another map.
+
+**What a simplification would cost:** running the reviewer and the jobs
+whole again puts a change's examiner run back near 500 answers; sampling
+without the new-or-edited rule lets a change add a case the gate never runs.
+Counting the map again makes every config change a full run of every area.
+Tests: `apps/mcp/bench/test/gateSample.test.mjs` and "a change to Tex's map
+alone reaches no area" in `apps/mcp/bench/test/promptFingerprint.test.mjs`.
