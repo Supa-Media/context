@@ -16,6 +16,7 @@ export const STEP_LOGS: Record<string, StepLog> = {
   notify: { got: "note (ping): what another AI asked it to say", gave: "note: the text as sent", settings: "their ping settings (no model)" },
   text: { got: "text: the words, picture or tapback as it arrived", gave: "text: kept in the chat's record, with its event id", settings: "the chat's service" },
   oldLine: { got: "step oldLine: the staff setting (mode, whether a new number and an archive day are set) and how long ago this chat was last told", gave: "step oldLine: redirect, hold or pass, and the reply's length", settings: "staff console, Platform → Lines (no model)" },
+  moveChat: { got: "step moveChat: the kind of chat staff moved and whether a new number and an archive day are set", gave: "step moveChat: told, already told, on the new line already, or why it failed, and the text's length", settings: "staff console, Platform → Lines (no model)" },
   triage: { got: "step triage: the ids of the texts code looked at", gave: "step triage: where code sent them (straight to Tex, to the judge, beside a running turn) and the rule that did", settings: "code" },
   decide: { got: "step decide / judge (moment): the ids of the texts it weighed, put back into words from the chat; whether a turn was running", gave: "its verdict, why, how sure, a tapback, what a running turn does", settings: "its model (Clef)" },
   react: { got: "step react: the text it reacted on", gave: "step react: the emoji sent, or that it failed", settings: "who chose it (judge, a tool starting)" },

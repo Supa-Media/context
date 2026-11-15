@@ -119,6 +119,7 @@ import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as texReview from "./functions/lib/gatewayRoutes/texReview";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
+import * as agentTextMoves from "./functions/lib/gatewayRoutes/agentTextMoves";
 import * as agentTextGroups from "./functions/lib/gatewayRoutes/agentTextGroups";
 import * as textDecide from "./functions/lib/gatewayRoutes/textDecide";
 import * as texStyleRoutes from "./functions/lib/gatewayRoutes/texStyle";
@@ -889,6 +890,9 @@ http.route({ path: "/agent-texts/gmail", method: "POST", handler: agentWorkerRou
 for (const [path, handler] of vault.AGENT_CARRY_ON_ROUTES) http.route({ path, method: "POST", handler: agentWorkerRoute(handler) }); // a login saved, a browser handed back
 http.route({ path: "/agent-texts/phones", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsPhonesHandler) });
 http.route({ path: "/agent-texts/old-line", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsOldLineHandler) });
+// Staff moving chats to the new number one at a time (`functions/texChatMoves.ts`).
+http.route({ path: "/agent-texts/moves", method: "POST", handler: agentWorkerRoute(agentTextMoves.agentTextsMovesHandler) });
+http.route({ path: "/agent-texts/move-report", method: "POST", handler: agentWorkerRoute(agentTextMoves.agentTextsMoveReportHandler) });
 // The picture Tex texts beside a note's link (`apps/agent/src/noteCards.ts`).
 http.route({ path: "/agent-texts/note-card", method: "POST", handler: agentWorkerRoute(noteCard.agentTextsNoteCardHandler) });
 

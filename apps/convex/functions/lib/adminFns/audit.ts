@@ -32,6 +32,7 @@ export const ADMIN_ACTIONS = [
   "feature.switched",
   "flag.mode_set",
   "tex.old_line_set",
+  "tex.chat_move_asked",
   "flag.person_added",
   "flag.person_removed",
   "flag.cleared",

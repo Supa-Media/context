@@ -23,6 +23,7 @@ import type * as functions_texChatHomeCensus from "../functions/texChatHomeCensu
 import type * as functions_texChatHomeGrants from "../functions/texChatHomeGrants.js";
 import type * as functions_texChatHomeManifest from "../functions/texChatHomeManifest.js";
 import type * as functions_texChatHomePeople from "../functions/texChatHomePeople.js";
+import type * as functions_texChatMoves from "../functions/texChatMoves.js";
 import type * as functions_texGroupMigration from "../functions/texGroupMigration.js";
 import type * as functions_texGroupMigrationRows from "../functions/texGroupMigrationRows.js";
 import type * as functions_texFolderNames from "../functions/texFolderNames.js";
@@ -312,6 +313,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texChatHomeGrants": typeof functions_texChatHomeGrants;
   "functions/texChatHomeManifest": typeof functions_texChatHomeManifest;
   "functions/texChatHomePeople": typeof functions_texChatHomePeople;
+  "functions/texChatMoves": typeof functions_texChatMoves;
   "functions/texGroupMigration": typeof functions_texGroupMigration;
   "functions/texGroupMigrationRows": typeof functions_texGroupMigrationRows;
   "functions/texFolderNames": typeof functions_texFolderNames;

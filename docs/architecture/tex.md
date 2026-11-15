@@ -33,6 +33,7 @@ flowchart LR
   n_notify(["Send through Tex<br/>code<br/>graph/nodes/notify.js · tools/attention.js · attention.js"]):::start
   n_text(["A text arrives<br/>code<br/>apps/agent"]):::start
   n_oldLine["Old number?<br/>code<br/>graph/nodes/oldLine.js · apps/agent oldLineStep.ts · oldLine.ts"]:::code
+  n_moveChat(["Staff move a chat<br/>code<br/>graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts"]):::start
   n_triage["Triage<br/>code<br/>inboxTurn.ts chooseTurn · groupInbox.ts acceptGroup"]:::code
   n_decide["Decide<br/>Clef<br/>textsDecide.js · textDecide.cjs"]:::model
   n_lanes["Queue<br/>code<br/>apps/agent inbox.ts · groupTurn.ts"]:::code
@@ -81,6 +82,7 @@ flowchart LR
   n_text --> n_oldLine
   n_oldLine -->|pass| n_triage
   n_oldLine -->|redirect| n_send
+  n_moveChat -->|person, group| n_send
   n_triage --> n_decide
   n_triage --> n_lanes
   n_decide --> n_react
@@ -152,6 +154,7 @@ every wire, from the same config.
 | Send through Tex | notify |  | on | code |  |  |  | graph/nodes/notify.js · tools/attention.js · attention.js |
 | A text arrives | text |  | on | code |  |  |  | apps/agent |
 | Old number? | oldLine |  | on | code |  |  |  | graph/nodes/oldLine.js · apps/agent oldLineStep.ts · oldLine.ts |
+| Staff move a chat | moveChat |  | on | code |  |  |  | graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts |
 | Triage | triage |  | on | code |  |  |  | inboxTurn.ts chooseTurn · groupInbox.ts acceptGroup |
 | Decide | decide |  | on | Clef |  |  | examples, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
 | Queue | lanes |  | on | code |  |  |  | apps/agent inbox.ts · groupTurn.ts |
@@ -193,7 +196,7 @@ every wire, from the same config.
 | Day summaries | daysum |  | on | Haiku 5.5 | off |  |  | daySummaries.js |
 | Housekeeping | housekeep |  | on | Haiku 5.5 | off |  |  | housekeeping.js |
 
-Wires: checkin → fd (wait, look) · routine → readTheText (wait) · notify → send (wait, send) · text → oldLine (wait) · oldLine → triage (wait, pass) · oldLine → send (wait, redirect) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · lanes → readTheText (wait) · readTheText → runARoutine (wait, next) · runARoutine → checkTheQuestion (wait, next) · checkTheQuestion → settleAYesOrNo (wait, next) · settleAYesOrNo → watchWhatLeaves (wait, next) · watchWhatLeaves → checkItMayRun (wait, next) · checkItMayRun → readTheHistory (wait, next) · readTheHistory → openTheWeb (wait, next) · openTheWeb → readTheSetup (wait, next) · readTheSetup → prepareBookkeeping (wait, next) · prepareBookkeeping → prepareTheAnswer (wait, next) · readTheText → send (wait, answered) · runARoutine → send (wait, answered) · checkTheQuestion → send (wait, answered) · settleAYesOrNo → send (wait, answered) · checkItMayRun → send (wait, answered) · prepareTheAnswer → fd (wait, next) · prepareTheAnswer → router (wait, next) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background, threads) · send → selfreview (background, sent) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · send → nudge (background, fired) · send → reflect (background, fired) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping)
+Wires: checkin → fd (wait, look) · routine → readTheText (wait) · notify → send (wait, send) · text → oldLine (wait) · oldLine → triage (wait, pass) · oldLine → send (wait, redirect) · moveChat → send (wait, person, group) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · lanes → readTheText (wait) · readTheText → runARoutine (wait, next) · runARoutine → checkTheQuestion (wait, next) · checkTheQuestion → settleAYesOrNo (wait, next) · settleAYesOrNo → watchWhatLeaves (wait, next) · watchWhatLeaves → checkItMayRun (wait, next) · checkItMayRun → readTheHistory (wait, next) · readTheHistory → openTheWeb (wait, next) · openTheWeb → readTheSetup (wait, next) · readTheSetup → prepareBookkeeping (wait, next) · prepareBookkeeping → prepareTheAnswer (wait, next) · readTheText → send (wait, answered) · runARoutine → send (wait, answered) · checkTheQuestion → send (wait, answered) · settleAYesOrNo → send (wait, answered) · checkItMayRun → send (wait, answered) · prepareTheAnswer → fd (wait, next) · prepareTheAnswer → router (wait, next) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background, threads) · send → selfreview (background, sent) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · send → nudge (background, fired) · send → reflect (background, fired) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping)
 <!-- tex-config: steps end -->
 
 ## The rule

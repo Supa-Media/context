@@ -100,6 +100,28 @@ export const platformTables = {
     updatedBy: v.id("users"),
   }),
 
+  /**
+   * One chat staff moved to Tex's new number (`functions/texChatMoves.ts`, Dev2's Photon switch, 2026-11-15), one row per
+   * person (by phone) or group chat (by `groupKey`). Staff ask; the texting Worker takes the ask, sends the one text and
+   * reports back; a person's row turns `moved` when they first text the new line.
+   */
+  texChatMoves: defineTable({
+    kind: v.union(v.literal("person"), v.literal("group")),
+    /** A person's phone (E.164), or a group's `groupKey`. */
+    key: v.string(),
+    status: v.union(v.literal("asked"), v.literal("sending"), v.literal("told"), v.literal("moved"), v.literal("failed")),
+    /** A fixed code for the last outcome (`no_chat`, `send_failed`…), never words. */
+    detail: v.optional(v.string()),
+    askedAt: v.number(),
+    askedBy: v.id("users"),
+    claimedAt: v.optional(v.number()),
+    toldAt: v.optional(v.number()),
+    movedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_chat", ["kind", "key"])
+    .index("by_status", ["status"]),
+
   renderAssets: defineTable({
     kind: v.literal("resvgWasm"),
     storageId: v.id("_storage"),
