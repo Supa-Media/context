@@ -39,13 +39,15 @@ export const MAX_PLAYBOOK_CHARS = 12_000;
 
 /**
  * The playbook's text, bounded, or "" when there is none or it can't be read. A guest chat reads none. In a home, its
- * own note; when that is missing, the old workspace note through `dispatch` (read only, so what a chat was taught
- * there still applies until a save writes the home's).
+ * own note (`held`: read straight from the chat's object, `groupDirectNotes.js`); when that is missing, the old
+ * workspace note through `dispatch` (read only, so what a chat was taught there still applies until a save writes the
+ * home's).
  */
-export async function readPlaybook(dispatch, group) {
+export async function readPlaybook(dispatch, group, held = null) {
   if (group?.guestChat) return "";
   const home = group?.home?.dispatch && typeof group.home.folder === "string" ? group.home : null;
-  const own = home ? await bodyOf(home.dispatch, playbookPath(group)) : null;
+  const kept = typeof held?.body === "string" ? held.body.trim() || null : undefined;
+  const own = kept !== undefined ? kept : home ? await bodyOf(home.dispatch, playbookPath(group)) : null;
   const text = own ?? (dispatch === null ? null : await bodyOf(dispatch, PLAYBOOK_PATH)) ?? "";
   const at = playbookPath(group);
   return text.length > MAX_PLAYBOOK_CHARS ? `${text.slice(0, MAX_PLAYBOOK_CHARS)}\n…(the rest is in ${at})` : text;
