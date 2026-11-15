@@ -214,7 +214,12 @@ export async function pendingCalls(dir) {
   const calls = (await readdir(join(dir, "calls")).catch(() => [])).filter((name) => name.endsWith(".json")).sort();
   const answered = new Set(await readdir(join(dir, "answers")).catch(() => []));
   const pending = [];
-  for (const name of calls) if (!answered.has(name)) pending.push(JSON.parse(await readFile(join(dir, "calls", name), "utf8")));
+  for (const name of calls) {
+    if (answered.has(name)) continue;
+    // A call file still being written reads as half its JSON; it is listed on the next look, once whole.
+    const call = await readJson(join(dir, "calls", name));
+    if (call !== undefined) pending.push(call);
+  }
   return pending;
 }
 
