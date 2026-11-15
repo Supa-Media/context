@@ -13,7 +13,8 @@ import { appOriginOf } from "../agent/noteLinks.js";
 import { TEX_CONFIG } from "../agent/texConfig.js";
 import { toolError } from "../tools/results.js";
 import { draftProblems, draftVsMain } from "./check.js";
-import { guideText } from "./guide.js";
+import { ACTIONS, guideText } from "./guide.js";
+import { labAction, labWording, snapshotSim } from "./lab.js";
 import { chatsOf, entriesOf, turnsOf } from "./probe.js";
 import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
 import { snapshotGraph } from "./snapshot.js";
@@ -111,7 +112,8 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
           }
         };
         // `picks`, `areas` and `results` are the Lab's Run tab: the cases picked, the areas, and every bench run's scores.
-        return json({ ...about, link: linkOf(args.draft), vsMain: draftVsMain(graph), problems: draftProblems(graph), picks: read(picks, {}), areas: read(areas, null), results: read(results, []), graph });
+        // vsMain also names the modules' words and conversation settings the draft changes, as the Lab's nav tags do.
+        return json({ ...about, link: linkOf(args.draft), vsMain: { ...draftVsMain(graph), ...labWording(args.draft, answer) }, problems: draftProblems(graph), picks: read(picks, {}), areas: read(areas, null), results: read(results, []), graph });
       }
       case "edit": {
         if (needDraft(args)) return needDraft(args);
@@ -137,16 +139,21 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
       }
       case "snapshot": {
         let graph = null;
+        let drafted = null;
         if (args.graph !== undefined) graph = parseGraph(args.graph);
-        else if (typeof args.draft === "string") {
+        else if (typeof args.draft === "string" && args.draft !== "main") {
           const got = await draftGraph(args.draft);
           if (got.error) return got.error;
           graph = got.graph;
+          drafted = got.answer;
         } else graph = mainGraph();
         if (graph === null) return toolError("snapshot takes a draft, or graph as { nodes: [...], edges: [...] }.");
-        const shot = await snapshotGraph(env, graph, { focus: args.focus ?? null, base: mainGraph(), theme: args.theme === "light" ? "light" : "dark" });
+        // With a test, each step carries its time and the stats chip shows, as on the Lab's canvas (`lab.js`).
+        const traced = await snapshotSim(plane, args, drafted);
+        if (traced.error) return traced.error;
+        const shot = await snapshotGraph(env, graph, { focus: args.focus ?? null, base: mainGraph(), theme: args.theme === "light" ? "light" : "dark", sim: traced.sim });
         if (!shot.ok) return toolError(shot.error);
-        return { content: [{ type: "image", data: shot.png, mimeType: "image/png" }, { type: "text", text: args.draft ? `Draft ${args.draft} · live at ${linkOf(args.draft)}` : "Main as it runs today." }] };
+        return { content: [{ type: "image", data: shot.png, mimeType: "image/png" }, { type: "text", text: drafted ? `Draft ${args.draft} · live at ${linkOf(args.draft)}` : args.graph !== undefined ? "The graph you passed." : "Main as it runs today." }] };
       }
       case "link": {
         // A place in the Lab or in Replay (`replay.js` `linkAnswer`): a page, or a chat and a moment, as the Lab's address holds it.
@@ -224,8 +231,16 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
           return toolError(error?.status === 404 ? "There is no such chat; chats lists yours." : "That chat's history could not be read just now.");
         }
       }
+      // What the Lab computes and shows in the browser, with its own functions (`lab.js`).
+      case "sim":
+      case "compare":
+      case "config":
+      case "bench":
+      case "modules":
+      case "reference":
+        return labAction(action, args, plane);
       default:
-        return toolError(`tex_dev has no action "${action}". Its actions: guide, list, create, get, edit, changes, snapshot, link, check, promote, tool_stats, cases, case, chats, turns, turn, entries, moments, prompt, jobs, mine, rename, delete, run_setup, keep_results, revert.`);
+        return toolError(`tex_dev has no action "${action}". Its actions: ${ACTIONS.map(([name]) => name).join(", ")}.`);
     }
   };
 }

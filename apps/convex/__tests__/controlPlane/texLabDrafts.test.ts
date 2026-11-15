@@ -138,6 +138,25 @@ describe("tex_dev drafts", () => {
     expect(await dev("case", { key: "core/q9", data: null })).toEqual({ status: "ok" });
     expect((await dev("cases")).caseEdits).toEqual([]);
   });
+
+  test("the Lab's Compare: every version's graph and results with main's runs, read without marking the AI in each", async () => {
+    const { t, dev, staff } = await world();
+    const a = (await dev("create", { name: "One", graph: JSON.stringify(GRAPH) })).id as string;
+    const b = (await dev("create", { name: "Two", graph: JSON.stringify(GRAPH) })).id as string;
+    const lab = withSession(t, staff);
+    const results = JSON.stringify([{ at: 1, areas: { core: { practice: [3, 4], held: [1, 2], usd: 0 } }, raw: "" }]);
+    await lab.mutation(api.functions.texLab.saveVersion, { versionId: "main", name: "main", graph: '{"nodes":[],"edges":[]}', picks: "{}", results, createdAt: 1 });
+    await t.run(async (ctx) => {
+      for (const r of await ctx.db.query("texLabVersions").collect()) if (r.versionId !== "main") await ctx.db.patch(r._id, { live: undefined });
+    });
+    const all = await dev("versions");
+    expect(all).toMatchObject({ status: "ok", main: { results } });
+    expect((all.drafts as Array<{ id: string; graph: string }>).map((d) => d.id).sort()).toEqual([a, b].sort());
+    expect(JSON.parse((all.drafts as Array<{ graph: string }>)[0].graph).nodes).toHaveLength(2);
+    expect((all.drafts as Array<{ live: unknown }>).every((d) => d.live === null)).toBe(true);
+    expect(((await dev("versions", { drafts: [b] })).drafts as Array<{ id: string }>).map((d) => d.id)).toEqual([b]);
+    expect(await dev("versions", {}, ACCESS_B)).toEqual({ status: "refused" });
+  });
 });
 
 describe("tex_dev: the Lab's other writes", () => {

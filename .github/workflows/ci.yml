@@ -278,6 +278,7 @@ jobs:
             apps/mcp/src/texDev/**
             scripts/tex-dev-canvas.mjs
             scripts/tex-dev-replay.mjs
+            scripts/tex-dev-lab.mjs
             .github/workflows/ci.yml
 
       - uses: pnpm/action-setup@v4
@@ -371,6 +372,12 @@ jobs:
       - name: The gateway's Tex Replay must be what the Lab's Replay builds
         if: steps.scope.outputs.affected == 'true'
         run: node scripts/tex-dev-replay.mjs --check
+      # `tex_dev` sim, compare, config, bench, modules and reference answer with
+      # what the Tex Lab computes in the browser (engine/forMcp.ts and all it
+      # reads, the bench cases included), bundled the same way.
+      - name: The gateway's Tex Lab engine must be what the Lab's sources build
+        if: steps.scope.outputs.affected == 'true'
+        run: node scripts/tex-dev-lab.mjs --check
 
       # Uploaded only on failure, and only the rebuilt file: a reviewer needs to
       # compare it against the commit to see what was added, and scrolling a

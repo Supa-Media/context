@@ -3,22 +3,13 @@
  * version: its name (opens it on the canvas), who made it, the reply time and
  * cost for the picked test, then each area's latest pasted run.
  */
-import type { LabVersion } from "../types";
 import { AREAS } from "../data/areas";
 import { fmtS, fmtUsd, simulate } from "../engine/sim";
 import { scnLabel } from "../engine/traces";
 import { go, lab, openVersion } from "../engine/state";
 import { useLab } from "../store";
 import { PageHead } from "./parts";
-
-type AreaRun = { practice: [number, number]; held: [number, number] };
-
-/** Each area's latest run on a version: the last result that names it (`latest`). */
-function latest(v: LabVersion): Record<string, AreaRun> {
-  const o: Record<string, AreaRun> = {};
-  for (const r of v.results || []) for (const [a, x] of Object.entries(r.areas)) o[a] = x as AreaRun;
-  return o;
-}
+import { latest } from "./run/runText";
 
 export function Compare() {
   useLab();

@@ -14,7 +14,7 @@ import { focusOn, G, set, toast } from "../engine/state";
 import { useLab } from "../store";
 import { Ic } from "./ic";
 import { PageHead } from "./parts";
-import { fromFeed, med, readToolLog, type Feed, type ToolStat, type ToolStats } from "./toolStats";
+import { fromFeed, med, readToolLog, toolUsers, type Feed, type ToolStat, type ToolStats } from "./toolStats";
 
 const ARTIFACT_NOTE = " Live numbers across every chat need a feed: failures alone are kept today, on tex.lc/admin under Why tools fail.";
 
@@ -65,7 +65,7 @@ export function Tools() {
   const feedStats = !pasted && feed && feed.rows.length ? fromFeed(feed) : null;
   const S = pasted ?? feedStats;
   const g = G();
-  const users = g.nodes.filter((n) => n.ctx.includes("tools") || g.edges.some((e) => e.to === "tools" && e.from === n.id));
+  const users = toolUsers(g);
   const rows = TOOL_INV.map(([t, kind, what, acts]) => ({ t, kind, what, acts, s: S?.[t] })).sort((a, b) =>
     S ? (b.s?.calls || 0) - (a.s?.calls || 0) : 0,
   );

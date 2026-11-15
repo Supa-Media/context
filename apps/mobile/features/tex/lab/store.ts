@@ -13,7 +13,7 @@ import { api } from "@context/convex/_generated/api";
 import { buildTraces } from "./engine/traces";
 import { allCases } from "./engine/diff";
 import { clone, emit, isMain, lab, MAIN, openVersion, setSaver, shownGraph, snapshot, subscribe, toast } from "./engine/state";
-import { unfoldGroups } from "./engine/groups";
+import { unfoldGroups, withCurrentModes } from "./engine/groups";
 import { live, onRemote, resetLive, setFeed, setSender, setSetupSender, setupOf, tick, type Answer } from "./engine/live";
 import type { LabCase, LabVersion } from "./types";
 
@@ -77,9 +77,8 @@ export async function deleteCurrent() {
   toast("Deleted “" + name + "”");
 }
 
-/** A version saved before the "behind" wire was renamed "background" (Dev2, 2026-11-14) reads with the new name. */
-export const withCurrentModes = <G extends { edges?: Array<{ mode: string }> },>(g: G): G =>
-  Array.isArray(g.edges) ? { ...g, edges: g.edges.map((e) => (e.mode === "behind" ? { ...e, mode: "background" } : e)) } : g;
+/** A version saved before the "behind" wire was renamed "background" reads with the new name (`engine/groups.ts`). */
+export { withCurrentModes };
 
 const parse = <T,>(s: string | null | undefined, fallback: T): T => {
   try {

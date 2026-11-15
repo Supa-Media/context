@@ -5,9 +5,20 @@
  * docs/testing/examiner.md), and the reader for a pasted "## Tex replay" report.
  */
 import { EXAMINABLE } from "../../data/areas";
-import type { config } from "../../engine/diff";
-import type { RunResult } from "../../types";
+import type { Change, config } from "../../engine/diff";
+import type { LabVersion, RunResult } from "../../types";
 import { parseReport as readReport } from "@context/shared/src/texLabReport.cjs";
+
+/** How a change from main lands, as the Run view's "Ships as" column names it. */
+export const shipsAs = (x: Pick<Change, "how" | "setup">): string =>
+  x.how === "fixture" ? "bench fixture" : x.how === "setup" ? "setup: " + String(x.setup) : x.how === "guess" ? "guess only" : x.how === "doc" ? "words only" : "code";
+
+/** Each area's latest run on a version: the last result that names it (the Compare view's `latest`). */
+export function latest(v: Pick<LabVersion, "results">): Record<string, { practice: [number, number]; held: [number, number] }> {
+  const o: Record<string, { practice: [number, number]; held: [number, number] }> = {};
+  for (const r of v.results || []) for (const [a, x] of Object.entries(r.areas)) o[a] = x as { practice: [number, number]; held: [number, number] };
+  return o;
+}
 
 export type { AreaScore } from "@context/shared/src/texLabReport.d.cts";
 import type { AreaScore } from "@context/shared/src/texLabReport.d.cts";

@@ -54,7 +54,7 @@ because a headless browser would need a new way past staff sign-in.
 ledger the Lab's Replay and the Tex page's History read, for the person's own one-to-one and the group chats they are
 in (the control plane's `pageForUser`, as for the Tex page). A turn is every entry it wrote, in order, with inputs,
 outputs, thinking, tool calls, models, milliseconds and failures, and a summary of the slowest steps. Nothing is
-estimated (Dev2, 2026-11-14: replay shows only what ran), which is also why the Lab's Simulate tab is not offered.
+estimated (Dev2, 2026-11-14: replay shows only what ran). The Lab's estimates (Speed and cost) are offered as `sim`, marked as estimates, never mixed into Replay.
 `turns` lists 20 replies unless `limit` (at most 100) and pages back with `before`; a turn's reply timing is answered
 once, in the summary, in brief unless `full`.
 
@@ -81,6 +81,24 @@ Worker's Decide step, and taking a module's words by its id rather than its fing
 the ones that ran (`apps/mcp/test/texDevReplay.test.mjs` "moments are the Lab's moments", "a turn carries the
 moment's judgings", "the prompt's words come only from the catalogue at the turn's commit").
 
+**What the Lab computes in the browser, the MCP computes with the Lab's own code** (Dev2, 2026-11-15: "anything that
+can be done inside of the lab should be able to be done inside of the MCP ... check all the gaps"). `sim` is the Speed
+and cost view (and the Node panel's reads, cache share and output, and its "Use this log"); `compare` is Compare;
+`config` is Run: its changes and how each ships, its areas and warnings, its prompt, and its config JSON as a block of
+its own, the `lab.json` that `pnpm ai lab run --config` takes; `bench` is Test cases with the draft's picks and the
+shared case edits, its test panel, who runs it and the bench's workspaces; `modules` is Modules and its word diff;
+`reference` is the catalogues (tools, what each step logs and writes, the ledger, areas, models, wires, sources and
+the conversation settings, and the Tools tab's count of a pasted record). `snapshot` with a `test` draws each step's
+time and the stats chip as the canvas does, and `get`'s `vsMain` names the modules' words and conversation settings
+a draft changes, as the Lab's nav tags do. All of it is the Lab's `engine/forMcp.ts`, bundled for the gateway as
+`apps/mcp/src/texDev/lab.generated.js` by `scripts/tex-dev-lab.mjs` (CI fails when it is stale), with the state each
+Lab function reads put in place for the call and taken back after. A second implementation in the gateway was
+rejected because it would drift from the page the person is looking at; the views' arithmetic that lived inside
+React components (the run warnings, the Compare's latest scores, the test panel, the modules' sections, the
+workspace tree) moved into pure modules the views and the bundle share. The simulation is an estimate, and every
+answer says which test it traced; what really ran is still `turn`. `compare` reads every version through the
+control plane's `versions`, which does not mark the AI as in each draft.
+
 **Nothing here changes live Tex.** `promote` is the Lab's Promote: a pull request that merges only through CI and the
 replay gate. A draft changes config; a node's code or a new kind of step still needs a pull request.
 
@@ -91,4 +109,6 @@ editors overwrite each other silently ("the later edit to the same field is refu
 lets an undo erase a later change ("revert undoes one change ..., refuses one a later change built on"). Keeping a
 report whole would put a person's own chat in a version every staff member reads ("keep_results ... never keeps a
 replay"). Sending only graph edits from the Lab drops a live draft's picks and areas again
-(`apps/mobile/__tests__/texLabLive.test.ts` "the Run tab's picks and areas ... are sent, not dropped").
+(`apps/mobile/__tests__/texLabLive.test.ts` "the Run tab's picks and areas ... are sent, not dropped"). editors overwrite each other silently ("the later edit to the same field is refused"). Answering a Lab tab from
+anything but the Lab's own functions lets the MCP and the page disagree (`apps/mcp/test/texDevLab.test.mjs`, which
+holds each action against the bundled function on the same input, and the `tex-dev-lab.mjs --check` step in CI).

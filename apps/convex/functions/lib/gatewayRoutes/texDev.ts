@@ -13,7 +13,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 
-const ACTIONS = new Set(["page", "list", "create", "get", "changes", "edit", "promote", "tool_stats", "cases", "case", "rename", "delete", "run_setup", "keep_results", "revert"]);
+const ACTIONS = new Set(["page", "list", "create", "get", "changes", "edit", "promote", "tool_stats", "cases", "case", "rename", "delete", "run_setup", "keep_results", "revert", "versions"]);
 
 /** `POST /gateway/tex/dev` `{ accessToken, action, args }`. */
 export async function gatewayTexDevHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {

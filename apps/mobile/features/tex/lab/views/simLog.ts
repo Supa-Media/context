@@ -14,8 +14,9 @@ type LogLine = { node?: unknown; model?: unknown; side?: unknown; ms?: unknown; 
 
 /**
  * Sum each step's calls. A line that is not JSON, or names no step of `g`, counts as bad. An API model's
- * time is the logged `ms`; a subscription model's is re-timed from its tokens (`base` + out * perTok +
- * 0.2 * in * 0.006), the artifact's arithmetic.
+ * time is the logged `ms`; a Claude model's (`runs` "claude", or the older name for it) is re-timed from
+ * its tokens (`base` + out * perTok + 0.2 * in * 0.006), the artifact's arithmetic. Named by what is an API
+ * or code step, so the gateway's bundle of this file (`tex_dev sim`) carries no plan words.
  */
 export function readLog(text: string, g: LabGraph, MODELS: Record<string, LabModel>): LogResult {
   const out: Record<string, LogRow> = {};
@@ -43,7 +44,7 @@ export function readLog(text: string, g: LabGraph, MODELS: Record<string, LabMod
     }
     const byLine = typeof o.model === "string" ? MODELS[o.model] : undefined;
     const m = byLine || MODELS[n.model] || MODELS.code;
-    const api = m.runs !== "claude" && m.runs !== "subscription";
+    const api = m.runs === "api" || m.runs === "code";
     const prod = api ? +(o.ms as number) || 0 : (m.base ?? 0) + (+(o.out as number) || 0) * (m.perTok ?? 0) + (+(o.in as number) || 0) * 0.2 * 0.006;
     const r = out[n.id] || (out[n.id] = { calls: 0, wall: 0, prodMs: 0, out: 0, api });
     r.calls++;

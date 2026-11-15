@@ -13,6 +13,7 @@ import { dropCase, saveCase, useLab } from "../store";
 import type { LabCase } from "../types";
 import { Ic } from "./ic";
 import { CaseThread, CaseWant, IoPanel, WhoPanel, caseFit, setPipeScn } from "./tests/caseParts";
+import { areaCounts } from "./tests/caseInfo";
 import { MineMain } from "./mine/Mine.web";
 
 /** The case whose text is open for editing (the artifact's `tEdit`), shared by both pages. */
@@ -32,9 +33,9 @@ const NAV_GROUPS: Array<[string, string, (k: string) => boolean]> = [
 ];
 
 function AreaButton({ k, v }: { k: string; v: string }) {
-  const cs = allCases().filter((c) => c.area === k);
+  const n = areaCounts(k);
   const st = node(AREA_INFO[k]?.step ?? "", MAIN.graph);
-  const b = cs.filter((c) => caseFit(c).length).length;
+  const b = n.unfit;
   return (
     <button
       data-area={k}
@@ -52,7 +53,7 @@ function AreaButton({ k, v }: { k: string; v: string }) {
         <small>{st?.label || ""}</small>
       </span>
       <span className="ac">
-        {cs.filter(isPicked).length}/{cs.length}
+        {n.picked}/{n.total}
       </span>
       {b ? <span className="pill warn" title="Cases that can't test this version as written">{b}</span> : null}
       {EXAMINABLE.has(k) ? null : <span className="pill warn" title="Needs API credits">credits</span>}
