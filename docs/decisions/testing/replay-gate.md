@@ -44,8 +44,12 @@ did not have to leave a case behind.
    core x2 $0.13, web facts $0.08, simple asks $0.01.
    **How it runs:** the model runs need production's AI keys, and a workflow
    holding those never runs on a pushed branch by itself
-   (`scripts/check-workflow-triggers.mjs`). So the agent that opens a Tex pull
-   request dispatches **Tex replay** (`tex-replay.yml`) on its branch. It runs
+   (`scripts/check-workflow-triggers.mjs`). So **Tex replay** (`tex-replay.yml`) is
+   dispatched on the branch: since 2026-11-15 by **Tex replay required** itself
+   the moment it goes red on a branch of this repository, with Claude Code
+   answering on the subscription (decided by the owner: "some type of webhook"
+   instead of an hourly examiner; [examiner](../../testing/examiner.md)), and
+   by hand for any other way of answering. It runs
    `pnpm ai gate` (`apps/mcp/bench/replayGate.mjs`) against main beside it,
    marks the head commit with the status `Tex replay`, and re-runs the pull
    request's check **Tex replay required** (`tex-replay-check.yml`,
