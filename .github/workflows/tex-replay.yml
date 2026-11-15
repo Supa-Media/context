@@ -188,7 +188,8 @@ jobs:
           CLAUDE_CODE: ${{ inputs.claude_code }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
         run: |
-          set -uo pipefail
+          # The step's shell runs with -e; the gate's and the answerer's exits are read below instead.
+          set +e -uo pipefail
           answerer=""
           if [ "$CLAUDE_CODE" = "true" ]; then
             if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
