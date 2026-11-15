@@ -313,6 +313,10 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // `routeWords.test.mjs` fails when a route word is missing here.
   "files",
   "internal",
+  // The Lab's Test Set at `/tex-test-set` and Tex's eval service at `/tex-eval/` on the gateway. Same terms as
+  // `presence`.
+  "tex-test-set",
+  "tex-eval",
   "oauth",
   "static",
   "status",
