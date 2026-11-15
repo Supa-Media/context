@@ -1,16 +1,6 @@
 import assert from "node:assert/strict";
 import { untriedWebCheck } from "../../../src/agent/untriedWeb.js";
 
-/** A turn that read a long ledger and quoted a figure from past its first 16K characters. */
-const turn = (tail) => ({
-  messages: [
-    { role: "user", text: "how long do your replies take lately?" },
-    { role: "assistant", text: "", toolCalls: [{ id: "c1", name: "fetch", args: { path: "tex/history.ledger.json" } }] },
-    { role: "tool", id: "c1", name: "fetch", text: `${"{\"kind\":\"text\"}\n".repeat(3_000)}${tail}` },
-  ],
-  system: "You are Tex.",
-});
-
 export default {
   id: "figures-read-whole",
   incident: "2026-11-09 to 11-15: the reply reviewer sent back a 1:1 reply quoting a 23 s reply time from the ledger, saying the read showed only a header; another, quoting a film's ratings, it judged by the search words rather than the results. Both rewrites dropped true facts.",
@@ -22,3 +12,13 @@ export default {
     assert.match(String(notice), /64%/, "a figure in nothing read goes back, named");
   },
 };
+
+/** A turn that read a long ledger and quoted a figure from past its first 16K characters. */
+const turn = (tail) => ({
+  messages: [
+    { role: "user", text: "how long do your replies take lately?" },
+    { role: "assistant", text: "", toolCalls: [{ id: "c1", name: "fetch", args: { path: "tex/history.ledger.json" } }] },
+    { role: "tool", id: "c1", name: "fetch", text: `${"{\"kind\":\"text\"}\n".repeat(3_000)}${tail}` },
+  ],
+  system: "You are Tex.",
+});
