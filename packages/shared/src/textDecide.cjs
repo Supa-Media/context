@@ -1,5 +1,5 @@
 /**
- * What the judge (decide) and the last look ask the decision model, and how 
+ * What the judge (decide) and the last look ask the decision model, and how
  * its answers are read. The judge is Tex's one call on every moment in a chat:
  * respond, react or quiet, with a why, taught by labelled examples rather
  * than rules in code (Dev2, 2026-11-11,
