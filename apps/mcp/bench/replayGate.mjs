@@ -41,8 +41,9 @@ const run = promisify(execFile);
 export { AREAS, areasFor } from "./replayAreas.mjs";
 import { AREAS, areasFor } from "./replayAreas.mjs";
 
-/** The areas a change's replay samples rather than runs whole (Dev2, 2026-11-15; `gateSample.mjs`). */
-export const GATE_SAMPLED = new Set(["respond", "review", "jobs"]);
+/** The areas a change's replay samples rather than runs whole (Dev2, 2026-11-15; `gateSample.mjs`): the jobs alone, now
+ * every other step keeps at most 20 cases and runs them all. */
+export const GATE_SAMPLED = new Set(["jobs"]);
 
 export const HELD_OUT_FOLDER = "ai/held-out";
 export const HELD_OUT_PREFIX = "held-out/";
@@ -147,7 +148,7 @@ export function feedback({ areas, results }) {
 /** One bench command in a tree, its rows written to a file. `only` limits it to some ids. */
 async function benchRows(tree, area, { heldOut, only, fake, out, records = null, sampleBase = null }) {
   const args = [join(tree, "apps/mcp/bench/run.mjs"), area, "--json", out];
-  // The gate's sample of the two biggest areas (`gateSample.mjs`), its new and changed cases read against main's tree.
+  // The gate's sample of the jobs (`gateSample.mjs`), its new and changed tasks read against main's tree.
   if (sampleBase && GATE_SAMPLED.has(area)) args.push("--gate-sample", sampleBase);
   if (records) args.push("--out", records);
   if (heldOut) args.push("--held-out", heldOut);
@@ -262,7 +263,7 @@ export async function gate({ branch, base, areas, heldOut = null, fake = false, 
   for (const area of areas) {
     const limit = limits[area];
     const runner = runners[area];
-    // The first run is the change's whole look at the area: for review and jobs, the gate's sample (`gateSample.mjs`).
+    // The first run is the change's whole look at the area: for jobs, the gate's sample (`gateSample.mjs`).
     const first = await runner(branch, { heldOut, fake, scratch, tag: "branch-1", runs: 1, sampleBase: base });
     const wrongRows = first.rows.filter((row) => !row.right);
     const wrong = wrongRows.map((row) => row.id);

@@ -23,7 +23,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
-import { inSample, reviewSample } from "./gateSample.mjs";
 import { ANSWER_WAIT_MS, modelSocket, socketRequest } from "./modelSocket.mjs";
 import { readHeldOut, writeRows } from "./replayGate.mjs";
 import { judgeState, reviewReply } from "../src/agent/replyJudge.js";
@@ -141,9 +140,7 @@ export async function reviewCommand(options, { write = (text) => process.stdout.
   const chosen = Object.fromEntries(names.map((name) => [name, sets[name]]));
   // `--held-out <dir>` adds the cases kept outside the repository (`replayGate.mjs`); `--only a,b` scores those ids alone.
   const only = options.only ? new Set(String(options.only).split(",")) : null;
-  // `--gate-sample <main tree>`: the replay gate's part of the sets, plus every case new or changed against main's (`gateSample.mjs`).
-  const sample = options["gate-sample"] ? reviewSample(chosen, await loadSets(join(options["gate-sample"], "apps/mcp/bench/review")).catch(() => ({}))) : null;
-  const cases = [...Object.values(chosen).flat(), ...(await readHeldOut(options["held-out"], "review"))].filter((item) => !only || only.has(item.id)).filter(inSample(sample));
+  const cases = [...Object.values(chosen).flat(), ...(await readHeldOut(options["held-out"], "review"))].filter((item) => !only || only.has(item.id));
   const scored = await scoreCases(cases, review, Number(options.concurrency ?? 6));
   // A held-out case's words never reach the report: it counts in the rates and is named by its cause alone.
   const held = scored.filter((item) => item.heldOut);

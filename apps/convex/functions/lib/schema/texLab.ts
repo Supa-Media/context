@@ -52,6 +52,15 @@ export const texLabTables = {
     said: v.array(v.string()),
     at: v.number(),
   }).index("by_version_rev", ["versionId", "rev"]),
+  /**
+   * A draft's graph just before each revision (JSON), so the Lab can mark what that revision changed ("against last
+   * rev"). Kept apart from texLabChanges so the change feed, read live, stays small; deleted with the draft.
+   */
+  texLabRevBefore: defineTable({
+    versionId: v.string(),
+    rev: v.number(),
+    graph: v.string(),
+  }).index("by_version_rev", ["versionId", "rev"]),
   texLabCaseEdits: defineTable({
     /** `<area>/<case id>`. */
     key: v.string(),

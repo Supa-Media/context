@@ -22,14 +22,14 @@ import { G, go, isMain, lab, newVersion, openVersion, set, fit, emit } from "./e
 import { buildTraces, traceMine } from "./engine/traces";
 import { LAB_CSS } from "./labCss";
 import { ensureFontsLoaded } from "../../design/fonts.web";
-import { promoteVersion, useLab, useLabSync, useLiveFeed } from "./store";
+import { promoteVersion, useLab, useLabSync, useLiveFeed, useRevBase } from "./store";
 import { isLive, saveNow } from "./engine/live";
 import type { View } from "./types";
 import { Canvas } from "./views/Canvas.web";
 import { Compare } from "./views/Compare.web";
 import { Convo } from "./views/Convo.web";
 import { Ic } from "./views/ic";
-import { LiveChanges, LiveChips } from "./views/LiveChanges.web";
+import { ChangeToggles, LiveChanges, LiveChips } from "./views/LiveChanges.web";
 import { Modules } from "./views/Modules.web";
 import { Props } from "./views/Props.web";
 import { Run } from "./views/Run.web";
@@ -153,6 +153,7 @@ export function TexLab() {
 function Lab() {
   const s = useLab();
   useLiveFeed();
+  useRevBase();
   const closeSide = () => set({ sideOpen: false });
   const d = diff();
   const cvn = cvDiff().length;
@@ -286,6 +287,7 @@ function Lab() {
             Save
           </button>
           <LiveChips />
+          {s.view === "canvas" ? <ChangeToggles /> : null}
           {/* Not in the artifact: a saved version becomes Tex's config through a pull request (texLabPromote.ts). */}
           <button
             id="promoteBtn"

@@ -111,8 +111,23 @@ export type LabVersion = {
   promote?: { state: string; pr: string | null; why: string | null } | null;
 };
 
-/** One bench case as the Lab shows it (the artifact's CASES rows; fields vary by area). */
-export type LabCase = { area: string; id: string; ask: string; expect: string; isNew?: boolean; [k: string]: unknown };
+/**
+ * One bench case as the Lab shows it (the artifact's CASES rows; fields vary by area). A node case (area `node:<id>`)
+ * carries `given` (its input fields) and `want` (per output field, an exact value or a judge's words). `removed` is a
+ * case traded out of a full step, and `replaces` names the case a new one took the place of (`engine/cases.ts`).
+ */
+export type LabCase = {
+  area: string;
+  id: string;
+  ask: string;
+  expect: string;
+  isNew?: boolean;
+  given?: Record<string, string>;
+  want?: Record<string, { is?: string; judge?: string }>;
+  removed?: boolean;
+  replaces?: string;
+  [k: string]: unknown;
+};
 
 export type Selection = { t: "node"; id: string } | { t: "edge"; i: number } | null;
 

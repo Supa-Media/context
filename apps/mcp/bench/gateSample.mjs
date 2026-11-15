@@ -1,34 +1,22 @@
 /**
  * THE REPLAY GATE'S SAMPLE (Dev2, 2026-11-15: "cut the big tests to be less big ... I'm more concerned about the speed
- * of things"; chose "Reply checker and jobs"). A change's replay runs a fixed part of the two biggest areas, not all
- * of it: an examiner session answers every call by hand, and a full run had grown to about 494 calls (2026-11-15).
+ * of things"; chose "Reply checker and jobs"). A change's replay runs a fixed part of the jobs, not all of them: an
+ * examiner session answers every call by hand, and a full run had grown to about 494 calls (2026-11-15).
  *
- * - review and respond, the two unit steps: `UNIT_LIMIT` cases each (Dev2, 2026-11-15: "these nodes should be cut down
- *   to 20 questions each"), spread over every reviewer set and both kinds of answer, in file order.
+ * - review and respond, the two unit steps, once sampled 20 each, now keep only 20 cases (`UNIT_LIMIT`) and run whole.
  * - jobs: `GATE_JOB_TASKS`, one task of each kind (3 of the 7 whole jobs).
  *
- * The full sets stay in the repository and run whole without `--gate-sample` (`pnpm ai review`, `pnpm ai jobs`).
+ * The full set of jobs stays in the repository and runs whole without `--gate-sample` (`pnpm ai jobs`).
  * Held-out cases always run whole. A case the change adds or edits always runs too, so a change still passes the
  * case that proves it (docs/decisions/testing/replay-gate.md). No imports, so the gate and the scorers share it freely.
  */
 
-/** How many cases a unit step (the reply reviewer, Decide) runs on a change. */
+/**
+ * The most cases any one step keeps (Dev2, 2026-11-15: "a max of 20 test cases per unit"; chose "keep best 20, delete
+ * rest"). The reviewer's sets and Decide's cases were cut to 20 each, kept so every reviewer set and both kinds of
+ * answer stay in; `scripts/tex-lab-data.mjs` fails when any step's cases pass it, so the bench never grows back.
+ */
 export const UNIT_LIMIT = 20;
-
-/** Round robin over `buckets` (lists in order), one from each a round, until `limit` are taken. */
-export function spread(buckets, limit) {
-  const taken = [];
-  for (let round = 0; taken.length < limit && buckets.some((list) => round < list.length); round += 1) {
-    for (const list of buckets) if (round < list.length && taken.length < limit) taken.push(list[round]);
-  }
-  return taken;
-}
-
-/** One list's faults and good replies alternating, starting with a fault or a good one. */
-const alternate = (cases, faultFirst) => {
-  const [a, b] = faultFirst ? [cases.filter((c) => c.fault), cases.filter((c) => !c.fault)] : [cases.filter((c) => !c.fault), cases.filter((c) => c.fault)];
-  return Array.from({ length: Math.max(a.length, b.length) }, (_, i) => [a[i], b[i]]).flat().filter(Boolean);
-};
 
 /** The job tasks a change's replay runs: one research page, one page edit, one errand. */
 export const GATE_JOB_TASKS = ["research-caterers-page", "page-edit-fix-caterer-numbers", "errand-register-retreat-and-note"];
@@ -37,24 +25,6 @@ export const GATE_JOB_TASKS = ["research-caterers-page", "page-edit-fix-caterer-
 export function changedIds(cases, baseCases) {
   const base = new Map((baseCases ?? []).map((item) => [item.id, JSON.stringify(item)]));
   return new Set(cases.filter((item) => base.get(item.id) !== JSON.stringify(item)).map((item) => item.id));
-}
-
-/** The reviewer cases a change's replay runs, from `{ [set]: cases }` and main's sets, as a set of ids. */
-export function reviewSample(sets, baseSets) {
-  // Every set gives one case before any gives two, and neighbouring sets start on opposite kinds, so the sample is
-  // about half faults and half good replies.
-  const buckets = Object.keys(sets).sort().map((name, i) => alternate(sets[name], i % 2 === 0));
-  const keep = new Set(spread(buckets, UNIT_LIMIT).map((item) => item.id));
-  for (const id of changedIds(Object.values(sets).flat(), Object.values(baseSets ?? {}).flat())) keep.add(id);
-  return keep;
-}
-
-/** Decide's cases a change's replay runs (the "@Tex must still work" set, other replies, quiet ones in turn), as ids. */
-export function respondSample(cases, baseCases) {
-  const buckets = [cases.filter((c) => c.want !== "hush" && c.must), cases.filter((c) => c.want === "hush"), cases.filter((c) => c.want !== "hush" && !c.must)];
-  const keep = new Set(spread(buckets, UNIT_LIMIT).map((item) => item.id));
-  for (const id of changedIds(cases, baseCases)) keep.add(id);
-  return keep;
 }
 
 /** The job tasks a change's replay runs, from the tasks and main's, as a set of ids. */

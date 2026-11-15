@@ -576,3 +576,5 @@ test/moveChatNode.test.mjs
 test/texLabOps.test.mjs
 test/texDevSnapshot.test.mjs
 test/texDev.test.mjs
+bench/test/nodeCases.test.mjs
+bench/test/nodeCases.test.mjs
