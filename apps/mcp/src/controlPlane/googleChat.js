@@ -9,7 +9,11 @@
  * person named, a space by its id or the direct message with one person
  * (`tools/googleChatRead.js`), through the same address.
  *
- * Answers `{ ok: true, from, place }` / `{ ok: true, from, spaces }`, or `{ ok: false, refused }`.
+ * Every read names the account it reads (`account`, one of their Chat
+ * addresses); a send may, and otherwise goes from the first. A refusal for a
+ * missing or unknown account carries `accounts`, the addresses they can name.
+ *
+ * Answers `{ ok: true, from, place }` / `{ ok: true, from, spaces }`, or `{ ok: false, refused, accounts? }`.
  */
 
 const REFUSALS = new Set([
@@ -26,6 +30,8 @@ const REFUSALS = new Set([
   "reconnect_required",
   "unavailable",
   "unconfirmed",
+  "account_needed",
+  "account_not_found",
 ]);
 
 const SPACE_ID = /^spaces\/[A-Za-z0-9_-]{1,64}$/;
@@ -33,8 +39,15 @@ const SPACE_ID = /^spaces\/[A-Za-z0-9_-]{1,64}$/;
 /** Finding a direct message, then starting one and sending, is several Google calls. */
 const TIMEOUT_MS = 25_000;
 
+/** The person's Chat accounts, as the control plane names them on a refusal: addresses only. */
+function accountsOf(answer) {
+  return Array.isArray(answer?.accounts) ? answer.accounts.filter((account) => typeof account === "string" && account.includes("@")) : [];
+}
+
 function refusedOf(answer) {
-  return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
+  const refused = REFUSALS.has(answer?.refused) ? answer.refused : "unavailable";
+  const accounts = accountsOf(answer);
+  return accounts.length > 0 ? { ok: false, refused, accounts } : { ok: false, refused };
 }
 
 function placeOf(place) {
@@ -56,11 +69,11 @@ export function createGoogleChatMethods({ post }) {
       if (made === null) return { ok: false, refused: "unconfirmed" };
       return { ok: true, from: answer.from, place, space, message: made, setupUsed: answer.setupUsed === true };
     },
-    async googleChatSpaces(accessToken, expectedWorkspaceId) {
-      const answer = await post("/gateway/chat/spaces", { accessToken, expectedWorkspaceId }, { timeoutMs: TIMEOUT_MS });
+    async googleChatSpaces(accessToken, expectedWorkspaceId, { account } = {}) {
+      const answer = await post("/gateway/chat/spaces", { accessToken, expectedWorkspaceId, account }, { timeoutMs: TIMEOUT_MS });
       if (answer?.ok === true && Array.isArray(answer.spaces)) {
         const spaces = answer.spaces.filter((space) => typeof space?.name === "string" && typeof space?.displayName === "string");
-        return { ok: true, from: typeof answer.from === "string" ? answer.from : "", spaces };
+        return { ok: true, from: typeof answer.from === "string" ? answer.from : "", accounts: accountsOf(answer), spaces };
       }
       return refusedOf(answer);
     },
@@ -74,8 +87,8 @@ export function createGoogleChatMethods({ post }) {
       }
       return refusedOf(answer);
     },
-    async googleChatConversation(accessToken, expectedWorkspaceId, { space, to, limit }) {
-      const answer = await post("/gateway/chat/recent", { accessToken, expectedWorkspaceId, space, to, limit }, { timeoutMs: TIMEOUT_MS });
+    async googleChatConversation(accessToken, expectedWorkspaceId, { space, to, limit, account }) {
+      const answer = await post("/gateway/chat/recent", { accessToken, expectedWorkspaceId, space, to, limit, account }, { timeoutMs: TIMEOUT_MS });
       const place = placeOf(answer?.place);
       if (answer?.ok === true && Array.isArray(answer.messages) && place !== null) {
         const messages = answer.messages.filter(

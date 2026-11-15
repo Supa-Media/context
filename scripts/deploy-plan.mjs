@@ -102,9 +102,10 @@ export const TARGETS = {
       photon: { packages: ["@context/photon-bridge"], worker: "infra/photon-bridge" },
       email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
       agent: { packages: ["@context/agent"], worker: "apps/agent", files: [WORKER_SECRETS] },
-      // The gateway's job deploys its screenshot Worker first (a service
-      // binding needs its target), so either one changing deploys both.
-      mcp: { packages: ["@context/mcp", "@context/site-shots"], worker: "apps/mcp", files: [WORKER_SECRETS] },
+      // The gateway's job deploys its screenshot Worker and its eval service
+      // first (a service binding needs its target), so any one changing
+      // deploys them all.
+      mcp: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], worker: "apps/mcp", files: [WORKER_SECRETS] },
       // Staging publishes the app export inside this Worker's Static Assets
       // version, so an app input is also a router input.
       router: { packages: ["@context/router", "@context/mobile"], importOnly: APP_IMPORT_ONLY, worker: "infra/router" },
@@ -119,7 +120,7 @@ export const TARGETS = {
     workflow: "deploy-production.yml",
     components: {
       convex: { packages: ["@context/convex"], files: ["convex.json", workflow("deploy-convex")] },
-      gateway: { packages: ["@context/mcp", "@context/site-shots"], files: [workflow("deploy-mcp"), WORKER_SECRETS] },
+      gateway: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], files: [workflow("deploy-mcp"), WORKER_SECRETS] },
       email: { packages: ["@context/email-worker"], files: [workflow("deploy-email-worker")] },
       transcribe: { packages: ["@context/transcribe-worker"], files: [workflow("deploy-transcribe-worker")] },
       agent: { packages: ["@context/agent"], files: [workflow("deploy-agent-worker"), WORKER_SECRETS] },

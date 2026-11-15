@@ -3,7 +3,10 @@
  * from their own connected Google account, reached as `fetch chat:<space>`
  * (`v2/searchFetch.js`). A space is named by its `spaces/…` id, from `fetch
  * chat:` (their spaces) or `send google_chat` action spaces; a direct message
- * by the other person's work email.
+ * by the other person's work email. Every read names the account it reads
+ * (`account`, one of their Chat addresses): a person with several Google
+ * accounts has a different Chat in each, and reading the first one would
+ * answer "nothing there" for a conversation that lives in another.
  *
  * Only the one conversation named, its newest messages, both sides of it.
  * The control plane decides who may read
@@ -14,6 +17,7 @@
 
 import { toolError, toolText } from "./results.js";
 import { AI_ACCESS_STEP } from "./googleAiAccess.js";
+import { accountsLine, readChatAccount } from "./googleChat.js";
 
 export const GOOGLE_CHAT_ID_PREFIX = "chat:";
 export const MAX_CHAT_READ = 50;
@@ -42,6 +46,8 @@ export const READ_REFUSED = {
   chat_not_enabled: "Google Chat isn't turned on for Context's Google project yet, which is ours to fix, not theirs.",
   reconnect_required:
     "Their Google account needs reconnecting, because Google stopped honouring its sign-in. Get the link from manage connect_google (kind gmail) and give it to them.",
+  account_needed: "Name the Google account to read with account (its email): every Google Chat read names one.",
+  account_not_found: "They have no Google account with Chat by that address; pass account as one of theirs.",
   not_configured: "This Context deployment does not read Google Chat.",
   unavailable: "Google Chat did not answer just now. Try again.",
 };
@@ -53,10 +59,12 @@ export function readChatRequest(args) {
   if ((space === null) === (to === null)) return { error: READ_REFUSED.invalid };
   if (space !== null && !SPACE_ID.test(space)) return { error: READ_REFUSED.invalid };
   if (to !== null && (to.length > 254 || !ADDRESS.test(to))) return { error: READ_REFUSED.invalid };
+  const named = readChatAccount(args);
+  if (named.error) return { error: named.error };
   if (args?.limit !== undefined && (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > MAX_CHAT_READ)) {
     return { error: `limit is how many of the newest messages, 1 to ${MAX_CHAT_READ}.` };
   }
-  return { request: { ...(space !== null ? { space } : { to }), ...(args?.limit !== undefined ? { limit: args.limit } : {}) } };
+  return { request: { ...(space !== null ? { space } : { to }), ...(args?.limit !== undefined ? { limit: args.limit } : {}), ...(named.account !== null ? { account: named.account } : {}) } };
 }
 
 function when(at) {
@@ -80,7 +88,10 @@ export async function toolReadGoogleChat(store, args) {
   } catch {
     return toolError(READ_REFUSED.unavailable);
   }
-  if (answer?.ok !== true) return toolError(READ_REFUSED[answer?.refused] ?? READ_REFUSED.unavailable);
+  if (answer?.ok !== true) {
+    const why = READ_REFUSED[answer?.refused] ?? READ_REFUSED.unavailable;
+    return toolError(answer?.refused?.startsWith("account_") ? `${why} ${accountsLine(answer.accounts)}` : why);
+  }
   const where = typeof answer.place?.person === "string" ? `the direct message with ${answer.place.person}` : answer.place.space;
   const account = answer.from ? `${answer.from}'s` : "their";
   if (answer.messages.length === 0) return toolText(`Google Chat, ${where}, from ${account} account: no messages.`);

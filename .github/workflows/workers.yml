@@ -32,6 +32,7 @@ on:
       - "infra/egress-service/**"
       - "infra/photon-bridge/**"
       - "infra/site-shots/**"
+      - "infra/tex-eval/**"
       - "apps/agent/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/workers.yml"
@@ -169,6 +170,28 @@ jobs:
         run: |
           npm ci --prefix container
           pnpm test
+
+      # ── Tex eval service ──
+      - uses: ./.github/actions/ci-scope
+        if: ${{ !cancelled() }}
+        id: texeval
+        with:
+          packages: "@context/tex-eval"
+          paths: ".github/workflows/workers.yml"
+
+      - name: Install (Tex eval service)
+        if: ${{ !cancelled() && steps.texeval.outputs.affected == 'true' }}
+        run: pnpm install --filter @context/tex-eval... --frozen-lockfile
+
+      - name: Typecheck (Tex eval service)
+        if: ${{ !cancelled() && steps.texeval.outputs.affected == 'true' }}
+        working-directory: infra/tex-eval
+        run: pnpm typecheck
+
+      - name: Tex eval service tests
+        if: ${{ !cancelled() && steps.texeval.outputs.affected == 'true' }}
+        working-directory: infra/tex-eval
+        run: pnpm test
 
       # ── Site Shots Worker ──
       - uses: ./.github/actions/ci-scope

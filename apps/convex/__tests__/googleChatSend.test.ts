@@ -178,6 +178,19 @@ describe("sending a Google Chat message as the person", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("a send may name its account: the named one sends, one not theirs is refused with their accounts and sends nothing", async () => {
+    const calls = chatApi();
+    const { t, aliceWs } = await connected();
+    expect(await send(t, ACCESS_A, aliceWs, { ...DM, account: "Alice@Work.example" })).toMatchObject({ ok: true, from: "alice@work.example" });
+    const before = calls.length;
+    expect(await send(t, ACCESS_A, aliceWs, { ...DM, account: "alice@church.example" })).toEqual({
+      ok: false,
+      refused: "account_not_found",
+      accounts: ["alice@work.example"],
+    });
+    expect(calls.length).toBe(before);
+  });
+
   test("a check sends nothing and spends nothing; an hour holds ten", async () => {
     const calls = chatApi();
     const { t, aliceWs } = await connected();
@@ -233,9 +246,16 @@ describe("sending a Google Chat message as the person", () => {
   test("their spaces are listed by name, direct messages marked as such", async () => {
     chatApi({ spaces: [{ name: "spaces/AAA", displayName: "Portal team", spaceType: "SPACE" }, { name: "spaces/DM1", spaceType: "DIRECT_MESSAGE" }] });
     const { t, aliceWs } = await connected();
+    // Listing is a read: it names the account, and with none answers which accounts they have, asking Google nothing.
     expect(await bodyOf(await gatewayPost(t, "/gateway/chat/spaces", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs }))).toEqual({
+      ok: false,
+      refused: "account_needed",
+      accounts: ["alice@work.example"],
+    });
+    expect(await bodyOf(await gatewayPost(t, "/gateway/chat/spaces", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, account: "alice@work.example" }))).toEqual({
       ok: true,
       from: "alice@work.example",
+      accounts: ["alice@work.example"],
       spaces: [
         { name: "spaces/AAA", displayName: "Portal team", type: "SPACE" },
         { name: "spaces/DM1", displayName: "", type: "DIRECT_MESSAGE" },
