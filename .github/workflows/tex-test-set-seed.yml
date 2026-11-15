@@ -80,7 +80,9 @@ jobs:
 
       # Only after the service kept them: each note emptied of its cases, then archived out of ai/held-out.
       - name: Take them out of Context
-        run: node apps/mcp/bench/run.mjs gate held-out-retire --dir "$RUNNER_TEMP/held" | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -euo pipefail
+          node apps/mcp/bench/run.mjs gate held-out-retire --dir "$RUNNER_TEMP/held" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the runner's rotated token
         if: always()

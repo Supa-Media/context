@@ -9,6 +9,8 @@
  *  4. `blocking` keeping target ids -> "a target is reported, never blocks" fails;
  *  5. dropping `areasFor` from replayGate's own import -> "the areas command runs" fails.
  *  6. dropping the key-file filter in `publishCoreRecords` -> "the core area's judged answers go to Context" fails.
+ *  7. dropping `expected_etag` in `retireHeldOut` -> "a held-out note is emptied with its etag, then archived" fails
+ *     (2026-11-15; the first seed's write was refused as a conflict without it).
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -192,4 +194,25 @@ test("the core area's judged answers go to Context under the commit, and its key
   assert.equal(recordsFolderFor(sha), "ai/results/replay/abababababab");
   assert.deepEqual(writes.map((w) => [w.path, w.content]), [[paths[0], "answers and reasons"]]);
   await assert.rejects(publishCoreRecords({ scratch, sha: "../x", connection: {}, fetchImpl }), /not a commit sha/);
+});
+
+test("a held-out note is emptied with its etag, then archived", async () => {
+  const { retireHeldOut } = await import("../replayGate.mjs");
+  const { mkdtemp, writeFile: write } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join: joinPath } = await import("node:path");
+  const dir = await mkdtemp(joinPath(tmpdir(), "held-"));
+  await write(joinPath(dir, "review.json"), "{}");
+  const calls = [];
+  const fetchImpl = async (_url, init) => {
+    const { params } = JSON.parse(init.body);
+    calls.push([params.name, params.arguments]);
+    const text = params.name === "read_note" ? "---\netag: e1\n---\nold cases" : "ok";
+    const isError = params.name === "write_note" && params.arguments.expected_etag !== "e1";
+    return new Response(JSON.stringify({ result: { content: [{ type: "text", text: isError ? "conflict" : text }], isError } }), { status: 200 });
+  };
+  const paths = await retireHeldOut({ dir, connection: { endpoint: "https://example.invalid/mcp", accessToken: "t" }, fetchImpl });
+  assert.deepEqual(paths, ["ai/held-out/review.md"]);
+  assert.deepEqual(calls.map(([name]) => name), ["read_note", "write_note", "archive_note"]);
+  assert.ok(!calls[1][1].content.includes("old cases"), "the cases are gone from the note");
 });
