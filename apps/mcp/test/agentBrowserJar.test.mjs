@@ -46,7 +46,9 @@ test("a bucket read never yields a sign-in, and the jar opens again from the buc
   await browserJar(store).save(READ);
   const raw = store.objects.get(JAR_KEY);
   assert.ok(raw, "the jar is in the vault");
-  for (const plain of [COOKIE, TOKEN, "app.example", "sid"]) assert.equal(raw.includes(plain), false, `${plain} is in the bucket`);
+  // The cookie's name is checked as the sealed JSON would carry it, quoted: a bare "sid" turns up by chance in the
+  // ciphertext's base64 about once in a few hundred runs, which failed main once (2026-11-15).
+  for (const plain of [COOKIE, TOKEN, "app.example", '"sid"']) assert.equal(raw.includes(plain), false, `${plain} is in the bucket`);
   assert.deepEqual(await browserJar(store).load(), READ);
 });
 
