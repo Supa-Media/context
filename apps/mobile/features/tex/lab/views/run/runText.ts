@@ -7,8 +7,10 @@
 import { EXAMINABLE } from "../../data/areas";
 import type { config } from "../../engine/diff";
 import type { RunResult } from "../../types";
+import { parseReport as readReport } from "@context/shared/src/texLabReport.cjs";
 
-export type AreaScore = { practice: [number, number]; held: [number, number]; usd: number };
+export type { AreaScore } from "@context/shared/src/texLabReport.d.cts";
+import type { AreaScore } from "@context/shared/src/texLabReport.d.cts";
 
 export type ParsedResult = RunResult & {
   pass?: boolean;
@@ -49,17 +51,8 @@ Config (JSON):
 ${JSON.stringify(c)}`;
 }
 
-/** The artifact's reader, with one fix: its `\$([\d.]+)` took the sentence's closing period, so every pasted cost read NaN. */
-export function parseReport(txt: string): ParsedResult {
-  const r: ParsedResult = { at: Date.now(), areas: {}, raw: txt.slice(0, 6000) };
-  const h = txt.match(/Tex replay:\s*(✅|❌)\s*([^\n]*)/);
-  if (h) {
-    r.pass = h[1] === "✅";
-    r.headline = h[2].trim();
-  }
-  for (const m of txt.matchAll(/\*\*([a-z-]+):\*\*\s*practice (\d+)\/(\d+) right, held-out (\d+)\/(\d+) right; spent about \$(\d+(?:\.\d+)?)/g))
-    r.areas[m[1]] = { practice: [+m[2], +m[3]], held: [+m[4], +m[5]], usd: +m[6] };
-  const reg = txt.match(/(\d+) case\(s\) regressed/);
-  r.regressed = reg ? +reg[1] : r.pass ? 0 : null;
-  return r;
-}
+/**
+ * The artifact's reader, in one copy the control plane reads with too (`packages/shared/src/texLabReport.cjs`), so a
+ * result kept over the MCP's `tex_dev` `keep_results` scores the same as one kept here.
+ */
+export const parseReport = (txt: string): ParsedResult => readReport(txt) as ParsedResult;
