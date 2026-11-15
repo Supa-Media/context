@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { mainGraph } from "../features/tex/lab/data/graph";
-import { ago, aiClient, bind, flush, hlClass, isLive, live, onRemote, pendingOps, resetLive, setFeed, setSender, stepsOf, tick, whoLabel, type Answer } from "../features/tex/lab/engine/live";
+import { ago, aiClient, bind, flush, hlClass, isLive, live, onRemote, pendingOps, resetLive, setFeed, setSender, setSetupSender, setupPending, stepsOf, tick, whoLabel, type Answer } from "../features/tex/lab/engine/live";
 import { clone, lab, MAIN } from "../features/tex/lab/engine/state";
 import { unfoldGroups } from "../features/tex/lab/engine/groups";
 import type { LabGraph } from "../features/tex/lab/types";
@@ -209,5 +209,51 @@ describe("what the bar and list say", () => {
     bind("main", base(), 40);
     expect(live.synced).toBeNull();
     expect(live.since).toBe(10);
+  });
+
+  test("the Run tab's picks and areas on a live draft are sent, not dropped", async () => {
+    const setups: Array<{ picks: string; areas: string | null }> = [];
+    setSetupSender(async (_id, picks, areas) => {
+      setups.push({ picks, areas });
+      return { status: "ok", rev: 6 };
+    });
+    // A pick and an area, as the Tests tab's checkbox and the Run tab's area buttons make them: no graph edit.
+    lab.cur.picks = { core: ["q1"] };
+    lab.cur.areas = ["core"];
+    lab.dirty = true;
+    expect(setupPending()).toBe(true);
+    await flush();
+    expect(sent).toHaveLength(0);
+    expect(setups).toEqual([{ picks: JSON.stringify({ core: ["q1"] }), areas: JSON.stringify(["core"]) }]);
+    expect(lab.dirty).toBe(false);
+    expect(setupPending()).toBe(false);
+    // Nothing left to send: the next flush sends nothing.
+    await flush();
+    expect(setups).toHaveLength(1);
+    // A refused setup goes back to the saved one.
+    setSetupSender(async () => ({ status: "bad_request", error: "no" }));
+    lab.cur.areas = null;
+    lab.dirty = true;
+    await flush();
+    expect(lab.cur.areas).toEqual(["core"]);
+    setSetupSender(null);
+  });
+
+  test("a graph edit and a pick together: the edit goes first, then the pick", async () => {
+    const setups: string[] = [];
+    setSetupSender(async (_id, picks) => {
+      setups.push(picks);
+      return { status: "ok", rev: 7 };
+    });
+    lab.cur.graph.nodes[1].y += 25;
+    lab.cur.picks = { mail: [] };
+    lab.dirty = true;
+    await flush();
+    expect(sent).toHaveLength(1);
+    expect(lab.dirty).toBe(true);
+    await flush();
+    expect(setups).toEqual([JSON.stringify({ mail: [] })]);
+    expect(lab.dirty).toBe(false);
+    setSetupSender(null);
   });
 });
