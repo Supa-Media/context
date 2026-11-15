@@ -20,8 +20,24 @@ const { SETS, TARGET, DRIFT, check, ratio } = texSets;
  * A conversation file's text: 2-space JSON, with invisible and direction characters written as escapes, since a
  * literal one fails the repository's identifiers guard (`check-identifiers`) and can't be seen in review.
  */
-export const jsonFile = (value) =>
-  JSON.stringify(value, null, 2).replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")) + "\n";
+const escapeInvisible = (text) => text.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0"));
+export const jsonFile = (value) => escapeInvisible(JSON.stringify(value, null, 2)) + "\n";
+/**
+ * A generated bundle, one entry per line: each top-level key on its own line, and each item of a top-level list or
+ * object on its own line, so a bundle of many conversations stays a few dozen lines rather than thousands.
+ */
+export const bundleFile = (value) => {
+  const one = (v) => JSON.stringify(v);
+  const block = (v) => {
+    if (Array.isArray(v)) return v.length ? `[\n${v.map((x) => "    " + one(x)).join(",\n")}\n  ]` : "[]";
+    if (v && typeof v === "object") {
+      const keys = Object.keys(v);
+      return keys.length ? `{\n${keys.map((k) => `    ${one(k)}: ${one(v[k])}`).join(",\n")}\n  }` : "{}";
+    }
+    return one(v);
+  };
+  return escapeInvisible(`{\n${Object.keys(value).map((k) => `  ${one(k)}: ${block(value[k])}`).join(",\n")}\n}`) + "\n";
+};
 
 export const SETS_DIR = fileURLToPath(new URL("./sets", import.meta.url));
 const CONFIG_PATH = fileURLToPath(new URL("../../../packages/shared/src/texConfig.json", import.meta.url));
