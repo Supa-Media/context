@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 /**
- * The pull request's required check for the replay gate's model half
- * (docs/decisions/testing/replay-gate.md; Dev2, 2026-11-13: "changes to [Tex]
- * can't merge without doing the full replay and passing").
+ * The pull request's required check for Tex's gate (docs/decisions/testing/replay-gate.md and
+ * test-set-service.md). Since Dev2, 2026-11-15 ("the test set should become the actual thing that the CI/CD gates
+ * on ... training shouldn't affect CI/CD speed. Even the dev shouldn't"), the gate is the Test Set alone: a change
+ * that reaches a model area passes only when its head commit carries a successful `Tex test set` status, which
+ * main's "Tex test set" workflow sets after the sealed eval service scored the change against main. The full
+ * replay ("Tex replay", the Dev Set's practice cases) is on demand and never gates.
  *
- * The model runs need production's AI keys, and a workflow holding those never
- * runs on a pushed branch by itself (scripts/check-workflow-triggers.mjs). So
- * the agent that opens a Tex pull request dispatches "Tex replay" on its
- * branch; that run marks the commit with the status `Tex replay` and re-runs
- * this check. This check holds no secret: it reads which model areas the change
- * reaches (`apps/mcp/bench/replayAreas.mjs`) and, when there are any, passes
- * only when the head commit carries a successful `Tex replay` status.
+ * The model runs need production's AI keys, and a workflow holding those never runs on a pushed branch's code by
+ * itself (scripts/check-workflow-triggers.mjs). This check holds no secret: it reads which model areas the change
+ * reaches (`apps/mcp/bench/replayAreas.mjs`), and its workflow starts "Tex test set" on main when the rule fails.
  *
  * An area is also reached when its prompts changed (Dev2, 2026-11-13: "even if
  * it's a letter different, we need to check that"): the workflow builds every
@@ -26,7 +25,7 @@ import { execFileSync } from "node:child_process";
 
 import { areasFor } from "../apps/mcp/bench/replayAreas.mjs";
 
-export const STATUS = "Tex replay";
+export const STATUS = "Tex test set";
 
 /**
  * The owner's temporary skip (Dev2, 2026-11-14: "it's fine to bypass the replay
@@ -59,9 +58,9 @@ export function verdict(files, statuses, printed = []) {
   if (areas.length === 0) return null;
   const latest = statuses.find((status) => status.context === STATUS);
   if (latest?.state === "success") return null;
-  const how = `Dispatch it on this branch: Actions → "Tex replay" → Run workflow (or the GitHub API: workflow tex-replay.yml, ref = this branch). It re-runs this check when it ends.`;
+  const how = `This check starts it on main for this pull request (Actions → "Tex test set", ref main, pr = this number); it re-runs this check when it ends. Runs are capped at 1 a commit, 3 a pull request and 10 a day; a person can allow one more in the Lab.`;
   if (!latest) return `This change reaches the model areas ${areas.join(", ")} and has no "${STATUS}" run on its head commit. ${how}`;
-  return `"${STATUS}" ${latest.state} on this commit: ${latest.description ?? ""} Read its summary for what regressed, fix the cause, push, and run it again. ${how}`;
+  return `"${STATUS}" ${latest.state} on this commit: ${latest.description ?? ""} Its summary says which step got fewer right than main, by count only: tune on the Dev Set (pnpm ai sets run --set dev), fix the cause, push. ${how}`;
 }
 
 function selfTest() {
@@ -72,6 +71,8 @@ function selfTest() {
     ["a judge change with a passing run passes", ["packages/shared/src/textDecide.cjs"], [ok], true],
     ["the newest status wins", ["apps/mcp/src/agent/replyJudge.js"], [{ context: STATUS, state: "failure" }, ok], false],
     ["another context's success is not this one", ["apps/mcp/src/agent/replyJudge.js"], [{ context: "ci", state: "success" }], false],
+    // The full replay is the Dev Set's, and never gates (Dev2, 2026-11-15): only the Test Set's status passes.
+    ["a passing full replay is not the Test Set", ["apps/mcp/src/agent/replyJudge.js"], [{ context: "Tex replay", state: "success" }], false],
     ["a pending run is not a pass", ["apps/mcp/bench/review/chat.json"], [{ context: STATUS, state: "pending" }], false],
     // A one-letter edit to the drawing's map names no area by file, but changes every prompt that reads it.
     ["changed prompts with no run fail", ["apps/mcp/src/agent/texArchitecture.generated.js"], [], false, ["core", "review"]],

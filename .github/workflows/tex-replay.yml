@@ -1,7 +1,9 @@
-# The replay gate's model half (docs/decisions/testing/replay-gate.md; Dev2,
-# 2026-11-13). Runs only the model areas a branch's Tex change reaches
+# The full replay of the practice cases, on demand (docs/decisions/testing/replay-gate.md; Dev2,
+# 2026-11-13). Since 2026-11-15 it never gates and never starts by itself: "Tex replay required" waits on the Test
+# Set only (tex-test-set.yml), and the held-out cases live in the eval service, not here. Its "Tex replay" status
+# is for the agent tuning against the Dev Set. Runs only the model areas a branch's Tex change reaches
 # (apps/mcp/bench/replayAreas.mjs, and every area whose prompts differ from
-# main's: apps/mcp/bench/promptFingerprint.mjs) against main, held-out cases included,
+# main's: apps/mcp/bench/promptFingerprint.mjs) against main,
 # capped at $1 (apps/mcp/bench/replayGate.mjs), then marks the branch's head
 # commit with the status "Tex replay" and re-runs the pull request's required
 # check ("Tex replay required", scripts/tex-replay-required.mjs).
@@ -149,10 +151,6 @@ jobs:
           echo "::add-mask::$next"
           gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
 
-      - name: Pull the held-out cases (never written to the repository or the log)
-        if: steps.areas.outputs.areas != ''
-        run: pnpm --silent ai gate held-out --dir "$RUNNER_TEMP/held-out"
-
       # With no API credits (Dev2, 2026-11-13): a separate examiner session answered this
       # commit's Claude calls (apps/mcp/bench/modelSocket.mjs); every call is rebuilt here
       # from this commit and answered from those answers, and the scoring is this run's own.
@@ -203,7 +201,7 @@ jobs:
             # it waiting 45 minutes a call, so its end ends the gate.
             ( while kill -0 "$answerer" 2>/dev/null; do sleep 5; done; [ -f "$RUNNER_TEMP/gate-done" ] || pkill -f "bench/run.mjs gate" || true ) &
           fi
-          pnpm --silent ai gate --base "$RUNNER_TEMP/main" --areas "$AREAS" --held-out "$RUNNER_TEMP/held-out" \
+          pnpm --silent ai gate --base "$RUNNER_TEMP/main" --areas "$AREAS" \
             --scratch "$RUNNER_TEMP/gate" --out "$RUNNER_TEMP/gate.json" | tee -a "$GITHUB_STEP_SUMMARY"
           code="${PIPESTATUS[0]}"
           if [ -n "$answerer" ]; then

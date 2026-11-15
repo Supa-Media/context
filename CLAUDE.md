@@ -229,8 +229,11 @@ and a new capability removes or narrows the `cant` it replaces
 **Tex changes merge through the replay gate**
 ([replay-gate](./docs/decisions/testing/replay-gate.md); decided by the owner,
 2026-11-13): a Tex change adds the case that proves it, and one that reaches a
-model area dispatches **Tex replay** on its branch before **Tex replay
-required** can go green.
+model area needs a passing **Tex test set** run before **Tex replay required**
+can go green: the sealed Test Set only, started on main by that check, capped,
+and never shown to an agent (decided by the owner, 2026-11-15;
+[test-set-service](./docs/decisions/testing/test-set-service.md)). The full
+**Tex replay** is the Dev Set's, on demand, and never gates.
 
 ## Vocabulary
 

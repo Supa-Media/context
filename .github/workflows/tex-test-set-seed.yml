@@ -1,0 +1,98 @@
+# Move the held-out cases out of Context and into the Test Set (docs/decisions/testing/test-set-service.md; Dev2,
+# 2026-11-15: the Test Set must leave @context-lc, which a developing agent reads, for the locked eval service).
+#
+# Runs on main only, by hand: its GitHub OIDC token names this file on main, the one caller the eval service's seed
+# door takes. It reads `@context-lc ai/held-out/<area>.md` as the benchmark runner, turns each case into a Test
+# conversation (apps/mcp/bench/setsMigrate.mjs `caseToConversation`), sends them to the service, which never
+# overwrites one already there, and only then empties each note and archives it, so nothing under ai/held-out is
+# left for an agent to read. Nothing a case says is printed: counts only.
+
+name: Tex test set seed
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  wait-turn:
+    name: Wait for earlier benchmark runs
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - name: Wait until no earlier run signs in as the benchmark runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --max-minutes 170
+
+  seed:
+    name: Move the held-out cases into the Test Set
+    needs: wait-turn
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      BENCH_RUNNER_CLIENT_ID: ${{ secrets.BENCH_RUNNER_CLIENT_ID }}
+      BENCH_RUNNER_REFRESH_TOKEN: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN }}
+      BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Refuse to sign in beside another benchmark run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --check
+
+      - name: Sign in as the benchmark runner and keep the rotated token
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          pnpm --silent ai signin
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
+
+      - name: Pull the held-out cases (never printed)
+        run: |
+          set -euo pipefail
+          umask 077
+          pnpm --silent ai gate held-out --dir "$RUNNER_TEMP/held" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Send them to the Test Set
+        run: |
+          set -euo pipefail
+          umask 077
+          node scripts/tex-test-set.mjs seed --held "$RUNNER_TEMP/held" --out "$RUNNER_TEMP/seeded.json" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Only after the service kept them: each note emptied of its cases, then archived out of ai/held-out.
+      - name: Take them out of Context
+        run: node apps/mcp/bench/run.mjs gate held-out-retire --dir "$RUNNER_TEMP/held" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the runner's rotated token
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/bench-runner.json" ] || exit 0
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
+
+      - name: Forget the cases
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/held"

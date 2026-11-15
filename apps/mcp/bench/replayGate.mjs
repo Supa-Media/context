@@ -85,6 +85,24 @@ export async function pullHeldOut({ dir, connection, fetchImpl = fetch }) {
   return pulled;
 }
 
+/**
+ * After the held-out cases were moved into the Test Set (`scripts/tex-test-set.mjs seed`): each pulled note's words
+ * replaced by a pointer, then archived, so nothing under ai/held-out is left for an agent to read. Returns the paths.
+ */
+export async function retireHeldOut({ dir, connection, fetchImpl = fetch }) {
+  const retired = [];
+  for (const file of (await readdir(dir)).filter((f) => f.endsWith(".json"))) {
+    const path = `${HELD_OUT_FOLDER}/${file.slice(0, -5)}.md`;
+    const content = "# Moved to the Test Set\n\nThese cases now live only in Tex's eval service, people only: the Lab's Testing tab (docs/decisions/testing/test-set-service.md).\n";
+    const wrote = await callTool(connection, "write_note", { path, content }, fetchImpl);
+    if (wrote.isError) throw new Error(`write_note ${path}: ${wrote.text}`);
+    const archived = await callTool(connection, "archive_note", { path }, fetchImpl);
+    if (archived.isError) throw new Error(`archive_note ${path}: ${archived.text}`);
+    retired.push(path);
+  }
+  return retired;
+}
+
 /** One row per case: whether it came out right, and what a report may say about it. */
 export function rowsFor(area, scored) {
   return scored.map((item) => {
@@ -345,6 +363,12 @@ export async function gateCommand(options) {
     if (!options.dir) throw new Error("usage: pnpm ai gate held-out --dir <dir>");
     const pulled = await pullHeldOut({ dir: options.dir, connection: await signIn({ env: process.env }) });
     process.stdout.write(`held-out cases pulled: ${pulled.join(", ") || "none"}\n`);
+    return;
+  }
+  if (sub === "held-out-retire") {
+    if (!options.dir) throw new Error("usage: pnpm ai gate held-out-retire --dir <dir>");
+    const retired = await retireHeldOut({ dir: options.dir, connection: await signIn({ env: process.env }) });
+    process.stdout.write(`held-out notes emptied and archived: ${retired.join(", ") || "none"}\n`);
     return;
   }
   if (sub === "records") {
