@@ -15,12 +15,12 @@ export function texDevToolDefinitions() {
         "link, check and promote it; and probe any of your chats' turns: every step and node in the order it ran, " +
         "with inputs, outputs, thinking, the context it loaded, timing and what failed, and everything the Lab's Replay " +
         "shows: moments, the prompt's words, background jobs; and everything the Lab computes: speed and cost, compare, the run's config. Actions: guide, list, create, get, edit, changes, snapshot, " +
-        "link, check, promote, tool_stats, cases, case, chats, turns, turn, entries, moments, prompt, jobs, mine, rename, delete, run_setup, keep_results, revert, sim, compare, config, bench, modules, reference. Start with guide. Nothing " +
+        "link, check, promote, tool_stats, cases, case, chats, turns, turn, entries, moments, prompt, jobs, mine, rename, delete, run_setup, keep_results, revert, sim, compare, config, bench, modules, reference, steps, marks, put_back. Start with guide. Nothing " +
         "here changes live Tex: only a promoted draft's pull request does, through CI and the replay gate.",
       inputSchema: {
         type: "object",
         properties: {
-          action: { type: "string", description: "One of: guide, list, create, get, edit, changes, snapshot, link, check, promote, tool_stats, cases, case, chats, turns, turn, entries, moments, prompt, jobs, mine, rename, delete, run_setup, keep_results, revert, sim, compare, config, bench, modules, reference." },
+          action: { type: "string", description: "One of: guide, list, create, get, edit, changes, snapshot, link, check, promote, tool_stats, cases, case, chats, turns, turn, entries, moments, prompt, jobs, mine, rename, delete, run_setup, keep_results, revert, sim, compare, config, bench, modules, reference, steps, marks, put_back." },
           args: { type: "object", description: "The action's own arguments; guide lists what each takes." },
         },
         required: ["action"],

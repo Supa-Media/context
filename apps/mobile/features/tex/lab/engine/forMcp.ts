@@ -43,7 +43,7 @@ export type LabIn = { draft: DraftIn; caseEdits?: Record<string, LabCase>; other
 export type TestIn = { test?: string | null; text?: string | null; from?: string | null };
 
 /** A version as the Lab holds one once loaded (`store.ts`): its graph with the current wire names and every group folded. */
-function asVersion(d: DraftIn): LabVersion {
+export function asVersion(d: DraftIn): LabVersion {
   if (d.id === "main") return clone(MAIN);
   const g = d.graph;
   if (!g || !Array.isArray(g.nodes) || !Array.isArray(g.edges)) throw new Error("That version has no steps and wires.");
@@ -359,3 +359,4 @@ export function labReference(input: LabIn, topic?: string | null, toolLog?: stri
     }
   });
 }
+export { labCaseRoom, labMarks, labPutBack, labSteps } from "./forMcpCases";

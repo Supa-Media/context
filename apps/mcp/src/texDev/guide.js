@@ -33,7 +33,7 @@ export const ACTIONS = [
   ["promote", "{ draft }", "the Lab's Promote: a pull request within 15 minutes that merges only through CI and the replay gate"],
   ["tool_stats", "{ days? }", "the Lab's Tools tab: how often each tool ran, failed and how long it took, over 1 to 30 days"],
   ["cases", "{}", "the Lab's shared edits to the bench cases, and its new cases"],
-  ["case", "{ key: \"<area>/<case id>\" (a step's own: \"node:<step>/<case id>\"), data: {...} | null }", "keep a case edit or a new case for every staff member, or drop it with null"],
+  ["case", "{ key: \"<area>/<case id>\" (a step's own: \"node:<step>/<case id>\"), data: {...} | null, swap_out? }", "keep a case edit or a new case for every staff member, or drop it with null; a step keeps at most 20, so a new case into a full one names the case it trades out (swap_out), as the Tests page's swap"],
   ["chats", "{}", "the chats whose turns you can probe: your one-to-one with Tex and each group chat you are in"],
   ["turns", "{ chat?, day?, before?, limit? }", "a chat's recent replies, 20 unless `limit` (at most 100), with each turn's id, time and how long it took; `day` YYYY-MM-DD, `before` to page back"],
   ["moments", "{ chat?, before?, limit?, moment?, at? }", "Replay's conversation: every moment (a text someone sent, a check-in, a routine, a ping, a quiet look) newest first, 20 unless `limit`, with the texts that came in behind, its turns (waited, ran, which Tex, what it said), the judge's calls, its jobs and time to the last send; `moment` gives one whole: its lines, the timeline's lanes and its rows by step"],
@@ -47,6 +47,9 @@ export const ACTIONS = [
   ["config", '{ draft?, prompt? }', "the Lab's Run: every change from main with from → to and how it ships, the areas to run (chosen and by default), its warnings and kept results; then, as its own block, the config JSON the Lab's \"Copy config JSON\" gives (lab.json for `pnpm ai lab run --config`); `prompt: true` adds the Lab's prompt"],
   ["bench", "{ draft?, area?, query?, limit?, offset?, full? } | { ws, at? }", "the Lab's Test cases: each area's cases in the run and those that can't test the draft; with `area`, who runs it, its test panel and its cases (picked or not, edited or new, what each expects, why it can't test the draft), 20 at a time; `ws` browses a bench workspace's notes (`at` a note)"],
   ["modules", "{ draft?, key?, full? }", "the Lab's Modules: every context module by where it comes from, edited or new, and the steps that read it; with `key`, its whole words, fingerprints and the word diff against main (`full` keeps unchanged runs whole)"],
+  ["steps", "{ draft?, step? }", "the Tests page's steps: each step's cases out of 20 and its own, the steps no case tests yet; with step, its case form (the given and want boxes from its shapes, with choices), the key for a new case and its own cases"],
+  ["marks", "{ draft, vs?: \"main\" | \"last\" }", "the canvas's change marks: steps changed (each field from → to, moved), added and removed, wires new and gone, against main or the draft before its last revision"],
+  ["put_back", "{ draft, step, vs?: \"main\" | \"last\" }", "the change marks' Put back: one step back to main's (or the last revision's) version, its fields, place and wires; lands as an edit with the conflict check"],
   ["reference", "{ topic?, draft?, log? }", "the Lab's catalogues: tools (what each does, its actions and the steps that call it; `log` a pasted chat record, counted as the Tools tab does), steps (what each logs and writes), ledger, areas, models, wires, sources, convo"],
 ];
 

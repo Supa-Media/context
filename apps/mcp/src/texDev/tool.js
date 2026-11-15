@@ -14,7 +14,7 @@ import { TEX_CONFIG } from "../agent/texConfig.js";
 import { toolError } from "../tools/results.js";
 import { draftProblems, draftVsMain } from "./check.js";
 import { ACTIONS, guideText } from "./guide.js";
-import { labAction, labWording, snapshotSim } from "./lab.js";
+import { caseRoom, labAction, labWording, putBackOps, snapshotSim } from "./lab.js";
 import { chatsOf, entriesOf, turnsOf } from "./probe.js";
 import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
 import { snapshotGraph } from "./snapshot.js";
@@ -199,6 +199,27 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
       }
       case "case": {
         const data = args.data === null ? null : args.data !== undefined ? JSON.stringify(args.data) : undefined;
+        const key = typeof args.key === "string" ? args.key : "";
+        const cut = key.lastIndexOf("/");
+        // A step keeps at most 20 cases (Dev2, 2026-11-15): a new one into a full step trades one out, as the
+        // Tests page's swap does (`engine/caseDraft.ts` keepSwap); an edit to a case already there always lands.
+        if (data !== undefined && data !== null && cut > 0 && args.data?.removed !== true) {
+          const area = key.slice(0, cut);
+          const id = key.slice(cut + 1);
+          const out = typeof args.swap_out === "string" ? args.swap_out : null;
+          const room = await caseRoom(plane, area, id, out);
+          if (room.error) return room.error;
+          if (room.room.full && !room.room.exists) {
+            if (!out) return toolError(`${area} already keeps ${room.room.cap} cases, the most a step keeps: trade one out with swap_out: "<case id>" (steps or bench lists them).`);
+            if (!room.room.out) return toolError(`There is no case "${out}" in ${area} to trade out.`);
+            const outKey = area + "/" + out;
+            const gone = room.edits[outKey]?.isNew ? null : JSON.stringify({ ...room.room.out, ...(room.edits[outKey] || {}), area, id: out, removed: true });
+            const dropped = await plane("case", { key: outKey, data: gone });
+            if (dropped.error) return dropped.error;
+            const kept = await plane("case", { key, data: JSON.stringify({ ...args.data, area, id, isNew: true, replaces: out }) });
+            return kept.error ?? json({ kept: key, tradedOut: outKey, for: "every staff member, as the Lab's case edits" });
+          }
+        }
         const { error } = await plane("case", { key: args.key, data });
         return error ?? json({ kept: args.key, for: "every staff member, as the Lab's case edits" });
       }
@@ -238,7 +259,16 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
       case "bench":
       case "modules":
       case "reference":
+      case "steps":
+      case "marks":
         return labAction(action, args, plane);
+      // The canvas's Put back on a changed step (`engine/changeMarks.ts`), landed as an edit with its conflict check.
+      case "put_back": {
+        const p = await putBackOps(plane, args);
+        if (p.error) return p.error;
+        if (p.ops.length === 0) return json({ unchanged: `${args.step} is already as it is in ${p.vs}` });
+        return call("edit", { draft: p.draft, rev: p.rev, ops: p.ops });
+      }
       default:
         return toolError(`tex_dev has no action "${action}". Its actions: ${ACTIONS.map(([name]) => name).join(", ")}.`);
     }

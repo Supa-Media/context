@@ -355,6 +355,18 @@ export const forGateway = internalMutation({
     if (action === "tool_stats") return { status: "ok", stats: await toolStatsReport(ctx, clampDays(typeof a.days === "number" ? a.days : undefined), now) };
     // The Lab's Compare (and main's kept runs for its Run tab): every version's graph and results at once, read without
     // marking the AI as in each draft, the newest MAX_COMPARE or the ones named.
+    // The Lab's change marks "against last rev": the draft as it was just before revision `rev` (kept for the last
+    // KEEP_BEFORE revisions, as `graphBefore` reads it for the Lab), read without marking the AI as in the draft.
+    if (action === "before") {
+      const row = typeof a.draft === "string" ? await rowOf(ctx, a.draft) : null;
+      if (row === null) return { status: "not_found" };
+      const rev = typeof a.rev === "number" && Number.isSafeInteger(a.rev) ? a.rev : (row.rev ?? 0);
+      const kept = await ctx.db
+        .query("texLabRevBefore")
+        .withIndex("by_version_rev", (q) => q.eq("versionId", row.versionId).eq("rev", rev))
+        .first();
+      return { status: "ok", rev, graph: kept?.graph ?? null };
+    }
     if (action === "versions") {
       const want = Array.isArray(a.drafts) ? new Set(a.drafts.filter((d): d is string => typeof d === "string").slice(0, MAX_COMPARE)) : null;
       const rows = (await ctx.db.query("texLabVersions").collect()).sort((x, y) => y.updatedAt - x.updatedAt);
