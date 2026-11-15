@@ -536,6 +536,7 @@ test/replay.test.mjs
 bench/test/replayGate.test.mjs
 bench/test/advisor.test.mjs
 bench/test/modelSocket.test.mjs
+bench/test/socketAnswerer.test.mjs
 bench/test/coreArea.test.mjs
 bench/test/coreSocket.test.mjs
 bench/test/jobsSocket.test.mjs

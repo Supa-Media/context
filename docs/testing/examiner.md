@@ -7,6 +7,18 @@ by the owner, 2026-11-13: "Separate examiner session"). This file is the
 examiner's instructions. It is read by a session that did **not** write the
 change. A session that wrote the change must never act as its examiner.
 
+**Since 2026-11-15 the first answerer is CI itself** (decided by the owner: the
+examiner "shouldn't be a project then, and should be some type of webhook").
+When **Tex replay required** goes red on a branch of this repository, it starts
+**Tex replay** with `claude_code: true`, and Claude Code answers the gate's
+socket on the subscription (`apps/mcp/bench/socketAnswerer.mjs`, the
+`CLAUDE_CODE_OAUTH_TOKEN` production secret, made once with
+`claude setup-token`): each call goes to the model family it names, with its
+own system prompt and none of the CLI's tools, and the gate scores against
+main in that run. It never sees the change. What it cannot match is
+production's exact model version, effort and token cap. The session below
+stays the way to examine by hand, or when the token is missing.
+
 ## What the examiner does for one pull request
 
 1. Check out the pull request's head commit, and add a worktree of

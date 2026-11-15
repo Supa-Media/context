@@ -20,6 +20,10 @@ on:
         description: "Score the examiner session's answers for this commit (ai/results/examiner/<sha>) instead of calling Claude"
         type: boolean
         default: false
+      claude_code:
+        description: "Answer every Claude call here, with Claude Code on the subscription (CLAUDE_CODE_OAUTH_TOKEN), instead of API credits; scored the same"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -63,7 +67,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     # The jobs area runs whole background jobs (apps/mcp/bench/jobTasks.mjs): minutes a task.
-    timeout-minutes: 60
+    # Claude Code answers each call in seconds, four at a time: a whole run with jobs can take most of two hours.
+    timeout-minutes: ${{ inputs.claude_code && 120 || 60 }}
     env:
       AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
@@ -117,6 +122,13 @@ jobs:
           echo "areas=$areas" >> "$GITHUB_OUTPUT"
           echo "Areas: ${areas:-none}" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Claude Code has its token
+        if: steps.areas.outputs.areas != '' && inputs.claude_code
+        env:
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          [ "$HAS_TOKEN" = "true" ] || { echo "::error::CLAUDE_CODE_OAUTH_TOKEN is not set: make one with \`claude setup-token\` and add it as a production secret"; exit 1; }
+
       # Its wait-turn job is skipped by "Re-run failed jobs": check once more,
       # and refuse rather than sign in beside another run (bench-runner-lock.mjs).
       - name: Refuse to sign in beside another benchmark run
@@ -160,16 +172,48 @@ jobs:
           pnpm --silent ai pull texting-assistant
           (cd "$RUNNER_TEMP/main" && pnpm --silent ai pull texting-assistant)
 
+      # Dev2, 2026-11-15: the replay examined the moment its check goes red, by a GitHub Action on the subscription
+      # rather than an hourly project task. Claude Code answers the gate's model socket here
+      # (apps/mcp/bench/socketAnswerer.mjs): each call is asked of the model family it names, with its own system
+      # prompt and no tools of the CLI's own, and the gate scores the answers against main in its own code.
+      - name: Install Claude Code
+        if: steps.areas.outputs.areas != '' && inputs.claude_code
+        run: npm install -g @anthropic-ai/claude-code@2.1.325
+
       - name: Replay against main
         id: gate
         if: steps.areas.outputs.areas != ''
         env:
           AREAS: ${{ steps.areas.outputs.areas }}
+          CLAUDE_CODE: ${{ inputs.claude_code }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
         run: |
           set -uo pipefail
+          answerer=""
+          if [ "$CLAUDE_CODE" = "true" ]; then
+            if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+              echo "::error::CLAUDE_CODE_OAUTH_TOKEN is not set: make one with \`claude setup-token\` and add it as a production secret"
+              exit 1
+            fi
+            export BENCH_MODEL_SOCKET="$RUNNER_TEMP/sock"
+            mkdir -p "$BENCH_MODEL_SOCKET"
+            node apps/mcp/bench/socketAnswerer.mjs --dir "$BENCH_MODEL_SOCKET" --stop "$RUNNER_TEMP/gate-done" --parallel 4 > "$RUNNER_TEMP/answerer.log" 2>&1 &
+            answerer=$!
+            # The gate waits on the socket; an answerer that died (no token, or a call failed three times) would leave
+            # it waiting 45 minutes a call, so its end ends the gate.
+            ( while kill -0 "$answerer" 2>/dev/null; do sleep 5; done; [ -f "$RUNNER_TEMP/gate-done" ] || pkill -f "bench/run.mjs gate" || true ) &
+          fi
           pnpm --silent ai gate --base "$RUNNER_TEMP/main" --areas "$AREAS" --held-out "$RUNNER_TEMP/held-out" \
             --scratch "$RUNNER_TEMP/gate" --out "$RUNNER_TEMP/gate.json" | tee -a "$GITHUB_STEP_SUMMARY"
-          exit "${PIPESTATUS[0]}"
+          code="${PIPESTATUS[0]}"
+          if [ -n "$answerer" ]; then
+            touch "$RUNNER_TEMP/gate-done"
+            wait "$answerer" || code=1
+            echo "### Claude Code answerer" >> "$GITHUB_STEP_SUMMARY"
+            tail -n 5 "$RUNNER_TEMP/answerer.log" | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
+            grep -E '::error::' "$RUNNER_TEMP/answerer.log" || true
+          fi
+          exit "$code"
 
       # The core area's answers and the judge's reason on every line, the change's and main's, into
       # @context-lc ai/results/replay/<sha>/ (never the repository or the log), so a regression can be
@@ -223,11 +267,15 @@ jobs:
           NAMED: ${{ steps.areas.outcome }}
           SIGNIN: ${{ steps.signin.outcome }}
           EXAMINER: ${{ inputs.examiner }}
+          CLAUDE_CODE: ${{ inputs.claude_code }}
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: |
           set -euo pipefail
           if [ -z "$AREAS" ] && [ "$NAMED" = "success" ]; then state=success; description="No model area reached: plumbing replays only"
           elif [ "$OUTCOME" = "success" ] && [ "$EXAMINER" = "true" ]; then state=success; description="Nothing regressed against main (examiner's answers, scored here)"
+          elif [ "$OUTCOME" = "success" ] && [ "$CLAUDE_CODE" = "true" ]; then state=success; description="Nothing regressed against main (Claude Code's answers, scored here)"
           elif [ "$OUTCOME" = "success" ]; then state=success; description="Nothing regressed against main"
+          elif [ "$CLAUDE_CODE" = "true" ] && [ "$HAS_TOKEN" != "true" ]; then state=failure; description="Needs CLAUDE_CODE_OAUTH_TOKEN: make one with claude setup-token, add it as a production secret"
           elif [ "$SIGNIN" = "failure" ]; then state=failure; description="Runner sign-in failed: if the grant was revoked, a person must run pnpm ai connect"
           else state=failure; description="Regressed against main, or the run failed: read the run's summary"; fi
           gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$state" -f context="Tex replay" \

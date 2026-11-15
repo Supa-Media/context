@@ -15,6 +15,8 @@ on:
 permissions:
   contents: read
   statuses: read
+  # Only to start "Tex replay" on this branch when the rule fails (the last step); this workflow holds no secret.
+  actions: write
 
 concurrency:
   group: tex-replay-check-${{ github.ref }}
@@ -69,3 +71,24 @@ jobs:
           # Read by the owner's temporary skip only (SKIP_LINE in the script); passed through env, never into a shell line.
           PR_BODY: ${{ github.event.pull_request.body }}
         run: node scripts/tex-replay-required.mjs
+
+      # Dev2, 2026-11-15: the replay starts the moment this check goes red, instead of waiting for an hourly examiner.
+      # "Tex replay" runs main's workflow file on this branch with Claude Code answering on the subscription
+      # (apps/mcp/bench/socketAnswerer.mjs), marks the commit, and re-runs this check. Started once a commit: only when
+      # the head has no "Tex replay" status yet, or only the one asking for the token. Never for a fork, whose token
+      # cannot start a workflow and whose code must not reach production's secrets.
+      - name: Start Tex replay on this branch
+        if: failure() && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses" --jq '[.[] | select(.context == "Tex replay")][0].description // ""')"
+          if [ -n "$latest" ] && [[ "$latest" != Needs\ CLAUDE_CODE_OAUTH_TOKEN* ]]; then
+            echo "Tex replay already ran or is running on this commit: $latest"
+            exit 0
+          fi
+          gh workflow run tex-replay.yml --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f claude_code=true
+          echo "Started Tex replay (Claude Code) on $HEAD_REF; it re-runs this check when it ends." | tee -a "$GITHUB_STEP_SUMMARY"
