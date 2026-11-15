@@ -41,6 +41,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-11-15",
+    text:
+      "google_chat and read_google_chat take account, the email of one of the person's Google accounts with Chat: required to read " +
+      "(read_google_chat, and google_chat action spaces, which without it answers with their Chat accounts), optional on a send.",
+  },
+  {
+    date: "2026-11-15",
     newTool: true,
     text:
       "tex_dev (action + args) develops on Tex: live drafts of Tex's config graph shared with the Lab, snapshots, links, check, promote, " +
@@ -432,7 +438,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "433c309b";
+export const TOOL_SHAPE = "8df500c5";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

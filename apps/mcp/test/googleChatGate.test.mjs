@@ -123,8 +123,11 @@ export async function runGoogleChatGateChecks(check) {
     );
     chat.flags.unnamed = false;
 
-    const listed = await call(env, TOKEN_MCP, "google_chat", { action: "spaces" });
+    const listed = await call(env, TOKEN_MCP, "google_chat", { action: "spaces", account: chat.flags.from });
     check("listing spaces is never held", listed.isError !== true && /Portal team — spaces\/AAA/.test(textOf(listed)));
+    // Listing names the account it lists (2026-11-15); without one, the answer is their Chat accounts.
+    const unaccounted = await call(env, TOKEN_MCP, "google_chat", { action: "spaces" });
+    check("listing spaces without an account answers with their Chat accounts", unaccounted.isError !== true && textOf(unaccounted).includes(chat.flags.from));
 
     chat.flags.from = null;
     const waiting = pending().length;
