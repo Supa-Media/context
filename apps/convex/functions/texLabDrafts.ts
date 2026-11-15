@@ -37,6 +37,8 @@ import { toolStatsReport } from "./lib/adminFns/texToolStats";
 export const MAX_CHANGES = 100;
 /** An AI client counts as in a draft this long after its last call. */
 export const LIVE_MS = 10 * 60_000;
+/** At most this many drafts in one `versions` answer (the MCP's `tex_dev compare`). */
+export const MAX_COMPARE = 20;
 const NAME_MAX = 120;
 
 type Row = Doc<"texLabVersions">;
@@ -252,6 +254,17 @@ export const forGateway = internalMutation({
     // The Lab's other tabs, so whatever the Lab shows a developer sees too (Dev2, 2026-11-15): its Tools tab, and the
     // bench cases' shared edits (`texLab.saveCase`).
     if (action === "tool_stats") return { status: "ok", stats: await toolStatsReport(ctx, clampDays(typeof a.days === "number" ? a.days : undefined), now) };
+    // The Lab's Compare (and main's kept runs for its Run tab): every version's graph and results at once, read without
+    // marking the AI as in each draft, the newest MAX_COMPARE or the ones named.
+    if (action === "versions") {
+      const want = Array.isArray(a.drafts) ? new Set(a.drafts.filter((d): d is string => typeof d === "string").slice(0, MAX_COMPARE)) : null;
+      const rows = (await ctx.db.query("texLabVersions").collect()).sort((x, y) => y.updatedAt - x.updatedAt);
+      const main = rows.find((r) => r.versionId === "main");
+      const all = rows.filter((r) => r.versionId !== "main" && (!want || want.has(r.versionId)));
+      const picked = all.slice(0, MAX_COMPARE);
+      const drafts = await Promise.all(picked.map(async (r) => ({ ...(await draftOf(ctx, r)), graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results })));
+      return { status: "ok", main: { results: main?.results ?? "[]" }, drafts, ...(all.length > picked.length ? { more: `${all.length - picked.length} older drafts left out; name them with drafts` } : {}) };
+    }
     if (action === "cases") return { status: "ok", caseEdits: (await ctx.db.query("texLabCaseEdits").collect()).map((r) => ({ key: r.key, data: r.data, updatedAt: r.updatedAt })) };
     if (action === "case") {
       const key = typeof a.key === "string" ? a.key : "";
