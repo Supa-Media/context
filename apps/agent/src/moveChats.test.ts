@@ -131,12 +131,16 @@ describe("runDueMoves", () => {
         moved.push([phone, asked]);
         return "told";
       },
+      moveGroup: async (key, asked): Promise<MoveOutcome> => {
+        moved.push([key, asked]);
+        return "add_failed";
+      },
       log: (entry) => logs.push(entry),
     });
-    expect(moved).toEqual([[PHONE, { askedAt: 7, number: NUMBER, archiveOn: null }]]);
+    expect(moved).toEqual([[PHONE, { askedAt: 7, number: NUMBER, archiveOn: null }], ["a".repeat(64), { askedAt: 8, number: NUMBER, archiveOn: null }]]);
     expect(reports).toEqual([
       { kind: "person", key: PHONE, askedAt: 7, status: "told" },
-      { kind: "group", key: "a".repeat(64), askedAt: 8, status: "failed", detail: "group_soon" },
+      { kind: "group", key: "a".repeat(64), askedAt: 8, status: "failed", detail: "add_failed" },
     ]);
     expect(JSON.stringify(logs)).not.toContain(PHONE);
   });
@@ -149,6 +153,10 @@ describe("runDueMoves", () => {
       controlPlaneOrigin: "https://cp.example",
       workerSecret: "s",
       movePerson: async () => {
+        moved++;
+        return "told";
+      },
+      moveGroup: async () => {
         moved++;
         return "told";
       },

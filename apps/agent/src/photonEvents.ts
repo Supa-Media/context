@@ -14,6 +14,8 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Env } from "./env";
 import { groupInboxName } from "./groupInbox";
+import { arrivedAs, asOldGroup, removeOldNumber, type Matched } from "./groupMoves";
+import { post } from "./clients";
 import { toChat } from "./handOver";
 import { inboxByName } from "./objectPlace";
 import { photonAttachmentUrl } from "./photon";
@@ -39,7 +41,10 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
   // Tex's own text reaching Apple, or the person reading it: the chat's `send` step, as Sendblue's status callback is.
   const sendStatus = photonSendStatusOf(body);
   if (sendStatus !== null) {
-    const name = sendStatus.object.kind === "group" ? groupInboxName(sendStatus.object.groupId) : sendStatus.object.phone;
+    // A moved group's sends are reported to the old group's object, where the group lives (`groupMoves.ts`).
+    const group = sendStatus.object.kind === "group" ? sendStatus.object.groupId : null;
+    const old = group === null ? null : (await arrivedAs(env.SENDER_INBOX, { photonGroupId: group, photonLine: "", from: "", participants: [] })).from;
+    const name = group === null ? (sendStatus.object as { phone: string }).phone : groupInboxName(old?.groupId ?? group);
     const result = await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/send-status", { method: "POST", body: JSON.stringify(sendStatus) });
     console.log(JSON.stringify({ event: "photon_send_status", status: sendStatus.report?.status, outcome: result.ok ? "noted" : "failed" }));
     return result.ok ? 200 : 503;
@@ -77,10 +82,14 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
   // Apple's own time for the event (the bridge's `at`), for the chat's `text` step to show the provider's lag (`providerTiming.ts`).
   const provider = arrivalOf("photon", (body as { at?: unknown }).at, Date.now());
   if (parsed.kind === "group-message") {
+    // A group staff moved here from the old number is still that group (`groupMoves.ts`): filed under its old id and line.
+    const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: parsed.groupId, photonLine: parsed.line, from: parsed.from, participants: parsed.participants });
+    if (arrival.matched !== undefined) return await finishGroupMove(env, parsed.line, parsed.groupId, arrival.matched);
+    const message = arrival.from === null ? parsed : asOldGroup(parsed, arrival.from);
     // A group's message goes to the group's own queue, never a sender's (`groupWebhook`, `index.ts`).
-    await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, parsed, null);
-    const name = groupInboxName(parsed.groupId);
-    const brought = { ...parsed, provider };
+    await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, message, null);
+    const name = groupInboxName(message.groupId);
+    const brought = { ...message, provider };
     const result =
       (await toChat(env, "group", name, brought, known)) ??
       (await inboxByName(env.SENDER_INBOX, name).fetch(`https://inbox/group-accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(brought) }));
@@ -102,4 +111,23 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     (await toChat(env, "one", parsed.from, brought, known)) ??
     (await inboxByName(env.SENDER_INBOX, parsed.from).fetch(`https://inbox/accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(brought) }));
   return result.ok ? 200 : 503;
+}
+
+/**
+ * The old number's swap note, heard by the new line in a group staff moved (`groupMoves.ts` step 3): the two groups are
+ * tied now; the new line takes the old number out of the group and the control plane hears how that went. The note
+ * itself is Tex's own words and takes no turn.
+ */
+async function finishGroupMove(env: Env, photonLine: string, photonGroupId: string, matched: Matched): Promise<number> {
+  const removed = await removeOldNumber(env.PHOTON, photonLine, photonGroupId, matched.line);
+  const report = removed ? { status: "moved" } : { status: "failed", detail: "remove_failed", askedAt: matched.askedAt };
+  let noted = "unsent";
+  try {
+    const { status } = await post((input, init) => fetch(input, init), "control_plane", `${env.CONTROL_PLANE_ORIGIN}/agent-texts/move-report`, env.AGENT_WORKER_SECRET, { kind: "group", key: matched.groupKey, ...report });
+    noted = status === 200 ? "noted" : `status_${status}`;
+  } catch {
+    noted = "unreachable";
+  }
+  console.log(JSON.stringify({ event: "chat_move", kind: "group", outcome: removed ? "moved" : "remove_failed", report: noted }));
+  return 200;
 }

@@ -281,6 +281,13 @@ export const OPS = Object.freeze({
       return parseLineAndChat(body);
     },
   },
+  // Take one address out of a group chat: Tex's old Sendblue number, once Tex's new line is in it (staff moving a chat).
+  "group/remove": {
+    method: "POST",
+    parse(body) {
+      return { ...parseLineAndChat(body), address: parseAddress(body.address) };
+    },
+  },
 });
 
 /** Ops the runtime can serve; the router uses this to refuse unknown paths. */

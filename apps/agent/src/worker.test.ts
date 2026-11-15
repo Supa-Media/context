@@ -105,6 +105,8 @@ describe("worker", () => {
         idFromName: (name: string) => ({ name: name.replace(/^enam:/, "") }), // inboxes live under `enam:<name>` (`inboxByName`); kept here by name
         get: (id: { name: string }) => ({
           fetch: async (url: string, init?: RequestInit) => {
+            // The `group-moves` object (`groupMoves.ts`): no group here has moved.
+            if (new URL(url).pathname.startsWith("/group-move/")) return Response.json({});
             made.routedTo.push(id.name);
             urls.push(url);
             queued.push(JSON.parse(String(init?.body)));
@@ -243,6 +245,19 @@ describe("worker", () => {
       expect(routedTo).toEqual(["sendblue-group:g-1"]);
       // With the Worker's own address, or the group's pictures have nowhere to be served from (2026-10-26).
       expect(urls).toEqual(["https://inbox/group-accept?origin=https%3A%2F%2Fagent.example"]);
+    });
+
+    it("drops the old line's copy of a group staff moved to the new number, which hears it there", async () => {
+      const { env: e, routedTo } = sbEnv();
+      const inbox = e.SENDER_INBOX as unknown as { get: (id: { name: string }) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
+      const get = inbox.get;
+      inbox.get = (id) => ({
+        fetch: async (url, init) => (new URL(url).pathname === "/group-move/to" ? Response.json({ to: { line: "+15555550142", groupId: "photon-group:abc" } }) : get(id).fetch(url, init)),
+      });
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const body = inbound({ group_id: "g-moved", participants: ["+15555550100", "+15555550101"], content: "Tex, hi" });
+      expect((await worker.fetch(post(body, SB_SECRET), e)).status).toBe(200);
+      expect(routedTo).toEqual([]);
     });
   });
 

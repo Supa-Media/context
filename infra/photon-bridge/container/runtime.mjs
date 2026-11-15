@@ -253,6 +253,10 @@ export function createRuntime({
           const chat = await clientFor(args.line).chats.get(args.chat);
           return { ok: true, participants: chat.participants.map((p) => p.address) };
         }
+        case "group/remove": {
+          const chat = await clientFor(args.line).groups.removeParticipants(args.chat, [args.address]);
+          return { ok: true, participants: chat.participants.map((p) => p.address) };
+        }
         default:
           throw new RequestError(404, "unknown_op");
       }

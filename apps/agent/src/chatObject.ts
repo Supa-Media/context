@@ -12,6 +12,7 @@ import { type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
 import { oldLineStep } from "./oldLineStep";
 import { movePerson, noteMoved, type MoveBody } from "./moveChats";
+import { groupMovedTo, moveGroup, serveGroupMoves, type GroupMoveBody } from "./groupMoves";
 import { carryOnAfterHandback } from "./handbackWatch";
 import { countInbound } from "./textCounts";
 import { checkReady } from "./ready";
@@ -146,6 +147,21 @@ export class SenderInbox implements DurableObject {
       const outcome = await movePerson(this.state.storage, body as MoveBody, { ...this.deps(), texts: this.env.GATEWAY_TEXTS });
       return Response.json({ outcome });
     }
+    if (path === "/move-group") {
+      // Staff moving this group to Tex's new number (`groupMoves.ts`): only this Worker's cron posts here.
+      const body = (await request.json()) as Partial<GroupMoveBody>;
+      if (typeof body.askedAt !== "number" || typeof body.line !== "string" || typeof body.groupId !== "string" || typeof body.groupKey !== "string") return new Response(null, { status: 400 });
+      const outcome = await moveGroup(this.state.storage, { askedAt: body.askedAt, number: typeof body.number === "string" ? body.number : null, archiveOn: typeof body.archiveOn === "string" ? body.archiveOn : null, line: body.line, groupId: body.groupId, groupKey: body.groupKey }, {
+        fetch: this.out,
+        sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
+        texts: this.env.GATEWAY_TEXTS,
+        moves: this.env.SENDER_INBOX,
+        now: () => Date.now(),
+      });
+      return Response.json({ outcome });
+    }
+    // The `group-moves` object (`groupMoves.ts`): which groups moved to the new number, by both ids.
+    if (path.startsWith("/group-move/")) return await serveGroupMoves(this.state.storage, path, (await request.json().catch(() => ({}))) as Record<string, unknown>, Date.now());
     if (path === "/group-accept") {
       await this.keepOrigin(request);
       // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
@@ -344,6 +360,7 @@ export class SenderInbox implements DurableObject {
       sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
       whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
       photon: this.env.PHOTON ?? null,
+      movedTo: groupMovedTo(this.env.SENDER_INBOX),
       appCard: appCardConfig(this.env),
       waitUntil: (promise) => this.handOff(promise),
       textTiming: this.env.TEX_TEXTS,

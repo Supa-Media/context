@@ -144,7 +144,7 @@ describe("Lines page: move chats one at a time", () => {
     groups: [{ groupKey: "a".repeat(64), name: "Book club", people: 3, lastSeenAt: 1, move: null }],
   };
 
-  it("lists every person with a switch and their move, and groups as coming next, names escaped", () => {
+  it("lists every person and group with a switch and their move, names escaped", () => {
     const html = linesPage.render!(asD(fakeData({ moves: moves as never, setting: { ...saved, number: "+15555550142" } as never })));
     expect(html).toContain("Move chats");
     expect(html).toContain("1 moved");
@@ -155,6 +155,7 @@ describe("Lines page: move chats one at a time", () => {
     expect(html).toContain("&lt;Cy&gt;");
     expect(html).not.toContain("<Cy>");
     expect(html).toContain("Book club");
+    expect(html).toContain(`aria-label="Move Book club" data-act="lnmv" data-id="group:${"a".repeat(64)}"`);
     expect(html).toContain("…0100");
     expect(html).not.toContain("+15555550100</");
   });

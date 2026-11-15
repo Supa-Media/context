@@ -77,11 +77,13 @@ export type GroupLineDeps = {
   textCounts?: CountDataset;
   /** A group's line served from elsewhere (the gateway's remote group line, `remoteLine.ts`); set, every call goes there and nothing is counted here. */
   remote?: (groupId: string) => GroupLine;
+  /** Where a Sendblue group staff moved to Tex's new number lives now (`groupMoves.ts`); null for one that has not moved. */
+  movedTo?: (groupId: string) => Promise<GroupPlace | null>;
 };
 
 export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
   if (deps.remote) return deps.remote(groupId);
-  const line = isPhotonGroupId(groupId) ? photonGroupLine(deps) : isWhapiGroup(groupId) ? whapiGroupLine(deps, groupId) : sendblueGroupLine(deps);
+  const line = isPhotonGroupId(groupId) ? photonGroupLine(deps) : isWhapiGroup(groupId) ? whapiGroupLine(deps, groupId) : movableGroupLine(deps, sendblueGroupLine(deps));
   const dataset = deps.textCounts;
   if (dataset === undefined) return line;
   // Every message Tex sends in a group, counted once the app took it (`textCounts.ts`).
@@ -103,6 +105,55 @@ export function groupLineFlags(groupId: string): Pick<GroupLine, "senderOnlyWebh
 /** The group line deps an object's deps stand for: its `remoteGroupLine` (`chatObject.ts`) is the seam, read as `remote`. */
 export function groupLineSeam<T extends GroupLineDeps & { remoteGroupLine?: (groupId: string) => GroupLine }>(deps: T): GroupLineDeps {
   return { ...deps, remote: deps.remoteGroupLine ?? deps.remote };
+}
+
+/**
+ * A Sendblue group's line that follows the group when staff moved it to Tex's new number (`groupMoves.ts`): each call
+ * asks where the group is now and, once it has moved, goes through the new line to the new place. A reply threaded
+ * under an old Sendblue message the new line does not know goes again plain.
+ */
+function movableGroupLine(deps: GroupLineDeps, old: GroupLine): GroupLine {
+  const movedTo = deps.movedTo;
+  if (movedTo === undefined) return old;
+  const now = photonGroupLine(deps);
+  const where = async (place: GroupPlace) => await movedTo(place.groupId);
+  return {
+    sendText: async (place, text, replyTo) => {
+      const moved = await where(place);
+      if (moved === null) return await old.sendText(place, text, replyTo);
+      if (replyTo === undefined) return await now.sendText(moved, text);
+      try {
+        return await now.sendText(moved, text, replyTo);
+      } catch {
+        return await now.sendText(moved, text);
+      }
+    },
+    sendMedia: async (place, url, replyTo) => {
+      const moved = await where(place);
+      if (moved === null) return await old.sendMedia(place, url, replyTo);
+      try {
+        return await now.sendMedia(moved, url, replyTo);
+      } catch (error) {
+        if (replyTo === undefined) throw error;
+        return await now.sendMedia(moved, url);
+      }
+    },
+    react: async (place, messageId, emoji) => {
+      const moved = await where(place);
+      return moved === null ? await old.react(place, messageId, emoji) : await now.react(moved, messageId, emoji);
+    },
+    readMembers: async (place) => {
+      const moved = await where(place);
+      if (moved === null) return await old.readMembers(place);
+      // The new line stands in the old one's place, as the group's messages are filed (`asOldGroup`).
+      const members = await now.readMembers(moved);
+      return members === null ? null : [...new Set(members.map((who) => (who === moved.line ? place.line : who)))];
+    },
+    readOwnMessage: async (place, messageId) => {
+      const moved = await where(place);
+      return moved === null ? await old.readOwnMessage(place, messageId) : await now.readOwnMessage(moved, messageId);
+    },
+  };
 }
 
 function sendblueGroupLine(deps: GroupLineDeps): GroupLine {

@@ -66,7 +66,7 @@ import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onMachi
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
-import { groupLineFor, groupLineSeam, type GroupLine } from "./groupLine";
+import { groupLineFor, groupLineSeam, type GroupLine, type GroupPlace } from "./groupLine";
 import { inRoom, readMembersNow, withKeptMembers } from "./groupMembers";
 import type { NoteCardDrawer } from "./noteCards";
 import { isBound, isMuted, keepChatLine, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
@@ -114,6 +114,8 @@ export type GroupDeps = {
   answerFirst?: (work: Promise<unknown>) => void;
   /** The group's line served by the gateway (`remoteLine.ts`); read by `groupLineSeam`. */
   remoteGroupLine?: (groupId: string) => GroupLine;
+  /** Where a group staff moved to Tex's new number lives now (`groupMoves.ts`); read by `groupLine.ts`. */
+  movedTo?: (groupId: string) => Promise<GroupPlace | null>;
 };
 
 /** A group's queue is named apart from every phone's, which always starts with "+". */
