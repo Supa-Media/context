@@ -552,7 +552,7 @@ const USAGE = [
   "       pnpm ai score <result file> --dir <benchmarks folder>",
   "       pnpm ai summary <result file>",
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
-  "       pnpm ai review [--set a,b] [--concurrency <n>] [--gate-sample <main tree>] [--fake]   score the reply reviewer on its labelled cases",
+  "       pnpm ai review [--set a,b] [--concurrency <n>] [--fake]   score the reply reviewer on its labelled cases",
   "       pnpm ai respond [--concurrency <n>] [--fake]   score the one judge's respond-or-quiet call (Clef) on its held-out cases",
   "       pnpm ai advisor-chat | advisor-job-check | advisor-planner | advisor-job-mail [--only a,b] [--fake]   score one advisor role on its cases",
   "       pnpm ai socket next|answer|publish|pull   the model socket: an examiner session answers the gate's calls",
