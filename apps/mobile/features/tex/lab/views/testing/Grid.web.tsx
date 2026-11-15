@@ -28,14 +28,14 @@ export function selectCell(c: Conversation, msg: string, col: string, editing = 
 }
 function dropFresh(c: Conversation, keep: string | null) {
   const f = sets.fresh && sets.fresh !== keep ? c.msgs.find((x) => x.id === sets.fresh) : null;
-  if (f && !f.text && !(f.kind && f.kind !== "text")) change(c.id, [{ op: "remove", msg: f.id }]);
+  if (f && !f.text && !f.kind) change(c.id, [{ op: "remove", msg: f.id }]);
   if (sets.fresh !== keep) sets.fresh = null;
 }
 /** Leave the editor; a fresh row left empty goes. */
 export function doneEditing(c: Conversation) {
   const conv = sets.convs.find((x) => x.id === c.id) || c;
   const m = conv.msgs.find((x) => x.id === sets.msg);
-  if (m && sets.fresh === m.id && !m.text && !(m.kind && m.kind !== "text")) {
+  if (m && sets.fresh === m.id && !m.text && !m.kind) {
     change(c.id, [{ op: "remove", msg: m.id }]);
     sets.msg = null;
   }
@@ -297,7 +297,7 @@ export function Grid({ c }: { c: Conversation }) {
           {info.name}
         </span>
         <span className="muted small">
-          {c.kind === "one" ? "1:1" : "group"} · ★ {starsIn(c)} unit tests{c.from ? ` · from ${c.from}` : ""}
+          {c.kind === "one" ? "1:1" : "group"} · ★ {starsIn(c)} unit tests{(c as { from?: string }).from ? ` · from ${(c as { from?: string }).from}` : ""}
         </span>
         <span style={{ marginLeft: "auto", position: "relative" }}>
           <button
