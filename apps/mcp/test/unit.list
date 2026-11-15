@@ -573,3 +573,4 @@ test/texGraphTurn.test.mjs
 test/oldLineNode.test.mjs
 test/texOutboxDay.test.mjs
 test/moveChatNode.test.mjs
+test/texLabOps.test.mjs

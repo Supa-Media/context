@@ -29,7 +29,29 @@ export const texLabTables = {
      * `packages/shared/src/texConfig.json` and records its address here.
      */
     promote: v.optional(v.object({ state: v.union(v.literal("asked"), v.literal("opened"), v.literal("refused")), by: v.id("users"), at: v.number(), pr: v.optional(v.string()), why: v.optional(v.string()) })),
+    /**
+     * Live drafts (Dev2, 2026-11-15: an AI over the MCP's `tex_dev` and a person in the Lab edit one draft together;
+     * `functions/texLabDrafts.ts`): the revision, raised by every save and every batch of edits, and the AI client
+     * last in it. A version saved before has neither and reads as revision 0.
+     */
+    rev: v.optional(v.number()),
+    live: v.optional(v.object({ client: v.string(), by: v.id("users"), at: v.number() })),
   }).index("by_version", ["versionId"]),
+  /**
+   * What each revision of a draft changed, for the other side to read: the pieces it touched (`texLabOps.cjs`
+   * `keysOf`), one plain line per edit, who and through what. Kept for the draft's life and deleted with it; the
+   * graph itself is only on the version row.
+   */
+  texLabChanges: defineTable({
+    versionId: v.string(),
+    rev: v.number(),
+    by: v.id("users"),
+    /** "lab" for the Lab page, or the AI client's name. */
+    via: v.string(),
+    keys: v.array(v.string()),
+    said: v.array(v.string()),
+    at: v.number(),
+  }).index("by_version_rev", ["versionId", "rev"]),
   texLabCaseEdits: defineTable({
     /** `<area>/<case id>`. */
     key: v.string(),

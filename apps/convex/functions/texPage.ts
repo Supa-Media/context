@@ -190,6 +190,16 @@ export const pageFor = internalQuery({
   handler: async (ctx, args) => {
     const userId = await consolePerson(ctx, args.hashedAccessToken);
     if (userId === null) return { status: "refused" as const };
+    return await pageForUser(ctx, userId);
+  },
+});
+
+/**
+ * The Tex page's data for one person: the console's (`pageFor`) and, for a person who develops on Tex, the MCP's
+ * `tex_dev` probing (`texLabDrafts.forGateway`), which reads only that person's own chats the same way.
+ */
+export async function pageForUser(ctx: QueryCtx, userId: Id<"users">) {
+  {
     const workspaceId = await personalWorkspaceOf(ctx, userId);
     const workspace = workspaceId === null ? null : await ctx.db.get(workspaceId);
     if (workspace === null || workspaceId === null) return { status: "refused" as const };
@@ -256,8 +266,8 @@ export const pageFor = internalQuery({
       routines,
       chats,
     };
-  },
-});
+  }
+}
 
 /** A settings call, read from the wire: `me` or a chat key, with the whole text or a quick pick, and `answers` for a chat. */
 export type TexPageSettings =
