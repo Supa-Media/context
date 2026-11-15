@@ -21,6 +21,9 @@
 
 import { TEX_MAP } from "./texArchitecture.generated.js";
 import { capabilitiesFor } from "./capabilities.js";
+import { texStep } from "./texConfig.js";
+import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
+import { trainingText } from "../../../../packages/shared/src/texTraining.cjs";
 
 export { TEX_MAP };
 
@@ -103,7 +106,24 @@ export function architectureFor(role) {
   ].join("\n");
 }
 
-/** `prompt` with the drawing ahead of it. */
+/**
+ * The steps that are given their Training modules as prompt modules, where their context puts them (`texConfig.js`
+ * `texModules`), so the drawing never adds them a second time.
+ */
+const TRAINED_AS_MODULES = new Set(["fd", "job"]);
+
+/**
+ * The Training examples a role's step reads (`train:<nodeId>` entries of its config context, `texTraining.cjs`), or
+ * "" when it names none or they have no labels yet, so an empty Training Set changes no prompt by a byte.
+ */
+export function trainingFor(role) {
+  const node = ROLES[role]?.node;
+  if (!node || TRAINED_AS_MODULES.has(node)) return "";
+  return trainingText(texStep(node), TRAINING);
+}
+
+/** `prompt` with the drawing ahead of it and, when its step reads Training labels that exist, their examples after it. */
 export function withArchitecture(prompt, role) {
-  return `${architectureFor(role)}\n\n---\n\n${prompt}`;
+  const training = trainingFor(role);
+  return `${architectureFor(role)}\n\n---\n\n${prompt}${training === "" ? "" : `\n\n---\n\n${training}`}`;
 }

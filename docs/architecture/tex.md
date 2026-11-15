@@ -172,21 +172,21 @@ every wire, from the same config.
 | Router | router |  | off | Clef |  |  | recent | router.js |
 | Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd, caps, hist, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
 | Fallback | fallback |  | on | GLM-4.7 Flash |  |  |  | builtin.js |
-| Big-ask planner | planner |  | off | Opus 5.5 | high |  | own, ask, caps | planBigAsk.js |
+| Big-ask planner | planner |  | off | Opus 5.5 | high |  | own, train:planner, ask, caps | planBigAsk.js |
 | Tools | tools |  | on | code |  |  |  | callToolForSession |
-| Advisor | advisor |  | on | Opus 5.5 | high | 40 s | own, caps, about, ask, ledger, hist, date | advisor.js · advisorRoles/chat.js |
+| Advisor | advisor |  | on | Opus 5.5 | high | 40 s | own, train:advisor, caps, about, ask, ledger, hist, date | advisor.js · advisorRoles/chat.js |
 | Answer checks | checks |  | on | code |  |  |  | graph/nodes/checks.js · doItChecks.js · untriedWeb.js · sourcedFigures.js seenFiguresNotice · replyJudge.js codeCheck |
-| Mail checker | mail |  | on | Haiku 5.5 | low |  | own, draft, ask | mailChecker.js |
-| Card check | card |  | on | Haiku 5.5 | medium |  | own, draft | cardCheck.js |
-| Reply reviewer | reviewer |  | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | graph/nodes/reviewer.js · replyJudge.js review · sendBack.js |
+| Mail checker | mail |  | on | Haiku 5.5 | low |  | own, train:mail, draft, ask | mailChecker.js |
+| Card check | card |  | on | Haiku 5.5 | medium |  | own, train:card, draft | cardCheck.js |
+| Reply reviewer | reviewer |  | on | Haiku 5.5 | low | 8 s | own, train:reviewer, ledger, ask, draft, hist, date | graph/nodes/reviewer.js · replyJudge.js review · sendBack.js |
 | Text them | send |  | on | code |  |  |  | sendTheReply · sendOne.ts · recoverFromFailure.js |
 | React | react |  | on | code |  |  |  | decide.ts reactionFor · reactions.ts |
-| Classifier | classifier |  | on | Haiku 5.5 | off | 4 s | own, threads, recent | conversationThreads.js |
-| Self-review | selfreview |  | on | Haiku 5.5 | low |  | own, hist | selfReview.js |
+| Classifier | classifier |  | on | Haiku 5.5 | off | 4 s | own, train:classifier, threads, recent | conversationThreads.js |
+| Self-review | selfreview |  | on | Haiku 5.5 | low |  | own, train:selfreview, hist | selfReview.js |
 | Background job | job |  | on | Haiku 5.5 | medium |  | tools, map, p-about-tex, p-rules, p-tools, p-working, train:job, brief, ask, date | graph/nodes/job.js · texJob.js · apps/agent jobRun.ts |
-| Job check | jobcheck |  | on | Opus 5.5 | high |  | own, brief, ask, ledger, out:job | graph/nodes/jobcheck.js · jobCheck.js |
-| Advisor on job mail | mailadv |  | on | Opus 5.5 | high |  | own, brief, ask | graph/nodes/mailadv.js · jobNote.js · advisorRoles/jobMail.js |
-| Hand-back judge | handback |  | on | Haiku 5.5 | low |  | own, brief, draft | graph/nodes/handback.js · handbackJudge.js · claimCheck.js |
+| Job check | jobcheck |  | on | Opus 5.5 | high |  | own, train:jobcheck, brief, ask, ledger, out:job | graph/nodes/jobcheck.js · jobCheck.js |
+| Advisor on job mail | mailadv |  | on | Opus 5.5 | high |  | own, train:mailadv, brief, ask | graph/nodes/mailadv.js · jobNote.js · advisorRoles/jobMail.js |
+| Hand-back judge | handback |  | on | Haiku 5.5 | low |  | own, train:handback, brief, draft | graph/nodes/handback.js · handbackJudge.js · claimCheck.js |
 | Egress judge | egress |  | on | Haiku 5.5 | low |  |  | privacy/judge.js |
 | Picture maker | picture |  | on | google/gemini-2.5-flash-image | off |  |  | pictureMaker.js |
 | Memory nudge | nudge |  | on | Haiku 5.5 | off |  |  | memoryNudge.js |

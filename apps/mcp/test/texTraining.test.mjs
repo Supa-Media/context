@@ -105,3 +105,15 @@ test("the front door's and the job's Training words, when they exist, are prompt
     } else assert.ok(!names.includes(`train-${id}`));
   }
 });
+
+test("every other model step that reads Training is given it after its own words, through withArchitecture", async () => {
+  const { ROLES, trainingFor, withArchitecture, architectureFor } = await import("../src/agent/texArchitecture.js");
+  const roled = new Set(Object.values(ROLES).map((r) => r.node));
+  for (const id of TRAINING_READERS) if (!["decide", "fd", "job"].includes(id)) assert.ok(roled.has(id), `${id} reads Training but has no role in texArchitecture.js`);
+  for (const role of Object.keys(ROLES)) {
+    const training = trainingFor(role);
+    const built = withArchitecture("OWN WORDS", role);
+    assert.equal(built, `${architectureFor(role)}\n\n---\n\nOWN WORDS${training === "" ? "" : `\n\n---\n\n${training}`}`);
+    if (["fd", "job"].includes(ROLES[role].node)) assert.equal(training, "", "the front door and the job get theirs as prompt modules, never twice");
+  }
+});

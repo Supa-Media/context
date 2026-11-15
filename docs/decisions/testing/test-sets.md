@@ -37,8 +37,9 @@ label as a moment (the chat before, the message, the label) into
 renders; CI fails when it is stale. Decide's judge examples are Training
 conversations (`apps/mcp/bench/sets/training/decide-*.json`) and its prompt
 was unchanged by a byte by the move; the front door and the background job get
-theirs as prompt modules where their context puts them. A step whose code does
-not read the module may not name it (`apps/mcp/test/texTraining.test.mjs`).
+theirs as prompt modules where their context puts them, and every other step
+whose prompt goes through `withArchitecture` after its own words. A step whose
+code does not read the module may not name it (`apps/mcp/test/texTraining.test.mjs`).
 
 `packages/shared/src/texSets.cjs` is the one contract every reader uses (the
 Lab's Testing tab, the store, the eval service, the prompts' examples).
