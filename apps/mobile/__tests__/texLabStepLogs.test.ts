@@ -67,7 +67,7 @@ describe("every canvas step logs what went in and what came out", () => {
       .filter((id) => !["lanes"].includes(id) || true)
       .sort();
     expect(Object.keys(STEP_LOGS).sort()).toEqual(drawn);
-    for (const [id, c] of Object.entries(STEP_LOGS)) for (const side of ["got", "gave", "settings"] as const) expect([id, side, c[side].length > 0]).toEqual([id, side, true]);
+    for (const [id, c] of Object.entries(STEP_LOGS)) for (const side of ["got", "gave", "settings", "time"] as const) expect([id, side, c[side].length > 0]).toEqual([id, side, true]);
   });
 
   test("a turn that logged every record leaves no step without both what it got and what it gave", () => {

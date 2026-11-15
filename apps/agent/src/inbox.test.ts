@@ -6,7 +6,7 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import { READY_FIRST_MS, READY_KEY } from "./ready";
 import { afterRepliesSettled } from "./afterReply";
 import { TEXT_COLUMNS, textTimingPoint } from "./textTiming";
-import { recentEvents } from "./events";
+import { recentEvents, unwritten } from "./events";
 
 const msg = (eventId: string, text = "hi"): Message => ({
   kind: "message",
@@ -436,6 +436,20 @@ describe("inbox", () => {
     expect(log.every((event) => event.delivered)).toBe(true);
     // Nothing kept once the turn is over.
     expect([...storage.data.keys()].filter((key) => key.startsWith("psent:"))).toEqual([]);
+  });
+
+  // Dev2, 2026-11-15: "The Text them node doesnt seem to be logging the actual time it takes". The gateway's send node
+  // only builds the reply; handing it to the line happens here, so it is kept as the turn's own `send` step.
+  it("keeps the reply's delivery as a send step under its turn, with how long the line took", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "hi"), 1_000);
+    await drain(storage, deps({ sent: [] }));
+    const tex = (await recentEvents(storage, msg("e1").chatId)).find((event) => event.from.kind === "tex")!;
+    const steps = (await unwritten(storage)).filter((event) => event.kind === "step" && event.step?.name === "send");
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({ turn: tex.turn, step: { name: "send", of: "delivery", ok: true, input: { parts: 1 }, output: { sent: 1 } } });
+    expect(typeof steps[0].turn).toBe("string");
+    expect(steps[0].step!.ms).toBeGreaterThanOrEqual(0);
   });
 
   it("never sends a progress line twice when the turn is run again", async () => {
