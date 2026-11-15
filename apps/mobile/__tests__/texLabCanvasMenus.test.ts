@@ -151,6 +151,7 @@ describe("the canvas's test picker", () => {
       "pipeline/told-its-mailboxes",
       "pipeline/figures-read-whole",
       "pipeline/playbook-after-mail",
+      "pipeline/reads-google-chat",
     ];
     const removed: string[] = [];
     for (const b of Array.from(

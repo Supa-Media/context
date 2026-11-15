@@ -121,3 +121,22 @@ copy of the discovery document's scopes.
 
 Tests: `googleChatRead.test.ts` (whose account, which scope, what counts as
 written to them, limits), `apps/mcp/test/checkInSources.test.mjs`.
+
+### Tex reads Google Chat in a 1:1 text (2026-11-15)
+
+Asked by text to check their Google Chat, Tex said "I can't open your Google
+Chat directly" and answered from a Chat notification email ten days old. Its
+capability list already said it reads Chat with `fetch chat:`, but two things
+stood in the way: the turn's `fetch` took `chat:` for a group chat's own
+history (`earlier_chat`), which no 1:1 turn holds, and the reader
+(`read_google_chat`, unlisted on the MCP) was never handed to a turn.
+
+Now a turn cleared for the person's own reads (`store.texts`: their personal
+workspace's owner on a private grant, never a group chat) is handed the reader
+beside their texts (`OWN_READ_TOOLS` in `agent/sixTools.js`), an assistant id
+is taken only by a tool the turn holds, and `fetch` tells a 1:1 turn how to
+read Chat. In a group chat `chat:` stays that chat's history. Owner's call:
+"ok go do that" after the diagnosis. Tests: `texReachesWhatItIsTold.test.mjs`
+also fails when any fetch id or write, manage or send action on the capability
+list is one a 1:1 turn cannot reach (save_many is the one named exception: a
+turn saves one note per call), and replay case `reads-google-chat`.
