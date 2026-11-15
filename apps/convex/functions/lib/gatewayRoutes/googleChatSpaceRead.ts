@@ -6,8 +6,10 @@
  * (`googleChatRead.ts`), beside the check-ins' look at what was written to
  * them.
  *
- * Body `{ accessToken, expectedWorkspaceId, space? , to?, limit? }`, exactly
- * one of `space` and `to`. Answers `{ ok: true, from, place, messages }`,
+ * Body `{ accessToken, expectedWorkspaceId, account, space? , to?, limit? }`,
+ * exactly one of `space` and `to`, and `account` the address of the person's
+ * Google account to read it from: required, and refused with the list of
+ * their Chat accounts when missing or not one of them (`chatAccount`). Answers `{ ok: true, from, place, messages }`,
  * oldest first, each `{ id, from, mine, at, text }`, or `{ ok: false,
  * refused }`.
  *
@@ -92,13 +94,16 @@ export async function gatewayChatSpaceReadHandler(ctx: ActionCtx, body: Entry): 
   const wanted = conversationOf(body);
   if (wanted === null) return json({ ok: false, refused: "invalid" });
 
+  const account = stringField(body, "account");
   const room = await ctx.runMutation(internal.functions.googleChatSend.claimChatSpaceRead, {
     hashedAccessToken: await hashToken(accessToken),
     expectedWorkspaceId: expected,
+    ...(account !== null ? { account } : {}),
   });
   if (!room.ok) {
     log({ outcome: "refused", reason: room.refused });
-    return json({ ok: false, refused: room.refused });
+    // Which of their accounts read Chat, when the call named none or a wrong one: addresses only, theirs.
+    return json({ ok: false, refused: room.refused, ...(room.accounts ? { accounts: room.accounts } : {}) });
   }
   const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "agent" as const, connectionId: room.connectionId });
   if (minted === null) return json({ ok: false, refused: "reconnect_required" });

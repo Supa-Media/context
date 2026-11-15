@@ -15,13 +15,22 @@ import type { MutationCtx } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
 import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
-import { CHAT_SEND_SCOPES, chatSendPolicies } from "./lib/googleChatSend";
+import { CHAT_SEND_SCOPES, chatAccount, chatSendPolicies } from "./lib/googleChatSend";
 import { CHAT_READ_SCOPES } from "./lib/googleOAuth";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { aiAccessNeeded, aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
 
-const refusal = v.union(v.literal("not_allowed"), v.literal("no_chat"), v.literal("ai_access_needed"), v.literal("hourly_limit"), v.literal("daily_limit"));
+const refusal = v.union(
+  v.literal("not_allowed"),
+  v.literal("no_chat"),
+  v.literal("ai_access_needed"),
+  v.literal("hourly_limit"),
+  v.literal("daily_limit"),
+  v.literal("account_needed"),
+  v.literal("account_not_found"),
+);
+
 
 /** Whether this key has room for one more, without spending it. */
 async function hasRoom(ctx: MutationCtx, policy: RateLimitPolicy): Promise<boolean> {
@@ -39,10 +48,13 @@ export const claimChatSend = internalMutation({
     expectedWorkspaceId: v.string(),
     to: v.union(v.literal("person"), v.literal("space")),
     spend: v.boolean(),
+    // The address to go through; `requireAccount` refuses a call that names none (listing spaces is a read).
+    account: v.optional(v.string()),
+    requireAccount: v.optional(v.boolean()),
   },
   returns: v.union(
-    v.object({ ok: v.literal(true), address: v.string(), connectionId: v.id("googleConnections") }),
-    v.object({ ok: v.literal(false), refused: refusal }),
+    v.object({ ok: v.literal(true), address: v.string(), connectionId: v.id("googleConnections"), accounts: v.array(v.string()) }),
+    v.object({ ok: v.literal(false), refused: refusal, accounts: v.optional(v.array(v.string())) }),
   ),
   handler: async (ctx, args) => {
     // The grant's own person's Chat, from their personal workspace, or a group
@@ -59,20 +71,24 @@ export const claimChatSend = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", personal._id))
       .take(20);
     // Every scope sending needs, granted on one live connection.
-    const sender = connections.find(
+    const senders = connections.filter(
       (row) => row.disconnectedAt === undefined && CHAT_SEND_SCOPES.every((scope) => aiScopesOf(row).includes(scope)),
     );
-    if (sender === undefined) {
+    if (senders.length === 0) {
       // A Chat account AI may not use until its owner allows AI access is
       // not one a reconnect sets up (`aiAccessNeeded`).
       const waiting = connections.some((row) => row.disconnectedAt === undefined && row.products.includes("chat") && aiAccessNeeded(row));
       return { ok: false as const, refused: waiting ? ("ai_access_needed" as const) : ("no_chat" as const) };
     }
+    const picked = chatAccount(senders, args.account, args.requireAccount === true);
+    if (!picked.ok) return { ok: false as const, refused: picked.refused, accounts: picked.accounts };
+    const sender = picked.row;
+    const accounts = senders.map((row) => row.address);
     const policies = chatSendPolicies(cleared.actorUserId);
     for (const policy of policies) {
       if (!(await hasRoom(ctx, policy))) return { ok: false as const, refused: policy.refusal };
     }
-    const claimed = { ok: true as const, address: sender.address, connectionId: sender._id };
+    const claimed = { ok: true as const, address: sender.address, connectionId: sender._id, accounts };
     if (!args.spend) return claimed;
     for (const policy of policies) {
       // Every one was checked above in this same transaction, so none refuses here.
@@ -135,16 +151,25 @@ export const CHAT_SPACE_READ_HOURLY_LIMIT = 60;
  * workspace, on a grant with private access: a Tex group chat's grant, or an
  * editor of somebody's personal workspace, never reads their Chat
  * (owner, 2026-10-21, of group chats: "write only not read"). The connection
- * is one whose AI grant reads Chat; one that waits for its owner to allow AI
- * access says so, since a reconnect would not mend it.
+ * is the one whose address the call names (`chatAccount`), among those whose AI
+ * grant reads Chat; one that waits for its owner to allow AI access says so,
+ * since a reconnect would not mend it.
  */
 export const claimChatSpaceRead = internalMutation({
-  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
+  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string(), account: v.optional(v.string()) },
   returns: v.union(
     v.object({ ok: v.literal(true), address: v.string(), connectionId: v.id("googleConnections") }),
     v.object({
       ok: v.literal(false),
-      refused: v.union(v.literal("not_allowed"), v.literal("no_chat"), v.literal("ai_access_needed"), v.literal("hourly_limit")),
+      refused: v.union(
+        v.literal("not_allowed"),
+        v.literal("no_chat"),
+        v.literal("ai_access_needed"),
+        v.literal("hourly_limit"),
+        v.literal("account_needed"),
+        v.literal("account_not_found"),
+      ),
+      accounts: v.optional(v.array(v.string())),
     }),
   ),
   handler: async (ctx, args) => {
@@ -155,12 +180,16 @@ export const claimChatSpaceRead = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", cleared.workspace._id))
       .take(20);
     const live = connections.filter((row) => row.disconnectedAt === undefined);
-    const reader = live.find((row) => canReadProduct("chat", aiScopesOf(row)));
-    if (reader === undefined) {
+    const readers = live.filter((row) => canReadProduct("chat", aiScopesOf(row)));
+    if (readers.length === 0) {
       // Chat comes with a Gmail connect as well as its own, so any account still waiting may be the one.
       const waiting = live.some((row) => aiAccessNeeded(row));
       return { ok: false as const, refused: waiting ? ("ai_access_needed" as const) : ("no_chat" as const) };
     }
+    // Named by its address, always: the list comes back with a refusal, spending nothing.
+    const picked = chatAccount(readers, args.account, true);
+    if (!picked.ok) return { ok: false as const, refused: picked.refused, accounts: picked.accounts };
+    const reader = picked.row;
     const room = await tryConsumeRateLimit(ctx, {
       key: `chat_space_read.hour:${cleared.userId}`,
       limit: CHAT_SPACE_READ_HOURLY_LIMIT,

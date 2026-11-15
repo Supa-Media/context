@@ -33,6 +33,7 @@ export const ACTIONS = [
   ["promote", "{ draft }", "the Lab's Promote: a pull request within 15 minutes that merges only through CI and the replay gate"],
   ["tool_stats", "{ days? }", "the Lab's Tools tab: how often each tool ran, failed and how long it took, over 1 to 30 days"],
   ["cases", "{}", "the Lab's shared edits to the bench cases, and its new cases"],
+  ["test_set", "{}", "the Test Set as an agent may see it: its counts (chats, unit tests by step, each hidden chat's stars) and the gate's recent runs (pull request, commit, pass or fail, right on the change and on main by step); never a word, a title or an id, because the Test Set is people only (the Lab's Testing tab, Show Test chats)"],
   ["case", "{ key: \"<area>/<case id>\" (a step's own: \"node:<step>/<case id>\"), data: {...} | null, swap_out? }", "keep a case edit or a new case for every staff member, or drop it with null; a step keeps at most 20, so a new case into a full one names the case it trades out (swap_out), as the Tests page's swap"],
   ["chats", "{}", "the chats whose turns you can probe: your one-to-one with Tex and each group chat you are in"],
   ["turns", "{ chat?, day?, before?, limit? }", "a chat's recent replies, 20 unless `limit` (at most 100), with each turn's id, time and how long it took; `day` YYYY-MM-DD, `before` to page back"],

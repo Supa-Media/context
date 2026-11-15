@@ -3,10 +3,18 @@
  * client itself: what the egress gate is holding (`approvals.js`, the
  * console's), and what a card in Messages shows (`cards.js`, the card key's).
  * `route.js` resolves the session for them as it does for `/mcp`, with read
- * scope, and lets each take GET.
+ * scope, and lets each take GET. The Lab's Test Set (`texTestSet.js`) is the
+ * third: the console's client, for someone who edits @context-lc.
  */
 
 import { handleApprovals } from "./approvals.js";
 import { CARD_PATHS, handleCards } from "./cards.js";
+import { TEX_TEST_SET_PATH, handleTexTestSet } from "./texTestSet.js";
 
-export const APP_ROUTES = new Map([["/approvals", handleApprovals], ...CARD_PATHS.map((path) => [path, handleCards])]);
+/** Each takes `(request, store, session, path, env)`. */
+export const APP_ROUTES = new Map([
+  ["/approvals", handleApprovals],
+  ...CARD_PATHS.map((path) => [path, handleCards]),
+  // The Lab's Test Set, people only (`texTestSet.js`).
+  [TEX_TEST_SET_PATH, (request, _store, session, _path, env) => handleTexTestSet(request, env, session)],
+]);

@@ -104,7 +104,7 @@ export const REVIEWED = {
     "${{ matrix.worker.package }}":
       "the matrix is fromJSON(needs.plan.outputs.workers), built by the plan job from this repository's own " +
       "package list; the values are package names in the tree, not text a caller supplies",
-    "${{ matrix.worker.name == 'mcp' && '--filter \"@context/site-shots...\"' || '' }}":
+    "${{ matrix.worker.name == 'mcp' && '--filter \"@context/site-shots...\" --filter \"@context/tex-eval...\"' || '' }}":
       "same matrix, and the expression yields one of two literals written here",
   },
 };

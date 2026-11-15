@@ -174,7 +174,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Gmail drafts, mail forwarding and Google Chat",
     actions: ["send.email_draft", "send.forward_rule", "send.google_chat", "manage.connect_google"],
-    texts: "save a draft in their Gmail, set a rule that forwards one kind of their mail (on their 👍), read their Google Chat spaces and direct messages live (fetch chat:) and send a message as them (on their 👍), or send the link to connect or reconnect Gmail, Calendar or Google Chat; when a Google tool says AI access isn't allowed yet, send the AI-access link (kind ai), which is not a reconnect",
+    texts: "save a draft in their Gmail, set a rule that forwards one kind of their mail (on their 👍), read their Google Chat spaces and direct messages live in whichever of their Google accounts has the conversation (fetch chat:, naming the account) and send a message as them (on their 👍), or send the link to connect or reconnect Gmail, Calendar or Google Chat; when a Google tool says AI access isn't allowed yet, send the AI-access link (kind ai), which is not a reconnect",
     group: null,
     cant: [{ where: "everywhere", what: "disconnect a Google account", workaround: { kind: "app_path", text: "Context app → Settings → Connected apps" } }],
   },
