@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { answerFrom, answerLoop, answerOne, cliArgs, modelAlias, promptFor, systemText } from "../socketAnswerer.mjs";
+import { answerFrom, answerLoop, answerOne, cliArgs, failureText, modelAlias, promptFor, systemText } from "../socketAnswerer.mjs";
 import { requestHash } from "../modelSocket.mjs";
 
 const TOOL = { name: "search", description: "Search the notes", input_schema: { type: "object", properties: { query: { type: "string" } } } };
@@ -114,4 +114,10 @@ test("the loop answers every waiting call, a few at a time, and ends once stoppe
   assert.equal(answered, calls.length);
   assert.ok(most <= 2, `at most 2 at once, saw ${most}`);
   assert.equal((await readdir(join(dir, "answers"))).length, calls.length);
+});
+
+test("a failed CLI run says why: the JSON result's error first, stderr after", () => {
+  assert.equal(failureText(cliResult({ is_error: true, result: "Invalid bearer token" }), ""), "Invalid bearer token");
+  assert.equal(failureText("", "boom"), "boom");
+  assert.equal(failureText("", ""), "no output");
 });
