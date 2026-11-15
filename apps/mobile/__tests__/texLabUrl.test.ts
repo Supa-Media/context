@@ -16,6 +16,8 @@ describe("the Lab's address", () => {
   test("an address reads back as the place it was written from, and anything else falls back to the Lab's home", () => {
     for (const p of [
       { mode: "replay" as const, view: "canvas" as const, chat: "g1", moment: "ev3" },
+      { mode: "testing" as const, view: "canvas" as const, chat: "me", moment: null, set: "picnic" },
+      { mode: "lab" as const, view: "canvas" as const, chat: "me", moment: null, node: "decide" },
       { mode: "lab" as const, view: "tests" as const, chat: "me", moment: null },
     ])
       expect(placeOf(searchOf(p))).toEqual(p);

@@ -3,6 +3,8 @@
  * https://claude.ai/artifact/VnAnSNDprEUJ4fFDEmXqhp), kept apart from the artifact's own stylesheet (`labCss.ts`),
  * which appends it. Scoped under `.tl` like the rest.
  */
+import { LAB_CSS_3 } from "./labCss3";
+
 export const LAB_CSS_2 = String.raw`
 .tl .tlay{grid-template-columns:300px minmax(0,1fr)}
 .tl .meter{display:inline-block;height:4px;border-radius:2px;background:var(--s3);overflow:hidden;flex:none}
@@ -92,4 +94,4 @@ export const LAB_CSS_2 = String.raw`
 .tl #changes .row.on{outline:1.5px solid var(--warn)}
 .tl .cfield{display:grid;gap:4px}.tl .cfield .box{border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12.5px;line-height:1.45;display:grid;gap:3px}
 @media(max-width:820px){.tl .tlay{grid-template-columns:1fr}.tl .anav .meter{display:none}.tl .erow{flex:none}.tl .ngrid{grid-template-columns:1fr}.tl .wrow{grid-template-columns:1fr}}
-`;
+` + LAB_CSS_3;

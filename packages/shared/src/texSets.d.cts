@@ -6,7 +6,11 @@ export type Message = {
   kind?: "react" | "reply" | "edit" | "delete"; to?: string;
   labels?: Record<string, Label>; rec?: Record<string, Record<string, unknown>>;
 };
-export type Conversation = { id: string; title: string; set: SetId; kind: "one" | "group"; members: string[]; msgs: Message[] };
+export type Conversation = {
+  /** Where a migrated chat came from, a group's speak-up setting, the bench world it runs against: optional. */
+  from?: string;
+  setting?: string;
+  world?: string; id: string; title: string; set: SetId; kind: "one" | "group"; members: string[]; msgs: Message[] };
 export type Fields = { picks: Record<string, string[]>; texts: string[]; lines: boolean };
 export type UnitTest = { chat: string; msg: string; at: number; node: string };
 export type Ratio = { counts: Record<SetId, number>; total: number; pct: Record<SetId, number>; holds: boolean; off: SetId[] };
