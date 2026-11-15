@@ -147,9 +147,12 @@ function judgeExample(moment) {
 
 const DECIDE_SOURCES = trainingSources(TEX_CONFIG.nodes.find((node) => node.id === "decide"));
 
+/** A Decide label the judge's form can show: a real act and why (a label may leave either "any", or out). */
+const judgeForm = (moment) => ["quiet", "respond", "wait"].includes(moment.label.act) && Object.hasOwn(WHY, moment.label.why);
+
 /** Decide's own Training labels, as the judge reads them; another node's labels it reads stay in that node's form. */
 const JUDGE_EXAMPLES = Object.freeze(
-  DECIDE_SOURCES.flatMap((source) => (TRAINING.nodes[source] ?? []).filter(() => source === "decide").map(judgeExample)),
+  DECIDE_SOURCES.includes("decide") ? (TRAINING.nodes.decide ?? []).filter(judgeForm).map(judgeExample) : [],
 );
 
 /** One example as the judge reads it, in `<example>` tags. */
@@ -166,7 +169,7 @@ function exampleText(item) {
  */
 function judgeExamplesText(sources) {
   const items = sources.flatMap((source) =>
-    (TRAINING.nodes[source] ?? []).map((moment) => (source === "decide" ? exampleText(judgeExample(moment)) : trainingExample(moment))),
+    (TRAINING.nodes[source] ?? []).map((moment) => (source === "decide" && judgeForm(moment) ? exampleText(judgeExample(moment)) : trainingExample(moment))),
   );
   return items.length > 0 ? `<examples>\n${items.join("\n")}\n</examples>` : "";
 }
