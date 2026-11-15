@@ -12,13 +12,17 @@ import { test } from "node:test";
 
 import { caseTurn, loadSets, MAX_FALSE_ALARMS, MIN_CATCH, passes, rates, reviewCommand, scoreCases } from "../review.mjs";
 
-test("every set has faults and good replies with unique ids, and chat holds the roasts that must go", async () => {
+test("every set keeps a case, 20 in all with both kinds, unique ids, and chat holds the roast that must go", async () => {
   const sets = await loadSets();
   assert.ok(Object.keys(sets).length >= 13);
+  // At most 20 cases a step (Dev2, 2026-11-15: "a max of 20 test cases per unit"): one or two a set, about half faults.
+  const all = Object.values(sets).flat();
+  assert.equal(all.length, 20);
+  const faultsAll = all.filter((item) => item.fault).length;
+  assert.ok(faultsAll >= 8 && faultsAll <= 12, `${faultsAll} faults of 20`);
   const ids = new Set();
   for (const [name, cases] of Object.entries(sets)) {
-    const faults = cases.filter((item) => item.fault).length;
-    assert.ok(faults >= 3 && cases.length - faults >= 4, `${name} has both kinds`);
+    assert.ok(cases.length >= 1, `${name} keeps a case`);
     for (const item of cases) {
       assert.ok(!ids.has(item.id), `${item.id} is unique`);
       ids.add(item.id);

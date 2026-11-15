@@ -25,7 +25,11 @@ import { SCENARIOS, scnLabel } from "../engine/traces";
 import { useLab } from "../store";
 import { AddMenu } from "./canvas/AddMenu";
 import { addStep } from "./canvas/actions";
+import { currentMarks } from "../engine/changeMarks";
+import { stepCounts } from "../engine/cases";
+import { ChangeLegend, ChangeTip } from "./canvas/ChangeTip";
 import {
+  caseKeyHtml,
   fitCam,
   keywHtml,
   renderFocusCanvasHtml,
@@ -147,6 +151,8 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
   const opened = stepsShownFor(g, lab.cfocus).length > 0;
   if (s.cfocus && !node(s.cfocus, g) && !opened) lab.cfocus = null;
   const sim = labSim(g);
+  // A draft's changes against main or its last revision (`engine/changeMarks.ts`), drawn on the whole graph only.
+  const marks = replay || (lab.cfocus && !opened) ? null : currentMarks();
   const tags = (SCENARIOS[s.scn] || SCENARIOS.own)?.tags || [];
   let html: string;
   if (lab.cfocus && !opened) {
@@ -155,7 +161,7 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
     html = f.html;
   } else {
     fBounds.current = null;
-    html = renderGraphHtml(g, sim, tags, s.sel, replay ? replayLit : lit, "off");
+    html = renderGraphHtml(g, sim, tags, s.sel, replay ? replayLit : lit, "off", replay ? null : stepCounts(g), replay ? null : marks);
   }
   // An open group has no box to name, so its focus bar takes the group's label (Dev2, 2026-11-14).
   const focused = lab.cfocus ? node(lab.cfocus, g) ?? (opened ? { label: GROUPS[lab.cfocus]?.label ?? lab.cfocus } : undefined) : undefined;
@@ -196,6 +202,7 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
           />
         </svg>
       </div>
+      <ChangeTip marks={marks} stage={stage} />
       {/* In Replay the key leads the row on the left and the numbers stay right (Dev2, 2026-11-14: "put the key back to float left"). */}
       <div className={replay ? "ctop replay" : "ctop"}>
       {/* Replay's chat on the left already shows the text (Dev2, 2026-11-14: "this feels redundant with the left panel"). */}
@@ -256,8 +263,9 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
         className="float keyw"
         id="keyw"
         hidden={!!focused || !keyOpen}
-        dangerouslySetInnerHTML={{ __html: focused || !keyOpen ? "" : keywHtml() }}
+        dangerouslySetInnerHTML={{ __html: focused || !keyOpen ? "" : keywHtml() + (replay ? "" : caseKeyHtml()) }}
       />
+      {marks && !focused ? <ChangeLegend mode={marks.mode} vs={marks.vs} /> : null}
       <div className="float fbar" id="fbar" hidden={!focused}>
         {focused ? (
           <>

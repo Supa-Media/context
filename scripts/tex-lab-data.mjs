@@ -160,6 +160,26 @@ function buildCases() {
     });
   }
 
+  // A step's own cases (apps/mcp/bench/nodes/<step>.json, run by `pnpm ai nodes`), written in the Lab from the
+  // step's input and output shapes; area `node:<step>`.
+  const nodesDir = "apps/mcp/bench/nodes";
+  for (const f of fs.existsSync(abs(nodesDir)) ? listSorted(nodesDir) : []) {
+    if (!f.endsWith(".json")) continue;
+    const set = JSON.parse(readText(nodesDir + "/" + f));
+    for (const c of set.cases || []) {
+      const given = Object.fromEntries(Object.entries(c.given || {}).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]));
+      const want = c.want || {};
+      out.push({
+        area: "node:" + set.node,
+        id: c.id,
+        given,
+        want,
+        ask: cut(Object.entries(given).filter(([, v]) => v !== "").map(([k, v]) => `${k}: ${v}`).join("; ")),
+        expect: cut(Object.entries(want).filter(([, w]) => w?.is || w?.judge).map(([k, w]) => (w.is ? `${k} = ${w.is}` : `${k}: a judge reads it for "${w.judge}"`)).join("; ")),
+      });
+    }
+  }
+
   return out;
 }
 
@@ -194,28 +214,23 @@ function buildWs() {
 
 const cases = buildCases();
 
-// What a change's replay runs by default (Dev2, 2026-11-15: each unit step "cut down to 20 questions"): the gate's own
-// sample (`apps/mcp/bench/gateSample.mjs`), so the Lab picks the same cases; a case outside it says `gate: false`.
+// What a change's replay runs by default: the gate's own sample of the jobs (`apps/mcp/bench/gateSample.mjs`), so the
+// Lab picks the same tasks; a task outside it says `gate: false`. Every other step keeps at most 20 cases and runs them all.
 const sample = await import(pathToFileURL(abs("apps/mcp/bench/gateSample.mjs")).href);
 {
-  const reviewSets = {};
-  const reviewFile = new Map();
-  for (const f of listSorted("apps/mcp/bench/review").filter((name) => name.endsWith(".json"))) {
-    const set = JSON.parse(readText("apps/mcp/bench/review/" + f));
-    reviewSets[set.gate] = set.cases.map((c) => ({ ...c, id: `${set.gate}/${c.id}` }));
-    for (const c of set.cases) reviewFile.set(`${f}:${c.id}`, `${set.gate}/${c.id}`);
-  }
-  const respond = readJsonList("apps/mcp/bench/respond/cases.json");
   const jobs = readJsonList("apps/mcp/bench/job-tasks/cases.json");
-  const picked = {
-    review: sample.reviewSample(reviewSets, reviewSets),
-    respond: sample.respondSample(respond, respond),
-    jobs: sample.jobsSample(jobs, jobs),
-  };
-  for (const c of cases) {
-    if (!picked[c.area]) continue;
-    const id = c.area === "review" ? reviewFile.get(`${c.group.replace(/ /g, "_")}.json:${c.id}`) : c.id;
-    if (!picked[c.area].has(id)) c.gate = false;
+  const picked = sample.jobsSample(jobs, jobs);
+  for (const c of cases) if (c.area === "jobs" && !picked.has(c.id)) c.gate = false;
+}
+
+// No step holds more than 20 cases (Dev2, 2026-11-15: "a max of 20 test cases per unit"; docs/decisions/testing/replay-gate.md).
+{
+  const per = {};
+  for (const c of cases) per[c.area] = (per[c.area] || 0) + 1;
+  const over = Object.entries(per).filter(([, n]) => n > sample.UNIT_LIMIT);
+  if (over.length) {
+    console.error(`Each step keeps at most ${sample.UNIT_LIMIT} cases; trade one out before adding: ${over.map(([a, n]) => `${a} has ${n}`).join(", ")}`);
+    process.exit(1);
   }
 }
 const modtext = await buildModText();

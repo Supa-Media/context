@@ -4,22 +4,14 @@
  * grouped by folder, and the chosen note's text. Closes on X, backdrop or Escape.
  */
 import { Fragment, useEffect } from "react";
-import { WS } from "../labData.generated";
 import { set } from "../engine/state";
 import { Ic } from "./ic";
+import { wsTree } from "./wsTree";
 
 const close = () => set({ viewer: null });
 
 export function Workspace({ ws, at }: { ws: string; at?: string }) {
-  const files = WS[ws] || {};
-  const paths = Object.keys(files);
-  const cur = at || (files["index.md"] !== undefined ? "index.md" : paths[0]) || "";
-
-  const groups: Record<string, string[]> = {};
-  for (const q of paths) {
-    const d = q.includes("/") ? q.slice(0, q.lastIndexOf("/")) : "";
-    (groups[d] = groups[d] || []).push(q);
-  }
+  const { files, paths, cur, groups } = wsTree(ws, at);
 
   useEffect(() => {
     const el = document.getElementById("viewer");

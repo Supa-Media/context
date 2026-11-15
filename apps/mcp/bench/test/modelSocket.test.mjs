@@ -17,7 +17,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { reviewWait } from "../review.mjs";
+import { loadSets, reviewWait } from "../review.mjs";
 import { ANSWER_WAIT_MS, answerCall, collectAnswers, examinerNote, examinerNotes, examinerPath, modelSocket, NOTE_PART_BYTES, readExaminerNotes, splitAnswers, pendingCalls, readExaminerNote, requestHash, socketRequest, stableJson } from "../modelSocket.mjs";
 
 const RUN = fileURLToPath(new URL("../run.mjs", import.meta.url));
@@ -73,11 +73,12 @@ test("a review answered through the socket scores as CI scores it again from the
   const dir = await mkdtemp(join(tmpdir(), "review-socket-"));
   const env = { ...process.env, BENCH_MODEL_SOCKET: dir, AI_GATEWAY_TOKEN: "" };
   const live = exec(process.execPath, [RUN, "review", "--set", "from_chats", "--json", join(dir, "live.json")], { env });
-  // The examiner: every reply is let go, except the one about the back room, which goes back.
+  // The examiner sends back the roster that names no one (from_chats keeps one case since the 20-case cap, 2026-11-15).
+  const want = (await loadSets()).from_chats.length;
   let answered = 0;
-  for (let i = 0; i < 600 && answered < 8; i += 1) {
+  for (let i = 0; i < 600 && answered < want; i += 1) {
     for (const call of await pendingCalls(dir)) {
-      const sendBack = call.request.messages[0].text.includes("holds 50");
+      const sendBack = true;
       await answerCall(dir, call.hash, sendBack ? '{"verdict":"send_back","kind":"task","problems":["unsourced"],"feedback":"Nothing read says 50."}' : '{"verdict":"ok","kind":"task"}');
       answered += 1;
     }
@@ -85,8 +86,8 @@ test("a review answered through the socket scores as CI scores it again from the
   }
   await live;
   const liveRows = JSON.parse(await readFile(join(dir, "live.json"), "utf8"));
-  assert.equal(liveRows.length, 8);
-  assert.deepEqual(liveRows.filter((row) => !row.right).map((row) => row.id).sort(), ["from_chats/failed-search-as-nothing", "from_chats/roster-with-numbers", "from_chats/still-running-after-done"]);
+  assert.equal(liveRows.length, want);
+  assert.deepEqual(liveRows.filter((row) => !row.right).map((row) => row.id).sort(), ["from_chats/roster-names-only"], "a good reply sent back is wrong");
   // CI: no examiner, no key, only the answers.
   await writeFile(join(dir, "answers.json"), JSON.stringify(await collectAnswers(dir)));
   await exec(process.execPath, [RUN, "review", "--set", "from_chats", "--json", join(dir, "replay.json")], { env: { ...process.env, BENCH_MODEL_REPLAY: join(dir, "answers.json"), AI_GATEWAY_TOKEN: "" } });

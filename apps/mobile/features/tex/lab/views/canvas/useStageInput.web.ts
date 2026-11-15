@@ -26,6 +26,7 @@ import {
 } from "../../engine/state";
 import { mods } from "../../engine/modules";
 import { stepsShownFor } from "../../engine/groups";
+import { startNodeCase } from "../../engine/caseDraft";
 import { H, W, wheelCam, type Cam } from "./render";
 
 type Act =
@@ -38,6 +39,8 @@ type Act =
       dy: number;
       moved: boolean;
       before: string;
+      /** Down on the step's dashed "+" chip: a click opens its add-case form (Dev2, 2026-11-15). */
+      addCase?: boolean;
     }
   | { k: "edge"; i: number }
   | { k: "fblk"; mod?: string; go?: string }
@@ -142,6 +145,7 @@ export function useStageInput({
           dy: p.y - n.y,
           moved: false,
           before: JSON.stringify(G()),
+          addCase: !!t.closest("[data-addcase]"),
         };
         return;
       }
@@ -205,7 +209,10 @@ export function useStageInput({
         if (a.moved) {
           pushUndo(a.before);
           markDirty();
-        } else set({ sel: { t: "node", id: a.id }, addCtxOpen: false });
+        } else {
+          set({ sel: { t: "node", id: a.id }, addCtxOpen: false });
+          if (a.addCase && lab.mode !== "replay") startNodeCase(a.id);
+        }
         return;
       }
       if (a.k === "edge") {

@@ -47,7 +47,7 @@ change. A session that wrote the change must never act as its examiner.
    long tool-using calls, part after part, each with Opus's done check, and
    the quality judge. Split the answering across several examiner subagents
    as for core, and expect it to take the longest. The review and respond
-   areas run 20 cases each (of 211 and 66), and every held-out case.
+   areas keep only 20 cases each (every step does, 2026-11-15), and every held-out case runs too.
 3. Start the gate in the background with the socket set:
 
    ```sh

@@ -4,14 +4,14 @@
  * `caseWant` (the "test cases" section of the Tex Architecture Lab artifact).
  */
 import { Fragment } from "react";
-import { AREA_INFO, AREA_IO, PEOPLE } from "../../data/areas";
-import { MAIN, G, MODELS, emit, lab, node } from "../../engine/state";
-import { mods } from "../../engine/modules";
-import { SCENARIOS } from "../../engine/traces";
-import { simulate, fmtS, fmtUsd } from "../../engine/sim";
+import { G, MODELS, emit } from "../../engine/state";
+import { fmtS, fmtUsd } from "../../engine/sim";
 import { ScnOptions } from "../parts";
 import { Ic } from "../ic";
-import type { LabCase, LabGraph, LabNode } from "../../types";
+import type { LabCase } from "../../types";
+import { caseWant, ioInfo, whoInfo } from "./caseInfo";
+
+export { caseFit, modName } from "./caseInfo";
 
 /** The pipe scenario the Test select shows (the artifact's `pipeScn`). */
 let pipeScn: string | null = null;
@@ -38,31 +38,6 @@ type CaseExtra = {
   nots?: string[];
 };
 const ex = (c: LabCase) => c as LabCase & CaseExtra;
-
-export function modName(k: string, g: LabGraph): string {
-  return k.startsWith("out:") ? (node(k.slice(4), g)?.label || k) + "'s output" : mods(g)[k]?.name || k;
-}
-
-/** Why a case can't test this version the way it tests main: the step is gone or off, it no longer reads what the case gives, or the field the case checks is gone. */
-export function caseFit(c: LabCase, g: LabGraph = G()): string[] {
-  const I = AREA_INFO[c.area], io = AREA_IO[c.area];
-  if (!I || !io) return [];
-  const n = node(I.step, g);
-  if (!n) return [`This version has no ${node(I.step, MAIN.graph)?.label || I.step}`];
-  const w: string[] = [];
-  if (!n.on && node(I.step, MAIN.graph)?.on) w.push(`${n.label} is off`);
-  if (io.check.code) return w;
-  const miss = io.gives.filter((k) => !n.ctx.includes(k));
-  if (miss.length) w.push(`${n.label} no longer reads ${miss.map((k) => modName(k, g)).join(", ")}`);
-  const sc = n.outSchema || [];
-  if (io.check.field) {
-    const f = sc.find((x) => x.name === io.check.field);
-    const want = io.check.map ? io.check.map(c) : "";
-    if (!f) w.push(`checks ${io.check.field}, which ${n.label} no longer answers`);
-    else if (f.type === "choice" && f.options && !f.options.split(/\s*,\s*/).includes(want)) w.push(`expects ${io.check.field} = ${want}, not one of its options`);
-  } else if (sc.length && !sc.some((x) => x.type === "text")) w.push(`checks words, but ${n.label} answers only typed fields`);
-  return w;
-}
 
 /** A chat bubble (`bub`): who said it, the text, and the class the artifact gave it. */
 function Bub({ who, text, cls = "" }: { who?: string; text: string; cls?: string }) {
@@ -166,19 +141,18 @@ export function CaseThread({ c, ed }: { c: LabCase; ed?: LabCase }) {
 
 /** What the case expects (`caseWant`): the musts for a core case, else the expected outcome and the field it checks. */
 export function CaseWant({ c, ed }: { c: LabCase; ed?: LabCase }) {
-  const x = ex(c);
-  const I: { want?: string; how?: string } = AREA_INFO[c.area] || {};
-  if (c.area === "core" && !ed && x.musts)
+  const w = caseWant(c, !!ed);
+  if (w.musts)
     return (
       <div className="want">
-        <span className="wl">{I.want}</span>
+        <span className="wl">{w.want}</span>
         <div>
-          {x.musts.map((m, i) => (
+          {w.musts.map((m, i) => (
             <div key={i} className="mi ok">
               {m}
             </div>
           ))}
-          {(x.nots || []).map((m, i) => (
+          {(w.nots || []).map((m, i) => (
             <div key={`n${i}`} className="mi no">
               never {m}
             </div>
@@ -186,16 +160,14 @@ export function CaseWant({ c, ed }: { c: LabCase; ed?: LabCase }) {
         </div>
       </div>
     );
-  const q = /quiet|let it go|done$/i.test(c.expect) ? "ok" : /send it back|decline/i.test(c.expect) ? "bad" : "acc";
-  const io = AREA_IO[c.area];
   return (
     <div className="want">
-      <span className="wl">{I.want || "Should"}</span>
+      <span className="wl">{w.want}</span>
       <div className="flex" style={{ gap: 6 }}>
-        <span className={`pill ${q}`}>{c.expect}</span>
-        {io?.check.field ? (
+        <span className={`pill ${w.tone}`}>{w.expect}</span>
+        {w.field ? (
           <span className="ioc o">
-            {io.check.field} = {io.check.map ? io.check.map(c) : ""}
+            {w.field} = {w.value}
           </span>
         ) : null}
       </div>
@@ -205,25 +177,18 @@ export function CaseWant({ c, ed }: { c: LabCase; ed?: LabCase }) {
 
 /** The area's test panel (`ioPanel`): for an integration area, the traced moment and its path; for a unit area, what goes in, the step and the check. */
 export function IoPanel({ area }: { area: string }) {
-  const I = AREA_INFO[area], io = AREA_IO[area];
-  if (!I || !io) return null;
-  const g = G();
-  const n = node(I.step, g) || node(I.step, MAIN.graph);
-  if (!n) return null;
-  const m = MODELS[n.model] || MODELS.code;
+  const info = ioInfo(area, G(), pipeScn);
+  if (!info) return null;
+  const n = info.step;
+  const m = info.model;
 
-  if (I.int) {
-    const pk = pipeScn && SCENARIOS[pipeScn]?.group === area ? pipeScn : Object.keys(SCENARIOS).find((k) => SCENARIOS[k].group === area) || "own";
-    const sim = simulate(g, pk, lab.logRows);
-    const order = Object.entries(sim.T)
-      .sort((a, b) => a[1].start - b[1].start)
-      .map(([id]) => node(id, g))
-      .filter((x): x is LabNode => !!x);
+  if (info.int) {
+    const { sim } = info;
     return (
       <div className="iop">
         <div className="ior">
           <span className="iol">Test</span>
-          <select id="intScn" aria-label="Test" style={{ maxWidth: 420 }} value={pk} onChange={(e) => { setPipeScn(e.target.value); emit(); }}>
+          <select id="intScn" aria-label="Test" style={{ maxWidth: 420 }} value={info.test} onChange={(e) => { setPipeScn(e.target.value); emit(); }}>
             <ScnOptions only={area} />
           </select>
           <span className="hint" style={{ fontSize: 12 }}>
@@ -233,7 +198,7 @@ export function IoPanel({ area }: { area: string }) {
         <div className="ior">
           <span className="iol">Path</span>
           <div className="ipath">
-            {order.map((x, i) => {
+            {info.path.map((x, i) => {
               const mm = MODELS[x.model] || MODELS.code;
               return (
                 <Fragment key={x.id}>
@@ -250,29 +215,24 @@ export function IoPanel({ area }: { area: string }) {
         </div>
         <div className="ior">
           <span className="iol">Checks</span>
-          <span className="ioc o">{io.check.code ? "code" : io.check.field || "words"}</span>
+          <span className="ioc o">{info.check}</span>
           <span className="hint" style={{ fontSize: 12 }}>
-            {io.check.how}
+            {info.how}
           </span>
         </div>
       </div>
     );
   }
 
-  const gives = new Set([...io.gives, ...(io.fixture || [])]);
-  const rest = n.ctx.filter((k) => !gives.has(k));
-  const chip = (k: string, cls: string) => (
-    <span key={k} className={`ioc ${cls}`}>
-      {modName(k, g)}
-    </span>
-  );
   return (
     <div className="iop">
       <div className="ior">
         <span className="iol">In</span>
-        {io.gives.map((k) => chip(k, n.ctx.includes(k) ? "g" : "x"))}
-        {(io.fixture || []).map((k) => chip(k, "f"))}
-        {rest.map((k) => chip(k, "d"))}
+        {info.chips.map((c, i) => (
+          <span key={i} className={`ioc ${c.cls}`}>
+            {c.name}
+          </span>
+        ))}
       </div>
       <div className="ior">
         <span className="iol">Step</span>
@@ -283,16 +243,16 @@ export function IoPanel({ area }: { area: string }) {
       </div>
       <div className="ior">
         <span className="iol">Checks</span>
-        {io.check.field ? <span className="ioc o">{io.check.field}</span> : <span className="ioc o">words</span>}
+        <span className="ioc o">{info.check}</span>
         <span className="hint" style={{ fontSize: 12 }}>
-          {io.check.how}
+          {info.how}
         </span>
       </div>
       <div className="iok hint">
         <span>
           <i className="ioc g"></i>the case gives it
         </span>
-        {io.fixture ? (
+        {info.fixture ? (
           <span>
             <i className="ioc f"></i>from Maya's workspace
           </span>
@@ -310,20 +270,18 @@ export function IoPanel({ area }: { area: string }) {
 
 /** Who the area's cases are run as (`whoPanel`). An area with a person gets no panel. */
 export function WhoPanel({ area, inArea }: { area: string; inArea: LabCase[] }) {
-  const I: { as?: string; how?: string } = AREA_INFO[area] || {};
-  if (I.as && PEOPLE[I.as]) return null;
-  const groups = inArea.filter((c) => ex(c).chat === "group").length;
-  const ones = inArea.filter((c) => ex(c).chat === "one").length;
+  const w = whoInfo(area, inArea);
+  if (!w) return null;
   return (
     <div className="who">
       <div className="wp">
         <span className="av">
-          <Ic k={node(AREA_INFO[area]?.step ?? "", MAIN.graph)?.icon || "judge"} style={{ width: 16, height: 16 }} />
+          <Ic k={w.icon} style={{ width: 16, height: 16 }} />
         </span>
         <div>
-          <b>{I.how || ""}</b>
+          <b>{w.how}</b>
           <div className="hint">
-            No workspace{area === "respond" ? ` · ${groups} group chats · ${ones} 1:1` : ""}
+            No workspace{area === "respond" ? ` · ${w.groups} group chats · ${w.ones} 1:1` : ""}
           </div>
         </div>
       </div>

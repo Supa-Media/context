@@ -50,7 +50,24 @@ export const texLabTables = {
     via: v.string(),
     keys: v.array(v.string()),
     said: v.array(v.string()),
+    /** The same lines uncut (each up to 1,000 characters), for `tex_dev`'s `changes`; `said` is the Lab's short form. */
+    full: v.optional(v.array(v.string())),
+    /**
+     * What undoes this change, as JSON (`lib/texLabDraftWrites.ts` `Undo`): the edits back to the graph before it, and
+     * the name, test picks and run areas it replaced. `tex_dev`'s `revert` applies it as a new revision. A change
+     * made before undo was kept, or one nothing undoes (asking to promote, keeping run results), has none.
+     */
+    undo: v.optional(v.string()),
     at: v.number(),
+  }).index("by_version_rev", ["versionId", "rev"]),
+  /**
+   * A draft's graph just before each revision (JSON), so the Lab can mark what that revision changed ("against last
+   * rev"). Kept apart from texLabChanges so the change feed, read live, stays small; deleted with the draft.
+   */
+  texLabRevBefore: defineTable({
+    versionId: v.string(),
+    rev: v.number(),
+    graph: v.string(),
   }).index("by_version_rev", ["versionId", "rev"]),
   texLabCaseEdits: defineTable({
     /** `<area>/<case id>`. */

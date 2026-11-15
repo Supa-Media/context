@@ -5,10 +5,23 @@
  * docs/testing/examiner.md), and the reader for a pasted "## Tex replay" report.
  */
 import { EXAMINABLE } from "../../data/areas";
-import type { config } from "../../engine/diff";
-import type { RunResult } from "../../types";
+import type { Change, config } from "../../engine/diff";
+import type { LabVersion, RunResult } from "../../types";
+import { parseReport as readReport } from "@context/shared/src/texLabReport.cjs";
 
-export type AreaScore = { practice: [number, number]; held: [number, number]; usd: number };
+/** How a change from main lands, as the Run view's "Ships as" column names it. */
+export const shipsAs = (x: Pick<Change, "how" | "setup">): string =>
+  x.how === "fixture" ? "bench fixture" : x.how === "setup" ? "setup: " + String(x.setup) : x.how === "guess" ? "guess only" : x.how === "doc" ? "words only" : "code";
+
+/** Each area's latest run on a version: the last result that names it (the Compare view's `latest`). */
+export function latest(v: Pick<LabVersion, "results">): Record<string, { practice: [number, number]; held: [number, number] }> {
+  const o: Record<string, { practice: [number, number]; held: [number, number] }> = {};
+  for (const r of v.results || []) for (const [a, x] of Object.entries(r.areas)) o[a] = x as { practice: [number, number]; held: [number, number] };
+  return o;
+}
+
+export type { AreaScore } from "@context/shared/src/texLabReport.d.cts";
+import type { AreaScore } from "@context/shared/src/texLabReport.d.cts";
 
 export type ParsedResult = RunResult & {
   pass?: boolean;
@@ -28,6 +41,14 @@ function replayLines(c: ReturnType<typeof config>): string {
 `;
 }
 
+/** One case edit for the run's agent: a removal, a node case's fields, or a bench case's ask and expect. */
+function caseLine(e: ReturnType<typeof config>["caseEdits"][number]): string {
+  if (e.removed) return `   - ${e.area}/${e.id}: remove this case`;
+  const tag = e.isNew ? ` (new${e.replaces ? `, in place of ${e.replaces}` : ""})` : "";
+  if (e.given) return `   - ${e.area}/${e.id}${tag}: given ${JSON.stringify(e.given)}, want ${JSON.stringify(e.want ?? {})}`;
+  return `   - ${e.area}/${e.id}${tag}: ask "${e.ask}", expect "${e.expect}"`;
+}
+
 export function promptText(c: ReturnType<typeof config>): string {
   const pipe = c.areas.includes("pipeline"),
     ex = c.areas.filter((a) => EXAMINABLE.has(a) && a !== "pipeline"),
@@ -37,7 +58,7 @@ export function promptText(c: ReturnType<typeof config>): string {
 
 1. Make a branch from main named lab/${(c.version.name || "version").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)} and build these changes (do not open or merge a pull request):
 ${c.changes.length ? c.changes.map((x) => `   - ${x.step}: ${x.what}${x.from !== undefined ? ` ${JSON.stringify(x.from)} →` : ""} ${typeof x.to === "string" ? x.to : JSON.stringify(x.to)}${x.how === "setup" ? " (a setup field: put it in the bench's copy of the setup, never in @context-lc ai/production)" : x.how === "fixture" ? " (the test person's own note or chat: change the bench fixture, never a real person's store)" : ""}`).join("\n") : "   - nothing (a baseline run)"}
-${Object.keys(c.modules).length ? `   Wording and order are exact. Apply each changed module's text byte for byte (config "modules"; fingerprint is FNV-1a 32-bit of the text). Where a module has a mainFingerprint, first check main's file still has it, and stop and say so if it doesn't. A prompt note's order is the setup's modules: list, in the bench's copy only.\n` : ""}${c.caseEdits.length ? `   Case edits and new cases go in the area's case file on the branch:\n${c.caseEdits.map((e) => `   - ${e.area}/${e.id}${e.isNew ? " (new)" : ""}: ask "${e.ask}", expect "${e.expect}"`).join("\n")}\n` : ""}
+${Object.keys(c.modules).length ? `   Wording and order are exact. Apply each changed module's text byte for byte (config "modules"; fingerprint is FNV-1a 32-bit of the text). Where a module has a mainFingerprint, first check main's file still has it, and stop and say so if it doesn't. A prompt note's order is the setup's modules: list, in the bench's copy only.\n` : ""}${c.caseEdits.length ? `   Case edits and new cases go in the area's case file on the branch (a step's own cases, area node:<id>, in apps/mcp/bench/nodes/<id>.json; at most 20 cases a step):\n${c.caseEdits.map(caseLine).join("\n")}\n` : ""}
 ${pipe ? "   Then run the pipeline replays, which need no model: `pnpm test` in apps/mcp (test/replay.test.mjs). Report each case as passed or failed.\n" : ""}2. Save the config below as lab.json at the repo root and run it the examiner way, following docs/testing/examiner.md ("A Tex Architecture Lab version"): \`pnpm ai lab plan --config lab.json\`, then \`pnpm ai lab apply --config lab.json\`, then \`BENCH_MODEL_SOCKET_KINDS=claude,workers-ai pnpm ai lab run --config lab.json --base <main sha> --socket <dir> --held-out <dir> --scratch <dir>\`, on these areas: ${ex.join(", ") || "(none examinable)"}.${Object.keys(c.cases).length ? `\n   Only these cases: ${Object.entries(c.cases).map(([a, ids]) => a + ": " + ids.join(", ")).join("; ")}.` : ""}
    A separate agent that never saw the change answers every \`pnpm ai socket next\` call blind. Steps on an API model (Clef, GLM) are called for real through Context (\`manage\` action \`run_model\` with the call's model and input), never with a key in a note.
 ${replayLines(c)}${no.length ? `   Not examinable here: ${no.join(", ")} (needs API credits). Say so; don't run it.\n` : ""}${swaps.length ? `   Model swaps (${swaps.map((x) => x.step + " → " + x.to).join(", ")}): the examiner answers as the named model, so this shows wiring and prompts, not that model's real quality.\n` : ""}
@@ -49,17 +70,8 @@ Config (JSON):
 ${JSON.stringify(c)}`;
 }
 
-/** The artifact's reader, with one fix: its `\$([\d.]+)` took the sentence's closing period, so every pasted cost read NaN. */
-export function parseReport(txt: string): ParsedResult {
-  const r: ParsedResult = { at: Date.now(), areas: {}, raw: txt.slice(0, 6000) };
-  const h = txt.match(/Tex replay:\s*(✅|❌)\s*([^\n]*)/);
-  if (h) {
-    r.pass = h[1] === "✅";
-    r.headline = h[2].trim();
-  }
-  for (const m of txt.matchAll(/\*\*([a-z-]+):\*\*\s*practice (\d+)\/(\d+) right, held-out (\d+)\/(\d+) right; spent about \$(\d+(?:\.\d+)?)/g))
-    r.areas[m[1]] = { practice: [+m[2], +m[3]], held: [+m[4], +m[5]], usd: +m[6] };
-  const reg = txt.match(/(\d+) case\(s\) regressed/);
-  r.regressed = reg ? +reg[1] : r.pass ? 0 : null;
-  return r;
-}
+/**
+ * The artifact's reader, in one copy the control plane reads with too (`packages/shared/src/texLabReport.cjs`), so a
+ * result kept over the MCP's `tex_dev` `keep_results` scores the same as one kept here.
+ */
+export const parseReport = (txt: string): ParsedResult => readReport(txt) as ParsedResult;

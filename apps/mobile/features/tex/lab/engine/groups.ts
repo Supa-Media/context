@@ -174,3 +174,7 @@ export function foldAround(graph: LabGraph, focusId: string | null, groups: Grou
   const folded = foldGroups(graph, groups);
   return keep && folded.folded?.[keep] ? unfoldGroups(folded, [keep]) : folded;
 }
+
+/** A version saved before the "behind" wire was renamed "background" (Dev2, 2026-11-14) reads with the new name. */
+export const withCurrentModes = <G extends { edges?: Array<{ mode: string }> },>(g: G): G =>
+  Array.isArray(g.edges) ? { ...g, edges: g.edges.map((e) => (e.mode === "behind" ? { ...e, mode: "background" } : e)) } : g;

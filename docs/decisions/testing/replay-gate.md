@@ -264,8 +264,9 @@ I'm a little bit more concerned about the speed of things", choosing "Reply
 checker and jobs". A full run had grown to about 494 examiner answers
 (2026-11-15), mostly the reviewer's 211 cases, one call each with the whole
 reviewer prompt, and seven whole background jobs. So a change's first run
-takes a fixed sample of them (`apps/mcp/bench/gateSample.mjs`). Each unit
-step runs 20 cases (Dev2, same day: "these nodes should be cut down to 20
+took a fixed sample of them (`apps/mcp/bench/gateSample.mjs`; since cut to
+20 cases a step, below). Each unit
+step ran 20 cases (Dev2, same day: "these nodes should be cut down to 20
 questions each"): the reviewer one from every set before a second from any,
 about half faults and half good replies, and Decide its "@Tex must still
 work" cases, other replies and quiet ones in turn. Jobs runs three tasks, one
@@ -289,8 +290,35 @@ other prompt byte still count. The examiner's answers are still named by the
 whole call, map included, so a replay never reuses an answer made for
 another map.
 
+## Every step keeps at most 20 cases (decided by the owner, 2026-11-15)
+
+Dev2, 2026-11-15, in the Lab: "some of these unit sections have way too many
+test cases ... we should have a max of 20 test cases per unit", then chose
+"Keep best 20, delete rest" over parking the extras or only capping the
+list. The sample above became the bench: the reviewer's sets keep the 20 the
+sample took (one from every set before a second, about half faults) and
+Decide the 20 it took; the rest left the repository (git history keeps
+them). So review and respond run whole again and only the jobs are sampled
+(`GATE_SAMPLED`). `scripts/tex-lab-data.mjs` fails (and with it the fast
+guards) when any step, a step's own node cases included, holds more than
+`UNIT_LIMIT` (20), and the Lab trades a case in for one out when a step is
+full. A cap that only hid the extras, or kept running them unseen, would be
+the shadow work the config graph exists to end.
+
+Steps with no area of their own get cases too (Dev2, same day: "a lot of
+nodes don't even have test cases listed here. And there's not a way to add
+them"). The Lab's form is built from the step's `inSchema` and `outSchema`
+in `texConfig.json`, so every step gets the same one: given its inputs, want
+each output field exactly (yes/no, a choice, a number, words) or read by a
+judge. Promote writes them to `apps/mcp/bench/nodes/<step>.json`, and
+`pnpm ai nodes` runs each through the step's own code in `GATEWAY_NODES`
+alone. A step that needs its helpers or wires says it cannot run alone
+rather than passing. They are not in a pull request's replay yet: a node
+calls its model through the gateway, not the examiner socket.
+
 **What a simplification would cost:** running the reviewer and the jobs
-whole again puts a change's examiner run back near 500 answers; sampling
+whole again puts a change's examiner run back near 500 answers (the reviewer
+now has 20, so it no longer can); sampling
 without the new-or-edited rule lets a change add a case the gate never runs.
 Counting the map again makes every config change a full run of every area.
 Tests: `apps/mcp/bench/test/gateSample.test.mjs` and "a change to Tex's map

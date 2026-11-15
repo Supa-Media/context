@@ -4,6 +4,11 @@
  * table reads. The feed is `functions/texLabToolStats.ts` (`toolStats`).
  */
 
+import type { LabGraph, LabNode } from "../types";
+
+/** The steps that call Tex's tools: those that read the tool list, or that have a wire into the Tools step. */
+export const toolUsers = (g: LabGraph): LabNode[] => g.nodes.filter((n) => n.ctx.includes("tools") || g.edges.some((e) => e.to === "tools" && e.from === n.id));
+
 /** One tool's or one tool action's numbers: the shape the artifact's `toolStats` kept. */
 export type ToolStat = { calls: number; ms: number[]; err: number; why: Record<string, number> };
 /** Keyed by `tool` for a tool, `tool.action` for one of its actions. */

@@ -23,7 +23,15 @@ const result = await build({
   nodePaths: [here("../apps/mobile/node_modules"), here("../node_modules")],
   define: { "process.env.NODE_ENV": '"production"' },
   logLevel: "warning",
+  plugins: [
+    {
+      name: "admin-stub",
+      setup(b) {
+        b.onResolve({ filter: /\/admin\/(AdminPane|StaffFactorGate)$/ }, () => ({ path: here("./tex-lab-preview/adminStub.jsx") }));
+      },
+    },
+  ],
 });
 const js = result.outputFiles[0].text.replace(/<\/script/g, "<\\/script");
-writeFileSync(out, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tex Architecture Lab preview</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"></head><body style="margin:0"><div id="root"></div><script>${js}</script></body></html>`);
+writeFileSync(out, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tex Architecture Lab preview</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"></head><body style="margin:0"><div id="root"></div><script>var process = { env: { NODE_ENV: "production" } };</script><script>${js}</script></body></html>`);
 console.log(`wrote ${out}`);

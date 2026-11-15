@@ -53,6 +53,7 @@ import { improveCommand } from "./improve.mjs";
 import { promoteCommand } from "./promote.mjs";
 import { spendCommand } from "./spend.mjs";
 import { stepsCommand } from "./steps.mjs";
+import { nodesCommand } from "./nodeCases.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 import { filedNotes } from "./checks.mjs";
@@ -552,11 +553,12 @@ const USAGE = [
   "       pnpm ai score <result file> --dir <benchmarks folder>",
   "       pnpm ai summary <result file>",
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
-  "       pnpm ai review [--set a,b] [--concurrency <n>] [--gate-sample <main tree>] [--fake]   score the reply reviewer on its labelled cases",
+  "       pnpm ai review [--set a,b] [--concurrency <n>] [--fake]   score the reply reviewer on its labelled cases",
   "       pnpm ai respond [--concurrency <n>] [--fake]   score the one judge's respond-or-quiet call (Clef) on its held-out cases",
   "       pnpm ai advisor-chat | advisor-job-check | advisor-planner | advisor-job-mail [--only a,b] [--fake]   score one advisor role on its cases",
   "       pnpm ai socket next|answer|publish|pull   the model socket: an examiner session answers the gate's calls",
   "       pnpm ai gate --base <main checkout> [--areas respond,review] [--held-out <dir>] | gate areas --base-sha <sha> | gate held-out --dir <dir>",
+  "       pnpm ai nodes [--only a,b] [--fake]   each step's own cases (bench/nodes/<step>.json), the step's code alone",
   "       pnpm ai lab plan|apply|run --config <lab config.json>   run a Tex Architecture Lab version on the examiner path ($0)",
   "       pnpm ai nightly [--held-out <dir>] [--areas core,tasks] [--out <file>] [--run-url <url>]   every area, 3 runs, one scoreboard note",
   "       pnpm ai drift [--day YYYY-MM-DD]             live conversations' scores against the week before; exit 3 on a drop",
@@ -600,6 +602,7 @@ const COMMANDS = new Map([
   ["promote", promoteCommand],
   ["spend", (options) => spendCommand(options)],
   ["steps", stepsCommand],
+  ["nodes", nodesCommand],
   ["improve", async (options) => improveCommand(options, { publish: async (draft) => publishSetup({ ...draft, connection: await signIn({ env: process.env }) }) })],
 ]);
 

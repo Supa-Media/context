@@ -19,7 +19,9 @@ test("the cases have unique ids, both labels in both kinds of chat, and lines an
   const cases = await loadCases();
   const ids = new Set(cases.map((item) => item.id));
   assert.equal(ids.size, cases.length);
-  for (const chat of ["group", "one"]) for (const want of ["hush", "reply"]) assert.ok(cases.filter((item) => item.chat === chat && item.want === want).length >= 5, `${chat} ${want}`);
+  // At most 20 cases a step (Dev2, 2026-11-15), so each kind keeps a few rather than five.
+  assert.ok(cases.length <= 20);
+  for (const chat of ["group", "one"]) for (const want of ["hush", "reply"]) assert.ok(cases.filter((item) => item.chat === chat && item.want === want).length >= 2, `${chat} ${want}`);
   for (const item of cases) assert.ok(Array.isArray(item.lines) && typeof item.text === "string");
 });
 
@@ -37,7 +39,7 @@ test("the @Tex set covers every way Tex is called on, and each must be answered"
   assert.ok(has(/: approve$/), "an approve to Tex's question");
   assert.ok(has(/👍 \(yes\) on Tex's message/), "a thumbs-up on Tex's question");
   assert.ok(must.some((item) => item.setting === "quiet"), "a tag in a quiet group");
-  assert.ok(must.length >= 20);
+  assert.ok(must.length >= 9, "one or more for each way, inside the step's 20");
 });
 
 test("the cases are held out: no case's text is one of the judge's examples", async () => {

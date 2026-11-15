@@ -20,7 +20,10 @@ export type Answer =
   | { status: "conflict"; rev: number; keys: string[]; now: Record<string, unknown>; others: unknown[] }
   | { status: "bad_request"; error: string };
 export type Send = (versionId: string, baseRev: number, ops: string) => Promise<Answer>;
-export type Change = { rev: number; who: string; via: string; said: string[]; at: number };
+/** The Run tab's test picks and areas for a live draft, sent whole (`texLabDrafts.setRunSetup`). */
+export type SendSetup = (versionId: string, picks: string, areas: string | null) => Promise<{ status: string; rev?: number; error?: string }>;
+/** One revision of a draft: who, through which door, what it said, and the keys it touched (`n:<step>`, `e:<from>><to>>…`). */
+export type Change = { rev: number; who: string; via: string; said: string[]; at: number; keys?: string[] };
 export type Feed = { rev: number; live: { client: string; who: string; at: number } | null; changes: Change[] };
 export type Hl = { by: "ai" | "lab"; until: number };
 
@@ -45,11 +48,24 @@ export const live = {
   remote: null as Remote | null,
   timer: null as ReturnType<typeof setTimeout> | null,
   send: null as Send | null,
+  sendSetup: null as SendSetup | null,
   hl: {} as Record<string, Hl>,
   feed: { rev: 0, live: null, changes: [] } as Feed,
 };
 export const setSender = (f: Send | null) => {
   live.send = f;
+};
+export const setSetupSender = (f: SendSetup | null) => {
+  live.sendSetup = f;
+};
+
+/** A version's Run tab setup (its picks and areas) as one comparable value. */
+export const setupOf = (v: { picks?: Record<string, string[]> | null; areas?: string[] | null } | undefined) => JSON.stringify([v?.picks || {}, v?.areas ?? null]);
+const savedOf = () => lab.versions.find((v) => v.id === lab.cur.id);
+/** Has the page's Run tab setup changed from the saved draft's? (A change of picks or areas is not a graph edit.) */
+export const setupPending = () => {
+  const saved = savedOf();
+  return !!saved && setupOf(saved) !== setupOf(lab.cur);
 };
 /** Forget everything (a test, or leaving the Lab). */
 export function resetLive() {
@@ -133,6 +149,8 @@ export async function flush(): Promise<void> {
   const base = live.synced!;
   const ops = pendingOps(base, lab.cur.graph);
   if (!ops.length) {
+    // The Run tab's picks and areas are not graph edits: they are sent on their own (they used to be dropped here).
+    if (await flushSetup()) return;
     // Only a rename can be left: the name is not an edit, so it keeps its Save.
     const saved = lab.versions.find((v) => v.id === lab.cur.id);
     if (lab.dirty && saved && saved.name === lab.cur.name) {
@@ -164,7 +182,7 @@ export async function flush(): Promise<void> {
       live.stale = true;
       live.needRev = ans.rev;
     }
-    lab.dirty = pendingOps(live.synced, lab.cur.graph).length > 0 || lab.cur.name !== lab.versions.find((v) => v.id === id)?.name;
+    lab.dirty = pendingOps(live.synced, lab.cur.graph).length > 0 || lab.cur.name !== lab.versions.find((v) => v.id === id)?.name || setupPending();
   } else if (ans.status === "conflict") {
     toast(who() + " changed " + say(ans.keys) + " first; showing theirs");
     Object.assign(live, { stale: true, needRev: ans.rev, discard: true });
@@ -176,6 +194,42 @@ export async function flush(): Promise<void> {
   }
   reconcile();
   emit();
+}
+
+/**
+ * Send the Run tab's setup when it changed from the saved draft's: answers whether it was the thing to send. The list's
+ * copy of the draft takes the new setup at once, so it is not sent twice before the reactive list brings it back.
+ */
+async function flushSetup(): Promise<boolean> {
+  if (!setupPending() || !live.sendSetup) return false;
+  const id = live.id!;
+  const saved = savedOf()!;
+  const picks = JSON.stringify(lab.cur.picks || {});
+  const areas = lab.cur.areas ? JSON.stringify(lab.cur.areas) : null;
+  live.inflight = true;
+  let ans: Awaited<ReturnType<SendSetup>>;
+  try {
+    ans = await live.sendSetup(id, picks, areas);
+  } catch (e) {
+    live.inflight = false;
+    toast(e instanceof Error && e.message && !/Server Error/i.test(e.message) ? e.message : "Couldn't reach the shared draft");
+    return true;
+  }
+  live.inflight = false;
+  if (live.id !== id) return true;
+  if (ans.status === "ok") {
+    saved.picks = JSON.parse(picks);
+    saved.areas = areas ? JSON.parse(areas) : null;
+  } else {
+    // The server will never take this setup: go back to the saved one.
+    toast(ans.error ?? "Couldn't save the run's setup");
+    lab.cur.picks = clone(saved.picks);
+    lab.cur.areas = saved.areas ? clone(saved.areas) : null;
+  }
+  lab.dirty = pendingOps(live.synced!, lab.cur.graph).length > 0 || lab.cur.name !== saved.name;
+  reconcile();
+  emit();
+  return true;
 }
 
 /** Save (the button, Ctrl+S): a live draft sends its edits first, then keeps a rename; any other version saves whole. */
