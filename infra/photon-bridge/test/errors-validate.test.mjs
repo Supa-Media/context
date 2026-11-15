@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { describeError, RequestError, statusForCode } from "../container/errors.mjs";
+import { describeError, errorDetail, RequestError, statusForCode } from "../container/errors.mjs";
+import { formatLog } from "../container/log.mjs";
 import { OPS, opFor, parseChat, parseLine } from "../container/validate.mjs";
 
 const LINE = "+15550100123";
@@ -153,4 +154,24 @@ test("opFor only names the ops in the table", () => {
   assert.equal(opFor("__proto__"), undefined);
   assert.equal(opFor("constructor"), undefined);
   assert.equal(opFor("health"), undefined);
+});
+
+test("a provider failure's reason reaches the log with what it quotes, its numbers and its addresses taken out", () => {
+  const error = Object.assign(new Error('link preview "see you at 5, Bob" refused for any;-;+15550100999 and bob@example.com'), {
+    code: "invalidArgument",
+    context: { field: "enable_link_preview" },
+    grpcCode: 3,
+    requestId: "req_01-abc",
+  });
+  const detail = errorDetail(error);
+  assert.deepEqual({ ...detail, detail: undefined }, { field: "enable_link_preview", request: "req_01-abc", grpc: 3, detail: undefined });
+  const line = formatLog({ event: "op", op: "send/text", ok: false, status: 400, error: "invalidArgument", ...detail });
+  for (const secret of ["see you", "Bob", "0100999", "bob@example.com"]) assert.ok(!line.includes(secret), secret);
+  assert.ok(line.includes("link preview"));
+  assert.ok(line.includes('"field":"enable_link_preview"'));
+});
+
+test("a refusal of our own carries no provider detail", () => {
+  assert.deepEqual(errorDetail(new RequestError(400, "invalid_chat")), {});
+  assert.deepEqual(errorDetail(Object.assign(new Error("x"), { context: { field: "a b c" }, requestId: "has space" })), { detail: "x" });
 });

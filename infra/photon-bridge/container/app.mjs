@@ -12,7 +12,7 @@
  *   GET  /attachment/<guid>     the attachment's bytes, streamed
  */
 import http from "node:http";
-import { describeError, RequestError } from "./errors.mjs";
+import { describeError, errorDetail, RequestError } from "./errors.mjs";
 import { opFor, parseAttachmentQuery, parseGuid, parseLine } from "./validate.mjs";
 
 const MAX_BODY_BYTES = 40 * 1024 * 1024;
@@ -127,7 +127,7 @@ export function createApp({ runtime, log = () => {}, ring, now = Date.now }) {
         send(res, status, body);
       }
       const op = url.pathname.startsWith("/attachment/") ? "attachment" : url.pathname.slice(1, 40);
-      log({ event: "op", op, ok: false, status, error: body.error, ms: now() - started });
+      log({ event: "op", op, ok: false, status, error: body.error, ...errorDetail(error), ms: now() - started });
     }
   });
 }

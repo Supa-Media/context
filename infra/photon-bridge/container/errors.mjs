@@ -74,3 +74,29 @@ export function describeError(error) {
     },
   };
 }
+
+const FIELD = /^[A-Za-z][\w.[\]-]{0,60}$/;
+const REQUEST = /^[\w-]{1,80}$/;
+/**
+ * What the SDK says about a failure, for the bridge's log only: the field it names, its request id, its gRPC
+ * code, and its message with anything quoted, any number of five or more digits and any address taken out, cut
+ * short. A Photon refusal with no reason was all the log had (2026-11-15: six sends refused "invalidArgument").
+ */
+export function errorDetail(error) {
+  if (error instanceof RequestError || typeof error !== "object" || error === null) return {};
+  const field = error.context?.field;
+  const message = typeof error.message === "string" ? error.message : "";
+  const detail = message
+    .replace(/"[^"]*"|'[^']*'|\u201c[^\u201d]*\u201d|`[^`]*`/g, "\"\u2026\"")
+    .replace(/[^\s@]+@[^\s@]+/g, "<address>")
+    .replace(/\+?\d[\d\s().-]{3,}\d/g, "#")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+  return {
+    ...(typeof field === "string" && FIELD.test(field) ? { field } : {}),
+    ...(typeof error.requestId === "string" && REQUEST.test(error.requestId) ? { request: error.requestId } : {}),
+    ...(Number.isSafeInteger(error.grpcCode) ? { grpc: error.grpcCode } : {}),
+    ...(detail !== "" ? { detail } : {}),
+  };
+}
