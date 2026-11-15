@@ -399,8 +399,8 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
   let sent = item.sent ?? 0;
   let delivering: number | undefined;
   // Kept under the turn it delivers; the Worker's own texts (a failure, a limit) belong to no turn.
-  const delivered = (count: number, cause?: string) =>
-    !item.system && item.turn && item.message.channel !== "simulator" ? logStep(storage, item.message.chatId, deliveryStep(reply.length, count, Date.now() - delivering!, cause), deps.now(), item.turn) : Promise.resolve();
+  const delivered = (began: number, count: number, cause?: string) =>
+    !item.system && item.turn && item.message.channel !== "simulator" ? logStep(storage, item.message.chatId, deliveryStep(reply.length, count, Date.now() - began, cause), deps.now(), item.turn) : Promise.resolve();
   const out = (part: PartLogged, system = item.system === true) => {
     // Each part is logged once it went: the first is when the person's wait ended (`textTiming.ts`).
     if (timing && timing.firstSent === undefined) timing.firstSent = deps.now();
@@ -470,7 +470,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
       sent = index + 1;
     }
     if (timing) timing.sendEnd = deps.now();
-    await delivered(sent);
+    await delivered(delivering, sent);
     // One ask event per approval the turn armed, after the words that ask it.
     for (const record of item.asks ?? []) {
       await logAsk(storage, { at: deps.now(), chat: item.message.chatId, from: { kind: "tex" }, ...(item.turn ? { turn: item.turn } : {}) }, record, await sha256Hex(item.message.from), item.askText ?? "");
@@ -480,7 +480,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
     deferAfterReply(storage, deps.waitUntil, () => afterReply(storage, deps, item, reply.length, timing));
     return true;
   } catch (error) {
-    if (delivering !== undefined) await delivered(sent, error instanceof Error ? error.name : "error");
+    if (delivering !== undefined) await delivered(delivering, sent, error instanceof Error ? error.name : "error");
     const attempts = item.attempts + 1;
     if (attempts >= MAX_SEND_ATTEMPTS) {
       await storage.delete(key);
