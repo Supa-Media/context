@@ -113,6 +113,20 @@ export function answerFrom(request, stdout) {
   return { text: String(given.text ?? ""), toolCalls: Array.isArray(given.toolCalls) ? given.toolCalls : [] };
 }
 
+/**
+ * Why the CLI failed, for the log: with `--output-format json` its error is the result's text on stdout and stderr is
+ * often empty. Only the error's text is kept, never a prompt or an answer.
+ */
+export function failureText(stdout, stderr) {
+  try {
+    const result = JSON.parse(stdout);
+    // An error result's text is the CLI's own message; a non-error result could be the model's words, so it is not kept.
+    const text = result.is_error ? String(result.result ?? result.subtype ?? "").trim() : String(result.subtype ?? "");
+    if (text) return text.slice(0, 300);
+  } catch {}
+  return (String(stderr ?? "").trim() || "no output").slice(0, 300);
+}
+
 /** An empty folder to run the CLI in, so no project instructions (this repository's CLAUDE.md) reach the call. */
 let emptyDir = null;
 
@@ -128,7 +142,7 @@ async function runCli(request, env = process.env) {
     child.stdout.on("data", (chunk) => (out += chunk));
     child.stderr.on("data", (chunk) => (err += chunk));
     child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve(out) : reject(new Error(`claude exited ${code}: ${err.slice(0, 500)}`))));
+    child.on("close", (code) => (code === 0 ? resolve(out) : reject(new Error(`claude exited ${code}: ${failureText(out, err)}`))));
     child.stdin.end(promptFor(request));
   });
 }
@@ -187,6 +201,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error("socketAnswerer: CLAUDE_CODE_OAUTH_TOKEN is not set (make one with `claude setup-token` and add it as the production secret)");
     process.exit(1);
   }
+  // `claude setup-token` output is wrapped by the terminal, so a pasted copy carries line breaks, which the CLI reads
+  // as "Not logged in". A token has no whitespace.
+  process.env.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN.replace(/\s+/g, "");
   answerLoop(dir, { parallel: Number(option("parallel", "4")), stopped: () => existsSync(stop), log: (line) => console.log(line) })
     .then((count) => console.log(`socketAnswerer: answered ${count} call(s)`))
     .catch((error) => {
