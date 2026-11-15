@@ -105,11 +105,77 @@ test("a module's words and a conversation setting are edits of their own", () =>
   assert.equal(applyOps(graph, [{ op: "module", key: "p-rules", value: null }]).graph.modules["p-rules"], undefined);
 });
 
-test("a change outside steps, wires, modules and the conversation diffs as one put", () => {
+test("a change outside steps, wires, modules, models and the conversation diffs as one put", () => {
   const a = main();
-  const b = { ...JSON.parse(JSON.stringify(a)), models: { "custom-1": { name: "Mine" } } };
+  const b = { ...JSON.parse(JSON.stringify(a)), folded: { door: { nodes: [], edges: [] } } };
   const ops = diffGraphs(a, b);
   assert.equal(ops.length, 1);
   assert.equal(ops[0].op, "put");
   assert.deepEqual(keysOf(ops[0]), ["*"]);
+});
+
+test("remove takes the reads of the step's output with it, and never removes text or send (the Lab's delSel)", () => {
+  const g = main();
+  const reader = g.nodes.find((n) => n.ctx?.some((c) => c.startsWith("out:")));
+  const target = reader.ctx.find((c) => c.startsWith("out:")).slice(4);
+  const r = applyOps(g, [{ op: "remove", node: target }]);
+  assert.ok(!r.graph.nodes.find((n) => n.id === reader.id).ctx.includes("out:" + target));
+  assert.ok(r.keys.includes(`n:${reader.id}:ctx`), "the reader's reading order is a piece the removal touched");
+  assert.match(r.said[0], new RegExp(`${reader.id}'s read of its output$`));
+  for (const kept of ["text", "send"]) assert.throws(() => applyOps(g, [{ op: "remove", node: kept }]), /start and a send/);
+  // The Lab's delete diffs as one remove: the reads it dropped are not edits of their own.
+  const b = JSON.parse(JSON.stringify(g));
+  b.nodes = b.nodes.filter((n) => n.id !== target);
+  b.edges = b.edges.filter((e) => e.from !== target && e.to !== target);
+  b.nodes.forEach((n) => (n.ctx = n.ctx.filter((c) => c !== "out:" + target)));
+  assert.deepEqual(diffGraphs(g, b), [{ op: "remove", node: target }]);
+  // And the undo of it (the diff back) brings the step, its wires and the read back.
+  const back = applyOps(r.graph, diffGraphs(r.graph, g)).graph;
+  assert.deepEqual(back.nodes.find((n) => n.id === reader.id).ctx, reader.ctx);
+  assert.ok(back.nodes.some((n) => n.id === target));
+});
+
+test("a draft's own model is an edit; deleting it moves its steps to Haiku, as the Lab's model form does", () => {
+  const g = main();
+  const id = someNode(g).id;
+  const mine = { name: "Mine", full: "Mine", id: "vendor/mine", c: "--accent", runs: "api", custom: true };
+  let r = applyOps(g, [{ op: "model", key: "x-mine", value: mine }, { op: "set", node: id, field: "model", value: "x-mine" }]);
+  assert.deepEqual(r.graph.models["x-mine"], mine);
+  assert.deepEqual(r.keys, ["md:x-mine", `n:${id}:model`]);
+  const a = r.graph;
+  r = applyOps(a, [{ op: "model", key: "x-mine", value: null }]);
+  assert.equal(r.graph.models["x-mine"], undefined);
+  assert.equal(r.graph.nodes.find((n) => n.id === id).model, "haiku-5-5");
+  assert.ok(r.keys.includes(`n:${id}:model`));
+  assert.throws(() => applyOps(g, [{ op: "model", key: "x-none", value: null }]), /no model "x-none"/);
+  assert.throws(() => applyOps(g, [{ op: "model", key: "x-mine", value: { full: "nameless" } }]), /needs a name/);
+  // The Lab's whole save records it as model edits, not a put.
+  assert.deepEqual(diffGraphs(a, r.graph), [{ op: "model", key: "x-mine", value: null }]);
+  assert.deepEqual(diffGraphs(g, a).map((o) => o.op), ["model", "set"]);
+  assert.ok(!overlaps("md:x-mine", "m:x-mine"));
+});
+
+test("a chat tool is merged one at a time, as the Lab's Conversation tab does", () => {
+  const g = { ...main(), convo: { tools: { web: true } } };
+  const r = applyOps(g, [{ op: "convo_tool", tool: "mail", on: true }]);
+  assert.deepEqual(r.graph.convo.tools, { web: true, mail: true });
+  assert.deepEqual(r.keys, ["c:tools:mail"]);
+  assert.deepEqual(applyOps(r.graph, [{ op: "convo_tool", tool: "web", on: null }]).graph.convo.tools, { mail: true });
+  assert.throws(() => applyOps(g, [{ op: "convo_tool", tool: "web", on: "yes" }]), /true, false, or null/);
+  // Two people turning on different tools both land; the whole list overlaps each tool.
+  assert.ok(!overlaps("c:tools:web", "c:tools:mail"));
+  assert.ok(overlaps("c:tools", "c:tools:mail"));
+  assert.ok(!overlaps("c:tools", "c:toolsx"));
+  const b = JSON.parse(JSON.stringify(g));
+  b.convo.tools.mail = false;
+  b.convo.days = 2;
+  assert.deepEqual(diffGraphs(g, b), [{ op: "convo_tool", tool: "mail", on: false }, { op: "convo", field: "days", value: 2 }]);
+});
+
+test("every line has its whole form too, for tex_dev's changes", () => {
+  const g = main();
+  const long = "a goal of many words ".repeat(20).trim();
+  const r = applyOps(g, [{ op: "set", node: someNode(g).id, field: "goal", value: long }]);
+  assert.ok(r.said[0].length < 160);
+  assert.ok(r.full[0].endsWith(long));
 });
