@@ -102,6 +102,8 @@ async function mount() {
   act(() => root.render(createElement(TexLab)));
   click("#modeTesting");
   await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
+  // The repo's own conversations are there too; these tests work in the invented one.
+  click('.chat[data-chat="picnic"]');
 }
 const q = (s: string) => document.querySelector<HTMLElement>(s);
 const qa = (s: string) => [...document.querySelectorAll<HTMLElement>(s)];
