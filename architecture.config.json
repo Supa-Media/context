@@ -70,11 +70,6 @@
       "path": "apps/machine-runner/Cargo.lock",
       "reason": "Cargo lockfile; machine-generated.",
       "command": "cd apps/machine-runner && cargo generate-lockfile"
-    },
-    {
-      "path": "packages/shared/src/texSetsRepo.generated.json",
-      "reason": "Every Training and Dev conversation in apps/mcp/bench/sets, bundled for the gateway and the Lab; regenerated, never hand-edited (CI checks it with --check).",
-      "command": "node scripts/tex-sets-data.mjs"
     }
   ],
   "reviewed": {
