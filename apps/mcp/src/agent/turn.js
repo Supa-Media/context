@@ -527,7 +527,7 @@ export async function runTurn(options) {
         continue;
       }
       const lastRound = round === rounds - 1;
-      const recheck = !lastRound || scheduled ? (await answerCheck?.(answer.text, { messages, mark: (entry) => trace.push({ ...entry, kind: "judge", at: clock() - began }), tell })) ?? null : null;
+      const recheck = !lastRound || scheduled ? (await answerCheck?.(answer.text, { messages, system: [systemText(prompt.system), prompt.preamble].join("\n\n"), mark: (entry) => trace.push({ ...entry, kind: "judge", at: clock() - began }), tell })) ?? null : null;
       // A scheduled run's last answer the reviewer sent back has no round left to be written again: nothing is texted (`lastRound.js`).
       if (lastRound && recheck !== null) {
         tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "sent back on a scheduled run's last step: nothing is texted" });

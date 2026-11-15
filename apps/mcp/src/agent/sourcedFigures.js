@@ -28,6 +28,8 @@
  */
 
 import { readClaimCheck } from "./readClaims.js";
+import { RECHECK_FROM } from "./recheck.js";
+import { LATE_FROM } from "./sendBack.js";
 
 /** A price ($0.10, €2, £1,200, $1.5k), a percentage (12%), or a score ("scored 39", "a score of 30"). */
 const FIGURE =
@@ -214,3 +216,39 @@ export function figureCheck({ question = "", history = [], pictures = false } = 
     },
   };
 }
+
+/**
+ * THE FRONT DOOR'S FIGURE CHECK, OVER WHAT THE MODEL SAW (Dev2, 2026-11-15,
+ * replacing the reply reviewer on chat turns).
+ *
+ * A week of the reviewer's send-backs (2026-11-09 to 11-15) named "unsourced"
+ * most, and both false alarms read in full were that too: the reviewer saw a
+ * ledger read cut to 16K characters, and judged search results by the words
+ * searched for. This is the same question asked in code, without the cut: a
+ * sentence's price, percentage or score must be in something the model had
+ * in front of it this turn (its prompt, their texts, the earlier texts, and
+ * every tool result as the model got it), or beside the name it is given.
+ *
+ * Checked only once the turn took an action (`replyJudge.js` `actionsOf`,
+ * the turns the reviewer read), and never when a picture is in it: the model
+ * reads a picture's figures, no text holds them. The notes a check put in
+ * quote the draft, so they are no source.
+ */
+export function seenFiguresNotice(answer, { messages = [], system = "" } = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (!list.some((message) => message?.role === "tool" || (message?.role === "assistant" && Array.isArray(message.toolCalls) && message.toolCalls.length > 0))) return null;
+  if (list.some((message) => (Array.isArray(message?.images) && message.images.length > 0) || (Array.isArray(message?.attachments) && message.attachments.length > 0))) return null;
+  const sources = [String(system ?? "")];
+  for (const message of list) {
+    const text = String(message?.text ?? "");
+    if (text === "") continue;
+    if (message.role === "user" && QUOTES_A_DRAFT.some((lead) => text.startsWith(lead))) continue;
+    if (message.role === "user" && typeof message.preamble === "string") sources.push(message.preamble);
+    sources.push(text);
+  }
+  const missing = unsourcedFigures(answer, sources);
+  return missing.length === 0 ? null : figuresNotice(missing);
+}
+
+/** How a note that quotes a draft opens (`recheck.js`, `sendBack.js`): the draft's own figures are no source. */
+const QUOTES_A_DRAFT = [RECHECK_FROM, LATE_FROM];

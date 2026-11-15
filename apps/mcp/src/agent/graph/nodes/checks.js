@@ -1,7 +1,7 @@
 /**
  * Answer checks node "checks" (`texConfig.json`): the code checks every draft gets before it goes (`doItChecks.js`,
  * `claimCheck.js`, `replyJudge.js` `codeCheck`). A draft they send back goes back to the front door through the `loop`
- * wire, and comes back rewritten; one the Reply reviewer reads next is tagged `action`, which the wire to it fires on;
+ * wire, and comes back rewritten; one the Reply reviewer reads next is tagged `report` or `routine` (the turn's kind, `runTheModel.js` `reviewedAs`), which the wire to it fires on;
  * any other is let go, and the front door goes on to its reply.
  */
 export async function checksNode(input, io) {
@@ -16,7 +16,7 @@ export async function checksNode(input, io) {
       stop = await io.back.fd({ notice: String(notice) });
       continue;
     }
-    if (review) return { ...stop, when: ["action"], sentBack };
+    if (review) return { ...stop, when: [t.reviewedAs ?? "action"], sentBack }; // a job's report or a routine's text: only those are wired to the Reply reviewer
     stop = await io.back.fd({ notice: null }); // let go: the front door may still write it again with a text that came in
   }
   return { ...stop, when: [stop.ended ? "ended" : "done"], sentBack };

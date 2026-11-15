@@ -43,7 +43,7 @@ flowchart LR
   n_planner["Big-ask planner<br/>Opus 5.5 · effort high · off<br/>planBigAsk.js"]:::off
   n_tools["Tools<br/>code<br/>callToolForSession"]:::tool
   n_advisor["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js · advisorRoles/chat.js"]:::model
-  n_checks["Answer checks<br/>code<br/>graph/nodes/checks.js · doItChecks.js · replyJudge.js codeCheck"]:::code
+  n_checks["Answer checks<br/>code<br/>graph/nodes/checks.js · doItChecks.js · untriedWeb.js · sourcedFigures.js seenFiguresNotice · replyJudge.js codeCheck"]:::code
   n_mail["Mail checker<br/>Haiku 5.5 · effort low<br/>mailChecker.js"]:::model
   n_card["Card check<br/>Haiku 5.5 · effort medium<br/>cardCheck.js"]:::model
   n_reviewer["Reply reviewer<br/>Haiku 5.5 · effort low<br/>graph/nodes/reviewer.js · replyJudge.js review · sendBack.js"]:::model
@@ -113,7 +113,7 @@ flowchart LR
   n_tools -.->|uses: email| n_mail
   n_tools -.->|uses: card| n_card
   n_fd --> n_checks
-  n_checks -->|action| n_reviewer
+  n_checks -->|report, routine| n_reviewer
   n_checks --> n_send
   n_reviewer -->|action| n_send
   n_reviewer ==>|loop: action| n_fd
@@ -175,7 +175,7 @@ every wire, from the same config.
 | Big-ask planner | planner |  | off | Opus 5.5 | high |  | own, ask, caps | planBigAsk.js |
 | Tools | tools |  | on | code |  |  |  | callToolForSession |
 | Advisor | advisor |  | on | Opus 5.5 | high | 40 s | own, caps, about, ask, ledger, hist, date | advisor.js · advisorRoles/chat.js |
-| Answer checks | checks |  | on | code |  |  |  | graph/nodes/checks.js · doItChecks.js · replyJudge.js codeCheck |
+| Answer checks | checks |  | on | code |  |  |  | graph/nodes/checks.js · doItChecks.js · untriedWeb.js · sourcedFigures.js seenFiguresNotice · replyJudge.js codeCheck |
 | Mail checker | mail |  | on | Haiku 5.5 | low |  | own, draft, ask | mailChecker.js |
 | Card check | card |  | on | Haiku 5.5 | medium |  | own, draft | cardCheck.js |
 | Reply reviewer | reviewer |  | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | graph/nodes/reviewer.js · replyJudge.js review · sendBack.js |
@@ -196,7 +196,7 @@ every wire, from the same config.
 | Day summaries | daysum |  | on | Haiku 5.5 | off |  |  | daySummaries.js |
 | Housekeeping | housekeep |  | on | Haiku 5.5 | off |  |  | housekeeping.js |
 
-Wires: checkin → fd (wait, look) · routine → readTheText (wait) · notify → send (wait, send) · text → oldLine (wait) · oldLine → triage (wait, pass) · oldLine → send (wait, redirect) · moveChat → send (wait, person, group) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · lanes → readTheText (wait) · readTheText → runARoutine (wait, next) · runARoutine → checkTheQuestion (wait, next) · checkTheQuestion → settleAYesOrNo (wait, next) · settleAYesOrNo → watchWhatLeaves (wait, next) · watchWhatLeaves → checkItMayRun (wait, next) · checkItMayRun → readTheHistory (wait, next) · readTheHistory → openTheWeb (wait, next) · openTheWeb → readTheSetup (wait, next) · readTheSetup → prepareBookkeeping (wait, next) · prepareBookkeeping → prepareTheAnswer (wait, next) · readTheText → send (wait, answered) · runARoutine → send (wait, answered) · checkTheQuestion → send (wait, answered) · settleAYesOrNo → send (wait, answered) · checkItMayRun → send (wait, answered) · prepareTheAnswer → fd (wait, next) · prepareTheAnswer → router (wait, next) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, action) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background, threads) · send → selfreview (background, sent) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · send → nudge (background, fired) · send → reflect (background, fired) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping)
+Wires: checkin → fd (wait, look) · routine → readTheText (wait) · notify → send (wait, send) · text → oldLine (wait) · oldLine → triage (wait, pass) · oldLine → send (wait, redirect) · moveChat → send (wait, person, group) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · lanes → readTheText (wait) · readTheText → runARoutine (wait, next) · runARoutine → checkTheQuestion (wait, next) · checkTheQuestion → settleAYesOrNo (wait, next) · settleAYesOrNo → watchWhatLeaves (wait, next) · watchWhatLeaves → checkItMayRun (wait, next) · checkItMayRun → readTheHistory (wait, next) · readTheHistory → openTheWeb (wait, next) · openTheWeb → readTheSetup (wait, next) · readTheSetup → prepareBookkeeping (wait, next) · prepareBookkeeping → prepareTheAnswer (wait, next) · readTheText → send (wait, answered) · runARoutine → send (wait, answered) · checkTheQuestion → send (wait, answered) · settleAYesOrNo → send (wait, answered) · checkItMayRun → send (wait, answered) · prepareTheAnswer → fd (wait, next) · prepareTheAnswer → router (wait, next) · router → fd (wait) · fd → tools (uses, action) · fd → advisor (uses, stuck) · fd → fallback (uses, down) · fd → planner (uses, big) · tools → mail (uses, email) · tools → card (uses, card) · fd → checks (wait) · checks → reviewer (wait, report, routine) · checks → send (wait) · reviewer → send (wait, action) · reviewer → fd (loop, action) · checks → fd (loop) · send → classifier (background, threads) · send → selfreview (background, sent) · fd → job (job, job) · job → tools (uses, job) · job → jobcheck (uses, job) · job → handback (job, job) · job → mailadv (uses, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · send → nudge (background, fired) · send → reflect (background, fired) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping)
 <!-- tex-config: steps end -->
 
 ## The rule

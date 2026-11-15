@@ -61,12 +61,12 @@ export function doItChecks({ question, inner = null }) {
         return { ...entry, call: (...args) => ((askedAdvisor = true), entry.call(...args)) };
       });
     },
-    async check(answer) {
+    async check(answer, context) {
       if (advisorAsked && hasAdvisor && !askedAdvisor && !advisorNoticed) {
         advisorNoticed = true;
         return ADVISOR_NOTICE;
       }
-      return typeof inner?.check === "function" ? await inner.check(answer) : null;
+      return typeof inner?.check === "function" ? await inner.check(answer, context) : null;
     },
   };
 }
