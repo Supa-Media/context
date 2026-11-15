@@ -149,7 +149,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Reading email",
     actions: [],
-    texts: "search and read their Gmail live (search with args { email: true }): one search asks every connected mailbox at once, and args { account: \"<address>\" } searches just that one (you are told their mailboxes); open one by its id, and read one of its attachments (PDF, Word, Excel, CSV or a picture) by its number",
+    texts: "search and read their Gmail live (search with args { email: true }), open one by its id, and read one of its attachments (PDF, Word, Excel, CSV or a picture) by its number",
     group: "only mail its own person shared with this chat (the next line); nobody else's",
     cant: [{ where: "group", what: "read someone's mail they haven't shared with this chat", workaround: { kind: "words", text: "the mailbox's own person types \"Tex, share my mail from <address> here\" in this chat, or texts you on their own to search it" } }],
   },
