@@ -3,7 +3,9 @@
 # Manual only. It prints counts from `functions/googleSyncHealth.ts:report`,
 # which answers with numbers and our own status codes and never a row id, an
 # address or a person's timestamp: this repository is public, and so is this
-# job's log.
+# job's log. The second step reads every connected Gmail once the way a mail
+# search does (`functions/googleMailProbe.ts:report`) and prints where each
+# stopped, counted by our own codes and Google's status and reason words.
 name: Google sync health
 
 on:
@@ -29,5 +31,10 @@ jobs:
 
       - name: Report
         run: npx convex run functions/googleSyncHealth:report 2>/dev/null
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
+      - name: Live Gmail reads
+        run: npx convex run functions/googleMailProbe:report 2>/dev/null
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

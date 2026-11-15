@@ -29,6 +29,7 @@ import { calendarAge, calendarPrompt } from "./calendarCache.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 import { manifestOf } from "./promptManifest.js";
+import { mailAccountsFacts, mailAccountsPrompt } from "./mailAccounts.js";
 
 /** Said ahead of the per-text facts in the person's turn, so the model reads them as Context's, not theirs. */
 const PREAMBLE_LABEL = "Context for this text, not written by them:";
@@ -69,6 +70,7 @@ export function turnPrompt(place, answering, o) {
     ["checkIns", o.observe && o.texting ? CHECK_IN_PROMPT : ""], // what its own check-ins do (`heartbeat.js`)
     ["attention", o.observe && o.texting ? ATTENTION_PROMPT : ""], // the pings other agents ask it to text (`attention.js`)
     ["workspaces", workspacesPrompt(o.workspaces)],
+    ["mail", mailAccountsPrompt(o.mail)], // the mailboxes a mail search reaches (`mailAccounts.js`); their states are per text, below
   ];
   // Always the day: a caller with no clock of its own (the memory nudge, a reflection) gets now, in the routines' default zone, named (Dev2, 2026-11-10).
   const now = o.localNow == null ? Date.now() : o.localNow.now;
@@ -79,6 +81,7 @@ export function turnPrompt(place, answering, o) {
     ["calendar", o.calendar == null ? "" : calendarPrompt(o.calendar)],
     ["calendarAge", o.calendar == null ? "" : calendarAge(o.calendar, o.localNow?.now ?? Date.now())],
     ["turnNote", o.turnNote], // per-text words from the entry point: who tagged it, the thread, the jobs running now (`runTheModel.js`)
+    ["mailStates", mailAccountsFacts(o.mail)], // only a mailbox that is not fine right now
     ["volatile", parts.volatile],
     ["plan", o.plan === null ? "" : answering === o.plan.think ? PLANNER_PROMPT : DRIVER_PROMPT], // `modelPlan.js`
     ["nudge", o.nudge], // said last, beside the question

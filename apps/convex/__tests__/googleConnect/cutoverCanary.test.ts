@@ -155,7 +155,7 @@ describe("the canary runs the final scopes on its workspace alone", () => {
     const { t, connections } = await canaryAndNeighbour();
     const mint = (connectionId: Id<"googleConnections">) =>
       t.action(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, { connectionId, role: "agent", forceRefresh: false });
-    expect(await mint(connections.canary)).toEqual({ kind: "refused" });
+    expect(await mint(connections.canary)).toMatchObject({ kind: "refused" });
     expect(await mint(connections.neighbour)).toMatchObject({ kind: "minted", accessToken: "standard-access-token" });
     // The person's own use of the canary account is unchanged.
     expect(

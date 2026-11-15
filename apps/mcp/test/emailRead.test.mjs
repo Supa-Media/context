@@ -150,7 +150,46 @@ export async function runEmailReadChecks(check) {
       partial.includes("email:me@example.com/18c0ffee") && partial.includes("0-inbox/email/me-at-example-com/2026-10-01.md") &&
         partial.includes("did not answer for me@example.com"),
     );
+    // 2026-11-14: one of four Gmails failed every search, the answer said only "did not answer just now",
+    // and Tex told the person its live search "only reaches" another of their addresses.
+    const OTHER = { address: "work@example.com", folder: "0-inbox/email/work-at-example-com" };
+    controlPlane.flags.mailExtra = {
+      incomplete: true,
+      unanswered: ["me@example.com"],
+      unansweredWhy: [{ address: "me@example.com", why: "gmail_403_insufficientPermissions" }],
+      mailboxes: [FOLDER, OTHER],
+    };
+    const refused = textOf(await call(env, TOKEN_MCP, "search", { query: "publish", args: { email: true } }));
+    check(
+      "a mailbox Google refuses is named as refused, with Google's code, and the person told to reconnect it",
+      refused.includes("me@example.com could not be read live") && refused.includes("gmail_403_insufficientPermissions") &&
+        refused.includes("manage connect_google") && !refused.includes("did not answer for me@example.com"),
+    );
+    check(
+      "...and the answer names the mailboxes the search did reach, so one failure is never taken for the whole search",
+      refused.includes("The live search did reach work@example.com") && refused.includes("never tell the person it reaches only some"),
+    );
+    controlPlane.flags.mailExtra = {
+      incomplete: true,
+      unanswered: ["me@example.com"],
+      unansweredWhy: [{ address: "me@example.com", why: "gmail_429_userRateLimitExceeded" }, { address: "x@example.com", why: "bad code!" }],
+      mailboxes: [FOLDER, OTHER],
+    };
+    const busy = textOf(await call(env, TOKEN_MCP, "search", { query: "publish", args: { email: true } }));
+    check(
+      "a mailbox Gmail is only busy for says so, and to search it again on its own, never to reconnect",
+      busy.includes("did not answer for me@example.com (gmail_429_userRateLimitExceeded)") && busy.includes('account: "me@example.com"') &&
+        !busy.includes("needs reconnecting") && !busy.includes("bad code"),
+    );
     controlPlane.flags.mailExtra = undefined;
+    // `mailbox` is a note-mail id on every tool; an address written there was meant as the account (2026-11-14).
+    before = controlPlane.mailReadCalls.length;
+    await call(env, TOKEN_MCP, "search", { query: "publish", args: { email: true, mailbox: "work@example.com" } });
+    await call(env, TOKEN_MCP, "search_email", { query: "publish", mailbox: "work@example.com" });
+    check(
+      "an address written as mailbox searches that one account, in either shape",
+      controlPlane.mailReadCalls.slice(before).length === 2 && controlPlane.mailReadCalls.slice(before).every((entry) => entry.body?.address === "work@example.com"),
+    );
 
     const read = textOf(await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee" }));
     check(

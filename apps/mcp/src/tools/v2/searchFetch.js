@@ -49,6 +49,12 @@ function openArgs(call) {
   if (typeof raw !== "object" || Array.isArray(raw)) {
     return { error: "args has to be an object of named options." };
   }
+  // An email search's address written as mailbox, a note-mail id everywhere else, was meant as the account
+  // (2026-11-14: Tex was refused here, moved it to the top, and the search ran over every mailbox; `emailRead.js`).
+  if (raw.email === true && raw.account === undefined && typeof raw.mailbox === "string" && raw.mailbox.includes("@")) {
+    const { mailbox, ...rest } = raw;
+    return openArgs({ args: { ...rest, account: mailbox } });
+  }
   for (const key of ADDRESSING) {
     if (Object.hasOwn(raw, key)) {
       return { error: `${key} goes beside args, at the top of the call, not inside it.` };

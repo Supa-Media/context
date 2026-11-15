@@ -298,7 +298,7 @@ describe("reading a person's own mail live", () => {
     });
     try {
       const answer = await search(t, ACCESS_A, aliceWs);
-      expect(answer).toMatchObject({ ok: true, unanswered: ["alice@gmail.example"] });
+      expect(answer).toMatchObject({ ok: true, unanswered: ["alice@gmail.example"], unansweredWhy: [{ address: "alice@gmail.example", why: "gmail_429_rateLimitExceeded" }] });
       expect(asked).toBe(2);
       expect(waits.reduce((sum, ms) => sum + ms, 0)).toBeLessThanOrEqual(1_000);
     } finally {
@@ -315,5 +315,22 @@ describe("reading a person's own mail live", () => {
     });
     const answer = await search(t, ACCESS_A, aliceWs);
     expect(answer).toMatchObject({ ok: true, results: [], incomplete: true, unanswered: ["alice@gmail.example"] });
+    // ...with why, as a fixed code, so the person hears a mailbox that keeps failing named as broken (2026-11-14).
+    expect(answer).toMatchObject({ unansweredWhy: [{ address: "alice@gmail.example", why: "gmail_503" }] });
+  });
+
+  test("a mailbox Google refuses to read says so by Google's own reason word, never its message", async () => {
+    const { t, aliceWs } = await connected();
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith("https://gmail.googleapis.com/")) return await realFetch(input, init);
+      return new Response(JSON.stringify({ error: { message: "Request had insufficient authentication scopes for alice@gmail.example.", errors: [{ reason: "insufficientPermissions" }] } }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const answer = await search(t, ACCESS_A, aliceWs);
+    expect(answer).toMatchObject({ ok: true, unansweredWhy: [{ address: "alice@gmail.example", why: "gmail_403_insufficientPermissions" }] });
+    expect(JSON.stringify(answer)).not.toContain("insufficient authentication");
   });
 });

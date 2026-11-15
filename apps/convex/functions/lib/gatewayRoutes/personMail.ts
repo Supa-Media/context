@@ -6,7 +6,8 @@
  *
  * Search body `{ accessToken, expectedWorkspaceId, query, limit?, address?, outsideSync? }`
  * answers `{ ok: true, results: [{ address, id, threadId, date, from, to, subject, snippet }],
- * mailboxes: [{ address, folder }], incomplete? }`.
+ * mailboxes: [{ address, folder }], incomplete?, unanswered?, unansweredWhy?: [{ address, why }] }`,
+ * `why` a fixed code (`gmailFailureCode`, `token_<reason>`).
  * With `outsideSync`, each mailbox is searched only before it was connected
  * and after its last pass, because the gateway has already searched the
  * notes for everything in between.
@@ -97,10 +98,33 @@ async function claim(ctx: ActionCtx, accessToken: string, expectedWorkspaceId: s
 }
 
 async function tokenFor(ctx: ActionCtx, mailbox: Mailbox): Promise<string | null> {
-  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "agent" as const,
+  const minted = await mintFor(ctx, mailbox);
+  return "accessToken" in minted ? minted.accessToken : null;
+}
+
+/** A token for the mailbox, or the fixed code saying why there is none (`mintTokens.ts`). */
+async function mintFor(ctx: ActionCtx, mailbox: Mailbox): Promise<{ accessToken: string } | { why: string }> {
+  const outcome = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, { role: "agent" as const,
     connectionId: mailbox.connectionId,
   });
-  return minted?.accessToken ?? null;
+  if (outcome.kind === "minted") return { accessToken: outcome.accessToken };
+  return { why: outcome.kind === "refused" ? `token_${outcome.why ?? "refused"}` : `token_${outcome.kind}` };
+}
+
+/**
+ * Why Gmail gave no answer for one mailbox, as a fixed code the gateway turns
+ * into words (`tools/emailRead.js`) and a log line may carry: Gmail's status
+ * and its own reason word, a timeout, or an error by its class. Never a path,
+ * an address or Google's message.
+ */
+export function gmailFailureCode(error: unknown): string {
+  if (error instanceof GmailApiError) {
+    const reason = typeof error.reason === "string" && /^[A-Za-z]{1,64}$/.test(error.reason) ? `_${error.reason}` : "";
+    return `gmail_${error.status}${reason}`;
+  }
+  const name = error instanceof Error ? error.name : "";
+  if (name === "TimeoutError" || name === "AbortError") return "timeout";
+  return "error";
 }
 
 function addressField(body: Record<string, unknown>): string | null | undefined {
@@ -167,13 +191,21 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
   // retry: a person is waiting, and the gateway gives up on the whole search
   // at its timeout. A mailbox that fails is named, and its notes answer.
   const unanswered: string[] = [];
+  // Why each of them gave nothing, so the person hears a mailbox that keeps
+  // failing named as broken, not "did not answer just now" (2026-11-14: one
+  // Gmail failed every search for an afternoon and Tex said it could only
+  // reach another one).
+  const why: Record<string, string> = {};
   const perMailbox: Array<Array<Record<string, string>>> = await Promise.all(
     claimed.mailboxes.map(async (mailbox: Mailbox): Promise<Array<Record<string, string>>> => {
-      const token = await tokenFor(ctx, mailbox);
-      if (token === null) {
+      const minted = await mintFor(ctx, mailbox);
+      if (!("accessToken" in minted)) {
         unanswered.push(mailbox.address);
+        why[mailbox.address] = minted.why;
+        log({ route: "search", outcome: "no_token", reason: minted.why });
         return [];
       }
+      const token = minted.accessToken;
       try {
         const own = body.outsideSync === true && mailbox.shared !== true ? outsideSyncQuery(query, mailbox) : query;
         const q = withinShare(own, mailbox);
@@ -205,7 +237,8 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
         });
       } catch (error) {
         unanswered.push(mailbox.address);
-        log({ route: "search", outcome: "gmail_error", status: error instanceof GmailApiError ? error.status : 0 });
+        why[mailbox.address] = gmailFailureCode(error);
+        log({ route: "search", outcome: "gmail_error", status: error instanceof GmailApiError ? error.status : 0, reason: why[mailbox.address]! });
         return [];
       }
     }),
@@ -222,7 +255,7 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
     ok: true,
     results,
     mailboxes,
-    ...(unanswered.length > 0 ? { incomplete: true, unanswered } : {}),
+    ...(unanswered.length > 0 ? { incomplete: true, unanswered, unansweredWhy: unanswered.map((address) => ({ address, why: why[address] ?? "error" })) } : {}),
     ...(claimed.reconnect.length > 0 ? { reconnect: claimed.reconnect } : {}),
     ...("aiAccess" in claimed && claimed.aiAccess ? { aiAccess: claimed.aiAccess } : {}),
   });

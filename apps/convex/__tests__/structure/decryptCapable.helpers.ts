@@ -391,6 +391,11 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       // (`googleReconnect.ts`), and the calendar scope re-check (`googleScopeCheck.ts`, answers only
       // booleans and addresses). None returns a credential outside the barrier but the sync pass's own action.
       "functions.googleConnect.mintGoogleAccessTokenOutcome",
+      // The live-read probe (`googleMailProbe.ts`, internal, run by the Google sync health workflow): mints each
+      // mailbox's AI token, lists one id and reads its headers, and answers only counts of fixed codes. Its row
+      // query shares the module, so it is listed beside it; it reads no secret.
+      "functions.googleMailProbe.probeRows",
+      "functions.googleMailProbe.report",
       "functions.googleReconnect.recheckRevokedGrants",
       "functions.googleScopeCheck.recheckCalendarWrite",
       "functions.meetingCalendar.readMeetingCalendars", // Join and take notes' calendar barrier; see CREDENTIAL_BARRIERS.

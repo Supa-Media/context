@@ -139,13 +139,20 @@ export type MintOutcome =
   | { kind: "minted"; accessToken: string; expiresAt: number }
   | { kind: "reconnect_required" }
   | { kind: "unavailable" }
-  | { kind: "refused" };
+  /** `why`: a fixed code saying which part refused (`mintTokens.ts`), never an address or Google's own words. */
+  | { kind: "refused"; why?: MintRefusal };
+
+/** Which part of a mint refused: no row, no refresh token for the grant, no client configured, or Google's code for a refused refresh. */
+export type MintRefusal = "no_connection" | "no_grant" | "no_client" | "agent_grant_dropped" | "refresh_refused";
 
 export const mintOutcomeValidator = v.union(
   v.object({ kind: v.literal("minted"), accessToken: v.string(), expiresAt: v.number() }),
   v.object({ kind: v.literal("reconnect_required") }),
   v.object({ kind: v.literal("unavailable") }),
-  v.object({ kind: v.literal("refused") }),
+  v.object({
+    kind: v.literal("refused"),
+    why: v.optional(v.union(v.literal("no_connection"), v.literal("no_grant"), v.literal("no_client"), v.literal("agent_grant_dropped"), v.literal("refresh_refused"))),
+  }),
 );
 
 export const dropCachedAccessTokenArgs = { connectionId: v.id("googleConnections") };
