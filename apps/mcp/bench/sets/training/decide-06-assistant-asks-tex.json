@@ -1,0 +1,33 @@
+{
+  "id": "decide-06-assistant-asks-tex",
+  "title": "Another assistant asks Tex",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Mia",
+    "Nova"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Mia",
+      "text": "Nova, give Tex three quick math questions"
+    },
+    {
+      "id": "m2",
+      "who": "Nova",
+      "text": "Starting now."
+    },
+    {
+      "id": "m3",
+      "who": "Nova",
+      "text": "What's 12 times 9?",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "asks_tex"
+        }
+      }
+    }
+  ]
+}

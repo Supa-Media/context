@@ -58,7 +58,7 @@ import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
 import { toolError } from "../tools/results.js";
 import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.js";
-import { playbookPrompt, readPlaybook } from "./groupPlaybook.js";
+import { playbookPath, playbookPrompt, readPlaybook } from "./groupPlaybook.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { guestsOf, namesOf, numbersOf, shownWho, sizeOf, taggerLabel, whoIsWhoLine } from "./groupNames.js";
 import { GROUP_SIGN_IN_LINES } from "./groupSignIns.js";
@@ -347,7 +347,7 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   // A home's open jobs, `jobs.md` as a person's Tex keeps `tex/jobs.md` (`chatJobs.js`).
   const jobsRead = group.home ? (direct ? directNote(group, direct, "jobs") : Promise.resolve(null)).then((held) => readChatJobs(group.home, held)) : Promise.resolve(null);
   // Each of the five timed apart (2026-11-06: together they held a group turn 0.9 s at the median, 6.7 s at p95).
-  const [memory, playbook, voice, aboutUs, jobs] = await time.reads(() => Promise.all([time.record(() => record), time.playbook(() => readPlaybook(inFirstReach(dispatch, group), group)), time.voice(() => voiceRead), time.about(() => aboutRead), time.jobs(() => jobsRead)]));
+  const [memory, playbook, voice, aboutUs, jobs] = await time.reads(() => Promise.all([time.record(() => record), time.playbook(() => (direct ? directNote(group, direct, "playbook") : Promise.resolve(null)).then((held) => readPlaybook(inFirstReach(dispatch, group), group, held))), time.voice(() => voiceRead), time.about(() => aboutRead), time.jobs(() => jobsRead)]));
   const turns = Array.isArray(memory?.turns) ? memory.turns.filter(isTurn) : [];
   const guestNames = await guestNamed.promise;
   Object.assign(group, { playbook, voice, aboutUs, jobs, ...(guestNames.length > 0 ? { guestNames } : {}) });
@@ -483,7 +483,7 @@ export async function keepGroupExchange(store, group, history, question, answer,
   await openHome(store, group);
   // The keys of a home's voice and about-us notes, for next turn's direct reads (`groupDirectNotes.js`).
   const named = homeNamesOf(group, await sha256Hex(group.key), latest);
-  const direct = named ? await learnDirect(group, { ...named.paths, jobs: chatJobsPath(group.home) }, named.old) : {};
+  const direct = named ? await learnDirect(group, { ...named.paths, jobs: chatJobsPath(group.home), playbook: playbookPath(group) }, named.old) : {};
   // The page under the name it holds now: the lookup's, else the one this turn read it by (`homeNames.js`).
   const memory = !named ? null : Array.isArray(direct.old) ? (direct.old.includes("memory") ? named.old.memory : named.paths.memory) : (group.pagePath ?? named.live.memory);
   const { noteEtag: _etag, direct: _direct, unreadable: _unreadable, turns: _turns, ...marks } = latest;

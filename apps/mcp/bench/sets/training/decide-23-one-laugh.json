@@ -1,0 +1,28 @@
+{
+  "id": "decide-23-one-laugh",
+  "title": "A laugh, one to one",
+  "set": "training",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Tex",
+      "tex": true,
+      "text": "The library closes at 6 today, ha."
+    },
+    {
+      "id": "m2",
+      "who": "Jo",
+      "text": "haha",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "thanks_or_ok"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "id": "decide-15-name-at-end-quiet",
+  "title": "Tex named at the end, quiet setting",
+  "set": "training",
+  "kind": "group",
+  "setting": "quiet",
+  "members": [
+    "Mia"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Mia",
+      "text": "what's 20% of 45, Tex?",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "tags_tex"
+        }
+      }
+    }
+  ]
+}
