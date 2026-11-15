@@ -17,9 +17,11 @@ const NOT_DRAWN = "The snapshot could not be drawn right now. Try again in a min
  * graph has nothing to draw or `focus` names no step or group.
  * `focus`: a step id or a group id, drawn focused the way the Lab's Focus does; else the whole graph with groups folded.
  * `base`: another graph (main); steps that differ from it are ringed "changed", steps it lacks "new".
+ * `sim`: a traced test (`lab.js` `snapshotSim`, the Lab's own simulation): each step's time, its split bar and the
+ * stats chip, as the canvas draws them; none (the default) draws nothing timed.
  */
-export function snapshotHtml(graph, { focus = null, base = null, theme = "dark", width = 1600 } = {}) {
-  return snapshotPage(graph, { focus, base, theme: theme === "light" ? "light" : "dark", width });
+export function snapshotHtml(graph, { focus = null, base = null, theme = "dark", width = 1600, sim = null } = {}) {
+  return snapshotPage(graph, { focus, base, theme: theme === "light" ? "light" : "dark", width, sim });
 }
 
 /** The SVG/HTML string of the drawing, for tests and for anyone who wants the page itself. */
@@ -31,12 +33,12 @@ export function graphSvg(graph, opts = {}) {
  * One picture of `graph`: `{ ok: true, png: <base64>, width, height }`, or `{ ok: false, error }` with one plain
  * sentence. Never throws.
  */
-export async function snapshotGraph(env, graph, { focus = null, base = null, theme = "dark", width = 1600 } = {}) {
+export async function snapshotGraph(env, graph, { focus = null, base = null, theme = "dark", width = 1600, sim = null } = {}) {
   const shots = env?.SITE_SHOTS;
   if (typeof shots?.fetch !== "function") return { ok: false, error: NOT_SET_UP };
   let page;
   try {
-    page = snapshotHtml(graph, { focus, base, theme, width });
+    page = snapshotHtml(graph, { focus, base, theme, width, sim });
   } catch (error) {
     return { ok: false, error: error instanceof Error && error.message ? error.message : "That graph could not be drawn." };
   }
