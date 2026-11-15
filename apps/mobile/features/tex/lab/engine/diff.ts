@@ -111,7 +111,8 @@ export function diff(): Change[] {
 export const picks = () => lab.cur.picks || (lab.cur.picks = {});
 export const isPicked = (c: LabCase) => {
   const p = picks()[c.area];
-  return p ? p.includes(c.id) : true;
+  // With no picks of its own, an area runs what a change's replay runs (`gate: false` marks a case outside it).
+  return p ? p.includes(c.id) : c.gate !== false;
 };
 export const allCases = (): LabCase[] => CASES.map((c) => Object.assign({}, c, lab.caseEdits[c.area + "/" + c.id] || {})).concat(Object.values(lab.caseEdits).filter((e) => e.isNew));
 

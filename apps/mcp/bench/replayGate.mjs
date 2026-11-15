@@ -42,7 +42,7 @@ export { AREAS, areasFor } from "./replayAreas.mjs";
 import { AREAS, areasFor } from "./replayAreas.mjs";
 
 /** The areas a change's replay samples rather than runs whole (Dev2, 2026-11-15; `gateSample.mjs`). */
-export const GATE_SAMPLED = new Set(["review", "jobs"]);
+export const GATE_SAMPLED = new Set(["respond", "review", "jobs"]);
 
 export const HELD_OUT_FOLDER = "ai/held-out";
 export const HELD_OUT_PREFIX = "held-out/";

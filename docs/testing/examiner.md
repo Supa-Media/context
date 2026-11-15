@@ -46,9 +46,8 @@ change. A session that wrote the change must never act as its examiner.
    `apps/mcp/bench/gateSample.mjs`), plus any task the change adds or edits:
    long tool-using calls, part after part, each with Opus's done check, and
    the quality judge. Split the answering across several examiner subagents
-   as for core, and expect it to take the longest. The review area runs two
-   faults and two good replies of each set (about 60 of 211 cases) and every
-   held-out case.
+   as for core, and expect it to take the longest. The review and respond
+   areas run 20 cases each (of 211 and 66), and every held-out case.
 3. Start the gate in the background with the socket set:
 
    ```sh

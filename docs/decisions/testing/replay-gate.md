@@ -264,13 +264,18 @@ I'm a little bit more concerned about the speed of things", choosing "Reply
 checker and jobs". A full run had grown to about 494 examiner answers
 (2026-11-15), mostly the reviewer's 211 cases, one call each with the whole
 reviewer prompt, and seven whole background jobs. So a change's first run
-takes a fixed sample of those two areas (`apps/mcp/bench/gateSample.mjs`):
-the first two faults and the first two good replies of each reviewer set
-(about 60), and three job tasks, one of each kind. Every held-out case still
+takes a fixed sample of them (`apps/mcp/bench/gateSample.mjs`). Each unit
+step runs 20 cases (Dev2, same day: "these nodes should be cut down to 20
+questions each"): the reviewer one from every set before a second from any,
+about half faults and half good replies, and Decide its "@Tex must still
+work" cases, other replies and quiet ones in turn. Jobs runs three tasks, one
+of each kind. The Tex Architecture Lab picks the same cases by default
+(`gate: false` marks one outside, from `scripts/tex-lab-data.mjs`), and its
+All button still picks every one. Every held-out case still
 runs, and so does any case the change adds or edits against main's, so a
 change still passes the case that proves it. The full sets stay in the
 repository and run whole without `--gate-sample` (`pnpm ai review`,
-`pnpm ai jobs`). The core area and the advisor roles were already small and
+`pnpm ai respond`, `pnpm ai jobs`). The core area and the advisor roles were already small and
 are run whole.
 
 And on the map (same day): "I feel like we shouldn't treat this as changing
