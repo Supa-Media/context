@@ -126,8 +126,15 @@ jobs:
         if: steps.areas.outputs.areas != '' && inputs.claude_code
         env:
           HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           [ "$HAS_TOKEN" = "true" ] || { echo "::error::CLAUDE_CODE_OAUTH_TOKEN is not set: make one with \`claude setup-token\` and add it as a production secret"; exit 1; }
+          # Its shape only, never the value: `claude setup-token` prints one line starting sk-ant-oat.
+          case "$CLAUDE_CODE_OAUTH_TOKEN" in
+            sk-ant-oat*) ;;
+            *) echo "::error::CLAUDE_CODE_OAUTH_TOKEN is not a \`claude setup-token\` token (it starts sk-ant-oat); ${#CLAUDE_CODE_OAUTH_TOKEN} characters"; exit 1 ;;
+          esac
+          if printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | grep -q '[[:space:]]'; then echo "::error::CLAUDE_CODE_OAUTH_TOKEN has a space or line break in it"; exit 1; fi
 
       # Its wait-turn job is skipped by "Re-run failed jobs": check once more,
       # and refuse rather than sign in beside another run (bench-runner-lock.mjs).
