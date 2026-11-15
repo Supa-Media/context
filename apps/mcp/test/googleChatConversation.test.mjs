@@ -126,3 +126,68 @@ describe("fetch chat:", () => {
     assert.equal(tool?.annotations?.readOnlyHint, true);
   });
 });
+
+/**
+ * 2026-11-15: a person with several Google accounts has a different Chat in
+ * each; every read went to the first, so a conversation in another read as
+ * nothing there. Every read names its account now, and a read without one is
+ * answered with their Chat accounts to pick from.
+ *
+ * Sabotage record (temporary local edits, reverted 2026-11-15):
+ *   `readChatRequest` dropping `account`                                → "the account named is the one asked for" fails
+ *   the spaces call without an account answered as an error              → "bare chat: answers with their Chat accounts" fails
+ */
+describe("every Google Chat read names its account", async () => {
+  const { toolGoogleChat, readChatMessage } = await import("../src/tools/googleChat.js");
+
+  it("the account named is the one asked for, lowercased, and routed through fetch", async () => {
+    assert.deepEqual(readChatRequest({ to: "amy@work.example", account: " Rowan@Church.example " }), {
+      request: { to: "amy@work.example", account: "rowan@church.example" },
+    });
+    assert.ok(readChatRequest({ space: "spaces/AAA", account: "not an address" }).error);
+    assert.deepEqual(translateFetch({ id: "chat:", args: { to: "amy@work.example", account: "rowan@church.example" } }, CLAUDE).arguments, {
+      to: "amy@work.example",
+      account: "rowan@church.example",
+    });
+    assert.deepEqual(translateFetch({ id: "chat:", args: { account: "rowan@church.example" } }, CLAUDE).arguments, { action: "spaces", account: "rowan@church.example" });
+    assert.deepEqual(readChatMessage({ to: "amy@work.example", text: "hi", account: "Rowan@Church.example" }).message, {
+      to: "amy@work.example",
+      text: "hi",
+      account: "rowan@church.example",
+    });
+  });
+
+  it("a read without an account, or with one they don't have, names their Chat accounts", async () => {
+    for (const refused of ["account_needed", "account_not_found"]) {
+      const { store } = storeAnswering({ ok: false, refused, accounts: ["rowan@work.example", "rowan@church.example"] });
+      const answer = await toolReadGoogleChat(store, { to: "amy@work.example" });
+      assert.equal(answer.isError, true);
+      assert.match(answer.content[0].text, /rowan@work\.example, rowan@church\.example/, refused);
+    }
+  });
+
+  it("bare chat: answers with their Chat accounts, and lists one account's spaces when named", async () => {
+    const asked = [];
+    const store = {
+      googleChat: {
+        spaces: async (request) => {
+          asked.push(request);
+          return request?.account
+            ? { ok: true, from: request.account, spaces: [{ name: "spaces/AAA", displayName: "Choir", type: "SPACE" }] }
+            : { ok: false, refused: "account_needed", accounts: ["rowan@work.example", "rowan@church.example"] };
+        },
+      },
+    };
+    const bare = await toolGoogleChat(store, { action: "spaces" });
+    assert.notEqual(bare.isError, true, "a list of accounts is an answer, not a failure");
+    assert.match(bare.content[0].text, /rowan@work\.example, rowan@church\.example/);
+    const named = await toolGoogleChat(store, { action: "spaces", account: "rowan@church.example" });
+    assert.match(named.content[0].text, /rowan@church\.example is[^]*Choir — spaces\/AAA/);
+    assert.deepEqual(asked, [{}, { account: "rowan@church.example" }]);
+  });
+
+  it("the control plane's refusal carries only addresses", async () => {
+    const methods = createGoogleChatMethods({ post: async () => ({ ok: false, refused: "account_needed", accounts: ["rowan@work.example", 7, "nope"] }) });
+    assert.deepEqual(await methods.googleChatSpaces("t", "w", {}), { ok: false, refused: "account_needed", accounts: ["rowan@work.example"] });
+  });
+});

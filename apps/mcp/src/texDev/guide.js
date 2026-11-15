@@ -33,6 +33,7 @@ export const ACTIONS = [
   ["promote", "{ draft }", "the Lab's Promote: a pull request within 15 minutes that merges only through CI and the replay gate"],
   ["tool_stats", "{ days? }", "the Lab's Tools tab: how often each tool ran, failed and how long it took, over 1 to 30 days"],
   ["cases", "{}", "the Lab's shared edits to the bench cases, and its new cases"],
+  ["test_set", "{}", "the Test Set as an agent may see it: its counts (chats, unit tests by step, each hidden chat's stars) and the gate's recent runs (pull request, commit, pass or fail, right on the change and on main by step); never a word, a title or an id, because the Test Set is people only (the Lab's Testing tab, Show Test chats)"],
   ["case", "{ key: \"<area>/<case id>\" (a step's own: \"node:<step>/<case id>\"), data: {...} | null, swap_out? }", "keep a case edit or a new case for every staff member, or drop it with null; a step keeps at most 20, so a new case into a full one names the case it trades out (swap_out), as the Tests page's swap"],
   ["sets", "{ set?: \"training\" | \"dev\", node?, starred?, drafts?, q?, limit? }", "the Testing tab: every Training and Dev conversation (the repo's, with the Lab's drafts over them) with its stars, labels, nodes and problems, and the 60/20/20 ratio; the Test Set is people only and never listed"],
   ["set_get", "{ id }", "one conversation whole: every message, label, star and recorded run, its revision, its unit tests and its problems"],
