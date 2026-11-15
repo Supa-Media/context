@@ -53,12 +53,34 @@ afterEach(() => {
 });
 
 describe("Photon 1:1 line (photonLine.ts)", () => {
-  it("a plain link goes as text with linkPreview, and no picture or 'Link:' lead-in ahead of it", async () => {
+  it("a lone link goes with linkPreview, and no picture or 'Link:' lead-in ahead of it", async () => {
     const b = bridge();
-    const link = "see https://example.com/post for the details";
-    const guid = await lineFor(deps(b.photon), DM).sendText(DM, link, "k1");
+    const guid = await lineFor(deps(b.photon), DM).sendText(DM, "https://example.com/post", "k1");
     expect(guid).toBe("sent-guid");
-    expect(b.calls).toEqual([{ op: "send/text", body: { line: "+15550000001", chat: DM_GUID, text: link, linkPreview: true } }]);
+    expect(b.calls).toEqual([{ op: "send/text", body: { line: "+15550000001", chat: DM_GUID, text: "https://example.com/post", linkPreview: true } }]);
+  });
+
+  it("words with a link go plain, then the link alone with its preview, since Photon previews only a lone link", async () => {
+    const b = bridge();
+    const words = "see https://example.com/post for the details";
+    await lineFor(deps(b.photon), DM).sendText(DM, words, "k1", "r1");
+    expect(b.calls).toEqual([
+      { op: "send/text", body: { line: "+15550000001", chat: DM_GUID, text: words, replyTo: "r1" } },
+      { op: "send/text", body: { line: "+15550000001", chat: DM_GUID, text: "https://example.com/post", linkPreview: true } },
+    ]);
+  });
+
+  it("words with no link never ask for a preview, which Photon refuses", async () => {
+    const b = bridge();
+    await lineFor(deps(b.photon), DM).sendText(DM, "vanilla and pistachio", "k1");
+    expect(b.calls).toEqual([{ op: "send/text", body: { line: "+15550000001", chat: DM_GUID, text: "vanilla and pistachio" } }]);
+  });
+
+  it("a link bubble that fails does not fail the words already sent", async () => {
+    let n = 0;
+    const b = bridge((op) => (op === "send/text" && ++n === 2 ? refuse(400) : undefined));
+    await expect(lineFor(deps(b.photon), DM).sendText(DM, "read https://example.com/a", "k1")).resolves.toBe("sent-guid");
+    expect(b.ops()).toEqual(["send/text", "send/text"]);
   });
 
   it("a note's link goes as our App Card, with the card's fields", async () => {
@@ -247,7 +269,7 @@ describe("Photon group line (photonLine.ts, groupLine.ts dispatch)", () => {
     const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
     const handle = await app.sendText({ line: "+15550000001", groupId: GROUP }, "hi all", "r9");
     expect(handle).toBe("sent-guid");
-    expect(b.calls).toEqual([{ op: "send/text", body: { line: "+15550000001", chat: "iMessage;+;chat123", text: "hi all", linkPreview: true, replyTo: "r9" } }]);
+    expect(b.calls).toEqual([{ op: "send/text", body: { line: "+15550000001", chat: "iMessage;+;chat123", text: "hi all", replyTo: "r9" } }]);
   });
 
   it("members are read as phones, null when the read fails, and the own-message read is null", async () => {
