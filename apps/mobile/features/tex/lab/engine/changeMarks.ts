@@ -145,6 +145,26 @@ export function markCounts(m: Marks | null): { changed: number; added: number; r
 }
 
 /**
+ * Put back `base`'s version of one step in `g` (both unfolded): its fields, place and wires; a new step goes, a
+ * removed one comes back with the wires it had to steps still here. Pure on `g`, so the MCP's `tex_dev put_back` runs
+ * the same code (`forMcp.ts`).
+ */
+export function putBackIn(g: LabGraph, base: LabGraph, id: string) {
+  const o = base.nodes.find((n) => n.id === id);
+  const n = g.nodes.find((x) => x.id === id);
+  const here = (x: string) => g.nodes.some((y) => y.id === x);
+  if (!o) {
+    g.nodes = g.nodes.filter((x) => x.id !== id);
+    g.edges = g.edges.filter((e) => e.from !== id && e.to !== id);
+  } else {
+    if (n) Object.assign(n, JSON.parse(JSON.stringify(o)));
+    else g.nodes.push(JSON.parse(JSON.stringify(o)));
+    g.edges = g.edges.filter((e) => e.from !== id && e.to !== id);
+    for (const e of base.edges) if ((e.from === id || e.to === id) && here(e.from) && here(e.to)) g.edges.push({ ...e, when: [...e.when] });
+  }
+}
+
+/**
  * Put back the base's version of one step: its fields, place and wires; a new step goes, a removed one comes back
  * with the wires it had to steps still here.
  */
@@ -153,20 +173,9 @@ export function putBack(id: string) {
   if (!b) return;
   if (GROUPS[id]) return toast("Open the group (Focus) to put back a step inside it");
   const base = unfoldGroups(b.graph);
-  const o = base.nodes.find((n) => n.id === id);
   edit(() => {
     const g = G();
-    const n = g.nodes.find((x) => x.id === id);
-    const here = (x: string) => g.nodes.some((y) => y.id === x);
-    if (!o) {
-      g.nodes = g.nodes.filter((x) => x.id !== id);
-      g.edges = g.edges.filter((e) => e.from !== id && e.to !== id);
-    } else {
-      if (n) Object.assign(n, JSON.parse(JSON.stringify(o)));
-      else g.nodes.push(JSON.parse(JSON.stringify(o)));
-      g.edges = g.edges.filter((e) => e.from !== id && e.to !== id);
-      for (const e of base.edges) if ((e.from === id || e.to === id) && here(e.from) && here(e.to)) g.edges.push({ ...e, when: [...e.when] });
-    }
+    putBackIn(g, base, id);
     if (lab.sel?.t === "node" && lab.sel.id === id && !g.nodes.some((x) => x.id === id)) lab.sel = null;
   });
 }

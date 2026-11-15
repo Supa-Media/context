@@ -9,7 +9,8 @@
  * versions) from the control plane, hands it over, and keeps the answer compact.
  */
 import { toolError } from "../tools/results.js";
-import { labBench, labChanges, labCompare, labConfig, labModules, labReference, labSim, labSimFor, labTests, labWorkspace } from "./lab.generated.js";
+import { diffGraphs } from "../../../../packages/shared/src/texLabOps.cjs";
+import { labBench, labCaseRoom, labChanges, labCompare, labConfig, labMarks, labModules, labPutBack, labReference, labSim, labSimFor, labSteps, labTests, labWorkspace } from "./lab.generated.js";
 
 const DRAFT = /^v[0-9a-z]{1,16}$/;
 /** How many tests `sim` lists when none is named. */
@@ -140,6 +141,21 @@ export async function labAction(action, args, plane) {
       const r = run(() => labReference(got.input, str(args.topic), typeof args.log === "string" ? args.log.slice(0, 500_000) : null));
       return r.error ?? json(r.value);
     }
+    case "steps": {
+      const got = await labIn(plane, args);
+      if (got.error) return got.error;
+      const r = run(() => labSteps(got.input, { step: str(args.step) }));
+      return r.error ?? json(r.value);
+    }
+    case "marks": {
+      const got = await labIn(plane, args, { cases: false });
+      if (got.error) return got.error;
+      if (got.input.draft.id === "main") return toolError("Main is what a draft is marked against: name a draft.");
+      const b = await baseOf(plane, args);
+      if (b.error) return b.error;
+      const r = run(() => labMarks(got.input, b.base, b.vs));
+      return r.error ?? json(r.value);
+    }
     default:
       return toolError(`tex_dev has no action "${action}".`);
   }
@@ -163,3 +179,49 @@ export async function snapshotSim(plane, args, draftAnswer) {
   const draft = draftAnswer ? draftFrom(args.draft, draftAnswer) : args.graph !== undefined ? { id: "vgraph", name: "graph", graph: read(args.graph, null) } : { id: "main", name: "main" };
   return { sim: labSimFor({ draft, caseEdits: c.edits }, t) };
 }
+
+/**
+ * What the Lab's change marks compare a draft with: main (`vs: "main"`, the default), or the draft just before its
+ * last revision (`vs: "last"`), as its "against last rev" (kept for the last 30 revisions).
+ */
+async function baseOf(plane, args) {
+  if (args.vs === undefined || args.vs === "main") return { base: { id: "main", name: "main" }, vs: "main" };
+  if (args.vs !== "last") return { error: toolError('vs is "main" or "last" (the draft before its last revision).') };
+  const { answer, error } = await plane("before", { draft: args.draft });
+  if (error) return { error };
+  const graph = read(answer.graph, null);
+  if (!graph) return { error: toolError(`The draft before revision ${answer.rev} was not kept (only the last 30 are); compare with main.`) };
+  return { base: { id: "vbefore", name: `rev ${answer.rev - 1}`, graph }, vs: `rev ${answer.rev - 1}` };
+}
+
+/**
+ * Put back: the edits that bring one step of a draft back to its base's version (fields, place and wires; a new
+ * step goes, a removed one returns), worked out by the Lab's own `putBackIn` and diffed into the same small edits an
+ * AI or the Lab sends, so they land with the conflict check. Answers `{ draft, rev, ops }` or `{ error }`.
+ */
+export async function putBackOps(plane, args) {
+  if (typeof args.draft !== "string" || !DRAFT.test(args.draft)) return { error: toolError('Name the draft: { draft: "v…", step }.') };
+  if (!str(args.step)) return { error: toolError("Name the step to put back: { draft, step, vs? }.") };
+  const { answer, error } = await plane("get", { draft: args.draft });
+  if (error) return { error };
+  const graph = read(answer.graph, null);
+  if (!graph) return { error: toolError("This draft's graph could not be read.") };
+  const b = await baseOf(plane, args);
+  if (b.error) return b;
+  const r = run(() => labPutBack(graph, b.base, args.step));
+  if (r.error) return r;
+  const ops = diffGraphs(graph, r.value);
+  return { draft: args.draft, rev: answer.rev, ops, vs: b.vs };
+}
+
+/**
+ * Room for a new case, as the Lab's Keep checks it: a step keeps at most 20, so a new one into a full area is refused
+ * unless it trades one out (`swap_out`), as the Tests page's swap does.
+ */
+export async function caseRoom(plane, area, id, out = null) {
+  const c = await caseEditsOf(plane);
+  if (c.error) return c;
+  const r = run(() => labCaseRoom({ draft: { id: "main", name: "main" }, caseEdits: c.edits }, area, id, out));
+  return r.error ? { error: r.error } : { room: r.value, edits: c.edits };
+}
+
