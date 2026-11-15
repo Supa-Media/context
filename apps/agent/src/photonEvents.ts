@@ -18,7 +18,8 @@ import { arrivedAs, asOldGroup, removeOldNumber, type Matched } from "./groupMov
 import { post } from "./clients";
 import { toChat } from "./handOver";
 import { inboxByName } from "./objectPlace";
-import { photonAttachmentUrl } from "./photon";
+import { photonAttachmentUrl, photonGroupGuid } from "./photon";
+import { photonGroupMembers } from "./photonClient";
 import { arrivalOf } from "./providerTiming";
 import { photonSendStatusOf } from "./photonSendStatus";
 import { parsePhotonEvent, photonAttachmentGuids } from "./photonInbound";
@@ -83,7 +84,9 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
   const provider = arrivalOf("photon", (body as { at?: unknown }).at, Date.now());
   if (parsed.kind === "group-message") {
     // A group staff moved here from the old number is still that group (`groupMoves.ts`): filed under its old id and line.
-    const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: parsed.groupId, photonLine: parsed.line, from: parsed.from, participants: parsed.participants });
+    const chat = photonGroupGuid(parsed.groupId);
+    const members = env.PHOTON && chat !== null ? () => photonGroupMembers(env.PHOTON as Fetcher, { line: parsed.line, chat }) : undefined;
+    const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: parsed.groupId, photonLine: parsed.line, from: parsed.from, participants: parsed.participants }, members);
     if (arrival.matched !== undefined) return await finishGroupMove(env, parsed.line, parsed.groupId, arrival.matched);
     const message = arrival.from === null ? parsed : asOldGroup(parsed, arrival.from);
     // A group's message goes to the group's own queue, never a sender's (`groupWebhook`, `index.ts`).

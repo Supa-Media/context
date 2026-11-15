@@ -50,8 +50,9 @@ describe("the group-moves object", () => {
     const { storage } = movesObject();
     const body = (b: unknown) => b as Record<string, unknown>;
     await serveGroupMoves(storage, "/group-move/pending", body({ line: OLD_LINE, groupId: GROUP_ID, groupKey: GROUP_KEY, people: [BO, ADA], askedAt: 7 }), NOW);
-    // Someone else's group, or the same people heard from another number, ties nothing.
-    expect(await (await serveGroupMoves(storage, "/group-move/arrive", body({ photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: OLD_LINE, participants: [OLD_LINE, NEW_LINE, ADA] }), NOW)).json()).toEqual({});
+    // Someone else's group ties nothing (the Worker is told a move from that number waits, to read the people itself),
+    // nor do the same people heard from another number.
+    expect(await (await serveGroupMoves(storage, "/group-move/arrive", body({ photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: OLD_LINE, participants: [OLD_LINE, NEW_LINE, ADA] }), NOW)).json()).toEqual({ waiting: true, people: 1 });
     expect(await (await serveGroupMoves(storage, "/group-move/arrive", body({ photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: ADA, participants: [OLD_LINE, NEW_LINE, ADA, BO] }), NOW)).json()).toEqual({});
     const tied = await (await serveGroupMoves(storage, "/group-move/arrive", body({ photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: OLD_LINE, participants: [ADA, OLD_LINE, BO, NEW_LINE] }), NOW)).json();
     expect(tied).toEqual({ from: { line: OLD_LINE, groupId: GROUP_ID }, matched: { groupKey: GROUP_KEY, line: OLD_LINE, groupId: GROUP_ID, askedAt: 7 } });
@@ -96,6 +97,20 @@ describe("a moved group, as the Worker reads and sends it", () => {
     const before = calls.length;
     expect(await to(GROUP_ID)).toEqual({ line: NEW_LINE, groupId: PHOTON_GROUP });
     expect(calls.length).toBe(before);
+  });
+
+  it("reads the group's people from the bridge when Photon's event names only the sender, and then ties the groups", async () => {
+    const { ns, storage } = movesObject();
+    await serveGroupMoves(storage, "/group-move/pending", { line: OLD_LINE, groupId: GROUP_ID, groupKey: GROUP_KEY, people: [BO, ADA], askedAt: 7 }, NOW);
+    let read = 0;
+    const members = async () => (read++, [ADA, OLD_LINE, BO]);
+    const tied = await arrivedAs(ns, { photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: OLD_LINE, participants: [OLD_LINE] }, members);
+    expect(tied).toEqual({ from: { line: OLD_LINE, groupId: GROUP_ID }, matched: { groupKey: GROUP_KEY, line: OLD_LINE, groupId: GROUP_ID, askedAt: 7 } });
+    expect(read).toBe(1);
+    // Anyone else's message there is never a reason to read the bridge.
+    clearGroupMoveCache();
+    expect(await arrivedAs(ns, { photonGroupId: "photon-other", photonLine: NEW_LINE, from: ADA, participants: [ADA] }, members)).toEqual({ from: null });
+    expect(read).toBe(1);
   });
 
   it("an arrival the object cannot answer leaves the message as it came", async () => {

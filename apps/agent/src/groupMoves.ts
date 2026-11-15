@@ -73,8 +73,10 @@ export async function serveGroupMoves(storage: InboxStorage, path: string, body:
     const pending = await storage.get<Pending[]>(`${PENDING}${from}`);
     if (pending === undefined) return Response.json({});
     const people = peopleOf(participants as string[], [from, photonLine]);
-    const found = pending.find((entry) => now - entry.at < PENDING_FOR_MS && same(entry.people, people));
-    if (found === undefined) return Response.json({});
+    const live = pending.filter((entry) => now - entry.at < PENDING_FOR_MS);
+    const found = live.find((entry) => same(entry.people, people));
+    // Photon's event names only who sent it, not the group's people: the Worker reads them from the bridge and asks again.
+    if (found === undefined) return Response.json(live.length > 0 ? { waiting: true, people: people.length } : {});
     const old: GroupPlace = { line: from, groupId: found.groupId };
     await storage.put(`${ALIAS}${photonGroupId}`, old);
     await storage.put<GroupPlace>(`${TO}${found.groupId}`, { line: photonLine, groupId: photonGroupId });
@@ -133,12 +135,20 @@ export function groupMovedTo(ns: DurableObjectNamespace): (groupId: string) => P
 /**
  * A group message the new line heard: filed as the old group when that group moved here (`from`), and `matched` when
  * it is the old number's swap note that ties the two together now. A read that fails leaves the message as it came.
+ *
+ * Photon's event lists only the sender (Dev2's first group move, 2026-11-15, left the old number in because of it), so
+ * when a move from that sender is waiting, the group's people are read from the bridge (`members`) and matched again.
  */
-export async function arrivedAs(ns: DurableObjectNamespace, arrival: Arrival): Promise<{ from: GroupPlace | null; matched?: Matched }> {
+export async function arrivedAs(ns: DurableObjectNamespace, arrival: Arrival, members?: () => Promise<string[]>): Promise<{ from: GroupPlace | null; matched?: Matched }> {
   const kept = aliasCache.get(arrival.photonGroupId);
   if (kept !== undefined) return { from: kept };
   try {
-    const answer = await ask(ns, "/group-move/arrive", arrival);
+    let answer = await ask(ns, "/group-move/arrive", arrival);
+    if (answer.waiting === true && members !== undefined) {
+      const participants = await members();
+      answer = await ask(ns, "/group-move/arrive", { ...arrival, participants: [...new Set([...participants, arrival.from])] });
+      if (answer.waiting === true) console.log(JSON.stringify({ event: "chat_move", kind: "group", outcome: "people_differ", heard: participants.length }));
+    }
     const from = placeOf(answer.from);
     if (from !== null) aliasCache.set(arrival.photonGroupId, from);
     const matched = record(answer.matched);
