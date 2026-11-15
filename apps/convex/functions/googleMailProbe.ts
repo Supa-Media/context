@@ -19,6 +19,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, internalQuery, type ActionCtx } from "../_generated/server";
 import { aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
+import type { MintOutcome } from "./lib/googleConnect/syncTokens";
 import { gmailFailureCode } from "./lib/gatewayRoutes/personMail";
 import { getMessageHeaders, listMessageIds, LIVE_RETRY_MS } from "../../mcp/src/communications/gmailSync.js";
 import { timeoutFetch } from "./lib/filesFns/forwardSyncSupport";
@@ -29,6 +30,8 @@ const PROBE_LIMIT = 100;
 function bump(counts: Record<string, number>, key: string) {
   counts[key] = (counts[key] ?? 0) + 1;
 }
+
+type ProbeRow = { connectionId: Id<"googleConnections">; readable: boolean; health: string; agentGrant: boolean; split: boolean };
 
 /** The live Gmail rows a mail search would ask, with what decides how they are read. */
 export const probeRows = internalQuery({
@@ -51,7 +54,7 @@ export const probeRows = internalQuery({
 
 /** One mailbox, read as a search reads it: the fixed code for where it stopped, or `ok`. */
 async function probeOne(ctx: ActionCtx, connectionId: Id<"googleConnections">): Promise<string> {
-  const outcome = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, { connectionId, role: "agent" as const });
+  const outcome: MintOutcome = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, { connectionId, role: "agent" as const });
   if (outcome.kind !== "minted") return outcome.kind === "refused" ? `token_${outcome.why ?? "refused"}` : `token_${outcome.kind}`;
   const live = { fetchImpl: timeoutFetch, accessToken: outcome.accessToken, delaysMs: LIVE_RETRY_MS };
   let ids: string[];
@@ -73,7 +76,7 @@ export const report = internalAction({
   args: {},
   returns: v.object({ mailboxes: v.number(), outcomes: v.record(v.string(), v.number()) }),
   handler: async (ctx) => {
-    const rows = await ctx.runQuery(internal.functions.googleMailProbe.probeRows, {});
+    const rows: ProbeRow[] = await ctx.runQuery(internal.functions.googleMailProbe.probeRows, {});
     const outcomes: Record<string, number> = {};
     for (const row of rows) {
       // Which grant and state it is in, beside where its read stopped: `agent`/`standard`, `split` or not, and its health word.
