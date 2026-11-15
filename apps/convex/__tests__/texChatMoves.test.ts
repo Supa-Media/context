@@ -89,13 +89,13 @@ describe("moving chats, as staff see it", () => {
     expect(events.find((row) => row.action === "tex.chat_move_asked")).toMatchObject({ actorUserId: staffId, subject: "tex.chat_move", details: { kind: "person" } });
   });
 
-  test("refuses without a saved new number, a key that is not a phone, and a group for now", async () => {
+  test("refuses without a saved new number, a key that is not a phone, and a group key that is not one", async () => {
     const t = tester();
     const { staff } = await setUp(t, { number: false });
     await expect(staff.mutation(api.functions.texChatMoves.askTexChatMove, { kind: "person", key: PHONE })).rejects.toThrow(/new number/);
     await staff.mutation(api.functions.texOldLine.setTexOldLine, { mode: "off", number: NEW_NUMBER, archiveOn: null });
     await expect(staff.mutation(api.functions.texChatMoves.askTexChatMove, { kind: "person", key: "5555550100" })).rejects.toThrow(/phone/);
-    await expect(staff.mutation(api.functions.texChatMoves.askTexChatMove, { kind: "group", key: GROUP_KEY })).rejects.toThrow(/group/);
+    await expect(staff.mutation(api.functions.texChatMoves.askTexChatMove, { kind: "group", key: "not-a-key" })).rejects.toThrow(/group/);
   });
 });
 
@@ -135,6 +135,21 @@ describe("moving chats, as the Worker takes and reports them", () => {
     expect((await worker(t, "/agent-texts/move-report", { kind: "person", key: PHONE, status: "moved" })).body).toEqual({ outcome: "stale" });
     expect((await worker(t, "/agent-texts/move-report", { kind: "person", key: "+15555550111", status: "moved" })).body).toEqual({ outcome: "no_move" });
     expect((await worker(t, "/agent-texts/move-report", { kind: "person", key: PHONE, status: "asked" })).status).toBe(400);
+  });
+
+  test("a group is told, then moved when the new line took the old number out, or failed when it could not", async () => {
+    const t = tester();
+    const { staff } = await setUp(t);
+    await staff.mutation(api.functions.texChatMoves.askTexChatMove, { kind: "group", key: GROUP_KEY });
+    const askedAt = (await worker(t, "/agent-texts/moves")).body.moves[0].askedAt;
+    expect((await worker(t, "/agent-texts/move-report", { kind: "group", key: GROUP_KEY, status: "told", askedAt })).body).toEqual({ outcome: "noted" });
+    expect((await worker(t, "/agent-texts/move-report", { kind: "group", key: GROUP_KEY, status: "failed", askedAt, detail: "remove_failed" })).body).toEqual({ outcome: "noted" });
+    expect((await staff.query(api.functions.texChatMoves.listTexChatMoves, {})).groups[0].move).toMatchObject({ status: "failed", detail: "remove_failed" });
+    await staff.mutation(api.functions.texChatMoves.askTexChatMove, { kind: "group", key: GROUP_KEY });
+    const again = (await worker(t, "/agent-texts/moves")).body.moves[0].askedAt;
+    await worker(t, "/agent-texts/move-report", { kind: "group", key: GROUP_KEY, status: "told", askedAt: again });
+    expect((await worker(t, "/agent-texts/move-report", { kind: "group", key: GROUP_KEY, status: "moved" })).body).toEqual({ outcome: "noted" });
+    expect((await staff.query(api.functions.texChatMoves.listTexChatMoves, {})).groups[0].move).toMatchObject({ status: "moved" });
   });
 
   test("hands out at most a few at a time, and one the Worker lost again after a while", async () => {

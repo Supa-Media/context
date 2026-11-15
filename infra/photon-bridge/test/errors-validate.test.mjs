@@ -65,12 +65,19 @@ test("every op parses a well-formed body into its arguments", () => {
     contact: { line: LINE, chat: CHAT },
     "chat/resolve": { line: LINE, address: "+15550100999" },
     "group/members": { line: LINE, chat: CHAT },
+    "group/remove": { line: LINE, chat: CHAT, address: "+15550100999" },
   };
   assert.deepEqual(Object.keys(cases).sort(), Object.keys(OPS).sort());
   for (const [name, body] of Object.entries(cases)) {
     const parsed = OPS[name].parse(body);
     assert.equal(parsed.line, LINE, name);
   }
+});
+
+test("group/remove takes one phone or email to take out, nothing else", () => {
+  assert.deepEqual(OPS["group/remove"].parse({ line: LINE, chat: CHAT, address: "+15550100999" }), { line: LINE, chat: CHAT, address: "+15550100999" });
+  assert.throws(() => OPS["group/remove"].parse({ line: LINE, chat: CHAT }), { code: "invalid_address" });
+  assert.throws(() => OPS["group/remove"].parse({ line: LINE, chat: CHAT, address: ["+15550100999"] }), { code: "invalid_address" });
 });
 
 test("a body that is not an object is refused before any call", () => {

@@ -36,7 +36,7 @@ export const MOVE_CLAIM_MS = 10 * 60 * 1000;
 const MAX_LISTED = 500;
 const GROUP_KEY = /^[0-9a-f]{64}$/;
 /** The codes a report may carry (`apps/agent/src/moveChats.ts`); anything else is kept as `unknown`. */
-const DETAILS = new Set(["already_told", "on_new_line", "no_chat", "not_old_line", "no_number", "no_gateway", "node_failed", "send_failed", "unreachable", "group_soon", "unknown"]);
+const DETAILS = new Set(["already_told", "on_new_line", "no_chat", "not_old_line", "no_number", "no_gateway", "node_failed", "send_failed", "unreachable", "members_unread", "add_failed", "remove_failed", "unknown"]);
 
 const kindValidator = v.union(v.literal("person"), v.literal("group"));
 const statusValidator = v.union(v.literal("asked"), v.literal("sending"), v.literal("told"), v.literal("moved"), v.literal("failed"));
@@ -132,10 +132,7 @@ export const askTexChatMove = mutation({
   handler: async (ctx, args) => {
     const actor = await staff(ctx);
     if (args.kind === "person" && !isPhoneNumber(args.key)) refuse("That is not a phone number.");
-    if (args.kind === "group") {
-      if (!GROUP_KEY.test(args.key)) refuse("That is not a group chat.");
-      refuse("Moving a group chat comes next; people can be moved now.");
-    }
+    if (args.kind === "group" && !GROUP_KEY.test(args.key)) refuse("That is not a group chat.");
     const setting = await ctx.db.query("texOldLine").first();
     if (!setting?.number) refuse("Save the new number on this page first, under Old number.");
     const row = await moveOf(ctx, args.kind, args.key);
@@ -180,7 +177,8 @@ export const reportTexChatMove = internalMutation({
       await ctx.db.patch(row._id, { status: "moved", movedAt: args.now, updatedAt: args.now, ...(detail !== undefined ? { detail } : {}) });
       return "noted";
     }
-    if (row.askedAt !== args.askedAt || row.status !== "sending") return "stale";
+    // A group's move is told, then can still fail when the new line could not take the old number out.
+    if (row.askedAt !== args.askedAt || (row.status !== "sending" && !(row.status === "told" && args.status === "failed"))) return "stale";
     await ctx.db.patch(row._id, {
       status: args.status,
       detail,

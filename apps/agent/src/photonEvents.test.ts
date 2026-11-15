@@ -3,6 +3,7 @@ import worker, { type Env } from "./index";
 import { PhotonEvents } from "./photonEvents";
 import { photonAttachmentUrl, photonChatId, photonGroupId, verifyPhotonAttachment } from "./photon";
 import { groupInboxName } from "./groupInbox";
+import { clearGroupMoveCache } from "./groupMoves";
 
 const LINE = "+15555550199";
 const PHONE = "+15555550100";
@@ -17,7 +18,7 @@ type Routed = { to: string; path: string; body: Record<string, unknown> };
  * The Worker's env with the SenderInbox stubbed by name. `status` is what each inbox answers with; `origin` is what the
  * chat object reports as its stored origin (`/origin`), null for a chat that has never seen one.
  */
-function env(over: Partial<Env> = {}, inbox: { status?: number; origin?: string | null } = {}): { env: Env; routed: Routed[]; bridge: string[] } {
+function env(over: Partial<Env> = {}, inbox: { status?: number; origin?: string | null; moves?: (path: string, body: Record<string, unknown>) => Record<string, unknown> | undefined } = {}): { env: Env; routed: Routed[]; bridge: string[] } {
   const routed: Routed[] = [];
   const bridge: string[] = [];
   const namespace = {
@@ -26,6 +27,8 @@ function env(over: Partial<Env> = {}, inbox: { status?: number; origin?: string 
       fetch: async (url: string, init?: RequestInit) => {
         const path = new URL(url).pathname;
         if (path === "/origin") return Response.json({ origin: inbox.origin === undefined ? ORIGIN : inbox.origin });
+        // The `group-moves` object (`groupMoves.ts`): no group here has moved unless a test says so.
+        if (path.startsWith("/group-move/")) return Response.json(inbox.moves?.(path, JSON.parse(String(init?.body ?? "{}"))) ?? {});
         routed.push({ to: id.name, path, body: JSON.parse(String(init?.body ?? "{}")) });
         return Response.json({ outcome: "queued" }, { status: inbox.status ?? 200 });
       },
@@ -74,7 +77,10 @@ function event(over: Record<string, unknown> = {}): Record<string, unknown> {
   };
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  clearGroupMoveCache();
+});
 
 describe("PhotonEvents.event: outcomes", () => {
   it("queues a person's text in their own inbox, and resolves 200", async () => {
@@ -173,6 +179,50 @@ describe("PhotonEvents.event: outcomes", () => {
     const { env: e } = env({}, { status: 500 });
     const group = event({ chat: { guid: GUID, kind: "group", participants: [PHONE] }, from: PHONE });
     expect(await entrypoint(e).event(group)).toEqual({ status: 503 });
+  });
+});
+
+describe("PhotonEvents.event: a group staff moved to the new number", () => {
+  const OLD_LINE = "+15555550188";
+  const OLD = { line: OLD_LINE, groupId: "sb-group-1" };
+
+  it("files the new line's message under the old group, with the old line in the new one's place", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({}));
+    const { env: e, routed } = env({}, { moves: (path) => (path === "/group-move/arrive" ? { from: OLD } : undefined) });
+    const group = event({ chat: { guid: GUID, kind: "group", participants: [LINE, PHONE, OTHER] }, from: OTHER, message: { guid: "g-9", text: "hi all", service: "iMessage" } });
+    expect(await entrypoint(e).event(group)).toEqual({ status: 200 });
+    expect(routed.map((r) => [r.to, r.path])).toEqual([[groupInboxName("sb-group-1"), "/group-accept"]]);
+    expect(routed[0].body).toMatchObject({ groupId: "sb-group-1", line: OLD_LINE, messageId: "g-9", from: OTHER });
+    expect((routed[0].body.participants as string[]).sort()).toEqual([OLD_LINE, PHONE, OTHER].sort());
+  });
+
+  it("on the old number's swap note, takes the old number out and reports the group moved, and the note takes no turn", async () => {
+    const reports: unknown[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (new URL(url).pathname === "/agent-texts/move-report") reports.push(JSON.parse(String(init?.body)));
+      return Response.json({ outcome: "noted" });
+    });
+    const removed: unknown[] = [];
+    const photon = { fetch: async (url: string, init?: RequestInit) => (removed.push([new URL(url).pathname, JSON.parse(String(init?.body))]), Response.json({ ok: true, participants: [] })) } as unknown as Fetcher;
+    const matched = { groupKey: "a".repeat(64), line: OLD_LINE, groupId: "sb-group-1", askedAt: 7 };
+    const { env: e, routed } = env({ PHOTON: photon }, { moves: (path) => (path === "/group-move/arrive" ? { from: OLD, matched } : undefined) });
+    const note = event({ chat: { guid: GUID, kind: "group", participants: [LINE, OLD_LINE, PHONE] }, from: OLD_LINE, message: { guid: "g-10", text: "swapping numbers", service: "iMessage" } });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(await entrypoint(e).event(note)).toEqual({ status: 200 });
+    expect(routed).toEqual([]);
+    expect(removed).toEqual([["/group/remove", { line: LINE, chat: GUID, address: OLD_LINE }]]);
+    expect(reports).toEqual([{ kind: "group", key: "a".repeat(64), status: "moved" }]);
+  });
+
+  it("reports the move failed when the new line could not take the old number out", async () => {
+    const reports: unknown[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => (reports.push(JSON.parse(String(init?.body))), Response.json({ outcome: "noted" })));
+    const photon = { fetch: async () => Response.json({ ok: false, error: "refused" }, { status: 502 }) } as unknown as Fetcher;
+    const matched = { groupKey: "a".repeat(64), line: OLD_LINE, groupId: "sb-group-1", askedAt: 7 };
+    const { env: e } = env({ PHOTON: photon }, { moves: (path) => (path === "/group-move/arrive" ? { from: OLD, matched } : undefined) });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await entrypoint(e).event(event({ chat: { guid: GUID, kind: "group", participants: [LINE, OLD_LINE, PHONE] }, from: OLD_LINE, message: { guid: "g-11", text: "swapping numbers", service: "iMessage" } }));
+    expect(reports).toEqual([{ kind: "group", key: "a".repeat(64), status: "failed", detail: "remove_failed", askedAt: 7 }]);
   });
 });
 

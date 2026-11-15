@@ -13,6 +13,7 @@
 import { ServiceError } from "./clients";
 import { lineFor, type LineDeps, type Picture } from "./line";
 import { groupLineFor, type GroupLineDeps } from "./groupLine";
+import { groupMovedTo } from "./groupMoves";
 import { appCardConfig } from "./appCards";
 import { noteCardDrawer } from "./noteCards";
 import { sendblueKeys } from "./sendblue";
@@ -137,5 +138,6 @@ export function lineCallDeps(env: LineCallEnv, inbox: string): LineDeps {
 
 /** The deps of the Worker's group line, as `groupInbox.ts` builds them. */
 export function groupLineCallDeps(env: LineCallEnv, inbox: string): GroupLineDeps {
-  return sharedDeps(env, inbox);
+  // A group staff moved to the new number is sent to there, as the Worker's own group queue does (`groupMoves.ts`).
+  return { ...sharedDeps(env, inbox), movedTo: groupMovedTo(env.SENDER_INBOX) };
 }

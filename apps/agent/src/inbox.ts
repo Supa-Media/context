@@ -57,6 +57,7 @@ import { withAnswerCards } from "./answerCards";
 import { textsFromAnswer } from "./format"; import { isControlWord } from "./controlWords";
 import { noteCardDrawer } from "./noteCards";
 import { lineFor, type Line, type LineDeps } from "./line";
+import type { GroupPlace } from "./groupLine";
 import { pruneMedia } from "./media";
 import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
 import { isWhapiChat } from "./whapi";
@@ -110,6 +111,8 @@ export type InboxDeps = ReplyDeps &
     waitUntil?: (promise: Promise<unknown>) => void;
     /** The chat's line served by the gateway (`remoteLine.ts`); absent, the line is Tex's own here. Read by `lineDeps`. */
     remoteLine?: (chatId: string) => Line;
+    /** Where a group staff moved to Tex's new number lives now (`groupMoves.ts`); read by a group's line. */
+    movedTo?: (groupId: string) => Promise<GroupPlace | null>;
   };
 
 /**

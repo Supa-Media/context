@@ -33,7 +33,7 @@ flowchart LR
   n_notify(["Send through Tex<br/>code<br/>graph/nodes/notify.js · tools/attention.js · attention.js"]):::start
   n_text(["A text arrives<br/>code<br/>apps/agent"]):::start
   n_oldLine["Old number?<br/>code<br/>graph/nodes/oldLine.js · apps/agent oldLineStep.ts · oldLine.ts"]:::code
-  n_moveChat(["Staff move a chat<br/>code<br/>graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts"]):::start
+  n_moveChat(["Staff move a chat<br/>code<br/>graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts · groupMoves.ts"]):::start
   n_triage["Triage<br/>code<br/>inboxTurn.ts chooseTurn · groupInbox.ts acceptGroup"]:::code
   n_decide["Decide<br/>Clef<br/>textsDecide.js · textDecide.cjs"]:::model
   n_lanes["Queue<br/>code<br/>apps/agent inbox.ts · groupTurn.ts"]:::code
@@ -154,7 +154,7 @@ every wire, from the same config.
 | Send through Tex | notify |  | on | code |  |  |  | graph/nodes/notify.js · tools/attention.js · attention.js |
 | A text arrives | text |  | on | code |  |  |  | apps/agent |
 | Old number? | oldLine |  | on | code |  |  |  | graph/nodes/oldLine.js · apps/agent oldLineStep.ts · oldLine.ts |
-| Staff move a chat | moveChat |  | on | code |  |  |  | graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts |
+| Staff move a chat | moveChat |  | on | code |  |  |  | graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts · groupMoves.ts |
 | Triage | triage |  | on | code |  |  |  | inboxTurn.ts chooseTurn · groupInbox.ts acceptGroup |
 | Decide | decide |  | on | Clef |  |  | examples, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
 | Queue | lanes |  | on | code |  |  |  | apps/agent inbox.ts · groupTurn.ts |

@@ -5,12 +5,14 @@
  *
  *     control plane /agent-texts/moves: up to five asked moves, and the new number
  *       │
- *       └─▶ a person: that phone's own inbox, which asks the gateway's node for the words and sends them on the chat's
- *           old Sendblue line, once per ask; reported `told`, or `failed` with a code
+ *       ├─▶ a person: that phone's own inbox, which asks the gateway's node for the words and sends them on the chat's
+ *       │   old Sendblue line, once per ask; reported `told`, or `failed` with a code
+ *       └─▶ a group: its own object adds the new number and posts the swap note (`groupMoves.ts`); reported `told`
  *
- *     the person's first text on the new line afterwards: reported `moved`
+ *     the person's first text on the new line afterwards, or the new line taking the old number out of the group:
+ *     reported `moved`
  *
- * The old line keeps answering as before (Dev2: "support the old sendblue numbers still"). Groups come next. Logs and
+ * The old line keeps answering a person as before (Dev2: "support the old sendblue numbers still"). Logs and
  * the step's ledger record carry outcomes and whether a number is set, never the number, the phone or the words.
  */
 
@@ -38,7 +40,9 @@ export type MoveOutcome =
   | "node_failed"
   | "send_failed"
   | "unreachable"
-  | "group_soon";
+  | "members_unread"
+  | "add_failed"
+  | "remove_failed";
 type Told = { askedAt: number; at: number; reported?: boolean };
 
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -77,6 +81,8 @@ export type DueMovesDeps = {
   workerSecret: string;
   /** Move one person, through that phone's own inbox. */
   movePerson: (phone: string, body: MoveBody) => Promise<MoveOutcome>;
+  /** Move one group, by its key, through the group's own object (`groupMoves.ts`). */
+  moveGroup: (groupKey: string, body: MoveBody) => Promise<MoveOutcome>;
   log: (entry: Record<string, unknown>) => void;
 };
 
@@ -94,13 +100,11 @@ export async function runDueMoves(deps: DueMovesDeps): Promise<void> {
   }
   for (const move of due.moves) {
     let outcome: MoveOutcome;
-    if (move.kind === "group") outcome = "group_soon";
-    else {
-      try {
-        outcome = await deps.movePerson(move.key, { askedAt: move.askedAt, number: due.number, archiveOn: due.archiveOn });
-      } catch {
-        outcome = "unreachable";
-      }
+    const body = { askedAt: move.askedAt, number: due.number, archiveOn: due.archiveOn };
+    try {
+      outcome = move.kind === "group" ? await deps.moveGroup(move.key, body) : await deps.movePerson(move.key, body);
+    } catch {
+      outcome = "unreachable";
     }
     const report = reportOf(outcome);
     let noted = "unsent";

@@ -28,6 +28,8 @@ import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound } from "./inbound";
 import { runDueRoutines, textPhone } from "./routines";
 import { runDueMoves, type MoveOutcome } from "./moveChats";
+import { groupMovedTo } from "./groupMoves";
+import { isPhotonGroupId } from "./photonLine";
 export { TexRoutines } from "./texRoutineDue";
 import { runDueDreams } from "./dreams";
 import { runDueHeartbeats } from "./heartbeats";
@@ -47,7 +49,7 @@ import { isRecord } from "./sendblue";
 import { verifyLinqSignature } from "./signature";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
-import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, whapiKeys, type WhapiKeys } from "./whapi";
+import { isWhapiGroup, phoneOfJid, readWhapiMessage, verifyWhapiSecret, whapiKeys, type WhapiKeys } from "./whapi";
 import { parseWhapiWebhook, whapiGroupChanges, whapiGroupNames } from "./whapiInbound";
 import { logEventShape, logSendblueShape } from "./webhookShape";
 import { groupLineFor } from "./groupLine";
@@ -209,6 +211,16 @@ export default {
           if (!response.ok) return "unreachable";
           return ((await response.json()) as { outcome: MoveOutcome }).outcome;
         },
+        moveGroup: async (groupKey, body) => {
+          const found = await inboxByName(env.SENDER_INBOX, chatDirectoryName(groupKey)).fetch("https://inbox/chat-where", { method: "GET" });
+          const where = found.ok ? chatWhereOf(await found.json()) : null;
+          if (where === null) return "no_chat";
+          if (isPhotonGroupId(where.groupId)) return "on_new_line";
+          if (isWhapiGroup(where.groupId)) return "not_old_line";
+          const response = await inboxByName(env.SENDER_INBOX, groupInboxName(where.groupId)).fetch("https://inbox/move-group", { method: "POST", body: JSON.stringify({ ...body, ...where, groupKey }) });
+          if (!response.ok) return "unreachable";
+          return ((await response.json()) as { outcome: MoveOutcome }).outcome;
+        },
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
     );
@@ -263,6 +275,11 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
   }
   if (grouped.kind === "ignored") {
     logWebhook(line, "ignored", `group_${grouped.reason}`);
+    return new Response(null, { status: 200 });
+  }
+  // A group staff moved to the new number is heard there (`groupMoves.ts`); the old line's copy of it is not a second one.
+  if (line === "sendblue" && (await groupMovedTo(env.SENDER_INBOX)(grouped.groupId)) !== null) {
+    logWebhook(line, "ignored", "group_moved");
     return new Response(null, { status: 200 });
   }
   await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, grouped, name); // its folder's name, never in the message
