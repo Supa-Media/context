@@ -99,6 +99,21 @@ workspace tree) moved into pure modules the views and the bundle share. The simu
 answer says which test it traced; what really ran is still `turn`. `compare` reads every version through the
 control plane's `versions`, which does not mark the AI as in each draft.
 
+**A step's own cases, change marks and Put back are the Lab's too** (Dev2, 2026-11-15, the same day they reached the
+Lab). `steps` lists every step's cases out of 20 and the ones with none yet, and for one step its case form (given and
+want boxes, with each answer's choices) and the key a new case takes. `case` holds the Lab's cap: a new case into a
+full step is refused unless it names `swap_out`, which trades one out as the Tests page's swap does (a case the Lab
+added is dropped; a bench case is kept marked removed, its words kept, and the new one records what it `replaces`).
+`marks` names what a draft changed, step by step and field by field from and to, plus new and removed steps and
+wires, against main or (`vs: "last"`) the draft before its last revision, which the control plane's `before` reads
+from the 30 it keeps. `put_back` lands, as one revision, the edits that bring one step back to the base's version.
+All of it runs `engine/forMcpCases.ts` and `changeMarks.ts`'s `computeMarks` and `putBackIn`, which the canvas runs.
+
+*What a "simplification" would cost:* skipping the room check lets an AI fill a step past the 20 the Lab keeps
+(`apps/mcp/test/texDevCases.test.mjs` "a new case into a full step is refused unless it trades one out"); computing
+marks or Put back anywhere but the Lab's functions lets the panel and the MCP name different changes ("marks names
+each changed field", "put_back lands the edits that bring one step back to main").
+
 **Nothing here changes live Tex.** `promote` is the Lab's Promote: a pull request that merges only through CI and the
 replay gate. A draft changes config; a node's code or a new kind of step still needs a pull request.
 
@@ -109,6 +124,6 @@ editors overwrite each other silently ("the later edit to the same field is refu
 lets an undo erase a later change ("revert undoes one change ..., refuses one a later change built on"). Keeping a
 report whole would put a person's own chat in a version every staff member reads ("keep_results ... never keeps a
 replay"). Sending only graph edits from the Lab drops a live draft's picks and areas again
-(`apps/mobile/__tests__/texLabLive.test.ts` "the Run tab's picks and areas ... are sent, not dropped"). editors overwrite each other silently ("the later edit to the same field is refused"). Answering a Lab tab from
+(`apps/mobile/__tests__/texLabLive.test.ts` "the Run tab's picks and areas ... are sent, not dropped"). Answering a Lab tab from
 anything but the Lab's own functions lets the MCP and the page disagree (`apps/mcp/test/texDevLab.test.mjs`, which
 holds each action against the bundled function on the same input, and the `tex-dev-lab.mjs --check` step in CI).

@@ -11,6 +11,7 @@
  *   `revertDraft` without its conflicts() check   "revert undoes one change ..., refuses one a later change built on" fails
  *   `keepResults` keeping the whole pasted text   "keep_results ... never keeps a replay" fails
  *   `changesAfter` answering the short lines      "changes answers each line whole" fails
+ *   `before` answering the draft's own graph      "... the draft before each revision is kept for the marks" fails
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -131,6 +132,11 @@ describe("tex_dev drafts", () => {
     const before = await lab.query(api.functions.texLabDrafts.graphBefore, { versionId: id, rev: 2 });
     expect(JSON.parse(before!).nodes[1].effort).toBe("high");
     expect(await lab.query(api.functions.texLabDrafts.graphBefore, { versionId: id, rev: 9 })).toBeNull();
+    // The MCP's `before` reads the same kept graph (`tex_dev marks vs: "last"`), the current revision by default.
+    const last = await dev("before", { draft: id });
+    expect([last.status, last.rev, JSON.parse(last.graph as string).nodes[1].effort]).toEqual(["ok", 2, "high"]);
+    expect((await dev("before", { draft: id, rev: 9 })).graph).toBeNull();
+    expect((await dev("before", { draft: "nope" })).status).toBe("not_found");
   });
 
   test("promote asks once, like the Lab's button", async () => {
