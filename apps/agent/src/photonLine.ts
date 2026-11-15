@@ -1,8 +1,11 @@
 /**
  * Photon: Tex's iMessage line through the bridge (`infra/photon-bridge`, `photonClient.ts`, plan.md Contract B), for
  * the chats `photon:<line>:<phone>` and the groups `photon-group:<chatGuid>`. Sendblue's workarounds are not used here:
- * - a link goes as plain text with `linkPreview`, so iMessage draws its own rich link (no picture ahead of it, no
- *   "Link:" before it; `linkPreviews.ts` and `noteCards.ts` exist for Sendblue, which attaches no preview data);
+ * - a link gets iMessage's own rich link (no picture ahead of it, no "Link:" before it; `linkPreviews.ts` and
+ *   `noteCards.ts` exist for Sendblue, which attaches no preview data). Photon draws one only for a text that is
+ *   nothing but one link ("enable_link_preview requires text to be a single absolute HTTP or HTTPS URL", its refusal
+ *   of every reply on 2026-11-15), so words with a link go as the words, then the link alone with its preview
+ *   (`sendPhotonWords`);
  * - a note's link goes as our Messages card (`send/app`) where cards are on, and as the link itself when the line
  *   refuses the card, so the card is never the only way to the note;
  * - a picture goes as its bytes, a real attachment, never as a hosted link;
@@ -18,6 +21,7 @@ import { cardsOn, noteCard, type AppCard } from "./appCards";
 import { isRefusal } from "./carousel";
 import { EMOJI, type Tapback } from "./reactions";
 import type { Line, LineDeps, Picture } from "./line";
+import { linksIn } from "./linkPreviews";
 import type { GroupLine, GroupLineDeps, GroupPlace } from "./groupLine";
 import type { Media } from "./outgoing";
 import {
@@ -196,6 +200,29 @@ async function tapbackOn(photon: Fetcher, place: PhotonPlace, guid: string, emoj
   }
 }
 
+const ONE_LINK = /^https?:\/\/\S+$/i;
+
+/**
+ * Tex's words on Photon, with a rich link where they hold one: a text that is one link goes with `linkPreview`; words
+ * with a link go plain, then their first link alone with its preview, as iMessage does when a person sends both; any
+ * other text goes plain. Resolves to the words' guid, the one a later text threads under. The link's own bubble is
+ * best effort: the words have gone, so its failure is logged and never fails the send.
+ */
+export async function sendPhotonWords(photon: Fetcher, place: PhotonPlace, text: string, replyTo?: string): Promise<string | undefined> {
+  const words = text.slice(0, MAX_REPLY_TEXT);
+  if (ONE_LINK.test(words.trim())) return await sendPhotonText(photon, place, words.trim(), { replyTo, linkPreview: true });
+  const guid = await sendPhotonText(photon, place, words, { replyTo });
+  const link = linksIn(words).find((found) => ONE_LINK.test(found));
+  if (link !== undefined) {
+    try {
+      await sendPhotonText(photon, place, link, { linkPreview: true });
+    } catch {
+      console.log(JSON.stringify({ event: "photon_link_preview", outcome: "failed" }));
+    }
+  }
+  return guid;
+}
+
 /**
  * Tex's line on Photon. A text answers with its guid; a note's link is a card, else the link with its preview.
  * Typing, read receipts and the tapback are best effort and never throw (as on Sendblue).
@@ -218,7 +245,7 @@ export function photonLine(deps: LineDeps): Line {
           if (!isRefusal(error)) throw error;
         }
       }
-      return await sendPhotonText(p, place, text.slice(0, MAX_REPLY_TEXT), { replyTo, linkPreview: true });
+      return await sendPhotonWords(p, place, text, replyTo);
     },
     sendMedia: async (chatId, media, _key, replyTo) => {
       const p = photon();
@@ -303,7 +330,7 @@ export function photonGroupLine(deps: GroupLineDeps): GroupLine {
   };
   const placeOf = (place: GroupPlace): PhotonPlace => ({ line: placeLine(place), chat: photonGroupChat(place.groupId) });
   return {
-    sendText: async (place, text, replyTo) => await sendPhotonText(photon(), placeOf(place), text.slice(0, MAX_REPLY_TEXT), { replyTo, linkPreview: true }),
+    sendText: async (place, text, replyTo) => await sendPhotonWords(photon(), placeOf(place), text, replyTo),
     sendMedia: async (place, url, replyTo) => {
       await sendPhotonAttachment(photon(), placeOf(place), attachmentOf({ url }), replyTo);
     },
