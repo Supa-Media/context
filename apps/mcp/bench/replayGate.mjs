@@ -46,6 +46,8 @@ import { AREAS, areasFor } from "./replayAreas.mjs";
 export const GATE_SAMPLED = new Set(["jobs"]);
 
 export const HELD_OUT_FOLDER = "ai/held-out";
+/** The first line of a held-out note once its cases moved to the Test Set. */
+const MOVED_HEADING = "# Moved to the Test Set";
 export const HELD_OUT_PREFIX = "held-out/";
 
 /** The JSON block of a held-out note (`ai/held-out/<area>.md`), or null. */
@@ -77,7 +79,9 @@ export async function pullHeldOut({ dir, connection, fetchImpl = fetch }) {
     if (!notePaths(listed.text).includes(path)) continue;
     const read = await callTool(connection, "read_note", { path }, fetchImpl);
     if (read.isError) throw new Error(`read_note ${path}: ${read.text}`);
-    const json = heldOutJson(splitNote(read.text).content);
+    const body = splitNote(read.text).content;
+    // Already emptied by retireHeldOut: no cases, but still pulled so a seed that stopped before the archive finishes it.
+    const json = body.startsWith(MOVED_HEADING) ? { cases: [] } : heldOutJson(body);
     if (!json) throw new Error(`${path}: no json block`);
     await writeFile(join(dir, `${area}.json`), JSON.stringify(json), { mode: 0o600 });
     pulled.push(`${area}: ${(json.cases ?? []).length}`);
@@ -93,14 +97,18 @@ export async function retireHeldOut({ dir, connection, fetchImpl = fetch }) {
   const retired = [];
   for (const file of (await readdir(dir)).filter((f) => f.endsWith(".json"))) {
     const path = `${HELD_OUT_FOLDER}/${file.slice(0, -5)}.md`;
-    const content = "# Moved to the Test Set\n\nThese cases now live only in Tex's eval service, people only: the Lab's Testing tab (docs/decisions/testing/test-set-service.md).\n";
+    const content = `${MOVED_HEADING}\n\nThese cases now live only in Tex's eval service, people only: the Lab's Testing tab (docs/decisions/testing/test-set-service.md).\n`;
     // An existing note takes its etag back, or the write is refused as a conflict (first seed, 2026-11-15).
     const existing = await callTool(connection, "read_note", { path }, fetchImpl);
     if (existing.isError) throw new Error(`read_note ${path}: ${existing.text}`);
     const etag = splitNote(existing.text).header.etag ?? null;
     const wrote = await callTool(connection, "write_note", { path, content, summary: "Moved to the Test Set", ...(etag ? { expected_etag: etag } : {}) }, fetchImpl);
     if (wrote.isError) throw new Error(`write_note ${path}: ${wrote.text}`);
-    const archived = await callTool(connection, "archive_note", { path }, fetchImpl);
+    // Archiving asks for the etag too, the one the emptied note has now.
+    const emptied = await callTool(connection, "read_note", { path }, fetchImpl);
+    if (emptied.isError) throw new Error(`read_note ${path}: ${emptied.text}`);
+    const now = splitNote(emptied.text).header.etag ?? null;
+    const archived = await callTool(connection, "archive_note", { path, ...(now ? { expected_etag: now } : {}) }, fetchImpl);
     if (archived.isError) throw new Error(`archive_note ${path}: ${archived.text}`);
     retired.push(path);
   }
