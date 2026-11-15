@@ -7,9 +7,9 @@
  */
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { fmtS } from "../../engine/sim";
-import { labSim, realIO, realTimes, withWorkerSteps } from "../../engine/realTimes";
-import { turnPromptOf } from "../../engine/promptAt";
-import { startLabel, turnAt, type Bar, type Moment } from "../../engine/replay";
+import { labSim } from "../../engine/realTimes";
+import { turnAt, type Bar, type Moment } from "../../engine/replay";
+import { turnShown } from "../../engine/turnShown";
 import { packTracks, stepRows } from "../../engine/replaySteps";
 import { emit, lab, node, set } from "../../engine/state";
 import { traceMine } from "../../engine/traces";
@@ -37,24 +37,12 @@ const readCompact = () => {
  * judgings in the moment before the turn's text was sent count as its Decide step.
  */
 function showTurn(m: Moment, entries: LedgerEntry[], turn: string) {
-  const sent = Math.max(...entries.filter((e) => e.turn === turn).map((e) => e.at), m.at);
-  const all = withWorkerSteps(entries, turn, m.at - 1_000, sent);
-  const asked = lab.myLines.find((l) => l.play?.turn === turn)?.play ?? (m.from === "text" ? m.lines.find((l) => l.play)?.play : null);
-  if (asked) {
-    traceMine(asked.text);
-    const times = realTimes(all, turn);
-    lab.real = times ? { text: asked.text, times, io: realIO(all, turn, asked.text, asked.then.text, asked.who ? `${asked.who}'s text` : "Your text"), turn, prompt: turnPromptOf(all, turn) } : null;
-    return;
-  }
-  const own = m.lines[0];
-  if (!own?.start) return;
-  // Tex texting on its own: the start step's words are what it was asked, as the turn was given them.
-  const label = startLabel(own);
-  traceMine(label, own.start);
-  const times = realTimes(all, turn);
-  const io = realIO(all, turn, own.about || label, own.text, label);
-  io[own.start] = [{ k: "Started", v: own.about || label }];
-  lab.real = times ? { text: label, times, io, turn, prompt: turnPromptOf(all, turn) } : null;
+  // Read as `tex_dev` reads it too (`engine/turnShown.ts`).
+  const shown = turnShown(m, lab.myLines, entries, turn);
+  if (!shown) return;
+  if (shown.start) traceMine(shown.text, shown.start);
+  else traceMine(shown.text);
+  lab.real = shown.times ? { text: shown.text, times: shown.times, io: shown.io, turn, prompt: shown.prompt } : null;
 }
 
 export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: LedgerEntry[]; onLit: (lit: Lit | null) => void }) {

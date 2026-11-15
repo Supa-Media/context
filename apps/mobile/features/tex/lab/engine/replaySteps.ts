@@ -6,7 +6,7 @@
  */
 import type { LedgerEntry } from "../../page/texPageTypes";
 import type { LabGraph } from "../types";
-import { onlyWhatRan, realTimes, withReal, withWorkerSteps } from "./realTimes";
+import { momentTurnEntries, onlyWhatRan, realTimes, withReal } from "./realTimes";
 import type { Bar, Moment } from "./replay";
 import { fmtS, simulate } from "./sim";
 import { G, node } from "./state";
@@ -22,8 +22,7 @@ export function stepRows(m: Moment, entries: LedgerEntry[], g: LabGraph = G()): 
     if (b.kind !== "turn" || !b.turn || b.zero === undefined || seen.has(b.turn)) continue;
     seen.add(b.turn);
     // The Worker's judgings and tapbacks in the moment are this turn's Decide and React, as the panel reads them.
-    const sent = Math.max(m.at, ...entries.filter((e) => e.turn === b.turn).map((e) => e.at));
-    const real = realTimes(withWorkerSteps(entries, b.turn, m.at - 1_000, sent), b.turn);
+    const real = realTimes(momentTurnEntries(m, entries, b.turn), b.turn);
     if (!real) continue;
     // From what started it: a text, or a check-in, a routine or a ping, whatever the canvas traced last. Only the
     // steps the log shows ran get a row (`onlyWhatRan`): no estimate stands in for one that didn't.
