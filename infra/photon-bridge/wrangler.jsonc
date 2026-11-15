@@ -39,6 +39,8 @@
     "staging": {
       "name": "context-photon-bridge-staging",
       "workers_dev": false,
+      // Staging shares production's Photon project, so it stays off the line (src/lineSwitch.ts).
+      "vars": { "PHOTON_LINE": "off" },
       "services": [
         { "binding": "AGENT", "service": "context-agent-staging", "entrypoint": "PhotonEvents" }
       ],

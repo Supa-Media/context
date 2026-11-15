@@ -14,6 +14,11 @@ describe("the bridge's deployment", () => {
     expect(staging).not.toHaveProperty("routes");
   });
 
+  it("keeps staging off the line it shares with production, so one text gets one Tex", () => {
+    expect(staging.vars).toEqual({ PHOTON_LINE: "off" });
+    expect(config.vars?.PHOTON_LINE).toBeUndefined();
+  });
+
   it("names the production and staging Workers", () => {
     expect(config.name).toBe("context-photon-bridge");
     expect(staging.name).toBe("context-photon-bridge-staging");
@@ -43,7 +48,10 @@ describe("the bridge's deployment", () => {
   });
 
   it("does not bind storage or write deployment addresses into source", () => {
-    expect(raw).not.toMatch(/"(?:r2_buckets|kv_namespaces|d1_databases|vars)"\s*:/);
+    expect(raw).not.toMatch(/"(?:r2_buckets|kv_namespaces|d1_databases)"\s*:/);
+    // The one var is staging's line switch (checked above); no address or other setting rides in as a var.
+    expect(config).not.toHaveProperty("vars");
+    expect(Object.keys(staging.vars ?? {})).toEqual(["PHOTON_LINE"]);
     expect(raw).not.toMatch(/https:\/\//);
   });
 });
