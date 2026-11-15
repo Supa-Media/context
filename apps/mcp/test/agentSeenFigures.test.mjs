@@ -78,3 +78,11 @@ test("on the front door, a quoted figure no read backs gets one more round", asy
     world.restore();
   }
 });
+
+test("the config wires the Reply reviewer only to a job's report and a routine's text (Dev2, 2026-11-15)", async () => {
+  // Sabotage: the wire back to `when: ["action"]`, or `reviewedAs` dropped from runTheModel.js, and a chat turn's tag would reach it again.
+  const { readFile } = await import("node:fs/promises");
+  const config = JSON.parse(await readFile(new URL("../../../packages/shared/src/texConfig.json", import.meta.url), "utf8"));
+  const wire = config.edges.find((w) => w.from === "checks" && w.to === "reviewer");
+  assert.deepEqual(wire.when, ["report", "routine"]);
+});

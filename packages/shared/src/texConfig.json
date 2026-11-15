@@ -96,7 +96,7 @@
     {"from":"tools","to":"mail","mode":"uses","when":["email"]},
     {"from":"tools","to":"card","mode":"uses","when":["card"]},
     {"from":"fd","to":"checks","mode":"wait","when":["*"]},
-    {"from":"checks","to":"reviewer","mode":"wait","when":["action"]},
+    {"from":"checks","to":"reviewer","mode":"wait","when":["report","routine"]},
     {"from":"checks","to":"send","mode":"wait","when":["*"]},
     {"from":"reviewer","to":"send","mode":"wait","when":["action"]},
     {"from":"reviewer","to":"fd","mode":"loop","when":["action"],"rounds":30},

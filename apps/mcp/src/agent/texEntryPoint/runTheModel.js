@@ -117,6 +117,7 @@ export async function runTheModel(t, via) {
   // What the Answer checks and Reply reviewer nodes run on each draft (`../graph/nodes/checks.js`, `reviewer.js`): the reviewer's two halves, or the code checks alone.
   // A job's claim check is still the Hand-back judge's own step in the ledger (`loggedCheck`) until the job's nodes move onto the runner.
   t.answerChecks = answerChecksFor({ judge, doIt, claims, tries, chatLog, ledgerAt });
+  t.reviewedAs = judge === null ? null : report !== null ? "report" : "routine"; // the tag the wire to the Reply reviewer fires on (`texConfig.json`: Answer checks to reviewer, when report or routine)
   // A progress line goes unreviewed (Dev2, 2026-11-11, one-judge PR 3): it says what Tex is doing, and a review held each one up to 8 s.
   if (planning) background.plan = via.planner(planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) }));
   if (planning) splitFirst(background); // a lone job is offered the planner once
