@@ -50,7 +50,30 @@ export function peopleOf(participants: readonly string[], lines: readonly string
   return [...new Set(participants.filter((who) => !lines.includes(who)))].sort();
 }
 
-const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((who, i) => who === b[i]);
+/** An address as both providers can name it: a phone's last ten digits, or an email in lower case. */
+const addressKey = (who: string) => (who.includes("@") ? who.trim().toLowerCase() : who.replace(/\D/g, "").slice(-10));
+const overlap = (a: readonly string[], b: readonly string[]) => {
+  const keys = new Set(b.map(addressKey));
+  return new Set(a.map(addressKey).filter((key) => key !== "" && keys.has(key))).size;
+};
+
+/**
+ * The waiting move these people are. Sendblue and Photon do not list a group alike (Dev2's second Tex Devs move,
+ * 2026-11-15: same group, lists that differed), so it is the move sharing the most people, more than half of the longer
+ * list; the note also came from that move's old number, so it is never a stranger's group.
+ */
+function closest(live: readonly Pending[], people: readonly string[]): Pending | undefined {
+  let found: Pending | undefined;
+  let most = 0;
+  for (const entry of live) {
+    const shared = overlap(entry.people, people);
+    if (shared > most && shared * 2 > Math.max(entry.people.length, people.length)) {
+      found = entry;
+      most = shared;
+    }
+  }
+  return found;
+}
 
 // ── The `group-moves` object's side ────────────────────────────────────────
 
@@ -74,9 +97,12 @@ export async function serveGroupMoves(storage: InboxStorage, path: string, body:
     if (pending === undefined) return Response.json({});
     const people = peopleOf(participants as string[], [from, photonLine]);
     const live = pending.filter((entry) => now - entry.at < PENDING_FOR_MS);
-    const found = live.find((entry) => same(entry.people, people));
+    const found = closest(live, people);
     // Photon's event names only who sent it, not the group's people: the Worker reads them from the bridge and asks again.
-    if (found === undefined) return Response.json(live.length > 0 ? { waiting: true, people: people.length } : {});
+    if (found === undefined) {
+      const best = Math.max(0, ...live.map((entry) => overlap(entry.people, people)));
+      return Response.json(live.length > 0 ? { waiting: true, people: people.length, expected: Math.max(0, ...live.map((entry) => entry.people.length)), shared: best } : {});
+    }
     const old: GroupPlace = { line: from, groupId: found.groupId };
     await storage.put(`${ALIAS}${photonGroupId}`, old);
     await storage.put<GroupPlace>(`${TO}${found.groupId}`, { line: photonLine, groupId: photonGroupId });
@@ -147,7 +173,8 @@ export async function arrivedAs(ns: DurableObjectNamespace, arrival: Arrival, me
     if (answer.waiting === true && members !== undefined) {
       const participants = await members();
       answer = await ask(ns, "/group-move/arrive", { ...arrival, participants: [...new Set([...participants, arrival.from])] });
-      if (answer.waiting === true) console.log(JSON.stringify({ event: "chat_move", kind: "group", outcome: "people_differ", heard: participants.length }));
+      // Counts only, never an address: how many the bridge listed, how many the move noted, how many they share.
+      if (answer.waiting === true) console.log(JSON.stringify({ event: "chat_move", kind: "group", outcome: "people_differ", heard: participants.length, people: answer.people, expected: answer.expected, shared: answer.shared }));
     }
     const from = placeOf(answer.from);
     if (from !== null) aliasCache.set(arrival.photonGroupId, from);
