@@ -43,7 +43,10 @@ export function createGoogleChatRoute(clearedOwnAccount) {
     if (path === "/gateway/chat/recent") {
       if (!(await clearedOwnAccount(body))) return { ok: false, refused: "not_allowed" };
       if (!flags.from) return { ok: false, refused: "no_chat" };
-      return { ok: true, from: flags.from, messages: typeof flags.recent === "function" ? flags.recent(body) : (flags.recent ?? []) };
+      const messages = typeof flags.recent === "function" ? flags.recent(body) : (flags.recent ?? []);
+      // One conversation the person named (`fetch chat:`, `tools/googleChatRead.js`) answers where it is, as the real route does.
+      const place = typeof body.to === "string" ? { person: body.to } : typeof body.space === "string" ? { space: body.space } : null;
+      return { ok: true, from: flags.from, messages, ...(place ? { place } : {}) };
     }
     return undefined;
   }
