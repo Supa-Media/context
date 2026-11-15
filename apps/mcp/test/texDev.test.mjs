@@ -6,7 +6,7 @@
  * Sabotage record (temporary local edits, reverted, 2026-11-15):
  *   `tex_dev` out of STAFF_ONLY_TOOLS                 "offered to an editor's or owner's connection, not a member's" fails
  *   `tex_dev` out of WITHHELD_TOOLS                    "never offered to Tex" fails
- *   turnOf() without the `e.turn === turn` filter      "a turn shows only its own entries, in order" fails
+ *   turnWorld() (replay.js) without the `e.turn === turn` filter   "a turn shows only its own entries, in order" fails
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -17,7 +17,8 @@ import { agentTools } from "../src/agent/turn.js";
 import { createTexDev, TEX_DEV_WHO, toolTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { draftProblems } from "../src/texDev/check.js";
-import { turnOf, turnsOf } from "../src/texDev/probe.js";
+import { turnsOf } from "../src/texDev/probe.js";
+import { turnAnswer } from "../src/texDev/replay.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 
 function session(role) {
@@ -176,12 +177,12 @@ test("turns lists each reply with what it answered, what Tex said and how long i
 });
 
 test("a turn shows only its own entries, in order, with inputs, thinking, the failed tool and the slowest steps", async () => {
-  const answer = await turnOf({}, PAGE, { turn: "t1" }, { ledgerOf: () => LEDGER });
+  const answer = await turnAnswer({}, PAGE, { turn: "t1" }, { ledgerOf: () => LEDGER, origin: "https://context.example" });
   assert.deepEqual(answer.order.map((e) => e.label), ["node door", "thinking", "tool browse", "text from tex", "reply"]);
   assert.deepEqual(answer.order[0].input, { text: "book the table" });
   assert.equal(answer.order[1].text, "They want Friday.");
   assert.deepEqual(answer.summary.failed, [{ n: 3, what: "tool browse", why: "timed out" }]);
   assert.equal(answer.summary.slowest[0].what, "tool browse");
   assert.deepEqual(answer.summary.version, { commit: "abc1234" });
-  assert.match((await turnOf({}, PAGE, { turn: "nope" }, { ledgerOf: () => LEDGER })).error, /no turn nope/);
+  assert.match((await turnAnswer({}, PAGE, { turn: "nope" }, { ledgerOf: () => LEDGER, origin: "https://context.example" })).error, /no turn nope/);
 });

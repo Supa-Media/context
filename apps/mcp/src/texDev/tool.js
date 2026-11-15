@@ -14,7 +14,8 @@ import { TEX_CONFIG } from "../agent/texConfig.js";
 import { toolError } from "../tools/results.js";
 import { draftProblems, draftVsMain } from "./check.js";
 import { guideText } from "./guide.js";
-import { chatsOf, entriesOf, turnOf, turnsOf } from "./probe.js";
+import { chatsOf, entriesOf, turnsOf } from "./probe.js";
+import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
 import { snapshotGraph } from "./snapshot.js";
 
 export const TEX_DEV_WHO = "tex_dev is for people who edit @context-lc's AI setup.";
@@ -40,7 +41,7 @@ function parseGraph(text) {
  * The tool's work for one connection. `call(action, args)` answers an MCP result. `env` is the gateway's, `session`
  * the connection's (its token goes to the control plane, which decides who it is), `sleep` for tests.
  */
-export function createTexDev({ env, session, controlPlane, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now }) {
+export function createTexDev({ env, session, controlPlane, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, fetch: get = (...a) => globalThis.fetch(...a), ledgerOf = undefined }) {
   const origin = appOriginOf(env) || "https://context.lc";
   const linkOf = (id) => `${origin}/lab?v=${id}`;
 
@@ -142,9 +143,18 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
         return { content: [{ type: "image", data: shot.png, mimeType: "image/png" }, { type: "text", text: args.draft ? `Draft ${args.draft} · live at ${linkOf(args.draft)}` : "Main as it runs today." }] };
       }
       case "link": {
-        if (needDraft(args)) return needDraft(args);
-        const { error } = await plane("get", { draft: args.draft });
-        return error ?? json({ link: linkOf(args.draft), note: "Opens in the Lab with this draft live; staff sign-in. Edits you make here show there within a second, and theirs reach you in every answer." });
+        // A place in the Lab or in Replay (`replay.js` `linkAnswer`): a page, or a chat and a moment, as the Lab's address holds it.
+        const place = args.mode !== undefined || args.page !== undefined || args.chat !== undefined || args.moment !== undefined;
+        if (!place || args.draft !== undefined) {
+          if (needDraft(args)) return place ? needDraft(args) : toolError("link takes a draft, or a place: { mode: \"replay\", chat?, moment? } or { page }.");
+          const { error } = await plane("get", { draft: args.draft });
+          if (error) return error;
+          if (!place) return json({ link: linkOf(args.draft), note: "Opens in the Lab with this draft live; staff sign-in. Edits you make here show there within a second, and theirs reach you in every answer." });
+        }
+        const p = await page();
+        if (p.error) return p.error;
+        const answer = await linkAnswer(p.page, args, { origin, draft: args.draft ?? null });
+        return answer.error ? toolError(answer.error) : json(answer);
       }
       case "check": {
         let graph = args.graph !== undefined ? parseGraph(args.graph) : null;
@@ -185,18 +195,31 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
       }
       case "turns":
       case "turn":
-      case "entries": {
+      case "entries":
+      case "moments":
+      case "prompt":
+      case "jobs":
+      case "mine": {
         const p = await page();
         if (p.error) return p.error;
         try {
-          const answer = action === "turns" ? await turnsOf(env, p.page, args) : action === "turn" ? await turnOf(env, p.page, args) : await entriesOf(env, p.page, args);
+          // Replay's actions (`replay.js`) work it out with the Lab's own code; `turns` and `entries` read the file as it is.
+          const deps = { ledgerOf, origin, fetch: get, session };
+          const answer =
+            action === "turns" ? await turnsOf(env, p.page, args, ledgerOf ? { ledgerOf } : {})
+            : action === "entries" ? await entriesOf(env, p.page, args)
+            : action === "turn" ? await turnAnswer(env, p.page, args, deps)
+            : action === "moments" ? await momentsAnswer(env, p.page, args, deps)
+            : action === "prompt" ? await promptAnswer(env, p.page, args, deps)
+            : action === "jobs" ? await jobsAnswer(env, p.page, args, deps)
+            : await mineAnswer(env, p.page, args, deps);
           return answer.error ? toolError(answer.error) : json(answer);
         } catch (error) {
           return toolError(error?.status === 404 ? "There is no such chat; chats lists yours." : "That chat's history could not be read just now.");
         }
       }
       default:
-        return toolError(`tex_dev has no action "${action}". Its actions: guide, list, create, get, edit, changes, snapshot, link, check, promote, tool_stats, cases, case, chats, turns, turn, entries.`);
+        return toolError(`tex_dev has no action "${action}". Its actions: guide, list, create, get, edit, changes, snapshot, link, check, promote, tool_stats, cases, case, chats, turns, turn, entries, moments, prompt, jobs, mine.`);
     }
   };
 }
