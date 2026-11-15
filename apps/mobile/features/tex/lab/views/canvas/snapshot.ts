@@ -14,7 +14,7 @@ import type { Sim } from "../../engine/sim";
 import { lab, node } from "../../engine/state";
 import { LAB_CSS } from "../../labCss";
 import type { LabEdge, LabGraph, LabNode } from "../../types";
-import { esc, H, renderFocusCanvasHtml, renderGraphHtml, W, type Bounds } from "./render";
+import { esc, H, renderFocusCanvasHtml, renderGraphHtml, statsHtml, W, type Bounds } from "./render";
 
 export type SnapshotOptions = {
   /** A step id or a group id to draw focused, as the Lab's Focus does; the whole graph, groups folded, when null. */
@@ -24,6 +24,12 @@ export type SnapshotOptions = {
   theme?: "dark" | "light";
   /** The page's width in pixels; its height follows from the drawing. */
   width?: number;
+  /**
+   * A test traced on the canvas, as the Lab's picker traces one: given the graph as drawn (groups folded, the focus
+   * open), its simulation and its name. Each step then carries its time and its split bar, and the stats chip shows
+   * the reply time, the calls and the cost, exactly as the Lab's canvas does; without it nothing is timed.
+   */
+  sim?: ((shown: LabGraph) => { sim: Sim; name: string }) | null;
 };
 
 export type Snapshot = { html: string; width: number; height: number };
@@ -123,15 +129,18 @@ export function snapshotPage(graph: LabGraph, opts: SnapshotOptions = {}): Snaps
     let html: string;
     let bounds: Bounds;
     let label: string | null = null;
+    const traced = opts.sim ? opts.sim(shown) : null;
+    const sim = traced?.sim ?? NO_SIM;
     if (focus && !opened) {
       const n = node(focus, shown);
       if (!n) throw new Error(`There is no step or group called "${asked}" in that graph.`);
-      const f = renderFocusCanvasHtml(shown, NO_SIM, focus, null);
+      const f = renderFocusCanvasHtml(shown, sim, focus, null);
       html = f.html;
       bounds = { ...f.fBounds, y1: f.fBounds.y1 + 24 };
       label = n.label;
     } else {
-      html = renderGraphHtml(shown, NO_SIM, [], null, null, "off");
+      // The canvas fades only the steps switched off, whatever is traced (`Canvas.web.tsx`), so the tags change nothing here.
+      html = renderGraphHtml(shown, sim, [], null, null, "off");
       const xs = shown.nodes.map((n) => n.x);
       const ys = shown.nodes.map((n) => n.y);
       const loops = shown.edges.some((e) => e.mode === "loop");
@@ -147,6 +156,7 @@ export function snapshotPage(graph: LabGraph, opts: SnapshotOptions = {}): Snaps
     }
 
     const note: string[] = [];
+    if (traced) note.push(`<span style="color:var(--text2)">${esc(traced.name.length > 70 ? traced.name.slice(0, 69) + "…" : traced.name)}</span>`);
     if (label) note.push(`<b>${esc(label)}</b>`);
     if (marks) {
       const bits = [
@@ -166,9 +176,10 @@ export function snapshotPage(graph: LabGraph, opts: SnapshotOptions = {}): Snaps
     const x = (width - bw * k) / 2 - bounds.x0 * k;
     const y = top + Math.max(0, (height - top - bh * k) / 2) - bounds.y0 * k;
     const cam = `translate(${x.toFixed(2)},${y.toFixed(2)}) scale(${k.toFixed(4)})`;
-    const caption = note.length
-      ? `<div style="position:absolute;left:16px;top:10px;z-index:2;display:flex;gap:14px;align-items:center;font-size:14px;color:var(--text)">${note.join("")}</div>`
-      : "";
+    const caption =
+      (note.length
+        ? `<div style="position:absolute;left:16px;top:10px;z-index:2;display:flex;gap:14px;align-items:center;font-size:14px;color:var(--text)">${note.join("")}</div>`
+        : "") + (traced ? `<div class="float stats" id="stats" style="z-index:3">${statsHtml(sim)}</div>` : "");
 
     const page =
       `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=${width}">` +
