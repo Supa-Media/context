@@ -294,6 +294,22 @@ binding = "TEXTING"
 service = "context-agent"
 entrypoint = "TexRoutines"
 
+# Tex's eval service (infra/tex-eval): the sealed Test Set. `TEX_EVAL` is its
+# named entrypoint `PeopleDoor`, for the Lab's people (`src/http/texTestSet.js`
+# checks who); `TEX_EVAL_HTTP` its default one, which `/tex-eval/*` is passed to
+# untouched and which takes only main's Test Set workflow, by GitHub OIDC. No
+# address of its own and no secret. It deploys first, in the gateway's job.
+# Self-hosting without it: delete both blocks; the Lab's Testing tab then
+# answers that the Test Set could not be reached.
+[[services]]
+binding = "TEX_EVAL"
+service = "context-tex-eval"
+entrypoint = "PeopleDoor"
+
+[[services]]
+binding = "TEX_EVAL_HTTP"
+service = "context-tex-eval"
+
 # Self-host only. Comma-separated allowlist of Worker binding names that a
 # control-plane storage binding is permitted to name.
 #
@@ -449,6 +465,15 @@ service = "context-site-shots-staging"
 binding = "TEXTING"
 service = "context-agent-staging"
 entrypoint = "TexRoutines"
+
+[[env.staging.services]]
+binding = "TEX_EVAL"
+service = "context-tex-eval-staging"
+entrypoint = "PeopleDoor"
+
+[[env.staging.services]]
+binding = "TEX_EVAL_HTTP"
+service = "context-tex-eval-staging"
 
 [env.staging.ai]
 binding = "AI"

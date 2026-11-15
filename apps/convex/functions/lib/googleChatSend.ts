@@ -42,7 +42,10 @@ export type ChatRefusal =
   | "unavailable"
   // Google answered a send without naming the message it made, so whether it
   // went is not known: never reported as sent, nor as nothing sent.
-  | "unconfirmed";
+  | "unconfirmed"
+  // The call named no account (a read must), or one that isn't one of theirs with Chat (`chatAccount`).
+  | "account_needed"
+  | "account_not_found";
 
 /** `to` is one person's email (a direct message); `space` a space, by its name in Chat or its `spaces/…` id. */
 export interface ChatMessage {
@@ -68,6 +71,24 @@ export function readChatMessage(value: unknown): ChatMessage | null {
   const text = typeof raw.text === "string" ? raw.text : "";
   if (text.trim() === "" || text.length > CHAT_MAX_TEXT || TEXT_CONTROL.test(text)) return null;
   return { to, space, text };
+}
+
+/**
+ * Which of a person's Chat accounts a call goes through. A read names the account by its address, and is refused with
+ * the list when it names none or one that isn't theirs, so the AI learns which accounts it has (Dev2, 2026-11-15: "when
+ * it reads things from google chat, it should be required to pass in an email"; before, every Chat call went through
+ * the first connected account, and a chat on their second never showed). A send may leave it out and goes from the first.
+ */
+export function chatAccount<Row extends { address: string }>(
+  eligible: Row[],
+  account: string | undefined,
+  required: boolean,
+): { ok: true; row: Row } | { ok: false; refused: "account_needed" | "account_not_found"; accounts: string[] } {
+  const accounts = eligible.map((row) => row.address);
+  const wanted = typeof account === "string" ? account.trim().toLowerCase() : "";
+  if (wanted === "") return required || eligible.length === 0 ? { ok: false, refused: "account_needed", accounts } : { ok: true, row: eligible[0]! };
+  const row = eligible.find((candidate) => candidate.address.trim().toLowerCase() === wanted);
+  return row === undefined ? { ok: false, refused: "account_not_found", accounts } : { ok: true, row };
 }
 
 /** The counters one message spends, all or none (`functions/googleChatSend.ts`). */

@@ -73,6 +73,9 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   // Routes the gateway answers before it reads a context (`/internal/...`, `/api/image-upload`).
   "internal",
   "api",
+  // The Lab's Test Set, `/tex-test-set`, and Tex's eval service at `/tex-eval/`, on the gateway.
+  "tex-test-set",
+  "tex-eval",
 ]);
 
 /**

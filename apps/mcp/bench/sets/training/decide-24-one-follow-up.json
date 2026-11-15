@@ -1,0 +1,28 @@
+{
+  "id": "decide-24-one-follow-up",
+  "title": "A follow-up ask, one to one",
+  "set": "training",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Tex",
+      "tex": true,
+      "text": "Done, it's on your calendar for 3."
+    },
+    {
+      "id": "m2",
+      "who": "Jo",
+      "text": "great, can you make it 3:30 instead",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "asks_tex"
+        }
+      }
+    }
+  ]
+}
