@@ -7,6 +7,11 @@
   "exclude": [],
   "generated": [
     {
+      "path": "apps/mcp/src/texDev/canvas.generated.js",
+      "reason": "The Lab's canvas drawing bundled for the gateway by scripts/tex-dev-canvas.mjs; CI's --check fails when it differs from the source.",
+      "command": "node scripts/tex-dev-canvas.mjs"
+    },
+    {
       "path": "pnpm-lock.yaml",
       "reason": "Package manager lockfile; machine-generated.",
       "command": "pnpm install"

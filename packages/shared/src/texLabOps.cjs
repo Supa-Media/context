@@ -13,6 +13,8 @@
  *   { op: "remove", node }                      a step, with every wire that touches it
  *   { op: "wire",   from, to, mode, when? }     a wire (one per from, to and mode; an existing one gets the new `when`)
  *   { op: "unwire", from, to, mode? }           a wire (every mode between the two when `mode` is left out)
+ *   { op: "module", key, value }                one context module's edit (`graph.modules[key]`: words, size, cache); null drops it
+ *   { op: "convo",  field, value }              one conversation setting (`graph.convo[field]`); null drops it
  *   { op: "put",    graph }                     the whole graph
  *
  * Each edit names the pieces it touches (`keysOf`). The control plane keeps which pieces every revision touched, and an
@@ -66,6 +68,10 @@ function keysOf(op) {
       return [wireKey(op.from, op.to, op.mode)];
     case "unwire":
       return op.mode ? [wireKey(op.from, op.to, op.mode)] : [`e:${op.from}>${op.to}>*`];
+    case "module":
+      return [`m:${op.key}`];
+    case "convo":
+      return [`c:${op.field}`];
     case "put":
       return ["*"];
     default:
@@ -169,13 +175,32 @@ function applyOps(graph, ops) {
           said.push(`unwired ${op.from} → ${op.to}${op.mode ? " (" + op.mode + ")" : ""}`);
           break;
         }
+        case "module": {
+          if (typeof op.key !== "string" || !/^[A-Za-z0-9_.:-]{1,64}$/.test(op.key)) throw at("key is not a module key");
+          if (op.value !== null && (typeof op.value !== "object" || Array.isArray(op.value))) throw at("value must be the module's edit as an object, or null");
+          g.modules = { ...(g.modules ?? {}) };
+          if (op.value === null) delete g.modules[op.key];
+          else g.modules[op.key] = clone(op.value);
+          said.push(op.value === null ? `dropped the edit to module ${op.key}` : `edited module ${op.key}${typeof op.value.text === "string" ? " (its words)" : ""}`);
+          break;
+        }
+        case "convo": {
+          if (typeof op.field !== "string" || !/^[A-Za-z]{1,30}$/.test(op.field)) throw at("field is not a conversation setting");
+          if (op.value === undefined) throw at("it has no value");
+          g.convo = { ...(g.convo ?? {}) };
+          const before = g.convo[op.field];
+          if (op.value === null) delete g.convo[op.field];
+          else g.convo[op.field] = clone(op.value);
+          said.push(`set conversation ${op.field} ${short(show(before))} → ${short(show(op.value === null ? undefined : op.value))}`);
+          break;
+        }
         case "put": {
           g = clone(asGraph(op.graph));
           said.push("replaced the whole graph");
           break;
         }
         default:
-          throw at("not an edit: use set, move, add, remove, wire, unwire or put");
+          throw at("not an edit: use set, move, add, remove, wire, unwire, module, convo or put");
       }
     } catch (error) {
       if (error instanceof OpError && error.message.startsWith("edit ")) throw error;
@@ -197,11 +222,16 @@ function diffGraphs(a, b) {
   asGraph(a);
   asGraph(b);
   const rest = (g) => {
-    const { nodes: _n, edges: _e, ...others } = g;
+    const { nodes: _n, edges: _e, modules: _m, convo: _c, ...others } = g;
     return others;
   };
   if (!same(rest(a), rest(b))) return [{ op: "put", graph: clone(b) }];
   const ops = [];
+  for (const [part, op, name] of [["modules", "module", "key"], ["convo", "convo", "field"]]) {
+    const was = a[part] ?? {};
+    const now = b[part] ?? {};
+    for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) if (!same(was[k], now[k])) ops.push({ op, [name]: k, value: now[k] === undefined ? null : clone(now[k]) });
+  }
   const before = new Map(a.nodes.map((n) => [n.id, n]));
   const after = new Map(b.nodes.map((n) => [n.id, n]));
   for (const id of before.keys()) if (!after.has(id)) ops.push({ op: "remove", node: id });

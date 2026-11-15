@@ -97,12 +97,31 @@ function ThemeToggle() {
   );
 }
 
+/**
+ * `/lab?v=<draft>`, the link the MCP's `tex_dev` hands out (`apps/mcp/src/texDev/tool.js` `link`): open that draft
+ * once the shared list has it, live.
+ */
+function useOpenFromLink() {
+  const s = useLab();
+  const [opened, setOpened] = useState(false);
+  useEffect(() => {
+    if (opened || typeof window === "undefined") return;
+    const id = new URLSearchParams(window.location.search).get("v");
+    if (!id) return setOpened(true);
+    if (s.versions.some((v) => v.id === id)) {
+      openVersion(id);
+      setOpened(true);
+    }
+  }, [s.versions, opened]);
+}
+
 export function TexLab() {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
   // Staff whose session has not typed its second-factor code are asked for it here, as the console asks (`AdminPane.tsx`), never told "Staff only".
   const factor = useQuery(api.functions.staffSecondFactor.myStaffFactor, {});
   const theme = useLabTheme();
   useLabSync(isAdmin === true);
+  useOpenFromLink();
   useEffect(() => {
     ensureFontsLoaded();
     if (!lab.scn) buildTraces(allCases());

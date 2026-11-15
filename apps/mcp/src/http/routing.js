@@ -9,6 +9,8 @@ import { objectFirstChildren, objectFirstManifest } from "../store/objectManifes
 import { attachHomeRoutineReports } from "../agent/chatHomeSeal.js";
 import { deliverMail } from "../mail/deliver.js";
 import { runLabModel } from "../tools/runModel.js";
+import { createTexDev } from "../texDev/tool.js";
+import { editsPinnedContext } from "../context/identity.js";
 
 /**
  * The three link calls, attached to the store for each request.
@@ -208,6 +210,12 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // `tex_dev`: developing on Tex. Given only to a connection whose person edits @context-lc's AI setup; the control
+  // plane decides again on every call that reads a draft or a chat (`texDev/tool.js`, `functions/texLabDrafts.ts`).
+  if (editsPinnedContext(session)) {
+    const texDev = createTexDev({ env, session, controlPlane });
+    Object.defineProperty(store, "texDev", { value: texDev, enumerable: false, writable: false, configurable: true });
+  }
   // `notify_me`: a ping for this connection's person. The control plane
   // clears the owner of their personal workspace off this token and decides.
   Object.defineProperty(store, "requestAttention", {

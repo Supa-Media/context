@@ -4,8 +4,9 @@
  * their own (never Tex's), and an edit made against an older revision is refused only when the same piece changed.
  *
  * Sabotage (temporary local edits, reverted, 2026-11-15):
- *   `texDeveloper` without the role check         "a plain member of the pinned context is refused" fails
- *   `texDeveloper` without the context_ check     "Tex's own client is refused" fails
+ *   `texDeveloper` without the role check         "a stranger, a plain member ..." fails
+ *   `texDeveloper` without the staff check        "a stranger, a plain member ..." fails
+ *   `texDeveloper` without the context_ check     "... Context's own clients (Tex's among them) are refused" fails
  *   `applyToDraft` without the conflicts() check   "the later edit to the same field is refused" fails
  */
 
@@ -13,13 +14,14 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { api } from "../../_generated/api";
 import { addMember, createUser, createWorkspace, gatewayPost } from "../fixtures.helpers";
-import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
+import { ACCESS_A, ACCESS_B, bodyOf, registerClient, twoConnectedTenants } from "./fixtures.helpers";
 import { withSession } from "../session.helpers";
 
 vi.setConfig({ testTimeout: 30_000 });
 
 const STAFF = "staff@example.invalid";
-beforeEach(() => vi.stubEnv("ADMIN_EMAILS", STAFF));
+// Alice, the editor of the pinned context the tests' AI client speaks for, is staff too unless a test says not.
+beforeEach(() => vi.stubEnv("ADMIN_EMAILS", `${STAFF},alice@example.invalid`));
 afterEach(() => vi.unstubAllEnvs());
 
 const GRAPH = {
@@ -55,14 +57,20 @@ describe("tex_dev drafts", () => {
     expect((list.drafts as Array<{ id: string }>).map((d) => d.id)).toContain(id);
   });
 
-  test("a stranger, a plain member of the pinned context and Tex's own client are refused", async () => {
+  test("a stranger, a plain member of the pinned context and Context's own clients (Tex's among them) are refused", async () => {
     const w = await world();
     expect(await w.dev("list", {}, ACCESS_B)).toEqual({ status: "refused" });
     const m = await world("member");
     expect(await m.dev("list")).toEqual({ status: "refused" });
+    // An editor of the pinned context who is not staff: the Lab's drafts are staff's, so refused.
+    vi.stubEnv("ADMIN_EMAILS", STAFF);
+    expect(await w.dev("list")).toEqual({ status: "refused" });
+    vi.stubEnv("ADMIN_EMAILS", `${STAFF},alice@example.invalid`);
     const tex = await world();
+    // One of Context's own clients (Tex's texting clients are the same `context_*` family), registered like any other.
+    await registerClient(tex.t, "context_console");
     await tex.t.run(async (ctx) => {
-      await ctx.db.patch(tex.grantA, { clientId: "context_texts" });
+      await ctx.db.patch(tex.grantA, { clientId: "context_console" });
     });
     expect(await tex.dev("list")).toEqual({ status: "refused" });
   });
@@ -116,5 +124,15 @@ describe("tex_dev drafts", () => {
     const row = (await withSession(t, staff).query(api.functions.texLab.list, {})).versions.find((v) => v.versionId === id)!;
     expect(row.promote?.state).toBe("asked");
     expect(await dev("get", { draft: "vnothere" })).toEqual({ status: "not_found" });
+  });
+  test("the Lab's Tools and Tests tabs: tool stats, and case edits kept for every staff member", async () => {
+    const { t, dev, staff } = await world();
+    expect(await dev("tool_stats", { days: 7 })).toMatchObject({ status: "ok", stats: expect.any(Object) });
+    expect(await dev("case", { key: "core/q9", data: '{"area":"core","id":"q9","ask":"x","expect":"y"}' })).toEqual({ status: "ok" });
+    expect(((await dev("cases")).caseEdits as Array<{ key: string }>).map((c) => c.key)).toEqual(["core/q9"]);
+    expect((await withSession(t, staff).query(api.functions.texLab.list, {})).caseEdits.map((c) => c.key)).toEqual(["core/q9"]);
+    expect(await dev("case", { key: "../etc", data: "{}" })).toMatchObject({ status: "bad_request" });
+    expect(await dev("case", { key: "core/q9", data: null })).toEqual({ status: "ok" });
+    expect((await dev("cases")).caseEdits).toEqual([]);
   });
 });

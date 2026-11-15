@@ -27,6 +27,7 @@ import { toolForwardRule } from "./forwardRule.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace, toolInviteMember } from "./workspaces.js";
 import { toolDreamNow } from "./dreamNow.js";
 import { toolRunModel } from "./runModel.js";
+import { toolTexDev } from "../texDev/tool.js";
 import { toolFillDates } from "./fillDates.js";
 import { toolPairDevice } from "./pairDevice.js";
 import { toolNotifyMe } from "./attention.js";
@@ -295,6 +296,8 @@ async function runTool(name, args, store, scope, options = {}) {
       return toolDreamNow(store, scope);
     case "run_model":
       return toolRunModel(store, args);
+    case "tex_dev":
+      return toolTexDev(store, args);
     case "fill_dates":
       return toolFillDates(store, scope, args);
     case "pair_device":

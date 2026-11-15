@@ -7,6 +7,8 @@ export type LabOp =
   | { op: "remove"; node: string }
   | { op: "wire"; from: string; to: string; mode: string; when?: string[] }
   | { op: "unwire"; from: string; to: string; mode?: string }
+  | { op: "module"; key: string; value: Record<string, unknown> | null }
+  | { op: "convo"; field: string; value: unknown }
   | { op: "put"; graph: LabGraphJson };
 export const MODES: string[];
 export const NODE_FIELDS: Set<string>;

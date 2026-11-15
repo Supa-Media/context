@@ -27,6 +27,220 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// packages/shared/src/texLabOps.cjs
+var require_texLabOps = __commonJS({
+  "packages/shared/src/texLabOps.cjs"(exports, module) {
+    "use strict";
+    var MODES = ["wait", "uses", "background", "job", "loop"];
+    var ID = /^[A-Za-z][A-Za-z0-9_-]{0,47}$/;
+    var NODE_FIELDS = /* @__PURE__ */ new Set(["label", "goal", "log", "on", "rounds", "out", "ctx", "ms", "timeoutS", "areas", "file", "note", "icon", "model", "effort", "kind", "inSchema", "outSchema", "sendBack", "x", "y", "group"]);
+    var MAX_OPS = 200;
+    var OpError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "OpError";
+      }
+    };
+    var clone2 = (value) => JSON.parse(JSON.stringify(value));
+    var wireKey3 = (from, to, mode) => `e:${from}>${to}>${mode}`;
+    var show = (value) => value === void 0 ? "nothing" : typeof value === "string" ? value : JSON.stringify(value);
+    var short = (text, max = 60) => text.length > max ? text.slice(0, max - 1) + "\u2026" : text;
+    function asGraph(graph) {
+      if (!graph || typeof graph !== "object" || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) throw new OpError("the graph has no steps and wires");
+      return graph;
+    }
+    function needId(value, what) {
+      if (typeof value !== "string" || !ID.test(value)) throw new OpError(`${what} is not a step id (${show(value)})`);
+      return value;
+    }
+    function keysOf2(op) {
+      switch (op?.op) {
+        case "set":
+          return [`n:${op.node}:${op.field}`];
+        case "move":
+          return [`n:${op.node}:x`, `n:${op.node}:y`];
+        case "add":
+          return [`n:${op.node?.id}`];
+        case "remove":
+          return [`n:${op.node}`];
+        case "wire":
+          return [wireKey3(op.from, op.to, op.mode)];
+        case "unwire":
+          return op.mode ? [wireKey3(op.from, op.to, op.mode)] : [`e:${op.from}>${op.to}>*`];
+        case "module":
+          return [`m:${op.key}`];
+        case "convo":
+          return [`c:${op.field}`];
+        case "put":
+          return ["*"];
+        default:
+          return [];
+      }
+    }
+    function overlaps(a, b) {
+      if (a === "*" || b === "*") return true;
+      if (a === b) return true;
+      const [short_, long_] = a.length <= b.length ? [a, b] : [b, a];
+      if (short_.startsWith("n:") && long_.startsWith(short_ + ":")) return true;
+      if (a.endsWith(">*") && b.startsWith(a.slice(0, -1))) return true;
+      if (b.endsWith(">*") && a.startsWith(b.slice(0, -1))) return true;
+      const step = (k) => /^n:[^:]+$/.test(k) ? k.slice(2) : null;
+      const wireEnds = (k) => k.startsWith("e:") ? k.slice(2).split(">").slice(0, 2) : null;
+      for (const [s, w] of [[step(a), wireEnds(b)], [step(b), wireEnds(a)]]) if (s !== null && w !== null && w.includes(s)) return true;
+      return false;
+    }
+    function conflicts(keys, touched) {
+      return keys.filter((k) => touched.some((t) => overlaps(k, t)));
+    }
+    function applyOps2(graph, ops) {
+      if (!Array.isArray(ops) || ops.length === 0) throw new OpError("there are no edits");
+      if (ops.length > MAX_OPS) throw new OpError(`at most ${MAX_OPS} edits at once`);
+      let g = clone2(asGraph(graph));
+      const keys = [];
+      const said = [];
+      ops.forEach((op, i) => {
+        const at = (message) => new OpError(`edit ${i + 1} (${show(op?.op)}): ${message}`);
+        const find = (id) => g.nodes.find((n) => n.id === id);
+        try {
+          switch (op?.op) {
+            case "set": {
+              const n = find(needId(op.node, "node"));
+              if (!n) throw at(`there is no step "${op.node}"`);
+              if (!NODE_FIELDS.has(op.field)) throw at(`"${op.field}" is not a field a step has (${[...NODE_FIELDS].join(", ")})`);
+              if (op.value === void 0) throw at("it has no value");
+              const before = n[op.field];
+              if (op.value === null) delete n[op.field];
+              else n[op.field] = clone2(op.value);
+              said.push(`set ${n.id} ${op.field} ${short(show(before))} \u2192 ${short(show(op.value === null ? void 0 : op.value))}`);
+              break;
+            }
+            case "move": {
+              const n = find(needId(op.node, "node"));
+              if (!n) throw at(`there is no step "${op.node}"`);
+              if (!Number.isFinite(op.x) || !Number.isFinite(op.y)) throw at("x and y must be numbers");
+              n.x = Math.round(op.x);
+              n.y = Math.round(op.y);
+              said.push(`moved ${n.id}`);
+              break;
+            }
+            case "add": {
+              const n = op.node;
+              if (!n || typeof n !== "object" || Array.isArray(n)) throw at("it has no step");
+              needId(n.id, "the new step's id");
+              if (find(n.id)) throw at(`there is already a step "${n.id}"`);
+              for (const k of Object.keys(n)) if (k !== "id" && !NODE_FIELDS.has(k)) throw at(`"${k}" is not a field a step has`);
+              g.nodes.push({ label: n.id, goal: "", log: true, on: true, rounds: 1, out: 300, ctx: [], ms: 0, timeoutS: 0, areas: [], file: "", note: "", icon: "", model: "code", x: 0, y: 0, ...clone2(n) });
+              said.push(`added step ${n.id}`);
+              break;
+            }
+            case "remove": {
+              const id = needId(op.node, "node");
+              if (!find(id)) throw at(`there is no step "${id}"`);
+              g.nodes = g.nodes.filter((n) => n.id !== id);
+              const wires = g.edges.length;
+              g.edges = g.edges.filter((e) => e.from !== id && e.to !== id);
+              said.push(`removed step ${id}` + (wires > g.edges.length ? ` and its ${wires - g.edges.length} wire${wires - g.edges.length === 1 ? "" : "s"}` : ""));
+              break;
+            }
+            case "wire": {
+              needId(op.from, "from");
+              needId(op.to, "to");
+              if (!find(op.from) || !find(op.to)) throw at(`a wire joins a step that is not there (${op.from} \u2192 ${op.to})`);
+              if (!MODES.includes(op.mode)) throw at(`mode must be one of ${MODES.join(", ")}`);
+              const when = op.when === void 0 ? ["*"] : op.when;
+              if (!Array.isArray(when) || !when.every((w) => typeof w === "string" && w.length > 0 && w.length <= 40)) throw at("when must be a list of tags");
+              const had = g.edges.find((e) => e.from === op.from && e.to === op.to && e.mode === op.mode);
+              if (had) had.when = [...when];
+              else g.edges.push({ from: op.from, to: op.to, mode: op.mode, when: [...when] });
+              said.push(`${had ? "rewired" : "wired"} ${op.from} \u2192 ${op.to} (${op.mode}${when.join(",") === "*" ? "" : ", when " + when.join(", ")})`);
+              break;
+            }
+            case "unwire": {
+              if (op.mode !== void 0 && !MODES.includes(op.mode)) throw at(`mode must be one of ${MODES.join(", ")}`);
+              const keep = g.edges.filter((e) => !(e.from === op.from && e.to === op.to && (op.mode === void 0 || e.mode === op.mode)));
+              if (keep.length === g.edges.length) throw at(`there is no wire ${op.from} \u2192 ${op.to}${op.mode ? " (" + op.mode + ")" : ""}`);
+              g.edges = keep;
+              said.push(`unwired ${op.from} \u2192 ${op.to}${op.mode ? " (" + op.mode + ")" : ""}`);
+              break;
+            }
+            case "module": {
+              if (typeof op.key !== "string" || !/^[A-Za-z0-9_.:-]{1,64}$/.test(op.key)) throw at("key is not a module key");
+              if (op.value !== null && (typeof op.value !== "object" || Array.isArray(op.value))) throw at("value must be the module's edit as an object, or null");
+              g.modules = { ...g.modules ?? {} };
+              if (op.value === null) delete g.modules[op.key];
+              else g.modules[op.key] = clone2(op.value);
+              said.push(op.value === null ? `dropped the edit to module ${op.key}` : `edited module ${op.key}${typeof op.value.text === "string" ? " (its words)" : ""}`);
+              break;
+            }
+            case "convo": {
+              if (typeof op.field !== "string" || !/^[A-Za-z]{1,30}$/.test(op.field)) throw at("field is not a conversation setting");
+              if (op.value === void 0) throw at("it has no value");
+              g.convo = { ...g.convo ?? {} };
+              const before = g.convo[op.field];
+              if (op.value === null) delete g.convo[op.field];
+              else g.convo[op.field] = clone2(op.value);
+              said.push(`set conversation ${op.field} ${short(show(before))} \u2192 ${short(show(op.value === null ? void 0 : op.value))}`);
+              break;
+            }
+            case "put": {
+              g = clone2(asGraph(op.graph));
+              said.push("replaced the whole graph");
+              break;
+            }
+            default:
+              throw at("not an edit: use set, move, add, remove, wire, unwire, module, convo or put");
+          }
+        } catch (error) {
+          if (error instanceof OpError && error.message.startsWith("edit ")) throw error;
+          throw at(error instanceof Error ? error.message : String(error));
+        }
+        keys.push(...keysOf2(op));
+      });
+      return { graph: g, keys: [...new Set(keys)], said };
+    }
+    var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    function diffGraphs2(a, b) {
+      asGraph(a);
+      asGraph(b);
+      const rest = (g) => {
+        const { nodes: _n, edges: _e, modules: _m, convo: _c, ...others } = g;
+        return others;
+      };
+      if (!same(rest(a), rest(b))) return [{ op: "put", graph: clone2(b) }];
+      const ops = [];
+      for (const [part, op, name] of [["modules", "module", "key"], ["convo", "convo", "field"]]) {
+        const was = a[part] ?? {};
+        const now = b[part] ?? {};
+        for (const k of /* @__PURE__ */ new Set([...Object.keys(was), ...Object.keys(now)])) if (!same(was[k], now[k])) ops.push({ op, [name]: k, value: now[k] === void 0 ? null : clone2(now[k]) });
+      }
+      const before = new Map(a.nodes.map((n) => [n.id, n]));
+      const after = new Map(b.nodes.map((n) => [n.id, n]));
+      for (const id of before.keys()) if (!after.has(id)) ops.push({ op: "remove", node: id });
+      for (const [id, n] of after) {
+        const was = before.get(id);
+        if (!was) {
+          ops.push({ op: "add", node: clone2(n) });
+          continue;
+        }
+        if (was.x !== n.x || was.y !== n.y) ops.push({ op: "move", node: id, x: n.x, y: n.y });
+        for (const field of /* @__PURE__ */ new Set([...Object.keys(was), ...Object.keys(n)])) {
+          if (field === "id" || field === "x" || field === "y") continue;
+          if (!NODE_FIELDS.has(field)) return [{ op: "put", graph: clone2(b) }];
+          if (!same(was[field], n[field])) ops.push({ op: "set", node: id, field, value: n[field] === void 0 ? null : clone2(n[field]) });
+        }
+      }
+      const key = (e) => `${e.from}>${e.to}>${e.mode}`;
+      const wa = new Map(a.edges.map((e) => [key(e), e]));
+      const wb = new Map(b.edges.map((e) => [key(e), e]));
+      const gone = new Set(ops.filter((o) => o.op === "remove").map((o) => o.node));
+      for (const [k, e] of wa) if (!wb.has(k) && !gone.has(e.from) && !gone.has(e.to)) ops.push({ op: "unwire", from: e.from, to: e.to, mode: e.mode });
+      for (const [k, e] of wb) if (!wa.has(k) || !same(wa.get(k).when, e.when)) ops.push({ op: "wire", from: e.from, to: e.to, mode: e.mode, when: [...e.when ?? ["*"]] });
+      return ops;
+    }
+    module.exports = { MODES, NODE_FIELDS, MAX_OPS, OpError, applyOps: applyOps2, diffGraphs: diffGraphs2, keysOf: keysOf2, overlaps, conflicts };
+  }
+});
+
 // packages/shared/src/displayText.cjs
 var require_displayText = __commonJS({
   "packages/shared/src/displayText.cjs"(exports, module) {
@@ -506,6 +720,16 @@ svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-widt
 .spacer{flex:1}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
 .sync{font-size:12.5px;color:var(--dim);white-space:nowrap}
+.lchip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;background:var(--chip);color:var(--text2);font-size:12.5px;white-space:nowrap}
+.lchip.ai{background:color-mix(in srgb,var(--team) 14%,transparent);color:var(--team);font-weight:600}
+.lchip.ai::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--team);animation:lpulse 1.6s ease-in-out infinite}
+@keyframes lpulse{50%{opacity:.35}}
+.chg{display:grid;gap:2px;padding:0 4px 8px}
+.chg .row{display:grid;gap:1px;padding:6px 8px;border-radius:8px;font-size:12.5px;color:var(--text2);line-height:1.35}
+.chg .row.ai{background:color-mix(in srgb,var(--team) 9%,transparent)}
+.chg .row b{color:var(--text);font-weight:600}.chg .row.ai b{color:var(--team)}
+.chg .row small{color:var(--dim);font-size:11.5px}
+.chg .none{padding:4px 8px;font-size:12.5px;color:var(--dim)}
 .thm{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--chip)}.thm button{display:grid;place-items:center;width:26px;height:24px;padding:0;border:none;border-radius:6px;background:none;color:var(--dim)}.thm button:hover{color:var(--text)}.thm button[aria-checked="true"]{background:var(--page);color:var(--text);box-shadow:var(--shadow)}
 
 .body{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:0}
@@ -616,6 +840,7 @@ svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-widt
 .nd{cursor:pointer}
 .nd .card{fill:var(--page);stroke:var(--line2);stroke-width:1}
 .nd:hover .card{stroke:var(--text2)}
+.nd.hl .card{stroke-width:3;animation:hlfade 3s ease-out forwards}.nd.hl-ai .card{stroke:var(--team)}.nd.hl-lab .card{stroke:var(--accent)}@keyframes hlfade{from{filter:drop-shadow(0 0 8px var(--team))}to{filter:none}}
 .nd.sel .card{stroke:var(--accent);stroke-width:2}
 .nd.dim{opacity:.32}
 .nd.off .card{stroke-dasharray:4 4}
@@ -847,6 +1072,33 @@ textarea.code{width:100%;border:1px solid var(--line);background:var(--page);bor
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 `;
+
+// apps/mobile/features/tex/lab/engine/live.ts
+var import_texLabOps = __toESM(require_texLabOps());
+var LIVE_MS = 10 * 6e4;
+var live = {
+  id: null,
+  /** The draft's unfolded graph at `rev`, as the server last confirmed it; null when this version is not live (main, or not saved yet). */
+  synced: null,
+  rev: 0,
+  /** The first revision of the change feed to read (a little before the one opened). */
+  since: 0,
+  inflight: false,
+  /** Something merged (or refused) on the server that the page has not read yet: nothing is sent until `needRev` arrives. */
+  stale: false,
+  needRev: 0,
+  /** The server's graph replaces the page's, local edits and all (a conflict). */
+  discard: false,
+  remote: null,
+  timer: null,
+  send: null,
+  hl: {},
+  feed: { rev: 0, live: null, changes: [] }
+};
+var hlClass = (id, now = Date.now()) => {
+  const h = live.hl[id];
+  return h && h.until > now ? " hl hl-" + h.by : "";
+};
 
 // apps/mobile/features/tex/lab/data/convo.ts
 var CV_MAIN = { word: 24, older: 8e4, threads: 50, days: 60, dayChars: 12e3, slim: true, classify: "after", tools: { read_thread: true, earlier_texts: true, earlier_chat: true, close_thread: false, retitle_thread: false, move_text: false } };
@@ -1698,7 +1950,7 @@ function renderGraphHtml(g, sim, tags, sel, litId, fade = "unreached") {
     const s = sel?.t === "node" && sel.id === n.id;
     const sub = !n.on ? "Off" : m.runs === "code" ? "Code" : m.name + (n.effort && m.runs !== "api" ? " \xB7 " + n.effort : "");
     const time = timeLabel(sim, n.id);
-    h += `<g class="nd ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? ring(n.id) !== null ? "lit run" : "lit" : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+    h += `<g class="nd${hlClass(n.id)} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? ring(n.id) !== null ? "lit run" : "lit" : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
       <rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? ringHtml(sim, g, n.id, ring(n.id)) : ""}
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>

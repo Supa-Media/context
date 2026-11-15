@@ -8,8 +8,8 @@
  *
  *  - the Lab page, as a staff member (`requireAdmin`, with its second factor): `applyEdits`, `changes`;
  *  - the MCP's `tex_dev` tool, through the gateway (`lib/gatewayRoutes/texDev.ts`): `forGateway`, which takes the
- *    grant's token hash and answers only a person who owns or edits the pinned context (`@context-lc`, the people
- *    who edit Tex's AI setup, as `run_model`), on an AI client of their own: never one of Context's own clients, so
+ *    grant's token hash and answers only a staff member who owns or edits the pinned context (`@context-lc`, the
+ *    people who edit Tex's AI setup, as `run_model`), on an AI client of their own: never one of Context's own clients, so
  *    Tex itself can never reach it.
  *
  * Every batch raises the draft's revision and records what it touched. A batch made against an older revision lands
@@ -22,7 +22,7 @@ import { ConvexError, v } from "convex/values";
 import { query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { applyOps, conflicts, diffGraphs, keysOf, OpError } from "@context/shared/src/texLabOps.cjs";
-import { requireAdmin } from "./lib/admin";
+import { requireAdmin, userIsStaff } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { resolveLiveGrant } from "./lib/controlPlane/liveGrants";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
@@ -30,6 +30,8 @@ import { getMembership } from "./lib/workspaceAuth";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { MAX_JSON } from "./texLab";
 import { pageForUser } from "./texPage";
+import { clampDays } from "./texLabToolStats";
+import { toolStatsReport } from "./lib/adminFns/texToolStats";
 
 /** At most this many change rows answered at once; an AI further behind reads the draft again. */
 export const MAX_CHANGES = 100;
@@ -208,6 +210,9 @@ export async function texDeveloper(ctx: QueryCtx, hashedAccessToken: string): Pr
   if (pinned === null) return null;
   const membership = await getMembership(ctx, pinned._id, userId);
   if (membership === null || (membership.role !== "owner" && membership.role !== "editor")) return null;
+  // And staff, as the Lab itself is (`requireAdmin`): the drafts, case edits and tool stats are the Lab's, so this door
+  // is never wider than the Lab's own. (An MCP grant has no second-factor step; its OAuth sign-in stands for it.)
+  if (!(await userIsStaff(ctx, userId))) return null;
   const client = await ctx.db
     .query("oauthClients")
     .withIndex("by_clientId", (q) => q.eq("clientId", live.grant.clientId))
@@ -244,6 +249,25 @@ export const forGateway = internalMutation({
       const rows = (await ctx.db.query("texLabVersions").collect()).filter((r) => r.versionId !== "main").sort((x, y) => y.updatedAt - x.updatedAt);
       return { status: "ok", drafts: await Promise.all(rows.map((r) => draftOf(ctx, r))) };
     }
+    // The Lab's other tabs, so whatever the Lab shows a developer sees too (Dev2, 2026-11-15): its Tools tab, and the
+    // bench cases' shared edits (`texLab.saveCase`).
+    if (action === "tool_stats") return { status: "ok", stats: await toolStatsReport(ctx, clampDays(typeof a.days === "number" ? a.days : undefined), now) };
+    if (action === "cases") return { status: "ok", caseEdits: (await ctx.db.query("texLabCaseEdits").collect()).map((r) => ({ key: r.key, data: r.data, updatedAt: r.updatedAt })) };
+    if (action === "case") {
+      const key = typeof a.key === "string" ? a.key : "";
+      const data = a.data === null ? null : typeof a.data === "string" ? a.data : undefined;
+      if (!/^[\w-]{1,40}\/[\w.-]{1,80}$/.test(key) || data === undefined) return { status: "bad_request", error: "case takes key <area>/<case id> and data (the case as JSON text, or null to drop the edit)" };
+      if (data !== null && data.length > MAX_JSON) return { status: "bad_request", error: "this case is too big to save" };
+      const row = await ctx.db
+        .query("texLabCaseEdits")
+        .withIndex("by_key", (q) => q.eq("key", key))
+        .unique();
+      if (data === null) {
+        if (row) await ctx.db.delete(row._id);
+      } else if (row) await ctx.db.patch(row._id, { data, updatedAt: now });
+      else await ctx.db.insert("texLabCaseEdits", { key, data, updatedAt: now });
+      return { status: "ok" };
+    }
     if (action === "create") {
       const name = typeof a.name === "string" ? a.name.trim().slice(0, NAME_MAX) : "";
       if (!name) return { status: "bad_request", error: "a draft needs a name" };
@@ -264,7 +288,7 @@ export const forGateway = internalMutation({
     const row = typeof a.draft === "string" ? await rowOf(ctx, a.draft) : null;
     if (row === null) return { status: "not_found" };
     await ctx.db.patch(row._id, { live: { client: dev.client, by: dev.userId, at: now } });
-    if (action === "get") return { status: "ok", ...(await draftOf(ctx, row)), graph: row.graph };
+    if (action === "get") return { status: "ok", ...(await draftOf(ctx, row)), graph: row.graph, picks: row.picks, areas: row.areas ?? null, results: row.results };
     if (action === "changes") {
       const since = typeof a.since === "number" && Number.isSafeInteger(a.since) ? a.since : 0;
       return { status: "ok", rev: row.rev ?? 0, changes: await changesAfter(ctx, row.versionId, since) };

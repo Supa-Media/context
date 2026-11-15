@@ -40,6 +40,13 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-15",
+    newTool: true,
+    text:
+      "tex_dev (action + args) develops on Tex: live drafts of Tex's config graph shared with the Lab, snapshots, links, check, promote, " +
+      "and every step of a chat's turns; only people who edit @context-lc's AI setup are offered it, so nobody else need act on this.",
+  },
+  {
     date: "2026-11-13",
     text:
       "manage action run_model (args { model, input }) runs @cf/cloudflare/clef or @cf/zai-org/glm-4.7-flash for the Architecture Lab " +
@@ -425,7 +432,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "0bff982e";
+export const TOOL_SHAPE = "433c309b";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

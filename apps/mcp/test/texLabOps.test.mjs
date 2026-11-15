@@ -94,9 +94,20 @@ test("diff then apply gets the same graph", () => {
   assert.deepEqual(diffGraphs(a, a), []);
 });
 
-test("a change outside steps and wires diffs as one put", () => {
+test("a module's words and a conversation setting are edits of their own", () => {
   const a = main();
-  const b = { ...JSON.parse(JSON.stringify(a)), modules: { "p-rules": { text: "x" } } };
+  const b = { ...JSON.parse(JSON.stringify(a)), modules: { "p-rules": { text: "x" } }, convo: { days: 3 } };
+  const ops = diffGraphs(a, b);
+  assert.deepEqual(ops, [{ op: "module", key: "p-rules", value: { text: "x" } }, { op: "convo", field: "days", value: 3 }]);
+  const { graph, keys, said } = applyOps(a, ops);
+  assert.deepEqual([graph.modules, graph.convo, keys], [{ "p-rules": { text: "x" } }, { days: 3 }, ["m:p-rules", "c:days"]]);
+  assert.match(said[0], /edited module p-rules \(its words\)/);
+  assert.equal(applyOps(graph, [{ op: "module", key: "p-rules", value: null }]).graph.modules["p-rules"], undefined);
+});
+
+test("a change outside steps, wires, modules and the conversation diffs as one put", () => {
+  const a = main();
+  const b = { ...JSON.parse(JSON.stringify(a)), models: { "custom-1": { name: "Mine" } } };
   const ops = diffGraphs(a, b);
   assert.equal(ops.length, 1);
   assert.equal(ops[0].op, "put");

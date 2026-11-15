@@ -162,3 +162,5 @@ The exact mapping and limitations are in `docs/connectors/chatgpt-capabilities.j
 and the new endpoint's orientation manual. Its census test rejects an existing
 action silently missing from that inventory. Both original interfaces remain
 unchanged; no client-name or reviewer-specific behavior selects the contract.
+
+**A seventh, for staff only (2026-11-15).** `tex_dev` is offered beside the six only to people who edit `@context-lc`'s AI setup, and never to Tex; everyone else is still offered six ([tex-dev-tool](../texting-assistant/tex-dev-tool.md)).
