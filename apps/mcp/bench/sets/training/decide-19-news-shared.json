@@ -1,0 +1,24 @@
+{
+  "id": "decide-19-news-shared",
+  "title": "Good news shared with the chat",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Rosa"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Rosa",
+      "text": "I passed my driving test!!",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "also_react": "yes",
+          "emoji": "🎉",
+          "why": "news_shared"
+        }
+      }
+    }
+  ]
+}

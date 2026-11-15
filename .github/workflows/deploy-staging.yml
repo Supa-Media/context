@@ -276,13 +276,16 @@ jobs:
       # By package name: a bare path selector (`./apps/mcp...`) takes the
       # directory without its workspace dependencies, which left the gateway
       # without @context/collaboration's yjs (staging run 37667608603).
-      - run: pnpm install --filter "${{ matrix.worker.package }}..." ${{ matrix.worker.name == 'mcp' && '--filter "@context/site-shots..."' || '' }} --frozen-lockfile
+      - run: pnpm install --filter "${{ matrix.worker.package }}..." ${{ matrix.worker.name == 'mcp' && '--filter "@context/site-shots..." --filter "@context/tex-eval..."' || '' }} --frozen-lockfile
       # The gateway binds the screenshot browser (infra/site-shots) as a
       # service, and Cloudflare refuses a binding to a script that does not
       # exist, so that Worker deploys first, in this same job.
       - name: Deploy the gateway's screenshot Worker
         if: ${{ matrix.worker.name == 'mcp' }}
         run: pnpm --dir infra/site-shots exec wrangler deploy --env staging
+      - name: Deploy the gateway's eval service
+        if: ${{ matrix.worker.name == 'mcp' }}
+        run: pnpm --dir infra/tex-eval exec wrangler deploy --env staging
       - name: Deploy staging Worker
         # The gateway records the commit on each Tex turn (apps/mcp/src/agent/texVersion.js).
         run: pnpm --dir "$WORKER_DIR" exec wrangler deploy --env staging ${{ matrix.worker.name == 'mcp' && format('--var TEX_CODE_VERSION:{0}', github.sha) || '' }}

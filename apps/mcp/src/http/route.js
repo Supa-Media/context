@@ -85,6 +85,7 @@ import { THREADS_BACKFILL_PATH, handleThreadsBackfill } from "../agent/threadsBa
 import { WORKSPACE_STORE_PATH, handleWorkspaceStoreDoor } from "../workspaceStore/door.js";
 import { IMAGE_UPLOAD_PATH, handleImageUpload } from "../notes/imageUploads.js";
 import { judgeFor } from "../privacy/judge.js";
+import { TEX_EVAL_PREFIX, handleTexEval } from "./texTestSet.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
@@ -100,6 +101,9 @@ export async function route(request, env, ctx) {
     // An upload link's PUT (`notes/imageUploads.js`): no person's token and no
     // workspace selector; the ticket in its header is the whole authority.
     if (url.pathname === IMAGE_UPLOAD_PATH) return await handleImageUpload(request, env);
+    // Tex's eval service (`infra/tex-eval`), passed through untouched: it reads no session of ours, and answers runs
+    // only to main's Test Set workflow, by the GitHub OIDC token it checks itself (`texTestSet.js`).
+    if (url.pathname.startsWith(TEX_EVAL_PREFIX)) return await handleTexEval(request, env);
 
     const origin = publicOrigin(request, env);
 
@@ -454,7 +458,7 @@ export async function route(request, env, ctx) {
       // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
-      if (appRoute) return await appRoute(request, store, session, path);
+      if (appRoute) return await appRoute(request, store, session, path, env);
       // The app's search bar, on the same search an AI client runs (`appSearch.js`).
       if (path === APP_SEARCH_PATH) return await withSearchPassesHeld(store, () => handleAppSearch(request, store, session));
       if (texPageRoute) return await handleTexPage(request, env, store, session, { path, controlPlane });

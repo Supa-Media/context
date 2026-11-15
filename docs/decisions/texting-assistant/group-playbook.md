@@ -1,4 +1,4 @@
-# A workspace keeps one playbook its group chats follow (2026-10-27)
+# A group chat keeps one playbook it follows (2026-10-27; in its home since 2026-11-15)
 
 The owner wants Tex in their family business's chat to learn how the business
 works: "this is what you should do when you see this", "this is how you send
@@ -9,13 +9,17 @@ Chosen with the rest of the owner's defaults on 2026-10-27.
 
 ## How it works
 
-- **One note per workspace, `tex/groups/playbook.md`**, beside the chats'
-  memory notes. That folder is shared with the workspace the first time a
-  chat writes there (`groupMemoryNote.js`), so everyone in the workspace can
-  read and fix the playbook in the app.
-- **Every group turn reads it** (`groupPlaybook.js` `readPlaybook`, up to
+- **One note per chat, `playbook.md` in its home** (`tex/groups/<words>/`
+  in `@context-lc`, beside `about.md` and `jobs.md`; the owner, 2026-11-15),
+  which only the chat's people open and fix. It was one note per workspace,
+  `tex/groups/playbook.md`, from when a chat was bound to a workspace; a chat's
+  write surface is its home, so in Crystal Care every save there was refused
+  ("this chat isn't allowed to write there"), and in the pin that path would
+  be one note for every chat. A chat with no home yet uses the old note, and a
+  home without a playbook still reads the old one until it saves its own.
+- **Every group turn reads it** (`groupPlaybook.js` `readPlaybook`, `playbookPath`, up to
   12,000 characters) and is told to follow it where it applies. It is the
-  workspace's own notes: it never makes an address, a recipient or a payment
+  chat's own notes: it never makes an address, a recipient or a payment
   the person's word.
 - **Tex decides when it changes** (the owner, 2026-11-05: "we should let the
   advisor choose to create new memories"). Until then a word list of teaching
@@ -37,6 +41,7 @@ Chosen with the rest of the owner's defaults on 2026-10-27.
 refuses the save people ask for right after Tex reads the email it is about;
 bringing back a word list refuses the plain ways people ask Tex to keep
 something; not reading it leaves the chat to be taught the same thing every
-time. The cost of no gate is that a planted email could steer a save; the
+time; moving it back to one shared path refuses every save from a chat with
+a home. The cost of no gate is that a planted email could steer a save; the
 prompt's "only what the people here say" is the guard.
 `apps/mcp/test/agentGroupPlaybook.test.mjs` fails if either is reversed.

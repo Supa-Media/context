@@ -1,0 +1,35 @@
+{
+  // context-tex-eval: the sealed Test Set (docs/decisions/testing/test-set-service.md).
+  //
+  // No public address. The gateway reaches it two ways, both service bindings:
+  //   - TEX_EVAL_HTTP (default entrypoint): `/tex-eval/*` on the gateway is
+  //     passed here untouched. It serves only main's Test Set workflows, each
+  //     call carrying a GitHub Actions OIDC token this Worker verifies itself,
+  //     and the counts (no words).
+  //   - TEX_EVAL (named entrypoint `PeopleDoor`): reading and writing the
+  //     conversations, for the Lab's people only. A named entrypoint is never
+  //     reachable over HTTP, so no request from the internet can reach it.
+  // There is no secret: GitHub signs the token, and the binding is the
+  // gateway's own.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "context-tex-eval",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": false,
+  "durable_objects": {
+    "bindings": [{ "name": "TEST_SET", "class_name": "TestSet" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TestSet"] }],
+  "observability": { "enabled": true },
+  "env": {
+    "staging": {
+      "name": "context-tex-eval-staging",
+      "workers_dev": false,
+      "durable_objects": {
+        "bindings": [{ "name": "TEST_SET", "class_name": "TestSet" }]
+      },
+      // Staging is run by no workflow: its door takes no token at all.
+      "vars": { "RUNS": "off" }
+    }
+  }
+}

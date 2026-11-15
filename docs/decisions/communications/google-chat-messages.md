@@ -140,3 +140,21 @@ read Chat. In a group chat `chat:` stays that chat's history. Owner's call:
 also fails when any fetch id or write, manage or send action on the capability
 list is one a 1:1 turn cannot reach (save_many is the one named exception: a
 turn saves one note per call), and replay case `reads-google-chat`.
+
+### Every Google Chat read names its account (2026-11-15)
+
+Once Tex could read Chat, it read only the person's first Google account with
+Chat: every claim (`googleChatSend.ts`) took the first live connection, and a
+conversation in their other account read as nothing there. Now every read (the
+list of spaces, one space, one direct message) names the account it reads,
+`account`, one of their Chat addresses, matched without regard to case and only
+among the token's own person's connections. A read without one is refused as
+`account_needed` and one they don't have as `account_not_found`, each with
+their Chat accounts listed so Tex can pick, and bare `fetch chat:` answers with
+that list. A send may name its account and otherwise goes from the first, as
+before; the approval shows which. The check-ins' look at new messages still
+reads the first account. Owner's call: "when it reads things from google chat,
+it should be required to pass in an email". Tests: Convex
+`googleChatSpaceRead.test.ts` and `googleChatSend.test.ts` (another tenant's
+address is never usable), gateway `googleChatConversation.test.mjs`, and replay
+case `reads-google-chat`.

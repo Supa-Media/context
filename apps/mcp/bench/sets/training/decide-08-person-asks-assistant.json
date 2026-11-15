@@ -1,0 +1,22 @@
+{
+  "id": "decide-08-person-asks-assistant",
+  "title": "A person asks the other assistant",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Mia"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Mia",
+      "text": "Nova, what time is practice?",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "asks_someone_else"
+        }
+      }
+    }
+  ]
+}

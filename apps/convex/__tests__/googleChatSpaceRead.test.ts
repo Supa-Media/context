@@ -91,14 +91,27 @@ async function connected({ scopes = READ_SCOPES, privateAccess = true } = {}) {
   return tenants;
 }
 
+/** One read, through `account` (their first connected one unless the conversation names another, or `account: null` for none). */
 async function read(t: Tenants["t"], accessToken: string, workspaceId: string, conversation: Record<string, unknown>) {
-  return (await bodyOf(await gatewayPost(t, "/gateway/chat/recent", { accessToken, expectedWorkspaceId: workspaceId, ...conversation }))) as {
+  const { account = ADDRESS, ...rest } = conversation;
+  const named = account === null ? {} : { account };
+  return (await bodyOf(await gatewayPost(t, "/gateway/chat/recent", { accessToken, expectedWorkspaceId: workspaceId, ...named, ...rest }))) as {
     ok: boolean;
     refused?: string;
     from?: string;
+    accounts?: string[];
     place?: Record<string, string>;
     messages?: Array<Record<string, unknown>>;
   };
+}
+
+/** A second connected Google account of Alice's, that reads Chat too. */
+async function secondAccount(tenants: Tenants, address: string) {
+  const id = await seedGoogleConnection(tenants.t, { workspaceId: tenants.aliceWs, boundBy: tenants.alice, address });
+  const encryptedAccessToken = await encryptSecret("ya29.fake-second-token", requireKeyset(), { workspaceId: tenants.aliceWs });
+  await tenants.t.run(async (ctx) => {
+    await ctx.db.patch(id, { products: ["gmail"], scopes: READ_SCOPES, encryptedAccessToken, accessTokenExpiresAt: Date.now() + 60 * 60 * 1000 });
+  });
 }
 
 describe("reading one Google Chat conversation the person named", () => {
@@ -190,6 +203,36 @@ describe("reading one Google Chat conversation the person named", () => {
     const calls = chatApi(READ_SCOPES);
     const { t, aliceWs } = await connected();
     expect(await read(t, ACCESS_A, aliceWs, { space: "Venue planning" })).toEqual({ ok: false, refused: "invalid" });
+    expect(calls).toEqual([]);
+  });
+
+  test("a read names the account: with none, or one not theirs, it is refused with their Chat accounts and asks Google nothing", async () => {
+    // Dev2, 2026-11-15: every Chat read went through their first account, and a chat on their second never showed.
+    const calls = chatApi(READ_SCOPES);
+    const tenants = await connected();
+    await secondAccount(tenants, "alice@church.example");
+    const { t, aliceWs } = tenants;
+    const accounts = [ADDRESS, "alice@church.example"];
+    expect(await read(t, ACCESS_A, aliceWs, { space: "spaces/AAA", account: null })).toEqual({ ok: false, refused: "account_needed", accounts });
+    expect(await read(t, ACCESS_A, aliceWs, { space: "spaces/AAA", account: "someone@else.example" })).toEqual({ ok: false, refused: "account_not_found", accounts });
+    expect(calls).toEqual([]);
+  });
+
+  test("the account named is the one read, in any case, not their first", async () => {
+    chatApi(READ_SCOPES);
+    const tenants = await connected();
+    await secondAccount(tenants, "alice@church.example");
+    const answer = await read(tenants.t, ACCESS_A, tenants.aliceWs, { space: "spaces/AAA", account: "Alice@Church.example" });
+    expect(answer).toMatchObject({ ok: true, from: "alice@church.example" });
+  });
+
+  test("an account of somebody else's is never one to name", async () => {
+    const calls = chatApi(READ_SCOPES);
+    const tenants = await connected();
+    // Bob's own connection, on his own workspace: Alice's token never reads through it.
+    await seedGoogleConnection(tenants.t, { workspaceId: tenants.bobWs, boundBy: tenants.bob, address: "bob@work.example" });
+    const answer = await read(tenants.t, ACCESS_A, tenants.aliceWs, { space: "spaces/AAA", account: "bob@work.example" });
+    expect(answer).toEqual({ ok: false, refused: "account_not_found", accounts: [ADDRESS] });
     expect(calls).toEqual([]);
   });
 

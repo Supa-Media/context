@@ -190,12 +190,13 @@ export function translateFetch(call, app = {}) {
     return target(label, a, { name: "read_texts", action: "texts", fixed: { chat: id.slice(TEXTS_ID_PREFIX.length) }, copy: ["since", "before", "limit"] });
   }
   // Their Google Chat, live (`googleChatRead.js`): `chat:` lists their spaces, `chat:<spaces/…>`
-  // reads one, and `chat:` with args `{ to }` reads the direct message with that person.
+  // reads one, and `chat:` with args `{ to }` reads the direct message with that person. Each
+  // names the account it reads (`account`); bare `chat:` without one answers with their accounts.
   if (id.startsWith(GOOGLE_CHAT_ID_PREFIX)) {
     const space = id.slice(GOOGLE_CHAT_ID_PREFIX.length).trim();
-    if (space !== "") return target(label, a, { name: "read_google_chat", action: "chat", fixed: { space }, copy: ["limit"] });
-    if (a.to !== undefined) return target(label, a, { name: "read_google_chat", action: "chat", copy: ["to", "limit"] });
-    return target(label, a, { name: "google_chat", action: "chat_spaces", fixed: { action: "spaces" } });
+    if (space !== "") return target(label, a, { name: "read_google_chat", action: "chat", fixed: { space }, copy: ["limit", "account"] });
+    if (a.to !== undefined) return target(label, a, { name: "read_google_chat", action: "chat", copy: ["to", "limit", "account"] });
+    return target(label, a, { name: "google_chat", action: "chat_spaces", fixed: { action: "spaces" }, copy: ["account"] });
   }
   if (id.startsWith(EMAIL_ID_PREFIX)) {
     return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "from", "summary"] });

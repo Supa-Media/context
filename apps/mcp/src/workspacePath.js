@@ -160,4 +160,8 @@ export const RESERVED_FIRST_SEGMENTS = new Set([
   // the guard test can hold every route to one rule.
   "internal",
   "api",
+  // The Lab's Test Set, `/tex-test-set` (`http/texTestSet.js`), and Tex's eval service passed through at `/tex-eval/`
+  // before the split. Also in the control plane's RESERVED_NAMES, for the reason `presence` is.
+  "tex-test-set",
+  "tex-eval",
 ]);
