@@ -1,0 +1,32 @@
+{
+  "id": "core-14-what-do-i-have-on-october-20",
+  "title": "What do I have on October 20?",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "What do I have on October 20?",
+      "labels": {
+        "fd": {
+          "must": [
+            "say the shoulder physio check-up is on October 20",
+            "say the walnut credenza glue-up is planned for October 20",
+            "say the twill order is due October 20",
+            "say the lumber delivery is to be booked for October 20 (woodshop to-do)"
+          ],
+          "never": [
+            "invent any other event for October 20"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/14"
+}

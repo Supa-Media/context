@@ -1,0 +1,29 @@
+{
+  "id": "respond-o-move",
+  "title": "O move",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Tex",
+      "tex": true,
+      "text": "Done, the car wash is on your calendar for 10."
+    },
+    {
+      "id": "m2",
+      "who": "Jo",
+      "text": "thanks! push it to 11 though",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "respond/o-move"
+}

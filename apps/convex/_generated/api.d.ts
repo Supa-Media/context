@@ -40,6 +40,7 @@ import type * as functions_googleMailProbe from "../functions/googleMailProbe.js
 import type * as functions_texLabDrafts from "../functions/texLabDrafts.js";
 import type * as functions_texLabPromote from "../functions/texLabPromote.js";
 import type * as functions_texLabToolStats from "../functions/texLabToolStats.js";
+import type * as functions_texSets from "../functions/texSets.js";
 import type * as functions_accessObjects from "../functions/accessObjects.js";
 import type * as functions_accessObjectsExpected from "../functions/accessObjectsExpected.js";
 import type * as functions_accessObjectsRows from "../functions/accessObjectsRows.js";
@@ -331,6 +332,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texLabDrafts": typeof functions_texLabDrafts;
   "functions/texLabPromote": typeof functions_texLabPromote;
   "functions/texLabToolStats": typeof functions_texLabToolStats;
+  "functions/texSets": typeof functions_texSets;
   "functions/accessObjects": typeof functions_accessObjects;
   "functions/accessObjectsExpected": typeof functions_accessObjectsExpected;
   "functions/accessObjectsRows": typeof functions_accessObjectsRows;

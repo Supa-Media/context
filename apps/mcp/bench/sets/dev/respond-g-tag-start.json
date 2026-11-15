@@ -1,0 +1,23 @@
+{
+  "id": "respond-g-tag-start",
+  "title": "Tag start",
+  "set": "dev",
+  "kind": "group",
+  "members": [
+    "June"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "June",
+      "text": "@Tex what time does the pool close tonight",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "respond/g-tag-start"
+}

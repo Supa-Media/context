@@ -1,0 +1,41 @@
+{
+  "id": "review-from-chats-roster-names-only",
+  "title": "Roster names only",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "@Tex who's actually in this chat?",
+      "labels": {
+        "reviewer": {
+          "sentBack": "0",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "Ines, Rafa, Theo and one guest.",
+          "did": [
+            [
+              "chat_members",
+              {},
+              "Ines (+1 555 0101), Rafa (+1 555 0102), Theo (+1 555 0103), a guest (+1 555 0104)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "m2",
+      "who": "Tex",
+      "tex": true,
+      "text": "Ines, Rafa, Theo and one guest."
+    }
+  ],
+  "from": "review/from_chats/roster-names-only"
+}

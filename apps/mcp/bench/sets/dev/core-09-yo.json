@@ -1,0 +1,30 @@
+{
+  "id": "core-09-yo",
+  "title": "yo",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "yo",
+      "labels": {
+        "fd": {
+          "must": [
+            "reply in one short text, the way a friend answers \"yo\", and leave the opening to Maya"
+          ],
+          "never": [
+            "send more than one text",
+            "list what it can do, or summarise her notes or her day"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/9"
+}

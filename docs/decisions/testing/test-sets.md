@@ -51,3 +51,45 @@ agent tune to the cases that judge it. Labelling a whole reply as a test hides
 which node broke. Fixed counts instead of a ratio force invented filler.
 `apps/mcp/test/texSets.test.mjs` fails if a Tex row can be starred, if the
 ratio counts labels instead of stars, or if the drift limit is ignored.
+
+## Where the conversations live, and how they change
+
+- **Training and Dev are files**, one conversation each, at
+  `apps/mcp/bench/sets/<training|dev>/<id>.json`, checked by
+  `scripts/tex-sets-check.mjs` in Fast guards (every file sound, in its set's
+  folder, no `test/` folder, and the ratio over all three sets, which fails
+  CI once the eval service counts a unit test in the Test Set and is only
+  reported until then). The
+  gateway and the Lab read them as generated data
+  (`texSetsRepo.generated.json`, the Lab's `SETS`).
+- **A change is a draft first.** The Lab's Testing tab and `tex_dev` edit a
+  conversation with the same small edits (`packages/shared/src/texSetOps.cjs`),
+  kept in the control plane over the repo file (`functions/texSets.ts`, with a
+  per-piece conflict check like the Lab's drafts). Promote opens one pull
+  request writing the drafts into the folder (`tex-lab-promote.yml`,
+  `scripts/tex-sets-promote.mjs`); once it merges, the drafts it carried go.
+- **Agents see and change Training and Dev through `tex_dev`** (`sets`,
+  `set_get`, `set_fields`, `set_edit`, `set_move`, `set_create`, `set_delete`,
+  `set_restore`, `set_ratio`, `set_promote`), and turn a real chat into a
+  conversation with `set_import`: the save reads the chat again and refuses a
+  line that shares six words in a row with a real text or a member named as
+  someone in it, because examples from real chats are never verbatim
+  (decided by the owner, 2026-11-12). The Test Set is refused by every one of
+  these, and by the store.
+- **A node alone** is `node apps/mcp/bench/run.mjs sets run` (`setsRun.mjs`):
+  each starred label through that node's code from `--tree`, put the way
+  production puts it, scored by the caller's harness, rows only in `--out` and
+  counts by node on standard output. Decide, the reply reviewer and the job
+  check run alone; the front door runs as one core-bench batch in the invented
+  Maya world once the texting setup is pulled; any other node says it can't
+  run alone yet rather than passing.
+- Today's repo cases (respond, review, the job check, core and simple asks)
+  were migrated into conversations (`apps/mcp/bench/setsMigrate.mjs`), all in
+  Dev: they are what today's replays score, and Training is shown to the steps
+  as examples, so in Training they would hand the steps their answers. They are
+  already public, so none go to Test; `caseToConversation` converts a
+  held-out case the same way inside the eval service.
+
+Reverting to cases outside conversations, or to a store an agent can write
+the Test Set into, fails `apps/mcp/test/sets.test.mjs` and
+`apps/mcp/test/texDevSets.test.mjs`.

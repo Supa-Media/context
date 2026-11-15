@@ -30,6 +30,7 @@ import { getMembership } from "./lib/workspaceAuth";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { CASE_KEY, MAX_JSON } from "./texLab";
 import { pageForUser } from "./texPage";
+import { setAction } from "./texSets";
 import { clampDays } from "./texLabToolStats";
 import { toolStatsReport } from "./lib/adminFns/texToolStats";
 import { deleteDraftRows, describeChange, keepResults, renameDraft, revertDraft, savedState, setRunSetup as writeRunSetup, undoText } from "./lib/texLabDraftWrites";
@@ -345,6 +346,9 @@ export const forGateway = internalMutation({
     const now = Date.now();
     const written = await draftWrite(ctx, dev, action, a, now);
     if (written !== null) return written;
+    // The Testing tab's conversations (`texSets.ts`): the same door, the same caller.
+    const set = await setAction(ctx, { userId: dev.userId, via: dev.client }, action, a, now);
+    if (set !== null) return set;
     if (action === "page") return await pageForUser(ctx, dev.userId);
     if (action === "list") {
       const rows = (await ctx.db.query("texLabVersions").collect()).filter((r) => r.versionId !== "main").sort((x, y) => y.updatedAt - x.updatedAt);

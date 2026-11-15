@@ -1,0 +1,37 @@
+{
+  "id": "review-short-and-clean-page-retold",
+  "title": "Page retold",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "research whether we should switch to cloudflare and give me your take",
+      "labels": {
+        "reviewer": {
+          "sentBack": "1",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "I made a research page covering Cloudflare's Workers, R2, Durable Objects and pricing, with a comparison table against our current setup and three diagrams. My take: keep what you have, because migration costs outweigh the savings, the team knows the current stack, and Cloudflare's limits on long jobs would hurt. But borrow their queueing approach. Here it is: https://context.example/note/research/cloudflare.page.md",
+          "did": [
+            [
+              "write_note",
+              {
+                "path": "research/cloudflare.page.md"
+              },
+              "written: https://context.example/note/research/cloudflare.page.md"
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "from": "review/short_and_clean/page-retold"
+}

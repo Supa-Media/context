@@ -1,0 +1,29 @@
+{
+  "id": "respond-g-reply-ask",
+  "title": "Reply ask",
+  "set": "dev",
+  "kind": "group",
+  "members": [
+    "Pia"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Tex",
+      "tex": true,
+      "text": "Practice moved to 5:30."
+    },
+    {
+      "id": "m2",
+      "who": "Pia",
+      "text": "(replying to You) is that at the north field still",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "respond/g-reply-ask"
+}
