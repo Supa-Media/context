@@ -305,6 +305,17 @@ guards) when any step, a step's own node cases included, holds more than
 full. A cap that only hid the extras, or kept running them unseen, would be
 the shadow work the config graph exists to end.
 
+Steps with no area of their own get cases too (Dev2, same day: "a lot of
+nodes don't even have test cases listed here. And there's not a way to add
+them"). The Lab's form is built from the step's `inSchema` and `outSchema`
+in `texConfig.json`, so every step gets the same one: given its inputs, want
+each output field exactly (yes/no, a choice, a number, words) or read by a
+judge. Promote writes them to `apps/mcp/bench/nodes/<step>.json`, and
+`pnpm ai nodes` runs each through the step's own code in `GATEWAY_NODES`
+alone. A step that needs its helpers or wires says it cannot run alone
+rather than passing. They are not in a pull request's replay yet: a node
+calls its model through the gateway, not the examiner socket.
+
 **What a simplification would cost:** running the reviewer and the jobs
 whole again puts a change's examiner run back near 500 answers (the reviewer
 now has 20, so it no longer can); sampling

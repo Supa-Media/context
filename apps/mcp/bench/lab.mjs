@@ -254,7 +254,7 @@ export function planText(plan) {
   const cases = Object.entries(plan.cases).map(([area, ids]) => `${area} ${ids.join(" ")}`);
   // The gate scores a whole area against main, so the picks are for the person reading the report, not a filter.
   if (cases.length) lines.push(`Cases picked (the gate still runs every case in each area): ${cases.join("; ")}`);
-  for (const edit of plan.caseEdits) lines.push(`Case edit: ${edit.area} ${edit.id}${edit.isNew ? " (new)" : ""}`);
+  for (const edit of plan.caseEdits) lines.push(`Case edit: ${edit.area} ${edit.id}${edit.removed ? " (removed)" : edit.isNew ? ` (new${edit.replaces ? `, replaces ${edit.replaces}` : ""})` : ""}`);
   if (plan.warnings.length) {
     lines.push("Warnings:");
     for (const warning of plan.warnings) lines.push(`  - ${warning}`);

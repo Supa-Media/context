@@ -18,6 +18,8 @@ import { WireIcon } from "../parts";
 import { onCommit } from "./change";
 import { EditModelLink, getModelForm, ModelForm, NewModelButton } from "./ModelForm.web";
 import { OutputGrp } from "./OutputFields.web";
+import { StepCases } from "./StepCases.web";
+import { StepChanges } from "./StepChanges.web";
 import { AddPicker, ReadsStack } from "./ReadsStack.web";
 
 /** The artifact's `set(k, v)` in the node branch: edits the step by id, so a fork of main is taken first. */
@@ -95,6 +97,8 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
           ))}
         </div>
       ) : null}
+      <StepChanges n={n} />
+      <StepCases n={n} />
       <div className="grp">
         <h4>Goal</h4>
         <textarea className="note" id="nGoal" rows={3} placeholder="Why this step exists: what goes wrong without it" key={n.goal || ""} defaultValue={n.goal || ""} ref={onCommit<HTMLTextAreaElement>((v) => setNode(n.id, "goal", v.trim()))} />

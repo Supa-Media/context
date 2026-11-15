@@ -20,7 +20,8 @@ export type Answer =
   | { status: "conflict"; rev: number; keys: string[]; now: Record<string, unknown>; others: unknown[] }
   | { status: "bad_request"; error: string };
 export type Send = (versionId: string, baseRev: number, ops: string) => Promise<Answer>;
-export type Change = { rev: number; who: string; via: string; said: string[]; at: number };
+/** One revision of a draft: who, through which door, what it said, and the keys it touched (`n:<step>`, `e:<from>><to>>…`). */
+export type Change = { rev: number; who: string; via: string; said: string[]; at: number; keys?: string[] };
 export type Feed = { rev: number; live: { client: string; who: string; at: number } | null; changes: Change[] };
 export type Hl = { by: "ai" | "lab"; until: number };
 

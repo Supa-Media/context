@@ -298,14 +298,38 @@ describe("/lab: the Tests, Run, Compare and Workspace views", () => {
     expect(pillsOf(cardOf(id))).not.toContain("edited");
   });
 
-  test("Tests: Case adds a new case in the area, with the new pill", () => {
+  test("Tests: Case adds a new case in a step under its 20, with the new pill", () => {
+    const count = CASES.filter((c) => c.area === "advisor-chat").length;
+    expect(count).toBeLessThan(20);
     mountLab();
-    openTests("core");
+    openTests("advisor-chat");
     click(q("#addCase"));
 
-    expect(lab.caseEdits["core/new-1"]).toMatchObject({ area: "core", id: "new-1", isNew: true });
+    expect(lab.caseEdits["advisor-chat/new-1"]).toMatchObject({ area: "advisor-chat", id: "new-1", isNew: true });
     expect(pillsOf(cardOf("new-1"))).toContain("new");
-    expect(hintOf()).toBe(`${coreCount() + 1} of ${coreCount() + 1} in the run`);
+    expect(hintOf()).toBe(`${count + 1} of ${count + 1} in the run`);
+  });
+
+  // Dev2, 2026-11-15: "a max of 20 test cases per unit". A full step has no Add; a new case swaps one out.
+  test("Tests: a full step offers Swap in, and Keep trades one case for the new one so the step stays at 20", async () => {
+    expect(coreCount()).toBe(20);
+    mountLab();
+    openTests("core");
+    expect(q("#addCase")).toBeNull();
+    expect(q("#capBanner")?.textContent).toContain("20");
+    click(q("#swapIn"));
+    expect(q("#swapCard")).not.toBeNull();
+    setValue(q<HTMLTextAreaElement>("#swapAsk")!, "A sharper case");
+    expect(q<HTMLButtonElement>("#swapKeep")?.disabled).toBe(true);
+    const out = CASES.find((c) => c.area === "core")!.id;
+    click(q(`[data-swapout="${out}"]`));
+    expect(pillsOf(q(`[data-swapout="${out}"]`)?.closest("article") ?? null)).toContain("picked to go");
+    click(q("#swapKeep"));
+    await act(async () => {});
+
+    expect(lab.caseEdits[`core/${out}`]).toMatchObject({ removed: true });
+    expect(lab.caseEdits["core/new-1"]).toMatchObject({ isNew: true, replaces: out, ask: "A sharper case" });
+    expect(q("#swapCard")).toBeNull();
   });
 
   test("Run: on main it is a baseline; an area click forks main and toggles; a pasted report is kept as a results row", () => {

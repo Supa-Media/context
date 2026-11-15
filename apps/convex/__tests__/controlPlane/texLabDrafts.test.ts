@@ -117,6 +117,19 @@ describe("tex_dev drafts", () => {
     expect((after.changes as Array<{ said: string[]; via: string }>)[0]).toMatchObject({ via: "lab", said: ["set fd on true → false"] });
   });
 
+  // Dev2, 2026-11-15: a revision's changes are marked on the graph, against main or the draft before that revision.
+  test("each change names the steps it touched, and the draft before each revision is kept for the marks", async () => {
+    const { t, dev, staff } = await world();
+    const id = (await dev("create", { name: "Marked", graph: JSON.stringify(GRAPH) })).id as string;
+    await dev("edit", { draft: id, rev: 1, ops: [{ op: "set", node: "reviewer", field: "effort", value: "medium" }] });
+    const lab = withSession(t, staff);
+    const seen = await lab.query(api.functions.texLabDrafts.changes, { versionId: id, since: 1 });
+    expect(seen.changes[0].keys.some((k) => k.startsWith("n:reviewer"))).toBe(true);
+    const before = await lab.query(api.functions.texLabDrafts.graphBefore, { versionId: id, rev: 2 });
+    expect(JSON.parse(before!).nodes[1].effort).toBe("high");
+    expect(await lab.query(api.functions.texLabDrafts.graphBefore, { versionId: id, rev: 9 })).toBeNull();
+  });
+
   test("promote asks once, like the Lab's button", async () => {
     const { t, dev, staff } = await world();
     const id = (await dev("create", { name: "Ship it", graph: JSON.stringify(GRAPH) })).id as string;
@@ -132,6 +145,10 @@ describe("tex_dev drafts", () => {
     expect(((await dev("cases")).caseEdits as Array<{ key: string }>).map((c) => c.key)).toEqual(["core/q9"]);
     expect((await withSession(t, staff).query(api.functions.texLab.list, {})).caseEdits.map((c) => c.key)).toEqual(["core/q9"]);
     expect(await dev("case", { key: "../etc", data: "{}" })).toMatchObject({ status: "bad_request" });
+    // A step's own case (area `node:<step>`) is kept the same way; nothing else may lead the key.
+    expect(await dev("case", { key: "node:egress/new-1", data: '{"area":"node:egress","id":"new-1"}' })).toEqual({ status: "ok" });
+    expect(await dev("case", { key: "node:../x/new-1", data: "{}" })).toMatchObject({ status: "bad_request" });
+    expect(await dev("case", { key: "node:egress/new-1", data: null })).toEqual({ status: "ok" });
     expect(await dev("case", { key: "core/q9", data: null })).toEqual({ status: "ok" });
     expect((await dev("cases")).caseEdits).toEqual([]);
   });

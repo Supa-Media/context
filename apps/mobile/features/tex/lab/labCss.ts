@@ -5,6 +5,8 @@
  * the bare `html,body` selector are now `.tl`, and the first rule makes the
  * root fill its host the way the full-page document did.
  */
+import { LAB_CSS_2 } from "./labCss2";
+
 export const LAB_CSS = String.raw`.tl{position:fixed;inset:0;overflow:hidden}
 /* Layout: the Context app frame. Title bar on top; a tree-like sidebar on the left (views, steps, versions); the work in the middle (a canvas with a floating toolbar, or a page); properties of whatever is selected on the right. Tokens are the app's own (features/design/tokens/colors.ts). */
 .tl{
@@ -407,4 +409,4 @@ textarea.code{width:100%;border:1px solid var(--line);background:var(--page);bor
   .chipbtn{max-width:150px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-`;
+` + LAB_CSS_2;

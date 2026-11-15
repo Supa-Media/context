@@ -78,6 +78,12 @@ export type LabState = {
   myNow: Record<string, ReplayNow>;
   /** The measured step times of the own text the canvas traces, when it is one the person sent (`realTimes.ts`). */
   real: { text: string; times: RealTimes; io?: Record<string, IoLine[]>; turn?: string; prompt?: TurnPrompt | null } | null;
+  /** A draft's changes on the graph (Dev2, 2026-11-15): off, marked, or marked with the base's ghost (`changeMarks.ts`). */
+  chg: "off" | "marks" | "ghost";
+  /** Compared with main, or with the draft before revision N. */
+  chgVs: "main" | number;
+  /** The draft as it was before revision `rev`, read from the server for "last rev". */
+  revBase: { rev: number; graph: LabGraph } | null;
 };
 
 export const lab: LabState = {
@@ -120,6 +126,9 @@ export const lab: LabState = {
   myReads: {},
   myNow: {},
   real: null,
+  chg: "marks",
+  chgVs: "main",
+  revBase: null,
 };
 
 let version = 0;

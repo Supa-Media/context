@@ -160,6 +160,26 @@ function buildCases() {
     });
   }
 
+  // A step's own cases (apps/mcp/bench/nodes/<step>.json, run by `pnpm ai nodes`), written in the Lab from the
+  // step's input and output shapes; area `node:<step>`.
+  const nodesDir = "apps/mcp/bench/nodes";
+  for (const f of fs.existsSync(abs(nodesDir)) ? listSorted(nodesDir) : []) {
+    if (!f.endsWith(".json")) continue;
+    const set = JSON.parse(readText(nodesDir + "/" + f));
+    for (const c of set.cases || []) {
+      const given = Object.fromEntries(Object.entries(c.given || {}).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]));
+      const want = c.want || {};
+      out.push({
+        area: "node:" + set.node,
+        id: c.id,
+        given,
+        want,
+        ask: cut(Object.entries(given).filter(([, v]) => v !== "").map(([k, v]) => `${k}: ${v}`).join("; ")),
+        expect: cut(Object.entries(want).filter(([, w]) => w?.is || w?.judge).map(([k, w]) => (w.is ? `${k} = ${w.is}` : `${k}: a judge reads it for "${w.judge}"`)).join("; ")),
+      });
+    }
+  }
+
   return out;
 }
 

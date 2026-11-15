@@ -19,7 +19,8 @@ import { recordSave } from "./texLabDrafts";
 /** A version's JSON fields and a case edit must each fit well inside a row. */
 export const MAX_JSON = 400_000;
 const VERSION_ID = /^(v[0-9a-z]{1,16}|main)$/;
-const CASE_KEY = /^[\w-]{1,40}\/[\w.-]{1,80}$/;
+// An area (a bench area, or `node:<step id>` for a step's own cases), then the case id.
+export const CASE_KEY = /^(?:node:)?[\w-]{1,40}\/[\w.-]{1,80}$/;
 
 const tooBig = (s: string | undefined) => s !== undefined && s.length > MAX_JSON;
 
@@ -96,6 +97,11 @@ export const deleteVersion = mutation({
       .withIndex("by_version_rev", (q) => q.eq("versionId", versionId))
       .collect())
       await ctx.db.delete(change._id);
+    for (const before of await ctx.db
+      .query("texLabRevBefore")
+      .withIndex("by_version_rev", (q) => q.eq("versionId", versionId))
+      .collect())
+      await ctx.db.delete(before._id);
     return null;
   },
 });
