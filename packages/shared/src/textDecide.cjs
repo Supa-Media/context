@@ -119,44 +119,41 @@ const WHY = Object.freeze({
 /**
  * The judge's labelled examples (Dev2, 2026-11-11: leanings are taught by examples, not code; 2026-11-12: never taken
  * from a real chat, and each teaches a cause Dev2 gave, with both sides shown so the judge learns the line and not a
- * name). Every chat, name and detail is invented; `apps/mcp/bench/respond/cases.json` holds the held-out cases they
- * are scored on, never within half their words of one. `lines` are the chat just before; "You" is Tex, Nova an
- * invented assistant. The causes and the moments they came from: the page "Reply judge tune-up" (2026-11-12).
+ * name). Since 2026-11-15 they are Training conversations (`apps/mcp/bench/sets/training/decide-*.json`, Dev2:
+ * Training is "shown to steps as examples"), labelled on Decide, and the judge reads the ones its config context
+ * names (`train:decide` in `texConfig.json`; `texTraining.cjs`). Every chat, name and detail is invented;
+ * `apps/mcp/bench/respond/cases.json` holds the held-out cases they are scored on, never within half their words of
+ * one. "You" is Tex, Nova an invented assistant. The causes and the moments they came from: the page "Reply judge
+ * tune-up" (2026-11-12).
  */
-const JUDGE_EXAMPLES = Object.freeze([
-  // An answer to Tex's own question is for Tex, however it comes: a tapback, a word, a reply under it.
-  { chat: "group", lines: ["You: Want me to add the dentist visit to the shared calendar for Tuesday?   (your newest question)"], text: "@rosa: 👍 (yes) on Tex's message \"Want me to add the dentist visit…\"", verdict: "respond", why: "answers_tex" },
-  { chat: "group", lines: ["@rosa: want to get tacos after?"], text: "@luis: 👍 (yes) on the message \"want to get tacos after?\"", verdict: "quiet", why: "people_talking" },
-  { chat: "group", lines: ["You: Which works for the next meeting, the 3rd or the 10th?   (your newest question)", "@ana: (replying to You) the 10th"], text: "@kim: same, 10th", verdict: "respond", why: "answers_tex" },
-  { chat: "group", lines: ["You: I couldn't find the lease in the shared folder. Can you send it?   (your newest question)"], text: "@dev: (replying to You) it's the PDF I posted this morning", verdict: "respond", why: "replies_to_tex" },
-  // A message is for whoever it is addressed to, a person or another assistant, whoever sends it.
-  { chat: "group", lines: ["@mia: Nova, quiz Tex on the league rules and time it"], text: "@nova: Tex, question 1: how long is a half in an under-12 match?", verdict: "respond", why: "tags_tex" },
-  { chat: "group", lines: ["@mia: Nova, give Tex three quick math questions", "@nova: Starting now."], text: "@nova: What's 12 times 9?", verdict: "respond", why: "asks_tex" },
-  { chat: "group", lines: ["@mia: Nova, what's 12 times 9?"], text: "@nova: 108.", verdict: "quiet", why: "asks_someone_else" },
-  { chat: "group", lines: [], text: "@mia: Nova, what time is practice?", verdict: "quiet", why: "asks_someone_else" },
-  // Being named is not being asked; a go-ahead goes to whoever offered; a share is for the people.
-  { chat: "group", lines: ["@kai: wish Tex could split the bills for us automatically"], text: "@kai: Nova could you do that?", verdict: "quiet", why: "asks_someone_else" },
-  { chat: "group", lines: ["@lee: Nova, can you remind Pat about the deposit?", "@nova: Yes, I can message Pat's assistant about it."], text: "@lee: nice, do it", verdict: "quiet", why: "asks_someone_else" },
-  { chat: "group", lines: ["@ana: look what my nephew made", "@ana: https://example.com/cardboard-arcade"], text: "@kim: that's amazing", verdict: "quiet", why: "people_talking" },
-  { chat: "group", lines: ["@ana: look what my nephew made", "@ana: https://example.com/cardboard-arcade"], text: "@ana: Tex what is this?", verdict: "respond", why: "tags_tex" },
-  { chat: "group", lines: ["You: Ferry times are on the pinned note."], text: "@luis: tex has been slow all week lol", verdict: "quiet", why: "about_tex" },
-  // Tex's name as the one asked, anywhere in the message, in any setting.
-  { chat: "group", lines: ["@luis: can someone find the ferry times", "@rosa: no clue"], text: "@luis: tex", verdict: "respond", why: "tags_tex" },
-  { chat: "group", setting: "quiet", lines: [], text: "@mia: what's 20% of 45, Tex?", verdict: "respond", why: "tags_tex" },
-  { chat: "group", lines: [], text: "@dev: can @Tex find the gas bill from August", verdict: "respond", why: "tags_tex" },
-  { chat: "group", lines: ["You: The rent split is $640 each."], text: "@dev: Tex you're way too wordy", verdict: "respond", why: "corrects_tex" },
-  // People talking among themselves, news, and a burst still being typed.
-  { chat: "group", lines: ["@kim: is the cafe still open on Sundays?"], text: "@ana: no idea, I'll check when I pass by", verdict: "quiet", why: "people_talking" },
-  { chat: "group", lines: [], text: "@rosa: I passed my driving test!!", verdict: "react", emoji: "🎉", why: "news_shared" },
-  { chat: "group", lines: ["You: (a long list of five venues with prices)"], text: "@kai: ok that's a lot of options", verdict: "react", emoji: "😅", why: "thanks_or_ok" },
-  { chat: "group", lines: ["@dev: Tex can you check this", "@dev: sending the photo now"], text: "@dev: it's the one from", verdict: "wait", why: "still_typing" },
-  // One to one: every text is to Tex; thanks or an ok that asks nothing gets a reaction or nothing.
-  { chat: "one", lines: ["You: Done, it's on your calendar for 3."], text: "@jo: perfect thanks", verdict: "react", emoji: "👍", why: "thanks_or_ok" },
-  { chat: "one", lines: ["You: The library closes at 6 today, ha."], text: "@jo: haha", verdict: "quiet", why: "thanks_or_ok" },
-  { chat: "one", lines: ["You: Done, it's on your calendar for 3."], text: "@jo: great, can you make it 3:30 instead", verdict: "respond", why: "asks_tex" },
-  { chat: "one", lines: ["You: Booked the 7:30 table."], text: "@jo: thanks but I asked for 8", verdict: "respond", why: "corrects_tex" },
-  { chat: "one", lines: [], text: "@jo: how long does cooked rice keep in the fridge", verdict: "respond", why: "asks_tex" },
-]);
+const TRAINING = require("./texTraining.generated.json");
+const TEX_CONFIG = require("./texConfig.json");
+const { trainingSources, exampleText: trainingExample } = require("./texTraining.cjs");
+
+/** A Decide label as the judge's verdict: a reaction with nothing written reads "react", as the examples always have. */
+function judgeExample(moment) {
+  const { act, also_react: alsoReact, emoji, why } = moment.label;
+  const verdict = act === "quiet" && alsoReact === "yes" ? "react" : act;
+  return {
+    chat: moment.kind,
+    ...(moment.setting ? { setting: moment.setting } : {}),
+    lines: moment.before,
+    text: moment.newest,
+    verdict,
+    ...(verdict === "react" ? { emoji } : {}),
+    why,
+  };
+}
+
+const DECIDE_SOURCES = trainingSources(TEX_CONFIG.nodes.find((node) => node.id === "decide"));
+
+/** A Decide label the judge's form can show: a real act and why (a label may leave either "any", or out). */
+const judgeForm = (moment) => ["quiet", "respond", "wait"].includes(moment.label.act) && Object.hasOwn(WHY, moment.label.why);
+
+/** Decide's own Training labels, as the judge reads them; another node's labels it reads stay in that node's form. */
+const JUDGE_EXAMPLES = Object.freeze(
+  DECIDE_SOURCES.includes("decide") ? (TRAINING.nodes.decide ?? []).filter(judgeForm).map(judgeExample) : [],
+);
 
 /** One example as the judge reads it, in `<example>` tags. */
 function exampleText(item) {
@@ -166,8 +163,17 @@ function exampleText(item) {
   return `<example>\n<chat>${chat}</chat>\n<before>\n${lines}\n</before>\n<newest>${item.text}</newest>\n<verdict>${item.verdict}</verdict>${react}\n<why>${item.why}</why>\n</example>`;
 }
 
-/** The examples block the judge's state opens with: the same bytes on every call. */
-const EXAMPLES_TEXT = `<examples>\n${JUDGE_EXAMPLES.map(exampleText).join("\n")}\n</examples>`;
+/**
+ * The examples block the judge's state opens with, the same bytes on every call: each node its context names, in
+ * order, Decide's own in the judge's form and any other's in the Training form; "" when it reads none.
+ */
+function judgeExamplesText(sources) {
+  const items = sources.flatMap((source) =>
+    (TRAINING.nodes[source] ?? []).map((moment) => (source === "decide" && judgeForm(moment) ? exampleText(judgeExample(moment)) : trainingExample(moment))),
+  );
+  return items.length > 0 ? `<examples>\n${items.join("\n")}\n</examples>` : "";
+}
+const EXAMPLES_TEXT = judgeExamplesText(DECIDE_SOURCES);
 
 /** What Clef reads (`apps/mcp/src/agent/decide.js` `MAX_DECISION_STATE_CHARS`): the examples, then the newest of the chat that fits. */
 const MAX_STATE = 24_000;
@@ -178,7 +184,7 @@ const MAX_FACTS = 3_200;
 /** The judge's state: its examples, the facts of the moment, then the chat, oldest lines dropped first so the whole fits what Clef reads. */
 function judgeState(transcript, facts = []) {
   const known = facts.filter((fact) => typeof fact === "string" && fact !== "").join("\n").slice(0, MAX_FACTS);
-  const open = `${EXAMPLES_TEXT}\n\n<marks>${CHAT_MARKS}</marks>\n\n${known === "" ? "" : `<now>\n${known}\n</now>\n\n`}<chat>\n`;
+  const open = `${EXAMPLES_TEXT === "" ? "" : `${EXAMPLES_TEXT}\n\n`}<marks>${CHAT_MARKS}</marks>\n\n${known === "" ? "" : `<now>\n${known}\n</now>\n\n`}<chat>\n`;
   const close = "\n</chat>";
   return `${open}${newestWithin(transcript, MAX_STATE - open.length - close.length)}${close}`;
 }
@@ -453,6 +459,7 @@ module.exports = {
   WHY,
   JUDGE_EXAMPLES,
   EXAMPLES_TEXT,
+  judgeExamplesText,
   REACT_EMOJI,
   readDecideBody,
   decideRequest,

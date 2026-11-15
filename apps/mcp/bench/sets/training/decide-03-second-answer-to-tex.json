@@ -1,0 +1,36 @@
+{
+  "id": "decide-03-second-answer-to-tex",
+  "title": "A second answer to Tex's question",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Ana",
+    "Kim"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Tex",
+      "tex": true,
+      "text": "Which works for the next meeting, the 3rd or the 10th?"
+    },
+    {
+      "id": "m2",
+      "who": "Ana",
+      "kind": "reply",
+      "to": "m1",
+      "text": "the 10th"
+    },
+    {
+      "id": "m3",
+      "who": "Kim",
+      "text": "same, 10th",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "answers_tex"
+        }
+      }
+    }
+  ]
+}

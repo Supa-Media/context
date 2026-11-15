@@ -30,6 +30,7 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG, PAGE as DIAGRAM, generatedProblems } from "./tex-architecture.mjs";
 import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleIsCurrent as promptIsCurrent } from "./tex-prompt-module.mjs";
+import { FOLDER as TRAINING_FOLDER, MODULE as TRAINING_MODULE, moduleIsCurrent as trainingIsCurrent } from "./tex-training-module.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export { DIAGRAM };
@@ -165,6 +166,11 @@ function check(base) {
   const agentFiles = filesUnder(join(ROOT, AGENT_FOLDER)).map((file) => ({ path: relative(join(ROOT, AGENT_FOLDER), file), source: readFileSync(file, "utf8") }));
   problems.push(...mapProblems(agentFiles));
   if (!promptIsCurrent(ROOT)) problems.push(`${PROMPT_MODULE} is not what ${PROMPT_FOLDER}/*.md make: run node scripts/tex-prompt-module.mjs`);
+  try {
+    if (!trainingIsCurrent(ROOT)) problems.push(`${TRAINING_MODULE} is not what ${TRAINING_FOLDER}/*.json make: run node scripts/tex-training-module.mjs`);
+  } catch (error) {
+    problems.push(String(error.message));
+  }
   if (base) {
     const changed = execFileSync("git", ["diff", "--name-only", base, "HEAD"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
     problems.push(...changeProblems(changed, config, process.env.TEX_PR_BODY));

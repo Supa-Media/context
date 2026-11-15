@@ -1,0 +1,28 @@
+{
+  "id": "decide-13-talk-about-tex",
+  "title": "Friends talking about Tex",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Luis"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Tex",
+      "tex": true,
+      "text": "Ferry times are on the pinned note."
+    },
+    {
+      "id": "m2",
+      "who": "Luis",
+      "text": "tex has been slow all week lol",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "about_tex"
+        }
+      }
+    }
+  ]
+}

@@ -12,6 +12,8 @@
  * Sabotage record (2026-11-01):
  *  - `directNote` reading a known-missing note the old way: "a voice and about-us note known missing are read as empty";
  *  - `learnDirect` keeping a missing memory page as `false`: "a missing memory page is never kept as missing".
+ * Sabotage record (2026-11-15):
+ *  - the playbook read without its kept key: "with the keys kept, the turn reads no note through the tool".
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -23,7 +25,7 @@ import { withIdLayout } from "../src/store/idLayout.js";
 
 const KEY = "a".repeat(64);
 const HOME = "tex/groups/orbit-lamp-river";
-const ID = { m1: "01900000-0000-7000-8000-000000000001", v1: "01900000-0000-7000-8000-000000000002", a1: "01900000-0000-7000-8000-000000000003" };
+const ID = { m1: "01900000-0000-7000-8000-000000000001", v1: "01900000-0000-7000-8000-000000000002", a1: "01900000-0000-7000-8000-000000000003", p1: "01900000-0000-7000-8000-000000000004" };
 const OWN = (id) => `tex/chat:${KEY}/notes/${ID[id]}.md`;
 const TURNS = [
   { role: "user", text: "@seyi: what's for lunch" },
@@ -60,10 +62,11 @@ function setup({ direct, objectEntries, onPage = false }) {
   return { group, store, reads, homeStore, dispatch };
 }
 
-const KEPT = { voice: OWN("v1"), about: OWN("a1"), memory: OWN("m1"), jobs: false }; // no jobs list: kept as missing, as the lookup keeps it (`chatJobs.js`)
+const KEPT = { voice: OWN("v1"), about: OWN("a1"), memory: OWN("m1"), jobs: false, playbook: OWN("p1") }; // no jobs list: kept as missing, as the lookup keeps it (`chatJobs.js`)
 const ENTRIES = {
   [OWN("m1")]: { etag: "v-memory", text: renderGroupNote(TURNS) },
   [OWN("v1")]: { etag: "v-voice", text: "- dry humor\n- lowercase" },
+  [OWN("p1")]: { etag: "v-playbook", text: "## Launches\nPost the date first." },
   [OWN("a1")]: { etag: "v-about", text: "We plan the studio's launches." },
 };
 
@@ -73,6 +76,7 @@ test("with the keys kept, the turn reads no note through the tool, its memory pa
   assert.deepEqual(history.map((turn) => turn.text), TURNS.map((turn) => turn.text));
   assert.equal(group.voice, "- dry humor\n- lowercase");
   assert.equal(group.aboutUs, "We plan the studio's launches.");
+  assert.match(group.playbook, /Post the date first/, "the chat's playbook straight from its object (2026-11-15)");
   assert.deepEqual(reads.filter((path) => typeof path === "string" && path.startsWith(HOME)), [], "nothing in the home is read through the tool");
   assert.ok(homeStore.gets.includes(OWN("m1")), "the memory page straight from the chat's object");
 });
@@ -121,7 +125,7 @@ test("the id layer names the keys of keyed notes at several paths in one lookup"
 });
 
 test("a voice and about-us note known missing are read as empty, with no read through the tool", async () => {
-  const { group, store, reads, dispatch } = setup({ direct: { voice: false, about: false, jobs: false, memory: OWN("m1") }, objectEntries: ENTRIES, onPage: true });
+  const { group, store, reads, dispatch } = setup({ direct: { voice: false, about: false, jobs: false, playbook: false, memory: OWN("m1") }, objectEntries: ENTRIES, onPage: true });
   await readGroupMemory(store, group, dispatch);
   assert.equal(group.voice, "");
   assert.equal(group.aboutUs, "");
