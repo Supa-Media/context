@@ -298,11 +298,8 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // What the egress gate is holding for a person, at `/approvals` on the
   // gateway. Reserved on the same terms as `presence`.
   "approvals",
-  // The Mac app's Messages backup posts to `/messages/imessage/batch` on the
-  // gateway. Reserved on the same terms as `presence`.
+  // The Messages backup (`/messages/imessage/batch`) and its cards (`/cards/inbox`, `/cards/week`), as `presence`.
   "messages",
-  // What a card in Messages shows, `/cards/inbox` and `/cards/week` on the
-  // gateway. Reserved on the same terms as `presence`.
   "cards",
   // A person's own computers pair and connect at `/machines/` on the gateway;
   // `/lab` is the Tex Architecture Lab. Same terms as `presence`.
@@ -313,8 +310,7 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // `routeWords.test.mjs` fails when a route word is missing here.
   "files",
   "internal",
-  // The Lab's Test Set at `/tex-test-set` and Tex's eval service at `/tex-eval/` on the gateway. Same terms as
-  // `presence`.
+  // The Lab's Test Set (`/tex-test-set`) and Tex's eval service (`/tex-eval/`) on the gateway, as `presence`.
   "tex-test-set",
   "tex-eval",
   "oauth",
