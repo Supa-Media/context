@@ -1,0 +1,22 @@
+{
+  "id": "decide-16-at-tex-mid-message",
+  "title": "@Tex in the middle of a message",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Dev"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Dev",
+      "text": "can @Tex find the gas bill from August",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "tags_tex"
+        }
+      }
+    }
+  ]
+}

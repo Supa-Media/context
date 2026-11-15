@@ -1,0 +1,30 @@
+{
+  "id": "decide-02-tapback-between-people",
+  "title": "A thumbs-up between friends",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Rosa",
+    "Luis"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Rosa",
+      "text": "want to get tacos after?"
+    },
+    {
+      "id": "m2",
+      "who": "Luis",
+      "kind": "react",
+      "to": "m1",
+      "text": "👍",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "people_talking"
+        }
+      }
+    }
+  ]
+}

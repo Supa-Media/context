@@ -1,0 +1,27 @@
+{
+  "id": "decide-09-tex-named-not-asked",
+  "title": "Tex named, another assistant asked",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Kai"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Kai",
+      "text": "wish Tex could split the bills for us automatically"
+    },
+    {
+      "id": "m2",
+      "who": "Kai",
+      "text": "Nova could you do that?",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "asks_someone_else"
+        }
+      }
+    }
+  ]
+}
