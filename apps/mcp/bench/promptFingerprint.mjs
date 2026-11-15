@@ -48,10 +48,18 @@ export const FINGERPRINT_RUNS = {
   jobs: [["jobs", "--dir", "{dir}"]],
 };
 
-/** An area's fingerprint from its prompts' hashes, in any order and any number of times each. */
-export function fingerprintOf(hashes) {
+/**
+ * An area's fingerprint from its prompts' hashes, in any order and any number of times each. `masked` (one a hash, in
+ * the same order, from a tree whose harness writes them) is the same prompts with Tex's map taken out
+ * (`maskedHash`, `modelSocket.mjs`): two trees that both have it are compared by it, so a change to the map alone
+ * reaches no area (Dev2, 2026-11-15).
+ */
+export function fingerprintOf(hashes, masked = null) {
   const unique = [...new Set(hashes)].sort();
-  return { hash: createHash("sha256").update(unique.join("\n")).digest("hex").slice(0, 16), prompts: unique.length };
+  const digest = (list) => createHash("sha256").update(list.join("\n")).digest("hex").slice(0, 16);
+  const out = { hash: digest(unique), prompts: unique.length };
+  if (Array.isArray(masked) && masked.length === hashes.length && masked.every(Boolean)) out.masked = digest([...new Set(masked)].sort());
+  return out;
 }
 
 /** The hashes a fingerprint file holds, one JSON line a call. */
@@ -60,6 +68,14 @@ export function readCalls(text) {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line).hash);
+}
+
+/** The map-masked hashes a fingerprint file holds, one a call (null for a line from a harness that wrote none). */
+export function readMasked(text) {
+  return String(text)
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line).masked ?? null);
 }
 
 /** Whether a tree can fingerprint at all: main before this module was merged cannot, and then nothing is compared. */
@@ -110,8 +126,9 @@ export async function treeFingerprints(tree, { areas = Object.keys(AREAS), scrat
         // A bench that fails part way still hashed what it built: its exit is noted, never trusted.
         await runner(process.execPath, [join(tree, "apps/mcp/bench/run.mjs"), ...args], { cwd: tree, env: fingerprintEnv(file), maxBuffer: 64 * 1024 * 1024, timeout: AREA_TIMEOUT_MS }).catch((error) => failures.push(String(error?.message ?? error).split("\n")[0].slice(0, 200)));
       }
-      const hashes = readCalls(await readFile(file, "utf8"));
-      out[area] = hashes.length ? { ...fingerprintOf(hashes), ...(failures.length ? { failures } : {}) } : { error: failures[0] ?? "built no prompt" };
+      const text = await readFile(file, "utf8");
+      const hashes = readCalls(text);
+      out[area] = hashes.length ? { ...fingerprintOf(hashes, readMasked(text)), ...(failures.length ? { failures } : {}) } : { error: failures[0] ?? "built no prompt" };
     }
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -121,7 +138,9 @@ export async function treeFingerprints(tree, { areas = Object.keys(AREAS), scrat
 
 /** The areas whose fingerprints differ between main's and the change's, in `AREAS` order. */
 export function changedAreas(base, head) {
-  return Object.keys(AREAS).filter((area) => area in head && (!(area in base) || base[area].hash === undefined || head[area].hash === undefined || base[area].hash !== head[area].hash));
+  // Compared without Tex's map when both trees wrote masked hashes; main from before them is compared whole.
+  const key = (area) => (base[area]?.masked && head[area]?.masked ? "masked" : "hash");
+  return Object.keys(AREAS).filter((area) => area in head && (!(area in base) || base[area].hash === undefined || head[area].hash === undefined || base[area][key(area)] !== head[area][key(area)]));
 }
 
 /**

@@ -18,6 +18,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { inSample, respondSample } from "./gateSample.mjs";
 import { readHeldOut, writeRows } from "./replayGate.mjs";
 
 import { decisionEngine } from "../src/agent/decide.js";
@@ -140,7 +141,10 @@ export function respondReport(scored) {
 export async function respondCommand(options, { write = (text) => process.stdout.write(text) } = {}) {
   // `--held-out <dir>` adds the cases kept outside the repository (`replayGate.mjs`); `--only a,b` scores those ids alone.
   const only = options.only ? new Set(String(options.only).split(",")) : null;
-  const cases = [...(await loadCases()), ...(await readHeldOut(options["held-out"], "respond"))].filter((item) => !only || only.has(item.id));
+  // `--gate-sample <main tree>`: the replay gate's part of the cases, plus every case new or changed against main's (`gateSample.mjs`).
+  const practice = await loadCases();
+  const sample = options["gate-sample"] ? respondSample(practice, await loadCases(join(options["gate-sample"], "apps/mcp/bench/respond/cases.json")).catch(() => [])) : null;
+  const cases = [...practice, ...(await readHeldOut(options["held-out"], "respond"))].filter((item) => !only || only.has(item.id)).filter(inSample(sample));
   // The model socket (`modelSocket.mjs`) answers the judge only when "workers-ai" is among its kinds.
   const socket = options.fake ? null : modelSocket(process.env);
   const socketed = socket?.covers("workers-ai") === true;

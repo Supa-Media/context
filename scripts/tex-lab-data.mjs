@@ -193,6 +193,31 @@ function buildWs() {
 }
 
 const cases = buildCases();
+
+// What a change's replay runs by default (Dev2, 2026-11-15: each unit step "cut down to 20 questions"): the gate's own
+// sample (`apps/mcp/bench/gateSample.mjs`), so the Lab picks the same cases; a case outside it says `gate: false`.
+const sample = await import(pathToFileURL(abs("apps/mcp/bench/gateSample.mjs")).href);
+{
+  const reviewSets = {};
+  const reviewFile = new Map();
+  for (const f of listSorted("apps/mcp/bench/review").filter((name) => name.endsWith(".json"))) {
+    const set = JSON.parse(readText("apps/mcp/bench/review/" + f));
+    reviewSets[set.gate] = set.cases.map((c) => ({ ...c, id: `${set.gate}/${c.id}` }));
+    for (const c of set.cases) reviewFile.set(`${f}:${c.id}`, `${set.gate}/${c.id}`);
+  }
+  const respond = readJsonList("apps/mcp/bench/respond/cases.json");
+  const jobs = readJsonList("apps/mcp/bench/job-tasks/cases.json");
+  const picked = {
+    review: sample.reviewSample(reviewSets, reviewSets),
+    respond: sample.respondSample(respond, respond),
+    jobs: sample.jobsSample(jobs, jobs),
+  };
+  for (const c of cases) {
+    if (!picked[c.area]) continue;
+    const id = c.area === "review" ? reviewFile.get(`${c.group.replace(/ /g, "_")}.json:${c.id}`) : c.id;
+    if (!picked[c.area].has(id)) c.gate = false;
+  }
+}
 const modtext = await buildModText();
 const ws = buildWs();
 

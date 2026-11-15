@@ -77,6 +77,25 @@ export function stableJson(value) {
 /** The name of one call: `kind` ("claude" or "workers-ai") and exactly what would be sent. */
 export const requestHash = (kind, request) => createHash("sha256").update(`${kind}\n${stableJson(request)}`).digest("hex");
 
+/** What stands in for Tex's map (`TEX_MAP`) in a masked hash. */
+export const MAP_MASK = "<tex map>";
+
+/**
+ * A call's name with Tex's map (`TEX_MAP`, the generated drawing every agent is shown) taken out, so a change to the
+ * map alone leaves it the same (Dev2, 2026-11-15: "I feel like we shouldn't treat this as changing if the map changes
+ * ... We're never really going to quiz or test on what it knows about its own map"). Only prompt fingerprints use it,
+ * to decide which areas a change reaches; every answer is still named by `requestHash`, map and all.
+ */
+export function maskedHash(kind, request, map) {
+  const json = stableJson(request);
+  const inJson = map ? JSON.stringify(map).slice(1, -1) : "";
+  return createHash("sha256").update(`${kind}\n${inJson ? json.split(inJson).join(MAP_MASK) : json}`).digest("hex");
+}
+
+/** This tree's own map, read once, for a fingerprint run. */
+let treeMap = null;
+const loadTreeMap = async () => (treeMap ??= (await import("../src/agent/texArchitecture.generated.js").catch(() => ({ TEX_MAP: "" }))).TEX_MAP ?? "");
+
 /** What the examiner must answer with, by kind: the shape the harness reads back. */
 export const EXPECTS = {
   claude:
@@ -145,7 +164,8 @@ function socketFor(env, { wait = (ms) => new Promise((resolve) => setTimeout(res
       missed,
       async ask(kind, request) {
         const hash = requestHash(kind, request);
-        appendFileSync(file, `${JSON.stringify({ kind, hash })}\n`);
+        const masked = maskedHash(kind, request, await loadTreeMap());
+        appendFileSync(file, `${JSON.stringify({ kind, hash, masked })}\n`);
         // A Claude call is answered with the same stand-in words every time, so a conversation goes on the way it
         // always does from there (a played person's next text, a reviewer's read), and those prompts are hashed too.
         // Anything else is refused, which every caller already survives. The clock never moves.
