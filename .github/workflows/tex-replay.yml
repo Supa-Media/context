@@ -211,7 +211,8 @@ jobs:
             wait "$answerer" || code=1
             echo "### Claude Code answerer" >> "$GITHUB_STEP_SUMMARY"
             tail -n 5 "$RUNNER_TEMP/answerer.log" | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
-            grep -E '::error::' "$RUNNER_TEMP/answerer.log" || true
+            # Into the log too: hashes, models and the CLI's errors only, never a prompt or an answer.
+            tail -n 20 "$RUNNER_TEMP/answerer.log"
           fi
           exit "$code"
 
