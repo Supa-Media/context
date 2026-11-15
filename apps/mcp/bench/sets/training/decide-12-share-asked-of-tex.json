@@ -1,0 +1,32 @@
+{
+  "id": "decide-12-share-asked-of-tex",
+  "title": "Asking Tex about a shared link",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Ana"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Ana",
+      "text": "look what my nephew made"
+    },
+    {
+      "id": "m2",
+      "who": "Ana",
+      "text": "https://example.com/cardboard-arcade"
+    },
+    {
+      "id": "m3",
+      "who": "Ana",
+      "text": "Tex what is this?",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "tags_tex"
+        }
+      }
+    }
+  ]
+}

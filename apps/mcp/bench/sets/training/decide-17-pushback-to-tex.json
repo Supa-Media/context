@@ -1,0 +1,28 @@
+{
+  "id": "decide-17-pushback-to-tex",
+  "title": "Pushback to Tex",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Dev"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Tex",
+      "tex": true,
+      "text": "The rent split is $640 each."
+    },
+    {
+      "id": "m2",
+      "who": "Dev",
+      "text": "Tex you're way too wordy",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "corrects_tex"
+        }
+      }
+    }
+  ]
+}

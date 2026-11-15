@@ -13,15 +13,34 @@
  */
 import CONFIG from "../../../../packages/shared/src/texConfig.json" with { type: "json" };
 import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" with { type: "json" };
+import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
+import { TRAIN_ENTRY, moduleText } from "../../../../packages/shared/src/texTraining.cjs";
 
 export const TEX_CONFIG = CONFIG;
 
-/** Tex's prompt words by module name, from `packages/shared/src/texPrompt/<name>.md` (`scripts/tex-prompt-module.mjs`). */
-export const TEX_PROMPT_WORDS = PROMPT.modules;
+/**
+ * Tex's prompt words by module name: the repository's, from `packages/shared/src/texPrompt/<name>.md`
+ * (`scripts/tex-prompt-module.mjs`), and, as `train-<nodeId>`, each node's Training examples
+ * (`texTraining.cjs`, from `apps/mcp/bench/sets/training`). A node with no Training labels has no words, so a step
+ * that names it is given nothing extra.
+ */
 const TEX_PROMPT = PROMPT.modules;
+const TRAINING_WORDS = Object.fromEntries(
+  CONFIG.nodes.map((node) => [`train-${node.id}`, moduleText(`train:${node.id}`, TRAINING)]).filter(([, text]) => text !== ""),
+);
+export const TEX_PROMPT_WORDS = { ...TEX_PROMPT, ...TRAINING_WORDS };
 
 /** The context entry that names a prompt module: `p-<name>`. */
 const PROMPT_ENTRY = /^p-([a-z][a-z0-9-]{0,47})$/;
+
+/**
+ * The steps whose code reads the Training modules their context names (`train:<nodeId>`): Decide in the judge's state
+ * (`textDecide.cjs`), the front door and the background job among their prompt modules (`texModules`), and every
+ * other step whose prompt goes through `withArchitecture` after its own words (`texArchitecture.js`). The suite
+ * refuses a `train:` entry on any other step (`texTraining.test.mjs`), so the config never says a step reads examples
+ * it is not given.
+ */
+export const TRAINING_READERS = Object.freeze(["decide", "fd", "job", "advisor", "mailadv", "jobcheck", "planner", "classifier", "reviewer", "handback", "mail", "card", "selfreview"]);
 
 /** One step of the config by its id. Throws for an id the file has not: a typo here must fail the suite, not a turn. */
 export function texStep(id) {
@@ -78,13 +97,15 @@ export function texSetupFront() {
 /**
  * Which prompt modules each kind of turn is built from, in order, as `promptModules.js` reads a setup's `modules:`:
  * the `p-<name>` entries of the front door's context for a 1:1 text and a group (one step answers both), and of the
- * background job's for a job. Throws when a step names a module the repository has no words for.
+ * background job's for a job, with each `train:<nodeId>` entry where it stands as `train-<nodeId>` when that node has
+ * Training labels. Throws when a step names a module the repository has no words for.
  */
 export function texModules() {
   const of = (id) => {
-    const names = (texStep(id).ctx ?? []).map((entry) => PROMPT_ENTRY.exec(entry)?.[1]).filter(Boolean);
+    const named = (entry) => PROMPT_ENTRY.exec(entry)?.[1] ?? (TRAIN_ENTRY.test(entry) && TRAINING_WORDS[`train-${entry.slice(6)}`] ? `train-${entry.slice(6)}` : null);
+    const names = (texStep(id).ctx ?? []).map(named).filter(Boolean);
     if (names.length === 0) throw new Error(`texConfig: step "${id}" reads no prompt module`);
-    for (const name of names) if (typeof TEX_PROMPT[name] !== "string") throw new Error(`texConfig: step "${id}" reads module "${name}", which has no words`);
+    for (const name of names) if (typeof TEX_PROMPT_WORDS[name] !== "string") throw new Error(`texConfig: step "${id}" reads module "${name}", which has no words`);
     return names;
   };
   const texts = of("fd");

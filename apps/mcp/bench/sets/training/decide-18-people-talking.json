@@ -1,0 +1,28 @@
+{
+  "id": "decide-18-people-talking",
+  "title": "Friends talking among themselves",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Kim",
+    "Ana"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Kim",
+      "text": "is the cafe still open on Sundays?"
+    },
+    {
+      "id": "m2",
+      "who": "Ana",
+      "text": "no idea, I'll check when I pass by",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "people_talking"
+        }
+      }
+    }
+  ]
+}

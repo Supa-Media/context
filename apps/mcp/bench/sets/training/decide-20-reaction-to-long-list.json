@@ -1,0 +1,30 @@
+{
+  "id": "decide-20-reaction-to-long-list",
+  "title": "A shrug at Tex's long list",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Kai"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Tex",
+      "tex": true,
+      "text": "(a long list of five venues with prices)"
+    },
+    {
+      "id": "m2",
+      "who": "Kai",
+      "text": "ok that's a lot of options",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "also_react": "yes",
+          "emoji": "😅",
+          "why": "thanks_or_ok"
+        }
+      }
+    }
+  ]
+}
