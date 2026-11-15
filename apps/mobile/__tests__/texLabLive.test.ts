@@ -6,6 +6,7 @@
  *   flush diffing the page against the folded graph             "sends only the edits since the confirmed draft" fails
  *   reconcile taking the remote while a request is out          "waits for the request" fails
  *   reconcile skipping the rebase of unsent edits               "keeps unsent edits on top" fails
+ *   flush without flushSetup (2026-11-15, the dropped-picks bug) "the Run tab's picks and areas ... are sent" fails
  */
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { mainGraph } from "../features/tex/lab/data/graph";

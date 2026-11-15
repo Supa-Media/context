@@ -7,7 +7,7 @@
  * Sabotage record (temporary local edits, reverted, 2026-11-15):
  *   delete without the confirm: true check        "delete asks twice, as the Lab does" fails
  *   get of main answering every result's raw text  "get of main answers main's kept results, briefly" fails
- *   tool.js without the writes(action) call        every test here fails ("has no action")
+ *   tool.js without the writes(action) call        every action test here fails ("has no action")
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";

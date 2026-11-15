@@ -179,6 +179,7 @@ export async function setRunSetup(ctx: MutationCtx, row: Row, input: { picks?: u
  */
 export async function keepResults(ctx: MutationCtx, row: Row | null, input: { report?: unknown; link?: unknown }, by: Id<"users">, via: string, now = Date.now()): Promise<Answer> {
   if (typeof input.report !== "string" || !input.report.trim()) return bad("keep_results takes report: the run's \"## Lab run\" block as it printed");
+  if (input.report.length > MAX_JSON) return bad("that report is too big to keep");
   const kept = keptPart(input.report);
   if (!kept) return bad("that report is only a Lab replay, which is the person's own chat and is never kept with a version");
   const result = { ...parseReport(kept, now), link: typeof input.link === "string" ? input.link.trim().slice(0, 500) : "", by };
