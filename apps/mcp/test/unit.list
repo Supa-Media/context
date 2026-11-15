@@ -577,3 +577,4 @@ test/texLabOps.test.mjs
 test/texDevSnapshot.test.mjs
 test/texDev.test.mjs
 test/texDevReplay.test.mjs
+test/texDevWrites.test.mjs

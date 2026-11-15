@@ -12,9 +12,9 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { buildTraces } from "./engine/traces";
 import { allCases } from "./engine/diff";
-import { clone, emit, isMain, lab, MAIN, setSaver, shownGraph, snapshot, subscribe, toast } from "./engine/state";
+import { clone, emit, isMain, lab, MAIN, openVersion, setSaver, shownGraph, snapshot, subscribe, toast } from "./engine/state";
 import { unfoldGroups } from "./engine/groups";
-import { live, onRemote, resetLive, setFeed, setSender, tick, type Answer } from "./engine/live";
+import { live, onRemote, resetLive, setFeed, setSender, setSetupSender, setupOf, tick, type Answer } from "./engine/live";
 import type { LabCase, LabVersion } from "./types";
 
 /** Draw again whenever the Lab's state changes; returns the state. */
@@ -60,6 +60,23 @@ export async function promoteVersion() {
   }
 }
 
+/** Delete the open version for everyone, with its change list (the version panel's two-tap Delete; `tex_dev` `delete`). */
+let deleter: ((versionId: string) => Promise<unknown>) | null = null;
+export async function deleteCurrent() {
+  const { id, name } = lab.cur;
+  if (isMain() || !deleter) return;
+  try {
+    await deleter(id);
+  } catch {
+    toast("Couldn't delete this version");
+    return;
+  }
+  lab.versions = lab.versions.filter((v) => v.id !== id);
+  lab.dirty = false;
+  openVersion("main");
+  toast("Deleted “" + name + "”");
+}
+
 /** A version saved before the "behind" wire was renamed "background" (Dev2, 2026-11-14) reads with the new name. */
 export const withCurrentModes = <G extends { edges?: Array<{ mode: string }> },>(g: G): G =>
   Array.isArray(g.edges) ? { ...g, edges: g.edges.map((e) => (e.mode === "behind" ? { ...e, mode: "background" } : e)) } : g;
@@ -78,6 +95,8 @@ export function useLabSync(enabled: boolean) {
   const saveCaseRow = useMutation(api.functions.texLab.saveCase);
   const askPromote = useMutation(api.functions.texLabPromote.ask);
   const applyEdits = useMutation(api.functions.texLabDrafts.applyEdits);
+  const setRunSetup = useMutation(api.functions.texLabDrafts.setRunSetup);
+  const removeVersion = useMutation(api.functions.texLab.deleteVersion);
 
   useEffect(() => {
     const toRow = (v: LabVersion) => ({
@@ -97,22 +116,29 @@ export function useLabSync(enabled: boolean) {
     promoter = (versionId) => askPromote({ versionId });
     mainSaver = () => save(toRow({ ...MAIN, graph: { nodes: [], edges: [] } }));
     setSender((versionId, baseRev, ops) => applyEdits({ versionId, baseRev, ops }) as Promise<Answer>);
+    setSetupSender((versionId, picks, areas) => setRunSetup({ versionId, picks, areas }));
+    deleter = (versionId) => removeVersion({ versionId });
     const unsub = subscribe(tick);
     return () => {
       unsub();
       setSender(null);
+      setSetupSender(null);
+      deleter = null;
       resetLive();
       setSaver(null);
       caseSaver = null;
       mainSaver = null;
       promoter = null;
     };
-  }, [save, saveCaseRow, askPromote, applyEdits]);
+  }, [save, saveCaseRow, askPromote, applyEdits, setRunSetup, removeVersion]);
 
   useEffect(() => {
     if (!data) return;
     lab.myId = data.me;
     lab.names = data.names;
+    // The open draft as the list last had it: whether its Run tab setup has unsent changes, and whether it was saved.
+    const before = lab.versions.find((v) => v.id === lab.cur.id);
+    const setupLocal = !!before && setupOf(before) !== setupOf(lab.cur);
     const list: LabVersion[] = [MAIN];
     for (const x of data.versions) {
       if (x.versionId === "main") {
@@ -132,6 +158,18 @@ export function useLabSync(enabled: boolean) {
       lab.cur.updatedAt = f.updatedAt;
       lab.cur.live = f.live;
       if (!lab.dirty) lab.cur.name = f.name;
+      // The Run tab's picks and areas, changed by the other side (`tex_dev` `run_setup`), unless this page's are unsent.
+      if (!setupLocal) {
+        lab.cur.picks = clone(f.picks);
+        lab.cur.areas = f.areas ? clone(f.areas) : null;
+      }
+    } else if (!f && before?.rev !== undefined && !isMain()) {
+      // Deleted elsewhere (another staff member, or `tex_dev` `delete`): there is nothing left to edit.
+      toast("“" + lab.cur.name + "” was deleted");
+      lab.dirty = false;
+      lab.cur = clone(MAIN);
+      lab.cur.graph = shownGraph(lab.cur.graph, lab.cfocus);
+      lab.sel = null;
     } else if (!lab.dirty) {
       if (f) lab.cur = clone(f);
     } else if (isMain()) lab.cur.results = MAIN.results;

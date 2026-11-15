@@ -10,11 +10,15 @@
  *   { op: "set",    node, field, value }        one field of one step
  *   { op: "move",   node, x, y }                where a step sits on the canvas
  *   { op: "add",    node: {...} }               a new step (its id must be new)
- *   { op: "remove", node }                      a step, with every wire that touches it
+ *   { op: "remove", node }                      a step, with every wire that touches it and every read of its output
+ *                                               (`out:<id>` in another step's `ctx`); never `text` or `send`
  *   { op: "wire",   from, to, mode, when? }     a wire (one per from, to and mode; an existing one gets the new `when`)
  *   { op: "unwire", from, to, mode? }           a wire (every mode between the two when `mode` is left out)
  *   { op: "module", key, value }                one context module's edit (`graph.modules[key]`: words, size, cache); null drops it
  *   { op: "convo",  field, value }              one conversation setting (`graph.convo[field]`); null drops it
+ *   { op: "convo_tool", tool, on }              one chat tool in `graph.convo.tools` on or off; null drops the setting
+ *   { op: "model",  key, value }                one of the draft's own models (`graph.models[key]`); null deletes it,
+ *                                               and the steps on it move to haiku-5-5, as the Lab's model form does
  *   { op: "put",    graph }                     the whole graph
  *
  * Each edit names the pieces it touches (`keysOf`). The control plane keeps which pieces every revision touched, and an
@@ -30,6 +34,13 @@ const ID = /^[A-Za-z][A-Za-z0-9_-]{0,47}$/;
 const NODE_FIELDS = new Set(["label", "goal", "log", "on", "rounds", "out", "ctx", "ms", "timeoutS", "areas", "file", "note", "icon", "model", "effort", "kind", "inSchema", "outSchema", "sendBack", "x", "y", "group"]);
 /** At most this many edits in one batch. */
 const MAX_OPS = 200;
+/** Every version needs a start and a send (the Lab's `delSel`). */
+const KEPT_STEPS = new Set(["text", "send"]);
+/** The model a step moves to when the model it ran on is deleted (the Lab's `deleteModel`). */
+const FALLBACK_MODEL = "haiku-5-5";
+/** A change line as the change list shows it, and the whole line `tex_dev`'s `changes` answers (cut at this). */
+const SHORT = 60;
+const FULL = 1000;
 
 class OpError extends Error {
   constructor(message) {
@@ -72,6 +83,10 @@ function keysOf(op) {
       return [`m:${op.key}`];
     case "convo":
       return [`c:${op.field}`];
+    case "convo_tool":
+      return [`c:tools:${op.tool}`];
+    case "model":
+      return [`md:${op.key}`];
     case "put":
       return ["*"];
     default:
@@ -84,7 +99,8 @@ function overlaps(a, b) {
   if (a === "*" || b === "*") return true;
   if (a === b) return true;
   const [short_, long_] = a.length <= b.length ? [a, b] : [b, a];
-  if (short_.startsWith("n:") && long_.startsWith(short_ + ":")) return true;
+  // A whole step overlaps its fields; the conversation's whole tool list overlaps each tool.
+  if ((short_.startsWith("n:") || short_.startsWith("c:")) && long_.startsWith(short_ + ":")) return true;
   if (a.endsWith(">*") && b.startsWith(a.slice(0, -1))) return true;
   if (b.endsWith(">*") && a.startsWith(b.slice(0, -1))) return true;
   // A removed or added step touches every wire at it.
@@ -100,9 +116,10 @@ function conflicts(keys, touched) {
 }
 
 /**
- * Apply a batch of edits to a graph. Answers `{ graph, keys, said }`: the new graph (the input is not changed), every
- * piece the batch touched, and one plain line per edit for the change list. Throws `OpError` naming the first edit
- * that cannot apply, and then nothing of the batch applies.
+ * Apply a batch of edits to a graph. Answers `{ graph, keys, said, full }`: the new graph (the input is not changed),
+ * every piece the batch touched, one plain line per edit for the change list, and the same lines uncut (up to
+ * `FULL` characters) for `tex_dev`'s `changes`. Throws `OpError` naming the first edit that cannot apply, and then
+ * nothing of the batch applies.
  */
 function applyOps(graph, ops) {
   if (!Array.isArray(ops) || ops.length === 0) throw new OpError("there are no edits");
@@ -110,6 +127,12 @@ function applyOps(graph, ops) {
   let g = clone(asGraph(graph));
   const keys = [];
   const said = [];
+  const full = [];
+  /** One line, from a function of how long a value may be shown. */
+  const line = (of) => {
+    said.push(of(SHORT));
+    full.push(short(of(FULL), FULL));
+  };
   ops.forEach((op, i) => {
     const at = (message) => new OpError(`edit ${i + 1} (${show(op?.op)}): ${message}`);
     const find = (id) => g.nodes.find((n) => n.id === id);
@@ -123,7 +146,7 @@ function applyOps(graph, ops) {
           const before = n[op.field];
           if (op.value === null) delete n[op.field];
           else n[op.field] = clone(op.value);
-          said.push(`set ${n.id} ${op.field} ${short(show(before))} → ${short(show(op.value === null ? undefined : op.value))}`);
+          line((max) => `set ${n.id} ${op.field} ${short(show(before), max)} → ${short(show(op.value === null ? undefined : op.value), max)}`);
           break;
         }
         case "move": {
@@ -132,7 +155,7 @@ function applyOps(graph, ops) {
           if (!Number.isFinite(op.x) || !Number.isFinite(op.y)) throw at("x and y must be numbers");
           n.x = Math.round(op.x);
           n.y = Math.round(op.y);
-          said.push(`moved ${n.id}`);
+          line(() => `moved ${n.id}`);
           break;
         }
         case "add": {
@@ -142,16 +165,25 @@ function applyOps(graph, ops) {
           if (find(n.id)) throw at(`there is already a step "${n.id}"`);
           for (const k of Object.keys(n)) if (k !== "id" && !NODE_FIELDS.has(k)) throw at(`"${k}" is not a field a step has`);
           g.nodes.push({ label: n.id, goal: "", log: true, on: true, rounds: 1, out: 300, ctx: [], ms: 0, timeoutS: 0, areas: [], file: "", note: "", icon: "", model: "code", x: 0, y: 0, ...clone(n) });
-          said.push(`added step ${n.id}`);
+          line(() => `added step ${n.id}`);
           break;
         }
         case "remove": {
           const id = needId(op.node, "node");
           if (!find(id)) throw at(`there is no step "${id}"`);
+          if (KEPT_STEPS.has(id)) throw at("every version needs a start and a send, so text and send stay (turn a step off instead)");
           g.nodes = g.nodes.filter((n) => n.id !== id);
           const wires = g.edges.length;
           g.edges = g.edges.filter((e) => e.from !== id && e.to !== id);
-          said.push(`removed step ${id}` + (wires > g.edges.length ? ` and its ${wires - g.edges.length} wire${wires - g.edges.length === 1 ? "" : "s"}` : ""));
+          // The steps that read its output stop reading it, as the Lab's delete does (`delSel`).
+          const readers = g.nodes.filter((n) => Array.isArray(n.ctx) && n.ctx.includes("out:" + id));
+          for (const n of readers) {
+            n.ctx = n.ctx.filter((c) => c !== "out:" + id);
+            keys.push(`n:${n.id}:ctx`);
+          }
+          const w = wires - g.edges.length;
+          const parts = [w ? `its ${w} wire${w === 1 ? "" : "s"}` : "", readers.length ? `${readers.map((n) => n.id).join(", ")}'s read${readers.length === 1 ? "" : "s"} of its output` : ""].filter(Boolean);
+          line(() => `removed step ${id}` + (parts.length ? " and " + parts.join(" and ") : ""));
           break;
         }
         case "wire": {
@@ -164,7 +196,7 @@ function applyOps(graph, ops) {
           const had = g.edges.find((e) => e.from === op.from && e.to === op.to && e.mode === op.mode);
           if (had) had.when = [...when];
           else g.edges.push({ from: op.from, to: op.to, mode: op.mode, when: [...when] });
-          said.push(`${had ? "rewired" : "wired"} ${op.from} → ${op.to} (${op.mode}${when.join(",") === "*" ? "" : ", when " + when.join(", ")})`);
+          line(() => `${had ? "rewired" : "wired"} ${op.from} → ${op.to} (${op.mode}${when.join(",") === "*" ? "" : ", when " + when.join(", ")})`);
           break;
         }
         case "unwire": {
@@ -172,7 +204,7 @@ function applyOps(graph, ops) {
           const keep = g.edges.filter((e) => !(e.from === op.from && e.to === op.to && (op.mode === undefined || e.mode === op.mode)));
           if (keep.length === g.edges.length) throw at(`there is no wire ${op.from} → ${op.to}${op.mode ? " (" + op.mode + ")" : ""}`);
           g.edges = keep;
-          said.push(`unwired ${op.from} → ${op.to}${op.mode ? " (" + op.mode + ")" : ""}`);
+          line(() => `unwired ${op.from} → ${op.to}${op.mode ? " (" + op.mode + ")" : ""}`);
           break;
         }
         case "module": {
@@ -181,7 +213,7 @@ function applyOps(graph, ops) {
           g.modules = { ...(g.modules ?? {}) };
           if (op.value === null) delete g.modules[op.key];
           else g.modules[op.key] = clone(op.value);
-          said.push(op.value === null ? `dropped the edit to module ${op.key}` : `edited module ${op.key}${typeof op.value.text === "string" ? " (its words)" : ""}`);
+          line(() => (op.value === null ? `dropped the edit to module ${op.key}` : `edited module ${op.key}${typeof op.value.text === "string" ? " (its words)" : ""}`));
           break;
         }
         case "convo": {
@@ -191,16 +223,50 @@ function applyOps(graph, ops) {
           const before = g.convo[op.field];
           if (op.value === null) delete g.convo[op.field];
           else g.convo[op.field] = clone(op.value);
-          said.push(`set conversation ${op.field} ${short(show(before))} → ${short(show(op.value === null ? undefined : op.value))}`);
+          line((max) => `set conversation ${op.field} ${short(show(before), max)} → ${short(show(op.value === null ? undefined : op.value), max)}`);
+          break;
+        }
+        case "convo_tool": {
+          if (typeof op.tool !== "string" || !/^[A-Za-z0-9_.-]{1,64}$/.test(op.tool)) throw at("tool is not a chat tool's name");
+          if (op.on !== null && typeof op.on !== "boolean") throw at("on must be true, false, or null to drop the setting");
+          // One tool merged into the list, as the Lab's Conversation tab does (`setCvTool`).
+          g.convo = { ...(g.convo ?? {}) };
+          g.convo.tools = { ...(g.convo.tools ?? {}) };
+          const before = g.convo.tools[op.tool];
+          if (op.on === null) delete g.convo.tools[op.tool];
+          else g.convo.tools[op.tool] = op.on;
+          line(() => `set conversation tool ${op.tool} ${show(before)} → ${show(op.on === null ? undefined : op.on)}`);
+          break;
+        }
+        case "model": {
+          if (typeof op.key !== "string" || !/^[A-Za-z0-9_.-]{1,64}$/.test(op.key)) throw at("key is not a model key");
+          if (op.value === undefined || (op.value !== null && (typeof op.value !== "object" || Array.isArray(op.value)))) throw at("value must be the model as an object, or null to delete it");
+          if (op.value !== null && (typeof op.value.name !== "string" || !op.value.name.trim())) throw at("a model needs a name");
+          g.models = { ...(g.models ?? {}) };
+          if (op.value === null) {
+            if (!g.models[op.key]) throw at(`this draft has no model "${op.key}" of its own`);
+            delete g.models[op.key];
+            // Its steps move to Haiku, as the Lab's model form does when a model is deleted (`deleteModel`).
+            const moved = g.nodes.filter((n) => n.model === op.key);
+            for (const n of moved) {
+              n.model = FALLBACK_MODEL;
+              keys.push(`n:${n.id}:model`);
+            }
+            line(() => `deleted model ${op.key}` + (moved.length ? ` (${moved.map((n) => n.id).join(", ")} moved to ${FALLBACK_MODEL})` : ""));
+          } else {
+            const had = g.models[op.key];
+            g.models[op.key] = clone(op.value);
+            line(() => `${had ? "changed" : "added"} model ${op.key} (${op.value.name}${typeof op.value.id === "string" ? ", " + op.value.id : ""})`);
+          }
           break;
         }
         case "put": {
           g = clone(asGraph(op.graph));
-          said.push("replaced the whole graph");
+          line(() => "replaced the whole graph");
           break;
         }
         default:
-          throw at("not an edit: use set, move, add, remove, wire, unwire, module, convo or put");
+          throw at("not an edit: use set, move, add, remove, wire, unwire, module, convo, convo_tool, model or put");
       }
     } catch (error) {
       if (error instanceof OpError && error.message.startsWith("edit ")) throw error;
@@ -208,33 +274,51 @@ function applyOps(graph, ops) {
     }
     keys.push(...keysOf(op));
   });
-  return { graph: g, keys: [...new Set(keys)], said };
+  return { graph: g, keys: [...new Set(keys)], said, full };
 }
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+const isMap = (value) => !!value && typeof value === "object" && !Array.isArray(value);
+const allBool = (map) => Object.values(map).every((x) => typeof x === "boolean");
+
 /**
- * The edits that turn graph `a` into graph `b`: what the Lab sends when a person changes a live draft. Steps and
- * wires become field edits; anything else the graph holds (`modules`, `models`, `convo`, `folded`) changing makes
- * the batch one `put`, since those have no smaller edit. Answers [] when nothing changed.
+ * The edits that turn graph `a` into graph `b`: what the Lab sends when a person changes a live draft, and the undo a
+ * change keeps (with `b` the graph before it). Steps, wires, modules, the draft's own models, conversation settings
+ * and each chat tool become edits of their own; anything else the graph holds (`folded`) changing makes the batch one
+ * `put`, since that has no smaller edit. Answers [] when nothing changed.
  */
 function diffGraphs(a, b) {
   asGraph(a);
   asGraph(b);
   const rest = (g) => {
-    const { nodes: _n, edges: _e, modules: _m, convo: _c, ...others } = g;
+    const { nodes: _n, edges: _e, modules: _m, convo: _c, models: _d, ...others } = g;
     return others;
   };
   if (!same(rest(a), rest(b))) return [{ op: "put", graph: clone(b) }];
   const ops = [];
-  for (const [part, op, name] of [["modules", "module", "key"], ["convo", "convo", "field"]]) {
+  for (const [part, op, name] of [["modules", "module", "key"], ["models", "model", "key"], ["convo", "convo", "field"]]) {
     const was = a[part] ?? {};
     const now = b[part] ?? {};
-    for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) if (!same(was[k], now[k])) ops.push({ op, [name]: k, value: now[k] === undefined ? null : clone(now[k]) });
+    for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) {
+      if (same(was[k], now[k])) continue;
+      // The chat tools are one edit per tool, so two people turning on different tools both land.
+      const tw = was[k] ?? {};
+      const tn = now[k];
+      if (part === "convo" && k === "tools" && isMap(tw) && isMap(tn) && allBool(tn)) {
+        for (const t of new Set([...Object.keys(tw), ...Object.keys(tn)])) if (tw[t] !== tn[t]) ops.push({ op: "convo_tool", tool: t, on: tn[t] === undefined ? null : tn[t] });
+        continue;
+      }
+      ops.push({ op, [name]: k, value: now[k] === undefined ? null : clone(now[k]) });
+    }
   }
   const before = new Map(a.nodes.map((n) => [n.id, n]));
   const after = new Map(b.nodes.map((n) => [n.id, n]));
   for (const id of before.keys()) if (!after.has(id)) ops.push({ op: "remove", node: id });
+  // A removed step takes the reads of its output with it, and a deleted model moves its steps to Haiku: the edits do
+  // that themselves, so those are not edits of their own.
+  const goneOut = new Set([...before.keys()].filter((id) => !after.has(id)).map((id) => "out:" + id));
+  const goneModels = new Set(ops.filter((o) => o.op === "model" && o.value === null).map((o) => o.key));
   for (const [id, n] of after) {
     const was = before.get(id);
     if (!was) {
@@ -245,6 +329,8 @@ function diffGraphs(a, b) {
     for (const field of new Set([...Object.keys(was), ...Object.keys(n)])) {
       if (field === "id" || field === "x" || field === "y") continue;
       if (!NODE_FIELDS.has(field)) return [{ op: "put", graph: clone(b) }];
+      if (field === "ctx" && goneOut.size && Array.isArray(was.ctx) && Array.isArray(n.ctx) && same(was.ctx.filter((c) => !goneOut.has(c)), n.ctx)) continue;
+      if (field === "model" && goneModels.has(was.model) && n.model === FALLBACK_MODEL) continue;
       if (!same(was[field], n[field])) ops.push({ op: "set", node: id, field, value: n[field] === undefined ? null : clone(n[field]) });
     }
   }
@@ -258,4 +344,4 @@ function diffGraphs(a, b) {
   return ops;
 }
 
-module.exports = { MODES, NODE_FIELDS, MAX_OPS, OpError, applyOps, diffGraphs, keysOf, overlaps, conflicts };
+module.exports = { MODES, NODE_FIELDS, MAX_OPS, KEPT_STEPS, FALLBACK_MODEL, OpError, applyOps, diffGraphs, keysOf, overlaps, conflicts };

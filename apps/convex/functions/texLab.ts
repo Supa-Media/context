@@ -15,6 +15,7 @@ import { requireAdmin } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { mutation } from "./lib/rowWatch/mutations";
 import { recordSave } from "./texLabDrafts";
+import { deleteDraftRows } from "./lib/texLabDraftWrites";
 
 /** A version's JSON fields and a case edit must each fit well inside a row. */
 export const MAX_JSON = 400_000;
@@ -75,27 +76,20 @@ export const saveVersion = mutation({
       .unique();
     const fields = { name: a.name.trim() || "Untitled", graph: a.graph, picks: a.picks, areas: a.areas, results: a.results, updatedAt: now };
     // Every save is a revision with what it changed, so an AI in the draft over `tex_dev` reads it (`texLabDrafts.ts`).
-    if (row) await ctx.db.patch(row._id, { ...fields, ...(a.versionId === "main" ? {} : { rev: await recordSave(ctx, row, a.graph, actor.userId, now) }) });
+    if (row) await ctx.db.patch(row._id, { ...fields, ...(a.versionId === "main" ? {} : { rev: await recordSave(ctx, row, a.graph, actor.userId, now, { name: fields.name, picks: a.picks, areas: a.areas, results: a.results }) }) });
     else await ctx.db.insert("texLabVersions", { versionId: a.versionId, authorId: actor.userId, createdAt: a.createdAt || now, ...fields, rev: 0 });
     return null;
   },
 });
 
+/** Delete a version and its change list (the Lab's Delete, and `tex_dev`'s `delete`). Main is never deleted. */
 export const deleteVersion = mutation({
   args: { versionId: v.string() },
   returns: v.null(),
   handler: async (ctx, { versionId }) => {
     await requireAdmin(ctx);
-    const row = await ctx.db
-      .query("texLabVersions")
-      .withIndex("by_version", (q) => q.eq("versionId", versionId))
-      .unique();
-    if (row) await ctx.db.delete(row._id);
-    for (const change of await ctx.db
-      .query("texLabChanges")
-      .withIndex("by_version_rev", (q) => q.eq("versionId", versionId))
-      .collect())
-      await ctx.db.delete(change._id);
+    if (versionId === "main") throw new ConvexError("Main is Tex as it runs; it can't be deleted");
+    await deleteDraftRows(ctx, versionId);
     return null;
   },
 });
