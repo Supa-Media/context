@@ -20,6 +20,7 @@ import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAn
 import { createSetActions } from "./sets.js";
 import { snapshotGraph } from "./snapshot.js";
 import { createDraftWrites } from "./writes.js";
+import { testSetSummary } from "../http/texTestSet.js";
 
 export const TEX_DEV_WHO = "tex_dev is for people who edit @context-lc's AI setup.";
 const UNREACHABLE = "The Lab's drafts could not be reached just now. Try again in a minute.";
@@ -200,6 +201,11 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
       case "tool_stats": {
         const { answer, error } = await plane("tool_stats", { days: args.days });
         return error ?? json(answer.stats);
+      }
+      // The Test Set is people only (Dev2, 2026-11-15): an agent gets what the Lab shows before "Show Test chats".
+      case "test_set": {
+        const summary = await testSetSummary(env);
+        return summary ? json({ ...summary, note: "The Test Set's words are people only: read and written in the Lab's Testing tab. CI gates on it; tune on the Dev Set." }) : toolError("The Test Set could not be reached just now.");
       }
       case "cases": {
         const { answer, error } = await plane("cases");

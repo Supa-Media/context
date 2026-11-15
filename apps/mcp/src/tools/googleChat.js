@@ -25,6 +25,19 @@ const ADDRESS = /^[A-Za-z0-9.!#$%&\x27*+/=?^_\x60{|}~-]{1,64}@[A-Za-z0-9](?:[A-Z
 const TEXT_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 const LINE_CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 
+/** One of the person's Chat account addresses, lowercased, or `null` when none was named; `{ error }` when one was named badly. */
+export function readChatAccount(args) {
+  if (args?.account === undefined || args?.account === null) return { account: null };
+  const account = typeof args.account === "string" ? args.account.trim().toLowerCase() : "";
+  if (account === "" || account.length > 254 || !ADDRESS.test(account)) return { error: "account is one of their Google accounts with Chat, its email address." };
+  return { account };
+}
+
+/** Their Chat accounts as one line the model can pick from. */
+export function accountsLine(accounts) {
+  return Array.isArray(accounts) && accounts.length > 0 ? `Their Google accounts with Chat: ${accounts.join(", ")}.` : "They have no Google account with Chat connected.";
+}
+
 /** Whether a call sends (and so waits for a yes), rather than lists spaces. */
 export function chatSends(args) {
   return args?.action !== "spaces";
@@ -44,11 +57,13 @@ export function readChatMessage(args) {
   if (space !== null && (space === "" || space.length > MAX_SPACE || LINE_CONTROL.test(space))) {
     return { error: `space is the space's name as Chat shows it (or its spaces/… id from action spaces), at most ${MAX_SPACE} characters.` };
   }
+  const named = readChatAccount(args);
+  if (named.error) return { error: named.error };
   const text = typeof args?.text === "string" ? args.text : "";
   if (text.trim() === "" || text.length > MAX_TEXT || TEXT_CONTROL.test(text)) {
     return { error: `text is the message's words, 1 to ${MAX_TEXT.toLocaleString("en-US")} characters.` };
   }
-  return { message: { ...(to !== null ? { to } : { space }), text } };
+  return { message: { ...(to !== null ? { to } : { space }), text, ...(named.account !== null ? { account: named.account } : {}) } };
 }
 
 /** Where it goes, as Chat names it: a person's email, or a space's name. */
@@ -88,6 +103,8 @@ export const REFUSED = {
     "Get the link from manage connect_google (kind gmail) and give it to them.",
   not_configured: "Not sent: this Context deployment does not send Google Chat messages.",
   unavailable: "Not sent: Google Chat did not take the message just now. Nothing was sent; it can be asked for again.",
+  account_needed: "Not sent: name the Google account it goes from with account (one of their Chat accounts' email).",
+  account_not_found: "Not sent: they have no Google account with Chat by that address; pass account as one of theirs.",
   unconfirmed:
     "Not confirmed: Google Chat did not say it made the message, so whether it went is not known. Don't call it sent and don't " +
     "send it again: ask the person to look in their Google Chat, or read the conversation with fetch chat:<the space or their email>, first.",
@@ -106,14 +123,21 @@ export async function toolGoogleChat(store, args) {
   const chat = store?.googleChat;
   if (!chatSends(args)) {
     if (typeof chat?.spaces !== "function") return toolError(REFUSED.not_configured);
+    const named = readChatAccount(args);
+    if (named.error) return toolError(named.error);
     let answer;
     try {
-      answer = await chat.spaces();
+      answer = await chat.spaces(named.account !== null ? { account: named.account } : {});
     } catch {
       return toolError("Google Chat did not answer just now. Try again.");
     }
     if (answer?.ok === true) return listSpaces(answer);
-    return toolError((REFUSED[answer?.refused] ?? REFUSED.unavailable).replace(/^Not sent: /, ""));
+    // With no account named, the answer is which accounts there are to name: a list, not a failure.
+    if (answer?.refused === "account_needed" && Array.isArray(answer.accounts) && answer.accounts.length > 0) {
+      return toolText(`${accountsLine(answer.accounts)} Name one with account to list its spaces; every Google Chat read names the account it reads.`);
+    }
+    const why = (REFUSED[answer?.refused] ?? REFUSED.unavailable).replace(/^Not sent: /, "");
+    return toolError(answer?.refused?.startsWith("account_") ? `${why} ${accountsLine(answer.accounts)}` : why);
   }
   const read = readChatMessage(args);
   if (read.error) return toolError(`Not sent: ${read.error}`);
@@ -131,5 +155,6 @@ export async function toolGoogleChat(store, args) {
     const setup = answer.setupUsed === true ? "; Google found no conversation by that address, so direct-conversation setup was requested" : "";
     return toolText(`Sent on Google Chat from ${answer.from} ${where} (Google's message ${answer.message} in ${answer.space}${setup}).`);
   }
-  return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
+  const why = REFUSED[answer?.refused] ?? REFUSED.unavailable;
+  return toolError(answer?.refused?.startsWith("account_") ? `${why} ${accountsLine(answer.accounts)}` : why);
 }
