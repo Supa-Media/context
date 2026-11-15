@@ -9,7 +9,7 @@ import { NODE_INFO } from "../../data/graph";
 import { shortVersion, type TexVersion } from "../../engine/mine";
 import { startLabel, type Moment } from "../../engine/replay";
 import { STEP_LOGS } from "../../engine/stepLogs";
-import { fmtS } from "../../engine/sim";
+import { fmtReal, fmtS } from "../../engine/sim";
 import { lab, MODELS, node, set } from "../../engine/state";
 import { useLab } from "../../store";
 import { Ic } from "../ic";
@@ -57,7 +57,7 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
         <p className="hint">{n.goal || NODE_INFO[n.id]?.goal || ""}</p>
         <div className="rset">
           <span className="pill acc">{mo.runs === "code" ? "Code" : mo.name + (n.effort ? " · " + n.effort : "")}</span>
-          <span className="pill">{ms !== undefined ? fmtS(ms) + " real" : "not measured"}</span>
+          <span className="pill">{ms !== undefined ? fmtReal(ms) + " real" : "not measured"}</span>
           {real?.times.calls[n.id] ? <span className="pill">{real.times.calls[n.id] + (real.times.calls[n.id] === 1 ? " call" : " calls")}</span> : null}
           <span className="pill" title="Which Tex answered">{shortVersion(version ?? null)}</span>
         </div>
@@ -96,6 +96,7 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
             <div className="io"><b>Going in</b><pre>{STEP_LOGS[n.id].got}</pre></div>
             <div className="io"><b>Coming out</b><pre>{STEP_LOGS[n.id].gave}</pre></div>
             <div className="io"><b>Settings</b><pre>{STEP_LOGS[n.id].settings}</pre></div>
+            <div className="io"><b>Time</b><pre>{STEP_LOGS[n.id].time}</pre></div>
           </div>
         ) : null}
       </div>

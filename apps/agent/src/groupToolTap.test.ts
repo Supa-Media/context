@@ -17,6 +17,7 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import { LINES, fakeJudge, setup, silent, type Answer, type Decide } from "./groupWorld.testing";
 import { withIntro } from "./groupModelTurn";
 import type { Fetch } from "./clients";
+import { unwritten } from "./events";
 
 /** The chat's world, its turn streaming `lines` and then `body`; `tapsAt` is how many texts had gone out at each tapback. */
 function streaming(groupId: string, lines: Record<string, unknown>[], body: Record<string, unknown>, decide: (body: Decide) => Answer = fakeJudge) {
@@ -56,6 +57,23 @@ for (const { name, groupId } of LINES) {
       expect(w.reactions).toHaveLength(1);
       expect(w.tapsAt).toEqual([0]);
       expect(w.texts).toEqual(["Nopa at 7."]);
+    });
+
+    // Dev2, 2026-11-15: "The Text them node doesnt seem to be logging the actual time it takes": a group's texts are
+    // handed to its line here, after the gateway answered, so that time is the turn's own `send` step.
+    it("the answer's delivery is kept as a send step under the turn, with its time", async () => {
+      const storage = new MemoryStorage();
+      const w = streaming(groupId, [], { answer: "Nopa at 7." });
+      await bound(storage, w);
+      await acceptGroup(storage, w.message("Tex, where should we eat Friday?"), 1_000);
+      await drainGroup(storage, w.deps);
+      expect(w.texts).toEqual(["Nopa at 7."]);
+      const all = [...w.posted(), ...(await unwritten(storage))];
+      const kept = all.filter((event) => event.kind === "step" && event.step?.name === "send");
+      const said = all.filter((event) => event.from.kind === "tex" && event.text === "Nopa at 7.").at(-1);
+      expect(typeof said?.turn).toBe("string");
+      expect(kept.at(-1)).toMatchObject({ turn: said!.turn, step: { of: "delivery", ok: true, input: { parts: 1 }, output: { sent: 1 } } });
+      expect(kept.at(-1)!.step!.ms).toBeGreaterThanOrEqual(0);
     });
 
     it("two tool calls still give one tapback", async () => {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { ledgerObserver } from "../../../src/agent/ledger.js";
+import graphLib from "../../../../../packages/shared/src/texGraph.cjs";
+import { eventEntry, ledgerObserver, nodeLog } from "../../../src/agent/ledger.js";
 import { replyJudge, REVIEW_MODEL } from "../../../src/agent/replyJudge.js";
 
 /** A reviewer that lets every draft go, as the gateway answers it. */
@@ -27,5 +28,25 @@ export default {
     // Ids and times are random digits that can hold "391" (a flake seen in CI on 2026-11-14), so they are left out.
     const kept = JSON.stringify(written.map(({ id: _id, at: _at, ...entry }) => entry));
     assert.ok(!kept.includes("391"), "never the draft's words, which are the reply entry");
+
+    // 2026-11-15: Text them, Answer checks, Memory nudge and Reflect showed 0 s. Answer checks' run held the front
+    // door's rewrite, and Text them's delivery, done by the texting Worker, was never kept, so Replay drew Text them as
+    // the reply less the other steps, which fell to 0. Each run keeps its own time, and the delivery is a step.
+    let clock = 0;
+    const runs = [];
+    const node = (id) => ({ id, on: true, rounds: 1 });
+    const wire = (from, to, mode = "wait") => ({ from, to, mode, when: ["*"] });
+    let backs = 0;
+    const g = graphLib.createGraph(
+      { nodes: [node("fd"), node("checks"), node("send")], edges: [wire("fd", "checks"), wire("checks", "send"), { ...wire("checks", "fd", "loop"), rounds: 2 }] },
+      { fd: async () => ((clock += 4_500), {}), checks: async (_x, io) => ((clock += 2), backs++ === 0 && (await io.back.fd({})), {}), send: async () => ((clock += 1), {}) },
+      { log: nodeLog({ write: (e) => runs.push(e) }, { turn: "turn-replay-0001" }), now: () => clock },
+    );
+    await g.run("fd", {});
+    const ran = runs.find((e) => e.name === "checks");
+    assert.equal(ran.ms, 4_502, "Answer checks' whole run holds the rewrite it sent back for");
+    assert.equal(ran.own, 2, "but its own time is its code alone, never the front door's");
+    const delivery = eventEntry({ id: "1794772822042-001207", at: 1794772822042, kind: "step", chat: "texts", turn: "turn-replay-0001", step: { name: "send", of: "delivery", ok: true, ms: 470, input: { parts: 1 }, output: { sent: 1 } } });
+    assert.deepEqual([delivery.step, delivery.name, delivery.turn, delivery.ms], ["send", "delivery", "turn-replay-0001", 470], "Text them's delivery is kept under its turn, with its time");
   },
 };

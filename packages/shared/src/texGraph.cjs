@@ -212,7 +212,8 @@ function orderFrom(config, start) {
  * The runner for one config and one process's nodes.
  *
  *   impls       { [nodeId]: async (input, io) => output }: the nodes this process runs.
- *   log         ({ node, input, output, ms, ok, error, at, via }) => void: every node run; never awaited, never throws out.
+ *   log         ({ node, input, output, ms, own, ok, error, at, via }) => void: every node run (`ms` from start to end,
+ *               `own` less its waits on the nodes it called); never awaited, never throws out.
  *   background  (promise) => void: where a `background` wire's run goes (a Worker's `waitUntil`); awaited when absent.
  *   handOff     (nodeId, input, ctx) => Promise: a node this process does not run (the gateway's, seen from the Worker);
  *               its result ends this process's part of the run. Without it, such a node throws.
@@ -243,12 +244,29 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     if (typeof impl !== "function") {
       if (handOff) {
         const output = await handOff(id, input, ctx);
-        keep({ node: id, input: shaped(input), output: shaped(output), ms: now() - at, ok: true, at, via, handedOff: true });
+        keep({ node: id, input: shaped(input), output: shaped(output), ms: now() - at, own: now() - at, ok: true, at, via, handedOff: true });
         return { ran: true, output, handedOff: true };
       }
       throw new GraphError(`node "${id}" has no code in this process`);
     }
     let backs = 0;
+    // The node's own time is its run less the time it waited on other nodes it called (`use`, `back`; a `job`
+    // runs beside it), counted once however many were in flight, so a node that hands work on never shows that work as its own.
+    let inFlight = 0;
+    let since = 0;
+    let nested = 0;
+    const waited = async (work) => {
+      if (inFlight++ === 0) since = now();
+      try {
+        return await work();
+      } finally {
+        if (--inFlight === 0) nested += now() - since;
+      }
+    };
+    const timing = () => {
+      const ms = now() - at;
+      return { ms, own: Math.max(0, ms - nested - (inFlight > 0 ? now() - since : 0)) };
+    };
     const handles = (mode, run) => Object.fromEntries(out(id, mode).map((e) => [e.to, run(e.to, e)]));
     // `lend` (the second argument of `use` and `job`) is extra ctx for that one call: the callee's io.ctx gets it, and
     // this node's ctx does not. It is never part of the input, so it is never logged.
@@ -256,12 +274,12 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     const io = {
       node,
       ctx,
-      use: handles("uses", (to) => async (arg, lend) => (await runNode(to, arg, withLend(lend), `${id}:uses`)).output),
+      use: handles("uses", (to) => async (arg, lend) => waited(async () => (await runNode(to, arg, withLend(lend), `${id}:uses`)).output)),
       back: handles("loop", (to, wire) => async (arg) => {
         const most = [wire.rounds, byId.get(to)?.rounds].find((r) => Number.isInteger(r) && r > 0) ?? 1;
         if (backs >= most) throw new GraphError(`"${id}" sent work back to "${to}" more than ${most} times`);
         backs += 1;
-        return sendBack(to, id, arg, ctx);
+        return waited(() => sendBack(to, id, arg, ctx));
       }),
       job: handles("job", (to) => (arg, lend) => {
         const run = runNode(to, arg, withLend(lend), `${id}:job`);
@@ -282,10 +300,10 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       checkShape(id, "input", input, node.inSchema);
       const output = await impl(input, io);
       checkShape(id, "output", output, node.outSchema);
-      keep({ node: id, input: shaped(input), output: shaped(output), ms: now() - at, ok: true, at, via });
+      keep({ node: id, input: shaped(input), output: shaped(output), ...timing(), ok: true, at, via });
       return { ran: true, output };
     } catch (error) {
-      keep({ node: id, input: shaped(input), output: null, ms: now() - at, ok: false, error: error?.name === "GraphError" ? error.message : String(error?.name ?? "error"), at, via });
+      keep({ node: id, input: shaped(input), output: null, ...timing(), ok: false, error: error?.name === "GraphError" ? error.message : String(error?.name ?? "error"), at, via });
       throw error;
     }
   }
