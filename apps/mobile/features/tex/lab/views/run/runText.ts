@@ -5,10 +5,23 @@
  * docs/testing/examiner.md), and the reader for a pasted "## Tex replay" report.
  */
 import { EXAMINABLE } from "../../data/areas";
-import type { config } from "../../engine/diff";
-import type { RunResult } from "../../types";
+import type { Change, config } from "../../engine/diff";
+import type { LabVersion, RunResult } from "../../types";
+import { parseReport as readReport } from "@context/shared/src/texLabReport.cjs";
 
-export type AreaScore = { practice: [number, number]; held: [number, number]; usd: number };
+/** How a change from main lands, as the Run view's "Ships as" column names it. */
+export const shipsAs = (x: Pick<Change, "how" | "setup">): string =>
+  x.how === "fixture" ? "bench fixture" : x.how === "setup" ? "setup: " + String(x.setup) : x.how === "guess" ? "guess only" : x.how === "doc" ? "words only" : "code";
+
+/** Each area's latest run on a version: the last result that names it (the Compare view's `latest`). */
+export function latest(v: Pick<LabVersion, "results">): Record<string, { practice: [number, number]; held: [number, number] }> {
+  const o: Record<string, { practice: [number, number]; held: [number, number] }> = {};
+  for (const r of v.results || []) for (const [a, x] of Object.entries(r.areas)) o[a] = x as { practice: [number, number]; held: [number, number] };
+  return o;
+}
+
+export type { AreaScore } from "@context/shared/src/texLabReport.d.cts";
+import type { AreaScore } from "@context/shared/src/texLabReport.d.cts";
 
 export type ParsedResult = RunResult & {
   pass?: boolean;
@@ -57,17 +70,8 @@ Config (JSON):
 ${JSON.stringify(c)}`;
 }
 
-/** The artifact's reader, with one fix: its `\$([\d.]+)` took the sentence's closing period, so every pasted cost read NaN. */
-export function parseReport(txt: string): ParsedResult {
-  const r: ParsedResult = { at: Date.now(), areas: {}, raw: txt.slice(0, 6000) };
-  const h = txt.match(/Tex replay:\s*(✅|❌)\s*([^\n]*)/);
-  if (h) {
-    r.pass = h[1] === "✅";
-    r.headline = h[2].trim();
-  }
-  for (const m of txt.matchAll(/\*\*([a-z-]+):\*\*\s*practice (\d+)\/(\d+) right, held-out (\d+)\/(\d+) right; spent about \$(\d+(?:\.\d+)?)/g))
-    r.areas[m[1]] = { practice: [+m[2], +m[3]], held: [+m[4], +m[5]], usd: +m[6] };
-  const reg = txt.match(/(\d+) case\(s\) regressed/);
-  r.regressed = reg ? +reg[1] : r.pass ? 0 : null;
-  return r;
-}
+/**
+ * The artifact's reader, in one copy the control plane reads with too (`packages/shared/src/texLabReport.cjs`), so a
+ * result kept over the MCP's `tex_dev` `keep_results` scores the same as one kept here.
+ */
+export const parseReport = (txt: string): ParsedResult => readReport(txt) as ParsedResult;

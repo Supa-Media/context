@@ -5,12 +5,12 @@
  */
 import { Fragment, useRef } from "react";
 import { AREAS, EXAMINABLE } from "../data/areas";
-import { allCases, config, diff, isPicked, runAreas, type Change } from "../engine/diff";
-import { emit, forkFromMain, G, isMain, lab, MAIN, MODELS, saveVersion, set, toast } from "../engine/state";
+import { config, diff, runAreas, type Change } from "../engine/diff";
+import { emit, forkFromMain, isMain, lab, MAIN, saveVersion, set, toast } from "../engine/state";
 import { saveMainResults, useLab } from "../store";
 import { PageHead } from "./parts";
-import { caseFit } from "./tests/caseParts";
-import { type ParsedResult, parseReport, promptText } from "./run/runText";
+import { type ParsedResult, parseReport, promptText, shipsAs } from "./run/runText";
+import { runWarnings } from "./run/runWarns";
 import { parseReplay } from "../engine/mine";
 
 function toggleArea(k: string) {
@@ -37,18 +37,7 @@ function copy(text: string, ta: HTMLTextAreaElement | null) {
   }
 }
 
-const howPill = (x: Change) =>
-  x.how === "fixture" ? (
-    <span className="pill">bench fixture</span>
-  ) : x.how === "setup" ? (
-    <span className="pill ok">setup: {String(x.setup)}</span>
-  ) : x.how === "guess" ? (
-    <span className="pill">guess only</span>
-  ) : x.how === "doc" ? (
-    <span className="pill">words only</span>
-  ) : (
-    <span className="pill warn">code</span>
-  );
+const howPill = (x: Change) => <span className={x.how === "setup" ? "pill ok" : x.how === "code" ? "pill warn" : "pill"}>{shipsAs(x)}</span>;
 
 export function Run() {
   useLab();
@@ -60,15 +49,7 @@ export function Run() {
   const chosen = runAreas();
   const c = config();
 
-  const warns: string[] = [];
-  if (d.some((x) => x.what === "model"))
-    warns.push("A model swap only proves the wiring here: a Claude session answers as the model. Real Haiku-vs-Clef quality needs a credits run.");
-  if (chosen.includes("jobs")) warns.push("Jobs can't run on the subscription. It waits for API credits.");
-  const unfit = allCases().filter((c) => chosen.includes(c.area) && isPicked(c) && caseFit(c).length);
-  if (unfit.length) warns.push(unfit.length + " ticked case" + (unfit.length > 1 ? "s" : "") + " can't test this version as written (see Test cases). Change the case or the step first.");
-  const blind = G().nodes.filter((n) => n.on && !n.areas.length && MODELS[n.model]?.runs !== "code" && d.some((x) => x.node === n.id));
-  if (blind.length)
-    warns.push("No cases test " + blind.map((n) => n.label).join(", ") + " yet. Add some under Test cases, or a run can't see the change.");
+  const warns = runWarnings(d, chosen);
 
   async function keepResults() {
     const txt = (resRef.current?.value ?? "").trim();

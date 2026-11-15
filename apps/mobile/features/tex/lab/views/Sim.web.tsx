@@ -4,15 +4,12 @@
  * goes, and the "Measured from a run" paste that swaps guesses for measured times.
  */
 import { useRef, useState, type ReactNode } from "react";
-import { simulate, fmtS, fmtUsd } from "../engine/sim";
+import { deltaText, fmtS, fmtUsd, LANE_NAME, simulate, whereTimeGoes } from "../engine/sim";
 import { G, MAIN, MODELS, node, set, toast } from "../engine/state";
 import { useLab } from "../store";
 import { Ic } from "./ic";
 import { PageHead, ScnOptions } from "./parts";
 import { readLog } from "./simLog";
-
-const LANE_ORDER: Record<string, number> = { reply: 0, job: 1, behind: 2 };
-const LANE_NAME: Record<string, string> = { reply: "Before the reply", job: "Background job", behind: "After the reply" };
 
 export function Sim() {
   const s = useLab();
@@ -25,18 +22,11 @@ export function Sim() {
 
   const delta = (x: number, y: number, f: (n: number) => string): ReactNode => {
     const d = x - y;
-    if (Math.abs(d) < 1e-9) return <span style={{ color: "var(--dim)" }}>same as {base.name}</span>;
-    return (
-      <span style={{ color: `var(--${d < 0 ? "ok" : "bad"})` }}>
-        {d > 0 ? "+" : "−"}
-        {f(Math.abs(d))} vs {base.name}
-      </span>
-    );
+    const color = Math.abs(d) < 1e-9 ? "dim" : d < 0 ? "ok" : "bad";
+    return <span style={{ color: `var(--${color})` }}>{deltaText(x, y, f, base.name)}</span>;
   };
 
-  const rows = Object.entries(a.T)
-    .filter(([, t]) => t.ms > 0 || t.lane !== "reply")
-    .sort((x, y) => (LANE_ORDER[x[1].lane] - LANE_ORDER[y[1].lane]) || x[1].start - y[1].start);
+  const rows = whereTimeGoes(a);
   const max = Math.max(1, ...rows.map(([, t]) => t.end));
 
   const wf: ReactNode[] = [];

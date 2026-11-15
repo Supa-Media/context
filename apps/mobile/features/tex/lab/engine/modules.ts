@@ -4,10 +4,10 @@
  * the wording fingerprint and word diff the artifact used. Ported verbatim.
  */
 import { CV_MAIN } from "../data/convo";
-import { BASE_MODULES, MOD_ABOUT, MOD_SRC, STABLE } from "../data/modules";
+import { BASE_MODULES, MOD_ABOUT, MOD_SRC, SRC_KINDS, STABLE } from "../data/modules";
 import { MODTEXT } from "../labData.generated";
-import type { ConvoSettings, LabGraph, LabModule } from "../types";
-import { edit, G } from "./state";
+import type { ConvoSettings, LabGraph, LabModule, LabNode } from "../types";
+import { edit, G, MAIN } from "./state";
 
 export const cvOf = (g?: LabGraph): ConvoSettings => ({ ...CV_MAIN, ...(g?.convo || {}), tools: { ...CV_MAIN.tools, ...(g?.convo?.tools || {}) } });
 
@@ -32,7 +32,29 @@ export function mods(g: LabGraph = G()): Record<string, LabModule> {
   return o;
 }
 
-export const isStable = (c: string, g: LabGraph = G()) => !c.startsWith("out:") && !!mods(g)[c]?.stable;
+export type ModuleCard = { key: string; mod: LabModule; edited: boolean; usedBy: LabNode[] };
+
+/**
+ * The Modules page's sections: one per kind of source (`SRC_KINDS`) that has modules, each card new (`mod.custom`),
+ * edited (differs from main's) or neither, with the steps that read it; new ones first.
+ */
+export function moduleList(g: LabGraph = G()): Array<{ kind: string; name: string; tip: string; cards: ModuleCard[] }> {
+  const M = mods(g);
+  const main = mods(MAIN.graph);
+  return Object.entries(SRC_KINDS)
+    .map(([kk, K]) => ({
+      kind: kk,
+      name: K.name,
+      tip: K.tip,
+      cards: Object.entries(M)
+        .filter(([, v]) => v.kind === kk)
+        .sort((x, y) => (y[1].custom ? 1 : 0) - (x[1].custom ? 1 : 0))
+        .map(([k, v]) => ({ key: k, mod: v, edited: !v.custom && JSON.stringify(v) !== JSON.stringify(main[k]), usedBy: g.nodes.filter((n) => n.ctx.includes(k)) })),
+    }))
+    .filter((s) => s.cards.length);
+}
+
+export const isStable =(c: string, g: LabGraph = G()) => !c.startsWith("out:") && !!mods(g)[c]?.stable;
 
 /** FNV-1a over the exact text: one letter different is a different fingerprint. */
 export const fp = (t: string) => {

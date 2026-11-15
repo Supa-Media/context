@@ -208,6 +208,12 @@ test("remapIcons carries several note icons in one write", async () => {
  * that writes notes and fails on any `tex/<name>` or `inbox/<name>` it spells
  * that has no drawn part, so a new one cannot ship without its icon.
  */
+/**
+ * The Tex Lab's bundle for `tex_dev` (`scripts/tex-dev-lab.mjs`) carries the bench's invented workspaces as data (an
+ * `inbox/venue-email.md` of the test person's), which nothing files anything into, so it is not read here.
+ */
+const LAB_BUNDLE = /[\\/]apps[\\/]mcp[\\/]src[\\/]texDev[\\/]lab\.generated\.js$/;
+
 test("every folder Context files into under tex/ or inbox/ draws a Context part", () => {
   const roots = ["apps/mcp/src", "apps/agent/src", "apps/convex/functions", "packages/shared/src", "packages/communications/src", "packages/meetings/src"];
   const repo = fileURLToPath(new URL("../../../", import.meta.url));
@@ -218,7 +224,7 @@ test("every folder Context files into under tex/ or inbox/ draws a Context part"
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
         if (entry.name !== "node_modules" && entry.name !== "_generated") walk(full);
-      } else if (/\.(c|m)?[jt]s$/.test(entry.name) && !/\.d\.c?ts$/.test(entry.name)) files.push(full);
+      } else if (/\.(c|m)?[jt]s$/.test(entry.name) && !/\.d\.c?ts$/.test(entry.name) && !LAB_BUNDLE.test(full)) files.push(full);
     }
   };
   for (const root of roots) walk(join(repo, root));

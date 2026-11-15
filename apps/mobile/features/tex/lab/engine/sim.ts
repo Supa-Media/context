@@ -130,8 +130,9 @@ const LOGS_WHEN_RUN = new Set(["reviewer", "router", "fallback", "card", "classi
 
 /** `from` names the start step outright, for a run not traced on the canvas (Replay's timeline rows). */
 export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | null = null, from?: string): Sim {
-  // Every moment the Lab runs is a text on Tex's current line, so the old-number step (`oldLine`) passes it on to Triage.
-  const tags = [...((SCENARIOS[s] || SCENARIOS.own)?.tags ?? []), "pass"];
+  // Every moment the Lab runs is a text on Tex's current line, so the old-number step (`oldLine`) passes it on to Triage,
+  // and every door step hands the turn on to the next (`when: ["next"]`, the door chain since #3314).
+  const tags = [...((SCENARIOS[s] || SCENARIOS.own)?.tags ?? []), "pass", "next"];
   // A real run goes where it was measured: a measured step ran, a step that always logs when it runs and logged
   // nothing did not, and the rest follow the guess from the text's words.
   const on = (e: LabEdge) => {
@@ -192,6 +193,23 @@ export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | nul
     reach,
     inside,
   };
+}
+
+export const LANE_ORDER: Record<string, number> = { reply: 0, job: 1, behind: 2 };
+export const LANE_NAME: Record<string, string> = { reply: "Before the reply", job: "Background job", behind: "After the reply" };
+
+/** The Speed and cost view's "Where the time goes" rows: every step that takes time or runs off the reply, by lane, then by start. */
+export function whereTimeGoes(sim: Sim): Array<[string, StepTime]> {
+  return Object.entries(sim.T)
+    .filter(([, t]) => t.ms > 0 || t.lane !== "reply")
+    .sort((x, y) => LANE_ORDER[x[1].lane] - LANE_ORDER[y[1].lane] || x[1].start - y[1].start);
+}
+
+/** A KPI card's line under its number: "same as main", or "+1.2 s vs main" / "−$0.004 vs main". */
+export function deltaText(x: number, y: number, f: (n: number) => string, baseName: string): string {
+  const d = x - y;
+  if (Math.abs(d) < 1e-9) return "same as " + baseName;
+  return (d > 0 ? "+" : "−") + f(Math.abs(d)) + " vs " + baseName;
 }
 
 export const fmtS = (ms: number) => (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + " s";

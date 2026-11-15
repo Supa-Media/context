@@ -32,11 +32,14 @@ import { CASE_KEY, MAX_JSON } from "./texLab";
 import { pageForUser } from "./texPage";
 import { clampDays } from "./texLabToolStats";
 import { toolStatsReport } from "./lib/adminFns/texToolStats";
+import { deleteDraftRows, describeChange, keepResults, renameDraft, revertDraft, savedState, setRunSetup as writeRunSetup, undoText } from "./lib/texLabDraftWrites";
 
 /** At most this many change rows answered at once; an AI further behind reads the draft again. */
 export const MAX_CHANGES = 100;
 /** An AI client counts as in a draft this long after its last call. */
 export const LIVE_MS = 10 * 60_000;
+/** At most this many drafts in one `versions` answer (the MCP's `tex_dev compare`). */
+export const MAX_COMPARE = 20;
 const NAME_MAX = 120;
 
 type Row = Doc<"texLabVersions">;
@@ -67,15 +70,15 @@ async function whoIs(ctx: QueryCtx, cache: Map<string, string>, id: Id<"users">)
   return name;
 }
 
-/** The changes after revision `since`, oldest first, each with who made it. */
-async function changesAfter(ctx: QueryCtx, versionId: string, since: number): Promise<Change[]> {
+/** The changes after revision `since`, oldest first, each with who made it; `full`, each line uncut (for `tex_dev`). */
+async function changesAfter(ctx: QueryCtx, versionId: string, since: number, full = false): Promise<Change[]> {
   const rows = await ctx.db
     .query("texLabChanges")
     .withIndex("by_version_rev", (q) => q.eq("versionId", versionId).gt("rev", since))
     .take(MAX_CHANGES);
   const names = new Map<string, string>();
   const out: Change[] = [];
-  for (const r of rows) out.push({ rev: r.rev, who: await whoIs(ctx, names, r.by), via: r.via, said: r.said, at: r.at, keys: r.keys });
+  for (const r of rows) out.push({ rev: r.rev, who: await whoIs(ctx, names, r.by), via: r.via, said: full ? (r.full ?? r.said) : r.said, at: r.at, keys: r.keys });
   return out;
 }
 
@@ -117,7 +120,8 @@ export async function applyToDraft(ctx: MutationCtx, row: Row, baseRev: number, 
   const text = JSON.stringify(applied.graph);
   if (text.length > MAX_JSON) return { status: "bad_request", error: "the draft would be too big to save" };
   await ctx.db.patch(row._id, { graph: text, rev: rev + 1, updatedAt: now });
-  await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev: rev + 1, by, via, keys: applied.keys, said: applied.said, at: now });
+  // The undo is the edits back to the graph before (`tex_dev` `revert`).
+  await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev: rev + 1, by, via, keys: applied.keys, said: applied.said, full: applied.full, undo: undoText({ ops: diffGraphs(applied.graph, graph) }), at: now });
   await keepBefore(ctx, row.versionId, rev + 1, row.graph);
   return { status: "ok", rev: rev + 1, said: applied.said, others };
 }
@@ -150,28 +154,38 @@ function valuesAt(graph: NonNullable<ReturnType<typeof parseGraph>>, keys: strin
   return out;
 }
 
+const countOf = (text: string | undefined) => {
+  try {
+    const list = text ? (JSON.parse(text) as unknown) : [];
+    return Array.isArray(list) ? list.length : 0;
+  } catch {
+    return 0;
+  }
+};
+
 /**
- * A whole save from the Lab (`texLab.saveVersion`) as a change: the edits it made over what was there, so an AI in
- * the draft reads "set fd effort high → medium", not "something changed".
+ * A whole save from the Lab (`texLab.saveVersion`) as a change: the edits it made over what was there, a rename, the
+ * Run tab's picks and areas, and a run's kept results, so an AI in the draft reads "set fd effort high → medium", not
+ * "something changed". It keeps its undo like every change (`lib/texLabDraftWrites.ts`).
  */
-export async function recordSave(ctx: MutationCtx, row: Row, newGraph: string, by: Id<"users">, now = Date.now()) {
-  const before = parseGraph(row.graph);
-  const after = parseGraph(newGraph);
+export async function recordSave(ctx: MutationCtx, row: Row, newGraph: string, by: Id<"users">, now = Date.now(), next?: { name: string; picks: string; areas?: string; results: string }) {
+  const states = savedState(row, { graph: newGraph, name: next?.name ?? row.name, picks: next?.picks ?? row.picks, areas: next ? next.areas : row.areas });
   let keys = ["*"];
   let said = ["saved the whole draft"];
-  if (before && after) {
-    try {
-      const ops = diffGraphs(before, after);
-      if (ops.length === 0) return row.rev ?? 0;
-      const applied = applyOps(before, ops);
-      keys = applied.keys;
-      said = applied.said;
-    } catch {
-      // A graph the edits cannot express is recorded as a whole save.
-    }
+  let full = said;
+  let undo: string | undefined;
+  if (states) {
+    const d = describeChange(states.a, states.b);
+    [keys, said, full, undo] = [d.keys, d.said, d.full, d.keys.length ? undoText(d.undo) : undefined];
   }
+  if (next !== undefined && countOf(next.results) > countOf(row.results)) {
+    keys = [...keys, "results"];
+    said = [...said, "kept a run's results"];
+    full = [...full, "kept a run's results"];
+  }
+  if (keys.length === 0) return row.rev ?? 0;
   const rev = (row.rev ?? 0) + 1;
-  await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev, by, via: "lab", keys, said, at: now });
+  await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev, by, via: "lab", keys, said, full, undo, at: now });
   await keepBefore(ctx, row.versionId, rev, row.graph);
   return rev;
 }
@@ -194,6 +208,30 @@ export const applyEdits = mutation({
       return { status: "bad_request", error: "the edits are not JSON" };
     }
     return await applyToDraft(ctx, row, a.baseRev, ops, actor.userId, "lab");
+  },
+});
+
+/**
+ * The Run tab's test picks and areas from the Lab, saved on a live draft as a revision of their own (the Lab sends
+ * them whole; `tex_dev`'s `run_setup` is the same write, merged by area).
+ */
+export const setRunSetup = mutation({
+  args: { versionId: v.string(), picks: v.string(), areas: v.union(v.string(), v.null()) },
+  returns: v.any(),
+  handler: async (ctx, a) => {
+    const actor = await requireAdmin(ctx);
+    if (a.picks.length > MAX_JSON || (a.areas ?? "").length > MAX_JSON) throw new ConvexError("This setup is too big to save");
+    const row = await rowOf(ctx, a.versionId);
+    if (row === null) throw new ConvexError("Save this version before editing it live");
+    let picks: unknown;
+    let areas: unknown;
+    try {
+      picks = JSON.parse(a.picks);
+      areas = a.areas === null ? null : JSON.parse(a.areas);
+    } catch {
+      return { status: "bad_request", error: "the setup is not JSON" };
+    }
+    return await writeRunSetup(ctx, row, { picks, areas, whole: true }, actor.userId, "lab");
   },
 });
 
@@ -259,6 +297,38 @@ const draftOf = async (ctx: QueryCtx, row: Row) => ({
   promote: row.promote ? { state: row.promote.state, pr: row.promote.pr ?? null, why: row.promote.why ?? null } : null,
 });
 
+/**
+ * The Lab's other writes over `tex_dev` (`lib/texLabDraftWrites.ts`): rename, delete, the Run tab's setup, keeping a
+ * run's results (on a draft or on main), revert; and `get` of main, which answers main's kept results. Null for any
+ * other action. Main is Tex as it runs: only its results are written here.
+ */
+async function draftWrite(ctx: MutationCtx, dev: { userId: Id<"users">; client: string }, action: string, a: Record<string, unknown>, now: number): Promise<Record<string, unknown> | null> {
+  if (!["rename", "delete", "run_setup", "keep_results", "revert", "get"].includes(action)) return null;
+  if (a.draft === "main") {
+    if (action === "keep_results") return await keepResults(ctx, null, a, dev.userId, dev.client, now);
+    if (action === "get") {
+      const main = await ctx.db
+        .query("texLabVersions")
+        .withIndex("by_version", (q) => q.eq("versionId", "main"))
+        .unique();
+      return { status: "ok", id: "main", name: "main", results: main?.results ?? "[]" };
+    }
+    return { status: "bad_request", error: "main is Tex as it runs: make a draft (create) to change it. Main keeps only its run results (keep_results)." };
+  }
+  if (action === "get") return null;
+  const row = typeof a.draft === "string" ? await rowOf(ctx, a.draft) : null;
+  if (row === null) return { status: "not_found" };
+  if (action === "delete") {
+    await deleteDraftRows(ctx, row.versionId);
+    return { status: "ok", deleted: row.versionId, name: row.name };
+  }
+  await ctx.db.patch(row._id, { live: { client: dev.client, by: dev.userId, at: now } });
+  if (action === "rename") return await renameDraft(ctx, row, a.name, dev.userId, dev.client, now);
+  if (action === "run_setup") return await writeRunSetup(ctx, row, { picks: a.picks, areas: a.areas }, dev.userId, dev.client, now);
+  if (action === "keep_results") return await keepResults(ctx, row, a, dev.userId, dev.client, now);
+  return await revertDraft(ctx, row, { rev: a.rev, to: a.to }, dev.userId, dev.client, now);
+}
+
 const newId = () => "v" + Date.now().toString(36) + Math.floor(Math.random() * 36 ** 4).toString(36).padStart(4, "0");
 
 /**
@@ -273,6 +343,8 @@ export const forGateway = internalMutation({
     if (dev === null) return { status: "refused" };
     const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
     const now = Date.now();
+    const written = await draftWrite(ctx, dev, action, a, now);
+    if (written !== null) return written;
     if (action === "page") return await pageForUser(ctx, dev.userId);
     if (action === "list") {
       const rows = (await ctx.db.query("texLabVersions").collect()).filter((r) => r.versionId !== "main").sort((x, y) => y.updatedAt - x.updatedAt);
@@ -281,6 +353,17 @@ export const forGateway = internalMutation({
     // The Lab's other tabs, so whatever the Lab shows a developer sees too (Dev2, 2026-11-15): its Tools tab, and the
     // bench cases' shared edits (`texLab.saveCase`).
     if (action === "tool_stats") return { status: "ok", stats: await toolStatsReport(ctx, clampDays(typeof a.days === "number" ? a.days : undefined), now) };
+    // The Lab's Compare (and main's kept runs for its Run tab): every version's graph and results at once, read without
+    // marking the AI as in each draft, the newest MAX_COMPARE or the ones named.
+    if (action === "versions") {
+      const want = Array.isArray(a.drafts) ? new Set(a.drafts.filter((d): d is string => typeof d === "string").slice(0, MAX_COMPARE)) : null;
+      const rows = (await ctx.db.query("texLabVersions").collect()).sort((x, y) => y.updatedAt - x.updatedAt);
+      const main = rows.find((r) => r.versionId === "main");
+      const all = rows.filter((r) => r.versionId !== "main" && (!want || want.has(r.versionId)));
+      const picked = all.slice(0, MAX_COMPARE);
+      const drafts = await Promise.all(picked.map(async (r) => ({ ...(await draftOf(ctx, r)), graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results })));
+      return { status: "ok", main: { results: main?.results ?? "[]" }, drafts, ...(all.length > picked.length ? { more: `${all.length - picked.length} older drafts left out; name them with drafts` } : {}) };
+    }
     if (action === "cases") return { status: "ok", caseEdits: (await ctx.db.query("texLabCaseEdits").collect()).map((r) => ({ key: r.key, data: r.data, updatedAt: r.updatedAt })) };
     if (action === "case") {
       const key = typeof a.key === "string" ? a.key : "";
@@ -320,7 +403,7 @@ export const forGateway = internalMutation({
     if (action === "get") return { status: "ok", ...(await draftOf(ctx, row)), graph: row.graph, picks: row.picks, areas: row.areas ?? null, results: row.results };
     if (action === "changes") {
       const since = typeof a.since === "number" && Number.isSafeInteger(a.since) ? a.since : 0;
-      return { status: "ok", rev: row.rev ?? 0, changes: await changesAfter(ctx, row.versionId, since) };
+      return { status: "ok", rev: row.rev ?? 0, changes: await changesAfter(ctx, row.versionId, since, true) };
     }
     if (action === "edit") {
       const baseRev = typeof a.rev === "number" ? a.rev : -1;

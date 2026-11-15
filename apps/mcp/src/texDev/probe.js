@@ -14,13 +14,9 @@ import { chatOf, pickerOf } from "../http/texPage/page.js";
 import { dayRange, ledgerView } from "../http/texPage/ledger.js";
 
 const NEWEST = Number.MAX_SAFE_INTEGER;
-/** Around a reply, the window a turn's own entries are read from. */
-const BEFORE_MS = 20 * 60_000;
-const AFTER_MS = 5 * 60_000;
 /** Characters kept of each text field, unless `full`. */
 export const CUT = 2_000;
 export const FULL_CUT = 64_000;
-const TURN_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 function placeOf(chat) {
   if (chat?.owner?.person) return { owner: { person: chat.owner.person }, name: ONE_TO_ONE_CHAT };
@@ -36,7 +32,7 @@ export function cutDeep(value, max) {
   return value;
 }
 
-const when = (at, timeZone) => {
+export const when = (at, timeZone) => {
   try {
     return new Date(at).toLocaleString("en-US", { timeZone: timeZone || "UTC", dateStyle: "medium", timeStyle: "medium" });
   } catch {
@@ -49,18 +45,26 @@ export function chatsOf(page) {
   return pickerOf(page).map((c) => ({ chat: c.key, name: c.key === "me" ? "Just you and Tex" : c.name, ...(c.people ? { people: c.people } : {}) }));
 }
 
-function openChat(env, page, key, ledgerOf = ledgerFor) {
+export function openChat(env, page, key, ledgerOf = ledgerFor) {
   const chat = chatOf(page, key ?? "me");
   const place = placeOf(chat);
   const ledger = place === null ? null : ledgerOf(env, place.owner);
   return { chat, place, ledger };
 }
 
+/** Turns one `turns` answer lists unless `limit` says otherwise, and the most it lists. */
+export const TURNS_SHOWN = 20;
+export const MAX_TURNS = 100;
+
+/** A whole number of things to show: `value` when it is one, between 1 and `max`, else `fallback`. */
+export const countOf = (value, fallback, max) => (Number.isSafeInteger(value) && value > 0 ? Math.min(value, max) : fallback);
+
 /**
  * A chat's recent turns, newest first: each reply with its turn id, when, how long, the model and Tex version, the
- * text it answered and what Tex said. `before` pages back (the `before` the last answer gave).
+ * text it answered and what Tex said; 20 unless `limit` (at most 100). `before` pages back (the `before` the last
+ * answer gave).
  */
-export async function turnsOf(env, page, { chat: key, day, before } = {}, { ledgerOf = ledgerFor } = {}) {
+export async function turnsOf(env, page, { chat: key, day, before, limit } = {}, { ledgerOf = ledgerFor } = {}) {
   const { chat, place, ledger } = openChat(env, page, key, ledgerOf);
   if (ledger === null) return { chat: chat.key, turns: [] };
   const range = dayRange(day, page.timeZone);
@@ -68,7 +72,9 @@ export async function turnsOf(env, page, { chat: key, day, before } = {}, { ledg
   const entries = read.entries ?? [];
   const texts = entries.filter((e) => e.kind === "text");
   const turns = [];
-  for (const reply of entries.filter((e) => e.kind === "reply" && typeof e.turn === "string")) {
+  const shown = countOf(limit, TURNS_SHOWN, MAX_TURNS);
+  const replies = entries.filter((e) => e.kind === "reply" && typeof e.turn === "string");
+  for (const reply of replies.slice(0, shown)) {
     const said = texts.filter((t) => t.turn === reply.turn && t.from?.kind === "tex").map((t) => t.text).join("\n");
     const asked = texts.filter((t) => t.from?.kind === "person" && t.at <= reply.at).sort((a, b) => b.at - a.at)[0];
     turns.push({
@@ -84,13 +90,15 @@ export async function turnsOf(env, page, { chat: key, day, before } = {}, { ledg
       said: cutDeep(said || reply.text || "", 300),
     });
   }
-  return { chat: chat.key, turns, ...(Number.isSafeInteger(read.before) ? { before: read.before } : {}) };
+  // More replies than shown: the next page starts before the oldest one shown.
+  const next = replies.length > shown ? replies[shown - 1].seq : read.before;
+  return { chat: chat.key, turns, ...(Number.isSafeInteger(next) ? { before: next } : {}) };
 }
 
-const failedOf = (e) => e.ok === false || (e.kind === "judge" && e.went === false) || (e.kind === "tool" && (e.held || e.withheld));
+export const failedOf = (e) => e.ok === false || (e.kind === "judge" && e.went === false) || (e.kind === "tool" && (e.held || e.withheld));
 
 /** A short label for one entry, as the order list shows it. */
-function labelOf(e) {
+export function labelOf(e) {
   if (e.kind === "step") return e.step === "node" ? `node ${e.name}` : `step ${e.step}${e.name ? " " + e.name : ""}`;
   if (e.kind === "tool") return `tool ${e.name}`;
   if (e.kind === "judge") return `judge ${e.by ?? ""} round ${e.round ?? 1}`.trim();
@@ -98,43 +106,43 @@ function labelOf(e) {
   return e.kind;
 }
 
+/** A reply's timing in brief: each round's prompt as its module count and size (`prompt` shows the modules). */
+function briefTiming(timing) {
+  if (!timing || typeof timing !== "object" || !Array.isArray(timing.rounds)) return timing;
+  const rounds = timing.rounds.map((r) => {
+    const modules = Array.isArray(r?.prompt?.modules) ? r.prompt.modules : null;
+    if (!modules) return r;
+    const { prompt: _p, ...rest } = r;
+    return { ...rest, prompt: { modules: modules.length, chars: modules.reduce((a, m) => a + (Number.isFinite(m?.n) ? m.n : 0), 0) } };
+  });
+  return { ...timing, rounds };
+}
+
 /**
- * One turn exactly as its log shows it ran: every entry in the order written, each with its input and output (cut to
- * `CUT` characters unless `full`), and a summary of what took the time and what failed.
+ * One turn's entries (`mine`, in the order they ran) as `turn` answers them: every entry with its input and output
+ * (cut to `CUT` characters unless `full`), and a summary of what took the time and what failed. The reply's timing is
+ * in the summary once, in brief unless `full`; its entry in the order says so rather than repeating it.
  */
-export async function turnOf(env, page, { chat: key, turn, at, full = false } = {}, { ledgerOf = ledgerFor } = {}) {
-  if (typeof turn !== "string" || !TURN_ID.test(turn)) return { error: "turn takes a turn id from turns" };
-  const { chat, place, ledger } = openChat(env, page, key, ledgerOf);
-  if (ledger === null) return { error: "this chat has no history file yet" };
-  let around = Number.isSafeInteger(at) ? at : null;
-  if (around === null) {
-    const replies = await ledger.read(place.name, { before: NEWEST, kinds: ["reply"], limit: 2_000 });
-    around = (replies.entries ?? []).find((e) => e.turn === turn)?.at ?? null;
-  }
-  if (around === null) return { error: `no turn ${turn} in this chat's recent history; pass the at that turns gave` };
-  const read = await ledger.read(place.name, { since: around - BEFORE_MS, until: around + AFTER_MS, limit: 5_000 });
-  const mine = (read.entries ?? []).filter((e) => e.turn === turn);
-  if (mine.length === 0) return { error: `no entries for turn ${turn}` };
+export function turnFrom(mine, { timeZone, full = false } = {}) {
   const max = full === true ? FULL_CUT : CUT;
   const reply = mine.find((e) => e.kind === "reply") ?? null;
   const start = mine[0].at;
   const order = mine.map((e, i) => {
     const { v: _v, id: _id, turn: _turn, seq, ...rest } = e;
+    if (e.kind === "reply" && rest.timing) rest.timing = "in summary.timing";
     return { n: i + 1, seq, label: labelOf(e), tPlusMs: e.at - start, ...(failedOf(e) ? { failed: true } : {}), ...cutDeep(rest, max) };
   });
   const timed = mine.filter((e) => Number.isFinite(e.ms) && e.kind !== "reply").map((e) => ({ what: labelOf(e), ms: e.ms }));
   timed.sort((a, b) => b.ms - a.ms);
   const failed = order.filter((e) => e.failed).map((e) => ({ n: e.n, what: e.label, why: e.reason ?? e.error ?? e.notice ?? (Array.isArray(e.failed) ? e.failed : null) ?? null }));
   return {
-    chat: chat.key,
-    turn,
-    when: when(start, page.timeZone),
+    when: when(start, timeZone),
     summary: {
       entries: mine.length,
       ms: reply?.ms ?? null,
       ...(reply?.model ? { model: reply.model } : {}),
       ...(reply?.version ? { version: reply.version } : {}),
-      ...(reply?.timing ? { timing: reply.timing } : {}),
+      ...(reply?.timing ? { timing: full === true ? reply.timing : briefTiming(reply.timing) } : {}),
       slowest: timed.slice(0, 8),
       failed,
       tools: mine.filter((e) => e.kind === "tool").map((e) => ({ name: e.name, ok: e.ok !== false, ms: e.ms ?? null })),

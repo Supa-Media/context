@@ -11,8 +11,9 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../../../agent/useConsoleGrant";
 import { MCP_ENDPOINT } from "../../../../console/placeholderData";
 import { gatewaySource, type TexPageSource } from "../../../page/texPageSource";
-import { LATEST, type LedgerEntry, type LedgerKind } from "../../../page/texPageTypes";
-import { chatLines, myTexts, readsOf, type MyText } from "../../engine/mine";
+import { LATEST, type LedgerEntry } from "../../../page/texPageTypes";
+import { readsOf, type MyText } from "../../engine/mine";
+import { DETAIL_KINDS, JOB_KINDS, LINE_KINDS, linesOf } from "../../engine/replayRead";
 import { realIO, realTimes } from "../../engine/realTimes";
 import { turnPromptOf } from "../../engine/promptAt";
 import { emit, lab, toast } from "../../engine/state";
@@ -56,7 +57,7 @@ export async function readMyTexts(older = false) {
   reading = true;
   const chat = lab.myChat;
   try {
-    const r = await source.ledger(chat, { kinds: ["text", "reply", "note"], jobs: false, before: older && lab.myOlder !== null ? lab.myOlder : LATEST });
+    const r = await source.ledger(chat, { kinds: LINE_KINDS, jobs: false, before: older && lab.myOlder !== null ? lab.myOlder : LATEST });
     if (chat !== lab.myChat) return;
     if (r.kind !== "ok") {
       if (!older) lab.myTexts = "failed";
@@ -66,8 +67,9 @@ export async function readMyTexts(older = false) {
     const known = new Set(seen.map((e) => e.id));
     seen = [...seen, ...r.value.entries.filter((e) => !known.has(e.id))];
     const first = !Array.isArray(lab.myTexts);
-    lab.myTexts = myTexts(seen);
-    lab.myLines = chatLines(seen, lab.myTexts, { group: chat !== "me" });
+    const read = linesOf(seen, chat !== "me");
+    lab.myTexts = read.texts;
+    lab.myLines = read.lines;
     // As You, the canvas traces your newest text until you pick another.
     if (first && lab.tester === "me" && lab.myTexts[0]) {
       traceMine(lab.myTexts[0].text);
@@ -108,9 +110,6 @@ export const replayEntries = (): LedgerEntry[] => [...seen, ...detail.values()];
  * Replay a moment: read the details of the day it happened (the texting Worker's judgings, the turns' steps, tool
  * calls and thoughts), page by page back to its first text, once per chat and day.
  */
-/** Everything a turn's steps logged beyond its texts and reply: what the panel shows each step got and gave. */
-const DETAIL_KINDS: LedgerKind[] = ["step", "judge", "tool", "thinking", "said", "brief", "advisor", "mail_check", "job"];
-
 export async function readMomentDetail(at: number) {
   if (!source) return;
   const chat = lab.myChat;
@@ -142,7 +141,7 @@ export async function readJobWork(id: string) {
   jobsRead.add(chat + "|" + id);
   let before = LATEST;
   for (let i = 0; i < 20; i++) {
-    const r = await source.ledger(chat, { kinds: [...DETAIL_KINDS, "reply"], job: id, before });
+    const r = await source.ledger(chat, { kinds: JOB_KINDS, job: id, before });
     if (r.kind !== "ok" || chat !== lab.myChat) {
       jobsRead.delete(chat + "|" + id);
       break;

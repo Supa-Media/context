@@ -13,9 +13,12 @@ import { appOriginOf } from "../agent/noteLinks.js";
 import { TEX_CONFIG } from "../agent/texConfig.js";
 import { toolError } from "../tools/results.js";
 import { draftProblems, draftVsMain } from "./check.js";
-import { guideText } from "./guide.js";
-import { chatsOf, entriesOf, turnOf, turnsOf } from "./probe.js";
+import { ACTIONS, guideText } from "./guide.js";
+import { labAction, labWording, snapshotSim } from "./lab.js";
+import { chatsOf, entriesOf, turnsOf } from "./probe.js";
+import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
 import { snapshotGraph } from "./snapshot.js";
+import { createDraftWrites } from "./writes.js";
 
 export const TEX_DEV_WHO = "tex_dev is for people who edit @context-lc's AI setup.";
 const UNREACHABLE = "The Lab's drafts could not be reached just now. Try again in a minute.";
@@ -40,7 +43,7 @@ function parseGraph(text) {
  * The tool's work for one connection. `call(action, args)` answers an MCP result. `env` is the gateway's, `session`
  * the connection's (its token goes to the control plane, which decides who it is), `sleep` for tests.
  */
-export function createTexDev({ env, session, controlPlane, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now }) {
+export function createTexDev({ env, session, controlPlane, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, fetch: get = (...a) => globalThis.fetch(...a), ledgerOf = undefined }) {
   const origin = appOriginOf(env) || "https://context.lc";
   const linkOf = (id) => `${origin}/lab?v=${id}`;
 
@@ -72,9 +75,14 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
     return { page: answer };
   }
 
+  // The Lab's other writes (rename, delete, run_setup, keep_results, revert) and `get` of main (`writes.js`).
+  const writes = createDraftWrites({ plane, json, linkOf });
+
   const needDraft = (args) => (typeof args?.draft === "string" && DRAFT.test(args.draft) ? null : toolError("Name the draft: { draft: \"v…\" } (list shows them)."));
 
   return async function call(action, args = {}) {
+    const written = await writes(action, args);
+    if (written !== null) return written;
     switch (action) {
       case "guide":
         return { content: [{ type: "text", text: guideText() }] };
@@ -104,7 +112,8 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
           }
         };
         // `picks`, `areas` and `results` are the Lab's Run tab: the cases picked, the areas, and every bench run's scores.
-        return json({ ...about, link: linkOf(args.draft), vsMain: draftVsMain(graph), problems: draftProblems(graph), picks: read(picks, {}), areas: read(areas, null), results: read(results, []), graph });
+        // vsMain also names the modules' words and conversation settings the draft changes, as the Lab's nav tags do.
+        return json({ ...about, link: linkOf(args.draft), vsMain: { ...draftVsMain(graph), ...labWording(args.draft, answer) }, problems: draftProblems(graph), picks: read(picks, {}), areas: read(areas, null), results: read(results, []), graph });
       }
       case "edit": {
         if (needDraft(args)) return needDraft(args);
@@ -130,21 +139,35 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
       }
       case "snapshot": {
         let graph = null;
+        let drafted = null;
         if (args.graph !== undefined) graph = parseGraph(args.graph);
-        else if (typeof args.draft === "string") {
+        else if (typeof args.draft === "string" && args.draft !== "main") {
           const got = await draftGraph(args.draft);
           if (got.error) return got.error;
           graph = got.graph;
+          drafted = got.answer;
         } else graph = mainGraph();
         if (graph === null) return toolError("snapshot takes a draft, or graph as { nodes: [...], edges: [...] }.");
-        const shot = await snapshotGraph(env, graph, { focus: args.focus ?? null, base: mainGraph(), theme: args.theme === "light" ? "light" : "dark" });
+        // With a test, each step carries its time and the stats chip shows, as on the Lab's canvas (`lab.js`).
+        const traced = await snapshotSim(plane, args, drafted);
+        if (traced.error) return traced.error;
+        const shot = await snapshotGraph(env, graph, { focus: args.focus ?? null, base: mainGraph(), theme: args.theme === "light" ? "light" : "dark", sim: traced.sim });
         if (!shot.ok) return toolError(shot.error);
-        return { content: [{ type: "image", data: shot.png, mimeType: "image/png" }, { type: "text", text: args.draft ? `Draft ${args.draft} · live at ${linkOf(args.draft)}` : "Main as it runs today." }] };
+        return { content: [{ type: "image", data: shot.png, mimeType: "image/png" }, { type: "text", text: drafted ? `Draft ${args.draft} · live at ${linkOf(args.draft)}` : args.graph !== undefined ? "The graph you passed." : "Main as it runs today." }] };
       }
       case "link": {
-        if (needDraft(args)) return needDraft(args);
-        const { error } = await plane("get", { draft: args.draft });
-        return error ?? json({ link: linkOf(args.draft), note: "Opens in the Lab with this draft live; staff sign-in. Edits you make here show there within a second, and theirs reach you in every answer." });
+        // A place in the Lab or in Replay (`replay.js` `linkAnswer`): a page, or a chat and a moment, as the Lab's address holds it.
+        const place = args.mode !== undefined || args.page !== undefined || args.chat !== undefined || args.moment !== undefined;
+        if (!place || args.draft !== undefined) {
+          if (needDraft(args)) return place ? needDraft(args) : toolError("link takes a draft, or a place: { mode: \"replay\", chat?, moment? } or { page }.");
+          const { error } = await plane("get", { draft: args.draft });
+          if (error) return error;
+          if (!place) return json({ link: linkOf(args.draft), note: "Opens in the Lab with this draft live; staff sign-in. Edits you make here show there within a second, and theirs reach you in every answer." });
+        }
+        const p = await page();
+        if (p.error) return p.error;
+        const answer = await linkAnswer(p.page, args, { origin, draft: args.draft ?? null });
+        return answer.error ? toolError(answer.error) : json(answer);
       }
       case "check": {
         let graph = args.graph !== undefined ? parseGraph(args.graph) : null;
@@ -185,18 +208,39 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
       }
       case "turns":
       case "turn":
-      case "entries": {
+      case "entries":
+      case "moments":
+      case "prompt":
+      case "jobs":
+      case "mine": {
         const p = await page();
         if (p.error) return p.error;
         try {
-          const answer = action === "turns" ? await turnsOf(env, p.page, args) : action === "turn" ? await turnOf(env, p.page, args) : await entriesOf(env, p.page, args);
+          // Replay's actions (`replay.js`) work it out with the Lab's own code; `turns` and `entries` read the file as it is.
+          const deps = { ledgerOf, origin, fetch: get, session };
+          const answer =
+            action === "turns" ? await turnsOf(env, p.page, args, ledgerOf ? { ledgerOf } : {})
+            : action === "entries" ? await entriesOf(env, p.page, args)
+            : action === "turn" ? await turnAnswer(env, p.page, args, deps)
+            : action === "moments" ? await momentsAnswer(env, p.page, args, deps)
+            : action === "prompt" ? await promptAnswer(env, p.page, args, deps)
+            : action === "jobs" ? await jobsAnswer(env, p.page, args, deps)
+            : await mineAnswer(env, p.page, args, deps);
           return answer.error ? toolError(answer.error) : json(answer);
         } catch (error) {
           return toolError(error?.status === 404 ? "There is no such chat; chats lists yours." : "That chat's history could not be read just now.");
         }
       }
+      // What the Lab computes and shows in the browser, with its own functions (`lab.js`).
+      case "sim":
+      case "compare":
+      case "config":
+      case "bench":
+      case "modules":
+      case "reference":
+        return labAction(action, args, plane);
       default:
-        return toolError(`tex_dev has no action "${action}". Its actions: guide, list, create, get, edit, changes, snapshot, link, check, promote, tool_stats, cases, case, chats, turns, turn, entries.`);
+        return toolError(`tex_dev has no action "${action}". Its actions: ${ACTIONS.map(([name]) => name).join(", ")}.`);
     }
   };
 }
