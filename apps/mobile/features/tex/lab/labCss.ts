@@ -56,6 +56,16 @@ svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-widt
 .spacer{flex:1}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
 .sync{font-size:12.5px;color:var(--dim);white-space:nowrap}
+.lchip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;background:var(--chip);color:var(--text2);font-size:12.5px;white-space:nowrap}
+.lchip.ai{background:color-mix(in srgb,var(--team) 14%,transparent);color:var(--team);font-weight:600}
+.lchip.ai::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--team);animation:lpulse 1.6s ease-in-out infinite}
+@keyframes lpulse{50%{opacity:.35}}
+.chg{display:grid;gap:2px;padding:0 4px 8px}
+.chg .row{display:grid;gap:1px;padding:6px 8px;border-radius:8px;font-size:12.5px;color:var(--text2);line-height:1.35}
+.chg .row.ai{background:color-mix(in srgb,var(--team) 9%,transparent)}
+.chg .row b{color:var(--text);font-weight:600}.chg .row.ai b{color:var(--team)}
+.chg .row small{color:var(--dim);font-size:11.5px}
+.chg .none{padding:4px 8px;font-size:12.5px;color:var(--dim)}
 .thm{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--chip)}.thm button{display:grid;place-items:center;width:26px;height:24px;padding:0;border:none;border-radius:6px;background:none;color:var(--dim)}.thm button:hover{color:var(--text)}.thm button[aria-checked="true"]{background:var(--page);color:var(--text);box-shadow:var(--shadow)}
 
 .body{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:0}
@@ -166,6 +176,7 @@ svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-widt
 .nd{cursor:pointer}
 .nd .card{fill:var(--page);stroke:var(--line2);stroke-width:1}
 .nd:hover .card{stroke:var(--text2)}
+.nd.hl .card{stroke-width:3;animation:hlfade 3s ease-out forwards}.nd.hl-ai .card{stroke:var(--team)}.nd.hl-lab .card{stroke:var(--accent)}@keyframes hlfade{from{filter:drop-shadow(0 0 8px var(--team))}to{filter:none}}
 .nd.sel .card{stroke:var(--accent);stroke-width:2}
 .nd.dim{opacity:.32}
 .nd.off .card{stroke-dasharray:4 4}

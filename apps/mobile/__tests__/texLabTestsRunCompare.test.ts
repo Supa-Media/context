@@ -227,7 +227,14 @@ describe("/lab: the Tests, Run, Compare and Workspace views", () => {
     expect(q('[data-area="respond"]')?.getAttribute("aria-current")).toBe("true");
     const n = respondCases().length;
     expect(qa(".tc").length).toBe(n);
+    // By default an area runs what a change's replay runs: 20 of Decide's cases (Dev2, 2026-11-15).
+    const g = respondCases().filter((c) => c.gate !== false).length;
+    expect(g).toBe(20);
+    expect(hintOf()).toBe(`${g} of ${n} in the run`);
+    click(q("#selAll"));
     expect(hintOf()).toBe(`${n} of ${n} in the run`);
+    click(q("#selGate"));
+    expect(hintOf()).toBe(`${g} of ${n} in the run`);
   });
 
   test("Tests: unticking a case forks main; All ticks every case back and None unticks them all", () => {

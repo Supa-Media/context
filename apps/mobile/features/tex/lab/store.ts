@@ -14,6 +14,7 @@ import { buildTraces } from "./engine/traces";
 import { allCases } from "./engine/diff";
 import { clone, emit, isMain, lab, MAIN, setSaver, shownGraph, snapshot, subscribe, toast } from "./engine/state";
 import { unfoldGroups } from "./engine/groups";
+import { live, onRemote, resetLive, setFeed, setSender, tick, type Answer } from "./engine/live";
 import type { LabCase, LabVersion } from "./types";
 
 /** Draw again whenever the Lab's state changes; returns the state. */
@@ -76,6 +77,7 @@ export function useLabSync(enabled: boolean) {
   const save = useMutation(api.functions.texLab.saveVersion);
   const saveCaseRow = useMutation(api.functions.texLab.saveCase);
   const askPromote = useMutation(api.functions.texLabPromote.ask);
+  const applyEdits = useMutation(api.functions.texLabDrafts.applyEdits);
 
   useEffect(() => {
     const toRow = (v: LabVersion) => ({
@@ -94,13 +96,18 @@ export function useLabSync(enabled: boolean) {
     caseSaver = (key, d) => saveCaseRow({ key, data: d });
     promoter = (versionId) => askPromote({ versionId });
     mainSaver = () => save(toRow({ ...MAIN, graph: { nodes: [], edges: [] } }));
+    setSender((versionId, baseRev, ops) => applyEdits({ versionId, baseRev, ops }) as Promise<Answer>);
+    const unsub = subscribe(tick);
     return () => {
+      unsub();
+      setSender(null);
+      resetLive();
       setSaver(null);
       caseSaver = null;
       mainSaver = null;
       promoter = null;
     };
-  }, [save, saveCaseRow, askPromote]);
+  }, [save, saveCaseRow, askPromote, applyEdits]);
 
   useEffect(() => {
     if (!data) return;
@@ -112,12 +119,20 @@ export function useLabSync(enabled: boolean) {
         MAIN.results = parse(x.results, []);
         continue;
       }
-      list.push({ id: x.versionId, name: x.name, authorId: x.authorId, graph: shownGraph(withCurrentModes(parse(x.graph, { nodes: [], edges: [] })), lab.cfocus), picks: parse(x.picks, {}), areas: parse<string[] | null>(x.areas, null), results: parse(x.results, []), createdAt: x.createdAt, updatedAt: x.updatedAt, promote: x.promote });
+      list.push({ rev: x.rev, live: x.live, id: x.versionId, name: x.name, authorId: x.authorId, graph: shownGraph(withCurrentModes(parse(x.graph, { nodes: [], edges: [] })), lab.cfocus), picks: parse(x.picks, {}), areas: parse<string[] | null>(x.areas, null), results: parse(x.results, []), createdAt: x.createdAt, updatedAt: x.updatedAt, promote: x.promote });
     }
     lab.versions = list;
     lab.sync = `Shared · ${list.length - 1} saved version${list.length === 2 ? "" : "s"}`;
-    if (!lab.dirty) {
-      const f = lab.versions.find((v) => v.id === lab.cur.id);
+    const f = lab.versions.find((v) => v.id === lab.cur.id);
+    if (f && f.rev !== undefined && !isMain()) {
+      // A saved version is a live draft: its newer revision is merged under any unsent edits (`engine/live.ts`).
+      onRemote(f.id, f.rev, f.graph);
+      lab.cur.results = f.results;
+      lab.cur.promote = f.promote;
+      lab.cur.updatedAt = f.updatedAt;
+      lab.cur.live = f.live;
+      if (!lab.dirty) lab.cur.name = f.name;
+    } else if (!lab.dirty) {
       if (f) lab.cur = clone(f);
     } else if (isMain()) lab.cur.results = MAIN.results;
     const m: Record<string, LabCase> = {};
@@ -129,4 +144,15 @@ export function useLabSync(enabled: boolean) {
     buildTraces(allCases());
     emit();
   }, [data]);
+}
+
+/** The open draft's change feed (who changed what, and the AI client in it now), read live and kept for the top bar and the Changes list. */
+export function useLiveFeed() {
+  const id = live.id && live.synced ? live.id : null;
+  const feed = useQuery(api.functions.texLabDrafts.changes, id ? { versionId: id, since: live.since } : "skip");
+  useEffect(() => {
+    if (!feed) return;
+    setFeed(feed);
+    emit();
+  }, [feed]);
 }

@@ -134,7 +134,7 @@ function TestCard({ c, inArea }: { c: LabCase; inArea: LabCase[] }) {
               pickEdit(() => {
                 const p = picks();
                 const area = lab.tArea;
-                if (!p[area]) p[area] = inArea.map((x) => x.id);
+                if (!p[area]) p[area] = inArea.filter(isPicked).map((x) => x.id);
                 p[area] = checked ? [...new Set([...p[area], id])] : p[area].filter((x) => x !== id);
               });
             }}
@@ -231,7 +231,10 @@ function BenchMain() {
           {inArea.filter(isPicked).length} of {inArea.length} in the run
         </span>
         <span className="spacer"></span>
-        <button className="ghost" id="selAll" onClick={() => pickEdit(() => { delete picks()[lab.tArea]; })}>
+        <button className="ghost" id="selGate" title="The cases a change's replay runs" onClick={() => pickEdit(() => { delete picks()[lab.tArea]; })}>
+          Replay's
+        </button>
+        <button className="ghost" id="selAll" onClick={() => pickEdit(() => { picks()[lab.tArea] = inArea.map((x) => x.id); })}>
           All
         </button>
         <button className="ghost" id="selNone" onClick={() => pickEdit(() => { picks()[lab.tArea] = []; })}>

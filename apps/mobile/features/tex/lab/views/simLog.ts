@@ -43,7 +43,7 @@ export function readLog(text: string, g: LabGraph, MODELS: Record<string, LabMod
     }
     const byLine = typeof o.model === "string" ? MODELS[o.model] : undefined;
     const m = byLine || MODELS[n.model] || MODELS.code;
-    const api = m.runs !== "subscription";
+    const api = m.runs !== "claude" && m.runs !== "subscription";
     const prod = api ? +(o.ms as number) || 0 : (m.base ?? 0) + (+(o.out as number) || 0) * (m.perTok ?? 0) + (+(o.in as number) || 0) * 0.2 * 0.006;
     const r = out[n.id] || (out[n.id] = { calls: 0, wall: 0, prodMs: 0, out: 0, api });
     r.calls++;

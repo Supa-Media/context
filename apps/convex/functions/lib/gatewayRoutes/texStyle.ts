@@ -5,6 +5,7 @@
  * pick by its id, an undo or a clear, and a progress updates level, nothing else.
  */
 
+import { gatewayTexDevHandler } from "./texDev";
 import { gatewayTexChatHomeHandler } from "./texChatHome";
 import { gatewayTexPageHandler, gatewayTexPageSettingsHandler } from "./texPage";
 import { gatewayTexCommandHandler as texCommandHandler } from "./texCommand";
@@ -66,6 +67,7 @@ export const TEX_ROUTES = [
   ["/gateway/tex/page", gatewayTexPageHandler],
   ["/gateway/tex/page/settings", gatewayTexPageSettingsHandler],
   ["/gateway/tex/chat-home", gatewayTexChatHomeHandler],
+  ["/gateway/tex/dev", gatewayTexDevHandler],
 ] as const;
 
 /** `POST /agent-texts/group/name` `{ line, groupId, name }` → `{ ok }`: the chat's name for its home in the app (`textGroupNames.ts`). */

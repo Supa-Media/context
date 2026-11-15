@@ -52,13 +52,32 @@ describe("the group-moves object", () => {
     await serveGroupMoves(storage, "/group-move/pending", body({ line: OLD_LINE, groupId: GROUP_ID, groupKey: GROUP_KEY, people: [BO, ADA], askedAt: 7 }), NOW);
     // Someone else's group ties nothing (the Worker is told a move from that number waits, to read the people itself),
     // nor do the same people heard from another number.
-    expect(await (await serveGroupMoves(storage, "/group-move/arrive", body({ photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: OLD_LINE, participants: [OLD_LINE, NEW_LINE, ADA] }), NOW)).json()).toEqual({ waiting: true, people: 1 });
+    expect(await (await serveGroupMoves(storage, "/group-move/arrive", body({ photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: OLD_LINE, participants: [OLD_LINE, NEW_LINE, ADA] }), NOW)).json()).toEqual({ waiting: true, people: 1, expected: 2, shared: 1 });
     expect(await (await serveGroupMoves(storage, "/group-move/arrive", body({ photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: ADA, participants: [OLD_LINE, NEW_LINE, ADA, BO] }), NOW)).json()).toEqual({});
     const tied = await (await serveGroupMoves(storage, "/group-move/arrive", body({ photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: OLD_LINE, participants: [ADA, OLD_LINE, BO, NEW_LINE] }), NOW)).json();
     expect(tied).toEqual({ from: { line: OLD_LINE, groupId: GROUP_ID }, matched: { groupKey: GROUP_KEY, line: OLD_LINE, groupId: GROUP_ID, askedAt: 7 } });
     // From then on, both ways, and the note is not matched twice.
     expect(await (await serveGroupMoves(storage, "/group-move/to", body({ groupId: GROUP_ID }), NOW)).json()).toEqual({ to: { line: NEW_LINE, groupId: PHOTON_GROUP } });
     expect(await (await serveGroupMoves(storage, "/group-move/arrive", body({ photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: ADA, participants: [] }), NOW)).json()).toEqual({ from: { line: OLD_LINE, groupId: GROUP_ID } });
+  });
+
+  it("ties a group the two providers list a little differently, by the people most of them share (Dev2's second Tex Devs move)", async () => {
+    const { storage } = movesObject();
+    const CY = "+15555550133";
+    const DEE = "+15555550144";
+    await serveGroupMoves(storage, "/group-move/pending", { line: OLD_LINE, groupId: "sb-other", groupKey: "b".repeat(64), people: [CY, DEE], askedAt: 6 }, NOW);
+    await serveGroupMoves(storage, "/group-move/pending", { line: OLD_LINE, groupId: GROUP_ID, groupKey: GROUP_KEY, people: [ADA, BO, CY, "+15555550177"], askedAt: 7 }, NOW);
+    // Photon names one person by email and one phone without its plus; Sendblue listed a number that is not here.
+    const heard = [OLD_LINE, "15555550100", BO, CY, "Someone@Example.test"];
+    const tied = await (await serveGroupMoves(storage, "/group-move/arrive", { photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: OLD_LINE, participants: heard }, NOW)).json();
+    expect(tied).toMatchObject({ matched: { groupKey: GROUP_KEY, askedAt: 7 } });
+  });
+
+  it("ties nothing when only a few of the people are the same", async () => {
+    const { storage } = movesObject();
+    await serveGroupMoves(storage, "/group-move/pending", { line: OLD_LINE, groupId: GROUP_ID, groupKey: GROUP_KEY, people: [ADA, BO, "+15555550133", "+15555550144"], askedAt: 7 }, NOW);
+    const answer = await (await serveGroupMoves(storage, "/group-move/arrive", { photonGroupId: PHOTON_GROUP, photonLine: NEW_LINE, from: OLD_LINE, participants: [OLD_LINE, ADA, BO, "+15555550155", "+15555550166"] }, NOW)).json();
+    expect(answer).toEqual({ waiting: true, people: 4, expected: 4, shared: 2 });
   });
 
   it("forgets a note the new line never heard after a day", async () => {
