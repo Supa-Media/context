@@ -4,13 +4,23 @@
  * hold the limits and talk to Google Chat; this records what arrived and
  * answers as its own `flags` say: `from` is the account that may send (null
  * for none), `spaceName` is the name Chat gives any space it is asked about,
- * and `refusal` answers every call with that word instead. The real
+ * and `refusal` answers every call with that word instead. `accounts` is
+ * every Chat account they have (default: `from` alone): a read must name one
+ * (`account`), a send may, and the account named answers as `from`. The real
  * clearance is proved in Convex.
  */
 
 export function createGoogleChatRoute(clearedOwnAccount) {
   // `recent`: the messages `/gateway/chat/recent` answers (a list, or a function of the body).
-  const flags = { from: null, spaceName: null, refusal: null, recent: null, unnamed: false };
+  const flags = { from: null, accounts: null, spaceName: null, refusal: null, recent: null, unnamed: false };
+  const accounts = () => flags.accounts ?? (flags.from ? [flags.from] : []);
+  /** The account a call reads or sends from, as the real `chatAccount` picks it: `{ from }` or a refusal. */
+  function pick(account, required) {
+    const wanted = typeof account === "string" ? account.trim().toLowerCase() : "";
+    if (wanted === "") return required || accounts().length === 0 ? { ok: false, refused: "account_needed", accounts: accounts() } : { from: accounts()[0] };
+    const found = accounts().find((address) => address.toLowerCase() === wanted);
+    return found === undefined ? { ok: false, refused: "account_not_found", accounts: accounts() } : { from: found };
+  }
   /** Every call: the message, whether it was a check, and what was answered. */
   const calls = [];
 
@@ -19,10 +29,11 @@ export function createGoogleChatRoute(clearedOwnAccount) {
     if (!(await clearedOwnAccount(body))) answer = { ok: false, refused: "not_allowed" };
     else if (flags.refusal) answer = { ok: false, refused: flags.refusal };
     else if (!flags.from) answer = { ok: false, refused: "no_chat" };
+    else if (pick(body.message?.account, false).from === undefined) answer = pick(body.message?.account, false);
     else {
       const message = body.message ?? {};
       const place = typeof message.to === "string" ? { person: message.to } : { space: flags.spaceName ?? message.space };
-      answer = { ok: true, from: flags.from, place };
+      answer = { ok: true, from: pick(message.account, false).from, place };
       // A send answers with the ids Google gave, as the real route does; `unnamed` leaves them out.
       if (body.check !== true && !flags.unnamed) Object.assign(answer, { space: "spaces/AAA", message: `spaces/AAA/messages/m${calls.length + 1}`, setupUsed: false });
     }
@@ -33,7 +44,9 @@ export function createGoogleChatRoute(clearedOwnAccount) {
   async function spaces(body) {
     if (!(await clearedOwnAccount(body))) return { ok: false, refused: "not_allowed" };
     if (!flags.from) return { ok: false, refused: "no_chat" };
-    return { ok: true, from: flags.from, spaces: [{ name: "spaces/AAA", displayName: flags.spaceName ?? "Portal", type: "SPACE" }] };
+    const account = pick(body.account, true);
+    if (account.from === undefined) return account;
+    return { ok: true, from: account.from, accounts: accounts(), spaces: [{ name: "spaces/AAA", displayName: flags.spaceName ?? "Portal", type: "SPACE" }] };
   }
 
   /** The route's answer, or undefined for a path that is not this one. */
@@ -43,10 +56,14 @@ export function createGoogleChatRoute(clearedOwnAccount) {
     if (path === "/gateway/chat/recent") {
       if (!(await clearedOwnAccount(body))) return { ok: false, refused: "not_allowed" };
       if (!flags.from) return { ok: false, refused: "no_chat" };
+      // One conversation named (`space` or `to`) names its account too; a check-in's look is the first account's.
+      const named = typeof body.to === "string" || typeof body.space === "string";
+      const account = named ? pick(body.account, true) : { from: flags.from };
+      if (account.from === undefined) return account;
       const messages = typeof flags.recent === "function" ? flags.recent(body) : (flags.recent ?? []);
       // One conversation the person named (`fetch chat:`, `tools/googleChatRead.js`) answers where it is, as the real route does.
       const place = typeof body.to === "string" ? { person: body.to } : typeof body.space === "string" ? { space: body.space } : null;
-      return { ok: true, from: flags.from, messages, ...(place ? { place } : {}) };
+      return { ok: true, from: account.from, messages, ...(place ? { place } : {}) };
     }
     return undefined;
   }

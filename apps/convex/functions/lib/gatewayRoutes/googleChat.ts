@@ -136,17 +136,21 @@ export async function gatewayChatSendHandler(ctx: ActionCtx, body: Record<string
   if (message === null) return json({ ok: false, refused: "invalid" });
   const to = message.to !== null ? ("person" as const) : ("space" as const);
 
+  // The account it goes from, when the call names one; otherwise their first with Chat (`chatAccount`).
+  const raw = body.message as Record<string, unknown>;
+  const account = typeof raw.account === "string" ? raw.account : undefined;
   const claim = async (spend: boolean) =>
     await ctx.runMutation(internal.functions.googleChatSend.claimChatSend, {
       hashedAccessToken: await hashToken(accessToken),
       expectedWorkspaceId: expected,
       to,
       spend,
+      ...(account !== undefined ? { account } : {}),
     });
   const room = await claim(false);
   if (!room.ok) {
     log({ outcome: "refused", reason: room.refused, check });
-    return json({ ok: false, refused: room.refused });
+    return json({ ok: false, refused: room.refused, ...(room.accounts ? { accounts: room.accounts } : {}) });
   }
   const minted = await mint(ctx, room.connectionId);
   if (minted === null) {
@@ -196,20 +200,24 @@ export async function gatewayChatSpacesHandler(ctx: ActionCtx, body: Record<stri
   const accessToken = stringField(body, "accessToken");
   const expected = stringField(body, "expectedWorkspaceId");
   if (accessToken === null || expected === null) return json({ ok: false, refused: "not_allowed" });
-  // The same clearance as a send, spending nothing: only someone who may send may look for where.
+  // The same clearance as a send, spending nothing: only someone who may send may look for where. Listing is a read, so
+  // it names the account; with none it answers which accounts they have (`chatAccount`), which is how their AI learns them.
+  const account = stringField(body, "account");
   const room = await ctx.runMutation(internal.functions.googleChatSend.claimChatSend, {
     hashedAccessToken: await hashToken(accessToken),
     expectedWorkspaceId: expected,
     to: "space",
     spend: false,
+    requireAccount: true,
+    ...(account !== null ? { account } : {}),
   });
-  if (!room.ok) return json({ ok: false, refused: room.refused });
+  if (!room.ok) return json({ ok: false, refused: room.refused, ...(room.accounts ? { accounts: room.accounts } : {}) });
   const minted = await mint(ctx, room.connectionId);
   if (minted === null) return json({ ok: false, refused: "reconnect_required" });
   try {
     const listed = await allSpaces(minted.accessToken);
     if (!listed.ok) return json({ ok: false, refused: listed.refused });
-    return json({ ok: true, from: room.address, spaces: listedSpaces(listed.items) });
+    return json({ ok: true, from: room.address, accounts: room.accounts, spaces: listedSpaces(listed.items) });
   } catch {
     return json({ ok: false, refused: "unavailable" });
   }
