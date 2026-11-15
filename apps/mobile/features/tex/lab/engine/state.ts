@@ -63,8 +63,13 @@ export type LabState = {
   myChat: string;
   /** That chat's whole conversation so far, oldest first, for Replay. */
   myLines: ChatLine[];
-  /** The Lab, where a version is changed, or Replay, where a real chat is watched as it ran and nothing changes. */
-  mode: "lab" | "replay";
+  /**
+   * The Lab, where a version is changed; Replay, where a real chat is watched as it ran and nothing changes; or
+   * Testing, where the Training, Dev and Test conversations are curated and labelled (Dev2, 2026-11-15).
+   */
+  mode: "lab" | "replay" | "testing";
+  /** In Testing, the conversation open: its id, or null for the first one. */
+  setChat: string | null;
   /** The moment Replay shows: its first text's entry id. */
   moment: string | null;
   /** Their texts read so far, newest first; null before the first read, "failed" when it could not be read. */
@@ -119,6 +124,7 @@ export const lab: LabState = {
   myChat: "me",
   myLines: [],
   mode: "lab",
+  setChat: null,
   moment: null,
   myTexts: null,
   myOlder: null,

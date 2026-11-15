@@ -43,6 +43,7 @@ import { ReplayPanel } from "./views/replay/ReplayPanel";
 import { openMoment, ReplaySide } from "./views/replay/ReplaySide";
 import { loggedMoments, momentsOf } from "./engine/replay";
 import { setLabTheme, THEMES, useLabTheme } from "./theme.web";
+import { Ratio, Testing } from "./views/testing/Testing.web";
 
 /** How often Replay looks for new texts and runs. */
 const REFRESH_MS = 10_000;
@@ -161,6 +162,7 @@ function Lab() {
   const tags = { modTag: nm ? nm + " edited" : "", cvTag: cvn ? cvn + " changed" : "", toolTag: "", runTag: d.length ? d.length + " change" + (d.length > 1 ? "s" : "") : "" };
   useLabUrl();
   const replay = s.mode === "replay";
+  const testing = s.mode === "testing";
   // Replay: the picked chat cut into moments, and the one shown (`engine/replay.ts`).
   const entries = replay ? replayEntries() : [];
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,7 +220,8 @@ function Lab() {
   }, []);
 
   // Lab or Replay (Dev2, 2026-11-14: "there should be some type of toggle for replays versus the lab"). Replay reads your own chats, read only.
-  const setMode = (mode: "lab" | "replay") => {
+  // Testing (Dev2, 2026-11-15): the Training, Dev and Test sets as conversations, labelled per message and node.
+  const setMode = (mode: "lab" | "replay" | "testing") => {
     if (mode === s.mode) return;
     set({ mode, sel: null, cfocus: null, view: "canvas", ...(mode === "lab" ? { real: null } : {}) });
     if (mode === "lab" && lab.scn === "own" && lab.tester !== "me") {
@@ -255,14 +258,17 @@ function Lab() {
             <Svg className="i" d='<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9 4.5v15"/>' />
           </button>
           <div className="modes" role="group" aria-label="Mode">
-            <button id="modeLab" aria-pressed={!replay} onClick={() => setMode("lab")}>
+            <button id="modeLab" aria-pressed={!replay && !testing} onClick={() => setMode("lab")}>
               Lab
             </button>
             <button id="modeReplay" aria-pressed={replay} onClick={() => setMode("replay")}>
               Replay
             </button>
+            <button id="modeTesting" aria-pressed={testing} onClick={() => setMode("testing")}>
+              Testing
+            </button>
           </div>
-          {replay ? null : (
+          {testing ? <Ratio /> : replay ? null : (
             <>
           <button className="chipbtn" id="verBtn" onClick={showVersions}>
             <Svg className="i" d='<path d="M6 4v10a4 4 0 0 0 4 4h8"/><circle cx="18" cy="18" r="1.6"/>' />
@@ -311,6 +317,11 @@ function Lab() {
           </span>
           <ThemeToggle />
         </div>
+        {testing ? (
+          <div className="body testing" id="body">
+            <Testing />
+          </div>
+        ) : (
         <div className={"body" + (propsOn ? " props" : "") + (wide ? " wide" : "")} id="body" style={gridCols ? { gridTemplateColumns: gridCols } : undefined}>
           <nav className="side" id="side" aria-label={replay ? "Your chats" : "Lab"} hidden={s.sideHidden && !phone()}>
             {replay ? <ReplaySide moments={moments} onHide={toggleSide} /> : <>
@@ -428,6 +439,7 @@ function Lab() {
             {propsOn ? replay ? <ReplayPanel m={moment} /> : <Props /> : null}
           </aside>
         </div>
+        )}
       </div>
       {me || replay ? <MineLoader /> : null}
       <div className="toast" id="toast" hidden={!s.toastText}>

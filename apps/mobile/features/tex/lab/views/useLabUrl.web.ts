@@ -11,7 +11,7 @@ import { placeOf, searchOf, type Place } from "./labPlace";
 
 export { placeOf, searchOf, type Place } from "./labPlace";
 
-const now = (): Place => ({ mode: lab.mode, view: lab.view, chat: lab.myChat, moment: lab.mode === "replay" ? lab.moment : null });
+const now = (): Place => ({ mode: lab.mode, view: lab.view, chat: lab.myChat, moment: lab.mode === "replay" ? lab.moment : null, set: lab.mode === "testing" ? lab.setChat : null });
 
 /** Put the Lab where an address says. */
 function go(p: Place) {
@@ -19,7 +19,9 @@ function go(p: Place) {
     if (Array.isArray(lab.myTexts)) pickChat(p.chat);
     else lab.myChat = p.chat; // not read yet: the first read is this chat's
   }
-  set({ mode: p.mode, view: p.view, sel: null, cfocus: null, ...(p.mode === "lab" ? { real: null } : {}), ...(p.moment ? { moment: p.moment } : {}) });
+  // A node named in the address (Testing's "Node settings" link) opens selected on the canvas; the address keeps no selection after.
+  const sel = p.node && lab.cur.graph.nodes.some((n) => n.id === p.node) ? { t: "node" as const, id: p.node } : null;
+  set({ mode: p.mode, view: p.view, sel, cfocus: null, ...(p.mode === "lab" ? { real: null } : {}), ...(p.moment ? { moment: p.moment } : {}), ...(p.mode === "testing" ? { setChat: p.set ?? null } : {}) });
 }
 
 export function useLabUrl() {
