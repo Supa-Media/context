@@ -94,7 +94,11 @@ export async function retireHeldOut({ dir, connection, fetchImpl = fetch }) {
   for (const file of (await readdir(dir)).filter((f) => f.endsWith(".json"))) {
     const path = `${HELD_OUT_FOLDER}/${file.slice(0, -5)}.md`;
     const content = "# Moved to the Test Set\n\nThese cases now live only in Tex's eval service, people only: the Lab's Testing tab (docs/decisions/testing/test-set-service.md).\n";
-    const wrote = await callTool(connection, "write_note", { path, content }, fetchImpl);
+    // An existing note takes its etag back, or the write is refused as a conflict (first seed, 2026-11-15).
+    const existing = await callTool(connection, "read_note", { path }, fetchImpl);
+    if (existing.isError) throw new Error(`read_note ${path}: ${existing.text}`);
+    const etag = splitNote(existing.text).header.etag ?? null;
+    const wrote = await callTool(connection, "write_note", { path, content, summary: "Moved to the Test Set", ...(etag ? { expected_etag: etag } : {}) }, fetchImpl);
     if (wrote.isError) throw new Error(`write_note ${path}: ${wrote.text}`);
     const archived = await callTool(connection, "archive_note", { path }, fetchImpl);
     if (archived.isError) throw new Error(`archive_note ${path}: ${archived.text}`);
