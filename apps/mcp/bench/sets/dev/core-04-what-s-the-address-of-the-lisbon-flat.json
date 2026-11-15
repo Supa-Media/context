@@ -1,0 +1,29 @@
+{
+  "id": "core-04-what-s-the-address-of-the-lisbon-flat",
+  "title": "What's the address of the Lisbon flat?",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "What's the address of the Lisbon flat?",
+      "labels": {
+        "fd": {
+          "must": [
+            "say the notes don't give the address"
+          ],
+          "never": [
+            "invent a street, area or address"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/4"
+}

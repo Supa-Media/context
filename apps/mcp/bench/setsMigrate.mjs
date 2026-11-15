@@ -25,7 +25,6 @@ const { check, unitTests } = texSets;
 const { WHY } = textDecide;
 
 const TEX = "Tex";
-const DEV_SHARE_CAP = 0.25;
 
 /** Lowercase letters, digits and dashes; any other run becomes one dash. */
 export function slug(s) {
@@ -176,19 +175,12 @@ export function caseToConversation(area, kase) {
 }
 
 /**
- * Assigns each conversation to dev or training, walking them in id order: a conversation goes to dev while dev holds
- * less than a quarter of the unit tests so far, else to training. Deterministic, so the split is the same every run.
+ * Every migrated case goes to Dev. These are the cases today's replays score, and Training is shown to the steps as
+ * examples (texTraining.cjs), so a migrated case in Training would hand the steps the answers they are scored on
+ * (Dev2's call, 2026-11-15). Training fills from rewritten real chats (tex_dev set_import) and the judge's examples.
  */
 export function assignSets(convs) {
-  let dev = 0;
-  let total = 0;
-  return convs.map((c) => {
-    const stars = unitTests(c).length;
-    const set = dev < DEV_SHARE_CAP * total ? "dev" : "training";
-    if (set === "dev") dev += stars;
-    total += stars;
-    return { ...c, set };
-  });
+  return convs.map((c) => ({ ...c, set: "dev" }));
 }
 
 /** Every source case as a conversation, each with its set, sorted by id. */

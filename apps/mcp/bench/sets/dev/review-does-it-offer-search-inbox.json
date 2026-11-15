@@ -1,0 +1,29 @@
+{
+  "id": "review-does-it-offer-search-inbox",
+  "title": "Offer search inbox",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Jo"
+  ],
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Jo",
+      "text": "did the landlord ever reply about the leak?",
+      "labels": {
+        "reviewer": {
+          "sentBack": "1",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "I haven't searched your inbox. Want me to check?",
+          "did": []
+        }
+      }
+    }
+  ],
+  "from": "review/does_it/offer-search-inbox"
+}

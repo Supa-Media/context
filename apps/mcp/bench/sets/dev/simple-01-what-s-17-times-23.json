@@ -1,0 +1,29 @@
+{
+  "id": "simple-01-what-s-17-times-23",
+  "title": "what's 17 times 23",
+  "set": "dev",
+  "kind": "one",
+  "members": [
+    "Maya"
+  ],
+  "world": "maya",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Maya",
+      "text": "what's 17 times 23",
+      "labels": {
+        "fd": {
+          "must": [
+            "say 391"
+          ],
+          "never": [
+            "send more than one text"
+          ],
+          "star": true
+        }
+      }
+    }
+  ],
+  "from": "core/simple-1"
+}
