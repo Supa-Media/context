@@ -102,6 +102,7 @@ test/mover.test.mjs
 test/moverWalk.test.mjs
 test/nameTwins.test.mjs
 test/noteCap.test.mjs
+test/nodeTiming.test.mjs
 test/openaiAppsChallenge.test.mjs
 test/orientOtherWorkspaces.test.mjs
 test/orientSystemFolders.test.mjs

@@ -55,17 +55,20 @@ export function realTimes(entries: LedgerEntry[], turn: string | null): RealTime
   if (!timing || replyMs === null) return untimed(mine, add, ms, calls);
   const wait = num(timing.waitMs) ?? 0;
   if (wait) add("lanes", wait);
+  // A step the graph runner logged is timed by its own runs (`ownMs`); the reply's timing fills in only the steps it
+  // has no run for (turns from before the runner), so no time is counted twice and none is made up from a remainder.
+  const ran = new Set(mine.filter(isNodeRun).map((e) => e.name as string));
   const rounds = (Array.isArray(timing.rounds) ? timing.rounds : []).map(rec).filter((r): r is Record<string, unknown> => r !== null && num(r.ms) !== null);
   if (rounds.length) {
     add("door", num(rounds[0].at) ?? 0);
-    for (const r of rounds) add("fd", num(r.ms)!, 1);
+    for (const r of rounds) add("fd", ran.has("fd") ? 0 : num(r.ms)!, 1);
   }
   const usd = rounds.some((r) => r.model) ? rounds.reduce((a, r) => a + roundUsd(r), 0) : undefined;
   const at: Record<string, number> = {};
   for (const t of Array.isArray(timing.tools) ? timing.tools : []) {
     const m = num(rec(t)?.ms);
     if (m === null) continue;
-    add("tools", m);
+    if (!ran.has("tools")) add("tools", m);
     const when = num(rec(t)?.at);
     if (when !== null && at.tools === undefined) at.tools = when;
   }
@@ -73,14 +76,35 @@ export function realTimes(entries: LedgerEntry[], turn: string | null): RealTime
     const m = num(e.ms);
     if (m === null) continue;
     if (e.kind === "judge" && e.by === "review") add("reviewer", m, 1);
-    else if (e.kind === "step" && e.step === "node" && typeof e.name === "string" && e.name !== "") add(e.name, m, 1);
+    else if (isNodeRun(e)) add(e.name as string, ownMs(e), e.name === "fd" && rounds.length ? 0 : 1);
+    else if (isDelivery(e)) add("send", m);
     else if (e.kind === "step" && typeof e.step === "string" && STEP_NODES.has(e.step)) add(e.step, m, 1);
   }
-  // The rest of the reply (the code checks, the send) is what the steps above do not account for.
-  const counted = ["door", "fd", "tools", "reviewer", "checks"].reduce((a, id) => a + (ms[id] ?? 0), 0);
-  add("send", Math.max(0, replyMs - counted));
+  // A turn from before the Worker kept its delivery: Text them is timed from the gateway's answer to its last text kept
+  // as delivered, both logged times, never what the other steps leave of the reply.
+  if (!mine.some(isDelivery)) {
+    const answered = mine.find((e) => e.kind === "reply")?.at;
+    const last = Math.max(...mine.filter((e) => e.kind === "text" && rec(e.from)?.kind === "tex" && e.delivered !== false).map((e) => e.at));
+    if (typeof answered === "number" && Number.isFinite(last) && last >= answered) add("send", last - answered);
+  }
   return { reply: wait + replyMs, ms, calls, ...(Object.keys(at).length ? { at } : {}), ...(usd !== undefined ? { usd } : {}) };
 }
+
+/** A run the graph runner logged (`ledger.js` `nodeEntry`). */
+const isNodeRun = (e: LedgerEntry) => e.kind === "step" && e.step === "node" && typeof e.name === "string" && e.name !== "";
+
+/**
+ * A run's own time: its whole run less what it waited on the nodes it called (`texGraph.cjs`), so Answer checks never
+ * show the front door's rewrites as theirs. A run logged before `own` was kept counts whole.
+ */
+const ownMs = (e: LedgerEntry) => num(e.own) ?? num(e.ms) ?? 0;
+
+/**
+ * The texting Worker's delivery of the turn's reply to the chat's service (`apps/agent/src/stepEvents.ts`
+ * `deliveryStep`): Text them's own work happens there, after the gateway's answer, so its time is the gateway's send
+ * node plus this.
+ */
+const isDelivery = (e: LedgerEntry) => e.kind === "step" && e.step === "send" && e.name === "delivery";
 
 /**
  * The texting Worker's own steps (its `decide` judgings and `react` tapbacks) are logged with no turn, shaped
@@ -122,7 +146,8 @@ function untimed(mine: LedgerEntry[], add: (id: string, t: number, n?: number) =
     if (e.kind === "thinking") add("fd", m, 1);
     else if (e.kind === "tool") add("tools", m);
     else if (e.kind === "judge" && e.by === "review") add("reviewer", m, 1);
-    else if (e.kind === "step" && e.step === "node" && typeof e.name === "string" && e.name !== "") add(e.name, m, 1);
+    else if (isNodeRun(e)) add(e.name as string, ownMs(e), 1);
+    else if (isDelivery(e)) add("send", m);
     else if (e.kind === "step" && typeof e.step === "string" && STEP_NODES.has(e.step)) add(e.step, m, 1);
   }
   if (!Object.keys(ms).length) return null;

@@ -106,6 +106,17 @@ export function sendStep(report: ProviderSend): StepRecord {
 }
 
 /**
+ * Text them's own work (the config's `send` node): this Worker handing the turn's reply to the chat's service, part by
+ * part, after the gateway answered (Dev2, 2026-11-15: "The Text them node doesnt seem to be logging the actual time it
+ * takes"). The gateway's `send` node only builds the reply; the time it takes to reach the service is spent here, so
+ * it is kept as its own `send` step, `of: "delivery"`, under the turn it delivers. `ms` is the wall time from the first
+ * part handed over to the last one taken; a failure keeps its error's name.
+ */
+export function deliveryStep(parts: number, sent: number, ms: number, cause?: string): StepRecord {
+  return { name: "send", of: "delivery", ok: cause === undefined, ms, input: { parts }, output: { sent }, ...(cause !== undefined ? { cause } : {}) };
+}
+
+/**
  * Triage: code's rules over a person's waiting texts, before any judge (`inboxTurn.ts` `chooseTurn`, `groupInbox.ts`
  * `acceptGroup`; Dev2, 2026-11-14: "everything needs a node ... where else is there random code running"). It names the
  * texts it looked at, by id, where it sent them (`to`: "tex" straight to the queue, "judge" to Decide, "running" put to

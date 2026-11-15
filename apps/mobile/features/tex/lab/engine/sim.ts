@@ -213,4 +213,10 @@ export function deltaText(x: number, y: number, f: (n: number) => string, baseNa
 }
 
 export const fmtS = (ms: number) => (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + " s";
+/**
+ * A measured time (Dev2, 2026-11-15: "3 nodes are actually logging as 0s which is obviously wrong"): under 100 ms in
+ * milliseconds, and under 1 ms said as such. Plain code with no wait reads 0 on the Workers clock, which moves only
+ * across a wait, so a real 0 is "<1 ms", never "0.0 s".
+ */
+export const fmtReal = (ms: number) => (ms < 1 ? "<1 ms" : ms < 100 ? `${Math.round(ms)} ms` : fmtS(ms));
 export const fmtUsd = (u: number) => (u < 0.01 ? "$" + u.toFixed(4) : "$" + u.toFixed(u < 1 ? 3 : 2));
