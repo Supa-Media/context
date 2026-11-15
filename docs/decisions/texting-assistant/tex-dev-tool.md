@@ -34,6 +34,31 @@ ledger the Lab's Replay and the Tex page's History read, for the person's own on
 in (the control plane's `pageForUser`, as for the Tex page). A turn is every entry it wrote, in order, with inputs,
 outputs, thinking, tool calls, models, milliseconds and failures, and a summary of the slowest steps. Nothing is
 estimated (Dev2, 2026-11-14: replay shows only what ran), which is also why the Lab's Simulate tab is not offered.
+`turns` lists 20 replies unless `limit` (at most 100) and pages back with `before`; a turn's reply timing is answered
+once, in the summary, in brief unless `full`.
+
+**Replay through the MCP is the Lab's Replay, run by its own code.** Dev2, 2026-11-15: anything that can be done or
+seen inside the Lab must be doable through the MCP. `moments` (the chat cut into moments: every text someone sent,
+check-in, routine, ping and quiet look, the texts that came in behind, its turns, the judge's calls, its jobs, time to
+the last send; one `moment` whole with its lanes and its rows by step), `turn` (widened to the moment's Worker
+judgings and a group's `judge by: "moment"` entries, each step's real milliseconds and calls, what every step got and
+gave, the jobs it started, the notes it read), `prompt` (the exact words of each context module, from the prompt
+catalogue at the turn's commit, matched by fingerprint), `jobs` (a job's runs as JobRuns shows them), `mine` (Your
+texts, and the run config's replays for those picked) and `link` (the Lab's own address for a page, or Replay at a
+chat and a moment) are worked out by `apps/mobile/features/tex/lab/engine/replayEntry.ts` and what it exports, bundled
+for the gateway as `apps/mcp/src/texDev/replay.generated.js` by `scripts/tex-dev-replay.mjs` (CI fails when it is
+stale). The pure parts were moved out of the Lab's browser-only files for it (`measured.ts` from `realTimes.ts`,
+`turnShown.ts` from the timeline's `showTurn`, `replayRead.ts`'s read kinds from `useMine.ts`, `labPlace.ts` from
+`useLabUrl.web.ts`), and the Lab now runs them from there too, so the two cannot drift. A second copy in plain
+JavaScript was rejected for the reason the canvas was bundled: two Replays would disagree, and the one an AI reads
+would be the one nobody looks at. The gateway reads the ledger the way the Lab does (the lines with no job's work, then
+every step, judging and tool call of the window those moments need; a job's work by its id), and a prompt module whose
+fingerprint the catalogue at that commit does not hold is named, with where its words came from, never filled in.
+
+*What a "simplification" of Replay would cost:* answering from the lines alone drops the judge's calls and the
+Worker's Decide step, and taking a module's words by its id rather than its fingerprint shows words that may not be
+the ones that ran (`apps/mcp/test/texDevReplay.test.mjs` "moments are the Lab's moments", "a turn carries the
+moment's judgings", "the prompt's words come only from the catalogue at the turn's commit").
 
 **Nothing here changes live Tex.** `promote` is the Lab's Promote: a pull request that merges only through CI and the
 replay gate. A draft changes config; a node's code or a new kind of step still needs a pull request.
