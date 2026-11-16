@@ -17,7 +17,7 @@ import { LabSandboxObject } from "../src/labSandbox/object.js";
 import { callSandbox } from "../src/labSandbox/object.js";
 import { inboundEvent, reactionOf, TAPBACK_OF } from "../src/labSandbox/inbound.js";
 import { turnRequestBody } from "../src/labSandbox/harness.js";
-import { handleLabSandbox } from "../src/labSandbox/route.js";
+import { handleLabSandbox, oneRowPerText } from "../src/labSandbox/route.js";
 import { guideText } from "../src/texDev/guide.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
@@ -332,4 +332,42 @@ test("chats say their kind and people; sets lists Training and Dev only; the Tes
 test("tex_dev's guide documents the sandbox's pictures, replies, tapbacks, edits and sets", () => {
   const line = guideText().split("\n").find((l) => l.startsWith("- sandbox "));
   for (const word of ["pics", "replyTo", '"react"', "emoji", '"edit"', '"sets"', "Tex doesn't receive edits yet"]) assert.ok(line.includes(word), `the guide's sandbox line names ${word}`);
+});
+
+test("a voice note's two ledger entries open as one row, the one with words; the pair would refuse the chat", async () => {
+  // 2026-11-16, Dev2's 1:1: the audio and what was heard share one event id, and the rows are keyed by it.
+  const eid = EID(7);
+  const entries = [
+    { v: 1, id: "ev1h", eid, at: 7, kind: "text", event: "file", from: { kind: "person" }, heard: "voice", text: "How long does it keep?" },
+    { v: 1, id: "ev1", eid, at: 7, kind: "text", event: "file", from: { kind: "person" }, text: "" },
+    { v: 1, id: "ev2", eid: EID(8), at: 8, kind: "text", event: "text", from: { kind: "tex" }, text: "About 3 months." },
+  ];
+  const one = oneRowPerText(entries);
+  assert.deepEqual(one.map((e) => e.text), ["How long does it keep?", "About 3 months."]);
+  assert.deepEqual(oneRowPerText([entries[1], entries[0]]).map((e) => e.text), ["How long does it keep?"], "whichever comes first");
+  const object = () => new LabSandboxObject({ storage: { sql: durableSql(), setAlarm: async () => {}, deleteAlarm: async () => {} } });
+  const stub = (o) => ({ fetch: (request) => o.fetch(request) });
+  const about = { kind: "one", ledgerChat: "texts" };
+  const row = (e) => ({ id: e.eid, eid: e.eid, who: "You", text: e.text, at: e.at, prod: true });
+  await callSandbox(stub(object()), "init", { about, rows: one.map(row), history: entries });
+  await assert.rejects(callSandbox(stub(object()), "init", { about, rows: entries.map(row), history: entries }), /init failed \(422\): .*UNIQUE/, "the refusal names its cause");
+});
+
+test("a failure inside the route answers words the Lab can show, never a bare server_error", async () => {
+  const env = { LAB_SANDBOX: { idFromName: () => ({}), get: () => ({ fetch: async () => { throw new Error("boom"); } }) }, CONTROL_PLANE_URL: "https://control.example.invalid", GATEWAY_SECRET: "gw-secret-example-not-real-000000" };
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("control plane down"); };
+  const logged = [];
+  const log = console.log;
+  console.log = (line) => logged.push(line);
+  try {
+    const response = await handleLabSandbox(new Request("https://gateway.example.invalid/tex-lab/sandbox", { method: "POST", headers: { authorization: `Bearer ${ALICE}` }, body: JSON.stringify({ op: "chats" }) }), env, null);
+    const body = await response.json();
+    assert.ok(response.status >= 500);
+    assert.notEqual(body.error, "server_error");
+    assert.match(body.error, /test chat|control plane/);
+  } finally {
+    globalThis.fetch = original;
+    console.log = log;
+  }
 });

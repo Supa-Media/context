@@ -110,7 +110,8 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, lab, MAIN, set } from "../features/tex/lab/engine/state";
-import { gatewaySandbox, resetSandboxState, sandbox, tryFromHere } from "../features/tex/lab/engine/sandbox";
+import { numColW } from "../features/tex/lab/views/grid/TextGrid.web";
+import { gatewaySandbox, resetSandboxState, failureWords, sandbox, tryFromHere } from "../features/tex/lab/engine/sandbox";
 import { resetPlay } from "../features/tex/lab/engine/sandboxPlay";
 
 const roots: (() => void)[] = [];
@@ -225,6 +226,28 @@ describe("the Architecture test chat", () => {
     // What Tex changed stays in the sandbox, listed.
     await click("#sbChanges");
     expect(q(".sbwrites")?.textContent).toMatch(/Calendar.*held in the sandbox/);
+  });
+
+  test("the chat opens scrolled to its newest text, and follows each new one", async () => {
+    const tall = jest.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(900);
+    try {
+      await mount();
+      await pickChat("mine", '[data-chat="band"]');
+      const sc = q("#sbGrid .scroll")!;
+      expect(sc.scrollTop).toBe(900);
+      act(() => void (sc.scrollTop = 0));
+      await type("Tex add the gig to the band calendar");
+      expect(sc.scrollTop).toBe(900);
+    } finally {
+      tall.mockRestore();
+    }
+  });
+
+  test("the # column is wide enough for the highest row number", () => {
+    expect(numColW(9)).toBe(32);
+    expect(numColW(99)).toBe(32);
+    expect(numColW(250)).toBe(38);
+    expect(numColW(1200)).toBe(46);
   });
 
   test("go back to a text keeps it and its reply; delete drops what came after; Reset starts again", async () => {
@@ -374,5 +397,13 @@ describe("the gateway route", () => {
     const call = gatewaySandbox("https://mcp.example.test/mcp", async (refresh) => (refresh ? "new" : "old"), doFetch)!;
     await expect(call("get", { sandboxId: "x" })).rejects.toThrow("Only Tex developers can use the test chat");
     expect(seen).toEqual(["Bearer old", "Bearer new"]);
+  });
+
+  test("a failure shows words, never a bare code like server_error", async () => {
+    const doFetch = (async () => ({ status: 500, json: async () => ({ error: "server_error" }) })) as unknown as typeof fetch;
+    const call = gatewaySandbox("https://mcp.example.test/mcp", async () => "t", doFetch)!;
+    await expect(call("open", { source: { kind: "chat", chatId: "me" } })).rejects.toThrow("The test chat hit a problem on the server");
+    expect(failureWords(422, { error: "refused", message: "A Lab test chat changes nothing outside itself." })).toBe("A Lab test chat changes nothing outside itself.");
+    expect(failureWords(400, { error: "pick a chat to copy" })).toBe("pick a chat to copy");
   });
 });

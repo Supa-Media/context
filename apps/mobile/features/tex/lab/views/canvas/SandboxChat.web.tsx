@@ -310,6 +310,7 @@ export function SandboxChat() {
         id="sbGrid"
         rows={rows}
         folded={folded}
+        bottomKey={`${sb.id}|${folded}|${rows.length}|${rows[rows.length - 1]?.id ?? ""}`}
         sel={pick?.msgId ?? null}
         selCol={pick?.upto ?? null}
         onRow={(r, col) => {
