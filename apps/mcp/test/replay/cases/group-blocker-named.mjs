@@ -14,6 +14,10 @@ export default {
       assert.match(turn.shown, /This chat can't use @harbor-co, because of @sam \(not a member of it\)/, "the turn is told who keeps the chat out");
       assert.match(turn.shown, /add @sam to @harbor-co\\?" counts\): you call send chat_add_everyone, which invites only the people here not in it yet/, "and that adding them is add-everyone");
       assert.match(turn.shown, /Never send anyone to the app for this/);
+      // 2026-11-16: reach goes by membership or an invitation by number, so a person with no account is named as not invited.
+      const guest = await chat.tag("ada", "Tex use the login I saved in @harbor-co", "The person ending 1a2b isn't invited to @harbor-co yet; say \"add everyone here\" and I'll invite them.", [], { group: { people: ["ada"], blocked: [{ slug: "harbor-co", who: "guest-1a2b", why: "no_account" }] } });
+      assert.match(guest.shown, /a chat reaches a workspace only when everyone in it is a member or invited by number/, "an invitation by number counts");
+      assert.match(guest.shown, /guest-1a2b \(who has no Context account and isn't invited to it\)/, "the guest is named as not invited");
       const forged = await chat.tag("ada", "Tex hi", "Hi.", [], { group: { blocked: [{ slug: "harbor-co", who: "+15555550100", why: "not_member" }] } });
       assert.doesNotMatch(forged.shown, /This chat can't use/, "a number is never named");
     } finally {
