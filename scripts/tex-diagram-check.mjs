@@ -106,9 +106,10 @@ export function stepProblems(code, config) {
 }
 
 /** Problems with the files that name a model: one no node names and no list holds, or a list entry that is stale. */
-export function modelFileProblems(naming, config) {
+export function modelFileProblems(naming, config, shelfFiles = []) {
   const files = config.nodes.map((n) => n.file ?? "").join(" · ");
-  const named = (path) => pageNames(files, path);
+  // A shelf node's files (merged, not wired, never run; Dev2, 2026-11-16) are a node's files too.
+  const named = (path) => pageNames(files, path) || shelfFiles.includes(path);
   const problems = [];
   for (const path of naming) if (!named(path) && !(path in PLUMBING) && !(path in NOT_NODED_YET)) problems.push(`${path} names a model but is no node's file in ${CONFIG}: give its model call a node (or, if it only carries calls for nodes, add it to PLUMBING with why)`);
   for (const path of Object.keys(NOT_NODED_YET)) {
@@ -162,7 +163,8 @@ function check(base) {
   problems.push(...stepProblems(graphSteps(ROOT), config));
   const naming = [];
   for (const folder of MODEL_FOLDERS) for (const file of filesUnder(join(ROOT, folder))) if (MODEL_ID.test(readFileSync(file, "utf8"))) naming.push(relative(ROOT, file));
-  problems.push(...modelFileProblems(naming, config));
+  const shelf = JSON.parse(readFileSync(join(ROOT, "packages/shared/src/texNodeShelf.json"), "utf8"));
+  problems.push(...modelFileProblems(naming, config, Object.values(shelf.nodes ?? {}).flatMap((n) => n.files ?? [])));
   const agentFiles = filesUnder(join(ROOT, AGENT_FOLDER)).map((file) => ({ path: relative(join(ROOT, AGENT_FOLDER), file), source: readFileSync(file, "utf8") }));
   problems.push(...mapProblems(agentFiles));
   if (!promptIsCurrent(ROOT)) problems.push(`${PROMPT_MODULE} is not what ${PROMPT_FOLDER}/*.md make: run node scripts/tex-prompt-module.mjs`);
@@ -191,6 +193,7 @@ function selfTest() {
   expect(!pageNames("see `reply.ts`", "apps/agent/src/autoreply.ts"), "a file was found by part of its name");
   expect(modelFileProblems(["apps/agent/src/reply.ts", ...Object.keys(NOT_NODED_YET)], config).length === 0, "a node's file or a listed one refused");
   expect(modelFileProblems(["apps/agent/src/judge.ts", ...Object.keys(NOT_NODED_YET)], config).length === 1, "a model call with no node passed");
+  expect(modelFileProblems(["apps/mcp/src/agent/graph/nodes/fresh.js", ...Object.keys(NOT_NODED_YET)], config, ["apps/mcp/src/agent/graph/nodes/fresh.js"]).length === 0, "a shelf node's model call refused");
   expect(modelFileProblems(Object.keys(NOT_NODED_YET).slice(1), config).length === 1, "a listed file that names no model stayed listed");
   const noded = { ...config, nodes: [...config.nodes, node("x", Object.keys(NOT_NODED_YET)[0].split("/").pop())] };
   expect(modelFileProblems(Object.keys(NOT_NODED_YET), noded).length === 1, "a listed file that has its node stayed listed");

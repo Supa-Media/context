@@ -7,7 +7,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { G, lab, toast } from "../../engine/state";
-import { ago, costWords, fixedWords, live, mcpLines, modelsWords, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind } from "../../engine/labRuns";
+import { ago, codeLink, commitLink, costWords, fixedWords, live, mcpLines, modelsWords, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind } from "../../engine/labRuns";
 import { setUi, sets } from "../../engine/setsStore";
 
 const nodeName = (id: string) => G().nodes.find((x) => x.id === id)?.label ?? id;
@@ -91,7 +91,9 @@ export function RunsPanel() {
                   <StagePill r={x} />
                 </span>
                 <span className="muted small">
-                  {verName(x.versionId)} · {modelsWords(x)} · {x.by ?? "you"} · {ago(x.startedAt)}
+                  {verName(x.versionId)}
+                  {x.code ? ` · ${x.code}` : ""}
+                  {x.commit ? ` @ ${x.commit.slice(0, 7)}` : ""} · {modelsWords(x)} · {x.by ?? "you"} · {ago(x.startedAt)}
                   {x.stage === "done" && x.kind !== "gate" ? " · " + scoreWords(x) : ""}
                 </span>
               </button>
@@ -126,9 +128,26 @@ export function RunsPanel() {
               </div>
             ) : (
               <div className="small muted">
-                On {verName(full.versionId)}. A GitHub run on main's code with this version's config; {full.models === "cc" ? "every model call answered by Claude Code on the subscription token" : "the same models live Tex uses, through the AI gateway"}; scored by the bench and saved here. Nothing personal goes into GitHub's public log: it prints counts only.
+                On {verName(full.versionId)}. A GitHub run on {full.code ? (full.code.startsWith("#") ? `pull request ${full.code}'s code` : `branch ${full.code}'s code`) : "main's code"} with this version's config; {full.models === "cc" ? "every model call answered by Claude Code on the subscription token" : "the same models live Tex uses, through the AI gateway"}; scored by the bench and saved here. Nothing personal goes into GitHub's public log: it prints counts only.
               </div>
             )}
+            {full.kind !== "gate" ? (
+              <div className="small" id="runCode">
+                <a href={codeLink(full.code)} target="_blank" rel="noopener noreferrer">
+                  {full.code ?? "main"} ↗
+                </a>
+                {full.commit ? (
+                  <>
+                    {" · ran commit "}
+                    <a id="runCommit" href={commitLink(full.commit)} target="_blank" rel="noopener noreferrer">
+                      <code>{full.commit.slice(0, 7)}</code> ↗
+                    </a>
+                  </>
+                ) : (
+                  <span className="muted"> · {live(full) ? "commit not checked out yet" : "no commit reported"}</span>
+                )}
+              </div>
+            ) : null}
             {full.error ? <div className={"small " + (full.fixedSince ? "muted" : "c-bad")}>{full.fixedSince ? `${fixedWords}. It failed then: ${full.error}` : full.error}</div> : null}
             {full.stage === "done" && full.results && full.kind !== "gate" ? (
               <>

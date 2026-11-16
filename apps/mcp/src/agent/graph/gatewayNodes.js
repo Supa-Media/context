@@ -111,7 +111,7 @@ export const GATEWAY_NODES = {
   get nudge() { return nudge; },
   get picture() { return picture; },
   get reflect() { return reflect; },
-  // Steps whose code is merged ahead of the config (`texGraphNotYet.json` "ahead"): main's config has no node for them,
+  // Steps on the shelf (`texNodeShelf.json`): their code is merged and main's config has no node for them,
   // so live Tex never runs them; a Lab draft that draws them does (`texConfig.js` `withDraft`). Each folds steps above
   // into one: the Door (the eleven door steps), Confirmations & refusals, the Answer check (checks and the reviewer),
   // Learn (reflect and the nudge), After the reply (classifier and self-review), the Job advisor (jobcheck and

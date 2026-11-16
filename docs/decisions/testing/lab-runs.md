@@ -28,6 +28,20 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   the token is never sent to the control plane or the gateway, as its terms
   allow for CI and scripts and not for a product's servers. Clef stays on
   Workers AI either way.
+- **A run can be on a pull request's code** (Dev2, 2026-11-16: "when we run
+  things it should run on the PRs code instead of main"). A draft names a
+  same-repository pull request (`#3401`) or branch (the Lab's Code field in the
+  run menu; `tex_dev` `code`), and a run may name its own (`run { code }`). The
+  workflow resolves it to a commit, refuses a fork's pull request, and runs that
+  commit's code, its own promote check and its own Dev set, in a job that never
+  holds the Convex deploy key: reading the run and reporting back are main's
+  code in separate jobs, and the run and its results pass between them as
+  artifacts sealed with a key made for that run, which travels only as a job
+  output (a public repository's artifacts are anyone's to download). Every
+  run records the commit that actually ran, and the Lab and `runs` show it.
+  Test chats (the sandbox) still run on production's gateway: a Worker with
+  Durable Objects gets no per-version preview, so a branch's gateway would be a
+  deployment of its own.
 - **Caps:** 3 waiting or running per person, 20 a day. A run still open after
   three hours no longer holds a place.
 - **Public logs say counts and ids.** Results go to Convex, never into the log.
@@ -43,4 +57,7 @@ credential on a server; running Training or the Test set here would score a
 draft on what it was taught or leak the sealed set. `apps/convex/__tests__/controlPlane/texLabRuns.test.ts`
 fails if the caps, the finished-stays-finished report, the Dev-only hand-off
 or the gate's status reading are dropped; `apps/mcp/test/texDevRuns.test.mjs`
-fails if a run could cover a Training chat.
+fails if a run could cover a Training chat. Without the deploy key split, a
+branch's code could rewrite the files the reporting step runs and act with the
+production deploy key; the code tests in `texLabRuns.test.ts` fail if a code
+name could be an option, a path climb or another repository's pull request.

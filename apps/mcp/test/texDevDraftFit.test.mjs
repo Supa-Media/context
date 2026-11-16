@@ -13,7 +13,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CODE_AHEAD, draftFit, TEX_CONFIG, withDraft } from "../src/agent/texConfig.js";
+import { SHELF_NODES, draftFit, TEX_CONFIG, withDraft } from "../src/agent/texConfig.js";
 import { ranAsOf, runCard } from "../src/texDev/sandbox.js";
 import { turnFrom } from "../src/texDev/probe.js";
 import { nodeStatsAnswer, runOf, tally } from "../src/texDev/nodeStats.js";
@@ -58,8 +58,8 @@ test("a draft that adds and removes steps says what of it cannot run", () => {
 });
 
 test("a draft that draws a step built ahead of the config runs it, with the draft's wires, and its removed steps no more", () => {
-  // Dev2, 2026-11-16: a draft's new steps are built in main's code first (`CODE_AHEAD`), so a draft can run them.
-  assert.ok(CODE_AHEAD.includes("learn"));
+  // Dev2, 2026-11-16: a draft's new steps are built in main's code first (`SHELF_NODES`), so a draft can run them.
+  assert.ok(SHELF_NODES.includes("learn"));
   const fit = draftFit(TEX_CONFIG, mergedDraft("learn", "Learn"));
   assert.deepEqual(fit, { asDrawn: true });
   const ran = withDraft(TEX_CONFIG, mergedDraft("learn", "Learn"));

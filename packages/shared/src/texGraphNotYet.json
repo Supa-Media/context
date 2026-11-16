@@ -1,7 +1,5 @@
 {
   "about": "Nodes of texConfig.json whose code is not on the graph runner yet (apps/mcp/src/agent/graph/gatewayNodes.js). The migration ratchet: a node leaves this list in the pull request that puts it in GATEWAY_NODES, and nothing is ever added back (apps/mcp/test/texGraphHome.test.mjs).",
-  "ahead_about": "Nodes whose code is merged into the gateway ahead of texConfig.json (Dev2, 2026-11-16: build a draft's new steps in code first and merge them to main): main's config has no node for them, so live Tex never runs them, and a Lab draft that draws them does (apps/mcp/src/agent/texConfig.js withDraft). Each leaves this list in the pull request that promotes it into the config.",
-  "ahead": ["doorStep", "bypass", "answerCheck", "learn", "afterReply", "jobadv", "staff"],
   "notYet": [
     "text",
     "decide",

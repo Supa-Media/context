@@ -15,7 +15,7 @@ import { TEX_CONFIG as MAIN, withDraft } from "../src/agent/texConfig.js";
 import DRAFT from "./fixtures/simplerGraphDraft.json" with { type: "json" };
 
 // The simpler graph as the Lab draft draws it (Dev2, 2026-11-16), run over main's config as a test chat runs it: its
-// steps are built ahead of main's config (`texConfig.js` `CODE_AHEAD`), so live Tex never runs them.
+// steps are built ahead of main's config (`texConfig.js` `SHELF_NODES`), so live Tex never runs them.
 const TEX_CONFIG = withDraft(MAIN, DRAFT);
 import { nudgeAfterTurn, reflectAfterTurn } from "../src/agent/reflect.js";
 import learn from "../src/agent/graph/nodes/learn.js";

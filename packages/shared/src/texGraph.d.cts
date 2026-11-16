@@ -35,7 +35,7 @@ export declare function createGraph<Ctx = Record<string, unknown>>(
   options?: { log?: (run: NodeRun) => unknown; background?: (p: Promise<unknown>) => void; handOff?: (id: string, input: unknown, ctx: Ctx) => Promise<unknown>; now?: () => number },
 ): Graph<Ctx>;
 export declare function problemsOf(config: GraphConfig): string[];
-export declare function coverageProblems(config: GraphConfig, processes: Record<string, string[]>): string[];
+export declare function coverageProblems(config: GraphConfig, processes: Record<string, string[]>, shelf?: string[]): string[];
 export declare function checkShape(id: string, which: "input" | "output", value: unknown, schema?: GraphField[]): void;
 export declare function fires(edge: GraphWire, output: unknown): boolean;
 export declare function tagsOf(output: unknown): string[];

@@ -15,19 +15,18 @@
 import CONFIG from "../../../../packages/shared/src/texConfig.json" with { type: "json" };
 import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" with { type: "json" };
 import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
-import NOT_YET from "../../../../packages/shared/src/texGraphNotYet.json" with { type: "json" };
+import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
 import { TRAIN_ENTRY, moduleText } from "../../../../packages/shared/src/texTraining.cjs";
 import { sandboxGateOf } from "../labSandbox/policy.js";
 
 export const TEX_CONFIG = CONFIG;
 
 /**
- * Steps whose code is merged into the gateway ahead of the config (Dev2, 2026-11-16: "for code changes, create the node
- * inside the code first and merge it to main"): main's config has no node for them, so live Tex never runs them, and a
- * Lab draft that draws them runs them (`withDraft`). Each leaves this list in the pull request that promotes it into
- * the config (`test/texGraphHome.test.mjs`).
+ * Steps on the shelf (`texNodeShelf.json`; Dev2, 2026-11-16: "for code changes, create the node inside the code first
+ * and merge it to main"): their code is merged and main's config has no node for them, so live Tex never runs them, and
+ * a Lab draft that draws them runs them (`withDraft`). Promote takes each off the shelf as it puts it in the config.
  */
-export const CODE_AHEAD = Object.freeze([...(Array.isArray(NOT_YET.ahead) ? NOT_YET.ahead : [])]);
+export const SHELF_NODES = Object.freeze(Object.keys(SHELF.nodes ?? {}));
 
 /**
  * Tex's prompt words by module name: the repository's, from `packages/shared/src/texPrompt/<name>.md`
@@ -181,7 +180,7 @@ function draftStep(node, edit, config, words) {
   return out;
 }
 
-/** A step the draft adds whose code is merged ahead (`CODE_AHEAD`): as the draft draws it, its model main's table names. */
+/** A step the draft adds whose code is merged ahead (`SHELF_NODES`): as the draft draws it, its model main's table names. */
 function aheadStep(edit, config) {
   const model = edit.model === "code" || typeof config.models[edit.model] === "string" ? edit.model : "haiku-5-5";
   return { ...edit, model, on: edit.on !== false };
@@ -193,7 +192,7 @@ const wiresRun = (edges, ids) => Array.isArray(edges) && edges.length > 0 && edg
 /**
  * A Lab draft over the config, for a Lab test chat's turn only (`labSandbox/policy.js` `sandboxGateOf`): each step's
  * on/off, model, effort, time limit and context as the draft has them, the draft's prompt words as `words`, the steps
- * it adds whose code is merged ahead (`CODE_AHEAD`) as it draws them, and its wires when every one names a step that
+ * it adds whose code is merged ahead (`SHELF_NODES`) as it draws them, and its wires when every one names a step that
  * can run. A step the draft takes out stays, for the settings code reads off it, but no wire of the draft reaches it, so
  * it never runs as a step. What the gateway could not run is main's (`draftStep`). A real turn's env carries no gate,
  * so it never reaches here.
@@ -203,7 +202,7 @@ export function withDraft(config, draft) {
   const own = draftWords(draft.modules);
   const words = { ...TEX_PROMPT_WORDS, ...own };
   const mains = new Set(config.nodes.map((node) => node.id));
-  const ahead = new Set(CODE_AHEAD);
+  const ahead = new Set(SHELF_NODES);
   const drawn = draft.nodes.filter((node) => node && typeof node.id === "string");
   const byId = new Map(drawn.map((node) => [node.id, node]));
   const added = drawn.filter((node) => !mains.has(node.id) && ahead.has(node.id)).map((node) => aheadStep(node, config));
@@ -238,7 +237,7 @@ export function withDraft(config, draft) {
 export function draftFit(config, draft) {
   if (!draft || typeof draft !== "object" || !Array.isArray(draft.nodes)) return { asDrawn: true };
   const mains = new Set(config.nodes.map((node) => node.id));
-  const ahead = new Set(CODE_AHEAD);
+  const ahead = new Set(SHELF_NODES);
   const label = (node) => (typeof node?.label === "string" && node.label !== node.id ? `${node.id} (${node.label})` : node.id);
   const drawn = draft.nodes.filter((node) => node && typeof node.id === "string");
   const drawnIds = new Set(drawn.map((node) => node.id));

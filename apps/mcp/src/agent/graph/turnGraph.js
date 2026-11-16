@@ -16,7 +16,7 @@ import { sandboxGateOf } from "../../labSandbox/policy.js";
 
 /** Where a turn's run starts: the first door step, or, for a routine's run, Routine runs, which is wired to it. */
 export const TURN_START = "readTheText";
-/** Where it starts on a Lab draft that draws the Door as one step in Intake (Dev2, 2026-11-16; `texConfig.js` `CODE_AHEAD`). */
+/** Where it starts on a Lab draft that draws the Door as one step in Intake (Dev2, 2026-11-16; `texConfig.js` `SHELF_NODES`). */
 export const DOOR_START = "doorStep";
 export const ROUTINE_START = "routine";
 
