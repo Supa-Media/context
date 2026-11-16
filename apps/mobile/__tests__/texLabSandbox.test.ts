@@ -21,6 +21,8 @@
  * (2026-11-16, decluttered Lab)
  *  6. `isStale` always false -> "▶ plays back what ran while nothing changed, and runs fresh once the version did" fails;
  *  7. `sendText` dropping `replyTo` -> "tapbacks, replies and pictures are each sent to Tex" fails.
+ * (2026-11-16, Shared with devs)
+ *  8. the composer shown on a shared chat -> "it opens under the canvas ..." fails.
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
@@ -64,6 +66,7 @@ jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
     const at = (id: unknown) => mockRows.findIndex((r) => r.id === id);
     if (op === "chats" && mockChatsFail) throw new Error("not_found");
     if (op === "chats") return { chats: [{ chatId: "me", name: "me" }, { chatId: "band", name: "Band" }] };
+    if (op === "shared") return { chats: [{ chatId: "u:usam", name: "@sam", kind: "1:1", people: 1, sharedBy: ["sam"] }, { chatId: "c".repeat(64), name: "Trip", kind: "group", people: 3, sharedBy: ["sam", "lee"] }] };
     if (op === "open") {
       const real: Row[] = body.source === "chat" ? [{ id: "h1", who: "Priya", text: "practice thursday?", prod: true }, { id: "h2", who: "Tex", text: "Yes, 7 pm.", prod: true }] : [];
       const until = real.findIndex((r) => r.id === body.base);
@@ -210,7 +213,7 @@ describe("the Architecture test chat", () => {
     expect(qa("#sbAs option").map((o) => o.textContent)).toEqual(["Maya"]);
     // The picker: your account's chats, the test account, the Training / Dev sets; never the Test set.
     await click("#sbChat");
-    expect(qa("#sbPickTabs button").map((b) => b.textContent)).toEqual(["Your account", "Test account", "Training / Dev"]);
+    expect(qa("#sbPickTabs button").map((b) => b.textContent)).toEqual(["Your account", "Test account", "Training / Dev", "Shared with devs"]);
     expect(q('#sbPickTabs [data-tab="test"]')?.getAttribute("aria-selected")).toBe("true");
     expect(qa("#sbChatList .mi .nm").map((o) => o.textContent)).toEqual(["Maya (test account)"]);
     await click('#sbPickTabs [data-tab="mine"]');
@@ -218,6 +221,15 @@ describe("the Architecture test chat", () => {
     expect(qa("#sbChatList .mi .nm").map((o) => o.textContent)).toEqual(["Your 1:1 with Tex", "Band"]);
     await click('#sbPickTabs [data-tab="sets"]');
     expect(q("#sbChatList")?.textContent).toMatch(/The Test set never shows here/);
+    // Shared with developers: the people who said yes, read only.
+    await click('#sbPickTabs [data-tab="shared"]');
+    expect(qa("#sbChatList .mh").map((o) => o.textContent)).toEqual(["1:1", "Group chats"]);
+    expect(qa("#sbChatList .mi .nm").map((o) => o.textContent)).toEqual(["@sam", "Trip"]);
+    await click('#sbChatList [data-shared="u:usam"]');
+    expect(mockCalls.find((c) => c.op === "open" && c.body.source === "shared")?.body).toEqual({ source: "shared", chatId: "u:usam", versionId: "main" });
+    // Nothing is sent there: the composer is a note saying so.
+    expect(q("#sbTxt")).toBeNull();
+    expect(q("#sbReadOnly")?.textContent).toMatch(/read only/);
   });
 
   test("each step's output fills its column, and the texts are the shared grid", async () => {

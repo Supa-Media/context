@@ -1,15 +1,23 @@
 /**
  * The test chat's chat picker (decluttered Lab, mockup https://claude.ai/artifact/W21NekNf2vtnFLXXzAmp7N): your
- * account's 1:1 and group chats, the test account, the Training and Dev conversations, and the recent test chats,
- * each opened as a test chat in the dock (`SandboxChat.web.tsx`).
+ * account's 1:1 and group chats, the test account, the Training and Dev conversations, the chats people shared with
+ * the developers (read only: their texts play what ran; `labSandbox/shared.js`), and the recent test chats, each opened
+ * in the dock (`SandboxChat.web.tsx`).
  */
 import { useEffect, useState } from "react";
-import { attachSandbox, readRecentSandboxes, readSandboxChats, readSandboxSets, openSandbox, useSandbox, type SandboxSource } from "../../engine/sandbox";
+import { attachSandbox, readRecentSandboxes, readSandboxChats, readSandboxSets, readSandboxShared, openSandbox, useSandbox, type SandboxSource } from "../../engine/sandbox";
 import { Pop } from "../bar/Pop.web";
 
-type Tab = "mine" | "test" | "sets";
+type Tab = "mine" | "test" | "sets" | "shared";
 
-const srcKey = (s: SandboxSource) => (s.kind === "maya" ? "maya" : s.kind === "chat" ? "chat:" + s.chatId : "set:" + s.convId);
+const srcKey = (s: SandboxSource) => (s.kind === "maya" ? "maya" : s.kind === "chat" ? "chat:" + s.chatId : s.kind === "shared" ? "shared:" + s.chatId : "set:" + s.convId);
+
+/** When a shared chat last had a text, in a few words. */
+function ago(at: number | null): string {
+  if (at === null) return "";
+  const m = Math.round((Date.now() - at) / 60_000);
+  return m < 60 ? Math.max(m, 1) + " min ago" : m < 48 * 60 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago";
+}
 
 /** Reads the recent test chats each time the picker opens. */
 function ReadRecent() {
@@ -20,10 +28,10 @@ function ReadRecent() {
 /** The chat picker: your account's 1:1 and group chats, the test account, and the Training and Dev conversations. */
 export function ChatPick({ versionId }: { versionId: string }) {
   const sb = useSandbox();
-  const [tab, setTab] = useState<Tab>(sb.source.kind === "maya" ? "test" : sb.source.kind === "set" ? "sets" : "mine");
+  const [tab, setTab] = useState<Tab>(sb.source.kind === "maya" ? "test" : sb.source.kind === "set" ? "sets" : sb.source.kind === "shared" ? "shared" : "mine");
   const [q, setQ] = useState("");
   const name = sb.source.kind === "maya" ? "Maya (test account)" : sb.source.kind === "chat" && sb.source.chatId === "me" ? "Your 1:1 with Tex" : sb.source.name;
-  const who = sb.source.kind === "maya" || (sb.source.kind === "chat" && sb.source.chatId === "me") ? "1:1" : sb.people.length ? sb.people.length + " people" : "";
+  const who = sb.source.kind === "shared" ? "shared · read only" : sb.source.kind === "maya" || (sb.source.kind === "chat" && sb.source.chatId === "me") ? "1:1" : sb.people.length ? sb.people.length + " people" : "";
   const qq = q.trim().toLowerCase();
   const hit = (s: string) => !qq || s.toLowerCase().includes(qq);
   const cur = srcKey(sb.source);
@@ -54,6 +62,7 @@ export function ChatPick({ versionId }: { versionId: string }) {
         const one = sb.chats.filter((c) => (c.chatId === "me" || c.kind === "dm") && hit(c.chatId === "me" ? "Your 1:1 with Tex" : c.name));
         const groups = sb.chats.filter((c) => c.chatId !== "me" && c.kind !== "dm" && hit(c.name));
         const convs = sb.sets.filter((c) => hit(c.title));
+        const shared = sb.sharedChats.filter((c) => hit(c.name + " " + c.sharedBy.join(" ")));
         return (
           <div className="vmenu chatpick">
             <ReadRecent />
@@ -63,6 +72,7 @@ export function ChatPick({ versionId }: { versionId: string }) {
                   ["mine", "Your account"],
                   ["test", "Test account"],
                   ["sets", "Training / Dev"],
+                  ["shared", "Shared with devs"],
                 ] as const
               ).map(([k, w]) => (
                 <button
@@ -74,6 +84,8 @@ export function ChatPick({ versionId }: { versionId: string }) {
                     setTab(k);
                     if (k === "sets" && !sb.sets.length) void readSandboxSets();
                     if (k === "mine" && !sb.chats.length) void readSandboxChats();
+                    // Asked every time: someone who stopped sharing is gone at once.
+                    if (k === "shared") void readSandboxShared();
                   }}
                 >
                   {w}
@@ -121,6 +133,25 @@ export function ChatPick({ versionId }: { versionId: string }) {
                     </button>
                   ))}
                   {!one.length && !groups.length ? <div className="mnote">{sb.chats.length ? "No chat matches." : "No chats with Tex on your account yet."}</div> : null}
+                </>
+              ) : tab === "shared" ? (
+                <>
+                  <div className="mnote">People who said yes to sharing their Tex chats with the developers (Settings → Feedback, or texting "share my chats with the devs"). Read only: ▶ plays what ran.</div>
+                  {(["dm", "group"] as const).map((k) => {
+                    const xs = shared.filter((c) => c.kind === k);
+                    return xs.length ? (
+                      <div key={k}>
+                        <div className="mh">{k === "dm" ? "1:1" : "Group chats"}</div>
+                        {xs.map((c) => (
+                          <button key={c.chatId} className="mi" data-shared={c.chatId} aria-current={cur === "shared:" + c.chatId} title={"Shared by " + c.sharedBy.map((h) => "@" + h).join(", ")} onClick={() => open({ kind: "shared", chatId: c.chatId, name: c.name })}>
+                            <span className="nm">{c.name}</span>
+                            <span className="meta">{[k === "group" ? c.people + " people" : "1:1", ago(c.lastAt)].filter(Boolean).join(" · ")}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null;
+                  })}
+                  {!shared.length ? <div className="mnote">{sb.sharedChats.length ? "No chat matches." : "Nobody has shared their chats with the developers yet."}</div> : null}
                 </>
               ) : tab === "test" ? (
                 <>

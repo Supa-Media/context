@@ -610,3 +610,4 @@ test/learnNode.test.mjs
 test/afterReplyStaff.test.mjs
 test/answerCheckNode.test.mjs
 test/routineAsRoutine.test.mjs
+test/labSandboxShared.test.mjs

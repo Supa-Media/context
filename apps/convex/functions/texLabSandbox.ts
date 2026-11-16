@@ -12,6 +12,8 @@
  *  - `set`: a Training or Dev conversation's Lab draft, a test chat's history when the Lab tries a text on one.
  *  - `sets`: every Training and Dev draft (`texSets.ts` `listDrafts`), which the gateway lays over the repo's copy for
  *    the Lab picker's Training / Dev tab. Never the Test Set: it is not kept here.
+ *  - `shared`: the chats people shared with the developers (`lib/texLabShared.ts`), each with where its history file
+ *    lives, for the picker's "Shared with developers" tab and its read-only history reads.
  */
 
 import { v } from "convex/values";
@@ -25,6 +27,7 @@ import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { getMembership } from "./lib/workspaceAuth";
 import { pageForUser, handleFor } from "./texPage";
 import { listDrafts } from "./texSets";
+import { sharedChats } from "./lib/texLabShared";
 import { engagementOf, TEXTS_GROUP_CLIENT_ID } from "./textGroups";
 import { oldLineSetting } from "./texOldLine";
 import { TEXTS_CLIENT_ID } from "./textLinks";
@@ -128,6 +131,7 @@ export const forGateway = internalQuery({
     if (userId === null) return { status: "refused" };
     const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
     if (action === "who") return { ...(await pageForUser(ctx, userId)), userId };
+    if (action === "shared") return { status: "ok", chats: await sharedChats(ctx, userId) };
     if (action === "session") return await sessionFor(ctx, userId, typeof a.chat === "string" ? a.chat : "me");
     if (action === "draft") {
       if (a.draft === "main" || a.draft === undefined || a.draft === null) return { status: "ok", graph: null };

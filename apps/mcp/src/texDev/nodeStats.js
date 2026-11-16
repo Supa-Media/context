@@ -123,7 +123,7 @@ export async function nodeStatsAnswer(env, page, args = {}, { ledgerOf, now = Da
   const days = Number.isFinite(args.days) && args.days > 0 ? Math.min(MAX_DAYS, Math.round(args.days)) : DEFAULT_DAYS;
   const until = now;
   const since = now - days * DAY_MS;
-  const all = chatsOf(page);
+  const all = chatsOf(page).filter((c) => !c.shared);
   const picked = typeof args.chat === "string" && args.chat !== "" ? all.filter((c) => c.chat === args.chat) : all.slice(0, MAX_CHATS);
   if (picked.length === 0) return { error: "There is no such chat; chats lists yours." };
   const entries = [];
