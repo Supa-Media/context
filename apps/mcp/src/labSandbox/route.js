@@ -39,6 +39,7 @@
 import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
 import { createControlPlane } from "../controlPlane.js";
 import { ledgerFor, ONE_TO_ONE_CHAT } from "../agent/ledger.js";
+import { LEDGER_KINDS } from "../texStore/ledger.js";
 import { bearerToken } from "../session.js";
 import { json } from "../http/responses.js";
 import { callSandbox, sandboxStub, SEED_CHUNK } from "./object.js";
@@ -80,26 +81,31 @@ async function sha256Hex(text) {
 /** A row as the Lab reads it: the ledger's event id left out. */
 const shown = ({ eid: _eid, ...row }) => row;
 
+/** What a test chat copies of the real chat's ledger: every kind a turn reads (replies, notes, tools, days, ...), never the steps' logs. */
+const COPIED_KINDS = [...LEDGER_KINDS].filter((kind) => kind !== "step");
+
 /**
- * A real chat's texts before `base` (left out), oldest first, from the chat's ledger: read only, and all of them,
- * paged on with `after` (Dev2, 2026-11-16: "its not truly loading the entire converstation history ... thats not gonna
- * do"). A read the ledger cannot answer leaves what was read so far.
+ * A real chat's ledger before its text `base` (left out), oldest first: read only, and all of it, paged on with `after`
+ * (Dev2, 2026-11-16: "its not truly loading the entire converstation history ... thats not gonna do"). Every kind a turn
+ * reads, not the texts alone: Tex's history is rebuilt from the texts with their `reply` entries, and with texts only it
+ * rebuilt nothing (`ledgerConversation.js`), so a test turn read no history. A read the ledger cannot answer leaves what
+ * was read so far.
  */
-async function realTexts(env, owner, chat, base) {
+async function realLedger(env, owner, chat, base) {
   const ledger = ledgerFor(env, owner);
   if (ledger === null) return [];
   const entries = [];
   let after = null;
   for (let page = 0; page < MAX_PAGES; page += 1) {
-    const read = await ledger.read(chat, { ...(after === null ? {} : { after }), kinds: ["text"], limit: PAGE_TEXTS, jobs: false }).catch(() => null);
+    const read = await ledger.read(chat, { ...(after === null ? {} : { after }), kinds: COPIED_KINDS, limit: PAGE_TEXTS, jobs: false }).catch(() => null);
     if (read === null) break;
-    for (const entry of read.entries ?? []) if (entry?.kind === "text" && typeof entry.eid === "string" && typeof entry.text === "string") entries.push(entry);
+    for (const entry of read.entries ?? []) if (entry && typeof entry === "object" && (entry.kind !== "text" || (typeof entry.eid === "string" && typeof entry.text === "string"))) entries.push(entry);
     if (!Number.isSafeInteger(read.next)) break;
     after = read.next;
   }
   entries.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
   if (typeof base !== "string" || base === "") return entries;
-  const at = entries.findIndex((entry) => entry.eid === base);
+  const at = entries.findIndex((entry) => entry.kind === "text" && entry.eid === base);
   return at < 0 ? entries : entries.slice(0, at);
 }
 
@@ -229,8 +235,8 @@ async function open(env, controlPlane, token, who, input) {
     ({ rows, history } = conversationStart(conv, kind, input.base));
     people = group ? (conv.members ?? []).map((name) => ({ handle: handleOf(name), name: String(name) })) : [{ handle: "", name: "You" }];
   } else {
-    const entries = await realTexts(env, owner, ledgerChat, input.base);
-    rows = oneRowPerText(entries).map((entry) => realRow(entry, kind));
+    const entries = await realLedger(env, owner, ledgerChat, input.base);
+    rows = oneRowPerText(entries.filter((entry) => entry.kind === "text")).map((entry) => realRow(entry, kind));
     history = entries.map(({ seq: _seq, ...entry }) => entry);
     people = (answer.people ?? []).filter((person) => person && typeof person.handle === "string");
   }

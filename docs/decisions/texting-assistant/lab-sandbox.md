@@ -21,8 +21,10 @@ chat whose home names them (`homeUsers`). A chat they are not in answers exactly
 another person's `sandboxId` reaches a different, empty object: "no such test chat". It keeps the rows the Lab shows
 (the real texts it started from, `prod: true`, and every test text and reply), the list of what each test text's turn
 would have changed or sent (`writes`, each `by` that text), the copy-on-write overlay, and the test chat's own ledger
-(the real ledger's code, `texStore/ledger.js`), seeded at open with the real chat's texts up to `base` (that text left
-out, for Replay's "Try from here"). Reset deletes all of it; an alarm deletes it 24 hours after its last use. Nothing
+(the real ledger's code, `texStore/ledger.js`), seeded at open with the real chat's ledger up to `base` (that text left
+out, for Replay's "Try from here"): every kind a turn reads (texts, replies, notes, tool calls, days), never the steps'
+logs. Tex's history is rebuilt from the texts with their replies; a copy of the texts alone rebuilt none, and test
+turns ran with no history (found in production, 2026-11-16; `labSandbox.test.mjs` "opens on the whole real chat"). Reset deletes all of it; an alarm deletes it 24 hours after its last use. Nothing
 in it is anybody's but a copy of what the caller could already read.
 
 **A test text arrives as a real text arrives** (Dev2, 2026-11-16: "expected it to go through the "A text arrives"
