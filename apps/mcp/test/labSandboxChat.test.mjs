@@ -199,6 +199,34 @@ test("a 1:1 ❤️ on Tex's plain text goes to the chat object's tapback route, 
   assert.match(reply.note, /noted/, reply.note);
 });
 
+test("a tapback's own step stays on its row, never on the next text's", async () => {
+  const { stub, call, ready } = sandbox(ONE, []);
+  await ready;
+  const { runTestText } = await import("../src/labSandbox/chatRun.js");
+  const run = async (row) => {
+    await call("row.add", { row });
+    const gw = fakeGateway("Sure.", call, row.id);
+    await runTestText({ env: {}, stub, about: ONE, row, payload: { defaultWorkspaceId: "ws_a" }, token: "caller-token", config: null, origin: "https://gateway.example", agentRoute: gw.agentRoute, textsRoute: gw.textsRoute });
+    return (await call("state", {})).rows.find((r) => r.id === `${row.id}r`);
+  };
+  for (const r of [TEXTED, ANSWERED]) await call("row.add", { row: r });
+  const hearted = await run({ id: "t2", who: "ana", kind: "reaction", emoji: "❤️", on: "t1r", text: "❤️ on Tex's message", at: Date.now(), prod: false, eid: "0000000000002-000001" });
+  assert.deepEqual(hearted.steps.map((s) => s.node), ["text"], "the tapback's row shows the object noting it");
+  assert.match(hearted.steps[0].out, /noted/);
+  const next = await run({ id: "t3", who: "ana", text: "and tomorrow?", at: Date.now() + 1, prod: false, eid: "0000000000003-000001" });
+  const outs = next.steps.filter((s) => s.node === "text").map((s) => s.out);
+  assert.ok(outs.length === 1 && !/noted/.test(outs[0]), `the next text shows only its own arrival (${outs.join(" | ")})`);
+});
+
+test("without the run's own steps, the object's steps logged before a row came in are left off it", () => {
+  const entries = [
+    { kind: "step", step: "text", at: 1, ok: true, output: { outcome: "noted" } },
+    { kind: "step", step: "text", at: 5, ok: true, output: { outcome: "queued" } },
+    { kind: "step", step: "node", name: "readTheText", at: 6, ok: true },
+  ];
+  assert.deepEqual(chatStepsOf(entries, { since: 4 }).map((s) => s.out ?? s.node), ['{"outcome":"queued"}', "readTheText"]);
+});
+
 test("an edit goes to the chat object's edit route, which asks node edit and queues the new words as a text", async () => {
   const row = { id: "t2", who: "ana", kind: "edit", on: "t1", text: "dinner at 8?", edited: true, at: Date.now(), prod: false, eid: "0000000000002-000001" };
   const { gw, reply } = await runOne([TEXTED, ANSWERED], row);

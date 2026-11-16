@@ -156,12 +156,17 @@ export class MemoryStorage {
   }
 }
 
-/** The steps a text ran, by node: the turn graph's node entries and the chat object's own steps, in the order logged. */
-export function chatStepsOf(entries) {
+/**
+ * The steps a text ran, by node: the turn graph's node entries and the chat object's own steps, in the order logged.
+ * The chat object hands its log on with the next turn, so a ledger can hold its steps for an earlier row (a tapback
+ * only noted, an edit kept as it was): `own`, the steps this row's run saw the object log, replaces the ledger's; or,
+ * without it, `since` drops the object's steps logged before this row came in.
+ */
+export function chatStepsOf(entries, { own = null, since = 0 } = {}) {
   const list = Array.isArray(entries) ? entries : [];
-  const own = list.filter((entry) => entry?.kind === "step" && WORKER_STEPS.has(entry.step));
   const nodes = stepsOf(list);
-  const worker = own.map((entry) => ({ at: entry.at ?? 0, step: workerStep({ name: entry.step, output: entry.output, ms: entry.ms, ok: entry.ok }) }));
+  const logged = list.filter((entry) => entry?.kind === "step" && WORKER_STEPS.has(entry.step) && (entry.at ?? 0) >= since);
+  const worker = Array.isArray(own) ? own : logged.map((entry) => ({ at: entry.at ?? 0, step: workerStep({ name: entry.step, output: entry.output, ms: entry.ms, ok: entry.ok }) }));
   const graph = list.filter((entry) => entry?.kind === "step" && entry.step === "node" && typeof entry.name === "string").map((entry, i) => ({ at: entry.at ?? 0, step: nodes[i] }));
   return [...worker, ...graph].sort((a, b) => a.at - b.at).map(({ step }) => step);
 }
@@ -371,11 +376,14 @@ export function inboundOf({ about, row, rows, address, sentHandles }) {
 export async function runChatTurn({ env, stub, about, row, payload, token, config, origin, chat = null, agentRoute = null, textsRoute = null, now = Date.now }) {
   // The chat object's own steps as it logs each, ahead of the turn's nodes on the Lab's running row.
   const ahead = [];
+  // The same steps with when each was logged: this row's own, whatever the object hands on to a later turn's ledger.
+  const own = [];
   const gate = sandboxGate(stub, about, row.id, { config, before: ahead });
   const onEvent = (event) => {
     const step = workerStep(event.step);
     if (step === null) return;
     ahead.push(step);
+    own.push({ at: Number.isFinite(event.at) ? event.at : now(), step });
     gate.show(step.node);
   };
   const sandboxEnv = sandboxEnvOf(env, { gate, workspaces: sandboxNamespace(env.WORKSPACE_STORE, gate), tex: sandboxNamespace(env.TEX_STORE, gate) });
@@ -454,13 +462,13 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const handles = Object.fromEntries([...sentHandles.entries()].slice(-200));
     if (!quiet) handles[replyId] = `${row.id}-sent-${line.sent.length}`;
     await callSandbox(stub, "meta", { key: "sentHandles", value: handles });
-    const steps = chatStepsOf((await callSandbox(stub, "ledger.of", { by: row.id })).entries);
+    const steps = chatStepsOf((await callSandbox(stub, "ledger.of", { by: row.id })).entries, { own });
     await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text, at, prod: false, ...(quiet ? { quiet: true, note: `The chat object took the text (${outcome}) and Tex sent nothing.` } : {}), ...(said.length > 1 ? { parts: said } : {}), ms: at - started, steps } });
     console.log(JSON.stringify({ event: "lab_sandbox_chat_turn", ok: true, ms: at - started, steps: steps.length, quiet, outcome: String(outcome).slice(0, 20), lineCalls: line.calls.length }));
   } catch (error) {
     await gate.flush();
     const at = now();
-    const steps = await callSandbox(stub, "ledger.of", { by: row.id }).then((read) => chatStepsOf(read.entries)).catch(() => []);
+    const steps = await callSandbox(stub, "ledger.of", { by: row.id }).then((read) => chatStepsOf(read.entries, { own })).catch(() => []);
     await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text: "", at, prod: false, quiet: true, ms: at - started, steps, error: String(error?.message ?? "the turn failed").slice(0, 200) } }).catch(() => {});
     console.log(JSON.stringify({ event: "lab_sandbox_chat_turn", ok: false, ms: at - started, reason: String(error?.name ?? "error").slice(0, 40) }));
   } finally {
