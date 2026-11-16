@@ -106,7 +106,11 @@ test("the generated words are the Markdown files' (scripts/tex-prompt-module.mjs
 });
 
 test("each step's prompt modules are the p- entries of its context, in order, and each has words", () => {
-  const of = (id) => texStep(id).ctx.filter((c) => c.startsWith("p-")).map((c) => c.slice(2));
+  // A `train:<node>` entry stands where it is as `train-<node>` once that node has Training labels (texTraining.cjs).
+  const of = (id) =>
+    texStep(id)
+      .ctx.map((c) => (c.startsWith("p-") ? c.slice(2) : c.startsWith("train:") && TEX_PROMPT_WORDS[`train-${c.slice(6)}`] ? `train-${c.slice(6)}` : null))
+      .filter(Boolean);
   assert.deepEqual(texModules(), { texts: of("fd"), group: of("fd"), job: of("job") });
   for (const name of new Set([...of("fd"), ...of("job")])) assert.equal(typeof TEX_PROMPT_WORDS[name], "string", name);
 });

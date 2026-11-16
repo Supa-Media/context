@@ -47,13 +47,28 @@ function lineOf(m, earlier) {
   return `${who}: ${m.text}`;
 }
 
-/** The chat before message `at`, as lines, Tex's newest text marked when it asks something. */
-function linesBefore(c, at) {
+/**
+ * How many messages of history a Training example shows a step: the newest ones before the message, after a line
+ * that says how many came before them. Training conversations are long (Dev2, 2026-11-16: "conversations are like
+ * 100, 500 different turns"), and every example rides in the step's prompt on every call, so a step sees the recent
+ * stretch: Decide's whole state is at most 24,000 characters live chat included (`textDecide.cjs` MAX_STATE), and the
+ * front door's setup at most 40,000 (`production.js` MAX_BODY_CHARS). A node run alone on a conversation
+ * (`apps/mcp/bench/setsRun.mjs`) still reads all of it.
+ */
+const HISTORY_LINES = 4;
+/** Decide's examples share the judge's 24,000 characters with the live chat, so they keep the newest two. */
+const HISTORY_FOR = Object.freeze({ decide: 2 });
+const historyLines = (node) => HISTORY_FOR[node] ?? HISTORY_LINES;
+
+/** The chat before message `at`, as lines, Tex's newest text marked when it asks something; older lines summed up. */
+function linesBefore(c, at, keep = Infinity) {
   const history = before(c, at);
   const lines = history.map((m, i) => lineOf(m, history.slice(0, i)));
   const newestTex = history.map((m) => Boolean(m.tex)).lastIndexOf(true);
   if (newestTex >= 0 && /\?\s*$/.test(history[newestTex].text ?? "")) lines[newestTex] += "   (your newest question)";
-  return lines;
+  if (lines.length <= keep) return lines;
+  const dropped = lines.length - keep;
+  return [`(${dropped} earlier message${dropped === 1 ? "" : "s"})`, ...lines.slice(-keep)];
 }
 
 /**
@@ -70,7 +85,7 @@ function momentsOf(conversations) {
       for (const [node, l] of Object.entries(m.labels || {})) {
         const { star: _star, ...label } = l || {};
         if (Object.keys(label).length === 0) continue;
-        const moment = { chat: c.id, kind: c.kind, ...(typeof c.setting === "string" ? { setting: c.setting } : {}), before: linesBefore(c, at), newest: lineOf(m, before(c, at)), label };
+        const moment = { chat: c.id, kind: c.kind, ...(typeof c.setting === "string" ? { setting: c.setting } : {}), before: linesBefore(c, at, historyLines(node)), newest: lineOf(m, before(c, at)), label };
         (nodes[node] ??= []).push(moment);
       }
     });
@@ -124,4 +139,4 @@ function moduleText(entry, generated) {
   return TRAIN_ENTRY.test(entry) ? trainingText({ ctx: [entry] }, generated) : "";
 }
 
-module.exports = { TRAIN_ENTRY, QUOTE_CHARS, TRAINING_INTRO, lineOf, linesBefore, momentsOf, trainingSources, wantLines, exampleText, trainingText, moduleText };
+module.exports = { TRAIN_ENTRY, QUOTE_CHARS, HISTORY_LINES, historyLines, TRAINING_INTRO, lineOf, linesBefore, momentsOf, trainingSources, wantLines, exampleText, trainingText, moduleText };

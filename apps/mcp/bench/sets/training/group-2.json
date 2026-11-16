@@ -1,0 +1,1433 @@
+{
+  "id": "group-2",
+  "title": "Ferry crew",
+  "set": "training",
+  "kind": "group",
+  "members": [
+    "Ana",
+    "Luis",
+    "Kim",
+    "Rosa",
+    "Dev",
+    "Kai"
+  ],
+  "msgs": [
+    {
+      "who": "Luis",
+      "text": "morning all",
+      "id": "m1"
+    },
+    {
+      "who": "Rosa",
+      "text": "morning! who's on the 8 o'clock",
+      "id": "m2"
+    },
+    {
+      "who": "Dev",
+      "text": "not me, slept through the alarm twice lol",
+      "id": "m3"
+    },
+    {
+      "who": "Kim",
+      "text": "classic dev",
+      "id": "m4"
+    },
+    {
+      "who": "Dev",
+      "text": "rude",
+      "id": "m5"
+    },
+    {
+      "who": "Ana",
+      "text": "rain again??",
+      "id": "m6"
+    },
+    {
+      "who": "Kai",
+      "text": "it's been raining since tuesday honestly",
+      "id": "m7"
+    },
+    {
+      "who": "Kim",
+      "text": "the plants are thriving at least",
+      "id": "m8"
+    },
+    {
+      "who": "Rosa",
+      "text": "mine are not thriving, one died last week",
+      "id": "m9"
+    },
+    {
+      "who": "Luis",
+      "text": "rip",
+      "id": "m10"
+    },
+    {
+      "who": "Kai",
+      "text": "did you water it or drown it",
+      "id": "m11"
+    },
+    {
+      "who": "Rosa",
+      "text": "ok fair, probably drowned",
+      "id": "m12"
+    },
+    {
+      "who": "Kim",
+      "text": "tex what's the difference between a ferry and a catamaran",
+      "id": "m13"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "A ferry is any boat that carries people or cars across water on a set route. A catamaran is a boat with two hulls, which makes it steadier and often faster. Plenty of ferries are catamarans.",
+      "id": "m14"
+    },
+    {
+      "who": "Kai",
+      "text": "thanks tex. that was not what i expected from kim",
+      "id": "m15"
+    },
+    {
+      "who": "Kim",
+      "text": "i was curious",
+      "id": "m16"
+    },
+    {
+      "who": "Dev",
+      "text": "anyone been to the noodle place by the market yet",
+      "id": "m17"
+    },
+    {
+      "who": "Luis",
+      "text": "yes! the spicy one is dangerous",
+      "id": "m18"
+    },
+    {
+      "who": "Rosa",
+      "text": "i like the broth one better",
+      "id": "m19"
+    },
+    {
+      "who": "Ana",
+      "text": "broth is boring change my mind",
+      "id": "m20"
+    },
+    {
+      "who": "Rosa",
+      "text": "no",
+      "id": "m21"
+    },
+    {
+      "who": "Kai",
+      "text": "this is going to be a long thread",
+      "id": "m22"
+    },
+    {
+      "who": "Luis",
+      "text": "it's always a long thread",
+      "id": "m23"
+    },
+    {
+      "who": "Dev",
+      "text": "i need coffee before this",
+      "id": "m24"
+    },
+    {
+      "who": "Kim",
+      "text": "same. the machine downstairs is broken again",
+      "id": "m25"
+    },
+    {
+      "who": "Ana",
+      "text": "did you tell the landlord",
+      "id": "m26"
+    },
+    {
+      "who": "Kim",
+      "text": "sent him a photo of the sign, he said he'll look at it",
+      "id": "m27"
+    },
+    {
+      "who": "Luis",
+      "text": "he said that in march",
+      "id": "m28"
+    },
+    {
+      "who": "Rosa",
+      "text": "lol march",
+      "id": "m29"
+    },
+    {
+      "who": "Kai",
+      "text": "ok I'm off to work, talk later",
+      "id": "m30"
+    },
+    {
+      "who": "Ana",
+      "text": "look what my nephew made",
+      "id": "m31"
+    },
+    {
+      "who": "Ana",
+      "text": "https://example.com/cardboard-arcade",
+      "id": "m32"
+    },
+    {
+      "who": "Kim",
+      "text": "that's amazing",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "people_talking",
+          "star": true
+        }
+      },
+      "id": "m33"
+    },
+    {
+      "who": "Luis",
+      "text": "the arcade thing is actually fun, i want to play that",
+      "id": "m34"
+    },
+    {
+      "who": "Rosa",
+      "text": "ana your family is going to have an engineer on their hands",
+      "id": "m35"
+    },
+    {
+      "who": "Ana",
+      "text": "he's going to be a cat dentist at this rate",
+      "id": "m36"
+    },
+    {
+      "who": "Dev",
+      "text": "ha",
+      "id": "m37"
+    },
+    {
+      "who": "Kai",
+      "text": "the joystick looks legit",
+      "id": "m38"
+    },
+    {
+      "who": "Kim",
+      "text": "the buttons made of bottle caps is genius",
+      "id": "m39"
+    },
+    {
+      "who": "Luis",
+      "text": "has anyone seen the new bakery on fifth",
+      "id": "m40"
+    },
+    {
+      "who": "Rosa",
+      "text": "the one with the cardamom buns?",
+      "id": "m41"
+    },
+    {
+      "who": "Luis",
+      "text": "yes, they're sold out by 10 every day",
+      "id": "m42"
+    },
+    {
+      "who": "Dev",
+      "text": "I went at 7 and got the last one, felt like a hero",
+      "id": "m43"
+    },
+    {
+      "who": "Ana",
+      "text": "hero of the buns",
+      "id": "m44"
+    },
+    {
+      "who": "Dev",
+      "text": "hero of the buns",
+      "id": "m45"
+    },
+    {
+      "who": "Kai",
+      "text": "I want to live there",
+      "id": "m46"
+    },
+    {
+      "who": "Kim",
+      "text": "you already live there kai, you just never leave your room",
+      "id": "m47"
+    },
+    {
+      "who": "Kai",
+      "text": "rude but accurate",
+      "id": "m48"
+    },
+    {
+      "who": "Rosa",
+      "text": "what's everyone watching lately",
+      "id": "m49"
+    },
+    {
+      "who": "Luis",
+      "text": "the cooking one with the old lady, it's so comforting",
+      "id": "m50"
+    },
+    {
+      "who": "Ana",
+      "text": "I started it and then fell asleep, sorry",
+      "id": "m51"
+    },
+    {
+      "who": "Dev",
+      "text": "the new detective show is so bad but I can't stop",
+      "id": "m52"
+    },
+    {
+      "who": "Kim",
+      "text": "bad shows are my favorite genre",
+      "id": "m53"
+    },
+    {
+      "who": "Kai",
+      "text": "I finished the baking one, it's boring but I learned something",
+      "id": "m54"
+    },
+    {
+      "who": "Rosa",
+      "text": "what did you learn",
+      "id": "m55"
+    },
+    {
+      "who": "Kai",
+      "text": "you can't rush bread",
+      "id": "m56"
+    },
+    {
+      "who": "Luis",
+      "text": "wise words from kai",
+      "id": "m57"
+    },
+    {
+      "who": "Kai",
+      "text": "I'm a changed man",
+      "id": "m58"
+    },
+    {
+      "who": "Ana",
+      "text": "ok heading to the gym, bye",
+      "id": "m59"
+    },
+    {
+      "who": "Dev",
+      "text": "bye ana",
+      "id": "m60"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Ferry times are on the pinned note.",
+      "id": "m61"
+    },
+    {
+      "who": "Luis",
+      "text": "tex has been slow all week lol",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "about_tex",
+          "star": true
+        }
+      },
+      "id": "m62"
+    },
+    {
+      "who": "Rosa",
+      "text": "lol tex slow? it answers eventually",
+      "id": "m63"
+    },
+    {
+      "who": "Kai",
+      "text": "it took like four hours to answer my dentist question",
+      "id": "m64"
+    },
+    {
+      "who": "Kim",
+      "text": "maybe it's busy being wise",
+      "id": "m65"
+    },
+    {
+      "who": "Dev",
+      "text": "I have a guess who is writing these comments",
+      "id": "m66"
+    },
+    {
+      "who": "Luis",
+      "text": "no names",
+      "id": "m67"
+    },
+    {
+      "who": "Kai",
+      "text": "\"tex is slow\" is the most honest group message this month",
+      "id": "m68"
+    },
+    {
+      "who": "Ana",
+      "text": "ok can we talk about the trip for once",
+      "id": "m69"
+    },
+    {
+      "who": "Dev",
+      "text": "which trip",
+      "id": "m70"
+    },
+    {
+      "who": "Ana",
+      "text": "the island one, the one we keep saying we'll do",
+      "id": "m71"
+    },
+    {
+      "who": "Rosa",
+      "text": "I'm in if it's not on a day I'm on call",
+      "id": "m72"
+    },
+    {
+      "who": "Kim",
+      "text": "weekends are fine for me, weekdays are a mess",
+      "id": "m73"
+    },
+    {
+      "who": "Luis",
+      "text": "weekends are easiest for me too",
+      "id": "m74"
+    },
+    {
+      "who": "Kai",
+      "text": "same, I just need a few days notice",
+      "id": "m75"
+    },
+    {
+      "who": "Dev",
+      "text": "whatever happens I want good seats on the boat",
+      "id": "m76"
+    },
+    {
+      "who": "Rosa",
+      "text": "the front ones get soaked, I learned that the hard way",
+      "id": "m77"
+    },
+    {
+      "who": "Kim",
+      "text": "the back ones smell like diesel",
+      "id": "m78"
+    },
+    {
+      "who": "Ana",
+      "text": "so the middle, by the window",
+      "id": "m79"
+    },
+    {
+      "who": "Luis",
+      "text": "deal",
+      "id": "m80"
+    },
+    {
+      "who": "Dev",
+      "text": "what time is the boat usually, does anyone remember",
+      "id": "m81"
+    },
+    {
+      "who": "Kai",
+      "text": "no idea, someone check",
+      "id": "m82"
+    },
+    {
+      "who": "Rosa",
+      "text": "I'll check the pinned note later",
+      "id": "m83"
+    },
+    {
+      "who": "Kim",
+      "text": "the pinned note is always the answer",
+      "id": "m84"
+    },
+    {
+      "who": "Ana",
+      "text": "the pinned note saved us last time",
+      "id": "m85"
+    },
+    {
+      "who": "Luis",
+      "text": "last time we nearly missed it lol",
+      "id": "m86"
+    },
+    {
+      "who": "Dev",
+      "text": "you mean ana ran",
+      "id": "m87"
+    },
+    {
+      "who": "Ana",
+      "text": "I ran for the boat and I'd do it again",
+      "id": "m88"
+    },
+    {
+      "who": "Luis",
+      "text": "can someone find the ferry times",
+      "id": "m89"
+    },
+    {
+      "who": "Rosa",
+      "text": "no clue",
+      "id": "m90"
+    },
+    {
+      "who": "Luis",
+      "text": "tex",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "tags_tex",
+          "star": true
+        }
+      },
+      "id": "m91"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Still on the pinned note. Tell me which crossing you mean and I'll pull that line out for you.",
+      "id": "m92"
+    },
+    {
+      "who": "Luis",
+      "text": "lol it answered",
+      "id": "m93"
+    },
+    {
+      "who": "Rosa",
+      "text": "told you it wasn't dead",
+      "id": "m94"
+    },
+    {
+      "who": "Kai",
+      "text": "he's alive",
+      "id": "m95"
+    },
+    {
+      "who": "Luis",
+      "text": "thanks tex",
+      "id": "m96"
+    },
+    {
+      "who": "Dev",
+      "text": "it's only polite now, we're all very polite",
+      "id": "m97"
+    },
+    {
+      "who": "Kim",
+      "text": "is it the early one or the late one on the pinned note",
+      "id": "m98"
+    },
+    {
+      "who": "Ana",
+      "text": "no clue, I haven't opened it since march",
+      "id": "m99"
+    },
+    {
+      "who": "Luis",
+      "text": "march again",
+      "id": "m100"
+    },
+    {
+      "who": "Ana",
+      "text": "ok i'm going to open it right now",
+      "id": "m101"
+    },
+    {
+      "who": "Rosa",
+      "text": "the pinned message is so long, who wrote that",
+      "id": "m102"
+    },
+    {
+      "who": "Dev",
+      "text": "you did",
+      "id": "m103"
+    },
+    {
+      "who": "Rosa",
+      "text": "I did not",
+      "id": "m104"
+    },
+    {
+      "who": "Dev",
+      "text": "you did, you wrote the whole thing in capitals",
+      "id": "m105"
+    },
+    {
+      "who": "Rosa",
+      "text": "that was me at 2am, don't judge",
+      "id": "m106"
+    },
+    {
+      "who": "Kai",
+      "text": "I wish I had that energy at 2am",
+      "id": "m107"
+    },
+    {
+      "who": "Kim",
+      "text": "you have it at 2am every night kai",
+      "id": "m108"
+    },
+    {
+      "who": "Kai",
+      "text": "that's not energy, that's insomnia",
+      "id": "m109"
+    },
+    {
+      "who": "Luis",
+      "text": "insomnia is a personality",
+      "id": "m110"
+    },
+    {
+      "who": "Ana",
+      "text": "wellness corner over here",
+      "id": "m111"
+    },
+    {
+      "who": "Dev",
+      "text": "anyway I'm making a big pot of soup sometime, anyone want some",
+      "id": "m112"
+    },
+    {
+      "who": "Kim",
+      "text": "yes, soup please",
+      "id": "m113"
+    },
+    {
+      "who": "Rosa",
+      "text": "is it the tomato one",
+      "id": "m114"
+    },
+    {
+      "who": "Dev",
+      "text": "the tomato one with the bread on top",
+      "id": "m115"
+    },
+    {
+      "who": "Luis",
+      "text": "send me the recipe i'll make it wrong",
+      "id": "m116"
+    },
+    {
+      "who": "Dev",
+      "text": "that's how we bond",
+      "id": "m117"
+    },
+    {
+      "who": "Dev",
+      "text": "can @Tex find the gas bill from August",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "tags_tex",
+          "star": true
+        }
+      },
+      "id": "m118"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "On it. I'll check the shared notes for an August gas bill. If it's not there, send me the PDF or a photo here and I'll file it.",
+      "id": "m119"
+    },
+    {
+      "who": "Dev",
+      "text": "thanks, I need it for the spreadsheet",
+      "id": "m120"
+    },
+    {
+      "who": "Kim",
+      "text": "which spreadsheet, the old one?",
+      "id": "m121"
+    },
+    {
+      "who": "Dev",
+      "text": "the new one, the old one is dead for good",
+      "id": "m122"
+    },
+    {
+      "who": "Ana",
+      "text": "I miss the old building honestly",
+      "id": "m123"
+    },
+    {
+      "who": "Rosa",
+      "text": "the old building had mice, don't romanticize",
+      "id": "m124"
+    },
+    {
+      "who": "Ana",
+      "text": "the mice had character",
+      "id": "m125"
+    },
+    {
+      "who": "Luis",
+      "text": "nobody has ever said that about mice",
+      "id": "m126"
+    },
+    {
+      "who": "Kai",
+      "text": "did anyone else get the notice about the water going off",
+      "id": "m127"
+    },
+    {
+      "who": "Kim",
+      "text": "yes, I think it's back on now",
+      "id": "m128"
+    },
+    {
+      "who": "Kai",
+      "text": "good, I had to fill a bucket for my shower lol",
+      "id": "m129"
+    },
+    {
+      "who": "Luis",
+      "text": "the shower bucket era",
+      "id": "m130"
+    },
+    {
+      "who": "Dev",
+      "text": "we're living in a sitcom",
+      "id": "m131"
+    },
+    {
+      "who": "Rosa",
+      "text": "the sitcom about shared bills",
+      "id": "m132"
+    },
+    {
+      "who": "Ana",
+      "text": "the rent conversation is the whole show",
+      "id": "m133"
+    },
+    {
+      "who": "Kim",
+      "text": "please not the rent conversation again",
+      "id": "m134"
+    },
+    {
+      "who": "Dev",
+      "text": "it's not a conversation, it's a spreadsheet",
+      "id": "m135"
+    },
+    {
+      "who": "Luis",
+      "text": "my spreadsheet has feelings",
+      "id": "m136"
+    },
+    {
+      "who": "Kai",
+      "text": "I'll put my share in the group when I get paid, promise",
+      "id": "m137"
+    },
+    {
+      "who": "Rosa",
+      "text": "you always say that and you always pay, that's the best part of you",
+      "id": "m138"
+    },
+    {
+      "who": "Kai",
+      "text": "ok I'm touched",
+      "id": "m139"
+    },
+    {
+      "who": "Ana",
+      "text": "what's everyone cooking this week",
+      "id": "m140"
+    },
+    {
+      "who": "Kim",
+      "text": "pasta, I'm bad at everything else",
+      "id": "m141"
+    },
+    {
+      "who": "Luis",
+      "text": "I did a curry last night, too spicy for me and I made it anyway",
+      "id": "m142"
+    },
+    {
+      "who": "Rosa",
+      "text": "that's dedication",
+      "id": "m143"
+    },
+    {
+      "who": "Dev",
+      "text": "I'm eating soup for ten days straight, I've decided",
+      "id": "m144"
+    },
+    {
+      "who": "Kai",
+      "text": "the soup again?",
+      "id": "m145"
+    },
+    {
+      "who": "Dev",
+      "text": "the soup",
+      "id": "m146"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "The rent split is $640 each.",
+      "id": "m147"
+    },
+    {
+      "who": "Dev",
+      "text": "Tex you're way too wordy",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "corrects_tex",
+          "star": true
+        }
+      },
+      "id": "m148"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Fair. Shorter from here.",
+      "id": "m149"
+    },
+    {
+      "who": "Dev",
+      "text": "thank you",
+      "id": "m150"
+    },
+    {
+      "who": "Luis",
+      "text": "tex just got humbled lol",
+      "id": "m151"
+    },
+    {
+      "who": "Rosa",
+      "text": "first time I've seen it apologize, I'm framing this",
+      "id": "m152"
+    },
+    {
+      "who": "Kai",
+      "text": "lol it didn't apologize, it said fair",
+      "id": "m153"
+    },
+    {
+      "who": "Rosa",
+      "text": "that's an apology in tex language",
+      "id": "m154"
+    },
+    {
+      "who": "Ana",
+      "text": "the rent split was very clear though, thanks tex",
+      "id": "m155"
+    },
+    {
+      "who": "Kim",
+      "text": "I'm going to Google hard about the tomato soup recipe, I'm not sure I trust dev",
+      "id": "m156"
+    },
+    {
+      "who": "Dev",
+      "text": "I have never let you down",
+      "id": "m157"
+    },
+    {
+      "who": "Kim",
+      "text": "you once made a soup that was just hot water",
+      "id": "m158"
+    },
+    {
+      "who": "Dev",
+      "text": "that was a different soup",
+      "id": "m159"
+    },
+    {
+      "who": "Luis",
+      "text": "it was the same soup",
+      "id": "m160"
+    },
+    {
+      "who": "Rosa",
+      "text": "I'm writing it down: dev soup, the sequel",
+      "id": "m161"
+    },
+    {
+      "who": "Kai",
+      "text": "dev soup is my favorite genre",
+      "id": "m162"
+    },
+    {
+      "who": "Ana",
+      "text": "I like the idea of a cooking club",
+      "id": "m163"
+    },
+    {
+      "who": "Kim",
+      "text": "a cooking club that sits on a sofa and eats chips",
+      "id": "m164"
+    },
+    {
+      "who": "Luis",
+      "text": "that's basically every club we've ever had",
+      "id": "m165"
+    },
+    {
+      "who": "Dev",
+      "text": "we had a book club once",
+      "id": "m166"
+    },
+    {
+      "who": "Ana",
+      "text": "we read like eight pages",
+      "id": "m167"
+    },
+    {
+      "who": "Rosa",
+      "text": "it was one page and then we talked about the cover",
+      "id": "m168"
+    },
+    {
+      "who": "Kai",
+      "text": "the cover was great",
+      "id": "m169"
+    },
+    {
+      "who": "Dev",
+      "text": "the cover was so good",
+      "id": "m170"
+    },
+    {
+      "who": "Luis",
+      "text": "ok so what's happening this week",
+      "id": "m171"
+    },
+    {
+      "who": "Kim",
+      "text": "not much? work, rain, the usual",
+      "id": "m172"
+    },
+    {
+      "who": "Rosa",
+      "text": "rain rain rain",
+      "id": "m173"
+    },
+    {
+      "who": "Ana",
+      "text": "I'll bring umbrellas to the next thing if anyone wants one",
+      "id": "m174"
+    },
+    {
+      "who": "Kai",
+      "text": "please, my last one broke in the wind",
+      "id": "m175"
+    },
+    {
+      "who": "Kim",
+      "text": "is the cafe still open on Sundays?",
+      "id": "m176"
+    },
+    {
+      "who": "Ana",
+      "text": "no idea, I'll check when I pass by",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "people_talking",
+          "star": true
+        }
+      },
+      "id": "m177"
+    },
+    {
+      "who": "Luis",
+      "text": "ana let us know about the cafe",
+      "id": "m178"
+    },
+    {
+      "who": "Ana",
+      "text": "yes, I'll pass by and tell you, don't worry",
+      "id": "m179"
+    },
+    {
+      "who": "Kim",
+      "text": "thanks, my week is sad without their chai",
+      "id": "m180"
+    },
+    {
+      "who": "Rosa",
+      "text": "you're dramatic about chai",
+      "id": "m181"
+    },
+    {
+      "who": "Kim",
+      "text": "i am, that's the chai's fault",
+      "id": "m182"
+    },
+    {
+      "who": "Dev",
+      "text": "I can make chai, it's just tea and milk right",
+      "id": "m183"
+    },
+    {
+      "who": "Luis",
+      "text": "dev you're confused, that's not chai",
+      "id": "m184"
+    },
+    {
+      "who": "Dev",
+      "text": "it's tea, it's milk, it's spices, I'm in the right ballpark",
+      "id": "m185"
+    },
+    {
+      "who": "Kai",
+      "text": "the ballpark is a cafe in your mind",
+      "id": "m186"
+    },
+    {
+      "who": "Kim",
+      "text": "ok do not make chai please",
+      "id": "m187"
+    },
+    {
+      "who": "Dev",
+      "text": "challenge accepted and rejected",
+      "id": "m188"
+    },
+    {
+      "who": "Ana",
+      "text": "random question: anyone else like rainy mornings? I do",
+      "id": "m189"
+    },
+    {
+      "who": "Rosa",
+      "text": "I like them from inside a blanket",
+      "id": "m190"
+    },
+    {
+      "who": "Kai",
+      "text": "inside a blanket with a book is the peak",
+      "id": "m191"
+    },
+    {
+      "who": "Luis",
+      "text": "i want to be a cat",
+      "id": "m192"
+    },
+    {
+      "who": "Kim",
+      "text": "all of us do",
+      "id": "m193"
+    },
+    {
+      "who": "Dev",
+      "text": "cats get the best naps",
+      "id": "m194"
+    },
+    {
+      "who": "Ana",
+      "text": "does anyone have a good podcast recommendation, the one I have is only about trains",
+      "id": "m195"
+    },
+    {
+      "who": "Rosa",
+      "text": "trains are great though",
+      "id": "m196"
+    },
+    {
+      "who": "Ana",
+      "text": "they're great for six episodes",
+      "id": "m197"
+    },
+    {
+      "who": "Kai",
+      "text": "I listen to the one about cooking history, it's surprisingly good",
+      "id": "m198"
+    },
+    {
+      "who": "Luis",
+      "text": "the history of pancakes episode? I heard that was good",
+      "id": "m199"
+    },
+    {
+      "who": "Kai",
+      "text": "yes that one",
+      "id": "m200"
+    },
+    {
+      "who": "Kim",
+      "text": "I'm going to save that for the next long walk",
+      "id": "m201"
+    },
+    {
+      "who": "Dev",
+      "text": "walking is a sport I have decided not to do",
+      "id": "m202"
+    },
+    {
+      "who": "Rosa",
+      "text": "it's not a sport, it's a lifestyle",
+      "id": "m203"
+    },
+    {
+      "who": "Dev",
+      "text": "that's the same thing but for people who are tired",
+      "id": "m204"
+    },
+    {
+      "who": "Rosa",
+      "text": "I passed my driving test!!",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "also_react": "yes",
+          "emoji": "🎉",
+          "why": "news_shared",
+          "star": true
+        }
+      },
+      "id": "m205"
+    },
+    {
+      "who": "Kai",
+      "text": "wait what. ROSA",
+      "id": "m206"
+    },
+    {
+      "who": "Ana",
+      "text": "rosa!! that's huge",
+      "id": "m207"
+    },
+    {
+      "who": "Luis",
+      "text": "I knew you'd pass, you were so calm in the car with me",
+      "id": "m208"
+    },
+    {
+      "who": "Rosa",
+      "text": "you were screaming at the radio, that's not calm",
+      "id": "m209"
+    },
+    {
+      "who": "Luis",
+      "text": "that was the music, the music was screaming",
+      "id": "m210"
+    },
+    {
+      "who": "Dev",
+      "text": "congrats rosa, you'll have to drive us to the boat now",
+      "id": "m211"
+    },
+    {
+      "who": "Rosa",
+      "text": "absolutely not",
+      "id": "m212"
+    },
+    {
+      "who": "Kim",
+      "text": "she's going to drive us to every boat from now on",
+      "id": "m213"
+    },
+    {
+      "who": "Rosa",
+      "text": "I'm going to be a nervous driver for ten years",
+      "id": "m214"
+    },
+    {
+      "who": "Ana",
+      "text": "it's ok, we'll all sit very still",
+      "id": "m215"
+    },
+    {
+      "who": "Luis",
+      "text": "rosa do you have a playlist ready",
+      "id": "m216"
+    },
+    {
+      "who": "Rosa",
+      "text": "I have so many, the main one is called do not touch the aux",
+      "id": "m217"
+    },
+    {
+      "who": "Kim",
+      "text": "iconic",
+      "id": "m218"
+    },
+    {
+      "who": "Ana",
+      "text": "we need a party after this, a real one",
+      "id": "m219"
+    },
+    {
+      "who": "Dev",
+      "text": "a party is a good idea, we haven't had one since the summer",
+      "id": "m220"
+    },
+    {
+      "who": "Kai",
+      "text": "the summer party was messy but the food was great",
+      "id": "m221"
+    },
+    {
+      "who": "Kim",
+      "text": "someone should bring the big pot of soup, dev",
+      "id": "m222"
+    },
+    {
+      "who": "Dev",
+      "text": "I'll bring the soup, it's the only thing I can make now",
+      "id": "m223"
+    },
+    {
+      "who": "Luis",
+      "text": "the soup is his brand",
+      "id": "m224"
+    },
+    {
+      "who": "Rosa",
+      "text": "I'm going to make my famous lemon thing",
+      "id": "m225"
+    },
+    {
+      "who": "Ana",
+      "text": "what lemon thing",
+      "id": "m226"
+    },
+    {
+      "who": "Rosa",
+      "text": "a cake, nobody asks the right questions",
+      "id": "m227"
+    },
+    {
+      "who": "Kim",
+      "text": "the lemon cake is the best, I'm already hungry",
+      "id": "m228"
+    },
+    {
+      "who": "Kai",
+      "text": "someone please plan where we eat after, I'm so bad at this",
+      "id": "m229"
+    },
+    {
+      "who": "Dev",
+      "text": "we can talk about it, there's so many places",
+      "id": "m230"
+    },
+    {
+      "who": "Luis",
+      "text": "any ideas? there's a good list of places near the water",
+      "id": "m231"
+    },
+    {
+      "who": "Kim",
+      "text": "I want something with a view",
+      "id": "m232"
+    },
+    {
+      "who": "Ana",
+      "text": "a view and cheap, that's the dream",
+      "id": "m233"
+    },
+    {
+      "who": "Kai",
+      "text": "not both, pick one",
+      "id": "m234"
+    },
+    {
+      "who": "Rosa",
+      "text": "view, I'm buying",
+      "id": "m235"
+    },
+    {
+      "who": "Ana",
+      "text": "that's a lot of pressure rosa",
+      "id": "m236"
+    },
+    {
+      "who": "Rosa",
+      "text": "I'm kidding, we split it like always",
+      "id": "m237"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "(a long list of five venues with prices)",
+      "id": "m238"
+    },
+    {
+      "who": "Kai",
+      "text": "ok that's a lot of options",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "also_react": "yes",
+          "emoji": "😅",
+          "why": "thanks_or_ok",
+          "star": true
+        }
+      },
+      "id": "m239"
+    },
+    {
+      "who": "Kim",
+      "text": "ok I'm reading through them, give me a minute",
+      "id": "m240"
+    },
+    {
+      "who": "Luis",
+      "text": "the one with the balcony looks nice",
+      "id": "m241"
+    },
+    {
+      "who": "Dev",
+      "text": "the balcony one is loud on weekends",
+      "id": "m242"
+    },
+    {
+      "who": "Luis",
+      "text": "that's not a dealbreaker, that's a feature",
+      "id": "m243"
+    },
+    {
+      "who": "Ana",
+      "text": "we can't all shout at a dinner",
+      "id": "m244"
+    },
+    {
+      "who": "Rosa",
+      "text": "speak for yourself",
+      "id": "m245"
+    },
+    {
+      "who": "Kai",
+      "text": "honestly any of them, just pick one and stop scrolling",
+      "id": "m246"
+    },
+    {
+      "who": "Kim",
+      "text": "that's the most kai thing I've ever read",
+      "id": "m247"
+    },
+    {
+      "who": "Kai",
+      "text": "I'm a decisive person in theory",
+      "id": "m248"
+    },
+    {
+      "who": "Dev",
+      "text": "in theory",
+      "id": "m249"
+    },
+    {
+      "who": "Ana",
+      "text": "I'll set up a poll, everybody vote whenever",
+      "id": "m250"
+    },
+    {
+      "who": "Rosa",
+      "text": "lol ana the poll queen",
+      "id": "m251"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm voting for the balcony one, don't tell me the prices",
+      "id": "m252"
+    },
+    {
+      "who": "Kim",
+      "text": "I'm reading the prices, I'm the responsible one",
+      "id": "m253"
+    },
+    {
+      "who": "Dev",
+      "text": "nobody is responsible here",
+      "id": "m254"
+    },
+    {
+      "who": "Kai",
+      "text": "kim is responsible, we all know it",
+      "id": "m255"
+    },
+    {
+      "who": "Kim",
+      "text": "thank you kai",
+      "id": "m256"
+    },
+    {
+      "who": "Rosa",
+      "text": "ok, I'm off to the shop, need milk and lemons for my secret cake",
+      "id": "m257"
+    },
+    {
+      "who": "Ana",
+      "text": "the cake is not a secret, you told us twice",
+      "id": "m258"
+    },
+    {
+      "who": "Rosa",
+      "text": "it's a secret from the people who are not here",
+      "id": "m259"
+    },
+    {
+      "who": "Luis",
+      "text": "who is not here?",
+      "id": "m260"
+    },
+    {
+      "who": "Dev",
+      "text": "the people who are not in this chat, obviously",
+      "id": "m261"
+    },
+    {
+      "who": "Kai",
+      "text": "lol I'm in this chat",
+      "id": "m262"
+    },
+    {
+      "who": "Kim",
+      "text": "all of us are in this chat, don't start",
+      "id": "m263"
+    },
+    {
+      "who": "Ana",
+      "text": "ok I have to go, my tea is cold again",
+      "id": "m264"
+    },
+    {
+      "who": "Luis",
+      "text": "that's the most ana sentence ever",
+      "id": "m265"
+    },
+    {
+      "who": "Ana",
+      "text": "bye guys",
+      "id": "m266"
+    },
+    {
+      "who": "Kim",
+      "text": "bye ana, bye everyone",
+      "id": "m267"
+    },
+    {
+      "who": "Dev",
+      "text": "going to make soup. again.",
+      "id": "m268"
+    }
+  ],
+  "from": [
+    "decide-11-share-for-people",
+    "decide-13-talk-about-tex",
+    "decide-14-name-alone",
+    "decide-16-at-tex-mid-message",
+    "decide-17-pushback-to-tex",
+    "decide-18-people-talking",
+    "decide-19-news-shared",
+    "decide-20-reaction-to-long-list"
+  ]
+}

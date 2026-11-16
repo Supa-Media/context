@@ -1,7 +1,7 @@
 /**
  * The migration of today's Tex bench cases into conversations (`apps/mcp/bench/setsMigrate.mjs`): every migrated
- * conversation passes the contract, each source case comes out once, the mappings hold, and the Training:Dev split
- * is near 3:1. Counts come from the source files, never a number written here.
+ * conversation passes the contract, each source case comes out once, the mappings hold, and each sits whole inside one
+ * of the repo's long conversations. Counts come from the source files, never a number written here.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,7 +9,8 @@ import { execFile } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { promisify } from "node:util";
 
-import { caseToConversation, migrateAll, problems, setFiles } from "../bench/setsMigrate.mjs";
+import { caseToConversation, migrateAll, placesOf, problems } from "../bench/setsMigrate.mjs";
+import { loadSets } from "../bench/sets.mjs";
 import { parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
 import decide from "../../../packages/shared/src/textDecide.cjs";
@@ -87,15 +88,19 @@ test("caseToConversation ignores a cause field", () => {
   assert.deepEqual(caused, plain);
 });
 
-test("every migrated case goes to Dev, never into the steps' Training examples", () => {
-  // Training is read by the steps as examples; these are the cases today's replays score.
-  for (const c of convs) assert.equal(c.set, "dev", c.id);
+test("every migrated case sits whole inside one of the repo's long conversations", async () => {
+  const repoConvs = await loadSets();
+  assert.ok(repoConvs.length <= 12, `about ten long conversations, not ${repoConvs.length}`);
+  assert.deepEqual(placesOf(convs, repoConvs), []);
+  // Sabotage: a label changed inside its long conversation is caught.
+  const broken = structuredClone(repoConvs);
+  const labelled = broken.flatMap((c) => c.msgs).find((m) => m.labels?.fd);
+  labelled.labels.fd.must = ["something else"];
+  assert.ok(placesOf(convs, broken).length > 0, "a changed label is found");
 });
 
-test("--check agrees with the files that --write produces", async () => {
-  const files = setFiles(repoRoot, convs);
-  for (const [path, text] of files) assert.equal(readFileSync(path, "utf8"), text, path);
+test("--check reports every case inside the repo's conversations", async () => {
   const script = new URL("apps/mcp/bench/setsMigrate.mjs", repo).pathname;
   const { stdout } = await run(process.execPath, [script, "--check"]);
-  assert.match(stdout, /up to date/);
+  assert.match(stdout, /are inside the repo's conversations/);
 });

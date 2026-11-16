@@ -83,12 +83,24 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
   check run alone; the front door runs as one core-bench batch in the invented
   Maya world once the texting setup is pulled; any other node says it can't
   run alone yet rather than passing.
-- Today's repo cases (respond, review, the job check, core and simple asks)
-  were migrated into conversations (`apps/mcp/bench/setsMigrate.mjs`), all in
-  Dev: they are what today's replays score, and Training is shown to the steps
-  as examples, so in Training they would hand the steps their answers. They are
-  already public, so none go to Test; `caseToConversation` converts a
-  held-out case the same way inside the eval service.
+- **About ten long conversations, not one per case** (decided by the owner,
+  2026-11-16: "only like around 10 conversations, but the conversations are much
+  longer ... 100, 500 different turns ... Tex is trained on having a bunch of
+  history"). Today's repo cases (respond, review, the job check, core and simple
+  asks, and the judge's examples) sit inside ten invented chats of 140 to 300
+  messages, five one-to-one and five groups, each case one unbroken run of
+  messages named in its conversation's `from`, with ordinary history around it.
+  `node apps/mcp/bench/setsMigrate.mjs --check` holds every case to that, and
+  `caseToConversation` still converts a held-out case for the eval service.
+  Maya's chat is in Dev: its answers are facts from her setup notes, which would
+  mislead a step shown them as examples.
+- **A step's examples show the recent stretch.** Each Training example carries
+  the newest four messages before it (two for Decide) and a line counting the
+  earlier ones (`texTraining.cjs` `historyLines`), because every example rides
+  in the step's prompt on every call: Clef reads at most 24,000 characters,
+  live chat included, and the front door's setup at most 40,000. A node run
+  alone reads the whole conversation. `apps/mcp/test/texTraining.test.mjs` fails
+  if Decide's examples take more than half of what Clef reads.
 
 Reverting to cases outside conversations, or to a store an agent can write
 the Test Set into, fails `apps/mcp/test/sets.test.mjs` and

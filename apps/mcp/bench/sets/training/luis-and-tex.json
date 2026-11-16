@@ -1,0 +1,1037 @@
+{
+  "id": "luis-and-tex",
+  "title": "Calendar tweaks and quick questions",
+  "set": "training",
+  "kind": "one",
+  "members": [
+    "Luis"
+  ],
+  "msgs": [
+    {
+      "who": "Luis",
+      "text": "morning tex",
+      "id": "m1"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Morning, Luis. Good night's sleep?",
+      "id": "m2"
+    },
+    {
+      "who": "Luis",
+      "text": "not really. slept badly, coffee is doing the heavy lifting",
+      "id": "m3"
+    },
+    {
+      "who": "Luis",
+      "text": "the raccoons got into the bins again",
+      "id": "m4"
+    },
+    {
+      "who": "Luis",
+      "text": "my neighbour says they are basically tiny landlords at this point",
+      "id": "m5"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Ha. A bungee cord across the lid usually slows them down.",
+      "id": "m6"
+    },
+    {
+      "who": "Luis",
+      "text": "we tried that. they unclip it with their hands apparently",
+      "id": "m7"
+    },
+    {
+      "who": "Luis",
+      "text": "anyway. moving on",
+      "id": "m8"
+    },
+    {
+      "who": "Luis",
+      "text": "what's a good name for a sourdough starter, asking for a friend who is me",
+      "id": "m9"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Something you can say with a straight face at 6am. Mildred, Gus, or Dough Whisperer.",
+      "id": "m10"
+    },
+    {
+      "who": "Luis",
+      "text": "gus. gus is going in the notes app now",
+      "id": "m11"
+    },
+    {
+      "who": "Luis",
+      "text": "started the dough last night, it smells like beer which is apparently normal",
+      "id": "m12"
+    },
+    {
+      "who": "Luis",
+      "text": "my flatmate says it smells like feet. we disagree",
+      "id": "m13"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm not calling it a success yet",
+      "id": "m14"
+    },
+    {
+      "who": "Luis",
+      "text": "that's the most time I've spent on bread since college",
+      "id": "m15"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "A starter smells sour and funky in the first week, that's normal. Give it time before you judge it.",
+      "id": "m16"
+    },
+    {
+      "who": "Luis",
+      "text": "fair. ok thanks tex",
+      "id": "m17"
+    },
+    {
+      "who": "Luis",
+      "text": "I've been reading a book about lighthouses, the author spends eleven pages on one staircase",
+      "id": "m18"
+    },
+    {
+      "who": "Luis",
+      "text": "eleven pages. I counted",
+      "id": "m19"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm loving it anyway, it's the good kind of slow",
+      "id": "m20"
+    },
+    {
+      "who": "Luis",
+      "text": "they used to paint the stripes on lighthouses so ships could tell which was which",
+      "id": "m21"
+    },
+    {
+      "who": "Luis",
+      "text": "that's a good fact to have",
+      "id": "m22"
+    },
+    {
+      "who": "Luis",
+      "text": "ok my coffee's gone cold so that's the end of that",
+      "id": "m23"
+    },
+    {
+      "who": "Luis",
+      "text": "the kettle's on again, second go",
+      "id": "m24"
+    },
+    {
+      "who": "Luis",
+      "text": "the lighthouse book is coming with me on the bus",
+      "id": "m25"
+    },
+    {
+      "who": "Luis",
+      "text": "I'll read the staircase bit again for the fun of it",
+      "id": "m26"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Done, it's on your calendar for 3.",
+      "id": "m27"
+    },
+    {
+      "who": "Luis",
+      "text": "perfect thanks",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "also_react": "yes",
+          "emoji": "👍",
+          "why": "thanks_or_ok",
+          "star": true
+        }
+      },
+      "id": "m28"
+    },
+    {
+      "who": "Luis",
+      "text": "honestly the best part of my morning so far",
+      "id": "m29"
+    },
+    {
+      "who": "Luis",
+      "text": "my sister sent a photo of her new puppy wearing a raincoat",
+      "id": "m30"
+    },
+    {
+      "who": "Luis",
+      "text": "it is the most dramatic animal I have ever seen",
+      "id": "m31"
+    },
+    {
+      "who": "Luis",
+      "text": "she says the puppy hates the rain but loves the coat, which is the wrong order of priorities",
+      "id": "m32"
+    },
+    {
+      "who": "Luis",
+      "text": "the cat in a box that's too small thing is a whole meme format now",
+      "id": "m33"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm going to write a list of films for the weekend, top of it is the new sci-fi thing everybody's been talking about",
+      "id": "m34"
+    },
+    {
+      "who": "Luis",
+      "text": "second is that old comedy with the bus",
+      "id": "m35"
+    },
+    {
+      "who": "Luis",
+      "text": "nobody remembers the bus one but me",
+      "id": "m36"
+    },
+    {
+      "who": "Luis",
+      "text": "anyway I'm the only one who likes the bus one, which is fine",
+      "id": "m37"
+    },
+    {
+      "who": "Luis",
+      "text": "the rain is supposed to clear by lunchtime",
+      "id": "m38"
+    },
+    {
+      "who": "Luis",
+      "text": "good, gus needs a walk too",
+      "id": "m39"
+    },
+    {
+      "who": "Luis",
+      "text": "he doesn't, he's a jar",
+      "id": "m40"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm allowed to joke about him, he's in my kitchen and he's lovely",
+      "id": "m41"
+    },
+    {
+      "who": "Luis",
+      "text": "ok the coffee has finally kicked in",
+      "id": "m42"
+    },
+    {
+      "who": "Luis",
+      "text": "back to work, the report isn't going to write itself",
+      "id": "m43"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "The library closes at 6 today, ha.",
+      "id": "m44"
+    },
+    {
+      "who": "Luis",
+      "text": "haha",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "why": "thanks_or_ok",
+          "star": true
+        }
+      },
+      "id": "m45"
+    },
+    {
+      "who": "Luis",
+      "text": "lol that puppy story is still making me laugh",
+      "id": "m46"
+    },
+    {
+      "who": "Luis",
+      "text": "I need a proper lunch today, not the sad sandwich again",
+      "id": "m47"
+    },
+    {
+      "who": "Luis",
+      "text": "I've been eating the same three lunches for a month",
+      "id": "m48"
+    },
+    {
+      "who": "Luis",
+      "text": "my body is basically a bus timetable at this point",
+      "id": "m49"
+    },
+    {
+      "who": "Luis",
+      "text": "the bread is going to be a problem, gus is sulking in the cupboard",
+      "id": "m50"
+    },
+    {
+      "who": "Luis",
+      "text": "he has not risen at all since I fed him, he is lying there like a tired pancake",
+      "id": "m51"
+    },
+    {
+      "who": "Luis",
+      "text": "apparently you're supposed to wait a few days, which means I'm grumpy about it",
+      "id": "m52"
+    },
+    {
+      "who": "Luis",
+      "text": "my flatmate says I'm checking on the jar every hour",
+      "id": "m53"
+    },
+    {
+      "who": "Luis",
+      "text": "which is true, I'm not going to pretend otherwise",
+      "id": "m54"
+    },
+    {
+      "who": "Luis",
+      "text": "the group chat is fighting about a team name for the five-a-side, nobody agrees",
+      "id": "m55"
+    },
+    {
+      "who": "Luis",
+      "text": "I want the Quizzly Bears, everybody else wants something ruder",
+      "id": "m56"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm told that's not the sort of thing I get to decide alone",
+      "id": "m57"
+    },
+    {
+      "who": "Luis",
+      "text": "the rain has finally stopped which means the streets smell like wet bins",
+      "id": "m58"
+    },
+    {
+      "who": "Luis",
+      "text": "sorry, that's a horrible image",
+      "id": "m59"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm going to go find something to eat that isn't a sandwich",
+      "id": "m60"
+    },
+    {
+      "who": "Luis",
+      "text": "ok that's the plan, a proper lunch and no more jar watching",
+      "id": "m61"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Booked the 7:30 table.",
+      "id": "m62"
+    },
+    {
+      "who": "Luis",
+      "text": "thanks but I asked for 8",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "corrects_tex",
+          "star": true
+        }
+      },
+      "id": "m63"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Sorry, I got that one wrong. Do you want me to ask them to change it to 8?",
+      "id": "m64"
+    },
+    {
+      "who": "Luis",
+      "text": "no stress, I'll ring them myself. sorry for the sharp tone",
+      "id": "m65"
+    },
+    {
+      "who": "Luis",
+      "text": "you're fine, it's just annoying when a thing is wrong and it's the thing you asked for",
+      "id": "m66"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Fair enough. Getting the time right matters more than anything else on a booking.",
+      "id": "m67"
+    },
+    {
+      "who": "Luis",
+      "text": "agreed. I'm going to have a sit down with a cup of tea and read the menu",
+      "id": "m68"
+    },
+    {
+      "who": "Luis",
+      "text": "the menu has a dessert with a name I can't pronounce and I'm keen on it",
+      "id": "m69"
+    },
+    {
+      "who": "Luis",
+      "text": "sticky toffee should be a crime to skip",
+      "id": "m70"
+    },
+    {
+      "who": "Luis",
+      "text": "the weather's changed again, now it's sunny and the bins are dry",
+      "id": "m71"
+    },
+    {
+      "who": "Luis",
+      "text": "which is the only thing I care about",
+      "id": "m72"
+    },
+    {
+      "who": "Luis",
+      "text": "lol gus is still in the cupboard, he's refused to come out",
+      "id": "m73"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm going to try a bit of warm water at the mouth of the jar",
+      "id": "m74"
+    },
+    {
+      "who": "Luis",
+      "text": "my flatmate says that will make him sad",
+      "id": "m75"
+    },
+    {
+      "who": "Luis",
+      "text": "they're giving him a hard time in the house",
+      "id": "m76"
+    },
+    {
+      "who": "Luis",
+      "text": "right, I need to put the kettle on and do something about my shoulders",
+      "id": "m77"
+    },
+    {
+      "who": "Luis",
+      "text": "my shoulders have been up by my ears since monday",
+      "id": "m78"
+    },
+    {
+      "who": "Luis",
+      "text": "stretching now, back in a bit",
+      "id": "m79"
+    },
+    {
+      "who": "Luis",
+      "text": "how long does cooked rice keep in the fridge",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "why": "asks_tex",
+          "star": true
+        }
+      },
+      "id": "m80"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Cooked rice keeps about 3 to 4 days in the fridge. Cool it quickly, seal it, and reheat it until it's steaming all the way through.",
+      "id": "m81"
+    },
+    {
+      "who": "Luis",
+      "text": "good to know, I had it in the bowl for two days and felt vaguely guilty",
+      "id": "m82"
+    },
+    {
+      "who": "Luis",
+      "text": "rice is one of those things you think is fine until it isn't",
+      "id": "m83"
+    },
+    {
+      "who": "Luis",
+      "text": "a relative of mine always said you don't leave rice out, ever",
+      "id": "m84"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm going to get a better container, the ones I have are a mess",
+      "id": "m85"
+    },
+    {
+      "who": "Luis",
+      "text": "the lid doesn't close properly and the whole thing smells of curry",
+      "id": "m86"
+    },
+    {
+      "who": "Luis",
+      "text": "curry has ruined a perfectly good tupperware, it's a crime",
+      "id": "m87"
+    },
+    {
+      "who": "Luis",
+      "text": "anyway I have a list of new containers to buy",
+      "id": "m88"
+    },
+    {
+      "who": "Luis",
+      "text": "the kitchen shop on the high street had a sale last week I think",
+      "id": "m89"
+    },
+    {
+      "who": "Luis",
+      "text": "or maybe it was the hardware place, I'm honestly not sure",
+      "id": "m90"
+    },
+    {
+      "who": "Luis",
+      "text": "anyway the sun's out so I'm going for a walk",
+      "id": "m91"
+    },
+    {
+      "who": "Luis",
+      "text": "the park has a dog that runs at every pigeon, a total hero",
+      "id": "m92"
+    },
+    {
+      "who": "Luis",
+      "text": "the pigeons are unimpressed",
+      "id": "m93"
+    },
+    {
+      "who": "Luis",
+      "text": "I've got my headphones on, the podcast is about old maps",
+      "id": "m94"
+    },
+    {
+      "who": "Luis",
+      "text": "they were really inaccurate and the sea monsters were the best part",
+      "id": "m95"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Reminder: your passport renewal form is due this week.",
+      "id": "m96"
+    },
+    {
+      "who": "Luis",
+      "text": "thanks, I'll fill it out tonight",
+      "labels": {
+        "decide": {
+          "act": "quiet",
+          "star": true,
+          "also_react": "any"
+        }
+      },
+      "id": "m97"
+    },
+    {
+      "who": "Luis",
+      "text": "sea monsters were on maps for ages, lol",
+      "id": "m98"
+    },
+    {
+      "who": "Luis",
+      "text": "someone put a whale where the coast should have been and just went with it",
+      "id": "m99"
+    },
+    {
+      "who": "Luis",
+      "text": "I love when history is wrong and completely confident about it",
+      "id": "m100"
+    },
+    {
+      "who": "Luis",
+      "text": "anyway I'm home and my shoes are wet",
+      "id": "m101"
+    },
+    {
+      "who": "Luis",
+      "text": "the park was lovely but the path was basically a river",
+      "id": "m102"
+    },
+    {
+      "who": "Luis",
+      "text": "lots of puddles, very annoying to walk through",
+      "id": "m103"
+    },
+    {
+      "who": "Luis",
+      "text": "gus is still in the cupboard, nothing has changed",
+      "id": "m104"
+    },
+    {
+      "who": "Luis",
+      "text": "I bought a dishcloth that is the wrong shade of yellow",
+      "id": "m105"
+    },
+    {
+      "who": "Luis",
+      "text": "it's fine, it'll do",
+      "id": "m106"
+    },
+    {
+      "who": "Luis",
+      "text": "the cat next door keeps sitting on my windowsill",
+      "id": "m107"
+    },
+    {
+      "who": "Luis",
+      "text": "she's allowed in, she just doesn't come in",
+      "id": "m108"
+    },
+    {
+      "who": "Luis",
+      "text": "that's cats for you",
+      "id": "m109"
+    },
+    {
+      "who": "Luis",
+      "text": "dinner is going to be whatever's left in the fridge",
+      "id": "m110"
+    },
+    {
+      "who": "Luis",
+      "text": "which is the usual, a bit of everything",
+      "id": "m111"
+    },
+    {
+      "who": "Luis",
+      "text": "tidying the kitchen first before I get on with anything else",
+      "id": "m112"
+    },
+    {
+      "who": "Luis",
+      "text": "the radio's playing a song from when I was a kid, I know every word and I'm not proud of it",
+      "id": "m113"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Done, the car wash is on your calendar for 10.",
+      "id": "m114"
+    },
+    {
+      "who": "Luis",
+      "text": "thanks! push it to 11 though",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "star": true
+        }
+      },
+      "id": "m115"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Moved the car wash to 11. It's on your calendar for 11 now.",
+      "id": "m116"
+    },
+    {
+      "who": "Luis",
+      "text": "perfect, that gives me time for breakfast",
+      "id": "m117"
+    },
+    {
+      "who": "Luis",
+      "text": "I forgot the car is so dirty it's basically a mud flat",
+      "id": "m118"
+    },
+    {
+      "who": "Luis",
+      "text": "it's been through three fields and a farmyard this month",
+      "id": "m119"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm not blaming the car, I'm blaming the lanes",
+      "id": "m120"
+    },
+    {
+      "who": "Luis",
+      "text": "the lanes near the farm are a disgrace",
+      "id": "m121"
+    },
+    {
+      "who": "Luis",
+      "text": "my sister says it's character, I told her character doesn't pay for the wash",
+      "id": "m122"
+    },
+    {
+      "who": "Luis",
+      "text": "I've got a new podcast on the go about bridges, very relaxing",
+      "id": "m123"
+    },
+    {
+      "who": "Luis",
+      "text": "they went into the history of a bridge that fell down twice",
+      "id": "m124"
+    },
+    {
+      "who": "Luis",
+      "text": "the second time they rebuilt it out of the same bricks",
+      "id": "m125"
+    },
+    {
+      "who": "Luis",
+      "text": "that's either brave or foolish",
+      "id": "m126"
+    },
+    {
+      "who": "Luis",
+      "text": "I would have been the one asking for a refund",
+      "id": "m127"
+    },
+    {
+      "who": "Luis",
+      "text": "honestly an afternoon off right now would be me on the sofa and nothing else",
+      "id": "m128"
+    },
+    {
+      "who": "Luis",
+      "text": "the sun went in again",
+      "id": "m129"
+    },
+    {
+      "who": "Luis",
+      "text": "they said rain by four, which is a lie, it's already spitting",
+      "id": "m130"
+    },
+    {
+      "who": "Luis",
+      "text": "fine, I'll go and find a jumper",
+      "id": "m131"
+    },
+    {
+      "who": "Luis",
+      "text": "how long do hard boiled eggs last",
+      "labels": {
+        "decide": {
+          "act": "respond",
+          "star": true
+        }
+      },
+      "id": "m132"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Hard boiled eggs in the shell keep about a week in the fridge. Once peeled, eat them within a day or two.",
+      "id": "m133"
+    },
+    {
+      "who": "Luis",
+      "text": "a week, got it. I've got six sat on the side from the weekend",
+      "id": "m134"
+    },
+    {
+      "who": "Luis",
+      "text": "they're in a box with a sticker that says eat by something, I don't trust it",
+      "id": "m135"
+    },
+    {
+      "who": "Luis",
+      "text": "anyway I'll take a couple to work for lunch, a bribe for myself",
+      "id": "m136"
+    },
+    {
+      "who": "Luis",
+      "text": "lunch is a new habit I'm trying to get into",
+      "id": "m137"
+    },
+    {
+      "who": "Luis",
+      "text": "the thing about lunch is you actually have to leave the desk",
+      "id": "m138"
+    },
+    {
+      "who": "Luis",
+      "text": "which is the hardest bit",
+      "id": "m139"
+    },
+    {
+      "who": "Luis",
+      "text": "the office kettle makes everything taste of limescale",
+      "id": "m140"
+    },
+    {
+      "who": "Luis",
+      "text": "so I've started bringing my own mug",
+      "id": "m141"
+    },
+    {
+      "who": "Luis",
+      "text": "it says world's okayest uncle, my nephew gave it to me",
+      "id": "m142"
+    },
+    {
+      "who": "Luis",
+      "text": "it's the best mug I own",
+      "id": "m143"
+    },
+    {
+      "who": "Luis",
+      "text": "the nephew also drew a horse on the side, which is less good",
+      "id": "m144"
+    },
+    {
+      "who": "Luis",
+      "text": "my head's gone to mush from the afternoon heat",
+      "id": "m145"
+    },
+    {
+      "who": "Luis",
+      "text": "the air conditioning in here is a disgrace",
+      "id": "m146"
+    },
+    {
+      "who": "Luis",
+      "text": "I keep thinking about switching to a standing desk",
+      "id": "m147"
+    },
+    {
+      "who": "Luis",
+      "text": "I'll look into it when my head clears",
+      "id": "m148"
+    },
+    {
+      "who": "Luis",
+      "text": "put renew passport on my todo list for this week",
+      "labels": {
+        "reviewer": {
+          "sentBack": "0",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "Added to this week's list.",
+          "did": [
+            [
+              "write_note",
+              {
+                "path": "todo.md"
+              },
+              "written: todo.md"
+            ]
+          ]
+        }
+      },
+      "id": "m149"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "Added to this week's list.",
+      "id": "m150"
+    },
+    {
+      "who": "Luis",
+      "text": "lovely, one less thing in my head",
+      "id": "m151"
+    },
+    {
+      "who": "Luis",
+      "text": "I've been meaning to get a plant for the desk for ages",
+      "id": "m152"
+    },
+    {
+      "who": "Luis",
+      "text": "the plant shop by the station does a good line in succulents",
+      "id": "m153"
+    },
+    {
+      "who": "Luis",
+      "text": "I just keep killing them, which is embarrassing",
+      "id": "m154"
+    },
+    {
+      "who": "Luis",
+      "text": "my cousin says you can't kill a succulent, which is a challenge to me",
+      "id": "m155"
+    },
+    {
+      "who": "Luis",
+      "text": "give me a cactus and I'll find a way",
+      "id": "m156"
+    },
+    {
+      "who": "Luis",
+      "text": "I did a thing with a sponge earlier that involved too much water",
+      "id": "m157"
+    },
+    {
+      "who": "Luis",
+      "text": "it dripped all over the desk and a bit of the keyboard",
+      "id": "m158"
+    },
+    {
+      "who": "Luis",
+      "text": "the keyboard is a bit sticky now, lesson learned",
+      "id": "m159"
+    },
+    {
+      "who": "Luis",
+      "text": "back to the list though, next up is the bins, who knew",
+      "id": "m160"
+    },
+    {
+      "who": "Luis",
+      "text": "lol the bins again",
+      "id": "m161"
+    },
+    {
+      "who": "Luis",
+      "text": "the bins are going to win this year",
+      "id": "m162"
+    },
+    {
+      "who": "Luis",
+      "text": "I'll clean the bin lid with a bit of bleach and make it everyone's problem",
+      "id": "m163"
+    },
+    {
+      "who": "Luis",
+      "text": "anyway I'm making a cup of tea, the good one",
+      "id": "m164"
+    },
+    {
+      "who": "Luis",
+      "text": "the one with the biscuit in the pack",
+      "id": "m165"
+    },
+    {
+      "who": "Luis",
+      "text": "ok that's me for a bit, got to finish a report",
+      "id": "m166"
+    },
+    {
+      "who": "Luis",
+      "text": "three dinner options around $10 a person for 30 people",
+      "labels": {
+        "reviewer": {
+          "sentBack": "1",
+          "star": true
+        }
+      },
+      "rec": {
+        "fd": {
+          "draft": "Mains run about $1 to $2 a person. The sides, dessert and drinks aren't priced yet, next step is pricing those.",
+          "did": [
+            [
+              "web_search",
+              {
+                "q": "catering trays price"
+              },
+              "results"
+            ]
+          ]
+        }
+      },
+      "id": "m167"
+    },
+    {
+      "who": "Tex",
+      "tex": true,
+      "text": "I'm working on three dinner options for 30 people around $10 a person. I'll come back with the mains first, then the sides, dessert and drinks.",
+      "id": "m168"
+    },
+    {
+      "who": "Luis",
+      "text": "ok good, that's what I needed to hear",
+      "id": "m169"
+    },
+    {
+      "who": "Luis",
+      "text": "the caterers always take forever to reply so I'll chase them",
+      "id": "m170"
+    },
+    {
+      "who": "Luis",
+      "text": "honestly the hardest part is picking things that everybody likes",
+      "id": "m171"
+    },
+    {
+      "who": "Luis",
+      "text": "my mum will want something with no onions, my brother will want onions in everything",
+      "id": "m172"
+    },
+    {
+      "who": "Luis",
+      "text": "I'll put the options in the group chat and see what chaos follows",
+      "id": "m173"
+    },
+    {
+      "who": "Luis",
+      "text": "that's not a plan, that's a warning",
+      "id": "m174"
+    },
+    {
+      "who": "Luis",
+      "text": "thanks for the help today tex",
+      "id": "m175"
+    },
+    {
+      "who": "Luis",
+      "text": "I think I'm done for the day, my eyes are fried",
+      "id": "m176"
+    },
+    {
+      "who": "Luis",
+      "text": "the last bit of the report is almost there",
+      "id": "m177"
+    },
+    {
+      "who": "Luis",
+      "text": "I'll leave it till the morning and look at it fresh",
+      "id": "m178"
+    },
+    {
+      "who": "Luis",
+      "text": "fresh eyes are the only eyes that work",
+      "id": "m179"
+    },
+    {
+      "who": "Luis",
+      "text": "the street lights are on now",
+      "id": "m180"
+    },
+    {
+      "who": "Luis",
+      "text": "I'm going to make a proper dinner with whatever's in the fridge",
+      "id": "m181"
+    },
+    {
+      "who": "Luis",
+      "text": "night, speak tomorrow",
+      "id": "m182"
+    }
+  ],
+  "from": [
+    "decide-22-one-thanks",
+    "decide-23-one-laugh",
+    "decide-25-one-correction",
+    "decide-26-one-question",
+    "respond-o-later",
+    "respond-o-move",
+    "respond-o-question",
+    "review-did-what-it-says-todo-written",
+    "review-finished-mains-only"
+  ]
+}

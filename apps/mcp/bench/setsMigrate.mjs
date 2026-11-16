@@ -4,14 +4,15 @@
  * `tex-sets/plan.md`). Respond, review, job-check and core questions become conversations; the judge's examples are
  * written by another branch and are not migrated here.
  *
- *   node apps/mcp/bench/setsMigrate.mjs --write   writes apps/mcp/bench/sets/<set>/<id>.json
- *   node apps/mcp/bench/setsMigrate.mjs --check   exits 1 when a file it would write differs from what is on disk
+ *   node apps/mcp/bench/setsMigrate.mjs --check   exits 1 when a migrated case is not inside the repo's conversations
  *
- * Sets: non-stars are split so dev holds about a quarter of the unit tests (stars), so Training:Dev is near 3:1.
+ * The repo keeps about ten long conversations rather than one short one per case (Dev2, 2026-11-16: "only like
+ * around 10 conversations, but the conversations are much longer"): each case's messages sit as one unbroken run
+ * inside one of them, named in its `from`, with invented history around it. `--check` holds every case to that.
  */
-import { jsonFile } from "./sets.mjs";
+import { loadSets } from "./sets.mjs";
 import { createRequire } from "node:module";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -216,11 +217,26 @@ export async function migrateAll(repoRoot) {
   return assignSets(sorted);
 }
 
-/** The file each conversation is stored in, with the exact text it is written as. */
-export function setFiles(repoRoot, convs) {
-  const out = new Map();
-  for (const c of convs) {
-    out.set(join(repoRoot, "apps/mcp/bench/sets", c.set, `${c.id}.json`), jsonFile(c));
+const bare = (labels) => Object.fromEntries(Object.entries(labels || {}).map(([node, { star: _s, ...rest }]) => [node, rest]));
+/** What must survive a case's move into a long conversation: who is Tex, special kinds, and every label. */
+const shapeOf = (m) => JSON.stringify([Boolean(m.tex), m.kind ?? "", bare(m.labels), m.rec ?? null]);
+
+/**
+ * Every migrated case that is not one unbroken run of messages, with the same labels, inside the one repo
+ * conversation whose `from` names it, as sentences. Speakers may be renamed; the shape of each message may not.
+ */
+export function placesOf(cases, repoConvs) {
+  const out = [];
+  for (const kase of cases) {
+    const homes = repoConvs.filter((c) => [].concat(c.from ?? []).includes(kase.id));
+    if (homes.length !== 1) {
+      out.push(`${kase.id}: named by ${homes.length} conversations, not 1`);
+      continue;
+    }
+    const want = kase.msgs.map(shapeOf);
+    const have = homes[0].msgs.map(shapeOf);
+    const found = have.some((_, i) => want.every((w, j) => have[i + j] === w));
+    if (!found) out.push(`${kase.id}: its messages are not one unbroken run in ${homes[0].id}`);
   }
   return out;
 }
@@ -234,38 +250,18 @@ export function problems(convs, config) {
 
 async function main(argv) {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-  const write = argv.includes("--write");
-  const verify = argv.includes("--check");
-  if (write === verify) {
-    process.stderr.write("usage: setsMigrate.mjs --write | --check\n");
+  if (!argv.includes("--check")) {
+    process.stderr.write("usage: setsMigrate.mjs --check\n");
     return 2;
   }
   const config = JSON.parse(await readFile(join(repoRoot, "packages/shared/src/texConfig.json"), "utf8"));
   const convs = await migrateAll(repoRoot);
-  const bad = problems(convs, config);
+  const bad = [...problems(convs, config), ...placesOf(convs, await loadSets())];
   if (bad.length) {
     process.stderr.write(`${bad.join("\n")}\n`);
     return 1;
   }
-  const files = setFiles(repoRoot, convs);
-  if (write) {
-    for (const [path, text] of files) {
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, text);
-    }
-    process.stdout.write(`wrote ${files.size} conversations\n`);
-    return 0;
-  }
-  const differ = [];
-  for (const [path, text] of files) {
-    const onDisk = await readFile(path, "utf8").catch(() => null);
-    if (onDisk !== text) differ.push(path);
-  }
-  if (differ.length) {
-    process.stderr.write(`out of date:\n${differ.join("\n")}\n`);
-    return 1;
-  }
-  process.stdout.write(`${files.size} conversations up to date\n`);
+  process.stdout.write(`${convs.length} cases are inside the repo's conversations\n`);
   return 0;
 }
 

@@ -3,7 +3,8 @@
  * "shown to steps as examples", and "the context module to put in the training set").
  *
  * Sabotage that each test catches:
- *   1. Decide's examples hard-coded again, or rendered differently        "Decide reads its examples from Training" fails
+ *   1. Decide's examples hard-coded again, or not in the judge's form      "Decide reads its examples from Training" fails
+ *   7. examples carrying whole long chats into a prompt                    "an example from a long conversation" and the Clef budget fail
  *   2. `train:decide` taken out of Decide's context and still read        "a step reads only the Training its context names" fails
  *   3. a `train:` entry on a step whose code never reads it               "only steps that read Training name it" fails
  *   4. the generated module left stale after a conversation changed       "the generated module is the conversations'" fails
@@ -18,23 +19,47 @@ import { TEX_CONFIG, TEX_PROMPT_WORDS, TRAINING_READERS, texModules } from "../s
 
 const require = createRequire(import.meta.url);
 const TRAINING = require("../../../packages/shared/src/texTraining.generated.json");
-const { linesBefore, lineOf, momentsOf, trainingText, moduleText, TRAIN_ENTRY } = require("../../../packages/shared/src/texTraining.cjs");
-const { EXAMPLES_TEXT, JUDGE_EXAMPLES } = require("../../../packages/shared/src/textDecide.cjs");
-
-/** sha256 of the judge's examples block as it was hard-coded in textDecide.cjs before the move (2026-11-15). */
-const JUDGE_EXAMPLES_SHA = "3f77cf1fdb63267999b68013e75187e545f313bdb03566753997329231f64ff6";
-
-const sha = async (text) => Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))).toString("hex");
+const { historyLines, linesBefore, lineOf, momentsOf, trainingText, moduleText, TRAIN_ENTRY } = require("../../../packages/shared/src/texTraining.cjs");
+const { EXAMPLES_TEXT, JUDGE_EXAMPLES, WHY } = require("../../../packages/shared/src/textDecide.cjs");
 
 test("the generated module is the conversations' (scripts/tex-training-module.mjs)", () => {
   assert.ok(moduleIsCurrent(), "run node scripts/tex-training-module.mjs");
 });
 
-test("Decide reads its examples from Training, the judge's prompt unchanged by a byte", async () => {
+/** A label the judge's form can show: a real act and a reason from its list (textDecide.cjs `judgeForm`). */
+const judgeForm = (moment) => ["quiet", "respond", "wait"].includes(moment.label.act) && Object.hasOwn(WHY, moment.label.why);
+
+test("Decide reads its examples from Training, each in the judge's own form", () => {
   assert.ok(TEX_CONFIG.nodes.find((n) => n.id === "decide").ctx.includes("train:decide"));
-  assert.equal(JUDGE_EXAMPLES.length, TRAINING.nodes.decide.length);
-  assert.equal(JUDGE_EXAMPLES.length, 26);
-  assert.equal(await sha(EXAMPLES_TEXT), JUDGE_EXAMPLES_SHA);
+  const judged = TRAINING.nodes.decide.filter(judgeForm);
+  assert.ok(judged.length > 0, "Training has Decide labels");
+  assert.equal(JUDGE_EXAMPLES.length, judged.length);
+  const blocks = EXAMPLES_TEXT.match(/<example>[\s\S]*?<\/example>/g) ?? [];
+  assert.equal(blocks.length, TRAINING.nodes.decide.length, "every Decide label is one example");
+  for (const [i, moment] of TRAINING.nodes.decide.entries()) {
+    assert.ok(blocks[i].includes(`<newest>${moment.newest}</newest>`), `example ${i + 1} is ${moment.chat}'s message`);
+    if (judgeForm(moment)) assert.match(blocks[i], /<verdict>(quiet|respond|wait|react)<\/verdict>(\n<react>[^<]+<\/react>)?\n<why>[a-z_]+<\/why>\n<\/example>$/);
+  }
+});
+
+test("Decide's examples leave the live chat at least half of what Clef reads", () => {
+  // Clef reads 24,000 characters (textDecide.cjs MAX_STATE): the examples, the facts, then the newest of the chat.
+  assert.ok(EXAMPLES_TEXT.length <= 12_000, `the examples are ${EXAMPLES_TEXT.length} characters`);
+});
+
+test("an example from a long conversation shows its newest stretch and counts what came before", () => {
+  const long = {
+    id: "long", title: "Long", set: "training", kind: "group", members: ["Rosa", "Kim"],
+    msgs: [
+      ...Array.from({ length: 30 }, (_, i) => ({ id: `m${i + 1}`, who: i % 2 ? "Kim" : "Rosa", text: `line ${i + 1}` })),
+      { id: "m31", who: "Rosa", text: "Tex what's 6 times 7", labels: { decide: { act: "respond", why: "tags_tex", star: true }, fd: { must: ["say 42"] } } },
+    ],
+  };
+  const nodes = momentsOf([long]);
+  assert.deepEqual(nodes.decide[0].before, [`(${30 - historyLines("decide")} earlier messages)`, "@rosa: line 29", "@kim: line 30"]);
+  assert.equal(nodes.fd[0].before.length, historyLines("fd") + 1);
+  assert.equal(nodes.fd[0].before[0], `(${30 - historyLines("fd")} earlier messages)`);
+  assert.equal(linesBefore(long, 30).length, 30, "a node run alone reads the whole chat");
 });
 
 test("only steps that read Training name it in their context", () => {
