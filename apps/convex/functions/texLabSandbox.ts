@@ -1,0 +1,148 @@
+/**
+ * The Lab's test chats, the control plane's half (Dev2, 2026-11-16: "send test messages to see how the new architecture
+ * responds ... have all the changes sandboxed so it doesn't actually affect production"; decision
+ * `docs/decisions/texting-assistant/lab-sandbox.md`). The gateway's `/tex-lab/sandbox` asks here, and only reads:
+ *
+ *  - `who`: is the caller a Tex developer, and which chats may they open (their own 1:1, and each group chat they are
+ *    in, as the Tex page lists them). The Lab's own client (`context_console`) is let in as well as an AI client's,
+ *    since the Lab is where test chats are used; everything else is `texDeveloper`'s rule (staff, pinned owner/editor).
+ *  - `session`: the session a real texted turn in that chat would run on, read from the chat's own live grant without
+ *    its token, so the gateway's test turn is the same turn. Never a token: the gateway keeps the caller's.
+ *  - `draft`: a Lab draft's graph, the config the test turn runs.
+ *  - `set`: a Training or Dev conversation's Lab draft, a test chat's history when the Lab tries a text on one.
+ */
+
+import { v } from "convex/values";
+
+import type { Doc, Id } from "../_generated/dataModel";
+import { internalQuery, type QueryCtx } from "../_generated/server";
+import { userIsStaff } from "./lib/admin";
+import { contextsForGrant, resolveLiveGrant, texChatIdOf, type LiveGrant } from "./lib/controlPlane/liveGrants";
+import { flagsFor } from "./lib/featureFlags";
+import { pinnedContextWorkspace } from "./lib/pinnedContext";
+import { getMembership } from "./lib/workspaceAuth";
+import { pageForUser, handleFor } from "./texPage";
+import { TEXTS_GROUP_CLIENT_ID } from "./textGroups";
+import { TEXTS_CLIENT_ID } from "./textLinks";
+
+const CONSOLE_CLIENT_ID = "context_console";
+const CHAT_KEY = /^[0-9a-f]{64}$/;
+
+/** The person a grant speaks for, when they may use the Lab's test chats; null for anyone else. */
+export async function sandboxCaller(ctx: QueryCtx, hashedAccessToken: string): Promise<Id<"users"> | null> {
+  const live = await resolveLiveGrant(ctx, hashedAccessToken);
+  if (live === null) return null;
+  const client = live.grant.clientId;
+  if (client !== CONSOLE_CLIENT_ID && client.startsWith("context_")) return null;
+  const userId = live.grant.userId;
+  if (!userId) return null;
+  const pinned = await pinnedContextWorkspace(ctx);
+  if (pinned === null) return null;
+  const membership = await getMembership(ctx, pinned._id, userId);
+  if (membership === null || (membership.role !== "owner" && membership.role !== "editor")) return null;
+  if (!(await userIsStaff(ctx, userId))) return null;
+  return userId;
+}
+
+/** A grant as a live session would read it, without its token's own expiry: a test turn uses no token of the chat's. */
+async function liveWithoutToken(ctx: QueryCtx, grant: Doc<"oauthGrants">): Promise<LiveGrant | null> {
+  if (grant.status !== "active") return null;
+  const workspace = await ctx.db.get(grant.workspaceId);
+  if (workspace === null) return null;
+  const membership = await getMembership(ctx, grant.workspaceId, grant.userId);
+  if (membership !== null) return { grant, workspace, role: membership.role };
+  // A home-only group grant is the pin's, and its sponsor is not a member of it.
+  if (grant.clientId === TEXTS_GROUP_CLIENT_ID && grant.texGroup?.homeOnly === true) {
+    const pinned = await pinnedContextWorkspace(ctx);
+    if (pinned !== null && pinned._id === grant.workspaceId) return { grant, workspace: pinned, role: "editor" };
+  }
+  return null;
+}
+
+/** The session `/gateway/session` would answer for this grant (`lib/gatewayRoutes/sessions.ts`), without a token. */
+async function sessionOf(ctx: QueryCtx, live: LiveGrant) {
+  const chatId = await texChatIdOf(ctx, live);
+  return {
+    grantId: live.grant._id,
+    clientId: live.grant.clientId,
+    clientName: null,
+    actorUserId: live.grant.userId,
+    scopes: live.grant.scopes,
+    expiresAt: Date.now() + 15 * 60_000,
+    toolsListedAt: live.grant.toolsListedAt ?? live.grant.createdAt,
+    defaultWorkspaceId: live.grant.workspaceId,
+    workspaces: await contextsForGrant(ctx, live),
+    ...(chatId === null ? {} : { texChatId: chatId }),
+    flags: await flagsFor(ctx, live.grant.userId),
+  };
+}
+
+async function sessionFor(ctx: QueryCtx, userId: Id<"users">, chat: string) {
+  const grants = await ctx.db
+    .query("oauthGrants")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  if (chat === "me") {
+    const own = grants.filter((grant) => grant.clientId === TEXTS_CLIENT_ID && grant.status === "active").sort((a, b) => b.createdAt - a.createdAt);
+    for (const grant of own) {
+      const live = await liveWithoutToken(ctx, grant);
+      if (live !== null) return { status: "ok" as const, session: await sessionOf(ctx, live), people: [{ handle: await handleFor(ctx, userId), name: "You" }] };
+    }
+    return { status: "not_found" as const, error: "Tex has no texting grant for you yet: text Tex once first." };
+  }
+  if (!CHAT_KEY.test(chat)) return { status: "bad_request" as const, error: "chat is \"me\" or a group chat's key" };
+  const group = await ctx.db
+    .query("textGroups")
+    .withIndex("by_key", (q) => q.eq("groupKey", chat))
+    .unique();
+  // A chat the person is not in answers as one that does not exist.
+  if (group === null || !(group.homeUsers ?? []).includes(userId)) return { status: "not_found" as const, error: "There is no such chat." };
+  // The chat's grant is its sponsor's (`textGroups.sponsorId`), whoever tagged Tex: read the sponsor's grants too.
+  const sponsor = group.sponsorId ?? group.boundBy ?? null;
+  const sponsorGrants = sponsor === null || sponsor === userId ? [] : await ctx.db
+    .query("oauthGrants")
+    .withIndex("by_user", (q) => q.eq("userId", sponsor))
+    .collect();
+  const mine = [...grants, ...sponsorGrants].filter((grant) => grant.clientId === TEXTS_GROUP_CLIENT_ID && grant.status === "active" && grant.texGroup?.groupId === group._id).sort((a, b) => b.createdAt - a.createdAt);
+  for (const grant of mine) {
+    const live = await liveWithoutToken(ctx, grant);
+    if (live === null) continue;
+    const people = await Promise.all((group.homeUsers ?? []).map(async (id) => ({ handle: await handleFor(ctx, id), name: id === userId ? "You" : (await handleFor(ctx, id)) || "Someone" })));
+    return { status: "ok" as const, session: await sessionOf(ctx, live), people };
+  }
+  return { status: "not_found" as const, error: "Tex has not answered you in this chat yet: tag it there once first." };
+}
+
+/** One `/gateway/tex/lab-sandbox` call. Reads only, always an answer with a `status`. */
+export const forGateway = internalQuery({
+  args: { hashedAccessToken: v.string(), action: v.string(), args: v.any() },
+  returns: v.any(),
+  handler: async (ctx, { hashedAccessToken, action, args }) => {
+    const userId = await sandboxCaller(ctx, hashedAccessToken);
+    if (userId === null) return { status: "refused" };
+    const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+    if (action === "who") return { ...(await pageForUser(ctx, userId)), userId };
+    if (action === "session") return await sessionFor(ctx, userId, typeof a.chat === "string" ? a.chat : "me");
+    if (action === "draft") {
+      if (a.draft === "main" || a.draft === undefined || a.draft === null) return { status: "ok", graph: null };
+      if (typeof a.draft !== "string") return { status: "bad_request" };
+      const row = await ctx.db
+        .query("texLabVersions")
+        .withIndex("by_version", (q) => q.eq("versionId", a.draft as string))
+        .unique();
+      return row === null ? { status: "not_found" } : { status: "ok", graph: row.graph, name: row.name };
+    }
+    if (action === "set") {
+      // A Training or Dev conversation's Lab draft, when it has one; the gateway reads the repo's copy otherwise. Never
+      // the Test Set: it is not kept here (`texSets.ts`).
+      if (typeof a.id !== "string" || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(a.id)) return { status: "bad_request" };
+      const row = await ctx.db
+        .query("texSetConvos")
+        .withIndex("by_convo", (q) => q.eq("convoId", a.id as string))
+        .unique();
+      if (row === null || row.removed === true) return { status: "not_found" };
+      return { status: "ok", conv: row.data };
+    }
+    return { status: "bad_request" };
+  },
+});

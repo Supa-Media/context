@@ -792,6 +792,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex's config is its graph: the wires are predefined, the nodes are code (2026-11-14)](./texting-assistant/config-graph.md)
 - [Tex runs its config's graph: the wires are config, the nodes are code (2026-11-14)](./texting-assistant/config-graph.md)
 - [Developers work on Tex from their own MCP session, live in the Lab (2026-11-15)](./texting-assistant/tex-dev-tool.md)
+- [The Lab's test chats run the real turn on a copy that changes nothing (2026-11-16)](./texting-assistant/lab-sandbox.md)
 - [One list of what Tex can do, and where (2026-11-08)](./texting-assistant/capabilities.md)
 - [Every Tex turn reads its setup, whoever the person is (2026-11-02)](./texting-assistant/setup-read.md)
 - [Tex answers directly, or says what it is doing as it works, never that it is done (2026-11-01)](./texting-assistant/interleaved-updates.md)

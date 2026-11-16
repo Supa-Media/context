@@ -6,6 +6,7 @@
  */
 
 import { gatewayTexDevHandler } from "./texDev";
+import { gatewayTexLabSandboxHandler } from "./texLabSandbox";
 import { gatewayTexChatHomeHandler } from "./texChatHome";
 import { gatewayTexPageHandler, gatewayTexPageSettingsHandler } from "./texPage";
 import { gatewayTexCommandHandler as texCommandHandler } from "./texCommand";
@@ -68,6 +69,7 @@ export const TEX_ROUTES = [
   ["/gateway/tex/page/settings", gatewayTexPageSettingsHandler],
   ["/gateway/tex/chat-home", gatewayTexChatHomeHandler],
   ["/gateway/tex/dev", gatewayTexDevHandler],
+  ["/gateway/tex/lab-sandbox", gatewayTexLabSandboxHandler],
 ] as const;
 
 /** `POST /agent-texts/group/name` `{ line, groupId, name }` → `{ ok }`: the chat's name for its home in the app (`textGroupNames.ts`). */

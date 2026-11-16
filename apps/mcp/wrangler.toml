@@ -221,6 +221,17 @@ class_name = "TexJob"
 tag = "v7-tex-job"
 new_sqlite_classes = ["TexJob"]
 
+# One Lab test chat (src/labSandbox/object.js): its rows, what its turns would have changed or sent, and the
+# copy-on-write overlay over the real objects, one per person's test chat (`labsandbox:<userId>:<sandboxId>`),
+# deleted on Reset or 24 hours after its last use. Self-hosting: leave it out, and `POST /tex-lab/sandbox` answers 501.
+[[durable_objects.bindings]]
+name = "LAB_SANDBOX"
+class_name = "LabSandbox"
+
+[[migrations]]
+tag = "v8-lab-sandbox"
+new_sqlite_classes = ["LabSandbox"]
+
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
 # account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
@@ -428,6 +439,10 @@ class_name = "TexJob"
 [[env.staging.durable_objects.bindings]]
 name = "SEARCH_QUALITY_KEY"
 class_name = "SearchQualityKey"
+
+[[env.staging.durable_objects.bindings]]
+name = "LAB_SANDBOX"
+class_name = "LabSandbox"
 
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_TIMING"

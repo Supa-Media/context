@@ -8,6 +8,8 @@
  */
 
 /** How long a control-plane call may take before the gateway gives up. */
+import { controlPlaneAnswer, sandboxGateOf } from "../labSandbox/policy.js";
+
 export const CONTROL_PLANE_TIMEOUT_MS = 8_000;
 
 /**
@@ -155,6 +157,18 @@ function requireConfig(env) {
  */
 export function createTransport(env, fetchImpl) {
   async function post(path, body, { timeoutMs = CONTROL_PLANE_TIMEOUT_MS, maxBytes = CONTROL_PLANE_RESPONSE_BYTE_CAP } = {}) {
+    // A Lab test chat's turn (`labSandbox/policy.js`): only reads reach the control plane.
+    const sandbox = sandboxGateOf(env);
+    if (sandbox !== null) {
+      const decided = controlPlaneAnswer(path, body, sandbox);
+      if (decided.answer) return decided.answer;
+      if (decided.refuse) throw new ControlPlaneError(`status ${decided.refuse}`, decided.refuse);
+      if (decided.transform) return decided.transform(await sent(path, body, { timeoutMs, maxBytes }));
+    }
+    return await sent(path, body, { timeoutMs, maxBytes });
+  }
+
+  async function sent(path, body, { timeoutMs, maxBytes }) {
     const { base, secret } = requireConfig(env);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);

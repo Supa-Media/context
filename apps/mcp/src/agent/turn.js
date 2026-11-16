@@ -32,6 +32,7 @@
  * engine decides, rather than being handed something the clamp never saw.
  */
 
+import { sandboxGateOf, toolAnswer } from "../labSandbox/policy.js";
 import { datedTurns, stamped } from "./localNow.js";
 import { attachmentsLine } from "./attachments.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, liveTurn, requestBuiltin, systemText } from "./builtin.js";
@@ -616,7 +617,9 @@ export async function runTurn(options) {
       if (call.name !== PROGRESS_TOOL && call.name !== SAY_NOTHING_TOOL) try { options.onToolStart?.(call.name); } catch { /* a failed tapback never costs the turn */ }
       try {
         const viaMcp = !(progress && call.name === PROGRESS_TOOL) && !localCalls.has(call.name) && !webNames.has(call.name);
-        result = viaMcp && isPlainNoteWrite(call.name, call.args)
+        // A Lab test chat's turn (`labSandbox/policy.js`): anything but a read is recorded there, and answered as done.
+        const sandboxed = sandboxGateOf(env) === null ? null : toolAnswer(call.name, call.args, sandboxGateOf(env));
+        result = sandboxed !== null ? sandboxed : viaMcp && isPlainNoteWrite(call.name, call.args)
           // A slow save is waited on, read back and retried, never told as failed unseen (`noteWriteRetry.js`).
           ? await settleNoteWrite({ run: () => callTool(call.name, call.args), callTool, args: call.args, ms: timeoutFor(call.name), remaining: () => toolBudgetMs + 30_000 - (clock() - began) })
           : await withinTime(
