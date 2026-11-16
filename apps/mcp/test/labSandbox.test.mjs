@@ -295,3 +295,22 @@ test("Maya's conversation opens as a test chat; another person's test chat does 
     w.restore();
   }
 });
+
+test("a computer list is read through; the binding cache and a turn's own run markers are not listed as changes", async () => {
+  const real = texStoreNamespace();
+  const { stub, gate } = await groupChatGate();
+  const env = { TEX_STORE: sandboxNamespace(real.namespace, gate) };
+  const raw = texStoreStub(env, { chat: KEY });
+  const call = (op, body = "{}") => raw.fetch(new Request(`https://tex-store.internal/${op}`, { method: "POST", headers: { "x-tex-call": encodeURIComponent(JSON.stringify({ op })) }, body }));
+  await call("ws.machine.list");
+  assert.ok(real.calls.some((c) => c.op === "ws.machine.list"), "a computer list reaches the real object");
+  const cached = await call("ws.binding.put", JSON.stringify({ sealed: "x" }));
+  assert.equal(cached.status, 200);
+  assert.ok(!real.calls.some((c) => c.op === "ws.binding.put"), "the binding is never written to the real object");
+  const bucket = texBucket(raw);
+  await bucket.put("state/agent/running/lab1.json", "{}");
+  assert.equal(await (await bucket.get("state/agent/running/lab1.json")).text(), "{}", "the marker is kept for the turn");
+  await bucket.delete("state/agent/running/lab1.json");
+  await gate.flush();
+  assert.deepEqual((await state(stub)).writes, [], "nothing listed");
+});

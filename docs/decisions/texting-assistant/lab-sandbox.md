@@ -43,7 +43,9 @@ entries with it, and the ledger is rebuilt from what is left. A real text is nev
 2. *The objects.* Every call to a workspace or Tex object passes `sandboxedStub`, decided by its op name: a read goes
    to the real object (a key the test chat changed is answered from the overlay; the test chat's own ledger from its
    object); a put or delete lands in the overlay; an alarm, a lock or a page push answers as done and never arms;
-   every other op, a `ws.*` write or anything unknown, is refused with the object's own refusal (422). Objects are
+   every other op, a `ws.*` write or anything unknown, is refused with the object's own refusal (422). The store caching its
+   (blanked) storage binding is answered as done, never kept; a turn's own run markers (`state/agent/running|cancel/`)
+   stay in the overlay but are not listed as changes. Objects are
    reached by name only (`idFromString` and `newUniqueId` throw).
 3. *The control plane.* The one `post` every control-plane method uses checks `controlPlaneAnswer`: a listed read
    (`CONTROL_PLANE_READS`, or a route that reads by its body) is sent; the turn's bookkeeping (usage, turn log,

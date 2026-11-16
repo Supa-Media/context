@@ -40,6 +40,7 @@ export const WS_READS = Object.freeze(
     "ws.members.get", "ws.members.digest", "ws.invites.list", "ws.invites.digest", "ws.invites.find", "ws.mail.since",
     "person.session", "person.state", "person.texting.get", "person.flags.get", "person.reach.list", "person.reach.digest",
     "person.shared.list", "person.shared.digest", "person.connections.list", "person.connections.digest", "token.get",
+    "ws.machine.list", "ws.machine.get",
   ]),
 );
 
@@ -53,6 +54,12 @@ const NOT_SERVED = Object.freeze(new Set(["ws.rows.files", "ws.rows.listing", "w
 const KV_READS = Object.freeze(new Set(["head", "get"]));
 const LEDGER_READS = Object.freeze(new Set(["ledger_read", "ledger_oldest", "ledger_chats"]));
 const LEDGER_WRITES = Object.freeze(new Set(["ledger_append", "ledger_prepend"]));
+
+/**
+ * A turn's own run markers (`state/agent/running/<turn>`, `.../cancel/<turn>`): kept in the overlay like any key, so
+ * the turn reads them back, but not listed as something the turn changed.
+ */
+const ownMarker = (key) => /^state\/agent\/(running|cancel)\//.test(String(key ?? ""));
 
 /** What a change to a key is, for the Lab's list: Tex's routines and check-ins are reminders. */
 function kindOfKey(key) {
@@ -122,13 +129,14 @@ export function sandboxedStub(stub, name, gate) {
         const bytes = new Uint8Array(await request.arrayBuffer());
         const meta = { key: call.key, size: bytes.byteLength, etag: randomEtag(), uploaded: Date.now(), ...(call.options?.httpMetadata ? { httpMetadata: call.options.httpMetadata } : {}), ...(call.options?.customMetadata ? { customMetadata: call.options.customMetadata } : {}) };
         await gate.kvPut(obj, call.key, { meta, body: b64(bytes) });
-        gate.record({ kind: kindOfKey(call.key), summary: `saved ${String(call.key).slice(0, 120)}` });
+        if (!ownMarker(call.key)) gate.record({ kind: kindOfKey(call.key), summary: `saved ${String(call.key).slice(0, 120)}` });
         return new Response(null, { headers: { [META]: pack(meta) } });
       }
       if (op === "delete") {
         const keys = (Array.isArray(call.keys) ? call.keys : [call.keys]).filter((key) => typeof key === "string");
         for (const key of keys) await gate.kvPut(obj, key, { meta: null, gone: true });
-        if (keys.length > 0) gate.record({ kind: kindOfKey(keys[0]), summary: `deleted ${keys.length === 1 ? keys[0].slice(0, 120) : `${keys.length} notes`}` });
+        const listed = keys.filter((key) => !ownMarker(key));
+        if (listed.length > 0) gate.record({ kind: kindOfKey(listed[0]), summary: `deleted ${listed.length === 1 ? listed[0].slice(0, 120) : `${listed.length} notes`}` });
         return okJson();
       }
       if (op === "page_list") return stub.fetch(request);
@@ -186,6 +194,8 @@ export function sandboxedStub(stub, name, gate) {
         return stub.fetch(request);
       }
       if (NOT_SERVED.has(op)) return okJson({ served: false });
+      // The store caching the storage binding it was handed (blanked, `policy.js`): never kept, and not the turn's doing.
+      if (op === "ws.binding.put") return okJson({ ok: true });
       if (op === "ws.write.wrote") {
         gate.record({ kind: "Note", summary: "a note's save recorded" });
         return okJson({ ok: true, at: Date.now() });
