@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import graphLib from "../../../../../packages/shared/src/texGraph.cjs";
 import { gatewayGraph } from "../../../src/agent/graph/gatewayGraph.js";
+import { TEX_CONFIG as MAIN, withDraft } from "../../../src/agent/texConfig.js";
+import { DOOR_PARTS, runDoor } from "../../../src/agent/graph/door.js";
+import { doorOutput } from "../../../src/agent/graph/nodes/doorStep.js";
+import DRAFT from "../../fixtures/simplerGraphDraft.json" with { type: "json" };
 
 /** A picture as a draw tool answers it, the bytes stand-ins. */
 const drawn = { content: [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }] };
@@ -28,5 +33,17 @@ export default {
     const nodes = written.filter((entry) => entry.kind === "step" && entry.step === "node");
     assert.deepEqual(nodes.map((entry) => entry.name), ["card", "picture", "reflect", "nudge"], "every run is a node step in the chat's record");
     assert.ok(nodes.every((entry) => entry.turn === "turn-replay-0002" && entry.ok === true), "under the turn, each one ok");
+    // 2026-11-16: the Door, one step on the simpler graph, handed its parts log on with what it found, and the Front
+    // door's strict input shape refused it, so every Dev set text failed (0/20). A step's `log` stays in its own row.
+    const draft = withDraft(MAIN, DRAFT);
+    const door = await runDoor({ question: "When's my dentist appointment?", session: {}, texted: true }, {}, () => 0, DOOR_PARTS.map(([name, , found]) => [name, async () => undefined, found]));
+    const fed = [];
+    const rows = [];
+    const shapes = { ...draft, nodes: draft.nodes.map((n) => ({ ...n, outSchema: undefined, ...(n.id === "fd" ? {} : { inSchema: undefined }) })) };
+    const stand = { doorStep: async () => doorOutput(door), fd: async (input) => (fed.push(input), { when: [] }), answerCheck: async () => ({ when: [] }), send: async () => ({ when: [] }) };
+    await graphLib.createGraph(shapes, stand, { log: (entry) => rows.push(entry) }).run("doorStep", {}, {});
+    assert.equal(fed.length, 1, "the Front door ran on the text, its own input shape checked");
+    assert.ok(!("log" in fed[0]) && !("parts" in fed[0]), "handed only what the Door found");
+    assert.equal(rows.find((entry) => entry.node === "doorStep")?.output?.log?.parts?.length, DOOR_PARTS.length, "every part still in the Door's row");
   },
 };
