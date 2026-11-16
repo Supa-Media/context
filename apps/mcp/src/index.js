@@ -111,6 +111,7 @@ import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "./agent/textsOldLine.js";
 import { moveForTexts, TEXTS_MOVE_PATH } from "./agent/textsMove.js";
 import { texJobClass } from "./texJob.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
+import { LabSandboxObject } from "./labSandbox/object.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
 import { controlPlaneSettingProblems } from "./controlPlane/client.js";
@@ -193,6 +194,8 @@ export const TexJob = texJobClass({ gateway: () => gatewayWorker, texts: () => T
 export const SearchQualityKey = SearchQualityKeyObject;
 /** Each workspace's notes, tree rows and access rules, one Durable Object per workspace (`workspaceStore.js`). */
 export const WorkspaceStore = WorkspaceStoreDurableObject;
+/** One Lab test chat, one Durable Object per person's test chat (`labSandbox/object.js`). */
+export const LabSandbox = LabSandboxObject;
 
 /**
  * The session one text runs under, for the texting Worker alone (`agent/textsSession.js`). A named entrypoint has no

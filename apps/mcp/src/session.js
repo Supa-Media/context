@@ -195,6 +195,15 @@ export async function resolveSession(token, slug, controlPlane, transport = null
   if (resolved === null) {
     throw new SessionRefusal(401, "invalid_token", "The access token is invalid or expired.");
   }
+  return sessionFromPayload(resolved, slug, token);
+}
+
+/**
+ * The session for a control plane's answer about a token (`resolveSession`'s second half): the payload checked, the
+ * workspace selected and clamped, the token carried non-enumerable. Also how a Lab test chat serves its turn on a
+ * chat's grant read without its token (`labSandbox/harness.js`), with the caller's token carried instead.
+ */
+export function sessionFromPayload(resolved, slug, token) {
   const session = normalizeSession(resolved);
 
   if (typeof session.expiresAt === "number" && session.expiresAt <= Date.now()) {

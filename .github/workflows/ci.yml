@@ -155,6 +155,7 @@ jobs:
           - 'apps/mcp/src/history/**'
           - 'apps/mcp/src/http/**'
           - 'apps/mcp/src/ingestion/inbox.js'
+          - 'apps/mcp/src/labSandbox/**'
           - 'apps/mcp/src/links.js'
           - 'apps/mcp/src/lists.js'
           - 'apps/mcp/src/lists/**'
@@ -813,6 +814,7 @@ jobs:
             apps/mcp/src/history/**
             apps/mcp/src/http/**
             apps/mcp/src/ingestion/inbox.js
+            apps/mcp/src/labSandbox/**
             apps/mcp/src/links.js
             apps/mcp/src/lists.js
             apps/mcp/src/lists/**

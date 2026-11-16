@@ -21,7 +21,7 @@ export function texDevToolDefinitions() {
       inputSchema: {
         type: "object",
         properties: {
-          action: { type: "string", description: "One of: guide, list, create, get, edit, changes, snapshot, link, check, promote, run, runs, tool_stats, cases, case, chats, turns, turn, entries, moments, prompt, jobs, mine, rename, delete, run_setup, keep_results, revert, sim, compare, config, bench, modules, reference, steps, marks, put_back, sets, set_get, set_fields, set_edit, set_move, set_create, set_import, set_delete, set_restore, set_history, set_back, set_ratio, set_promote." },
+          action: { type: "string", description: "One of: guide, list, create, get, edit, changes, snapshot, link, check, promote, run, runs, tool_stats, cases, case, chats, turns, turn, entries, moments, prompt, jobs, mine, rename, delete, run_setup, keep_results, revert, sim, compare, config, bench, modules, reference, steps, marks, put_back, sets, set_get, set_fields, set_edit, set_move, set_create, set_import, set_delete, set_restore, set_history, set_back, set_ratio, set_promote, sandbox." },
           args: { type: "object", description: "The action's own arguments; guide lists what each takes." },
         },
         required: ["action"],
