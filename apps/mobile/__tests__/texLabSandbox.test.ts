@@ -230,7 +230,7 @@ describe("the Architecture test chat", () => {
     expect(texts()).toEqual(["practice thursday?", "Yes, 7 pm.", "Tex add the gig to the band calendar", "Added it to the calendar."]);
     // The real chat's texts are greyed, a line marks where the test texts start.
     expect(qa("#sbGrid tbody tr.prod").length).toBe(2);
-    expect(q("#sbGrid tr.sepr")?.textContent).toBe("Test texts");
+    expect(q("#sbGrid tr.sepr")?.textContent).toBe("Sandbox from here · copied 2 texts from your real chat · writes stay in the sandbox");
     const row = q('#sbGrid tr.test[data-id="t1"]')!;
     expect(row.querySelector('td[data-c="decide"]')?.textContent).toBe("act: respond410 ms");
     expect(row.querySelector('td[data-c="fd"]')?.textContent).toBe("draft 22 chars3.4 s");

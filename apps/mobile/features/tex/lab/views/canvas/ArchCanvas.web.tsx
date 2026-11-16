@@ -7,7 +7,8 @@
 import { Canvas } from "../Canvas.web";
 import { playOnly, shownRun } from "../../engine/sandboxPlay";
 import { SandboxChat, useSandboxLit } from "./SandboxChat.web";
-import { DimOthers, RunPill } from "./SandboxTimeline.web";
+import { DimOthers } from "./SandboxTimeline.web";
+import { RunPill } from "./RunPill.web";
 
 export function ArchCanvas() {
   const lit = useSandboxLit();
@@ -16,13 +17,20 @@ export function ArchCanvas() {
   return (
     <div className="archsplit">
       <div className={"archcv" + (only ? " only" : "") + (run?.graph ? " then" : "")}>
-        <Canvas testLit={lit} graph={run?.graph ?? null} />
-        <RunPill />
-        {run?.graphNote ? (
-          <div className="float runnote" id="runNote" role="note">
-            {run.graphNote}
-          </div>
-        ) : null}
+        <Canvas
+          testLit={lit}
+          graph={run?.graph ?? null}
+          lead={
+            <>
+              <RunPill />
+              {run?.graphNote ? (
+                <div className="float runnote" id="runNote" role="note">
+                  {run.graphNote}
+                </div>
+              ) : null}
+            </>
+          }
+        />
         <DimOthers only={only} />
       </div>
       <SandboxChat />

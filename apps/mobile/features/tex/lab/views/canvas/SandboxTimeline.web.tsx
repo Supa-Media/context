@@ -13,6 +13,7 @@ import { useSandbox } from "../../engine/sandbox";
 import { externalRuns, playTexText, runOf, seek, showRun, togglePlay, usePlay, type DockView } from "../../engine/sandboxPlay";
 import { node, set } from "../../engine/state";
 import { useLab } from "../../store";
+import { ranWhen } from "./RunPill.web";
 import { msWords } from "../grid/TextGrid.web";
 
 const NAME_W = 118 + 8;
@@ -56,7 +57,7 @@ function useRunTexts(): Array<{ value: string; label: string }> {
 
 function kindOf(r: PlayRun) {
   if (r.of) return <span className="k of"> · {stepCount(r)} steps that led to it{r.prod ? ", ran in prod" : ""}</span>;
-  if (r.prod) return <span className="k prod"> · ran in prod, {new Date(r.prod.at).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}</span>;
+  if (r.prod) return <span className="k prod"> · ran in prod, {ranWhen(r.prod.at)}</span>;
   return <span className="k"> · sandbox</span>;
 }
 
@@ -191,44 +192,6 @@ export function SandboxTimeline() {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-/** The canvas's pill while the dock plays or shows a run (the mockup's): what plays, and how far it is. */
-export function RunPill() {
-  const { play, view } = usePlay();
-  const sb = useSandbox();
-  const s = useLab();
-  if (!play || (!play.playing && view !== "timeline")) return null;
-  const run = runOf(play.id);
-  if (!run) return null;
-  const n = (id: string) => sb.rows.findIndex((r) => r.id === id) + 1;
-  const speed = s.speed === 1 ? "real time" : s.speed === 0.25 ? "¼×" : s.speed === 0.5 ? "½×" : `${s.speed}×`;
-  let body;
-  if (run.of) {
-    const tex = run.id.slice(run.id.indexOf("#") + 1);
-    const t0 = run.steps.length ? Math.min(...run.steps.map((x) => x.at)) : 0;
-    body = (
-      <>
-        <span className="rp">Tex's text {n(tex)}</span> · the {stepCount(run)} steps that led to it · {fmt(play.t - t0)} of {fmt(run.total - t0)}
-      </>
-    );
-  } else if (run.running && play.playing)
-    body = (
-      <>
-        <b>Live</b> · text {n(run.id)} · watching at {speed} · {fmt(play.t)}
-      </>
-    );
-  else
-    body = (
-      <>
-        <span className="rp">Playback</span> · text {n(run.id)} · {fmt(play.t)} of {fmt(run.total)}
-      </>
-    );
-  return (
-    <div className="float runpill" id="runPill">
-      {body}
     </div>
   );
 }

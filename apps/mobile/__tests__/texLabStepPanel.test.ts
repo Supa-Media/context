@@ -198,7 +198,7 @@ describe("the step panel's cards", () => {
     expect(q("#cardRun")!.getAttribute("aria-pressed")).toBe("true");
     const t = q("#props")!.textContent!;
     expect(t).toContain("Ran");
-    expect(t).toContain("1,204");
+    expect(t).toContain("1.2k in");
     expect(t).toContain("$0.012");
     expect(t).toContain("Decided");
     expect(t).toContain("new text");
@@ -220,6 +220,10 @@ describe("the step panel's cards", () => {
     expect(q(".think")!.textContent).toContain("Check the calendar");
     click('[data-tab="in"]');
     expect(q(".runbody .empty")).not.toBeNull();
+    // Another step opens on Summary, whichever tab the last one was on.
+    act(() => set({ sel: { t: "node", id: "triage" } }));
+    act(() => set({ sel: { t: "node", id: "fd" } }));
+    expect(q('[data-tab="sum"]')?.getAttribute("aria-pressed")).toBe("true");
   });
 
   test("a step that did not run for the text says so", () => {
@@ -243,8 +247,16 @@ describe("the step panel's cards", () => {
     expect(t).not.toContain("SECRET");
     expect(t).not.toContain("999");
     expect(t).not.toContain("secret_tool");
-    expect(q(".tabs")).toBeNull();
     expect(q(".stat")).not.toBeNull();
+    // The tabs stay, as the mockup's; each says only how long it has run.
+    expect(qa(".tabs [data-tab]").map((b) => b.textContent)).toEqual(["Summary", "Output", "Input", "Thinking", "Calls"]);
+    for (const k of ["out", "in", "think", "calls"]) {
+      click(`[data-tab="${k}"]`);
+      const body = q(".runbody")!.textContent!;
+      expect(body).toMatch(/^Running for .*when it finishes\.$/);
+      expect(q("#props")!.textContent).not.toMatch(/SECRET|999|secret_tool/);
+    }
+    act(() => set({ runTab: "sum" }));
   });
 
   test("Settings is the editable card; a field changed from main is outlined yellow with what main had, and the switch has a dot", () => {

@@ -1,12 +1,13 @@
 /**
  * The test chat dock of the Lab live sandbox (mockup https://claude.ai/artifact/XtEn67XPWMTFVUBYanYLG5, approved by
  * Dev2 2026-11-16): the grip on its top edge, the Grid | Timeline switch, the Timeline (`views/canvas/
- * SandboxTimeline.web.tsx`) at its three densities, and the canvas's run pill. The Lab's compact scale: 13px text, 12px
+ * SandboxTimeline.web.tsx`) at its three densities, and the canvas's run pill (top left, in the row
+ * it shares with the change legend: `views/canvas/RunPill.web.tsx`). The Lab's compact scale: 13px text, 12px
  * meta, 28px controls. Names are `sb`-prefixed: the Lab's root is `.tl` and its top bar `.bar`. `labCss5.ts` appends it.
  */
 export const LAB_CSS_DOCK = String.raw`
 .tl .sbx{position:relative;height:340px;max-height:calc(100% - 120px)}
-.tl .sbx.drag{transition:none}
+.tl .sbx.drag{transition:none;user-select:none;-webkit-user-select:none}
 .tl .sbgrip{position:absolute;top:-5px;left:0;right:0;height:10px;cursor:ns-resize;z-index:6;display:grid;place-items:center;touch-action:none}
 .tl .sbgrip::after{content:"";width:40px;height:4px;border-radius:2px;background:var(--line2)}
 .tl .sbgrip:hover::after,.tl .sbx.drag .sbgrip::after{background:var(--accent)}
@@ -48,13 +49,16 @@ export const LAB_CSS_DOCK = String.raw`
 .tl .sbtracks.packed .sbtb.msg{height:13px;padding:0}
 .tl .sbhead{position:absolute;top:0;bottom:0;width:2px;background:var(--bad);pointer-events:none}
 .tl .sbtracks .scne{padding:16px 4px;color:var(--muted);font-size:12px}
-.tl .archcv .runpill{bottom:12px;left:12px;padding:3px 10px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;max-width:calc(50% - 185px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:4}
+.tl .archcv .runpill{display:block;flex:0 1 auto;padding:3px 10px;font-size:12px;line-height:20px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tl .archcv .runpill b{color:var(--text);font-weight:600}
 .tl .archcv .runpill .rp{color:var(--warn);font-weight:600}
 .tl .vmenu .mi .aib{font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--accent);background:var(--accent-dim);border-radius:5px;padding:1px 5px}
+.tl #sbGrid tr.sepr:not(.day) td{background:var(--s2);color:var(--dim);font-size:11px;font-weight:400;letter-spacing:.06em;padding:5px 10px}
+.tl #sbChanges .wcount{color:var(--warn);font-weight:600}
+.tl .vmenu.sbwrites code{font-family:var(--mono);font-size:11px;background:var(--chip);padding:1px 4px;border-radius:4px}
 .tl td.ac .play[data-play-tex]{color:var(--accent)}
 .tl td.ac .play[data-play-prod]{color:var(--warn)}
-.tl .archcv .runnote{top:12px;left:50%;transform:translateX(-50%);padding:4px 10px;font-size:12px;color:var(--warn);max-width:calc(100% - 24px);z-index:4}
+.tl .archcv .runnote{padding:4px 10px;font-size:12px;color:var(--warn)}
 .tl .proddet{border-top:1px solid var(--line);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:8px}
 @media (max-width:760px){.tl .archcv .runpill{display:none}}
 `;

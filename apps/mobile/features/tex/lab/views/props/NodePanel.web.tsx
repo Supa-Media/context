@@ -59,10 +59,9 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   const wires = g.edges.map((e, i) => [e, i] as const).filter(([e]) => e.to === n.id || e.from === n.id);
   const outTokens = outTok(n);
   const outLocked = !!n.outSchema?.length;
-  const replay = lab.mode === "replay";
   const { has, run } = useStepRun(n);
   const ch = stepChange(n.id);
-  const card = replay ? "set" : (lab.card ?? (has ? "run" : "set"));
+  const card = lab.card ?? (has ? "run" : "set");
   const chgd = (f: string) => !!ch?.x.fields.includes(f);
   /** A changed field's outline class, and the line saying what main had. */
   const cc = (f: string, base = "") => (base + (chgd(f) ? " chgf" : "")).trim();
@@ -70,7 +69,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
 
   return (
     <>
-      {replay ? null : <CardSwitch card={card} changed={!!ch && ch.x.kind === "changed"} />}
+      <CardSwitch card={card} changed={!!ch && ch.x.kind === "changed"} />
       <div className="ph">
         {/* Not in the artifact: the badge picks the step's icon (Dev2, 2026-11-14: "there is no way to change the icons"). */}
         <button className="badge" id="nIcon" aria-label="Change the icon" aria-expanded={picking} title="Change the icon" style={{ color: `var(${m.c})` }} onClick={() => setPicking(!picking)}>
@@ -100,7 +99,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
             ))}
         </div>
       ) : null}
-      {replay ? null : <StatusRow n={n} card={card} run={run} draft={lab.cur.name} />}
+      <StatusRow n={n} card={card} run={run} draft={lab.cur.name} />
       {card === "run" ? (
         <RunCard n={n} has={has} run={run} />
       ) : (
