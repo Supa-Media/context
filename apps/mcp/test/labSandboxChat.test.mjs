@@ -62,7 +62,9 @@ function fakeGateway(answer, call, rowId, { edit = { to: "turn", why: "the words
   return { asked, texted, agentRoute, textsRoute };
 }
 
-const ONE = { kind: "one", owner: "person:ws_a", ledgerChat: "texts", people: [{ handle: "ana", name: "You" }] };
+// A quick line (1 ms each way), so the turns here wait on nothing; `line.js` has the real holds.
+const LINE = { name: "photon", number: "+14157918922", inMs: 1, outMs: 1 };
+const ONE = { kind: "one", owner: "person:ws_a", ledgerChat: "texts", people: [{ handle: "ana", name: "You" }], line: LINE };
 
 test("a 1:1 test text runs from A text arrives through the chat object, and Tex's reply is what its line sent", async () => {
   const row = { id: "t1", who: "ana", text: "what's on today?", at: Date.now(), prod: false, eid: "0000000000001-000001" };
@@ -100,7 +102,7 @@ test("a 1:1 test text runs from A text arrives through the chat object, and Tex'
 });
 
 test("a group test text runs through the chat object, and the /agent hop carries the real chat's key", async () => {
-  const about = { kind: "group", owner: `chat:${KEY}`, ledgerChat: KEY, chatKey: KEY, members: "d".repeat(64), people: [{ handle: "ana", name: "You" }, { handle: "ben", name: "ben" }] };
+  const about = { kind: "group", owner: `chat:${KEY}`, ledgerChat: KEY, chatKey: KEY, members: "d".repeat(64), people: [{ handle: "ana", name: "You" }, { handle: "ben", name: "ben" }], line: LINE };
   const row = { id: "t1", who: "ben", text: "@tex what time is dinner?", at: Date.now(), prod: false, eid: "0000000000001-000001" };
   const { stub, call, ready } = sandbox(about, []);
   await ready;
@@ -138,8 +140,8 @@ test("a turn's node lights its row even when the runner calls the watch on its o
   const { stub, call, ready } = sandbox(ONE, []);
   await ready;
   const { sandboxGate } = await import("../src/labSandbox/harness.js");
-  const ahead = [{ node: "triage", out: null, ms: 1, ok: true }];
-  const { onNode, flush } = sandboxGate(stub, ONE, "t1", { before: ahead });
+  const { onNode, worker, flush } = sandboxGate(stub, ONE, "t1");
+  worker({ node: "triage", out: null, ms: 1, ok: true });
   onNode({ node: "readTheText", output: { ok: true }, ms: 2, ok: true });
   await flush();
   assert.deepEqual((await call("state", {})).meta.running.steps.map((s) => s.node), ["triage", "readTheText"]);
@@ -211,10 +213,11 @@ test("a tapback's own step stays on its row, never on the next text's", async ()
   };
   for (const r of [TEXTED, ANSWERED]) await call("row.add", { row: r });
   const hearted = await run({ id: "t2", who: "ana", kind: "reaction", emoji: "❤️", on: "t1r", text: "❤️ on Tex's message", at: Date.now(), prod: false, eid: "0000000000002-000001" });
-  assert.deepEqual(hearted.steps.map((s) => s.node), ["text"], "the tapback's row shows the object noting it");
-  assert.match(hearted.steps[0].out, /noted/);
+  // The line it came over (a sandbox step, kind line), then the object noting it.
+  assert.deepEqual(hearted.steps.map((s) => s.node), ["lineIn", "text"], "the tapback's row shows the object noting it");
+  assert.match(JSON.stringify(hearted.steps[1].out), /noted/);
   const next = await run({ id: "t3", who: "ana", text: "and tomorrow?", at: Date.now() + 1, prod: false, eid: "0000000000003-000001" });
-  const outs = next.steps.filter((s) => s.node === "text").map((s) => s.out);
+  const outs = next.steps.filter((s) => s.node === "text").map((s) => JSON.stringify(s.out));
   assert.ok(outs.length === 1 && !/noted/.test(outs[0]), `the next text shows only its own arrival (${outs.join(" | ")})`);
 });
 
@@ -224,7 +227,8 @@ test("without the run's own steps, the object's steps logged before a row came i
     { kind: "step", step: "text", at: 5, ok: true, output: { outcome: "queued" } },
     { kind: "step", step: "node", name: "readTheText", at: 6, ok: true },
   ];
-  assert.deepEqual(chatStepsOf(entries, { since: 4 }).map((s) => s.out ?? s.node), ['{"outcome":"queued"}', "readTheText"]);
+  // A step's `out` is its whole value now (the contract's full JSON), no longer its JSON cut to a string.
+  assert.deepEqual(chatStepsOf(entries, { since: 4 }).map((s) => s.out ?? s.node), [{ outcome: "queued" }, "readTheText"]);
 });
 
 test("an edit goes to the chat object's edit route, which asks node edit and queues the new words as a text", async () => {

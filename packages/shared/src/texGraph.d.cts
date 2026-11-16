@@ -18,12 +18,14 @@ export interface NodeIO<Ctx = Record<string, unknown>> {
 }
 export type NodeImpl<Ctx = Record<string, unknown>> = (input: any, io: NodeIO<Ctx>) => Promise<any>;
 
-export interface NodeRun { node: string; input: unknown; output: unknown; ms: number; /** `ms` less the time it waited on the nodes it called. */ own: number; ok: boolean; error?: string; at: number; via: string; handedOff?: boolean }
+export interface NodeRun { node: string; input: unknown; output: unknown; ms: number; /** `ms` less the time it waited on the nodes it called. */ own: number; ok: boolean; error?: string; at: number; via: string; handedOff?: boolean; /** This run's id, unique in the isolate (always set by the runner). */ id?: string; /** The run that started it (its caller, or the node whose wire fed it); none for the start. */ parent?: string }
+/** A run as it starts, before its code runs: no output or time yet. */
+export interface NodeStart { node: string; id: string; parent?: string; at: number; via: string; input: unknown }
 
 export interface Graph<Ctx = Record<string, unknown>> {
   run(start: string, input: unknown, ctx?: Ctx, options?: { stopAt?: string[] }): Promise<{ outputs: Record<string, any>; ran: string[] }>;
   fire(from: string, to: string, input: unknown, ctx?: Ctx): Promise<any>;
-  runNode(id: string, input: unknown, ctx: Ctx, via: string): Promise<{ ran: boolean; output?: any; handedOff?: boolean }>;
+  runNode(id: string, input: unknown, ctx: Ctx, via: string, parent?: string): Promise<{ ran: boolean; output?: any; handedOff?: boolean; id?: string }>;
   order(start: string): string[];
 }
 
@@ -32,7 +34,7 @@ export declare class GraphError extends Error {}
 export declare function createGraph<Ctx = Record<string, unknown>>(
   config: GraphConfig,
   impls: Record<string, NodeImpl<Ctx>>,
-  options?: { log?: (run: NodeRun) => unknown; background?: (p: Promise<unknown>) => void; handOff?: (id: string, input: unknown, ctx: Ctx) => Promise<unknown>; now?: () => number },
+  options?: { log?: (run: NodeRun) => unknown; background?: (p: Promise<unknown>) => void; handOff?: (id: string, input: unknown, ctx: Ctx) => Promise<unknown>; now?: () => number; onStart?: (run: NodeStart) => void },
 ): Graph<Ctx>;
 export declare function problemsOf(config: GraphConfig): string[];
 export declare function coverageProblems(config: GraphConfig, processes: Record<string, string[]>): string[];

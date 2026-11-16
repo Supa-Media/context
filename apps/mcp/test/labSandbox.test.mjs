@@ -114,7 +114,7 @@ test("an alarm never arms, and an unknown or writing op is refused and listed", 
   assert.ok(!real.calls.some((call) => call.op === "ws.rows.write"));
   await gate.flush();
   const kinds = (await state(stub)).writes.map((w) => w.kind);
-  assert.ok(kinds.includes("Reminder") && kinds.includes("Other"));
+  assert.ok(kinds.includes("reminder") && kinds.includes("other"), kinds.join());
 });
 
 test("a test chat reaches objects by name only", () => {
@@ -152,24 +152,33 @@ test("the control-plane client sends nothing for a test turn's write, and sends 
   assert.deepEqual(sent, ["https://control.example.invalid/gateway/time-zone"]);
 });
 
-test("a tool that changes or sends is answered as done and listed; a read runs", () => {
+test("a tool that changes or sends is answered as done and listed; a read runs; a browser is refused", async () => {
+  // A gate with no object behind it (`call`): every write falls through to the recorded stub, as before.
   const writes = [];
   const gate = { record: (w) => writes.push(w) };
-  for (const name of ["send_email", "write_note", "remember", "browse", "background", "vault_list", "report_problem", "write"]) {
-    const answer = toolAnswer(name, { to: "x@example.invalid" }, gate);
+  for (const name of ["send_email", "write_note", "remember", "background", "vault_list", "report_problem", "write"]) {
+    const answer = await toolAnswer(name, { to: "x@example.invalid" }, gate);
     assert.match(answer.content[0].text, /nothing was changed or sent/, name);
   }
-  assert.equal(toolAnswer("read_note", { path: "a.md" }, gate), null);
-  assert.equal(toolAnswer("search_email", {}, gate), null);
+  for (const name of ["browse", "fill_login", "delegate", "add_computer"]) {
+    const answer = await toolAnswer(name, {}, gate);
+    assert.equal(answer.isError, true, name);
+    assert.match(answer.content[0].text, /no browser and no computer/, name);
+  }
+  assert.equal(writes.filter((w) => w.kind === "Refused").length, 4);
+  assert.equal(await toolAnswer("read_note", { path: "a.md" }, gate), null);
+  assert.equal(await toolAnswer("search_email", {}, gate), null);
+  // A job tool runs: the job it starts runs in the test chat (`jobs.js`), on the same fences.
+  assert.equal(await toolAnswer("start_background_job", { title: "x", brief: "y" }, gate), null);
   assert.equal(writes[0].kind, "Email");
-  assert.equal(toolAnswer("write_note", { path: "tex/routines/x.md" }, gate) && writes.at(-1).kind, "Reminder");
+  assert.equal((await toolAnswer("write_note", { path: "tex/routines/x.md" }, gate)) && writes.at(-1).kind, "Reminder");
 });
 
-test("a real turn's tools run as they are: only a test turn's env carries the gate", () => {
+test("a real turn's tools run as they are: only a test turn's env carries the gate", async () => {
   const call = { name: "send_email", args: { to: "x@example.invalid" } };
-  assert.equal(sandboxedTool({ PLAIN: "x" }, call), null);
-  assert.equal(sandboxedTool({ [LAB_SANDBOX_KEY]: { notAGate: true } }, call), null, "a gate without record() is no gate");
-  assert.match(sandboxedTool({ [LAB_SANDBOX_KEY]: { record() {} } }, call).content[0].text, /nothing was changed or sent/);
+  assert.equal(await sandboxedTool({ PLAIN: "x" }, call), null);
+  assert.equal(await sandboxedTool({ [LAB_SANDBOX_KEY]: { notAGate: true } }, call), null, "a gate without record() is no gate");
+  assert.match((await sandboxedTool({ [LAB_SANDBOX_KEY]: { record() {} } }, call)).content[0].text, /nothing was changed or sent/);
 });
 
 test("a test turn's env has no texting Worker, jobs, browser, chats or sandboxes, and analytics keep nothing", () => {

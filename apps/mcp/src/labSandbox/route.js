@@ -29,10 +29,18 @@
  *  - `back { sandboxId, msgId }`: that text and its reply kept, everything later dropped.
  *  - `drop { sandboxId, msgId }`: that text and everything after it dropped.
  *  - `reset { sandboxId }`: the whole test chat deleted.
- *  - `get { sandboxId, after? }` → `{ rows, writes, running: { msgId, node, steps } | null, total? }`: while a text
- *    runs, its row carries the steps its turn has finished so far; `after` (a row id) answers only the rows after it; a row has `pics`, `replyTo`, `reactions: [{ who, emoji }]`
+ *  - `get { sandboxId, after? }` → `{ rows, writes, line, running: { msgId, node, steps } | null, total? }`: while a
+ *    text runs, its row carries its steps so far, the running ones with no `ms` yet; `after` (a row id) answers only the
+ *    rows after it; a row has `pics`, `replyTo`, `reactions: [{ who, emoji }]`
  *    when tapped and `unsent: true` when taken back; a tapback's own row is `kind: "reaction"` with its `emoji` and the
  *    row it is `on`, an edit's `kind: "edit"` (`edited: true`) and an unsend's `kind: "unsend"`, each `on` its text.
+ *    Every test row carries the `line` it went over (`line.js`: Photon, its holds); a Tex row its `from` (`fd`, or `job`
+ *    for a background job's text) and its `cause`, the ids of the steps that led to it (`steps.js`). Each step has its
+ *    `id`, `at`, `parent`, whole `in` and `out`, `calls`, model, effort and tokens where it spent any. `writes` are what
+ *    the test chat's turns did (`sandboxTools.js`): each with its `id`, `kind`, `title`, and its body, address or
+ *    recipients. `line` is the line every new text uses.
+ *  - `page { sandboxId, id }` → `{ kind, title, type, text? , base64? }`: one of the test chat's pages or pictures, as
+ *    `GET /tex-lab/sandbox/page/<sandboxId>/<id>` serves it to its owner (`pages.js`).
  *  - `list` → `{ chats: [{ sandboxId, source, kind, chat, versionId, openedBy, openedAt, lastBy?, lastAt?, rows, testRows,
  *    running, last }] }`: the person's test chats of the last day, newest used first, whoever opened them on their grant
  *    (the Lab, or an AI through `tex_dev`, named by `by` on `open` and on each send).
@@ -52,6 +60,8 @@ import { callSandbox, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.j
 import { eventId, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
+import { lineOf, measuredLine, rowLine } from "./line.js";
+import { sandboxAsset } from "./pages.js";
 
 export const LAB_SANDBOX_PATH = "/tex-lab/sandbox";
 /** A person's test texts a day, across all their test chats: each runs the real models. */
@@ -112,6 +122,17 @@ async function realLedger(env, owner, chat, base) {
   if (typeof base !== "string" || base === "") return entries;
   const at = entries.findIndex((entry) => entry.kind === "text" && entry.eid === base);
   return at < 0 ? entries : entries.slice(0, at);
+}
+
+/** How many of the real chat's newest logged steps a test chat reads at open for its line's delays (`line.js`). */
+const LINE_STEPS = 2_000;
+
+/** The real chat's logged steps, newest first, for the line's measured delays; none when they cannot be read. */
+async function loggedSteps(env, owner, chat) {
+  const ledger = ledgerFor(env, owner);
+  if (ledger === null) return [];
+  const read = await ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["step"], limit: LINE_STEPS, jobs: false }).catch(() => null);
+  return Array.isArray(read?.entries) ? read.entries : [];
 }
 
 /**
@@ -207,7 +228,7 @@ async function draftConfig(controlPlane, token, versionId) {
 }
 
 /** `open`: a new test chat, the caller's own. */
-async function open(env, controlPlane, token, who, input) {
+async function open(env, controlPlane, token, who, input, origin) {
   const source = input.source ?? "chat";
   const drafted = await draftConfig(controlPlane, token, input.versionId);
   if (drafted.error) return refused(...drafted.error);
@@ -247,7 +268,12 @@ async function open(env, controlPlane, token, who, input) {
   }
   const sandboxId = randomId();
   const stub = sandboxStub(env, who.userId, sandboxId);
+  // The line every text here goes over: Photon, its delays measured from the real chat's own logged deliveries.
+  const line = measuredLine(conv === null ? await loggedSteps(env, owner, ledgerChat) : []);
   const about = {
+    sandboxId,
+    origin,
+    line,
     source,
     chat,
     kind,
@@ -281,7 +307,8 @@ function view(state) {
   // A text taken back says so on its own row, as Messages shows it gone.
   const gone = new Set(list.filter((row) => row.kind === "unsend").map((row) => row.on));
   const rows = list.map((row) => ({ ...shown(row), ...(taps.has(row.id) ? { reactions: taps.get(row.id) } : {}), ...(gone.has(row.id) ? { unsent: true } : {}) }));
-  return { rows, writes: state.writes ?? [], running: live ? { msgId: running.msgId, node: running.node ?? null } : null };
+  const line = lineOf(state.meta?.chat);
+  return { rows, writes: state.writes ?? [], line: { name: line.name, inMs: line.inMs, outMs: line.outMs, number: line.number, measured: line.measured }, running: live ? { msgId: running.msgId, node: running.node ?? null } : null };
 }
 
 /**
@@ -298,7 +325,9 @@ async function liveView(stub, state, after) {
     const since = seen.rows.find((row) => row.id === seen.running.msgId)?.at ?? 0;
     const kept = chatStepsOf(entries, { since });
     const live = Array.isArray(state.meta?.running?.steps) ? state.meta.running.steps : [];
-    const steps = stepsOf(entries).length > 0 || live.length < kept.length ? kept : live;
+    // The text's own step book (`steps.js`: ids, parents, the running ones) whenever it has one; else the ledger's.
+    const booked = live.some((step) => typeof step?.id === "string");
+    const steps = booked ? live : stepsOf(entries).length > 0 || live.length < kept.length ? kept : live;
     seen.rows = seen.rows.map((row) => (row.id === seen.running.msgId ? { ...row, steps } : row));
     seen.running = { ...seen.running, steps };
   }
@@ -372,7 +401,7 @@ async function send(deps, state, { as, text = "", pics: given, replyTo }, cut = 
   const speaker = speakerOf(about, as);
   if (speaker.error) return refused(...speaker.error);
   const { at, eid, id } = newIds();
-  const row = { id, eid, who: speaker.speaker, text, at, prod: false, ...(pics.length > 0 ? { pics } : {}), ...(typeof replyTo === "string" ? { replyTo } : {}) };
+  const row = { id, eid, who: speaker.speaker, text, at, prod: false, line: rowLine(lineOf(about)), ...(pics.length > 0 ? { pics } : {}), ...(typeof replyTo === "string" ? { replyTo } : {}) };
   return await addRow({ ...deps, state, row, cut });
 }
 
@@ -388,7 +417,7 @@ async function react(deps, state, { msgId, emoji, as }, cut = null) {
   const read = await reactionOf({ about, target: target.row, emoji, as: speaker.speaker, rows: state.rows });
   const { at, eid, id } = newIds();
   // Its line is how the chat shows it; whether it is noted or answered is the chat object's call (`reactions.ts`).
-  const row = { id, eid, who: speaker.speaker, kind: "reaction", emoji, on: target.row.id, text: read.line, at, prod: false };
+  const row = { id, eid, who: speaker.speaker, kind: "reaction", emoji, on: target.row.id, text: read.line, at, prod: false, line: rowLine(lineOf(about)) };
   return await addRow({ ...deps, state, row, cut });
 }
 
@@ -421,7 +450,7 @@ async function change(deps, state, { msgId, text, as }, verb, cut = null) {
   if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
   const { at, eid, id } = newIds();
   const unsend = verb === "unsend";
-  const row = { id, eid, who: found.row.who, kind: unsend ? "unsend" : "edit", on: found.row.id, text: unsend ? "" : text, at, prod: false, ...(unsend ? {} : { edited: true }) };
+  const row = { id, eid, who: found.row.who, kind: unsend ? "unsend" : "edit", on: found.row.id, text: unsend ? "" : text, at, prod: false, line: rowLine(lineOf(state.meta.chat)), ...(unsend ? {} : { edited: true }) };
   return await addRow({ ...deps, state, row, cut });
 }
 
@@ -539,7 +568,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
     return json({ chats: [{ chatId: "me", name: "You and Tex", kind: "1:1", people: 1 }, ...groups] });
   }
   if (input.op === "sets") return await setsList(controlPlane, token);
-  if (input.op === "open") return await open(env, controlPlane, token, who, input);
+  if (input.op === "open") return await open(env, controlPlane, token, who, input, origin);
   if (input.op === "list") return json(await listOf(env, who.userId));
 
   if (typeof input.sandboxId !== "string" || !SANDBOX_ID.test(input.sandboxId)) return refused(400, "name the test chat: sandboxId");
@@ -601,7 +630,11 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
     }
     case "read":
       return json(await callSandbox(stub, "ledger.read", { chat: state.meta.chat.ledgerChat, options: readOptions(input.options) }));
+    case "page": {
+      const asset = await sandboxAsset(env, who.userId, input.sandboxId, input.id);
+      return asset === null ? refused(404, "There is no such page in this test chat.") : json(asset);
+    }
     default:
-      return refused(400, "op is chats, sets, list, open, send, react, edit, unsend, retry, back, drop, reset, get, about, use or read");
+      return refused(400, "op is chats, sets, list, open, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use or read");
   }
 }

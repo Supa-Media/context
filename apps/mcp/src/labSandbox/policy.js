@@ -6,12 +6,16 @@
  *  - `controlPlaneAnswer`: the control plane's routes a test turn may call for real (`CONTROL_PLANE_READS`, reads that
  *    change nothing), the few bookkeeping writes it is answered for as done without asking (`ANSWERED`), and a refusal
  *    for every other route. Wired into the one `post` every control-plane method uses (`controlPlane/client.js`).
- *  - `toolAnswer`: the tools a test turn may run for real (`READ_TOOLS`, reads only), and for every other tool a stub
- *    answer that says it was done in the test chat, kept in its `writes`. Wired where Tex's model calls a tool
- *    (`agent/turn.js`) and where every MCP tool call passes (`tools/session.js`).
- *  - `sandboxEnvOf`: the Worker's bindings a test turn is given. No texting Worker, no browser, no jobs, no live rooms,
- *    no secrets of other Workers; the objects only through `wire.js`, analytics as writers that keep nothing.
+ *  - `toolAnswer`: the tools a test turn may run for real (`READ_TOOLS`, reads only, a note the test chat wrote read
+ *    from there), the job tools (`RUN_IN_SANDBOX`: a job they start runs in the test chat, `jobs.js`), the write tools
+ *    the test chat does itself (`sandboxTools.js`: notes, pages, email kept there), a refusal for a browser or a
+ *    computer (`NO_MACHINE`), and for every other tool a stub answer that says it was done, kept in its `writes`. Wired
+ *    where Tex's model calls a tool (`agent/turn.js`) and where every MCP tool call passes (`tools/session.js`).
+ *  - `sandboxEnvOf`: the Worker's bindings a test turn is given. No texting Worker, no browser, no Worker-run jobs, no
+ *    live rooms, no secrets of other Workers; the objects only through `wire.js`, analytics as writers that keep nothing.
  */
+
+import { overlayRead, sandboxWrite } from "./sandboxTools.js";
 
 /** The env key a test turn's env carries its gate under; never set on a real request's env. */
 export const LAB_SANDBOX_KEY = "LAB_SANDBOX_GATE";
@@ -64,7 +68,7 @@ function readByBody(path, body) {
  */
 const ANSWERED = Object.freeze({
   "/gateway/builtin-model": () => ({ verdict: { allowed: true, remaining: 100 } }),
-  "/gateway/builtin-model/usage": () => ({ ok: true }),
+  "/gateway/builtin-model/usage": () => ({ ok: true }), // its tokens put on the step that spent them (`controlPlaneAnswer`)
   "/gateway/agent-turn": () => ({ ok: true }),
   "/gateway/tool-failures": () => ({ ok: true }),
   "/gateway/usage": () => ({ ok: true }),
@@ -108,7 +112,16 @@ export function controlPlaneAnswer(path, body, gate) {
   if (route === "/gateway/binding") return { pass: true, transform: withoutKeys };
   if (CONTROL_PLANE_READS.has(route) || readByBody(route, body)) return { pass: true };
   const answered = ANSWERED[route];
-  if (answered) return { answer: answered(body) };
+  if (answered) {
+    if (route === "/gateway/builtin-model/usage" && typeof gate.usage === "function") {
+      try {
+        gate.usage({ model: body?.model, tokIn: (body?.inputTokens ?? 0) + (body?.cacheReadTokens ?? 0) + (body?.cacheWriteTokens ?? 0), tokOut: body?.outputTokens });
+      } catch {
+        /* the Lab's view never stops a turn */
+      }
+    }
+    return { answer: answered(body) };
+  }
   gate.record({ kind: kindOfRoute(route), summary: `${route.replace("/gateway/", "")} (not sent: test chat)` });
   return { refuse: 403 };
 }
@@ -127,6 +140,20 @@ export const READ_TOOLS = Object.freeze(
     "search_web", "travel_time", "draw_visual", "draw_picture", "make_picture", "read_skill", "read_learned_skill", "say_nothing", "search", "fetch",
   ]),
 );
+
+/**
+ * Tools that run for real in a test chat because what they do lands in it: a background job they start, steer or
+ * restart runs in the test chat's own job objects (`jobs.js`), on the same fences; a progress line is texted on the
+ * test chat's line. Their note writes and calls pass the fences like any other.
+ */
+export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress"]));
+
+/**
+ * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the
+ * turn reads as a refusal, and listed. A job that would run on a computer is refused the same way (`jobs.js`).
+ */
+const NO_MACHINE = /^(browse|fill_login|fill_card|sign_out_browser|delegate)$|computer|machine/;
+export const MACHINE_REFUSAL = "Not run: a Lab test chat has no browser and no computer, so this step can't run here. Say so plainly, and carry on with what you can do without it.";
 
 /** What a stubbed tool would have done, for the test chat's list. */
 const TOOL_KINDS = [
@@ -155,20 +182,34 @@ function toolSummary(name, args) {
   return `${name}${target ? `: ${target.trim().slice(0, 140)}` : ""}`;
 }
 
+/** A tool call's line, for a step's `calls` (`steps.js`). */
+export { toolSummary };
+
 /**
- * A test turn's answer for one tool: null to run it for real (a read), or the stub result it gets instead, said to
- * `gate.record`. The stub reads as done, so the turn carries on as it would have.
+ * A test turn's answer for one tool, a Promise of: null to run it for real (a read, or a job tool), or the result it
+ * gets instead. A read of a note the test chat wrote answers from there; a write the test chat does itself
+ * (`sandboxTools.js`) is done there; a browser or computer is refused; anything else gets a stub that reads as done, so
+ * the turn carries on as it would have. Every write and refusal is said to the gate, and kept in the test chat's
+ * `writes`.
  */
-export function toolAnswer(name, args, gate) {
-  if (typeof name !== "string" || READ_TOOLS.has(name)) return null;
+export async function toolAnswer(name, args, gate) {
+  if (typeof name !== "string") return null;
+  if (READ_TOOLS.has(name)) return typeof gate.call === "function" ? await overlayRead(name, args, gate) : null;
+  if (RUN_IN_SANDBOX.has(name)) return null;
+  const done = typeof gate.call === "function" ? await sandboxWrite(name, args, gate) : null;
+  if (done !== null) return done;
+  if (NO_MACHINE.test(name)) {
+    gate.record({ kind: "Refused", summary: `${toolSummary(name, args)} (no browser or computer in a test chat)`, tool: name });
+    return { content: [{ type: "text", text: MACHINE_REFUSAL }], isError: true };
+  }
   gate.record({ kind: toolKind(name, args), summary: toolSummary(name, args), tool: name });
   return { content: [{ type: "text", text: "Done. (A Lab test chat: this was recorded, and nothing was changed or sent.)" }] };
 }
 
 /** `toolAnswer` for a turn's env: null on every real turn, whose env carries no gate (`agent/turn.js`). */
-export function sandboxedTool(env, call) {
+export async function sandboxedTool(env, call) {
   const gate = sandboxGateOf(env);
-  return gate === null ? null : toolAnswer(call?.name, call?.args, gate);
+  return gate === null ? null : await toolAnswer(call?.name, call?.args, gate);
 }
 
 /** Bindings a test turn is given as they are: the model, pictures, the deploy's version. */
