@@ -206,6 +206,11 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const { answer, error } = await plane("run", { draft, kind, conv: args.conv, node: args.node, models: args.models ?? "gw" });
         return error ?? json({ run: answer.id, stage: "queued", then: "A GitHub run starts within a minute and runs the Dev set's unit tests; runs { id } shows its stage and, when done, every test's verdict. The Lab's Runs panel shows the same run." });
       }
+      case "run_remove": {
+        if (typeof args.id !== "string") return toolError("run_remove takes { id } (runs lists them).");
+        const { error } = await plane("run_remove", { id: args.id });
+        return error ?? json({ removed: args.id, for: "everyone: the Lab's Runs panel no longer lists it" });
+      }
       case "runs": {
         const { answer, error } = await plane("runs", { draft: args.draft, id: args.id });
         return error ?? json(args.id ? answer.run : { runs: answer.runs });
