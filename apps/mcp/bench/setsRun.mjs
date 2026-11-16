@@ -16,11 +16,12 @@
  * says counts by node, never a message's words, so a sealed Test Set can run through it (the eval service).
  * A node without a way to run alone yet says so (`ran: false`) instead of passing.
  */
-import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { runFd } from "./setsFd.mjs";
 
 const require = createRequire(import.meta.url);
 const { unitTests, TEX } = require("../../../packages/shared/src/texSets.cjs");
@@ -114,23 +115,6 @@ export function reviewerRight(label, verdict) {
   return { right, why: right ? "" : sentBack ? "sent it back, wanted it to go" : "let it go, wanted it sent back" };
 }
 
-/**
- * The front door's unit tests as one bench test in the invented Maya world (`coreArea.mjs` runs it in `tree`): each a
- * question with its must and never lines, the person's words as they start it. Only a one-ask chat in that world can
- * run this way; any other says so.
- */
-export function fdTest(units, front) {
-  const out = [`---\n${front}\n---\n\n# Sets\n\nThe front door's unit tests from the test conversations (setsRun.mjs).\n`];
-  units.forEach((u, k) => {
-    const m = u.convo.msgs[u.at];
-    const l = u.label;
-    out.push(`## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}\n\n- kind: task\n- person starts: ${JSON.stringify(m.text)}\n${(l.must || []).map((x) => `- must: ${x}\n`).join("")}${(l.never || []).map((x) => `- must not: ${x}\n`).join("")}`);
-  });
-  return out.join("\n");
-}
-
-const fdAlone = (c, i) => c.world === "maya" && c.msgs.slice(0, i).every((m) => m.tex) && !c.msgs[i].kind;
-
 /** Each node's way to run alone: how to ask it, given the tree's code, and how to score its answer. */
 export async function adaptersFor(tree, { fake = false, env = process.env } = {}) {
   const mod = (rel) => import(pathToFileURL(join(tree, rel)).href);
@@ -140,33 +124,8 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
   const socket = fake ? null : modelSocket(env);
   const socketed = Boolean(socket?.covers("claude"));
   return {
-    // The front door runs its whole turn's tools, so its tests go as one batch through the core bench.
-    fd: {
-      batch: async (units) => {
-        const can = units.filter((u) => fdAlone(u.convo, u.at));
-        const rows = units.filter((u) => !can.includes(u)).map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: "the front door runs alone only on a one-ask chat in the bench's Maya world (world: maya) for now" }));
-        if (!can.length) return rows;
-        // The texting setup is pulled into the tree before a core run (the replay gate's tex-replay.yml does), never kept
-        // in the repo; without it the front door has nothing to run as.
-        const setup = join(tree, "apps/mcp/bench/ai/setups/texting-assistant");
-        if (!(await readFile(join(setup, "production.md"), "utf8").then(() => true, () => false)))
-          return rows.concat(can.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: "the front door needs the texting setup pulled into the tree first (apps/mcp/bench/ai/setups/texting-assistant, as the replay gate pulls it)" })));
-        const { runTests } = await mod("apps/mcp/bench/coreArea.mjs");
-        const scratch = await mkdtemp(join(tmpdir(), "tex-sets-fd-"));
-        const dir = join(scratch, "ai");
-        await cp(join(tree, "apps/mcp/bench/ai"), dir, { recursive: true });
-        const core = await readFile(join(dir, "tests", "core.md"), "utf8");
-        const front = /^---\n([\s\S]*?)\n---/.exec(core)?.[1] ?? "";
-        await writeFile(join(dir, "tests", "sets.md"), fdTest(can, front.replace(/^runs: .*$/m, "runs: 1")));
-        const got = await runTests(tree, ["sets"], { dir, scratch, tag: "sets", fake });
-        const each = got.usd / can.length;
-        can.forEach((u, k) => {
-          const r = got.rows.find((x) => x.id === `sets/q${k + 1}`);
-          rows.push({ ...u.row, right: Boolean(r?.right), ran: Boolean(r), usd: Math.round(each * 10000) / 10000, ...(r?.right ? {} : { why: r ? "a must or never line failed" : "no judged answer" }) });
-        });
-        return rows;
-      },
-    },
+    // The front door runs as a whole turn in the bench's world, so its tests go as one batch (`setsFd.mjs`).
+    fd: { batch: (units) => runFd(units, { tree, fake }) },
     decide: async () => {
       const { judgeCase, fakeEngine } = await mod("apps/mcp/bench/respond.mjs");
       const engine = fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN));
