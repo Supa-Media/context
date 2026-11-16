@@ -74,7 +74,7 @@ type ChatSettings = { engagement?: Engagement; engagementChosen: boolean; instru
  * up (`engagement`, never `off`, which answers `muted`) and whether anyone chose it, and the chat's own instructions and
  * progress updates.
  */
-function engagementOf(chat: Doc<"textGroups">): ChatSettings {
+export function engagementOf(chat: Doc<"textGroups">): ChatSettings {
   const level = speaksUpOf(chat);
   return {
     ...(level === undefined || level === "off" ? { engagementChosen: level === "off" } : { engagement: level, engagementChosen: true }),

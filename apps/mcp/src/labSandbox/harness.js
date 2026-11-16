@@ -67,7 +67,7 @@ export function stepsOf(entries) {
  * `owner` the real object's owner name the test chat's ledger stands in for (`person:<id>` or `chat:<key>`), and
  * `ledgerChat` that ledger's chat. Every call goes to the test chat's object; `flush()` waits for the ones not awaited.
  */
-export function sandboxGate(stub, about, rowId, { config = null } = {}) {
+export function sandboxGate(stub, about, rowId, { config = null, before = [] } = {}) {
   const pending = [];
   const call = (op, fields) => callSandbox(stub, op, fields);
   const later = (work) => void pending.push(Promise.resolve(work).catch(() => {}));
@@ -75,6 +75,11 @@ export function sandboxGate(stub, about, rowId, { config = null } = {}) {
   const ops = new Set();
   let lastNode = null;
   const done = [];
+  // The running row as it stands: `before` (steps that ran ahead of the turn, `chatRun.js`), then the turn's nodes.
+  const show = (node) => {
+    lastNode = node;
+    later(call("meta", { key: "running", value: { msgId: rowId, node: lastNode, at: Date.now(), steps: [...before, ...done] } }));
+  };
   return {
     config,
     ops,
@@ -105,9 +110,9 @@ export function sandboxGate(stub, about, rowId, { config = null } = {}) {
     onNode(run) {
       if (typeof run?.node !== "string") return;
       done.push({ node: run.node, out: outOf(run.output), ms: Number.isFinite(run.ms) ? run.ms : 0, ok: run.ok !== false });
-      lastNode = run.node;
-      later(call("meta", { key: "running", value: { msgId: rowId, node: lastNode, at: Date.now(), steps: done.slice() } }));
+      show(run.node);
     },
+    show,
     flush: () => Promise.allSettled(pending.splice(0)),
   };
 }

@@ -123,7 +123,7 @@ function fileNameOf(url) {
 }
 
 /** A row's pictures as the Worker's inbound attachments: the Lab's label, the file's name or the address's last part. */
-function attachmentsOf(row) {
+export function attachmentsOf(row) {
   return (Array.isArray(row?.pics) ? row.pics : []).map((p) => ({ url: p.url, mimeType: p.type ?? "image/jpeg", filename: p.name ?? fileNameOf(p.url), size: null }));
 }
 

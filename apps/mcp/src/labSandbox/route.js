@@ -42,7 +42,8 @@ import { ledgerFor, ONE_TO_ONE_CHAT } from "../agent/ledger.js";
 import { bearerToken } from "../session.js";
 import { json } from "../http/responses.js";
 import { callSandbox, sandboxStub, SEED_CHUNK } from "./object.js";
-import { eventId, runSandboxTurn, stepsOf, TURN_LIMIT_MS } from "./harness.js";
+import { eventId, stepsOf, TURN_LIMIT_MS } from "./harness.js";
+import { chatStepsOf, runTestText } from "./chatRun.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
 import { runEditNode, UNSENT_NOTE, wordsNow } from "./edits.js";
 
@@ -278,10 +279,12 @@ function view(state) {
 async function liveView(stub, state, after) {
   const seen = view(state);
   if (seen.running !== null) {
-    // The nodes the turn reported as they finished (`harness.js` `onNode`), or, once written, what its ledger kept.
-    const kept = await callSandbox(stub, "ledger.of", { by: seen.running.msgId }).then((read) => stepsOf(read.entries)).catch(() => []);
+    // Each step as it finished (`harness.js` `show`): the chat object's own (A text arrives, Old number?, Triage,
+    // Decide, the queue) as it logged each, then the turn's nodes. Once the turn's nodes are written, what its ledger kept.
+    const entries = await callSandbox(stub, "ledger.of", { by: seen.running.msgId }).then((read) => read.entries ?? []).catch(() => []);
+    const kept = chatStepsOf(entries);
     const live = Array.isArray(state.meta?.running?.steps) ? state.meta.running.steps : [];
-    const steps = kept.length >= live.length ? kept : live;
+    const steps = stepsOf(entries).length > 0 || live.length < kept.length ? kept : live;
     seen.rows = seen.rows.map((row) => (row.id === seen.running.msgId ? { ...row, steps } : row));
     seen.running = { ...seen.running, steps };
   }
@@ -327,14 +330,17 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
     await callSandbox(stub, "cut.from", { id: cut });
   }
   await callSandbox(stub, "row.add", { row });
-  await callSandbox(stub, "ledger.append", { entries: [...before, await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })], by: row.id });
+  // The text's event as the Worker logs it, unless the chat object the turn runs through logs it itself.
+  const logged = typeof runTurn.logsText === "function" && runTurn.logsText(row) && turn;
+  const entries = [...before, ...(logged ? [] : [await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })])];
+  if (entries.length > 0) await callSandbox(stub, "ledger.append", { entries, by: row.id });
   const tapback = row.kind === "reaction" ? { turn } : {};
   if (!turn) {
     await callSandbox(stub, "row.add", { row: { id: `${row.id}r`, reply: row.id, who: "Tex", text: "", at: row.at, prod: false, quiet: true, noted: true, note, ms: 0, steps: [] } });
     return json({ msgId: row.id, ...tapback });
   }
   await callSandbox(stub, "meta", { key: "running", value: { msgId: row.id, node: null, at: row.at } });
-  const run = runTurn({ env, stub, about, row, payload: answer.session, token, config: drafted.config ?? null, origin });
+  const run = runTurn({ env, stub, about, row, payload: answer.session, token, config: drafted.config ?? null, origin, chat: answer.chat ?? null });
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
   else await run;
   return json({ msgId: row.id, ...tapback });
@@ -440,7 +446,7 @@ export async function handleLabSandbox(request, env, ctx, options = {}) {
   }
 }
 
-async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc", runTurn = runSandboxTurn } = {}) {
+async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc", runTurn = runTestText } = {}) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
   if (!env?.LAB_SANDBOX) return refused(501, "this deployment has no Lab test chats");
   const token = bearerToken(request);

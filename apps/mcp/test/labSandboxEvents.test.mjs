@@ -166,7 +166,7 @@ function routeWorld() {
     if (body.action === "session") {
       const session = { grantId: "g1", clientId: "context_texts", actorUserId: "u_alice", scopes: ["context:read"], defaultWorkspaceId: "ws_alice", workspaces: [{ workspaceId: "ws_alice", role: "owner", kind: "personal", slug: "alfa" }] };
       if (body.args.chat === "me") return answer({ status: "ok", session, people: [{ handle: "alfa", name: "You" }] });
-      if (body.args.chat === KEY) return answer({ status: "ok", session, people: [{ handle: "ana", name: "Ana" }, { handle: "kai", name: "Kai" }] });
+      if (body.args.chat === KEY) return answer({ status: "ok", session, people: [{ handle: "ana", name: "Ana" }, { handle: "kai", name: "Kai" }], chat: { slug: "team", engagement: "helpful", engagementChosen: true } });
       return answer({ status: "not_found", error: "There is no such chat." });
     }
     return answer({ status: "bad_request" });
@@ -405,6 +405,17 @@ test("an unsend keeps the text taken back with a quiet noted reply and runs no t
     const body = await turnRequestBody({ about: w.turns[1].about, row: asked, rows: all.slice(0, all.findIndex((r) => r.id === asked.id) + 1), turn: "labturn09" });
     assert.ok(!body.group.chat.some((line) => line.text.includes("ferry")), "a text taken back is gone from the chat lines");
     assert.equal(body.group.chat.length, 0);
+  } finally {
+    w.restore();
+  }
+});
+
+test("a group test text's turn gets what the control plane said about the chat, for the chat object's answers", async () => {
+  const w = routeWorld();
+  try {
+    const { body: opened } = await w.call({ op: "open", source: "chat", chatId: KEY });
+    assert.equal((await w.call({ op: "send", sandboxId: opened.sandboxId, as: "ana", text: "@tex hi" })).status, 200);
+    assert.deepEqual(w.turns.at(-1).chat, { slug: "team", engagement: "helpful", engagementChosen: true });
   } finally {
     w.restore();
   }

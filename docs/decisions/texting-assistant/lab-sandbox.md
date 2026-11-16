@@ -25,11 +25,27 @@ would have changed or sent (`writes`, each `by` that text), the copy-on-write ov
 out, for Replay's "Try from here"). Reset deletes all of it; an alarm deletes it 24 hours after its last use. Nothing
 in it is anybody's but a copy of what the caller could already read.
 
-**The turn is the real turn.** `send` writes the person's text into the test chat's ledger as the texting Worker
-would, then runs `handleAgent` (the same `texEntryPoint` and config graph a text runs) in the background
-(`labSandbox/harness.js`), with the draft's wiring: each step's on/off and its wires when every wire names a step this
-build has (`graph/turnGraph.js` `withDraft`). The Lab polls `get`; `running` names the step that last finished; the
-reply row carries each node's time and output from the node entries the turn's ledger kept, never estimated.
+**A test text arrives as a real text arrives** (Dev2, 2026-11-16: "expected it to go through the "A text arrives"
+node end to end, but it looks like it skipped straight to front door"). `send` hands the text to the texting Worker's
+own chat object (`apps/agent/src/chatObject.ts` `SenderInbox`, the class the gateway's TexChat runs), at `/accept` for
+a 1:1 and `/group-accept` for a group (`labSandbox/chatRun.js`). Its route logs node `text`, asks Old number?
+(`oldLine`), queues it, and its alarm runs Triage, Decide and the queue (`lanes`) before it asks `/agent` (the same
+`texEntryPoint` and config graph, with the draft's wiring: each step's on/off and its wires when every wire names a
+step this build has, `graph/turnGraph.js` `withDraft`) and sends what comes back. None of that path is copied or
+skipped; only what the object reaches outside itself is the Lab's, handed in as its `env`: its storage is in memory,
+kept in the test chat's object between texts (dropped when a cut takes the text it was kept after); the gateway it
+calls is this gateway's own handlers on the test chat's session and sandboxed env, reached with a token minted for
+that one text and known only there; the control plane is answered from what the control plane told the Lab about the
+chat (a group's people, slug, engagement, instructions and updates, and the old-number setting, read without minting),
+with a decide gate always open and every change refused and listed; its line keeps what Tex sent as the reply row and
+texts nobody; it never gets the Worker's secret or a real token. The chat is addressed by made-up 555-01xx numbers and a
+`lab:<sandboxId>` chat id; a group's real key and members, which its ledger and home are found by, are put back on the
+turn's body at the `/agent` hop. A group's object starts set up for its people, as the real chat's is once Tex
+answered there. A Lab test text's arrival names its provider `lab`. Tapbacks, edits and unsends still run the turn
+alone (`labSandbox/harness.js`) until each goes through the object too. The Lab polls `get` with `after` the last real
+row, so a long chat is sent once; `running` names the step that last finished, and the running text's row carries
+each step as it finishes: the chat object's own steps as it posts them to the ledger, then the turn's nodes as each
+reports (`onNode`), never estimated.
 "Write as anyone": in a group, `as` is a person's handle (sent as `group.from`) or any other name, sent as a guest who
 tagged Tex. Retry drops that text and everything after it and sends it again; Back keeps it and its reply and drops
 the rest; Drop removes it and everything after it. Each cut takes the texts' writes, overlay changes and ledger

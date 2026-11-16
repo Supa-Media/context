@@ -25,7 +25,8 @@ import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { getMembership } from "./lib/workspaceAuth";
 import { pageForUser, handleFor } from "./texPage";
 import { listDrafts } from "./texSets";
-import { TEXTS_GROUP_CLIENT_ID } from "./textGroups";
+import { engagementOf, TEXTS_GROUP_CLIENT_ID } from "./textGroups";
+import { oldLineSetting } from "./texOldLine";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 
 const CONSOLE_CLIENT_ID = "context_console";
@@ -89,7 +90,7 @@ async function sessionFor(ctx: QueryCtx, userId: Id<"users">, chat: string) {
     const own = grants.filter((grant) => grant.clientId === TEXTS_CLIENT_ID && grant.status === "active").sort((a, b) => b.createdAt - a.createdAt);
     for (const grant of own) {
       const live = await liveWithoutToken(ctx, grant);
-      if (live !== null) return { status: "ok" as const, session: await sessionOf(ctx, live), people: [{ handle: await handleFor(ctx, userId), name: "You" }] };
+      if (live !== null) return { status: "ok" as const, session: await sessionOf(ctx, live), people: [{ handle: await handleFor(ctx, userId), name: "You" }], chat: { oldLine: await oldLineSetting(ctx) } };
     }
     return { status: "not_found" as const, error: "Tex has no texting grant for you yet: text Tex once first." };
   }
@@ -111,7 +112,9 @@ async function sessionFor(ctx: QueryCtx, userId: Id<"users">, chat: string) {
     const live = await liveWithoutToken(ctx, grant);
     if (live === null) continue;
     const people = await Promise.all((group.homeUsers ?? []).map(async (id) => ({ handle: await handleFor(ctx, id), name: id === userId ? "You" : (await handleFor(ctx, id)) || "Someone" })));
-    return { status: "ok" as const, session: await sessionOf(ctx, live), people };
+    // What the control plane tells the chat's object about it on each turn (`textGroups.ts` "ready"), read without minting.
+    const chat = { slug: live.workspace.slug, ...engagementOf(group), oldLine: await oldLineSetting(ctx) };
+    return { status: "ok" as const, session: await sessionOf(ctx, live), people, chat };
   }
   return { status: "not_found" as const, error: "Tex has not answered you in this chat yet: tag it there once first." };
 }
