@@ -39,10 +39,17 @@ export function testSetProblems(conversation, config = TEX_CONFIG) {
   return sets.check(conversation, config, { why: WHY });
 }
 
-/** `/tex-eval/*`: the service's own HTTP door, through the binding. */
+/**
+ * `/tex-eval/*`: the service's own HTTP door, through the binding. Its answer gains the gateway's open CORS header,
+ * as every gateway answer has, so the Lab (another origin) can read the public counts; a run still needs the
+ * workflow's OIDC token in its header, which no page holds.
+ */
 export async function handleTexEval(request, env) {
   if (!env.TEX_EVAL_HTTP) return json({ error: "not_found" }, 404);
-  return await env.TEX_EVAL_HTTP.fetch(request);
+  const res = await env.TEX_EVAL_HTTP.fetch(request);
+  const out = new Response(res.body, res);
+  out.headers.set("Access-Control-Allow-Origin", "*");
+  return out;
 }
 
 /** `/tex-test-set`, for the Lab's people only. */

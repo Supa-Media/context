@@ -2,7 +2,7 @@
  * The left column, simplified (Dev2, 2026-11-16, approved mockup https://claude.ai/artifact/PUjJ7Vd6tX6BJj7vkEir1T):
  * the 60/20/20 split as one small chip, then each set as a heading over one line per chat. Drag a chat onto another
  * set to move it ("just have it be able to be dragged on the left nav"). The Test Set's chats stay hidden (counts
- * only) until a person clicks twice to see them.
+ * only) until a person asks to see them and says yes to the people-only note.
  */
 import { useState } from "react";
 import { SET_INFO, SETS, setsRatio, starsIn, type Conversation, type SetId } from "../../engine/sets";
@@ -79,19 +79,29 @@ export function SetsList() {
                   {count} · ★ {stars}
                 </span>
               </div>
-              {hidden ? (
-                <button
-                  className="ts-ci locked"
-                  id="showTest"
-                  title="People only: an agent that sees these can overfit"
-                  onClick={() => {
-                    if (!sure) return setSure(true);
-                    setSure(false);
-                    void showTest(true);
-                  }}
-                  onBlur={() => setSure(false)}
-                >
-                  <span className="t">{sure ? "Click again: people only" : `${count} hidden chat${count === 1 ? "" : "s"}`}</span>
+              {hidden && sure ? (
+                <div className="ts-sure" id="testSure" role="group" aria-label="Show the Test set">
+                  <p>People only: an agent that reads these chats can learn them and overfit.</p>
+                  <span>
+                    <button
+                      className="btn sm p"
+                      id="showTestYes"
+                      autoFocus
+                      onClick={() => {
+                        setSure(false);
+                        void showTest(true);
+                      }}
+                    >
+                      Show {count} chat{count === 1 ? "" : "s"}
+                    </button>
+                    <button className="btn sm" id="showTestNo" onClick={() => setSure(false)}>
+                      Cancel
+                    </button>
+                  </span>
+                </div>
+              ) : hidden ? (
+                <button className="ts-ci locked" id="showTest" title="People only: an agent that sees these can overfit" onClick={() => setSure(true)}>
+                  <span className="t">{`${count} hidden chat${count === 1 ? "" : "s"}`}</span>
                   <span className="st">people only</span>
                 </button>
               ) : (
