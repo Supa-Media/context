@@ -49,6 +49,7 @@
 import { ProviderError, THINKING_REFUSED, anthropicMessages } from "./providers.js";
 import { prefixPrint } from "./prefixPrint.js";
 import { withToday } from "./localNow.js";
+import { TEX_CONFIG, texConfigOf } from "./texConfig.js";
 
 /** The Anthropic API version this build is written against. */
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -133,7 +134,11 @@ export function aiGatewayConfig(env) {
   if (typeof token !== "string" || token.length < 20 || token.length > 512) return null;
   const creditKey = env?.ANTHROPIC_CREDIT_KEY;
   const aliases = typeof env?.AI_GATEWAY_KEY_ALIASES === "string" ? env.AI_GATEWAY_KEY_ALIASES.split(",").map((alias) => alias.trim()) : [];
+  // A Lab test chat's turn carries its draft's config (`texConfig.js` `texConfigOf`), so each step it asks a model
+  // for runs on the draft's model and effort; a real turn's carries none, and its steps read main's.
+  const tex = texConfigOf(env);
   return {
+    ...(tex !== TEX_CONFIG ? { tex } : {}),
     gatewayId,
     url: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/anthropic/v1/messages`,
     // The same gateway's other providers hang off this (`pictureMaker.js`: Google's image model).

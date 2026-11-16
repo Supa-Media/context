@@ -3,6 +3,7 @@
 import { contextsFor } from "../../context/identity.js";
 import { markUntrusted } from "../../privacy/egress.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
+import { texConfigOf } from "../texConfig.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
@@ -198,7 +199,7 @@ export async function runTheModel(t, via) {
     // An email or calendar change is checked by the control plane and the Mail checker before it is held (2026-10-22: three "timed out" for one email;
     // the owner: "at least 2 minutes … it's a crucial thing"). A quick group turn cuts it to its own end (`turn.js`).
     // The advisor (Opus, thinking) answers in 20 to 38 s: its own limit, longer in a job (`advisor.js`, 2026-11-12).
-    toolTimeouts: { open_page: OPEN_PAGE_TIMEOUT_MS, browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, draw_visual: 75_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000, [ADVISOR_TOOL]: advisorTimeoutMs(job !== null) },
+    toolTimeouts: { open_page: OPEN_PAGE_TIMEOUT_MS, browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, draw_visual: 75_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000, [ADVISOR_TOOL]: advisorTimeoutMs(job !== null, texConfigOf(env)) },
     // A background job is long whether or not it streams (`background.js`).
     // So is a data file to work through: Opus plans it, so a breakdown isn't guessed on the everyday model (2026-10-24).
     planned: job !== null || carriesData(attachments), ...(streamed || job !== null ? { ...(channel?.offered ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),

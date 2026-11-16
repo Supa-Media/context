@@ -106,7 +106,7 @@ import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
 import { staleToolNames } from "./promptNames.js";
 import { assembleSetup, moduleBody, moduleTexts, namedModules, readModuleLists, splitAssembled } from "./promptModules.js";
-import { TEX_PROMPT_WORDS, texModules, texSetupFront } from "./texConfig.js";
+import { TEX_CONFIG, TEX_PROMPT_WORDS, texModules, texSetupFront, texWords } from "./texConfig.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 /** The `job:` a texting setup names (or none); only such a setup is read with Tex's config (`texConfig.js`). */
@@ -141,15 +141,15 @@ export const PRODUCTION_MEETING_SUMMARIES_PATH = "ai/production/meeting-summarie
  *
  * @param {unknown} raw the file's text
  */
-export async function parseSetup(raw) {
+export async function parseSetup(raw, config = TEX_CONFIG) {
   try {
-    return await parse(raw);
+    return await parse(raw, config);
   } catch {
     return null;
   }
 }
 
-async function parse(kept) {
+async function parse(kept, config) {
   // A setup that names modules arrives with them (`promptModules.js`); `kept` is then what `assembleSetup` made.
   const { raw, modules } = splitAssembled(kept);
   if (typeof raw !== "string") return null;
@@ -165,7 +165,7 @@ async function parse(kept) {
   const texting = parsed.job === undefined || parsed.job === TEXTING_JOB;
   const ownModels = parsed.models !== undefined || !texting;
   const ignored = ownModels ? [] : ["plan_big_asks", "reply_judge"].filter((key) => parsed[key] !== undefined);
-  const front = ownModels ? parsed : { ...parsed, ...texSetupFront() };
+  const front = ownModels ? parsed : { ...parsed, ...texSetupFront(config) };
 
   const models = front.models;
   if (!isMap(models) || typeof models.main !== "string" || !isBuiltinModelName(models.main)) return null;
@@ -262,9 +262,9 @@ async function parse(kept) {
   // models nor modules, as production's does, is given them; only a bench variant names its own (`ownModules`).
   const ownModules = front.modules !== undefined || !texting;
   const fromConfig = !ownModules && !ownModels;
-  const lists = fromConfig ? texModules() : readModuleLists(front.modules);
+  const lists = fromConfig ? texModules(config) : readModuleLists(front.modules);
   if (lists === undefined) return null;
-  const texts = fromConfig ? TEX_PROMPT_WORDS : modules;
+  const texts = fromConfig ? texWords(config) : modules;
   const prompts = lists === null ? null : moduleTexts(lists, texts);
   // While a note still names Tex's modules, the ones whose words differ from the repository's, so the move is proved live.
   const wordsDiffer = ownModules && lists !== null ? namedModules(lists).filter((name) => typeof TEX_PROMPT_WORDS[name] === "string" && moduleBody(texts?.[name]) !== TEX_PROMPT_WORDS[name]) : [];
@@ -431,9 +431,10 @@ async function pinnedReach(store, session) {
  * @param {object} session the caller's session
  * @param {{texting: boolean}} options only a texted turn has a setup to read
  */
-export async function readProductionSetup(store, session, { texting, warm = null }) {
+export async function readProductionSetup(store, session, { texting, warm = null, config = TEX_CONFIG }) {
   if (!texting) return null;
-  const setup = await readTextingSetup(store, session, warm);
+  // `config`: main's, or a Lab test chat's draft over it (`texConfig.js` `texConfigOf`), whose models and words it reads.
+  const setup = await readTextingSetup(store, session, warm, config);
   // Production's note names no models: Tex's config does. One that does is a second copy, and is said on every read.
   if (setup !== null && (setup.ownModels || setup.ownModules || setup.ignored.length > 0)) {
     console.log(JSON.stringify({ event: "tex_setup_not_from_config", setup: setup.version, ownModels: setup.ownModels, ownModules: setup.ownModules, wordsDiffer: setup.wordsDiffer, ignored: setup.ignored }));
@@ -444,12 +445,12 @@ export async function readProductionSetup(store, session, { texting, warm = null
   return setup;
 }
 
-async function readTextingSetup(store, session, warm) {
+async function readTextingSetup(store, session, warm, config) {
   try {
     // With a warm copy (`warmCopy.js`), the note's text, and its modules', is read only when the copy hasn't it.
     const read = async () => await readAssembled(store, session, PRODUCTION_TEXTING_PATH);
     const kept = warm !== null ? await warm(read) : await read();
-    return typeof kept === "string" ? await parseSetup(kept) : null;
+    return typeof kept === "string" ? await parseSetup(kept, config) : null;
   } catch {
     return null;
   }

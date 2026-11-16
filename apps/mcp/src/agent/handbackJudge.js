@@ -130,12 +130,12 @@ export async function judgeAsks({ question, answer, steps = [], config, request 
   try {
     const reply = await request(
       {
-        model: HANDBACK_JUDGE_MODEL,
+        model: texModel("handback", config?.tex),
         system: withArchitecture(SYSTEM, "handback"),
         messages: [{ role: "user", text: `PERSON'S TEXT\n\n${asked}\n\nTOOLS THIS TURN RAN\n\n${ran}\n\nTEXT\n\n${String(answer ?? "").slice(0, MAX_ANSWER_CHARS)}` }],
         tools: [],
         maxTokens: 600,
-        ...texEffort("handback"),
+        ...texEffort("handback", config?.tex),
       },
       config,
       { metadata },

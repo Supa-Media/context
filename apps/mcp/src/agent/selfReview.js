@@ -230,12 +230,12 @@ export async function scoreConversation({ transcript, words, config, request = r
   try {
     reply = await request(
       {
-        model: SELF_REVIEW_MODEL,
+        model: texModel("selfreview", config?.tex),
         system: withArchitecture(words ? SYSTEM_FULL : SYSTEM_SCORES, "selfReview"),
         messages: [{ role: "user", text: `CONVERSATION\n\n${transcript}` }],
         tools: [],
         maxTokens: words ? REVIEW_MAX_TOKENS.full : REVIEW_MAX_TOKENS.scores,
-        ...texEffort("selfreview"),
+        ...texEffort("selfreview", config?.tex),
       },
       config,
       { metadata },

@@ -89,7 +89,7 @@ export function cardCheckFor({ question, config, request = requestViaGateway, me
     try {
       const reply = await request(
         {
-          model: CARD_CHECK_MODEL,
+          model: texModel("card", config?.tex),
           system: withArchitecture(SYSTEM, "cardCheck"),
           messages: [
             {
@@ -100,7 +100,7 @@ export function cardCheckFor({ question, config, request = requestViaGateway, me
           ],
           tools: [],
           maxTokens: 2_000,
-          ...texEffort("card"),
+          ...texEffort("card", config?.tex),
         },
         config,
         { metadata: { ...metadata, feature: "card-check" } },

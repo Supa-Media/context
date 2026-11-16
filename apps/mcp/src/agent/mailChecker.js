@@ -116,12 +116,12 @@ export function mailCheckerFor({ history, question, config, request = requestVia
     try {
       const answer = await request(
         {
-          model: MAIL_CHECKER_MODEL,
+          model: texModel("mail", config?.tex),
           system: withArchitecture(SYSTEM, "mailChecker"),
           messages: [{ role: "user", text: `TEXTS\n\n${conversation}\n\nDRAFT\n\n${draftFor(email)}` }],
           tools: [],
           maxTokens: 800,
-          ...texEffort("mail"),
+          ...texEffort("mail", config?.tex),
         },
         config,
         { metadata },
