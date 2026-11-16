@@ -19,6 +19,7 @@ import { accountForPhone } from "../functions/lib/identities";
  *   `textingStopped` check dropped from `syncSignInNumber`      -> "someone who turned Tex off stays off" fails
  *   the by_phone check dropped from `syncSignInNumber`          -> "a number on the list for someone else stays theirs" fails
  *   `sign_in` rows not removed when the number changes          -> "changing the sign-in number moves only its own row" fails
+ *   backfill ignoring `staffTypedAt`                            -> "a number staff typed ..." fails
  *   backfill skipping `unlinkedBefore`                          -> "the backfill ... leaves someone who unlinked before off" fails
  */
 
@@ -84,6 +85,18 @@ describe("one list of numbers", () => {
     const personal = await createWorkspace(t, nia, "nia", { kind: "personal" });
     await t.run(async (ctx) => void (await ctx.db.insert("auditEvents", { workspaceId: personal, actorUserId: nia, action: "texts.phone.unlinked", paths: [], at: Date.now() } as never)));
     expect(await backfill(t)).toMatchObject({ added: 0, kept: 1 });
+    expect(await listed(t, NIA)).toEqual([]);
+  });
+
+  test("a number staff typed in the console, which no code proved, never goes on the list", async () => {
+    const t = setupTest();
+    const staff = await createUser(t, "staff@example.invalid");
+    const nia = await legacySignIn(t, NIA);
+    await t.run(async (ctx) => {
+      const at = (await ctx.db.get(nia))!.phoneVerificationTime!;
+      await ctx.db.insert("adminAuditEvents", { actorUserId: staff, actorEmail: "staff@example.invalid", action: "person.phone_set", subject: String(nia), at });
+    });
+    expect(await backfill(t)).toMatchObject({ added: 0 });
     expect(await listed(t, NIA)).toEqual([]);
   });
 

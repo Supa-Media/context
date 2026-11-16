@@ -13,6 +13,9 @@
  *    as `accountForPhone` read it before this).
  *  - Only the `sign_in` row follows the sign-in number: a number changed or removed in the app takes its row off,
  *    never a row the person made by texting a code.
+ *  - Only a number the person proved with a code goes on: one staff typed in the console (`adminFns/people.ts`) signs
+ *    in only with a code to that phone, but a text from it would be answered as the account, so it is never added
+ *    (`add: false`), and the backfill skips one staff set that no code confirmed since.
  *  - Turning Tex off sticks: someone who texted STOP or unlinked (`textingStops`) is not put back until they link
  *    again by code.
  */
@@ -53,9 +56,10 @@ export async function clearTextingStopped(ctx: MutationCtx, userId: Id<"users">)
 
 /**
  * The list brought in step with `userId`'s sign-in number: a `sign_in` row for another number goes, and the confirmed
- * number is added unless it is already theirs, someone else's, or they turned Tex off. True when a row was added.
+ * number is added unless it is already theirs, someone else's, they turned Tex off, or the caller says the number was
+ * not proven by a code (`add: false`). True when a row was added.
  */
-export async function syncSignInNumber(ctx: MutationCtx, userId: Id<"users">): Promise<boolean> {
+export async function syncSignInNumber(ctx: MutationCtx, userId: Id<"users">, { add = true }: { add?: boolean } = {}): Promise<boolean> {
   const number = signInNumber(await ctx.db.get(userId));
   const mine = await ctx.db.query("phoneLinks").withIndex("by_user", (q) => q.eq("userId", userId)).take(MAX_NUMBERS);
   let removed = false;
@@ -66,7 +70,7 @@ export async function syncSignInNumber(ctx: MutationCtx, userId: Id<"users">): P
     }
   }
   if (removed) await refreshTexting(ctx, userId);
-  if (number === null || mine.some((row) => row.phone === number)) return false;
+  if (!add || number === null || mine.some((row) => row.phone === number)) return false;
   if (await textingStopped(ctx, userId)) return false;
   if ((await ctx.db.query("phoneLinks").withIndex("by_phone", (q) => q.eq("phone", number)).first()) !== null) return false;
   await ctx.db.insert("phoneLinks", { userId, phone: number, linkedAt: Date.now(), via: "sign_in" });

@@ -242,7 +242,8 @@ export async function setPhoneHandler(
   }
   if (user.phone === phone && user.phoneVerificationTime !== undefined) return { status: "saved", phone };
   await ctx.db.patch(userId, { phone, phoneVerificationTime: Date.now() });
-  await syncSignInNumber(ctx, userId);
+  // Typed by staff, not proven by a code: the old sign-in row goes, and this number is not put on the texting list.
+  await syncSignInNumber(ctx, userId, { add: false });
   await recordAdminAudit(ctx, actor, "person.phone_set", userId, {
     phone: lastFour(phone),
     was: user.phone === undefined ? null : lastFour(user.phone),
