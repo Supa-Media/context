@@ -91,7 +91,35 @@ export type LabState = {
   chgVs: "main" | number;
   /** The draft as it was before revision `rev`, read from the server for "last rev". */
   revBase: { rev: number; graph: LabGraph } | null;
+  /**
+   * How fast every playback runs, a text you send included (Dev2, 2026-11-16, Lab live sandbox mockup
+   * https://claude.ai/artifact/XtEn67XPWMTFVUBYanYLG5): ¼×, ½×, 1×, 2× or 4×, ½× at first, kept for the browser session.
+   * Tex itself always runs at real speed; a playback of a text still running trails it and never shows a step early.
+   */
+  speed: PlaySpeed;
 };
+
+export const PLAY_SPEEDS = [0.25, 0.5, 1, 2, 4] as const;
+export type PlaySpeed = (typeof PLAY_SPEEDS)[number];
+const SPEED_KEY = "texLab.speed";
+/** The speed kept for this browser session, or ½×. */
+export function savedSpeed(): PlaySpeed {
+  try {
+    const v = Number(sessionStorage.getItem(SPEED_KEY));
+    return (PLAY_SPEEDS as readonly number[]).includes(v) ? (v as PlaySpeed) : 0.5;
+  } catch {
+    return 0.5;
+  }
+}
+/** Sets the play speed for the session. */
+export function setSpeed(v: PlaySpeed) {
+  try {
+    sessionStorage.setItem(SPEED_KEY, String(v));
+  } catch {
+    /* private window: the speed lasts until reload */
+  }
+  set({ speed: v });
+}
 
 export const lab: LabState = {
   versions: [MAIN],
@@ -138,6 +166,7 @@ export const lab: LabState = {
   chg: "marks",
   chgVs: "main",
   revBase: null,
+  speed: savedSpeed(),
 };
 
 let version = 0;
