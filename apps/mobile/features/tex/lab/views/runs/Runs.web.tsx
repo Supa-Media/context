@@ -6,7 +6,7 @@
  */
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
-import { G, lab, set, toast } from "../../engine/state";
+import { G, lab, toast } from "../../engine/state";
 import { ago, costWords, live, mcpLines, modelsWords, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind } from "../../engine/labRuns";
 import { setUi, sets } from "../../engine/setsStore";
 
@@ -82,38 +82,6 @@ export function ModelsPick() {
       <option value="gw">Models: as live Tex (AI gateway)</option>
       <option value="cc">Models: Claude Code (subscription)</option>
     </select>
-  );
-}
-
-/** The Lab's top bar: ▶ Run Dev set on the version open, and its last Dev set score. */
-export function LabRunDev() {
-  const runs = useRuns(lab.cur.id);
-  const go = useStartRun("lab");
-  const dev = runs.find((r) => r.kind === "dev");
-  return (
-    <span className="labrun" id="labRun">
-      <ModelsPick />
-      <button className="btn sm p" id="labRunDev" title="Runs every Dev set unit test on GitHub on this version" onClick={() => void go("dev", {}, lab.cur.id)}>
-        ▶ Run Dev set
-      </button>
-      {dev ? (
-        <>
-          <StagePill r={dev} />
-          {dev.stage === "done" ? <b>{scoreWords(dev)}</b> : null}
-          <a
-            href="/lab?mode=testing"
-            id="labOpenRuns"
-            onClick={(e) => {
-              e.preventDefault();
-              setRunsUi({ open: true, run: dev.id, ver: lab.cur.id });
-              set({ mode: "testing", sel: null });
-            }}
-          >
-            Details
-          </a>
-        </>
-      ) : null}
-    </span>
   );
 }
 

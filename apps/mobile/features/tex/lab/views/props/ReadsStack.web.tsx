@@ -177,7 +177,7 @@ export function ReadsStack({ n, g }: { n: LabNode; g: LabGraph }) {
           );
         })}
       </div>
-      <div className="flex hint" style={{ marginTop: 6, fontSize: 11.5, gap: 12 }}>
+      <div className="flex hint" style={{ marginTop: 6, fontSize: 11, gap: 12 }}>
         <span className="flex" style={{ gap: 5 }}>
           <span className="sw2 st"></span>same every turn
         </span>

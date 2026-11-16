@@ -44,6 +44,8 @@ export type LabState = {
   ownFrom: string;
   /** Sidebar hidden on wide screens (the artifact's `#side[hidden]`). */
   sideHidden: boolean;
+  /** The Lab's sidebar folded to its icons (mockup W21NekNf2vtnFLXXzAmp7N, 2026-11-16). */
+  navMin: boolean;
   /** Sidebar drawn over the page on a phone (the artifact's `.sideopen`). */
   sideOpen: boolean;
   /** The workspace browser or module viewer, when open: what the artifact's `#viewer` showed. */
@@ -112,6 +114,7 @@ export const lab: LabState = {
   ownText: "",
   ownFrom: "text",
   sideHidden: false,
+  navMin: false,
   sideOpen: false,
   viewer: null,
   toastText: null,
@@ -252,6 +255,11 @@ export function newVersion() {
 }
 
 export function go(v: View) {
+  // Conversations is Context modules' Chat history section now (mockup W21NekNf2vtnFLXXzAmp7N, 2026-11-16).
+  if (v === "convo") {
+    v = "modules";
+    requestAnimationFrame(() => document.getElementById("chatHistory")?.scrollIntoView({ block: "start" }));
+  }
   lab.view = v;
   if (v !== "canvas") {
     lab.cfocus = null;

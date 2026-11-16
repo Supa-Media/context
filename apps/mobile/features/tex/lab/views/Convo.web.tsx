@@ -11,7 +11,6 @@ import { focusOn, G, MAIN, edit, node } from "../engine/state";
 import { CV_KINDS, CV_TOOLS } from "../data/convo";
 import { NODE_INFO } from "../data/graph";
 import { useLab } from "../store";
-import { PageHead } from "./parts";
 import { ConvoDiagram } from "./convoDiagram";
 import { inPrompt } from "./convoRows";
 
@@ -46,17 +45,17 @@ export function Convo() {
 
   return (
     <div data-testid="tex-lab-convo">
-      <PageHead
-        icon={
-          <svg className="i" viewBox="0 0 24 24">
+      {/* Folded into Context modules as its Chat history section (Dev2, 2026-11-16: "I dont like this page, whats its purpose?"). */}
+      <section className="ksec" id="chatHistory">
+        <div className="kh">
+          <svg className="i" viewBox="0 0 24 24" style={{ width: 16, height: 16 }}>
             <path d="M4 5h11v8H8l-4 3z" />
             <path d="M15 9h5v8l-3-2h-6v-2" />
           </svg>
-        }
-        title="Conversations"
-      >
-        {""}
-      </PageHead>
+          <b>Chat history</b>
+          <span className="hint">How much of a chat a turn reads, which steps may write to it, and what the ledger keeps.</span>
+        </div>
+      </section>
       <div className="blk" style={{ marginTop: 0 }}>
         <ConvoDiagram c={c} />
       </div>

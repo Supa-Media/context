@@ -13,7 +13,26 @@ import type { StepCell } from "../views/grid/TextGrid.web";
 import { lab, set as setLab } from "./state";
 
 export type SandboxSource = { kind: "maya" } | { kind: "chat"; chatId: string; name: string } | { kind: "set"; convId: string; name: string; chatId?: string };
-export type SandboxRow = { id: string; who: string; text: string; at?: number; prod?: boolean; quiet?: boolean; tex?: boolean; steps?: StepCell[] };
+export type SandboxRow = {
+  id: string;
+  who: string;
+  text: string;
+  at?: number;
+  prod?: boolean;
+  quiet?: boolean;
+  tex?: boolean;
+  steps?: StepCell[];
+  /** Pictures sent with the text (https only), the text it replies to, and whether it was edited. */
+  pics?: string[];
+  replyTo?: string;
+  edited?: boolean;
+  /** Tapbacks on this text, each run as a Tex turn of its own. */
+  reactions?: Array<{ who: string; emoji: string }>;
+  /** A row that is a tapback or an edit on another text, not a text of its own. */
+  kind?: "reaction" | "edit";
+};
+/** The tapbacks iMessage has, in its order. */
+export const TAPBACKS = ["❤️", "👍", "👎", "😂", "‼️", "❓"] as const;
 export type SandboxWrite = { kind: string; summary: string; by?: string };
 export type SandboxState = {
   id: string | null;
@@ -31,12 +50,12 @@ export type SandboxState = {
   busy: boolean;
   problem: string | null;
   /** The chats you may open a test chat over (your 1:1 and your group chats). */
-  chats: Array<{ chatId: string; name: string }>;
+  chats: Array<{ chatId: string; name: string; kind?: "dm" | "group"; people?: number }>;
   /** A text waiting in the composer: Replay's "Try from here" puts the text it tries from there. */
   draft: { as: string; text: string } | null;
 };
 
-export type SandboxOp = "chats" | "open" | "send" | "retry" | "back" | "drop" | "reset" | "get";
+export type SandboxOp = "chats" | "open" | "send" | "react" | "edit" | "retry" | "back" | "drop" | "reset" | "get";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
 export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], draft: null };
@@ -78,6 +97,11 @@ export function rowOf(r: Record<string, unknown>): SandboxRow {
     quiet: r.quiet === true,
     tex: who === "Tex" || r.tex === true,
     steps: arr<Record<string, unknown>>(r.steps).map((x) => ({ node: str(x.node), out: str(x.out), ms: num(x.ms), ok: x.ok === false ? false : true })),
+    ...(Array.isArray(r.pics) ? { pics: arr<unknown>(r.pics).filter((p): p is string => typeof p === "string" && p.startsWith("https://")) } : {}),
+    ...(typeof r.replyTo === "string" && r.replyTo ? { replyTo: r.replyTo } : {}),
+    ...(r.edited === true ? { edited: true } : {}),
+    ...(Array.isArray(r.reactions) ? { reactions: arr<Record<string, unknown>>(r.reactions).map((x) => ({ who: str(x.who), emoji: str(x.emoji) })).filter((x) => x.emoji) } : {}),
+    ...(r.kind === "reaction" || r.kind === "edit" ? { kind: r.kind } : {}),
   };
 }
 
@@ -151,7 +175,9 @@ export async function readSandboxChats() {
   if (!call) return;
   try {
     const b = await call("chats", {});
-    sandbox.chats = arr<Record<string, unknown>>(b.chats).map((c) => ({ chatId: str(c.chatId), name: str(c.name) })).filter((c) => c.chatId);
+    sandbox.chats = arr<Record<string, unknown>>(b.chats)
+      .map((c) => ({ chatId: str(c.chatId), name: str(c.name), ...(c.kind === "dm" || c.kind === "group" ? { kind: c.kind as "dm" | "group" } : {}), ...(num(c.people) != null ? { people: num(c.people)! } : {}) }))
+      .filter((c) => c.chatId);
     emit();
   } catch {
     /* Maya stays */
@@ -212,7 +238,14 @@ export async function tryText(convId: string, name: string, versionId: string, w
   await sendText(text);
 }
 
-export const sendText = (text: string) => run("send", { as: sandbox.handles[sandbox.as] ?? sandbox.as, text });
+const asHandle = () => sandbox.handles[sandbox.as] ?? sandbox.as;
+/** A test text, with up to six pictures and the text it replies to: a real Tex turn in the test chat. */
+export const sendText = (text: string, extra: { pics?: string[]; replyTo?: string } = {}) =>
+  run("send", { as: asHandle(), text, ...(extra.pics?.length ? { pics: extra.pics.slice(0, 6) } : {}), ...(extra.replyTo ? { replyTo: extra.replyTo } : {}) });
+/** A tapback on a text, as whoever the composer sends as: Tex sees it as it would a real one. */
+export const reactTo = (msgId: string, emoji: string) => run("react", { as: asHandle(), msgId, emoji });
+/** Edit one of your test texts: Tex sees the edit as it would a real one. */
+export const editText = (msgId: string, text: string) => run("edit", { msgId, text });
 export const retryText = (msgId: string) => run("retry", { msgId });
 /**
  * Go back to a text: it and its reply kept, everything later dropped. A real text the chat started from can't be cut,

@@ -101,7 +101,7 @@ export function ChangeTip({ marks, stage }: { marks: Marks | null; stage: RefObj
         <b style={{ flex: 1, fontSize: 13 }}>
           {n.label} · {head}
         </b>
-        {who ? <span style={{ color: "var(--team)", fontWeight: 600, fontSize: 11.5 }}>{who}</span> : null}
+        {who ? <span style={{ color: "var(--team)", fontWeight: 600, fontSize: 11 }}>{who}</span> : null}
       </div>
       {x && x.kind === "changed" ? <ChangeRows m={marks} id={tip.id} /> : null}
       {gone ? <div className="hint">On {marks.vs}, not in this draft.</div> : null}
