@@ -364,8 +364,12 @@ test("a test chat opens on the whole real chat, never a cutoff; get pages with a
     const TEXTS = 5_321; // over one ledger read (5,000) and over many seed pieces
     for (let at = 0; at < TEXTS; at += 100) {
       const entries = [];
-      for (let i = at; i < Math.min(TEXTS, at + 100); i += 1) entries.push(eventEntry({ id: `${String(start + i).padStart(13, "0")}-${String(i).padStart(6, "0")}`, at: start + i, chat: ONE_TO_ONE_CHAT, kind: "text", from: i % 2 ? { kind: "tex" } : { kind: "person" }, text: `text ${i}`, ...(i % 2 ? { delivered: true } : {}) }));
-      await ledger.append(ONE_TO_ONE_CHAT, entries);
+      for (let i = at; i < Math.min(TEXTS, at + 100); i += 1) {
+        // Each of Tex's texts is a turn's answer, kept with its `reply` and a step's log, as a real chat's ledger is.
+        entries.push(eventEntry({ id: `${String(start + i).padStart(13, "0")}-${String(i).padStart(6, "0")}`, at: start + i, chat: ONE_TO_ONE_CHAT, kind: "text", from: i % 2 ? { kind: "tex" } : { kind: "person" }, text: `text ${i}`, ...(i % 2 ? { delivered: true, turn: `turn${i}` } : {}) }));
+        if (i % 2) entries.push({ id: `turn${i}r`, at: start + i, kind: "reply", turn: `turn${i}`, clean: true }, { id: `turn${i}s`, at: start + i, kind: "step", step: "node", name: "fd", ok: true });
+      }
+      for (let from = 0; from < entries.length; from += 100) await ledger.append(ONE_TO_ONE_CHAT, entries.slice(from, from + 100));
     }
     const opened = await w.call(ALICE, { op: "open", source: "chat", chatId: "me" });
     assert.equal(opened.status, 200, JSON.stringify(opened.body).slice(0, 200));
@@ -373,6 +377,14 @@ test("a test chat opens on the whole real chat, never a cutoff; get pages with a
     assert.equal(opened.body.rows[0].text, "text 0");
     assert.equal(opened.body.rows.at(-1).text, `text ${TEXTS - 1}`);
     const id = opened.body.sandboxId;
+    // Tex's history in the test chat is the real chat's, rebuilt as a turn rebuilds it: every exchange, never none.
+    const { conversationFromLedger } = await import("../src/agent/ledgerConversation.js");
+    const { DESK_LEDGER } = await import("../src/texStore/desk.js");
+    const copied = w.ns.get(w.ns.idFromName(`labsandbox:u_alice:${id}`));
+    const read = await (await copied.fetch(new Request("https://lab-sandbox.internal/ledger.read", { method: "POST", body: JSON.stringify({ chat: ONE_TO_ONE_CHAT, options: { ...DESK_LEDGER.options, slim: false } }) }))).json();
+    assert.ok(read.entries.some((entry) => entry.kind === "reply"), "the replies are copied");
+    assert.ok(!read.entries.some((entry) => entry.kind === "step"), "the steps' logs are not");
+    assert.ok(conversationFromLedger(read.entries).length > 0, "a turn there reads the chat's history");
     const all = await w.call(ALICE, { op: "get", sandboxId: id });
     assert.equal(all.body.rows.length, TEXTS);
     const tail = await w.call(ALICE, { op: "get", sandboxId: id, after: opened.body.rows.at(-3).id });
