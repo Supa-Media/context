@@ -43,8 +43,11 @@ with a decide gate always open and every change refused and listed; its line kee
 texts nobody; it never gets the Worker's secret or a real token. The chat is addressed by made-up 555-01xx numbers and a
 `lab:<sandboxId>` chat id; a group's real key and members, which its ledger and home are found by, are put back on the
 turn's body at the `/agent` hop. A group's object starts set up for its people, as the real chat's is once Tex
-answered there. A Lab test text's arrival names its provider `lab`. Tapbacks, edits and unsends still run the turn
-alone (`labSandbox/harness.js`) until each goes through the object too. The Lab polls `get` with `after` the last real
+answered there. A Lab test text's arrival names its provider `lab`. A tapback, an edit and an unsend go in the same way, as
+Tex's line hands each over (`photonEvents.ts`): a tapback to `/react` in a 1:1 or to `/group-accept` as a group message
+carrying `reaction` (on Tex's text with its words and `onTex`, else `onOther`), an edit or an unsend to `/edit`, whose
+`edit` step asks node `edit` over `/texts/edit` on the draft (found in production, 2026-11-16: they had run the turn
+alone, and the route had decided a tapback's "noted" and run node `edit` itself). The Lab polls `get` with `after` the last real
 row, so a long chat is sent once; `running` names the step that last finished, and the running text's row carries
 each step as it finishes: the chat object's own steps as it posts them to the ledger, then the turn's nodes as each
 reports (`onNode`), never estimated.
@@ -63,20 +66,18 @@ entries with it, and the ledger is rebuilt from what is left. A real text is nev
   a Testing-set message's are (`texSetOps.cjs` `checkPics`: https, picture types) and each a plain https name
   (`remoteImage.cjs` `fetchableImageUrl`: no address, port or userinfo); `text` may be empty with pictures. `replyTo`
   is any row of this test chat with words, real or test.
-- `react { sandboxId, msgId, emoji, as? }` → `{ msgId, turn }`, `emoji` one of ❤️ 👍 👎 😂 ‼️ ❓ on any row with words
+- `react { sandboxId, msgId, emoji, as? }` → `{ msgId }`, `emoji` one of ❤️ 👍 👎 😂 ‼️ ❓ on any row with words
   (Tex's included, never a tapback or a quiet reply).
-- `edit { sandboxId, msgId, text, as? }` → `{ msgId, to, why }` and `unsend { sandboxId, msgId, as? }` (the Lab's
-  Delete, iMessage's Undo Send): only one of the test texts (never a real one, Tex's, a tapback, an edit or unsend row,
-  or a text already taken back), in a group only as its sender. Each runs node `edit` with the draft, as the texting
-  Worker asks it for a Photon edit or unsend ([edits-and-unsends](./edits-and-unsends.md), `labSandbox/edits.js`),
-  compared with the words the text says now: `same` keeps nothing; `turn` keeps a `kind: "edit"` row `on` the text
-  with the new words (`edited: true`) and runs its turn; `withdraw` keeps a `kind: "unsend"` row with a quiet noted
-  reply and no turn, and marks the text `unsent`. The event is logged as the Worker logs one (`edited`/`unsent`,
-  `replyTo`, `quoted` the words before), the node's run as the row's first step; a group's chat lines leave out a text
-  taken back. Retry sends an edit or unsend again as itself. tex_dev's `sandbox` has both ops.
+- `edit { sandboxId, msgId, text, as? }` → `{ msgId }` and `unsend { sandboxId, msgId, as? }` (the Lab's Delete,
+  iMessage's Undo Send): only one of the test texts (never a real one, Tex's, a tapback, an edit or unsend row, or a
+  text already taken back), in a group only as its sender. The row (`kind: "edit"` with the new words and `edited:
+  true`, or `kind: "unsend"`) is the person's change; the chat object takes it as a Photon edit or unsend
+  ([edits-and-unsends](./edits-and-unsends.md)): `same` keeps nothing, `turn` queues the new words as a text, `withdraw`
+  takes a waiting text back. Its `edit` step is on the row, and a quiet reply row says what the object did. Retry sends
+  an edit or unsend again as itself. tex_dev's `sandbox` has both ops.
 - `get` rows carry `pics`, `replyTo`, `reactions: [{ who, emoji }]` on a tapped row, and each tapback's own row
   (`kind: "reaction"`, `emoji`, `on`, its line as `text`). Retry sends a text again with its pictures and reply, and a
-  tapback again as itself. The daily cap counts every op that runs a turn, and only those.
+  tapback again as itself. The daily cap counts every text, tapback, edit and unsend.
 
 **Each event reaches the turn as production hands it to `/agent`**, built by the texting Worker's own code
 (`apps/agent/src/gatewayInbound.js`, which the bundler follows into its TypeScript, as `gatewayChat.js` is;
@@ -93,7 +94,7 @@ entries with it, and the ledger is rebuilt from what is left. A real text is nev
 - *A tapback.* Logged as its line, "❤️ (yes) on Tex's message …" (`reactions.ts` `reactionLine`). In a 1:1
   (`inbox.ts` `react`) one that answers something (`answers`, or a 👍/❤️/👎 on an ask, `thumbs.ts` `holdsAsAnswer`)
   runs the turn with its emoji as the question, the words it was on as `quoted` and its name as `tapback`; any other is
-  only noted, runs no turn (a quiet `noted` reply row, not counted), and the next text carries it as `reacted`. In a
+  only noted and runs no turn (its reply row quiet, saying `noted`), and the next text carries it as `reacted`. In a
   group (`groupInbox.ts` `acceptReaction`) the asker's 👍/❤️/👎 on Tex's ask (anyone's on a lent computer's ask) goes as
   the tapback, and any other reads on as its line.
 

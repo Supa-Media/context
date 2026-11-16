@@ -8,6 +8,8 @@
 //   chatRun.js `fetchOut` skipping the text's token check                 "nothing leaves ..." fails (401 expected)
 //   chatRun.js `/agent` hop leaving a group's made-up key                  "a group test text ..." fails
 //   harness.js `onNode` calling `this.show` (the runner calls it unbound)  "a turn's node lights its row ..." fails
+//   chatRun.js `runTestText` running a tapback or an edit on the turn alone  "a tapback ..." and "an edit ..." fail
+//   chatRun.js `inboundOf` sending a tapback to `/accept` as a text           "a 1:1 ❤️ on Tex's plain text ..." fails
 //   chatRun.js `gatewayRoutes` handing the `{ store, session }` pair on as the store (live 2026-11-16: every test
 //   text stopped at triage, the turn never asked)                          "the /agent hop hands the turn ..." fails
 
@@ -15,7 +17,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../src/labSandbox/object.js";
-import { chatEnvFor, chatStepsOf, gatewayRoutes, keepingLine, LAB_CONTROL_PLANE, LAB_GATEWAY, LAB_WORKER_SECRET, MemoryStorage, runChatTurn } from "../src/labSandbox/chatRun.js";
+import { chatEnvFor, chatStepsOf, gatewayRoutes, inboundOf, keepingLine, LAB_CONTROL_PLANE, LAB_GATEWAY, LAB_WORKER_SECRET, MemoryStorage, runChatTurn } from "../src/labSandbox/chatRun.js";
 import { streamTurn, wantsProgress } from "../src/agent/progress.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
@@ -33,7 +35,7 @@ function sandbox(about, rows) {
  * `/agent` and the texting routes as the gateway answers them, recorded: the turn answers `answer` (streamed when the
  * chat object asks for progress, as `http/route.js` does), and `/agent/events` lands in the test chat's ledger.
  */
-function fakeGateway(answer, call, rowId) {
+function fakeGateway(answer, call, rowId, { edit = { to: "turn", why: "the words changed" } } = {}) {
   const asked = [];
   const agentRoute = async (request, path) => {
     const body = await request.json().catch(() => ({}));
@@ -54,6 +56,7 @@ function fakeGateway(answer, call, rowId) {
     texted.push(path);
     if (path === "/texts/session") return Response.json({ status: "linked", accessToken: "never-used" });
     if (path === "/texts/old-line") return Response.json({ to: "pass" });
+    if (path === "/texts/edit") return Response.json(edit);
     return Response.json({ error: "unknown_route" }, { status: 404 });
   };
   return { asked, texted, agentRoute, textsRoute };
@@ -171,4 +174,62 @@ test("the /agent hop hands the turn the test chat's own store and session, strea
     assert.equal(givenStore, store);
     assert.equal(givenSession, session);
   }
+});
+
+/** One test row run through the chat object of a 1:1 test chat that already holds `rows`. */
+async function runOne(rows, row, gwOptions) {
+  const { stub, call, ready } = sandbox(ONE, []);
+  await ready;
+  for (const r of [...rows, row]) await call("row.add", { row: r });
+  const gw = fakeGateway("Sure.", call, row.id, gwOptions);
+  const { runTestText } = await import("../src/labSandbox/chatRun.js");
+  await runTestText({ env: {}, stub, about: ONE, row, payload: { defaultWorkspaceId: "ws_a" }, token: "caller-token", config: null, origin: "https://gateway.example", agentRoute: gw.agentRoute, textsRoute: gw.textsRoute });
+  const state = await call("state", {});
+  return { gw, state, reply: state.rows.find((r) => r.id === `${row.id}r`) };
+}
+
+const TEXTED = { id: "t1", who: "ana", text: "dinner at 7?", at: Date.now() - 5_000, prod: false, eid: "0000000000001-000001" };
+const ANSWERED = { id: "t1r", reply: "t1", who: "Tex", text: "Sounds good.", at: Date.now() - 4_000, prod: false };
+
+test("a 1:1 ❤️ on Tex's plain text goes to the chat object's tapback route, which only notes it", async () => {
+  const row = { id: "t2", who: "ana", kind: "reaction", emoji: "❤️", on: "t1r", text: "❤️ on Tex's message", at: Date.now(), prod: false, eid: "0000000000002-000001" };
+  const { gw, reply } = await runOne([TEXTED, ANSWERED], row);
+  assert.ok(!gw.asked.some((a) => a.path === "/agent"), "no turn: the object noted it");
+  assert.ok(reply?.quiet, "a quiet reply row");
+  assert.match(reply.note, /noted/, reply.note);
+});
+
+test("an edit goes to the chat object's edit route, which asks node edit and queues the new words as a text", async () => {
+  const row = { id: "t2", who: "ana", kind: "edit", on: "t1", text: "dinner at 8?", edited: true, at: Date.now(), prod: false, eid: "0000000000002-000001" };
+  const { gw, reply } = await runOne([TEXTED, ANSWERED], row);
+  assert.ok(gw.texted.includes("/texts/edit"), "node edit was asked");
+  const turn = gw.asked.find((a) => a.path === "/agent");
+  assert.ok(turn, "the changed words take a turn");
+  assert.equal(turn.body.question, "dinner at 8?");
+  assert.ok(reply.steps.some((s) => s.node === "edit"), `step edit logged (${reply.steps.map((s) => s.node).join(", ")})`);
+  const same = await runOne([TEXTED, ANSWERED], { ...row, text: "Dinner at 7? " }, { edit: { to: "same", why: "the words did not change" } });
+  assert.ok(!same.gw.asked.some((a) => a.path === "/agent"), "an edit node edit calls the same takes no turn");
+  assert.ok(same.reply?.quiet);
+});
+
+test("a test row reaches the chat object as Tex's line hands it over, for each kind", () => {
+  const address = { line: "+15555550100", chatId: "lab:x", groupId: "lab:x", phones: new Map([["ana", "+15555550101"], ["kai", "+15555550102"]]) };
+  const rows = [{ id: "t1", who: "ana", text: "dinner at 7?" }, { id: "t1r", reply: "t1", who: "Tex", text: "Sounds good." }, { id: "t2", who: "ana", kind: "edit", on: "t1", text: "dinner at 8?" }];
+  const one = { kind: "one" };
+  const group = { kind: "group" };
+  const sent = new Map();
+  const tap = inboundOf({ about: one, row: { id: "t3", who: "ana", kind: "reaction", emoji: "👍", on: "t1r" }, rows, address, sentHandles: sent });
+  assert.equal(tap.path, "/react");
+  assert.deepEqual(tap.body.reaction, { how: "Liked", words: "Sounds good.", onTex: true });
+  const own = inboundOf({ about: one, row: { id: "t3", who: "ana", kind: "reaction", emoji: "😂", on: "t1" }, rows, address, sentHandles: sent });
+  assert.deepEqual(own.body.reaction, { how: "Laughed at", words: "", onOther: true });
+  const groupTap = inboundOf({ about: group, row: { id: "t3", who: "kai", kind: "reaction", emoji: "❤️", on: "t1r" }, rows, address, sentHandles: sent });
+  assert.equal(groupTap.path, "/group-accept");
+  assert.equal(groupTap.body.text, "");
+  assert.equal(groupTap.body.reaction.how, "Loved");
+  const edit = inboundOf({ about: one, row: { id: "t4", who: "ana", kind: "edit", on: "t1", text: "dinner at 9?" }, rows, address, sentHandles: sent });
+  assert.equal(edit.path, "/edit");
+  assert.deepEqual([edit.body.kind, edit.body.messageId, edit.body.text, edit.body.previous], ["edited", "t1", "dinner at 9?", "dinner at 8?"], "compared with the words it says now");
+  const unsend = inboundOf({ about: group, row: { id: "t5", who: "ana", kind: "unsend", on: "t1", text: "" }, rows, address, sentHandles: sent });
+  assert.deepEqual([unsend.path, unsend.body.kind, unsend.body.groupId, unsend.body.text], ["/edit", "unsent", "lab:x", undefined]);
 });
