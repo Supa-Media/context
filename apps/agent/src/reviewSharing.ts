@@ -126,7 +126,7 @@ export async function saveReviewSharing(
 
 /** What sharing means, said the same way everywhere a yes is asked for or given. */
 const WHAT_IT_MEANS =
-  "When a chat with me ends, the Context team (the people who build Tex) can read the whole thing: your texts, my replies, and anything you sent me in it, with a score of how it went, to make Tex better. It stays with them, never public, never sold, never used for ads.";
+  "When a chat with me ends, the Context team (the people who build Tex) can read the whole thing: your texts, my replies, and anything you sent me in it, with a score of how it went, to make Tex better. To try a fix, they can text a test copy of the chat, where I answer as I would you, reading the notes I can read; nothing done there changes your notes or reaches anyone. It stays with them, never public, never sold, never used for ads.";
 const SCORES_ONLY = "With sharing off, they only get a score of how each chat went, with no words and no name.";
 const HOW_TO_STOP = 'Text "stop sharing with the devs" any time to stop.';
 const HOW_TO_START = 'Text "share my chats with the devs" if you want them to read your chats to make Tex better.';

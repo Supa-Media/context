@@ -337,14 +337,14 @@ export function SandboxChat() {
                   {reading === r.id ? "…" : play?.playing && (play.id === r.id || play.id.endsWith("#" + r.id)) ? "⏸" : "▶"}
                 </button>
               ) : null}
-              {r.prod && !r.tex && src && sb.source.kind === "chat" ? (
+              {r.prod && !r.tex && src && (sb.source.kind === "chat" || sb.source.kind === "shared") ? (
                 <button
                   data-fork={r.id}
                   title="Sandbox from here: a test chat with the real texts before this one, and this text ready to send"
                   disabled={!!sb.running || sb.busy}
                   onClick={() => {
                     const c = sb.source;
-                    if (c.kind === "chat") void tryFromHere(c.chatId, c.name, src.id, sb.handles[src.who] ?? src.who, src.text);
+                    if (c.kind === "chat" || c.kind === "shared") void tryFromHere(c.chatId, c.name, src.id, sb.handles[src.who] ?? src.who, src.text, c.kind);
                   }}
                 >
                   ⑂

@@ -24,6 +24,24 @@ function placeOf(chat) {
   return null;
 }
 
+/**
+ * One of the person's own chats (`chatOf`), or one shared with the developers (`page.shared`, which `tool.js` reads
+ * from the control plane on each call: `lib/texLabShared.ts`), by its Lab key: `u:<id>` for a 1:1, a group's key.
+ * Read only: everything that opens a chat here only reads its history file.
+ */
+export function probedChat(page, key) {
+  try {
+    return chatOf(page, key);
+  } catch (error) {
+    const shared = (Array.isArray(page?.shared) ? page.shared : []).find((c) => c && c.key === key);
+    if (!shared) throw error;
+    const group = shared.kind === "group";
+    const owner = group ? (typeof shared.owner?.chat === "string" ? { chat: shared.owner.chat } : null) : typeof shared.owner?.person === "string" ? { person: shared.owner.person } : null;
+    if (owner === null) throw error;
+    return { kind: group ? "group" : "me", key, name: String(shared.name ?? "Shared chat"), shared: true, owner, routines: [], picks: [], about: null, jobsChat: null };
+  }
+}
+
 /** A value with every long string cut to `max` characters, saying how long it was. */
 export function cutDeep(value, max) {
   if (typeof value === "string") return value.length > max ? `${value.slice(0, max)}… [cut, ${value.length} characters]` : value;
@@ -40,13 +58,15 @@ export const when = (at, timeZone) => {
   }
 };
 
-/** The chats this person can probe. */
+/** The chats this person can probe: their own, then the ones shared with the developers (read only). */
 export function chatsOf(page) {
-  return pickerOf(page).map((c) => ({ chat: c.key, name: c.key === "me" ? "Just you and Tex" : c.name, ...(c.people ? { people: c.people } : {}) }));
+  const own = pickerOf(page).map((c) => ({ chat: c.key, name: c.key === "me" ? "Just you and Tex" : c.name, ...(c.people ? { people: c.people } : {}) }));
+  const shared = (Array.isArray(page?.shared) ? page.shared : []).filter((c) => c && typeof c.key === "string").map((c) => ({ chat: c.key, name: String(c.name ?? "Shared chat"), shared: true, ...(c.kind === "group" ? { people: c.people } : {}), ...(Array.isArray(c.sharedBy) ? { sharedBy: c.sharedBy } : {}) }));
+  return [...own, ...shared];
 }
 
 export function openChat(env, page, key, ledgerOf = ledgerFor) {
-  const chat = chatOf(page, key ?? "me");
+  const chat = probedChat(page, key ?? "me");
   const place = placeOf(chat);
   const ledger = place === null ? null : ledgerOf(env, place.owner);
   return { chat, place, ledger };
@@ -175,7 +195,7 @@ export function turnFrom(mine, { timeZone, full = false, detail } = {}) {
 
 /** The chat's history file raw, 100 entries at a time, as the Tex page and the Lab read it. */
 export async function entriesOf(env, page, body = {}) {
-  const chat = chatOf(page, body.chat ?? "me");
+  const chat = probedChat(page, body.chat ?? "me");
   const answer = await ledgerView(env, page, chat, { view: "raw", kinds: body.kinds, day: body.day, after: body.after, before: body.before === undefined && body.after === undefined ? NEWEST : body.before, job: body.job });
   return { chat: chat.key, ...answer, entries: (answer.entries ?? []).map((e) => cutDeep(e, body.full === true ? FULL_CUT : CUT)) };
 }
