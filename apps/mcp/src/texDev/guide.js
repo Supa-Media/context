@@ -101,6 +101,7 @@ export const EDIT_OPS = [
   '{ op: "convo", field, value }  one conversation setting (word, older, threads, days, dayChars, slim, classify, tools); null drops it',
   '{ op: "convo_tool", tool, on }  one chat tool on or off, merged into the rest (null drops its setting), as the Conversation tab does',
   '{ op: "model", key, value }  one of the draft\'s own models ({ name, full, id, runs: "claude" | "api" | "code", base?, perTok?, cacheR?, cacheW?, outP?, typed?, custom: true }), as the model form keeps it; null deletes it and its steps move to haiku-5-5',
+  '{ op: "group", id, value }  a group\'s box: { label, goal?, icon?, x?, y? } (steps join it with set field group: id; the canvas folds them into this box); null drops the draft\'s own; get answers the draft\'s groups in graph.groups',
   '{ op: "put", graph }  the whole graph',
 ];
 

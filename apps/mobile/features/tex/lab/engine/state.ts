@@ -9,7 +9,7 @@
  * as globals, and porting them with the same names and the same reads is what
  * keeps the Lab "EXACTLY like the artifact" (Dev2, 2026-11-13).
  */
-import { GROUPS, mainGraph } from "../data/graph";
+import { groupsOf, mainGraph } from "../data/graph";
 import { BASE_MODELS } from "../data/models";
 import type { LabCase, LabGraph, LabModel, LabVersion, Selection, Tool, View } from "../types";
 import { foldAround } from "./groups";
@@ -168,7 +168,7 @@ export const setSaver = (f: ((v: LabVersion) => Promise<void>) | null) => {
 
 export const G = (): LabGraph => lab.cur.graph;
 /** The graph as the Lab shows it at this focus: every group folded, the focused group open (`groups.ts`). */
-export const shownGraph = (g: LabGraph, focusId: string | null): LabGraph => foldAround(g, focusId, GROUPS);
+export const shownGraph = (g: LabGraph, focusId: string | null): LabGraph => foldAround(g, focusId, groupsOf(g));
 export const node = (id: string, g: LabGraph = G()) => g.nodes.find((n) => n.id === id);
 export const isMain = () => lab.cur.id === "main";
 

@@ -9,7 +9,7 @@
  * wires and fades the rest; Ghost also draws the base's version under each changed or moved step, dashed.
  */
 import { unfoldGroups } from "./groups";
-import { GROUPS } from "../data/graph";
+import { groupsOf } from "../data/graph";
 import { edit, G, lab, MAIN, MODELS, toast } from "./state";
 import type { LabEdge, LabGraph, LabNode } from "../types";
 
@@ -171,7 +171,7 @@ export function putBackIn(g: LabGraph, base: LabGraph, id: string) {
 export function putBack(id: string) {
   const b = changeBase();
   if (!b) return;
-  if (GROUPS[id]) return toast("Open the group (Focus) to put back a step inside it");
+  if (groupsOf(G())[id] || G().folded?.[id]) return toast("Open the group (Focus) to put back a step inside it");
   const base = unfoldGroups(b.graph);
   edit(() => {
     const g = G();
