@@ -40,6 +40,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-16",
+    text:
+      "tex_dev action sandbox: the Lab's test chats, a copy of a chat where a draft's Tex answers texts you send and nothing reaches " +
+      "the real chat, its notes or anyone outside (op chats, open, send, retry, back, drop, reset, get); only Tex developers are offered tex_dev.",
+  },
+  {
     date: "2026-11-15",
     text:
       "google_chat and read_google_chat take account, the email of one of the person's Google accounts with Chat: required to read " +
