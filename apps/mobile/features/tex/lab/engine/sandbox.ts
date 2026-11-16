@@ -23,7 +23,7 @@ export type SandboxSource =
   | { kind: "maya" }
   | { kind: "chat"; chatId: string; name: string }
   | { kind: "set"; convId: string; name: string; chatId?: string }
-  /** A chat someone shared with the developers (`readSandboxShared`): read only, its real texts play what ran. */
+  /** A chat someone shared with the developers (`readSandboxShared`): its real texts play what ran, and a test text runs as its person. */
   | { kind: "shared"; chatId: string; name: string };
 /** A chat shared with the developers, as the gateway lists it (`labSandbox/shared.js`). */
 export type SharedChat = { chatId: string; name: string; kind: "dm" | "group"; people: number; sharedBy: string[]; lastAt: number | null };
@@ -346,9 +346,6 @@ export async function sharedLedger(chatId: string, query: LedgerQuery): Promise<
   }
 }
 
-/** A shared chat is read only: its texts play what ran, and nothing new is sent there (`labSandbox/shared.js`). */
-export const isReadOnly = (src: SandboxSource = sandbox.source) => src.kind === "shared";
-
 /** A problem the test chat shows (a picture that didn't upload). */
 export function sandboxProblem(problem: string | null) {
   sandbox.problem = problem;
@@ -479,11 +476,11 @@ export function takeUrlSandbox(): string | null {
  * "Try from here" (Replay's, before Replay joined the Lab): a test chat over that chat with its real texts up to (not
  * including) the one picked, and that text waiting to be sent, as whoever sent it.
  */
-export function tryFromHere(chatId: string, name: string, msgId: string, as: string, text: string) {
+export function tryFromHere(chatId: string, name: string, msgId: string, as: string, text: string, kind: "chat" | "shared" = "chat") {
   sandbox.draft = { as, text };
   // Opened before the canvas shows: the test chat mounting with that switch then finds a chat on its way and waits for
   // it, rather than opening one of its own over the whole chat.
-  const p = openSandbox({ kind: "chat", chatId, name }, lab.cur.id, msgId);
+  const p = openSandbox({ kind, chatId, name }, lab.cur.id, msgId);
   setLab({ mode: "lab", view: "canvas", sel: null });
   return p.then(() => {
     const name = sandbox.people.includes(as) ? as : Object.keys(sandbox.handles).find((n) => sandbox.handles[n] === as);

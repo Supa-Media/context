@@ -13,7 +13,9 @@
  *  - `sets`: every Training and Dev draft (`texSets.ts` `listDrafts`), which the gateway lays over the repo's copy for
  *    the Lab picker's Training / Dev tab. Never the Test Set: it is not kept here.
  *  - `shared`: the chats people shared with the developers (`lib/texLabShared.ts`), each with where its history file
- *    lives, for the picker's "Shared with developers" tab and its read-only history reads.
+ *    lives, for the picker's "Shared with devs" tab and its history reads; `session { chat, shared: true }` the session
+ *    a test turn in one runs on, read from the sharer's own live grant, only while the chat is listed (Dev2 chose
+ *    "Allow test texts" on 2026-11-16; the yes's wording says so for every new yes).
  */
 
 import { v } from "convex/values";
@@ -122,6 +124,39 @@ async function sessionFor(ctx: QueryCtx, userId: Id<"users">, chat: string) {
   return { status: "not_found" as const, error: "Tex has not answered you in this chat yet: tag it there once first." };
 }
 
+/**
+ * The session a test turn in a chat shared with the developers runs on: the sharer's own, as if they had texted it.
+ * Only while the chat is listed (`sharedChats`, asked again on every test text); a 1:1 as its person, a group as one of
+ * its people with a live grant there (the sponsor first). Names are handles, never "You": the caller is not in it.
+ */
+export async function sharedSessionFor(ctx: QueryCtx, callerId: Id<"users">, chat: string) {
+  const listed = (await sharedChats(ctx, callerId)).find((c) => c.key === chat);
+  if (!listed) return { status: "not_found" as const, error: "That chat isn't shared with the developers (or no longer is)." };
+  if (listed.kind === "1:1") {
+    const sharer = chat.slice(2) as Id<"users">;
+    const answer = await sessionFor(ctx, sharer, "me");
+    return answer.status === "ok" ? { ...answer, people: [{ handle: await handleFor(ctx, sharer), name: listed.name }] } : answer;
+  }
+  const group = await ctx.db
+    .query("textGroups")
+    .withIndex("by_key", (q) => q.eq("groupKey", chat))
+    .unique();
+  if (group === null) return { status: "not_found" as const, error: "There is no such chat." };
+  const home = group.homeUsers ?? [];
+  const sponsor = group.sponsorId ?? group.boundBy ?? null;
+  const order = sponsor !== null && home.includes(sponsor) ? [sponsor, ...home.filter((id) => id !== sponsor)] : home;
+  for (const member of order) {
+    const answer = await sessionFor(ctx, member, chat);
+    if (answer.status !== "ok") continue;
+    const people = await Promise.all(home.map(async (id) => {
+      const handle = await handleFor(ctx, id);
+      return { handle, name: handle || "Someone" };
+    }));
+    return { ...answer, people };
+  }
+  return { status: "not_found" as const, error: "Tex has not answered in this chat yet." };
+}
+
 /** One `/gateway/tex/lab-sandbox` call. Reads only, always an answer with a `status`. */
 export const forGateway = internalQuery({
   args: { hashedAccessToken: v.string(), action: v.string(), args: v.any() },
@@ -132,6 +167,7 @@ export const forGateway = internalQuery({
     const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
     if (action === "who") return { ...(await pageForUser(ctx, userId)), userId };
     if (action === "shared") return { status: "ok", chats: await sharedChats(ctx, userId) };
+    if (action === "session" && a.shared === true) return await sharedSessionFor(ctx, userId, typeof a.chat === "string" ? a.chat : "");
     if (action === "session") return await sessionFor(ctx, userId, typeof a.chat === "string" ? a.chat : "me");
     if (action === "draft") {
       if (a.draft === "main" || a.draft === undefined || a.draft === null) return { status: "ok", graph: null };

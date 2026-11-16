@@ -1,7 +1,7 @@
 /**
  * The Lab picker's "Shared with devs" tab, the engine's half (Dev2, 2026-11-16; gateway `labSandbox/shared.js`): the
- * list asked of the gateway, a shared chat opened read only by its key, and its history read through the test chat's
- * route, so ▶ on its real texts plays what ran.
+ * list asked of the gateway, a shared chat opened by its key (test texts there run as its person), and its history
+ * read through the test chat's route, so ▶ on its real texts plays what ran.
  *
  * Every name and message here is invented. This repository is public.
  *
@@ -10,7 +10,7 @@
  *  2. `chatKeyOf` null for a shared chat -> "its history is read through the route" fails.
  */
 import { afterEach, describe, expect, test } from "@jest/globals";
-import { isReadOnly, openSandbox, readSandboxShared, resetSandboxState, sandbox, setSandboxCall, sharedLedger, type SandboxOp } from "../features/tex/lab/engine/sandbox";
+import { openSandbox, readSandboxShared, resetSandboxState, sandbox, setSandboxCall, sharedLedger, type SandboxOp } from "../features/tex/lab/engine/sandbox";
 import { chatKeyOf } from "../features/tex/lab/views/mine/playProd";
 
 const calls: Array<{ op: SandboxOp; body: Record<string, unknown> }> = [];
@@ -45,12 +45,10 @@ describe("chats shared with the developers", () => {
     expect(sandbox.problem).toMatch(/shared chats didn't load: Only Tex developers/);
   });
 
-  test("a shared chat opens by its key, read only", async () => {
+  test("a shared chat opens by its key", async () => {
     gateway({ open: { sandboxId: "0123456789abcdef", people: [{ handle: "sam", name: "@sam" }], rows: [{ id: "e1", who: "You", text: "book a table", prod: true, at: 1 }] } });
     await openSandbox({ kind: "shared", chatId: "u:usam", name: "@sam" }, "main");
     expect(calls[0]).toEqual({ op: "open", body: { source: "shared", chatId: "u:usam", versionId: "main" } });
-    expect(isReadOnly()).toBe(true);
-    expect(isReadOnly({ kind: "chat", chatId: "me", name: "x" })).toBe(false);
   });
 
   test("its history is read through the route, by its own key", async () => {

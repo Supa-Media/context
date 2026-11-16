@@ -1,7 +1,7 @@
 /**
  * The test chat's chat picker (decluttered Lab, mockup https://claude.ai/artifact/W21NekNf2vtnFLXXzAmp7N): your
  * account's 1:1 and group chats, the test account, the Training and Dev conversations, the chats people shared with
- * the developers (read only: their texts play what ran; `labSandbox/shared.js`), and the recent test chats, each opened
+ * the developers (their texts play what ran, a test text runs as them; `labSandbox/shared.js`), and the recent test chats, each opened
  * in the dock (`SandboxChat.web.tsx`).
  */
 import { useEffect, useState } from "react";
@@ -31,7 +31,7 @@ export function ChatPick({ versionId }: { versionId: string }) {
   const [tab, setTab] = useState<Tab>(sb.source.kind === "maya" ? "test" : sb.source.kind === "set" ? "sets" : sb.source.kind === "shared" ? "shared" : "mine");
   const [q, setQ] = useState("");
   const name = sb.source.kind === "maya" ? "Maya (test account)" : sb.source.kind === "chat" && sb.source.chatId === "me" ? "Your 1:1 with Tex" : sb.source.name;
-  const who = sb.source.kind === "shared" ? "shared · read only" : sb.source.kind === "maya" || (sb.source.kind === "chat" && sb.source.chatId === "me") ? "1:1" : sb.people.length ? sb.people.length + " people" : "";
+  const who = sb.source.kind === "shared" ? "shared" : sb.source.kind === "maya" || (sb.source.kind === "chat" && sb.source.chatId === "me") ? "1:1" : sb.people.length ? sb.people.length + " people" : "";
   const qq = q.trim().toLowerCase();
   const hit = (s: string) => !qq || s.toLowerCase().includes(qq);
   const cur = srcKey(sb.source);
@@ -136,7 +136,7 @@ export function ChatPick({ versionId }: { versionId: string }) {
                 </>
               ) : tab === "shared" ? (
                 <>
-                  <div className="mnote">People who said yes to sharing their Tex chats with the developers (Settings → Feedback, or texting "share my chats with the devs"). Read only: ▶ plays what ran.</div>
+                  <div className="mnote">People who said yes to sharing their Tex chats with the developers (Settings → Feedback, or texting "share my chats with the devs"). ▶ plays what ran; a test text runs as them, writes stay in the sandbox.</div>
                   {(["dm", "group"] as const).map((k) => {
                     const xs = shared.filter((c) => c.kind === k);
                     return xs.length ? (

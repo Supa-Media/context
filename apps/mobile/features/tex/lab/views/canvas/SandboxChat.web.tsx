@@ -14,7 +14,7 @@
  * edge makes the dock taller or shorter.
  */
 import { useEffect, useRef, useState } from "react";
-import { attachSandbox, isReadOnly, takeUrlSandbox, tryFromHere, backTo, dropText, editText, reactTo, unsendText, readSandboxChats, sandboxProblem, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow } from "../../engine/sandbox";
+import { attachSandbox, takeUrlSandbox, tryFromHere, backTo, dropText, editText, reactTo, unsendText, readSandboxChats, sandboxProblem, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow } from "../../engine/sandbox";
 import { isStale, noteRan, pickStep, playExternal, playLit, playTexText, playText, setDockView, usePlay } from "../../engine/sandboxPlay";
 import { chatKeyOf, playProd } from "../mine/playProd";
 import { texCauseRun } from "../../engine/sandboxRun";
@@ -337,14 +337,14 @@ export function SandboxChat() {
                   {reading === r.id ? "…" : play?.playing && (play.id === r.id || play.id.endsWith("#" + r.id)) ? "⏸" : "▶"}
                 </button>
               ) : null}
-              {r.prod && !r.tex && src && sb.source.kind === "chat" ? (
+              {r.prod && !r.tex && src && (sb.source.kind === "chat" || sb.source.kind === "shared") ? (
                 <button
                   data-fork={r.id}
                   title="Sandbox from here: a test chat with the real texts before this one, and this text ready to send"
                   disabled={!!sb.running || sb.busy}
                   onClick={() => {
                     const c = sb.source;
-                    if (c.kind === "chat") void tryFromHere(c.chatId, c.name, src.id, sb.handles[src.who] ?? src.who, src.text);
+                    if (c.kind === "chat" || c.kind === "shared") void tryFromHere(c.chatId, c.name, src.id, sb.handles[src.who] ?? src.who, src.text, c.kind);
                   }}
                 >
                   ⑂
@@ -387,8 +387,7 @@ export function SandboxChat() {
           const src = byId.get(r.id);
           if (!src) return null;
           // A row with no words (pictures only, a quiet or noted reply) can't be tapped or replied to.
-          // A shared chat is read only: nothing is tapped, replied to or edited there.
-          return r.evt || !src.text || src.quiet || isReadOnly(sb.source) ? null : (
+          return r.evt || !src.text || src.quiet ? null : (
             <MsgOptions
               r={src}
               onReply={() => {
@@ -451,64 +450,58 @@ export function SandboxChat() {
               {uploading ? <span className="small muted">Uploading…</span> : null}
             </div>
           ) : null}
-          {isReadOnly(sb.source) ? (
-            <div className="sbc ro small muted" id="sbReadOnly">
-              Shared with developers, read only: ▶ on a text plays what ran in prod. To try a change, send the text in one of your own chats or Maya&apos;s.
-            </div>
-          ) : (
-            <form
-              className="sbc"
-              onSubmit={(event) => {
-                event.preventDefault();
-                send();
+          <form
+            className="sbc"
+            onSubmit={(event) => {
+              event.preventDefault();
+              send();
+            }}
+          >
+            <span className="lbl">as</span>
+            <select id="sbAs" aria-label="Send as" value={sb.as} onChange={(e) => sendAs(e.target.value)}>
+              {sb.people.map((p) => (
+                <option key={p}>{p}</option>
+              ))}
+            </select>
+            <button className="ib" type="button" id="sbAtt" title="Add a picture (or paste or drop one)" aria-label="Add a picture" disabled={pics.length >= MAX_PICS} onClick={() => fileIn.current?.click()}>
+              <svg className="i" viewBox="0 0 24 24">
+                <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+                <circle cx="9" cy="10" r="1.6" />
+                <path d="M20 16l-5-5-8 8" />
+              </svg>
+            </button>
+            <input
+              type="file"
+              id="sbAttIn"
+              accept="image/*"
+              multiple
+              hidden
+              ref={fileIn}
+              onChange={(e) => {
+                void addFiles(Array.from(e.target.files ?? []));
+                e.target.value = "";
               }}
-            >
-              <span className="lbl">as</span>
-              <select id="sbAs" aria-label="Send as" value={sb.as} onChange={(e) => sendAs(e.target.value)}>
-                {sb.people.map((p) => (
-                  <option key={p}>{p}</option>
-                ))}
-              </select>
-              <button className="ib" type="button" id="sbAtt" title="Add a picture (or paste or drop one)" aria-label="Add a picture" disabled={pics.length >= MAX_PICS} onClick={() => fileIn.current?.click()}>
-                <svg className="i" viewBox="0 0 24 24">
-                  <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
-                  <circle cx="9" cy="10" r="1.6" />
-                  <path d="M20 16l-5-5-8 8" />
-                </svg>
-              </button>
-              <input
-                type="file"
-                id="sbAttIn"
-                accept="image/*"
-                multiple
-                hidden
-                ref={fileIn}
-                onChange={(e) => {
-                  void addFiles(Array.from(e.target.files ?? []));
-                  e.target.value = "";
-                }}
-              />
-              <input
-                id="sbTxt"
-                ref={txt}
-                aria-label="Test text"
-                autoComplete="off"
-                placeholder={sb.line?.number ? `Text Tex at ${phoneWords(sb.line.number)}…` : sb.as ? `Text as ${sb.as}…` : "Text Tex…"}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onPaste={(e) => {
-                  const fs = Array.from(e.clipboardData?.files ?? []);
-                  if (fs.length) {
-                    e.preventDefault();
-                    void addFiles(fs);
-                  }
-                }}
-              />
-              <button className="primary" id="sbSend" type="submit" disabled={!canSend}>
-                {editing ? "Save edit" : "Send"}
-              </button>
-            </form>
-          )}
+            />
+            <input
+              id="sbTxt"
+              ref={txt}
+              aria-label="Test text"
+              autoComplete="off"
+              placeholder={sb.line?.number ? `Text Tex at ${phoneWords(sb.line.number)}…` : sb.as ? `Text as ${sb.as}…` : "Text Tex…"}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onPaste={(e) => {
+                const fs = Array.from(e.clipboardData?.files ?? []);
+                if (fs.length) {
+                  e.preventDefault();
+                  void addFiles(fs);
+                }
+              }}
+            />
+            <button className="primary" id="sbSend" type="submit" disabled={!canSend}>
+              {editing ? "Save edit" : "Send"}
+            </button>
+          </form>
         </>
       )}
     </section>

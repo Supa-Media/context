@@ -22,7 +22,7 @@
  *  6. `isStale` always false -> "▶ plays back what ran while nothing changed, and runs fresh once the version did" fails;
  *  7. `sendText` dropping `replyTo` -> "tapbacks, replies and pictures are each sent to Tex" fails.
  * (2026-11-16, Shared with devs)
- *  8. the composer shown on a shared chat -> "it opens under the canvas ..." fails.
+ *  8. the shared tab's open sent without `chatId` -> "it opens under the canvas ..." fails.
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
@@ -221,15 +221,13 @@ describe("the Architecture test chat", () => {
     expect(qa("#sbChatList .mi .nm").map((o) => o.textContent)).toEqual(["Your 1:1 with Tex", "Band"]);
     await click('#sbPickTabs [data-tab="sets"]');
     expect(q("#sbChatList")?.textContent).toMatch(/The Test set never shows here/);
-    // Shared with developers: the people who said yes, read only.
+    // Shared with developers: the people who said yes; a test text there runs as them.
     await click('#sbPickTabs [data-tab="shared"]');
     expect(qa("#sbChatList .mh").map((o) => o.textContent)).toEqual(["1:1", "Group chats"]);
     expect(qa("#sbChatList .mi .nm").map((o) => o.textContent)).toEqual(["@sam", "Trip"]);
     await click('#sbChatList [data-shared="u:usam"]');
     expect(mockCalls.find((c) => c.op === "open" && c.body.source === "shared")?.body).toEqual({ source: "shared", chatId: "u:usam", versionId: "main" });
-    // Nothing is sent there: the composer is a note saying so.
-    expect(q("#sbTxt")).toBeNull();
-    expect(q("#sbReadOnly")?.textContent).toMatch(/read only/);
+    expect(q("#sbTxt")).not.toBeNull();
   });
 
   test("each step's output fills its column, and the texts are the shared grid", async () => {

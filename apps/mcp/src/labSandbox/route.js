@@ -14,7 +14,7 @@
  *  - `sets` → `{ sets: [{ id, title, set: "training" | "dev", kind, people, texts }] }`: the Training and Dev
  *    conversations a test chat can start from, the Lab's drafts over the repo's copy. Never the Test Set.
  *  - `shared` and `ledger { chatId, ... }`: the chats people shared with the developers and their history files, read
- *    only (`shared.js`); `open { source: "shared", chatId }` opens one whose texts only play what ran.
+ *    only (`shared.js`); `open { source: "shared", chatId }` opens a test chat over one, run as its person.
  *  - `open { source: "chat" | "set" | "maya" | "shared", chatId?, convId?, versionId?, base? }` → `{ sandboxId, people, rows }`:
  *    a real chat's texts so far (up to `base`, which is left out), or a Training or Dev conversation's (never the Test
  *    Set's), as the test chat's start; `maya` is the bench's Maya conversation.
@@ -62,7 +62,7 @@ import { callSandbox, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.j
 import { eventId, RUNNING_STALE_MS, stepsOf } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
 import { draftFit, TEX_CONFIG } from "../agent/texConfig.js";
-import { READ_ONLY, sharedChatOf, sharedLedger, sharedList } from "./shared.js";
+import { sharedChatOf, sharedLedger, sharedList } from "./shared.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
 import { lineOf, measuredLine, rowLine } from "./line.js";
 import { sandboxAsset } from "./pages.js";
@@ -251,23 +251,25 @@ async function open(env, controlPlane, token, who, input, origin) {
     chat = input.chatId;
   } else return refused(400, 'source is "chat", "set", "maya" or "shared"');
 
-  // A shared chat is someone else's, opened read only: no session, since no turn ever runs on it (`shared.js`).
-  let answer;
+  // A shared chat is someone else's: its session is the sharer's own, given only while it is listed (`shared.js`).
   let owner;
   let group;
+  let answer;
   if (source === "shared") {
     const found = await sharedChatOf(controlPlane, token, chat);
     if (found.error) return refused(...found.error);
     group = found.chat.kind === "group";
     owner = found.chat.owner;
-    answer = { people: group ? (found.chat.sharedBy ?? []).map((handle) => ({ handle, name: handle })) : [{ handle: found.chat.sharedBy?.[0] ?? "", name: found.chat.name }] };
+    answer = await controlPlane.labSandbox(token, "session", { chat, shared: true });
   } else {
     answer = await controlPlane.labSandbox(token, "session", { chat });
-    if (answer === null) return refused(503, "the control plane did not answer");
-    if (answer.status !== "ok") return refused(answer.status === "bad_request" ? 400 : 404, answer.error ?? "There is no such chat.");
+  }
+  if (answer === null) return refused(503, "the control plane did not answer");
+  if (answer.status !== "ok") return refused(answer.status === "bad_request" ? 400 : 404, answer.error ?? "There is no such chat.");
+  if (source !== "shared") {
     group = chat !== "me";
     owner = group ? { chat } : { person: answer.session.defaultWorkspaceId };
-  }
+  } else if (!group && answer.session.defaultWorkspaceId !== owner.person) return refused(404, "That chat isn't shared with the developers (or no longer is).");
   const kind = group ? "group" : "one";
   const ledgerChat = group ? owner.chat : ONE_TO_ONE_CHAT;
 
@@ -296,7 +298,7 @@ async function open(env, controlPlane, token, who, input, origin) {
     kind,
     owner: group ? `chat:${owner.chat}` : `person:${owner.person}`,
     ledgerChat,
-    ...(source === "shared" ? { readOnly: true } : {}),
+    ...(source === "shared" ? { shared: true } : {}),
     ...(group ? { chatKey: owner.chat, members: await sha256Hex(`lab:${chat}:${people.map((p) => p.handle).sort().join(",")}`) } : {}),
     people,
     versionId: typeof input.versionId === "string" ? input.versionId : "main",
@@ -377,7 +379,8 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   const day = new Date().toISOString().slice(0, 10);
   const counted = await callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key: `sends:${day}`, max: DAILY_SENDS });
   if (!counted.ok) return refused(429, `${DAILY_SENDS} test texts a day: try again tomorrow`);
-  const answer = await controlPlane.labSandbox(token, "session", { chat: about.chat });
+  // A shared chat's session is asked again on every text, so one no longer shared stops at once.
+  const answer = await controlPlane.labSandbox(token, "session", { chat: about.chat, ...(about.shared === true ? { shared: true } : {}) });
   if (answer?.status !== "ok") return refused(404, answer?.error ?? "This chat is no longer yours to test in.");
   // The test chat is this text's, taken in the object in one step: two sends at once never both get past here, whatever
   // the reads above saw. Until its turn starts, anything that fails gives the chat back.
@@ -604,7 +607,6 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   if (!state?.meta?.chat) return refused(404, "There is no such test chat (Reset or a day unused deletes one).");
 
   const deps = { env, ctx, controlPlane, token, who, stub, origin, runTurn };
-  if (state.meta.chat.readOnly === true && ["send", "react", "edit", "unsend", "retry"].includes(input.op)) return refused(403, READ_ONLY);
   if (["send", "react", "edit", "unsend", "retry", "use"].includes(input.op)) {
     await callSandbox(indexStub(env, who.userId), "meta", { key: `used:${input.sandboxId}`, value: { at: Date.now(), by: byOf(input.by), op: input.op } }).catch(() => {});
   }

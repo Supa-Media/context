@@ -1,4 +1,4 @@
-# The Lab's "Shared with devs" chats are the review-sharing yes, read only (2026-11-16)
+# The Lab's "Shared with devs" chats are the review-sharing yes, tested as their person in a sandbox (2026-11-16)
 
 Dev2, 2026-11-16: "We need an easy, reliable way ... for someone to share their chat history and future chat with
 developers. So I should be able to then go to the Lab and see a new category of like shared with developers and sort
@@ -20,17 +20,27 @@ chat is gone from the Lab on the next call: past and future texts alike, since n
 Who may read the list is the Lab's test chats' rule unchanged (staff who own or edit the pinned context;
 `texLabSandbox.ts` `sandboxCaller`, `texLabDrafts.ts` `texDeveloper` for `tex_dev`).
 
-**Read only.** `POST /tex-lab/sandbox` gains `shared` (the list) and `ledger { chatId, ... }` (that chat's history file,
-raw, as a person's own Tex page reads theirs; `apps/mcp/src/labSandbox/shared.js`). `open { source: "shared" }` copies
-the chat into a test chat so its real texts sit in the dock and ▶ plays what ran in production on the graph Tex had
-then. `send`, `react`, `edit`, `unsend` and `retry` are refused on it, and no session of the person's is ever asked for:
-a test turn would read the person's notes afresh, which "your texts, my replies, and anything you sent me" does not
-cover. To try a change on one of their texts, a developer sends it in their own chat or Maya's. `tex_dev` has the same:
-`sandbox` `shared`/`ledger`/`open`, and `chats`, `turns`, `turn`, `entries`, `moments` and `set_import` (rewritten,
-never verbatim) take a shared chat's key; `node_stats` stays on the caller's own chats.
+**Browse, replay, and test as the person.** `POST /tex-lab/sandbox` gains `shared` (the list) and
+`ledger { chatId, ... }` (that chat's history file, raw only, as a person's own Tex page reads theirs;
+`apps/mcp/src/labSandbox/shared.js`). `open { source: "shared" }` copies the chat into a test chat: its real texts sit
+in the dock, ▶ plays what ran in production on the graph Tex had then, and ⑂ "Sandbox from here" works as on the
+developer's own chats. A test text there runs on the sharer's own session (`texLabSandbox.ts` `sharedSessionFor`: a
+1:1 as its person, a group as one of its people with a live grant, the sponsor first), so Tex reads their notes live
+as it would for them, and every write stays in the sandbox as in any test chat. The session is asked for again on
+every text, and only while the chat is listed, so a no stops test texts at once.
 
-**What a simplification would cost.** Letting test texts run on a shared chat, or keeping a copy of its history past
-a no, widens what the yes said. Reading the list once and caching it keeps a chat after its person said no. Each is
-caught: `apps/mcp/test/labSandboxShared.test.mjs` (not listed is not there, no is gone at once, raw only, no test text
-runs), `apps/mcp/test/texDev.test.mjs` (shared probes), `apps/convex/__tests__/texLabShared.test.ts` (who is listed),
-`apps/mobile/__tests__/texLabShared.test.ts` and `texLabSandbox.test.ts` (the tab and the read-only composer).
+Dev2 chose this on 2026-11-16 ("Allow test texts", over a read-only Lab tab), with the yes's wording updated to say
+so for everyone who says yes from then on: Settings → Feedback and Tex's texted answer (`apps/agent/src/
+reviewSharing.ts` `WHAT_IT_MEANS`) say the team can "text a test copy of the chat, where I answer as I would you,
+reading the notes I can read; nothing done there changes your notes or reaches anyone".
+
+`tex_dev` has the same: `sandbox` `shared`/`ledger`/`open`, and `chats`, `turns`, `turn`, `entries`, `moments` and
+`set_import` (rewritten, never verbatim) take a shared chat's key; `node_stats` stays on the caller's own chats.
+
+**What a simplification would cost.** Keeping a copy of a shared history past a no, or a test session handed out
+without asking the list, widens what the yes said. Reading the list once and caching it keeps a chat after its person
+said no. Running a shared chat's test text on the developer's session reads the wrong person's notes. Each is caught:
+`apps/mcp/test/labSandboxShared.test.mjs` (not listed is not there, no is gone at once for reads and test texts, raw
+only, the sharer's session), `apps/mcp/test/texDev.test.mjs` (shared probes), `apps/convex/__tests__/texLabShared.test.ts`
+(who is listed, the sharer's session only while listed), `apps/mobile/__tests__/texLabShared.test.ts` and
+`texLabSandbox.test.ts` (the tab).

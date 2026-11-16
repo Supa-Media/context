@@ -6,6 +6,7 @@
  *  2. A group chat is listed only when everybody in it said yes or is on the team, and at least one said yes: one
  *     person who has not keeps the whole chat out.
  *  3. Each listed chat names where its history file lives: the person's own workspace, or the group's chat object.
+ *  4. A test text in a shared 1:1 runs on the sharer's own Tex session, only while it is listed.
  *
  * Every value here is obviously fake. This repository is public.
  *
@@ -19,6 +20,7 @@ import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import type { Id } from "../_generated/dataModel";
 import { addMember, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
 import { sharedChats } from "../functions/lib/texLabShared";
+import { sharedSessionFor } from "../functions/texLabSandbox";
 
 const GROUP_A = "a".repeat(64);
 const GROUP_B = "b".repeat(64);
@@ -78,5 +80,27 @@ describe("chats shared with the developers", () => {
       await ctx.db.insert("texReviewSharing", { userId: dev, sharedAt: 7 });
     });
     expect((await t.run((ctx) => sharedChats(ctx, dev))).some((c) => c.key === GROUP_A)).toBe(false);
+  });
+
+  test("a shared 1:1's test session is the sharer's own, and only while they say yes", async () => {
+    const t = setupTest();
+    const dev = await createUser(t, "dev@example.invalid");
+    await createWorkspace(t, dev, "devperson", { kind: "personal" });
+    const sam = await createUser(t, "sam@example.invalid");
+    const samWs = await createWorkspace(t, sam, "samperson", { kind: "personal" });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("oauthGrants", { workspaceId: samWs, userId: sam, clientId: "context_texts", scopes: ["context:read"], hashedAccessToken: "hashed_example_sam", hashedRefreshToken: "refresh_hashed_example_sam", accessTokenExpiresAt: Date.now() + 3_600_000, status: "active", createdAt: Date.now() });
+    });
+    expect((await t.run((ctx) => sharedSessionFor(ctx, dev, `u:${sam}`))).status).toBe("not_found");
+    const yes = await t.run((ctx) => ctx.db.insert("texReviewSharing", { userId: sam, sharedAt: 5 }));
+    const answer = await t.run((ctx) => sharedSessionFor(ctx, dev, `u:${sam}`));
+    expect(answer.status).toBe("ok");
+    if (answer.status === "ok") {
+      expect(answer.session.actorUserId).toBe(sam);
+      expect(answer.session.defaultWorkspaceId).toBe(samWs);
+      expect(answer.people).toEqual([{ handle: "samperson", name: "@samperson" }]);
+    }
+    await t.run((ctx) => ctx.db.delete(yes));
+    expect((await t.run((ctx) => sharedSessionFor(ctx, dev, `u:${sam}`))).status).toBe("not_found");
   });
 });

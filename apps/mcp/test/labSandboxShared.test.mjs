@@ -1,17 +1,18 @@
 // The Lab's "Shared with developers" chats (src/labSandbox/shared.js; Dev2, 2026-11-16; decision
 // docs/decisions/texting-assistant/lab-shared-chats.md). What these prove: only a chat the control plane lists now is
 // read, its history is read raw and never written, a chat whose person stopped sharing is gone on the next call, a
-// stranger reads nothing, and no test text, tapback, edit or retry runs on a shared chat. Fake ids and words only.
+// stranger reads nothing, and a test text runs on the sharer's own session, asked again on every text, so it stops the
+// moment they say no (Dev2 chose "Allow test texts", 2026-11-16). Fake ids and words only.
 //
 // Sabotage (temporary local edits, reverted, 2026-11-16):
 //   shared.js `sharedChatOf` answering a chat it did not list   "a chat that isn't listed ..." fails
-//   route.js readOnly guard removed                              "no test text runs ..." fails
+//   route.js `addRow` asking the session without `shared`       "a test text runs as the sharer ..." fails
 //   shared.js `sharedLedger` passing the caller's `view`         "the history is raw only ..." fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LabSandboxObject } from "../src/labSandbox/object.js";
+import { callSandbox, LabSandboxObject } from "../src/labSandbox/object.js";
 import { handleLabSandbox } from "../src/labSandbox/route.js";
 import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
@@ -40,13 +41,24 @@ function world({ shared }) {
     if (body.action === "who") return answer({ status: "ok", userId: "u_dev", chats: [], timeZone: "America/New_York" });
     if (body.action === "shared") return answer({ status: "ok", chats: shared() });
     if (body.action === "draft") return answer({ status: "not_found" });
+    if (body.action === "session") {
+      const listedNow = shared().some((c) => c.key === body.args.chat);
+      if (body.args.shared !== true || !listedNow) return answer({ status: "not_found", error: "There is no such chat." });
+      return answer({ status: "ok", session: { grantId: "g_sam", clientId: "context_texts", actorUserId: "usam", scopes: ["context:read"], defaultWorkspaceId: "ws_sam", workspaces: [] }, people: [{ handle: "sam", name: "@sam" }] });
+    }
     return answer({ status: "bad_request" });
   };
+  const turns = [];
+  // A turn that ran and finished at once: the test chat is given back, as a real turn's end gives it back.
+  const runTurn = async (args) => {
+    turns.push(args);
+    await callSandbox(args.stub, "release", { msgId: args.row.id });
+  };
   const call = async (token, body) => {
-    const response = await handleLabSandbox(new Request("https://gateway.example.invalid/tex-lab/sandbox", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }), env, null);
+    const response = await handleLabSandbox(new Request("https://gateway.example.invalid/tex-lab/sandbox", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }), env, null, { runTurn });
     return { status: response.status, body: await response.json() };
   };
-  return { call, env, real, asked, restore: () => (globalThis.fetch = original) };
+  return { call, env, real, asked, turns, restore: () => (globalThis.fetch = original) };
 }
 
 const SAM = { key: "u:usam", kind: "1:1", name: "@sam", sharedBy: ["sam"], sharedAt: 1, people: 1, owner: { person: "ws_sam" }, lastAt: null };
@@ -124,22 +136,25 @@ test("a chat that isn't listed, or stopped being shared, does not exist", async 
   }
 });
 
-test("a shared chat opens with its real texts, and no test text, tapback, edit or retry runs on it", async () => {
-  const w = world({ shared: () => [SAM] });
+test("a test text runs as the sharer, on their own session asked again each time, and stops when they say no", async () => {
+  let list = [SAM];
+  const w = world({ shared: () => list });
   try {
     await seed(w.env);
     const opened = await w.call(DEV, { op: "open", source: "shared", chatId: SAM.key });
     assert.equal(opened.status, 200, JSON.stringify(opened.body));
     assert.deepEqual(opened.body.rows.map((r) => [r.who, r.text, r.prod]), [["You", "book me a table", true], ["Tex", "done", true]]);
-    assert.ok(!w.asked.includes("session"), "no session of the person's is ever asked for");
     const id = opened.body.sandboxId;
-    const real = opened.body.rows[0].id;
-    for (const body of [{ op: "send", text: "hi" }, { op: "react", msgId: real, emoji: "❤️" }, { op: "edit", msgId: real, text: "x" }, { op: "unsend", msgId: real }, { op: "retry", msgId: real }]) {
-      const r = await w.call(DEV, { ...body, sandboxId: id });
-      assert.equal(r.status, 403, body.op);
-      assert.match(r.body.error, /read only/);
-    }
-    assert.equal((await w.call(DEV, { op: "get", sandboxId: id })).status, 200);
+    const sent = await w.call(DEV, { op: "send", sandboxId: id, text: "try again for friday" });
+    assert.equal(sent.status, 200, JSON.stringify(sent.body));
+    assert.equal(w.turns.length, 1);
+    assert.equal(w.turns[0].payload.actorUserId, "usam", "the sharer's session, never the developer's");
+    assert.equal(w.turns[0].about.owner, "person:ws_sam");
+    assert.equal(w.turns[0].about.shared, true);
+    list = [];
+    const after = await w.call(DEV, { op: "send", sandboxId: id, text: "once more" });
+    assert.equal(after.status, 404, "a no stops test texts at once");
+    assert.equal(w.turns.length, 1);
   } finally {
     w.restore();
   }

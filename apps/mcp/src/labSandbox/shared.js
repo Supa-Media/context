@@ -11,15 +11,15 @@
  *  - `shared` → `{ chats: [{ chatId, name, kind, people, sharedBy, sharedAt, lastAt }] }`.
  *  - `ledger { chatId, kinds?, day?, after?, before?, job?, jobs? }` → the chat's history file, raw, a page at a time,
  *    as `POST /tex/page/ledger` answers a person's own (`http/texPage/ledger.js`). Read only, raw only.
- *  - `open { source: "shared", chatId, base? }` (in `route.js`): a test chat over it whose real rows play what ran.
- *    No text, tapback, edit or retry runs there: a turn would read the person's notes afresh, which their yes never
- *    covered (`READ_ONLY`).
+ *  - `open { source: "shared", chatId, base? }` (in `route.js`): a test chat over it, its real rows playing what ran,
+ *    and test texts answered as its person would be (Dev2 chose "Allow test texts", 2026-11-16): the sharer's own
+ *    session, asked again on every text, reads their notes live, and every write stays in the sandbox as in any test
+ *    chat. The yes's wording says so (`apps/agent/src/reviewSharing.ts`, Settings → Feedback).
  */
 
 import { json } from "../http/responses.js";
 import { ledgerView } from "../http/texPage/ledger.js";
 
-export const READ_ONLY = "A shared chat is read only: play what ran, or try the text in one of your own chats or Maya's.";
 const SHARED_KEY = /^(?:u:[a-z0-9]{1,64}|[0-9a-f]{64})$/;
 const refused = (status, error) => json({ error }, status);
 
