@@ -183,8 +183,6 @@ async function run(op: SandboxOp, body: Record<string, unknown>, busy = true) {
       rawRows = [];
       Object.assign(sandbox, { id: null, rows: [], writes: [], running: null, hot: null });
     } else if (Array.isArray(b.rows) || op === "open") take(b);
-    // An edit the edit step found unchanged keeps nothing: said, so the click isn't lost.
-    else if (b.to === "same") sandbox.problem = "Nothing kept: " + (str(b.why) || "the words did not change");
     // send and retry answer the new text's id: the rows, and its turn running, come from get.
     else if (sandbox.id) take(await call("get", { sandboxId: sandbox.id }));
   } catch (e) {

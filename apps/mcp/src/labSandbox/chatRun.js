@@ -29,6 +29,9 @@ import { TEXTING_ROUTES } from "../agent/textingRoutes.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "../agent/textsDecide.js";
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "../agent/textsOldLine.js";
+import { editForTexts, TEXTS_EDIT_PATH } from "../agent/textsEdit.js";
+import { gatewayGraph } from "../agent/graph/gatewayGraph.js";
+import { TEX_CONFIG, withDraft } from "../agent/texConfig.js";
 import { createControlPlane } from "../controlPlane.js";
 import { attachContextOpener, onceEach } from "../http/contextOpener.js";
 import { attachPinnedDoors } from "../http/pinnedDoors.js";
@@ -39,7 +42,7 @@ import { sessionFromPayload, storeForSession } from "../session.js";
 import { callSandbox } from "./object.js";
 import { sandboxEnvOf } from "./policy.js";
 import { sandboxNamespace } from "./wire.js";
-import { runSandboxTurn, sandboxGate, stepsOf, TURN_LIMIT_MS } from "./harness.js";
+import { sandboxGate, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { attachmentsOf, pictureFetch } from "./inbound.js";
 
 /** The made-up addresses the chat object calls; no request to either leaves this file. */
@@ -313,19 +316,52 @@ async function atRealChat(request, about) {
   return new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...body, group }) });
 }
 
-/** The chat object's message for a test row: a 1:1 text or a group's, with its pictures and the words it replies to. */
-export function messageOf({ about, row, rows, address, sentHandles }) {
+/** Messages' six tapbacks, by the emoji the Lab sends, as the Worker names them (`reactions.ts` `Tapback`). */
+const TAPBACKS = Object.freeze({ "❤️": "Loved", "👍": "Liked", "👎": "Disliked", "😂": "Laughed at", "‼️": "Emphasized", "❓": "Questioned" });
+/** The most words of the text a tapback is on that the line carries (`gatewayInbound.js` `MAX_QUOTED_TEXT`). */
+const MAX_QUOTED = 3_000;
+
+/** The words a text says now: its latest edit's, else its own; `skip` (the edit being sent) left out. */
+export function wordsNow(rows, row, skip = null) {
+  let words = String(row.text ?? "");
+  for (const r of rows ?? []) if (r.id !== skip && r.kind === "edit" && r.on === row.id && typeof r.text === "string") words = r.text;
+  return words;
+}
+
+/**
+ * A test row as Tex's line hands it to the chat object (`photonEvents.ts`, `photonInbound.ts`), and the object's route:
+ * a text to `/accept` or `/group-accept`; a tapback to `/react` in a 1:1, or to `/group-accept` as a group message
+ * carrying `reaction`; an edit or an unsend to `/edit`. A tapback is on Tex's text (its words, `onTex`) or on another's
+ * (`onOther`), as Photon's `targetFromMe` says. An edit names the text by the id the object took it under.
+ */
+export function inboundOf({ about, row, rows, address, sentHandles }) {
   const from = address.phones.get(row.who) ?? address.phones.values().next().value ?? "+15555550101";
-  const attachments = attachmentsOf(row);
-  const target = typeof row.replyTo === "string" ? (rows ?? []).find((r) => r.id === row.replyTo) : undefined;
-  const files = attachments.length > 0 ? { attachments } : {};
-  if (about.kind !== "group") {
-    const reply = target ? { ...(target.text ? { quoted: String(target.text) } : {}), threaded: true } : {};
-    return { kind: "message", eventId: `lab:${row.id}`, chatId: address.chatId, from, messageId: row.id, text: String(row.text ?? ""), ...files, ...reply };
-  }
+  const group = about.kind === "group";
   const participants = [...address.phones.values()];
-  const replyTo = target ? (sentHandles.get(target.id) ?? target.id) : undefined;
-  return { kind: "group-message", eventId: `lab:${row.id}`, groupId: address.groupId, line: address.line, from, participants: participants.includes(from) ? participants : [...participants, from], messageId: row.id, text: String(row.text ?? ""), ...files, ...(replyTo ? { replyTo } : {}) };
+  const people = participants.includes(from) ? participants : [...participants, from];
+  const eventId = `lab:${row.id}`;
+  const target = typeof row.on === "string" ? (rows ?? []).find((r) => r.id === row.on) : undefined;
+  if (row.kind === "reaction") {
+    const onTex = target !== undefined && (target.who === "Tex" || target.reply !== undefined);
+    const reaction = { how: TAPBACKS[row.emoji] ?? "Liked", ...(onTex ? { words: String(target.text ?? "").trim().slice(0, MAX_QUOTED), onTex: true } : { words: "", onOther: true }) };
+    if (!group) return { path: "/react", body: { kind: "reaction", eventId, chatId: address.chatId, from, messageId: eventId, reaction } };
+    return { path: "/group-accept", body: { kind: "group-message", eventId, groupId: address.groupId, line: address.line, from, participants: people, messageId: eventId, text: "", reaction } };
+  }
+  if (row.kind === "edit" || row.kind === "unsend") {
+    const where = group ? { groupId: address.groupId, participants: people } : { chatId: address.chatId };
+    const before = target ? wordsNow(rows, target, row.id) : "";
+    const words = row.kind === "edit" ? { text: String(row.text ?? ""), ...(before !== "" ? { previous: before } : {}) } : {};
+    return { path: "/edit", body: { kind: row.kind === "edit" ? "edited" : "unsent", eventId, ...where, line: address.line, from, messageId: target?.id ?? String(row.on ?? ""), ...words, at: new Date(row.at ?? Date.now()).toISOString() } };
+  }
+  const attachments = attachmentsOf(row);
+  const replied = typeof row.replyTo === "string" ? (rows ?? []).find((r) => r.id === row.replyTo) : undefined;
+  const files = attachments.length > 0 ? { attachments } : {};
+  if (!group) {
+    const reply = replied ? { ...(replied.text ? { quoted: String(replied.text) } : {}), threaded: true } : {};
+    return { path: "/accept", body: { kind: "message", eventId, chatId: address.chatId, from, messageId: row.id, text: String(row.text ?? ""), ...files, ...reply } };
+  }
+  const replyTo = replied ? (sentHandles.get(replied.id) ?? replied.id) : undefined;
+  return { path: "/group-accept", body: { kind: "group-message", eventId, groupId: address.groupId, line: address.line, from, participants: people, messageId: row.id, text: String(row.text ?? ""), ...files, ...(replyTo ? { replyTo } : {}) } };
 }
 
 /**
@@ -387,11 +423,10 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const inbox = new SenderInbox(objectState, chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES }));
     if (about.kind !== "group") await storage.put("texts:workspace", payload?.defaultWorkspaceId ?? "");
     const sentHandles = new Map(Object.entries(state.meta?.sentHandles ?? {}));
-    const message = messageOf({ about, row, rows, address, sentHandles });
+    const { path, body: message } = inboundOf({ about, row, rows, address, sentHandles });
     // A test chat is one Tex already answers in (its grant is what the Lab opened it with): its object starts set up for
     // the people here, as the real chat's is after Tex's first turn there (`groupChat.ts` `setChatBound`).
-    if (about.kind === "group" && fresh) await setChatBound(storage, message);
-    const path = about.kind === "group" ? "/group-accept" : "/accept";
+    if (about.kind === "group" && fresh) await setChatBound(storage, { kind: "group-message", groupId: address.groupId, line: address.line, from: message.from, participants: message.participants ?? [...address.phones.values()], messageId: row.id, text: "" });
     const provider = { name: "lab", providerAt: row.at ?? started, receivedAt: now() };
     const accepted = await inbox.fetch(new Request(`https://inbox${path}`, { method: "POST", body: JSON.stringify({ ...message, provider }) }));
     const outcome = (await accepted.json().catch(() => ({}))).outcome ?? `status ${accepted.status}`;
@@ -479,20 +514,19 @@ function textsRoutes({ about, sandboxEnv, ctx, gate }) {
     if (path === TEXTS_CHAT_PATH) return await chatForTexts(await atLedger(request), sandboxEnv);
     if (path === TEXTS_EVENTS_PATH) return await eventsForTexts(await atLedger(request), sandboxEnv);
     if (path === TEXTS_OLD_LINE_PATH) return await oldLineForTexts(request);
+    // Node `edit` on the test chat's draft, as `/texts/edit` runs it on main's (`textsEdit.js`).
+    if (path === TEXTS_EDIT_PATH) return await editForTexts(request, { graph: gatewayGraph({ config: gate.config ? withDraft(TEX_CONFIG, gate.config) : TEX_CONFIG }) });
     gate.record({ kind: "Other", summary: `asked the gateway ${path}` });
     return Response.json({ error: "not_in_lab" }, { status: 403 });
   };
 }
 
-/** A row the chat object takes as a real text arrives: a plain text, with or without pictures or a reply. */
-export const throughChatObject = (row) => row?.kind === undefined;
-
 /**
- * A test row's turn, as production would run it: a text from "A text arrives" through the chat object; a tapback, an
- * edit or an unsend still on the turn alone (`harness.js` `runSandboxTurn`), until each goes through the object too.
+ * A test row's turn, as production runs it: a text, a tapback, an edit or an unsend, each into the chat object as Tex's
+ * line hands it over (Dev2's coordinator, 2026-11-16: tapbacks, edits and unsends "the same shadow-path problem").
  */
 export function runTestText(args) {
-  return throughChatObject(args.row) ? runChatTurn(args) : runSandboxTurn(args);
+  return runChatTurn(args);
 }
-/** The chat object logs the text itself (`inboxTurn.ts` `logInbound`): the route leaves it to it. */
-runTestText.logsText = throughChatObject;
+/** The chat object logs every row's event itself (`inboxTurn.ts` `logInbound`, `editStep.ts`): the route leaves it to it. */
+runTestText.logsText = () => true;

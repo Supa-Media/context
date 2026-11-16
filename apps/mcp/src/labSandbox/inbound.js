@@ -18,7 +18,7 @@
  *    group (`groupInbox.ts` `acceptReaction`) the asker's 👍/❤️/👎 on Tex's ask (anyone's on a lent computer's ask) goes
  *    as the tapback, and any other reads on as its line.
  *
- *  - an edit or an unsend (`edits.js`): logged beside the text it changes, `edited: true` with the new words or
+ *  - an edit or an unsend (the chat object logs its own, `editStep.ts`; this is the shape for a test chat's ledger): logged beside the text it changes, `edited: true` with the new words or
  *    `unsent: true` with none, `replyTo` that text's event and `quoted` its words before, as `replyQuote.ts`
  *    `editedFields` keeps a Photon one; an edit's turn is asked its new words, as the Worker queues it.
  */

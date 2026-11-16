@@ -88,18 +88,19 @@ jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
     }
     if (op === "edit") {
       const t = mockRows[at(body.msgId)];
-      if (String(body.text).trim() === t.text) return { msgId: t.id, to: "same", why: "the words did not change" };
+      // The chat object's edit step decides: the same words keep a quiet reply, changed ones take a turn.
       const [e, r] = answer(String(body.text));
       Object.assign(e, { who: t.who, kind: "edit", on: t.id, edited: true });
+      if (String(body.text).trim() === t.text) Object.assign(r, { text: "", quiet: true, steps: [{ node: "edit", out: "to: same", ms: 3 }] });
       mockRows.push(e, r);
-      return { msgId: e.id, to: "turn", why: "the words changed" };
+      return { msgId: e.id };
     }
     if (op === "unsend") {
       const t = mockRows[at(body.msgId)];
       const id = "t" + ++mockSeq;
       mockRows.push({ id, who: t.who, text: "", kind: "unsend", on: t.id }, { id: id + "r", reply: id, who: "Tex", text: "", quiet: true });
       Object.assign(t, { unsent: true });
-      return { msgId: id, to: "withdraw", why: "they took the text back" };
+      return { msgId: id };
     }
     if (op === "back") mockRows = mockRows.slice(0, at(body.msgId) + 2);
     if (op === "drop") mockRows = mockRows.slice(0, at(body.msgId));
@@ -407,16 +408,16 @@ describe("the test chat's ▶ and message options", () => {
     expect(q("#sbPend")?.textContent).toMatch(/Editing .*dinner at 7\?/);
     expect(q<HTMLInputElement>("#sbTxt")!.value).toBe("dinner at 7?");
     expect(q("#sbSend")?.textContent).toBe("Save edit");
-    // The same words: the edit step keeps nothing, and the Lab says so.
+    // The same words: the edit is still the person's change, a row of its own, and the chat object's edit step answers it quietly.
     await click("#sbSend");
     expect(mockCalls.find((c) => c.op === "edit")?.body).toEqual({ sandboxId: "sb1", as: "", msgId: "t1", text: "dinner at 7?" });
-    expect(q("#sandbox")?.textContent).toMatch(/Nothing kept: the words did not change/);
+    expect(q('#sbGrid tr[data-id="t2"]')?.textContent).toMatch(/edited/);
     await click('#sbGrid tr[data-id="t1"] .mopt');
     await click('#sbOpt-t1Menu [data-edit-open="t1"]');
     await type("dinner at 8?");
     expect(mockCalls.filter((c) => c.op === "edit").at(-1)?.body).toEqual({ sandboxId: "sb1", as: "", msgId: "t1", text: "dinner at 8?" });
     // The edit is its own row, quoting the text it changed, marked edited; the text it changed keeps its words.
-    const row = q('#sbGrid tr[data-id="t2"]')!;
+    const row = q('#sbGrid tr[data-id="t3"]')!;
     expect(row.textContent).toMatch(/dinner at 8\?/);
     expect(row.textContent).toMatch(/edited/);
     expect(row.textContent).toMatch(/dinner at 7\?/);
@@ -425,7 +426,7 @@ describe("the test chat's ▶ and message options", () => {
     await click('#sbOpt-t1Menu [data-unsend="t1"]');
     expect(mockCalls.find((c) => c.op === "unsend")?.body).toEqual({ sandboxId: "sb1", as: "", msgId: "t1" });
     expect(q('#sbGrid tr[data-id="t1"]')?.textContent).toMatch(/\(unsent\)/);
-    expect(q('#sbGrid tr[data-id="t3"]')?.textContent).toMatch(/took back a text/);
+    expect(q('#sbGrid tr[data-id="t4"]')?.textContent).toMatch(/took back a text/);
     // A text taken back is edited or taken back no more.
     await click('#sbGrid tr[data-id="t1"] .mopt');
     expect(q("#sbOpt-t1Menu [data-edit-open]")).toBeNull();

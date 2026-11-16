@@ -19,13 +19,12 @@
  *  - `send { sandboxId, as?, text, pics?, replyTo? }` → `{ msgId }`: the text, as `as`, with up to 6 pictures
  *    (`[{ url, type?, name? }]`, https; `text` may then be empty) and as a reply to a row of this test chat, and its turn
  *    run in the background; `get` shows it.
- *  - `react { sandboxId, msgId, emoji, as? }` → `{ msgId, turn }`: a tapback (❤️ 👍 👎 😂 ‼️ ❓) on any row with words;
- *    `turn` false when production only notes it (a 1:1 tapback that answers nothing), its reply row quiet and `noted`.
- *  - `edit { sandboxId, msgId, text, as? }` → `{ msgId, to, why }`: one of the test texts edited, taken as production takes
- *    an edit (`edits.js`): node `edit` says `same` (nothing kept), or `turn`, a kind "edit" row `on` the text with the new
- *    words, kept beside it and its turn run.
- *  - `unsend { sandboxId, msgId, as? }` → `{ msgId, to, why }`: one of the test texts taken back, a kind "unsend" row `on`
- *    it, kept with a quiet noted reply and no turn, as production keeps one.
+ *  - `react { sandboxId, msgId, emoji, as? }` → `{ msgId }`: a tapback (❤️ 👍 👎 😂 ‼️ ❓) on any row with words.
+ *  - `edit { sandboxId, msgId, text, as? }` → `{ msgId }`: one of the test texts edited, a kind "edit" row `on` it.
+ *  - `unsend { sandboxId, msgId, as? }` → `{ msgId }`: one of the test texts taken back, a kind "unsend" row `on` it.
+ *    Each of the three goes into the chat object as Tex's line hands it over, and the object decides as in production:
+ *    a tapback noted or answered, an edit kept, queued as a text or taken as the same, an unsend taking a waiting text
+ *    back. Its steps (`react`, `edit`, ...) are on the row, and a quiet reply row says what the object did.
  *  - `retry { sandboxId, msgId }` → `{ msgId }`: that text or tapback and everything after it dropped, and sent again.
  *  - `back { sandboxId, msgId }`: that text and its reply kept, everything later dropped.
  *  - `drop { sandboxId, msgId }`: that text and everything after it dropped.
@@ -46,7 +45,6 @@ import { callSandbox, sandboxStub, SEED_CHUNK } from "./object.js";
 import { eventId, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
-import { runEditNode, UNSENT_NOTE, wordsNow } from "./edits.js";
 
 export const LAB_SANDBOX_PATH = "/tex-lab/sandbox";
 /** A person's test texts a day, across all their test chats: each runs the real models. */
@@ -309,23 +307,19 @@ function speakerOf(about, as) {
   return { speaker };
 }
 
-/** What a noted tapback's quiet row says: production runs no turn for it (`apps/agent/src/inbox.ts` `react`). */
-const NOTED = "Noted, not answered: a 1:1 tapback that answers nothing runs no turn; the next text carries it as reacted.";
-
 /**
- * A test row into the chat: its event into the ledger as the Worker logs it, and its turn run in the background, or,
- * for a tapback production only notes, a quiet reply row and no turn. Only a row that runs a turn is counted.
+ * A test row into the chat, and its run through the chat object in the background: the object logs its event and
+ * decides, as in production, whether it takes a turn (a tapback it only notes, an unsend, an edit that changed nothing
+ * end quiet, their reply row saying what the object did). Every row is counted.
  */
-async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, turn = true, cut = null, before = [], note = NOTED }) {
+async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, cut = null }) {
   const about = state.meta.chat;
   // The draft as saved now, not as it was at open: an edit in the Lab since then is what the next turn runs.
-  const drafted = turn ? await draftConfig(controlPlane, token, about.versionId) : { config: about.config ?? null };
+  const drafted = await draftConfig(controlPlane, token, about.versionId);
   if (drafted.error) return refused(...drafted.error);
-  if (turn) {
-    const day = new Date().toISOString().slice(0, 10);
-    const counted = await callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key: `sends:${day}`, max: DAILY_SENDS });
-    if (!counted.ok) return refused(429, `${DAILY_SENDS} test texts a day: try again tomorrow`);
-  }
+  const day = new Date().toISOString().slice(0, 10);
+  const counted = await callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key: `sends:${day}`, max: DAILY_SENDS });
+  if (!counted.ok) return refused(429, `${DAILY_SENDS} test texts a day: try again tomorrow`);
   const answer = await controlPlane.labSandbox(token, "session", { chat: about.chat });
   if (answer?.status !== "ok") return refused(404, answer?.error ?? "This chat is no longer yours to test in.");
   // A retry cuts its old text only once everything that could refuse it has passed, so a refusal loses nothing.
@@ -337,19 +331,13 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   }
   await callSandbox(stub, "row.add", { row });
   // The text's event as the Worker logs it, unless the chat object the turn runs through logs it itself.
-  const logged = typeof runTurn.logsText === "function" && runTurn.logsText(row) && turn;
-  const entries = [...before, ...(logged ? [] : [await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })])];
-  if (entries.length > 0) await callSandbox(stub, "ledger.append", { entries, by: row.id });
-  const tapback = row.kind === "reaction" ? { turn } : {};
-  if (!turn) {
-    await callSandbox(stub, "row.add", { row: { id: `${row.id}r`, reply: row.id, who: "Tex", text: "", at: row.at, prod: false, quiet: true, noted: true, note, ms: 0, steps: [] } });
-    return json({ msgId: row.id, ...tapback });
-  }
+  const logged = typeof runTurn.logsText === "function" && runTurn.logsText(row);
+  if (!logged) await callSandbox(stub, "ledger.append", { entries: [await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })], by: row.id });
   await callSandbox(stub, "meta", { key: "running", value: { msgId: row.id, node: null, at: row.at } });
   const run = runTurn({ env, stub, about, row, payload: answer.session, token, config: drafted.config ?? null, origin, chat: answer.chat ?? null });
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
   else await run;
-  return json({ msgId: row.id, ...tapback });
+  return json({ msgId: row.id });
 }
 
 /** A new test row's ids: its event id and the row id built from it. */
@@ -378,7 +366,7 @@ async function send(deps, state, { as, text = "", pics: given, replyTo }, cut = 
   return await addRow({ ...deps, state, row, cut });
 }
 
-/** `react`: a tapback on a row with words, read as production reads it; a turn only when production would run one. */
+/** `react`: a tapback on a row with words, handed to the chat object as Tex's line hands one over. */
 async function react(deps, state, { msgId, emoji, as }, cut = null) {
   if (typeof emoji !== "string" || !TAPBACK_OF[emoji]) return refused(400, `emoji is one of ${Object.keys(TAPBACK_OF).join(" ")}`);
   const target = targetOf(state.rows, msgId, "tapped");
@@ -389,8 +377,9 @@ async function react(deps, state, { msgId, emoji, as }, cut = null) {
   if (speaker.error) return refused(...speaker.error);
   const read = await reactionOf({ about, target: target.row, emoji, as: speaker.speaker, rows: state.rows });
   const { at, eid, id } = newIds();
-  const row = { id, eid, who: speaker.speaker, kind: "reaction", emoji, on: target.row.id, text: read.line, at, prod: false, ...(read.runs ? {} : { noted: true }) };
-  return await addRow({ ...deps, state, row, turn: read.runs, cut });
+  // Its line is how the chat shows it; whether it is noted or answered is the chat object's call (`reactions.ts`).
+  const row = { id, eid, who: speaker.speaker, kind: "reaction", emoji, on: target.row.id, text: read.line, at, prod: false };
+  return await addRow({ ...deps, state, row, cut });
 }
 
 /**
@@ -411,26 +400,19 @@ function changeable(state, msgId, as, verb) {
 }
 
 /**
- * `edit` and `unsend`: node `edit` on the change (`edits.js`), as the texting Worker asks it. `same` keeps nothing;
- * `turn` keeps a kind "edit" row with the new words and runs its turn; `withdraw` keeps a kind "unsend" row and a quiet
- * noted reply, no turn. The node's run is the row's first ledger entry, so the row shows it as a step.
+ * `edit` and `unsend`: the change handed to the chat object as Tex's line hands one over (`/edit`), which asks node
+ * `edit` over `/texts/edit` on the test chat's draft and keeps it, queues its turn, or takes a waiting text back
+ * (`editStep.ts`, `chatObject.ts` `takeEdit`). The row is the person's change; the reply row says what came of it.
  */
 async function change(deps, state, { msgId, text, as }, verb, cut = null) {
   const found = changeable(state, msgId, as, verb);
   if (found.error) return refused(...found.error);
   if (verb === "edit" && (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT)) return refused(400, `text is 1 to ${MAX_TEXT} characters`);
   if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
-  const about = state.meta.chat;
-  const drafted = await draftConfig(deps.controlPlane, deps.token, about.versionId);
-  if (drafted.error) return refused(...drafted.error);
-  const node = await runEditNode({ config: drafted.config ?? null, kind: about.kind === "group" ? "group" : "one", change: verb, ...(verb === "edit" ? { words: text } : {}), earlier: wordsNow(state.rows, found.row) });
-  if (node.to === "same") return json({ msgId: found.row.id, to: "same", why: node.why });
   const { at, eid, id } = newIds();
-  const unsend = node.to === "withdraw";
+  const unsend = verb === "unsend";
   const row = { id, eid, who: found.row.who, kind: unsend ? "unsend" : "edit", on: found.row.id, text: unsend ? "" : text, at, prod: false, ...(unsend ? {} : { edited: true }) };
-  const answer = await addRow({ ...deps, state, row, turn: !unsend, cut, before: node.entries, note: UNSENT_NOTE });
-  if (answer.status !== 200) return answer;
-  return json({ msgId: id, to: node.to, why: node.why });
+  return await addRow({ ...deps, state, row, cut });
 }
 
 /** A test text the caller may cut at: one of this test chat's own, never a real text it started from. */
