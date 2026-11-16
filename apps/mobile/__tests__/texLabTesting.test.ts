@@ -57,7 +57,7 @@ import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, G, MAIN, set } from "../features/tex/lab/engine/state";
 import { bodyOf, cellOf, defaultCols, fitCols, setsRatio, stepNodes, type Conversation } from "../features/tex/lab/engine/sets";
 import { hiddenOf, mergeDrafts } from "../features/tex/lab/engine/setsData";
-import { sets } from "../features/tex/lab/engine/setsStore";
+import { sets, undo } from "../features/tex/lab/engine/setsStore";
 
 const CHAT: Conversation = {
   id: "picnic",
@@ -82,7 +82,8 @@ afterEach(() => {
   mockAnswers.clear();
   mockCalls.length = 0;
   fetched.length = 0;
-  Object.assign(sets, { convs: [], hiddenTest: [], testStars: 0, showTest: false, chat: null, msg: null, col: null, editing: false, colMenu: false, fresh: null, cols: null, loaded: false, problem: null });
+  Object.assign(sets, { convs: [], hiddenTest: [], testStars: 0, showTest: false, chat: null, msg: null, col: null, editing: false, colMenu: false, fresh: null, cols: null, loaded: false, problem: null, fold: { sets: false, insp: false }, history: false });
+  for (let i = 0; sets.undo && i < 500; i++) undo();
   localStorage.clear();
 });
 beforeEach(() => {
@@ -189,6 +190,73 @@ describe("the Testing tab", () => {
     act(() => box.click());
     expect(qa("table.chatgrid thead th[data-col]").map((h) => h.dataset.col)).not.toContain("triage");
     expect(JSON.parse(localStorage.getItem("texLab.testing.cols") || "{}").hidden).toContain("triage");
+  });
+});
+
+// Dev2's comments on the live tab, 2026-11-16.
+describe("Dev2's changes to the tab", () => {
+  test("both side panels fold to a strip and open again, and the choice is kept in this browser", async () => {
+    await mount();
+    click("#foldSets");
+    expect(q("#tstSets")).toBeNull();
+    expect(q("#openSets")).not.toBeNull();
+    click("#foldInsp");
+    expect(q("#insp")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("texLab.testing.fold") || "{}")).toEqual({ sets: true, insp: true });
+    click("#openSets");
+    click("#openInsp");
+    expect(q("#tstSets")).not.toBeNull();
+    expect(q("#insp")).not.toBeNull();
+  });
+
+  test("no keyboard hint line and no list of the cases a chat came from", async () => {
+    await mount();
+    expect(q(".legend")?.textContent).not.toContain("Click a cell");
+    expect(q("#middle .ph")?.textContent).not.toContain("from ");
+  });
+
+  test("Undo puts the last change back as a whole chat, Redo does it again, and Cmd+Z does the same", async () => {
+    await mount();
+    click('tr.mr[data-id="m4"] td[data-c="decide"]');
+    key("t");
+    expect(q('tr.mr[data-id="m4"] td[data-c="decide"] .starc')).not.toBeNull();
+    click("#undoBtn");
+    expect(q('tr.mr[data-id="m4"] td[data-c="decide"] .starc')).toBeNull();
+    const put = lastOps()[0] as { op: string; convo: Conversation };
+    expect(put.op).toBe("put");
+    expect(put.convo.msgs.find((m) => m.id === "m4")?.labels?.decide).toBeUndefined();
+    click("#redoBtn");
+    expect(q('tr.mr[data-id="m4"] td[data-c="decide"] .starc')).not.toBeNull();
+    key("z", { metaKey: true });
+    expect(q('tr.mr[data-id="m4"] td[data-c="decide"] .starc')).toBeNull();
+    key("z", { metaKey: true, shiftKey: true });
+    expect(q('tr.mr[data-id="m4"] td[data-c="decide"] .starc')).not.toBeNull();
+  });
+
+  test("History lists the saved revisions and Put back asks the store for that one", async () => {
+    mockAnswers.set("functions/texSets:history", { rev: 3, isNew: false, revs: [{ rev: 3, by: "@ana", via: "lab", said: ["labelled decide on m4"], at: 1, restorable: true }, { rev: 2, by: "@ana", via: "lab", said: ["m1 text → hi"], at: 1, restorable: true }] });
+    await mount();
+    click("#histBtn");
+    expect(q("#histMenu")?.textContent).toContain("Revision 3");
+    expect(q("#histMenu")?.textContent).toContain("Original");
+    await act(async () => click('#histMenu button[data-back="2"]'));
+    expect(mockCalls.find((c) => c.fn === "functions/texSets:restoreTo")?.args).toEqual({ id: "picnic", to: 2 });
+  });
+
+  test("a message shows its pictures, and removing one is an edit of its pics", async () => {
+    await mount();
+    const pic = { url: "https://example.invalid/chairs.png", type: "image/png", name: "chairs.png" };
+    click('tr.mr[data-id="m4"] td[data-c="text"]');
+    act(() => {
+      const c = sets.convs.find((x) => x.id === "picnic")!;
+      sets.convs = sets.convs.map((x) => (x === c ? { ...c, msgs: c.msgs.map((m) => (m.id === "m4" ? { ...m, pics: [pic] } : m)) } : x));
+      Object.assign(sets, { msg: "m4", col: "text" });
+    });
+    key("ArrowLeft");
+    key("ArrowRight");
+    expect(q('tr.mr[data-id="m4"] td[data-c="text"] img')?.getAttribute("src")).toBe(pic.url);
+    click('#insp .pic button[aria-label="Remove picture"]');
+    expect(lastOps()).toEqual([{ op: "edit", msg: "m4", field: "pics", value: [] }]);
   });
 });
 

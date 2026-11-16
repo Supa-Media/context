@@ -185,7 +185,7 @@ export function createSetActions({ plane, json, page, env, ledgerOf, repo = REPO
           message: { kinds: KINDS, to: "a react, reply, edit or delete points at an earlier message by id", tex: "a Tex row is what Tex should have said, history for later rows, never a test; no Tex row after a person's message means Tex stays quiet" },
           rec: "rec[node] on a person's message is that node's recorded run on main: the frozen input for the nodes it feeds when no label on the upstream node says otherwise",
           sets: OPEN_SETS,
-          ops: `set_edit takes up to ${MAX_OPS} ops: title, kind, members, set, add {msg, after?}, edit {msg, field, value}, remove {msg}, move {msg, before}, label {msg, node, value|null}, field {msg, node, field, value|null}, rec {msg, node, value|null}, put {convo}; the Lab's addMsg/editMsg/removeMsg/moveMsg spellings work too`,
+          ops: `set_edit takes up to ${MAX_OPS} ops: title, kind, members, set, add {msg, after?}, edit {msg, field, value}, remove {msg}, move {msg, before}, label {msg, node, value|null}, field {msg, node, field, value|null}, rec {msg, node, value|null}, put {convo}; edit {msg, field: "pics", value: [{url, type?, name?}] | null} sets a message's pictures (https addresses, at most 6); the Lab's addMsg/editMsg/removeMsg/moveMsg spellings work too`,
         });
       }
       case "set_edit": {
@@ -231,6 +231,20 @@ export function createSetActions({ plane, json, page, env, ledgerOf, repo = REPO
       case "set_restore": {
         const { answer, error } = await plane("set_remove", { id: args.id, restore: true });
         return error ?? json({ id: answer.id, restored: true, note: "the draft is gone: the conversation reads as the repo has it" });
+      }
+      case "set_history": {
+        if (typeof args.id !== "string" || !ID.test(args.id)) return toolError("set_history takes { id }.");
+        const { answer, error } = await plane("set_history", { id: args.id });
+        if (error) return error;
+        const from = repoById.has(args.id) && !answer.isNew ? [{ rev: 0, said: ["the repo's copy"], restorable: true }] : [];
+        return json({ id: args.id, rev: answer.rev, revs: [...answer.revs, ...from], next: "set_back { id, to } puts a revision back as a new one (0: the repo's copy); set_back { id, to: rev - 1 } undoes the last change" });
+      }
+      case "set_back": {
+        if (typeof args.id !== "string" || !ID.test(args.id) || !Number.isSafeInteger(args.to)) return toolError("set_back takes { id, to } (a revision from set_history; 0 is the repo's copy).");
+        const { answer, error } = await plane("set_back", { id: args.id, to: args.to });
+        if (error) return error;
+        const convo = parse(answer.conv);
+        return json({ id: args.id, rev: answer.rev, restored: args.to, ...(convo ? { problems: problemsOf(convo) } : {}), undo: "set_history lists the revision before this one; set_back to it undoes this" });
       }
       case "set_promote": {
         const o = await overlay();

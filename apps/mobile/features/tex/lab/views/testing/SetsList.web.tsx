@@ -4,7 +4,7 @@
  */
 import { useState } from "react";
 import { labelCount, SET_INFO, SETS, starsIn, type Conversation, type SetId } from "../../engine/sets";
-import { change, createChat, setUi, showTest, useSets } from "../../engine/setsStore";
+import { change, createChat, fold, setUi, showTest, useSets } from "../../engine/setsStore";
 
 const kindName = (k: string) => (k === "one" ? "1:1" : "group");
 
@@ -23,6 +23,9 @@ export function SetsList() {
         <span className="muted small">drag a chat to move it</span>
         <button className="btn sm p" id="newChat" style={{ marginLeft: "auto" }} onClick={() => createChat(newChat())}>
           + Chat
+        </button>
+        <button className="foldbtn" id="foldSets" title="Hide Sets" aria-label="Hide Sets" onClick={() => fold("sets", true)}>
+          «
         </button>
       </div>
       <div className="scroll" id="sets">

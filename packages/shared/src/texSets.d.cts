@@ -5,7 +5,10 @@ export type Message = {
   id: string; who: string; text: string; tex?: true;
   kind?: "react" | "reply" | "edit" | "delete"; to?: string;
   labels?: Record<string, Label>; rec?: Record<string, Record<string, unknown>>;
+  pics?: Pic[];
 };
+/** A picture sent with a message: an https address, its type and file name. */
+export type Pic = { url: string; type?: string; name?: string };
 export type Conversation = { id: string; title: string; set: SetId; kind: "one" | "group"; members: string[]; msgs: Message[] };
 export type Fields = { picks: Record<string, string[]>; texts: string[]; lines: boolean };
 export type UnitTest = { chat: string; msg: string; at: number; node: string };

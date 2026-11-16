@@ -99,7 +99,7 @@ async function listDrafts(ctx: QueryCtx) {
  * changed (its revision is 0 then). An edit against an older revision lands unless a revision since touched one of the
  * same pieces; then it is refused with the conversation as it is now, so neither side overwrites the other unseen.
  */
-async function editConvo(ctx: MutationCtx, who: Who, a: { id: unknown; rev: unknown; ops: unknown; base?: unknown }, now: number): Promise<Answer> {
+async function editConvo(ctx: MutationCtx, who: Who, a: { id: unknown; rev: unknown; ops: unknown; base?: unknown; said?: string[] }, now: number): Promise<Answer> {
   const id = typeof a.id === "string" ? a.id : "";
   if (!CONVO_ID.test(id)) return { status: "bad_request", error: "name the conversation by its id" };
   const row = await rowOf(ctx, id);
@@ -139,8 +139,8 @@ async function editConvo(ctx: MutationCtx, who: Who, a: { id: unknown; rev: unkn
   const set = applied.convo.set as "training" | "dev";
   if (row) await ctx.db.patch(row._id, { data, set, rev, by: who.userId, via: who.via, updatedAt: now });
   else await ctx.db.insert("texSetConvos", { convoId: id, set, data, isNew: false, removed: false, rev, by: who.userId, via: who.via, updatedAt: now });
-  await ctx.db.insert("texSetChanges", { convoId: id, rev, by: who.userId, via: who.via, keys: applied.keys, said: applied.said, at: now });
-  return { status: "ok", id, rev, said: applied.said, conv: data };
+  await ctx.db.insert("texSetChanges", { convoId: id, rev, by: who.userId, via: who.via, keys: applied.keys, said: a.said ?? applied.said, at: now, data });
+  return { status: "ok", id, rev, said: a.said ?? applied.said, conv: data };
 }
 
 /** A conversation the repo does not have yet: an empty one in a set, or a whole one handed in. */
@@ -160,7 +160,7 @@ async function createConvo(ctx: MutationCtx, who: Who, a: { conv?: unknown; id?:
   if ((await rowOf(ctx, id)) !== null || repoIds.includes(id)) return { status: "bad_request", error: `there is already a conversation ${id}` };
   const data = JSON.stringify(got.convo);
   await ctx.db.insert("texSetConvos", { convoId: id, set: got.convo.set as "training" | "dev", data, isNew: true, removed: false, rev: 1, by: who.userId, via: who.via, updatedAt: now });
-  await ctx.db.insert("texSetChanges", { convoId: id, rev: 1, by: who.userId, via: who.via, keys: ["*"], said: [`made ${id}`], at: now });
+  await ctx.db.insert("texSetChanges", { convoId: id, rev: 1, by: who.userId, via: who.via, keys: ["*"], said: [`made ${id}`], at: now, data });
   return { status: "ok", id, rev: 1, conv: data };
 }
 
@@ -191,7 +191,7 @@ async function removeConvo(ctx: MutationCtx, who: Who, a: { id?: unknown; base?:
   const set = (parse(data)?.set ?? "dev") as "training" | "dev";
   if (row) await ctx.db.patch(row._id, { removed: true, rev, by: who.userId, via: who.via, updatedAt: now });
   else await ctx.db.insert("texSetConvos", { convoId: id, set, data, isNew: false, removed: true, rev, by: who.userId, via: who.via, updatedAt: now });
-  await ctx.db.insert("texSetChanges", { convoId: id, rev, by: who.userId, via: who.via, keys: ["*"], said: [`asked to delete ${id}`], at: now });
+  await ctx.db.insert("texSetChanges", { convoId: id, rev, by: who.userId, via: who.via, keys: ["*"], said: [`asked to delete ${id}`], at: now, data });
   return { status: "ok", id, deleted: "at the next Promote" };
 }
 
@@ -203,6 +203,52 @@ async function deleteRows(ctx: MutationCtx, id: string) {
     .withIndex("by_convo_rev", (q) => q.eq("convoId", id))
     .collect())
     await ctx.db.delete(c._id);
+}
+
+/** At most this many revisions listed back. */
+const MAX_HISTORY = 200;
+
+/**
+ * A conversation's change history, newest first: each revision's lines, who and when, and whether it can be put back
+ * (revisions saved before the history kept the whole chat cannot). Revision 0 is the repo's copy, put back by
+ * `restore` on the draft (`removeConvo` with restore).
+ */
+async function historyOf(ctx: QueryCtx, id: string): Promise<Answer> {
+  if (!CONVO_ID.test(id)) return { status: "bad_request", error: "name the conversation by its id" };
+  const row = await rowOf(ctx, id);
+  const rows = await ctx.db
+    .query("texSetChanges")
+    .withIndex("by_convo_rev", (q) => q.eq("convoId", id))
+    .order("desc")
+    .take(MAX_HISTORY);
+  const cache = new Map<string, string>();
+  const revs = [];
+  for (const c of rows) revs.push({ rev: c.rev, by: await nameOf(ctx, cache, c.by), via: c.via, said: c.said, at: c.at, restorable: c.data !== undefined });
+  return { status: "ok", id, rev: row?.rev ?? 0, isNew: row?.isNew ?? false, revs };
+}
+
+/** Put an earlier revision back: a new revision whose chat is that one's, so the history keeps both and redo is undo. */
+async function restoreRev(ctx: MutationCtx, who: Who, a: { id?: unknown; to?: unknown }, now: number): Promise<Answer> {
+  const id = typeof a.id === "string" ? a.id : "";
+  const to = typeof a.to === "number" && Number.isSafeInteger(a.to) ? a.to : -1;
+  const row = await rowOf(ctx, id);
+  if (!row) return { status: "not_found", error: `there is no draft of ${id}: it reads as the repo has it` };
+  if (to === 0) {
+    if (row.isNew) return { status: "bad_request", error: `${id} is new: it has no repo copy to go back to` };
+    await deleteRows(ctx, id);
+    return { status: "ok", id, rev: 0, restored: 0 };
+  }
+  if (to < 1 || to > row.rev) return { status: "bad_request", error: `to is a revision of ${id}, 1 to ${row.rev} (0 is the repo's copy)` };
+  if (to === row.rev && !row.removed) return { status: "ok", id, rev: row.rev, restored: to, conv: row.data };
+  const change = await ctx.db
+    .query("texSetChanges")
+    .withIndex("by_convo_rev", (q) => q.eq("convoId", id).eq("rev", to))
+    .unique();
+  if (!change?.data) return { status: "bad_request", error: `revision ${to} was saved before the history kept whole chats, so it cannot be put back` };
+  if (row.removed) await ctx.db.patch(row._id, { removed: false });
+  const convo = parse(change.data);
+  if (!convo) return { status: "bad_request", error: `revision ${to} cannot be read` };
+  return await editConvo(ctx, who, { id, rev: row.rev, ops: [{ op: "put", convo }], said: [`put back revision ${to}`] }, now);
 }
 
 /** Ask for the drafts named (or every draft) to go into the repo through a pull request. */
@@ -231,6 +277,10 @@ export async function setAction(ctx: MutationCtx, who: Who, action: string, a: R
       return await removeConvo(ctx, who, a, now);
     case "set_promote":
       return await askPromote(ctx, who, a, now);
+    case "set_history":
+      return await historyOf(ctx, typeof a.id === "string" ? a.id : "");
+    case "set_back":
+      return await restoreRev(ctx, who, a, now);
     default:
       return null;
   }
@@ -279,6 +329,48 @@ export const remove = mutation({
   handler: async (ctx, a) => {
     const actor = await requireAdmin(ctx);
     return fail(await removeConvo(ctx, { userId: actor.userId, via: "lab" }, a, Date.now()));
+  },
+});
+
+/** A conversation's change history, for the tab's History. */
+export const history = query({
+  args: { id: v.string() },
+  returns: v.any(),
+  handler: async (ctx, a) => {
+    await requireAdmin(ctx);
+    return fail(await historyOf(ctx, a.id));
+  },
+});
+
+/** Put revision `to` of a conversation back (0: the repo's copy). */
+export const restoreTo = mutation({
+  args: { id: v.string(), to: v.number() },
+  returns: v.any(),
+  handler: async (ctx, a) => {
+    const actor = await requireAdmin(ctx);
+    return fail(await restoreRev(ctx, { userId: actor.userId, via: "lab" }, a, Date.now()));
+  },
+});
+
+/** Where the tab uploads a picture sent with a message (Dev2, 2026-11-16: "No way to add images into these messages"). */
+export const picUploadUrl = mutation({
+  args: {},
+  returns: v.string(),
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/** The address an uploaded picture is served at, which the message keeps. */
+export const picUrl = mutation({
+  args: { storageId: v.id("_storage") },
+  returns: v.string(),
+  handler: async (ctx, a) => {
+    await requireAdmin(ctx);
+    const url = await ctx.storage.getUrl(a.storageId);
+    if (!url) throw new ConvexError("That picture did not upload");
+    return url;
   },
 });
 

@@ -46,6 +46,8 @@ export const ACTIONS = [
   ["set_import", "{ chat?, before?, limit? }", "a real Tex chat's texts (yours, or a group you are in; at most 60) with the rules for rewriting it into a Training or Dev conversation"],
   ["set_delete", "{ id, confirm: true }", "a new conversation goes now; one in the repo is removed at the next Promote"],
   ["set_restore", "{ id }", "drop the Lab's draft of a conversation (or its delete), back to the repo's copy"],
+  ["set_history", "{ id }", "a conversation's change history, newest first: each revision's changes, who and when, as the Testing tab's History shows it"],
+  ["set_back", "{ id, to }", "put revision `to` back as a new revision (0: the repo's copy); to the revision before the last undoes it, as Undo in the Lab"],
   ["set_ratio", "{}", "the stars per set: Training and Dev here, Test counted by the eval service"],
   ["set_promote", "{ ids? }", "the Testing tab's Promote: a pull request within 15 minutes writing the drafts (all, or the ones named) into apps/mcp/bench/sets"],
   ["chats", "{}", "the chats whose turns you can probe: your one-to-one with Tex and each group chat you are in"],

@@ -13,9 +13,10 @@
  *                                                    the eval service's, never written here)
  *   { op: "add",     msg: {...}, after? }            a message: after the message `after` names, first when `after`
  *                                                    is null, last when it is left out; a new speaker joins members
- *   { op: "edit",    msg, field, value }             one field of a message: who, text, kind, to, tex (who "Tex"
+ *   { op: "edit",    msg, field, value }             one field of a message: who, text, kind, to, tex, pics (who "Tex"
  *                                                    makes it a Tex row and drops its labels, as the Lab's speaker
- *                                                    picker does; kind null makes it a plain text again)
+ *                                                    picker does; kind null makes it a plain text again; pics is
+ *                                                    the pictures sent with it, [{ url, type?, name? }], null drops them)
  *   { op: "remove",  msg }                           a message
  *   { op: "move",    msg, before }                   a message, to just before the message `before` names (null: last)
  *   { op: "label",   msg, node, value }              a node's whole label on a person's message (null drops it)
@@ -40,7 +41,10 @@ const { KINDS, TEX } = require("./texSets.cjs");
 
 /** The sets a conversation may be in here: the Test Set lives only in the eval service. */
 const OPEN_SETS = Object.freeze(["training", "dev"]);
-const MSG_FIELDS = new Set(["who", "text", "kind", "to", "tex"]);
+const MSG_FIELDS = new Set(["who", "text", "kind", "to", "tex", "pics"]);
+/** Pictures on one message: at most this many, each an https address (the Lab uploads to the control plane's files). */
+const MAX_PICS = 6;
+const PIC_TYPE = /^image\/(png|jpeg|gif|webp|heic|heif)$/;
 const NODE = /^[A-Za-z][A-Za-z0-9_-]{0,47}$/;
 const MSG_ID = /^[A-Za-z0-9_-]{1,40}$/;
 const MAX_OPS = 200;
@@ -80,6 +84,23 @@ function text(v, what) {
   if (typeof v !== "string") throw new OpError(`${what} is text`);
   if (v.length > MAX_TEXT) throw new OpError(`${what} is longer than ${MAX_TEXT} characters`);
   return v;
+}
+
+/** A message's pictures as an edit hands them: a sound list, or an OpError. */
+function pics(v) {
+  if (!Array.isArray(v)) throw new OpError("pics is a list of { url, type?, name? }, or null to drop them");
+  if (v.length > MAX_PICS) throw new OpError(`a message carries at most ${MAX_PICS} pictures`);
+  return v.map((p) => {
+    const url = p && typeof p === "object" ? p.url : undefined;
+    if (typeof url !== "string" || !/^https:\/\/[^\s]{1,1000}$/.test(url)) throw new OpError("a picture's url is an https address");
+    const out = { url };
+    if (p.type !== undefined) {
+      if (typeof p.type !== "string" || !PIC_TYPE.test(p.type)) throw new OpError("a picture's type is image/png, jpeg, gif, webp or heic");
+      out.type = p.type;
+    }
+    if (p.name !== undefined) out.name = text(p.name, "a picture's name").slice(0, 120);
+    return out;
+  });
 }
 
 function makeTex(m) {
@@ -153,6 +174,7 @@ function applyOne(c, op) {
       if (c.msgs.some((x) => x.id === m.id)) throw new OpError(`there is already a message "${m.id}"`);
       if (typeof m.who !== "string" || !m.who.trim()) throw new OpError("a message needs who said it");
       text(m.text ?? "", "a message's text");
+      if (m.pics !== undefined) m.pics = pics(m.pics);
       if (m.who === TEX || m.tex) makeTex(m);
       else joinMember(c, m.who);
       const at = op.after === undefined ? c.msgs.length : op.after === null ? 0 : msgAt(c, op.after) + 1;
@@ -176,6 +198,10 @@ function applyOne(c, op) {
         if (op.value === true) makeTex(m);
         else throw new OpError('to make a Tex row a person\'s, edit its who to their name');
       } else if (op.field === "text") m.text = text(op.value, "text");
+      else if (op.field === "pics") {
+        if (op.value === null || (Array.isArray(op.value) && !op.value.length)) delete m.pics;
+        else m.pics = pics(op.value);
+      }
       else if (op.field === "kind") {
         if (op.value === null || op.value === "text") {
           delete m.kind;
@@ -308,6 +334,7 @@ function describe(op, full = false) {
     case "add":
       return cut(`added ${op.msg?.id}: ${op.msg?.who}: ${op.msg?.text ?? ""}`);
     case "edit":
+      if (op.field === "pics") return Array.isArray(op.value) && op.value.length ? `${op.msg}: ${op.value.length} picture${op.value.length === 1 ? "" : "s"}` : `${op.msg}: pictures removed`;
       return cut(`${op.msg} ${op.field} → ${show(op.value)}`);
     case "remove":
       return `removed ${op.msg}`;
@@ -364,4 +391,4 @@ function blank({ id, title = "New chat", set = "dev", kind = "one", members = ["
   return { id, title, set, kind, members: [...members], msgs: [] };
 }
 
-module.exports = { OPEN_SETS, MAX_OPS, OpError, apply, applyOps, keysOf, conflicts, describe, blank };
+module.exports = { OPEN_SETS, MAX_OPS, MAX_PICS, OpError, apply, applyOps, keysOf, conflicts, describe, blank };

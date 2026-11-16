@@ -7,7 +7,7 @@ import { useStartRun } from "../runs/Runs.web";
 import { useState } from "react";
 import { G, lab } from "../../engine/state";
 import { labelCount, labelFields, modValue, nodeStars, ranOn, starsIn, wiresIn, type Conversation, type Label, type Message } from "../../engine/sets";
-import { change, useSets } from "../../engine/setsStore";
+import { change, fold, useSets } from "../../engine/setsStore";
 import type { LabNode } from "../../types";
 import { MsgFields, SpeakerPick } from "./MsgFields.web";
 
@@ -298,6 +298,12 @@ export function Inspector({ c }: { c: Conversation | null }) {
   }
   return (
     <div className="panel">
+      <div className="ph" style={{ padding: "6px 8px" }}>
+        <button className="foldbtn" id="foldInsp" title="Hide Details" aria-label="Hide Details" onClick={() => fold("insp", true)}>
+          »
+        </button>
+        <span className="muted small">Details</span>
+      </div>
       <div className="scroll" id="insp">
         {body}
       </div>

@@ -262,3 +262,13 @@ test("the fake run gets the repo's conversations right for decide and reviewer, 
     );
   }
 });
+
+test("lineOf tells the judge a picture came with a text", () => {
+  const pic = { url: "https://example.invalid/a.png" };
+  const c = conv("c", [
+    { id: "m1", who: "Jo", text: "look", pics: [pic] },
+    { id: "m2", who: "Jo", text: "", pics: [pic, pic] },
+  ]);
+  assert.equal(lineOf(c, c.msgs[0]), "@jo: look (sent a picture)");
+  assert.equal(lineOf(c, c.msgs[1]), "@jo: (sent 2 pictures)");
+});

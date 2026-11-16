@@ -47,8 +47,15 @@ export function lineOf(c, m) {
     case "delete":
       return `${who}: (deleted "${snip(to?.text, 40)}")`;
     default:
-      return `${who}: ${m.text}`;
+      return `${who}: ${m.text}${picsNote(m)}`;
   }
+}
+
+/** A message's pictures as a chat line reads them: the judge sees text, so it is told a picture came with it. */
+function picsNote(m) {
+  const n = Array.isArray(m.pics) ? m.pics.length : 0;
+  if (!n) return "";
+  return `${m.text ? " " : ""}(sent ${n === 1 ? "a picture" : n + " pictures"})`;
 }
 
 /** The respond bench's case for Decide on message `i` (`respond.mjs` caseBody reads it). */

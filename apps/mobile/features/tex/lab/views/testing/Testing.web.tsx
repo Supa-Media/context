@@ -14,7 +14,7 @@ import * as LD from "../../labData.generated";
 import { lab, set } from "../../engine/state";
 import { setsRatio, type Conversation } from "../../engine/sets";
 import { mergeDrafts, testClient, type Draft } from "../../engine/setsData";
-import { loadConvs, setSetsSink, setUi, sets, useSets } from "../../engine/setsStore";
+import { fold, loadConvs, setSetsSink, setUi, sets, undo, useSets } from "../../engine/setsStore";
 import { Grid, gridKey } from "./Grid.web";
 import { Inspector } from "./Inspector.web";
 import { SetsList } from "./SetsList.web";
@@ -28,7 +28,9 @@ const REPO: Conversation[] = ((LD as Record<string, unknown>).SETS as Conversati
 /** The Test Set's owner: its editors may read and write it. */
 const TEST_HOME = "context-lc";
 
-const unfinished = (c: Conversation) => c.msgs.some((m) => !m.tex && m.kind !== "delete" && !m.text.trim());
+const unfinished = (c: Conversation) => c.msgs.some((m) => !m.tex && m.kind !== "delete" && !m.text.trim() && !m.pics?.length);
+/** The largest picture a message takes. */
+const MAX_PIC_BYTES = 10 * 1024 * 1024;
 
 /** Reads and keeps the tab's conversations; mounted once, while the tab is open. */
 function useSetsSync() {
@@ -36,6 +38,9 @@ function useSetsSync() {
   const edit = useMutation(api.functions.texSets.edit);
   const create = useMutation(api.functions.texSets.create);
   const remove = useMutation(api.functions.texSets.remove);
+  const picUploadUrl = useMutation(api.functions.texSets.picUploadUrl);
+  const picUrl = useMutation(api.functions.texSets.picUrl);
+  const restoreTo = useMutation(api.functions.texSets.restoreTo);
   const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces, {});
   const home = workspaces?.find((w) => w.slug === TEST_HOME) ?? null;
   const mint = useConsoleGrant();
@@ -96,9 +101,21 @@ function useSetsSync() {
         await create({ conv: c, repoIds: [...state.current.repoIds] });
       },
       readTest: test ? () => test.list() : undefined,
+      async restore(id, to) {
+        const r = (await restoreTo({ id, to })) as unknown as { rev: number };
+        mine.current[id] = r.rev;
+      },
+      async upload(file) {
+        if (!/^image\/(png|jpeg|gif|webp|heic|heif)$/.test(file.type)) throw new Error("Pictures only: PNG, JPEG, GIF, WebP or HEIC");
+        if (file.size > MAX_PIC_BYTES) throw new Error("That picture is over 10 MB");
+        const res = await fetch(await picUploadUrl({}), { method: "POST", headers: { "Content-Type": file.type }, body: file });
+        if (!res.ok) throw new Error("That picture did not upload");
+        const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+        return { url: await picUrl({ storageId }), type: file.type, ...(file.name ? { name: file.name.slice(0, 120) } : {}) };
+      },
     });
     return () => setSetsSink(null);
-  }, [edit, create, remove, test]);
+  }, [edit, create, remove, test, picUploadUrl, picUrl, restoreTo]);
 }
 
 export function Ratio() {
@@ -122,6 +139,16 @@ export function Ratio() {
   );
 }
 
+/** A side panel folded to a strip: one button opens it again. */
+function Folded({ side, label }: { side: "sets" | "insp"; label: string }) {
+  return (
+    <button className="panel fold" id={side === "sets" ? "openSets" : "openInsp"} title={`Show ${label}`} aria-label={`Show ${label}`} onClick={() => fold(side, false)}>
+      <span aria-hidden="true">{side === "sets" ? "»" : "«"}</span>
+      <span className="foldname">{label}</span>
+    </button>
+  );
+}
+
 export function Testing() {
   const s = useSets();
   const ui = useRunsUi();
@@ -139,15 +166,25 @@ export function Testing() {
     if (lab.setChat !== s.chat) set({ setChat: s.chat });
   }, [s.chat]);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => gridKey(e);
+    const k = (e: KeyboardEvent) => {
+      // Cmd/Ctrl+Z undoes this visit's last change, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redoes it; a box being typed in keeps its own.
+      const t = e.target as HTMLElement | null;
+      const typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
+      const z = (e.metaKey || e.ctrlKey) && !e.altKey && (e.key.toLowerCase() === "z" || (e.ctrlKey && e.key.toLowerCase() === "y"));
+      if (z && !typing) {
+        e.preventDefault();
+        return undo(e.shiftKey || e.key.toLowerCase() === "y");
+      }
+      gridKey(e);
+    };
     document.addEventListener("keydown", k);
     return () => document.removeEventListener("keydown", k);
   }, []);
   const c = s.convs.find((x) => x.id === s.chat) ?? null;
   return (
     <div className="tst" data-testid="tex-testing">
-      <div className="cols">
-        <SetsList />
+      <div className="cols" style={{ gridTemplateColumns: `${s.fold.sets ? "36px" : "250px"} minmax(0,1fr) ${s.fold.insp ? "36px" : "340px"}` }}>
+        {s.fold.sets ? <Folded side="sets" label="Sets" /> : <SetsList />}
         {c ? (
           <Grid key={c.id} c={c} />
         ) : (
@@ -155,7 +192,7 @@ export function Testing() {
             <div className="empty">{s.loaded ? "Pick a chat, or add one with + Chat." : "Reading the sets…"}</div>
           </div>
         )}
-        {ui.open ? <RunsPanel /> : c && s.msg === "try" ? <TryPanel c={c} /> : <Inspector c={c} />}
+        {s.fold.insp ? <Folded side="insp" label="Details" /> : ui.open ? <RunsPanel /> : c && s.msg === "try" ? <TryPanel c={c} /> : <Inspector c={c} />}
       </div>
       {s.problem ? (
         <div className="toast" role="status" onClick={() => setUi({ problem: null })}>

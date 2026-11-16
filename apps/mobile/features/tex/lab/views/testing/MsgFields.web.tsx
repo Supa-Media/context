@@ -5,7 +5,57 @@
  */
 import { useState } from "react";
 import { EMOJI, KIND_NAMES, type Conversation, type Message } from "../../engine/sets";
-import { change, type Op } from "../../engine/setsStore";
+import { change, uploadPic, type Op } from "../../engine/setsStore";
+
+/** Upload picked, pasted or dropped pictures and add them to the message (Dev2, 2026-11-16: "No way to add images into these messages"). */
+export async function addPics(c: Conversation, m: Message, files: File[]) {
+  const imgs = files.filter((f) => f.type.startsWith("image/"));
+  if (!imgs.length) return;
+  const got = (await Promise.all(imgs.map((f) => uploadPic(f)))).filter((p): p is NonNullable<typeof p> => !!p);
+  if (!got.length) return;
+  change(c.id, [{ op: "edit", msg: m.id, field: "pics", value: [...(m.pics ?? []), ...got].slice(0, 6) }]);
+}
+
+/** A message's pictures with a remove on each, and + Picture to add more. */
+function PicsEdit({ c, m }: { c: Conversation; m: Message }) {
+  const pics = m.pics ?? [];
+  return (
+    <span className="pics" data-p="pics">
+      {pics.map((p, k) => (
+        <span key={k} className="pic">
+          <img src={p.url} alt={p.name || "Picture"} />
+          <button
+            title="Remove picture"
+            aria-label="Remove picture"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation();
+              change(c.id, [{ op: "edit", msg: m.id, field: "pics", value: pics.filter((_, j) => j !== k) }]);
+            }}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {pics.length < 6 ? (
+        <label className="picadd" onMouseDown={(e) => e.preventDefault()}>
+          + Picture
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            data-p="picfile"
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = "";
+              void addPics(c, m, files);
+            }}
+          />
+        </label>
+      ) : null}
+    </span>
+  );
+}
 
 /** The ops a change of one message field makes. */
 export function kindOps(c: Conversation, m: Message, v: string): Op[] {
@@ -60,6 +110,18 @@ export function MsgFields({ c, m, cls, onDone, autoFocus }: { c: Conversation; m
           value={text}
           onFocus={(e) => autoFocus && e.currentTarget.select()}
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files];
+            if (!files.some((f) => f.type.startsWith("image/"))) return;
+            e.preventDefault();
+            void addPics(c, m, files);
+          }}
+          onDrop={(e) => {
+            const files = [...e.dataTransfer.files];
+            if (!files.length) return;
+            e.preventDefault();
+            void addPics(c, m, files);
+          }}
           onBlur={keep}
           onKeyDown={(e) => {
             if (!onDone) return;
@@ -72,6 +134,7 @@ export function MsgFields({ c, m, cls, onDone, autoFocus }: { c: Conversation; m
           }}
         />
       ) : null}
+      {k !== "react" && k !== "delete" ? <PicsEdit c={c} m={m} /> : null}
     </>
   );
 }
