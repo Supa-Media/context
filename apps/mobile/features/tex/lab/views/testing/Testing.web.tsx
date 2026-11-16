@@ -18,6 +18,10 @@ import { fold, loadConvs, setSetsSink, setUi, sets, undo, useSets } from "../../
 import { Grid, gridKey } from "./Grid.web";
 import { Inspector } from "./Inspector.web";
 import { SetsList } from "./SetsList.web";
+import { RunsPanel } from "../runs/Runs.web";
+import { TryPanel } from "./TryText.web";
+import { useRunsUi } from "../../engine/labRuns";
+import { useSandboxCall } from "../canvas/sandboxCall";
 
 /** The repo's Training and Dev conversations, as the build carries them. */
 const REPO: Conversation[] = ((LD as Record<string, unknown>).SETS as Conversation[] | undefined) ?? [];
@@ -147,7 +151,10 @@ function Folded({ side, label }: { side: "sets" | "insp"; label: string }) {
 
 export function Testing() {
   const s = useSets();
+  const ui = useRunsUi();
   useSetsSync();
+  // Try a text runs in the test chat, so the tab reaches the gateway on its own when opened straight from its address.
+  useSandboxCall();
   // The chat in the address (`?mode=testing&conv=<id>`) opens once the sets are read; then the address follows you.
   useEffect(() => {
     if (!s.loaded) return;
@@ -185,7 +192,7 @@ export function Testing() {
             <div className="empty">{s.loaded ? "Pick a chat, or add one with + Chat." : "Reading the sets…"}</div>
           </div>
         )}
-        {s.fold.insp ? <Folded side="insp" label="Details" /> : <Inspector c={c} />}
+        {s.fold.insp ? <Folded side="insp" label="Details" /> : ui.open ? <RunsPanel /> : c && s.msg === "try" ? <TryPanel c={c} /> : <Inspector c={c} />}
       </div>
       {s.problem ? (
         <div className="toast" role="status" onClick={() => setUi({ problem: null })}>

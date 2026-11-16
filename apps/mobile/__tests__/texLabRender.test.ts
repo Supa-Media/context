@@ -39,6 +39,8 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
+// The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
+jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
@@ -122,7 +124,7 @@ describe("/lab", () => {
     mockAnswers.set(ADMIN, true);
     mockAnswers.set(LIST, { me: "u1", names: { u1: "@staff" }, versions: [{ versionId: "vabc", name: "Faster judge", authorId: "u1", graph, picks: "{}", areas: null, results: "[]", createdAt: 1, updatedAt: 2 }], caseEdits: [] });
     mount();
-    expect(text("#side > .rowi .nm")).toEqual(["Architecture", "Context modules", "Conversations", "Tools", "Speed and cost", "Test cases", "Run", "Compare versions"]);
+    expect(text("#side > .rowi .nm")).toEqual(["Architecture", "Context modules", "Conversations", "Tools", "Speed and cost", "Compare versions"]);
     expect(text("#wsList .nm")).toEqual(["maya", "fashion-brand", "band"]);
     expect(text("#gcList .nm")).toEqual(["band chat"]);
     expect(text("#verList .nm")).toEqual(["main", "Faster judge"]);

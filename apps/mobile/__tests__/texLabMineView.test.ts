@@ -27,6 +27,8 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
+// The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
+jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 // The person's own ledger, as the Tex page's history route answers it, stood in for: what the loader would read.
 jest.mock("../features/tex/lab/views/mine/useMine", () => {
   const { lab, emit } = jest.requireActual<typeof import("../features/tex/lab/engine/state")>("../features/tex/lab/engine/state");
@@ -116,7 +118,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import TexLabRoute from "../app/(app)/lab";
 import { config } from "../features/tex/lab/engine/diff";
-import { clone, emit, G, lab, MAIN } from "../features/tex/lab/engine/state";
+import { clone, emit, G, lab, MAIN, set as setLab } from "../features/tex/lab/engine/state";
 import { promptText } from "../features/tex/lab/views/run/runText";
 import { SCENARIOS } from "../features/tex/lab/engine/traces";
 
@@ -443,7 +445,9 @@ describe("the Lab's test user as You", () => {
 
   test("a pasted replay shows beside the text it replayed, and is never saved with the version", async () => {
     await click(q("#tuserSwap"));
-    await click(q('[data-view="run"]'));
+    // Run and Test cases left the nav (Runs panel, 2026-11-16); the pages stay for You's texts.
+    act(() => setLab({ view: "run" }));
+    await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
     const box = q<HTMLTextAreaElement>("#resIn")!;
     const pasted = '## Lab replay: main\n\n### ev3\n\n**Text:** "remind me about the shelves"\n\n**Then** (code abc1234): "Done."\n\n**Now:** "Saturday at 9."\n';
     const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
@@ -454,7 +458,8 @@ describe("the Lab's test user as You", () => {
     await click(q("#resBtn"));
     expect(MAIN.results.length).toBe(0);
     expect(JSON.stringify(mockSaved)).not.toMatch(/Saturday at 9|shelves/);
-    await click(q('[data-view="tests"]'));
+    act(() => setLab({ view: "tests" }));
+    await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
     expect(qa(".tc .bb.tex .bw").map((x) => x.textContent)).toContain("Tex now");
     expect(document.body.textContent).toMatch(/Saturday at 9\./);
   });

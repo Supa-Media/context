@@ -84,7 +84,7 @@ function keepSpeed(v: number) {
   }
 }
 
-export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries: LedgerEntry[] } | null }) {
+export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment | null; entries: LedgerEntry[] } | null; testLit?: ReadonlySet<string> | null }) {
   const s = useLab();
   // Replay draws the same graph, read only, lit by its own timeline (`replay/ReplayTimeline.tsx`).
   const [replayLit, setReplayLit] = useState<Lit | null>(null);
@@ -161,7 +161,7 @@ export function Canvas({ replay = null }: { replay?: { m: Moment | null; entries
     html = f.html;
   } else {
     fBounds.current = null;
-    html = renderGraphHtml(g, sim, tags, s.sel, replay ? replayLit : lit, "off", replay ? null : stepCounts(g), replay ? null : marks);
+    html = renderGraphHtml(g, sim, tags, s.sel, replay ? replayLit : (testLit ?? lit), "off", replay ? null : stepCounts(g), replay ? null : marks);
   }
   // An open group has no box to name, so its focus bar takes the group's label (Dev2, 2026-11-14).
   const focused = lab.cfocus ? node(lab.cfocus, g) ?? (opened ? { label: GROUPS[lab.cfocus]?.label ?? lab.cfocus } : undefined) : undefined;

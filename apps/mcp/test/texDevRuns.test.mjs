@@ -13,6 +13,7 @@ import { createTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
 import { devConversations, resultsOf } from "../../../scripts/tex-lab-run.mjs";
+import { decideSaid } from "../bench/setsRun.mjs";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
 const jsonOf = (result) => JSON.parse(textOf(result));
@@ -78,4 +79,11 @@ test("results count by chat and by step, with each test's verdict and no words",
   assert.deepEqual(r.perNode, [{ node: "decide", pass: 1, total: 2 }, { node: "fd", pass: 0, total: 1 }]);
   assert.deepEqual(r.rows[1], { convId: "g", msgIndex: 8, node: "decide", ok: false, got: "quiet", want: "respond" });
   assert.deepEqual(r.rows[2], { convId: "m", msgIndex: 1, node: "fd", ok: false, got: "can't run alone", want: "", ran: false });
+});
+
+test("decideSaid names every labelled field, so a miss on why shows where it differs", () => {
+  const verdict = { ok: true, act: "silent", why: "chatter", movedOn: false };
+  assert.deepEqual(decideSaid({ act: "quiet", why: "thanks_or_ok", also_react: "any" }, verdict), { got: "quiet, why chatter", want: "quiet, why thanks_or_ok" });
+  assert.deepEqual(decideSaid({ act: "respond" }, { ok: true, act: "answer" }), { got: "respond", want: "respond" });
+  assert.deepEqual(decideSaid({ act: "respond" }, null), { got: "no verdict", want: "respond" });
 });

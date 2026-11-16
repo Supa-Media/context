@@ -198,6 +198,11 @@ jobs:
             node scripts/tex-diagram-check.mjs
           fi
 
+      # Promote writes a Lab version into the config: main's own graph must promote to main's config byte for byte,
+      # and a loop wire keeps its rounds (it lost them unseen while nothing ran this; 2026-11-16).
+      - name: Lab Promote writes main as main
+        run: node scripts/tex-lab-promote.mjs --self-test
+
       # The Architecture Lab's cases, module texts and test workspaces are the bench's own (tex.lc/lab).
       - name: The Tex Lab's data matches the bench
         run: node scripts/tex-lab-data.mjs --check

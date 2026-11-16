@@ -80,6 +80,7 @@ export function configFrom(graph, current, currentWords = {}) {
     if (e && e.mode === "behind") e.mode = "background";
     if (!e || !ids.has(e.from) || !ids.has(e.to)) return refuse(`a wire joins a step that is not there (${e?.from} → ${e?.to})`);
     if (!MODES.has(e.mode) || !Array.isArray(e.when) || !e.when.every((w) => typeof w === "string")) return refuse(`the wire ${e.from} → ${e.to} is malformed`);
+    if (e.rounds !== undefined && !(Number.isInteger(e.rounds) && e.rounds > 0 && e.rounds <= 100)) return refuse(`the wire ${e.from} → ${e.to} has rounds that are not a whole number from 1 to 100`);
   }
   // In the order main has them, so a promotion's diff shows only what changed.
   const order = new Map(current.nodes.map((n, i) => [n.id, i]));
@@ -94,7 +95,7 @@ export function configFrom(graph, current, currentWords = {}) {
   // Wires in the order main has them too (the Lab unfolds a group's wires in its own order), new ones last.
   const wireKey = (e) => `${e.from}>${e.to}>${e.mode}`;
   const wireOrder = new Map(current.edges.map((e, i) => [wireKey(e), i]));
-  const edges = graph.edges.map(({ from, to, mode, when }) => ({ from, to, mode, when })).map((e, i) => ({ e, at: wireOrder.get(wireKey(e)) ?? current.edges.length + i })).sort((a, b) => a.at - b.at).map(({ e }) => e);
+  const edges = graph.edges.map(({ from, to, mode, when, rounds }) => ({ from, to, mode, when, ...(rounds !== undefined ? { rounds } : {}) })).map((e, i) => ({ e, at: wireOrder.get(wireKey(e)) ?? current.edges.length + i })).sort((a, b) => a.at - b.at).map(({ e }) => e);
   return { config: { ...current, nodes, edges }, words: madeWords.words };
 }
 
@@ -116,6 +117,15 @@ function selfTest() {
   const same = configFrom({ nodes: current.nodes, edges: current.edges }, current, words);
   expect(same.config && configText(same.config) === configText(current), "main's own graph does not promote to main's config");
   const graph = () => JSON.parse(JSON.stringify({ nodes: current.nodes, edges: current.edges }));
+  // A send-back wire's rounds (how many times it may send work back) is config, and survives a promotion.
+  const g0 = graph();
+  const loop = g0.edges.find((e) => e.mode === "loop");
+  if (loop) {
+    loop.rounds = 7;
+    expect(configFrom(g0, current, words).config?.edges.find((e) => e.from === loop.from && e.to === loop.to && e.mode === "loop")?.rounds === 7, "a loop wire's rounds were lost");
+    loop.rounds = 0;
+    expect(/rounds/.test(configFrom(g0, current, words).refused ?? ""), "a wire with rounds 0 passed");
+  }
   const g1 = graph();
   g1.nodes.find((n) => n.id === "reviewer").effort = "medium";
   expect(configFrom(g1, current, words).config.nodes.find((n) => n.id === "reviewer").effort === "medium", "an effort change was lost");

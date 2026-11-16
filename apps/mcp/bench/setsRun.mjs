@@ -72,8 +72,11 @@ export function decideCase(c, i) {
 /** What Decide said and what its label wants, short, for a Lab run's row (`scripts/tex-lab-run.mjs`). */
 export function decideSaid(label, verdict) {
   if (!verdict || verdict.ok !== true) return { got: "no verdict", want: String(label.act ?? "any") };
-  const act = verdict.act === "answer" ? "respond" : verdict.act === "wait" ? "wait" : "quiet";
-  return { got: act + (verdict.act === "react" ? " + react" : ""), want: String(label.act ?? "any") + (label.also_react === "yes" ? " + react" : "") };
+  // Every field the label names, as "field value", so a miss shows where it differs (act alone hid a why miss).
+  const got = { act: verdict.act === "answer" ? "respond" : verdict.act === "wait" ? "wait" : "quiet", also_react: verdict.act === "react" ? "yes" : "no", why: verdict.why ?? "none", moved_on: verdict.movedOn ? "yes" : "no" };
+  const fields = Object.keys(got).filter((f) => label[f] !== undefined && label[f] !== "any");
+  const line = (pick) => fields.map((f) => (f === "act" ? pick(f) : `${f} ${pick(f)}`)).join(", ");
+  return { got: line((f) => got[f]), want: line((f) => label[f]) };
 }
 
 /** Whether Decide's verdict matches the label: each labelled field, "any" skipped. */
