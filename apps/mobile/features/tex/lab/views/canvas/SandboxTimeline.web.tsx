@@ -231,7 +231,9 @@ export function RunPill() {
 /** While one of Tex's texts plays, the steps that didn't lead to it fade on the canvas. */
 export function DimOthers({ only }: { only: ReadonlySet<string> | null }) {
   if (!only?.size) return null;
-  const keep = [...only].map((id) => `:not([data-id="${CSS_ESC(id)}"])`).join("");
+  // Only the canvas's own step ids, so a step id from the gateway never becomes CSS of its own.
+  const keep = [...only].filter((id) => !!node(id)).map((id) => `:not([data-id="${CSS_ESC(id)}"])`).join("");
+  if (!keep) return null;
   return <style>{`.tl .archcv.only .nd${keep}{opacity:.28}.tl .archcv.only .wire{opacity:.35}`}</style>;
 }
 const CSS_ESC = (s: string) => s.replace(/["\\]/g, "\\$&");

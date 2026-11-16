@@ -277,6 +277,7 @@ export async function readSandboxSets() {
 /** Open a test chat over Maya or one of your chats, running the version open in the Lab. */
 export function openSandbox(source: SandboxSource, versionId: string, base?: string) {
   sandbox.shared = false;
+  seenFor = null;
   sandbox.source = source;
   sandbox.versionId = versionId;
   sandbox.id = null;
