@@ -224,8 +224,10 @@ export function openSandbox(source: SandboxSource, versionId: string, base?: str
  */
 export function tryFromHere(chatId: string, name: string, msgId: string, as: string, text: string) {
   sandbox.draft = { as, text };
-  setLab({ mode: "lab", view: "canvas", sel: null });
+  // Opened before the canvas shows: the test chat mounting with that switch then finds a chat on its way and waits for
+  // it, rather than opening one of its own over the whole chat.
   const p = openSandbox({ kind: "chat", chatId, name }, lab.cur.id, msgId);
+  setLab({ mode: "lab", view: "canvas", sel: null });
   return p.then(() => {
     const name = sandbox.people.includes(as) ? as : Object.keys(sandbox.handles).find((n) => sandbox.handles[n] === as);
     if (name) sandbox.as = name;

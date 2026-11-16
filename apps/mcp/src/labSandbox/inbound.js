@@ -65,9 +65,10 @@ export function targetOf(rows, id, what) {
  * A picture's bytes cut off at write_note's ceiling (`MAX_REMOTE_IMAGE_BYTES`, 5 MB): the download runs in the shared
  * gateway, not the texting Worker, so one test text's six pictures never hold more than this each.
  */
-function capped(response) {
+function capped(response, over) {
   const said = Number(response.headers.get("content-length"));
   if (Number.isFinite(said) && said > MAX_REMOTE_IMAGE_BYTES) {
+    over();
     response.body?.cancel().catch(() => {});
     return new Response(null, { status: 413 });
   }
@@ -76,20 +77,27 @@ function capped(response) {
   const cut = new TransformStream({
     transform(chunk, out) {
       seen += chunk.byteLength;
-      if (seen > MAX_REMOTE_IMAGE_BYTES) out.error(new Error("picture over the size limit"));
+      if (seen > MAX_REMOTE_IMAGE_BYTES) {
+        over();
+        out.error(new Error("picture over the size limit"));
+      }
       else out.enqueue(chunk);
     },
   });
   return new Response(response.body.pipeThrough(cut), { status: response.status, headers: response.headers });
 }
 
-/** A picture's download as the Worker does it, but only from a plain https name, every redirect checked again. */
-export function pictureFetch(fetchImpl) {
+/**
+ * A picture's download as the Worker does it, but only from a plain https name, every redirect checked again. The
+ * address of each picture cut off at the ceiling goes into `oversized`, so the turn is told why it wasn't read.
+ */
+export function pictureFetch(fetchImpl, oversized = new Set()) {
   return async (input, init = {}) => {
+    const over = () => oversized.add(String(input));
     let url = fetchableImageUrl(String(input));
     for (let hop = 0; hop <= PICTURE_HOPS && url !== null; hop += 1) {
       const response = await fetchImpl(url.toString(), { method: "GET", redirect: "manual", headers: { accept: "image/*" }, ...(init.signal ? { signal: init.signal } : {}) });
-      if (response.status < 300 || response.status >= 400) return capped(response);
+      if (response.status < 300 || response.status >= 400) return capped(response, over);
       await response.body?.cancel().catch(() => {});
       const next = response.headers.get("location");
       let resolved = null;
@@ -202,9 +210,18 @@ export async function askOf({ about, row, rows, fetch: fetchImpl = (...a) => glo
   }
   const said = group ? sinceTex(rows, row.id).slice(-CHAT_LINES) : [];
   const files = group ? w.filesFor({ attachments: attachmentsOf(row) }, said.map((r) => ({ attachments: attachmentsOf(r) }))) : attachmentsOf(row);
-  const prepared = files.length > 0 ? await w.prepareAttachments(files, { fetch: pictureFetch(fetchImpl), ...(images ? { images } : {}) }) : [];
+  const oversized = new Set();
+  const prepared = files.length > 0 ? await w.prepareAttachments(files, { fetch: pictureFetch(fetchImpl, oversized), ...(images ? { images } : {}) }) : [];
+  // The Worker says a cut-off download failed; the turn is told it was too big, as a real one over its ceiling is.
+  const tooBig = new Set(files.filter((f) => oversized.has(f.url)).map((f) => f.filename));
   // Pictures only: a test text's address that turns out to be audio or a document is not read.
-  const attachments = prepared.map((a) => (String(a.mediaType ?? "").startsWith("image/") || "unread" in a ? a : { name: a.name, mediaType: a.mediaType, unread: "Only pictures are read in a Lab test chat." }));
+  const attachments = prepared.map((a) =>
+    "unread" in a && tooBig.has(a.name)
+      ? { ...a, unread: "It is over the 5 MB a Lab test picture can be." }
+      : String(a.mediaType ?? "").startsWith("image/") || "unread" in a
+        ? a
+        : { name: a.name, mediaType: a.mediaType, unread: "Only pictures are read in a Lab test chat." },
+  );
   const reacted = group || row.kind === "reaction" ? [] : notedSince(rows, row.id);
   const chat = said.map((r) => ({ who: r.who, text: String(r.text ?? "") || w.PICTURE_LINE }));
   return { ask, attachments, reacted, chat };

@@ -146,7 +146,7 @@ export function TextGrid(p: {
                 n++;
                 const cls = ["mr", r.tex ? "tex" : "", r.prod ? "prod" : "", r.test ? "test" : "", p.sel === r.id ? "sel" : ""].filter(Boolean).join(" ");
                 return (
-                  <tr key={r.id} className={cls} data-id={r.id} title={r.title} {...r.attrs} onClick={(e) => p.onRow && !(e.target as HTMLElement).closest("button") && p.onRow(r, (e.target as HTMLElement).closest("td")?.getAttribute("data-c") || null)}>
+                  <tr key={r.id} className={cls} data-id={r.id} title={r.title} {...r.attrs} onClick={(e) => p.onRow && !(e.target as HTMLElement).closest("button, .popm") && p.onRow(r, (e.target as HTMLElement).closest("td")?.getAttribute("data-c") || null)}>
                     {p.slim ? null : <td className="num mono muted">{n}</td>}
                     {act ? <td className="ac">{p.actions!(r)}</td> : null}
                     {vc.map((c) => {

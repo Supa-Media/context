@@ -259,7 +259,12 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   const answer = await controlPlane.labSandbox(token, "session", { chat: about.chat });
   if (answer?.status !== "ok") return refused(404, answer?.error ?? "This chat is no longer yours to test in.");
   // A retry cuts its old text only once everything that could refuse it has passed, so a refusal loses nothing.
-  if (cut !== null) await callSandbox(stub, "cut.from", { id: cut });
+  if (cut !== null) {
+    // Read again: a send that landed while the checks above were out is running now, and the cut would take it.
+    const now = await callSandbox(stub, "state", {});
+    if (view(now).running !== null) return refused(409, "a test text is still running: wait for its reply");
+    await callSandbox(stub, "cut.from", { id: cut });
+  }
   await callSandbox(stub, "row.add", { row });
   await callSandbox(stub, "ledger.append", { entries: [await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })], by: row.id });
   const tapback = row.kind === "reaction" ? { turn } : {};

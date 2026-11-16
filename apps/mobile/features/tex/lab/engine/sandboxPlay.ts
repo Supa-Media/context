@@ -7,16 +7,27 @@
  */
 import { useSyncExternalStore } from "react";
 import { lab } from "./state";
+import { isLive, live } from "./live";
 import { retryText, sandbox, type SandboxRow } from "./sandbox";
+import type { LabGraph } from "../types";
 import type { Lit } from "../views/canvas/usePlayback";
 
 /**
- * What a test turn runs: the version as saved, which the gateway reads afresh for every turn. Its id and saved
- * revision, never the canvas as drawn: a focus folding groups, a step moved or an edit not saved yet changes nothing
- * a turn would run.
+ * What a test turn runs: the version as saved, which the gateway reads afresh for every turn. For a live draft that is
+ * the graph the server confirmed (`live.synced`) with where each step is drawn left out; otherwise its id and saved
+ * revision. Never the canvas as drawn: a focus folding groups, a step moved or an edit not saved yet changes nothing a
+ * turn would run.
  */
+const prints = new WeakMap<LabGraph, string>();
 export function versionPrint(): string {
-  return lab.cur.id + ":" + (lab.cur.rev ?? 0);
+  const g = isLive() ? live.synced : null;
+  if (!g) return lab.cur.id + ":" + (lab.cur.rev ?? 0);
+  let p = prints.get(g);
+  if (p === undefined) {
+    p = lab.cur.id + ":" + JSON.stringify({ ...g, nodes: g.nodes.map(({ x: _x, y: _y, ...n }) => n) });
+    prints.set(g, p);
+  }
+  return p;
 }
 
 /** Each test text's version print when it ran; a text the Lab didn't see run takes the print it was first seen with. */

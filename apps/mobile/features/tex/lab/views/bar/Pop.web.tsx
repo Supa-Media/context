@@ -87,7 +87,7 @@ export function Pop({
         {button}
       </button>
       {open ? (
-        <div className={"popm" + (right ? " right" : "")} role="menu" id={id + "Menu"} style={at} onClick={(e) => e.stopPropagation()}>
+        <div className={"popm" + (right ? " right" : "")} role="menu" id={id + "Menu"} style={at}>
           {children(close)}
         </div>
       ) : null}

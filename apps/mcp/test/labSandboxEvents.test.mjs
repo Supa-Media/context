@@ -7,6 +7,7 @@
 //   inbound.js `pictureFetch` following a redirect unchecked   "a redirect to an address is never followed" fails
 //   route.js `addRow` running on the config read at open      "every turn runs the draft as saved now ..." fails
 //   route.js `retry` cutting before its checks                 "... a retry that is refused cuts nothing" fails
+//   route.js `addRow` cutting without reading `running` again   "... a retry that is refused cuts nothing" fails
 //   inbound.js `capped` returning the response as it came      "a picture over 5 MB is not read" fails
 
 import { test } from "node:test";
@@ -74,7 +75,7 @@ test("a picture over 5 MB is not read, whether it says its size or not", async (
   const row = { id: "t1", eid: EID(1), who: "You", text: "look", at: 1, prod: false, pics: [{ url: "https://img.example.test/big.png" }, { url: "https://img.example.test/huge.png" }] };
   const body = await turnRequestBody({ about: ONE, row, rows: [row], turn: "labturn01", fetch: pictureHost() });
   assert.equal(body.attachments.length, 2);
-  for (const a of body.attachments) assert.ok(a.unread, "no bytes past the ceiling");
+  for (const a of body.attachments) assert.equal(a.unread, "It is over the 5 MB a Lab test picture can be.", "no bytes past the ceiling, and the turn told why");
 });
 
 test("a quoted reply names the text it answers: its words in a 1:1, Tex's words or only that it was one in a group", async () => {
@@ -160,6 +161,7 @@ function routeWorld() {
     if (body.action === "who") return answer({ status: "ok", userId: "u_alice", chats: [{ key: KEY, name: "Team", people: 3 }] });
     if (body.action === "set") return answer(body.args.id === "secret-test" ? { status: "ok", conv: JSON.stringify(testDraft) } : { status: "not_found" });
     if (body.action === "sets") return answer({ status: "ok", drafts: [{ id: "fresh-one", set: "dev", conv: JSON.stringify({ id: "fresh-one", title: "Fresh", set: "dev", kind: "group", members: ["Mia", "Kai"], msgs: [{ id: "m1", who: "Mia", text: "hi" }] }) }] });
+    if (body.action === "draft") await world.onDraft?.();
     if (body.action === "draft") return answer(world.draft ? { status: "ok", graph: JSON.stringify(world.draft) } : { status: "not_found" });
     if (body.action === "session") {
       const session = { grantId: "g1", clientId: "context_texts", actorUserId: "u_alice", scopes: ["context:read"], defaultWorkspaceId: "ws_alice", workspaces: [{ workspaceId: "ws_alice", role: "owner", kind: "personal", slug: "alfa" }] };
@@ -184,7 +186,9 @@ function routeWorld() {
     const index = await callSandbox(ns.get(ns.idFromName("labsandbox:u_alice:index0000000000")), "state", {});
     return Number(index.meta[`sends:${new Date().toISOString().slice(0, 10)}`] ?? 0);
   };
-  const world = { call, turns, sends, draft: null, restore: () => (globalThis.fetch = original) };
+  // The chat's own object (not the per-person index), to change under a call in flight.
+  const chat = () => ns.get({ name: [...objects.keys()].find((k) => !k.endsWith("index0000000000")) });
+  const world = { call, turns, sends, chat, draft: null, onDraft: null, restore: () => (globalThis.fetch = original) };
   return world;
 }
 
@@ -261,6 +265,14 @@ test("every turn runs the draft as saved now, not as it was at open; a retry tha
     // The draft is deleted: the retry is refused, and the text and its reply are still there.
     w.draft = null;
     assert.equal((await w.call({ op: "retry", sandboxId, msgId: last })).status, 404);
+    assert.deepEqual(await texts(), before);
+    // A text that starts running while the retry's checks are out is not cut from under its turn.
+    w.draft = { nodes: [{ id: "decide", on: true }], edges: [] };
+    w.onDraft = async () => {
+      w.onDraft = null;
+      await callSandbox(w.chat(), "meta", { key: "running", value: { msgId: last, at: Date.now() } });
+    };
+    assert.equal((await w.call({ op: "retry", sandboxId, msgId: last })).status, 409);
     assert.deepEqual(await texts(), before);
   } finally {
     w.restore();

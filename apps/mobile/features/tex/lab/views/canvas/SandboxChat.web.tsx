@@ -218,6 +218,8 @@ export function SandboxChat() {
   useEffect(() => {
     if (!ready) return;
     if (!started.current) {
+      // A chat already being opened ("Try from here" opens one before this mounts) is waited for, not opened twice.
+      if (sb.busy) return;
       started.current = true;
       if (!sb.chats.length) void readSandboxChats();
       if (sb.id === null || sb.versionId !== versionId) void openSandbox(sb.source, versionId);

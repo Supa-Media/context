@@ -30,6 +30,8 @@ jest.mock("convex/react", () => {
   return {
     useQuery: (reference: never, args: unknown) => (args === "skip" ? undefined : mockAnswers.get(getFunctionName(reference))),
     useMutation: () => async () => ({ status: "ok" }),
+    useAction: () => async () => null,
+    useConvex: () => ({ query: async () => null, mutation: async () => null, action: async () => null }),
   };
 });
 jest.mock("expo-router", () => {
@@ -106,7 +108,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, lab, MAIN, set } from "../features/tex/lab/engine/state";
-import { gatewaySandbox, resetSandboxState, sandbox } from "../features/tex/lab/engine/sandbox";
+import { gatewaySandbox, resetSandboxState, sandbox, tryFromHere } from "../features/tex/lab/engine/sandbox";
 import { resetPlay } from "../features/tex/lab/engine/sandboxPlay";
 
 const roots: (() => void)[] = [];
@@ -240,6 +242,20 @@ describe("the Architecture test chat", () => {
     // Reset deletes the test chat, and a fresh one opens over the same chat.
     expect(mockCalls.slice(-2).map((c) => c.op)).toEqual(["reset", "open"]);
     expect(sandbox.rows).toEqual([]);
+  });
+
+  test("Try from here opens one chat, up to the picked text, even as the test chat mounts", async () => {
+    await mount();
+    // Off the canvas, with no test chat yet: Replay's "Try from here" is where it is pressed.
+    act(() => set({ view: "tools" }));
+    await tick();
+    expect(q("#sbTxt")).toBeNull();
+    resetSandboxState();
+    mockCalls.length = 0;
+    await act(async () => void (await tryFromHere("band", "Band", "h2", "priya", "hi")));
+    await tick();
+    expect(mockCalls.filter((c) => c.op === "open")).toEqual([{ op: "open", body: { source: "chat", chatId: "band", versionId: "main", base: "h2" } }]);
+    expect(texts()).toEqual(["practice thursday?"]);
   });
 
   test("going back to a real text opens the chat again up to the text after it", async () => {
