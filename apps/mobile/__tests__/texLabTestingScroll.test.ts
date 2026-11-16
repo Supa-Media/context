@@ -5,6 +5,7 @@
  * so every panel is as tall as its list and nothing scrolls. Sabotage: drop `grid-template-rows` from
  * `.tl .body.testing` and this fails.
  */
+import { expect, test } from "@jest/globals";
 import { LAB_CSS_3 } from "../features/tex/lab/labCss3";
 
 test("the Testing body gives its one row the window's height, so the sets list scrolls", () => {
