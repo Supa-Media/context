@@ -30,6 +30,7 @@ import { v, type Infer } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
 import { normalizePhone } from "../phoneCheck";
 import { usernameOf } from "./people";
+import { TEX_NUMBER } from "@context/shared/src/texNumber.cjs";
 
 export const LINQ_ZERO_SERVICE = "https://prod.zero-service.linqapp.com";
 
@@ -158,20 +159,19 @@ export function dedicatedTexLines(value: string | undefined): string[] {
 }
 
 /**
- * The line a person is told to text. Several lines share people out by their
- * number, so the same person is always told the same line, and adding a line
- * moves only some of them.
+ * The number a person is told to text: Tex's number (`TEX_NUMBER`, packages/shared/src/texNumber.cjs), and only on a
+ * deployment that runs Tex (`TEX_LINE_NUMBERS` set); null elsewhere, so a self-hosted control plane never hands out
+ * ours. `TEX_LINE_NUMBERS` itself is never shown: it lists the lines Tex answers on, old ones included, and showing
+ * it kept Settings on the Sendblue number after Tex moved to Photon (Dev2, 2026-11-16).
  */
-export function texLineFor(lines: string[], phone: string): string {
-  let sum = 0;
-  for (const char of phone) sum = (sum * 31 + char.charCodeAt(0)) % 1_000_003;
-  return lines[sum % lines.length];
+export function texNumberHere(value: string | undefined): string | null {
+  return dedicatedTexLines(value).length > 0 ? TEX_NUMBER : null;
 }
 
-/** The line the console shows: a dedicated one when set, else Linq's. Never throws. */
+/** The line the console shows: Tex's number on a dedicated line, else Linq's. Never throws. */
 export async function readTexLine(env: LinqEnv & { TEX_LINE_NUMBERS?: string }): Promise<LinqLine> {
-  const dedicated = dedicatedTexLines(env.TEX_LINE_NUMBERS);
-  return dedicated.length > 0 ? { state: "unlimited", line: dedicated[0] } : await readLinqLine(env);
+  const line = texNumberHere(env.TEX_LINE_NUMBERS);
+  return line !== null ? { state: "unlimited", line } : await readLinqLine(env);
 }
 
 /** The line, and its list when it has one. Never throws. */

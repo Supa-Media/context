@@ -11,7 +11,7 @@ on:
       number:
         description: "Tex's new number, E.164"
         required: true
-        default: "+18133350746"
+        default: "+14157918922"
       archive_on:
         description: "Day the old number stops working, YYYY-MM-DD (blank = no day)"
         required: false

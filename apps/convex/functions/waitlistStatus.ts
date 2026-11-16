@@ -12,8 +12,8 @@
  *    removal is never announced (`lib/schema/waitlist.ts`), and that holds
  *    here too: the receipt holder sees exactly what they saw before.
  *  - `admitted` is the row's own status. The Tex line comes with it only when
- *    one is actually configured for this person (`TEX_LINE_NUMBERS`, the same
- *    `texLineFor` the "You're in" text uses), so the page never names a
+ *    Tex runs here (`texNumberHere`, the same number the "You're in" text
+ *    names), so the page never names a
  *    number Tex would not answer. Admitted without a line reads "You're in"
  *    and says the number is on its way.
  *
@@ -25,7 +25,7 @@ import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
 import { mutation } from "./lib/rowWatch/mutations";
-import { dedicatedTexLines, texLineFor } from "./lib/adminFns/texAllowlist";
+import { texNumberHere } from "./lib/adminFns/texAllowlist";
 import { currentPhoneOf } from "./lib/emailProof";
 import { hasTextedTex } from "./texHome";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
@@ -61,12 +61,12 @@ export const status = query({
     if (row === null) return null;
     const admitted = row.status === "admitted";
     const phone = admitted ? await phoneOf(ctx, row) : null;
-    const lines = dedicatedTexLines(process.env.TEX_LINE_NUMBERS);
+    const texNumber = texNumberHere(process.env.TEX_LINE_NUMBERS);
     return {
       state: admitted ? ("admitted" as const) : ("waiting" as const),
       contact: contactOf(row),
       useFor: row.useFor ?? null,
-      texLine: phone === null || lines.length === 0 ? null : texLineFor(lines, phone),
+      texLine: phone === null ? null : texNumber,
       firstText: phone === null ? true : !(await hasTextedTex(ctx, phone)),
     };
   },
