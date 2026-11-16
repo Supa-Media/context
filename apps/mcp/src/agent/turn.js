@@ -617,7 +617,7 @@ export async function runTurn(options) {
       if (call.name !== PROGRESS_TOOL && call.name !== SAY_NOTHING_TOOL) try { options.onToolStart?.(call.name); } catch { /* a failed tapback never costs the turn */ }
       try {
         const viaMcp = !(progress && call.name === PROGRESS_TOOL) && !localCalls.has(call.name) && !webNames.has(call.name);
-        result = sandboxedTool(env, call) ?? (viaMcp && isPlainNoteWrite(call.name, call.args)
+        result = (await sandboxedTool(env, call)) ?? (viaMcp && isPlainNoteWrite(call.name, call.args)
           // A slow save is waited on, read back and retried, never told as failed unseen (`noteWriteRetry.js`).
           ? await settleNoteWrite({ run: () => callTool(call.name, call.args), callTool, args: call.args, ms: timeoutFor(call.name), remaining: () => toolBudgetMs + 30_000 - (clock() - began) })
           : await withinTime(

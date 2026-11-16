@@ -1,36 +1,25 @@
 /**
- * ONE TEST TEXT'S TURN IN A LAB TEST CHAT (Dev2, 2026-11-16: "send test messages to see how the new architecture
+ * ONE TEST TEXT'S GATE IN A LAB TEST CHAT (Dev2, 2026-11-16: "send test messages to see how the new architecture
  * responds ... have all the changes sandboxed so it doesn't actually affect production"; decision
  * `docs/decisions/texting-assistant/lab-sandbox.md`).
  *
- * The turn is the real one: `handleAgent`, on the session a real texted turn in that chat would run on (read from the
- * chat's own grant by the control plane, without its token), with the draft's wiring (`graph/turnGraph.js`
- * `withDraft`). What it runs on is not: its env is `sandboxEnvOf` (no texting Worker, no jobs, no browser, analytics
- * that keep nothing), its objects answer through `wire.js` (reads from the real ones, every change into this test
- * chat's object), its control-plane calls through `policy.js` `controlPlaneAnswer` and its tools through `toolAnswer`.
- * The gate below is what those three ask, and the only thing that knows which text the turn is for.
+ * The text runs as a real one does (`chatRun.js`): through the chat object, then `handleAgent` on the session a real
+ * texted turn in that chat would run on, with the draft's wiring. What it runs on is not: its env is `sandboxEnvOf`,
+ * its objects answer through `wire.js`, its control-plane calls through `policy.js` `controlPlaneAnswer` and its tools
+ * through `toolAnswer`. The gate below is what those ask, the only thing that knows which text the turn is for, and
+ * where every step the text causes is kept as it runs (`steps.js`).
  */
 
-import { handleAgent } from "../agent/route.js";
-import { eventEntry } from "../agent/ledger.js";
-import { createControlPlane } from "../controlPlane.js";
-import { attachContextOpener, onceEach } from "../http/contextOpener.js";
-import { attachPinnedDoors } from "../http/pinnedDoors.js";
-import { decorateRequestStore } from "../http/requestStore.js";
-import { attachLinkCalls } from "../http/routing.js";
-import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
-import { sessionFromPayload, storeForSession } from "../session.js";
+import { TEX_CONFIG, withDraft } from "../agent/texConfig.js";
 import { callSandbox } from "./object.js";
-import { sandboxEnvOf } from "./policy.js";
-import { sandboxNamespace } from "./wire.js";
+import { READ_TOOLS, toolSummary } from "./policy.js";
+import { fitSteps, stepBook } from "./steps.js";
 import { askOf, SANDBOX_EVENT_CHAT } from "./inbound.js";
 
 export { SANDBOX_EVENT_CHAT };
 /** A turn that has not answered by then is stopped and said so on its row. */
 export const TURN_LIMIT_MS = 4 * 60_000;
-/** Work after the answer (the turn's own after-steps) is waited for this long before the row is closed. */
-const AFTER_LIMIT_MS = 60_000;
-/** The Lab's row keeps this much of a node's output. */
+/** The Lab's row keeps this much of a node's output, for a step read from the ledger (`stepsOf`). */
 const OUT_CHARS = 600;
 
 let counter = 0;
@@ -40,8 +29,6 @@ export function eventId(at) {
   return `${String(at).padStart(13, "0")}-${String(counter).padStart(6, "0")}`;
 }
 
-/** A turn id as the log wants it. */
-const turnId = () => `lab${[...crypto.getRandomValues(new Uint8Array(9))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
 
 /** A node's output as the Lab's row shows it: its JSON, cut. */
 function outOf(value) {
@@ -65,27 +52,62 @@ export function stepsOf(entries) {
 /**
  * The gate one test text's turn carries (`policy.js` `LAB_SANDBOX_KEY`). `about` is the test chat (`route.js` `open`):
  * `owner` the real object's owner name the test chat's ledger stands in for (`person:<id>` or `chat:<key>`), and
- * `ledgerChat` that ledger's chat. Every call goes to the test chat's object; `flush()` waits for the ones not awaited.
+ * `ledgerChat` that ledger's chat. `arrivedAt` is when the text was sent (its steps' `at` count from there). Every call
+ * goes to the test chat's object; `flush()` waits for the ones not awaited. Its methods are closures: the runner and the
+ * fences call them unbound.
  */
-export function sandboxGate(stub, about, rowId, { config = null, before = [] } = {}) {
+export function sandboxGate(stub, about, rowId, { config = null, arrivedAt = Date.now(), now = Date.now } = {}) {
   const pending = [];
   const call = (op, fields) => callSandbox(stub, op, fields);
   const later = (work) => void pending.push(Promise.resolve(work).catch(() => {}));
   const ours = (obj) => typeof obj === "string" && typeof about?.owner === "string" && obj.endsWith(`#${about.owner}`);
   const ops = new Set();
-  let lastNode = null;
-  const done = [];
-  // The running row as it stands: `before` (steps that ran ahead of the turn, `chatRun.js`), then the turn's nodes.
-  const show = (node) => {
-    lastNode = node;
-    later(call("meta", { key: "running", value: { msgId: rowId, node: lastNode, at: Date.now(), steps: [...before, ...done] } }));
+  // The running row as it stands: every step so far (`steps.js`), the running ones with no `ms` yet. One post at a
+  // time; a change while one is out is posted after it, so the Lab never reads an older view last.
+  let posting = null;
+  let dirty = false;
+  const post = () => {
+    dirty = true;
+    if (posting !== null) return;
+    posting = (async () => {
+      while (dirty) {
+        dirty = false;
+        const steps = book.view();
+        const node = [...steps].reverse().find((step) => step.ms === undefined)?.node ?? steps.at(-1)?.node ?? null;
+        await call("meta", { key: "running", value: { msgId: rowId, node, at: now(), steps: fitSteps(steps) } }).catch(() => {});
+      }
+      posting = null;
+    })();
+    later(posting);
+  };
+  const book = stepBook({ rowId, arrivedAt, config: config ? withDraft(TEX_CONFIG, config) : TEX_CONFIG, now, onChange: post });
+  /** A write as the Lab lists it (`object.js` gives it its `id`): `kind`, `title`, by this text, when. */
+  const keep = (write) => call("write.add", { write: { ...write, kind: String(write?.kind ?? "other").toLowerCase().slice(0, 40), title: String(write?.title ?? write?.summary ?? "").slice(0, 200), summary: String(write?.summary ?? write?.title ?? "").slice(0, 200), by: rowId, at: now() } });
+  /** A tool call the turn logged (`ledger.js` `toolEntry`), on the model step that made it. */
+  const logged = (entries) => {
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      if (entry?.kind !== "tool" || typeof entry.name !== "string") continue;
+      book.call({ tool: entry.name, kind: READ_TOOLS.has(entry.name) ? "read" : "write", ms: entry.ms, d: `${toolSummary(entry.name, entry.args)}${entry.ok === false ? " (failed)" : ""}`, think: entry.thinking });
+    }
   };
   return {
     config,
     ops,
+    about,
+    rowId,
+    book,
+    call,
     record(write) {
-      later(call("write.add", { write: { kind: String(write?.kind ?? "Other"), summary: String(write?.summary ?? "").slice(0, 200), ...(write?.tool ? { tool: write.tool } : {}), by: rowId, at: Date.now() } }));
+      later(keep({ kind: write?.kind, summary: write?.summary, ...(write?.tool ? { tool: write.tool } : {}) }));
     },
+    /** A write the test chat did itself (`sandboxTools.js`), with what the Lab shows of it: its body, address, to. */
+    async write(write) {
+      return (await keep(write)).id ?? null;
+    },
+    usage: (spent) => book.usage(spent),
+    /** A chat object step, as it finished (`chatRun.js`). */
+    worker: (step, at) => book.worker(step, at),
+    onStart: (run) => book.runStarted(run),
     saw(op) {
       ops.add(op);
     },
@@ -103,17 +125,18 @@ export function sandboxGate(stub, about, rowId, { config = null, before = [] } =
       return {
         read: (options) => call("ledger.read", { chat, options }),
         oldest: async () => (await call("ledger.oldest", { chat })).oldest ?? null,
-        append: (entries) => call("ledger.append", { entries, by: rowId }),
+        append: (entries) => {
+          logged(entries);
+          return call("ledger.append", { entries, by: rowId });
+        },
       };
     },
     /** Each node as it finishes: the Lab's running row gets it at once, with what it gave, not when the turn ends. */
-    onNode(run) {
-      if (typeof run?.node !== "string") return;
-      done.push({ node: run.node, out: outOf(run.output), ms: Number.isFinite(run.ms) ? run.ms : 0, ok: run.ok !== false });
-      show(run.node);
+    onNode: (run) => book.runEnded(run),
+    show: post,
+    flush: async () => {
+      while (pending.length > 0) await Promise.allSettled(pending.splice(0));
     },
-    show,
-    flush: () => Promise.allSettled(pending.splice(0)),
   };
 }
 
@@ -155,66 +178,3 @@ export async function turnRequestBody({ about, row, rows, turn, fetch, images })
   const { ask, attachments, reacted, chat } = await askOf({ about, row, rows, ...(fetch ? { fetch } : {}), images });
   return turnBody({ about, ask, as: row.who, eid: row.eid, turn, rows, chat: about.kind === "group" ? chat : null, attachments, reacted });
 }
-
-/** Tex's reply as the Worker logs it once sent; `eid` its event id, which a later reply or tapback names. */
-export function replyEvent({ at, text, turn, covers, eid = eventId(at) }) {
-  return eventEntry({ id: eid, at, chat: SANDBOX_EVENT_CHAT, kind: "text", from: { kind: "tex" }, text, turn, covers, delivered: true });
-}
-
-/** A promise that gives up after `ms`, answering `fallback`; its timer never outlives the work. */
-function within(work, ms, fallback) {
-  let timer;
-  return Promise.race([work, new Promise((resolve) => (timer = setTimeout(() => resolve(fallback), ms)))]).finally(() => clearTimeout(timer));
-}
-
-/**
- * Runs one test text's turn and writes what it gave into the test chat. `payload` is the control plane's session for
- * the chat (`texLabSandbox.ts` `session`); `token` the caller's own, carried for the store's opens as a real turn
- * carries its own. Never throws: a turn that fails says so on its reply row.
- */
-export async function runSandboxTurn({ env, stub, about, row, payload, token, config, origin }) {
-  const gate = sandboxGate(stub, about, row.id, { config });
-  const sandboxEnv = sandboxEnvOf(env, { gate, workspaces: sandboxNamespace(env.WORKSPACE_STORE, gate), tex: sandboxNamespace(env.TEX_STORE, gate) });
-  const controlPlane = createControlPlane(sandboxEnv);
-  const after = [];
-  const ctx = { waitUntil: (work) => void after.push(Promise.resolve(work).catch(() => {})) };
-  const turn = turnId();
-  const started = Date.now();
-  const replyId = `${row.id}r`;
-  try {
-    await callSandbox(stub, "meta", { key: "running", value: { msgId: row.id, node: null, at: started } });
-    const session = sessionFromPayload(payload, null, token);
-    Object.defineProperty(session, "labSandbox", { value: gate, enumerable: false });
-    const state = await callSandbox(stub, "state", {});
-    // The pictures are downloaded now, at answer time, as the Worker does (`reply.ts`), with the deployment's `IMAGES`.
-    const body = await turnRequestBody({ about, row, rows: state.rows ?? [], turn, images: env.IMAGES });
-    const request = new Request(`${origin}/agent`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    const store = await storeForSession(session, sandboxEnv, controlPlane);
-    decorateRequestStore(store, { session, env: sandboxEnv, controlPlane, ctx, request, origin });
-    const openOnce = onceEach((target) => storeForSession(target, sandboxEnv, controlPlane));
-    attachContextOpener(store, session, { env: sandboxEnv, controlPlane, origin, openOnce, pinnedName: PINNED_CONTEXT_NAME });
-    attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, sandboxEnv, controlPlane), (opened, sibling) => attachLinkCalls(opened, sibling, controlPlane, sandboxEnv));
-    const response = await within(handleAgent(request, sandboxEnv, store, session, controlPlane), TURN_LIMIT_MS, null);
-    if (response === null) throw new Error(`no answer in ${TURN_LIMIT_MS / 60_000} minutes`);
-    const answer = await response.json().catch(() => ({}));
-    await within(Promise.allSettled(after), AFTER_LIMIT_MS, null);
-    await gate.flush();
-    const text = typeof answer?.answer === "string" ? answer.answer : "";
-    const quiet = answer?.quiet === true || text === "";
-    const at = Date.now();
-    const eid = eventId(at);
-    if (!quiet) await callSandbox(stub, "ledger.append", { entries: [replyEvent({ at, text, turn, covers: [row.eid], eid })], by: row.id }).catch(() => {});
-    const steps = stepsOf((await callSandbox(stub, "ledger.of", { by: row.id })).entries);
-    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text, at, prod: false, ...(quiet ? { quiet: true } : { eid }), ms: at - started, steps, ...(response.ok ? {} : { error: `the turn answered ${response.status}` }) } });
-    console.log(JSON.stringify({ event: "lab_sandbox_turn", ok: response.ok, ms: at - started, steps: steps.length, quiet, ops: gate.ops.size }));
-  } catch (error) {
-    await gate.flush();
-    const at = Date.now();
-    const steps = await callSandbox(stub, "ledger.of", { by: row.id }).then((read) => stepsOf(read.entries)).catch(() => []);
-    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text: "", at, prod: false, quiet: true, ms: at - started, steps, error: String(error?.message ?? "the turn failed").slice(0, 200) } }).catch(() => {});
-    console.log(JSON.stringify({ event: "lab_sandbox_turn", ok: false, ms: at - started, reason: String(error?.name ?? "error").slice(0, 40) }));
-  } finally {
-    await callSandbox(stub, "meta", { key: "running", value: null }).catch(() => {});
-  }
-}
-

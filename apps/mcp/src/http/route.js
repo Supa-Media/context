@@ -87,6 +87,7 @@ import { IMAGE_UPLOAD_PATH, handleImageUpload } from "../notes/imageUploads.js";
 import { judgeFor } from "../privacy/judge.js";
 import { TEX_EVAL_PREFIX, handleTexEval } from "./texTestSet.js";
 import { LAB_SANDBOX_PATH, handleLabSandbox } from "../labSandbox/route.js";
+import { PAGE_PREFIX as LAB_SANDBOX_PAGES, handleLabSandboxPage } from "../labSandbox/pages.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
@@ -209,6 +210,8 @@ export async function route(request, env, ctx) {
     if (path === LIVE_TICKET_PATH) return await handleLiveTicket(request, env, { slug, pathToken, origin });
     // The Lab's test chats (`labSandbox/route.js`): the caller's own grant, the control plane deciding who may.
     if (path === LAB_SANDBOX_PATH && !slug) return await handleLabSandbox(request, env, ctx, { origin });
+    // A test chat's pages and pictures (`labSandbox/pages.js`): its owner's own grant only, gone with the test chat.
+    if (path.startsWith(LAB_SANDBOX_PAGES) && !slug) return await handleLabSandboxPage(request, env, path);
     // The app's live file tree and access screens from the objects (`live/treeRoute.js`, `live/accessRoute.js`): sockets, likewise.
     if (path === TREE_SOCKET_PATH || path === ACCESS_SOCKET_PATH) return await (path === TREE_SOCKET_PATH ? handleTree : handleAccess)(request, env, { slug, pathToken, origin });
 

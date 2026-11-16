@@ -1,4 +1,4 @@
-# The Lab's test chats run the real turn on a copy that changes nothing (2026-11-16)
+# The Lab's test chats run the real turn on a copy that changes nothing, over a simulated Photon line (2026-11-16)
 
 Dev2, 2026-11-16: "I need the ability to test new architecture changes and send test texts to the new architecture
 without having to put it in prod ... I should be able to use maya, or my users existing 1:1 or group chats, and send
@@ -40,10 +40,11 @@ calls is this gateway's own handlers on the test chat's session and sandboxed en
 that one text and known only there; the control plane is answered from what the control plane told the Lab about the
 chat (a group's people, slug, engagement, instructions and updates, and the old-number setting, read without minting),
 with a decide gate always open and every change refused and listed; its line keeps what Tex sent as the reply row and
-texts nobody; it never gets the Worker's secret or a real token. The chat is addressed by made-up 555-01xx numbers and a
-`lab:<sandboxId>` chat id; a group's real key and members, which its ledger and home are found by, are put back on the
-turn's body at the `/agent` hop. A group's object starts set up for its people, as the real chat's is once Tex
-answered there. A Lab test text's arrival names its provider `lab`. A tapback, an edit and an unsend go in the same way, as
+texts nobody; it never gets the Worker's secret or a real token. The people are addressed by made-up 555-01xx numbers,
+Tex's line by its Photon number, and the chat by a `lab:<sandboxId>` chat id; a group's real key and members, which its
+ledger and home are found by, are put back on the turn's body at the `/agent` hop. A group's object starts set up for
+its people, as the real chat's is once Tex answered there. A Lab test text's arrival names its provider `photon` (it
+was `lab` until the line below). A tapback, an edit and an unsend go in the same way, as
 Tex's line hands each over (`photonEvents.ts`): a tapback to `/react` in a 1:1 or to `/group-accept` as a group message
 carrying `reaction` (on Tex's text with its words and `onTex`, else `onOther`), an edit or an unsend to `/edit`, whose
 `edit` step asks node `edit` over `/texts/edit` on the draft (found in production, 2026-11-16: they had run the turn
@@ -117,8 +118,81 @@ entries with it, and the ledger is rebuilt from what is left. A real text is nev
    job, is refused and listed. The storage binding comes back with every secret field blanked, and `ws.open`'s kept
    binding is dropped, so a bucket could refuse every request even if one were reached.
 4. *The tools.* Where Tex's model calls a tool (`agent/turn.js`) and where every MCP tool call passes
-   (`tools/session.js`), a tool not in `READ_TOOLS` gets a stub answer ("Done. ... nothing was changed or sent") and
-   is listed, so the turn carries on as it would have. `vault_list` and `report_problem` are not reads here.
+   (`tools/session.js`), `toolAnswer` decides: a read in `READ_TOOLS` runs for real (a note the test chat wrote is
+   read from it), a job tool runs (`RUN_IN_SANDBOX`, above), a write the test chat does itself is done there
+   (`sandboxTools.js`), a browser or computer is refused, and any other tool gets a stub answer ("Done. ... nothing was
+   changed or sent") and is listed, so the turn carries on as it would have. `vault_list` and `report_problem` are not
+   reads here. `toolAnswer` is async now; `turn.js` awaits it.
+
+**The test chat acts like an actual chat** (Dev2, 2026-11-16: "the sandbox should act like an actual chat... by default
+wire/pretend it's a Photon iMessage thing so it should simulate default latency on that and text should arrive on the
+new number (+1 415 791-8922). It actually does the research things and sends messages and subagent responses to the
+sandbox chat. All the read only tools should still work, and all the write tools should work but in a sandbox that is
+discarded, so new notes etc, simulated email sends, we should be generating pages that are working but just are short
+lived and disappear with the sandbox"; contract `lab-live-sandbox/contract.md`).
+
+- *The line* (`labSandbox/line.js`). Every test text goes over Photon to Tex's new number, +1 415 791-8922 (a public
+  business line, kept in code; no secret). It is held for the line's delay in, counted from when it was sent, before it
+  reaches the chat object, and each text Tex hands the line is held for the delay out before it shows as delivered. The
+  delays are the p50 of real Photon deliveries: the texting Worker logs the provider's lag on every text (`text` step)
+  and send (`send` step, delivered) since #3318, but nothing aggregates them across chats, so a test chat measures its
+  own chat: at open it reads the real chat's newest 2,000 logged steps (read only) and takes each way's median of
+  Photon's lags. A way with fewer than five logged gets a fixed default, **1.5 s in and 2 s out, which is not a
+  measurement** (`PHOTON_DEFAULT`; the `line` says how many samples each way used, `measured`); no hold is over 30 s.
+  Training and Dev conversations get the default. The holds are steps of their own, `lineIn` and `lineOut`, `kind:
+  "line"`: the simulated line is the sandbox's transport, not Tex, so they are no nodes of `texConfig.json`, and
+  `scripts/tex-diagram-check.mjs` (check 6) fails CI if the sandbox records a step that is neither a node nor that
+  transport, if a transport name becomes a node, or if the code's list (`steps.js` `TRANSPORT_STEPS`) drifts from the
+  check's (`LAB_TRANSPORT`). Rows carry `line: { name, inMs, outMs? }`, and `get` the line every new text uses.
+- *Background jobs run* (`labSandbox/jobs.js`). The job tools (`start_background_job`, `steer_background_job`,
+  `restart_background_job`, `plan_big_ask`, and `text_progress`) run for real (`policy.js` `RUN_IN_SANDBOX`). The chat
+  object spawns the job's object as it does in production, here the Worker's `SenderInbox` on storage in memory, held
+  by a namespace (`sandboxInboxes`) that holds this text's chat object and its jobs and nothing else. Each pass runs
+  through the config graph's job node exactly as `texJob.js` runs it (`gatewayGraph().runNode("job", ...)`, via
+  `TexJob`), so Job check, the Hand-back judge and the Advisor on job mail are reached over the job node's wires; the
+  job's own turn is `/agent` on the same fences, and its report goes to the chat object, whose turn and line text the
+  result: a Tex row `from: "job"` the moment its line delivers it. What differs is only who drives the passes: the
+  sandbox, one after another, not the Worker's workflow. Limits: 15 minutes and 14 passes a job, 6 jobs a text (one more
+  is refused as a step); a job for one of the person's computers is never run (its refusal is a `job` step with `ok:
+  false`, listed, and the job ends through `/job-failed`, so the chat hears it failed as it would); a tool that needs a
+  browser or a computer (`browse`, `fill_login`, `fill_card`, `delegate`, the computer tools) is refused in words the
+  turn reads as a refusal and listed (`MACHINE_REFUSAL`).
+- *Writes happen in the test chat* (`labSandbox/sandboxTools.js`, `object.js` `sb_notes`, `sb_assets`). `write_note`
+  writes the note whole into the test chat; a later turn's `read_note`, `read_notes` or `fetch` of it reads it there,
+  and its `list_notes`, `search_notes` and `search` name it after the real answer (`afterRead`, in
+  `tools/session.js`). `remember` adds its line to a note the test chat wrote, or, on a real note, keeps the line and
+  shows it below the real note when it is read. `send_email` and `save_email_draft` send nothing: the write keeps who
+  to, cc, subject and the whole body (`sent: false`). A `.page.md` is a page served from the test chat
+  (`labSandbox/pages.js`, `GET /tex-lab/sandbox/page/<sandboxId>/<id>` and the route's `page` op), read at the moment it
+  is asked so a later edit shows; a picture Tex sends (its line's `uploadPicture`) is kept and served the same way, PNG,
+  JPEG, GIF or WebP only. Every write is in `writes` with its `id`, `kind` (lowercase now: `note`, `page`, `email`,
+  `draft`, `picture`, `reminder`, `refused`, ...), `title`, and its `body`, `url`, `to`/`subject` or `expires`; the
+  old `summary` stays. Drop, Back and Retry take a text's notes, pages and pictures with it; Reset and the 24-hour alarm
+  delete them all, and the address answers 404.
+- *Who may open a page: the test chat's owner only* (chosen as the safer of the two, as asked). The address needs the
+  caller's own grant, and names the object from the caller's user id as the control plane answers it, so anyone else,
+  another Tex developer holding the link included, reaches a different, empty object and gets the 404 an address that
+  never existed gets. An unguessable link alone would have worked in any browser tab, but a page is made from the
+  person's own notes, and a link that leaked would show them to whoever had it; the 128-bit id is kept as a second
+  lock, never the first. What is served can run nothing on the gateway's origin: Markdown as text, or (`?as=html`) a page
+  with every character escaped, under a CSP that allows no script and sandboxes the document, `no-store`, `noindex`.
+- *Every step, as it runs* (`labSandbox/steps.js`, the gate in `harness.js`). Each step has an `id` (`<row id>.<n>`),
+  `at` (ms from when the text was sent, the line's hold included), `parent`, whole `in` and `out` (up to 16,000
+  characters of JSON each, cut further only when a row's steps would not fit its 2 MB), `calls` (each tool call the
+  turn logged, on the model step running when it was logged: `kind: "read"` ran for real, `"write"` landed in the test
+  chat), `model` and `effort` (the draft's config for that node), `tokIn`/`tokOut` (the usage the turn reported, on
+  the model step running then, else the last one), `bg` (a background wire's run, a job handle's, a job's pass), and
+  `think` where a tool call carried thinking. A running step is in `get` at once, with no `ms`; the running row is
+  posted on every change, one post at a time. Parents are recorded as things run, never inferred from times: the
+  graph runner (`packages/shared/src/texGraph.cjs`) now gives every run an `id` and the `parent` run that started it
+  (the caller of a `uses`, `loop` or `job` handle, or the node whose fired wire fed it) on its log entry, and tells
+  `onStart` as each run starts; the ledger's node entries are unchanged. A graph's first run hangs under the chat
+  object's last step before it asked `/agent` (or, in a job, under the job's pass); the chat object's steps chain in the
+  order it logged them from `lineIn`; a `lineOut` hangs under the step the text came from (the line hands it on before the `send` node logs, so that `send` is its sibling). A Tex row's `cause` is the
+  chain from its `lineOut` back to `lineIn` with every helper a step on it called (`uses` and `loop` runs, and theirs);
+  the turn's reply row is `from: "fd"` and keeps the whole text's steps, a job's row `from: "job"` the steps of its
+  cause. A text is "running" until its jobs end, so a new test text waits for them (409), where a person can text
+  while a real job runs.
 
 **Sources.** `chat` (`chatId` `me` or a group's key), `set` (a Training or Dev conversation, the Lab's draft over the
 repo's copy; the Test Set is refused, it is people only), and `maya` (the bench's Maya, her Dev conversation). A
@@ -134,8 +208,13 @@ and reads main's. What Promote would refuse (a model main's table has no gateway
 as main's. Steps whose models are fixed in code, not read from the config (decide and the router on clef, the picture
 maker, nudge, reflect), do not change with a draft, in a test chat or live.
 
-**Known gaps, said rather than hidden.** A note a test turn writes through a stubbed note tool is
-not readable back (the tool never ran); a note written through the objects is. `ws.rows.files` and `ws.rows.listing`
+**Known gaps, said rather than hidden.** Only `write_note` and `remember` write notes in the test chat; moving,
+archiving, deleting and the website's actions are still recorded and answered as done, and a note the test chat wrote
+is found by a listing or a search only by its path and words, after the real answer, never ranked among it. An email is
+kept as sent at once: the yes that production's egress gate waits for before an email goes is not asked in a test
+chat. `create_link` is recorded and answered as done; a page's own address is the write's `url`. Jobs live only for
+their text's run: a job cut off by the limits is not carried to the next text, which finds no such job.
+`ws.rows.files` and `ws.rows.listing`
 answer "not served here", which callers already read as "ask the other way". A group turn's control-plane calls carry
 the caller's own grant, as a 1:1 turn's do; a route that reads by the chat's own grant answers for the caller's.
 The texting Worker's judge (decide) is not asked before a test turn, for a text or a tapback: every test row that
@@ -153,7 +232,19 @@ confirmed it has changed since it ran, leaving out where steps are drawn (a save
 retry cuts its old text only after everything that could refuse it (the daily cap, the chat, the draft) has passed, and
 only if no other text started running while those checks were out, so a refused retry loses nothing.
 
-**Tests** (`apps/mcp/test/labSandbox.test.mjs`, sabotaged): a put lands in the test chat and is read back there while
+**Tests** (`apps/mcp/test/labSandboxLive.test.mjs`, sabotaged 2026-11-16, each edit reverted): the line's p50 and
+default (`median` returning the mean, on samples with a slow outlier, fails "the line is Photon ..."); the runner's ids and parents (`texGraph.cjs`
+passing no parent on a `uses` handle fails "the runner names ..."); a Tex row's cause is its chain, helpers in,
+background out (`steps.js` `causeOf` taking every child, not only helpers, fails "a Tex text's cause ..."); a running
+step has no `ms` (`steps.js` `begin` setting `ms: 0` fails "a running step ..."); a note is read back by the next turn and
+nothing leaves (`policy.js` `toolAnswer` skipping `sandboxWrite`, so the write is only stubbed, fails "a note written
+..."); an email is kept and not sent; a page opens for its owner only and is gone after Reset (`pages.js`
+naming the owner's object whoever calls, as a link that carried its owner would, fails "a page is served ..."); Drop takes a text's notes and pages;
+one tenant's test chat never reads another's notes; a job runs through the job node and its text is a row `from:
+"job"` whose cause runs `lineIn` → job → `lineOut` (`jobs.js` driving `/job-pass` without the job node fails "a job the
+turn starts ..."); a computer's job is refused as a step; `get` names the line and each write's id. `scripts/tex-diagram-
+check.mjs --self-test` covers check 6.
+`apps/mcp/test/labSandbox.test.mjs` (sabotaged): a put lands in the test chat and is read back there while
 the real object holds nothing; a real key is read through until the test chat changes it; the test chat's ledger is
 the sandbox's and another chat's is never written; an alarm never arms and an unknown or writing op is refused; the
 control-plane client sends nothing for a write; a non-read tool is stubbed; the env has none of the left-out bindings;
@@ -169,4 +260,7 @@ a chat the caller is not in answers as one that does not exist.
 
 What a "simplification" would cost: running test texts on the real objects with a flag to skip writes puts every
 write path's honesty on one boolean and production's data one bug away; running them in the bench harness instead
-tests a turn that is not the one people text.
+tests a turn that is not the one people text. Reading a Tex text's cause from step times instead of recorded parents
+plays the wrong steps the moment two run side by side (a background node, a job beside the next turn); serving pages to
+whoever holds the link turns a test chat's page, made from someone's notes, into a public one; making the line's steps
+nodes of the config would put the Lab's transport in the graph every real turn runs.

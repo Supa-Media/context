@@ -218,8 +218,15 @@ function orderFrom(config, start) {
  *   handOff     (nodeId, input, ctx) => Promise: a node this process does not run (the gateway's, seen from the Worker);
  *               its result ends this process's part of the run. Without it, such a node throws.
  *   now         () => number.
+ *   onStart     ({ node, id, parent, at, via, input }) => void: each node run as it starts, before its code runs (the
+ *               Lab's test chat shows running steps); never awaited, never throws out.
+ *
+ * Every run has an `id`, unique in this isolate, and the `parent` run that started it, recorded as it runs: the caller
+ * for a `uses`, `loop` or `job` handle, the node whose fired wire fed it on a `wait` or `background` path, none for the
+ * start. Both are on the log entry, so a run's cause is read from what ran, never inferred from times.
  */
-function createGraph(config, impls, { log = () => {}, background = null, handOff = null, now = Date.now } = {}) {
+let runSeq = 0;
+function createGraph(config, impls, { log = () => {}, background = null, handOff = null, now = Date.now, onStart = null } = {}) {
   const problems = problemsOf(config);
   if (problems.length) throw new GraphError(problems.join("; "));
   const byId = new Map(config.nodes.map((n) => [n.id, n]));
@@ -234,18 +241,31 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     }
   };
 
-  /** Run one node: its handles, its timing, its log. */
-  async function runNode(id, input, ctx, via) {
+  const started = (entry) => {
+    if (typeof onStart !== "function") return;
+    try {
+      onStart(entry);
+    } catch {
+      /* a watcher never stops a run */
+    }
+  };
+
+  /** Run one node: its handles, its timing, its log. `parent` is the run that started it. */
+  async function runNode(id, input, ctx, via, parent) {
     const node = byId.get(id);
     if (!node) throw new GraphError(`no node "${id}"`);
     if (node.on === false) return { ran: false };
     const impl = impls[id];
     const at = now();
+    runSeq = (runSeq + 1) % Number.MAX_SAFE_INTEGER;
+    const self = `r${runSeq}`;
+    const ids = { id: self, ...(typeof parent === "string" ? { parent } : {}) };
+    started({ node: id, ...ids, at, via, input: shaped(input) });
     if (typeof impl !== "function") {
       if (handOff) {
         const output = await handOff(id, input, ctx);
-        keep({ node: id, input: shaped(input), output: shaped(output), ms: now() - at, own: now() - at, ok: true, at, via, handedOff: true });
-        return { ran: true, output, handedOff: true };
+        keep({ node: id, input: shaped(input), output: shaped(output), ms: now() - at, own: now() - at, ok: true, at, via, handedOff: true, ...ids });
+        return { ran: true, output, handedOff: true, id: self };
       }
       throw new GraphError(`node "${id}" has no code in this process`);
     }
@@ -274,15 +294,15 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     const io = {
       node,
       ctx,
-      use: handles("uses", (to) => async (arg, lend) => waited(async () => (await runNode(to, arg, withLend(lend), `${id}:uses`)).output)),
+      use: handles("uses", (to) => async (arg, lend) => waited(async () => (await runNode(to, arg, withLend(lend), `${id}:uses`, self)).output)),
       back: handles("loop", (to, wire) => async (arg) => {
         const most = [wire.rounds, byId.get(to)?.rounds].find((r) => Number.isInteger(r) && r > 0) ?? 1;
         if (backs >= most) throw new GraphError(`"${id}" sent work back to "${to}" more than ${most} times`);
         backs += 1;
-        return waited(() => sendBack(to, id, arg, ctx));
+        return waited(() => sendBack(to, id, arg, ctx, self));
       }),
       job: handles("job", (to) => (arg, lend) => {
-        const run = runNode(to, arg, withLend(lend), `${id}:job`);
+        const run = runNode(to, arg, withLend(lend), `${id}:job`, self);
         if (background) background(run.catch(() => {}));
         return run;
       }),
@@ -300,10 +320,10 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       checkShape(id, "input", input, node.inSchema);
       const output = await impl(input, io);
       checkShape(id, "output", output, node.outSchema);
-      keep({ node: id, input: shaped(input), output: shaped(output), ...timing(), ok: true, at, via });
-      return { ran: true, output };
+      keep({ node: id, input: shaped(input), output: shaped(output), ...timing(), ok: true, at, via, ...ids });
+      return { ran: true, output, id: self };
     } catch (error) {
-      keep({ node: id, input: shaped(input), output: null, ...timing(), ok: false, error: error?.name === "GraphError" ? error.message : String(error?.name ?? "error"), at, via });
+      keep({ node: id, input: shaped(input), output: null, ...timing(), ok: false, error: error?.name === "GraphError" ? error.message : String(error?.name ?? "error"), at, via, ...ids });
       throw error;
     }
   }
@@ -313,7 +333,7 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
    * (each once, fed as in `run`), so a rewritten draft passes the same steps it passed the first time; returns the
    * output of the last of them, the one that feeds the caller. Every run on the path is logged as via "caller:loop".
    */
-  async function sendBack(to, caller, arg, ctx) {
+  async function sendBack(to, caller, arg, ctx, parent) {
     const wait = config.edges.filter((e) => e.mode === "wait");
     const reaches = new Set([caller]);
     for (let grew = true; grew; ) {
@@ -322,15 +342,17 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     }
     const path = orderFrom({ ...config, edges: wait }, to).filter((n) => n !== caller && (n === to || reaches.has(n)));
     const fed = new Map([[to, [arg]]]);
+    // The run whose fired wire fed each node last: its parent. The target's is the caller that sent the work back.
+    const fedBy = new Map([[to, parent]]);
     let last;
     for (const n of path) {
       const feeds = fed.get(n);
       if (!feeds) continue;
       const given = feeds.length === 1 ? feeds[0] : Object.assign({}, ...feeds.filter(plain));
-      const r = await runNode(n, given, ctx, `${caller}:loop`);
+      const r = await runNode(n, given, ctx, `${caller}:loop`, fedBy.get(n));
       if (!r.ran) continue;
       last = r.output;
-      for (const e of wait) if (e.from === n && e.to !== caller && path.includes(e.to) && fires(e, r.output)) fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]);
+      for (const e of wait) if (e.from === n && e.to !== caller && path.includes(e.to) && fires(e, r.output)) (fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]), fedBy.set(e.to, r.id));
     }
     return last;
   }
@@ -347,6 +369,8 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     const outputs = {};
     const ran = [];
     const fed = new Map([[start, [input]]]);
+    // The run whose fired wire fed each node last: its parent (`runNode`). The start has none.
+    const fedBy = new Map();
     const later = new Map();
     for (const id of order) {
       const feeds = fed.get(id);
@@ -354,19 +378,20 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       // Merged in wire order; a lone input is passed as it is.
       const given = feeds.length === 1 ? feeds[0] : Object.assign({}, ...feeds.filter(plain));
       if (later.get(id)) {
-        const run = runNode(id, given, ctx, "background").catch(() => {});
+        const run = runNode(id, given, ctx, "background", fedBy.get(id)).catch(() => {});
         if (background) background(run);
         else await run;
         continue;
       }
-      const r = await runNode(id, given, ctx, "wait");
+      const r = await runNode(id, given, ctx, "wait", fedBy.get(id));
       if (!r.ran) continue;
       outputs[id] = r.output;
       ran.push(id);
       if (r.handedOff || stops.has(id)) continue;
-      for (const e of out(id, "wait")) if (fires(e, r.output)) fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]);
+      for (const e of out(id, "wait")) if (fires(e, r.output)) (fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]), fedBy.set(e.to, r.id));
       for (const e of out(id, "background")) if (fires(e, r.output)) {
         fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]);
+        fedBy.set(e.to, r.id);
         later.set(e.to, true);
       }
     }
