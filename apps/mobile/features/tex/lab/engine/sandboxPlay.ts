@@ -102,6 +102,8 @@ export function playExternal(run: PlayRun, prod?: ProdPlay) {
 }
 /** The runs played from production's log, for the timeline's picker. */
 export const externalRuns = (): PlayRun[] => [...ext.values()].map((x) => x.run);
+/** Whether a run id is a real text read from production's log (or the steps behind one of its Tex texts). */
+export const isExternal = (id: string) => ext.has(id);
 /** What production logged around the run at the head, when it is a real text's: its prompts and background jobs. */
 export const playingProd = (): ProdPlay | null => (play ? (ext.get(play.id)?.prod ?? null) : null);
 
