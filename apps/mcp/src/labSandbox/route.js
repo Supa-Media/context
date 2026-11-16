@@ -57,7 +57,7 @@ import { LEDGER_KINDS } from "../texStore/ledger.js";
 import { bearerToken } from "../session.js";
 import { json } from "../http/responses.js";
 import { callSandbox, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
-import { eventId, stepsOf, TURN_LIMIT_MS } from "./harness.js";
+import { eventId, RUNNING_STALE_MS, stepsOf } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
 import { draftFit, TEX_CONFIG } from "../agent/texConfig.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
@@ -301,7 +301,7 @@ async function open(env, controlPlane, token, who, input, origin) {
 /** The Lab's view: rows (each tapped one with its `reactions`), writes, and the turn running now (a stale mark is no turn). */
 function view(state) {
   const running = state.meta?.running;
-  const live = running && typeof running === "object" && Date.now() - (running.at ?? 0) < TURN_LIMIT_MS + 2 * MINUTE;
+  const live = running && typeof running === "object" && Date.now() - (running.at ?? 0) < RUNNING_STALE_MS;
   const list = state.rows ?? [];
   const taps = new Map();
   for (const row of list) if (row.kind === "reaction" && typeof row.on === "string") taps.set(row.on, [...(taps.get(row.on) ?? []), { who: row.who, emoji: row.emoji }]);
@@ -362,18 +362,21 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   if (!counted.ok) return refused(429, `${DAILY_SENDS} test texts a day: try again tomorrow`);
   const answer = await controlPlane.labSandbox(token, "session", { chat: about.chat });
   if (answer?.status !== "ok") return refused(404, answer?.error ?? "This chat is no longer yours to test in.");
-  // A retry cuts its old text only once everything that could refuse it has passed, so a refusal loses nothing.
-  if (cut !== null) {
-    // Read again: a send that landed while the checks above were out is running now, and the cut would take it.
-    const now = await callSandbox(stub, "state", {});
-    if (view(now).running !== null) return refused(409, "a test text is still running: wait for its reply");
-    await callSandbox(stub, "cut.from", { id: cut });
+  // The test chat is this text's, taken in the object in one step: two sends at once never both get past here, whatever
+  // the reads above saw. Until its turn starts, anything that fails gives the chat back.
+  const claimed = await callSandbox(stub, "claim", { msgId: row.id, staleMs: RUNNING_STALE_MS });
+  if (!claimed.ok) return refused(409, "a test text is still running: wait for its reply");
+  try {
+    // A retry cuts its old text only once everything that could refuse it has passed, so a refusal loses nothing.
+    if (cut !== null) await callSandbox(stub, "cut.from", { id: cut });
+    await callSandbox(stub, "row.add", { row });
+    // The text's event as the Worker logs it, unless the chat object the turn runs through logs it itself.
+    const logged = typeof runTurn.logsText === "function" && runTurn.logsText(row);
+    if (!logged) await callSandbox(stub, "ledger.append", { entries: [await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })], by: row.id });
+  } catch (error) {
+    await callSandbox(stub, "release", { msgId: row.id }).catch(() => {});
+    throw error;
   }
-  await callSandbox(stub, "row.add", { row });
-  // The text's event as the Worker logs it, unless the chat object the turn runs through logs it itself.
-  const logged = typeof runTurn.logsText === "function" && runTurn.logsText(row);
-  if (!logged) await callSandbox(stub, "ledger.append", { entries: [await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })], by: row.id });
-  await callSandbox(stub, "meta", { key: "running", value: { msgId: row.id, node: null, at: row.at } });
   const run = runTurn({ env, stub, about, row, payload: answer.session, token, config: drafted.config ?? null, origin, chat: answer.chat ?? null });
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
   else await run;
@@ -576,7 +579,9 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
 
   if (typeof input.sandboxId !== "string" || !SANDBOX_ID.test(input.sandboxId)) return refused(400, "name the test chat: sandboxId");
   const stub = sandboxStub(env, who.userId, input.sandboxId);
-  const state = await callSandbox(stub, "state", {});
+  // Asked first, making nothing: an id nobody opened gets no tables and no alarm (`object.js` `exists`).
+  const kept = stub === null ? false : (await callSandbox(stub, "exists", {})).exists;
+  const state = kept ? await callSandbox(stub, "state", {}) : null;
   if (!state?.meta?.chat) return refused(404, "There is no such test chat (Reset or a day unused deletes one).");
 
   const deps = { env, ctx, controlPlane, token, who, stub, origin, runTurn };

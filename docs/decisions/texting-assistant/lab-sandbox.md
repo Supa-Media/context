@@ -193,6 +193,16 @@ lived and disappear with the sandbox"; contract `lab-live-sandbox/contract.md`).
   the turn's reply row is `from: "fd"` and keeps the whole text's steps, a job's row `from: "job"` the steps of its
   cause. A text is "running" until its jobs end, so a new test text waits for them (409), where a person can text
   while a real job runs.
+- *One text at a time, and Reset ends it* (an adversarial review, 2026-11-16). The running mark is claimed in the test
+  chat's object in one step (`object.js` `claim`) before the text's row is added, so two sends at once start one turn
+  and the other gets 409; reads before it only refuse early. The mark is the text's own: its turn refreshes it with
+  every step (`beat`) and a job at least once a minute while it waits (`jobs.js` `beatingSleep`), so a 15-minute job is
+  never taken for a turn that died (`RUNNING_STALE_MS`, 6 minutes); only a mark left that long is taken over, and only
+  its own text frees it (`release`). A test chat that is gone, by Reset or never opened, answers only `init`, `state`
+  and its person's index: a turn running through Reset is refused at its next write, writes nothing and arms nothing,
+  and the gate says it is `cancelled`, so its jobs stop before their next pass. An address nobody opened is asked with
+  `exists`, which makes no table and arms no alarm. A row's `prod` is its own column, so a row's steps cannot hide it
+  from the cap; a test chat made before the column gets it from each row's own top level once.
 
 **Sources.** `chat` (`chatId` `me` or a group's key), `set` (a Training or Dev conversation, the Lab's draft over the
 repo's copy; the Test Set is refused, it is people only), and `maya` (the bench's Maya, her Dev conversation). A
@@ -243,7 +253,12 @@ naming the owner's object whoever calls, as a link that carried its owner would,
 one tenant's test chat never reads another's notes; a job runs through the job node and its text is a row `from:
 "job"` whose cause runs `lineIn` → job → `lineOut` (`jobs.js` driving `/job-pass` without the job node fails "a job the
 turn starts ..."); a computer's job is refused as a step; `get` names the line and each write's id. `scripts/tex-diagram-
-check.mjs --self-test` covers check 6.
+check.mjs --self-test` covers check 6. The review's fixes, each sabotaged and reverted: a claim always granted fails "two
+texts sent at once ..." and "a test chat's running mark ..."; sleeping a job's wait in one piece fails "a job that waits
+longer ..."; dropping the gone refusal, or the jobs' `cancelled` checks, fails "Reset stops a running turn ..."; reading
+state without `exists` first (route or page) fails "asking for a test chat nobody opened ..."; counting rows by the JSON
+pattern fails "a test row is counted ..."; and shaping a node's input for an unset `onStart` fails "the runner shapes
+...".
 `apps/mcp/test/labSandbox.test.mjs` (sabotaged): a put lands in the test chat and is read back there while
 the real object holds nothing; a real key is read through until the test chat changes it; the test chat's ledger is
 the sandbox's and another chat's is never written; an alarm never arms and an unknown or writing op is refused; the

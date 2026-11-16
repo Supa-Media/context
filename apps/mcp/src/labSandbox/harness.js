@@ -19,6 +19,11 @@ import { askOf, SANDBOX_EVENT_CHAT } from "./inbound.js";
 export { SANDBOX_EVENT_CHAT };
 /** A turn that has not answered by then is stopped and said so on its row. */
 export const TURN_LIMIT_MS = 4 * 60_000;
+/**
+ * A running mark nobody has refreshed for this long is a turn that died (`object.js` `claim`, `route.js` `view`). A live
+ * turn refreshes it with every step, and a job between passes at least every `jobs.js` `BEAT_MS`.
+ */
+export const RUNNING_STALE_MS = TURN_LIMIT_MS + 2 * 60_000;
 /** The Lab's row keeps this much of a node's output, for a step read from the ledger (`stepsOf`). */
 const OUT_CHARS = 600;
 
@@ -58,7 +63,17 @@ export function stepsOf(entries) {
  */
 export function sandboxGate(stub, about, rowId, { config = null, arrivedAt = Date.now(), now = Date.now } = {}) {
   const pending = [];
-  const call = (op, fields) => callSandbox(stub, op, fields);
+  // Once the test chat answers "gone" (Reset while this turn ran), the turn is cancelled: everything it asks after is
+  // refused there, and what can stop (its jobs, `jobs.js`) stops.
+  let cancelled = false;
+  const call = async (op, fields) => {
+    try {
+      return await callSandbox(stub, op, fields);
+    } catch (error) {
+      if (error?.status === 410) cancelled = true;
+      throw error;
+    }
+  };
   const later = (work) => void pending.push(Promise.resolve(work).catch(() => {}));
   const ours = (obj) => typeof obj === "string" && typeof about?.owner === "string" && obj.endsWith(`#${about.owner}`);
   const ops = new Set();
@@ -74,7 +89,7 @@ export function sandboxGate(stub, about, rowId, { config = null, arrivedAt = Dat
         dirty = false;
         const steps = book.view();
         const node = [...steps].reverse().find((step) => step.ms === undefined)?.node ?? steps.at(-1)?.node ?? null;
-        await call("meta", { key: "running", value: { msgId: rowId, node, at: now(), steps: fitSteps(steps) } }).catch(() => {});
+        await call("beat", { msgId: rowId, node, steps: fitSteps(steps) }).catch(() => {});
       }
       posting = null;
     })();
@@ -91,6 +106,9 @@ export function sandboxGate(stub, about, rowId, { config = null, arrivedAt = Dat
     }
   };
   return {
+    get cancelled() {
+      return cancelled;
+    },
     config,
     ops,
     about,

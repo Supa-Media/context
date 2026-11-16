@@ -44,6 +44,8 @@ export async function sandboxAsset(env, userId, sandboxId, id) {
   if (!SANDBOX_ID.test(String(sandboxId)) || !ASSET_ID.test(String(id))) return null;
   const stub = sandboxStub(env, userId, sandboxId);
   if (stub === null) return null;
+  // Asked first, making nothing: an address nobody opened gets no tables and no alarm (`object.js` `exists`).
+  if (!(await callSandbox(stub, "exists", {})).exists) return null;
   const state = await callSandbox(stub, "state", {});
   if (!state?.meta?.chat) return null;
   const asset = (await callSandbox(stub, "asset.get", { id })).found;

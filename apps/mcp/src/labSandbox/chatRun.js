@@ -445,7 +445,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     return url;
   };
   try {
-    await callSandbox(stub, "meta", { key: "running", value: { msgId: row.id, node: "lineIn", at: started, steps: [] } });
+    await callSandbox(stub, "beat", { msgId: row.id, node: "lineIn", steps: [] });
     // The line: the text reaches the chat object after the line's delay in, as a Photon text reaches the Worker.
     // Its hold counts from when the text was sent (`row.at`), as a provider's lag does: what the route spent is part of it.
     const sentAt = row.at ?? started;
@@ -453,6 +453,8 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     await sleep(Math.max(0, line.inMs - (now() - sentAt)));
     book.end(lineIn, { out: { arrived: true, line: line.name, number: line.number }, ms: Math.max(line.inMs, now() - sentAt) });
     const state = await callSandbox(stub, "state", {});
+    // Reset while the line held the text: the test chat is gone, and the turn never starts.
+    if (!state.meta?.chat) throw new Error("the test chat was reset");
     const rows = state.rows ?? [];
     const sandboxId = String(about.sandboxId ?? state.meta?.sandboxId ?? row.id).slice(0, 40);
     const address = { ...(await addressOf(about, sandboxId)), line: line.number };
@@ -545,7 +547,8 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     console.log(JSON.stringify({ event: "lab_sandbox_chat_turn", ok: false, ms: at - started, reason: String(error?.name ?? "error").slice(0, 40) }));
   } finally {
     await gate.flush();
-    await callSandbox(stub, "meta", { key: "running", value: null }).catch(() => {});
+    // Only this text's own mark: a turn that outlived its mark never frees another text's.
+    await callSandbox(stub, "release", { msgId: row.id }).catch(() => {});
   }
 }
 

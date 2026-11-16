@@ -131,6 +131,7 @@ test("a Tex text's cause is the chain from its line in to its line out, helpers 
 
 test("a running step shows in the test chat with no ms; it gets its time, output, calls and tokens as it ends", async () => {
   const { stub, call } = await chatObject();
+  await call("claim", { msgId: "t1", staleMs: 60_000 });
   const gate = sandboxGate(stub, ONE, "t1", { arrivedAt: Date.now() });
   gate.onStart({ node: "fd", id: "r900001", at: Date.now() });
   await gate.flush();
@@ -261,8 +262,8 @@ test("a page is served to the test chat's owner only, never to whoever holds the
     // Reset: the page, the note, every write gone.
     assert.equal((await w.route(ALICE, { op: "reset", sandboxId: ONE.sandboxId })).status, 200);
     assert.equal((await w.get(page.url, ALICE)).status, 404);
-    const after = await chat.call("note.get", { path: "projects/menu.page.md" });
-    assert.equal(after.found, null);
+    const after = await chat.stub.fetch(new Request("https://lab-sandbox.internal/note.get", { method: "POST", body: JSON.stringify({ path: "projects/menu.page.md" }) }));
+    assert.equal(after.status, 410, "the test chat is gone: its notes with it");
     assert.deepEqual((await chat.call("state")).writes, []);
   } finally {
     w.restore();
@@ -394,4 +395,154 @@ test("a job on one of the person's computers is never run: its refusal is a step
   assert.ok(refused, `a refused job step (${steps.map((s) => s.node).join(", ")})`);
   assert.match(JSON.stringify(refused.out), /computer/);
   assert.ok(state.writes.some((x) => x.kind === "refused" && /computer/.test(x.title)), state.writes.map((x) => x.title).join(" | "));
+});
+
+// Review fixes (2026-11-16, an adversarial review of the live sandbox): a send raced with a send, a turn outliving Reset,
+// an object made for an address nobody opened, a row counted by a pattern its own steps could defeat, and the runner
+// shaping a node's input for a hook nobody set.
+
+/** Test chats' objects that say which were armed, and which ever made their tables. */
+function tracked() {
+  const made = new Map();
+  const alarms = new Map();
+  const object = (name) => {
+    if (!made.has(name)) made.set(name, new LabSandboxObject({ storage: { sql: durableSql(), setAlarm: async (at) => void alarms.set(name, at), deleteAlarm: async () => void alarms.delete(name), deleteAll: async () => {} } }));
+    return made.get(name);
+  };
+  return { made, alarms, idFromName: (name) => ({ name }), get: (id) => ({ fetch: (request) => object(id.name).fetch(request) }) };
+}
+
+/** The route over a fake control plane that lets Alice open and text, with the turn the caller gives. */
+function raceWorld(runTurn) {
+  const ns = tracked();
+  const env = { LAB_SANDBOX: ns, CONTROL_PLANE_URL: "https://control.example.invalid", GATEWAY_SECRET: "gw-secret-example-not-real-000000" };
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    const answer = (value) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
+    if (body.accessToken !== ALICE) return answer({ status: "refused" });
+    if (body.action === "who") return answer({ status: "ok", userId: "u_alice", chats: [] });
+    if (body.action === "set" || body.action === "draft") return answer({ status: "not_found" });
+    if (body.action === "session") return answer({ status: "ok", session: { grantId: "g1", clientId: "c", actorUserId: "u_alice", scopes: ["context:read"], defaultWorkspaceId: "ws_a", workspaces: [{ workspaceId: "ws_a", role: "owner", kind: "personal", slug: "alfa" }] }, people: [{ handle: "alfa", name: "You" }] });
+    return answer({ status: "bad_request" });
+  };
+  const call = async (body) => {
+    const response = await handleLabSandbox(new Request("https://gateway.example.invalid/tex-lab/sandbox", { method: "POST", headers: { authorization: `Bearer ${ALICE}`, "content-type": "application/json" }, body: JSON.stringify(body) }), env, { waitUntil: () => {} }, { runTurn, origin: "https://gateway.example.invalid" });
+    return { status: response.status, body: await response.json() };
+  };
+  return { ns, env, call, restore: () => (globalThis.fetch = original) };
+}
+
+test("two texts sent at once to one test chat start one turn; the other is told one is running", async () => {
+  let started = 0;
+  let release;
+  const held = new Promise((resolve) => (release = resolve));
+  const runTurn = async () => {
+    started += 1;
+    await held;
+  };
+  runTurn.logsText = () => true;
+  const w = raceWorld(runTurn);
+  try {
+    const opened = await w.call({ op: "open", source: "chat" });
+    assert.equal(opened.status, 200);
+    const [a, b] = await Promise.all([w.call({ op: "send", sandboxId: opened.body.sandboxId, text: "one" }), w.call({ op: "send", sandboxId: opened.body.sandboxId, text: "two" })]);
+    assert.deepEqual([a.status, b.status].sort(), [200, 409], "one turn claims the chat; the other is refused");
+    assert.equal(started, 1, "one turn runs");
+    const rows = (await w.call({ op: "get", sandboxId: opened.body.sandboxId })).body.rows.filter((row) => !row.prod);
+    assert.equal(rows.length, 1, "the refused text left no row behind");
+    release();
+  } finally {
+    w.restore();
+  }
+});
+
+test("a test chat's running mark is claimed in the object: refused while fresh, taken over once stale, freed only by its own text", async () => {
+  const chat = await chatObject();
+  assert.equal((await chat.call("claim", { msgId: "t1", staleMs: 60_000 })).ok, true);
+  assert.equal((await chat.call("claim", { msgId: "t2", staleMs: 60_000 })).ok, false, "a fresh mark holds");
+  assert.equal((await chat.call("release", { msgId: "t2" })).ok, false, "another text never frees it");
+  assert.equal((await chat.call("state")).meta.running.msgId, "t1");
+  assert.equal((await chat.call("claim", { msgId: "t3", staleMs: 0 })).ok, true, "a mark older than the window is a turn that died");
+  assert.equal((await chat.call("release", { msgId: "t3" })).ok, true);
+  assert.equal((await chat.call("state")).meta.running, undefined);
+});
+
+test("a job that waits longer than the stale window keeps its text's running mark fresh", async () => {
+  const { beatingSleep } = await import("../src/labSandbox/jobs.js");
+  const { RUNNING_STALE_MS } = await import("../src/labSandbox/harness.js");
+  let clock = 0;
+  const beats = [];
+  const sleep = beatingSleep(async (ms) => void (clock += ms), () => beats.push(clock));
+  await sleep(15 * 60_000);
+  assert.equal(clock, 15 * 60_000, "it slept the whole wait");
+  const gaps = beats.map((at, i) => at - (beats[i - 1] ?? 0));
+  assert.ok(beats.length > 0 && Math.max(...gaps, clock - beats.at(-1)) < RUNNING_STALE_MS, `a beat at least every stale window (${beats.join(",")})`);
+});
+
+test("Reset stops a running turn: its later writes are refused, nothing is kept, the alarm stays off, and its jobs do not run", async () => {
+  const ns = tracked();
+  const name = `labsandbox:u_alice:${ONE.sandboxId}`;
+  const chat = await chatObject(ONE, name, ns);
+  const gate = sandboxGate(chat.stub, ONE, "t1");
+  await chat.call("reset", {});
+  assert.equal(ns.alarms.has(name), false);
+  await toolAnswer("write_note", { path: "secret/plan.page.md", content: "private words" }, gate).catch(() => null);
+  gate.show();
+  await gate.flush();
+  assert.equal(gate.cancelled, true, "the gate knows its test chat is gone");
+  const after = await chat.call("state");
+  assert.deepEqual([after.meta, after.writes, after.rows], [{}, [], []], "nothing landed in the wiped object");
+  const note = await chat.stub.fetch(new Request("https://lab-sandbox.internal/note.get", { method: "POST", body: JSON.stringify({ path: "secret/plan.page.md" }) }));
+  assert.equal(note.status, 410, "a test chat that is gone answers nothing but init");
+  assert.equal(ns.alarms.has(name), false, "and nothing armed it again");
+  const { runJobs } = await import("../src/labSandbox/jobs.js");
+  const book = stepBook({ rowId: "t1", arrivedAt: Date.now(), config: TEX_CONFIG });
+  const registry = { jobs: new Map([["job:x", { name: "job:x", storage: { get: async () => ({}) }, inbox: { fetch: async () => assert.fail("a job of a reset test chat ran") } }]]) };
+  const ran = await runJobs({ registry, gate, book, sleep: async () => {} });
+  assert.deepEqual(ran.map((r) => r.outcome), ["reset"]);
+});
+
+test("asking for a test chat nobody opened makes nothing: no tables, no alarm", async () => {
+  const w = raceWorld(async () => {});
+  try {
+    const id = "fedcba9876543210";
+    const name = `labsandbox:u_alice:${id}`;
+    const url = `https://gateway.example.invalid/tex-lab/sandbox/page/${id}/${"a".repeat(32)}`;
+    const page = await handleLabSandboxPage(new Request(url, { headers: { authorization: `Bearer ${ALICE}` } }), w.env, new URL(url).pathname);
+    assert.equal(page.status, 404);
+    assert.equal((await w.call({ op: "get", sandboxId: id })).status, 404);
+    assert.equal((await w.call({ op: "send", sandboxId: id, text: "hi" })).status, 404);
+    assert.equal(w.ns.alarms.has(name), false, "never armed for a day");
+    assert.equal(w.ns.made.get(name)?.tables ?? null, null, "its tables were never made");
+  } finally {
+    w.restore();
+  }
+});
+
+test("a test row is counted toward the cap by its own column, whatever its steps hold", async () => {
+  const { MAX_ROWS, sandboxTables } = await import("../src/labSandbox/object.js");
+  const chat = await chatObject({ ...ONE });
+  const tricky = (i) => ({ id: `t${i}r`, reply: `t${i}`, who: "Tex", text: "", prod: false, steps: [{ node: "tools", in: { args: { prod: true } } }] });
+  for (let i = 0; i < MAX_ROWS; i += 1) await chat.call("row.add", { row: tricky(i) });
+  const over = await chat.stub.fetch(new Request("https://lab-sandbox.internal/row.add", { method: "POST", body: JSON.stringify({ row: tricky(MAX_ROWS) }) }));
+  assert.equal(over.status, 422, "the row past the cap is refused");
+  assert.equal((await chat.call("state")).rows.length, MAX_ROWS);
+  // A test chat made before the column: its rows get it from what they say, once.
+  const sql = durableSql();
+  sql.exec("CREATE TABLE sb_rows (seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, data TEXT NOT NULL)");
+  sql.exec("INSERT INTO sb_rows (seq, id, data) VALUES (1, 'p1', ?)", JSON.stringify({ id: "p1", prod: true }));
+  sql.exec("INSERT INTO sb_rows (seq, id, data) VALUES (2, 't1', ?)", JSON.stringify({ id: "t1", prod: false, steps: [{ in: { prod: true } }] }));
+  const tables = sandboxTables(sql);
+  assert.throws(() => tables.seed({ rows: [{ id: "p2", prod: true }] }), /seeded after a test text/, "the old test row counts as one");
+  assert.deepEqual(tables.rows().map((row) => row.id), ["p1", "t1"]);
+});
+
+test("the runner shapes a node's input once when nobody watches runs start", async () => {
+  let reads = 0;
+  const input = {};
+  Object.defineProperty(input, "big", { enumerable: true, get: () => ((reads += 1), "x") });
+  const graph = createGraph({ nodes: [{ id: "a", kind: "input" }], edges: [] }, { a: async () => ({}) }, { log: () => {} });
+  await graph.runNode("a", input, {}, "wait");
+  assert.equal(reads, 1, "shaped for the log only");
 });
