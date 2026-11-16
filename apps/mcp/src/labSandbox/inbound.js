@@ -18,8 +18,9 @@
  *    group (`groupInbox.ts` `acceptReaction`) the asker's 👍/❤️/👎 on Tex's ask (anyone's on a lent computer's ask) goes
  *    as the tapback, and any other reads on as its line.
  *
- * An edit is not here: production records none (`apps/agent/src/photonEvents.ts` counts a Photon edit and writes
- * nothing; `whapiInbound.ts` ignores `messages.patch`; Sendblue sends none), so the route refuses it.
+ *  - an edit or an unsend (`edits.js`): logged beside the text it changes, `edited: true` with the new words or
+ *    `unsent: true` with none, `replyTo` that text's event and `quoted` its words before, as `replyQuote.ts`
+ *    `editedFields` keeps a Photon one; an edit's turn is asked its new words, as the Worker queues it.
  */
 
 import { MAX_REMOTE_IMAGE_BYTES, fetchableImageUrl } from "../../../../packages/shared/src/remoteImage.cjs";
@@ -164,9 +165,21 @@ export async function inboundEvent({ about, row, rows }) {
   const w = await worker();
   const name = speakerName(about, row.who);
   const kind = row.kind === "reaction" ? "reaction" : w.kindOf(row.text, attachmentsOf(row));
+  const from = { kind: "person", ...(name ? { name } : {}) };
+  // An edit or an unsend, as the Worker keeps one (`replyQuote.ts` `editedFields`): beside the text it changes, its words then quoted.
+  if (row.kind === "edit" || row.kind === "unsend") {
+    const list = rows ?? [];
+    const on = list.find((r) => r.id === row.on);
+    const at = list.findIndex((r) => r.id === row.id);
+    const earlier = at < 0 ? list : list.slice(0, at);
+    const before = on ? (earlier.filter((r) => r.kind === "edit" && r.on === on.id).pop()?.text ?? on.text) : undefined;
+    const mark = row.kind === "edit" ? { edited: true } : { unsent: true };
+    const quoted = typeof before === "string" && before !== "" ? { quoted: before } : {};
+    return eventEntry({ id: row.eid, at: row.at, chat: SANDBOX_EVENT_CHAT, kind: "text", from, text: row.kind === "edit" ? row.text : "", ...mark, ...(on && typeof on.eid === "string" ? { replyTo: on.eid } : {}), ...quoted });
+  }
   const target = row.kind !== "reaction" && typeof row.replyTo === "string" ? (rows ?? []).find((r) => r.id === row.replyTo) : undefined;
   const reply = target && typeof target.eid === "string" ? { replyTo: target.eid, quoted: target.text } : target ? { quoted: target.text } : {};
-  return eventEntry({ id: row.eid, at: row.at, chat: SANDBOX_EVENT_CHAT, kind, from: { kind: "person", ...(name ? { name } : {}) }, text: row.text, ...reply });
+  return eventEntry({ id: row.eid, at: row.at, chat: SANDBOX_EVENT_CHAT, kind, from, text: row.text, ...reply });
 }
 
 /** The rows since Tex last spoke, the asked one left out: what a group's chat lines are until a turn takes them. */
@@ -208,7 +221,9 @@ export async function askOf({ about, row, rows, fetch: fetchImpl = (...a) => glo
     if (!group) ask = words ? { ...ask, quoted: words } : { ...ask, replied: true };
     else ask = target?.who === "Tex" && words ? { ...ask, quoted: words } : { ...ask, replied: true };
   }
-  const said = group ? sinceTex(rows, row.id).slice(-CHAT_LINES) : [];
+  // A text taken back is gone from the chat, and its unsend is no line of its own.
+  const gone = new Set((rows ?? []).filter((r) => r.kind === "unsend").map((r) => r.on));
+  const said = group ? sinceTex(rows, row.id).filter((r) => r.kind !== "unsend" && !gone.has(r.id)).slice(-CHAT_LINES) : [];
   const files = group ? w.filesFor({ attachments: attachmentsOf(row) }, said.map((r) => ({ attachments: attachmentsOf(r) }))) : attachmentsOf(row);
   const oversized = new Set();
   const prepared = files.length > 0 ? await w.prepareAttachments(files, { fetch: pictureFetch(fetchImpl, oversized), ...(images ? { images } : {}) }) : [];

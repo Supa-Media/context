@@ -20,27 +20,36 @@
  */
 
 import { cardReply } from "./cardChats";
-import { cutText, MAX_INBOUND_ATTACHMENTS, type Inbound, type InboundAttachment } from "./inbound";
+import { cutText, MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
 import { photonChatId, photonGroupId } from "./photon";
 import type { Reaction, Tapback } from "./reactions";
 import type { GroupInbound, GroupMessage } from "./sendblueGroups";
 import { E164, isPreviewFile, MAX_QUOTED_TEXT } from "./sendblue";
 
-/** An edit or an unsend of a message in a chat: recorded and counted only for now (plan.md, "Not now"). */
+/** An edit or an unsend of a message in a chat: either goes to the chat's `edit` step (`editStep.ts`, node `edit`). */
 export type PhotonSideEvent = {
   kind: "edited" | "unsent";
   eventId: string;
   /** A 1:1 chat's id, or a group's; exactly one is set. */
   chatId?: string;
   groupId?: string;
+  /** Tex's line it came in on. */
+  line: string;
   from: string;
+  /** A group's: everyone the event lists, as a group message's are. */
+  participants?: string[];
   /** The guid of the message edited or unsent. */
   messageId: string;
   /** An edit's new words, cut as a text's are. */
   text?: string;
+  /** An edit's words before, when the bridge still held them (`previousText`): somebody's own words, as given. */
+  previous?: string;
   /** When Apple stamped it, as the bridge sent it. */
   at: string;
 };
+
+/** An edit or an unsend, as the chat's `edit` step takes it: an edit always has its new words. */
+export type PhotonEdit = PhotonSideEvent;
 
 export type PhotonParsed = Inbound | GroupInbound | PhotonSideEvent | { kind: "invalid" };
 
@@ -264,7 +273,7 @@ function reacted(body: Rec, env: Envelope, removed: boolean): PhotonParsed {
   return { kind: "reaction", eventId: env.eventId, chatId: env.where.chatId, from: env.from, messageId: env.eventId, reaction: tapback };
 }
 
-/** A `message.edited` or `message.unsent`: recorded and counted, never answered. */
+/** A `message.edited` (its new words, and its old ones when the bridge held them) or a `message.unsent`. */
 function sideEvent(body: Rec, env: Envelope, kind: "edited" | "unsent"): PhotonParsed {
   const target = kind === "edited" ? (isRecord(body.edited) ? body.edited : null) : isRecord(body.unsent) ? body.unsent : null;
   const messageId = target === null ? null : idOf(target.targetGuid);
@@ -273,13 +282,19 @@ function sideEvent(body: Rec, env: Envelope, kind: "edited" | "unsent"): PhotonP
   if (env.where === null) return { kind: "invalid" };
   const words = kind === "edited" && isRecord(body.message) && typeof body.message.text === "string" ? body.message.text.trim() : undefined;
   const text = words === undefined ? undefined : cutText(words).text;
+  // An edit with no words left is not one Tex reads: iMessage edits words, and an emptied text is an unsend.
+  if (kind === "edited" && (text === undefined || text === "")) return { kind: "ignored", reason: "empty" };
+  const previous = kind === "edited" && target !== null && typeof target.previousText === "string" ? target.previousText.trim().slice(0, MAX_INBOUND_TEXT) : "";
   return {
     kind,
     eventId: env.eventId,
     ...env.where,
+    line: env.line,
     from: env.from,
+    ...(env.where.groupId !== undefined ? { participants: participantsOf(isRecord(body.chat) ? body.chat : {}, env.from) } : {}),
     messageId,
     ...(text !== undefined ? { text } : {}),
+    ...(previous !== "" ? { previous } : {}),
     at: env.at,
   };
 }

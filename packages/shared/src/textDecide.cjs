@@ -114,6 +114,7 @@ const WHY = Object.freeze({
   asks_someone_else: "it asks a named person, not Tex",
   news_shared: "news, a win or a feeling shared with the chat",
   still_typing: "its sender is still typing the rest",
+  fixes_typo: "an edit that only fixes how earlier words were spelled, asking nothing new",
 });
 
 /**

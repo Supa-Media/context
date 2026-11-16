@@ -3,8 +3,8 @@
  * Shared by both so the object never trusts a body the texting entrypoint did not check.
  */
 
-/** The four ways a text can arrive: a 1:1 text, a group text, a tapback, and a group's membership change. */
-export const ARRIVAL_KINDS = Object.freeze(new Set(["one", "group", "react", "members"]));
+/** The ways a text can arrive: a 1:1 text, a group text, a tapback, a group's membership change, and an edit of a text. */
+export const ARRIVAL_KINDS = Object.freeze(new Set(["one", "group", "react", "members", "edit"]));
 /** An inbox name is the chat's handle: letters, digits and the few marks a chat id uses, never a path. */
 export const INBOX_NAME = /^[A-Za-z0-9:+_.@-]{1,200}$/;
 /** The longest event id accepted, and the one that dedupes a text. */

@@ -144,6 +144,19 @@ export { groupCommand, peopleOf };
 export { ASK_KEY, type OpenAsk };
 
 /**
+ * A group's unsend (`editStep.ts`): kept as that message taken back, so later turns know, and queued for no turn. Only
+ * in a chat Tex is set up in, as any line is (`acceptGroup`).
+ */
+export async function keepGroupEdit(storage: InboxStorage, message: GroupMessage, now: number): Promise<"kept" | "ignored" | "duplicate"> {
+  if (message.sms === true || !(await isBound(storage, message))) return "ignored";
+  const seen = seenKey(message.eventId, await sha256Hex(message.text));
+  if ((await storage.get<number>(seen)) !== undefined) return "duplicate";
+  await storage.put(seen, now);
+  await logGroupInbound(storage, message, now);
+  return "kept";
+}
+
+/**
  * Accept a group message. Code's (a style choice, a settings reply, a command said to Tex by name): it waits for the
  * alarm. Anything else is the judge's: in a bound chat it is kept as what the chat said and waits for the judge; in a
  * chat Tex is not set up in (or from an SMS), it waits unlogged for the judge's first look. While a turn runs here,

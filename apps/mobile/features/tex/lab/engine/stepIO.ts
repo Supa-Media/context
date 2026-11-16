@@ -24,7 +24,7 @@ const secs = (ms: number) => (ms < 1 ? "under 1 ms" : ms < 1000 ? `${Math.round(
 const count = (n: number) => n.toLocaleString("en-US");
 
 /** `step` names that are canvas steps of the same id. */
-export const STEP_NODES = new Set(["triage", "decide", "react", "oldLine", "moveChat", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "checks", "reviewer", "egress", "picture", "nudge", "reflect", "nightly", "dream", "daysum", "housekeep"]);
+export const STEP_NODES = new Set(["triage", "decide", "react", "oldLine", "moveChat", "edit", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "checks", "reviewer", "egress", "picture", "nudge", "reflect", "nightly", "dream", "daysum", "housekeep"]);
 
 /** A text of the chat by any id the steps log for it (its event id, its entry id), as "Who: words". */
 export function textById(entries: LedgerEntry[], id: string): string | null {

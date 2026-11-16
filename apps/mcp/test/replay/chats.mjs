@@ -83,9 +83,9 @@ async function counted(tex, run) {
 const script = (reply) => (Array.isArray(reply) ? reply : [{ text: reply }]);
 
 /**
- * A 1:1 chat with Tex. `text(words, reply, { attachments })` is one person's
+ * A 1:1 chat with Tex. `text(words, reply, { attachments, fields })` is one person's
  * text (and the files sent with it) and the model's scripted answer; it
- * returns what Tex texted back and what the model was shown for it.
+ * returns what Tex texted back, the text's event id and what the model was shown for it.
  */
 export async function oneToOne() {
   const world = await createEgressWorld();
@@ -96,9 +96,10 @@ export async function oneToOne() {
   const event = (fields) => ({ id: `${clock}-${String(++seq).padStart(6, "0")}`, at: clock, chat: LINE, from: { kind: "person" }, kind: "text", text: "", ...fields });
   return {
     world,
-    async text(words, reply, { attachments } = {}) {
+    async text(words, reply, { attachments, fields } = {}) {
       clock += 60_000;
-      const theirs = event({ text: words });
+      // `fields`: what the Worker's own steps add to the text's event, as its edit step does (`apps/agent/src/editStep.ts`).
+      const theirs = event({ text: words, ...(fields ?? {}) });
       const turn = `turn-replay-${String(++turns).padStart(4, "0")}`;
       const before = world.model.requests.length;
       world.model.install(script(reply));
@@ -122,7 +123,15 @@ export async function oneToOne() {
       const sent = event({ from: { kind: "tex" }, text: answer, turn, covers: [theirs.id], delivered: true });
       const flushed = await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [theirs, sent] });
       if (flushed.status !== 200) throw new Error(`replay: the Worker's flush answered ${flushed.status}`);
-      return { answer, calls, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
+      return { answer, calls, id: theirs.id, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
+    },
+    /** One of the person's own events the Worker posts with no turn (an unsend, a typo fixed): kept, never answered. */
+    async keep(fields) {
+      clock += 60_000;
+      const theirs = event(fields);
+      const flushed = await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [theirs] });
+      if (flushed.status !== 200) throw new Error(`replay: the Worker's flush answered ${flushed.status}: ${JSON.stringify(flushed.body)}`);
+      return theirs.id;
     },
     /** A routine (a check-in or a daily brief) firing in this chat: no text named, Tex decides what to say. */
     async routine(path, reply) {

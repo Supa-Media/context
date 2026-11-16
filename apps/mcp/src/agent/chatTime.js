@@ -74,7 +74,8 @@ export function timeNote({ covered = [], shown = [], byId = new Map(), timeZone 
     lines.push(`Before this text the chat had been quiet for ${spanWords(first - before.at)} (the last text before it was ${whenOf(before.at, timeZone)}). Treat it as a fresh start unless it picks up something from before.`);
   }
   for (const event of people) {
-    const to = typeof event.replyTo === "string" ? byId.get(event.replyTo) : undefined;
+    // An edit names the text it edits, not a conversation it picks up (`logRender.js` `editing`).
+    const to = typeof event.replyTo === "string" && event.edited !== true && event.unsent !== true ? byId.get(event.replyTo) : undefined;
     if (to === undefined || !Number.isFinite(to.at) || newest - to.at < LATE_REPLY_MS) continue;
     lines.push(`This text replies to a message from ${whenOf(to.at, timeZone)}, ${agoWords(newest - to.at)}: pick that conversation back up, not just the newest one.`);
     break;

@@ -45,6 +45,13 @@ const E164 = /^\+[1-9]\d{6,14}$/;
 /** The most files one text carries forward; the gateway takes at most 8. */
 export const MAX_INBOUND_ATTACHMENTS = 8;
 
+/**
+ * What an edited or unsent text replaced (`editStep.ts`): `of` the earlier text's event id when the chat still has it,
+ * and `words` its words, from that event or else from the line's own copy. Neither when nothing remembers it. `unsent`:
+ * they took the text back (iMessage's Undo Send), and the message carries no words of its own.
+ */
+export type Edited = { of?: string; words?: string; unsent?: true };
+
 /** A file sent with a text, as Linq described it. */
 export type InboundAttachment = { url: string; mimeType: string; filename: string; size: number | null };
 
@@ -107,6 +114,8 @@ export type Inbound =
       reacted?: Reaction[];
       /** Sendblue: it came as a card from our own Messages extension, and `ask` keys the ask it answers (`cardChats.ts`). */
       viaCard?: { ask?: string };
+      /** An edit of an earlier text, queued by the chat's `edit` step (`editStep.ts`), never by a webhook: `text` is the new words. */
+      edited?: Edited;
     }
   /** Sendblue: a tapback on a text, read from its words (`reactions.ts`). */
   /** `on`: Sendblue named the message it was on rather than quoting it; its words are read before queueing (`sendblueTapbacks.ts`). */

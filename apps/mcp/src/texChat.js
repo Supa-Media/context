@@ -27,7 +27,7 @@ import { objectByName } from "./objectPlace.js";
 import { JOB_NAME } from "./texJobName.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`apps/agent/src/index.ts`). */
-const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed" });
+const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
 /** The header the Worker's object names itself with (`inboxMove.ts` `INBOX_NAME_HEADER`). */
 export const INBOX_NAME_HEADER = "x-inbox-name";
 /** Set on every answer this object gives a passed-on call: the chat answered in the gateway. */

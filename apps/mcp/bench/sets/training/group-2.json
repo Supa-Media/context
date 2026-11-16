@@ -273,6 +273,12 @@
     {"id":"m265","who":"Luis","text":"that's the most ana sentence ever"},
     {"id":"m266","who":"Ana","text":"bye guys"},
     {"id":"m267","who":"Kim","text":"bye ana, bye everyone"},
-    {"id":"m268","who":"Dev","text":"going to make soup. again."}
+    {"id":"m268","who":"Dev","text":"going to make soup. again."},
+    {"id":"m269","who":"Kai","text":"Tex can you add the ferry to the calendar, saturday 10am"},
+    {"id":"m270","who":"Tex","tex":true,"text":"Added the ferry, Saturday at 10am."},
+    {"id":"m271","who":"Kai","kind":"edit","to":"m269","text":"Tex can you add the ferry to the calendar, saturday 11am","labels":{"decide":{"act":"respond","why":"asks_tex","star":true}}},
+    {"id":"m272","who":"Tex","tex":true,"text":"Moved the ferry to 11am Saturday."},
+    {"id":"m273","who":"Rosa","text":"i can bring chips"},
+    {"id":"m274","who":"Rosa","kind":"edit","to":"m273","text":"i can bring chips and salsa","labels":{"decide":{"act":"quiet","why":"people_talking","star":true}}}
   ]
 }

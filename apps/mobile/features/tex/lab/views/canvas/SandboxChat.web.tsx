@@ -4,12 +4,12 @@
  * test account or the Training / Dev sets (never the Test set), text as anyone in it, and the version open in the Lab
  * answers on live models; every step's output fills its column. One ▶ per text (`engine/sandboxPlay.ts`) plays back
  * what ran, or runs it fresh once the version changed; ⤺ goes back to a text and 🗑 deletes it. Each message's ⋯ reacts
- * or replies, and the composer takes pictures (picked, pasted or dropped), each run as production runs it. Edit is in
- * the menu but off: production passes no edit on to Tex (`docs/decisions/texting-assistant/lab-sandbox.md`). Nothing
+ * or replies, edits or takes back (Delete, iMessage's Undo Send) a test text, and the composer takes pictures (picked,
+ * pasted or dropped), each run as production runs it (`docs/decisions/texting-assistant/edits-and-unsends.md`). Nothing
  * reaches the real chat, the workspace or anyone's phone. Folds to its head with ▾.
  */
 import { useEffect, useRef, useState } from "react";
-import { backTo, dropText, reactTo, readSandboxChats, readSandboxSets, sandboxProblem, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow, type SandboxSource } from "../../engine/sandbox";
+import { backTo, dropText, editText, reactTo, unsendText, readSandboxChats, readSandboxSets, sandboxProblem, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow, type SandboxSource } from "../../engine/sandbox";
 import { isStale, noteRan, pickStep, playLit, playText, usePlay } from "../../engine/sandboxPlay";
 import { usePicUpload } from "./usePicUpload";
 import { useLab } from "../../store";
@@ -151,12 +151,13 @@ function ChatPick({ versionId }: { versionId: string }) {
   );
 }
 
-/** A message's ⋯: the tapbacks and Reply, each run as production runs it, and Edit (off until Tex receives edits). */
-function MsgOptions({ r, onReply }: { r: SandboxRow; onReply: () => void }) {
+/** A message's ⋯: the tapbacks and Reply, and on a test text Edit and Delete (Undo Send), each run as production runs it. */
+function MsgOptions({ r, onReply, onEdit }: { r: SandboxRow; onReply: () => void; onEdit: () => void }) {
   const sb = useSandbox();
-  const own = !r.prod && !r.tex;
+  const own = !r.prod && !r.tex && !r.kind && !r.unsent;
+  const idle = !sb.running && !sb.busy;
   return (
-    <Pop id={"sbOpt-" + r.id} label="Message options" title="React, reply or edit" className="mopt" button="⋯">
+    <Pop id={"sbOpt-" + r.id} label="Message options" title="React, reply, edit or delete" className="mopt" button="⋯">
       {(close) => (
         <div className="vmenu">
           <div className="taps">
@@ -187,9 +188,32 @@ function MsgOptions({ r, onReply }: { r: SandboxRow; onReply: () => void }) {
             ↩ Reply
           </button>
           {own ? (
-            <button className="mi" data-edit-open={r.id} disabled title="Tex doesn't receive edits yet: production passes no edit on, so the test chat can't either">
-              ✎ Edit <span className="meta">Tex doesn't get edits yet</span>
-            </button>
+            <>
+              <button
+                className="mi"
+                data-edit-open={r.id}
+                disabled={!idle}
+                title={"Edit as " + r.who + ": Tex gets it as a real iMessage edit"}
+                onClick={() => {
+                  close();
+                  onEdit();
+                }}
+              >
+                ✎ Edit
+              </button>
+              <button
+                className="mi"
+                data-unsend={r.id}
+                disabled={!idle}
+                title={"Undo Send as " + r.who + ": Tex gets it as taken back and answers nothing"}
+                onClick={() => {
+                  close();
+                  void unsendText(r.id);
+                }}
+              >
+                ⌫ Delete <span className="meta">Undo Send</span>
+              </button>
+            </>
           ) : null}
           <div className="mnote">As {sb.as || "you"}; Tex runs on each.</div>
         </div>
@@ -207,6 +231,7 @@ export function SandboxChat() {
   const [text, setText] = useState(() => takeDraft()?.text ?? "");
   const [folded, setFolded] = useState(false);
   const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const [pics, setPics] = useState<string[]>([]);
   const [uploading, setUploading] = useState(0);
   const fileIn = useRef<HTMLInputElement>(null);
@@ -229,10 +254,11 @@ export function SandboxChat() {
     if (!sb.busy && sb.versionId !== versionId) void openSandbox(sb.source, versionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, versionId, sb.busy]);
-  // A reply to a text that's gone (back, delete, another chat) is dropped.
+  // A reply to, or an edit of, a text that's gone (back, delete, another chat) is dropped.
   useEffect(() => {
     if (replyTo && !sb.rows.some((r) => r.id === replyTo)) setReplyTo(null);
-  }, [sb.rows, replyTo]);
+    if (editing && !sb.rows.some((r) => r.id === editing)) setEditing(null);
+  }, [sb.rows, replyTo, editing]);
 
   const byId = new Map(sb.rows.map((r) => [r.id, r]));
   const quoteOf = (id?: string) => {
@@ -249,7 +275,7 @@ export function SandboxChat() {
     rows.push({
       id: r.id,
       who: r.tex ? "Tex" : r.who,
-      text: r.text,
+      text: r.kind === "unsend" ? "took back a text" : r.unsent ? r.text + " (unsent)" : r.text,
       tex: r.tex,
       quiet: r.quiet,
       prod: r.prod,
@@ -257,7 +283,7 @@ export function SandboxChat() {
       steps: r.steps,
       running: sb.running === r.id,
       hot: sb.running === r.id ? sb.hot : null,
-      quote: quoteOf(r.replyTo),
+      quote: quoteOf(r.replyTo ?? (r.kind === "edit" || r.kind === "unsend" ? r.on : undefined)),
       pics: r.pics,
       reactions: r.reactions?.map((x) => x.emoji),
       edited: r.edited,
@@ -281,10 +307,16 @@ export function SandboxChat() {
     const urls = got.map((p) => p?.url).filter((u): u is string => !!u && u.startsWith("https://"));
     if (urls.length) setPics((ps) => [...ps, ...urls].slice(0, MAX_PICS));
   };
-  const canSend = !sb.running && !sb.busy && !!sb.as && !uploading && (!!text.trim() || pics.length > 0);
+  const canSend = !sb.running && !sb.busy && !uploading && (editing ? !!text.trim() : !!sb.as && (!!text.trim() || pics.length > 0));
   const send = () => {
     if (!canSend) return;
     const t = text.trim();
+    if (editing) {
+      setText("");
+      setEditing(null);
+      void editText(editing, t);
+      return;
+    }
     const extra = { pics, ...(replyTo ? { replyTo } : {}) };
     setText("");
     setPics([]);
@@ -292,6 +324,7 @@ export function SandboxChat() {
     void sendText(t, extra);
   };
   const reply = replyTo ? byId.get(replyTo) : undefined;
+  const edited = editing ? byId.get(editing) : undefined;
   const playing = (id: string) => play?.msgId === id;
 
   return (
@@ -387,7 +420,16 @@ export function SandboxChat() {
             <MsgOptions
               r={src}
               onReply={() => {
+                setEditing(null);
                 setReplyTo(src.id);
+                txt.current?.focus();
+              }}
+              onEdit={() => {
+                setReplyTo(null);
+                setPics([]);
+                setEditing(src.id);
+                // The words it says now: its latest edit's, else its own.
+                setText([...sb.rows].reverse().find((x) => x.kind === "edit" && x.on === src.id)?.text ?? src.text);
                 txt.current?.focus();
               }}
             />
@@ -396,8 +438,26 @@ export function SandboxChat() {
       />
       {folded ? null : (
         <>
-          {reply || pics.length || uploading ? (
+          {reply || edited || pics.length || uploading ? (
             <div className="pend" id="sbPend">
+              {edited ? (
+                <span className="chip">
+                  <span>
+                    ✎ Editing {edited.who}'s text: {edited.text}
+                  </span>
+                  <button
+                    type="button"
+                    id="sbEditX"
+                    aria-label="Cancel the edit"
+                    onClick={() => {
+                      setEditing(null);
+                      setText("");
+                    }}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ) : null}
               {reply ? (
                 <span className="chip">
                   <span>
@@ -468,7 +528,7 @@ export function SandboxChat() {
               }}
             />
             <button className="primary" id="sbSend" type="submit" disabled={!canSend}>
-              Send
+              {editing ? "Save edit" : "Send"}
             </button>
           </form>
         </>

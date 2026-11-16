@@ -35,3 +35,18 @@ export async function queueItem<Item>(storage: InboxStorage, queue: ChatQueue, i
   await storage.put<Item>(key, item);
   return key;
 }
+
+/**
+ * Take back out of the queue every waiting text with this provider handle: someone unsent it before Tex answered
+ * (`editStep.ts`). Returns how many were taken. The caller leaves the queue alone while a turn runs in the chat, which
+ * holds those texts already.
+ */
+export async function withdrawItem(storage: InboxStorage, queue: ChatQueue, messageId: string): Promise<number> {
+  let taken = 0;
+  for (const [key, item] of await storage.list<{ message?: { messageId?: unknown } }>({ prefix: queue.prefix })) {
+    if (messageId === "" || item?.message?.messageId !== messageId) continue;
+    await storage.delete(key);
+    taken += 1;
+  }
+  return taken;
+}
