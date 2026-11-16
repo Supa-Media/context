@@ -39,7 +39,6 @@ import { MineLoader, readMomentDetail, refreshChat, replayEntries } from "./view
 import { useLabUrl } from "./views/useLabUrl.web";
 import { ReplayPanel } from "./views/replay/ReplayPanel";
 import { ArchCanvas } from "./views/canvas/ArchCanvas.web";
-import { RunControls } from "./views/runs/Runs.web";
 import { openMoment, ReplaySide } from "./views/replay/ReplaySide";
 import { loggedMoments, momentsOf } from "./engine/replay";
 import { useLabTheme } from "./theme.web";
@@ -200,9 +199,12 @@ function Lab() {
     <>
       <div className={"app" + (s.sideOpen ? " sideopen" : "")} id="app">
         <div className="bar">
-          <button className="ib" id="sideBtn" aria-label="Show or hide the sidebar" onClick={toggleSide}>
-            <Svg className="i" d='<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9 4.5v15"/>' />
-          </button>
+          {/* Testing has no Lab sidebar: its sets have their own hide button. */}
+          {testing ? null : (
+            <button className="ib" id="sideBtn" aria-label="Show or hide the sidebar" onClick={toggleSide}>
+              <Svg className="i" d='<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9 4.5v15"/>' />
+            </button>
+          )}
           <div className="modes" role="group" aria-label="Mode">
             <button id="modeLab" aria-pressed={!replay && !testing} onClick={() => setMode("lab")}>
               Lab
@@ -215,9 +217,12 @@ function Lab() {
             </button>
           </div>
           {testing ? (
+            // Testing's bar is the Lab's (approved mockup https://claude.ai/artifact/PUjJ7Vd6tX6BJj7vkEir1T): the
+            // version that runs, then its Dev set score and ▶ Run Dev set with the models in its menu.
             <>
-              <RunControls />
+              <VersionMenu />
               <span className="spacer" />
+              <RunSplit />
             </>
           ) : replay ? (
             <span className="spacer" />

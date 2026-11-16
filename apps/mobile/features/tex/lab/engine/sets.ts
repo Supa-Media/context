@@ -81,7 +81,7 @@ export function bodyOf(c: Conversation, m: Message): Body {
 
 /** The steps a column can show: every node in the graph that runs on a turn, the prototype's nine first. */
 export const FIRST_COLUMNS = ["triage", "decide", "router", "fd", "card", "reviewer", "nudge", "picture", "egress"];
-export const HIDDEN_AT_FIRST = ["router", "reviewer", "nudge", "picture", "egress"];
+export const HIDDEN_AT_FIRST = ["router", "card", "reviewer", "nudge", "picture", "egress"];
 export function stepNodes(g: LabGraph): LabNode[] {
   const steps = g.nodes.filter((n) => n.kind !== "input" && n.kind !== "tool");
   const first = FIRST_COLUMNS.map((id) => steps.find((n) => n.id === id)).filter((n): n is LabNode => !!n);
@@ -108,7 +108,7 @@ export function fitCols(saved: Partial<Cols> | null, g: LabGraph): Cols {
     }
   return { order, hidden: hidden.filter((id) => id !== "text"), w: saved.w || {} };
 }
-export const COL_W = { who: 72, text: 250, node: 84 };
+export const COL_W = { who: 80, text: 250, node: 96 };
 export const colWidth = (cols: Cols, id: string) => cols.w[id] || (id === "who" ? COL_W.who : id === "text" ? COL_W.text : COL_W.node);
 
 export type ModRow = { id: string; name: string; value: string; plan?: string };

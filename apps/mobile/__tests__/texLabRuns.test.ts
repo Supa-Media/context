@@ -43,6 +43,7 @@ jest.mock("expo-router", () => {
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
 jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
+jest.mock("../features/tex/lab/views/canvas/usePicUpload", () => ({ MAX_TEST_PIC_BYTES: 5_000_000, usePicUpload: () => async () => ({ url: "https://example.invalid/tent.png" }) }));
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "fake-token" }) }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -162,10 +163,14 @@ describe("running from the Lab", () => {
     expect(starts()).toEqual([{ versionId: "main", kind: "dev", models: "gw" }]);
   });
 
-  test("the models picked go with the run, and the Runs panel opens on it", async () => {
+  test("Testing's top bar is the Lab's: the version, the score and ▶ Run Dev set with the models in its menu", async () => {
     await mount();
-    await pick("#runModels", "cc");
-    click("#runDev");
+    expect(q("#runVer")).toBeNull();
+    expect(q("select#runModels")).toBeNull();
+    expect(q("#verBtn")).not.toBeNull();
+    click("#runMore");
+    click('#runModels [data-models="cc"]');
+    click("#labRunDev");
     await tick();
     expect(starts()).toEqual([{ versionId: "main", kind: "dev", models: "cc" }]);
     expect(q("#runsPanel")).not.toBeNull();
@@ -182,7 +187,7 @@ describe("running from the Lab", () => {
   test("a refusal says why", async () => {
     mockRefuse = "3 runs are already waiting: one finishes first";
     await mount();
-    click("#runDev");
+    click("#labRunDev");
     await tick();
     expect(document.body.textContent).toContain("3 runs are already waiting");
     expect(q("#runsPanel")).toBeNull();
@@ -192,7 +197,8 @@ describe("running from the Lab", () => {
     mockAnswers.set("functions/texLabRuns:list", [GATE, DONE]);
     mockAnswers.set("functions/texLabRuns:get", DONE);
     await mount();
-    click("#runsBtn");
+    click("#runMore");
+    click("#labAllRuns");
     expect(qa("#runsPanel .runrow").map((r) => r.dataset.run)).toEqual(["run2", "run1"]);
     act(() => setRunsUi({ run: "run1" }));
     const panel = q("#runsPanel")!.textContent!;
@@ -216,6 +222,30 @@ describe("running from the Lab", () => {
     act(() => setRunsUi({ open: true, run: "run3" }));
     expect(q("#gateResult")?.textContent).toContain("No Test set needed");
     expect(q("#runsPanel")?.textContent).not.toContain("0/0");
+  });
+
+  test("Try a text takes pictures: the composer's picture button adds them and they go with the send", async () => {
+    const calls: Array<{ op: string; body: Record<string, unknown> }> = [];
+    setSandboxCall(async (op, body) => {
+      calls.push({ op, body });
+      if (op === "chats") return { chats: [{ chatId: "f".repeat(64), name: "Band" }] };
+      if (op === "open") return { sandboxId: "sb1", people: [{ handle: "ana", name: "Ana" }], rows: [] };
+      if (op === "send") return { msgId: "t1" };
+      return { rows: [], writes: [], running: null };
+    });
+    await mount();
+    const input = q("#tryPicFile") as HTMLInputElement;
+    const file = new File(["x"], "tent.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => void input.dispatchEvent(new Event("change", { bubbles: true })));
+    await tick();
+    expect(q("#tryPics img")?.getAttribute("src")).toBe("https://example.invalid/tent.png");
+    expect((q("#trySend") as HTMLButtonElement).disabled).toBe(false);
+    click("#trySend");
+    await tick();
+    await tick();
+    expect(calls.find((c) => c.op === "send")?.body).toMatchObject({ text: "", pics: [{ url: "https://example.invalid/tent.png" }] });
+    expect(q("#tryPics")).toBeNull();
   });
 
   test("Try a text runs one turn in the test chat on the chat's history, and Keep adds both rows", async () => {

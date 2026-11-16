@@ -42,12 +42,13 @@ export const TESTING_CSS = String.raw`
 .tl .tsx .ts-gw{overflow:auto;flex:1;min-height:0}
 .tl .tsx table.chatgrid{width:100%;font-size:13px}
 .tl .tsx table.chatgrid th,.tl .tsx table.chatgrid td{border-right:0;border-bottom:1px solid var(--line);padding:6px 8px}
-.tl .tsx table.chatgrid thead th{background:var(--page);color:var(--muted);font-weight:500;font-size:12px;height:30px;padding:0 8px;vertical-align:middle;z-index:2}
+.tl .tsx table.chatgrid thead th{position:sticky;top:0;background:var(--page);z-index:4;color:var(--muted);font-weight:500;font-size:12px;height:30px;padding:0 8px;vertical-align:middle}
 .tl .tsx table.chatgrid th .x{border:0;background:none;color:var(--muted);cursor:pointer;margin-left:4px;opacity:0;padding:0 2px;font-size:12px}
 .tl .tsx table.chatgrid th:hover .x,.tl .tsx table.chatgrid th .x:focus-visible{opacity:1}
 .tl .tsx table.chatgrid th .ib,.tl .tsx table.chatgrid td.act .ib{width:24px;height:24px;border-color:transparent;background:none}
 .tl .tsx table.chatgrid th .ib:hover,.tl .tsx table.chatgrid td.act .ib:hover{background:var(--s3)}
 .tl .tsx table.chatgrid th.ts-addc{text-align:center;padding:0 2px}
+.tl .tsx table.chatgrid thead th.num{background:var(--page)}
 .tl .tsx table.chatgrid td.num{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;text-align:right;padding-right:6px}
 .tl .tsx table.chatgrid td.num .grip{display:none}
 .tl .tsx table.chatgrid td.ts-who b{font-weight:600}
@@ -65,6 +66,10 @@ export const TESTING_CSS = String.raw`
 .tl .tsx .compose{display:flex;gap:6px;align-items:center;padding:8px 12px;border-top:1px solid var(--line);background:var(--page)}
 .tl .tsx .compose select{height:28px;border:1px solid var(--line2);border-radius:7px;background:var(--page);padding:0 6px;font-size:13px}
 .tl .tsx .compose input{flex:1;height:28px;border:1px solid var(--line2);border-radius:7px;background:var(--s2);padding:0 10px;min-width:0;color:var(--text);font:inherit}
+.tl .tsx .ts-tpics{display:inline-flex;align-items:center;gap:4px}
+.tl .tsx .ts-tpic{position:relative;width:28px;height:28px;border-radius:6px;overflow:hidden;border:1px solid var(--line2)}
+.tl .tsx .ts-tpic img{width:100%;height:100%;object-fit:cover;display:block}
+.tl .tsx .ts-tpic button{position:absolute;top:0;right:0;width:14px;height:14px;padding:0;border:0;border-radius:0 0 0 6px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;line-height:14px;cursor:pointer}
 .tl .tsx .compose .btn.p{height:28px;padding:0 11px;border-radius:7px}
 .tl .tsx .ts-det{border-left:1px solid var(--line);background:var(--page);display:flex;flex-direction:column;min-height:0;min-width:0}
 .tl .tsx .ts-dh{display:flex;align-items:center;gap:6px;height:40px;padding:0 8px 0 12px;border-bottom:1px solid var(--line);flex:none}

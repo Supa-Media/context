@@ -150,6 +150,7 @@ function Title({ c }: { c: Conversation }) {
       id="chatTitle"
       aria-label="Chat title"
       defaultValue={c.title}
+      size={Math.min(48, Math.max(6, c.title.length + 1))}
       readOnly={c.set === "test"}
       onBlur={(e) => keep(e.target.value)}
       onKeyDown={(e) => {
