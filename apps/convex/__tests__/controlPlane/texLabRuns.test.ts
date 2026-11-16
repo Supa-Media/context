@@ -32,17 +32,22 @@ const SHA = "a".repeat(40);
 type Call = { url: string; body: Record<string, unknown> | null };
 let calls: Call[] = [];
 let testSet: { state: string; description: string } | null = null;
+let replayCheck: { status: string; conclusion: string | null } | null = null;
+let prState: { state: string; merged_at: string | null } = { state: "open", merged_at: null };
 
 beforeEach(() => {
   vi.stubEnv("ADMIN_EMAILS", `${STAFF},alice@example.invalid`);
   vi.stubEnv("GH_ADMIN_TOKEN", "ghp_fake_for_tests");
   calls = [];
   testSet = null;
+  replayCheck = null;
+  prState = { state: "open", merged_at: null };
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
     if (url.endsWith("/dispatches")) return new Response(JSON.stringify({ workflow_run_id: 123, html_url: RUN_URL }), { status: 200 });
-    if (url.includes("/pulls/12")) return new Response(JSON.stringify({ head: { sha: SHA } }), { status: 200 });
+    if (url.includes("/pulls/12")) return new Response(JSON.stringify({ head: { sha: SHA }, ...prState }), { status: 200 });
+    if (url.includes(`/commits/${SHA}/check-runs`)) return new Response(JSON.stringify({ check_runs: replayCheck ? [replayCheck] : [] }), { status: 200 });
     if (url.includes(`/commits/${SHA}/statuses`)) return new Response(JSON.stringify(testSet ? [{ context: "Tex test set", ...testSet }] : []), { status: 200 });
     return new Response("{}", { status: 404 });
   });
@@ -197,6 +202,33 @@ describe("Promote", () => {
     vi.advanceTimersByTime(3 * 60 * 1000);
     await t.finishInProgressScheduledFunctions();
     expect((await door("runs", { draft })).runs[0]).toMatchObject({ stage: "done", results: { pass: 12, total: 14 } });
+  });
+
+  test("a promotion that reaches no Test set area is done at 0 of 0 once the replay rule passes; a closed pull request fails", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { door, t } = await world();
+    const promoted = async (name: string) => {
+      const { id: draft } = await door("create", { name, graph: JSON.stringify({ nodes: [{ id: "text" }], edges: [] }) });
+      await door("promote", { draft });
+      const at = (await t.query(internal.functions.texLabPromote.asked, {})).find((a) => a.versionId === draft)!.at;
+      await t.mutation(internal.functions.texLabPromote.answered, { versionId: draft, at, pr: PR });
+      return draft;
+    };
+    const quiet = await promoted("Moves a step");
+    replayCheck = { status: "in_progress", conclusion: null };
+    vi.advanceTimersByTime(3 * 60 * 1000);
+    await t.finishInProgressScheduledFunctions();
+    expect((await door("runs", { draft: quiet })).runs[0].stage).toBe("running");
+    replayCheck = { status: "completed", conclusion: "success" };
+    vi.advanceTimersByTime(3 * 60 * 1000);
+    await t.finishInProgressScheduledFunctions();
+    expect((await door("runs", { draft: quiet })).runs[0]).toMatchObject({ stage: "done", error: null, results: { pass: 0, total: 0 } });
+    replayCheck = null;
+    prState = { state: "closed", merged_at: null };
+    const closed = await promoted("Closed");
+    vi.advanceTimersByTime(3 * 60 * 1000);
+    await t.finishInProgressScheduledFunctions();
+    expect((await door("runs", { draft: closed })).runs[0]).toMatchObject({ stage: "failed", error: "the pull request was closed without merging" });
   });
 
   test("a version the promote workflow refuses fails its gate run with why", async () => {
