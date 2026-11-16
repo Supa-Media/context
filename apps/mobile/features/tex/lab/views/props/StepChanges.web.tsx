@@ -15,7 +15,7 @@ export function StepChanges({ n }: { n: LabNode }) {
   const m = currentMarks();
   const x = m?.nodes[n.id];
   if (!m || !x) return null;
-  const count = x.fields.length + (x.moved ? 1 : 0);
+  const count = x.fields.length;
   const untouched = ["model", "effort"].filter((f) => !x.fields.includes(f));
   const canStep = isLive() && live.rev > 1;
   return (

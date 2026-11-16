@@ -40,6 +40,7 @@ import { ReplayTimeline } from "./replay/ReplayTimeline";
 import type { Moment } from "../engine/replay";
 import type { LedgerEntry } from "../../page/texPageTypes";
 import { useStageInput } from "./canvas/useStageInput.web";
+import { useFollowRunning } from "./props/useFollowRunning";
 
 function Svg({
   d,
@@ -62,6 +63,7 @@ function Svg({
 
 export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment | null; entries: LedgerEntry[] } | null; testLit?: Lit | ReadonlySet<string> | null }) {
   const s = useLab();
+  useFollowRunning();
   // Replay draws the same graph, read only, lit by its own timeline (`replay/ReplayTimeline.tsx`).
   const [replayLit, setReplayLit] = useState<Lit | null>(null);
   const stage = useRef<HTMLDivElement>(null);

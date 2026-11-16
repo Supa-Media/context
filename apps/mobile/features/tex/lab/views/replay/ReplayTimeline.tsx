@@ -48,6 +48,7 @@ function showTurn(m: Moment, entries: LedgerEntry[], turn: string) {
 export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: LedgerEntry[]; onLit: (lit: Lit | null) => void }) {
   const [at, setAt] = useState(0);
   const [playing, setPlaying] = useState(false);
+  // TODO(dock worker): the timeline dock reads lab.speed (the top bar's play speed); this own select goes with Replay mode.
   const [speed, setSpeed] = useState(1);
   const raf = useRef<number | null>(null);
   const shown = useRef<string | null>(null);

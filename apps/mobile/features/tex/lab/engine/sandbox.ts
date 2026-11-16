@@ -10,6 +10,7 @@
  */
 import { useSyncExternalStore } from "react";
 import type { StepCell } from "../views/grid/TextGrid.web";
+import { stepExtra, type StepExtra } from "./stepRun";
 import { lab, set as setLab } from "./state";
 
 export type SandboxSource = { kind: "maya" } | { kind: "chat"; chatId: string; name: string } | { kind: "set"; convId: string; name: string; chatId?: string };
@@ -21,7 +22,7 @@ export type SandboxRow = {
   prod?: boolean;
   quiet?: boolean;
   tex?: boolean;
-  steps?: StepCell[];
+  steps?: Array<StepCell & StepExtra>;
   /** Pictures sent with the text (https only), the text it replies to, whether it was edited, and taken back (unsent). */
   pics?: string[];
   replyTo?: string;
@@ -101,7 +102,7 @@ export function rowOf(r: Record<string, unknown>): SandboxRow {
     prod: r.prod === true,
     quiet: r.quiet === true,
     tex: who === "Tex" || r.tex === true,
-    steps: arr<Record<string, unknown>>(r.steps).map((x) => ({ node: str(x.node), out: str(x.out), ms: num(x.ms), ok: x.ok === false ? false : true })),
+    steps: arr<Record<string, unknown>>(r.steps).map((x) => ({ node: str(x.node), out: typeof x.out === "string" || x.out === undefined || x.out === null ? str(x.out) : JSON.stringify(x.out), ms: num(x.ms), ok: x.ok === false ? false : true, ...stepExtra(x) })),
     ...(Array.isArray(r.pics) ? { pics: arr<unknown>(r.pics).map((p) => (typeof p === "string" ? p : p && typeof p === "object" ? str((p as Record<string, unknown>).url) : "")).filter((u) => u.startsWith("https://")) } : {}),
     ...(typeof r.replyTo === "string" && r.replyTo ? { replyTo: r.replyTo } : {}),
     ...(r.edited === true ? { edited: true } : {}),

@@ -27,7 +27,7 @@ import type { View } from "./types";
 import { Canvas } from "./views/Canvas.web";
 import { Compare } from "./views/Compare.web";
 import { LiveChips } from "./views/LiveChanges.web";
-import { MoreMenu, RunSplit, VersionMenu } from "./views/bar/TopBar.web";
+import { MoreMenu, RunSplit, SpeedMenu, VersionMenu } from "./views/bar/TopBar.web";
 import { Modules } from "./views/Modules.web";
 import { Props } from "./views/Props.web";
 import { Run } from "./views/Run.web";
@@ -238,6 +238,7 @@ function Lab() {
               ) : null}
               <LiveChips />
               <span className="spacer" />
+              <SpeedMenu />
               <RunSplit />
             </>
           )}

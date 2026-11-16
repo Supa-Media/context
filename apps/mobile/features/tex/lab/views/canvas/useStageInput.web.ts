@@ -197,7 +197,7 @@ export function useStageInput({
         // A step an open group draws is picked for its properties; it does not become a focus of its own.
         const shown = stepsShownFor(G(), lab.cfocus).some((n) => n.id === a.id);
         if (a.id !== lab.cfocus && !shown) focusOn(a.id);
-        else set({ sel: { t: "node", id: a.id } });
+        else set({ sel: { t: "node", id: a.id }, pin: true });
         return;
       }
       if (a.k === "pan") {
@@ -210,7 +210,7 @@ export function useStageInput({
           pushUndo(a.before);
           markDirty();
         } else {
-          set({ sel: { t: "node", id: a.id }, addCtxOpen: false });
+          set({ sel: { t: "node", id: a.id }, addCtxOpen: false, pin: true });
           if (a.addCase && lab.mode !== "replay") startNodeCase(a.id);
         }
         return;

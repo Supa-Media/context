@@ -66,7 +66,7 @@ export function Props() {
         aria-label="Close"
         style={{ width: 32, height: 32 }}
         onClick={() => {
-          set({ sel: null });
+          set({ sel: null, pin: true });
           if (lab.cfocus) unfocus();
         }}
       >

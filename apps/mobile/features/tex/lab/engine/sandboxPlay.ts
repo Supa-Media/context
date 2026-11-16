@@ -61,8 +61,6 @@ export function usePlay(): { play: Play; pick: Pick } {
   return { play, pick };
 }
 
-/** A playback lasts at most this long on screen; a longer turn plays faster. */
-const MAX_PLAY_MS = 6000;
 const TICK = 50;
 const stepsOf = (msgId: string) => sandbox.rows.find((r) => r.id === msgId)?.steps ?? [];
 const msOf = (ms: number | null) => Math.max(ms ?? 0, 1);
@@ -90,12 +88,12 @@ export function playText(msgId: string): "played" | "fresh" | "stopped" | "none"
   const steps = stepsOf(msgId);
   if (!steps.length) return "none";
   const total = steps.reduce((a, s) => a + msOf(s.ms), 0);
-  const speed = Math.max(1, total / MAX_PLAY_MS);
   pick = { msgId, upto: null };
   play = { msgId, t: 0, total };
+  // At the Lab's one play speed, read each tick so a change in the top bar applies at once.
   timer = setInterval(() => {
     if (!play) return;
-    play = { ...play, t: Math.min(play.total, play.t + TICK * speed) };
+    play = { ...play, t: Math.min(play.total, play.t + TICK * lab.speed) };
     if (play.t >= play.total) stopPlay();
     else emit();
   }, TICK);

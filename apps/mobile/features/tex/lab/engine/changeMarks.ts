@@ -5,8 +5,9 @@
  * https://claude.ai/artifact/VnAnSNDprEUJ4fFDEmXqhp, boards 3 and 4.
  *
  * The draft is compared with main, or with itself before a revision (`texLabDrafts.graphBefore`), both unfolded so a
- * change inside a folded group marks the group's box. Marks draws ~ changed, + new and − removed on the steps and
- * wires and fades the rest; Ghost also draws the base's version under each changed or moved step, dashed.
+ * change inside a folded group marks the group's box. Marks outlines a changed step in yellow, draws new steps and
+ * wires green and removed ones red, and fades nothing; Ghost also draws the base's version under each changed step,
+ * dashed. A step's place is never a change.
  */
 import { unfoldGroups } from "./groups";
 import { GROUPS } from "../data/graph";
@@ -14,7 +15,7 @@ import { edit, G, lab, MAIN, MODELS, toast } from "./state";
 import type { LabEdge, LabGraph, LabNode } from "../types";
 
 export type ChangeMode = "off" | "marks" | "ghost";
-export type NodeMark = { kind: "changed" | "new"; fields: string[]; moved: boolean; base: LabNode | null };
+export type NodeMark = { kind: "changed" | "new"; fields: string[]; base: LabNode | null };
 export type GoneWire = { from: LabNode; to: LabNode; mode: string };
 export type Marks = {
   mode: "marks" | "ghost";
@@ -83,22 +84,22 @@ export function computeMarks(cur: LabGraph, base: LabGraph, mode: "marks" | "gho
   const nodes: Record<string, NodeMark> = {};
   const touch = (id: string | null, field: string, base: LabNode | null) => {
     if (!id) return;
-    const m = nodes[id] ?? (nodes[id] = { kind: "changed", fields: [], moved: false, base });
+    const m = nodes[id] ?? (nodes[id] = { kind: "changed", fields: [], base });
     if (!m.fields.includes(field)) m.fields.push(field);
   };
   for (const n of b.nodes) {
     const o = byA.get(n.id);
     const box = boxOf(n);
     if (!o) {
-      if (box === n.id) nodes[n.id] = { kind: "new", fields: [], moved: false, base: null };
+      if (box === n.id) nodes[n.id] = { kind: "new", fields: [], base: null };
       else touch(box, `${n.label} added inside`, null);
       continue;
     }
     const fields = changedFields(n, o);
     if (!same(wiresOf(a, n.id), wiresOf(b, n.id))) fields.push("wires");
-    const moved = box === n.id && (n.x !== o.x || n.y !== o.y);
+    // Moving a step (x, y) is never a change (Dev2, 2026-11-16): only fields and wires mark.
     if (box === n.id) {
-      if (fields.length || moved) nodes[n.id] = { kind: "changed", fields, moved, base: o };
+      if (fields.length) nodes[n.id] = { kind: "changed", fields, base: o };
     } else if (fields.length) touch(box, `${n.label} inside`, cur.nodes.find((x) => x.id === box) ?? null);
   }
   const removed: LabNode[] = [];
@@ -129,6 +130,13 @@ export function changeBase(): { graph: LabGraph; vs: string } | null {
   if (lab.chgVs === "main") return { graph: MAIN.graph, vs: "main" };
   const r = lab.revBase;
   return r && r.rev === lab.chgVs ? { graph: r.graph, vs: `rev ${r.rev - 1}` } : null;
+}
+
+/** What the draft changed in one step against its base, whether or not the canvas draws marks (the step panel's Settings). */
+export function stepChange(id: string): { x: NodeMark; vs: string } | null {
+  const b = changeBase();
+  const x = b ? computeMarks(G(), b.graph, "marks", b.vs).nodes[id] : undefined;
+  return b && x ? { x, vs: b.vs } : null;
 }
 
 /** The marks the canvas draws now, or null when they are off. */

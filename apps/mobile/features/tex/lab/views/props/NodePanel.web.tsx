@@ -3,10 +3,15 @@
  * (its `.ph` header, goal, log switch, running switch, model, effort, the
  * reads and output fields, wires, the scenario's own timing, the change note
  * and delete). Ported with the same markup, classes and ids.
+ *
+ * Lab live sandbox (approved mockup https://claude.ai/artifact/XtEn67XPWMTFVUBYanYLG5): a switch at the top picks the
+ * card, "Run details" (what the step did for the test text picked, `RunCard.web.tsx`) or "Settings" (everything below,
+ * each field changed from main outlined yellow with "was ... on main" under it). Replay mode keeps the one long panel.
  */
 import { useState, type ReactNode } from "react";
 import { AREAS, EXAMINABLE } from "../../data/areas";
 import { ICONS, NODE_INFO, WIRES } from "../../data/graph";
+import { fieldText, stepChange } from "../../engine/changeMarks";
 import { cacheShare, ctxTokens, fmtS, fmtUsd, outTok } from "../../engine/sim";
 import { labSim, tracedReal } from "../../engine/realTimes";
 import { delSel, edit, G, go, lab, MODELS, node, set } from "../../engine/state";
@@ -14,6 +19,8 @@ import { scnLabel } from "../../engine/traces";
 import { useLab } from "../../store";
 import type { LabNode } from "../../types";
 import { Ic } from "../ic";
+import { CardSwitch } from "./CardSwitch.web";
+import { RunCard, StatusRow, useStepRun } from "./RunCard.web";
 import { WireIcon } from "../parts";
 import { onCommit } from "./change";
 import { EditModelLink, getModelForm, ModelForm, NewModelButton } from "./ModelForm.web";
@@ -52,9 +59,18 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   const wires = g.edges.map((e, i) => [e, i] as const).filter(([e]) => e.to === n.id || e.from === n.id);
   const outTokens = outTok(n);
   const outLocked = !!n.outSchema?.length;
+  const replay = lab.mode === "replay";
+  const { has, run } = useStepRun(n);
+  const ch = stepChange(n.id);
+  const card = replay ? "set" : (lab.card ?? (has ? "run" : "set"));
+  const chgd = (f: string) => !!ch?.x.fields.includes(f);
+  /** A changed field's outline class, and the line saying what main had. */
+  const cc = (f: string, base = "") => (base + (chgd(f) ? " chgf" : "")).trim();
+  const was = (f: string) => (chgd(f) && ch?.x.base ? <small className="was">{`was ${fieldText(ch.x.base, f)} on ${ch.vs}`}</small> : null);
 
   return (
     <>
+      {replay ? null : <CardSwitch card={card} changed={!!ch && ch.x.kind === "changed"} />}
       <div className="ph">
         {/* Not in the artifact: the badge picks the step's icon (Dev2, 2026-11-14: "there is no way to change the icons"). */}
         <button className="badge" id="nIcon" aria-label="Change the icon" aria-expanded={picking} title="Change the icon" style={{ color: `var(${m.c})` }} onClick={() => setPicking(!picking)}>
@@ -84,7 +100,13 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
             ))}
         </div>
       ) : null}
-      <div className="file">{n.file || "new step"}</div>
+      {replay ? null : <StatusRow n={n} card={card} run={run} draft={lab.cur.name} />}
+      {card === "run" ? (
+        <RunCard n={n} has={has} run={run} />
+      ) : (
+        <>
+      <div className={cc("code", "file")}>{n.file || "new step"}</div>
+      {was("code")}
       {io?.length ? (
         // Not in the artifact: what this step got and gave when it ran for one of your texts (`realTimes.ts` realIO).
         <div className="grp" id="nIO">
@@ -99,8 +121,9 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
       ) : null}
       <StepChanges n={n} />
       <StepCases n={n} />
-      <div className="grp">
+      <div className={cc("goal", "grp")}>
         <h4>Goal</h4>
+        {was("goal")}
         <textarea className="note" id="nGoal" rows={3} placeholder="Why this step exists: what goes wrong without it" key={n.goal || ""} defaultValue={n.goal || ""} ref={onCommit<HTMLTextAreaElement>((v) => setNode(n.id, "goal", v.trim()))} />
       </div>
       {n.id === "tools" ? (
@@ -111,8 +134,9 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
           </button>
         </div>
       ) : null}
-      <div className="grp">
+      <div className={cc("record", "grp")}>
         <h4>The chat's record</h4>
+        {was("record")}
         <div className="toggle">
           <span>{n.log ? "Writes " + (NODE_INFO[n.id]?.logs || ["its entries"]).join(", ") : "Writes nothing"}</span>
           <button className="sw" id="nLog" role="switch" aria-checked={!!n.log} aria-label="Writes to the chat's record" onClick={() => setNode(n.id, "log", !n.log)} />
@@ -123,15 +147,16 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
           </p>
         )}
       </div>
-      <div className="grp">
+      <div className={cc("running", "grp")}>
         <div className="toggle">
           <span>Running</span>
           <button className="sw" id="nOn" role="switch" aria-checked={n.on} aria-label="Running" onClick={() => setNode(n.id, "on", !n.on)} />
         </div>
+        {was("running")}
       </div>
       <div className="grp">
         <h4>Model</h4>
-        <div className="seg" id="nModel">
+        <div className={cc("model", "seg")} id="nModel">
           {Object.entries(MODELS).map(([k, v]) => (
             <button key={k} data-v={k} aria-pressed={k === n.model} onClick={() => pickModel(n.id, k)}>
               <span className="mdot" style={{ background: `var(${v.c})` }} />
@@ -140,6 +165,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
           ))}
           <NewModelButton />
         </div>
+        {was("model")}
         <EditModelLink m={m} />
         {getModelForm() ? <ModelForm /> : null}
         {m.runs === "code" ? (
@@ -154,21 +180,23 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
             {m.runs === "api" ? null : (
               <>
                 <h4 style={{ marginTop: 12 }}>Effort</h4>
-                <div className="seg" id="nEffort">
+                <div className={cc("effort", "seg")} id="nEffort">
                   {["off", "low", "medium", "high", "xhigh"].map((k) => (
                     <button key={k} data-v={k} aria-pressed={(n.effort || "medium") === k} onClick={() => setNode(n.id, "effort", k)}>
                       {k}
                     </button>
                   ))}
                 </div>
+                {was("effort")}
               </>
             )}
             <div className="nums" style={{ marginTop: 10 }}>
-              <label className="num">
+              <label className={cc("rounds", "num")}>
                 <span>Rounds</span>
                 <input type="number" id="nRounds" key={String(n.rounds)} defaultValue={n.rounds} min={1} max={40} ref={onCommit<HTMLInputElement>((v) => setNode(n.id, "rounds", +v))} />
+                {was("rounds")}
               </label>
-              <label className="num">
+              <label className={cc("tokens out", "num")}>
                 <span>Tokens out</span>
                 <input
                   type="number"
@@ -181,10 +209,12 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
                   title={outLocked ? "Set by the output fields" : undefined}
                   ref={onCommit<HTMLInputElement>((v) => setNode(n.id, "out", +v))}
                 />
+                {was("tokens out")}
               </label>
-              <label className="num">
+              <label className={cc("limit", "num")}>
                 <span>Limit, s</span>
                 <input type="number" id="nTo" key={String(n.timeoutS || 0)} defaultValue={n.timeoutS || 0} min={0} ref={onCommit<HTMLInputElement>((v) => setNode(n.id, "timeoutS", +v))} />
+                {was("limit")}
               </label>
             </div>
             <div className="flex" style={{ marginTop: 10 }}>
@@ -199,11 +229,17 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
           </p>
         ) : null}
       </div>
-      {m.runs !== "code" ? <OutputGrp n={n} m={m} /> : null}
+      {m.runs !== "code" ? (
+        <div className={cc("output")}>
+          <OutputGrp n={n} m={m} />
+          {was("output")}
+        </div>
+      ) : null}
       {m.runs !== "code" ? (
         <>
-        <div className="grp">
+        <div className={cc("reads", "grp")}>
           <h4>{`Reads · ${(ctxTokens(n, g) / 1000).toFixed(1)}k · ${Math.round(cacheShare(n, g) * 100)}% cached`}</h4>
+          {was("reads")}
           <ReadsStack n={n} g={g} />
           <div style={{ marginTop: 8 }}>
             <button className="add" id="addCtx" aria-expanded={lab.addCtxOpen} onClick={() => set({ addCtxOpen: !lab.addCtxOpen })}>
@@ -285,6 +321,8 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
             Delete this step
           </button>
         </div>
+      )}
+        </>
       )}
     </>
   );

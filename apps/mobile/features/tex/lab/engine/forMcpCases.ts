@@ -82,7 +82,7 @@ export function labMarks(input: LabIn, base: DraftIn, vs: string) {
       counts: { changed: changed.length, added: Object.values(m.nodes).filter((x) => x.kind === "new").length, removed: m.removed.length },
       changed: changed.map(([id, x]) => {
         const n = now.nodes.find((y) => y.id === id) ?? cur.nodes.find((y) => y.id === id);
-        return { step: id, label: n?.label ?? id, fields: x.fields.map((f) => ({ field: f, from: fieldText(x.base, f), to: fieldText(n, f) })), ...(x.moved ? { moved: true } : {}) };
+        return { step: id, label: n?.label ?? id, fields: x.fields.map((f) => ({ field: f, from: fieldText(x.base, f), to: fieldText(n, f) })) };
       }),
       added: Object.entries(m.nodes)
         .filter(([, x]) => x.kind === "new")

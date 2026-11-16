@@ -97,6 +97,14 @@ export type LabState = {
    * Tex itself always runs at real speed; a playback of a text still running trails it and never shows a step early.
    */
   speed: PlaySpeed;
+  /**
+   * A node was clicked: the step panel stays on it. False (the default) it follows the step running in the playing or
+   * live test text; "Follow running" in the panel sets it back.
+   */
+  pin: boolean;
+  /** The step panel's card ("run" = Run details, "set" = Settings; null picks Run details when a text has run) and its Run details tab. */
+  card: "run" | "set" | null;
+  runTab: "sum" | "out" | "in" | "think" | "calls";
 };
 
 export const PLAY_SPEEDS = [0.25, 0.5, 1, 2, 4] as const;
@@ -167,6 +175,9 @@ export const lab: LabState = {
   chgVs: "main",
   revBase: null,
   speed: savedSpeed(),
+  pin: false,
+  card: null,
+  runTab: "sum",
 };
 
 let version = 0;
