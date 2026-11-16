@@ -196,7 +196,19 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
         const problems = draftProblems(got.graph);
         if (problems.length > 0) return toolError(`This draft would be refused: ${problems.join("; ")}`);
         const { error } = await plane("promote", { draft: args.draft });
-        return error ?? json({ promote: "asked", then: "Its pull request opens within 15 minutes and merges only through CI and the replay gate; list shows it." });
+        return error ?? json({ promote: "asked", then: "The promote workflow starts now and opens its pull request within minutes; it merges only through CI and the replay gate. Its gate run (runs) follows the pull request's Test set status, counts only; list shows the pull request." });
+      }
+      // Runs on GitHub (Dev2, 2026-11-16): the Lab's Run Dev set, Run this chat and Run node, on the Dev set only.
+      case "run": {
+        const draft = args.draft ?? "main";
+        if (draft !== "main" && needDraft({ draft })) return needDraft({ draft });
+        const kind = args.kind ?? "dev";
+        const { answer, error } = await plane("run", { draft, kind, conv: args.conv, node: args.node, models: args.models ?? "gw" });
+        return error ?? json({ run: answer.id, stage: "queued", then: "A GitHub run starts within a minute and runs the Dev set's unit tests; runs { id } shows its stage and, when done, every test's verdict. The Lab's Runs panel shows the same run." });
+      }
+      case "runs": {
+        const { answer, error } = await plane("runs", { draft: args.draft, id: args.id });
+        return error ?? json(args.id ? answer.run : { runs: answer.runs });
       }
       case "tool_stats": {
         const { answer, error } = await plane("tool_stats", { days: args.days });

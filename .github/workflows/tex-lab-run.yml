@@ -1,0 +1,145 @@
+# A Lab run on GitHub (Dev2, 2026-11-16: "Ok go ahead and build everything"; picked "Convex dispatches directly").
+#
+# Run Dev set, Run this chat and Run node in the Tex Lab (context.lc/lab), and tex_dev's `run`, record a run in
+# Convex (apps/convex/functions/texLabRuns.ts), which dispatches this workflow at once with GH_ADMIN_TOKEN. It reads
+# the run with the deploy key, writes the draft's graph into the config of this checkout of main (the promote
+# script's own check and write), and runs the Dev set's unit tests with the bench's node-alone runner
+# (`node apps/mcp/bench/run.mjs sets run`): never the Training set, never the Test set (people only, in the eval
+# service). Models "gw" asks the AI gateway as the bench always does; "cc" answers every Claude call with Claude Code
+# on CLAUDE_CODE_OAUTH_TOKEN (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job. Clef, the
+# judge, stays on Workers AI either way. The stage and the results go back to Convex; the Lab shows them live.
+#
+# The log is public: it names the run's id, conversation ids and counts, never a conversation's words.
+name: Tex Lab run
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "The Lab run (its Convex id)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+run-name: Tex Lab run ${{ inputs.run_id }}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    env:
+      RUN_ID: ${{ inputs.run_id }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      AI_GATEWAY_KEY_ALIASES: dev-claude-credits,dev2-claude-credits # aliases on the gateway's Provider Keys page, not secrets
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+    steps:
+      - name: The run id is a Convex id
+        run: '[[ "$RUN_ID" =~ ^[a-z0-9]{16,40}$ ]] || { echo "::error::not a run id"; exit 1; }'
+
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Say it is running
+        run: |
+          set -euo pipefail
+          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '{runId: $id, stage: "running", ghRunUrl: $url}')" > /dev/null 2>&1
+
+      - name: Read the run
+        id: job
+        run: |
+          set -euo pipefail
+          npx convex run functions/texLabRuns:job "$(jq -cn --arg id "$RUN_ID" '{runId: $id}')" 2>/dev/null > "$RUNNER_TEMP/job.json"
+          [ "$(jq -r 'type' "$RUNNER_TEMP/job.json")" = "object" ] || { echo "::error::no such run"; exit 1; }
+          models=$(jq -r .models "$RUNNER_TEMP/job.json")
+          node=$(jq -r '.nodeId // ""' "$RUNNER_TEMP/job.json")
+          [[ "$models" =~ ^(gw|cc)$ ]] || { echo "::error::unknown models"; exit 1; }
+          [[ -z "$node" || "$node" =~ ^[a-z][A-Za-z0-9_-]{0,30}$ ]] || { echo "::error::not a step id"; exit 1; }
+          echo "models=$models" >> "$GITHUB_OUTPUT"
+          echo "node=$node" >> "$GITHUB_OUTPUT"
+          echo "Run: $(jq -c '{versionId, kind, convId, nodeId, models}' "$RUNNER_TEMP/job.json")"
+          node scripts/tex-lab-run.mjs prepare "$RUNNER_TEMP/job.json" "$RUNNER_TEMP/lab"
+
+      # The promote script's own check and write: a draft that could not become Tex's config fails here with why.
+      - name: Write the draft's graph into the config
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/lab/graph.json" ] || { echo "Main as it is"; exit 0; }
+          if ! why=$(node scripts/tex-lab-promote.mjs "$RUNNER_TEMP/lab/graph.json" 2>&1); then
+            echo "${why#tex-lab-promote: refused: }" | head -c 280 > "$RUNNER_TEMP/why"
+            echo "::error::the draft could not become a config"
+            exit 1
+          fi
+          git diff --stat
+
+      - name: Claude Code has its token
+        if: steps.job.outputs.models == 'cc'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN//[[:space:]]/}"
+          case "$CLAUDE_CODE_OAUTH_TOKEN" in
+            sk-ant-oat*) echo "Claude Code token: ${#CLAUDE_CODE_OAUTH_TOKEN} characters" ;;
+            *) echo "Claude Code needs CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) as a production secret" > "$RUNNER_TEMP/why"; echo "::error::no Claude Code token"; exit 1 ;;
+          esac
+
+      - name: Install Claude Code
+        if: steps.job.outputs.models == 'cc'
+        run: npm install -g @anthropic-ai/claude-code@2.1.325
+
+      - name: Run the Dev set's unit tests
+        env:
+          MODELS: ${{ steps.job.outputs.models }}
+          NODE_ID: ${{ steps.job.outputs.node }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ steps.job.outputs.models == 'cc' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+        run: |
+          set +e -uo pipefail
+          answerer=""
+          if [ "$MODELS" = "cc" ]; then
+            export BENCH_MODEL_SOCKET="$RUNNER_TEMP/sock"
+            mkdir -p "$BENCH_MODEL_SOCKET"
+            node apps/mcp/bench/socketAnswerer.mjs --dir "$BENCH_MODEL_SOCKET" --stop "$RUNNER_TEMP/run-done" --parallel 4 > "$RUNNER_TEMP/answerer.log" 2>&1 &
+            answerer=$!
+            ( while kill -0 "$answerer" 2>/dev/null; do sleep 5; done; [ -f "$RUNNER_TEMP/run-done" ] || pkill -f "bench/run.mjs sets run" || true ) &
+          fi
+          started=$(date +%s%3N)
+          node apps/mcp/bench/run.mjs sets run --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/rows.json" ${NODE_ID:+--node "$NODE_ID"}
+          code=$?
+          echo "$(( $(date +%s%3N) - started ))" > "$RUNNER_TEMP/lab/ms"
+          if [ -n "$answerer" ]; then
+            touch "$RUNNER_TEMP/run-done"
+            wait "$answerer" || code=1
+            # Hashes, models and the CLI's errors only, never a prompt or an answer.
+            tail -n 20 "$RUNNER_TEMP/answerer.log"
+          fi
+          exit "$code"
+
+      - name: Report the results
+        run: |
+          set -euo pipefail
+          node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" > "$RUNNER_TEMP/results.json"
+          echo "Results: $(jq -c '{pass, total, costUsd, ms, perNode}' "$RUNNER_TEMP/results.json")"
+          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null 2>&1
+
+      - name: Say it failed
+        if: failure()
+        run: |
+          why="the GitHub run failed: read its log"
+          [ -s "$RUNNER_TEMP/why" ] && why="$(cat "$RUNNER_TEMP/why")"
+          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg why "$why" '{runId: $id, stage: "failed", error: $why}')" > /dev/null 2>&1 || true

@@ -588,6 +588,7 @@ test/texDevWrites.test.mjs
 test/texDevLab.test.mjs
 test/texDevCases.test.mjs
 test/texDevSets.test.mjs
+test/texDevRuns.test.mjs
 test/texSetOps.test.mjs
 test/setsRun.test.mjs
 bench/test/nodeCases.test.mjs
