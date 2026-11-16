@@ -389,20 +389,25 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
 
 /**
  * What the code must match: every node has code in exactly one of the processes named (`{ gateway: [...ids], worker:
- * [...ids] }`), and no process has code for a node the config does not have. Returns problems, empty when it matches.
+ * [...ids] }`), and no process has code for a node the config does not have, unless that node is on the shelf
+ * (`texNodeShelf.json`: merged, not wired, never run; Dev2, 2026-11-16). A shelf node the config has is promoted and
+ * comes off the shelf; one with no code is a stale entry. Returns problems, empty when it matches.
  */
-function coverageProblems(config, processes) {
+function coverageProblems(config, processes, shelf = []) {
   const problems = [];
   const ids = new Set(config.nodes.map((n) => n.id));
+  const shelved = new Set(shelf);
   const where = new Map();
+  for (const id of shelved) if (ids.has(id)) problems.push(`"${id}" is in the config now: take it off the shelf (texNodeShelf.json)`);
   for (const [name, list] of Object.entries(processes)) {
     for (const id of list) {
-      if (!ids.has(id)) problems.push(`${name} has code for "${id}", which the config has no node for`);
+      if (!ids.has(id) && !shelved.has(id)) problems.push(`${name} has code for "${id}", which the config has no node for (a node merged before it is wired goes on the shelf, texNodeShelf.json)`);
       if (where.has(id)) problems.push(`"${id}" has code in both ${where.get(id)} and ${name}`);
       where.set(id, name);
     }
   }
   for (const id of ids) if (!where.has(id)) problems.push(`node "${id}" has no code in any process`);
+  for (const id of shelved) if (!ids.has(id) && !where.has(id)) problems.push(`shelf node "${id}" has no code in any process: take it off the shelf`);
   return problems;
 }
 

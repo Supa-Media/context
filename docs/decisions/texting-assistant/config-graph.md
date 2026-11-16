@@ -262,10 +262,25 @@ proves the change ([replay-gate](../testing/replay-gate.md)). Open the pull
 request. If the change alters what a person can get Tex to do, the change also
 edits its line in the capability list ([capabilities](./capabilities.md)).
 
-**A new node.** On a branch, write its code and add it to `GATEWAY_NODES`. Add its config entry with `inSchema`, `outSchema`,
-`ctx` and its wires. If it calls a model, add its role to `ROLES` in
-`texArchitecture.js`. Run `node scripts/tex-architecture.mjs`. Add a replay case.
-A node with no code cannot be promoted.
+**A new node: code first, on its own, then wire it** (decided by the owner,
+2026-11-16: "for code changes, create the node inside the code first and merge
+it to main, this should be simple and easy because the node is not used in any
+config yet"). Step one is a pull request that only adds the node's code: its
+file under `apps/mcp/src/agent/graph/nodes/`, its entry in `GATEWAY_NODES`, its
+unit test, and an entry on the shelf, `packages/shared/src/texNodeShelf.json`
+(its id, its files and what it is for). The config does not change, so the
+drawing, the map and every prompt stay byte for byte the same, no model area is
+reached, and no replay case or Test set run is asked for
+(`check-tex-change-has-case.mjs` passes a shelf-only change; the coverage test
+and `tex-diagram-check.mjs` accept a shelf node's code with no config node). A
+shelf node never runs: the runner runs only the config's nodes. Step two is a
+Lab draft that wires it (with `inSchema`, `outSchema`, `ctx`, and a role in
+`ROLES` in `texArchitecture.js` if it calls a model), tested with Lab runs on
+main, and Promote: the promote script takes it off the shelf in the same pull
+request that puts it in the config, and that pull request goes through the
+replay gate like any rewiring. A draft can run on a pull request's code before
+step one merges ([lab-runs](../testing/lab-runs.md)), but the code merges first.
+A node with no code, on the shelf or in the config, cannot be promoted.
 
 **Changing a node's code only.** The pull request changes the config too, or it
 says `Tex diagram: unchanged because <reason>`.

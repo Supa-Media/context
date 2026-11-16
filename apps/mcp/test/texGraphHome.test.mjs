@@ -16,6 +16,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 import graphLib from "../../../packages/shared/src/texGraph.cjs";
 import NOT_YET from "../../../packages/shared/src/texGraphNotYet.json" with { type: "json" };
+import SHELF from "../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
 import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
@@ -27,8 +28,27 @@ const { coverageProblems } = graphLib;
 const NOT_YET_MOST = 7;
 
 test("every node is on the runner or in notYet, never both, and nothing on either is missing from the config", () => {
-  assert.deepEqual(coverageProblems(TEX_CONFIG, { runner: Object.keys(GATEWAY_NODES), notYet: NOT_YET.notYet }), []);
+  assert.deepEqual(coverageProblems(TEX_CONFIG, { runner: Object.keys(GATEWAY_NODES), notYet: NOT_YET.notYet }, Object.keys(SHELF.nodes)), []);
   for (const [id, impl] of Object.entries(GATEWAY_NODES)) assert.equal(typeof impl, "function", `GATEWAY_NODES "${id}" is not a function`);
+});
+
+// Dev2, 2026-11-16: "for code changes, create the node inside the code first and merge it to main". A shelf node's
+// code is merged but the config has no node for it, so the runner never runs it, and its files are named.
+test("the shelf holds only unwired nodes that have code, each with its files and what it is for", () => {
+  for (const [id, entry] of Object.entries(SHELF.nodes)) {
+    assert.equal(typeof GATEWAY_NODES[id], "function", `shelf node "${id}" has no code in GATEWAY_NODES`);
+    assert.ok(!TEX_CONFIG.nodes.some((n) => n.id === id), `shelf node "${id}" is in the config: take it off the shelf`);
+    assert.ok(Array.isArray(entry.files) && entry.files.length > 0 && entry.files.every((f) => existsSync(new URL(`../../../${f}`, import.meta.url))), `shelf node "${id}" names files that are not there`);
+    assert.ok(typeof entry.why === "string" && entry.why.length >= 12, `shelf node "${id}" says what it is for`);
+  }
+});
+
+test("a node on the shelf has code with no config node and passes; off the shelf it is shadow code", () => {
+  const config = { nodes: [{ id: "a" }], edges: [] };
+  assert.deepEqual(coverageProblems(config, { runner: ["a", "fresh"] }, ["fresh"]), []);
+  assert.match(coverageProblems(config, { runner: ["a", "fresh"] }).join(), /no node for/);
+  assert.match(coverageProblems(config, { runner: ["a"] }, ["a"]).join(), /take it off the shelf/);
+  assert.match(coverageProblems(config, { runner: ["a"] }, ["gone"]).join(), /no code/);
 });
 
 test("notYet only shrinks", () => {
