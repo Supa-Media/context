@@ -34,8 +34,9 @@ const GATE_TRIES = 180;
 const MAX_ROWS = 2_000;
 const LIST_LIMIT = 50;
 
-/** Where the workflows live; a self-hosted deployment names its own fork. Not a secret. */
-const repo = () => process.env.TEX_LAB_REPO || "Supa-Media/context";
+/** Where the workflows live (a self-hosted deployment edits this to its own fork). Not a secret. */
+export const LAB_REPO = "Supa-Media/context";
+const repo = () => LAB_REPO;
 export const RUN_WORKFLOW = "tex-lab-run.yml";
 export const PROMOTE_WORKFLOW = "tex-lab-promote.yml";
 

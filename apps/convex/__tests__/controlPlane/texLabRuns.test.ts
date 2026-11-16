@@ -36,7 +36,6 @@ let testSet: { state: string; description: string } | null = null;
 beforeEach(() => {
   vi.stubEnv("ADMIN_EMAILS", `${STAFF},alice@example.invalid`);
   vi.stubEnv("GH_ADMIN_TOKEN", "ghp_fake_for_tests");
-  vi.stubEnv("TEX_LAB_REPO", "example/repo");
   calls = [];
   testSet = null;
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -87,7 +86,7 @@ describe("starting a run", () => {
     const { runId } = await w.lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", models: "cc" });
     await drainScheduled(w.t);
     expect(calls).toHaveLength(1);
-    expect(calls[0].url).toBe("https://api.github.com/repos/example/repo/actions/workflows/tex-lab-run.yml/dispatches");
+    expect(calls[0].url).toBe("https://api.github.com/repos/Supa-Media/context/actions/workflows/tex-lab-run.yml/dispatches");
     expect(calls[0].body).toMatchObject({ ref: "main", inputs: { run_id: runId } });
     expect(await w.lab.query(api.functions.texLabRuns.get, { id: runId })).toMatchObject({ versionId: "main", kind: "dev", models: "cc", stage: "queued", ghRunUrl: RUN_URL, via: "lab" });
   });
@@ -158,7 +157,7 @@ describe("the workflow's reports", () => {
     await lab.mutation(api.functions.texSets.create, { conv: conv("dev-a", "dev") });
     await lab.mutation(api.functions.texSets.create, { conv: conv("train-a", "training") });
     const { id } = await door("run", { draft, kind: "dev" });
-    const job = await t.query(internal.functions.texLabRuns.job, { runId: id });
+    const job = (await t.query(internal.functions.texLabRuns.job, { runId: id })) as Record<string, any>;
     expect(job).toMatchObject({ versionId: draft, kind: "dev", models: "gw" });
     expect(JSON.parse(job.graph).nodes).toEqual([{ id: "text" }]);
     expect(job.drafts.find((d: { id: string }) => d.id === "dev-a").conv).toContain('"hi"');

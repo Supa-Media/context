@@ -59,7 +59,7 @@ jobs:
       - name: Say it is running
         run: |
           set -euo pipefail
-          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '{runId: $id, stage: "running", ghRunUrl: $url}')" > /dev/null
+          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '{runId: $id, stage: "running", ghRunUrl: $url}')" > /dev/null 2>&1
 
       - name: Read the run
         id: job
@@ -135,11 +135,11 @@ jobs:
           set -euo pipefail
           node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" > "$RUNNER_TEMP/results.json"
           echo "Results: $(jq -c '{pass, total, costUsd, ms, perNode}' "$RUNNER_TEMP/results.json")"
-          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null
+          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null 2>&1
 
       - name: Say it failed
         if: failure()
         run: |
           why="the GitHub run failed: read its log"
           [ -s "$RUNNER_TEMP/why" ] && why="$(cat "$RUNNER_TEMP/why")"
-          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg why "$why" '{runId: $id, stage: "failed", error: $why}')" > /dev/null || true
+          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg why "$why" '{runId: $id, stage: "failed", error: $why}')" > /dev/null 2>&1 || true
