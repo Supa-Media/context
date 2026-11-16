@@ -205,7 +205,7 @@ describe("running from the Lab", () => {
     expect(panel).toContain("$0.012 (AI gateway)");
     expect(qa("#runsPanel .miss")).toHaveLength(1);
     expect(q("#runsPanel .miss")?.textContent).toContain("got quiet; wanted judge");
-    expect(q("#runsPanel .mcp")?.textContent).toBe('tex_dev { action: "run", draft: "main", kind: "dev", models: "gw" }\ntex_dev { action: "runs", id: "run1" }');
+    expect(q("#runsPanel .mcp")?.textContent).toBe('tex_dev { action: "run", draft: "main", kind: "dev", models: "gw" }\ntex_dev { action: "runs", id: "run1" }\ntex_dev { action: "run_remove", id: "run1" }');
     // Open cell goes to the miss's cell and closes the panel.
     click(q("#runsPanel .miss button")!);
     expect(q("#runsPanel")).toBeNull();
@@ -222,6 +222,25 @@ describe("running from the Lab", () => {
     act(() => setRunsUi({ open: true, run: "run3" }));
     expect(q("#gateResult")?.textContent).toContain("No Test set needed");
     expect(q("#runsPanel")?.textContent).not.toContain("0/0");
+  });
+
+  test("a failure fixed since says so, not as a red failure, and a finished run can be removed", async () => {
+    const REFUSED: LabRun = { ...DONE, id: "run4", stage: "failed", results: null, error: "GitHub refused to start the run (403)", fixedSince: true };
+    mockAnswers.set("functions/texLabRuns:list", [REFUSED, GATE]);
+    mockAnswers.set("functions/texLabRuns:get", REFUSED);
+    await mount();
+    act(() => setRunsUi({ open: true, run: "run4" }));
+    const row = q('#runsPanel .runrow[data-run="run4"]')!;
+    expect(row.textContent).toContain("Fixed since: later runs start");
+    expect(row.textContent).not.toContain("Failed");
+    expect(q("#runsPanel .c-bad")).toBeNull();
+    // A finished run has Remove; it calls the control plane with its id.
+    await act(async () => void click("#removeRun"));
+    expect(mockCalls.filter((c) => c.fn === "functions/texLabRuns:remove")).toEqual([{ fn: "functions/texLabRuns:remove", args: { id: "run4" } }]);
+    // A run still going has none.
+    mockAnswers.set("functions/texLabRuns:get", GATE);
+    act(() => setRunsUi({ run: "run2" }));
+    expect(q("#removeRun")).toBeNull();
   });
 
   test("Try a text takes pictures: the composer's picture button adds them and they go with the send", async () => {

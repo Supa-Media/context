@@ -7,7 +7,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { G, lab, toast } from "../../engine/state";
-import { ago, costWords, live, mcpLines, modelsWords, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind } from "../../engine/labRuns";
+import { ago, costWords, fixedWords, live, mcpLines, modelsWords, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind } from "../../engine/labRuns";
 import { setUi, sets } from "../../engine/setsStore";
 
 const nodeName = (id: string) => G().nodes.find((x) => x.id === id)?.label ?? id;
@@ -39,6 +39,13 @@ export function useStartRun(where: "testing" | "lab") {
 export const gateWords = (r: LabRun) => (!r.results ? "" : r.results.total === 0 ? "No Test set needed: the change reaches no area it covers." : `${r.results.pass}/${r.results.total} passed.`);
 
 export function StagePill({ r }: { r: LabRun }) {
+  if (r.fixedSince) {
+    return (
+      <span className="pill d" data-stage="fixed">
+        {fixedWords}
+      </span>
+    );
+  }
   const [cls, words] = stageWords[r.stage];
   return (
     <span className={"pill " + cls} data-stage={r.stage}>
@@ -57,6 +64,15 @@ export function RunsPanel() {
   const detail = useQuery(api.functions.texLabRuns.get, r ? { id: r.id } : "skip") as LabRun | null | undefined;
   const full = detail ?? r;
   const misses = (full?.results?.rows ?? []).filter((x) => !x.ok);
+  const removeRun = useMutation(api.functions.texLabRuns.remove);
+  const remove = async (id: string) => {
+    try {
+      await removeRun({ id });
+      if (ui.run === id) setRunsUi({ run: null });
+    } catch (e) {
+      toast(e instanceof Error ? e.message.replace(/^.*Uncaught ConvexError: /, "") : "The run wasn't removed");
+    }
+  };
   return (
     <div className="panel" id="runsPanel">
       <div className="insp">
@@ -87,8 +103,13 @@ export function RunsPanel() {
         {full ? (
           <>
             <div className="cap">{runLabel(full, chatTitle, nodeName)}</div>
-            <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <StagePill r={full} />
+              {live(full) ? null : (
+                <button className="btn sm ghost" id="removeRun" style={{ marginLeft: "auto" }} onClick={() => void remove(full.id)}>
+                  Remove
+                </button>
+              )}
             </div>
             {full.kind === "gate" ? (
               <div className="small">
@@ -108,7 +129,7 @@ export function RunsPanel() {
                 On {verName(full.versionId)}. A GitHub run on main's code with this version's config; {full.models === "cc" ? "every model call answered by Claude Code on the subscription token" : "the same models live Tex uses, through the AI gateway"}; scored by the bench and saved here. Nothing personal goes into GitHub's public log: it prints counts only.
               </div>
             )}
-            {full.error ? <div className="small c-bad">{full.error}</div> : null}
+            {full.error ? <div className={"small " + (full.fixedSince ? "muted" : "c-bad")}>{full.fixedSince ? `${fixedWords}. It failed then: ${full.error}` : full.error}</div> : null}
             {full.stage === "done" && full.results && full.kind !== "gate" ? (
               <>
                 <div>
