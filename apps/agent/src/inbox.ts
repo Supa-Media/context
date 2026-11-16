@@ -202,6 +202,8 @@ export async function accept(
   const ev = message.sms ? undefined : await logInbound(storage, message, now);
   const key = await queueItem<Pending>(storage, TEXTS_QUEUE, { message, attempts: 0, at: now, ...(ev ? { ev } : {}) });
   await rememberText(storage, message.chatId, message.messageId, message.text, now);
+  // Its handle beside its event, so a later edit of it (`editStep.ts`) or a reply naming it finds it (`replyQuote.ts`).
+  if (ev !== undefined && message.channel !== "simulator") await noteHandle(storage, message.messageId, ev);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && !isWhapiChat(previous.chatId) && isSendblueChat(message.chatId)) {
     await storage.put(NEW_LINE_KEY, message.chatId);
@@ -227,6 +229,18 @@ export async function accept(
     // Seen and queued already: a throw while deciding it leaves it waiting, decided again when the turn is done.
   }
   return "queued";
+}
+
+/**
+ * An unsend (`editStep.ts`): kept in the chat's record as that text taken back, so later turns know, and queued for no
+ * turn. Seen once, as a text is.
+ */
+export async function keepEdit(storage: InboxStorage, message: Message, now: number): Promise<"kept" | "duplicate"> {
+  if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return "duplicate";
+  await storage.put(seenKey(message.eventId), now);
+  const ev = await logInbound(storage, message, now);
+  await noteHandle(storage, message.messageId, ev);
+  return "kept";
 }
 
 /**

@@ -21,7 +21,7 @@
  */
 
 import { gatherTheTurn } from "./gatherTheTurn";
-import { replyFields } from "./replyQuote";
+import { editedFields, replyFields } from "./replyQuote";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
 import { chatEvents } from "./chatRead";
@@ -92,8 +92,11 @@ export async function logInbound(storage: InboxStorage, message: Message, now: n
     // `line`: a tapback whose line is made already (`inbox.ts` `react`: one taken back, or one only noted).
     text: line ?? (message.tapback ? await tapbackLogLine(storage, message, message.tapback) : message.text),
     ...(line === undefined && !message.tapback && message.left ? { left: message.left } : {}),
-    // A reply under an earlier text: which one, and its full words (`replyQuote.ts`). A tapback's line already names it.
-    ...(message.tapback || line !== undefined || !message.quoted ? {} : await replyFields(storage, message.chatId, { words: message.quoted })),
+    // An edit of an earlier text (`editStep.ts`): marked, with the text it edits and that text's words, as a reply's are.
+    // Otherwise a reply under an earlier text: which one, and its full words (`replyQuote.ts`). A tapback's line already names it.
+    ...(message.edited !== undefined && line === undefined && !message.tapback
+      ? editedFields(message.edited)
+      : message.tapback || line !== undefined || !message.quoted ? {} : await replyFields(storage, message.chatId, { words: message.quoted })),
   });
 }
 
@@ -204,13 +207,16 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
   // Tex's front door (Seyi, 2026-10-31): one text goes straight to Tex. Decide is asked only when there is a choice: several texts waiting,
   // a bare "thanks" a tapback may answer, or an ask of Tex's this text may leave behind (`markStale`), so "never mind that email" still disarms it.
   const ack = burst.length === 1 && pureAck(burst[0][1].message);
+  // An edit of an earlier text (`editStep.ts`) is the judge's, from its examples: a fixed typo may go quiet, a changed ask is answered.
+  const edit = burst.length === 1 && burst[0][1].message.edited !== undefined;
   const asks = burst.length === 1 && !ack ? (await waitingAsks(storage, deps.now(), await sha256Hex(first[1].message.from))).length : 0;
-  if (burst.length === 1 && !ack && asks === 0) return await triage(burst, "tex", "one text and nothing of Tex's waiting on it: it goes straight to Tex"), { answer: burst, drop: [] };
-  await triage(burst, "judge", burst.length > 1 ? "several texts waiting: the judge says which one turn answers" : ack ? "a bare thanks or tapback: the judge says whether it needs an answer" : "Tex is waiting on an answer of theirs: the judge says whether this leaves it behind", { waitingAsks: asks });
+  if (burst.length === 1 && !ack && !edit && asks === 0) return await triage(burst, "tex", "one text and nothing of Tex's waiting on it: it goes straight to Tex"), { answer: burst, drop: [] };
+  await triage(burst, "judge", burst.length > 1 ? "several texts waiting: the judge says which one turn answers" : ack ? "a bare thanks or tapback: the judge says whether it needs an answer" : edit ? "an edit of an earlier text: the judge says whether it needs an answer" : "Tex is waiting on an answer of theirs: the judge says whether this leaves it behind", { waitingAsks: asks });
   const decision = await ask(storage, deps, burst.at(-1)![1].message, ids, false);
   if (!decision.ok) return { answer: fallbackTurn(burst), drop: [] };
-  // Code's rule over the model's: only a pure acknowledgement may go unanswered here.
-  const must = burst.filter(([, item]) => item.force || !pureAck(item.message));
+  // Code's rule over the model's: only a pure acknowledgement, or an edit the judge saw, may go unanswered here.
+  const may = (message: Message) => pureAck(message) || message.edited !== undefined;
+  const must = burst.filter(([, item]) => item.force || !may(item.message));
   if (decision.act !== "answer") {
     if (must.length > 0) return { answer: must, drop: burst.filter((entry) => !must.includes(entry)) };
     const newest = burst.at(-1)![1].message;
@@ -218,7 +224,7 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
   }
   const covered = (entry: Entry) => entry[1].force === true || (entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
   // An older text it left out that still needs an answer goes first; acknowledgements before the answer go unanswered (`gatherTheTurn.ts`).
-  const { answer, left } = gatherTheTurn(burst, covered, (entry) => !pureAck(entry[1].message));
+  const { answer, left } = gatherTheTurn(burst, covered, (entry) => !may(entry[1].message));
   return { answer, drop: left };
 }
 

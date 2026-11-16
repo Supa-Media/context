@@ -47,10 +47,15 @@ entries with it, and the ledger is rebuilt from what is left. A real text is nev
   is any row of this test chat with words, real or test.
 - `react { sandboxId, msgId, emoji, as? }` → `{ msgId, turn }`, `emoji` one of ❤️ 👍 👎 😂 ‼️ ❓ on any row with words
   (Tex's included, never a tapback or a quiet reply).
-- `edit { sandboxId, msgId, text, as? }`: only one of the test texts (never a real one, Tex's or a tapback), and then
-  **refused, 501, "Tex doesn't receive edits yet"**: production passes no edit on (Photon's `message.edited` is counted
-  and dropped, `apps/agent/src/photonEvents.ts`; WhatsApp's `messages.patch` is ignored, `whapiInbound.ts`; Sendblue
-  sends none), so there is no event or turn to mirror, and a made-up one would test nothing real.
+- `edit { sandboxId, msgId, text, as? }` → `{ msgId, to, why }` and `unsend { sandboxId, msgId, as? }` (the Lab's
+  Delete, iMessage's Undo Send): only one of the test texts (never a real one, Tex's, a tapback, an edit or unsend row,
+  or a text already taken back), in a group only as its sender. Each runs node `edit` with the draft, as the texting
+  Worker asks it for a Photon edit or unsend ([edits-and-unsends](./edits-and-unsends.md), `labSandbox/edits.js`),
+  compared with the words the text says now: `same` keeps nothing; `turn` keeps a `kind: "edit"` row `on` the text
+  with the new words (`edited: true`) and runs its turn; `withdraw` keeps a `kind: "unsend"` row with a quiet noted
+  reply and no turn, and marks the text `unsent`. The event is logged as the Worker logs one (`edited`/`unsent`,
+  `replyTo`, `quoted` the words before), the node's run as the row's first step; a group's chat lines leave out a text
+  taken back. Retry sends an edit or unsend again as itself. tex_dev's `sandbox` has both ops.
 - `get` rows carry `pics`, `replyTo`, `reactions: [{ who, emoji }]` on a tapped row, and each tapback's own row
   (`kind: "reaction"`, `emoji`, `on`, its line as `text`). Retry sends a text again with its pictures and reply, and a
   tapback again as itself. The daily cap counts every op that runs a turn, and only those.
@@ -137,8 +142,9 @@ retry/back/drop cut what they should; a stranger is refused; another person's te
 `apps/mcp/test/labSandboxEvents.test.mjs` (sabotaged): a picture is logged as one and reaches the turn as the Worker
 prepares it; a redirect to an address is never followed; a reply's `replyTo`/`quoted` and a group's `replied`; a ❓ runs
 the turn as the tapback and a ❤️ on a plain text is only noted, uncounted, and carried as `reacted`; the refusals (http,
-an address, a non-picture type, 7 pictures, an unknown `replyTo`, a seventh emoji, a tapback on a tapback, an edit of a
-real text or Tex's, and every edit's 501); `sets` never lists the Test Set and it never opens.
+an address, a non-picture type, 7 pictures, an unknown `replyTo`, a seventh emoji, a tapback on a tapback, an edit or
+unsend of a real text or Tex's); an edit runs the edit step and, changed, its turn; an unsend runs none and leaves the
+chat lines; `sets` never lists the Test Set and it never opens.
 Control plane (`apps/convex/__tests__/controlPlane/texLabSandbox.test.ts`): who is let in, the session carries no token,
 a chat the caller is not in answers as one that does not exist.
 

@@ -21,13 +21,18 @@
  *    run in the background; `get` shows it.
  *  - `react { sandboxId, msgId, emoji, as? }` → `{ msgId, turn }`: a tapback (❤️ 👍 👎 😂 ‼️ ❓) on any row with words;
  *    `turn` false when production only notes it (a 1:1 tapback that answers nothing), its reply row quiet and `noted`.
- *  - `edit { sandboxId, msgId, text, as? }`: refused, 501: Tex doesn't receive edits yet (`inbound.js`).
+ *  - `edit { sandboxId, msgId, text, as? }` → `{ msgId, to, why }`: one of the test texts edited, taken as production takes
+ *    an edit (`edits.js`): node `edit` says `same` (nothing kept), or `turn`, a kind "edit" row `on` the text with the new
+ *    words, kept beside it and its turn run.
+ *  - `unsend { sandboxId, msgId, as? }` → `{ msgId, to, why }`: one of the test texts taken back, a kind "unsend" row `on`
+ *    it, kept with a quiet noted reply and no turn, as production keeps one.
  *  - `retry { sandboxId, msgId }` → `{ msgId }`: that text or tapback and everything after it dropped, and sent again.
  *  - `back { sandboxId, msgId }`: that text and its reply kept, everything later dropped.
  *  - `drop { sandboxId, msgId }`: that text and everything after it dropped.
  *  - `reset { sandboxId }`: the whole test chat deleted.
- *  - `get { sandboxId }` → `{ rows, writes, running }`; a row has `pics`, `replyTo`, and `reactions: [{ who, emoji }]`
- *    when tapped; a tapback's own row is `kind: "reaction"` with its `emoji` and the row it is `on`.
+ *  - `get { sandboxId }` → `{ rows, writes, running }`; a row has `pics`, `replyTo`, `reactions: [{ who, emoji }]`
+ *    when tapped and `unsent: true` when taken back; a tapback's own row is `kind: "reaction"` with its `emoji` and the
+ *    row it is `on`, an edit's `kind: "edit"` (`edited: true`) and an unsend's `kind: "unsend"`, each `on` its text.
  */
 
 import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
@@ -38,6 +43,7 @@ import { json } from "../http/responses.js";
 import { callSandbox, sandboxStub } from "./object.js";
 import { eventId, runSandboxTurn, TURN_LIMIT_MS } from "./harness.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
+import { runEditNode, UNSENT_NOTE, wordsNow } from "./edits.js";
 
 export const LAB_SANDBOX_PATH = "/tex-lab/sandbox";
 /** A person's test texts a day, across all their test chats: each runs the real models. */
@@ -240,7 +246,9 @@ function view(state) {
   const list = state.rows ?? [];
   const taps = new Map();
   for (const row of list) if (row.kind === "reaction" && typeof row.on === "string") taps.set(row.on, [...(taps.get(row.on) ?? []), { who: row.who, emoji: row.emoji }]);
-  const rows = list.map((row) => (taps.has(row.id) ? { ...shown(row), reactions: taps.get(row.id) } : shown(row)));
+  // A text taken back says so on its own row, as Messages shows it gone.
+  const gone = new Set(list.filter((row) => row.kind === "unsend").map((row) => row.on));
+  const rows = list.map((row) => ({ ...shown(row), ...(taps.has(row.id) ? { reactions: taps.get(row.id) } : {}), ...(gone.has(row.id) ? { unsent: true } : {}) }));
   return { rows, writes: state.writes ?? [], running: live ? { msgId: running.msgId, node: running.node ?? null } : null };
 }
 
@@ -259,7 +267,7 @@ const NOTED = "Noted, not answered: a 1:1 tapback that answers nothing runs no t
  * A test row into the chat: its event into the ledger as the Worker logs it, and its turn run in the background, or,
  * for a tapback production only notes, a quiet reply row and no turn. Only a row that runs a turn is counted.
  */
-async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, turn = true, cut = null }) {
+async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, turn = true, cut = null, before = [], note = NOTED }) {
   const about = state.meta.chat;
   // The draft as saved now, not as it was at open: an edit in the Lab since then is what the next turn runs.
   const drafted = turn ? await draftConfig(controlPlane, token, about.versionId) : { config: about.config ?? null };
@@ -279,10 +287,10 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
     await callSandbox(stub, "cut.from", { id: cut });
   }
   await callSandbox(stub, "row.add", { row });
-  await callSandbox(stub, "ledger.append", { entries: [await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })], by: row.id });
+  await callSandbox(stub, "ledger.append", { entries: [...before, await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })], by: row.id });
   const tapback = row.kind === "reaction" ? { turn } : {};
   if (!turn) {
-    await callSandbox(stub, "row.add", { row: { id: `${row.id}r`, reply: row.id, who: "Tex", text: "", at: row.at, prod: false, quiet: true, noted: true, note: NOTED, ms: 0, steps: [] } });
+    await callSandbox(stub, "row.add", { row: { id: `${row.id}r`, reply: row.id, who: "Tex", text: "", at: row.at, prod: false, quiet: true, noted: true, note, ms: 0, steps: [] } });
     return json({ msgId: row.id, ...tapback });
   }
   await callSandbox(stub, "meta", { key: "running", value: { msgId: row.id, node: null, at: row.at } });
@@ -334,18 +342,43 @@ async function react(deps, state, { msgId, emoji, as }, cut = null) {
 }
 
 /**
- * `edit`: refused once the text is one the caller may edit. Production passes no edit on: Photon's `message.edited` is
- * counted and dropped (`apps/agent/src/photonEvents.ts`), WhatsApp's `messages.patch` is ignored (`whapiInbound.ts`),
- * and Sendblue sends none, so there is no ledger event or turn to run, and a test one would be made up.
+ * The test text an edit or an unsend changes: one of this test chat's own texts, never a real one, Tex's, a tapback, an
+ * edit or unsend row, or a text already taken back; in a group, edited only as whoever sent it. `{ row }` or `{ error }`.
  */
-function edit(state, { msgId, text, as }) {
+function changeable(state, msgId, as, verb) {
   const found = testRow(state, msgId);
+  if (found.error) return found;
+  const { row } = found;
+  const done = verb === "edit" ? "edited" : "unsent";
+  if (row.who === "Tex" || row.reply) return { error: [400, `Tex's text is never ${done}: ${verb} one of the test texts`] };
+  if (row.kind === "reaction") return { error: [400, `a tapback is never ${done}`] };
+  if (row.kind === "edit" || row.kind === "unsend") return { error: [400, `${verb} the text itself, not its ${row.kind}`] };
+  if ((state.rows ?? []).some((r) => r.kind === "unsend" && r.on === row.id)) return { error: [400, "That text was taken back."] };
+  if (state.meta.chat.kind === "group" && typeof as === "string" && as.trim() !== "" && as.trim() !== row.who) return { error: [403, `That text is ${row.who}'s: ${verb} it as them.`] };
+  return { row };
+}
+
+/**
+ * `edit` and `unsend`: node `edit` on the change (`edits.js`), as the texting Worker asks it. `same` keeps nothing;
+ * `turn` keeps a kind "edit" row with the new words and runs its turn; `withdraw` keeps a kind "unsend" row and a quiet
+ * noted reply, no turn. The node's run is the row's first ledger entry, so the row shows it as a step.
+ */
+async function change(deps, state, { msgId, text, as }, verb, cut = null) {
+  const found = changeable(state, msgId, as, verb);
   if (found.error) return refused(...found.error);
-  if (found.row.who === "Tex" || found.row.reply) return refused(400, "Tex's text is never edited: edit one of the test texts");
-  if (found.row.kind === "reaction") return refused(400, "a tapback is never edited");
-  if (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT) return refused(400, `text is 1 to ${MAX_TEXT} characters`);
-  if (state.meta.chat.kind === "group" && typeof as === "string" && as.trim() !== "" && as.trim() !== found.row.who) return refused(403, `That text is ${found.row.who}'s: edit it as them.`);
-  return refused(501, "Tex doesn't receive edits yet: the texting Worker counts an edited message and passes nothing on (no ledger event, no turn). Retry the text with the new words instead.");
+  if (verb === "edit" && (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT)) return refused(400, `text is 1 to ${MAX_TEXT} characters`);
+  if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
+  const about = state.meta.chat;
+  const drafted = await draftConfig(deps.controlPlane, deps.token, about.versionId);
+  if (drafted.error) return refused(...drafted.error);
+  const node = await runEditNode({ config: drafted.config ?? null, kind: about.kind === "group" ? "group" : "one", change: verb, ...(verb === "edit" ? { words: text } : {}), earlier: wordsNow(state.rows, found.row) });
+  if (node.to === "same") return json({ msgId: found.row.id, to: "same", why: node.why });
+  const { at, eid, id } = newIds();
+  const unsend = node.to === "withdraw";
+  const row = { id, eid, who: found.row.who, kind: unsend ? "unsend" : "edit", on: found.row.id, text: unsend ? "" : text, at, prod: false, ...(unsend ? {} : { edited: true }) };
+  const answer = await addRow({ ...deps, state, row, turn: !unsend, cut, before: node.entries, note: UNSENT_NOTE });
+  if (answer.status !== 200) return answer;
+  return json({ msgId: id, to: node.to, why: node.why });
 }
 
 /** A test text the caller may cut at: one of this test chat's own, never a real text it started from. */
@@ -402,7 +435,8 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
     case "react":
       return await react(deps, state, input);
     case "edit":
-      return edit(state, input);
+    case "unsend":
+      return await change(deps, state, input, input.op);
     case "retry": {
       const found = testRow(state, input.msgId);
       if (found.error) return refused(...found.error);
@@ -413,6 +447,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       const at = (state.rows ?? []).findIndex((r) => r.id === row.id);
       const before = { ...state, rows: (state.rows ?? []).slice(0, at) };
       if (row.kind === "reaction") return await react(deps, before, { msgId: row.on, emoji: row.emoji, as: row.who }, row.id);
+      if (row.kind === "edit" || row.kind === "unsend") return await change(deps, before, { msgId: row.on, text: row.text, as: row.who }, row.kind, row.id);
       return await send(deps, before, { as: row.who, text: row.text, pics: row.pics, replyTo: row.replyTo }, row.id);
     }
     case "back":
@@ -427,6 +462,6 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       await callSandbox(stub, "reset", {});
       return json({ ok: true });
     default:
-      return refused(400, "op is chats, sets, open, send, react, edit, retry, back, drop, reset or get");
+      return refused(400, "op is chats, sets, open, send, react, edit, unsend, retry, back, drop, reset or get");
   }
 }

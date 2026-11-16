@@ -37,8 +37,10 @@ const MAX_COVERS = 32;
 export const EVENT_KINDS = new Set(["text", "picture", "file", "link", "reaction", "ask", "ask_settled", "delivery"]);
 export const FROM_KINDS = new Set(["person", "tex", "system"]);
 export const REASONS = new Set(["upload_failed", "send_refused", "held_newcomer", "failed", "timed_out", "too_long"]);
-const FIELDS = new Set(["id", "at", "chat", "from", "kind", "text", "left", "replyTo", "quoted", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]);
+const FIELDS = new Set(["id", "at", "chat", "from", "kind", "text", "left", "replyTo", "quoted", "edited", "unsent", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]);
 const FROM_FIELDS = new Set(["kind", "who", "name"]);
+/** The kinds a person's own message is: what an edit may be. */
+const INBOUND_KINDS = new Set(["text", "picture", "file", "link"]);
 
 export const EVENT_ID = /^\d{13}-\d{6}$/;
 const CHAT = /^[A-Za-z0-9_.:@+=-]{1,128}$/;
@@ -90,6 +92,11 @@ export function checkEvent(event, { chat, now }) {
   if (event.replyTo !== undefined && (typeof event.replyTo !== "string" || !EVENT_ID.test(event.replyTo))) throw new EventRefusal("replyTo");
   // `quoted`: on a person's reply only, the full words of the message it answers (`apps/agent/src/replyQuote.ts`).
   if (event.quoted !== undefined && (typeof event.quoted !== "string" || event.quoted.length > MAX_EVENT_TEXT || from.kind !== "person")) throw new EventRefusal("quoted");
+  // `edited`: a person's edit of an earlier text, set by the Worker's `edit` step (`apps/agent/src/editStep.ts`), never by
+  // the words; `replyTo` and `quoted` then name the text it edits and hold its words.
+  if (event.edited !== undefined && (event.edited !== true || from.kind !== "person" || !INBOUND_KINDS.has(event.kind))) throw new EventRefusal("edited");
+  // `unsent`: a person's unsend of an earlier text, set by the same step, never with words of its own, never with `edited`.
+  if (event.unsent !== undefined && (event.unsent !== true || from.kind !== "person" || event.kind !== "text" || (event.text ?? "") !== "" || event.edited !== undefined)) throw new EventRefusal("unsent");
   if (event.delivered !== undefined && typeof event.delivered !== "boolean") throw new EventRefusal("delivered");
   if (event.reason !== undefined && !REASONS.has(event.reason)) throw new EventRefusal("reason");
   if (event.turn !== undefined && (typeof event.turn !== "string" || !TURN.test(event.turn))) throw new EventRefusal("turn");
@@ -101,7 +108,7 @@ export function checkEvent(event, { chat, now }) {
   if (event.heard !== undefined && (event.heard !== "voice" || event.kind !== "file" || from.kind !== "person")) throw new EventRefusal("heard");
   if (event.ask !== undefined && (event.kind !== "ask" || typeof event.ask !== "string" || !ASK.test(event.ask))) throw new EventRefusal("ask");
   const kept = { id, at, chat, from: { kind: from.kind, ...(from.who ? { who: from.who } : {}), ...(from.name ? { name: from.name } : {}) }, kind: event.kind };
-  for (const field of ["text", "left", "replyTo", "quoted", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]) {
+  for (const field of ["text", "left", "replyTo", "quoted", "edited", "unsent", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]) {
     if (event[field] !== undefined) kept[field] = event[field];
   }
   return kept;
@@ -112,9 +119,9 @@ export const STEP_KIND = "step";
 /**
  * The steps the Worker's chat object takes itself (`ledger.js` `STEP_NAMES` holds each): triage, a person's own chat's
  * judging, a tapback, a text's arrival with its provider's times, a send's provider status (`providerTiming.ts`) and
- * the old-number step (`oldLineStep.ts`) and a staff move to the new number (`moveChats.ts`).
+ * the old-number step (`oldLineStep.ts`), a staff move to the new number (`moveChats.ts`) and a person's edit of a text (`editStep.ts`).
  */
-const WORKER_STEPS = new Set(["triage", "decide", "react", "text", "send", "oldLine", "moveChat"]);
+const WORKER_STEPS = new Set(["triage", "decide", "react", "text", "send", "oldLine", "moveChat", "edit"]);
 const STEP_FIELDS = new Set(["id", "at", "chat", "from", "kind", "turn", "step"]);
 const STEP_PARTS = new Set(["name", "of", "ok", "ms", "input", "output", "cause"]);
 const STEP_CODE = /^[\w-]{1,40}$/;

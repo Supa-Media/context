@@ -233,6 +233,12 @@
     {"id":"m225","who":"Jo","text":"this has been a long, mostly fine week"},
     {"id":"m226","who":"Jo","text":"thanks for listening, i guess"},
     {"id":"m227","who":"Jo","text":"anyway, cat on lap, phone down"},
-    {"id":"m228","who":"Jo","text":"night"}
+    {"id":"m228","who":"Jo","text":"night"},
+    {"id":"m229","who":"Jo","text":"morning! can you put dinner with Sam on my calendar for thursday at 7"},
+    {"id":"m230","who":"Tex","tex":true,"text":"Added dinner with Sam, Thursday at 7pm."},
+    {"id":"m231","who":"Jo","kind":"edit","to":"m229","text":"morning! can you put dinner with Sam on my calendar for thursday at 8","labels":{"decide":{"act":"respond","why":"asks_tex","star":true}}},
+    {"id":"m232","who":"Tex","tex":true,"text":"Moved it to 8pm Thursday."},
+    {"id":"m233","who":"Jo","text":"so tierd today, the fern won again"},
+    {"id":"m234","who":"Jo","kind":"edit","to":"m233","text":"so tired today, the fern won again","labels":{"decide":{"act":"quiet","why":"fixes_typo","star":true}}}
   ]
 }

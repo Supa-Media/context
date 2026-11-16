@@ -70,13 +70,13 @@ export const ACTIONS = [
     "sandbox",
     '{ op: "chats" | "sets" } | { op: "open", source: "chat" | "set" | "maya", chatId?, convId?, versionId?, base? } | ' +
       '{ op: "send", sandboxId, as?, text, pics?: [{ url, type?, name? }], replyTo?: msgId } | { op: "react", sandboxId, msgId, emoji, as? } | ' +
-      '{ op: "edit", sandboxId, msgId, text, as? } | { op: "retry" | "back" | "drop", sandboxId, msgId } | { op: "reset" | "get", sandboxId }',
+      '{ op: "edit", sandboxId, msgId, text, as? } | { op: "unsend", sandboxId, msgId, as? } | { op: "retry" | "back" | "drop", sandboxId, msgId } | { op: "reset" | "get", sandboxId }',
     "the Lab's test chats: a copy of your 1:1, a group chat you are in, a Training or Dev conversation or Maya, where a draft's Tex answers texts you send (as anyone in a group) and nothing reaches the real chat, its notes or anyone outside; " +
       "chats lists your chats with their kind (1:1 or group) and people, sets the Training and Dev conversations (never the Test Set) with their text counts; " +
       "send answers a msgId, then get shows the reply, each step's time and output, and every change or message the turn would have made (writes); " +
       "send takes up to 6 pictures (https, image types; text may then be empty) and replyTo, a row of the test chat it quotes, each reaching the turn as the texting Worker hands a real one to /agent; " +
       'react is a tapback (emoji one of ❤️ 👍 👎 😂 ‼️ ❓) on any row with words, answered or only noted as production would (turn: false, a quiet noted reply), and get shows it as a kind "reaction" row and in the tapped row\'s reactions; ' +
-      "edit is refused with 501, Tex doesn't receive edits yet (production records none); retry (a tapback too), back and drop cut the test texts, reset deletes the test chat",
+      "edit changes one of your test texts' words and unsend takes one back (Delete in the Lab), each run through the edit step as a real iMessage edit or Undo Send is: to \"same\" keeps nothing, \"turn\" keeps a kind \"edit\" row (on the text, its new words) and runs its turn, \"withdraw\" keeps a kind \"unsend\" row with a quiet noted reply and no turn; retry (a tapback, edit or unsend too), back and drop cut the test texts, reset deletes the test chat",
   ],
   ["put_back", "{ draft, step, vs?: \"main\" | \"last\" }", "the change marks' Put back: one step back to main's (or the last revision's) version, its fields, place and wires; lands as an edit with the conflict check"],
   ["reference", "{ topic?, draft?, log? }", "the Lab's catalogues: tools (what each does, its actions and the steps that call it; `log` a pasted chat record, counted as the Tools tab does), steps (what each logs and writes), ledger, areas, models, wires, sources, convo"],

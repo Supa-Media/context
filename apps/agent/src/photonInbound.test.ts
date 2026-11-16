@@ -237,11 +237,24 @@ describe("parsePhotonEvent: edits and unsends", () => {
       kind: "edited",
       eventId: "photon:message.edited:msg-2",
       chatId: photonChatId(LINE, PHONE),
+      line: LINE,
       from: PHONE,
       messageId: "msg-2",
       text: "new words",
+      previous: "old",
       at: "2026-11-14T10:00:00.000Z",
     });
+  });
+
+  it("reads a group's edit with its line and people, so it can be queued as the group's message", () => {
+    const parsed = parsePhotonEvent(groupEvent({ type: "message.edited", eventId: "photon:message.edited:msg-4", message: { guid: "msg-4", text: "  7pm, not 6  ", service: "iMessage" }, edited: { targetGuid: "msg-4" } }));
+    expect(parsed).toMatchObject({ kind: "edited", groupId: GROUP_ID, line: LINE, from: PHONE, messageId: "msg-4", text: "7pm, not 6" });
+    expect((parsed as { participants?: string[] }).participants).toContain(PHONE);
+    expect(parsed).not.toHaveProperty("previous");
+  });
+
+  it("drops an edit that leaves no words", () => {
+    expect(parsePhotonEvent(event({ type: "message.edited", message: { guid: "m", text: "   ", service: "iMessage" }, edited: { targetGuid: "m" } }))).toEqual({ kind: "ignored", reason: "empty" });
   });
 
   it("reads an unsend as a side event with no words, in a group", () => {
@@ -249,7 +262,9 @@ describe("parsePhotonEvent: edits and unsends", () => {
       kind: "unsent",
       eventId: "photon:message.unsent:msg-3",
       groupId: GROUP_ID,
+      line: LINE,
       from: PHONE,
+      participants: expect.arrayContaining([PHONE]),
       messageId: "msg-3",
       at: "2026-11-14T10:00:00.000Z",
     });

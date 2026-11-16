@@ -76,7 +76,9 @@ export function words(event) {
     case "delivery":
       return text ? `(delivery) ${text}` : "(delivery)";
     default:
-      return text;
+      // A person's edit of an earlier text (`apps/agent/src/editStep.ts`): its new words, marked by the Worker's field, never by them.
+      if (event.unsent === true) return "(unsent an earlier text)";
+      return event.edited === true ? `(edited an earlier text to) ${text}` : text;
   }
 }
 
@@ -121,7 +123,9 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
     }
     if (event.kind !== "reaction" && event.kind !== "delivery") lastAt = event.at;
     let line = `[${time.format(date).replace(/ /g, " ")}] ${speaker(event.from)}: ${words(event)}`;
-    if (event.from?.kind === "person" && INBOUND.has(event.kind) && event.at >= newestAnswered && !answered.has(event.id)) line += "   (not answered)";
+    // An edit or unsend is never a to-do of its own: an edit that changed what they asked takes a turn that covers it, and
+    // a typo fixed or a text taken back takes none.
+    if (event.from?.kind === "person" && INBOUND.has(event.kind) && event.edited !== true && event.unsent !== true && event.at >= newestAnswered && !answered.has(event.id)) line += "   (not answered)";
     const tag = tags?.get(event.id);
     if (typeof tag === "string") line += `   [${tag}]`; // its conversation (`conversationThreads.js`)
     lines.push(line);
@@ -150,11 +154,24 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
  * (`ledgerHistory.js`). One outside what is shown is named without its words. "" when it is no reply.
  */
 export function replyingTo(event, byId, time = TIME_OF("UTC")) {
+  if (event?.edited === true || event?.unsent === true) return editing(event, byId, time);
   if (typeof event?.replyTo !== "string") return "";
   const to = byId.get(event.replyTo);
   if (to === undefined) return "replying to an earlier message not shown here";
   const whose = to.from?.kind === "tex" ? "your" : to.from?.kind === "system" ? "Context's" : `${speaker(to.from)}'s`;
   return `replying to ${whose} ${time.format(new Date(to.at)).replace(/ /g, " ")} message: "${words(to)}"`;
+}
+
+/**
+ * What an edit replaced or an unsend took back, as its note line: the earlier text as the rendering shows it. Never the
+ * words the Worker kept for it (`quoted`) when that text is not shown: a group's newcomer never sees what was said before
+ * they joined, so a text outside the rendering stays outside it, as a reply's does (`replyingTo`).
+ */
+function editing(event, byId, time) {
+  const what = event.unsent === true ? "they took back" : "the edit of";
+  const to = typeof event.replyTo === "string" ? byId.get(event.replyTo) : undefined;
+  if (to !== undefined) return `${what} their ${time.format(new Date(to.at)).replace(/ /g, " ")} message, which said: "${words(to)}"`;
+  return `${what} an earlier message not shown here`;
 }
 
 /** A time-of-day formatter in a time zone, as the rendering writes times. */

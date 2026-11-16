@@ -13,7 +13,7 @@
  */
 
 import { gatherTheTurn } from "./gatherTheTurn";
-import { noteHandle, replyFields } from "./replyQuote";
+import { editedFields, noteHandle, replyFields } from "./replyQuote";
 import { chatEvent } from "./chatState";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, kindOf, markStale, renderTranscript, waitingAsks, type TexEvent } from "./events";
@@ -88,8 +88,11 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
     text: message.text.trim() === "" && message.heard ? `(voice message) ${message.heard}` : message.text,
     ...(message.left && !message.reaction ? { left: message.left } : {}),
     people: await eventPeople(storage, message),
-    // A reply under an earlier message, found by the handle the webhook names: its id and full words (`replyQuote.ts`).
-    ...(message.reaction || message.replyTo === undefined ? {} : await replyFields(storage, message.groupId, { handle: message.replyTo })),
+    // An edit of an earlier message (`editStep.ts`): marked, with that message and its words, as a reply's are.
+    // Otherwise a reply under an earlier message, found by the handle the webhook names: its id and full words (`replyQuote.ts`).
+    ...(message.edited !== undefined && !message.reaction
+      ? editedFields(message.edited)
+      : message.reaction || message.replyTo === undefined ? {} : await replyFields(storage, message.groupId, { handle: message.replyTo })),
   });
   if (!message.reaction) await noteHandle(storage, message.messageId, id);
   return id;
