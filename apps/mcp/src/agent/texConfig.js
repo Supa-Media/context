@@ -6,7 +6,8 @@
  * off, time limit and the context it reads, and every wire. The Lab opens it as main and promotes a version by
  * changing it in a pull request, so the replay gate stands between a Lab edit and a live turn. Each model-calling
  * file asks this module for its step's model, effort and time limit instead of keeping a constant of its own, and the
- * texting setup's models come from here, not from the setup note (`production.js`).
+ * texting setup's models come from here, not from the setup note (`production.js`). It asks with the turn's config
+ * (`texConfigOf`): main's, or in a Lab test chat the draft's over main's, so a draft runs whole there.
  *
  * Wires still run as code. A step the code has no way to run when on (the router, for now) is refused by
  * `test/texConfig.test.mjs`, so the file never says something the gateway does not do.
@@ -15,6 +16,7 @@ import CONFIG from "../../../../packages/shared/src/texConfig.json" with { type:
 import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" with { type: "json" };
 import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
 import { TRAIN_ENTRY, moduleText } from "../../../../packages/shared/src/texTraining.cjs";
+import { sandboxGateOf } from "../labSandbox/policy.js";
 
 export const TEX_CONFIG = CONFIG;
 
@@ -42,17 +44,23 @@ const PROMPT_ENTRY = /^p-([a-z][a-z0-9-]{0,47})$/;
  */
 export const TRAINING_READERS = Object.freeze(["decide", "fd", "job", "advisor", "mailadv", "jobcheck", "planner", "classifier", "reviewer", "handback", "mail", "card", "selfreview"]);
 
+/**
+ * Every accessor below takes the config to read, main's by default. A Lab test chat's turn passes its draft's
+ * (`texConfigOf`), so the draft's models, efforts, time limits and prompt words are the ones that run there; every
+ * other turn reads main's, exactly as before.
+ */
+
 /** One step of the config by its id. Throws for an id the file has not: a typo here must fail the suite, not a turn. */
-export function texStep(id) {
-  const step = CONFIG.nodes.find((node) => node.id === id);
+export function texStep(id, config = CONFIG) {
+  const step = config.nodes.find((node) => node.id === id);
   if (!step) throw new Error(`texConfig: no step "${id}"`);
   return step;
 }
 
 /** The gateway model id a step runs on. */
-export function texModel(id) {
-  const step = texStep(id);
-  const model = CONFIG.models[step.model];
+export function texModel(id, config = CONFIG) {
+  const step = texStep(id, config);
+  const model = config.models[step.model];
   if (typeof model !== "string") throw new Error(`texConfig: step "${id}" runs on "${step.model}", which names no model`);
   return model;
 }
@@ -61,18 +69,23 @@ export function texModel(id) {
  * How hard a step thinks, as the request carries it: `{ effort }`, or for a step at effort `off`,
  * `{ effort: "low", thinking: "off" }` (thinking off, the lowest effort beside it, as the classifier has always run).
  */
-export function texEffort(id) {
-  const effort = texStep(id).effort;
+export function texEffort(id, config = CONFIG) {
+  const effort = texStep(id, config).effort;
   if (effort === "off") return { effort: "low", thinking: "off" };
   if (typeof effort !== "string") throw new Error(`texConfig: step "${id}" has no effort`);
   return { effort };
 }
 
 /** A step's time limit in milliseconds. Throws when the file gives it none. */
-export function texTimeoutMs(id) {
-  const seconds = texStep(id).timeoutS;
+export function texTimeoutMs(id, config = CONFIG) {
+  const seconds = texStep(id, config).timeoutS;
   if (!(typeof seconds === "number" && seconds > 0)) throw new Error(`texConfig: step "${id}" has no time limit`);
   return seconds * 1000;
+}
+
+/** The prompt words a config's steps read: the repository's, with a Lab draft's own words over them. */
+export function texWords(config = CONFIG) {
+  return config.words ? { ...TEX_PROMPT_WORDS, ...config.words } : TEX_PROMPT_WORDS;
 }
 
 /**
@@ -80,17 +93,17 @@ export function texTimeoutMs(id) {
  * advisor, advisor_effort, fallback, job_effort when the job's differs), `plan_big_asks` and `reply_judge`. The
  * advisor's four roles share one model and effort in code, so the advisor step names them.
  */
-export function texSetupFront() {
-  const fd = texStep("fd");
-  const job = texStep("job");
-  const advisor = texStep("advisor");
-  const models = { main: texModel("fd"), effort: fd.effort };
+export function texSetupFront(config = CONFIG) {
+  const fd = texStep("fd", config);
+  const job = texStep("job", config);
+  const advisor = texStep("advisor", config);
+  const models = { main: texModel("fd", config), effort: fd.effort };
   if (job.effort !== fd.effort) models.job_effort = job.effort;
-  if (advisor.on) Object.assign(models, { advisor: texModel("advisor"), advisor_effort: advisor.effort });
-  if (texStep("fallback").on) models.fallback = texModel("fallback");
+  if (advisor.on) Object.assign(models, { advisor: texModel("advisor", config), advisor_effort: advisor.effort });
+  if (texStep("fallback", config).on) models.fallback = texModel("fallback", config);
   const front = { models };
-  if (texStep("planner").on) front.plan_big_asks = "on";
-  front.reply_judge = texStep("reviewer").on ? "haiku" : "off";
+  if (texStep("planner", config).on) front.plan_big_asks = "on";
+  front.reply_judge = texStep("reviewer", config).on ? "haiku" : "off";
   return front;
 }
 
@@ -100,14 +113,74 @@ export function texSetupFront() {
  * background job's for a job, with each `train:<nodeId>` entry where it stands as `train-<nodeId>` when that node has
  * Training labels. Throws when a step names a module the repository has no words for.
  */
-export function texModules() {
+export function texModules(config = CONFIG) {
+  const words = texWords(config);
   const of = (id) => {
     const named = (entry) => PROMPT_ENTRY.exec(entry)?.[1] ?? (TRAIN_ENTRY.test(entry) && TRAINING_WORDS[`train-${entry.slice(6)}`] ? `train-${entry.slice(6)}` : null);
-    const names = (texStep(id).ctx ?? []).map(named).filter(Boolean);
+    const names = (texStep(id, config).ctx ?? []).map(named).filter(Boolean);
     if (names.length === 0) throw new Error(`texConfig: step "${id}" reads no prompt module`);
-    for (const name of names) if (typeof TEX_PROMPT_WORDS[name] !== "string") throw new Error(`texConfig: step "${id}" reads module "${name}", which has no words`);
+    for (const name of names) if (typeof words[name] !== "string") throw new Error(`texConfig: step "${id}" reads module "${name}", which has no words`);
     return names;
   };
   const texts = of("fd");
   return { texts, group: texts, job: of("job") };
+}
+
+const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
+const MAX_WORDS = 40_000;
+const MAX_TIMEOUT_S = 600;
+
+/** A draft's words for its prompt modules (`graph.modules["p-<name>"].text`), as Promote would write them, or `{}`. */
+function draftWords(modules) {
+  const words = {};
+  for (const [key, edit] of Object.entries(modules && typeof modules === "object" ? modules : {})) {
+    const name = PROMPT_ENTRY.exec(key)?.[1];
+    if (name === undefined || !edit || typeof edit.text !== "string") continue;
+    const text = edit.text.replace(/^\uFEFF/, "").trim();
+    if (text === "" || text.length > MAX_WORDS || /^---\r?\n/.test(text) || text === TEX_PROMPT_WORDS[name]) continue;
+    words[name] = text;
+  }
+  return words;
+}
+
+/** A draft step over main's: each field the draft sets that this config can run, else main's. */
+function draftStep(node, edit, config, words) {
+  if (!edit) return node;
+  const out = { ...node };
+  if (typeof edit.on === "boolean") out.on = edit.on;
+  // A model main's table names (a Lab-only model has no gateway id, and Promote refuses it too); a code step stays code.
+  if (node.model !== "code" && typeof edit.model === "string" && edit.model !== "code" && typeof config.models[edit.model] === "string") out.model = edit.model;
+  if (typeof edit.effort === "string" && EFFORTS.has(edit.effort)) out.effort = edit.effort;
+  if (typeof edit.timeoutS === "number" && edit.timeoutS > 0 && edit.timeoutS <= MAX_TIMEOUT_S && node.timeoutS > 0) out.timeoutS = edit.timeoutS;
+  // What the step reads, when every prompt module it names has words here or in the draft.
+  if (Array.isArray(edit.ctx) && edit.ctx.every((entry) => typeof entry === "string" && (PROMPT_ENTRY.exec(entry) === null || typeof words[PROMPT_ENTRY.exec(entry)[1]] === "string"))) out.ctx = edit.ctx;
+  return out;
+}
+
+/**
+ * A Lab draft over the config, for a Lab test chat's turn only (`labSandbox/policy.js` `sandboxGateOf`): each step's
+ * on/off, model, effort, time limit and context as the draft has them, the draft's prompt words as `words`, and its
+ * wires when every one names a step this config has. What the gateway could not run is main's (`draftStep`). A real
+ * turn's env carries no gate, so it never reaches here.
+ */
+export function withDraft(config, draft) {
+  if (!draft || typeof draft !== "object" || !Array.isArray(draft.nodes)) return config;
+  const ids = new Set(config.nodes.map((node) => node.id));
+  const byId = new Map(draft.nodes.filter((node) => node && typeof node.id === "string").map((node) => [node.id, node]));
+  const own = draftWords(draft.modules);
+  const words = { ...TEX_PROMPT_WORDS, ...own };
+  const nodes = config.nodes.map((node) => draftStep(node, byId.get(node.id), config, words));
+  const wires = Array.isArray(draft.edges) && draft.edges.length > 0 && draft.edges.every((e) => e && ids.has(e.from) && ids.has(e.to) && typeof e.mode === "string") ? draft.edges : config.edges;
+  return { ...config, nodes, edges: wires, ...(Object.keys(own).length > 0 ? { words: own } : {}) };
+}
+
+/** Per gate: its draft over main's, made once. */
+const drafted = new WeakMap();
+
+/** The config a request's turn runs on: a Lab test chat's draft over main's (`withDraft`), else main's itself. */
+export function texConfigOf(env) {
+  const gate = sandboxGateOf(env);
+  if (gate === null || !gate.config) return CONFIG;
+  if (!drafted.has(gate)) drafted.set(gate, withDraft(CONFIG, gate.config));
+  return drafted.get(gate);
 }

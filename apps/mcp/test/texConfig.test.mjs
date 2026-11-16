@@ -41,7 +41,7 @@ test("every step's model is in the config's table, and every wire joins two step
 test("each judge's model and time limit is the config's", () => {
   assert.deepEqual(
     [REVIEW_MODEL, MAIL_CHECKER_MODEL, CARD_CHECK_MODEL, HANDBACK_JUDGE_MODEL, SELF_REVIEW_MODEL, THREADS_MODEL],
-    ["reviewer", "mail", "card", "handback", "selfreview", "classifier"].map(texModel),
+    ["reviewer", "mail", "card", "handback", "selfreview", "classifier"].map((id) => texModel(id)),
   );
   assert.deepEqual([REVIEW_TIMEOUT_MS, THREADS_TIMEOUT_MS, ADVISOR_TIMEOUT_MS.chat], [texTimeoutMs("reviewer"), texTimeoutMs("classifier"), texTimeoutMs("advisor")]);
 });
@@ -49,7 +49,8 @@ test("each judge's model and time limit is the config's", () => {
 test("each judge asks the config how hard to think, and no model file keeps an effort or model id of its own", () => {
   for (const [file, id] of [["replyJudge.js", "reviewer"], ["mailChecker.js", "mail"], ["cardCheck.js", "card"], ["handbackJudge.js", "handback"], ["selfReview.js", "selfreview"], ["conversationThreads.js", "classifier"]]) {
     const text = src(file);
-    assert.match(text, new RegExp(`texEffort\\("${id}"\\)`), file);
+    assert.match(text, new RegExp(`texEffort\\("${id}", config\\?\\.tex\\)`), file); // main's, or a Lab test chat's draft (`aiGatewayConfig`)
+    assert.match(text, new RegExp(`texModel\\("${id}", config\\?\\.tex\\)`), file);
     assert.doesNotMatch(text, /effort: "(?:off|low|medium|high|xhigh|max)"/, file);
     assert.doesNotMatch(text, /= "anthropic\/claude-[a-z0-9.-]+"/, file);
   }

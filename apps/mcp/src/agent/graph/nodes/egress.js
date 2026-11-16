@@ -5,11 +5,12 @@
  */
 import { aiGatewayConfig } from "../../aiGateway.js";
 import { judgeWords } from "../../../privacy/judge.js";
-import { texEffort, texModel } from "../../texConfig.js";
+import { texConfigOf, texEffort, texModel } from "../../texConfig.js";
 
 /** @param {{ words: string, action: string, workspace?: string, subject?: object }} input */
 export default async function egress(input, io) {
   const config = aiGatewayConfig(io.ctx.env);
   if (!config) throw new Error("egress: no AI gateway to ask");
-  return judgeWords(input, config, { model: texModel("egress"), effort: texEffort("egress").effort });
+  const tex = texConfigOf(io.ctx.env); // main's, or a Lab test chat's draft
+  return judgeWords(input, config, { model: texModel("egress", tex), effort: texEffort("egress", tex).effort });
 }

@@ -62,8 +62,15 @@ conversation's messages seed the test chat's ledger as today's texts; a 1:1 one 
 (their own notes read), a group one in a group chat of theirs named with `chatId`, whose Tex notes are read. Each
 person gets 200 test texts a day across their test chats: every one runs the real models.
 
-**Known gaps, said rather than hidden.** A draft's per-step models, efforts and prompt words are read where each node
-is built, at import, so only its wiring and on/off apply yet. A note a test turn writes through a stubbed note tool is
+**The draft runs whole.** A test turn's env carries its gate, and `texConfig.js` `texConfigOf(env)` lays the draft over
+main's config: each step's on/off, model, effort, time limit and context, its wires, and its prompt modules' words
+(`p-<name>`). The setup read (`production.js`), every judge that asks the AI gateway (through `aiGatewayConfig(env).tex`)
+and the egress judge read that config, so a draft's change to them runs in the test chat; a real turn's env has no gate
+and reads main's. What Promote would refuse (a model main's table has no gateway id for, a module with no words) runs
+as main's. Steps whose models are fixed in code, not read from the config (decide and the router on clef, the picture
+maker, nudge, reflect), do not change with a draft, in a test chat or live.
+
+**Known gaps, said rather than hidden.** A note a test turn writes through a stubbed note tool is
 not readable back (the tool never ran); a note written through the objects is. `ws.rows.files` and `ws.rows.listing`
 answer "not served here", which callers already read as "ask the other way". A group turn's control-plane calls carry
 the caller's own grant, as a 1:1 turn's do; a route that reads by the chat's own grant answers for the caller's.

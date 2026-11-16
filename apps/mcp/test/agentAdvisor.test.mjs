@@ -241,7 +241,7 @@ test("the advisor has its own limit, past its slowest answer: 90 s in a job, 40 
   assert.equal(advisorTimeoutMs(true), 90_000);
   assert.equal(advisorTimeoutMs(false), 40_000);
   for (const ms of Object.values(ADVISOR_TIMEOUT_MS)) assert.ok(ms > 38_300 && ms > TOOL_TIMEOUT_MS);
-  assert.match(texEntryPointSource(), /toolTimeouts: \{[^}]*\[ADVISOR_TOOL\]: advisorTimeoutMs\(job !== null\)/, "the texted route gives it that limit");
+  assert.match(texEntryPointSource(), /toolTimeouts: \{[^}]*\[ADVISOR_TOOL\]: advisorTimeoutMs\(job !== null, texConfigOf\(env\)\)/, "the texted route gives it that limit");
 });
 
 test("an ask slower than the default limit still answers when it has its own", async () => {
