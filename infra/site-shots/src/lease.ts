@@ -30,7 +30,7 @@
  * random id): taken, refreshed, taken over after it expired, refused, released.
  */
 
-import type { IdleNamespace } from "./idle";
+import { idleStub, type IdleNamespace } from "./idle";
 
 /** How long the browser stays a holder's after its last step. */
 export const LEASE_MS = 90 * 1000;
@@ -45,9 +45,7 @@ export function holderOf(body: unknown): string | null {
   return typeof holder === "string" && HOLDER.test(holder) ? holder : null;
 }
 
-function stub(namespace: IdleNamespace, owner: string) {
-  return namespace.get(namespace.idFromName(owner), { locationHint: "enam" });
-}
+const stub = idleStub;
 
 const logLease = (outcome: string, owner: string, holder: string) =>
   console.log(JSON.stringify({ event: "site_shots_lease", outcome, owner, holder }));

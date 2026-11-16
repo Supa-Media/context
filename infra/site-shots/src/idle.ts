@@ -145,12 +145,16 @@ export interface IdleStub {
   release?(holder: string): Promise<boolean>;
 }
 
+/** The owner's object, placed in eastern North America like every object of ours (decided by the owner, 2026-11-01). The one place this Worker makes a stub. */
+export function idleStub(namespace: IdleNamespace, owner: string): IdleStub {
+  return namespace.get(namespace.idFromName(owner), { locationHint: "enam" });
+}
+
 /** Pushes this person's browser's end five minutes out (or `ms`). Never fails the step it rides on. */
 export async function touchIdle(namespace: IdleNamespace | undefined, owner: string, ms: number = IDLE_MS): Promise<void> {
   if (!namespace) return;
   try {
-    // Placed in eastern North America like every object of ours (decided by the owner, 2026-11-01).
-    await namespace.get(namespace.idFromName(owner), { locationHint: "enam" }).touch(owner, ms);
+    await idleStub(namespace, owner).touch(owner, ms);
   } catch (error) {
     console.log(JSON.stringify({ event: "site_shots_idle_touch_failed", error: error instanceof Error ? error.name : "unknown" }));
   }
