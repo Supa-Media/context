@@ -26,7 +26,7 @@
  *                 Markdown or readable HTML (./fetchText.ts); when the site
  *                 refuses this Worker, the same through Browserbase's Fetch
  *                 API (./browserbaseFetch.ts); else a warm browser (./read.ts)
- *   POST /browse  `{ session?, steps }` → `{ session, ran, page }`: one
+ *   POST /browse  `{ session?, steps, waitMs? }` → `{ session, ran, page }`: one
  *                 browser the texting assistant drives across calls in one
  *                 question (./browse.ts). Its session id is held by the
  *                 gateway's turn and nowhere else; the browser closes itself
@@ -64,6 +64,7 @@ import { browseOnBrowserbase } from "./browserbaseRoute";
 import { viewOnBrowserbase } from "./view";
 import { viewStatus } from "./viewStatus";
 import { BROWSE_GOTO_TIMEOUT_MS, parseBrowseRequest, runSteps, type BrowsePage } from "./browse";
+import { contentWaitOf, waitLog } from "./patience";
 import type { Browser, BrowserContext } from "@cloudflare/puppeteer";
 import { parseRenderRequest, render, type RenderBrowser } from "./render";
 import { parseShootRequest, shoot, type BrowserLike, type PageLike } from "./shoot";
@@ -280,9 +281,9 @@ async function browse(env: Env, path: string, body: unknown): Promise<Response> 
     const page = (await browser.pages())[0] ?? (await browser.newPage());
     if (parsed.session === null) await page.setViewport({ width: 1280, height: 860 });
     page.setDefaultTimeout(BROWSE_GOTO_TIMEOUT_MS);
-    const result = await runSteps(page as unknown as BrowsePage, parsed.steps);
+    const result = await runSteps(page as unknown as BrowsePage, parsed.steps, { waitMs: contentWaitOf(body) });
     // Step kinds and timing only: never an address, a word typed or the page.
-    console.log(JSON.stringify({ event: "site_shots_browse", steps: parsed.steps.map((s) => s.do), ok: result.ran.every((r) => r.ok), ms: Date.now() - started }));
+    console.log(JSON.stringify({ event: "site_shots_browse", steps: parsed.steps.map((s) => s.do), ok: result.ran.every((r) => r.ok), ms: Date.now() - started, ...waitLog(result.page) }));
     return json({ session: browser.sessionId(), ...result });
   } catch {
     return json({ session: browser.sessionId(), error: "the browser could not do that" }, 502);

@@ -2,7 +2,7 @@
  * POST /browse with `provider: "browserbase"`: the same steps as Cloudflare's
  * browser (./browse.ts), on this person's Browserbase browser.
  *
- *   `{ provider, owner, steps, handoff? }` → `{ session, ran, page }` (`handoff`
+ *   `{ provider, owner, steps, handoff?, waitMs? }` → `{ session, ran, page }` (`handoff`
  *   says the person is being handed this browser, and asks for nothing)
  *   `/browse/close` `{ provider, owner }` → releases their browser now
  *   `/browse/release` `{ provider, owner, holder }` → lets go of the lease
@@ -51,6 +51,7 @@
  */
 
 import { parseBrowseRequest, runSteps } from "./browse";
+import { contentWaitOf, waitLog } from "./patience";
 import {
   OWNER_TAG,
   PROFILE_ID,
@@ -215,7 +216,8 @@ async function runOnBrowserbase(
     const page = await cdpPage(cdp, attached);
     // A file goes in as the browser's own, through Browserbase's uploads (./upload.ts).
     const uploads = browserbaseUploads(env, session.id, fetcher);
-    let result = await runSteps(page, parsed.steps, { downloads, uploads });
+    // A blank page is waited for as long as the gateway says this turn may (./patience.ts).
+    let result = await runSteps(page, parsed.steps, { downloads, uploads, waitMs: contentWaitOf(body) });
     // Not while the person is being handed the browser: it is theirs then.
     const captcha = handingOver ? null : await settleCaptcha(attached.evaluate, { solver: attached.solver ?? null });
     if (captcha === "solved") result = { ...result, page: (await runSteps(page, [{ do: "read" }])).page };
@@ -230,7 +232,7 @@ async function runOnBrowserbase(
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
     const ok = result.ran.every((r) => r.ok);
     // Step kinds and timing only, as for Cloudflare's browser.
-    console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps, ok, ms: Date.now() - started }));
+    console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps, ok, ms: Date.now() - started, ...waitLog(result.page) }));
     if (!ok) failed(session.id, "steps", result.ran.map((r) => ({ do: r.do, ok: r.ok, ...(r.reason && !r.ok ? { reason: r.reason.slice(0, 200) } : {}) })));
     return json({ session: session.id, ...result, ...(captcha !== null ? { captcha } : {}), ...(hidden ? { invisibleCaptcha: true } : {}), ...(jar !== null ? { jar } : {}), ...(profileGone ? { profileGone: true } : {}) });
   } catch {

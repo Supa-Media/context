@@ -93,7 +93,7 @@ export async function openTurnWeb(env, { session, texting, group, question, vouc
           // A browser handed to the person is texted the moment it exists, unless their texts said no to it.
           say: channel !== null ? (text) => channel.say(text) : null,
           handoffRefused: handoffRefusedIn(`${theirEarlierWords(history)}\n\n${question ?? ""}`),
-          // A background job or a routine waits patiently for a browser another question holds (`browserLease.js`).
+          // A background job or a routine waits patiently: for a browser another question holds (`browserLease.js`), and for a slow page (`browse.js`).
           patient,
           // The vault this turn's grant opens, for `fill_login`: a group chat's is its
           // shared workspace's, narrowed to what the whole workspace was given.

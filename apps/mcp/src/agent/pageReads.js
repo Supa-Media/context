@@ -36,10 +36,13 @@ export function linksIn(text) {
   return [...String(text ?? "").matchAll(/https?:\/\/[^\s<>"')\]]+/gi)].map((match) => match[0].replace(/[.,;:!?]+$/, ""));
 }
 
+/** What a reading says in place of a page's words (`browseReading.js`): still loading, drawn, or none. */
+const NO_WORDS = /^\((?:no text|nothing on this page yet|no text yet|no words on this page)\b[^\n]*\)$/i;
+
 /** Whether a page's body is worth the name: a wall, an empty or a thin page is not. */
 export function usableBody(body) {
   const text = String(body ?? "").trim();
-  if (text === "" || text === "(no text)" || text.length < THIN_PAGE_CHARS) return false;
+  if (text === "" || NO_WORDS.test(text) || text.length < THIN_PAGE_CHARS) return false;
   return !(text.length < WALL_PAGE_CHARS && WALL.test(text));
 }
 

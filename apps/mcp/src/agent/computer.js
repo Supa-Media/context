@@ -374,7 +374,7 @@ export function webSession(computer, question, { decide = null, search = null, a
           savedLogin: store ? savedLoginOn(store) : null,
           // Their texts said no to taking over the browser: it is never handed to them again (`browse.js`).
           handoffRefused,
-          // A job or a routine waits its turn for a busy browser; a chat turn only briefly (`browserLease.js`).
+          // A job or a routine waits its turn for a busy browser, and long for a page that reads blank; a chat turn only briefly (`browserLease.js`, `browse.js` JOB_PAGE_WAIT_MS).
           patient,
           takePages(n) {
             if (opened + n > pageCap()) return false;

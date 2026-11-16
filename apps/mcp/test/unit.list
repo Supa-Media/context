@@ -613,3 +613,4 @@ test/routineAsRoutine.test.mjs
 test/agentBrowserLease.test.mjs
 test/agentAdvisorToolList.test.mjs
 test/emailLinks.test.mjs
+test/agentPatientBrowser.test.mjs

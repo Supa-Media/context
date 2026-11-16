@@ -108,7 +108,9 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
   const refused = () => browserbaseRefusedAt !== null && now() - browserbaseRefusedAt < BROWSERBASE_REFUSED_PAUSE_MS;
   const browserbaseWanted = () => typeof owner === "string" && owner.length > 0 && !browserbaseMissing && !refused();
 
-  async function browseOn(session, steps, { handoff = false, fresh = false, holder = null, patient = false } = {}) {
+  async function browseOn(session, steps, { handoff = false, fresh = false, holder = null, patient = false, waitMs } = {}) {
+    // How long a blank page is waited for (`infra/site-shots/src/patience.ts`): a job's long wait, else the Worker's own short one.
+    const waiting = Number.isFinite(waitMs) ? { waitMs } : {};
     if (browserbaseWanted()) {
       // `handoff` tells the screenshot Worker (and the bench's stand-in for it)
       // the person is being handed this browser; it asks Browserbase for nothing.
@@ -123,6 +125,7 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
         ...(handoff ? { handoff: true } : {}),
         // A new browser, a new address: the last try past a captcha (`captchaLadder.js`).
         ...(fresh ? { fresh: true } : {}),
+        ...waiting,
         ...(jar !== null ? { keep: true, ...(held !== null ? { jar: held } : {}) } : {}),
         // A new profile is given the jar's cookies; one in use holds newer ones.
         ...(saved !== null ? { profile: saved.id, ...(saved.created ? { profileNew: true } : {}) } : {}),
@@ -139,7 +142,7 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
         return handoff && typeof viewer === "string" ? { ...result, handoffUrl: viewer } : result;
       } else browserbaseMissing = true;
     }
-    return await browseResult(await post(binding, "/browse", session === null ? { steps } : { session, steps }));
+    return await browseResult(await post(binding, "/browse", session === null ? { steps, ...waiting } : { session, steps, ...waiting }));
   }
 
   return {
