@@ -61,7 +61,7 @@ test("a job's first run of each call asks for the long wait, and a chat turn nev
   for (const later of job.calls.slice(1)) assert.equal(later.options?.waitMs, undefined);
   const chat = fakeComputer();
   await session(chat).call({ steps: [{ do: "goto", url: PORTAL }] });
-  assert.equal(chat.calls[0].options, undefined);
+  assert.equal(chat.calls[0].options?.waitMs, undefined);
   // The job's wait fits the browse call's limit with room for the steps and a captcha's solver.
   assert.ok(JOB_PAGE_WAIT_MS + 17_000 + 30_000 + 2 * 8_000 < 160_000);
 });
