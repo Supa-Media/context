@@ -11,6 +11,8 @@
 //   policy.js `controlPlaneAnswer` passing every route   "a control-plane write is refused ..." fails
 //   policy.js READ_TOOLS holding send_email               "a tool that changes or sends ..." fails
 //   route.js `sandboxStub` named without the userId       "another person's test chat ..." fails
+//   texConfig.js `draftStep` ignoring the draft's model   "a draft's models, efforts ..." fails
+//   aiGateway.js `tex` always main's config                "a draft's models, efforts ..." fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
