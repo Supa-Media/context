@@ -5,14 +5,22 @@
  * only: nothing here writes, sends or changes a setting.
  */
 import type { LedgerEntry } from "../../../page/texPageTypes";
+import type { TexPageSource } from "../../../page/texPageSource";
 import { LATEST } from "../../../page/texPageTypes";
 import { jobWork, type JobWork } from "../../engine/jobRuns";
 import type { PlayRun } from "../../engine/playRun";
 import { prodPlayAtVersion, type ProdPlay, type ProdRow } from "../../engine/prodRun";
 import { DETAIL_KINDS, JOB_KINDS, LINE_KINDS, linesOf } from "../../engine/replayRead";
-import { sandbox } from "../../engine/sandbox";
+import { sandbox, sharedLedger } from "../../engine/sandbox";
 import { G } from "../../engine/state";
-import { ledgerSource } from "./useMine";
+import { ledgerSource as ownSource } from "./useMine";
+
+/** Where a chat's history is read: a shared chat's through the test chat's route, the person's own through their Tex page. */
+function ledgerSource(chat?: string | null): Pick<TexPageSource, "ledger"> | null {
+  const src = sandbox.source;
+  if (src.kind === "shared" && (chat === undefined || chat === src.chatId)) return { ledger: (key, query) => sharedLedger(key, query) };
+  return ownSource();
+}
 
 /** Pages of texts, and of a day's details, read back to find a row's moment. */
 const PAGES = 40;
@@ -24,6 +32,8 @@ const chats = new Map<string, Chat>();
 
 /** The ledger key of the chat the test chat was opened over, or null when it isn't one of the person's own (Maya, a set). */
 export function chatKeyOf(src = sandbox.source, known = sandbox.chats): string | null {
+  // A chat shared with the developers is read by its own key, through the test chat's route (`sharedSource`).
+  if (src.kind === "shared") return src.chatId;
   if (src.kind !== "chat") return null;
   const c = known.find((x) => x.chatId === src.chatId);
   return c?.kind === "dm" ? "me" : src.chatId;
@@ -31,7 +41,7 @@ export function chatKeyOf(src = sandbox.source, known = sandbox.chats): string |
 
 /** The chat's texts read back far enough to hold `at` and the text before it. */
 async function textsTo(chat: string, at: number): Promise<LedgerEntry[] | null> {
-  const source = ledgerSource();
+  const source = ledgerSource(chat);
   if (!source) return null;
   const c = chats.get(chat) ?? { texts: [], older: null, days: new Map() };
   chats.set(chat, c);
@@ -49,7 +59,7 @@ async function textsTo(chat: string, at: number): Promise<LedgerEntry[] | null> 
 
 /** Every step, judging, tool call and thought of the day `at` falls on, read back to `at`. */
 async function detailOf(chat: string, at: number): Promise<LedgerEntry[]> {
-  const source = ledgerSource();
+  const source = ledgerSource(chat);
   const c = chats.get(chat);
   if (!source || !c) return [];
   const day = new Date(at).toLocaleDateString("en-CA");
@@ -96,7 +106,7 @@ export async function playProdRow(row: { id: string; at?: number; prod?: boolean
 
 /** The work of the background jobs a played moment ran or reported (a job's text opens to every run before it). */
 export async function playProdJobs(p: ProdPlay, chat = chatKeyOf()): Promise<JobWork[]> {
-  const source = ledgerSource();
+  const source = ledgerSource(chat);
   if (!source || !chat) return [];
   const out: JobWork[] = [];
   for (const id of p.jobs) {

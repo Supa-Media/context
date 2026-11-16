@@ -12,11 +12,21 @@ import { useSyncExternalStore } from "react";
 import type { StepCell } from "../views/grid/TextGrid.web";
 import { stepExtra, type StepExtra } from "./stepRun";
 import { lab, set as setLab } from "./state";
+import type { LedgerPage, LedgerQuery } from "../../page/texPageTypes";
+import { readLedgerPage } from "../../page/texPageLedger";
+import type { Read } from "../../page/texPageSource";
 
 /** A step as the grid shows it (`out` in words) with the contract's optional fields (`stepRun.ts`), as the gateway sent them. */
 export type SandboxStep = StepCell & StepExtra;
 
-export type SandboxSource = { kind: "maya" } | { kind: "chat"; chatId: string; name: string } | { kind: "set"; convId: string; name: string; chatId?: string };
+export type SandboxSource =
+  | { kind: "maya" }
+  | { kind: "chat"; chatId: string; name: string }
+  | { kind: "set"; convId: string; name: string; chatId?: string }
+  /** A chat someone shared with the developers (`readSandboxShared`): its real texts play what ran, and a test text runs as its person. */
+  | { kind: "shared"; chatId: string; name: string };
+/** A chat shared with the developers, as the gateway lists it (`labSandbox/shared.js`). */
+export type SharedChat = { chatId: string; name: string; kind: "dm" | "group"; people: number; sharedBy: string[]; lastAt: number | null };
 export type SandboxRow = {
   id: string;
   who: string;
@@ -71,6 +81,8 @@ export type SandboxState = {
   problem: string | null;
   /** The chats you may open a test chat over (your 1:1 and your group chats). */
   chats: Array<{ chatId: string; name: string; kind?: "dm" | "group"; people?: number }>;
+  /** The chats people shared with the developers (Settings → Feedback, or "Tex, share my chats with the devs"). */
+  sharedChats: SharedChat[];
   /** The Training and Dev conversations a test chat may start from (the gateway's `sets`; never the Test set). */
   sets: Array<{ id: string; title: string; set: "training" | "dev"; group: boolean; texts: number }>;
   /** A text waiting in the composer: `tryFromHere` puts the text it tries from there. */
@@ -96,10 +108,10 @@ export type SandboxState = {
 /** One of the recent test chats, whoever opened it: the Lab or an AI through `tex_dev`. */
 export type SandboxRecent = { sandboxId: string; name: string; source: SandboxSource; versionId: string; openedBy: string; lastBy: string; at: number; ai: boolean; texts: number; running: boolean };
 
-export type SandboxOp = "chats" | "sets" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page";
+export type SandboxOp = "chats" | "sets" | "shared" | "ledger" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null };
+export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -300,6 +312,40 @@ export async function readSandboxChats() {
   }
 }
 
+/**
+ * The chats people shared with the developers (Dev2, 2026-11-16: "a new category, shared with developers ... click
+ * through histories and see and replay things and debug issues"). Asked again every time the tab opens, so a person who
+ * stopped sharing is gone.
+ */
+export async function readSandboxShared() {
+  if (!call) return;
+  try {
+    const b = await call("shared", {});
+    sandbox.sharedChats = arr<Record<string, unknown>>(b.chats)
+      .map((c) => ({ chatId: str(c.chatId), name: str(c.name) || "Shared chat", kind: c.kind === "group" ? ("group" as const) : ("dm" as const), people: num(c.people) ?? 1, sharedBy: arr<unknown>(c.sharedBy).filter((h): h is string => typeof h === "string"), lastAt: num(c.lastAt) }))
+      .filter((c) => c.chatId);
+    emit();
+  } catch (e) {
+    sandbox.problem = "The shared chats didn't load: " + (e instanceof Error ? e.message : "the test chat didn't answer");
+    emit();
+  }
+}
+
+/**
+ * A shared chat's history file, a page at a time, as a person's own Tex page reads theirs (`playProd.ts` plays a real
+ * text from it). Through the test chat's route, which asks the control plane again whether it is still shared.
+ */
+export async function sharedLedger(chatId: string, query: LedgerQuery): Promise<Read<LedgerPage>> {
+  if (!call) return { kind: "failed" };
+  try {
+    const b = await call("ledger", { chatId, ...query });
+    const page = readLedgerPage(b);
+    return page ? { kind: "ok", value: page } : { kind: "failed" };
+  } catch (e) {
+    return /isn't shared|no longer/.test(e instanceof Error ? e.message : "") ? { kind: "notYours" } : { kind: "failed" };
+  }
+}
+
 /** A problem the test chat shows (a picture that didn't upload). */
 export function sandboxProblem(problem: string | null) {
   sandbox.problem = problem;
@@ -333,7 +379,7 @@ export function openSandbox(source: SandboxSource, versionId: string, base?: str
   sandbox.running = null;
   sandbox.hot = null;
   sandbox.fit = null;
-  return run("open", { source: source.kind, ...(source.kind === "chat" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : {}), versionId, ...(base ? { base } : {}) });
+  return run("open", { source: source.kind, ...(source.kind === "chat" || source.kind === "shared" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : {}), versionId, ...(base ? { base } : {}) });
 }
 /** What a `list` entry's source says, as a source the picker and Reset can open again. */
 function sourceOf(c: Record<string, unknown>): SandboxSource {
@@ -430,11 +476,11 @@ export function takeUrlSandbox(): string | null {
  * "Try from here" (Replay's, before Replay joined the Lab): a test chat over that chat with its real texts up to (not
  * including) the one picked, and that text waiting to be sent, as whoever sent it.
  */
-export function tryFromHere(chatId: string, name: string, msgId: string, as: string, text: string) {
+export function tryFromHere(chatId: string, name: string, msgId: string, as: string, text: string, kind: "chat" | "shared" = "chat") {
   sandbox.draft = { as, text };
   // Opened before the canvas shows: the test chat mounting with that switch then finds a chat on its way and waits for
   // it, rather than opening one of its own over the whole chat.
-  const p = openSandbox({ kind: "chat", chatId, name }, lab.cur.id, msgId);
+  const p = openSandbox({ kind, chatId, name }, lab.cur.id, msgId);
   setLab({ mode: "lab", view: "canvas", sel: null });
   return p.then(() => {
     const name = sandbox.people.includes(as) ? as : Object.keys(sandbox.handles).find((n) => sandbox.handles[n] === as);
@@ -543,7 +589,7 @@ export function gatewaySandbox(endpoint: string, token: (refresh: boolean | { re
 
 /** For tests: back to an empty test chat. */
 export function resetSandboxState() {
-  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null });
+  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null });
   seenFor = null;
   seen = new Set();
   if (polling) clearTimeout(polling);

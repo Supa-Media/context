@@ -119,6 +119,7 @@ describe("what Tex says back", () => {
     const text = sharingReply("on", ok(), { backfill: true });
     expect(text).toContain("the Context team (the people who build Tex) can read the whole thing");
     expect(text).toContain("never public, never sold, never used for ads");
+    expect(text).toContain("they can text a test copy of the chat, where I answer as I would you, reading the notes I can read; nothing done there changes your notes or reaches anyone");
     expect(text).toContain("past texts");
     expect(text).toContain('"stop sharing with the devs"');
   });

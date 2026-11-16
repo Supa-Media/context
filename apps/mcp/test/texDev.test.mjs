@@ -186,3 +186,27 @@ test("a turn shows only its own entries, in order, with inputs, thinking, the fa
   assert.deepEqual(answer.summary.version, { commit: "abc1234" });
   assert.match((await turnAnswer({}, PAGE, { turn: "nope" }, { ledgerOf: () => LEDGER, origin: "https://context.example" })).error, /no turn nope/);
 });
+
+test("a chat shared with the developers is probed read only by its key; one not listed does not exist", async () => {
+  const { chatsOf, openChat } = await import("../src/texDev/probe.js");
+  const owners = [];
+  const ledgerOf = (_env, owner) => (owners.push(owner), LEDGER);
+  const shared = [{ key: "u:usam", kind: "1:1", name: "@sam", sharedBy: ["sam"], owner: { person: "ws_sam" } }, { key: "d".repeat(64), kind: "group", name: "Trip", people: 3, sharedBy: ["sam"], owner: { chat: "d".repeat(64) } }];
+  const page = { ...PAGE, shared };
+  assert.deepEqual(chatsOf(page).filter((c) => c.shared).map((c) => c.chat), ["u:usam", "d".repeat(64)]);
+  const answer = await turnsOf({}, page, { chat: "u:usam" }, { ledgerOf });
+  assert.equal(answer.turns.length, 1);
+  assert.deepEqual(owners.at(-1), { person: "ws_sam" }, "the sharer's own history file, never the caller's");
+  assert.deepEqual(openChat({}, page, "d".repeat(64), ledgerOf).place, { owner: { chat: "d".repeat(64) }, name: "d".repeat(64) });
+  assert.throws(() => openChat({}, PAGE, "u:usam", ledgerOf), /no such chat/i, "once it is no longer shared it is not there");
+  assert.throws(() => openChat({}, { ...PAGE, shared: [{ key: "u:ubad", kind: "1:1" }] }, "u:ubad", ledgerOf), /no such chat/i, "a listed chat with no owner is not opened");
+});
+
+test("tex_dev reads the shared list from the control plane on every call", async () => {
+  let shared = [{ key: "u:usam", kind: "1:1", name: "@sam", sharedBy: ["sam"], owner: { person: "ws_sam" } }];
+  const plane = fakePlane({ page: PAGE, shared: () => ({ status: "ok", chats: shared }) });
+  const dev = createTexDev({ env: {}, session: session("editor"), controlPlane: plane });
+  assert.ok(jsonOf(await dev("chats", {})).chats.some((c) => c.chat === "u:usam" && c.shared === true));
+  shared = [];
+  assert.ok(!jsonOf(await dev("chats", {})).chats.some((c) => c.chat === "u:usam"), "turned off, gone on the next call");
+});

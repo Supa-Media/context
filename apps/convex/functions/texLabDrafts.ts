@@ -30,6 +30,7 @@ import { getMembership } from "./lib/workspaceAuth";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { CASE_KEY, MAX_JSON } from "./texLab";
 import { pageForUser } from "./texPage";
+import { sharedChats } from "./lib/texLabShared";
 import { setAction } from "./texSets";
 import { runAction, startGateRun } from "./texLabRuns";
 import { clampDays } from "./texLabToolStats";
@@ -356,6 +357,8 @@ export const forGateway = internalMutation({
     const run = await runAction(ctx, { userId: dev.userId, via: dev.client }, action, a, now);
     if (run !== null) return run;
     if (action === "page") return await pageForUser(ctx, dev.userId);
+    // The chats people shared with the developers, read only, as the Lab's "Shared with developers" tab lists them.
+    if (action === "shared") return { status: "ok", chats: await sharedChats(ctx, dev.userId) };
     if (action === "list") {
       const rows = (await ctx.db.query("texLabVersions").collect()).filter((r) => r.versionId !== "main").sort((x, y) => y.updatedAt - x.updatedAt);
       return { status: "ok", drafts: await Promise.all(rows.map((r) => draftOf(ctx, r))) };

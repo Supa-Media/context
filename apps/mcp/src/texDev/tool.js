@@ -76,7 +76,10 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
     const { answer, error } = await plane("page");
     if (error) return { error };
     if (answer.status !== "ok" || typeof answer.workspaceId !== "string") return { error: toolError("Your Tex chats could not be read just now.") };
-    return { page: answer };
+    // The chats people shared with the developers, asked again on every call so one no longer shared is gone at once
+    // (`probe.js` `probedChat`); none when the control plane can't say.
+    const shared = await plane("shared");
+    return { page: { ...answer, shared: shared.answer?.status === "ok" && Array.isArray(shared.answer.chats) ? shared.answer.chats : [] } };
   }
 
   // The Lab's other writes (rename, delete, run_setup, keep_results, revert) and `get` of main (`writes.js`).

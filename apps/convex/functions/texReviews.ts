@@ -125,7 +125,7 @@ export const reviewSetup = internalQuery({
  * rule, 2026-10-24: "go based off of who has context-lc workspace access"), and
  * staff. Reaching it through the pin, as every account does, is not a row.
  */
-async function onTheTeam(ctx: QueryCtx, pinned: Id<"workspaces"> | null, userId: Id<"users">): Promise<boolean> {
+export async function onTheTeam(ctx: QueryCtx, pinned: Id<"workspaces"> | null, userId: Id<"users">): Promise<boolean> {
   if (pinned !== null && (await getMembership(ctx, pinned, userId)) !== null) return true;
   return await userIsStaff(ctx, userId);
 }

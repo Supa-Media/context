@@ -98,7 +98,7 @@ export function FeedbackSettings() {
           <SettingRow
             first
             title="Share finished Tex conversations"
-            sub="When a conversation with Tex ends, the Context team can read it, with a score of how it went, to make Tex better. Off unless you turn it on. With it off, only the scores are kept, with no words and no name."
+            sub="When a conversation with Tex ends, the Context team can read it, with a score of how it went, to make Tex better. To try a fix they can text a test copy of it, where Tex reads your notes as it would for you; nothing done there changes your notes or reaches anyone. Off unless you turn it on. With it off, only the scores are kept, with no words and no name."
             value={sharing === true}
             disabled={sharing === undefined || sharing === null}
             onChange={changeSharing}
