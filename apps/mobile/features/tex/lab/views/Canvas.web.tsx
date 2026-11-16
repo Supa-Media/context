@@ -19,7 +19,7 @@ import {
 import { stepsShownFor } from "../engine/groups";
 import { groupsOf } from "../data/graph";
 import { labSim } from "../engine/realTimes";
-import { SCENARIOS } from "../engine/traces";
+import { runTags } from "../engine/sim";
 import { useLab } from "../store";
 import { AddMenu } from "./canvas/AddMenu";
 import { addStep } from "./canvas/actions";
@@ -126,7 +126,7 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
   const sim = labSim(g);
   // A draft's changes against main or its last revision (`engine/changeMarks.ts`), drawn on the whole graph only.
   const marks = replay || (lab.cfocus && !opened) ? null : currentMarks();
-  const tags = (SCENARIOS[s.scn] || SCENARIOS.own)?.tags || [];
+  const tags = runTags(s.scn);
   let html: string;
   if (lab.cfocus && !opened) {
     const f = renderFocusCanvasHtml(g, sim, lab.cfocus, s.sel);

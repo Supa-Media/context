@@ -81,8 +81,9 @@ describe("Replay draws only what ran", () => {
   test("the canvas's run keeps only measured steps and what started it", () => {
     const real = realTimes(base, T)!;
     const sim = withReal(simulate(G(), "own", null, real), real, G());
-    expect(Object.keys(sim.T)).toContain("decide"); // the Lab's estimate, as Lab mode draws it
+    expect(Object.keys(sim.T)).toContain("checks"); // the Lab's estimate, as Lab mode draws it (a solo text skips Decide now: triage sends it straight to Tex)
     const ran = onlyWhatRan(sim, G());
+    expect(Object.keys(ran.T)).not.toContain("checks");
     expect(Object.keys(ran.T)).not.toContain("decide");
     expect(Object.keys(ran.T)).not.toContain("react");
     expect(Object.keys(ran.T)).toContain("fd");

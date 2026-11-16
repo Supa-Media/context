@@ -86,12 +86,13 @@ test("a card on such a draft opens with how it really ran", () => {
   assert.deepEqual(ranAsOf({ asDrawn: false, says: "x.", wires: "draft" }, []).wires, "the draft's");
 });
 
-test("a card names what a source said when a wire into a step matched and it still did not run", () => {
+test("a lone text triage sends to the Queue skips Decide as the config's wires say", () => {
   const steps = [{ node: "triage", out: '{"to":"tex"}', ms: 0, ok: true }, { node: "lanes", out: "{}", ms: 200, ok: true }];
   const rows = [{ id: "t1", who: "You", text: "hi", at: 1 }, { id: "t1r", reply: "t1", who: "Tex", text: "hey", at: 2, ms: 1, steps }];
   const card = runCard({ rows, msgId: "t1", graph: TEX_CONFIG });
   const decide = card.notFired.find((n) => n.node === "decide");
-  assert.match(decide.why, /triage ran and said \[tex\].*logged no run/);
+  // The config says what the code does (Dev2, 2026-11-16): Triage sends a lone text straight to the Queue, never Decide.
+  assert.match(decide.why, /triage said \[tex\], the wait wire wants \[judge, running\]/);
   assert.ok(!card.notFired.some((n) => n.node === "lanes"), "the Queue ran: its wait is a step of the run");
 });
 
@@ -190,4 +191,17 @@ test("a failed nudge or reflect says where and why", () => {
     const names = TEX_CONFIG.nodes.find((n) => n.id === id).outSchema.map((f) => f.name);
     for (const k of ["outcome", "where", "error", "why", "model"]) assert.ok(names.includes(k), `${id} outSchema names ${k}`);
   }
+});
+
+test("a step whose wire matched but which logged no run says so, naming what its source said", () => {
+  const steps = [{ node: "triage", out: '{"to":"judge"}', ms: 0, ok: true }];
+  const rows = [{ id: "t1", who: "You", text: "hi", at: 1 }, { id: "t1r", reply: "t1", who: "Tex", text: "hey", at: 2, ms: 1, steps }];
+  const decide = runCard({ rows, msgId: "t1", graph: TEX_CONFIG }).notFired.find((n) => n.node === "decide");
+  assert.match(decide.why, /triage ran and said \[judge\].*logged no run: the code did not run it though the config says it does/);
+});
+
+test("Triage's wires follow where it sends a text: the judge to Decide, a lone text to the Queue", () => {
+  const into = (to) => TEX_CONFIG.edges.find((e) => e.from === "triage" && e.to === to).when;
+  assert.deepEqual(into("decide"), ["judge", "running"]);
+  assert.deepEqual(into("lanes"), ["tex"]);
 });
