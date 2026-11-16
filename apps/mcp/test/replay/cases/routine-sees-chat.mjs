@@ -19,6 +19,14 @@ export default {
       assert.match(brief.shown, /my piano lesson moved to Friday at 5/, "the routine is shown the chat a reply would be, the morning's first text included");
       assert.match(brief.shown, /Got it, Friday at 5\./, "and Tex's own reply to it");
       assert.match(brief.shown, /Crisp\./, "through the newest");
+      // 2026-11-16: a routine nobody answers any more kept texting. On live Tex's config its question is word for word as
+      // before: told nothing of its standing, however many runs went unanswered. On the simpler graph's Lab draft it is
+      // told and asks whether to keep it: `routineAsRoutine.test.mjs` and `routineEngagement.test.mjs` (a test chat's
+      // gate refuses this fixture's tokens, so the draft is not run here).
+      for (let i = 0; i < 3; i += 1) {
+        chat.wait(24 * 60 * 60_000);
+        assert.doesNotMatch((await chat.routine("routines/daily/brief.md", "Piano Friday at 5.")).shown, /gone stale|still want this routine/);
+      }
     } finally {
       chat.restore();
     }

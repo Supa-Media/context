@@ -65,13 +65,17 @@ export async function fdNode(input, io) {
         const name = entry?.tool?.name;
         if (typeof name !== "string" || typeof entry.call !== "function") return entry;
         calls.local.set(name, entry.call);
-        const call = name === ADVISOR_TOOL
+        // Main's config wires the advisor to the front door; a draft may make it one of the tools (Dev2, 2026-11-16:
+        // "isnt an advisor just another tool"), and Tools hands it on over its own wire.
+        const call = name === ADVISOR_TOOL && "advisor" in io.use
           ? (args, turnSoFar) => through(io.use.advisor, "local", name, args, turnSoFar)
           : (args, turnSoFar) => through(io.use.tools, "local", name, args, turnSoFar);
         return { ...entry, call };
       }),
     fallback: (spec) => {
-      if (spec === null || spec === undefined) return spec;
+      // A draft with no Fallback step keeps the fallback model as this step's own setting (Dev2, 2026-11-16), taken
+      // once, inside this step's model loop, when its model fails (`turn.js`); the turn's trace logs the switch.
+      if (spec === null || spec === undefined || !("fallback" in io.use)) return spec;
       calls.fallback = spec;
       return async (model) => (await io.use.fallback({ from: model }))?.model ?? null;
     },

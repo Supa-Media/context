@@ -12,7 +12,9 @@ import { borrowJob } from "./jobHandles.js";
 export function jobCheckOnGraph(graph) {
   return async ({ job, live, answer, exhausted = false, model, effort, request, meter }) => {
     if (job === null || typeof model !== "string" || typeof request !== "function") return null;
-    const output = await graph.fire("job", "jobcheck", { job, answer: typeof answer === "string" ? answer : "", exhausted: exhausted === true }, { jobCheck: { live, model, effort, request, meter } });
+    const input = { job, answer: typeof answer === "string" ? answer : "", exhausted: exhausted === true };
+    // A draft that draws the Job advisor runs the check as its `check` role (`nodes/jobadv.js`); main's config, Job check.
+    const output = graph.wired?.("job", "jobadv") ? await graph.fire("job", "jobadv", { role: "check", ...input }, { jobCheck: { live, model, effort, request, meter } }) : await graph.fire("job", "jobcheck", input, { jobCheck: { live, model, effort, request, meter } });
     return checkOf(output);
   };
 }
@@ -44,7 +46,9 @@ export function jobCheckFor(jobId, graph) {
   if (io === null) return jobCheckOnGraph(graph);
   return async ({ job, live, answer, exhausted = false, model, effort, request, meter }) => {
     if (job === null || typeof model !== "string" || typeof request !== "function") return null;
-    const output = await io.use.jobcheck({ job, answer: typeof answer === "string" ? answer : "", exhausted: exhausted === true }, { jobCheck: { live, model, effort, request, meter } });
+    const input = { job, answer: typeof answer === "string" ? answer : "", exhausted: exhausted === true };
+    const lend = { jobCheck: { live, model, effort, request, meter } };
+    const output = "jobadv" in io.use ? await io.use.jobadv({ role: "check", ...input }, lend) : await io.use.jobcheck(input, lend);
     return checkOf(output);
   };
 }

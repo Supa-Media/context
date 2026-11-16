@@ -384,7 +384,10 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     return (await runNode(to, input, ctx, `${from}:${wire.mode}`)).output;
   }
 
-  return { run, runNode, fire, order: (start) => orderFrom(config, start) };
+  /** Whether the config has a `from` -> `to` wire, so code that may fire either of two wires picks the one drawn. */
+  const wired = (from, to) => config.edges.some((e) => e.from === from && e.to === to);
+
+  return { run, runNode, fire, wired, order: (start) => orderFrom(config, start) };
 }
 
 /**

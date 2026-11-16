@@ -15,10 +15,18 @@
 import CONFIG from "../../../../packages/shared/src/texConfig.json" with { type: "json" };
 import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" with { type: "json" };
 import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
+import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
 import { TRAIN_ENTRY, moduleText } from "../../../../packages/shared/src/texTraining.cjs";
 import { sandboxGateOf } from "../labSandbox/policy.js";
 
 export const TEX_CONFIG = CONFIG;
+
+/**
+ * Steps on the shelf (`texNodeShelf.json`; Dev2, 2026-11-16: "for code changes, create the node inside the code first
+ * and merge it to main"): their code is merged and main's config has no node for them, so live Tex never runs them, and
+ * a Lab draft that draws them runs them (`withDraft`). Promote takes each off the shelf as it puts it in the config.
+ */
+export const SHELF_NODES = Object.freeze(Object.keys(SHELF.nodes ?? {}));
 
 /**
  * Tex's prompt words by module name: the repository's, from `packages/shared/src/texPrompt/<name>.md`
@@ -55,6 +63,17 @@ export function texStep(id, config = CONFIG) {
   const step = config.nodes.find((node) => node.id === id);
   if (!step) throw new Error(`texConfig: no step "${id}"`);
   return step;
+}
+
+/**
+ * The first of `ids` the config has, for a step that a Lab draft may fold into another (Dev2, 2026-11-16): the code of
+ * the reviewer reads `texPick(["answerCheck", "reviewer"], config)`, so a draft's Answer check sets it and main's config
+ * its Reply reviewer. Throws when it has none of them.
+ */
+export function texPick(ids, config = CONFIG) {
+  const id = ids.find((one) => config.nodes.some((node) => node.id === one));
+  if (id === undefined) throw new Error(`texConfig: no step "${ids.join('" or "')}"`);
+  return id;
 }
 
 /** The gateway model id a step runs on. */
@@ -100,10 +119,12 @@ export function texSetupFront(config = CONFIG) {
   const models = { main: texModel("fd", config), effort: fd.effort };
   if (job.effort !== fd.effort) models.job_effort = job.effort;
   if (advisor.on) Object.assign(models, { advisor: texModel("advisor", config), advisor_effort: advisor.effort });
-  if (texStep("fallback", config).on) models.fallback = texModel("fallback", config);
+  // A fallback model is the front door's own setting in a draft that sets it (Dev2, 2026-11-16); main's, the Fallback step.
+  if (typeof fd.fallback === "string" && typeof config.models[fd.fallback] === "string") models.fallback = config.models[fd.fallback];
+  else if (texStep("fallback", config).on) models.fallback = texModel("fallback", config);
   const front = { models };
   if (texStep("planner", config).on) front.plan_big_asks = "on";
-  front.reply_judge = texStep("reviewer", config).on ? "haiku" : "off";
+  front.reply_judge = texStep(texPick(["answerCheck", "reviewer"], config), config).on ? "haiku" : "off";
   return front;
 }
 
@@ -151,27 +172,53 @@ function draftStep(node, edit, config, words) {
   // A model main's table names (a Lab-only model has no gateway id, and Promote refuses it too); a code step stays code.
   if (node.model !== "code" && typeof edit.model === "string" && edit.model !== "code" && typeof config.models[edit.model] === "string") out.model = edit.model;
   if (typeof edit.effort === "string" && EFFORTS.has(edit.effort)) out.effort = edit.effort;
+  // The front door's fallback model, a model main's table names, or none (Dev2, 2026-11-16: a setting of the step).
+  if (node.id === "fd" && (edit.fallback === null || (typeof edit.fallback === "string" && typeof config.models[edit.fallback] === "string"))) out.fallback = edit.fallback;
   if (typeof edit.timeoutS === "number" && edit.timeoutS > 0 && edit.timeoutS <= MAX_TIMEOUT_S && node.timeoutS > 0) out.timeoutS = edit.timeoutS;
   // What the step reads, when every prompt module it names has words here or in the draft.
   if (Array.isArray(edit.ctx) && edit.ctx.every((entry) => typeof entry === "string" && (PROMPT_ENTRY.exec(entry) === null || typeof words[PROMPT_ENTRY.exec(entry)[1]] === "string"))) out.ctx = edit.ctx;
   return out;
 }
 
+/** A step the draft adds whose code is merged ahead (`SHELF_NODES`): as the draft draws it, its model main's table names. */
+function aheadStep(edit, config) {
+  const model = edit.model === "code" || typeof config.models[edit.model] === "string" ? edit.model : "haiku-5-5";
+  return { ...edit, model, on: edit.on !== false };
+}
+
+/** Whether every wire names a step of `ids` and has a mode, so a draft's wires can run as drawn. */
+const wiresRun = (edges, ids) => Array.isArray(edges) && edges.length > 0 && edges.every((e) => e && ids.has(e.from) && ids.has(e.to) && typeof e.mode === "string");
+
 /**
  * A Lab draft over the config, for a Lab test chat's turn only (`labSandbox/policy.js` `sandboxGateOf`): each step's
- * on/off, model, effort, time limit and context as the draft has them, the draft's prompt words as `words`, and its
- * wires when every one names a step this config has. What the gateway could not run is main's (`draftStep`). A real
- * turn's env carries no gate, so it never reaches here.
+ * on/off, model, effort, time limit and context as the draft has them, the draft's prompt words as `words`, the steps
+ * it adds whose code is merged ahead (`SHELF_NODES`) as it draws them, and its wires when every one names a step that
+ * can run. A step the draft takes out stays, for the settings code reads off it, but no wire of the draft reaches it, so
+ * it never runs as a step. What the gateway could not run is main's (`draftStep`). A real turn's env carries no gate,
+ * so it never reaches here.
  */
 export function withDraft(config, draft) {
   if (!draft || typeof draft !== "object" || !Array.isArray(draft.nodes)) return config;
-  const ids = new Set(config.nodes.map((node) => node.id));
-  const byId = new Map(draft.nodes.filter((node) => node && typeof node.id === "string").map((node) => [node.id, node]));
   const own = draftWords(draft.modules);
   const words = { ...TEX_PROMPT_WORDS, ...own };
-  const nodes = config.nodes.map((node) => draftStep(node, byId.get(node.id), config, words));
-  const wires = Array.isArray(draft.edges) && draft.edges.length > 0 && draft.edges.every((e) => e && ids.has(e.from) && ids.has(e.to) && typeof e.mode === "string") ? draft.edges : config.edges;
-  return { ...config, nodes, edges: wires, ...(Object.keys(own).length > 0 ? { words: own } : {}) };
+  const mains = new Set(config.nodes.map((node) => node.id));
+  const ahead = new Set(SHELF_NODES);
+  const drawn = draft.nodes.filter((node) => node && typeof node.id === "string");
+  const byId = new Map(drawn.map((node) => [node.id, node]));
+  const added = drawn.filter((node) => !mains.has(node.id) && ahead.has(node.id)).map((node) => aheadStep(node, config));
+  const stepped = [...config.nodes.map((node) => draftStep(node, byId.get(node.id), config, words)), ...added];
+  const runs = new Set(stepped.map((node) => node.id));
+  if (!wiresRun(draft.edges, runs)) return { ...config, nodes: stepped, ...(Object.keys(own).length > 0 ? { words: own } : {}) };
+  // The draft's wires run, so what they carry is the draft's too: each step's input and output shape as it draws them.
+  const shaped = (node) => {
+    const edit = byId.get(node.id);
+    if (!edit) return node;
+    const out = { ...node };
+    for (const key of ["inSchema", "outSchema"]) if (Array.isArray(edit[key])) out[key] = edit[key];
+    return out;
+  };
+  const groups = draft.groups && typeof draft.groups === "object" ? { groups: draft.groups } : {};
+  return { ...config, nodes: stepped.map(shaped), edges: draft.edges, ...groups, ...(Object.keys(own).length > 0 ? { words: own } : {}) };
 }
 
 /**
@@ -189,15 +236,18 @@ export function withDraft(config, draft) {
  */
 export function draftFit(config, draft) {
   if (!draft || typeof draft !== "object" || !Array.isArray(draft.nodes)) return { asDrawn: true };
-  const ids = new Set(config.nodes.map((node) => node.id));
+  const mains = new Set(config.nodes.map((node) => node.id));
+  const ahead = new Set(SHELF_NODES);
   const label = (node) => (typeof node?.label === "string" && node.label !== node.id ? `${node.id} (${node.label})` : node.id);
   const drawn = draft.nodes.filter((node) => node && typeof node.id === "string");
   const drawnIds = new Set(drawn.map((node) => node.id));
+  const ids = new Set([...mains, ...drawn.filter((node) => ahead.has(node.id)).map((node) => node.id)]); // what can run: main's steps, and the draft's built ahead
   const noCode = drawn.filter((node) => !ids.has(node.id)).map(label);
-  const removed = config.nodes.filter((node) => !drawnIds.has(node.id)).map(label);
   const edges = Array.isArray(draft.edges) ? draft.edges : [];
   const badWires = edges.filter((e) => !(e && ids.has(e.from) && ids.has(e.to) && typeof e.mode === "string")).map((e) => `${e?.from ?? "?"} → ${e?.to ?? "?"}`);
   const wires = edges.length > 0 && badWires.length === 0 ? "draft" : "main";
+  // A step the draft removes runs no more once its wires run: none reaches it. With main's wires, it still runs as main's.
+  const removed = wires === "draft" ? [] : config.nodes.filter((node) => !drawnIds.has(node.id)).map(label);
   const words = { ...TEX_PROMPT_WORDS, ...draftWords(draft.modules) };
   const unapplied = [];
   for (const node of config.nodes) {

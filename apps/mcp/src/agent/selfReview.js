@@ -42,7 +42,7 @@ import { readConversation } from "./conversation.js";
 import { groupMemoryPath, groupOf, readGroupMemory } from "./groupTurn.js";
 import { json } from "../http/responses.js";
 import { withArchitecture } from "./texArchitecture.js";
-import { texEffort, texModel } from "./texConfig.js";
+import { texEffort, texModel, texPick } from "./texConfig.js";
 
 /** Tex's config's self-review step (`texConfig.js`). */
 export const SELF_REVIEW_MODEL = texModel("selfreview");
@@ -230,12 +230,12 @@ export async function scoreConversation({ transcript, words, config, request = r
   try {
     reply = await request(
       {
-        model: texModel("selfreview", config?.tex),
+        model: texModel(texPick(["afterReply", "selfreview"], config?.tex), config?.tex),
         system: withArchitecture(words ? SYSTEM_FULL : SYSTEM_SCORES, "selfReview"),
         messages: [{ role: "user", text: `CONVERSATION\n\n${transcript}` }],
         tools: [],
         maxTokens: words ? REVIEW_MAX_TOKENS.full : REVIEW_MAX_TOKENS.scores,
-        ...texEffort("selfreview", config?.tex),
+        ...texEffort(texPick(["afterReply", "selfreview"], config?.tex), config?.tex),
       },
       config,
       { metadata },
