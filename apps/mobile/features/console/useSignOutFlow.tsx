@@ -43,11 +43,12 @@ const NO_QUEUE = { pending: 0, conflicted: 0, rejected: 0 };
  */
 export function useSignOutFlow(data: ConsoleData): {
   requestSignOut: () => void;
+  requestSignOutEverywhere: (signOutEveryDevice: () => Promise<unknown>) => Promise<void>;
   dialog: React.ReactNode;
 } {
   const router = useRouter();
   const { signOut } = useAuthActions();
-  const [discarding, setDiscarding] = useState<string | null>(null);
+  const [discarding, setDiscarding] = useState<Discarding | null>(null);
 
   const signOutNow = useCallback(() => {
     void (async () => {
@@ -60,43 +61,100 @@ export function useSignOutFlow(data: ConsoleData): {
 
   const live = data.files.sync;
   const selectedContextId = data.selectedContextId;
+  const warningNow = useCallback(async () => {
+    const elsewhere = await unsentOnDevice(
+      live?.ready === true ? selectedContextId : null,
+    );
+    const here = live?.counts ?? NO_QUEUE;
+    return signOutWarning(
+      {
+        pending: here.pending + elsewhere.pending,
+        conflicted: here.conflicted + elsewhere.conflicted,
+        rejected: here.rejected + elsewhere.rejected,
+      },
+      unsentMeetingAudio(),
+    );
+  }, [live, selectedContextId]);
+
   const requestSignOut = useCallback(() => {
     trackButton("sign_out");
     void (async () => {
-      const elsewhere = await unsentOnDevice(
-        live?.ready === true ? selectedContextId : null,
-      );
-      const here = live?.counts ?? NO_QUEUE;
-      const warning = signOutWarning(
-        {
-          pending: here.pending + elsewhere.pending,
-          conflicted: here.conflicted + elsewhere.conflicted,
-          rejected: here.rejected + elsewhere.rejected,
-        },
-        unsentMeetingAudio(),
-      );
+      const warning = await warningNow();
       if (warning === null) {
         signOutNow();
         return;
       }
-      setDiscarding(warning);
+      setDiscarding({ warning, everywhere: false, proceed: signOutNow, cancel: () => undefined });
     })();
-  }, [live, selectedContextId, signOutNow]);
+  }, [warningNow, signOutNow]);
+
+  /*
+    Sign out of every device, this one included (Dev2, 2026-11-16). The
+    question about unsent work comes first, while this session can still
+    answer it; the server then ends every session of the account in one
+    transaction (after "Check it's you", which the Convex client asks for and
+    retries on its own); only once it has does this device clear its copy and
+    leave. A refusal rejects the returned promise, so the button that asked
+    can say why, and nothing on this device has been cleared. Cancelling the
+    question resolves it with nothing done.
+  */
+  const requestSignOutEverywhere = useCallback(
+    (signOutEveryDevice: () => Promise<unknown>) =>
+      new Promise<void>((resolve, reject) => {
+        trackButton("sign_out_everywhere");
+        const proceed = () => {
+          void (async () => {
+            try {
+              await signOutEveryDevice();
+            } catch (failure) {
+              reject(failure);
+              return;
+            }
+            resolve();
+            signOutNow();
+          })();
+        };
+        void (async () => {
+          const warning = await warningNow();
+          if (warning === null) {
+            proceed();
+            return;
+          }
+          setDiscarding({ warning, everywhere: true, proceed, cancel: resolve });
+        })();
+      }),
+    [warningNow, signOutNow],
+  );
 
   return {
     requestSignOut,
+    requestSignOutEverywhere,
     dialog:
       discarding === null ? null : (
         <Confirm
-          title="Sign out with work still on this device?"
-          body={`${discarding} Your bucket is untouched.`}
-          confirmLabel="Sign out and discard"
-          onCancel={() => setDiscarding(null)}
+          title={
+            discarding.everywhere
+              ? "Sign out everywhere with work still on this device?"
+              : "Sign out with work still on this device?"
+          }
+          body={`${discarding.warning} Your bucket is untouched.`}
+          confirmLabel={discarding.everywhere ? "Sign out everywhere and discard" : "Sign out and discard"}
+          onCancel={() => {
+            setDiscarding(null);
+            discarding.cancel();
+          }}
           onConfirm={() => {
             setDiscarding(null);
-            signOutNow();
+            discarding.proceed();
           }}
         />
       ),
   };
 }
+
+type Discarding = {
+  warning: string;
+  everywhere: boolean;
+  proceed: () => void;
+  cancel: () => void;
+};

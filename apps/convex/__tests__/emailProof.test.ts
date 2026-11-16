@@ -257,6 +257,16 @@ describe("a device signed in with only a texted code cannot", () => {
     expect(errorCode(await captureError(() => view.mutation(api.functions.emailProof.signOutOthers, {})))).toBe(PROOF);
     expect(await t.run((ctx) => ctx.db.get(mine.sessionId))).not.toBeNull();
   });
+
+  test("sign out every device, this one included", async () => {
+    const t = setupTest();
+    const ada = await createUser(t, "ada@home.example");
+    const mine = await prove(t, ada);
+    const { view, sessionId } = await asPhoneOnly(t, ada);
+    expect(errorCode(await captureError(() => view.mutation(api.functions.emailProof.signOutEverywhere, {})))).toBe(PROOF);
+    expect(await t.run((ctx) => ctx.db.get(mine.sessionId))).not.toBeNull();
+    expect(await t.run((ctx) => ctx.db.get(sessionId))).not.toBeNull();
+  });
 });
 
 describe("what a phone alone still does", () => {
@@ -325,6 +335,25 @@ describe("after the code", () => {
     expect(await thief.view.query(api.functions.emailProof.mySessions, {})).toEqual([]);
     expect(errorCode(await captureError(() => thief.view.mutation(api.functions.emailProof.signOutOthers, {})))).toBe("NOT_AUTHENTICATED");
     expect((await mine.view.query(api.functions.emailProof.mySessions, {})).map((s) => s.current)).toEqual([true]);
+  });
+
+  test("signing out everywhere ends every session of the account, this one too, and nobody else's", async () => {
+    const t = setupTest();
+    const ada = await createUser(t, "ada@home.example");
+    const bob = await createUser(t, "bob@home.example");
+    const bobs = await asPhoneOnly(t, bob);
+    const other = await asPhoneOnly(t, ada);
+    const mine = await prove(t, ada);
+    expect(await mine.view.mutation(api.functions.emailProof.signOutEverywhere, {})).toEqual({ signedOut: 2 });
+    expect(await t.run((ctx) => ctx.db.get(other.sessionId))).toBeNull();
+    expect(await t.run((ctx) => ctx.db.get(mine.sessionId))).toBeNull();
+    // Its own refresh tokens and proof go with it: the proof cannot be reused.
+    expect(await t.run((ctx) => ctx.db.query("emailProofs").withIndex("by_session", (q) => q.eq("sessionId", mine.sessionId)).first())).toBeNull();
+    expect(await t.run((ctx) => ctx.db.query("authRefreshTokens").withIndex("sessionId", (q) => q.eq("sessionId", mine.sessionId)).first())).toBeNull();
+    expect(await t.run((ctx) => ctx.db.get(bobs.sessionId))).not.toBeNull();
+    // The access tokens both devices still hold read as nobody from now on.
+    expect(await mine.view.query(api.functions.emailProof.mySessions, {})).toEqual([]);
+    expect(errorCode(await captureError(() => other.view.mutation(api.functions.emailProof.signOutEverywhere, {})))).toBe("NOT_AUTHENTICATED");
   });
 
   test("signing out one device leaves the others, and never someone else's", async () => {
