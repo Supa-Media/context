@@ -10,7 +10,8 @@ import { mkdtemp, mkdir, readdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { SETS_DIR, loadSets, loadContract, problemsOf, ratioCheck } from "../bench/sets.mjs";
+import { SETS_DIR, conversationFile, loadSets, loadContract, problemsOf, ratioCheck } from "../bench/sets.mjs";
+import { readFileSync } from "node:fs";
 
 const { config, why } = loadContract();
 const SETS = ["training", "dev", "test"];
@@ -101,4 +102,16 @@ test("ratioCheck with a Test count uses all three sets", () => {
   const fails = ratioCheck(convs, 0);
   assert.equal(fails.holds, false);
   assert.match(fails.line, /does not hold/);
+});
+
+test("a conversation file is one line per field and per message, and every repo file is written that way", async () => {
+  const c = { id: "x", title: "X", set: "dev", kind: "one", members: ["Jo"], msgs: [{ id: "m1", who: "Jo", text: `hi ${String.fromCharCode(0x2068)}there${String.fromCharCode(0x2069)}` }, { id: "m2", who: "Tex", tex: true, text: "hey" }] };
+  const text = conversationFile(c);
+  assert.deepEqual(JSON.parse(text), c);
+  assert.equal(text.split("\n").length, 1 + 5 + 1 + 2 + 2 + 1, "the brace, five fields, the msgs bracket, one line per message, the two closes, the final newline");
+  assert.doesNotMatch(text, /[\u2066-\u2069]/, "invisible characters are escapes");
+  for (const conv of await loadSets()) {
+    const file = readFileSync(join(SETS_DIR, conv.set, `${conv.id}.json`), "utf8");
+    assert.equal(file, conversationFile(JSON.parse(file)), `${conv.id} is written as conversationFile writes it`);
+  }
 });

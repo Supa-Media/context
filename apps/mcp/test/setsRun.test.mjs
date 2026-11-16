@@ -246,13 +246,14 @@ test("setsCommand refuses another subcommand and a file that is not a list", asy
   }
 });
 
-test("the fake run gets the repo's Dev Set right for decide and reviewer, and runs every one of them", async () => {
-  const dev = REPO.sets.filter((c) => c.set === "dev");
+test("the fake run gets the repo's conversations right for decide and reviewer, and runs every one of them", async () => {
+  // Training and Dev together: which set holds a node's labels moves with the ratio, the runner's job does not.
+  const dev = REPO.sets;
   const rows = await runSets(dev, { tree: REPO_ROOT, fake: true });
   for (const node of ["decide", "reviewer"]) {
     const mine = rows.filter((r) => r.node === node);
     const expected = dev.reduce((n, c) => n + unitTests(c).filter((t) => t.node === node).length, 0);
-    assert.ok(expected > 0, `the Dev Set has ${node} unit tests`);
+    assert.ok(expected > 0, `the repo has ${node} unit tests`);
     assert.equal(mine.length, expected);
     assert.deepEqual(
       mine.filter((r) => !r.right || !r.ran).map((r) => [r.chat, r.msg, r.why]),

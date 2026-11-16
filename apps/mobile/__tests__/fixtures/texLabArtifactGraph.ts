@@ -10,7 +10,13 @@ import artifact from "./texLabArtifactGraph.json";
 
 export function artifactGraphModule() {
   const actual = jest.requireActual<typeof import("../../features/tex/lab/data/graph")>("../../features/tex/lab/data/graph");
-  const mainGraph0 = (): LabGraph => JSON.parse(JSON.stringify(artifact)) as LabGraph;
+  // Decide's examples at the size the artifact's were (main's 26 judge examples, 6,200 characters, 2026-11-15), so a
+  // Training Set that grows does not move the artifact's own times and costs.
+  const mainGraph0 = (): LabGraph => {
+    const g = JSON.parse(JSON.stringify(artifact)) as LabGraph;
+    g.modules = { ...(g.modules || {}), "train:decide": { ...(g.modules?.["train:decide"] || {}), tok: 1550 } } as LabGraph["modules"];
+    return g;
+  };
   const mainGraph = (): LabGraph => {
     const g = mainGraph0();
     for (const n of g.nodes) {

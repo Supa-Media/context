@@ -4,7 +4,7 @@
  * the Lab. Scoped under `.tl .tst`; `labCss2.ts` appends it.
  */
 export const LAB_CSS_3 = String.raw`
-.tl .body.testing{grid-template-columns:minmax(0,1fr)}
+.tl .body.testing{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
 .tl .bar .ratio{margin-left:8px}
 .tl .tst .plan{color:var(--accent)}
 .tl .tst{--star:#C27C0E;--tbub:var(--accent-dim);height:100%;display:grid;grid-template-rows:minmax(0,1fr);font-size:13px;line-height:1.45;padding:10px;gap:10px;background:var(--chrome)}

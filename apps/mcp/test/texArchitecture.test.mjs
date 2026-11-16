@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { ROLES, TEX_MAP, architectureFor, withArchitecture } from "../src/agent/texArchitecture.js";
+import { ROLES, TEX_MAP, architectureFor, trainingFor, withArchitecture } from "../src/agent/texArchitecture.js";
 import { replyJudge } from "../src/agent/replyJudge.js";
 import { backgroundedBrief } from "../src/machines/jobBackground.js";
 import { mapFor } from "../../../scripts/tex-architecture.mjs";
@@ -34,7 +34,9 @@ test("every role names a node of the config, and says where it is", () => {
 test("the map goes ahead of an agent's own prompt, the same bytes every call", () => {
   const a = withArchitecture("Answer in JSON.", "reviewer");
   assert.ok(a.startsWith("HOW TEX WORKS"));
-  assert.ok(a.endsWith("Answer in JSON."), "the agent's own instructions stay last");
+  // The agent's own instructions come after the map, followed only by its Training examples when it has any.
+  const training = trainingFor("reviewer");
+  assert.ok(a.endsWith(training === "" ? "Answer in JSON." : `Answer in JSON.\n\n---\n\n${training}`), "the agent's own instructions stay last, before only its examples");
   assert.equal(a, withArchitecture("Answer in JSON.", "reviewer"));
 });
 
