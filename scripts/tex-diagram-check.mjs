@@ -18,6 +18,10 @@
  *   5. With `--base <sha>` (a pull request): a change to `texEntryPoint.js`, a file under `texEntryPoint/`, or any
  *      node's file must change the config too, unless the pull request's description (env `TEX_PR_BODY`) has a line
  *      `Tex diagram: unchanged because <reason>`.
+ *   6. Every step the Lab's test chat records by a name of its own (`apps/mcp/src/labSandbox/`: `book.line("x"` and
+ *      `book.begin({ node: "x"`) is a node of the config, or one of `LAB_TRANSPORT`, the simulated phone line a test
+ *      text goes over (Dev2, 2026-11-16: "pretend it's a Photon iMessage thing"). Those are the sandbox's transport, not
+ *      Tex: none may be a node id, and the list in `labSandbox/steps.js` (`TRANSPORT_STEPS`) must be this one.
  *
  * Usage:
  *   node scripts/tex-diagram-check.mjs                 checks 1 to 4
@@ -61,6 +65,34 @@ const PROMPT_CARRIERS = new Set(["aiGateway.js", "builtin.js", "turn.js", "turnP
 const GIVES_A_PROMPT = /\bsystem:\s*(?!\[)/;
 const WITH_MAP = /\b(?:withArchitecture|architectureFor)\(/;
 const UNCHANGED = /^\s*Tex diagram: unchanged because \S.{3,}/im;
+
+/** The Lab test chat's own steps that are no node of the config: its simulated phone line, in and out (`labSandbox/line.js`). */
+export const LAB_TRANSPORT = Object.freeze(["lineIn", "lineOut"]);
+const LAB_FOLDER = "apps/mcp/src/labSandbox";
+const LAB_STEP = /\bbook\.(?:line\(\s*"([A-Za-z]+)"|begin\(\s*\{\s*node:\s*"([A-Za-z]+)")/g;
+const LAB_LIST = /TRANSPORT_STEPS\s*=\s*Object\.freeze\(\[([^\]]*)\]\)/;
+
+/**
+ * Problems with the Lab test chat's own step names (`files`: `{ path, source }` under `LAB_FOLDER`): one that is neither
+ * a node nor transport, transport that became a node, or a transport list in the code that is not `LAB_TRANSPORT`.
+ */
+export function transportProblems(files, config, transport = LAB_TRANSPORT) {
+  const ids = new Set(config.nodes.map((n) => n.id));
+  const problems = [];
+  for (const name of transport) if (ids.has(name)) problems.push(`${name} is the Lab's simulated line, not Tex, but ${CONFIG} has a node by that name: rename one`);
+  for (const { path, source } of files) {
+    for (const match of source.matchAll(LAB_STEP)) {
+      const name = match[1] ?? match[2];
+      if (!ids.has(name) && !transport.includes(name)) problems.push(`${LAB_FOLDER}/${path} records a step "${name}" that is no node of ${CONFIG} and not the Lab's transport (LAB_TRANSPORT in scripts/tex-diagram-check.mjs)`);
+    }
+    const listed = source.match(LAB_LIST);
+    if (listed) {
+      const names = [...listed[1].matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]);
+      if (names.join() !== transport.join()) problems.push(`${LAB_FOLDER}/${path} lists the transport steps as ${names.join(", ")}, not ${transport.join(", ")}: change both or neither`);
+    }
+  }
+  return problems;
+}
 
 /** Problems with the agents' prompts: one that gives a model a system prompt without the drawing. */
 export function mapProblems(files) {
@@ -167,6 +199,8 @@ function check(base) {
   problems.push(...modelFileProblems(naming, config, Object.values(shelf.nodes ?? {}).flatMap((n) => n.files ?? [])));
   const agentFiles = filesUnder(join(ROOT, AGENT_FOLDER)).map((file) => ({ path: relative(join(ROOT, AGENT_FOLDER), file), source: readFileSync(file, "utf8") }));
   problems.push(...mapProblems(agentFiles));
+  const labFiles = filesUnder(join(ROOT, LAB_FOLDER)).map((file) => ({ path: relative(join(ROOT, LAB_FOLDER), file), source: readFileSync(file, "utf8") }));
+  problems.push(...transportProblems(labFiles, config));
   if (!promptIsCurrent(ROOT)) problems.push(`${PROMPT_MODULE} is not what ${PROMPT_FOLDER}/*.md make: run node scripts/tex-prompt-module.mjs`);
   try {
     if (!trainingIsCurrent(ROOT)) problems.push(`${TRAINING_MODULE} is not what ${TRAINING_FOLDER}/*.json make: run node scripts/tex-training-module.mjs`);
@@ -207,6 +241,12 @@ function selfTest() {
   expect(mapProblems([{ path: "judge.js", source: "request({ system: SYSTEM })" }]).length === 1, "a prompt without the map passed");
   expect(mapProblems([{ path: "judge.js", source: "request({ system: withArchitecture(SYSTEM, \"x\") })" }]).length === 0, "a prompt with the map refused");
   expect(mapProblems([{ path: "aiGateway.js", source: "{ system: systemText }" }]).length === 0, "the transport refused");
+  const lab = (source) => [{ path: "chatRun.js", source }];
+  expect(transportProblems(lab('book.line("lineIn", {}); book.begin({ node: "send" })'), config).length === 0, "the line's steps or a node refused");
+  expect(transportProblems(lab('book.begin({ node: "shadowStep" })'), config).length === 1, "a sandbox step that is no node passed");
+  expect(transportProblems(lab('book.line("lineSideways", {})'), config).length === 1, "an unlisted line step passed");
+  expect(transportProblems(lab('export const TRANSPORT_STEPS = Object.freeze(["lineIn"]);'), config).length === 1, "a transport list out of step passed");
+  expect(transportProblems([], { ...config, nodes: [...config.nodes, node("lineIn")] }).length === 1, "transport that became a node passed");
   console.log("tex-diagram-check self-test: ok");
 }
 

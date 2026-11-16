@@ -20,11 +20,13 @@ import { emit, lab, toast } from "../../engine/state";
 import { traceMine } from "../../engine/traces";
 
 let source: TexPageSource | null = null;
+/** The signed-in person's own ledger source (set once `MineLoader` has their workspace), for reading a real text's run (`playProd.ts`). */
+export const ledgerSource = (): TexPageSource | null => source;
 /** Every text and reply entry read so far, so an older page joins the texts it continues. */
 let seen: LedgerEntry[] = [];
 let reading = false;
 
-/** The chats they can replay, from the Tex page's chat picker: their one-to-one first, then their group chats. */
+/** The chats they can read, from the Tex page's chat picker: their one-to-one first, then their group chats. */
 export async function readMyChats() {
   if (!source) return;
   const r = await source.overview("me", "chats");
@@ -40,7 +42,6 @@ export function pickChat(key: string) {
   lab.myChat = key;
   seen = [];
   detail.clear();
-  detailDays.clear();
   lab.moment = null;
   lab.myTexts = null;
   lab.myLines = [];
@@ -84,49 +85,13 @@ export async function readMyTexts(older = false) {
   if (chat !== lab.myChat && lab.myTexts === null) void readMyTexts();
 }
 
-/**
- * Replay keeps up with the chat as it goes (Dev2, 2026-11-14: "these chats don't update in real time"): the newest page
- * of texts and replies joins what was read, and today's steps are read again from the newest back, so a text, a
- * check-in or a routine shows up, with its run, within one look.
- */
-export async function refreshChat() {
-  if (!source || reading || !Array.isArray(lab.myTexts)) return;
-  await readMyTexts();
-  const today = new Date().toLocaleDateString("en-CA");
-  detailDays.delete(lab.myChat + "|" + today);
-  await readMomentDetail(Date.now());
-}
-
 const PAGES_BACK = 6;
 
-/** Each step, judging, tool call and thought read for Replay so far, by entry id. */
+/** Each step, judging, tool call and thought read so far (a background job's work), by entry id. */
 const detail = new Map<string, LedgerEntry>();
-const detailDays = new Set<string>();
 
-/** Everything read from the chat so far: texts and replies, and Replay's details. */
+/** Everything read from the chat so far: texts and replies, and the details read for a job. */
 export const replayEntries = (): LedgerEntry[] => [...seen, ...detail.values()];
-
-/**
- * Replay a moment: read the details of the day it happened (the texting Worker's judgings, the turns' steps, tool
- * calls and thoughts), page by page back to its first text, once per chat and day.
- */
-export async function readMomentDetail(at: number) {
-  if (!source) return;
-  const chat = lab.myChat;
-  const day = new Date(at).toLocaleDateString("en-CA");
-  if (detailDays.has(chat + "|" + day)) return;
-  detailDays.add(chat + "|" + day);
-  let before = LATEST;
-  for (let i = 0; i < PAGES_BACK; i++) {
-    const r = await source.ledger(chat, { kinds: DETAIL_KINDS, day, before });
-    if (r.kind !== "ok" || chat !== lab.myChat) break;
-    for (const e of r.value.entries) detail.set(e.id, e);
-    const oldest = Math.min(...r.value.entries.map((e) => e.at));
-    if (r.value.older === undefined || !(oldest > at - 60_000)) break;
-    before = r.value.older;
-  }
-  emit();
-}
 
 /** Jobs whose work was read, by chat and job id. */
 const jobsRead = new Set<string>();

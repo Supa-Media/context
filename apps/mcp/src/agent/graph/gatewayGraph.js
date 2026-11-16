@@ -16,8 +16,8 @@ import { GATEWAY_NODES } from "./gatewayNodes.js";
  * One turn's graph. `writer` is the chat's ledger writer (`ledgerWriter`, `sessionLedger`), `turn` the turn's id,
  * `background` where a background wire's run goes (the request's `waitUntil`); `config` a turn's own copy of the config
  * (`turnGraph.js`, a setup's switches flipped), `log` a turn's own log in place of one write a run (`turnGraph.js` batches
- * them), `nodes` only for tests.
+ * them), `onStart` each run as it starts (a Lab test chat's running steps, `labSandbox/steps.js`), `nodes` only for tests.
  */
-export function gatewayGraph({ writer = null, turn = null, background = null, nodes = GATEWAY_NODES, config = TEX_CONFIG, log = null, now = Date.now } = {}) {
-  return createGraph(config, nodes, { log: log ?? nodeLog(writer, { turn }), background, now });
+export function gatewayGraph({ writer = null, turn = null, background = null, nodes = GATEWAY_NODES, config = TEX_CONFIG, log = null, now = Date.now, onStart = null } = {}) {
+  return createGraph(config, nodes, { log: log ?? nodeLog(writer, { turn }), background, now, onStart });
 }

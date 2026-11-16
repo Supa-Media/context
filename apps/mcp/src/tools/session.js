@@ -5,6 +5,7 @@
  */
 
 import { sandboxGateOf, toolAnswer } from "../labSandbox/policy.js";
+import { afterRead } from "../labSandbox/sandboxTools.js";
 import { withMailFooter } from "../mail/footer.js";
 import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity.js";
 import { activityHintOf } from "../live/activityHint.js";
@@ -262,10 +263,11 @@ function advertisesTeamConfirmation(name) {
 export async function callToolForSession(params, store, session, options = {}) {
   const { error, params: call, v2 } = options.legacy ? { params, v2: null } : translateV2Params(params, store); // v2 → the existing call, before any gate
   if (error) return toolError(error);
-  // A Lab test chat's turn (`labSandbox/policy.js`): a tool that is not a read is recorded there and never runs.
+  // A Lab test chat's turn (`labSandbox/policy.js`): a tool that is not a read is done in the test chat, refused or
+  // recorded there, and never runs here; a read of a note the test chat wrote is answered from it.
   const sandbox = sandboxGateOf(store?.env) ?? session?.labSandbox ?? null;
   if (sandbox !== null) {
-    const stubbed = toolAnswer(canonicalToolName(call?.name), call?.arguments, sandbox);
+    const stubbed = await toolAnswer(canonicalToolName(call?.name), call?.arguments, sandbox);
     if (stubbed !== null) return stubbed;
   }
   // A job part on the person's computer never reaches outside, by either the v2 name or the tool it translated to.
@@ -283,6 +285,8 @@ export async function callToolForSession(params, store, session, options = {}) {
     return inWordsOf(v2, await readNotesAcross(call.arguments, (args) => callToolForSession({ name: "read_notes", arguments: args }, store, session, { ...options, legacy: true })));
   }
   const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed, options));
+  // A real read in a Lab test chat, with what its turns wrote put in (`labSandbox/sandboxTools.js`).
+  if (sandbox !== null && typeof sandbox.call === "function") return inWordsOf(v2, await afterRead(canonicalToolName(call?.name), call?.arguments, result, sandbox));
   return inWordsOf(v2, result);
 }
 

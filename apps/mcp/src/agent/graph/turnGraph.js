@@ -87,6 +87,8 @@ export async function runTurnGraph(t) {
   const graph = gatewayGraph({
     config,
     log: log.keep,
+    // A Lab test chat's turn shows each node as it starts, running (`labSandbox/steps.js`); never set on a real turn.
+    onStart: sandboxGateOf(t.env)?.onStart ?? null,
     // A background wire's run is ours, not the person's: kept alive after the response, and its log flushed then.
     background: (running) => void t.tex.after("graph_background", running.finally(() => (log.write(), t.chatLog?.flush?.()))),
   });

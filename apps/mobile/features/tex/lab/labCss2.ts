@@ -57,15 +57,8 @@ export const LAB_CSS_2 = String.raw`
 .tl .tcc.z rect,.tl .ckc.z rect{fill:var(--page);stroke:var(--warn);stroke-dasharray:3 2}
 .tl .tcc.z text,.tl .ckc.z text{fill:var(--warn);font-size:13px;font-weight:600}
 .tl .tcc.z{cursor:pointer}.tl .tcc.z:hover rect{fill:var(--warn-wash)}
-.tl .nd.chg-same{opacity:.45}
-.tl .nd.chg-changed .card{stroke:var(--warn);stroke-width:2.5}
+.tl .nd .chgo{fill:var(--chg-wash);stroke:var(--chg);stroke-width:2;pointer-events:none}
 .tl .nd.chg-new .card{stroke:var(--ok);stroke-width:2.5}
-.tl .mk circle{stroke:var(--page);stroke-width:2}.tl .mk text{font:700 13px var(--f);fill:var(--page)}
-.tl .mk-changed circle{fill:var(--warn)}.tl .mk-new circle{fill:var(--ok)}.tl .mk-removed circle{fill:var(--bad)}
-.tl .mtag text{font:600 10.5px var(--f)}
-.tl .mtag-changed rect{fill:var(--page);stroke:var(--warn)}.tl .mtag-changed text{fill:var(--warn)}
-.tl .mtag-new rect{fill:var(--page);stroke:var(--ok)}.tl .mtag-new text{fill:var(--ok)}
-.tl .was{font:11px var(--f);fill:var(--muted)}
 .tl .rmv .card{fill:var(--bad-wash);stroke:var(--bad);stroke-width:2;stroke-dasharray:6 5}
 .tl .rmv .ttl{font-size:13px;font-weight:600;fill:var(--bad);text-decoration:line-through}.tl .rmv .sub{font-size:11px;fill:var(--bad)}
 .tl .rmv.ghost{opacity:.6}.tl .rmv.ghost .card{stroke-width:1.5}
@@ -73,7 +66,6 @@ export const LAB_CSS_2 = String.raw`
 .tl .ghostn .ttl{font-size:13px;font-weight:600;fill:var(--muted)}.tl .ghostn .sub{font-size:11px;fill:var(--muted)}
 .tl .ghostn,.tl .rmv{pointer-events:visiblePainted}
 .tl .wire.wnew{stroke:var(--ok);stroke-width:2.6;opacity:1}
-.tl .wire.wsame{opacity:.3}
 .tl .wire.wgone{stroke:var(--bad);stroke-width:1.8;stroke-dasharray:6 5;opacity:.85}
 .tl .chgbar{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .tl .segs{display:flex;background:var(--s3);border-radius:9px;padding:3px;gap:2px}

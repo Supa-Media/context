@@ -63,16 +63,17 @@ export type LabState = {
   myChats: Array<{ key: string; name: string; people?: number }> | null;
   /** The chat whose texts are read: "me" or a group's key. */
   myChat: string;
-  /** That chat's whole conversation so far, oldest first, for Replay. */
+  /** That chat's whole conversation so far, oldest first. */
   myLines: ChatLine[];
   /**
-   * The Lab, where a version is changed; Replay, where a real chat is watched as it ran and nothing changes; or
-   * Testing, where the Training, Dev and Test conversations are curated and labelled (Dev2, 2026-11-15).
+   * The Lab, where a version is changed and a real or test chat is played (Replay is part of it since Lab live
+   * sandbox, Dev2 2026-11-16: `engine/prodRun.ts`); or Testing, where the Training, Dev and Test conversations are
+   * curated and labelled (Dev2, 2026-11-15).
    */
-  mode: "lab" | "replay" | "testing";
+  mode: "lab" | "testing";
   /** In Testing, the conversation open: its id, or null for the first one. */
   setChat: string | null;
-  /** The moment Replay shows: its first text's entry id. */
+  /** The real text an address points at: its entry id (an old Replay link's moment). */
   moment: string | null;
   /** Their texts read so far, newest first; null before the first read, "failed" when it could not be read. */
   myTexts: MyText[] | null | "failed";
@@ -91,7 +92,43 @@ export type LabState = {
   chgVs: "main" | number;
   /** The draft as it was before revision `rev`, read from the server for "last rev". */
   revBase: { rev: number; graph: LabGraph } | null;
+  /**
+   * How fast every playback runs, a text you send included (Dev2, 2026-11-16, Lab live sandbox mockup
+   * https://claude.ai/artifact/XtEn67XPWMTFVUBYanYLG5): ¼×, ½×, 1×, 2× or 4×, ½× at first, kept for the browser session.
+   * Tex itself always runs at real speed; a playback of a text still running trails it and never shows a step early.
+   */
+  speed: PlaySpeed;
+  /**
+   * A node was clicked: the step panel stays on it. False (the default) it follows the step running in the playing or
+   * live test text; "Follow running" in the panel sets it back.
+   */
+  pin: boolean;
+  /** The step panel's card ("run" = Run details, "set" = Settings; null picks Run details when a text has run) and its Run details tab. */
+  card: "run" | "set" | null;
+  runTab: "sum" | "out" | "in" | "think" | "calls";
 };
+
+export const PLAY_SPEEDS = [0.25, 0.5, 1, 2, 4] as const;
+export type PlaySpeed = (typeof PLAY_SPEEDS)[number];
+const SPEED_KEY = "texLab.speed";
+/** The speed kept for this browser session, or ½×. */
+export function savedSpeed(): PlaySpeed {
+  try {
+    const v = Number(sessionStorage.getItem(SPEED_KEY));
+    return (PLAY_SPEEDS as readonly number[]).includes(v) ? (v as PlaySpeed) : 0.5;
+  } catch {
+    return 0.5;
+  }
+}
+/** Sets the play speed for the session. */
+export function setSpeed(v: PlaySpeed) {
+  try {
+    sessionStorage.setItem(SPEED_KEY, String(v));
+  } catch {
+    /* private window: the speed lasts until reload */
+  }
+  set({ speed: v });
+}
 
 export const lab: LabState = {
   versions: [MAIN],
@@ -138,6 +175,10 @@ export const lab: LabState = {
   chg: "marks",
   chgVs: "main",
   revBase: null,
+  speed: savedSpeed(),
+  pin: false,
+  card: null,
+  runTab: "sum",
 };
 
 let version = 0;
@@ -342,6 +383,8 @@ export function delSel() {
   const sel = lab.sel;
   if (!sel) return;
   if (sel.t === "node") {
+    // The test chat's line is no step of the graph (`lineSteps.ts`): nothing to delete, and no draft to start.
+    if (sel.id === "lineIn" || sel.id === "lineOut") return;
     if (["text", "send"].includes(sel.id)) {
       toast("Every version needs a start and a send");
       return;

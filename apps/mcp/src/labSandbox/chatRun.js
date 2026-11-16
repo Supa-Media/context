@@ -39,18 +39,25 @@ import { decorateRequestStore } from "../http/requestStore.js";
 import { attachLinkCalls } from "../http/routing.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { sessionFromPayload, storeForSession } from "../session.js";
-import { callSandbox } from "./object.js";
+import { callSandbox, SANDBOX_TTL_MS } from "./object.js";
 import { sandboxEnvOf } from "./policy.js";
 import { sandboxNamespace } from "./wire.js";
 import { sandboxGate, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { attachmentsOf, pictureFetch } from "./inbound.js";
+import { hold, lineOf, rowLine } from "./line.js";
+import { JOB_LIMIT_MS, runJobs, sandboxInboxes } from "./jobs.js";
+import { assetId, assetUrl } from "./sandboxTools.js";
+import { fitSteps } from "./steps.js";
 
 /** The made-up addresses the chat object calls; no request to either leaves this file. */
 export const LAB_GATEWAY = "https://lab-gateway.invalid";
 export const LAB_CONTROL_PLANE = "https://lab-control-plane.invalid";
 /** The secret the chat object signs control-plane calls with here: never the Worker's. */
 export const LAB_WORKER_SECRET = "lab-sandbox-no-secret";
-/** Tex's line in a test chat, and the numbers its people text from: reserved fiction numbers (555-01xx). */
+/**
+ * Tex's line in a test chat when no line is named (tests), and the numbers its people text from: reserved fiction
+ * numbers (555-01xx). A test text runs on its test chat's line (`line.js`), Tex's new Photon number.
+ */
 export const LAB_LINE = "+15555550100";
 /** The chat object's storage is kept between texts up to this size; a bigger one starts the next text fresh. */
 const KEEP_BYTES = 1_500_000;
@@ -62,10 +69,10 @@ const ALARM_NEAR_MS = 30_000;
 const WORKER_STEPS = new Set(["text", "oldLine", "triage", "decide", "recheck", "lane", "react", "send", "edit"]);
 const STEP_NODE = Object.freeze({ lane: "lanes", recheck: "decide" });
 
-/** One of the chat object's own steps (`stepEvents.ts` `logStep`) as the Lab's row shows it, or null for another event. */
+/** One of the chat object's own steps (`stepEvents.ts` `logStep`), whole, as the step book keeps it; null for another event. */
 function workerStep(step) {
   if (!WORKER_STEPS.has(step?.name)) return null;
-  return { node: STEP_NODE[step.name] ?? step.name, out: outOf(step.output), ms: Number.isFinite(step.ms) ? step.ms : 0, ok: step.ok !== false };
+  return { node: STEP_NODE[step.name] ?? step.name, ...(step.input !== undefined ? { in: step.input } : {}), out: step.output ?? null, ms: Number.isFinite(step.ms) ? step.ms : 0, ok: step.ok !== false };
 }
 
 const randomHex = (bytes) => [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -174,34 +181,28 @@ export function chatStepsOf(entries, { own = null, since = 0 } = {}) {
   if (!worker.some(({ step }) => step?.node === "lanes")) {
     for (const reply of list.filter((entry) => entry?.kind === "reply" && Number.isFinite(entry.timing?.waitMs))) {
       const first = Math.min(...graph.map((g) => g.at), reply.at ?? 0);
-      queued.push({ at: first - 0.5, step: { node: "lanes", out: outOf({ waitedMs: reply.timing.waitMs, from: "the turn's logged wait" }), ms: reply.timing.waitMs, ok: true } });
+      queued.push({ at: first - 0.5, step: { node: "lanes", out: { waitedMs: reply.timing.waitMs, from: "the turn's logged wait" }, ms: reply.timing.waitMs, ok: true } });
     }
   }
   return [...worker, ...queued, ...graph].sort((a, b) => a.at - b.at).map(({ step }) => step);
 }
 
-function outOf(value) {
-  if (value === undefined || value === null) return null;
-  let text;
-  try {
-    text = typeof value === "string" ? value : JSON.stringify(value);
-  } catch {
-    text = String(value);
-  }
-  return text.length > 600 ? `${text.slice(0, 600)}…` : text;
-}
-
-/** A line that keeps what Tex sends and texts nobody: `sent` holds each text, `calls` every method asked. */
-export function keepingLine(phones, prefix = "lab") {
+/**
+ * A line that keeps what Tex sends and texts nobody: `sent` holds each text, `calls` every method asked. `onText(text)`
+ * is told each text as Text them hands it over (the test chat's line holds it, `line.js`); `onPicture(picture)` keeps a
+ * picture Tex sends in the test chat and answers its address there.
+ */
+export function keepingLine(phones, prefix = "lab", { onText = null, onPicture = null } = {}) {
   const sent = [];
   const calls = [];
   let n = 0;
   const handle = () => `${prefix}-sent-${(n += 1)}`;
-  const answer = (method, args) => {
+  const answer = async (method, args) => {
     calls.push(method);
     if (method === "sendText") {
       const text = args.find((a) => typeof a === "string") ?? "";
       sent.push({ text, at: Date.now() });
+      if (onText !== null) onText(text);
       return handle();
     }
     if (method === "sendMedia" || method === "sendCarousel" || method === "sendAppCard") {
@@ -211,12 +212,15 @@ export function keepingLine(phones, prefix = "lab") {
     if (method === "readMembers") return [...phones.values()];
     if (method === "readOwnMessage") return null;
     if (method === "shareContactCard") return false;
-    if (method === "uploadPicture") return { url: "https://lab-sandbox.invalid/picture" };
+    if (method === "uploadPicture") {
+      const url = onPicture !== null ? await onPicture(args[0]).catch(() => null) : null;
+      return { url: url ?? "https://lab-sandbox.invalid/picture" };
+    }
     return null;
   };
   const rpc = {
-    lineCall: async ({ method, args }) => ({ ok: true, value: answer(method, args ?? []) }),
-    groupLineCall: async ({ method, args }) => ({ ok: true, value: answer(method, (args ?? []).slice(1)) }),
+    lineCall: async ({ method, args }) => ({ ok: true, value: await answer(method, args ?? []) }),
+    groupLineCall: async ({ method, args }) => ({ ok: true, value: await answer(method, (args ?? []).slice(1)) }),
   };
   return { rpc, sent, calls };
 }
@@ -269,8 +273,11 @@ export function controlPlaneSwitch({ about, chat, phones, gate, token }) {
   };
 }
 
-/** Everything one test text's chat object runs on. `agent` and `texts` answer the gateway's routes; tests hand in fakes. */
-export function chatEnvFor({ gate, storage, about, chat, phones, line, token, agent, texts, images }) {
+/**
+ * Everything one test text's chat object runs on. `agent` and `texts` answer the gateway's routes; tests hand in fakes.
+ * `inboxes` is the objects it reaches (`jobs.js` `sandboxInboxes`: its own jobs); without it, every other object refuses.
+ */
+export function chatEnvFor({ gate, storage, about, chat, phones, line, token, agent, texts, images, inboxes = null }) {
   const control = controlPlaneSwitch({ about, chat, phones, gate, token });
   const pictures = new Set((chat?.pictures ?? []).map(String));
   const download = pictureFetch((...a) => globalThis.fetch(...a));
@@ -312,7 +319,7 @@ export function chatEnvFor({ gate, storage, about, chat, phones, line, token, ag
     GATEWAY_TEXTS: { fetch: (input, init) => texts(new Request(input, init)) },
     CONTROL_PLANE_ORIGIN: LAB_CONTROL_PLANE,
     AGENT_WORKER_SECRET: LAB_WORKER_SECRET,
-    SENDER_INBOX: objects,
+    SENDER_INBOX: inboxes ?? objects,
     TEX_LINE: line,
     IMAGES: images,
     LINQ_API_KEY: "",
@@ -378,22 +385,25 @@ export function inboundOf({ about, row, rows, address, sentHandles }) {
   return { path: "/group-accept", body: { kind: "group-message", eventId, groupId: address.groupId, line: address.line, from, participants: people, messageId: row.id, text: String(row.text ?? ""), ...files, ...(replyTo ? { replyTo } : {}) } };
 }
 
+
+/** Picture types a test chat keeps and serves (`pages.js`): never one that can carry a script. */
+const PICTURE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
 /**
- * Runs one test text through the chat object, and writes what Tex sent into the test chat. The same arguments as
- * `harness.js` `runSandboxTurn`, plus `chat` (the control plane's view of the chat). Never throws.
+ * Runs one test text through the chat object, and writes what Tex sent into the test chat (Dev2, 2026-11-16: "the
+ * sandbox should act like an actual chat"). The text is held for the line's delay in (`lineIn`) before the chat
+ * object takes it; each text Tex sends is held for the line's delay out (`lineOut`) before it shows as delivered; a job
+ * the turn started runs after it (`jobs.js`), its texts each a Tex row `from: "job"`. Every step is kept as it runs
+ * (`steps.js`), and each Tex row names its `cause`. `chat` is the control plane's view of the chat; `sleep` and `now`
+ * only for tests. Never throws.
  */
-export async function runChatTurn({ env, stub, about, row, payload, token, config, origin, chat = null, agentRoute = null, textsRoute = null, now = Date.now }) {
-  // The chat object's own steps as it logs each, ahead of the turn's nodes on the Lab's running row.
-  const ahead = [];
-  // The same steps with when each was logged: this row's own, whatever the object hands on to a later turn's ledger.
-  const own = [];
-  const gate = sandboxGate(stub, about, row.id, { config, before: ahead });
+export async function runChatTurn({ env, stub, about, row, payload, token, config, origin, chat = null, agentRoute = null, textsRoute = null, now = Date.now, sleep = hold, jobLimitMs = JOB_LIMIT_MS }) {
+  const line = lineOf(about);
+  const gate = sandboxGate(stub, about, row.id, { config, arrivedAt: row.at ?? now(), now });
+  const { book } = gate;
   const onEvent = (event) => {
     const step = workerStep(event.step);
-    if (step === null) return;
-    ahead.push(step);
-    own.push({ at: Number.isFinite(event.at) ? event.at : now(), step });
-    gate.show(step.node);
+    if (step !== null) gate.worker(step, Number.isFinite(event.at) ? event.at : now());
   };
   const sandboxEnv = sandboxEnvOf(env, { gate, workspaces: sandboxNamespace(env.WORKSPACE_STORE, gate), tex: sandboxNamespace(env.TEX_STORE, gate) });
   const controlPlane = createControlPlane(sandboxEnv);
@@ -402,17 +412,57 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
   const started = now();
   const replyId = `${row.id}r`;
   const labToken = `lab_${randomHex(24)}`;
+  // Each text Tex hands the line: `from` the node that sent it ("fd" for the turn's answer, "job" for a job's), its
+  // `lineOut` step, and when it shows as delivered. A job's text is its own row the moment it is delivered.
+  const phase = { from: "fd" };
+  const delivered = [];
+  let jobRows = 0;
+  const posted = [];
+  const onText = (text) => {
+    const from = phase.from;
+    const out = book.line("lineOut", { line: line.name, to: about.kind === "group" ? "the group" : "them", chars: text.length }, book.deliverer() ?? book.tail);
+    const done = sleep(line.outMs).then(() => {
+      book.end(out, { out: { delivered: true, line: line.name, number: line.number }, ms: line.outMs });
+      return { text, from, step: out, at: now() };
+    });
+    delivered.push(done);
+    if (from === "job" && text !== "") {
+      posted.push(done.then(async (d) => {
+        jobRows += 1;
+        const cause = book.causeOf(d.step);
+        await callSandbox(stub, "row.add", { row: { id: `${row.id}j${jobRows}`, reply: row.id, who: "Tex", text, at: d.at, prod: false, from: "job", line: rowLine(line, { out: true }), cause, ms: d.at - started, steps: fitSteps(book.pick(cause)) } });
+      }).catch(() => {}));
+    }
+  };
+  const onPicture = async (picture) => {
+    const type = String(picture?.mediaType ?? "").toLowerCase();
+    if (!PICTURE_TYPES.has(type) || typeof picture?.data !== "string") return null;
+    const id = assetId();
+    const url = assetUrl(about, id);
+    if (url === null) return null;
+    await callSandbox(stub, "asset.put", { id, kind: "picture", title: String(picture.title ?? picture.name ?? "picture").slice(0, 200), type, body: picture.data, by: row.id });
+    await gate.write({ kind: "picture", title: String(picture.title ?? picture.name ?? "picture"), url, expires: now() + SANDBOX_TTL_MS });
+    return url;
+  };
   try {
-    await callSandbox(stub, "meta", { key: "running", value: { msgId: row.id, node: "text", at: started, steps: [] } });
+    await callSandbox(stub, "beat", { msgId: row.id, node: "lineIn", steps: [] });
+    // The line: the text reaches the chat object after the line's delay in, as a Photon text reaches the Worker.
+    // Its hold counts from when the text was sent (`row.at`), as a provider's lag does: what the route spent is part of it.
+    const sentAt = row.at ?? started;
+    const lineIn = book.line("lineIn", { line: line.name, number: line.number, from: row.who, holdMs: line.inMs }, null, sentAt);
+    await sleep(Math.max(0, line.inMs - (now() - sentAt)));
+    book.end(lineIn, { out: { arrived: true, line: line.name, number: line.number }, ms: Math.max(line.inMs, now() - sentAt) });
     const state = await callSandbox(stub, "state", {});
+    // Reset while the line held the text: the test chat is gone, and the turn never starts.
+    if (!state.meta?.chat) throw new Error("the test chat was reset");
     const rows = state.rows ?? [];
-    const sandboxId = String(state.meta?.sandboxId ?? row.id).slice(0, 40);
-    const address = await addressOf(about, sandboxId);
+    const sandboxId = String(about.sandboxId ?? state.meta?.sandboxId ?? row.id).slice(0, 40);
+    const address = { ...(await addressOf(about, sandboxId)), line: line.number };
     // Anyone a group's text is written as has a number of their own there: a name nobody in the chat has is a guest's.
     if (about.kind === "group" && typeof row.who === "string" && !address.phones.has(row.who)) address.phones.set(row.who, await phoneOf(row.who));
     const storage = MemoryStorage.from(state.meta?.chatObject, rows, onEvent);
     const fresh = storage.data.size === 0;
-    const line = keepingLine(address.phones, row.id);
+    const kept = keepingLine(address.phones, row.id, { onText, onPicture });
     // The chat's session and store, opened when the chat object first reaches the gateway, as a real text's are.
     let opened = null;
     const storeOf = () =>
@@ -434,55 +484,87 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const texts = (request) => (new URL(request.url).pathname === "/texts/session" ? Response.json(linked) : routes(request));
     const { SenderInbox, remoteLine, remoteGroupLine, setChatBound } = await import("../../../agent/src/gatewayChat.js");
     const inboxName = about.kind === "group" ? `group:${address.groupId}` : address.phones.values().next().value ?? "lab";
-    const chatLine = { line: (chatId) => remoteLine(line.rpc, inboxName, chatId), groupLine: (groupId) => remoteGroupLine(line.rpc, inboxName, groupId) };
+    const chatLine = { line: (chatId) => remoteLine(kept.rpc, inboxName, chatId), groupLine: (groupId) => remoteGroupLine(kept.rpc, inboxName, groupId) };
     const work = [];
-    const objectState = { storage, id: { toString: () => `lab-${sandboxId}` }, waitUntil: (p) => void work.push(Promise.resolve(p).catch(() => {})), blockConcurrencyWhile: (run) => run() };
-    const inbox = new SenderInbox(objectState, chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES }));
+    const objectState = (store, id) => ({ storage: store, id: { toString: () => id }, waitUntil: (p) => void work.push(Promise.resolve(p).catch(() => {})), blockConcurrencyWhile: (run) => run() });
+    // The objects the chat object reaches: itself, for a job's report, and the jobs it starts, each on storage in memory.
+    let envOf = null;
+    const registry = sandboxInboxes({
+      gate,
+      makeJob: (name) => {
+        const jobStorage = new MemoryStorage([], null, onEvent);
+        return { storage: jobStorage, inbox: new SenderInbox(objectState(jobStorage, `lab-${sandboxId}-${name}`), envOf) };
+      },
+      parentOfJob: () => book.last("fd") ?? book.tail,
+    });
+    envOf = chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES, inboxes: registry.namespace });
+    const inbox = new SenderInbox(objectState(storage, `lab-${sandboxId}`), envOf);
+    registry.chat = inbox;
     if (about.kind !== "group") await storage.put("texts:workspace", payload?.defaultWorkspaceId ?? "");
     const sentHandles = new Map(Object.entries(state.meta?.sentHandles ?? {}));
     const { path, body: message } = inboundOf({ about, row, rows, address, sentHandles });
     // A test chat is one Tex already answers in (its grant is what the Lab opened it with): its object starts set up for
     // the people here, as the real chat's is after Tex's first turn there (`groupChat.ts` `setChatBound`).
     if (about.kind === "group" && fresh) await setChatBound(storage, { kind: "group-message", groupId: address.groupId, line: address.line, from: message.from, participants: message.participants ?? [...address.phones.values()], messageId: row.id, text: "" });
-    const provider = { name: "lab", providerAt: row.at ?? started, receivedAt: now() };
+    // Its provider is the line's: the lag the `text` step shows is the line's hold.
+    const provider = { name: line.name === "photon" ? "photon" : "lab", providerAt: row.at ?? started, receivedAt: now() };
     const accepted = await inbox.fetch(new Request(`https://inbox${path}`, { method: "POST", body: JSON.stringify({ ...message, provider }) }));
     const outcome = (await accepted.json().catch(() => ({}))).outcome ?? `status ${accepted.status}`;
-    // The object's alarm, run as Cloudflare runs it, until this text is done: nothing near is left to run.
     const deadline = started + TURN_LIMIT_MS;
-    while (storage.alarm !== null && now() < deadline) {
-      const wait = storage.alarm - now();
-      if (wait > ALARM_NEAR_MS) break;
-      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(wait, 1_000)));
-      if (storage.alarm !== null && storage.alarm <= now()) {
-        storage.alarm = null;
-        await inbox.alarm();
-        await settle(work, deadline, now);
-      }
-    }
-    await settle(work, deadline, now);
-    await within(Promise.allSettled(after), AFTER_LIMIT_MS);
-    await gate.flush();
-    const kept = storage.snapshot(row.id);
-    await callSandbox(stub, "meta", { key: "chatObject", value: kept });
-    const at = now();
-    const said = line.sent.map((s) => s.text).filter((text) => text !== "");
+    await drainChat(inbox, storage, work, deadline, now);
+    await within(Promise.allSettled(after.splice(0)), AFTER_LIMIT_MS);
+    // The turn's texts, each once its line delivered it: one reply row, as before, now with its line and its cause.
+    const answered = await Promise.all(delivered.splice(0));
+    const said = answered.map((d) => d.text).filter((text) => text !== "");
+    const at = answered.length > 0 ? Math.max(...answered.map((d) => d.at)) : now();
     const text = said.join("\n\n");
     const quiet = said.length === 0;
+    const cause = [...new Set(answered.filter((d) => d.text !== "").flatMap((d) => book.causeOf(d.step)))];
+    const ordered = book.view().filter((step) => cause.includes(step.id)).map((step) => step.id);
+    await gate.flush();
+    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text, at, prod: false, from: "fd", line: rowLine(line, { out: true }), ...(quiet ? { quiet: true, note: `The chat object took the text (${outcome}) and Tex sent nothing.` } : { cause: ordered }), ...(said.length > 1 ? { parts: said } : {}), ms: at - started, steps: fitSteps(book.view()) } });
+    // Each job the turn started runs now, on the same fences; its texts post as they are delivered.
+    if (registry.jobs.size > 0) {
+      phase.from = "job";
+      await runJobs({ registry, gate, book, config, now, sleep, limitMs: jobLimitMs, drain: () => drainChat(inbox, storage, work, now() + TURN_LIMIT_MS, now).then(() => within(Promise.allSettled(after.splice(0)), AFTER_LIMIT_MS)) });
+      await Promise.all(delivered.splice(0));
+      await Promise.all(posted.splice(0));
+      await gate.flush();
+      await callSandbox(stub, "row.patch", { id: replyId, patch: { steps: fitSteps(book.view()) } });
+    }
+    await callSandbox(stub, "meta", { key: "chatObject", value: storage.snapshot(row.id) });
     const handles = Object.fromEntries([...sentHandles.entries()].slice(-200));
-    if (!quiet) handles[replyId] = `${row.id}-sent-${line.sent.length}`;
+    if (!quiet) handles[replyId] = `${row.id}-sent-${said.length}`;
     await callSandbox(stub, "meta", { key: "sentHandles", value: handles });
-    const steps = chatStepsOf((await callSandbox(stub, "ledger.of", { by: row.id })).entries, { own });
-    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text, at, prod: false, ...(quiet ? { quiet: true, note: `The chat object took the text (${outcome}) and Tex sent nothing.` } : {}), ...(said.length > 1 ? { parts: said } : {}), ms: at - started, steps } });
-    console.log(JSON.stringify({ event: "lab_sandbox_chat_turn", ok: true, ms: at - started, steps: steps.length, quiet, outcome: String(outcome).slice(0, 20), lineCalls: line.calls.length }));
+    console.log(JSON.stringify({ event: "lab_sandbox_chat_turn", ok: true, ms: now() - started, steps: book.view().length, quiet, jobs: registry.jobs.size, jobTexts: jobRows, outcome: String(outcome).slice(0, 20), lineCalls: kept.calls.length }));
   } catch (error) {
     await gate.flush();
     const at = now();
-    const steps = await callSandbox(stub, "ledger.of", { by: row.id }).then((read) => chatStepsOf(read.entries, { own })).catch(() => []);
-    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text: "", at, prod: false, quiet: true, ms: at - started, steps, error: String(error?.message ?? "the turn failed").slice(0, 200) } }).catch(() => {});
+    const steps = fitSteps(book.view());
+    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text: "", at, prod: false, from: "fd", quiet: true, ms: at - started, steps, error: String(error?.message ?? "the turn failed").slice(0, 200) } }).catch(() =>
+      callSandbox(stub, "row.patch", { id: replyId, patch: { steps, error: String(error?.message ?? "the turn failed").slice(0, 200) } }).catch(() => {}),
+    );
     console.log(JSON.stringify({ event: "lab_sandbox_chat_turn", ok: false, ms: at - started, reason: String(error?.name ?? "error").slice(0, 40) }));
   } finally {
-    await callSandbox(stub, "meta", { key: "running", value: null }).catch(() => {});
+    await gate.flush();
+    // Only this text's own mark: a turn that outlived its mark never frees another text's.
+    await callSandbox(stub, "release", { msgId: row.id }).catch(() => {});
   }
+}
+
+/** The chat object's alarm, run as Cloudflare runs it, until nothing near is left to run, never past the deadline. */
+async function drainChat(inbox, storage, work, deadline, now) {
+  while (storage.alarm !== null && now() < deadline) {
+    const wait = storage.alarm - now();
+    if (wait > ALARM_NEAR_MS) break;
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(wait, 1_000)));
+    if (storage.alarm !== null && storage.alarm <= now()) {
+      storage.alarm = null;
+      await inbox.alarm();
+      await settle(work, deadline, now);
+    }
+  }
+  await settle(work, deadline, now);
 }
 
 /** Waits for the object's handed-on work, as Cloudflare keeps an object alive for it, never past the deadline. */
@@ -533,6 +615,8 @@ function textsRoutes({ about, sandboxEnv, ctx, gate }) {
     if (path === TEXTS_OLD_LINE_PATH) return await oldLineForTexts(request);
     // Node `edit` on the test chat's draft, as `/texts/edit` runs it on main's (`textsEdit.js`).
     if (path === TEXTS_EDIT_PATH) return await editForTexts(request, { graph: gatewayGraph({ config: gate.config ? withDraft(TEX_CONFIG, gate.config) : TEX_CONFIG }) });
+    // Where a job is (`jobPlace.ts`): a test chat's jobs are its own objects (`jobs.js`), never the gateway's job home.
+    if (path.startsWith("/texts/job-call/")) return Response.json({ error: "no_job_home" }, { status: 501 });
     gate.record({ kind: "Other", summary: `asked the gateway ${path}` });
     return Response.json({ error: "not_in_lab" }, { status: 403 });
   };

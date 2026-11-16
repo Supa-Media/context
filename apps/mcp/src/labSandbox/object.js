@@ -36,12 +36,25 @@ const ORIGIN = "https://lab-sandbox.internal";
 
 const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS sb_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)",
-  "CREATE TABLE IF NOT EXISTS sb_rows (seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, data TEXT NOT NULL)",
+  // `prod` is its own column: a row's JSON holds its steps, whose inputs may say anything (`"prod":true` included).
+  "CREATE TABLE IF NOT EXISTS sb_rows (seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, data TEXT NOT NULL, prod INTEGER NOT NULL DEFAULT 0)",
   "CREATE TABLE IF NOT EXISTS sb_writes (seq INTEGER PRIMARY KEY, by_row TEXT, data TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS sb_kv (seq INTEGER PRIMARY KEY, obj TEXT NOT NULL, key TEXT NOT NULL, by_row TEXT, gone INTEGER NOT NULL, meta TEXT, body BLOB)",
   "CREATE INDEX IF NOT EXISTS sb_kv_key ON sb_kv (obj, key, seq)",
   "CREATE TABLE IF NOT EXISTS sb_ledger (seq INTEGER PRIMARY KEY, by_row TEXT, entries TEXT NOT NULL)",
+  // What a test turn's write tools made (`sandboxTools.js`): notes by workspace and path, newest record each, and the
+  // pages and pictures served from here (`pages.js`), each by an id nobody can guess.
+  "CREATE TABLE IF NOT EXISTS sb_notes (seq INTEGER PRIMARY KEY, by_row TEXT, ctx TEXT NOT NULL, path TEXT NOT NULL, gone INTEGER NOT NULL, adds INTEGER NOT NULL DEFAULT 0, body TEXT)",
+  "CREATE INDEX IF NOT EXISTS sb_notes_path ON sb_notes (ctx, path, seq)",
+  "CREATE TABLE IF NOT EXISTS sb_assets (seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, by_row TEXT, kind TEXT NOT NULL, title TEXT, type TEXT NOT NULL, ref TEXT, body BLOB)",
 ];
+/** Every table a test chat keeps: Reset and the alarm delete them all. */
+const TABLES = ["sb_meta", "sb_rows", "sb_writes", "sb_kv", "sb_ledger", "sb_notes", "sb_assets"];
+/** The largest note or asset a test turn keeps here (a Durable Object row holds 2 MB). */
+export const MAX_NOTE_CHARS = 500_000;
+export const MAX_ASSET_BYTES = 1_500_000;
+export const MAX_NOTES = 500;
+export const MAX_ASSETS = 100;
 
 const all = (cursor) => (cursor && typeof cursor.toArray === "function" ? cursor.toArray() : []);
 
@@ -62,7 +75,9 @@ export async function callSandbox(stub, op, fields = {}) {
   const response = await stub.fetch(new Request(`${ORIGIN}/${op}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(fields) }));
   if (!response.ok) {
     const said = await response.json().catch(() => null);
-    throw new Error(`lab sandbox ${op} failed (${response.status})${typeof said?.message === "string" ? `: ${said.message}` : ""}`);
+    const error = new Error(`lab sandbox ${op} failed (${response.status})${typeof said?.message === "string" ? `: ${said.message}` : ""}`);
+    error.status = response.status;
+    throw error;
   }
   return await response.json();
 }
@@ -75,14 +90,38 @@ const b64 = (bytes) => {
 };
 const unb64 = (text) => Uint8Array.from(atob(String(text ?? "")), (c) => c.charCodeAt(0));
 
+/**
+ * A test chat made before `sb_rows.prod` (it lives a day): the column added, and each row's set from what its own top
+ * level says, once. Where the column is there already, the ALTER refuses and nothing is read.
+ */
+function addProdColumn(sql) {
+  try {
+    sql.exec("ALTER TABLE sb_rows ADD COLUMN prod INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    return;
+  }
+  for (const row of all(sql.exec("SELECT id, data FROM sb_rows"))) {
+    let prod = false;
+    try {
+      prod = JSON.parse(row.data)?.prod === true;
+    } catch {
+      prod = false;
+    }
+    if (prod) sql.exec("UPDATE sb_rows SET prod = 1 WHERE id = ?", row.id);
+  }
+}
+
 /** The test chat's tables over one SQLite handle (the object's, or a test's). */
 export function sandboxTables(sql, { now = Date.now } = {}) {
   for (const statement of SCHEMA) sql.exec(statement);
+  addProdColumn(sql);
   const ledger = texLedger(sql, { now });
   const meta = () => Object.fromEntries(all(sql.exec("SELECT k, v FROM sb_meta")).map((row) => [row.k, JSON.parse(row.v)]));
   const setMeta = (k, v) => (v === undefined || v === null ? sql.exec("DELETE FROM sb_meta WHERE k = ?", k) : sql.exec("INSERT OR REPLACE INTO sb_meta (k, v) VALUES (?, ?)", k, JSON.stringify(v)));
   const rows = () => all(sql.exec("SELECT seq, data FROM sb_rows ORDER BY seq")).map((row) => JSON.parse(row.data));
   const writes = () => all(sql.exec("SELECT data FROM sb_writes ORDER BY seq")).map((row) => JSON.parse(row.data));
+  /** The test chat's own rows (texts, tapbacks, Tex's replies): every row not from the real chat it started from. */
+  const testRows = () => Number(all(sql.exec("SELECT COUNT(*) AS n FROM sb_rows WHERE prod = 0"))[0]?.n ?? 0);
   const nextSeq = (table) => Number(all(sql.exec(`SELECT COALESCE(MAX(seq), 0) AS n FROM ${table}`))[0]?.n ?? 0) + 1;
 
   /** Rebuilds the chat's ledger from what is kept: the real history first, then each test text's entries in order. */
@@ -112,6 +151,8 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
       sql.exec("DELETE FROM sb_writes WHERE by_row = ?", id);
       sql.exec("DELETE FROM sb_kv WHERE by_row = ?", id);
       sql.exec("DELETE FROM sb_ledger WHERE by_row = ?", id);
+      sql.exec("DELETE FROM sb_notes WHERE by_row = ?", id);
+      sql.exec("DELETE FROM sb_assets WHERE by_row = ?", id);
     }
     rebuildLedger();
     return true;
@@ -126,7 +167,7 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
     /** A new test chat: what it is, and the first piece of the rows it starts from and the real history (`seed` the rest). */
     init({ about, rows: start = [], history = [] }) {
       ledger.wipe();
-      for (const table of ["sb_meta", "sb_rows", "sb_writes", "sb_kv", "sb_ledger"]) sql.exec(`DELETE FROM ${table}`);
+      for (const table of TABLES) sql.exec(`DELETE FROM ${table}`);
       setMeta("chat", about);
       setMeta("createdAt", now());
       this.seed({ rows: start, history });
@@ -136,10 +177,10 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
      * and its history into the ledger, kept in pieces of `SEED_CHUNK`. Never capped.
      */
     seed({ rows: more = [], history = [] }) {
-      if (all(sql.exec("SELECT COUNT(*) AS n FROM sb_rows WHERE data NOT LIKE '%\"prod\":true%'"))[0]?.n > 0) throw new Error("seeded after a test text");
+      if (testRows() > 0) throw new Error("seeded after a test text");
       let seq = nextSeq("sb_rows");
       for (const row of more) {
-        sql.exec("INSERT OR IGNORE INTO sb_rows (seq, id, data) VALUES (?, ?, ?)", seq, row.id, JSON.stringify(row));
+        sql.exec("INSERT OR IGNORE INTO sb_rows (seq, id, data, prod) VALUES (?, ?, ?, ?)", seq, row.id, JSON.stringify(row), row?.prod === true ? 1 : 0);
         seq += 1;
       }
       const chat = meta().chat?.ledgerChat;
@@ -157,8 +198,8 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
       }
     },
     addRow(row) {
-      if (all(sql.exec("SELECT COUNT(*) AS n FROM sb_rows WHERE data NOT LIKE '%\"prod\":true%'"))[0]?.n >= MAX_ROWS) throw new Error("full");
-      sql.exec("INSERT INTO sb_rows (seq, id, data) VALUES (?, ?, ?)", nextSeq("sb_rows"), row.id, JSON.stringify(row));
+      if (testRows() >= MAX_ROWS) throw new Error("full");
+      sql.exec("INSERT INTO sb_rows (seq, id, data, prod) VALUES (?, ?, ?, ?)", nextSeq("sb_rows"), row.id, JSON.stringify(row), row?.prod === true ? 1 : 0);
     },
     patchRow(id, patch) {
       const found = all(sql.exec("SELECT data FROM sb_rows WHERE id = ?", id))[0];
@@ -177,9 +218,55 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
       if (next < list.length) cutFrom(list[next].id);
       return true;
     },
+    /** A write, with its `id` (`w<n>`): the Lab's "N sandbox writes" names it by that. */
     addWrite(write) {
-      if (all(sql.exec("SELECT COUNT(*) AS n FROM sb_writes"))[0]?.n >= MAX_WRITES) return;
-      sql.exec("INSERT INTO sb_writes (seq, by_row, data) VALUES (?, ?, ?)", nextSeq("sb_writes"), write.by ?? null, JSON.stringify(write));
+      if (all(sql.exec("SELECT COUNT(*) AS n FROM sb_writes"))[0]?.n >= MAX_WRITES) return null;
+      const seq = nextSeq("sb_writes");
+      const kept = { id: `w${seq}`, ...write };
+      sql.exec("INSERT INTO sb_writes (seq, by_row, data) VALUES (?, ?, ?)", seq, write.by ?? null, JSON.stringify(kept));
+      return kept.id;
+    },
+    /**
+     * A note a test turn wrote in workspace `ctx` ("" the turn's own): its whole text, lines added to it (`adds`, a
+     * `remember` on a note the real workspace holds), or deleted (`gone`).
+     */
+    notePut({ ctx = "", path, body = null, gone = false, adds = false, by = null }) {
+      if (typeof path !== "string" || path === "" || path.length > 512) throw new Error("bad_path");
+      if (typeof body === "string" && body.length > MAX_NOTE_CHARS) throw new Error("too_big");
+      if (all(sql.exec("SELECT COUNT(*) AS n FROM sb_notes"))[0]?.n >= MAX_NOTES) throw new Error("full");
+      sql.exec("INSERT INTO sb_notes (seq, by_row, ctx, path, gone, adds, body) VALUES (?, ?, ?, ?, ?, ?, ?)", nextSeq("sb_notes"), by, String(ctx), path, gone ? 1 : 0, adds && !gone ? 1 : 0, gone ? null : String(body ?? ""));
+    },
+    /**
+     * A note as the test chat has it: `{ path, gone, body, adds }`, `body` the last whole text written here (null when
+     * only lines were added to the real note) and `adds` the lines added since; null when no test turn wrote it.
+     */
+    noteGet({ ctx = "", path }) {
+      const rows = all(sql.exec("SELECT gone, adds, body FROM sb_notes WHERE ctx = ? AND path = ? ORDER BY seq", String(ctx), String(path)));
+      if (rows.length === 0) return null;
+      let note = { path: String(path), gone: false, body: null, adds: [] };
+      for (const row of rows) {
+        if (Number(row.gone) === 1) note = { path: String(path), gone: true, body: null, adds: [] };
+        else if (Number(row.adds) === 1) note = { ...note, gone: false, adds: [...note.adds, row.body ?? ""] };
+        else note = { path: String(path), gone: false, body: row.body ?? "", adds: [] };
+      }
+      return note;
+    },
+    /** Every note a test turn wrote in `ctx`, as `noteGet` has each, deleted ones left out. */
+    noteList({ ctx = "" }) {
+      const paths = [...new Set(all(sql.exec("SELECT path FROM sb_notes WHERE ctx = ? ORDER BY seq", String(ctx))).map((row) => row.path))];
+      return paths.map((path) => this.noteGet({ ctx, path })).filter((note) => note && !note.gone);
+    },
+    /** A page or picture served from here (`pages.js`): its id is the caller's, unguessable, made once. */
+    assetPut({ id, kind, title = "", type, ref = null, body = "", by = null }) {
+      if (typeof id !== "string" || !/^[0-9a-f]{32}$/.test(id)) throw new Error("bad_id");
+      const bytes = unb64(body);
+      if (bytes.byteLength > MAX_ASSET_BYTES) throw new Error("too_big");
+      if (all(sql.exec("SELECT COUNT(*) AS n FROM sb_assets"))[0]?.n >= MAX_ASSETS) throw new Error("full");
+      sql.exec("INSERT OR REPLACE INTO sb_assets (seq, id, by_row, kind, title, type, ref, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", nextSeq("sb_assets"), id, by, String(kind), String(title).slice(0, 200), String(type).slice(0, 80), ref, bytes);
+    },
+    assetGet(id) {
+      const row = all(sql.exec("SELECT id, kind, title, type, ref, body FROM sb_assets WHERE id = ?", String(id)))[0];
+      return row ? { id: row.id, kind: row.kind, title: row.title ?? "", type: row.type, ref: row.ref ?? null, body: b64(toBytes(row.body)) } : null;
     },
     /** The overlay's newest record of one key: `{gone, meta, body?}`, or null when this test chat never changed it. */
     kvGet(obj, key) {
@@ -212,7 +299,7 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
       return all(sql.exec("SELECT entries FROM sb_ledger WHERE by_row = ? ORDER BY seq", rowId)).flatMap((row) => JSON.parse(row.entries));
     },
     wipe() {
-      for (const table of ["sb_meta", "sb_rows", "sb_writes", "sb_kv", "sb_ledger"]) sql.exec(`DELETE FROM ${table}`);
+      for (const table of TABLES) sql.exec(`DELETE FROM ${table}`);
       ledger.wipe();
     },
   };
@@ -242,8 +329,19 @@ export function serveSandbox(tables, op, body) {
     case "cut.after":
       return { ok: tables.cutAfter(body.id) };
     case "write.add":
-      tables.addWrite(body.write);
+      return { ok: true, id: tables.addWrite(body.write) };
+    case "note.put":
+      tables.notePut(body);
       return { ok: true };
+    case "note.get":
+      return { found: tables.noteGet(body) };
+    case "note.list":
+      return { notes: tables.noteList(body) };
+    case "asset.put":
+      tables.assetPut(body);
+      return { ok: true };
+    case "asset.get":
+      return { found: tables.assetGet(body.id) };
     case "kv.get":
       return { found: tables.kvGet(body.obj, body.key) };
     case "kv.put":
@@ -262,6 +360,28 @@ export function serveSandbox(tables, op, body) {
     case "reset":
       tables.wipe();
       return { ok: true };
+    case "claim": {
+      // The one text running here, taken in one step (an object runs one call at a time): a fresh mark holds, a mark
+      // nobody has refreshed for `staleMs` is a turn that died and is taken over.
+      if (typeof body.msgId !== "string" || !Number.isFinite(body.staleMs)) throw new Error("claim names msgId and staleMs");
+      const running = tables.meta().running;
+      if (running && typeof running === "object" && Date.now() - Number(running.at ?? 0) < body.staleMs) return { ok: false, running: running.msgId ?? null };
+      tables.setMeta("running", { msgId: body.msgId, node: null, at: Date.now() });
+      return { ok: true };
+    }
+    case "beat": {
+      // The running text's steps so far, and proof it is alive; never another text's mark.
+      const running = tables.meta().running;
+      if (running?.msgId !== body.msgId) return { ok: false };
+      tables.setMeta("running", { msgId: body.msgId, node: body.node ?? null, at: Date.now(), ...(Array.isArray(body.steps) ? { steps: body.steps } : {}) });
+      return { ok: true };
+    }
+    case "release": {
+      const running = tables.meta().running;
+      if (running?.msgId !== body.msgId) return { ok: false };
+      tables.setMeta("running", null);
+      return { ok: true };
+    }
     case "count": {
       // A counter kept in this object's meta (the person's index object: their sends today), raised only under `max`.
       const n = Number(tables.meta()[body.key] ?? 0);
@@ -272,6 +392,17 @@ export function serveSandbox(tables, op, body) {
     default:
       return null;
   }
+}
+
+/** What an object with no test chat in it answers: opening one, reading it, and the person's index's send count. */
+const CHATLESS_OPS = new Set(["init", "state", "count"]);
+/** The person's index object's own keys (`route.js`: `sb:<id>` a test chat listed, `used:<id>` its last use). */
+const INDEX_KEY = /^(sb|used):[0-9a-f]{16}$/;
+
+/** Whether storage holds a test chat, read without making anything. */
+function chatKept(sql) {
+  if (all(sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sb_meta'")).length === 0) return false;
+  return all(sql.exec("SELECT k FROM sb_meta WHERE k = 'chat'")).length > 0;
 }
 
 /** The Durable Object class (`LabSandbox` in `wrangler.toml`). */
@@ -290,7 +421,14 @@ export class LabSandboxObject {
     } catch {
       return Response.json({ error: "bad_call" }, { status: 400 });
     }
+    // Whether this is a test chat, read without making a table or arming the alarm: an address nobody opened stays empty.
+    if (op === "exists") return Response.json({ exists: chatKept(this.state.storage.sql) });
     this.tables ??= sandboxTables(this.state.storage.sql);
+    // A test chat that is gone (Reset, or never opened) answers only what opens one, and its person's own index: a turn
+    // still running when it was reset is refused here, so it writes nothing and arms nothing (`harness.js` `cancelled`).
+    if (!CHATLESS_OPS.has(op) && !(op === "meta" && INDEX_KEY.test(String(body?.key ?? ""))) && !this.tables.meta().chat) {
+      return Response.json({ error: "gone", message: "This test chat is gone (Reset, or a day unused)." }, { status: 410 });
+    }
     let answer;
     try {
       answer = serveSandbox(this.tables, op, body ?? {});
@@ -299,8 +437,9 @@ export class LabSandboxObject {
     }
     if (answer === null) return Response.json({ error: "unknown_op" }, { status: 400 });
     // Every use moves the expiry: 24 hours after the last one, the alarm deletes the whole test chat.
+    // Only a test chat, or the person's index, is kept for a day: a read of an object with neither arms nothing.
     if (op === "reset") await this.state.storage.deleteAlarm?.();
-    else await this.state.storage.setAlarm(Date.now() + SANDBOX_TTL_MS);
+    else if (op !== "state" || this.tables.meta().chat) await this.state.storage.setAlarm(Date.now() + SANDBOX_TTL_MS);
     return Response.json(answer);
   }
 

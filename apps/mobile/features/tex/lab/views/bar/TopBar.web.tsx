@@ -6,7 +6,7 @@
  */
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
-import { emit, isMain, lab, newVersion, openVersion, set, toast } from "../../engine/state";
+import { emit, isMain, lab, newVersion, openVersion, PLAY_SPEEDS, set, setSpeed, toast, type PlaySpeed } from "../../engine/state";
 import { isLive, live } from "../../engine/live";
 import { promoteVersion, useLab } from "../../store";
 import { codeWords, scoreWords, setRunsUi, useRunsUi } from "../../engine/labRuns";
@@ -122,6 +122,60 @@ export function VersionMenu() {
           )}
           <hr />
           <div className="mnote">{isLive() ? `rev ${live.rev} · ${s.dirty || live.inflight ? "saving" : "saved as you edit"}` : s.sync}</div>
+        </div>
+      )}
+    </Pop>
+  );
+}
+
+const SPEED_WORDS: Record<PlaySpeed, [string, string]> = {
+  0.25: ["¼×", "Quarter speed"],
+  0.5: ["½×", "Half speed"],
+  1: ["1×", "Real time"],
+  2: ["2×", "Twice as fast"],
+  4: ["4×", "Four times as fast"],
+};
+
+/** The play speed of every playback and each new text, kept for the session (`lab.speed`); Tex itself runs at real speed. */
+export function SpeedMenu() {
+  const s = useLab();
+  return (
+    <Pop
+      id="speedBtn"
+      title="Play speed for every playback, kept for this session"
+      button={
+        <>
+          <Svg d='<circle cx="12" cy="13" r="7"/><path d="M12 13l3-3M10 3h4"/>' />
+          <span className="nm" id="speedName">
+            {SPEED_WORDS[s.speed][0]}
+          </span>
+          <span className="car">▾</span>
+        </>
+      }
+    >
+      {(close) => (
+        <div className="vmenu" id="speedMenu">
+          <div className="mh">Play speed</div>
+          {PLAY_SPEEDS.map((v) => (
+            <button
+              key={v}
+              className="mi"
+              data-speed={v}
+              aria-current={v === s.speed}
+              onClick={() => {
+                setSpeed(v);
+                close();
+              }}
+            >
+              <span className="nm">{SPEED_WORDS[v][0]}</span>
+              <span className="meta">
+                {SPEED_WORDS[v][1]}
+                {v === s.speed ? " ✓" : ""}
+              </span>
+            </button>
+          ))}
+          <hr />
+          <div className="mnote">Every playback and each new text you send plays at this speed until you change it. Tex itself always runs at real speed.</div>
         </div>
       )}
     </Pop>

@@ -9,7 +9,14 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { G } from "../../engine/state";
 import { ColButton, colW, HeadCell, shown, startResize, useGridCols, type GridCol } from "./GridParts.web";
 
-export type StepCell = { node: string; out: string; ms: number | null; ok?: boolean };
+export type StepCell = {
+  node: string;
+  out: string;
+  ms: number | null;
+  ok?: boolean;
+  /** Still running (no `ms` yet, its text running): for how long, in ms. Its output shows only once it is logged. */
+  runningFor?: number;
+};
 export type TextRow = {
   id: string;
   who: string;
@@ -100,6 +107,8 @@ export function TextGrid(p: {
   folded?: boolean;
   empty?: ReactNode;
   id?: string;
+  /** Shown in the grid's place, its head kept (the test chat's Timeline): the grid stays mounted, hidden. */
+  alt?: ReactNode;
   /** When this changes, the grid scrolls to its last row (the test chat opens at its newest texts, Dev2 2026-11-16: "bottom panel should also start scrolled to the bottom"). */
   bottomKey?: string;
 }) {
@@ -122,10 +131,10 @@ export function TextGrid(p: {
     <div className="tst tgrid" id={p.id}>
       <div className="ph">
         {p.head}
-        {p.slim ? null : <ColButton cols={cols} all={all} save={save} reset={reset} id={p.id ? p.id + "ColBtn" : undefined} />}
+        {p.slim || p.alt ? null : <ColButton cols={cols} all={all} save={save} reset={reset} id={p.id ? p.id + "ColBtn" : undefined} />}
         {p.headEnd}
       </div>
-      <div className="scroll" ref={scroller} hidden={p.folded}>
+      <div className="scroll" ref={scroller} hidden={p.folded || !!p.alt}>
         <table className="chatgrid" ref={table} style={{ width: tw === null ? "100%" : tw }}>
           <colgroup>
             {p.slim ? null : <col style={{ width: numW }} />}
@@ -172,8 +181,13 @@ export function TextGrid(p: {
                           const hot = r.running && r.hot === c.id;
                           const on = p.sel === r.id && p.selCol === c.id;
                           return (
-                            <td key={c.id} data-c={c.id} className={"o" + (hot ? " hot" : "") + (on ? " on" : "") + (st && st.ok === false ? " bad" : "")} title={st ? `${c.name}: ${st.out} · ${msWords(st.ms)}` : undefined}>
-                              {st ? (
+                            <td key={c.id} data-c={c.id} className={"o" + (hot ? " hot" : "") + (on ? " on" : "") + (st && st.ok === false ? " bad" : "")} title={st ? (st.ms === null && st.runningFor !== undefined ? `${c.name}: running` : `${c.name}: ${st.out} · ${msWords(st.ms)}`) : undefined}>
+                              {st && st.ms === null && st.runningFor !== undefined ? (
+                                <>
+                                  <span className="muted">running</span>
+                                  <span className="tm">{msWords(st.runningFor)}</span>
+                                </>
+                              ) : st ? (
                                 <>
                                   {st.out}
                                   <span className="tm">{msWords(st.ms)}</span>
@@ -192,6 +206,7 @@ export function TextGrid(p: {
         </table>
         {p.rows.length ? null : p.empty}
       </div>
+      {p.alt && !p.folded ? p.alt : null}
     </div>
   );
 }

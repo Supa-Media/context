@@ -40,7 +40,6 @@ export function ChangeRows({ m, id }: { m: Marks; id: string }) {
     } else if (x.base && fieldText(x.base, f) !== "") rows.push({ k: f, from: fieldText(x.base, f), to: fieldText(cur, f) });
     else rows.push({ k: f, from: "", to: "" });
   }
-  if (x.moved && x.base) rows.push({ k: "place", from: `${x.base.x}, ${x.base.y}`, to: `${cur.x}, ${cur.y}` });
   return (
     <div className="tr">
       {rows.map((r) => (
@@ -93,7 +92,7 @@ export function ChangeTip({ marks, stage }: { marks: Marks | null; stage: RefObj
   const gone = marks.removed.find((n) => n.id === tip.id);
   const n: LabNode | undefined = gone ?? G().nodes.find((y) => y.id === tip.id);
   if (!n || (!x && !gone)) return null;
-  const head = gone ? "removed" : x!.kind === "new" ? "new" : `${x!.fields.length + (x!.moved ? 1 : 0)} change${x!.fields.length + (x!.moved ? 1 : 0) === 1 ? "" : "s"}`;
+  const head = gone ? "removed" : x!.kind === "new" ? "new" : `${x!.fields.length} change${x!.fields.length === 1 ? "" : "s"}`;
   const who = lastTouch(tip.id);
   return (
     <div className="chgtip" role="tooltip" id="chgTip" style={{ left: tip.x, top: tip.y }} onPointerEnter={() => clearTimeout(hide.current)} onPointerLeave={() => setTip(null)}>
@@ -110,18 +109,16 @@ export function ChangeTip({ marks, stage }: { marks: Marks | null; stage: RefObj
         <button className="lnk" id="tipGhost" onClick={() => set({ chg: marks.mode === "ghost" ? "marks" : "ghost" })}>
           {marks.mode === "ghost" ? "Show marks" : "Show ghost"}
         </button>
-        {lab.mode === "replay" ? null : (
-          <button
-            className="lnk"
-            id="tipPutBack"
-            onClick={() => {
-              putBack(tip.id);
-              setTip(null);
-            }}
-          >
-            {marks.vs === "main" ? "Put back main's" : `Put back ${marks.vs}'s`}
-          </button>
-        )}
+        <button
+          className="lnk"
+          id="tipPutBack"
+          onClick={() => {
+            putBack(tip.id);
+            setTip(null);
+          }}
+        >
+          {marks.vs === "main" ? "Put back main's" : `Put back ${marks.vs}'s`}
+        </button>
       </div>
     </div>
   );
@@ -134,15 +131,15 @@ export function ChangeLegend({ mode, vs }: { mode: "marks" | "ghost"; vs: string
       {mode === "marks" ? (
         <>
           <span>
-            <i style={{ background: "var(--warn)" }} />~ changed
+            <i style={{ background: "var(--chg-wash)", border: "2px solid var(--chg)" }} />changed in this draft
           </span>
           <span>
-            <i style={{ background: "var(--ok)" }} />+ new
+            <i style={{ background: "var(--ok)" }} />new
           </span>
           <span>
-            <i style={{ background: "var(--bad)" }} />− removed
+            <i style={{ background: "var(--bad)" }} />removed
           </span>
-          <span className="hint">unchanged steps fade back</span>
+          <span className="hint">moving a step is not a change</span>
         </>
       ) : (
         <>

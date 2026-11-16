@@ -71,7 +71,7 @@ async function readSpan(R, ledger, name, since, until, { kinds = null, slim = fa
 /** What the Lab holds once a moment's day is read: the lines, and the steps' details of any job (`replayEntries`). */
 const labEntriesOf = (R, seen, span) => union(seen, span.filter((e) => R.DETAIL_KINDS.includes(e.kind)));
 
-/** A moment as Replay's right panel shows it with no step picked (`ReplayPanel.tsx`). */
+/** A moment as Replay's right panel shows it with no step picked . */
 function momentBrief(R, m, entries, timeZone) {
   const first = m.lines[0];
   const behind = m.lines.filter((l) => l.from === "person").length - (first.start ? 0 : 1);
@@ -145,7 +145,7 @@ export async function momentsAnswer(env, page, args = {}, { ledgerOf, origin }) 
   const { chat, place, ledger } = openChat(env, page, args.chat, ledgerOf);
   if (ledger === null) return { chat: chat.key, moments: [] };
   const group = chat.key !== "me";
-  const linkOf = (moment) => labLinkOf(R, origin, { mode: "replay", view: "canvas", chat: chat.key, moment });
+  const linkOf = (moment) => labLinkOf(R, origin, { mode: "lab", view: "canvas", chat: chat.key, moment });
   if (args.moment !== undefined) return await oneMoment(R, { ledger, name: place.name, group, chat, page, args, linkOf });
   const shown = countOf(args.limit, MOMENTS_SHOWN, MAX_MOMENTS);
   const beforeAt = Number.isSafeInteger(args.before) ? args.before : null;
@@ -256,7 +256,7 @@ export async function turnAnswer(env, page, args = {}, { ledgerOf, origin }) {
   return {
     chat: t.chat.key,
     turn: t.turn,
-    ...(t.m ? { moment: t.m.id, link: labLinkOf(R, origin, { mode: "replay", view: "canvas", chat: t.chat.key, moment: t.m.id }), otherTurns: t.m.turns.filter((x) => x !== t.turn) } : { moment: null }),
+    ...(t.m ? { moment: t.m.id, link: labLinkOf(R, origin, { mode: "lab", view: "canvas", chat: t.chat.key, moment: t.m.id }), otherTurns: t.m.turns.filter((x) => x !== t.turn) } : { moment: null }),
     when: base.when,
     // What the log measured, per step of the canvas (`realTimes`): the person's wait, and each step's time and calls.
     real: t.times ? { waitedMs: t.times.reply, nodes } : null,
@@ -448,24 +448,25 @@ export function labLinkOf(R, origin, place, draft = null) {
 const PAGES = ["canvas", "modules", "convo", "tools", "sim", "tests", "run", "compare"];
 
 /**
- * `link {draft?, mode?, page?, chat?, moment?}`: the address the Lab opens at. Replay (`mode: "replay"`, implied by a
- * chat or a moment) at a chat and a moment; the Lab at one of its pages.
+ * `link {draft?, mode?, page?, chat?, moment?}`: the address the Lab opens at: its canvas at a chat and a text (implied
+ * by a chat or a moment; `mode: "replay"` still names it, since Replay is part of the Lab), or the Lab at one of its pages.
  */
 export async function linkAnswer(page, args, { origin, draft }) {
   const R = await labCode();
   const replay = args.mode === "replay" || args.chat !== undefined || args.moment !== undefined;
+  // Replay is not a mode of the Lab any more: a chat and a text are an address on its canvas.
   if (args.mode !== undefined && args.mode !== "replay" && args.mode !== "lab") return { error: 'mode is "lab" or "replay"' };
   if (args.page !== undefined && !PAGES.includes(args.page)) return { error: `page is one of ${PAGES.join(", ")}` };
-  if (replay && args.page !== undefined && args.page !== "canvas") return { error: "Replay has only the canvas; leave page out" };
+  if (replay && args.page !== undefined && args.page !== "canvas") return { error: "A chat and a text open on the canvas; leave page out" };
   const chat = args.chat ?? "me";
   if (replay && !chatsOf(page).some((c) => c.chat === chat)) return { error: "There is no such chat; chats lists yours." };
   if (args.moment !== undefined && (typeof args.moment !== "string" || !MOMENT_ID.test(args.moment))) return { error: "moment takes a moment id from moments" };
-  const place = { mode: replay ? "replay" : "lab", view: replay ? "canvas" : (args.page ?? "canvas"), chat, moment: args.moment ?? null };
+  const place = { mode: "lab", view: replay ? "canvas" : (args.page ?? "canvas"), chat, moment: args.moment ?? null };
   // The address must read back as the place it was written from, or the Lab would open somewhere else.
   const back = R.placeOf(R.searchOf(place));
   if (JSON.stringify(back) !== JSON.stringify(place)) return { error: "That place is not one the Lab's address holds." };
   return {
     link: labLinkOf(R, origin, place, draft),
-    note: replay ? "Opens Replay at that chat and moment; staff sign-in." : "Opens the Lab at that page; staff sign-in.",
+    note: replay ? "Opens the Lab at that chat and text; staff sign-in." : "Opens the Lab at that page; staff sign-in.",
   };
 }

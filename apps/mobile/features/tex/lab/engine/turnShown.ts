@@ -1,5 +1,5 @@
 /**
- * One turn of a Replay moment, as the canvas and the right panel show it (`views/replay/ReplayTimeline.tsx`): what
+ * One turn of a Replay moment, as `prodRun.ts` plays it on the canvas: what
  * started it (a text someone sent, or a check-in, a routine or a ping from its own start step), its measured times
  * and everything each step got and gave, and the prompt it ran on. The texting Worker's judgings in the moment before
  * the turn's text was sent count as its Decide step. Read from the ledger alone, so the gateway's `tex_dev` answers

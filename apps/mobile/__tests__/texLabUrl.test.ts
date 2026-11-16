@@ -6,16 +6,23 @@ import { describe, expect, test } from "@jest/globals";
 import { placeOf, searchOf } from "../features/tex/lab/views/useLabUrl.web";
 
 describe("the Lab's address", () => {
-  test("Replay keeps its chat and moment; the Lab keeps its page; the defaults stay out of the address", () => {
-    expect(searchOf({ mode: "replay", view: "canvas", chat: "g1", moment: "ev3" })).toBe("?mode=replay&chat=g1&moment=ev3");
-    expect(searchOf({ mode: "replay", view: "canvas", chat: "me", moment: null })).toBe("?mode=replay");
-    expect(searchOf({ mode: "lab", view: "sim", chat: "g1", moment: "ev3" })).toBe("?page=sim");
+  test("the Lab keeps its page, chat and text; the defaults stay out of the address", () => {
+    expect(searchOf({ mode: "lab", view: "canvas", chat: "g1", moment: "ev3" })).toBe("?chat=g1&moment=ev3");
     expect(searchOf({ mode: "lab", view: "canvas", chat: "me", moment: null })).toBe("");
+    expect(searchOf({ mode: "lab", view: "sim", chat: "me", moment: null })).toBe("?page=sim");
+    expect(searchOf({ mode: "testing", view: "canvas", chat: "g1", moment: "ev3", set: "picnic" })).toBe("?mode=testing&conv=picnic");
+  });
+
+  test("Replay is not a mode: an old ?mode=replay address opens the Lab at the same chat and text", () => {
+    expect(placeOf("?mode=replay&chat=g1&moment=ev3")).toEqual({ mode: "lab", view: "canvas", chat: "g1", moment: "ev3" });
+    expect(placeOf("?mode=replay")).toEqual({ mode: "lab", view: "canvas", chat: "me", moment: null });
+    // Written back, it is the Lab's own address, with no mode in it.
+    expect(searchOf(placeOf("?mode=replay&chat=g1&moment=ev3"))).toBe("?chat=g1&moment=ev3");
   });
 
   test("an address reads back as the place it was written from, and anything else falls back to the Lab's home", () => {
     for (const p of [
-      { mode: "replay" as const, view: "canvas" as const, chat: "g1", moment: "ev3" },
+      { mode: "lab" as const, view: "canvas" as const, chat: "g1", moment: "ev3" },
       { mode: "testing" as const, view: "canvas" as const, chat: "me", moment: null, set: "picnic" },
       { mode: "lab" as const, view: "canvas" as const, chat: "me", moment: null, node: "decide" },
       { mode: "lab" as const, view: "tests" as const, chat: "me", moment: null },

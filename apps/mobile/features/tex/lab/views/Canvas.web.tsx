@@ -5,7 +5,7 @@
  * `data-*` attributes (`canvas/useStageInput.web.ts`); the camera is applied straight to `#world` so panning never
  * draws again. Built to be EXACTLY the artifact (Dev2, 2026-11-13).
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   G,
   lab,
@@ -35,11 +35,15 @@ import {
   zoomCam,
   type Cam,
 } from "./canvas/render";
+import type { LabGraph } from "../types";
 import type { Lit } from "./canvas/usePlayback";
-import { ReplayTimeline } from "./replay/ReplayTimeline";
-import type { Moment } from "../engine/replay";
-import type { LedgerEntry } from "../../page/texPageTypes";
-import { useStageInput } from "./canvas/useStageInput.web";
+import { setCanvasReadOnly, useStageInput } from "./canvas/useStageInput.web";
+import { useFollowRunning } from "./props/useFollowRunning";
+import { lineNodes } from "../engine/lineSteps";
+import { useSandbox } from "../engine/sandbox";
+import { usePlay } from "../engine/sandboxPlay";
+import { panelRow } from "../engine/stepRunNow";
+import { lineDecorHtml, lineTimes } from "./canvas/lineDecor";
 
 function Svg({
   d,
@@ -60,10 +64,15 @@ function Svg({
   );
 }
 
-export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment | null; entries: LedgerEntry[] } | null; testLit?: Lit | ReadonlySet<string> | null }) {
+/**
+ * `lead` sits first in the canvas's top-left row, before the change legend (the run pill, mockup's top-left): the two
+ * share one wrapping row, so they never cover each other.
+ */
+export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?: Lit | ReadonlySet<string> | null; graph?: LabGraph | null; lead?: ReactNode }) {
   const s = useLab();
-  // Replay draws the same graph, read only, lit by its own timeline (`replay/ReplayTimeline.tsx`).
-  const [replayLit, setReplayLit] = useState<Lit | null>(null);
+  useFollowRunning();
+  const sbId = useSandbox().id;
+  const { play, pick } = usePlay();
   const stage = useRef<HTMLDivElement>(null);
   const world = useRef<SVGGElement>(null);
   const cam = useRef<Cam>({ x: 40, y: 40, k: 0.6 });
@@ -86,8 +95,11 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
   const fit = () => {
     const el = stage.current;
     if (!el) return;
-    const r = el.getBoundingClientRect();
-    const c = fitCam(G().nodes, r, lab.cfocus ? fBounds.current : null);
+    const b = el.getBoundingClientRect();
+    // The step card floats over the canvas's right side: fit the graph beside it, as the mockup's fit does.
+    const r = { width: b.width - (lab.sel && b.width > 900 ? 350 : 0), height: b.height };
+    // The test chat's line is fitted in too, as the mockup's fit does (`canvas/lineDecor.ts`).
+    const c = fitCam(lab.cfocus ? G().nodes : [...G().nodes, ...lineNodes(G())], r, lab.cfocus ? fBounds.current : null);
     if (!c) return;
     cam.current = c;
     applyCam();
@@ -111,6 +123,12 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A test chat opened (or closed) adds (or takes away) its line beside the graph: fit again so it is in view.
+  useEffect(() => {
+    if (sbId !== undefined) requestAnimationFrame(fit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sbId]);
+
   useStageInput({
     stage,
     cam,
@@ -119,13 +137,15 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
   });
 
   // The artifact's renderCanvas: a focused step that no longer exists drops the focus.
-  const g = G();
+  // A real text's run draws the graph Tex had then, read only (`ArchCanvas.web.tsx`); else the version open.
+  const g = graph ?? G();
+  setCanvasReadOnly(!!graph);
   // A focus on an open group draws the whole graph with its steps in it (Dev2, 2026-11-14: "Focus on it opens all eleven steps").
   const opened = stepsShownFor(g, lab.cfocus).length > 0;
   if (s.cfocus && !node(s.cfocus, g) && !opened) lab.cfocus = null;
   const sim = labSim(g);
   // A draft's changes against main or its last revision (`engine/changeMarks.ts`), drawn on the whole graph only.
-  const marks = replay || (lab.cfocus && !opened) ? null : currentMarks();
+  const marks = graph || (lab.cfocus && !opened) ? null : currentMarks();
   const tags = runTags(s.scn);
   let html: string;
   if (lab.cfocus && !opened) {
@@ -134,7 +154,9 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
     html = f.html;
   } else {
     fBounds.current = null;
-    html = renderGraphHtml(g, sim, tags, s.sel, replay ? replayLit : testLit, "off", replay ? null : stepCounts(g), replay ? null : marks);
+    // The test chat's line: two view-only pseudo-steps beside the graph, never in it (`canvas/lineDecor.ts`).
+    const line = lineDecorHtml(g, s.sel, testLit, lineTimes(panelRow(pick, play)?.steps));
+    html = line.under + renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(g), marks) + line.over;
   }
   // An open group has no box to name, so its focus bar takes the group's label (Dev2, 2026-11-14).
   const focused = lab.cfocus ? node(lab.cfocus, g) ?? (opened ? { label: groupsOf(g)[lab.cfocus]?.label ?? lab.cfocus } : undefined) : undefined;
@@ -162,14 +184,8 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
         </svg>
       </div>
       <ChangeTip marks={marks} stage={stage} />
-      {/* In Replay the key leads the row on the left and the numbers stay right (Dev2, 2026-11-14: "put the key back to float left"). */}
-      <div className={replay ? "ctop replay" : "ctop"}>
-      {/* Replay's chat on the left already shows the text (Dev2, 2026-11-14: "this feels redundant with the left panel"); the Lab's canvas shows the test chat's text instead (Dev2, 2026-11-16: "do we really need this strip?"). */}
-      {replay ? (
-        <>
-          <div className="float keyw" id="keyw" hidden={!!focused} dangerouslySetInnerHTML={{ __html: focused ? "" : keywHtml() }} />
-        </>
-      ) : null}
+      <div className="ctop">
+      {lead}
       {marks && !focused ? <ChangeLegend mode={marks.mode} vs={marks.vs} /> : null}
       <div className="float fbar" id="fbar" hidden={!focused}>
         {focused ? (
@@ -183,9 +199,6 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
         ) : null}
       </div>
       </div>
-      {replay ? (
-        replay.m ? <ReplayTimeline m={replay.m} entries={replay.entries} onLit={setReplayLit} /> : null
-      ) : (
       <>
       <div className="float tools" role="toolbar" aria-label="Tools">
         <button className="ib" id="tSel" aria-pressed={tool === "sel"} title="Select and move (V); hold space to move the canvas" aria-label="Select" onClick={() => setTool("sel")}>
@@ -239,7 +252,6 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
         />
       </div>
       </>
-      )}
     </>
   );
 }

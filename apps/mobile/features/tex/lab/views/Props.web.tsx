@@ -11,6 +11,8 @@ import { useLab } from "../store";
 import { EmptyPanel } from "./props/EmptyPanel.web";
 import { resetModelFormOnSel } from "./props/ModelForm.web";
 import { NodePanel } from "./props/NodePanel.web";
+import { LinePanel } from "./props/LinePanel.web";
+import { isLineStep } from "../engine/lineSteps";
 import { WirePanel } from "./props/WirePanel.web";
 import { FocusTests } from "./Tests.web";
 
@@ -52,7 +54,7 @@ export function Props() {
 
   const extra = (
     <>
-      {sel.t === "node" && lab.view === "canvas" ? (
+      {sel.t === "node" && lab.view === "canvas" && !isLineStep(sel.id) ? (
         <button
           className="ghost pfocus"
           title={lab.cfocus === sel.id ? "Back to the whole graph (Esc)" : "Focus on this step (double-click)"}
@@ -66,7 +68,7 @@ export function Props() {
         aria-label="Close"
         style={{ width: 32, height: 32 }}
         onClick={() => {
-          set({ sel: null });
+          set({ sel: null, pin: true });
           if (lab.cfocus) unfocus();
         }}
       >
@@ -79,6 +81,7 @@ export function Props() {
 
   let panel;
   if (sel.t === "edge") panel = <WirePanel extra={extra} />;
+  else if (isLineStep(sel.id)) panel = <LinePanel id={sel.id} extra={extra} />;
   else {
     const n = node(sel.id);
     panel = n ? <NodePanel n={n} extra={extra} /> : <EmptyPanel extra={extra} />;

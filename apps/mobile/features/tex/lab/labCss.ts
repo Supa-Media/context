@@ -14,7 +14,7 @@ export const LAB_CSS = String.raw`.tl{position:fixed;inset:0;overflow:hidden}
   --line:rgba(26,23,20,0.09); --line2:rgba(26,23,20,0.18);
   --text:#1A1714; --text2:#4A443C; --muted:#635C52; --dim:#7A7264;
   --accent:#2A45CF; --accent-dim:rgba(42,69,207,0.10); --team:#6A46B8;
-  --ok:#3E7A4E; --ok-wash:rgba(62,122,78,0.10); --warn:#96600A; --warn-wash:rgba(150,96,10,0.12); --bad:#B23A32; --bad-wash:rgba(178,58,50,0.10);
+  --chg:#B98900; --chg-wash:rgba(232,183,24,0.22); --ok:#3E7A4E; --ok-wash:rgba(62,122,78,0.10); --warn:#96600A; --warn-wash:rgba(150,96,10,0.12); --bad:#B23A32; --bad-wash:rgba(178,58,50,0.10);
   --m-haiku:#2F8F83; --m-sonnet:#B4527F; --m-opus:#6A46B8; --m-api:#96600A; --m-code:#7A7264;
   --grid:rgba(26,23,20,0.10); --shadow:0 1px 2px rgba(26,23,20,.06),0 8px 24px rgba(26,23,20,.08);
   --f:"Instrument Sans",ui-sans-serif,system-ui,-apple-system,sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
@@ -24,7 +24,7 @@ export const LAB_CSS = String.raw`.tl{position:fixed;inset:0;overflow:hidden}
   --line:rgba(237,232,224,0.07); --line2:rgba(237,232,224,0.14);
   --text:#EDE8E0; --text2:#C3BCB2; --muted:#A79F95; --dim:#8D857B;
   --accent:#8A9BF2; --accent-dim:rgba(138,155,242,0.13); --team:#B9A3F2;
-  --ok:#82C98E; --ok-wash:rgba(130,201,142,0.10); --warn:#DFAC52; --warn-wash:rgba(223,172,82,0.10); --bad:#E5847D; --bad-wash:rgba(229,132,125,0.12);
+  --chg:#F2C94C; --chg-wash:rgba(242,201,76,0.18); --ok:#82C98E; --ok-wash:rgba(130,201,142,0.10); --warn:#DFAC52; --warn-wash:rgba(223,172,82,0.10); --bad:#E5847D; --bad-wash:rgba(229,132,125,0.12);
   --m-haiku:#5CC7B8; --m-sonnet:#E58AB4; --m-opus:#B9A3F2; --m-api:#DFAC52; --m-code:#A79F95;
   --grid:rgba(237,232,224,0.09); --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); color-scheme:dark}}
 .tl[data-theme="dark"]{
@@ -32,7 +32,7 @@ export const LAB_CSS = String.raw`.tl{position:fixed;inset:0;overflow:hidden}
   --line:rgba(237,232,224,0.07); --line2:rgba(237,232,224,0.14);
   --text:#EDE8E0; --text2:#C3BCB2; --muted:#A79F95; --dim:#8D857B;
   --accent:#8A9BF2; --accent-dim:rgba(138,155,242,0.13); --team:#B9A3F2;
-  --ok:#82C98E; --ok-wash:rgba(130,201,142,0.10); --warn:#DFAC52; --warn-wash:rgba(223,172,82,0.10); --bad:#E5847D; --bad-wash:rgba(229,132,125,0.12);
+  --chg:#F2C94C; --chg-wash:rgba(242,201,76,0.18); --ok:#82C98E; --ok-wash:rgba(130,201,142,0.10); --warn:#DFAC52; --warn-wash:rgba(223,172,82,0.10); --bad:#E5847D; --bad-wash:rgba(229,132,125,0.12);
   --m-haiku:#5CC7B8; --m-sonnet:#E58AB4; --m-opus:#B9A3F2; --m-api:#DFAC52; --m-code:#A79F95;
   --grid:rgba(237,232,224,0.09); --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); color-scheme:dark}
 *{box-sizing:border-box}

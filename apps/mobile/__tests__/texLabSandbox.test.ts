@@ -69,7 +69,8 @@ jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
       const until = real.findIndex((r) => r.id === body.base);
       mockRows = until < 0 ? real : real.slice(0, until);
       mockWrites = [];
-      return { sandboxId: "sb1", people: body.source === "chat" ? [{ handle: "priya", name: "Priya" }, { handle: "sam", name: "Sam" }] : [{ handle: "", name: "Maya" }], rows: mockRows };
+      // The line a test text goes over: an invented number.
+      return { sandboxId: "sb1", line: { name: "Tex", number: "+14155550142" }, people: body.source === "chat" ? [{ handle: "priya", name: "Priya" }, { handle: "sam", name: "Sam" }] : [{ handle: "", name: "Maya" }], rows: mockRows };
     }
     if (["retry", "back", "drop"].includes(op) && mockRows[at(body.msgId)]?.prod) throw new Error("That is a real text: open the chat with base set to it to try from there.");
     const sent = (as: string, text: string) => {
@@ -128,7 +129,7 @@ import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, lab, MAIN, set } from "../features/tex/lab/engine/state";
 import { numColW } from "../features/tex/lab/views/grid/TextGrid.web";
 import { gatewaySandbox, resetSandboxState, failureWords, sandbox, tryFromHere } from "../features/tex/lab/engine/sandbox";
-import { resetPlay } from "../features/tex/lab/engine/sandboxPlay";
+import { holdPlayClock, resetPlay } from "../features/tex/lab/engine/sandboxPlay";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -141,6 +142,8 @@ afterEach(() => {
   localStorage.clear();
 });
 beforeEach(() => {
+  // A text sent plays at once: its clock is held here and stepped where a test reads it.
+  holdPlayClock(true);
   mockAnswers.set("functions/admin:amIAdmin", true);
   mockAnswers.set("functions/texLab:list", { me: "u1", versions: [], caseEdits: [] });
   act(() => set({ cur: clone(MAIN), versions: [MAIN], sel: null, view: "canvas", viewer: null, mode: "lab" }));
@@ -228,12 +231,14 @@ describe("the Architecture test chat", () => {
     expect(texts()).toEqual(["practice thursday?", "Yes, 7 pm.", "Tex add the gig to the band calendar", "Added it to the calendar."]);
     // The real chat's texts are greyed, a line marks where the test texts start.
     expect(qa("#sbGrid tbody tr.prod").length).toBe(2);
-    expect(q("#sbGrid tr.sepr")?.textContent).toBe("Test texts");
+    expect(q("#sbGrid tr.sepr")?.textContent).toBe("Sandbox from here · copied 2 texts from your real chat · writes stay in the sandbox");
     const row = q('#sbGrid tr.test[data-id="t1"]')!;
     expect(row.querySelector('td[data-c="decide"]')?.textContent).toBe("act: respond410 ms");
     expect(row.querySelector('td[data-c="fd"]')?.textContent).toBe("draft 22 chars3.4 s");
     // Columns are picked like Testing's.
     expect(qa("#sbGrid thead th").map((t) => t.textContent)).toContain("Front door");
+    // Columns are the grid's: a text sent opened the Timeline, so back to the Grid.
+    await click('#sbView [data-v="grid"]');
     await click("#sbGridColBtn");
     const box = q<HTMLInputElement>('#sbGridColMenu input[data-show="fd"]')!;
     act(() => box.click());
@@ -242,6 +247,8 @@ describe("the Architecture test chat", () => {
     // What Tex changed stays in the sandbox, listed.
     await click("#sbChanges");
     expect(q(".sbwrites")?.textContent).toMatch(/Calendar.*held in the sandbox/);
+    // The composer names the number the test texts go to, as a phone shows it.
+    expect(q<HTMLInputElement>("#sbTxt")?.placeholder).toBe("Text Tex at +1 (415) 555-0142…");
   });
 
   test("the chat opens scrolled to its newest text, and follows each new one", async () => {
@@ -333,15 +340,14 @@ describe("the test chat's ▶ and message options", () => {
     await mount();
     await type("one");
     const play = () => q<HTMLButtonElement>('#sbGrid [data-play="t1"]')!;
+    // A text sent plays at once: ⏸ on its row; ⏸ pauses it.
+    expect(play().textContent).toMatch(/^⏸ /);
+    await click(play());
     expect(play().textContent).toBe("▶");
     expect(play().classList.contains("stale")).toBe(false);
     const before = mockCalls.length;
-    // The playback's clock held still, so a slow runner can't finish it before the check.
-    const realInterval = globalThis.setInterval;
-    globalThis.setInterval = (() => 0) as unknown as typeof setInterval;
     await click(play());
-    globalThis.setInterval = realInterval;
-    // A playback: no call to the gateway, ⏸ and its time while it plays, ▶ again once stopped.
+    // A playback: no call to the gateway, ⏸ and its time while it plays, ▶ again once paused.
     expect(mockCalls.length).toBe(before);
     expect(play().textContent).toMatch(/^⏸ /);
     await click(play());

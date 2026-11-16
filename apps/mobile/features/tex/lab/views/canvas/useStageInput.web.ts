@@ -4,6 +4,7 @@
  * pans; a drag from a port, or from a step with the connect tool, draws a wire; a drag on a step moves it, snapped
  * to 10, copying main first; a click selects; the wheel pans and ctrl/⌘-wheel zooms; V, C and H pick the tool,
  * Delete removes the selection, Escape leaves focus or clears it, ctrl/⌘Z undoes. Ctrl/⌘S is the shell's.
+ * The test chat's line (`lineDecor.ts`, `data-line`, no `data-id`) is only ever picked: never moved, wired or focused.
  */
 import { useEffect, type RefObject } from "react";
 import {
@@ -44,7 +45,14 @@ type Act =
     }
   | { k: "edge"; i: number }
   | { k: "fblk"; mod?: string; go?: string }
-  | { k: "fpick"; id: string };
+  | { k: "fpick"; id: string }
+  | { k: "line"; id: string };
+
+/** The canvas draws another graph than the version open (a real text's, as it ran): nothing on it can be changed. */
+let readOnly = false;
+export function setCanvasReadOnly(v: boolean) {
+  readOnly = v;
+}
 
 export function useStageInput({
   stage,
@@ -70,7 +78,7 @@ export function useStageInput({
 
     const tap = (e: PointerEvent) => {
       const t = e.target as Element;
-      const g = t.closest?.(".nd") as SVGGElement | null;
+      const g = t.closest?.(".nd[data-id]") as SVGGElement | null;
       if (!g || t.closest(".port")) {
         lastTap = { id: null, at: 0 };
         return;
@@ -99,7 +107,8 @@ export function useStageInput({
       const p = toWorld(e);
       const t = e.target as Element;
       const port = t.closest("[data-port]") as HTMLElement | null;
-      const nd = t.closest(".nd") as HTMLElement | null;
+      const nd = t.closest(".nd[data-id]") as HTMLElement | null;
+      const ln = t.closest("[data-line]") as HTMLElement | null;
       const hit = t.closest("[data-edge]") as HTMLElement | null;
       closeAddMenu();
       try {
@@ -118,6 +127,10 @@ export function useStageInput({
           return;
         }
       }
+      if (ln && lab.tool !== "pan" && !space) {
+        act = { k: "line", id: ln.dataset.line! };
+        return;
+      }
       if (lab.tool === "pan" || space || (!nd && !hit && !port)) {
         const c = cam.current!;
         act = {
@@ -131,8 +144,8 @@ export function useStageInput({
         st.classList.add("pan");
         return;
       }
-      // Replay is read only: no wiring, moving or deleting, only picking a step to see what it did.
-      if (lab.mode !== "replay" && (port || (lab.tool === "con" && nd))) {
+      // A real text's run draws the graph Tex had then, read only: no wiring, moving or deleting, only picking a step.
+      if (!readOnly && (port || (lab.tool === "con" && nd))) {
         act = { k: "wire", from: port ? port.dataset.port! : nd!.dataset.id! };
         return;
       }
@@ -161,7 +174,7 @@ export function useStageInput({
         if (Math.abs(e.clientX - act.sx) + Math.abs(e.clientY - act.sy) > 3)
           act.moved = true;
         applyCam();
-      } else if (act.k === "move" && lab.mode !== "replay") {
+      } else if (act.k === "move" && !readOnly) {
         const n = node(act.id);
         if (!n) return;
         const nx = Math.round((p.x - act.dx) / 10) * 10;
@@ -193,11 +206,15 @@ export function useStageInput({
         else if (a.go) focusOn(a.go);
         return;
       }
+      if (a.k === "line") {
+        set({ sel: { t: "node", id: a.id }, addCtxOpen: false, pin: true });
+        return;
+      }
       if (a.k === "fpick") {
         // A step an open group draws is picked for its properties; it does not become a focus of its own.
         const shown = stepsShownFor(G(), lab.cfocus).some((n) => n.id === a.id);
         if (a.id !== lab.cfocus && !shown) focusOn(a.id);
-        else set({ sel: { t: "node", id: a.id } });
+        else set({ sel: { t: "node", id: a.id }, pin: true });
         return;
       }
       if (a.k === "pan") {
@@ -210,8 +227,8 @@ export function useStageInput({
           pushUndo(a.before);
           markDirty();
         } else {
-          set({ sel: { t: "node", id: a.id }, addCtxOpen: false });
-          if (a.addCase && lab.mode !== "replay") startNodeCase(a.id);
+          set({ sel: { t: "node", id: a.id }, addCtxOpen: false, pin: true });
+          if (a.addCase && !readOnly) startNodeCase(a.id);
         }
         return;
       }
@@ -221,7 +238,7 @@ export function useStageInput({
       }
       if (a.k === "wire") {
         const el = document.elementFromPoint(e.clientX, e.clientY);
-        const to = el?.closest?.(".nd") as HTMLElement | null;
+        const to = el?.closest?.(".nd[data-id]") as HTMLElement | null;
         st.querySelector("#ghost")?.setAttribute("d", "");
         if (to && to.dataset.id !== a.from) {
           const tid = to.dataset.id!;
@@ -253,7 +270,7 @@ export function useStageInput({
         unfocus();
         return;
       }
-      if (typing || lab.view !== "canvas" || lab.mode === "replay") return;
+      if (typing || lab.view !== "canvas" || readOnly) return;
       if (e.key === " ") {
         space = true;
         st.classList.add("pan");

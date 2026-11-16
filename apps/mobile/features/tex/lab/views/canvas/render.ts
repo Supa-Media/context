@@ -188,7 +188,12 @@ export function renderGraphHtml(
 ): string {
   const reached = (id: string) => sim.reach.has(id) || sim.inside.has(id);
   // While playing, how far through each running step is (0 to 1), drawn as a ring filling around it.
-  const ring = (id: string) => (litId instanceof Map ? (litId.get(id) ?? null) : null);
+  // A step done (1) has no ring: it is outlined blue as done, as the approved Lab live sandbox mockup draws it.
+  const ring = (id: string) => {
+    const p = litId instanceof Map ? (litId.get(id) ?? null) : null;
+    return p !== null && p < 1 ? p : null;
+  };
+  const done = (id: string) => litId instanceof Map && litId.get(id) === 1;
   const lit = (id: string) => (fade === "off" ? !!node(id, g)?.on : reached(id));
   let h = `<defs>${Object.entries(WIRES)
     .map(
@@ -206,7 +211,7 @@ export function renderGraphHtml(
     const on = fade === "off" ? lit(e.from) && lit(e.to) : fires(e, tags, g) && lit(e.from);
     const s = sel?.t === "edge" && sel.i === i;
     const p = wirePath(a, b, e.mode);
-    const wm = marks ? (marks.newWires.has(wireKey(e)) ? " wnew" : " wsame") : "";
+    const wm = marks && marks.newWires.has(wireKey(e)) ? " wnew" : "";
     h += `<path class="wire ${on || s ? "" : "dim"} ${s ? "sel" : ""}${wm}" d="${p.d}" stroke="var(${s ? "--accent" : w.c})" ${w.dash ? `stroke-dasharray="${w.dash}"` : ""} ${w.w && !s ? `stroke-width="${w.w}"` : ""} marker-end="url(#m-${s ? "sel" : e.mode})"/>`;
     h += `<path class="hit" d="${p.d}" data-edge="${i}"><title>${esc(w.name + ": " + a.label + " → " + b.label)}</title></path>`;
     if (e.mode === "loop" && (on || s))
@@ -216,20 +221,20 @@ export function renderGraphHtml(
   for (const n of g.nodes) {
     const m = MODELS[n.model] || MODELS.code;
     const s = sel?.t === "node" && sel.id === n.id;
-    const mk = marks ? (marks.nodes[n.id] ? ` chg-${marks.nodes[n.id].kind}` : " chg-same") : "";
+    const mk = marks?.nodes[n.id] ? ` chg-${marks.nodes[n.id].kind}` : "";
     const sub = !n.on
       ? "Off"
       : m.runs === "code"
         ? "Code"
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
     const time = timeLabel(sim, n.id);
-    h += `<g class="nd${hlClass(n.id)}${mk} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
-      <rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? ringHtml(sim, g, n.id, ring(n.id)!) : ""}
+    h += `<g class="nd${hlClass(n.id)}${mk} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : done(n.id) ? "lit done" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+      ${marks ? markHtml(marks, n.id) : ""}<rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? ringHtml(sim, g, n.id, ring(n.id)!) : ""}
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>
       <text class="ttl" x="62" y="28">${esc(n.label.length > 15 ? n.label.slice(0, 14) + "…" : n.label)}</text>
       <circle cx="66" cy="43" r="3.5" fill="var(${n.on ? m.c : "--dim"})"/><text class="sub" x="74" y="47">${esc(sub)}</text>
-      ${time ? `<text class="tm" x="${counts ? W - 26 : W - 4}" y="-7" text-anchor="end">${time}</text>` : ""}${n.on ? splitHtml(sim, g, n.id, m.c) : ""}${counts && counts[n.id] !== undefined ? caseChip(n.id, counts[n.id]) : ""}${marks ? markHtml(marks, n.id) : ""}
+      ${time ? `<text class="tm" x="${counts ? W - 26 : W - 4}" y="-7" text-anchor="end">${time}</text>` : ""}${n.on ? splitHtml(sim, g, n.id, m.c) : ""}${counts && counts[n.id] !== undefined ? caseChip(n.id, counts[n.id]) : ""}
       <circle class="port" data-port="${n.id}" cx="${W}" cy="${H / 2}" r="6"/>
       <circle class="port" data-port="${n.id}" cx="0" cy="${H / 2}" r="6"/>
     </g>`;
@@ -262,7 +267,7 @@ function goneHtml(m: Marks): string {
       h += `<g class="ghostn" data-mark="${esc(id)}" transform="translate(${o.x},${o.y})"><rect class="card" width="${W}" height="${H}" rx="12"/><text class="ttl" x="16" y="28">${esc(o.label.length > 18 ? o.label.slice(0, 17) + "…" : o.label)}</text><text class="sub" x="16" y="47">${esc(subOf(o))}</text></g>`;
     }
   for (const o of m.removed)
-    h += `<g class="rmv ${m.mode}" data-mark="${esc(o.id)}" transform="translate(${o.x},${o.y})"><title>${esc(o.label)}: ${m.mode === "ghost" ? "only on " + m.vs : "removed"}</title><rect class="card" width="${W}" height="${H}" rx="12"/><text class="ttl" x="16" y="28">${esc(o.label.length > 18 ? o.label.slice(0, 17) + "…" : o.label)}</text><text class="sub" x="16" y="47">${esc(subOf(o))} · ${m.mode === "ghost" ? "only on " + esc(m.vs) : "removed"}</text>${m.mode === "marks" ? badge("removed") : ""}</g>`;
+    h += `<g class="rmv ${m.mode}" data-mark="${esc(o.id)}" transform="translate(${o.x},${o.y})"><title>${esc(o.label)}: ${m.mode === "ghost" ? "only on " + m.vs : "removed"}</title><rect class="card" width="${W}" height="${H}" rx="12"/><text class="ttl" x="16" y="28">${esc(o.label.length > 18 ? o.label.slice(0, 17) + "…" : o.label)}</text><text class="sub" x="16" y="47">${esc(subOf(o))} · ${m.mode === "ghost" ? "only on " + esc(m.vs) : "removed"}</text></g>`;
   return h;
 }
 
@@ -271,19 +276,12 @@ const subOf = (n: LabNode) => {
   return !n.on ? "Off" : m.runs === "code" ? "Code" : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
 };
 
-const badge = (kind: "changed" | "new" | "removed") =>
-  `<g class="mk mk-${kind}"><circle cx="0" cy="0" r="10"/><text x="0" y="4.5" text-anchor="middle">${kind === "changed" ? "~" : kind === "new" ? "+" : "−"}</text></g>`;
-
-/** A changed or new step's mark: the badge at its corner, and what changed (Marks) or what it was (Ghost) beneath. */
+/**
+ * A changed step's mark: a yellow outline around its card, and nothing else (Dev2, 2026-11-16: "no just the outline").
+ * New steps are drawn green by their card's stroke, removed ones red where they were; no label, nothing fades.
+ */
 function markHtml(m: Marks, id: string): string {
-  const x = m.nodes[id];
-  if (!x) return "";
-  const words = x.kind === "new" ? (m.mode === "ghost" ? "not on " + m.vs : "new") : [...x.fields, ...(x.moved ? ["moved"] : [])].join(" · ");
-  if (!words) return badge(x.kind);
-  const t = words.length > 34 ? words.slice(0, 33) + "…" : words;
-  if (m.mode === "ghost") return badge(x.kind) + `<text class="was" x="0" y="${H + 16}">${x.kind === "new" ? esc(t) : "was: " + esc(t)}</text>`;
-  const w = t.length * 6.2 + 16;
-  return badge(x.kind) + `<g class="mtag mtag-${x.kind}"><rect x="${W - 8 - w}" y="${H - 9}" width="${w}" height="18" rx="9"/><text x="${W - 8 - w / 2}" y="${H + 4}" text-anchor="middle">${esc(t)}</text></g>`;
+  return m.nodes[id]?.kind === "changed" ? `<rect class="chgo" x="-4" y="-4" width="${W + 8}" height="${H + 8}" rx="15"/>` : "";
 }
 
 export function ndSvg(
