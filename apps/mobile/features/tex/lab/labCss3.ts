@@ -3,6 +3,8 @@
  * https://claude.ai/artifact/GAScQuRxZyASpH8xes4n9K onto the Lab's own tokens (`labCss.ts`), so light and dark follow
  * the Lab. Scoped under `.tl .tst`; `labCss2.ts` appends it.
  */
+import { LAB_CSS_4 } from "./labCss4";
+
 export const LAB_CSS_3 = String.raw`
 .tl .body.testing{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
 .tl .bar .ratio{margin-left:8px}
@@ -107,4 +109,4 @@ export const LAB_CSS_3 = String.raw`
 .tl .tst table.chatgrid th{color:var(--text)}
 .tl .tst .rowx{height:auto;min-height:0;line-height:1.2;display:inline-block;vertical-align:top}
 .tl .ratio .rbar{position:static;height:8px;border:0;padding:0;border-radius:4px;overflow:hidden}
-`;
+` + LAB_CSS_4;

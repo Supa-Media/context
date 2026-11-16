@@ -322,7 +322,9 @@ describe("the Lab's test user as You", () => {
     // The chats are a drop-down (Dev2 on the mock: "Should probably be a drop down").
     expect(qa("#rChat option").map((x) => x.textContent)).toEqual(["1:1 with Tex", "Band · 4 people", "Old pals · 1 person"]);
     // The chat reads as it was; every text someone sent replays from it (Dev2: "replay from any text").
-    expect(qa("#replaySide .cdb").map((x) => x.textContent)).toEqual(["hey" + qa("#replaySide .cdm")[0].textContent, "TexHi.", "remind me about the shelves" + qa("#replaySide .cdm")[1].textContent, "TexDone."]);
+    // A grid of Speaker and Message only (Dev2, 2026-11-16: "just keep it on the left only showing speaker and message").
+    expect(qa("#replayGrid thead th").map((x) => x.textContent)).toEqual(["Speaker", "Message"]);
+    expect(qa("#replayGrid tbody tr.mr").map((x) => x.textContent)).toEqual(["Youhey", "TexHi.", "Youremind me about the shelves", "TexDone."]);
     expect(qa("#replaySide [data-moment]").map((x) => x.getAttribute("data-moment"))).toEqual(["ev1", "ev3"]);
     // It opens on the newest moment, and the timeline shows its texts, the judge's calls and the turn.
     expect(q('[data-moment="ev3"]')?.getAttribute("aria-current")).toBe("true");
@@ -389,7 +391,7 @@ describe("the Lab's test user as You", () => {
       pick.dispatchEvent(new Event("change", { bubbles: true }));
       await new Promise((r) => setTimeout(r, 0));
     });
-    expect(q("#replaySide .cdw")?.textContent).toBe("Ada");
+    expect(q('#replayGrid tbody tr.mr td[data-c="who"]')?.textContent).toBe("Ada");
     await act(async () => {
       setValue.call(q<HTMLInputElement>("#rScrub")!, "500");
       q("#rScrub")!.dispatchEvent(new Event("input", { bubbles: true }));
