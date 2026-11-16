@@ -37,6 +37,8 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
+// The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
+jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 // The Tests view has no focus export yet, and the workspace browser is not in the repo yet.
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

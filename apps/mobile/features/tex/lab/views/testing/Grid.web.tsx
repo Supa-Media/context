@@ -10,6 +10,8 @@ import { change, colsFor, saveCols, setUi, sets, useSets } from "../../engine/se
 import type { LabNode } from "../../types";
 import { ColMenu as SharedColMenu, HeadCell, startResize as resizeCol } from "../grid/GridParts.web";
 import { MsgFields, SpeakerPick } from "./MsgFields.web";
+import { RunBar, useStartRun } from "../runs/Runs.web";
+import { TryCompose, TryRows } from "./TryText.web";
 
 type Col = { id: string; name: string; node?: LabNode };
 
@@ -140,6 +142,7 @@ function Title({ c }: { c: Conversation }) {
 
 export function Grid({ c }: { c: Conversation }) {
   const s = useSets();
+  const runIt = useStartRun("testing");
   const g = G();
   const cols = colsFor(g);
   const vc = visibleCols();
@@ -252,7 +255,16 @@ export function Grid({ c }: { c: Conversation }) {
         <span className="muted small">
           {c.kind === "one" ? "1:1" : "group"} · ★ {starsIn(c)} unit tests{(c as { from?: string }).from ? ` · from ${(c as { from?: string }).from}` : ""}
         </span>
-        <span style={{ marginLeft: "auto", position: "relative" }}>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 6, position: "relative" }}>
+          {c.set === "test" ? (
+            <button className="btn sm" id="runChat" disabled title="The Test set runs only in the locked eval service, when a pull request is gated">
+              ▶ Run this chat
+            </button>
+          ) : (
+            <button className="btn sm" id="runChat" disabled={!starsIn(c) || c.set !== "dev"} title={c.set !== "dev" ? "Runs score the Dev set: move this chat to Dev to run it" : starsIn(c) ? "Runs this chat's unit tests on GitHub" : "Star a cell first: a run checks unit tests"} onClick={() => void runIt("chat", { convId: c.id })}>
+              ▶ Run this chat
+            </button>
+          )}
           <button
             className="btn sm"
             id="colBtn"
@@ -267,6 +279,7 @@ export function Grid({ c }: { c: Conversation }) {
           {s.colMenu ? <ColMenu /> : null}
         </span>
       </div>
+      {c.set === "test" ? null : <RunBar convId={c.id} dev={c.set === "dev"} />}
       {c.set === "test" ? <div className="banner">Test chat · people only. Keep agents away from these words.</div> : null}
       <div className="scroll" id="gridScroll" ref={scroller}>
         <table className="chatgrid" ref={table} style={{ width: tw }}>
@@ -335,6 +348,7 @@ export function Grid({ c }: { c: Conversation }) {
                 </tr>
               );
             })}
+            <TryRows c={c} span={vc.filter((x) => x.id !== "who" && x.id !== "text").length} />
             <tr className="addrow">
               <td />
               <td colSpan={vc.length + 1}>
@@ -346,6 +360,7 @@ export function Grid({ c }: { c: Conversation }) {
           </tbody>
         </table>
       </div>
+      {c.set === "test" ? null : <TryCompose c={c} />}
       <div className="legend">
         <span>
           Click a cell to select · <kbd>Enter</kbd> or double-click to edit · arrows move · drag ⠿ or <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> to reorder · <kbd>Del</kbd> clears · <kbd>T</kbd> unit test
