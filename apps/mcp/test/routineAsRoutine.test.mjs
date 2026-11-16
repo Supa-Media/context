@@ -7,6 +7,7 @@
  * Sabotage record (temporary local edits, reverted, 2026-11-16):
  *   the node ignoring ctx.wired (always the new way)   "on main's config a routine still goes through the door" fails
  *   runARoutine passing standing: true always          "only a routine run as a routine is told its standing" fails
+ *   the runner carrying `log` on (texGraph `carried`)   "the draft wires Routine runs straight to the Front door" fails
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -37,9 +38,9 @@ test("on the draft, a routine's run goes to the Front door as a routine, with it
   const t = routineTurn({ routine: { path: "tex/routines/daily/rent.md" }, runs: [{}, {}, {}], engagement: { texted: 3, unanswered: 3, lastAnsweredAt: null }, texted: true });
   const out = await routine({}, { ctx: { turn: t, wired: wiredIn(TEX_CONFIG) } }, standIns());
   assert.deepEqual(out.when, ["run"]);
-  assert.deepEqual(out.routine, { path: "tex/routines/daily/rent.md", runs: 3, supervised: false, texted: 3, unanswered: 3, lastAnsweredAt: null });
+  assert.deepEqual(out.log.routine, { path: "tex/routines/daily/rent.md", runs: 3, supervised: false, texted: 3, unanswered: 3, lastAnsweredAt: null });
   assert.equal(out.texted, true);
-  assert.equal(out.parts.length, DOOR_PARTS.length);
+  assert.equal(out.log.parts.length, DOOR_PARTS.length);
   assert.equal(t.asRoutine, true, "Run a routine tells it its standing");
   assert.equal(t.response, undefined);
 });
@@ -66,5 +67,5 @@ test("the draft wires Routine runs straight to the Front door, a stopped run to 
   const graph = gatewayGraph({ nodes, config });
   const { ran: order } = await graph.run(ROUTINE_START, {}, { turn: routineTurn({ runs: [] }), wired: graph.wired }, { stopAt: ["fd"] });
   assert.deepEqual(order, ["routine", "fd"]);
-  assert.equal(ran[0].routine.runs, 0, "the Front door is told it is a routine");
+  assert.ok(!("routine" in ran[0]) && !("parts" in ran[0]) && !("log" in ran[0]), "the routine's log stays in its row: the Front door's input shape refuses it (0/20, 2026-11-16)");
 });
