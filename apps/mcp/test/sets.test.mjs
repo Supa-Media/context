@@ -108,7 +108,7 @@ test("a conversation file is one line per field and per message, and every repo 
   const c = { id: "x", title: "X", set: "dev", kind: "one", members: ["Jo"], msgs: [{ id: "m1", who: "Jo", text: "hi ⁨there⁩" }, { id: "m2", who: "Tex", tex: true, text: "hey" }] };
   const text = conversationFile(c);
   assert.deepEqual(JSON.parse(text), c);
-  assert.equal(text.split("\n").length, 5 + 2 + 2 + 2, "fields, the msgs bracket, one line per message, the close");
+  assert.equal(text.split("\n").length, 1 + 5 + 1 + 2 + 2 + 1, "the brace, five fields, the msgs bracket, one line per message, the two closes, the final newline");
   assert.doesNotMatch(text, /[⁦-⁩]/, "invisible characters are escapes");
   for (const conv of await loadSets()) {
     const file = readFileSync(join(SETS_DIR, conv.set, `${conv.id}.json`), "utf8");
