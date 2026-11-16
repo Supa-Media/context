@@ -9,7 +9,7 @@
 # is judged (apps/mcp/bench/setsRun.mjs --tree). The conversations and answers are written to a folder only this
 # job's user reads, never printed, uploaded or cached, and deleted at the end; the runner's own output goes to
 # /dev/null. The service scores the answers and says pass or fail and counts by node, which is all this prints.
-# Capped by the service: 1 run a commit, 3 a pull request, 10 a day.
+# Capped by the service: 1 run a commit, 3 a pull request, 1000 a day.
 
 name: Tex test set
 

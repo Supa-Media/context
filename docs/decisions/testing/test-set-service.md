@@ -21,7 +21,8 @@ plan in [test-sets](./test-sets.md), piece 4.
   `tex-test-set-seed.yml`). The same file dispatched on a branch names the
   branch and is refused, so a branch cannot change the steps that hold the
   conversations.
-- **Capped:** 1 run a commit, 3 a pull request, 10 a day (UTC). A person can
+- **Capped:** 1 run a commit, 3 a pull request, 1000 a day (UTC; raised from 10 by
+  Dev2, 2026-11-16). A person can
   allow one more for a pull request in the Lab; the same GitHub run asking again
   gets its own run back and spends nothing.
 - **Answers pass or fail and counts by node.** The service scores the run's
