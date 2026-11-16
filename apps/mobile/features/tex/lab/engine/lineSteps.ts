@@ -6,6 +6,7 @@
  * approved Lab live sandbox mockup does (https://claude.ai/artifact/XtEn67XPWMTFVUBYanYLG5).
  */
 import type { LabGraph, LabNode } from "../types";
+import { drawnFor } from "./groups";
 import { sandbox } from "./sandbox";
 
 export const LINE_STEPS = ["lineIn", "lineOut"] as const;
@@ -14,6 +15,9 @@ export const isLineStep = (id: string | null | undefined): id is LineStep => id 
 
 /** Where the line sits: left of the step a text arrives at, right of the one that texts them. */
 const ANCHOR: Record<LineStep, { at: string; dx: number }> = { lineIn: { at: "text", dx: -240 }, lineOut: { at: "send", dx: 240 } };
+
+/** The step (or the folded group's box holding it) a line pseudo-step hangs on. */
+export const lineAnchor = (g: LabGraph, id: LineStep): LabNode | undefined => drawnFor(g, ANCHOR[id].at);
 
 /** "Photon line in": the line's name as the gateway gave it, else just "Line". */
 export function lineLabel(id: LineStep): string {
@@ -30,7 +34,7 @@ export function lineNodes(g: LabGraph): LabNode[] {
   if (!sandbox.id) return [];
   const out: LabNode[] = [];
   for (const id of LINE_STEPS) {
-    const a = g.nodes.find((n) => n.id === ANCHOR[id].at);
+    const a = lineAnchor(g, id);
     if (!a) continue;
     out.push({ id, label: lineLabel(id), goal: "", log: true, on: true, rounds: 1, out: 0, ctx: [], ms: 0, timeoutS: 0, areas: [], file: "", note: "", icon: "plug", model: "code", x: a.x + ANCHOR[id].dx, y: a.y });
   }

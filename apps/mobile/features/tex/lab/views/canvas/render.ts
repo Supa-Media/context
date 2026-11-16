@@ -173,6 +173,28 @@ export function fbarHtml(label: string): string {
   return `<span class="hint">Focus</span><b>${esc(label)}</b><button class="ghost" id="fbOut">Whole graph</button>`;
 }
 
+type Lit = string | ReadonlySet<string> | ReadonlyMap<string, number> | null;
+
+/**
+ * A step running inside a folded group lights the group's box (the step itself is not drawn): the box runs while one of
+ * its steps does, and is done once one has finished and none is running.
+ */
+export function boxesLit(g: LabGraph, litId: Lit): Lit {
+  const boxOf = new Map<string, string>();
+  for (const [box, f] of Object.entries(g.folded ?? {})) for (const m of f.nodes) boxOf.set(m.id, box);
+  if (!boxOf.size || litId === null) return litId;
+  if (typeof litId === "string") return boxOf.get(litId) ?? litId;
+  if (!(litId instanceof Map)) return new Set([...(litId as ReadonlySet<string>)].map((id) => boxOf.get(id) ?? id));
+  const out = new Map(litId);
+  for (const [id, p] of litId) {
+    const box = boxOf.get(id);
+    if (!box) continue;
+    const had = out.get(box);
+    out.set(box, had === undefined ? p : had < 1 ? had : p);
+  }
+  return out;
+}
+
 export function renderGraphHtml(
   g: LabGraph,
   sim: Sim,
@@ -186,6 +208,7 @@ export function renderGraphHtml(
   /** A draft's changes against main or its last revision, drawn on the steps and wires (`engine/changeMarks.ts`). */
   marks: Marks | null = null,
 ): string {
+  litId = boxesLit(g, litId);
   const reached = (id: string) => sim.reach.has(id) || sim.inside.has(id);
   // While playing, how far through each running step is (0 to 1), drawn as a ring filling around it.
   // A step done (1) has no ring: it is outlined blue as done, as the approved Lab live sandbox mockup draws it.

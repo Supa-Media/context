@@ -42,7 +42,7 @@ describe("realTimes", () => {
     )!;
     expect(r.reply).toBe(6700);
     // No send is made up from what the other steps leave of the reply: Text them is measured or not drawn as measured.
-    expect(r.ms).toEqual({ lanes: 400, door: 700, fd: 2700, tools: 650, reviewer: 2100, classifier: 900 });
+    expect(r.ms).toEqual({ lanes: 400, doorStep: 700, fd: 2700, tools: 650, reviewer: 2100, classifier: 900 });
     expect(r.calls).toEqual({ fd: 2, reviewer: 1, classifier: 1 });
   });
 
@@ -52,23 +52,24 @@ describe("realTimes", () => {
   });
 
   test("withReal places a measured step the run did not reach where it ran, and marks what was measured", () => {
-    const sim = { T: { door: { start: 900, end: 1600, ms: 700, usd: 0, calls: 0, parts: [], lane: "reply" }, fd: { start: 1600, end: 4300, ms: 2700, usd: 0, calls: 2, parts: [], lane: "reply" } }, reply: 17600, usd: 0, replyCalls: 5, jobEnd: 0, reach: new Map(), inside: new Set() } as Sim;
-    const out = withReal(sim, { reply: 6700, ms: { door: 700, fd: 2700, tools: 650 }, calls: { fd: 2 }, at: { tools: 1500 } });
+    const sim = { T: { doorStep: { start: 900, end: 1600, ms: 700, usd: 0, calls: 0, parts: [], lane: "reply" }, fd: { start: 1600, end: 4300, ms: 2700, usd: 0, calls: 2, parts: [], lane: "reply" } }, reply: 17600, usd: 0, replyCalls: 5, jobEnd: 0, reach: new Map(), inside: new Set() } as Sim;
+    const out = withReal(sim, { reply: 6700, ms: { doorStep: 700, fd: 2700, tools: 650 }, calls: { fd: 2 }, at: { tools: 1500 } });
     expect(out.reply).toBe(6700);
     expect(out.T.fd).toBe(sim.T.fd);
     expect(out.T.tools).toMatchObject({ start: 2400, end: 3050, ms: 650 });
-    expect([...out.real!]).toEqual(["door", "fd", "tools"]);
+    expect([...out.real!]).toEqual(["doorStep", "fd", "tools"]);
     expect(withReal(sim, null)).toBe(sim);
   });
 
   test("a real run takes measured times, skips steps that log when they run but logged nothing, and adds no send-backs", () => {
     const { G } = jest.requireActual<typeof import("../features/tex/lab/engine/state")>("../features/tex/lab/engine/state");
-    const real = { reply: 6700, ms: { lanes: 450, door: 700, fd: 2700, tools: 650, send: 150 }, calls: { fd: 2 } };
+    // The graph's Door step is `doorStep`, and its Answer check (`answerCheck`) logs when it runs, as the reviewer did.
+    const real = { reply: 6700, ms: { lanes: 450, doorStep: 700, fd: 2700, tools: 650, send: 150 }, calls: { fd: 2 } };
     const sim = simulate(G(), "own", null, real);
     expect(sim.T.fd.ms).toBe(2700 + 650);
-    expect(sim.T.reviewer).toBeUndefined();
+    expect(sim.T.answerCheck).toBeUndefined();
     expect(sim.T.fd.parts.some((p) => p.id === "sendback")).toBe(false);
-    expect(sim.T.door.start).toBe(sim.T.lanes.end);
+    expect(sim.T.doorStep.start).toBe(sim.T.lanes.end);
   });
 });
 
@@ -171,7 +172,7 @@ describe("every step's real time is its own, once (Dev2, 2026-11-15)", () => {
     expect(r.ms.nudge).toBe(83);
     // The steps the person waited on add up to the wait itself and its delivery, give or take the front door's first
     // run starting while Door steps' last read (66 ms here) finished; counted twice, the front door alone was 22.6 s.
-    const waited = ["lanes", "door", "fd", "checks", "send"].reduce((a, id) => a + (r.ms[id] ?? 0), 0);
+    const waited = ["lanes", "doorStep", "fd", "checks", "send"].reduce((a, id) => a + (r.ms[id] ?? 0), 0);
     expect(Math.abs(waited - (r.reply + 470))).toBeLessThan(200);
   });
 

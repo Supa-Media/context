@@ -60,7 +60,8 @@ export function realTimes(entries: LedgerEntry[], turn: string | null): RealTime
   const ran = new Set(mine.filter(isNodeRun).map((e) => e.name as string));
   const rounds = (Array.isArray(timing.rounds) ? timing.rounds : []).map(rec).filter((r): r is Record<string, unknown> => r !== null && num(r.ms) !== null);
   if (rounds.length) {
-    add("door", num(rounds[0].at) ?? 0);
+    // Before the Door was one logged step, its time was the wait for the first model call.
+    if (!ran.has("doorStep")) add("doorStep", num(rounds[0].at) ?? 0);
     for (const r of rounds) add("fd", ran.has("fd") ? 0 : num(r.ms)!, 1);
   }
   const usd = rounds.some((r) => r.model) ? rounds.reduce((a, r) => a + roundUsd(r), 0) : undefined;
@@ -75,7 +76,8 @@ export function realTimes(entries: LedgerEntry[], turn: string | null): RealTime
   for (const e of mine) {
     const m = num(e.ms);
     if (m === null) continue;
-    if (e.kind === "judge" && e.by === "review") add("reviewer", m, 1);
+    // The model review inside Answer check is part of its run's own time; before Answer check it was the Reviewer's.
+    if (e.kind === "judge" && e.by === "review") add(ran.has("answerCheck") ? "answerCheck" : "reviewer", ran.has("answerCheck") ? 0 : m, 1);
     else if (isNodeRun(e)) add(e.name as string, ownMs(e), e.name === "fd" && rounds.length ? 0 : 1);
     else if (isDelivery(e)) add("send", m);
     else if (e.kind === "step" && typeof e.step === "string" && STEP_NODES.has(e.step)) add(e.step, m, 1);
@@ -140,12 +142,13 @@ export function momentTurnEntries(m: { at: number }, entries: LedgerEntry[], tur
  */
 function untimed(mine: LedgerEntry[], add: (id: string, t: number, n?: number) => void, ms: Record<string, number>, calls: Record<string, number>): RealTimes | null {
   if (!mine.length) return null;
+  const answerChecked = mine.some((e) => isNodeRun(e) && e.name === "answerCheck");
   for (const e of mine) {
     const m = num(e.ms);
     if (m === null) continue;
     if (e.kind === "thinking") add("fd", m, 1);
     else if (e.kind === "tool") add("tools", m);
-    else if (e.kind === "judge" && e.by === "review") add("reviewer", m, 1);
+    else if (e.kind === "judge" && e.by === "review") add(answerChecked ? "answerCheck" : "reviewer", answerChecked ? 0 : m, 1);
     else if (isNodeRun(e)) add(e.name as string, ownMs(e), 1);
     else if (isDelivery(e)) add("send", m);
     else if (e.kind === "step" && typeof e.step === "string" && STEP_NODES.has(e.step)) add(e.step, m, 1);

@@ -246,7 +246,7 @@ describe("camera and step helpers", () => {
 describe("a step that waits on helpers (Dev2, 2026-11-14: \"is the 3 second tool call essentially added to the front door?\")", () => {
   test("its foot is split into its own work and each helper it waited on, summing to its time", () => {
     const { simulate: sim, fmtS } = jest.requireActual<typeof import("../features/tex/lab/engine/sim")>("../features/tex/lab/engine/sim");
-    const real = { reply: 13000, ms: { lanes: 400, door: 700, fd: 9800, tools: 3200, send: 100 }, calls: { fd: 3 } };
+    const real = { reply: 13000, ms: { lanes: 400, doorStep: 700, fd: 9800, tools: 3200, send: 100 }, calls: { fd: 3 } };
     const s = sim(G(), "own", null, real);
     const html = renderGraphHtml(G(), s, [], null, null);
     const fd = html.slice(html.indexOf('data-id="fd"'));
@@ -260,7 +260,7 @@ describe("a step that waits on helpers (Dev2, 2026-11-14: \"is the 3 second tool
 });
 
 test("a running step's outline is green along its own work and blue along each helper's wait, by place (Dev2, 2026-11-14)", () => {
-  const s = simulate(G(), "own", null, { reply: 13000, ms: { door: 700, fd: 9800, tools: 3200 }, calls: { fd: 3 } });
+  const s = simulate(G(), "own", null, { reply: 13000, ms: { doorStep: 700, fd: 9800, tools: 3200 }, calls: { fd: 3 } });
   const ringsOf = (p: number) => {
     const html = renderGraphHtml(G(), s, [], null, new Map([["fd", p]]));
     const fd = html.slice(html.indexOf('data-id="fd"'), html.indexOf("</g>", html.indexOf('data-id="fd"')));

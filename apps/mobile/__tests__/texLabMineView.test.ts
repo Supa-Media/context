@@ -98,11 +98,11 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
             ];
       emit();
     },
-    // What that turn's reply timing and reviewer entries measured, as `realTimes` reads them.
+    // What that turn's reply timing and Answer check entries measured, as `realTimes` reads them.
     readTurnTimes: async (t: { text: string }) => {
       lab.real = {
         text: t.text,
-        times: { reply: 6300, ms: { lanes: 450, door: 700, fd: 2700, tools: 650, reviewer: 2100, send: 150 }, calls: { fd: 2, reviewer: 1 }, at: { tools: 1500 } },
+        times: { reply: 6300, ms: { lanes: 450, doorStep: 700, fd: 2700, tools: 650, answerCheck: 2100, send: 150 }, calls: { fd: 2, answerCheck: 1 }, at: { tools: 1500 } },
         io: { fd: [{ k: "Got", v: t.text }, { k: "Answer", v: "Hi." }], tools: [{ k: "search_web · 650 ms", v: '{"q":"x"}\n→ results' }] },
       };
       emit();
@@ -122,7 +122,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import TexLabRoute from "../app/(app)/lab";
 import { config } from "../features/tex/lab/engine/diff";
-import { clone, emit, G, lab, MAIN, set as setLab } from "../features/tex/lab/engine/state";
+import { clone, emit, lab, MAIN, node, set as setLab } from "../features/tex/lab/engine/state";
 import { promptText } from "../features/tex/lab/views/run/runText";
 import { SCENARIOS, traceMine } from "../features/tex/lab/engine/traces";
 import { readTurnTimes } from "../features/tex/lab/views/mine/useMine";
@@ -193,10 +193,10 @@ describe("the Lab with your own texts", () => {
       traceMine("hey");
       await readTurnTimes({ text: "hey" } as never);
     });
-    // Its real times on the canvas, not estimates: the front door with its tool call, the reviewer as measured.
+    // Its real times on the canvas, not estimates: the front door with its tool call, the Answer check as measured.
     expect(q('.nd[data-id="fd"] .tm')?.textContent).toBe("3.4 s");
-    expect(q('.nd[data-id="reviewer"] .tm')?.textContent).toBe("2.1 s");
-    expect(q('.nd[data-id="checks"] .tm')?.textContent ?? "").toMatch(/^(≈ .* s)?$/);
+    expect(q('.nd[data-id="answerCheck"] .tm')?.textContent).toBe("2.1 s");
+    expect(q('.nd[data-id="bypass"] .tm')?.textContent ?? "").toMatch(/^(≈ .* s)?$/);
     act(() => {
       lab.sel = { t: "node", id: "tools" };
       emit();
@@ -205,7 +205,7 @@ describe("the Lab with your own texts", () => {
     expect(q("#nIO pre")?.textContent).toContain("→ results");
     await click(q("#nIcon"));
     await click(q('#nIconPick [data-icon="star"]'));
-    expect(G().nodes.find((n) => n.id === "tools")?.icon).toBe("star");
+    expect(node("tools")?.icon).toBe("star");
     expect(q("#nIconPick")).toBeNull();
   });
 

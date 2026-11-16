@@ -6,18 +6,23 @@
  */
 import { AREA_INFO, AREA_IO, PEOPLE } from "../../data/areas";
 import { allCases, isPicked } from "../../engine/diff";
+import { unfoldGroups } from "../../engine/groups";
 import { mods } from "../../engine/modules";
 import { simulate, type Sim } from "../../engine/sim";
 import { G, lab, MAIN, MODELS, node } from "../../engine/state";
 import { SCENARIOS } from "../../engine/traces";
 import type { LabCase, LabGraph, LabModel, LabNode } from "../../types";
 
+/** A case tests a step, never a folded group box: read the graph with its groups open. */
+const open = (g: LabGraph): LabGraph => (g.folded ? unfoldGroups(g) : g);
+
 export function modName(k: string, g: LabGraph): string {
   return k.startsWith("out:") ? (node(k.slice(4), g)?.label || k) + "'s output" : mods(g)[k]?.name || k;
 }
 
 /** Why a case can't test this version the way it tests main: the step is gone or off, it no longer reads what the case gives, or the field the case checks is gone. */
-export function caseFit(c: LabCase, g: LabGraph = G()): string[] {
+export function caseFit(c: LabCase, shown: LabGraph = G()): string[] {
+  const g = open(shown);
   const I = AREA_INFO[c.area], io = AREA_IO[c.area];
   if (!I || !io) return [];
   const n = node(I.step, g);
@@ -48,7 +53,8 @@ export type IoInfo =
  * An area's test panel. For an integration area: the traced test (`pick` when it is one of the area's, else its
  * first), its reply time and cost, and the path of steps it runs; for a unit area: what goes in, the step and the check.
  */
-export function ioInfo(area: string, g: LabGraph = G(), pick: string | null = null): IoInfo | null {
+export function ioInfo(area: string, shown: LabGraph = G(), pick: string | null = null): IoInfo | null {
+  const g = open(shown);
   const I = AREA_INFO[area], io = AREA_IO[area];
   if (!I || !io) return null;
   const n = node(I.step, g) || node(I.step, MAIN.graph);

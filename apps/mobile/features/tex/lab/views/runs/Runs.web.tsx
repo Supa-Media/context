@@ -6,11 +6,11 @@
  */
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
-import { G, lab, toast } from "../../engine/state";
+import { lab, node, toast } from "../../engine/state";
 import { ago, codeLink, commitLink, costWords, fixedWords, live, mcpLines, modelsWords, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind } from "../../engine/labRuns";
 import { setUi, sets } from "../../engine/setsStore";
 
-const nodeName = (id: string) => G().nodes.find((x) => x.id === id)?.label ?? id;
+const nodeName = (id: string) => node(id)?.label ?? id;
 const chatTitle = (id: string) => sets.convs.find((c) => c.id === id)?.title ?? id;
 const verName = (id: string) => (id === "main" ? "main" : lab.versions.find((v) => v.id === id)?.name ?? id);
 

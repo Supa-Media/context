@@ -397,7 +397,8 @@ describe("the test chat dock", () => {
       await tick();
       // The graph of its time: the front door wasn't there then.
       expect(q('#svg .nd[data-id="fd"]')).toBeNull();
-      expect(q('#svg .nd[data-id="decide"]')).not.toBeNull();
+      // Decide is in the folded Intake box then as now: the box is what's drawn, and the panel follows Decide itself.
+      expect(q('#svg .nd[data-id="intake"]')).not.toBeNull();
       await clockBy(300);
       expect(lab.sel).toEqual({ t: "node", id: "decide" });
       expect(q(".runbody")?.textContent).toContain("running");

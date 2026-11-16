@@ -41,6 +41,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, delSel, G, isMain, lab, MAIN, set } from "../features/tex/lab/engine/state";
+import { drawnFor } from "../features/tex/lab/engine/groups";
 import { resetSandboxState, rowOf, sandbox } from "../features/tex/lab/engine/sandbox";
 import { pickStep, resetPlay } from "../features/tex/lab/engine/sandboxPlay";
 import { lineNodes } from "../features/tex/lab/engine/lineSteps";
@@ -104,7 +105,7 @@ describe("the line, drawn", () => {
     sandbox.id = "sb1";
     sandbox.line = { name: "photon" };
     const [i, o] = lineNodes(G());
-    const text = G().nodes.find((n) => n.id === "text")!;
+    const text = drawnFor(G(), "text")!;
     const send = G().nodes.find((n) => n.id === "send")!;
     expect([i.id, i.label, i.x < text.x, i.y]).toEqual(["lineIn", "Photon line in", true, text.y]);
     expect([o.id, o.label, o.x > send.x, o.y]).toEqual(["lineOut", "Photon line out", true, send.y]);

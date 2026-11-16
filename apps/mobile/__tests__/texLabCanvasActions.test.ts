@@ -15,6 +15,7 @@ import {
   lab,
   MAIN,
   node,
+  stepsOf,
   undo,
 } from "../features/tex/lab/engine/state";
 import { addStep } from "../features/tex/lab/views/canvas/actions";
@@ -29,7 +30,8 @@ beforeEach(() => {
 
 describe("canvas edits", () => {
   test("a step goes with its wires and reads, on your own copy, and undo brings it back", () => {
-    const reader = G().nodes.find((n) =>
+    // The step that reads another's output may sit inside a folded group: steps are read with every group open.
+    const reader = stepsOf(G()).nodes.find((n) =>
       n.ctx.some((c) => c.startsWith("out:")),
     )!;
     const id = reader.ctx.find((c) => c.startsWith("out:"))!.slice(4);
@@ -38,15 +40,15 @@ describe("canvas edits", () => {
     delSel();
     expect(lab.cur.id).not.toBe("main");
     expect(node(id)).toBeUndefined();
-    expect(G().edges.some((e) => e.from === id || e.to === id)).toBe(false);
-    expect(G().nodes.some((n) => n.ctx.includes("out:" + id))).toBe(false);
+    expect(stepsOf(G()).edges.some((e) => e.from === id || e.to === id)).toBe(false);
+    expect(stepsOf(G()).nodes.some((n) => n.ctx.includes("out:" + id))).toBe(false);
     expect(lab.toastText).toBe("Deleted. Undo brings it back.");
     undo();
     expect(JSON.stringify(G())).toBe(before);
   });
 
-  test("the start and the send stay", () => {
-    for (const id of ["text", "send"]) {
+  test("the start and the send stay, and so does the box that holds the start", () => {
+    for (const id of ["text", "send", "intake"]) {
       lab.sel = { t: "node", id };
       delSel();
       expect(node(id)).toBeDefined();

@@ -9,7 +9,7 @@
  */
 import type { LabGraph } from "../types";
 import { simulate, type Sim } from "./sim";
-import { G, lab } from "./state";
+import { G, lab, node } from "./state";
 import type { RealTimes } from "./measured";
 
 // The measured times and what each step got and gave are read from the ledger alone (`measured.ts`, which the
@@ -26,12 +26,12 @@ export function withReal(sim: Sim, real: RealTimes | null, g?: LabGraph): Sim {
   for (const [id, m] of Object.entries(real.ms)) {
     if (T[id]) continue;
     const user = g?.edges.find((e) => e.mode === "uses" && e.to === id && T[e.from]);
-    const start = real.at?.[id] !== undefined && T.door ? T.door.start + real.at[id] : user ? T[user.from].start : 0;
+    const start = real.at?.[id] !== undefined && T.doorStep ? T.doorStep.start + real.at[id] : user ? T[user.from].start : 0;
     T[id] = { start, end: start + m, ms: m, usd: 0, calls: real.calls[id] ?? 0, parts: [], lane: user ? T[user.from].lane : "reply" };
   }
   const replyCalls = Object.values(real.calls).reduce((a, n) => a + n, 0);
   // The front door's cost as logged; every other step's as estimated.
-  const usd = real.usd !== undefined ? real.usd + Object.entries(T).filter(([id]) => id !== "fd").reduce((a, [, t]) => a + t.usd, 0) : sim.usd;
+  const usd = real.usd !== undefined ? real.usd + Object.entries(T).filter(([id, t]) => id !== "fd" && !t.box).reduce((a, [, t]) => a + t.usd, 0) : sim.usd;
   return { ...sim, T, reply: real.reply, replyCalls, usd, real: new Set(Object.keys(real.ms)) };
 }
 
@@ -42,7 +42,7 @@ export function withReal(sim: Sim, real: RealTimes | null, g?: LabGraph): Sim {
  */
 export function onlyWhatRan(sim: Sim, g: LabGraph = G()): Sim {
   if (!sim.real) return sim;
-  const T = Object.fromEntries(Object.entries(sim.T).filter(([id]) => sim.real!.has(id) || g.nodes.find((n) => n.id === id)?.kind === "input"));
+  const T = Object.fromEntries(Object.entries(sim.T).filter(([id]) => sim.real!.has(id) || node(id, g)?.kind === "input"));
   return { ...sim, T };
 }
 

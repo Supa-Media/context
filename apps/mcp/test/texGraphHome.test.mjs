@@ -43,6 +43,16 @@ test("the shelf holds only unwired nodes that have code, each with its files and
   }
 });
 
+// Dev2, 2026-11-16: the simpler graph was promoted, which took every one of its steps off the shelf and into the config.
+test("the simpler graph's steps are on in the config with code on the runner, and its promotion left the shelf empty", () => {
+  assert.deepEqual(Object.keys(SHELF.nodes), []);
+  for (const id of ["doorStep", "bypass", "answerCheck", "learn", "afterReply", "jobadv", "staff"]) {
+    const node = TEX_CONFIG.nodes.find((n) => n.id === id);
+    assert.ok(node && node.on !== false, `"${id}" is an on step of the config`);
+    assert.equal(typeof GATEWAY_NODES[id], "function", `"${id}" has code on the runner`);
+  }
+});
+
 test("a node on the shelf has code with no config node and passes; off the shelf it is shadow code", () => {
   const config = { nodes: [{ id: "a" }], edges: [] };
   assert.deepEqual(coverageProblems(config, { runner: ["a", "fresh"] }, ["fresh"]), []);

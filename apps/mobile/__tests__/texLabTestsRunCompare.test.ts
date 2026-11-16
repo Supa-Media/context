@@ -62,7 +62,7 @@ import { BASE_MODELS } from "../features/tex/lab/data/models";
 import { CASES } from "../features/tex/lab/labData.generated";
 import { config } from "../features/tex/lab/engine/diff";
 import { mods } from "../features/tex/lab/engine/modules";
-import { clone, emit, lab, MAIN, set as setLab } from "../features/tex/lab/engine/state";
+import { clone, emit, lab, MAIN, node, set as setLab, stepsOf } from "../features/tex/lab/engine/state";
 import { caseFit } from "../features/tex/lab/views/tests/caseParts";
 import { parseReport, promptText } from "../features/tex/lab/views/run/runText";
 import { Workspace } from "../features/tex/lab/views/Workspace.web";
@@ -146,11 +146,12 @@ const pillsOf = (el: Element | null) => [...(el?.querySelectorAll(".pill") ?? []
 
 const respondCases = () => CASES.filter((c) => c.area === "respond");
 const coreCount = () => CASES.filter((c) => c.area === "core").length;
-const DECIDE_LABEL = MAIN.graph.nodes.find((n) => n.id === "decide")!.label;
+const DECIDE_LABEL = node("decide", MAIN.graph)!.label;
 const RECENT_NAME = mods(MAIN.graph).recent.name;
 
 function decideNode(): LabNode {
-  return lab.cur.graph.nodes.find((n) => n.id === "decide")!;
+  // Decide sits in the folded Intake box: the step itself, edited where the box keeps it.
+  return node("decide", lab.cur.graph)!;
 }
 
 describe("caseFit: what a version has lost against a case", () => {
@@ -162,7 +163,8 @@ describe("caseFit: what a version has lost against a case", () => {
   });
 
   test("a version without the step says it has no Decide", () => {
-    lab.cur.graph = { ...lab.cur.graph, nodes: lab.cur.graph.nodes.filter((n) => n.id !== "decide") };
+    const open = stepsOf(lab.cur.graph);
+    lab.cur.graph = { ...open, nodes: open.nodes.filter((n) => n.id !== "decide") };
     expect(caseFit(respond())).toEqual([`This version has no ${DECIDE_LABEL}`]);
   });
 

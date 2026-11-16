@@ -1,5 +1,8 @@
 /**
- * The door steps as nodes of `texConfig.json` (group "door"): `doorNode` wraps one step and reports what it found.
+ * The door steps as nodes of `texConfig.json`: `doorNode` wraps one step and reports what it found. Since the simpler
+ * graph (Dev2, 2026-11-16) the eleven steps are turned off (group "retired") and run as the parts of one Door step
+ * (`graph/door.js`, `nodes/doorStep.js`); their nodes and shapes stay in the config until the cleanup after Promote,
+ * so the door's parts are checked against them here.
  *
  * Sabotage record (temporary local edits, reverted):
  *   doorNode returns when ["next"] on an answer         "a step that answers the turn is answered" fails
@@ -15,11 +18,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { doorNode } from "../src/agent/graph/doorNode.js";
+import { DOOR_PARTS } from "../src/agent/graph/door.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const nodesDir = join(here, "..", "src", "agent", "graph", "nodes");
-const schemas = Object.fromEntries(TEX_CONFIG.nodes.filter((node) => node.group === "door").map((node) => [node.id, { inSchema: node.inSchema ?? [], outSchema: node.outSchema ?? [] }])); // the config is where a node's shape lives
-
 // The eleven door steps, in the order the turn runs them.
 const STEPS = [
   "readTheText",
@@ -34,6 +36,8 @@ const STEPS = [
   "prepareBookkeeping",
   "prepareTheAnswer",
 ];
+const byId = new Map(TEX_CONFIG.nodes.map((node) => [node.id, node]));
+const schemas = Object.fromEntries(STEPS.map((id) => [id, { inSchema: byId.get(id)?.inSchema ?? [], outSchema: byId.get(id)?.outSchema ?? [] }])); // the config is where a node's shape lives
 
 /** The keys of the `(t) => ({ ... })` object literal a node's found() returns, read from its source. */
 function foundKeysOf(step) {
@@ -43,8 +47,16 @@ function foundKeysOf(step) {
   return [...match[1].matchAll(/(\w+):/g)].map((m) => m[1]);
 }
 
-test("the door schemas list the eleven steps, and every node file exists", async () => {
-  assert.deepEqual(Object.keys(schemas), STEPS);
+test("the eleven door steps are kept turned off and unwired, the Door runs them as its parts in order, and every node file exists", async () => {
+  assert.deepEqual(DOOR_PARTS.map(([name]) => name), STEPS);
+  for (const step of STEPS) {
+    const node = byId.get(step);
+    assert.ok(node, `${step} is still a node of the config`);
+    assert.equal(node.on, false, `${step} is turned off`);
+    assert.equal(node.group, "retired", `${step} is in the retired group`);
+    assert.ok(!TEX_CONFIG.edges.some((edge) => edge.from === step || edge.to === step), `${step} has no wire`);
+  }
+  assert.equal(byId.get("doorStep")?.on, true, "the Door step is on");
   for (const step of STEPS) {
     const mod = await import(join(nodesDir, `${step}.js`));
     assert.equal(typeof mod[`${step}Node`], "function", `${step} exports ${step}Node`);
@@ -81,6 +93,10 @@ for (const step of STEPS) {
     for (const key of foundKeysOf(step)) {
       assert.ok(named.has(key), `${step} found() returns ${key}, which outSchema does not name`);
     }
+    const part = DOOR_PARTS.find(([name]) => name === step);
+    for (const key of Object.keys(part[2]({}, {}))) {
+      assert.ok(named.has(key), `the Door's ${step} part finds ${key}, which outSchema does not name`);
+    }
     assert.ok(named.has("status"), `${step} outSchema names status`);
     for (const field of schemas[step].outSchema) {
       assert.equal(field.optional, true, `${step}.${field.name} is optional`);
@@ -88,9 +104,15 @@ for (const step of STEPS) {
   });
 }
 
-test("each step's inSchema is the previous step's outSchema, and readTheText takes nothing", () => {
+test("each step's inSchema is the previous step's outSchema, readTheText takes nothing, and the Door hands on what the last step found", () => {
   assert.deepEqual(schemas.readTheText.inSchema, []);
   for (let i = 1; i < STEPS.length; i += 1) {
     assert.deepEqual(schemas[STEPS[i]].inSchema, schemas[STEPS[i - 1]].outSchema, `${STEPS[i]} inSchema is ${STEPS[i - 1]} outSchema`);
   }
+  const door = byId.get("doorStep");
+  assert.deepEqual(door.inSchema ?? [], [], "the Door takes nothing");
+  const named = (door.outSchema ?? []).map((field) => field.name);
+  assert.deepEqual(named, [...schemas.prepareTheAnswer.outSchema.map((field) => field.name), "answeredBy"]);
+  const fdIn = new Set(byId.get("fd").inSchema.map((field) => field.name));
+  for (const field of schemas.prepareTheAnswer.outSchema) assert.ok(fdIn.has(field.name), `the Front door takes ${field.name}`);
 });

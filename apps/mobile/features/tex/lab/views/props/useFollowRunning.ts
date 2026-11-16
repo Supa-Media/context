@@ -8,7 +8,7 @@ import { useEffect } from "react";
 import { usePlay } from "../../engine/sandboxPlay";
 import { useSandbox } from "../../engine/sandbox";
 import { runningNode } from "../../engine/stepRunNow";
-import { G, lab, set } from "../../engine/state";
+import { lab, node, set } from "../../engine/state";
 import { useLab } from "../../store";
 import { isLineStep } from "../../engine/lineSteps";
 
@@ -20,6 +20,6 @@ export function useFollowRunning() {
   useEffect(() => {
     if (!id || lab.pin || (lab.sel?.t === "node" && lab.sel.id === id)) return;
     // The test chat's line is followed too: its card shows what the line did (`LinePanel.web.tsx`).
-    if (G().nodes.some((n) => n.id === id) || isLineStep(id)) set({ sel: { t: "node", id } });
+    if (node(id) || isLineStep(id)) set({ sel: { t: "node", id } });
   }, [id]);
 }

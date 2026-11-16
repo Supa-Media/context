@@ -11,12 +11,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/shared/src/texGraph.cjs";
-import { TEX_CONFIG as MAIN, withDraft } from "../src/agent/texConfig.js";
-import DRAFT from "./fixtures/simplerGraphDraft.json" with { type: "json" };
-
-// The simpler graph as the Lab draft draws it (Dev2, 2026-11-16), run over main's config as a test chat runs it: its
-// steps are built ahead of main's config (`texConfig.js` `SHELF_NODES`), so live Tex never runs them.
-const TEX_CONFIG = withDraft(MAIN, DRAFT);
+// The simpler graph, drawn in the Lab and promoted to live Tex's config (Dev2, 2026-11-16).
+import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import { nudgeAfterTurn, reflectAfterTurn } from "../src/agent/reflect.js";
 import learn from "../src/agent/graph/nodes/learn.js";
 
@@ -29,7 +25,7 @@ test("Text them's background wire runs Learn behind the reply, and nothing else 
   const into = TEX_CONFIG.edges.filter((e) => e.to === "learn");
   assert.deepEqual(into.map((e) => [e.from, e.mode, e.when.join()]), [["send", "background", "fired"]]);
   assert.ok(!TEX_CONFIG.edges.some((e) => ["reflect", "nudge"].includes(e.to)), "the two halves run as no steps of their own");
-  assert.ok(!MAIN.nodes.some((n) => n.id === "learn"), "and live Tex's config has no Learn");
+  for (const half of ["reflect", "nudge"]) assert.equal(TEX_CONFIG.nodes.find((n) => n.id === half)?.on, false, `${half} is off as a step of its own`);
   const step = TEX_CONFIG.nodes.find((n) => n.id === "learn");
   assert.equal(step.effort, "low", "Learn thinks (Dev2, 2026-11-16)");
 });
