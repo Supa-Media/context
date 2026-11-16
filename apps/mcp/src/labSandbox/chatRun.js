@@ -448,13 +448,13 @@ function within(work, ms) {
  * `/agent` (a group's real key and members put back on its body), and the texting routes (`/agent/events` and the
  * rest). Anything else is refused and listed.
  */
-function gatewayRoutes({ storeOf, sandboxEnv, controlPlane, ctx, gate }) {
+export function gatewayRoutes({ storeOf, sandboxEnv, controlPlane, ctx, gate, handle = handleAgent }) {
   return async (request, path) => {
-    const store = await storeOf();
+    const { store, session } = await storeOf();
     if (path === "/agent") {
       const turn = request;
-      if (!wantsProgress(turn)) return await handleAgent(turn, sandboxEnv, store, session, controlPlane);
-      return streamTurn((progress, step, answered) => handleAgent(turn, sandboxEnv, store, session, controlPlane, { progress, step, answered }), { waitUntil: (work) => ctx.waitUntil(work) });
+      if (!wantsProgress(turn)) return await handle(turn, sandboxEnv, store, session, controlPlane);
+      return streamTurn((progress, step, answered) => handle(turn, sandboxEnv, store, session, controlPlane, { progress, step, answered }), { waitUntil: (work) => ctx.waitUntil(work) });
     }
     if (TEXTING_ROUTES.has(path)) return await TEXTING_ROUTES.get(path)(request, store, session);
     gate.record({ kind: "Other", summary: `asked the gateway ${path}` });
