@@ -53,6 +53,19 @@ went unseen this way, and Tex told the next asker it could not see it.
   that hash, so lines kept under the old list never reach a turn in front of
   the newcomer.
 
+### Every app whose events name only the sender (2026-11-16)
+
+Photon, the provider behind Tex's new iMessage number, names only the sender
+too. Groups moved to it on 2026-11-14 kept their old group id, so the
+WhatsApp-only check missed them and every member's untagged line but the last
+asker's was dropped as `untagged_ignored / unbound` (139 across group chats by
+2026-11-16; never stored, so not recoverable). Dev2 chose, 2026-11-16, to fill
+members in the same way for every app: the list a turn reads is kept for every
+app, and `withKeptMembers` and `inRoom` apply to any message whose people name
+only its sender (`namesOnlySender`), whatever the app. A webhook that lists
+everyone is taken at its word. Trusting the kept list before sending still
+needs an app that reports changes.
+
 
 - Trusting the kept list with no freshness bound: a missed or late webhook
   would let a newcomer see answers drawn from the workspace for as long as
@@ -70,4 +83,5 @@ read), `groupProgress.test.ts` and `groupDecide.test.ts` (a newcomer on
 WhatsApp arrives by event), `whapiWorker.test.ts` (each `groups` event marks
 its group, a delivery naming none marks nothing), `groupWhapiMembers.test.ts`
 (another member's untagged line reaches the next tag; dropped with no list, a
-changed list or a newcomer; never handed on past a missed join).
+changed list or a newcomer; never handed on past a missed join; the same for an
+iMessage group whose events name only the sender).
