@@ -34,7 +34,9 @@ export type CardState = {
 export function cardCounts(members: LabNode[], kids: number): { count: string; names: string } {
   const names = members.filter((m) => m.kind !== "input").map((m) => m.label);
   const shown = names.slice(0, 2).map((s) => clip(s, 11)).join(" · ") + (names.length > 2 ? `  +${names.length - 2}` : "");
-  return { count: `${members.length} step${members.length === 1 ? "" : "s"}${kids ? ` · ${kids} group${kids === 1 ? "" : "s"}` : ""}`, names: shown };
+  const count = `${members.length} step${members.length === 1 ? "" : "s"}${kids ? ` · ${kids} group${kids === 1 ? "" : "s"}` : ""}`;
+  // The line holds about 31 characters inside the card, the dot between included; the names give way to the count.
+  return { count, names: clip(shown, Math.max(0, 26 - count.length)) };
 }
 
 /** The card for box `n`, which holds `members` (every step folded into it, nested groups' too). */

@@ -246,7 +246,7 @@ test("modules lists edited modules and diffs one against main", async () => {
 
 test("reference answers the Lab's catalogues, and the Tools tab's count of a pasted record", async () => {
   const dev = devWith({});
-  assert.deepEqual(jsonOf(await dev("reference", {})).topics, ["tools", "steps", "ledger", "areas", "models", "wires", "sources", "convo"]);
+  assert.deepEqual(jsonOf(await dev("reference", {})).topics, ["tools", "steps", "groups", "ledger", "areas", "models", "wires", "sources", "convo"]);
   const tools = jsonOf(await dev("reference", { topic: "tools" }));
   assert.ok(tools.tools.some((t) => t.tool === "write" && t.actions.includes("remember")));
   assert.ok(tools.calledBy.includes("fd"));
@@ -259,6 +259,13 @@ test("reference answers the Lab's catalogues, and the Tools tab's count of a pas
   const ledger = jsonOf(await dev("reference", { topic: "ledger" }));
   assert.equal(ledger.find((k) => k.entry === "tool").inThePrompt, "names only");
   assert.ok(jsonOf(await dev("reference", { topic: "areas" })).some((a) => a.area === "core" && a.as === "Maya"));
+  // Groups: what opening one on the canvas draws, its steps and the wires out as the canvas's pills.
+  const intake = jsonOf(await dev("reference", { topic: "groups", group: "intake" }));
+  assert.equal(intake.length, 1);
+  assert.ok(intake[0].steps.includes("decide"));
+  assert.ok(intake[0].to.some((p) => p.outside === "fd" && p.is === "step"));
+  assert.ok(jsonOf(await dev("reference", { topic: "groups" })).some((x) => x.group === "tools-subagents"));
+  assert.match(textOf(await dev("reference", { topic: "groups", group: "nope" })), /no group called "nope"/);
 });
 
 test("get's vsMain names the modules' words and conversation settings the draft changes", async () => {
