@@ -416,7 +416,7 @@ test("tex_dev's guide documents the sandbox's pictures, replies, tapbacks, edits
   assert.ok(!line.includes("Tex doesn't receive edits yet"));
 });
 
-test("a voice note's two ledger entries open as one row, the one with words; the pair would refuse the chat", async () => {
+test("a voice note's two ledger entries open as one row, the one with words, not the empty audio", async () => {
   // 2026-11-16, Dev2's 1:1: the audio and what was heard share one event id, and the rows are keyed by it.
   const eid = EID(7);
   const entries = [
@@ -431,8 +431,14 @@ test("a voice note's two ledger entries open as one row, the one with words; the
   const stub = (o) => ({ fetch: (request) => o.fetch(request) });
   const about = { kind: "one", ledgerChat: "texts" };
   const row = (e) => ({ id: e.eid, eid: e.eid, who: "You", text: e.text, at: e.at, prod: true });
-  await callSandbox(stub(object()), "init", { about, rows: one.map(row), history: entries });
-  await assert.rejects(callSandbox(stub(object()), "init", { about, rows: entries.map(row), history: entries }), /init failed \(422\): .*UNIQUE/, "the refusal names its cause");
+  const kept = object();
+  await callSandbox(stub(kept), "init", { about, rows: one.map(row), history: entries });
+  const got = await callSandbox(stub(kept), "state", {});
+  assert.deepEqual(got.rows.map((r) => r.text), ["How long does it keep?", "About 3 months."]);
+  // Without the dedupe, the object keeps whichever entry came first (INSERT OR IGNORE since #3383): the empty audio one.
+  const raw = object();
+  await callSandbox(stub(raw), "init", { about, rows: [entries[1], entries[0], entries[2]].map(row), history: entries });
+  assert.deepEqual((await callSandbox(stub(raw), "state", {})).rows.map((r) => r.text), ["", "About 3 months."]);
 });
 
 test("a failure inside the route answers words the Lab can show, never a bare server_error", async () => {
