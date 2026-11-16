@@ -25,6 +25,7 @@ import { useLab, useLabSync, useLiveFeed, useRevBase } from "./store";
 import { saveNow } from "./engine/live";
 import type { View } from "./types";
 import { Compare } from "./views/Compare.web";
+import { EvalPlan } from "./views/EvalPlan.web";
 import { LiveChips } from "./views/LiveChanges.web";
 import { MoreMenu, RunSplit, SpeedMenu, VersionMenu } from "./views/bar/TopBar.web";
 import { Modules } from "./views/Modules.web";
@@ -50,6 +51,7 @@ const NAV: Array<[View, string, string, "modTag" | "toolTag" | "runTag" | null]>
   ["tools", "Tools", '<path d="M14.5 6.5a3.5 3.5 0 0 0 4.6 4.6l-8 8a2 2 0 0 1-2.8-2.8l8-8a3.5 3.5 0 0 0-1.8-1.8z"/>', "toolTag"],
   ["sim", "Speed and cost", '<circle cx="12" cy="13" r="7"/><path d="M12 13l3-3M10 3h4"/>', null],
   ["compare", "Compare versions", '<path d="M5 20V10M12 20V4M19 20v-7"/>', null],
+  ["evals", "Eval plan", '<path d="M9 5h10M9 12h10M9 19h10"/><path d="M4 5l1 1 2-2M4 12l1 1 2-2"/><circle cx="5" cy="19" r="1.2"/>', null],
 ];
 
 /** The pages other than the canvas: the artifact's `.pg > .pgin` slots, with their ids and widths. */
@@ -60,6 +62,7 @@ const PAGES: Array<[View, string, React.CSSProperties | undefined, () => React.R
   ["tests", "testsPg", { paddingTop: 16, maxWidth: 1180 }, () => <Tests />],
   ["run", "runPg", undefined, () => <Run />],
   ["compare", "cmpPg", undefined, () => <Compare />],
+  ["evals", "evalPg", { maxWidth: 960 }, () => <EvalPlan />],
 ];
 
 function Svg({ d, className = "i ic", style }: { d: string; className?: string; style?: React.CSSProperties }) {

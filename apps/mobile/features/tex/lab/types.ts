@@ -133,5 +133,5 @@ export type LabCase = {
 
 export type Selection = { t: "node"; id: string } | { t: "edge"; i: number } | null;
 
-export type View = "canvas" | "modules" | "convo" | "tools" | "sim" | "tests" | "run" | "compare";
+export type View = "canvas" | "modules" | "convo" | "tools" | "sim" | "tests" | "run" | "compare" | "evals";
 export type Tool = "sel" | "con" | "pan";
