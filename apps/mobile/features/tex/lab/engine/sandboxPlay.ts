@@ -18,6 +18,7 @@ import { onSandboxText, retryText, sandbox, type SandboxRow } from "./sandbox";
 import type { PlayRun } from "./playRun";
 import type { ProdPlay } from "./prodRun";
 import { litAt, runById, runStart, stepsAt } from "./sandboxRun";
+import { timeMap } from "./timeMap";
 import type { LabGraph } from "../types";
 import type { Lit } from "../views/canvas/usePlayback";
 
@@ -101,6 +102,8 @@ export function playExternal(run: PlayRun, prod?: ProdPlay) {
 }
 /** The runs played from production's log, for the timeline's picker. */
 export const externalRuns = (): PlayRun[] => [...ext.values()].map((x) => x.run);
+/** Whether a run id is a real text read from production's log (or the steps behind one of its Tex texts). */
+export const isExternal = (id: string) => ext.has(id);
 /** What production logged around the run at the head, when it is a real text's: its prompts and background jobs. */
 export const playingProd = (): ProdPlay | null => (play ? (ext.get(play.id)?.prod ?? null) : null);
 
@@ -126,8 +129,10 @@ function tick() {
   const now = clock();
   const dt = Math.max(0, now - last);
   last = now;
-  // Never past what has happened: a running text's total is how long it has run.
-  const t = Math.min(r.total, play.t + dt * lab.speed);
+  // Never past what has happened: a running text's total is how long it has run. A finished run plays in the
+  // timeline's drawn time, so a long stretch where nothing ran passes in a moment (engine/timeMap.ts).
+  const map = timeMap(r, play.t, !!r.running && !r.of);
+  const t = Math.min(r.total, map.real(map.drawn(play.t) + dt * lab.speed));
   const done = t >= r.total && !r.running;
   play = { ...play, t, playing: !done };
   follow(r, t);

@@ -6,7 +6,7 @@ import { sandbox, type SandboxRow } from "./sandbox";
 import { lab } from "./state";
 import type { RunStep } from "./stepRun";
 import { stepsAt } from "./sandboxRun";
-import { playingId, runOf } from "./sandboxPlay";
+import { isExternal, playingId, runOf } from "./sandboxPlay";
 import type { PlayStep } from "./playRun";
 
 /** A playback as `sandboxPlay.ts` keeps it: the run's id (the steps behind one of Tex's texts: `<rowId>#<texRowId>`). */
@@ -27,6 +27,22 @@ export function panelRow(pick: { msgId: string } | null, play: { msgId: string }
   if (hit) return hit;
   for (let i = sandbox.rows.length - 1; i >= 0; i -= 1) if (sandbox.rows[i].steps?.length) return sandbox.rows[i];
   return null;
+}
+
+/**
+ * A step as the playing real text ran it in production. A real text's run is read from the ledger and has no row in
+ * the test chat (its id is the ledger moment's), so the panel reads the run at the head itself, never a test row that
+ * happens to be picked (Dev2, 2026-11-16: the Reply reviewer ran for most of a minute and the card said it didn't run).
+ * Null when the head isn't on a real text.
+ */
+export function playedStepRun(play: { id: string; t: number } | null, node: string): StepRunState | null {
+  if (!play || !isExternal(play.id)) return null;
+  const r = runOf(play.id);
+  if (!r) return null;
+  const at = stepsAt(r, play.t).filter((s) => s.node === node);
+  const going = at.find((s) => s.running);
+  if (going) return { state: "running", elapsed: going.elapsed, key: `play:${r.id}:${node}` };
+  return at.length ? { state: "ran", steps: at.map(asRunStep), times: at.length } : { state: "none" };
 }
 
 /** When a running step was first seen running, for how long it has been going (the gateway sends no start time yet). */

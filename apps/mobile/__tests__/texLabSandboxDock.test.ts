@@ -105,7 +105,7 @@ import { createRoot } from "react-dom/client";
 import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, lab, MAIN, set } from "../features/tex/lab/engine/state";
 import { resetSandboxState, rowOf, sandbox } from "../features/tex/lab/engine/sandbox";
-import { followText, holdPlayClock, resetPlay, stepPlayClock, togglePlay } from "../features/tex/lab/engine/sandboxPlay";
+import { followText, holdPlayClock, resetPlay, seek, stepPlayClock, togglePlay } from "../features/tex/lab/engine/sandboxPlay";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -403,6 +403,36 @@ describe("the test chat dock", () => {
       expect(q(".runbody")?.textContent).toContain("running");
     } finally {
       mockProd.value = null;
+    }
+    // Production's moment id is not the test chat row's: Run details still reads the run at the head (Dev2,
+    // 2026-11-16: the Reply reviewer ran for most of a minute and its card said it didn't run).
+    mockProd.value = {
+      run: { id: "moment-9", steps: [{ id: "p1", node: "decide", at: 0, ms: 400, ok: true, out: { when: "answer" } }], texts: [{ at: 500, rowId: "h2" }], total: 600, running: false, prod: { at: 1_000 } },
+      replies: {},
+      cause: {},
+      turns: [],
+      jobs: [],
+      moment: {},
+    };
+    // The real row carries its own logged steps, under ids the ledger's moment doesn't use.
+    const h1 = sandbox.rows.find((r) => r.id === "h1")!;
+    const had = h1.steps;
+    h1.steps = [{ id: "x1", node: "decide", ms: 5, out: "act: respond", ok: true }] as typeof h1.steps;
+    try {
+      await click('#sbView [data-v="grid"]');
+      await click('#sbGrid [data-play-prod="h1"]');
+      await tick();
+      await act(async () => seek(600));
+      set({ sel: { t: "node", id: "decide" }, pin: true });
+      await tick();
+      expect(q("#props .st")?.textContent).toBe("Ran");
+      // Its own output, never a test text's that happens to be newest.
+      expect(q("#props")?.textContent).toContain("answer");
+      expect(q("#props")?.textContent).not.toContain("act: respond");
+      expect(q("#insFoot")?.textContent).toMatch(/^Logged step/);
+    } finally {
+      mockProd.value = null;
+      h1.steps = had;
     }
     // Sandbox from here: the real texts before it, and it waiting in the composer.
     await click('#sbView [data-v="grid"]');
