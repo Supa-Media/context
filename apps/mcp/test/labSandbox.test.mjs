@@ -334,6 +334,53 @@ test("Maya's conversation opens as a test chat; another person's test chat does 
   }
 });
 
+test("about, use and read answer only the person's own test chat, and read only its own history file", async () => {
+  const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" }, [BOB]: { userId: "u_bob", workspaceId: "ws_bob" } });
+  try {
+    const opened = await w.call(ALICE, { op: "open", source: "maya" });
+    const sandboxId = opened.body.sandboxId;
+    const about = await w.call(ALICE, { op: "about", sandboxId });
+    assert.equal(about.status, 200);
+    assert.equal(about.body.source, "maya");
+    assert.equal(about.body.kind, "1:1");
+    assert.equal(about.body.versionId, "main");
+    assert.equal(about.body.rows, opened.body.rows.length);
+    assert.equal(about.body.testRows, 0);
+    const read = await w.call(ALICE, { op: "read", sandboxId, options: { kinds: ["text"], limit: 3, chat: "someone-else" } });
+    assert.equal(read.status, 200);
+    assert.equal(read.body.entries.length, 3, "the limit is kept and a chat named in options is ignored");
+    assert.ok(read.body.entries.every((entry) => entry.kind === "text"));
+    assert.equal((await w.call(ALICE, { op: "use", sandboxId, versionId: "no-such-draft" })).status, 404, "a draft that is not there is refused");
+    assert.equal((await w.call(ALICE, { op: "use", sandboxId, versionId: "main" })).body.versionId, "main");
+    for (const op of ["about", "read", "use"]) assert.equal((await w.call(BOB, { op, sandboxId, versionId: "main" })).status, 404, `${op}: another person's test chat does not exist for them`);
+  } finally {
+    w.restore();
+  }
+});
+
+test("list shows the person's own test chats, who opened and last used each; never another's; reset takes one off", async () => {
+  const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" }, [BOB]: { userId: "u_bob", workspaceId: "ws_bob" } });
+  try {
+    const ai = await w.call(ALICE, { op: "open", source: "maya", by: "AI (Claude Code)" });
+    const lab = await w.call(ALICE, { op: "open", source: "maya" });
+    await w.call(ALICE, { op: "use", sandboxId: lab.body.sandboxId, versionId: "main", by: "AI (Claude Code)" });
+    const listed = (await w.call(ALICE, { op: "list" })).body.chats;
+    assert.deepEqual(listed.map((c) => c.sandboxId), [lab.body.sandboxId, ai.body.sandboxId], "newest used first");
+    assert.equal(listed[1].openedBy, "AI (Claude Code)");
+    assert.equal(listed[0].openedBy, "Lab");
+    assert.equal(listed[0].lastBy, "AI (Claude Code)");
+    assert.equal(listed[0].running, null);
+    assert.equal(listed[0].rows, lab.body.rows.length);
+    assert.equal((await w.call(ALICE, { op: "open", source: "maya", by: "<script>" })).status, 200);
+    assert.ok((await w.call(ALICE, { op: "list" })).body.chats.every((c) => c.openedBy !== "<script>"), "a name that is not a name is the Lab");
+    assert.deepEqual((await w.call(BOB, { op: "list" })).body.chats, [], "one person never lists another's");
+    await w.call(ALICE, { op: "reset", sandboxId: ai.body.sandboxId });
+    assert.ok(!(await w.call(ALICE, { op: "list" })).body.chats.some((c) => c.sandboxId === ai.body.sandboxId));
+  } finally {
+    w.restore();
+  }
+});
+
 test("a computer list is read through; the binding cache and a turn's own run markers are not listed as changes", async () => {
   const real = texStoreNamespace();
   const { stub, gate } = await groupChatGate();

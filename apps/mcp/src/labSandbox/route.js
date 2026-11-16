@@ -33,6 +33,13 @@
  *    runs, its row carries the steps its turn has finished so far; `after` (a row id) answers only the rows after it; a row has `pics`, `replyTo`, `reactions: [{ who, emoji }]`
  *    when tapped and `unsent: true` when taken back; a tapback's own row is `kind: "reaction"` with its `emoji` and the
  *    row it is `on`, an edit's `kind: "edit"` (`edited: true`) and an unsend's `kind: "unsend"`, each `on` its text.
+ *  - `list` → `{ chats: [{ sandboxId, source, kind, chat, versionId, openedBy, openedAt, lastBy?, lastAt?, rows, testRows,
+ *    running, last }] }`: the person's test chats of the last day, newest used first, whoever opened them on their grant
+ *    (the Lab, or an AI through `tex_dev`, named by `by` on `open` and on each send).
+ *  - `about { sandboxId }` → `{ source, kind, chat, versionId, convId?, people, rows, testRows }`.
+ *  - `use { sandboxId, versionId }`: the draft (or main) the next texts run on, as `open`'s `versionId`.
+ *  - `read { sandboxId, options }` → the test chat's history file read (`ledger.read` on its own chat, never another),
+ *    so `tex_dev` reads a test turn with Replay's own code, as it reads a real one.
  */
 
 import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
@@ -41,7 +48,7 @@ import { ledgerFor, ONE_TO_ONE_CHAT } from "../agent/ledger.js";
 import { LEDGER_KINDS } from "../texStore/ledger.js";
 import { bearerToken } from "../session.js";
 import { json } from "../http/responses.js";
-import { callSandbox, sandboxStub, SEED_CHUNK } from "./object.js";
+import { callSandbox, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
 import { eventId, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
@@ -258,6 +265,8 @@ async function open(env, controlPlane, token, who, input) {
   for (let at = SEED_CHUNK; at < Math.max(rows.length, history.length); at += SEED_CHUNK) {
     await callSandbox(stub, "seed", { rows: rows.slice(at, at + SEED_CHUNK), history: history.slice(at, at + SEED_CHUNK) });
   }
+  // Listed for the person, so the Lab can follow a test chat an AI opened on their grant, and the AI one the Lab opened.
+  await callSandbox(indexStub(env, who.userId), "meta", { key: `sb:${sandboxId}`, value: { sandboxId, source, chat, kind: group ? "group" : "1:1", versionId: about.versionId, by: byOf(input.by), at: Date.now() } }).catch(() => {});
   console.log(JSON.stringify({ event: "lab_sandbox_open", source, kind, rows: rows.length, draft: about.versionId !== "main" }));
   return json({ sandboxId, people, rows: rows.map(shown) });
 }
@@ -424,6 +433,82 @@ function testRow(state, msgId) {
   return { row };
 }
 
+/** The person's own index object: their send count and the list of their test chats. Never another's. */
+const indexStub = (env, userId) => sandboxStub(env, userId, "index0000000000");
+/** Who opened or last used a test chat: "Lab", or the AI client's name `tex_dev` passes. */
+const byOf = (by) => (typeof by === "string" && /^[\p{L}\p{N} ._()\-]{1,60}$/u.test(by) ? by : "Lab");
+/** How many test chats `list` answers, newest used first. */
+const LISTED = 20;
+
+/**
+ * `list`: the person's test chats from the last day, newest used first, each with who opened it and who last used it
+ * (the Lab, or an AI through `tex_dev` on the person's grant), the draft it runs, its size and the text running now, so
+ * the Lab follows a test chat an AI is driving and the AI one the person is (Dev2, 2026-11-16: "if I go into a
+ * session/draft an AI is updating / editing, we can co work, and when its playing something I can see it playing").
+ */
+async function listOf(env, userId) {
+  const index = await callSandbox(indexStub(env, userId), "state", {}).catch(() => null);
+  const meta = index?.meta ?? {};
+  const since = Date.now() - SANDBOX_TTL_MS;
+  const opened = Object.entries(meta)
+    .filter(([key, value]) => key.startsWith("sb:") && value && typeof value === "object")
+    .map(([, value]) => ({ ...value, used: meta[`used:${value.sandboxId}`] ?? null }))
+    .filter((chat) => Math.max(chat.at ?? 0, chat.used?.at ?? 0) >= since)
+    .sort((a, b) => Math.max(b.at ?? 0, b.used?.at ?? 0) - Math.max(a.at ?? 0, a.used?.at ?? 0))
+    .slice(0, LISTED);
+  const chats = [];
+  for (const chat of opened) {
+    const state = await callSandbox(sandboxStub(env, userId, chat.sandboxId), "state", {}).catch(() => null);
+    if (!state?.meta?.chat) continue;
+    const seen = view(state);
+    const last = seen.rows.at(-1) ?? null;
+    chats.push({
+      sandboxId: chat.sandboxId,
+      source: chat.source,
+      kind: chat.kind,
+      chat: chat.chat,
+      versionId: state.meta.chat.versionId ?? "main",
+      openedBy: chat.by ?? "Lab",
+      openedAt: chat.at,
+      ...(chat.used ? { lastBy: chat.used.by ?? "Lab", lastAt: chat.used.at } : {}),
+      rows: seen.rows.length,
+      testRows: seen.rows.filter((row) => !row.prod).length,
+      running: seen.running,
+      ...(last ? { last: { who: last.who, text: String(last.text ?? "").slice(0, 120) } } : {}),
+    });
+  }
+  return { chats };
+}
+
+/** What a test chat is: where it started, whose chat, the draft its next texts run on, its people and size. */
+function aboutOf(state) {
+  const about = state.meta.chat;
+  const rows = state.rows ?? [];
+  return {
+    source: about.source,
+    kind: about.kind === "group" ? "group" : "1:1",
+    chat: about.chat,
+    versionId: about.versionId ?? "main",
+    ...(about.convId ? { convId: about.convId } : {}),
+    people: about.people ?? [],
+    rows: rows.length,
+    testRows: rows.filter((row) => !row.prod).length,
+  };
+}
+
+/** The ledger read options `read` passes on, each checked; the chat is always the test chat's own. */
+const READ_KEYS = ["before", "after", "since", "until"];
+function readOptions(options) {
+  const given = options && typeof options === "object" && !Array.isArray(options) ? options : {};
+  const out = {};
+  for (const key of READ_KEYS) if (Number.isSafeInteger(given[key])) out[key] = given[key];
+  if (Array.isArray(given.kinds)) out.kinds = given.kinds.filter((kind) => typeof kind === "string").slice(0, 32);
+  out.limit = Number.isSafeInteger(given.limit) && given.limit > 0 ? Math.min(given.limit, 5_000) : 500;
+  if (typeof given.jobs === "boolean") out.jobs = given.jobs;
+  if (given.slim === true) out.slim = true;
+  return out;
+}
+
 /** One `/tex-lab/sandbox` call. */
 export async function handleLabSandbox(request, env, ctx, options = {}) {
   try {
@@ -455,6 +540,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   }
   if (input.op === "sets") return await setsList(controlPlane, token);
   if (input.op === "open") return await open(env, controlPlane, token, who, input);
+  if (input.op === "list") return json(await listOf(env, who.userId));
 
   if (typeof input.sandboxId !== "string" || !SANDBOX_ID.test(input.sandboxId)) return refused(400, "name the test chat: sandboxId");
   const stub = sandboxStub(env, who.userId, input.sandboxId);
@@ -462,6 +548,9 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   if (!state?.meta?.chat) return refused(404, "There is no such test chat (Reset or a day unused deletes one).");
 
   const deps = { env, ctx, controlPlane, token, who, stub, origin, runTurn };
+  if (["send", "react", "edit", "unsend", "retry", "use"].includes(input.op)) {
+    await callSandbox(indexStub(env, who.userId), "meta", { key: `used:${input.sandboxId}`, value: { at: Date.now(), by: byOf(input.by), op: input.op } }).catch(() => {});
+  }
   switch (input.op) {
     case "get":
       return json(await liveView(stub, state, input.after));
@@ -495,8 +584,24 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
     }
     case "reset":
       await callSandbox(stub, "reset", {});
+      await callSandbox(indexStub(env, who.userId), "meta", { key: `sb:${input.sandboxId}`, value: null }).catch(() => {});
+      await callSandbox(indexStub(env, who.userId), "meta", { key: `used:${input.sandboxId}`, value: null }).catch(() => {});
       return json({ ok: true });
+    // For `tex_dev` (Dev2, 2026-11-16: an AI does everything the Lab does here): what the test chat is, the draft its
+    // next texts run on, and its history file read as Replay reads a real one (`texDev/sandbox.js`).
+    case "about":
+      return json(aboutOf(state));
+    case "use": {
+      if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
+      const drafted = await draftConfig(controlPlane, token, input.versionId);
+      if (drafted.error) return refused(...drafted.error);
+      const versionId = typeof input.versionId === "string" && input.versionId !== "" ? input.versionId : "main";
+      await callSandbox(stub, "meta", { key: "chat", value: { ...state.meta.chat, versionId, config: drafted.config } });
+      return json({ ...aboutOf({ ...state, meta: { ...state.meta, chat: { ...state.meta.chat, versionId } } }) });
+    }
+    case "read":
+      return json(await callSandbox(stub, "ledger.read", { chat: state.meta.chat.ledgerChat, options: readOptions(input.options) }));
     default:
-      return refused(400, "op is chats, sets, open, send, react, edit, unsend, retry, back, drop, reset or get");
+      return refused(400, "op is chats, sets, list, open, send, react, edit, unsend, retry, back, drop, reset, get, about, use or read");
   }
 }

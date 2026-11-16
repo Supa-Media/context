@@ -68,15 +68,21 @@ export const ACTIONS = [
   ["marks", "{ draft, vs?: \"main\" | \"last\" }", "the canvas's change marks: steps changed (each field from → to, moved), added and removed, wires new and gone, against main or the draft before its last revision"],
   [
     "sandbox",
-    '{ op: "chats" | "sets" } | { op: "open", source: "chat" | "set" | "maya", chatId?, convId?, versionId?, base? } | ' +
-      '{ op: "send", sandboxId, as?, text, pics?: [{ url, type?, name? }], replyTo?: msgId } | { op: "react", sandboxId, msgId, emoji, as? } | ' +
-      '{ op: "edit", sandboxId, msgId, text, as? } | { op: "unsend", sandboxId, msgId, as? } | { op: "retry" | "back" | "drop", sandboxId, msgId } | { op: "reset" | "get", sandboxId }',
-    "the Lab's test chats: a copy of your 1:1, a group chat you are in, a Training or Dev conversation or Maya, where a draft's Tex answers texts you send (as anyone in a group) and nothing reaches the real chat, its notes or anyone outside; " +
-      "chats lists your chats with their kind (1:1 or group) and people, sets the Training and Dev conversations (never the Test Set) with their text counts; " +
-      "send answers a msgId, then get shows the reply, each step's time and output, and every change or message the turn would have made (writes); " +
-      "send takes up to 6 pictures (https, image types; text may then be empty) and replyTo, a row of the test chat it quotes, each reaching the turn as the texting Worker hands a real one to /agent; " +
-      'react is a tapback (emoji one of ❤️ 👍 👎 😂 ‼️ ❓) on any row with words, handed to the texting Worker\'s chat object as a real one is, which answers it or only notes it (a quiet reply row saying so), and get shows it as a kind "reaction" row and in the tapped row\'s reactions; ' +
-      "edit changes one of your test texts' words and unsend takes one back (Delete in the Lab), each a kind \"edit\" or \"unsend\" row on the text, handed to the chat object as a real iMessage edit or Undo Send is, whose edit step decides: \"same\" keeps it quiet, \"turn\" runs a turn on the new words, \"withdraw\" takes a waiting text back; each answers { msgId }, and the edit step is on the row; retry (a tapback, edit or unsend too), back and drop cut the test texts, reset deletes the test chat",
+    '{ op: "chats" | "sets" | "list" } | { op: "link", sandboxId, draft? } | { op: "open", source: "chat" | "set" | "maya", chatId?, convId?, draft?, base?, last? } | ' +
+      '{ op: "send", sandboxId, as?, text, pics?: [{ url, type?, name? }], replyTo?: msgId, wait? } | { op: "react", sandboxId, msgId, emoji, as?, wait? } | ' +
+      '{ op: "edit", sandboxId, msgId, text, as?, wait? } | { op: "unsend", sandboxId, msgId, as?, wait? } | { op: "wait", sandboxId, msgId, seconds? } | { op: "card", sandboxId, msgId } | ' +
+      '{ op: "step", sandboxId, msgId, node?, full?, part?: "prompt", round?, module? } | { op: "again", sandboxId, msgId, draft?, wait? } | { op: "use" | "about", sandboxId, draft? } | ' +
+      '{ op: "try", text, drafts: [ids], source?, chatId?, convId?, base?, as? } | { op: "replay", chat?, text: <a real text id>, draft? } | { op: "rows", sandboxId, before? | after?, limit? } | { op: "retry" | "back" | "drop", sandboxId, msgId } | { op: "reset" | "get", sandboxId }',
+    "the Lab's test chats, as the Lab's live sandbox shows them: a copy of your 1:1, a group chat you are in, a Training or Dev conversation or Maya, where main's or a draft's Tex answers texts you send (as anyone in a group) with real reads, and nothing reaches the real chat, its notes or anyone outside. " +
+      "open answers the sandboxId, its Lab link and only the last rows (`last`, 10 by default) with the total; rows pages the chat. " +
+      "Co-working: the person sees your test chat live in the Lab at its link (texts playing as they run) and your draft edits as you make them (link { draft }); list shows their test chats of the last day, the Lab's and any AI's, who opened and last used each and what runs now, so you can pick up one they are driving. " +
+      "send, react, edit, unsend and retry run the text and wait for it (`wait` seconds, 45 by default, at most 50; 0 answers the msgId at once) and answer its run card: Tex's texts, totalMs and firstTextMs, every step that ran in order (ms, failed, model, tokens, cost and calls where logged, a short output), notFired: each step of the config it ran on that did not run and why (off, the wire's when vs what its source said, a helper never called), the slowest steps, failures and the sandbox writes; a card still running says what runs now, and wait or card finish it. " +
+      "step reads one step of that run whole with Replay's own reader (what it got and gave, thinking, tool calls, the context it read; part \"prompt\" for the prompt's words). " +
+      "again re-runs a text (after use, or on `draft`) and answers both cards and the diff: Tex's words, times, steps only in one, each changed step's time and output. " +
+      "use sets the draft the next texts run on. try sends one text to up to 4 drafts, each in its own test chat opened the same way, side by side. " +
+      "replay re-runs one of your real texts (its id from moments, mine or entries) in a test chat opened on that chat just before it, on main or a draft, and answers the production run's card (what its log shows ran), the new card and the diff. " +
+      "pics: up to 6 (https images; text may then be empty); replyTo quotes a row; react is a tapback (❤️ 👍 👎 😂 ‼️ ❓), handed to the chat object as a real one, which answers or only notes it; " +
+      "edit and unsend reach the edit step as a real iMessage edit or Undo Send (\"same\" stays quiet, \"turn\" runs a turn, \"withdraw\" takes a waiting text back). back and drop cut the test texts, reset deletes the test chat; get is the Lab's raw view",
   ],
   ["put_back", "{ draft, step, vs?: \"main\" | \"last\" }", "the change marks' Put back: one step back to main's (or the last revision's) version, its fields, place and wires; lands as an edit with the conflict check"],
   ["reference", "{ topic?, draft?, log? }", "the Lab's catalogues: tools (what each does, its actions and the steps that call it; `log` a pasted chat record, counted as the Tools tab does), steps (what each logs and writes), ledger, areas, models, wires, sources, convo"],
@@ -127,6 +133,9 @@ export function guideText(config = TEX_CONFIG) {
     "",
     "## Finding out why a turn went the way it did",
     "`chats` → `moments` (or `turns`) → `turn` → `prompt` / `jobs`; `link` with a chat and a moment opens the same place in Replay. A turn shows every step and node in the order it ran with its input, output, thinking, model, milliseconds and whether it failed, every tool call with its arguments and result, the briefs and context it was given, and the slowest steps. Replay shows only what the log shows ran; nothing is estimated (Dev2, 2026-11-14).",
+    "",
+    "## Trying a change in a test chat",
+    "`sandbox open` (Maya, a Training or Dev conversation, or your real chat with `base` just before a text) → `send` → read the run card → `step` on a slow or wrong step → `edit` the draft → `sandbox again` with that draft → read the diff. `sandbox try` runs one text on main and drafts side by side. Each test text runs the real models (200 a day per person); writes stay in the test chat.",
     "",
     "## Edits",
     ...EDIT_OPS.map((line) => "- " + line),
