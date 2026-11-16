@@ -58,12 +58,18 @@ export type SandboxState = {
   sets: Array<{ id: string; title: string; set: "training" | "dev"; group: boolean; texts: number }>;
   /** A text waiting in the composer: Replay's "Try from here" puts the text it tries from there. */
   draft: { as: string; text: string } | null;
+  /**
+   * Whether this test chat runs the version as drawn (`draftFit`, gateway `agent/texConfig.js`): a draft's steps with
+   * no code yet do not run, steps it removes still run as main's. Said on the chat, so a run is never read as the draft's
+   * when it was main's (2026-11-16).
+   */
+  fit: { asDrawn: boolean; says?: string } | null;
 };
 
 export type SandboxOp = "chats" | "sets" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null };
+export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null, fit: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -123,6 +129,10 @@ function lastRealId(): string | null {
 
 function take(b: Record<string, unknown>) {
   if (typeof b.sandboxId === "string") sandbox.id = b.sandboxId;
+  if (b.fit && typeof b.fit === "object") {
+    const f = b.fit as Record<string, unknown>;
+    sandbox.fit = { asDrawn: f.asDrawn !== false, ...(typeof f.says === "string" ? { says: f.says } : {}) };
+  }
   if (Array.isArray(b.people)) {
     // `{handle, name}` each, or a bare name.
     const ps = arr<unknown>(b.people).map((x) => (typeof x === "string" ? { handle: x, name: x } : x && typeof x === "object" ? { handle: str((x as Record<string, unknown>).handle), name: str((x as Record<string, unknown>).name) } : null)).filter((x): x is { handle: string; name: string } => !!x && !!(x.name || x.handle));
@@ -240,6 +250,7 @@ export function openSandbox(source: SandboxSource, versionId: string, base?: str
   sandbox.writes = [];
   sandbox.running = null;
   sandbox.hot = null;
+  sandbox.fit = null;
   return run("open", { source: source.kind, ...(source.kind === "chat" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : {}), versionId, ...(base ? { base } : {}) });
 }
 /**

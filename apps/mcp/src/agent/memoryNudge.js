@@ -157,6 +157,17 @@ async function readMarker(store) {
   }
 }
 
+/**
+ * A failed nudge's outcome, saying where and why (Dev2, 2026-11-14: every step logs what it did; a nudge that answered
+ * only "failed" left a test chat's run with no reason, 2026-11-16). Kept in the chat's own history as the node's
+ * output, never in the Worker's logs: the error's name and its first words, which name code, never a note.
+ */
+export function failedAt(where, error) {
+  const name = typeof error?.name === "string" && error.name ? error.name : "Error";
+  const message = typeof error?.message === "string" ? error.message.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+  return { outcome: "failed", where, error: name, ...(message ? { why: message } : {}), ...(error instanceof ProviderError && error.model ? { model: error.model } : {}) };
+}
+
 function log(session, fields) {
   console.log(JSON.stringify({ event: "memory_nudge", workspace: session.workspaceId, grant: session.grantId, ...fields }));
 }
@@ -214,7 +225,7 @@ export async function memoryNudge({ env, controlPlane, store, session, offered, 
     } catch (error) {
       await meter(null, true, error instanceof ProviderError ? error.model : model);
       log(session, { outcome: "failed", code: error instanceof ProviderError ? "provider" : "error" });
-      return { outcome: "failed" };
+      return failedAt("model", error);
     }
     await meter(ran.usage, false, ran.model);
     const outcome = callTool.wrote() ? "wrote" : ran.exhausted ? "exhausted" : "none";
@@ -222,6 +233,6 @@ export async function memoryNudge({ env, controlPlane, store, session, offered, 
     return { outcome };
   } catch (error) {
     log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
-    return { outcome: "failed" };
+    return failedAt("outside the model call", error);
   }
 }
