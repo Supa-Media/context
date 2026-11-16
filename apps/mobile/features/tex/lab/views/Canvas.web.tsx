@@ -5,7 +5,7 @@
  * `data-*` attributes (`canvas/useStageInput.web.ts`); the camera is applied straight to `#world` so panning never
  * draws again. Built to be EXACTLY the artifact (Dev2, 2026-11-13).
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   G,
   lab,
@@ -59,7 +59,11 @@ function Svg({
   );
 }
 
-export function Canvas({ testLit = null, graph = null }: { testLit?: Lit | ReadonlySet<string> | null; graph?: LabGraph | null }) {
+/**
+ * `lead` sits first in the canvas's top-left row, before the change legend (the run pill, mockup's top-left): the two
+ * share one wrapping row, so they never cover each other.
+ */
+export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?: Lit | ReadonlySet<string> | null; graph?: LabGraph | null; lead?: ReactNode }) {
   const s = useLab();
   useFollowRunning();
   const stage = useRef<HTMLDivElement>(null);
@@ -163,6 +167,7 @@ export function Canvas({ testLit = null, graph = null }: { testLit?: Lit | Reado
       </div>
       <ChangeTip marks={marks} stage={stage} />
       <div className="ctop">
+      {lead}
       {marks && !focused ? <ChangeLegend mode={marks.mode} vs={marks.vs} /> : null}
       <div className="float fbar" id="fbar" hidden={!focused}>
         {focused ? (

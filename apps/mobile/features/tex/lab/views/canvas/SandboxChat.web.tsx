@@ -262,6 +262,10 @@ function MsgOptions({ r, onReply, onEdit }: { r: SandboxRow; onReply: () => void
   );
 }
 
+/** The line between the real chat's texts and the test texts (the mockup's "Sandbox from here"). */
+export const sandboxFromHere = (copied: number) =>
+  copied ? `Sandbox from here · copied ${copied.toLocaleString("en-US")} text${copied === 1 ? "" : "s"} from your real chat · writes stay in the sandbox` : "Sandbox from here · writes stay in the sandbox";
+
 export function SandboxChat() {
   const sb = useSandbox();
   const s = useLab();
@@ -323,9 +327,10 @@ export function SandboxChat() {
   };
   const rows: TextRow[] = [];
   let sep = false;
+  const copied = sb.rows.filter((r) => r.prod && !r.kind).length;
   for (const r of sb.rows) {
     if (!r.prod && !sep) {
-      rows.push({ id: "sep", who: "", text: "", sep: "Test texts" });
+      rows.push({ id: "sep", who: "", text: "", sep: sandboxFromHere(copied) });
       sep = true;
     }
     rows.push({
@@ -454,22 +459,34 @@ export function SandboxChat() {
             </span>
             <ChatPick versionId={versionId} />
             <DockSwitch view={view} onView={setDockView} />
-            {sb.writes.length ? (
-              <Pop id="sbChanges" className="ghost" button={<>{sb.writes.length} sandbox change{sb.writes.length > 1 ? "s" : ""} ▾</>}>
-                {() => (
-                  <div className="vmenu sbwrites">
-                    <div className="mh">What Tex would have changed</div>
-                    {sb.writes.map((w, k) => (
+            <Pop
+              id="sbChanges"
+              className="ghost"
+              button={
+                <>
+                  <span className="wcount">{sb.writes.length}</span> sandbox write{sb.writes.length === 1 ? "" : "s"} ▾
+                </>
+              }
+            >
+              {() => (
+                <div className="vmenu sbwrites">
+                  <div className="mh">What Tex wrote in this sandbox</div>
+                  {sb.writes.length ? (
+                    sb.writes.map((w, k) => (
                       <div className="wr" key={k}>
                         <span className="k">{w.kind}</span>
                         <span>{w.summary}</span>
                       </div>
-                    ))}
-                    <div className="mnote">Kept in the sandbox only.</div>
+                    ))
+                  ) : (
+                    <div className="mnote">Nothing yet. Notes, emails and pages Tex makes land here.</div>
+                  )}
+                  <div className="mnote">
+                    Reset throws all of these away. <code>tex_dev sandbox writes</code>
                   </div>
-                )}
-              </Pop>
-            ) : null}
+                </div>
+              )}
+            </Pop>
             {sb.problem && sb.rows.length ? <span className="small c-bad">{sb.problem}</span> : null}
           </>
         }

@@ -105,7 +105,7 @@ import { createRoot } from "react-dom/client";
 import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, lab, MAIN, set } from "../features/tex/lab/engine/state";
 import { resetSandboxState, rowOf, sandbox } from "../features/tex/lab/engine/sandbox";
-import { followText, holdPlayClock, resetPlay, stepPlayClock } from "../features/tex/lab/engine/sandboxPlay";
+import { followText, holdPlayClock, resetPlay, stepPlayClock, togglePlay } from "../features/tex/lab/engine/sandboxPlay";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -189,6 +189,11 @@ describe("the test chat dock", () => {
 
   test("Grid | Timeline in the head, the Timeline in the grid's space, T switching them", async () => {
     await mount();
+    // The sandbox writes chip is always there, its count first, as the mockup's.
+    expect(q("#sbChanges")?.textContent).toBe("0 sandbox writes ▾");
+    await click("#sbChanges");
+    expect(q(".sbwrites")?.textContent).toMatch(/^What Tex wrote in this sandboxNothing yet\..*Reset throws all of these away\./);
+    await click("#sbChanges");
     expect(qa("#sbView button").map((b) => [b.textContent, b.getAttribute("aria-pressed")])).toEqual([
       ["Grid", "true"],
       ["Timeline", "false"],
@@ -218,6 +223,9 @@ describe("the test chat dock", () => {
     // The node panel follows the step running, while nothing is pinned.
     expect(lab.sel).toEqual({ t: "node", id: "fd" });
     expect(q("#runPill")?.textContent).toMatch(/Playback · text 1 · 500 ms of 3.5 s/);
+    // Top left, as the mockup's: first in the canvas's top row, the row the change legend shares, so never under it.
+    expect(q("#runPill")?.parentElement?.classList.contains("ctop")).toBe(true);
+    expect(q("#runPill")?.parentElement?.firstElementChild?.id).toBe("runPill");
     await clockBy(5000);
     expect(tracks()).toEqual(["triage", "decide", "fd", "tools", "send"]);
     expect(qa("#sbTimeline .sbtb.msg").length).toBe(1);
@@ -228,6 +236,9 @@ describe("the test chat dock", () => {
     await click(q('#sbTimeline .sbtrk[data-n="decide"]'));
     expect(lab.sel).toEqual({ t: "node", id: "decide" });
     expect(lab.pin).toBe(true);
+    // Back on the Grid, nothing playing: the pill says what the canvas lights, the newest text, done.
+    await click('#sbView [data-v="grid"]');
+    expect(q("#runPill")?.textContent).toBe("Text 1 · done in 3.5 s · 5 steps · $0.000");
   });
 
   test("a running text: the playback never passes what has happened, and says how far behind live it is", async () => {
@@ -243,6 +254,10 @@ describe("the test chat dock", () => {
     expect(t).toBeLessThan(3);
     expect(q("#sbtlPlay")?.getAttribute("aria-label")).toBe("Pause");
     expect(q("#runPill")?.textContent).toMatch(/^Live · text 1 · watching at real time/);
+    // Not being watched (the Grid, the playback paused): live, with the step that runs now.
+    act(() => togglePlay());
+    await click('#sbView [data-v="grid"]');
+    expect(q("#runPill")?.textContent).toMatch(/^Live · text 1 · \d.* · Front door$/);
   });
 
   test("▶ on Tex's text plays only the steps that led to it; with no cause there is no ▶", async () => {
@@ -357,8 +372,8 @@ describe("the test chat dock", () => {
     then.edges = then.edges.filter((e) => e.from !== "fd" && e.to !== "fd");
     mockProd.value = {
       run: { id: "h1", steps: [{ id: "p1", node: "decide", at: 0, ms: 400, ok: true, out: { when: "answer" } }], texts: [{ at: 500, rowId: "h2" }], total: 600, running: false, graph: then, graphNote: "The graph of that time", prod: { at: 1_000 } },
-      replies: {},
-      cause: {},
+      replies: { h2: { id: "h1#h2", of: "h1", steps: [{ id: "p1", node: "decide", at: 0, ms: 400, ok: true, out: { when: "answer" } }], texts: [{ at: 500, rowId: "h2" }], total: 500, running: false, prod: { at: 1_000 } } },
+      cause: { h2: ["p1"] },
       turns: [{ turn: "u1", version: null, prompt: null, steps: ["p1"] }],
       jobs: [],
       moment: {},
@@ -370,6 +385,16 @@ describe("the test chat dock", () => {
       expect(q<HTMLSelectElement>("#sbtlPick")?.value).toBe("h1");
       expect(q("#sbtlKind")?.textContent).toMatch(/ran in prod/);
       expect(q("#runNote")?.textContent).toBe("The graph of that time");
+      // The mockup's Replay pill: the text, on Tex as it was then.
+      expect(q("#runPill")?.textContent).toMatch(/^Replay · text 1 on Tex as it was .+: its graph, its steps, only what was logged$/);
+      // ▶ on Tex's real text: only its steps, said to be as they ran in prod.
+      await click('#sbView [data-v="grid"]');
+      await click('#sbGrid [data-play-prod="h2"]');
+      await tick();
+      expect(q("#runPill")?.textContent).toMatch(/^Tex's text 2 · the 1 steps that led to it, as they ran in prod · /);
+      await click('#sbView [data-v="grid"]');
+      await click('#sbGrid [data-play-prod="h1"]');
+      await tick();
       // The graph of its time: the front door wasn't there then.
       expect(q('#svg .nd[data-id="fd"]')).toBeNull();
       expect(q('#svg .nd[data-id="decide"]')).not.toBeNull();
