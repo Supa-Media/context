@@ -53,6 +53,8 @@ export type PlayRun = {
 
 /** Distinct steps (nodes) a run lit. */
 export const stepCount = (r: PlayRun) => new Set(r.steps.map((s) => s.node)).size;
+/** "1 step", "3 steps". */
+export const stepsWord = (n: number) => `${n} step${n === 1 ? "" : "s"}`;
 
 /** The steps behind one of Tex's texts: exactly its `cause` ids, in run order; null when the log has none. */
 export function causeRun(run: PlayRun, texRowId: string, cause: string[] | undefined): PlayRun | null {

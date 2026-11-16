@@ -46,7 +46,14 @@ export type SandboxRow = {
 };
 /** The tapbacks iMessage has, in its order. */
 export const TAPBACKS = ["❤️", "👍", "👎", "😂", "‼️", "❓"] as const;
-export type SandboxWrite = { kind: string; summary: string; by?: string };
+/**
+ * One thing a test turn wrote (the gateway's `writes`): its kind and the line that says it, and, where it has them, the
+ * contract's fields to open it with: a page's address (read back with op `page`), an email's `to`/`subject`/`body`, a
+ * note's `body`.
+ */
+export type SandboxWrite = { kind: string; summary: string; by?: string; id?: string; title?: string; body?: string; url?: string; to?: string; subject?: string; expires?: number };
+/** The phone line a test text goes over (`get`'s `line`): its name and the number a text arrives on. */
+export type SandboxLine = { name: string; number?: string };
 export type SandboxState = {
   id: string | null;
   source: SandboxSource;
@@ -76,12 +83,14 @@ export type SandboxState = {
   shared: boolean;
   /** Recent test chats (the gateway's `list`), newest first; null until read, or when the gateway has no `list`. */
   recent: SandboxRecent[] | null;
+  /** The line every new text uses, once the gateway has said it. */
+  line?: SandboxLine | null;
 };
 
 /** One of the recent test chats, whoever opened it: the Lab or an AI through `tex_dev`. */
 export type SandboxRecent = { sandboxId: string; name: string; source: SandboxSource; versionId: string; openedBy: string; lastBy: string; at: number; ai: boolean; texts: number; running: boolean };
 
-export type SandboxOp = "chats" | "sets" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use";
+export type SandboxOp = "chats" | "sets" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
 export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null, shared: false, recent: null };
@@ -136,6 +145,25 @@ export function rowOf(r: Record<string, unknown>): SandboxRow {
   };
 }
 
+/** One of the gateway's writes, with only the fields it sent (text only; a page's address only over https). */
+export function writeOf(w: Record<string, unknown>): SandboxWrite {
+  const out: SandboxWrite = { kind: str(w.kind), summary: str(w.summary) || str(w.title) };
+  for (const k of ["by", "id", "title", "body", "to", "subject"] as const) if (str(w[k])) out[k] = str(w[k]);
+  if (str(w.url).startsWith("https://")) out.url = str(w.url);
+  if (num(w.expires) !== null) out.expires = num(w.expires)!;
+  return out;
+}
+
+/** A test chat page's id: the last part of its address, else the write's own id. */
+export const pageIdOf = (w: SandboxWrite) => (w.url ? (w.url.split(/[?#]/)[0].split("/").pop() ?? "") : "") || w.id || "";
+
+/** One of the test chat's pages, read back whole (op `page`): its title and its Markdown, as text. */
+export async function readSandboxPage(id: string): Promise<{ title: string; text: string }> {
+  if (!call || !sandbox.id) throw new Error("Sign in to the console to use the test chat");
+  const b = await call("page", { sandboxId: sandbox.id, id });
+  return { title: str(b.title), text: str(b.text) };
+}
+
 /** The rows as the gateway last sent them, whole: a `get` with `after` sends only what follows the chat's real texts. */
 let rawRows: Record<string, unknown>[] = [];
 
@@ -185,7 +213,11 @@ function take(b: Record<string, unknown>) {
     seenFor = sandbox.id;
     if (fresh.length) queueMicrotask(() => onText?.(fresh[fresh.length - 1].id));
   }
-  if (Array.isArray(b.writes)) sandbox.writes = arr<Record<string, unknown>>(b.writes).map((w) => ({ kind: str(w.kind), summary: str(w.summary), by: str(w.by) || undefined }));
+  if (Array.isArray(b.writes)) sandbox.writes = arr<Record<string, unknown>>(b.writes).map(writeOf);
+  if (b.line && typeof b.line === "object") {
+    const l = b.line as Record<string, unknown>;
+    sandbox.line = { name: str(l.name), ...(str(l.number) ? { number: str(l.number) } : {}) };
+  }
   sandbox.running = typeof b.running === "string" ? b.running : b.running && typeof b.running === "object" ? str((b.running as Record<string, unknown>).msgId) || null : null;
   sandbox.hot = b.running && typeof b.running === "object" ? str((b.running as Record<string, unknown>).node) || null : typeof b.hot === "string" ? b.hot : null;
   // A chat opened by its id may not say who is in it: whoever has texted in it, by name.
@@ -495,7 +527,7 @@ export function gatewaySandbox(endpoint: string, token: (refresh: boolean | { re
 
 /** For tests: back to an empty test chat. */
 export function resetSandboxState() {
-  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null, shared: false, recent: null });
+  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null, shared: false, recent: null, line: null });
   seenFor = null;
   seen = new Set();
   if (polling) clearTimeout(polling);

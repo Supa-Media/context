@@ -69,7 +69,8 @@ jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
       const until = real.findIndex((r) => r.id === body.base);
       mockRows = until < 0 ? real : real.slice(0, until);
       mockWrites = [];
-      return { sandboxId: "sb1", people: body.source === "chat" ? [{ handle: "priya", name: "Priya" }, { handle: "sam", name: "Sam" }] : [{ handle: "", name: "Maya" }], rows: mockRows };
+      // The line a test text goes over: an invented number.
+      return { sandboxId: "sb1", line: { name: "Tex", number: "+14155550142" }, people: body.source === "chat" ? [{ handle: "priya", name: "Priya" }, { handle: "sam", name: "Sam" }] : [{ handle: "", name: "Maya" }], rows: mockRows };
     }
     if (["retry", "back", "drop"].includes(op) && mockRows[at(body.msgId)]?.prod) throw new Error("That is a real text: open the chat with base set to it to try from there.");
     const sent = (as: string, text: string) => {
@@ -246,6 +247,8 @@ describe("the Architecture test chat", () => {
     // What Tex changed stays in the sandbox, listed.
     await click("#sbChanges");
     expect(q(".sbwrites")?.textContent).toMatch(/Calendar.*held in the sandbox/);
+    // The composer names the number the test texts go to, as a phone shows it.
+    expect(q<HTMLInputElement>("#sbTxt")?.placeholder).toBe("Text Tex at +1 (415) 555-0142…");
   });
 
   test("the chat opens scrolled to its newest text, and follows each new one", async () => {

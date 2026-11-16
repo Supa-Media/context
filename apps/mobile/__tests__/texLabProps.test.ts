@@ -105,6 +105,7 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("a step's panel shows its name, its reads stack and the cached cut", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
+    click("#nMore");
 
     expect(q("#props")?.hidden).toBe(false);
     expect((q("#nLabel") as HTMLInputElement).value).toBe("Front door");
@@ -116,6 +117,7 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("editing the step's name forks main and changes the step", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
+    click("#nMore");
 
     commit("#nLabel", "Door 2");
 
@@ -127,6 +129,7 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("the down arrow swaps the first two reads", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
+    click("#nMore");
     const before = [...node("fd")!.ctx];
 
     click('[data-dn="0"]');
@@ -138,6 +141,7 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("the remove button takes the first read out", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
+    click("#nMore");
     const before = [...node("fd")!.ctx];
 
     click('[data-rm="0"]');
@@ -148,6 +152,7 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("a model that answers typed questions only sets a one-question schema and hides the free text switch", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "mail" } }));
+    click("#nMore");
 
     click('#nModel [data-v="clef"]');
 
@@ -159,6 +164,7 @@ describe("/lab properties panel, viewer and modules page", () => {
   test("a custom model is added, used, edited and deleted", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
+    click("#nMore");
 
     click("#mNewModel");
     const name = q("#mfName") as HTMLInputElement;

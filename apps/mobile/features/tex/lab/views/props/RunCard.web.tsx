@@ -47,7 +47,12 @@ const json = (s: RunStep) => (s.data !== undefined ? JSON.stringify(s.data, null
 /** Tokens as the mockup says them: "18.4k", or the number under a thousand. */
 const tok = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
-/** The badge and the one-line facts under a step's name: what ran it and, for the run card, how long it took. */
+/** Ran, Running or Didn't run: beside the step's name, as the mockup has it. */
+export function StatusBadge({ run }: { run: StepRunState }) {
+  return run.state === "ran" ? <span className="st ok">Ran</span> : run.state === "running" ? <span className="st run">Running</span> : <span className="st none">Didn't run</span>;
+}
+
+/** The one-line facts under a step's name: what ran it and, for the run card, how long it took. */
 export function StatusRow({ n, card, run, draft }: { n: LabNode; card: "run" | "set"; run: StepRunState; draft: string }) {
   const m = MODELS[n.model] || MODELS.code;
   const steps = run.state === "ran" ? run.steps : [];
@@ -59,9 +64,6 @@ export function StatusRow({ n, card, run, draft }: { n: LabNode; card: "run" | "
   const cost = sum(steps.map((s) => s.cost));
   return (
     <div className="runhead">
-      <div className="flex" style={{ gap: 8 }}>
-        {card === "set" ? null : run.state === "ran" ? <span className="st ok">Ran</span> : run.state === "running" ? <span className="st run">Running</span> : <span className="st none">Didn't run</span>}
-      </div>
       <div className="runmeta">
         <span>{model}</span>
         {card === "set" ? <span>{`settings in draft ${draft}`}</span> : null}

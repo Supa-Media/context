@@ -18,6 +18,7 @@ import { attachSandbox, readRecentSandboxes, takeUrlSandbox, tryFromHere, backTo
 import { isStale, noteRan, pickStep, playExternal, playLit, playTexText, playText, setDockView, usePlay } from "../../engine/sandboxPlay";
 import { chatKeyOf, playProd } from "../mine/playProd";
 import { texCauseRun } from "../../engine/sandboxRun";
+import { stepsWord } from "../../engine/playRun";
 import { sinceOf } from "../../engine/stepRunNow";
 import { DockSwitch, SandboxTimeline } from "./SandboxTimeline.web";
 import { useDockHeight } from "./useDockHeight.web";
@@ -26,6 +27,7 @@ import { useLab } from "../../store";
 import { useSandboxCall } from "./sandboxCall";
 import { TextGrid, msWords, type TextRow } from "../grid/TextGrid.web";
 import { Pop } from "../bar/Pop.web";
+import { SandboxWrites } from "./SandboxWrites.web";
 import type { Lit } from "./usePlayback";
 
 const MAX_PICS = 6;
@@ -262,6 +264,12 @@ function MsgOptions({ r, onReply, onEdit }: { r: SandboxRow; onReply: () => void
   );
 }
 
+/** A US number as a phone shows it: "+14157918922" as "+1 (415) 791-8922"; any other as given. */
+export const phoneWords = (n: string) => {
+  const m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(n.replace(/[\s()-]/g, ""));
+  return m ? `+1 (${m[1]}) ${m[2]}-${m[3]}` : n;
+};
+
 /** The line between the real chat's texts and the test texts (the mockup's "Sandbox from here"). */
 export const sandboxFromHere = (copied: number) =>
   copied ? `Sandbox from here · copied ${copied.toLocaleString("en-US")} text${copied === 1 ? "" : "s"} from your real chat · writes stay in the sandbox` : "Sandbox from here · writes stay in the sandbox";
@@ -459,34 +467,7 @@ export function SandboxChat() {
             </span>
             <ChatPick versionId={versionId} />
             <DockSwitch view={view} onView={setDockView} />
-            <Pop
-              id="sbChanges"
-              className="ghost"
-              button={
-                <>
-                  <span className="wcount">{sb.writes.length}</span> sandbox write{sb.writes.length === 1 ? "" : "s"} ▾
-                </>
-              }
-            >
-              {() => (
-                <div className="vmenu sbwrites">
-                  <div className="mh">What Tex wrote in this sandbox</div>
-                  {sb.writes.length ? (
-                    sb.writes.map((w, k) => (
-                      <div className="wr" key={k}>
-                        <span className="k">{w.kind}</span>
-                        <span>{w.summary}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="mnote">Nothing yet. Notes, emails and pages Tex makes land here.</div>
-                  )}
-                  <div className="mnote">
-                    Reset throws all of these away. <code>tex_dev sandbox writes</code>
-                  </div>
-                </div>
-              )}
-            </Pop>
+            <SandboxWrites />
             {sb.problem && sb.rows.length ? <span className="small c-bad">{sb.problem}</span> : null}
           </>
         }
@@ -530,7 +511,7 @@ export function SandboxChat() {
                     // Only the steps the gateway logged as leading to it; with no `cause`, no ▶ (never inferred).
                     const cr = texCauseRun(r.id, sb.rows);
                     return cr ? (
-                      <button className="play" data-play-tex={r.id} disabled={sb.busy} title={`Play the ${new Set(cr.steps.map((x) => x.node)).size} steps that led to this text`} onClick={() => void playTexText(cr.id)}>
+                      <button className="play" data-play-tex={r.id} disabled={sb.busy} title={`Play the ${stepsWord(new Set(cr.steps.map((x) => x.node)).size)} that led to this text`} onClick={() => void playTexText(cr.id)}>
                         {playing(cr.id) ? "⏸" : "▶"}
                       </button>
                     ) : null;
@@ -541,7 +522,7 @@ export function SandboxChat() {
                   className={"play" + (stale ? " stale" : "")}
                   data-play={r.id}
                   disabled={(!!sb.running && !playing(r.id)) || sb.busy}
-                  title={(stale ? "The version changed since this ran: ▶ runs it again on live models for a fresh answer" : "Nothing changed since this ran: ▶ plays back what it did, no new model calls") + ` (${msWords(sum)} · ${r.steps.length} steps)`}
+                  title={(stale ? "The version changed since this ran: ▶ runs it again on live models for a fresh answer" : "Nothing changed since this ran: ▶ plays back what it did, no new model calls") + ` (${msWords(sum)} · ${stepsWord(r.steps.length)})`}
                   onClick={() => void playText(r.id)}
                 >
                   {playing(r.id) ? "⏸ " + msWords(play!.t) : "▶"}
@@ -662,7 +643,7 @@ export function SandboxChat() {
               ref={txt}
               aria-label="Test text"
               autoComplete="off"
-              placeholder={sb.as ? `Text as ${sb.as}…` : "Text Tex…"}
+              placeholder={sb.line?.number ? `Text Tex at ${phoneWords(sb.line.number)}…` : sb.as ? `Text as ${sb.as}…` : "Text Tex…"}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onPaste={(e) => {

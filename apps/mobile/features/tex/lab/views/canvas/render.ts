@@ -188,7 +188,12 @@ export function renderGraphHtml(
 ): string {
   const reached = (id: string) => sim.reach.has(id) || sim.inside.has(id);
   // While playing, how far through each running step is (0 to 1), drawn as a ring filling around it.
-  const ring = (id: string) => (litId instanceof Map ? (litId.get(id) ?? null) : null);
+  // A step done (1) has no ring: it is outlined blue as done, as the approved Lab live sandbox mockup draws it.
+  const ring = (id: string) => {
+    const p = litId instanceof Map ? (litId.get(id) ?? null) : null;
+    return p !== null && p < 1 ? p : null;
+  };
+  const done = (id: string) => litId instanceof Map && litId.get(id) === 1;
   const lit = (id: string) => (fade === "off" ? !!node(id, g)?.on : reached(id));
   let h = `<defs>${Object.entries(WIRES)
     .map(
@@ -223,7 +228,7 @@ export function renderGraphHtml(
         ? "Code"
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
     const time = timeLabel(sim, n.id);
-    h += `<g class="nd${hlClass(n.id)}${mk} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+    h += `<g class="nd${hlClass(n.id)}${mk} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : done(n.id) ? "lit done" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
       ${marks ? markHtml(marks, n.id) : ""}<rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? ringHtml(sim, g, n.id, ring(n.id)!) : ""}
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>

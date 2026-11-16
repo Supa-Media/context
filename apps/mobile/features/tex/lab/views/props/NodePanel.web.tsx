@@ -5,8 +5,9 @@
  * and delete). Ported with the same markup, classes and ids.
  *
  * Lab live sandbox (approved mockup https://claude.ai/artifact/XtEn67XPWMTFVUBYanYLG5): a switch at the top picks the
- * card, "Run details" (what the step did for the test text picked, `RunCard.web.tsx`) or "Settings" (everything below,
- * each field changed from main outlined yellow with "was ... on main" under it). Replay mode keeps the one long panel.
+ * card, "Run details" (what the step did for the test text picked, `RunCard.web.tsx`) or "Settings": the mockup's short
+ * list (`SettingsCard.web.tsx`), and everything below behind "More settings", each field changed from main outlined
+ * yellow with "was ... on main" under it. The card's foot says what it shows (`PanelFoot.web.tsx`).
  */
 import { useState, type ReactNode } from "react";
 import { AREAS, EXAMINABLE } from "../../data/areas";
@@ -14,13 +15,16 @@ import { ICONS, NODE_INFO, WIRES } from "../../data/graph";
 import { fieldText, stepChange } from "../../engine/changeMarks";
 import { cacheShare, ctxTokens, fmtS, fmtUsd, outTok } from "../../engine/sim";
 import { labSim, tracedReal } from "../../engine/realTimes";
-import { delSel, edit, G, go, lab, MODELS, node, set } from "../../engine/state";
+import { delSel, G, go, lab, MODELS, node, set } from "../../engine/state";
 import { scnLabel } from "../../engine/traces";
 import { useLab } from "../../store";
 import type { LabNode } from "../../types";
 import { Ic } from "../ic";
 import { CardSwitch } from "./CardSwitch.web";
-import { RunCard, StatusRow, useStepRun } from "./RunCard.web";
+import { RunCard, StatusBadge, StatusRow, useStepRun } from "./RunCard.web";
+import { PanelFoot } from "./PanelFoot.web";
+import { SettingsCard } from "./SettingsCard.web";
+import { pickModel, setNode } from "./nodeEdit";
 import { WireIcon } from "../parts";
 import { onCommit } from "./change";
 import { EditModelLink, getModelForm, ModelForm, NewModelButton } from "./ModelForm.web";
@@ -29,26 +33,6 @@ import { StepCases } from "./StepCases.web";
 import { StepChanges } from "./StepChanges.web";
 import { AddPicker, ReadsStack } from "./ReadsStack.web";
 
-/** The artifact's `set(k, v)` in the node branch: edits the step by id, so a fork of main is taken first. */
-function setNode<K extends keyof LabNode>(id: string, k: K, v: LabNode[K]) {
-  edit(() => {
-    const x = node(id);
-    if (x) x[k] = v;
-  });
-}
-
-/** A model button's pick: a code step keeps no effort; an api-only model gets its one-question schema. */
-function pickModel(id: string, k: string) {
-  edit(() => {
-    const x = node(id);
-    if (!x) return;
-    x.model = k;
-    if (MODELS[k].runs !== "code" && !x.effort) x.effort = "medium";
-    if (MODELS[k].typed === "only" && !x.outSchema?.length) x.outSchema = [{ name: "answer", type: "choice", options: "yes, no, unsure" }];
-    if (MODELS[k].typed === "only") x.outSchema = (x.outSchema || []).map((f) => (f.type === "text" ? { ...f, type: "choice" } : f));
-  });
-}
-
 export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   useLab();
   const g = G();
@@ -56,6 +40,8 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   const t = labSim(g).T[n.id];
   const io = tracedReal() ? lab.real?.io?.[n.id] : undefined;
   const [picking, setPicking] = useState(false);
+  // The long panel, behind "More settings" on the Settings card (the mockup's card is the short list).
+  const [more, setMore] = useState(false);
   const wires = g.edges.map((e, i) => [e, i] as const).filter(([e]) => e.to === n.id || e.from === n.id);
   const outTokens = outTok(n);
   const outLocked = !!n.outSchema?.length;
@@ -76,6 +62,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
           <Ic k={n.icon} />
         </button>
         <input id="nLabel" aria-label="Step name" key={n.label} defaultValue={n.label} ref={onCommit<HTMLInputElement>((v) => setNode(n.id, "label", v))} />
+        {card === "run" ? <StatusBadge run={run} /> : null}
         {extra}
       </div>
       {picking ? (
@@ -104,8 +91,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
         <RunCard n={n} has={has} run={run} />
       ) : (
         <>
-      <div className={cc("code", "file")}>{n.file || "new step"}</div>
-      {was("code")}
+      <SettingsCard n={n} />
       {io?.length ? (
         // Not in the artifact: what this step got and gave when it ran for one of your texts (`realTimes.ts` realIO).
         <div className="grp" id="nIO">
@@ -120,6 +106,13 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
       ) : null}
       <StepChanges n={n} />
       <StepCases n={n} />
+      <button className="more" id="nMore" aria-expanded={more} onClick={() => setMore(!more)}>
+        {more ? "Fewer settings ▴" : "More settings ▾"}
+      </button>
+      {more ? (
+        <>
+      <div className={cc("code", "file")}>{n.file || "new step"}</div>
+      {was("code")}
       <div className={cc("goal", "grp")}>
         <h4>Goal</h4>
         {was("goal")}
@@ -322,7 +315,10 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
         </div>
       )}
         </>
+      ) : null}
+        </>
       )}
+      <PanelFoot card={card} ran={run.state !== "none"} />
     </>
   );
 }

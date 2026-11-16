@@ -88,7 +88,9 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
   const fit = () => {
     const el = stage.current;
     if (!el) return;
-    const r = el.getBoundingClientRect();
+    const b = el.getBoundingClientRect();
+    // The step card floats over the canvas's right side: fit the graph beside it, as the mockup's fit does.
+    const r = { width: b.width - (lab.sel && b.width > 900 ? 350 : 0), height: b.height };
     const c = fitCam(G().nodes, r, lab.cfocus ? fBounds.current : null);
     if (!c) return;
     cam.current = c;

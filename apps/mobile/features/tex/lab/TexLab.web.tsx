@@ -28,7 +28,6 @@ import { Compare } from "./views/Compare.web";
 import { LiveChips } from "./views/LiveChanges.web";
 import { MoreMenu, RunSplit, SpeedMenu, VersionMenu } from "./views/bar/TopBar.web";
 import { Modules } from "./views/Modules.web";
-import { Props } from "./views/Props.web";
 import { Run } from "./views/Run.web";
 import { Sim } from "./views/Sim.web";
 import { Tests } from "./views/Tests.web";
@@ -132,8 +131,6 @@ function Lab() {
   const tags = { modTag: nm + cvn ? nm + cvn + " edited" : "", toolTag: "", runTag: d.length ? d.length + " change" + (d.length > 1 ? "s" : "") : "" };
   useLabUrl();
   const testing = s.mode === "testing";
-  const propsOn = s.view === "canvas" && s.sel !== null;
-  const wide = propsOn && !!s.cfocus && s.sel?.t === "node" && s.sel.id === s.cfocus;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
@@ -168,7 +165,8 @@ function Lab() {
     set({ sideHidden: !s.sideHidden });
     setTimeout(fit, 0);
   };
-  const gridCols = s.sideHidden && !phone() ? (propsOn ? `minmax(0,1fr) ${wide ? 420 : 320}px` : "minmax(0,1fr)") : undefined;
+  // The step panel floats on the canvas (`ArchCanvas.web.tsx`), so it takes no column of its own.
+  const gridCols = s.sideHidden && !phone() ? "minmax(0,1fr)" : undefined;
 
   return (
     <>
@@ -219,7 +217,7 @@ function Lab() {
             <Testing />
           </div>
         ) : (
-        <div className={"body labnav" + (s.navMin ? " navmin" : "") + (propsOn ? " props" : "") + (wide ? " wide" : "")} id="body" style={gridCols ? { gridTemplateColumns: gridCols } : undefined}>
+        <div className={"body labnav" + (s.navMin ? " navmin" : "")} id="body" style={gridCols ? { gridTemplateColumns: gridCols } : undefined}>
           <nav className="side" id="side" aria-label="Lab" hidden={s.sideHidden && !phone()}>
             {NAV.map(([v, name, icon, tag]) => (
               <button key={v} className="rowi" data-view={v} aria-current={s.view === v} title={name} onClick={() => (closeSide(), go(v))}>
@@ -252,9 +250,6 @@ function Lab() {
               </div>
             ))}
           </main>
-          <aside className="props-pane" id="props" aria-label="Properties" hidden={!propsOn}>
-            {propsOn ? <Props /> : null}
-          </aside>
         </div>
         )}
       </div>

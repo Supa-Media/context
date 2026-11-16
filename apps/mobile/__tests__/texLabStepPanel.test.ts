@@ -197,7 +197,9 @@ describe("the step panel's cards", () => {
     act(() => set({ sel: { t: "node", id: "fd" }, pin: true }));
     expect(q("#cardRun")!.getAttribute("aria-pressed")).toBe("true");
     const t = q("#props")!.textContent!;
-    expect(t).toContain("Ran");
+    // The status sits beside the step's name, as in the mockup.
+    expect(q("#props .ph .st.ok")?.textContent).toBe("Ran");
+    expect(q("#props .runhead .st")).toBeNull();
     expect(t).toContain("1.2k in");
     expect(t).toContain("$0.012");
     expect(t).toContain("Decided");
@@ -213,7 +215,11 @@ describe("the step panel's cards", () => {
     expect(q("#nLabel")).not.toBeNull();
     // The run card never shows change info or settings.
     expect(q("#nModel")).toBeNull();
+    expect(q("#setShort")).toBeNull();
     expect(q("#nChanges")).toBeNull();
+    // The card floats on the canvas, and its foot says where the step's log comes from.
+    expect(q(".archcv #props.ins")).not.toBeNull();
+    expect(q("#insFoot")?.textContent).toMatch(/^Logged step · main@\w+ · tex_dev sandbox steps$/);
     click('[data-tab="calls"]');
     expect(qa(".call").length).toBe(2);
     click('[data-tab="think"]');
@@ -230,7 +236,8 @@ describe("the step panel's cards", () => {
     mount();
     ran();
     act(() => set({ sel: { t: "node", id: "triage" }, pin: true }));
-    expect(q("#props")!.textContent).toContain("Didn't run");
+    expect(q("#props .ph .st.none")?.textContent).toBe("Didn't run");
+    expect(q("#insFoot")?.textContent).toBe("Nothing logged for this text");
     expect(q("#props")!.textContent).toContain("Didn't run for this text, so there's nothing to show.");
     expect(q(".tabs")).toBeNull();
   });
@@ -265,7 +272,12 @@ describe("the step panel's cards", () => {
     act(() => set({ sel: { t: "node", id: "fd" }, pin: true }));
     expect(q("#cardDot")).toBeNull();
     click("#cardSet");
-    expect(q("#nModel")).not.toBeNull();
+    // The mockup's short list; the rest is behind More settings.
+    expect(q("#setShort")).not.toBeNull();
+    expect(q("#setModel")).not.toBeNull();
+    expect(q("#nModel")).toBeNull();
+    expect(q("#props .ph .st")).toBeNull();
+    expect(q("#insFoot")?.textContent).toBe("main: a change starts your own copy · tex_dev node set");
     expect(q(".chgf")).toBeNull();
     const was = G().nodes.find((n) => n.id === "fd")!.effort;
     act(() =>
@@ -274,9 +286,17 @@ describe("the step panel's cards", () => {
       }),
     );
     expect(q("#cardDot")).not.toBeNull();
-    expect(q("#nEffort.chgf")).not.toBeNull();
+    expect(q('#setShort [data-field="effort"].chgf #setEffort')).not.toBeNull();
     expect(qa(".chgf").length).toBe(1);
-    expect(q("#props")!.textContent).toContain(`was ${was} on main`);
+    expect(q('#setShort [data-field="effort"] .was')?.textContent).toBe(`was ${was} on main`);
+    expect(q("#insFoot")?.textContent).toMatch(/^Draft .+ · saved as you change it · tex_dev node set$/);
+    // More settings opens the full panel, its own field outlined too.
+    expect(q("#nMore")?.textContent).toBe("More settings ▾");
+    click("#nMore");
+    expect(q("#nEffort.chgf")).not.toBeNull();
+    expect(q("#nGoal")).not.toBeNull();
+    click("#nMore");
+    expect(q("#nGoal")).toBeNull();
     expect(q("#props")!.textContent).toContain("settings in draft");
     click("#cardRun");
     expect(q("#cardDot")).not.toBeNull();

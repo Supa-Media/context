@@ -7,7 +7,7 @@
  * grows with it, and its clock says how far behind live the playback is.
  */
 import { useEffect, useRef, useState, type MouseEvent as RMouseEvent } from "react";
-import { stepCount, type PlayRun, type PlayStep } from "../../engine/playRun";
+import { stepCount, stepsWord, type PlayRun, type PlayStep } from "../../engine/playRun";
 import { densityFor, packSteps, scaleOf, texCauseRun, trackOrder } from "../../engine/sandboxRun";
 import { useSandbox } from "../../engine/sandbox";
 import { externalRuns, playTexText, runOf, seek, showRun, togglePlay, usePlay, type DockView } from "../../engine/sandboxPlay";
@@ -56,7 +56,7 @@ function useRunTexts(): Array<{ value: string; label: string }> {
 }
 
 function kindOf(r: PlayRun) {
-  if (r.of) return <span className="k of"> · {stepCount(r)} steps that led to it{r.prod ? ", ran in prod" : ""}</span>;
+  if (r.of) return <span className="k of"> · {stepsWord(stepCount(r))} that led to it{r.prod ? ", ran in prod" : ""}</span>;
   if (r.prod) return <span className="k prod"> · ran in prod, {ranWhen(r.prod.at)}</span>;
   return <span className="k"> · sandbox</span>;
 }

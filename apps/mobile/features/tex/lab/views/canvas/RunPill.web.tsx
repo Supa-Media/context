@@ -6,7 +6,7 @@
  * lights (the one picked, the one running, else the newest test text): live with what runs now, or done with its time,
  * steps and cost.
  */
-import { stepCount, type PlayRun } from "../../engine/playRun";
+import { stepCount, stepsWord, type PlayRun } from "../../engine/playRun";
 import { useSandbox, type SandboxRow } from "../../engine/sandbox";
 import { runOf, usePlay } from "../../engine/sandboxPlay";
 import { node } from "../../engine/state";
@@ -32,7 +32,7 @@ export function restingWords(run: PlayRun, n: number): string {
     return `Live · text ${n} · ${fmt(run.total)} · ${now.length ? now.join(", ") : "between steps"}`;
   }
   const cost = run.steps.reduce((a, x) => a + (x.cost ?? 0), 0);
-  return `Text ${n} · done in ${fmt(run.total)} · ${stepCount(run)} steps · $${cost.toFixed(3)}`;
+  return `Text ${n} · done in ${fmt(run.total)} · ${stepsWord(stepCount(run))} · $${cost.toFixed(3)}`;
 }
 
 export function RunPill() {
@@ -66,7 +66,7 @@ export function RunPill() {
     const t0 = run.steps.length ? Math.min(...run.steps.map((x) => x.at)) : 0;
     body = (
       <>
-        <span className="rp">Tex's text {n(tex)}</span> · the {stepCount(run)} steps that led to it{run.prod ? ", as they ran in prod" : ""} · {fmt(play.t - t0)} of {fmt(run.total - t0)}
+        <span className="rp">Tex's text {n(tex)}</span> · the {stepsWord(stepCount(run))} that led to it{run.prod ? ", as they ran in prod" : ""} · {fmt(play.t - t0)} of {fmt(run.total - t0)}
       </>
     );
   } else if (run.prod)

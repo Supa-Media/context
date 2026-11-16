@@ -391,7 +391,7 @@ describe("the test chat dock", () => {
       await click('#sbView [data-v="grid"]');
       await click('#sbGrid [data-play-prod="h2"]');
       await tick();
-      expect(q("#runPill")?.textContent).toMatch(/^Tex's text 2 · the 1 steps that led to it, as they ran in prod · /);
+      expect(q("#runPill")?.textContent).toMatch(/^Tex's text 2 · the 1 step that led to it, as they ran in prod · /);
       await click('#sbView [data-v="grid"]');
       await click('#sbGrid [data-play-prod="h1"]');
       await tick();
