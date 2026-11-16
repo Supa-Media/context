@@ -146,7 +146,7 @@ export function RunSplit() {
       ) : null}
       <span className="split">
         <button className="primary" id="labRunDev" title="Runs every Dev set unit test on GitHub on this version" onClick={() => void go("dev", {}, lab.cur.id)}>
-          ▶ Run<span className="hide-s"> Dev set</span>
+          ▶<span className="hide-xs"> Run</span><span className="hide-s"> Dev set</span>
         </button>
         <Pop id="runMore" label="Run options" className="primary more" right button={<span aria-hidden="true">▾</span>}>
           {(close) => (

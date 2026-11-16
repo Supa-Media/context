@@ -52,22 +52,21 @@ const SLIM_STEPS: string[] = [];
 /** The row actions' column, right after the row's number (Dev2, 2026-11-16: "these buttons need to not be hidden all the way on the right"). */
 const ACT_W = 76;
 
-/** A message: what it quotes, its text (or the editor), edited, its tapbacks, its pictures, and its options button. */
-function msgCell(r: TextRow, p: { msgExtra?: (r: TextRow) => ReactNode; editing?: string | null }) {
-  const editing = p.editing === r.id;
+/** A message: what it quotes, its text, edited, its tapbacks, its options button and its pictures. */
+function msgCell(r: TextRow, msgExtra?: (r: TextRow) => ReactNode) {
   return (
     <>
       {r.quote ? <span className="q">↩ {r.quote}</span> : null}
-      {editing ? null : r.quiet ? <span className="muted">(stays quiet)</span> : r.text}
-      {r.edited && !editing ? <span className="ed">edited</span> : null}
-      {r.reactions?.length && !editing ? (
+      {r.quiet ? <span className="muted">(stays quiet)</span> : r.text}
+      {r.edited ? <span className="ed">edited</span> : null}
+      {r.reactions?.length ? (
         <span className="rx">
           {r.reactions.map((e, k) => (
             <span key={k}>{e}</span>
           ))}
         </span>
       ) : null}
-      {p.msgExtra ? p.msgExtra(r) : null}
+      {msgExtra ? msgExtra(r) : null}
       {r.pics?.length ? (
         <span className="pics">
           {r.pics.map((u) => (
@@ -89,9 +88,8 @@ export function TextGrid(p: {
   selCol?: string | null;
   onRow?: (r: TextRow, col: string | null) => void;
   actions?: (r: TextRow) => ReactNode;
-  /** After a message's text: its options button (the test chat's ⋯), or an editor in place of the text. */
+  /** After a message's text: its options button (the test chat's ⋯). */
   msgExtra?: (r: TextRow) => ReactNode;
-  editing?: string | null;
   head?: ReactNode;
   /** After the Columns button (the test chat's Reset). */
   headEnd?: ReactNode;
@@ -153,7 +151,7 @@ export function TextGrid(p: {
                     {act ? <td className="ac">{p.actions!(r)}</td> : null}
                     {vc.map((c) => {
                       if (c.id === "who") return <td key="who" data-c="who"><b className={[r.tex ? "texwho" : "", r.whoCls || ""].join(" ").trim() || undefined}>{r.who}</b></td>;
-                      if (c.id === "text") return <td key="text" data-c="text" className={"txt" + (r.evt ? " evt" : "")}>{msgCell(r, p)}</td>;
+                      if (c.id === "text") return <td key="text" data-c="text" className={"txt" + (r.evt ? " evt" : "")}>{msgCell(r, p.msgExtra)}</td>;
                       return null;
                     })}
                     {r.tex

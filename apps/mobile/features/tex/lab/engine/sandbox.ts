@@ -51,14 +51,16 @@ export type SandboxState = {
   problem: string | null;
   /** The chats you may open a test chat over (your 1:1 and your group chats). */
   chats: Array<{ chatId: string; name: string; kind?: "dm" | "group"; people?: number }>;
+  /** The Training and Dev conversations a test chat may start from (the gateway's `sets`; never the Test set). */
+  sets: Array<{ id: string; title: string; set: "training" | "dev"; group: boolean; texts: number }>;
   /** A text waiting in the composer: Replay's "Try from here" puts the text it tries from there. */
   draft: { as: string; text: string } | null;
 };
 
-export type SandboxOp = "chats" | "open" | "send" | "react" | "edit" | "retry" | "back" | "drop" | "reset" | "get";
+export type SandboxOp = "chats" | "sets" | "open" | "send" | "react" | "retry" | "back" | "drop" | "reset" | "get";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], draft: null };
+export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -97,7 +99,7 @@ export function rowOf(r: Record<string, unknown>): SandboxRow {
     quiet: r.quiet === true,
     tex: who === "Tex" || r.tex === true,
     steps: arr<Record<string, unknown>>(r.steps).map((x) => ({ node: str(x.node), out: str(x.out), ms: num(x.ms), ok: x.ok === false ? false : true })),
-    ...(Array.isArray(r.pics) ? { pics: arr<unknown>(r.pics).filter((p): p is string => typeof p === "string" && p.startsWith("https://")) } : {}),
+    ...(Array.isArray(r.pics) ? { pics: arr<unknown>(r.pics).map((p) => (typeof p === "string" ? p : p && typeof p === "object" ? str((p as Record<string, unknown>).url) : "")).filter((u) => u.startsWith("https://")) } : {}),
     ...(typeof r.replyTo === "string" && r.replyTo ? { replyTo: r.replyTo } : {}),
     ...(r.edited === true ? { edited: true } : {}),
     ...(Array.isArray(r.reactions) ? { reactions: arr<Record<string, unknown>>(r.reactions).map((x) => ({ who: str(x.who), emoji: str(x.emoji) })).filter((x) => x.emoji) } : {}),
@@ -176,11 +178,26 @@ export async function readSandboxChats() {
   try {
     const b = await call("chats", {});
     sandbox.chats = arr<Record<string, unknown>>(b.chats)
-      .map((c) => ({ chatId: str(c.chatId), name: str(c.name), ...(c.kind === "dm" || c.kind === "group" ? { kind: c.kind as "dm" | "group" } : {}), ...(num(c.people) != null ? { people: num(c.people)! } : {}) }))
+      .map((c) => ({ chatId: str(c.chatId), name: str(c.name), ...(c.kind === "1:1" || c.kind === "dm" ? { kind: "dm" as const } : c.kind === "group" ? { kind: "group" as const } : {}), ...(num(c.people) != null ? { people: num(c.people)! } : {}) }))
       .filter((c) => c.chatId);
     emit();
   } catch {
     /* Maya stays */
+  }
+}
+
+/** The Training and Dev conversations, as the gateway lists them. */
+export async function readSandboxSets() {
+  if (!call) return;
+  try {
+    const b = await call("sets", {});
+    sandbox.sets = arr<Record<string, unknown>>(b.sets)
+      .filter((c) => c.set === "training" || c.set === "dev")
+      .map((c) => ({ id: str(c.id), title: str(c.title) || str(c.id), set: c.set as "training" | "dev", group: c.kind === "group", texts: num(c.texts) ?? 0 }))
+      .filter((c) => c.id);
+    emit();
+  } catch {
+    /* the tab says there are none */
   }
 }
 
@@ -241,11 +258,10 @@ export async function tryText(convId: string, name: string, versionId: string, w
 const asHandle = () => sandbox.handles[sandbox.as] ?? sandbox.as;
 /** A test text, with up to six pictures and the text it replies to: a real Tex turn in the test chat. */
 export const sendText = (text: string, extra: { pics?: string[]; replyTo?: string } = {}) =>
-  run("send", { as: asHandle(), text, ...(extra.pics?.length ? { pics: extra.pics.slice(0, 6) } : {}), ...(extra.replyTo ? { replyTo: extra.replyTo } : {}) });
+  run("send", { as: asHandle(), text, ...(extra.pics?.length ? { pics: extra.pics.slice(0, 6).map((url) => ({ url })) } : {}), ...(extra.replyTo ? { replyTo: extra.replyTo } : {}) });
 /** A tapback on a text, as whoever the composer sends as: Tex sees it as it would a real one. */
 export const reactTo = (msgId: string, emoji: string) => run("react", { as: asHandle(), msgId, emoji });
-/** Edit one of your test texts: Tex sees the edit as it would a real one. */
-export const editText = (msgId: string, text: string) => run("edit", { msgId, text });
+
 export const retryText = (msgId: string) => run("retry", { msgId });
 /**
  * Go back to a text: it and its reply kept, everything later dropped. A real text the chat started from can't be cut,
@@ -292,7 +308,7 @@ export function gatewaySandbox(endpoint: string, token: (refresh: boolean | { re
 
 /** For tests: back to an empty test chat. */
 export function resetSandboxState() {
-  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], draft: null });
+  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null });
   if (polling) clearTimeout(polling);
   polling = null;
   emit();

@@ -20,7 +20,7 @@
  *  5. reply rows' steps left on the reply -> "each step's output fills its column" fails.
  * (2026-11-16, decluttered Lab)
  *  6. `isStale` always false -> "▶ plays back what ran while nothing changed, and runs fresh once the version did" fails;
- *  7. `sendText` dropping `replyTo` -> "react, reply, edit and pictures are each a Tex turn" fails.
+ *  7. `sendText` dropping `replyTo` -> "tapbacks, replies and pictures are each sent to Tex" fails.
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
@@ -291,7 +291,7 @@ describe("the test chat's ▶ and message options", () => {
     expect(q('#sbGrid [data-play="t2"]')?.classList.contains("stale")).toBe(false);
   });
 
-  test("react, reply, edit and pictures are each a Tex turn", async () => {
+  test("tapbacks, replies and pictures are each sent to Tex; Edit is off", async () => {
     await mount();
     await type("one");
     // ⋯ on the text: the tapbacks, Reply, Edit.
@@ -313,18 +313,12 @@ describe("the test chat's ▶ and message options", () => {
     await tick();
     expect(qa("#sbPend img").map((i) => i.getAttribute("src"))).toEqual(["https://files.example.test/p1.png"]);
     await type("this one");
-    expect(mockCalls.find((c) => c.op === "send" && c.body.text === "this one")?.body).toEqual({ sandboxId: "sb1", as: "", text: "this one", pics: ["https://files.example.test/p1.png"], replyTo: "t1r" });
+    expect(mockCalls.find((c) => c.op === "send" && c.body.text === "this one")?.body).toEqual({ sandboxId: "sb1", as: "", text: "this one", pics: [{ url: "https://files.example.test/p1.png" }], replyTo: "t1r" });
     expect(q("#sbPend")).toBeNull();
-    // Edit your own text in place; Enter sends the edit.
+    // Edit is there but off: production passes no edit on to Tex.
     await click('#sbGrid tr[data-id="t1"] .mopt');
-    await click('#sbOpt-t1Menu [data-edit-open="t1"]');
-    const ed = q<HTMLInputElement>('#sbGrid [data-edit="t1"]')!;
-    act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(ed, "one, changed");
-      ed.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    });
-    await tick();
-    expect(mockCalls.find((c) => c.op === "edit")?.body).toEqual({ sandboxId: "sb1", msgId: "t1", text: "one, changed" });
+    expect(q<HTMLButtonElement>('#sbOpt-t1Menu [data-edit-open="t1"]')?.disabled).toBe(true);
+    expect(mockCalls.some((c) => c.op === "edit")).toBe(false);
   });
 });
 

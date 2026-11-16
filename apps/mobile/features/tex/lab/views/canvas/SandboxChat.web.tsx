@@ -3,14 +3,15 @@
  * https://claude.ai/artifact/W21NekNf2vtnFLXXzAmp7N, approved by Dev2 2026-11-16): pick a chat from your account, the
  * test account or the Training / Dev sets (never the Test set), text as anyone in it, and the version open in the Lab
  * answers on live models; every step's output fills its column. One ▶ per text (`engine/sandboxPlay.ts`) plays back
- * what ran, or runs it fresh once the version changed; ⤺ goes back to a text and 🗑 deletes it. Each message's ⋯ reacts,
- * replies or edits, and the composer takes pictures (picked, pasted or dropped). Each of those is a real Tex turn in
- * the sandbox; nothing reaches the real chat, the workspace or anyone's phone. Folds to its head with ▾.
+ * what ran, or runs it fresh once the version changed; ⤺ goes back to a text and 🗑 deletes it. Each message's ⋯ reacts
+ * or replies, and the composer takes pictures (picked, pasted or dropped), each run as production runs it. Edit is in
+ * the menu but off: production passes no edit on to Tex (`docs/decisions/texting-assistant/lab-sandbox.md`). Nothing
+ * reaches the real chat, the workspace or anyone's phone. Folds to its head with ▾.
  */
 import { useEffect, useRef, useState } from "react";
-import { backTo, dropText, editText, reactTo, readSandboxChats, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow, type SandboxSource } from "../../engine/sandbox";
+import { backTo, dropText, reactTo, readSandboxChats, readSandboxSets, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow, type SandboxSource } from "../../engine/sandbox";
 import { isStale, noteRan, pickStep, playLit, playText, usePlay } from "../../engine/sandboxPlay";
-import { uploadPic, useSets } from "../../engine/setsStore";
+import { uploadPic } from "../../engine/setsStore";
 import { useLab } from "../../store";
 import { useSandboxCall } from "./sandboxCall";
 import { TextGrid, msWords, type TextRow } from "../grid/TextGrid.web";
@@ -25,7 +26,6 @@ const srcKey = (s: SandboxSource) => (s.kind === "maya" ? "maya" : s.kind === "c
 /** The chat picker: your account's 1:1 and group chats, the test account, and the Training and Dev conversations. */
 function ChatPick({ versionId }: { versionId: string }) {
   const sb = useSandbox();
-  const sets = useSets();
   const [tab, setTab] = useState<Tab>(sb.source.kind === "maya" ? "test" : sb.source.kind === "set" ? "sets" : "mine");
   const [q, setQ] = useState("");
   const name = sb.source.kind === "maya" ? "Maya (test account)" : sb.source.kind === "chat" && sb.source.chatId === "me" ? "Your 1:1 with Tex" : sb.source.name;
@@ -46,7 +46,7 @@ function ChatPick({ versionId }: { versionId: string }) {
           <span className="nm" id="sbChatName">
             {name}
           </span>
-          {who ? <span className="who">{who}</span> : null}
+          {who ? <span className="cwho">{who}</span> : null}
           <span className="car">▾</span>
         </>
       }
@@ -58,7 +58,7 @@ function ChatPick({ versionId }: { versionId: string }) {
         };
         const one = sb.chats.filter((c) => (c.chatId === "me" || c.kind === "dm") && hit(c.chatId === "me" ? "Your 1:1 with Tex" : c.name));
         const groups = sb.chats.filter((c) => c.chatId !== "me" && c.kind !== "dm" && hit(c.name));
-        const convs = sets.convs.filter((c) => (c.set === "dev" || c.set === "training") && (hit(c.title) || hit(c.members.join(" "))));
+        const convs = sb.sets.filter((c) => hit(c.title));
         return (
           <div className="vmenu chatpick">
             <div className="seg" role="tablist" id="sbPickTabs">
@@ -69,7 +69,16 @@ function ChatPick({ versionId }: { versionId: string }) {
                   ["sets", "Training / Dev"],
                 ] as const
               ).map(([k, w]) => (
-                <button key={k} role="tab" data-tab={k} aria-selected={tab === k} onClick={() => setTab(k)}>
+                <button
+                  key={k}
+                  role="tab"
+                  data-tab={k}
+                  aria-selected={tab === k}
+                  onClick={() => {
+                    setTab(k);
+                    if (k === "sets" && !sb.sets.length) void readSandboxSets();
+                  }}
+                >
                   {w}
                 </button>
               ))}
@@ -118,12 +127,12 @@ function ChatPick({ versionId }: { versionId: string }) {
                             data-conv={c.id}
                             aria-current={cur === "set:" + c.id}
                             onClick={() => {
-                              const chatId = c.kind === "group" ? groupChat() : undefined;
+                              const chatId = c.group ? groupChat() : undefined;
                               open({ kind: "set", convId: c.id, name: c.title + " (" + (k === "dev" ? "Dev" : "Training") + ")", ...(chatId ? { chatId } : {}) });
                             }}
                           >
                             <span className="nm">{c.title}</span>
-                            <span className="meta">{c.msgs.length} texts</span>
+                            <span className="meta">{c.texts} texts</span>
                           </button>
                         ))}
                       </div>
@@ -141,8 +150,8 @@ function ChatPick({ versionId }: { versionId: string }) {
   );
 }
 
-/** A message's ⋯: the tapbacks, Reply, and Edit on your own test texts, each a Tex turn of its own. */
-function MsgOptions({ r, onReply, onEdit }: { r: SandboxRow; onReply: () => void; onEdit: () => void }) {
+/** A message's ⋯: the tapbacks and Reply, each run as production runs it, and Edit (off until Tex receives edits). */
+function MsgOptions({ r, onReply }: { r: SandboxRow; onReply: () => void }) {
   const sb = useSandbox();
   const own = !r.prod && !r.tex;
   return (
@@ -177,15 +186,8 @@ function MsgOptions({ r, onReply, onEdit }: { r: SandboxRow; onReply: () => void
             ↩ Reply
           </button>
           {own ? (
-            <button
-              className="mi"
-              data-edit-open={r.id}
-              onClick={() => {
-                close();
-                onEdit();
-              }}
-            >
-              ✎ Edit
+            <button className="mi" data-edit-open={r.id} disabled title="Tex doesn't receive edits yet: production passes no edit on, so the test chat can't either">
+              ✎ Edit <span className="meta">Tex doesn't get edits yet</span>
             </button>
           ) : null}
           <div className="mnote">As {sb.as || "you"}; Tex runs on each.</div>
@@ -205,7 +207,6 @@ export function SandboxChat() {
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [pics, setPics] = useState<string[]>([]);
   const [uploading, setUploading] = useState(0);
-  const [editing, setEditing] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement>(null);
   const txt = useRef<HTMLInputElement>(null);
   const versionId = s.cur.id;
@@ -217,11 +218,10 @@ export function SandboxChat() {
     if ((sb.id === null || sb.versionId !== versionId) && !sb.busy) void openSandbox(sb.source, versionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, versionId]);
-  // A reply or an edit on a text that's gone (back, delete, another chat) is dropped.
+  // A reply to a text that's gone (back, delete, another chat) is dropped.
   useEffect(() => {
     if (replyTo && !sb.rows.some((r) => r.id === replyTo)) setReplyTo(null);
-    if (editing && !sb.rows.some((r) => r.id === editing)) setEditing(null);
-  }, [sb.rows, replyTo, editing]);
+  }, [sb.rows, replyTo]);
 
   const byId = new Map(sb.rows.map((r) => [r.id, r]));
   const quoteOf = (id?: string) => {
@@ -294,7 +294,6 @@ export function SandboxChat() {
         folded={folded}
         sel={pick?.msgId ?? null}
         selCol={pick?.upto ?? null}
-        editing={editing}
         onRow={(r, col) => {
           if (!r.steps?.length) return;
           pickStep(r.id, col && col !== "who" && col !== "text" ? col : null);
@@ -365,26 +364,6 @@ export function SandboxChat() {
         msgExtra={(r) => {
           const src = byId.get(r.id);
           if (!src) return null;
-          if (editing === r.id)
-            return (
-              <input
-                className="medit"
-                data-edit={r.id}
-                aria-label="Edit the text"
-                defaultValue={src.text}
-                autoFocus
-                onFocus={(e) => e.currentTarget.select()}
-                onBlur={() => setEditing(null)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setEditing(null);
-                  if (e.key === "Enter") {
-                    const v = e.currentTarget.value.trim();
-                    setEditing(null);
-                    if (v && v !== src.text) void editText(src.id, v);
-                  }
-                }}
-              />
-            );
           return r.evt ? null : (
             <MsgOptions
               r={src}
@@ -392,7 +371,6 @@ export function SandboxChat() {
                 setReplyTo(src.id);
                 txt.current?.focus();
               }}
-              onEdit={() => setEditing(src.id)}
             />
           );
         }}

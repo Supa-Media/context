@@ -183,6 +183,8 @@ describe("a draft's change marks", () => {
     expect(q(`.nd.chg-changed[data-id="${a.id}"]`)).not.toBeNull();
     expect(qa(".wire.wnew").length).toBe(1);
 
+    // How a draft's changes are drawn is in the version menu (decluttered Lab, 2026-11-16).
+    click("#verBtn");
     click('[data-chg="ghost"]');
     expect(lab.chg).toBe("ghost");
     expect(q(`.ghostn[data-mark="${a.id}"]`)).not.toBeNull();

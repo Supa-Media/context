@@ -26,7 +26,7 @@ export const LAB_CSS_5 = String.raw`
 .tl .vmenu .seg button{flex:1;border:1px solid var(--line);background:none;border-radius:7px;padding:6px 0;color:var(--text2);font-size:12px;box-shadow:none}
 .tl .vmenu .seg button[aria-checked=true],.tl .vmenu .seg button[aria-selected=true],.tl .vmenu .seg button[aria-pressed=true]{background:var(--accent-dim);color:var(--accent);border-color:transparent}
 .tl .chipbtn .car{color:var(--dim);font-size:11px}
-.tl .chipbtn .who{color:var(--muted);font-size:12px}
+.tl .chipbtn .cwho{color:var(--muted);font-size:12px}
 .tl .score{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:7px;border:none;background:var(--ok-wash);color:var(--ok);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .tl .score small{font-weight:500;color:var(--muted);font-size:12px}
 .tl .labrun{display:inline-flex;align-items:center;gap:8px}
@@ -106,6 +106,12 @@ export const LAB_CSS_5 = String.raw`
   .tl .body.labnav,.tl .body.labnav.props,.tl .body.labnav.props.wide,.tl .body.labnav.navmin,.tl .body.labnav.navmin.props,.tl .body.labnav.navmin.props.wide{grid-template-columns:minmax(0,1fr)}
   .tl .labnav.navmin .side .rowi .nm,.tl .labnav.navmin .side .rowi .tag{display:revert}
   .tl .hide-s{display:none}
+  .tl .bar{gap:6px;padding:0 8px}
+  .tl .bar .modes button{padding:3px 7px}
+  .tl .bar #verBtn{max-width:96px}
+  .tl .bar #verBtn .car{display:none}
+  .tl .sbx .ph .sbxtag{display:none}
   .tl .score small{display:none}
 }
+@media (max-width:420px){.tl .hide-xs{display:none}.tl .bar .modes button{padding:3px 6px}}
 `;
