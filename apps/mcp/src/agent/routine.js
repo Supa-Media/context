@@ -27,6 +27,7 @@ import { readMailHealth, routineMailSection } from "./mailHealth.js";
 import { QUIET_WORD, saysQuiet, spokenToThem } from "./checkInGuards.js";
 import { readConversation } from "./conversation.js";
 import { SAY_NOTHING } from "./sayNothing.js";
+import { engagementSection, routineEngagement } from "./routineEngagement.js";
 import { localStamp } from "./localNow.js";
 
 /** The routine runner's first-party client (`apps/convex`). Decided by the grant. */
@@ -184,7 +185,7 @@ export function recentTextsSection(history, path, timeZone = null) {
  * the routine's own words. The routine's words go last and are clipped to fit,
  * so the framing above them is never the part that is cut.
  */
-export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", recent = "" }) {
+export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", recent = "", standing = "" }) {
   const lines = [
     "This is a scheduled routine, not a text from a person. Nobody is waiting on this turn.",
     `Routine: ${routine.path}. Schedule: ${describeSchedule(routine.cadence, routine.settings)}. It is now ${localStamp(now, timeZone)} (${timeZone}).`,
@@ -194,6 +195,7 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", re
     lines.push(`Last time (${localStamp(lastRun.at, timeZone)}) you answered:\n${clip(lastRun.text, MAX_LAST_RUN_IN_PROMPT)}`);
   }
   if (recent) lines.push(recent);
+  if (standing) lines.push(standing);
   if (routine.cadence.unit === "once") {
     lines.push(
       "This is a one-off reminder the person set: it runs this once. Text them the reminder itself, " +
@@ -236,22 +238,31 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", re
   return framing + clip(routine.body, Math.max(0, MAX_QUESTION_LENGTH - framing.length));
 }
 
+/** How many of the chat's newest exchanges a run told its standing reads: enough to see whether its last texts were answered. */
+const ENGAGEMENT_ENTRIES = 120;
+
 /**
  * The question for a run now: in the routine's zone, with what it said last
  * time, the last texts with them, and any of the person's mailboxes that
  * stopped syncing (`mailHealth.js`), which a routine is told and never texts
  * for alone.
  */
-export async function routineRunQuestion(store, routine, runs, givenTimeZone) {
+export async function routineRunQuestion(store, routine, runs, givenTimeZone, { kept = null, standing = false } = {}) {
   const mailboxes = await readMailHealth(store);
   const now = Date.now();
   const timeZone = routineTimeZone(routine.settings, givenTimeZone);
+  // A run on a graph that treats it as a routine (Dev2, 2026-11-16) is told whether they still answer it, so the Front
+  // door can judge it stale and ask whether to keep it; it reads far enough back to see.
+  const history = await readConversation(store, "texts", { entries: standing ? ENGAGEMENT_ENTRIES : RECENT_TEXTS_SHOWN * 2 });
+  const engagement = standing ? routineEngagement(runs, history) : null;
+  if (kept && engagement) kept.engagement = engagement;
   return routineQuestion(routine, {
     now,
     timeZone,
     lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
     mail: routineMailSection(mailboxes, now),
-    recent: recentTextsSection(await readConversation(store, "texts", { entries: RECENT_TEXTS_SHOWN * 2 }), routine.path, timeZone),
+    recent: recentTextsSection(history, routine.path, timeZone),
+    standing: engagement === null ? "" : engagementSection(engagement, timeZone),
   });
 }
 

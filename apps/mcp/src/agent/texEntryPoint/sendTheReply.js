@@ -12,6 +12,7 @@ import { chatHubUrl } from "../hubLinks.js";
 import { keepGroupExchange } from "../groupTurn.js";
 import { jobFields, jobTurnFields } from "../jobCheck.js";
 import { gatewayGraph } from "../graph/gatewayGraph.js";
+import { texConfigOf } from "../texConfig.js";
 import { jobCheckFor } from "../graph/bridges.js";
 import { wordsEntry } from "../ledger.js";
 import { briefEntry } from "../judgeBrief.js";
@@ -84,9 +85,14 @@ export async function sendTheReply(t) {
   // A hard job, written down for next time (`reflect.js`): after the answer; a tainted turn reflects on their own text and step names only.
   // So does one shown an earlier tainted answer: its words never mark the turn, but they never become a skill or about-me either (`turn-trust.md`).
   const taintedTurn = ledger.untrusted === true || showsOutsideWords(history), ownText = !runner && job === null && group === null, canWrite = textingWriting.some((tool) => tool.name === "write_note"); // the background wires' inputs (`reflect.js`)
-  const afterCtx = { env, controlPlane, store, session, offered, turn, learned, timeZone }, afterGraph = gatewayGraph({ writer: chatLog, turn: ledgerTurn }); // each run kept in the chat's ledger as a node step
-  await tex.after("reflect", async () => afterGraph.fire("send", "reflect", { question, tainted: taintedTurn, ownText, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: fired by this code with its own input over the wire (tagged "fired", so the run never fires it with send's output) until send's output carries it
-  await tex.after("memory_nudge", async () => afterGraph.fire("send", "nudge", { question, answer: turn.answer ?? "", tainted: taintedTurn, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: fired by this code with its own input over the wire (tagged "fired", so the run never fires it with send's output) until send's output carries it
+  const afterCtx = { env, controlPlane, store, session, offered, turn, learned, timeZone }, afterGraph = gatewayGraph({ writer: chatLog, turn: ledgerTurn, config: texConfigOf(env) }); // each run kept in the chat's ledger as a node step; a Lab test chat's on its draft
+  if (afterGraph.wired("send", "learn")) {
+    // A draft that draws Learn (the memory nudge, then reflect, one step: Dev2, 2026-11-16), fired by this code with its own input over the wire.
+    await tex.after("learn", async () => afterGraph.fire("send", "learn", { question, answer: turn.answer ?? "", tainted: taintedTurn, ownText, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush()));
+  } else {
+    await tex.after("reflect", async () => afterGraph.fire("send", "reflect", { question, tainted: taintedTurn, ownText, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: fired by this code with its own input over the wire (tagged "fired", so the run never fires it with send's output) until send's output carries it
+    await tex.after("memory_nudge", async () => afterGraph.fire("send", "nudge", { question, answer: turn.answer ?? "", tainted: taintedTurn, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: fired by this code with its own input over the wire (tagged "fired", so the run never fires it with send's output) until send's output carries it
+  }
 
   if (group !== null && job === null && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
   const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (hushed ? QUIET_ACK_LINE : quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");

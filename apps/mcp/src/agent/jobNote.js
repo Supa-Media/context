@@ -31,6 +31,7 @@ import { callToolForSession } from "../tools/session.js";
 import { jobMailOf } from "./background.js";
 import { jobTagged, storeLedger } from "./ledger.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";
+import { texConfigOf } from "./texConfig.js";
 import { borrowJob } from "./graph/jobHandles.js";
 import { readProductionSetup } from "./production.js";
 import { adviseOnce, advisorRequest } from "./advisorRoles/core.js";
@@ -213,7 +214,12 @@ async function adviseRoute(request, env, store, session, controlPlane, advise, c
   const advisorLend = { mailadv: { production, env, controlPlane, session, ...(advise ? { request: advise } : {}) } };
   // While the job's pass runs here, its own mailadv wire is used (`graph/jobHandles.js`); otherwise the config's job wire.
   const lent = borrowJob(body.jobId);
-  const advised = lent !== null ? await lent.use.mailadv(advisorInput, advisorLend) : await gatewayGraph({ writer: record }).fire("job", "mailadv", advisorInput, advisorLend);
+  // A draft that draws the Job advisor answers as its `mail` role (`graph/nodes/jobadv.js`); main's config, the Advisor on job mail.
+  const graph = gatewayGraph({ writer: record, config: texConfigOf(env) });
+  const advised =
+    lent !== null
+      ? "jobadv" in lent.use ? await lent.use.jobadv({ role: "mail", ...advisorInput }, advisorLend) : await lent.use.mailadv(advisorInput, advisorLend)
+      : graph.wired("job", "jobadv") ? await graph.fire("job", "jobadv", { role: "mail", ...advisorInput }, advisorLend) : await graph.fire("job", "mailadv", advisorInput, advisorLend);
   await record?.flush();
   if (advised.model === "") return json({ ok: await send("I can't look at this right now. Use your best judgement and carry on.") });
   const words = advised.words;
