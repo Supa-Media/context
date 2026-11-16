@@ -265,7 +265,11 @@ describe("the test chat's ▶ and message options", () => {
     expect(play().textContent).toBe("▶");
     expect(play().classList.contains("stale")).toBe(false);
     const before = mockCalls.length;
+    // The playback's clock held still, so a slow runner can't finish it before the check.
+    const realInterval = globalThis.setInterval;
+    globalThis.setInterval = (() => 0) as unknown as typeof setInterval;
     await click(play());
+    globalThis.setInterval = realInterval;
     // A playback: no call to the gateway, ⏸ and its time while it plays, ▶ again once stopped.
     expect(mockCalls.length).toBe(before);
     expect(play().textContent).toMatch(/^⏸ /);
