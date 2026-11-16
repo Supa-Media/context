@@ -12,6 +12,7 @@ import { useSyncExternalStore } from "react";
 import type { StepCell } from "../views/grid/TextGrid.web";
 import { stepExtra, type StepExtra } from "./stepRun";
 import { lab, set as setLab } from "./state";
+import { unfoldGroups } from "./groups";
 import type { LedgerPage, LedgerQuery } from "../../page/texPageTypes";
 import { readLedgerPage } from "../../page/texPageLedger";
 import type { Read } from "../../page/texPageSource";
@@ -264,7 +265,25 @@ function poll() {
   polling = setTimeout(() => void run("get", after ? { after } : {}, false), sandbox.running ? POLL_MS : IDLE_POLL_MS);
 }
 
+/** The ops that run the draft: each carries it as drawn while it has edits not saved yet. */
+const DRAFT_OPS = new Set<SandboxOp>(["open", "send", "react", "edit", "unsend", "retry", "use"]);
+
+/**
+ * The draft open in the Lab as drawn, when the test chat runs it and the saved copy isn't it: never saved, or edited
+ * since (Dev2, 2026-11-16: an unsaved draft left the test chat on "There is no such draft." and its history unplayable).
+ * Saved the way Save saves it (`store.ts`): the steps unfolded.
+ */
+export function drawnDraft(versionId: string): string | null {
+  if (versionId === "main" || lab.cur.id !== versionId) return null;
+  if (!lab.dirty && lab.versions.some((v) => v.id === versionId)) return null;
+  return JSON.stringify(unfoldGroups(lab.cur.graph));
+}
+
 async function run(op: SandboxOp, body: Record<string, unknown>, busy = true) {
+  if (DRAFT_OPS.has(op)) {
+    const drawn = drawnDraft(typeof body.versionId === "string" ? body.versionId : sandbox.versionId);
+    if (drawn !== null) body = { ...body, graph: drawn };
+  }
   if (!call) {
     sandbox.problem = "Sign in to the console to use the test chat";
     emit();

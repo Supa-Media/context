@@ -223,18 +223,40 @@ function conversationStart(conv, kind, base) {
 /** A bench name as a handle (`Mia` → `mia`). */
 const handleOf = (name) => String(name ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 64) || "someone";
 
-async function draftConfig(controlPlane, token, versionId) {
+/** The most a drawn draft's graph may be: a whole config's steps and wires, with room to spare. */
+export const MAX_DRAWN_GRAPH = 500_000;
+
+/** A drawn graph the Lab sent (its own JSON string), or null when it isn't one. */
+function drawnGraph(graph) {
+  if (typeof graph !== "string" || graph.length === 0 || graph.length > MAX_DRAWN_GRAPH) return null;
+  const parsed = parse(graph);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges) ? parsed : null;
+}
+
+/**
+ * The config a draft's test texts run on. The Lab sends the draft as drawn (`graph`) while it has edits not saved yet,
+ * a draft never saved among them (Dev2, 2026-11-16: a draft with unsaved edits left the test chat on "There is no such
+ * draft." and its history unreadable); otherwise the saved draft is read. `kept` is the config a chat already has, the
+ * last drawn one, for a call that sends none (an AI texting in a chat the Lab opened on an unsaved draft).
+ */
+async function draftConfig(controlPlane, token, versionId, graph = undefined, kept = undefined) {
   if (versionId === undefined || versionId === null || versionId === "" || versionId === "main") return { config: null };
   if (typeof versionId !== "string" || versionId.length > 200) return { error: [400, "versionId is a Lab draft's id or main"] };
+  if (graph !== undefined && graph !== null) {
+    const drawn = drawnGraph(graph);
+    if (drawn === null) return { error: [400, `graph is the draft's steps and wires as JSON, at most ${MAX_DRAWN_GRAPH} characters`] };
+    return { config: drawn, drawn: true };
+  }
   const answer = await controlPlane.labSandbox(token, "draft", { draft: versionId });
-  if (answer?.status !== "ok") return { error: [404, "There is no such draft."] };
-  return { config: parse(answer.graph) };
+  if (answer?.status === "ok") return { config: parse(answer.graph) };
+  if (kept && typeof kept === "object") return { config: kept, drawn: true };
+  return { error: [404, "There is no such draft: save it in the Lab, or send it as drawn (graph)."] };
 }
 
 /** `open`: a new test chat, the caller's own. */
 async function open(env, controlPlane, token, who, input, origin) {
   const source = input.source ?? "chat";
-  const drafted = await draftConfig(controlPlane, token, input.versionId);
+  const drafted = await draftConfig(controlPlane, token, input.versionId, input.graph);
   if (drafted.error) return refused(...drafted.error);
   let chat;
   let conv = null;
@@ -303,6 +325,7 @@ async function open(env, controlPlane, token, who, input, origin) {
     people,
     versionId: typeof input.versionId === "string" ? input.versionId : "main",
     config: drafted.config,
+    ...(drafted.drawn ? { drawn: true } : {}),
     ...(conv !== null ? { convId: conv.id } : {}),
     ...(typeof who.timeZone === "string" ? { timeZone: who.timeZone } : {}),
   };
@@ -371,10 +394,11 @@ function speakerOf(about, as) {
  * decides, as in production, whether it takes a turn (a tapback it only notes, an unsend, an edit that changed nothing
  * end quiet, their reply row saying what the object did). Every row is counted.
  */
-async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, cut = null }) {
+async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, graph, cut = null }) {
   const about = state.meta.chat;
-  // The draft as saved now, not as it was at open: an edit in the Lab since then is what the next turn runs.
-  const drafted = await draftConfig(controlPlane, token, about.versionId);
+  // The draft as drawn now (sent while it has unsaved edits) or as saved now, not as it was at open: an edit in the Lab
+  // since then is what the next turn runs.
+  const drafted = await draftConfig(controlPlane, token, about.versionId, graph, about.drawn === true ? about.config : undefined);
   if (drafted.error) return refused(...drafted.error);
   const day = new Date().toISOString().slice(0, 10);
   const counted = await callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key: `sends:${day}`, max: DAILY_SENDS });
@@ -387,6 +411,8 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   const claimed = await callSandbox(stub, "claim", { msgId: row.id, staleMs: RUNNING_STALE_MS });
   if (!claimed.ok) return refused(409, "a test text is still running: wait for its reply");
   try {
+    // The draft as drawn is kept with the chat, so its `about` says what ran and an AI texting here next runs the same.
+    if (graph !== undefined && graph !== null) await callSandbox(stub, "meta", { key: "chat", value: { ...about, config: drafted.config, drawn: true } });
     // A retry cuts its old text only once everything that could refuse it has passed, so a refusal loses nothing.
     if (cut !== null) await callSandbox(stub, "cut.from", { id: cut });
     await callSandbox(stub, "row.add", { row });
@@ -548,6 +574,8 @@ function aboutOf(state) {
     testRows: rows.filter((row) => !row.prod).length,
     // Whether its texts run the draft as drawn, or main's code for steps the draft adds, removes or changes (`draftFit`).
     fit: draftFit(TEX_CONFIG, about.config ?? null),
+    // The Lab sent the draft as drawn (edits not saved yet): its texts run that, not the saved copy.
+    ...(about.drawn === true ? { drawn: true } : {}),
   };
 }
 
@@ -606,7 +634,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   const state = kept ? await callSandbox(stub, "state", {}) : null;
   if (!state?.meta?.chat) return refused(404, "There is no such test chat (Reset or a day unused deletes one).");
 
-  const deps = { env, ctx, controlPlane, token, who, stub, origin, runTurn };
+  const deps = { env, ctx, controlPlane, token, who, stub, origin, runTurn, graph: input.graph };
   if (["send", "react", "edit", "unsend", "retry", "use"].includes(input.op)) {
     await callSandbox(indexStub(env, who.userId), "meta", { key: `used:${input.sandboxId}`, value: { at: Date.now(), by: byOf(input.by), op: input.op } }).catch(() => {});
   }
@@ -649,14 +677,16 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
     // For `tex_dev` (Dev2, 2026-11-16: an AI does everything the Lab does here): what the test chat is, the draft its
     // next texts run on, and its history file read as Replay reads a real one (`texDev/sandbox.js`).
     case "about":
-      return json(aboutOf(state));
+      // `graph: true` adds the draft as drawn, for a chat that runs one (a draft not saved yet): what its runs ran on.
+      return json({ ...aboutOf(state), ...(input.graph === true && state.meta.chat.drawn === true ? { graph: state.meta.chat.config ?? null } : {}) });
     case "use": {
       if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
-      const drafted = await draftConfig(controlPlane, token, input.versionId);
+      const drafted = await draftConfig(controlPlane, token, input.versionId, input.graph);
       if (drafted.error) return refused(...drafted.error);
       const versionId = typeof input.versionId === "string" && input.versionId !== "" ? input.versionId : "main";
-      await callSandbox(stub, "meta", { key: "chat", value: { ...state.meta.chat, versionId, config: drafted.config } });
-      return json({ ...aboutOf({ ...state, meta: { ...state.meta, chat: { ...state.meta.chat, versionId, config: drafted.config } } }) });
+      const chat = { ...state.meta.chat, versionId, config: drafted.config, drawn: drafted.drawn === true };
+      await callSandbox(stub, "meta", { key: "chat", value: chat });
+      return json({ ...aboutOf({ ...state, meta: { ...state.meta, chat } }) });
     }
     case "read":
       return json(await callSandbox(stub, "ledger.read", { chat: state.meta.chat.ledgerChat, options: readOptions(input.options) }));
