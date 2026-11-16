@@ -159,3 +159,34 @@ being narrow, and the person is told something false. Tests:
 `personMail.test.ts` ("a mailbox Google refuses to read…"),
 `emailRead.test.mjs` ("a mailbox Google refuses is named…", "an address
 written as mailbox…"), `mailAccounts.test.mjs`, `agentSixTools.test.mjs`.
+
+### An email's links keep their addresses (2026-11-16)
+
+A vendor's email said only "Click here to view the report in (pdf) format",
+and the address behind "Click here" never reached Tex: every path that turned
+an email's HTML into text kept a link's words and dropped its address. The
+owner: "That sounds very idiotic and very stupid. So we should fix that."
+
+There is now one converter for every such path,
+`packages/shared/src/htmlText.cjs` (the email worker's character scanner,
+moved): Gmail synced or read live (`apps/mcp/src/communications/gmail/parsing.js`
+`extractBody`, which the control plane's `read_email` route runs too) and mail
+sent to a personal workspace's address (`infra/email-worker/src/html.ts`).
+With `{ links: true }`, which both email paths ask for, each link's http(s)
+address follows its words in brackets: "Click here [https://...] to view the
+report". Left out: `mailto:`, page anchors and scripts, unsubscribe and
+preferences links, an address the link's words already show, any address
+seen before in the same email, and every address past the 50th. A plain part
+is still preferred, unless the HTML's text carries an address the plain part
+never shows; then the HTML's text is read. The address is the sender's, as
+untrusted as every other word of the email, and opening it goes through the
+browser's address guard like any link Tex reads. The earlier rule, that
+ingestion dropped link targets so a URL could not be smuggled into a note,
+gives way here: a note that hides where "Click here" goes is not safer, only
+less useful, and the email's words were always the sender's.
+
+**What a simplification would cost:** words without addresses leave Tex
+unable to open the report, the invoice or the sign-in link an email exists to
+deliver. Tests: `apps/mcp/test/emailLinks.test.mjs`,
+`infra/email-worker/src/htmlLinks.test.ts`, and the `told-its-mailboxes`
+replay case.

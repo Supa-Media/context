@@ -228,3 +228,46 @@ describe("check-ins walk from what started them to what they sent (Dev2, 2026-11
     for (const not of ["decide", "lanes", "queue", "text"]) expect(ids).not.toContain(not);
   });
 });
+
+describe("a background job's report starts a run of its own (Dev2, 2026-11-16: \"background jobs by definition are not part of a run\")", () => {
+  const T = Date.UTC(2026, 10, 16, 12);
+  const e = (x: Partial<LedgerEntry> & { id: string; at: number; kind: string }) => x as LedgerEntry;
+  const ABOUT = '(Not a text from them. Your background job "Timecard reconciliation" reported back to you; nothing from it has reached them yet.)';
+  const entries: LedgerEntry[] = [
+    // A tapback the judge let pass, then, four minutes on, the job reports and its turn texts twice.
+    e({ id: "p", at: T, seq: 1, kind: "text", eid: "ep", from: { kind: "person" }, text: "👍" }),
+    e({ id: "d", at: T + 900, seq: 2, kind: "step", step: { name: "decide", ms: 800, ok: true, output: { act: "silent" } } }),
+    e({ id: "r", at: T + 260_000, seq: 3, kind: "reply", turn: "jt", about: ABOUT, timing: { replyMs: 17_000, waitMs: 6_000 }, text: "Done." }),
+    e({ id: "x1", at: T + 262_000, seq: 4, kind: "text", turn: "jt", from: { kind: "tex" }, text: "Timecards reconciled." }),
+    e({ id: "x2", at: T + 263_000, seq: 5, kind: "text", turn: "jt", from: { kind: "tex" }, text: "Two needed a fix." }),
+  ];
+  const lines = chatLines(entries, myTexts(entries));
+  const ms = momentsOf(lines, entries);
+
+  test("the chat itself shows no line for it", () => {
+    expect(lines.map((l) => l.id)).toEqual(["p", "x1", "x2"]);
+  });
+
+  test("the tapback's run ends where the report came in, and holds none of the job's turn", () => {
+    const tap = ms.find((m) => m.id === "p")!;
+    expect(tap.lines.map((l) => l.id)).toEqual(["p"]);
+    expect(tap.turns).toEqual([]);
+    expect(tap.of).toBeLessThan(5_000);
+  });
+
+  test("the job's run starts when its report reached the queue, from Background job, with what it sent", () => {
+    const job = ms.find((m) => m.id === "job:jt")!;
+    expect(job.from).toBe("job");
+    expect(job.at).toBe(T + 237_000);
+    expect(job.lanes.Texts.map((b) => b.label)).toEqual(["Background job · Timecard reconciliation"]);
+    expect(job.lanes.Turn.map((b) => [b.kind, b.start, b.end])).toEqual([["wait", 0, 6_000], ["turn", 6_000, 23_000]]);
+    expect(job.lanes.Sent.map((b) => b.label)).toEqual(["Timecards reconciled.", "Two needed a fix."]);
+    expect(loggedMoments(ms).map((m) => m.id)).toEqual(["p", "job:jt"]);
+  });
+
+  test("its timeline rows are its own turn's steps, with no text arriving or judging", () => {
+    const ids = stepRows(ms.find((m) => m.id === "job:jt")!, entries, G()).map((r) => r.id);
+    expect(ids).toContain("send");
+    for (const not of ["decide", "text"]) expect(ids).not.toContain(not);
+  });
+});

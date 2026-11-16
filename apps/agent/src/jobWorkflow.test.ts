@@ -17,7 +17,7 @@ import type { Fetch } from "./clients";
 import { ANSWER_RETRIES } from "./groupTurnWorkflow";
 import { acceptJob, armJobNext, ENDED_KEY, failJob, jobAlarm, runJob, type JobDeps, type JobNext } from "./jobRun";
 import { JOB_KEPT_MS, JOB_LINES, jobTag, MAX_JOB_ATTEMPTS, RUN_KEY, type JobRun, type JobUpdate } from "./jobs";
-import { jobInstanceId, runJobFlow, startJobFlow, type JobCall } from "./jobWorkflow";
+import { jobInstanceId, MAX_JOB_PASSES, MAX_OVERLAP_WAITS, runJobFlow, startJobFlow, type JobCall } from "./jobWorkflow";
 import { MemoryStorage } from "./memoryStorage.testing";
 
 const NOW = 1_000_000;
@@ -125,6 +125,25 @@ describe("a background job's workflow", () => {
     expect(last).toMatchObject({ state: "stuck" });
     expect(last.texts?.[0]).toBe("Wrote the note.");
     expect(last.texts?.[1]).toBe(`What the earlier parts did:\n${Array.from({ length: 8 }, (_, i) => `Part ${i + 2}: More to do.`).join("\n")}`);
+  });
+
+  it("waits out a pass still running in the object without spending the job's passes (2026-11-16)", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    // The object answers "a pass is running" for longer than the job has passes, then the pass finishes.
+    let overlapping = MAX_JOB_PASSES + 3;
+    const call: JobCall = async () => Response.json({ next: overlapping-- > 0 ? { kind: "after", ms: 30_000, overlap: true } : { kind: "done" } });
+    const { step, runs, sleeps } = fakeStep();
+    expect(await runJobFlow(step, call, RUN.id)).toBe("done");
+    expect(sleeps.every((ms) => ms === 30_000)).toBe(true);
+    expect(new Set(runs).size).toBe(runs.length);
+  });
+
+  it("stops waiting on overlaps after its cap, and the passes bound the rest", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const call: JobCall = async (path) => Response.json({ next: path === "/job-pass" ? { kind: "after", ms: 30_000, overlap: true } : "failed" });
+    const { step, sleeps } = fakeStep();
+    expect(await runJobFlow(step, call, RUN.id)).toBe("failed");
+    expect(sleeps).toHaveLength(MAX_OVERLAP_WAITS + MAX_JOB_PASSES);
   });
 
   it("a pass that keeps failing is retried, then the job ends with its couldn't-finish line", async () => {

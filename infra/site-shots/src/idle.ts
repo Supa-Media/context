@@ -31,10 +31,19 @@ export const RETRY_MS = 60 * 1000;
 export interface IdleStorage {
   get<T>(key: string): Promise<T | undefined>;
   put(key: string, value: unknown): Promise<void>;
+  delete(key: string): Promise<boolean>;
   deleteAll(): Promise<void>;
   getAlarm(): Promise<number | null>;
   setAlarm(at: number): Promise<void>;
 }
+
+/** Who drives the browser, until when (./lease.ts). */
+interface Lease {
+  holder: string;
+  until: number;
+}
+/** `took`: a free lease, this holder's own refreshed, or one whose holder went quiet past its end. */
+export type LeaseAnswer = { ok: true; took: "free" | "refreshed" | "expired" } | { ok: false; leftMs: number };
 
 /** Runs `fn` with no other event let in until it is done (blockConcurrencyWhile). */
 export type Exclusive = <T>(fn: () => Promise<T>) => Promise<T>;
@@ -61,6 +70,32 @@ export class IdleTimer {
     // more than once, and inside its handler getAlarm says nothing of a touch.
     await this.storage.put("until", until);
     await this.storage.setAlarm(until);
+  }
+
+  /**
+   * Takes the browser's lease for `holder` (./lease.ts): free, run out, or
+   * already this holder's, it is theirs until `ms` from now; another live
+   * holder's, it is refused with how long that one has left. Atomic: nothing
+   * else reaches this object between the read and the write.
+   */
+  async claim(holder: string, ms: number): Promise<LeaseAnswer> {
+    return await this.exclusive(async () => {
+      const lease = await this.storage.get<Lease>("lease");
+      const now = this.now();
+      if (lease && lease.holder !== holder && lease.until > now) return { ok: false, leftMs: lease.until - now };
+      await this.storage.put("lease", { holder, until: now + ms });
+      return { ok: true, took: !lease ? "free" : lease.holder === holder ? "refreshed" : "expired" };
+    });
+  }
+
+  /** Lets the lease go, only while `holder` still has it. */
+  async release(holder: string): Promise<boolean> {
+    return await this.exclusive(async () => {
+      const lease = await this.storage.get<Lease>("lease");
+      if (!lease || lease.holder !== holder) return false;
+      await this.storage.delete("lease");
+      return true;
+    });
   }
 
   /**
@@ -100,15 +135,26 @@ export class IdleTimer {
 
 export interface IdleNamespace {
   idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId, options?: { locationHint?: "enam" }): { touch(owner: string, ms?: number): Promise<void> };
+  get(id: DurableObjectId, options?: { locationHint?: "enam" }): IdleStub;
+}
+
+/** The object's methods; the lease's are optional, so a stand-in with only `touch` still works. */
+export interface IdleStub {
+  touch(owner: string, ms?: number): Promise<void>;
+  claim?(holder: string, ms: number): Promise<LeaseAnswer>;
+  release?(holder: string): Promise<boolean>;
+}
+
+/** The owner's object, placed in eastern North America like every object of ours (decided by the owner, 2026-11-01). The one place this Worker makes a stub. */
+export function idleStub(namespace: IdleNamespace, owner: string): IdleStub {
+  return namespace.get(namespace.idFromName(owner), { locationHint: "enam" });
 }
 
 /** Pushes this person's browser's end five minutes out (or `ms`). Never fails the step it rides on. */
 export async function touchIdle(namespace: IdleNamespace | undefined, owner: string, ms: number = IDLE_MS): Promise<void> {
   if (!namespace) return;
   try {
-    // Placed in eastern North America like every object of ours (decided by the owner, 2026-11-01).
-    await namespace.get(namespace.idFromName(owner), { locationHint: "enam" }).touch(owner, ms);
+    await idleStub(namespace, owner).touch(owner, ms);
   } catch (error) {
     console.log(JSON.stringify({ event: "site_shots_idle_touch_failed", error: error instanceof Error ? error.name : "unknown" }));
   }

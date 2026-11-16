@@ -16,8 +16,8 @@ import { checkJob } from "../../jobCheck.js";
  * @returns {Promise<{ verdict: string, advice: string, thinking: string }>}
  */
 export async function jobcheck(input, io) {
-  const { live, model, effort, request, meter } = io.ctx.jobCheck;
-  const check = await checkJob({ job: input.job, live, answer: input.answer, exhausted: input.exhausted, model, effort, request, meter });
+  const { live, model, effort, request, meter, config } = io.ctx.jobCheck; // `config`: the turn's, main's or a Lab draft's (its reads decide the tool list)
+  const check = await checkJob({ job: input.job, live, answer: input.answer, exhausted: input.exhausted, model, effort, request, meter, ...(config ? { config } : {}) });
   if (check === null) return { verdict: "none", advice: "", thinking: "" };
   return { verdict: check.verdict, advice: check.advice ?? "", thinking: check.thinking ?? "" };
 }

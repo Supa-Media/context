@@ -511,3 +511,74 @@ line, never a control marker, never too long"),
 `apps/mcp/test/agentBackgroundRoute.test.mjs` ("a start with a say texts that
 line and no tapback, with no model round after it"),
 `apps/mcp/bench/test/jobstart.test.mjs`.
+
+## One job drives a chat's browser at a time (Dev2, 2026-11-16)
+
+A background job's workflow retried a pass's step while the pass was still
+running in the job's object, so two passes ran at once. Both drove the same
+Browserbase browser, the one live session per person or group chat that
+`infra/site-shots` finds by its owner tag, and their sign-in fills
+interleaved: the site answered "Invalid user login or password", and Tex
+reported a password problem that was really two drivers on one page. The job
+lease (`PASS_KEY`) only kept the stale pass from reporting; it still ran every
+tool. Nothing stopped a chat turn and a job, or two jobs of one chat, from
+driving the browser together either. Dev2: "we should be having a lock on a
+browser ... there's only one browser per chat or per person ... it gets free
+when issues".
+
+- **A lease on the browser.** The per-owner `BrowserIdle` object
+  (`infra/site-shots/src/idle.ts`) keeps one lease, `{ holder, until }`,
+  claimed atomically inside `blockConcurrencyWhile`: free, run out, or
+  already this holder's, it is taken or refreshed; another live holder's,
+  `/browse` answers 409 `{ busy: true }` and runs nothing
+  (`infra/site-shots/src/lease.ts`). Browserbase lets any number of clients
+  connect to one session and offers no lock, so the lock is ours.
+- **Short, and it gets back a disconnected holder's browser.** The lease is
+  refreshed by every call and lasts 90 seconds past a holder's last step
+  (three minutes while a call runs, past the gateway's 160 s browse limit),
+  so a holder that died or disconnected frees it by itself soon after;
+  `/browse/release` lets it go at once. The lease is who drives, never the
+  browser: whoever takes it next finds the same running browser by the owner
+  tag, with its page and sign-ins, and never starts a fresh one. Holding the
+  browser up for the person (`HOLD_MS`, fifteen minutes) is a separate clock.
+  Taken, taken over after it expired, refused and released are logged
+  (`site_shots_lease`) by owner tag and holder id, never anything secret.
+- **Each question is one holder.** `browserSession` (`apps/mcp/src/agent/browse.js`)
+  makes a random holder id and sends it on every step and every vault fill,
+  and releases the lease when the question ends, held for the person or not:
+  their reply is a new question with its own holder.
+- **A busy browser is waited for.** A background job or a routine polls every
+  five seconds for up to two minutes, inside the browse tool's own 160 s; a
+  chat turn waits ten seconds. Still busy, the model is told the chat's
+  browser is in use by another job and to try again shortly
+  (`browserLease.js` `BROWSER_BUSY`), never anything about a sign-in or a
+  password, since nothing was typed.
+- **One pass per job object.** `runJob` (`apps/agent/src/jobRun.ts`) starts no
+  turn while one is live in the same object: it logs `pass_overlap` and
+  answers `{ kind: "after", ms: 30 s, overlap: true }`, and the workflow
+  waits without spending one of the job's passes (`MAX_OVERLAP_WAITS`). A
+  pass in an object that was reset is not seen by this guard; `PASS_KEY`
+  still silences the older one, and the browser lease still keeps the two
+  apart.
+- **Deploy order is free.** A `/browse` call with no holder (a gateway from
+  before this) neither takes nor checks the lease, and a Worker from before
+  this never answers 409, so the gateway runs as before against it. When the
+  lease object cannot be reached the call runs: a lost lock is the old
+  behaviour, never a browser nobody can use.
+- **The person's own view is not leased.** Looking at or tapping the browser
+  from their `/tex/<handle>` page goes through `/view/*`, which a lease never
+  blocks: the browser is theirs first.
+
+What a simplification would cost: dropping the lease brings back two drivers
+on one sign-in form, which reads to the person as a wrong password; leasing
+per call rather than per question lets two questions alternate steps on one
+page; a lease with no expiry leaves a chat's browser locked after a crash.
+Tests: `infra/site-shots/src/lease.test.ts` ("answers 409 busy and runs
+nothing while another holder drives the browser", "the next holder after one that disconnected drives the same running browser, never a fresh one", "frees itself when its
+holder never comes back", "runs a call with no holder as before"),
+`apps/mcp/test/agentBrowserLease.test.mjs` ("a job waits for a busy browser,
+then runs", "a chat turn still busy after its brief wait is told the browser
+is in use, and nothing about a sign-in", "a question lets go of its lease when
+it ends"), `apps/agent/src/jobPass.test.ts` ("a second pass asked for while
+one runs in the same object starts no turn"), `apps/agent/src/jobWorkflow.test.ts`
+("waits out a pass still running in the object without spending the job's passes").

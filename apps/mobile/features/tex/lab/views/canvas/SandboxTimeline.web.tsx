@@ -9,7 +9,8 @@
 import { isLineStep, lineLabel } from "../../engine/lineSteps";
 import { useEffect, useRef, useState, type MouseEvent as RMouseEvent } from "react";
 import { stepCount, stepsWord, type PlayRun, type PlayStep } from "../../engine/playRun";
-import { densityFor, packSteps, scaleOf, texCauseRun, trackOrder } from "../../engine/sandboxRun";
+import { densityFor, packSteps, runStart, texCauseRun, trackOrder } from "../../engine/sandboxRun";
+import { timeMap } from "../../engine/timeMap";
 import { useSandbox } from "../../engine/sandbox";
 import { externalRuns, playTexText, runOf, seek, showRun, togglePlay, usePlay, type DockView } from "../../engine/sandboxPlay";
 import { node, set } from "../../engine/state";
@@ -80,26 +81,29 @@ export function SandboxTimeline() {
   const t = play?.t ?? 0;
   const live = !!run?.running && !run.of;
   const upTo = run ? (live || play?.playing ? t : run.total) : 0;
-  const scale = run ? scaleOf(run, t, live) : 1;
-  const pct = (v: number) => `${((Math.max(0, v) / scale) * 100).toFixed(3)}%`;
+  const map = run ? timeMap(run, t, live) : null;
+  const scale = map?.span ?? 1;
+  /** Where a time sits on the lane: long stretches where nothing ran are folded (engine/timeMap.ts). */
+  const frac = (v: number) => (map ? map.x(v) : 0);
+  const at = (v: number) => `${(frac(v) * 100).toFixed(3)}%`;
   const shown = run ? run.steps.filter((x) => x.at <= upTo) : [];
   const order = run ? trackOrder(run) : [];
   const delivered = run ? run.texts.filter((x) => x.at <= upTo) : [];
   const density = densityFor(size.h - 10, order.length + (run?.texts.length ? 1 : 0));
   const selId = s.sel?.t === "node" ? s.sel.id : null;
   const width = (x: PlayStep) => Math.max(0, Math.min(x.ms ?? upTo - x.at, upTo - x.at));
-  const barStyle = (x: PlayStep) => ({ left: pct(x.at), width: pct(width(x)) });
+  const barStyle = (x: PlayStep) => ({ left: at(x.at), width: `${((frac(x.at + width(x)) - frac(x.at)) * 100).toFixed(3)}%` });
 
   /** A click on a track: the head goes there and the step is picked (and pinned) in the node panel. */
   const onTrack = (e: RMouseEvent<HTMLElement>, id: string | null) => {
     const lane = e.currentTarget.closest(".sbtrk")?.querySelector<HTMLElement>(".sblane");
     if (!lane) return;
     const b = lane.getBoundingClientRect();
-    if (b.width > 0 && e.clientX >= b.left) seek(Math.min(1, (e.clientX - b.left) / b.width) * scale);
+    if (b.width > 0 && e.clientX >= b.left) seek(map ? map.at((e.clientX - b.left) / b.width) : 0);
     if (id) set({ sel: { t: "node", id }, pin: true });
   };
 
-  const time = !run ? "" : live ? fmt(t) + (run.total - t > 300 ? ` · ${fmt(run.total - t)} behind live` : " · live") : `${fmt(t)} / ${fmt(run.total)}`;
+  const time = !run ? "" : live ? fmt(t) + (run.total - t > 300 ? ` · ${fmt(run.total - t)} behind live` : " · live") : run.of ? `${fmt(t - runStart(run))} / ${fmt(run.total - runStart(run))}` : `${fmt(t)} / ${fmt(run.total)}`;
   const lanePx = Math.max(200, size.w - 28 - (density === "packed" ? 0 : NAME_W));
 
   return (
@@ -126,7 +130,7 @@ export function SandboxTimeline() {
           ))}
         </select>
         <span id="sbtlKind">{run ? kindOf(run) : null}</span>
-        <input id="sbtlScrub" type="range" min={0} max={1000} step={1} value={run ? Math.round((t / scale) * 1000) : 0} aria-label="Scrub the timeline" disabled={!run} onChange={(e) => seek((Number(e.target.value) / 1000) * scale)} />
+        <input id="sbtlScrub" type="range" min={0} max={1000} step={1} value={run ? Math.round(frac(t) * 1000) : 0} aria-label="Scrub the timeline" disabled={!run} onChange={(e) => seek(map ? map.at(Number(e.target.value) / 1000) : 0)} />
         <span className="t" id="sbtlTime">
           {time}
         </span>
@@ -142,7 +146,7 @@ export function SandboxTimeline() {
                     <div className="sblane">
                       {rowSteps.map((x) => {
                         const name = labelOf(x.node);
-                        const px = (width(x) / scale) * lanePx;
+                        const px = (frac(x.at + width(x)) - frac(x.at)) * lanePx;
                         return (
                           <span
                             key={x.id}
@@ -159,7 +163,7 @@ export function SandboxTimeline() {
                           </span>
                         );
                       })}
-                      {i === 0 ? delivered.map((m) => <span key={m.rowId} className="sbtb msg" data-text={m.rowId} style={{ left: pct(m.at) }} title="Text delivered" />) : null}
+                      {i === 0 ? delivered.map((m) => <span key={m.rowId} className="sbtb msg" data-text={m.rowId} style={{ left: at(m.at) }} title="Text delivered" />) : null}
                     </div>
                   </div>
                 ))
@@ -183,12 +187,17 @@ export function SandboxTimeline() {
                 <span className="nm">Texts delivered</span>
                 <div className="sblane">
                   {delivered.map((m) => (
-                    <span key={m.rowId} className="sbtb msg" data-text={m.rowId} style={{ left: pct(m.at) }} title="Text delivered" />
+                    <span key={m.rowId} className="sbtb msg" data-text={m.rowId} style={{ left: at(m.at) }} title="Text delivered" />
                   ))}
                 </div>
               </div>
             ) : null}
-            <span className="sbhead" id="sbtlHead" style={{ left: `calc(${density === "packed" ? 0 : NAME_W}px + (100% - ${density === "packed" ? 0 : NAME_W}px) * ${Math.min(1, t / scale).toFixed(4)})` }} />
+            {map?.gaps.map((g) => (
+              <span key={g.from} className="sbgap" data-gap={Math.round(g.to - g.from)} style={{ left: `calc(${density === "packed" ? 0 : NAME_W}px + (100% - ${density === "packed" ? 0 : NAME_W}px) * ${g.x.toFixed(4)})`, width: `calc((100% - ${density === "packed" ? 0 : NAME_W}px) * ${(g.x2 - g.x).toFixed(4)})` }} title={`${fmt(g.to - g.from)} with nothing running`}>
+                <i>{fmt(g.to - g.from)}</i>
+              </span>
+            ))}
+            <span className="sbhead" id="sbtlHead" style={{ left: `calc(${density === "packed" ? 0 : NAME_W}px + (100% - ${density === "packed" ? 0 : NAME_W}px) * ${frac(t).toFixed(4)})` }} />
           </div>
         )}
       </div>

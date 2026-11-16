@@ -219,7 +219,10 @@ export async function migrateAll(repoRoot) {
 
 const bare = (labels) => Object.fromEntries(Object.entries(labels || {}).map(([node, { star: _s, ...rest }]) => [node, rest]));
 /** What must survive a case's move into a long conversation: who is Tex, special kinds, and every label. */
-const shapeOf = (m) => JSON.stringify([Boolean(m.tex), m.kind ?? "", bare(m.labels), m.rec ?? null]);
+/** JSON with object keys sorted, so a file the Lab rewrites (keys in its own order) keeps the same shape. */
+const canon = (v) =>
+  Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v;
+const shapeOf = (m) => JSON.stringify(canon([Boolean(m.tex), m.kind ?? "", bare(m.labels), m.rec ?? null]));
 
 /**
  * Every migrated case that is not one unbroken run of messages, with the same labels, inside the one repo

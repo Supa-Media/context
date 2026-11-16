@@ -48,6 +48,8 @@ export const LAB_CSS_DOCK = String.raw`
 .tl .sbtracks.packed .sbtb{top:0;height:13px;font-size:10px;line-height:13px;color:var(--text);padding:0 3px;overflow:hidden;white-space:nowrap;text-overflow:clip;box-sizing:border-box}
 .tl .sbtracks.packed .sbtb.msg{height:13px;padding:0}
 .tl .sbhead{position:absolute;top:0;bottom:0;width:2px;background:var(--bad);pointer-events:none}
+.tl .sbgap{position:absolute;top:0;bottom:0;pointer-events:none;background:repeating-linear-gradient(135deg,transparent 0 4px,var(--line2) 4px 5px);border-left:1px dashed var(--line2);border-right:1px dashed var(--line2)}
+.tl .sbgap i{position:absolute;top:2px;left:50%;transform:translateX(-50%);font:10px/1 var(--mono);font-style:normal;color:var(--muted);background:var(--page);padding:1px 3px;border-radius:3px;white-space:nowrap}
 .tl .sbtracks .scne{padding:16px 4px;color:var(--muted);font-size:12px}
 .tl .archcv .runpill{display:block;flex:0 1 auto;padding:3px 10px;font-size:12px;line-height:20px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tl .archcv .runpill b{color:var(--text);font-weight:600}

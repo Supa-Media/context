@@ -7,8 +7,8 @@
  * "key" and "fill_login" steps, was told only that there were none, and asked again).
  */
 const NOT_A_STEP = {
-  wait: "every step already waits for the page to settle; take a read step to see it now",
-  sleep: "every step already waits for the page to settle; take a read step to see it now",
+  sleep: "waiting is a wait step with seconds (up to 60); every step already waits for the page to settle",
+  pause: "waiting is a wait step with seconds (up to 60); every step already waits for the page to settle",
   key: 'a key is a press step: {"do": "press", "key": "Enter"}',
   keypress: 'a key is a press step: {"do": "press", "key": "Enter"}',
   enter: 'a key is a press step: {"do": "press", "key": "Enter"}, or enter: true on a type step',

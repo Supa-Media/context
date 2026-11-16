@@ -23,6 +23,12 @@ import { decodeEncodedWords } from "./encodedWords";
 import { addrSpec } from "./address";
 import { walkEntity, type WalkState } from "./walk";
 import { safeFilename } from "./filename";
+import { keptLinks } from "../../../../packages/shared/src/htmlText.cjs";
+
+/** Whether the HTML's text keeps a link address the plain text never shows. */
+function linksOnlyIn(plain: string, rendered: string): boolean {
+  return keptLinks(rendered).some((url) => !plain.includes(url));
+}
 
 export interface ParsedAttachment {
   /** Sanitised, may be `""` when the part named itself nothing usable. */
@@ -139,9 +145,9 @@ export function parseEmail(
     walkEntity(source, 0, state);
 
     // Body selection. `text/plain` anywhere in the tree beats `text/html`
-    // anywhere in the tree: a sender who wants their HTML rendered can send
-    // HTML alone, and preferring plain text means the conservative converter
-    // runs only when there is no alternative.
+    // anywhere in the tree, unless the HTML's text carries a link address the
+    // plain text never shows (`preferredBody`, packages/shared/src/htmlText.cjs):
+    // a "Click here" whose address only the HTML has (the owner, 2026-11-16).
     let text = "";
     let textSource: ParsedEmail["textSource"] = "none";
     const inline = state.leaves.filter(
@@ -150,13 +156,18 @@ export function parseEmail(
     const plain = inline.find((leaf) => leaf.contentType.type === "text/plain");
     const html = inline.find((leaf) => leaf.contentType.type === "text/html");
 
-    if (plain) {
-      text = decodeBytes(plain.bytes, plain.contentType.params.charset || "utf-8");
-      textSource = "plain";
-    } else if (html) {
+    const plainText = plain ? decodeBytes(plain.bytes, plain.contentType.params.charset || "utf-8") : "";
+    let rendered = "";
+    if (html) {
       const source2 = decodeBytes(html.bytes, html.contentType.params.charset || "utf-8");
       if (source2.length > limits.maxHtmlChars) problems.add("html_truncated");
-      text = htmlToText(source2.slice(0, limits.maxHtmlChars), limits.maxTextChars);
+      rendered = htmlToText(source2.slice(0, limits.maxHtmlChars), limits.maxTextChars);
+    }
+    if (plain && !(html && linksOnlyIn(plainText, rendered))) {
+      text = plainText;
+      textSource = "plain";
+    } else if (html) {
+      text = rendered;
       textSource = "html";
     }
 

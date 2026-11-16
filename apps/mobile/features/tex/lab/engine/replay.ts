@@ -47,8 +47,9 @@ export type Moment = {
 };
 
 /** How a start step reads on the timeline and in the chat. */
-export const START_WORDS: Record<Start, string> = { checkin: "Check-in", routine: "Routine", notify: "Send through Tex" };
-export const startLabel = (l: ChatLine) => (l.start === "routine" && l.routine ? `Routine · ${routineName(l.routine)}` : l.start ? START_WORDS[l.start] : "");
+export const START_WORDS: Record<Start, string> = { checkin: "Check-in", routine: "Routine", notify: "Send through Tex", job: "Background job" };
+export const startLabel = (l: ChatLine) =>
+  l.start === "routine" && l.routine ? `Routine · ${routineName(l.routine)}` : l.start === "job" && l.about ? `${START_WORDS.job} · ${l.about}` : l.start ? START_WORDS[l.start] : "";
 /** What a quiet check-in's line reads, where a text would be. */
 export const QUIET_WORDS = "Looked, and nothing was worth a text";
 
@@ -71,6 +72,27 @@ export function judgeWords(output: unknown, running: boolean): string {
   return act || "judged";
 }
 
+/** A turn's `about` when a background job's report started it (`texJob.js`'s report back). */
+const JOB_REPORT = /^\(Not a text from them\. Your background job (?:"([^"]*)" )?reported back/;
+
+/**
+ * A start line for each turn a background job's report started, at the moment the report reached the queue (the reply's
+ * own timing: its end, less the turn and its wait). Not in the chat: only so the job's turn is a moment of its own and
+ * never stretches the moment of the text before it.
+ */
+export function jobLines(entries: LedgerEntry[]): ChatLine[] {
+  const out: ChatLine[] = [];
+  for (const e of entries) {
+    if (e.kind !== "reply" || typeof e.turn !== "string") continue;
+    const m = JOB_REPORT.exec(str(e.about));
+    if (!m) continue;
+    const timing = rec(e.timing);
+    const at = e.at - (num(timing?.replyMs) ?? num(e.ms) ?? 0) - (num(timing?.waitMs) ?? 0);
+    out.push({ id: "job:" + e.turn, at, from: "tex", who: "Tex", text: "", play: null, start: "job", turn: e.turn, ...(m[1] ? { about: m[1] } : {}) });
+  }
+  return out;
+}
+
 /**
  * One moment per text someone sent, so any text can be replayed from (Dev2, 2026-11-14: "why not just have the ability
  * to replay from any text"). A moment runs from its text until the next text that follows something Tex said, so the
@@ -78,7 +100,10 @@ export function judgeWords(output: unknown, running: boolean): string {
  * turn already running when the text came in starts before zero; its bar is drawn from zero and it plays from where it
  * was.
  */
-export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
+export function momentsOf(chat: ChatLine[], entries: LedgerEntry[]): Moment[] {
+  // A background job's report starts its own moment, so it breaks the one before it.
+  const jobs = jobLines(entries);
+  const lines = jobs.length ? [...chat, ...jobs].sort((a, b) => a.at - b.at) : chat;
   // Where each run of texts begins: a person's text that follows something Tex said.
   const breaks: number[] = [];
   lines.forEach((l, i) => {
@@ -100,7 +125,7 @@ export function momentsOf(lines: ChatLine[], entries: LedgerEntry[]): Moment[] {
     if (first.start) lanes.Texts.push({ kind: "text", start: 0, end: 250, label: startLabel(first) });
     for (const l of g) {
       if (l.from === "person") lanes.Texts.push({ kind: "text", start: rel(l.at), end: rel(l.at) + 250, label: cut(l.text) });
-      else if (!l.quiet) lanes.Sent.push({ kind: "sent", start: rel(l.at), end: rel(l.at) + 400, label: cut(l.text) });
+      else if (!l.quiet && l.start !== "job") lanes.Sent.push({ kind: "sent", start: rel(l.at), end: rel(l.at) + 400, label: cut(l.text) });
     }
     const turns: Array<[number, string]> = [];
     for (const e of entries) {

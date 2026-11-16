@@ -54,6 +54,9 @@ export function caseMessages(item) {
   return messages;
 }
 
+/** A case's tools as the turn offered them: a name alone, or a whole definition with its description and inputSchema. */
+export const caseTools = (item) => (item.tools ?? []).map((tool) => (typeof tool === "string" ? { name: tool } : tool));
+
 /** Whether free-form advice says every `says` pattern and none of `never`. */
 export function saysRight(words, item) {
   const all = (item.says ?? []).every((pattern) => new RegExp(pattern, "i").test(words));
@@ -78,7 +81,7 @@ export const ROLES = {
         return answer;
       };
       const [advisor] = advisorTools({ model: ADVISOR_MODEL, effort: ADVISOR_EFFORT, history: [], question: item.q ?? "", request: metered });
-      const live = { about: item.about ?? "", now: item.now ?? "", tools: (item.tools ?? []).map((name) => ({ name })), messages: caseMessages(item) };
+      const live = { about: item.about ?? "", now: item.now ?? "", tools: caseTools(item), messages: caseMessages(item) };
       const result = await advisor.call({}, live);
       const words = result.content.map((part) => part.text).join("\n");
       return { got: result.isError ? "failed" : declined(words) ? "decline" : "advise", words, usage };
@@ -96,7 +99,7 @@ export const ROLES = {
         return answer;
       };
       const job = { attempt: 1, asked: [], followUps: [], ...item.job };
-      const check = await checkJob({ job, live: { messages: caseMessages(item) }, answer: item.answer ?? "", exhausted: item.exhausted === true, model: ADVISOR_MODEL, effort: ADVISOR_EFFORT, request: metered });
+      const check = await checkJob({ job, live: { messages: caseMessages(item), tools: caseTools(item) }, answer: item.answer ?? "", exhausted: item.exhausted === true, model: ADVISOR_MODEL, effort: ADVISOR_EFFORT, request: metered });
       return { got: check?.verdict ?? "no verdict", words: check?.advice ?? "", usage };
     },
     right: (item, out) => [item.want].flat().includes(out.got),

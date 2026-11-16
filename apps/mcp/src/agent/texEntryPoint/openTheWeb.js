@@ -58,7 +58,7 @@ export async function openTheWeb(t) {
   const vouched = runner ? routine?.body ?? "" : [theirEarlierWords(history), chatLines(group), question].filter(Boolean).join("\n\n"); // their earlier texts too (`turnWeb.js`)
   // Another agent's mail is someone else's words, like a page (`supervise.js`).
   if (supervision !== null) markUntrusted(ledger);
-  const { opened, web } = await tex.step("web_setup", () => openTurnWeb(env, { session, texting, group, question, vouched, history: runner ? [] : history, channel, store, dispatch, ledger })); stages?.mark("web");
+  const { opened, web } = await tex.step("web_setup", () => openTurnWeb(env, { session, texting, group, question, vouched, history: runner ? [] : history, channel, store, dispatch, ledger, patient: job != null || runner === true })); stages?.mark("web");
   Object.assign(t, { channel, groupWriting, noteLinking, opened, streamed, texting, textingWriting, web });
 }
 // TEX ENTRY POINT: end
