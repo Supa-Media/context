@@ -32,6 +32,9 @@ export const TESTING_CSS = String.raw`
 .tl .tsx .ts-ci .st{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;font-weight:400}
 .tl .tsx .ts-ci.locked{color:var(--dim)}
 .tl .tsx .ts-showtest{margin:2px 8px;font-size:12px;color:var(--team);border:none;background:none;padding:2px 0}
+.tl .tsx .ts-sure{margin:2px 8px 6px;padding:8px 10px;border:1px solid var(--line2);border-radius:8px;background:var(--page);font-size:12px}
+.tl .tsx .ts-sure p{margin:0 0 8px;color:var(--text2);line-height:1.4}
+.tl .tsx .ts-sure span{display:flex;gap:6px}
 .tl .tsx .ts-mid{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--page)}
 .tl .tsx .ts-mh{display:flex;align-items:center;gap:6px;height:40px;padding:0 8px 0 12px;border-bottom:1px solid var(--line);min-width:0;flex:none;position:relative}
 .tl .tsx .ts-ttl{font-weight:600;font-size:13px;border:1px solid transparent;border-radius:6px;padding:2px 4px;background:none;color:var(--text);min-width:40px;max-width:340px;field-sizing:content}

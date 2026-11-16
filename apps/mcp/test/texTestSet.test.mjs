@@ -118,5 +118,7 @@ test("/tex-eval/* goes to the service untouched, before any session is read", as
   const res = await route(new Request(`https://mcp.example.test${TEX_EVAL_PREFIX}counts`, { headers: { authorization: "Bearer github-oidc" } }), env, {});
   assert.equal(res.status, 200);
   assert.deepEqual(seen, [["https://mcp.example.test/tex-eval/counts", "Bearer github-oidc"]]);
+  // The Lab reads the counts from another origin: without this the browser hides them and the Test set shows 0.
+  assert.equal(res.headers.get("access-control-allow-origin"), "*");
   assert.equal((await handleTexEval(new Request("https://mcp.example.test/tex-eval/counts"), {})).status, 404);
 });

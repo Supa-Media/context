@@ -50,7 +50,11 @@ const fetched: string[] = [];
 (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
   fetched.push(String(url));
   if (String(url).endsWith("/tex-eval/counts")) return { status: 200, json: async () => ({ stars: 2, perChat: [{ kind: "one", msgs: 4, stars: 2 }] }) };
-  return { status: 200, json: async () => ({ chats: [{ id: "secret-chat", title: "Words only people see", kind: "one", members: ["Ivo"], msgs: [{ id: "m1", who: "Ivo", text: "a sealed line" }] }] }) };
+  // The gateway's two answers (`apps/mcp/src/http/texTestSet.js`): the list counts each chat's messages, and only
+  // `?id=` gives its words. A list read as whole chats crashed the page (Dev2, 2026-11-16: "when I click again, error").
+  if (String(url).includes("/tex-test-set?id=secret-chat"))
+    return { status: 200, json: async () => ({ conversation: { id: "secret-chat", title: "Words only people see", set: "test", kind: "one", members: ["Ivo"], msgs: [{ id: "m1", who: "Ivo", text: "a sealed line", labels: { decide: { why: "respond", star: true } } }] } }) };
+  return { status: 200, json: async () => ({ chats: [{ id: "secret-chat", title: "Words only people see", kind: "one", members: ["Ivo"], msgs: 1, stars: 1, labels: 1 }], counts: {}, runs: [] }) };
 };
 
 import { act, createElement } from "react";
@@ -189,18 +193,27 @@ describe("the Testing tab", () => {
     expect(lastOps()).toEqual([{ op: "edit", msg: "m5", field: "text", value: "see you at noon" }]);
   });
 
-  test("the Test Set stays hidden: one count row, shown only on a second click", async () => {
+  test("the Test Set stays hidden: one count row, shown only after a person says yes to the people-only note", async () => {
     await mount();
     const test = q('.ts-set[data-set="test"]')!;
     expect(test.textContent).toContain("1 hidden chat");
     expect(test.textContent).toContain("★ 2");
     expect(document.body.textContent).not.toContain("Words only people see");
     await act(async () => click("#showTest"));
-    expect(q("#showTest")?.textContent).toContain("Click again");
-    expect(fetched.some((u) => u.endsWith("/tex-test-set"))).toBe(false);
+    expect(q("#testSure")?.textContent).toContain("People only");
+    click("#showTestNo");
+    expect(q("#testSure")).toBeNull();
+    expect(fetched.some((u) => u.includes("/tex-test-set"))).toBe(false);
     await act(async () => click("#showTest"));
-    await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
-    expect(q('.ts-set[data-set="test"]')?.textContent).toContain("Words only people see");
+    expect(q("#showTestYes")?.textContent).toBe("Show 1 chat");
+    await act(async () => click("#showTestYes"));
+    for (let i = 0; i < 4; i++) await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
+    const shown = q('.ts-set[data-set="test"]')!;
+    expect(shown.textContent).toContain("Words only people see");
+    expect(shown.textContent).toContain("★ 1");
+    expect(sets.problem).toBeNull();
+    click('.ts-ci[data-chat="secret-chat"]');
+    expect(q("table.chatgrid")?.textContent).toContain("a sealed line");
   });
 
   test("step columns: + lists every step to show, × on a header hides it, and the choice is kept in this browser", async () => {
