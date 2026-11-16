@@ -79,10 +79,31 @@ test("on the front door, a quoted figure no read backs gets one more round", asy
   }
 });
 
-test("the config wires the Reply reviewer only to a job's report and a routine's text (Dev2, 2026-11-15)", async () => {
-  // Sabotage: the wire back to `when: ["action"]`, or `reviewedAs` dropped from runTheModel.js, and a chat turn's tag would reach it again.
+test("the Reply reviewer reads only a job's report and a routine's text (Dev2, 2026-11-15; in the Answer check 2026-11-16)", async () => {
+  // The reviewer is folded into the Answer check: every Front door draft goes through it, the wire back to the Front door
+  // carries its notice, and its model review runs only on a turn `runTheModel.js` tags `reviewedAs` (a report or a routine).
+  // Sabotage: the `t.reviewedAs` guard dropped from answerCheck.js, or the reviewer's old wire turned back on, and this fails.
   const { readFile } = await import("node:fs/promises");
   const config = JSON.parse(await readFile(new URL("../../../packages/shared/src/texConfig.json", import.meta.url), "utf8"));
-  const wire = config.edges.find((w) => w.from === "checks" && w.to === "reviewer");
-  assert.deepEqual(wire.when, ["report", "routine"]);
+  const wired = (from, to) => config.edges.filter((w) => w.from === from && w.to === to);
+  assert.deepEqual(wired("fd", "answerCheck").map((w) => w.mode), ["wait"], "every draft is checked before it goes");
+  assert.deepEqual(wired("answerCheck", "fd").map((w) => w.mode), ["loop"], "a draft sent back goes to the Front door");
+  assert.ok(config.nodes.find((n) => n.id === "answerCheck").on, "the Answer check is on");
+  assert.equal(config.edges.filter((w) => w.from === "reviewer" || w.to === "reviewer").length, 0, "the old Reply reviewer is unwired");
+  const { answerCheckNode } = await import("../src/agent/graph/nodes/answerCheck.js");
+  const run = async (reviewedAs) => {
+    let reviewed = 0;
+    const turn = {
+      reviewedAs,
+      drafts: { waiting: { draft: "Done: I saved it.", info: {} } },
+      answerChecks: { code: async () => ({ notice: null, review: true }), review: async () => ((reviewed += 1), null) },
+    };
+    const back = { fd: async () => ({ pending: false }) }; // the Front door sends the draft it was handed back
+    const out = await answerCheckNode({ pending: true }, { ctx: { turn }, back });
+    return { reviewed, out };
+  };
+  for (const kind of ["report", "routine"]) assert.equal((await run(kind)).reviewed, 1, `a ${kind} is reviewed`);
+  const chat = await run(null);
+  assert.equal(chat.reviewed, 0, "a chat turn's draft is never read by the reviewer");
+  assert.equal(chat.out.reviews, 0);
 });

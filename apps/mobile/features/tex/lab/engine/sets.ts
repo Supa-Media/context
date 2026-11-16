@@ -4,6 +4,7 @@
  * message reads as, what a node is given at a message (its config context modules in order and its wires in), and
  * the ratio. The format and its rules are `packages/shared/src/texSets.cjs`, the one contract every reader shares.
  */
+import { unfoldGroups } from "./groups";
 import { labelFields as fieldsOf, ratio as ratioOf, unitTests, KINDS, SETS, TARGET } from "@context/shared/src/texSets.cjs";
 import type { Conversation, Fields, Label, Message, Ratio, SetId } from "@context/shared/src/texSets.d.cts";
 import { JUDGE_EXAMPLES, WHY } from "@context/shared/src/textDecide.cjs";
@@ -82,7 +83,9 @@ export function bodyOf(c: Conversation, m: Message): Body {
 /** The steps a column can show: every node in the graph that runs on a turn, the prototype's nine first. */
 export const FIRST_COLUMNS = ["triage", "decide", "router", "fd", "card", "reviewer", "nudge", "picture", "egress"];
 export const HIDDEN_AT_FIRST = ["router", "card", "reviewer", "nudge", "picture", "egress"];
-export function stepNodes(g: LabGraph): LabNode[] {
+export function stepNodes(shown: LabGraph): LabNode[] {
+  // A column per step, never per folded group box: the canvas folds groups, a chat's cells are each step's.
+  const g = shown.folded ? unfoldGroups(shown) : shown;
   const steps = g.nodes.filter((n) => n.kind !== "input" && n.kind !== "tool");
   const first = FIRST_COLUMNS.map((id) => steps.find((n) => n.id === id)).filter((n): n is LabNode => !!n);
   return [...first, ...steps.filter((n) => !FIRST_COLUMNS.includes(n.id))];

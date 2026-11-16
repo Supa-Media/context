@@ -123,10 +123,15 @@ test("remove takes the reads of the step's output with it, and never removes tex
   const g = main();
   const reader = g.nodes.find((n) => n.ctx?.some((c) => c.startsWith("out:")));
   const target = reader.ctx.find((c) => c.startsWith("out:")).slice(4);
+  // Every step that reads it: the Job's output is read by the Job advisor and by the Job check Promote turned off.
+  const readers = g.nodes.filter((n) => n.ctx?.includes("out:" + target));
+  assert.deepEqual([target, readers.map((n) => n.id)], ["job", ["jobcheck", "jobadv"]]);
   const r = applyOps(g, [{ op: "remove", node: target }]);
-  assert.ok(!r.graph.nodes.find((n) => n.id === reader.id).ctx.includes("out:" + target));
-  assert.ok(r.keys.includes(`n:${reader.id}:ctx`), "the reader's reading order is a piece the removal touched");
-  assert.match(r.said[0], new RegExp(`${reader.id}'s read of its output$`));
+  for (const n of readers) {
+    assert.ok(!r.graph.nodes.find((m) => m.id === n.id).ctx.includes("out:" + target));
+    assert.ok(r.keys.includes(`n:${n.id}:ctx`), "each reader's reading order is a piece the removal touched");
+  }
+  assert.match(r.said[0], new RegExp(`${readers.map((n) => n.id).join(", ")}'s reads of its output$`));
   for (const kept of ["text", "send"]) assert.throws(() => applyOps(g, [{ op: "remove", node: kept }]), /start and a send/);
   // The Lab's delete diffs as one remove: the reads it dropped are not edits of their own.
   const b = JSON.parse(JSON.stringify(g));
@@ -134,9 +139,9 @@ test("remove takes the reads of the step's output with it, and never removes tex
   b.edges = b.edges.filter((e) => e.from !== target && e.to !== target);
   b.nodes.forEach((n) => (n.ctx = n.ctx.filter((c) => c !== "out:" + target)));
   assert.deepEqual(diffGraphs(g, b), [{ op: "remove", node: target }]);
-  // And the undo of it (the diff back) brings the step, its wires and the read back.
+  // And the undo of it (the diff back) brings the step, its wires and the reads back.
   const back = applyOps(r.graph, diffGraphs(r.graph, g)).graph;
-  assert.deepEqual(back.nodes.find((n) => n.id === reader.id).ctx, reader.ctx);
+  for (const n of readers) assert.deepEqual(back.nodes.find((m) => m.id === n.id).ctx, n.ctx);
   assert.ok(back.nodes.some((n) => n.id === target));
 });
 
@@ -187,16 +192,16 @@ test("every line has its whole form too, for tex_dev's changes", () => {
 
 test("a group edit names a draft's own group box, conflicts only with itself, and round-trips through the diff", () => {
   const g0 = main();
-  const box = { label: "Intake", goal: "Read who asks and what.", icon: "door", x: 400, y: 300 };
-  const { graph: g1, keys, said } = applyOps(g0, [{ op: "group", id: "intake", value: box }, { op: "set", node: "triage", field: "group", value: "intake" }]);
-  assert.deepEqual(g1.groups, { intake: box });
-  assert.deepEqual(keys, ["g:intake", "n:triage:group"]);
-  assert.match(said[0], /added group intake \(Intake\)/);
-  assert.deepEqual(diffGraphs(g0, g1), [{ op: "group", id: "intake", value: box }, { op: "set", node: "triage", field: "group", value: "intake" }], "its own edit, never a whole put");
-  const { graph: g2 } = applyOps(g1, [{ op: "group", id: "intake", value: null }]);
+  const box = { label: "Reply", goal: "Check the draft before it goes.", icon: "judge", x: 400, y: 300 };
+  const { graph: g1, keys, said } = applyOps(g0, [{ op: "group", id: "reply", value: box }, { op: "set", node: "answerCheck", field: "group", value: "reply" }]);
+  assert.deepEqual(g1.groups, { reply: box });
+  assert.deepEqual(keys, ["g:reply", "n:answerCheck:group"]);
+  assert.match(said[0], /added group reply \(Reply\)/);
+  assert.deepEqual(diffGraphs(g0, g1), [{ op: "group", id: "reply", value: box }, { op: "set", node: "answerCheck", field: "group", value: "reply" }], "its own edit, never a whole put");
+  const { graph: g2 } = applyOps(g1, [{ op: "group", id: "reply", value: null }]);
   assert.equal(g2.groups, undefined, "the last group dropped leaves no empty map");
-  assert.ok(overlaps("g:intake", "g:intake") && !overlaps("g:intake", "g:door"));
-  assert.throws(() => applyOps(g0, [{ op: "group", id: "intake", value: { goal: "no label" } }]), /a group needs a label/);
-  assert.throws(() => applyOps(g0, [{ op: "group", id: "intake", value: { label: "X", colour: "red" } }]), /no field colour/);
+  assert.ok(overlaps("g:reply", "g:reply") && !overlaps("g:reply", "g:intake"));
+  assert.throws(() => applyOps(g0, [{ op: "group", id: "reply", value: { goal: "no label" } }]), /a group needs a label/);
+  assert.throws(() => applyOps(g0, [{ op: "group", id: "reply", value: { label: "X", colour: "red" } }]), /no field colour/);
   assert.throws(() => applyOps(g0, [{ op: "group", id: "bad id", value: { label: "X" } }]), /not a group id/);
 });

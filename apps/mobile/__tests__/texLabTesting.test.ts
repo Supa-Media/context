@@ -60,7 +60,7 @@ const fetched: string[] = [];
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { TexLab } from "../features/tex/lab/TexLab.web";
-import { clone, G, MAIN, set } from "../features/tex/lab/engine/state";
+import { clone, G, MAIN, node, set } from "../features/tex/lab/engine/state";
 import { bodyOf, cellOf, defaultCols, fitCols, setsRatio, stepNodes, type Conversation } from "../features/tex/lab/engine/sets";
 import { hiddenOf, mergeDrafts } from "../features/tex/lab/engine/setsData";
 import { sets, undo } from "../features/tex/lab/engine/setsStore";
@@ -144,7 +144,7 @@ describe("the Testing tab", () => {
     expect(q("#inspTitle")?.textContent).toBe("Decide · #4");
     expect((q("#reads") as HTMLDetailsElement).open).toBe(false);
     expect(q("#insp")?.textContent).toContain("Reads, in order");
-    for (const id of G().nodes.find((n) => n.id === "decide")!.ctx) expect(q("#insp")?.textContent).toContain(id);
+    for (const id of node("decide")!.ctx) expect(q("#insp")?.textContent).toContain(id);
     expect(q("#insp")?.textContent).toContain("Wires in");
     expect(q('#insp a[href="/lab?node=decide"]')).not.toBeNull();
     click('.seg2[data-f="act"] button[data-v="quiet"]');
@@ -224,7 +224,7 @@ describe("the Testing tab", () => {
     click("#addCol");
     const items = qa("#colMenu .it");
     expect(items.length).toBe(stepNodes(G()).length);
-    const triage = items.find((b) => b.textContent?.includes(G().nodes.find((n) => n.id === "triage")!.label))!;
+    const triage = items.find((b) => b.textContent?.includes(node("triage")!.label))!;
     click(triage);
     expect(qa("table.chatgrid thead th[data-col]").map((h) => h.dataset.col)).toContain("triage");
     expect(q("#colMenu")).not.toBeNull();

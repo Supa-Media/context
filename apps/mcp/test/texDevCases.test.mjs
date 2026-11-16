@@ -36,10 +36,10 @@ const draftRow = (graph, extra = {}) => ({ status: "ok", name: "Lighter reviewer
 const NO_CASES = { status: "ok", caseEdits: [] };
 const devWith = (plane) => createTexDev({ env: {}, session, controlPlane: plane });
 
-/** Main with the reviewer on medium effort and switched off. */
+/** Main with the Answer check (the reviewer's step now) on medium effort and switched off. */
 function changed() {
   const g = mainGraph();
-  const r = g.nodes.find((n) => n.id === "reviewer");
+  const r = g.nodes.find((n) => n.id === "answerCheck");
   r.effort = "medium";
   r.on = false;
   return g;
@@ -59,11 +59,11 @@ test("steps lists every step out of 20 and the ones with no cases; one step give
   assert.match(fd.cases, /^\d+\/20$/);
   assert.ok(all.noCasesYet.length > 0);
   for (const id of all.noCasesYet) assert.equal(all.steps.find((s) => s.step === id).cases, "0/20");
-  const one = jsonOf(await dev("steps", { step: "reviewer" }));
-  assert.equal(one.area, "node:reviewer");
-  assert.match(one.newCase.key, /^node:reviewer\/new-\d+$/);
-  const reviewer = TEX_CONFIG.nodes.find((n) => n.id === "reviewer");
-  assert.deepEqual(one.newCase.want.map((f) => f.name), reviewer.outSchema.map((f) => f.name));
+  const one = jsonOf(await dev("steps", { step: "answerCheck" }));
+  assert.equal(one.area, "node:answerCheck");
+  assert.match(one.newCase.key, /^node:answerCheck\/new-\d+$/);
+  const check = TEX_CONFIG.nodes.find((n) => n.id === "answerCheck");
+  assert.deepEqual(one.newCase.want.map((f) => f.name), check.outSchema.map((f) => f.name));
   assert.ok(one.newCase.want.find((f) => f.type === "yesno").choices.includes("Yes"));
   assert.equal((await dev("steps", { step: "nowhere" })).isError, true);
 });
@@ -74,7 +74,7 @@ test("marks names each changed field from → to, against main or the draft befo
   const dev = devWith(plane);
   const m = jsonOf(await dev("marks", { draft: "vlight" }));
   assert.equal(m.vs, "main");
-  const r = m.changed.find((c) => c.step === "reviewer");
+  const r = m.changed.find((c) => c.step === "answerCheck");
   assert.ok(r, JSON.stringify(m));
   assert.deepEqual(
     r.fields.map((f) => [f.field, f.to]),
@@ -95,23 +95,23 @@ const jsonOf_err = (result) => result.content.find((c) => c.type === "text").tex
 
 test("put_back lands the edits that bring one step back to main, with the draft's revision", async () => {
   const g = changed();
-  const plane = fakePlane({ get: draftRow(g), edit: { status: "ok", rev: 5, said: ["set reviewer effort medium → low"], others: [] } });
+  const plane = fakePlane({ get: draftRow(g), edit: { status: "ok", rev: 5, said: ["set answerCheck effort medium → low"], others: [] } });
   const dev = devWith(plane);
-  const answer = jsonOf(await dev("put_back", { draft: "vlight", step: "reviewer" }));
+  const answer = jsonOf(await dev("put_back", { draft: "vlight", step: "answerCheck" }));
   assert.equal(answer.rev, 5);
   const sent = plane.calls.find((c) => c.action === "edit");
   assert.equal(sent.args.rev, 4);
-  const main = TEX_CONFIG.nodes.find((n) => n.id === "reviewer");
+  const main = TEX_CONFIG.nodes.find((n) => n.id === "answerCheck");
   assert.deepEqual(
-    sent.args.ops.filter((o) => o.op === "set" && o.node === "reviewer").map((o) => [o.field, o.value]).sort(),
+    sent.args.ops.filter((o) => o.op === "set" && o.node === "answerCheck").map((o) => [o.field, o.value]).sort(),
     [
       ["effort", main.effort],
       ["on", main.on],
     ].sort(),
   );
   const same = devWith(fakePlane({ get: draftRow(mainGraph()) }));
-  assert.match(jsonOf(await same("put_back", { draft: "vlight", step: "reviewer" })).unchanged, /already/);
-  assert.equal((await same("put_back", { draft: "vlight", step: "door" })).isError, true, "a group's box is refused");
+  assert.match(jsonOf(await same("put_back", { draft: "vlight", step: "answerCheck" })).unchanged, /already/);
+  assert.equal((await same("put_back", { draft: "vlight", step: "intake" })).isError, true, "a group's box is refused");
 });
 
 test("a new case into a full step is refused unless it trades one out, as the Tests page's swap", async () => {

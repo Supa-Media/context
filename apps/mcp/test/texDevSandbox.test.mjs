@@ -7,7 +7,7 @@
  *
  * Sabotage record (temporary local edits, reverted, 2026-11-16):
  *   notFiredOf() ignoring `on: false`                 "the card says which steps did not run and why" fails
- *   notFiredOf() matching every wire                  "the card says which steps did not run and why" fails (reviewer listed as matched)
+ *   notFiredOf() matching every wire                  "the card says which steps did not run and why" fails (bypass listed as matched)
  *   waitCard() without its deadline                   "a run still going answers what runs now" hangs, then fails
  *   step() reading the real ledger (ledgerOf)          "a step is read whole through the test chat's own history" fails
  *   open() answering every row                         "open answers the last rows only" fails
@@ -25,12 +25,13 @@ const PAGE = { status: "ok", workspaceId: "ws_mine", timeZone: "America/New_York
 const steps = [
   { node: "text", out: '{"outcome":"queued"}', ms: 0, ok: true },
   { node: "triage", out: '{"to":"tex"}', ms: 0, ok: true },
+  { node: "doorStep", out: '{"when":["next"]}', ms: 310, ok: true },
   { node: "tools", out: '{"failed":true,"chars":0}', ms: 239, ok: true },
   { node: "fd", out: '{"when":["drafted"],"model":"anthropic/claude-haiku-5-5"}', ms: 12_148, ok: true },
   { node: "fd", out: '{"when":["done"]}', ms: 96, ok: true },
-  { node: "checks", out: '{"when":["done"]}', ms: 96, ok: true },
+  { node: "answerCheck", out: '{"when":["done"]}', ms: 96, ok: true },
   { node: "send", out: '{"when":["sent","threads"]}', ms: 0, ok: true },
-  { node: "classifier", out: '{"filed":1}', ms: 1_212, ok: true },
+  { node: "afterReply", out: '{"filed":1}', ms: 1_212, ok: true },
 ];
 
 const chatRows = (n = 30) => Array.from({ length: n }, (_, i) => ({ id: `m${i + 1}`, who: i % 3 === 2 ? "Tex" : "You", text: `real text ${i + 1}`, at: T0 - (n - i) * 60_000, prod: true }));
@@ -45,11 +46,12 @@ test("the card says which steps did not run and why, from the config and the log
   assert.equal(card.time.firstTextMs, 15_600);
   assert.deepEqual(card.fired.map((s) => s.node), steps.map((s) => s.node), "every step in the order it ran, repeats kept");
   assert.equal(card.slowest[0], "fd 12 s");
-  assert.deepEqual(card.failed, [{ n: 3, node: "tools", why: "failed: true" }], "a tool that failed inside is a failure though its step ended ok");
+  assert.deepEqual(card.failed, [{ n: 4, node: "tools", why: "failed: true" }], "a tool that failed inside is a failure though its step ended ok");
   const why = Object.fromEntries(card.notFired.map((n) => [n.node, n.why]));
   assert.equal(why.router, "off in this config");
-  assert.match(why.reviewer, /checks said \[done\], the wait wire wants \[report, routine\]/);
-  assert.match(why.advisor, /fd may call it \(when stuck\) and did not/);
+  assert.equal(why.reviewer, "off in this config", "a step Promote turned off");
+  assert.match(why.bypass, /doorStep said \[next\], the wait wire wants \[answered\]/);
+  assert.match(why.advisor, /tools may call it \(when ask_advisor\) and did not/);
   assert.equal(why.checkin, undefined, "a trigger of its own is never 'did not run' for a text");
   assert.equal(why.dream, undefined);
   assert.ok(!card.notFired.some((n) => n.node === "fd"), "a step that ran is never listed");
@@ -65,12 +67,12 @@ test("a card for a run still going says what runs now and lists no steps as not 
 
 test("the diff names Tex's words, the times, steps only in one and each changed step", () => {
   const a = runCard({ rows: [sentRow, replyRow], msgId: "t1", graph: GRAPH });
-  const slower = { ...replyRow, text: "Friday: Pay Day and a haircut.", ms: 9_000, steps: [...steps.filter((s) => s.node !== "classifier"), { node: "advisor", out: '{"advice":"check the calendar"}', ms: 4_000, ok: true }] };
+  const slower = { ...replyRow, text: "Friday: Pay Day and a haircut.", ms: 9_000, steps: [...steps.filter((s) => s.node !== "afterReply"), { node: "advisor", out: '{"advice":"check the calendar"}', ms: 4_000, ok: true }] };
   const b = runCard({ rows: [sentRow, slower], msgId: "t1", graph: GRAPH });
   const d = cardDiff(a, b);
   assert.deepEqual(d.tex, { before: ["Friday: Pay Day."], after: ["Friday: Pay Day and a haircut."] });
   assert.equal(d.totalMs, "15072 → 9000");
-  assert.deepEqual(d.onlyBefore, ["classifier"]);
+  assert.deepEqual(d.onlyBefore, ["afterReply"]);
   assert.deepEqual(d.onlyAfter, ["advisor"]);
   assert.equal(cardDiff(a, a).steps.length, 0, "the same run has no changed steps");
   assert.equal(cardDiff(a, a).tex, "same words");

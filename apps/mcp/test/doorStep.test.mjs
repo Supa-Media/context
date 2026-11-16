@@ -13,12 +13,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/shared/src/texGraph.cjs";
-import { TEX_CONFIG as MAIN, withDraft } from "../src/agent/texConfig.js";
-import DRAFT from "./fixtures/simplerGraphDraft.json" with { type: "json" };
-
-// The simpler graph as the Lab draft draws it (Dev2, 2026-11-16), run over main's config as a test chat runs it: its
-// steps are built ahead of main's config (`texConfig.js` `SHELF_NODES`), so live Tex never runs them.
-const TEX_CONFIG = withDraft(MAIN, DRAFT);
+// The simpler graph, drawn in the Lab and promoted to live Tex's config (Dev2, 2026-11-16).
+import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import { DOOR_PARTS, runDoor } from "../src/agent/graph/door.js";
 import { bypassNode } from "../src/agent/graph/nodes/bypass.js";
 import { doorOutput } from "../src/agent/graph/nodes/doorStep.js";
@@ -48,7 +44,9 @@ test("Intake holds the Door, which hands the Front door a text and Confirmations
   assert.deepEqual(out.sort(), [["bypass", "wait", "answered"], ["fd", "wait", "next"]]);
   assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "bypass").map((e) => e.to), ["send"]);
   assert.ok(!TEX_CONFIG.edges.some((e) => PARTS.includes(e.from) || PARTS.includes(e.to)), "no part runs as a step of its own any more");
-  assert.ok(!MAIN.nodes.some((n) => n.id === "doorStep" || n.id === "bypass"), "and live Tex's config has neither");
+  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.to === "doorStep").map((e) => e.from), ["lanes"], "the Queue starts the Door");
+  for (const id of ["doorStep", "bypass"]) assert.notEqual(TEX_CONFIG.nodes.find((n) => n.id === id)?.on, false, `live Tex runs ${id}`);
+  for (const part of PARTS) assert.equal(TEX_CONFIG.nodes.find((n) => n.id === part)?.on, false, `${part} is off as a step`);
 });
 
 test("a part that answers stops the door, and the parts after it never run", async () => {

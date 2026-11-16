@@ -18,10 +18,11 @@ import { causeRun, type PlayCall, type PlayRun, type PlayStep } from "./playRun"
 import type { TurnPrompt } from "./promptAt";
 import { onlyWhatRan, withReal } from "./realTimes";
 import { loggedMoments, momentsOf, type Moment } from "./replay";
+import { unfoldGroups } from "./groups";
 import { simulate } from "./sim";
 import { node } from "./state";
 import { nodeOfStep } from "./stepLogs";
-import { show, type IoLine } from "./stepIO";
+import { doorCovers, show, type IoLine } from "./stepIO";
 import { turnShown } from "./turnShown";
 
 /** The production row a ▶ is on: the copied row of the test chat (`prod: true`), its id the ledger's event id. */
@@ -81,15 +82,16 @@ const turnOfText = (entries: LedgerEntry[], line: ChatLine) => str(entries.find(
 
 /** The ids (lines' ids) of the texts a turn covers, from the Door step's own log of them. */
 function coveredTexts(entries: LedgerEntry[], turn: string, lines: ChatLine[]): string[] {
-  const door = entries.find((e) => e.turn === turn && e.kind === "step" && e.step === "door");
-  const covers = Array.isArray(rec(door?.input)?.covers) ? (rec(door!.input)!.covers as unknown[]).filter((x): x is string => typeof x === "string") : [];
+  const covers = doorCovers(entries.filter((e) => e.turn === turn));
   return lines.filter((l) => covers.includes(l.id) || (!!l.eid && covers.includes(l.eid))).map((l) => l.id);
 }
 
 type Built = { steps: PlayStep[]; turns: ProdTurn[]; texts: PlayRun["texts"]; textStep: Map<string, string> };
 
 /** One moment's steps: what came in, the judgings, and each turn's steps at their measured times, against graph `g`. */
-function momentSteps(m: Moment, lines: ChatLine[], entries: LedgerEntry[], g: LabGraph): Built {
+function momentSteps(m: Moment, lines: ChatLine[], entries: LedgerEntry[], shown: LabGraph): Built {
+  // Steps that ran, never a folded group box.
+  const g = shown.folded ? unfoldGroups(shown) : shown;
   const steps: PlayStep[] = [];
   const turns: ProdTurn[] = [];
   const textStep = new Map<string, string>();

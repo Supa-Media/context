@@ -6,7 +6,7 @@
  * the rest lives in ⋯ menus: the chat's (History, Key, Delete chat) and each row's.
  */
 import { useEffect, useRef, useState } from "react";
-import { G } from "../../engine/state";
+import { G, node } from "../../engine/state";
 import { bodyOf, cellOf, colWidth, labelFields, newRowAt, freshId, starsIn, stepNodes, type Conversation, type Message } from "../../engine/sets";
 import { change, colsFor, deleteChat, fold, saveCols, setUi, sets, undo, uploadPic, useSets } from "../../engine/setsStore";
 import { History } from "./History.web";
@@ -470,7 +470,7 @@ export function gridKey(e: KeyboardEvent) {
   let k = vc.indexOf(sets.col || "text");
   if (k < 0) k = vc.indexOf("text");
   const m = c.msgs[i];
-  const isNode = (id: string) => !!G().nodes.find((n) => n.id === id) && id !== "who" && id !== "text";
+  const isNode = (id: string) => !!node(id) && id !== "who" && id !== "text";
   const col = vc[k];
   if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
     const j = e.key === "ArrowUp" ? i - 1 : i + 1;

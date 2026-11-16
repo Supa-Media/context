@@ -57,8 +57,9 @@ test("each judge asks the config how hard to think, and no model file keeps an e
   }
   assert.deepEqual(texEffort("classifier"), { effort: "low", thinking: "off" });
   assert.deepEqual(texEffort("reviewer"), { effort: texStep("reviewer").effort });
-  // Main's config has no folded step, so each reads its own: live Tex is unchanged.
-  assert.deepEqual([texPick(["answerCheck", "reviewer"]), texPick(["afterReply", "classifier"]), texPick(["afterReply", "selfreview"])], ["reviewer", "classifier", "selfreview"]);
+  // Main's config has the folded steps since the simpler graph was promoted (Dev2, 2026-11-16), so each reads the folded one.
+  assert.deepEqual([texPick(["answerCheck", "reviewer"]), texPick(["afterReply", "classifier"]), texPick(["afterReply", "selfreview"])], ["answerCheck", "afterReply", "afterReply"]);
+  assert.deepEqual(texEffort("afterReply"), { effort: "low", thinking: "off" }, "After the reply thinks no more than the Classifier did");
   assert.throws(() => texPick(["nope", "neither"]), /no step "nope" or "neither"/);
 });
 
@@ -76,14 +77,17 @@ test("a setup note with no models runs on the config's, exactly as the same note
   assert.deepEqual([named.ownModels, fromConfig.ownModels], [true, false]);
   assert.equal(fromConfig.model, texModel("fd"));
   assert.equal(fromConfig.advisor, texStep("advisor").on ? texModel("advisor") : null);
-  assert.equal(fromConfig.fallback, texStep("fallback").on ? texModel("fallback") : null);
+  // The fallback model is the Front door's own setting (Dev2, 2026-11-16), the Fallback step kept turned off.
+  assert.equal(texStep("fallback").on, false);
+  assert.equal(typeof texStep("fd").fallback, "string", "the Front door names a fallback model");
+  assert.equal(fromConfig.fallback, TEX_CONFIG.models[texStep("fd").fallback]);
   assert.equal(fromConfig.efforts[texModel("fd")], texStep("fd").effort);
   assert.equal(fromConfig.planBigAsks, texStep("planner").on);
-  assert.equal(fromConfig.replyJudge !== null, texStep("reviewer").on);
+  assert.equal(fromConfig.replyJudge !== null, texStep(texPick(["answerCheck", "reviewer"])).on);
 
   // A reviewer line left in a note with no models is the config's to answer, and is named.
   const stale = await parseSetup(bare.replace(/^---\n/, "---\nreply_judge: off\n"));
-  assert.equal(stale.replyJudge !== null, texStep("reviewer").on);
+  assert.equal(stale.replyJudge !== null, texStep(texPick(["answerCheck", "reviewer"])).on);
   assert.deepEqual([stale.ownModels, stale.ignored], [false, ["reply_judge"]]);
   // A bench variant keeps the models it was written to compare, and says so.
   const variant = await parseSetup(bare.replace(/^---\n/, "---\nmodels:\n  main: anthropic/claude-sonnet-5-5\n"));
@@ -91,7 +95,7 @@ test("a setup note with no models runs on the config's, exactly as the same note
 });
 
 test("the advisor's four roles share one model and effort in code, so the config gives them one", () => {
-  for (const id of ["jobcheck", "mailadv", "planner"]) {
+  for (const id of ["jobcheck", "mailadv", "planner", "jobadv"]) {
     assert.deepEqual([id, texModel(id), texStep(id).effort], [id, texModel("advisor"), texStep("advisor").effort]);
   }
   assert.deepEqual([texModel("job"), texStep("job").model], [texModel("fd"), texStep("fd").model], "a job runs on main");
@@ -101,9 +105,13 @@ test("a step the code cannot run is never on: the router needs a thinking model 
   assert.equal(texStep("router").on, false);
 });
 
-test("both send-backs reach the front door: the reviewer's after an action, and the answer checks' on any draft (sendBack.js)", () => {
+test("both send-backs reach the front door through the Answer check's one loop, on any draft (sendBack.js); the old steps' loops are gone", () => {
+  // Dev2, 2026-11-16: the Answer checks (code) and the Reply reviewer (model) are one Answer check, its loop on every draft.
   const loops = TEX_CONFIG.edges.filter((e) => e.mode === "loop" && e.to === "fd").map((e) => [e.from, e.when.join()]);
-  assert.deepEqual(loops, [["reviewer", "action"], ["checks", "*"]]);
+  assert.deepEqual(loops, [["answerCheck", "*"]]);
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "fd" && e.to === "answerCheck" && e.mode === "wait"), "every draft reaches the Answer check");
+  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "answerCheck" && e.mode !== "loop").map((e) => e.to), ["send"]);
+  for (const id of ["reviewer", "checks"]) assert.equal(texStep(id).on, false, `${id} is off`);
 });
 
 test("the generated words are the Markdown files' (scripts/tex-prompt-module.mjs)", () => {

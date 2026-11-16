@@ -5,7 +5,7 @@
  * beside the graph's own markup, never part of it, carrying `data-line` (not `data-id`), so they cannot be moved, wired,
  * focused or deleted; a click picks the step to show what the line did in Run details.
  */
-import { isLineStep, lineNodes, type LineStep } from "../../engine/lineSteps";
+import { isLineStep, lineAnchor, lineNodes, type LineStep } from "../../engine/lineSteps";
 import { ICONS } from "../../data/graph";
 import type { LabGraph, LabNode, Selection } from "../../types";
 import { msWords } from "../grid/TextGrid.web";
@@ -29,7 +29,7 @@ export function lineDecorHtml(g: LabGraph, sel: Selection, lit: LineLit, times: 
   let under = "";
   let over = "";
   for (const n of ls) {
-    const anchor = g.nodes.find((x) => x.id === (n.id === "lineIn" ? "text" : "send")) as LabNode;
+    const anchor = lineAnchor(g, n.id as LineStep) as LabNode;
     const w = n.id === "lineIn" ? wirePath(n, anchor, "wait") : wirePath(anchor, n, "wait");
     under += `<path class="wire lnw${has(n.id) ? "" : " dim"}" d="${w.d}" stroke="var(--dim)" stroke-dasharray="4 3" fill="none"/>`;
     const s = sel?.t === "node" && sel.id === n.id;

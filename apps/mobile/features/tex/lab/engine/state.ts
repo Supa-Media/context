@@ -12,7 +12,7 @@
 import { groupsOf, mainGraph } from "../data/graph";
 import { BASE_MODELS } from "../data/models";
 import type { LabCase, LabGraph, LabModel, LabVersion, Selection, Tool, View } from "../types";
-import { foldAround } from "./groups";
+import { foldAround, unfoldGroups } from "./groups";
 import type { ChatLine, MyText, ReplayNow } from "./mine";
 import type { TurnPrompt } from "./promptAt";
 import type { IoLine, RealTimes } from "./realTimes";
@@ -210,7 +210,10 @@ export const setSaver = (f: ((v: LabVersion) => Promise<void>) | null) => {
 export const G = (): LabGraph => lab.cur.graph;
 /** The graph as the Lab shows it at this focus: every group folded, the focused group open (`groups.ts`). */
 export const shownGraph = (g: LabGraph, focusId: string | null): LabGraph => foldAround(g, focusId, groupsOf(g));
-export const node = (id: string, g: LabGraph = G()) => g.nodes.find((n) => n.id === id);
+/** A step by id: one drawn, or one inside a folded group's box (a run, a case or a log names steps, never boxes). */
+export const node = (id: string, g: LabGraph = G()) => g.nodes.find((n) => n.id === id) ?? (g.folded ? Object.values(g.folded).flatMap((f) => f.nodes).find((n) => n.id === id) : undefined);
+/** The graph's steps, every folded group opened: what a run, a grid or a list of steps reads (the canvas draws boxes). */
+export const stepsOf = (g: LabGraph = G()): LabGraph => (g.folded ? unfoldGroups(g) : g);
 export const isMain = () => lab.cur.id === "main";
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -385,16 +388,20 @@ export function delSel() {
   if (sel.t === "node") {
     // The test chat's line is no step of the graph (`lineSteps.ts`): nothing to delete, and no draft to start.
     if (sel.id === "lineIn" || sel.id === "lineOut") return;
-    if (["text", "send"].includes(sel.id)) {
+    // A folded group's box goes with its steps, so a box holding the start or the send stays too.
+    const held = G().folded?.[sel.id]?.nodes.map((n) => n.id) ?? [];
+    if (["text", "send"].includes(sel.id) || held.some((x) => x === "text" || x === "send")) {
       toast("Every version needs a start and a send");
       return;
     }
-    const id = sel.id;
+    const gone = new Set([sel.id, ...held]);
     edit(() => {
-      const g = G();
-      g.nodes = g.nodes.filter((n) => n.id !== id);
-      g.edges = g.edges.filter((e) => e.from !== id && e.to !== id);
-      g.nodes.forEach((n) => (n.ctx = n.ctx.filter((c) => c !== "out:" + id)));
+      // On the steps, every group opened: a step inside a folded box (one followed while running) goes as one drawn does.
+      const g = stepsOf(G());
+      g.nodes = g.nodes.filter((n) => !gone.has(n.id));
+      g.edges = g.edges.filter((e) => !gone.has(e.from) && !gone.has(e.to));
+      g.nodes.forEach((n) => (n.ctx = n.ctx.filter((c) => ![...gone].some((x) => c === "out:" + x))));
+      lab.cur.graph = shownGraph(g, lab.cfocus);
       lab.sel = null;
     });
     toast("Deleted. Undo brings it back.");

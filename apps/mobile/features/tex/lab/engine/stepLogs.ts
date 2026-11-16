@@ -3,7 +3,7 @@
  * what's going in and out and what parameters were set ... if I go through another thing and I see a step doesn't log
  * what's going in and out ... I'm going to rip your head off").
  *
- * One row per canvas step: the ledger records that say what it got (`got`) and what it gave (`gave`), where its
+ * One row per config step (a step turned off in the "retired" group may keep the row it had): the ledger records that say what it got (`got`) and what it gave (`gave`), where its
  * settings come from (`settings`), and what its time measures (`time`). `stepIO.ts` reads each. `__tests__/texLabStepLogs.test.ts` fails when a step on the
  * canvas has no row here, or when a turn that logged every record below still leaves a step without its Got and Gave.
  * A new step is logged before it is drawn.
@@ -27,7 +27,9 @@ export const STEP_LOGS: Record<string, StepLog> = {
   decide: { got: "step decide / judge (moment): the ids of the texts it weighed, put back into words from the chat; whether a turn was running", gave: "its verdict, why, how sure, a tapback, what a running turn does", settings: "its model (Clef)" , time: "step decide: the judge's call" },
   react: { got: "step react: the text it reacted on", gave: "step react: the emoji sent, or that it failed", settings: "who chose it (judge, a tool starting)" , time: "step react: the tapback's call to the service" },
   lanes: { got: "reply timing + door step: the texts the turn covers", gave: "reply timing waitMs: how long it waited for the turn ahead; step lane: the write lock", settings: "one turn per chat (groups three)" , time: "reply timing waitMs: the wait for the turn ahead" },
-  door: { got: "door step: what kind of turn, for which chat and texts", gave: "door step: every setting the turn runs with; brief; reply timing: what it gathered; the prompt's context modules", settings: "door step output" , time: "reply timing: from the turn's start to the first model call" },
+  doorStep: { got: "node run doorStep: what kind of turn, for which chat and texts", gave: "node run doorStep: answered in code or next, the settings the turn runs with, and log.parts (each part's name, ok and own time: read the text, run a routine, check the question, settle a yes or no, what may leave, may it run, history, web, setup, bookkeeping, the answer); reply timing: what it gathered; the prompt's context modules", settings: "the config's Door step and the setup" , time: "node run: its own time (each part's under log.parts)" },
+  bypass: { got: "node run bypass: the door's answer in code (a yes or no, a thumbs-up, a refusal)", gave: "node run bypass: which answer and why, handed to Text them", settings: "code (no model)" , time: "node run: its own time (plain code: under 1 ms)" },
+  staff: { got: "node run staff: the console's staff message and the chat it goes to", gave: "node run staff: the text as worded, handed to Text them", settings: "staff console, Platform → Lines (no model)" , time: "node run: its own time" },
   router: { got: "step router: the question", gave: "step router: the tier and model it picked", settings: "its model" , time: "step router: its call" },
   fd: { got: "the text; each round's context modules, in prompt order, with sizes and fingerprints", gave: "thinking, said, tool calls, each round's tokens, the answer", settings: "reply timing rounds: model per round; door step: effort" , time: "node runs: each run's own time (less the tools and helpers it called); the rounds count its model calls" },
   fallback: { got: "step fallback: the model that failed and why", gave: "step fallback: the model it moved to", settings: "the setup's fallback" , time: "step fallback: its call" },
@@ -38,17 +40,21 @@ export const STEP_LOGS: Record<string, StepLog> = {
   mail: { got: "mail_check: the email (to, subject)", gave: "mail_check: its verdict and why", settings: "its model" , time: "mail_check: its call" },
   card: { got: "step card: the tool, template and pins", gave: "step card: its verdict", settings: "its model" , time: "step card: its call" },
   reviewer: { got: "judge (review): the draft", gave: "judge (review): let it go or sent back, with feedback", settings: "its model" , time: "judge (review): its call" },
+  answerCheck: { got: "node run answerCheck: the draft, and whether it is a report or routine (reviewedAs)", gave: "node run answerCheck: passed, or sent back with why (code's catch, then the model's review: judge (review) for a report or routine)", settings: "its model, for reports and routines only" , time: "node run: its own time, less the front door's rewrites it sent back for"},
   send: { got: "the answer as it left the checks", gave: "text: each text sent, delivered or not", settings: "the chat's service" , time: "node run (building the reply in the gateway) plus step send (delivery): the texting Worker handing it to the service" },
   classifier: { got: "step classifier: the text", gave: "step classifier: the threads it filed it into", settings: "its model" , time: "node run: its own time, in the background" },
   selfreview: { got: "step selfreview: the chat it looked back on", gave: "step selfreview: what to do better", settings: "its model" , time: "node run: its own time, in the background" },
+  afterReply: { got: "node run afterReply: the texts and the chat", gave: "node run afterReply: the threads filed into and the chat's score, with a review filed when something went wrong", settings: "its model" , time: "node run: its own time, in the background" },
   job: { got: "job: the job and its brief", gave: "job: its state and advice", settings: "the job's model" , time: "job: its run" },
   jobcheck: { got: "advisor (check): the job's work so far", gave: "advisor (check): keep going or done, and why", settings: "the advisor's model" , time: "advisor (check): its call" },
   mailadv: { got: "step mailadv: the mail and who sent it", gave: "step mailadv: what to tell them", settings: "its model" , time: "step mailadv: its call" },
+  jobadv: { got: "node run jobadv: its role (check or mail) and the job's work or the mail it drafted", gave: "node run jobadv: keep going, done or what to tell them, and why", settings: "its model (the advisor's)" , time: "node run: its own time" },
   handback: { got: "step handback: the job's answer", gave: "step handback: passed, or what's wrong", settings: "its model" , time: "step handback: its call" },
   egress: { got: "step egress: the words, the action, the workspace and the subject", gave: "step egress: allow or not, and why", settings: "its model and effort" , time: "step egress: its call" },
   picture: { got: "step picture: the tool (draw_visual, draw_picture or make_picture) and its args", gave: "step picture: the result", settings: "its model (Gemini)" , time: "step picture: its call" },
   nudge: { got: "step nudge: the question, the answer and whether the chat is tainted", gave: "step nudge: what it wrote into About me", settings: "its model" , time: "node run: its own time, in the background (a skip is under 1 ms)" },
   reflect: { got: "step reflect: the question, tainted, own text and can write", gave: "step reflect: what it wrote down, and why not", settings: "its model" , time: "node run: its own time, in the background (a skip is under 1 ms)" },
+  learn: { got: "node run learn: the question, the answer, whether the chat is tainted, own text and can write", gave: "node run learn: nudge and reflect outcomes (what it wrote into About me or a learned skill, and why not)", settings: "its model and effort" , time: "node run: its own time, in the background (a skip is under 1 ms)" },
   nightly: { got: "step nightly: which run (dream or housekeeping), the time zone and since", gave: "step nightly: which step it started and with what", settings: "code; the control plane's schedule" , time: "node run: its own time" },
   dream: { got: "step dream: the time zone and since", gave: "step dream: the outcome, the status and when", settings: "its model" , time: "node run: its own time" },
   daysum: { got: "step daysum: the time zone and now", gave: "step daysum: the outcome", settings: "its model" , time: "node run: its own time" },
@@ -56,7 +62,7 @@ export const STEP_LOGS: Record<string, StepLog> = {
 };
 
 /** Step names the gateway and Worker log under another canvas step's name. */
-export const STEP_ALIAS: Record<string, string> = { lane: "lanes", model: "fd", steer: "fd", recheck: "decide" };
+export const STEP_ALIAS: Record<string, string> = { door: "doorStep", lane: "lanes", model: "fd", steer: "fd", recheck: "decide" };
 
 /** The canvas step a `step` entry belongs to, or null (`timing` entries are Door steps' gathering, read from the reply). */
 export const nodeOfStep = (step: unknown): string | null => (typeof step !== "string" || step === "timing" ? null : (STEP_ALIAS[step] ?? (step in STEP_LOGS ? step : null)));

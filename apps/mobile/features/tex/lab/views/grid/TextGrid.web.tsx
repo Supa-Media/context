@@ -6,7 +6,7 @@
  * is Speaker and Message only (Replay's left side, Dev2: "just keep it on the left only showing speaker and message").
  */
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { G } from "../../engine/state";
+import { G, stepsOf } from "../../engine/state";
 import { ColButton, colW, HeadCell, shown, startResize, useGridCols, type GridCol } from "./GridParts.web";
 
 export type StepCell = {
@@ -112,7 +112,8 @@ export function TextGrid(p: {
   /** When this changes, the grid scrolls to its last row (the test chat opens at its newest texts, Dev2 2026-11-16: "bottom panel should also start scrolled to the bottom"). */
   bottomKey?: string;
 }) {
-  const g = G();
+  // A column per step, never per folded group box.
+  const g = stepsOf(G());
   const nodes: GridCol[] = g.nodes.filter((n) => n.kind !== "input").map((n) => ({ id: n.id, name: n.label }));
   const all: GridCol[] = [{ id: "who", name: "Speaker" }, { id: "text", name: "Message" }, ...(p.slim ? [] : nodes)];
   const [cols, save, reset] = useGridCols("texLab.grid." + p.gridKey, all.map((c) => c.id), ["who", "text", ...(p.slim ? SLIM_STEPS : FIRST_STEPS)]);

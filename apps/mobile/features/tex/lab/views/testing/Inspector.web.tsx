@@ -4,7 +4,7 @@
  * its picks, its lines), the unit-test star, and, folded away, exactly what the config hands the step there.
  */
 import { useState } from "react";
-import { G, lab } from "../../engine/state";
+import { G, lab, node } from "../../engine/state";
 import { labelFields, modValue, ranOn, wiresIn, type Conversation, type Label, type Message } from "../../engine/sets";
 import { change, setUi, useSets } from "../../engine/setsStore";
 import type { LabNode } from "../../types";
@@ -196,7 +196,7 @@ function LabelForm({ c, m, n }: { c: Conversation; m: Message; n: LabNode }) {
 export function Inspector({ c }: { c: Conversation }) {
   const s = useSets();
   const m = c.msgs.find((x) => x.id === s.msg);
-  const n = G().nodes.find((x) => x.id === s.col && s.col !== "who" && s.col !== "text");
+  const n = s.col && s.col !== "who" && s.col !== "text" ? node(s.col) : undefined;
   if (!m || !n || m.tex) return null;
   const i = c.msgs.indexOf(m);
   return (

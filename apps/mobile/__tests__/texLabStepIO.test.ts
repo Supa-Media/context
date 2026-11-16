@@ -49,9 +49,9 @@ describe("stepIO", () => {
   });
 
   test("Door steps shows what it gathered, the brief it handed on and the context modules it built", () => {
-    expect(io.door.map((l) => l.k)).toEqual(["Got", "Gathered", "Gave the front door (its brief)", "Context modules it built, in prompt order"]);
-    expect(io.door[1].v).toBe("history group ledger · 450 ms");
-    expect(io.door[3].v).toBe("stable/texting · 92,285 chars · aa353cc6\ncontext/thread · 16,558 chars · 26cf912a");
+    expect(io.doorStep.map((l) => l.k)).toEqual(["Got", "Gathered", "Gave the front door (its brief)", "Context modules it built, in prompt order"]);
+    expect(io.doorStep[1].v).toBe("history group ledger · 450 ms");
+    expect(io.doorStep[3].v).toBe("stable/texting · 92,285 chars · aa353cc6\ncontext/thread · 16,558 chars · 26cf912a");
   });
 
   test("the front door shows each round's tokens and modules, a repeat named as such, then its thoughts and answer", () => {

@@ -239,6 +239,7 @@ test("no node imports a sibling node, so each runs on its own", () => {
 // writes the run to the chat's ledger (Dev2, 2026-11-14: a node's output not matching its shape fails it).
 // Sabotage record (temporary local edits, reverted, 2026-11-14): jobcheck returning advice: undefined fails
 // "Job check runs over the job -> jobcheck wire"; the bridge calling checkJob directly fails it too (no node entry).
+// Since the simpler graph (Dev2, 2026-11-16) the check is the Job advisor's `check` role, over the job -> jobadv wire.
 
 import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
 import { handbackOnGraph, jobCheckOnGraph } from "../src/agent/graph/bridges.js";
@@ -248,12 +249,12 @@ const ledger = () => {
   return { written, writer: { write: (e) => written.push(...(Array.isArray(e) ? e : [e])), flush: async () => {} } };
 };
 
-test("Job check runs over the job -> jobcheck wire, its shape checked, its run in the ledger, and checkJob's value kept", async () => {
+test("Job check runs as the Job advisor's check role over the job -> jobadv wire, its shape checked, its run in the ledger, and checkJob's value kept", async () => {
   const { written, writer } = ledger();
   const check = jobCheckOnGraph(gatewayGraph({ writer, turn: "t9" }));
   const got = await check({ job, live: { messages: [] }, answer: "Done: submitted.", exhausted: false, model: "fake-advisor", request: async () => ({ text: "VERDICT: done\nADVICE: nothing more" }), meter: async () => {} });
   assert.deepEqual(got, { verdict: "done", advice: "nothing more" });
-  assert.deepEqual(written.map((e) => [e.step, e.name, e.via, e.turn, e.ok]), [["node", "jobcheck", "job:uses", "t9", true]]);
+  assert.deepEqual(written.map((e) => [e.step, e.name, e.via, e.turn, e.ok]), [["node", "jobadv", "job:uses", "t9", true]]);
   assert.equal(await check({ job: null, live: {}, answer: "", model: "m", request: async () => ({}) }), null);
 });
 

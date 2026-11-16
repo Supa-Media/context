@@ -9,7 +9,7 @@
     "glm-4-7": "@cf/zai-org/glm-4.7-flash",
     "gemini": "google/gemini-2.5-flash-image"
   },
-  "groups": {"door":{"label":"Door steps","goal":"Gather what the turn needs (who's asking, the chat's home, settings, history) in code, before any model runs.","icon":"door","x":440,"y":330},"intake":{"label":"Intake","goal":"A text arrives, is edited or unsent; Triage, Decide, Queue and React choose whether and when Tex answers, and the Door gathers what the turn needs or answers in code.","icon":"text","x":0,"y":340},"jobs":{"label":"Jobs","goal":"Long work in the background: the job, its advisor and the hand-back judge.","icon":"job","x":840,"y":60},"tools-subagents":{"label":"Tools & subagents","goal":"The tools Front door calls and the helpers they use: mail, card and egress checks, the picture maker and the advisor.","icon":"tools","x":560,"y":60},"staff-messages":{"label":"Staff messages","goal":"Texts staff send through Tex from the console, such as a chat moving to the new number.","icon":"plug","x":840,"y":760},"retired":{"label":"Turned off (deleted after Promote)","goal":"Steps folded into the new ones above. Promote keeps main's steps turned off, never deleted; the cleanup after Promote deletes them and their code."}},
+  "groups": {"intake":{"label":"Intake","goal":"A text arrives, is edited or unsent; Triage, Decide, Queue and React choose whether and when Tex answers, and the Door gathers what the turn needs or answers in code.","icon":"text","x":0,"y":340},"jobs":{"label":"Jobs","goal":"Long work in the background: the job, its advisor and the hand-back judge.","icon":"job","x":840,"y":60},"tools-subagents":{"label":"Tools & subagents","goal":"The tools Front door calls and the helpers they use: mail, card and egress checks, the picture maker and the advisor.","icon":"tools","x":560,"y":60},"staff-messages":{"label":"Staff messages","goal":"Texts staff send through Tex from the console, such as a chat moving to the new number.","icon":"plug","x":840,"y":760},"retired":{"label":"Turned off (deleted after Promote)","goal":"Steps folded into the new ones above. Promote keeps main's steps turned off, never deleted; the cleanup after Promote deletes them and their code."}},
   "nodes": [
     {"id":"checkin","label":"Check-in","goal":"Three times a day, look at what changed in their workspace, mail and calendar, and text them only what can't wait; most looks stay quiet. Runs the front door with its own read-only tools and setup model.","log":true,"on":true,"rounds":1,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"graph/nodes/checkin.js · heartbeat.js","note":"","icon":"beat","kind":"input","model":"code","x":0,"y":60,"inSchema":[{"name":"timeZone","type":"text"},{"name":"since","type":"number","optional":true},{"name":"started","type":"number"}],"outSchema":[{"name":"to","type":"choice","options":"look, done"},{"name":"status","type":"number","optional":true},{"name":"body","type":"object","optional":true},{"name":"counts","type":"object","optional":true},{"name":"calendar","type":"yesno","optional":true}]},
     {"id":"routine","label":"Routine runs","goal":"Start a routine (a note under tex/routines/) on its schedule as a routine, not as a text: gather the routine, its past runs and when the person last reacted to or answered one, so Front door knows it's a routine, judges whether it is still relevant or stale, and asks the person whether to keep it when nobody has engaged with it.","log":true,"on":true,"rounds":1,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"graph/nodes/routine.js · routine.js · runARoutine.js · finishARoutine.js","note":"","icon":"repeat","kind":"input","model":"code","x":0,"y":200,"outSchema":[{"name":"client","type":"text","optional":true},{"name":"texted","type":"yesno","optional":true},{"name":"claims","type":"yesno","optional":true},{"name":"tries","type":"yesno","optional":true},{"name":"forwarding","type":"number","optional":true},{"name":"pictures","type":"yesno","optional":true},{"name":"knowsStarted","type":"yesno","optional":true},{"name":"status","type":"number","optional":true},{"name":"answeredBy","type":"text","optional":true}]},
@@ -72,8 +72,8 @@
     {"from":"oldLine","to":"send","mode":"wait","when":["redirect"]},
     {"from":"edit","to":"triage","mode":"wait","when":["turn"]},
     {"from":"moveChat","to":"send","mode":"wait","when":["person","group"]},
-    {"from":"triage","to":"decide","mode":"wait","when":["*"]},
-    {"from":"triage","to":"lanes","mode":"wait","when":["*"]},
+    {"from":"triage","to":"decide","mode":"wait","when":["judge","running"]},
+    {"from":"triage","to":"lanes","mode":"wait","when":["tex"]},
     {"from":"decide","to":"react","mode":"wait","when":["*"]},
     {"from":"decide","to":"lanes","mode":"wait","when":["*"]},
     {"from":"fd","to":"tools","mode":"uses","when":["action"]},
@@ -102,6 +102,7 @@
     {"from":"bypass","to":"send","mode":"wait","when":["*"]},
     {"from":"staff","to":"moveChat","mode":"wait","when":["move"]},
     {"from":"routine","to":"fd","mode":"wait","when":["run"]},
-    {"from":"routine","to":"bypass","mode":"wait","when":["stopped"]}
+    {"from":"routine","to":"bypass","mode":"wait","when":["stopped"]},
+    {"from":"fd","to":"planner","mode":"uses","when":["big"]}
   ]
 }

@@ -3,7 +3,7 @@
  * row's play button "replays what ran in prod", on the graph Tex had then). What Replay read of a moment is now a
  * `PlayRun` (`engine/prodRun.ts`). Made-up texts throughout.
  *
- * Sabotage checks: drop `onlyWhatRan` from `momentSteps` and "only the steps the log shows ran" fails on `checks`;
+ * Sabotage checks: drop `onlyWhatRan` from `momentSteps` and "only the steps the log shows ran" fails on a step it never logged;
  * make `graphAt` skip its cache and "one fetch per commit" fails; give a Tex text the turn of the moment's last turn
  * when its own entry names none and "a Tex text with no turn of its own has no cause run" fails.
  */
@@ -24,14 +24,18 @@ const T0 = Date.UTC(2026, 10, 14, 14);
 const CODE = "abc1234def5678";
 const version = { code: CODE, setup: "a1b2c3d4e5f6" };
 
-/** One text, answered by one turn with a tool call and a review, and the Worker's judging before it. */
+/**
+ * One text, answered by one turn with a tool call and an answer check, and the Worker's judging before it. The graph
+ * runner logs each node it runs as a "node" step naming it (`apps/mcp/src/agent/ledger.js` `nodeEntry`): the Door
+ * (`doorStep`) and the Answer check (`answerCheck`) among them.
+ */
 const entries = (): LedgerEntry[] => [
   e({ id: "ev1", eid: "E1", seq: 1, at: T0, kind: "text", from: { kind: "person" }, text: "whats on the cal tomorrow" }),
   e({ id: "s1", seq: 2, at: T0 + 300, kind: "step", step: { name: "decide", of: "waiting", ok: true, ms: 250, input: { candidates: ["E1"] }, output: { act: "answer" } } } as never),
-  e({ id: "d1", seq: 3, at: T0 + 1_700, kind: "step", turn: "t1", step: "door", ok: true, input: { covers: ["E1"] }, output: { model: "haiku" } }),
+  e({ id: "d1", seq: 3, at: T0 + 1_700, kind: "step", turn: "t1", step: "node", name: "doorStep", ok: true, ms: 40, input: { chat: "one", kind: "text" }, output: { when: ["next"], log: { parts: [{ part: "readTheText", ok: true, ms: 1, chat: "one", covers: ["E1"] }] } } }),
   e({ id: "th", seq: 4, at: T0 + 3_000, kind: "thinking", turn: "t1", ms: 900, text: "Look at the calendar first." }),
   e({ id: "tl", seq: 5, at: T0 + 3_500, kind: "tool", turn: "t1", name: "read_calendar", ms: 700, args: { day: "tomorrow" }, result: "3 events" }),
-  e({ id: "rv", seq: 6, at: T0 + 6_000, kind: "judge", turn: "t1", by: "review", went: true, ms: 2_000, draft: "Three things." }),
+  e({ id: "rv", seq: 6, at: T0 + 6_000, kind: "step", turn: "t1", step: "node", name: "answerCheck", ok: true, ms: 2_000, input: { pending: true }, output: null }),
   e({
     id: "r1",
     seq: 7,
@@ -53,17 +57,17 @@ describe("a real text as it ran", () => {
     const p = prodPlay(entries(), linesFor(entries()), { id: "E1" }, { g: G() })!;
     expect(p).not.toBeNull();
     const nodes = new Set(p.run.steps.map((s) => s.node));
-    for (const ran of ["text", "decide", "lanes", "door", "fd", "tools", "reviewer", "send"]) expect(nodes).toContain(ran);
+    for (const ran of ["text", "decide", "lanes", "doorStep", "fd", "tools", "answerCheck", "send"]) expect(nodes).toContain(ran);
     // Nothing is estimated: the steps that left no record are not drawn, however the Lab would guess them.
-    for (const never of ["checks", "react", "router", "classifier", "planner", "advisor", "job"]) expect(nodes).not.toContain(never);
+    for (const never of ["bypass", "react", "learn", "afterReply", "jobadv", "advisor", "job"]) expect(nodes).not.toContain(never);
     const fd = p.run.steps.find((s) => s.node === "fd")!;
     expect(fd).toMatchObject({ id: "t1:fd", ok: true, model: "anthropic/claude-haiku-5-5", tokIn: 100, tokOut: 50 });
     expect(fd.think).toContain("Look at the calendar first.");
     expect(fd.out).toBeDefined();
     // The wait in the queue, then the turn, on the moment's clock; each step starts no earlier than the one it follows.
     const at = (n: string) => p.run.steps.find((s) => s.node === n)!.at;
-    expect(at("lanes")).toBeLessThanOrEqual(at("door"));
-    expect(at("door")).toBeLessThanOrEqual(at("fd"));
+    expect(at("lanes")).toBeLessThanOrEqual(at("doorStep"));
+    expect(at("doorStep")).toBeLessThanOrEqual(at("fd"));
     expect(p.run.steps.every((s) => s.at >= 0 && (s.ms ?? 0) >= 0)).toBe(true);
     expect(p.run.running).toBe(false);
     expect(p.run.total).toBeGreaterThanOrEqual(Math.max(...p.run.steps.map((s) => s.at + (s.ms ?? 0))));
@@ -81,9 +85,8 @@ describe("a real text as it ran", () => {
   test("a step that failed in its log is drawn failed", () => {
     const es = entries();
     es.find((x) => x.id === "rv")!.ok = false;
-    es.push(e({ id: "ck", seq: 9, at: T0 + 6_100, kind: "step", turn: "t1", step: "checks", ok: false, ms: 5, input: "draft", output: null }));
     const p = prodPlay(es, linesFor(es), { id: "E1" }, { g: G() })!;
-    expect(p.run.steps.find((s) => s.node === "checks")?.ok).toBe(false);
+    expect(p.run.steps.find((s) => s.node === "answerCheck")?.ok).toBe(false);
   });
 
   test("each of Tex's texts plays only the steps of the turn that sent it, when its own entry names the turn", () => {
@@ -94,7 +97,7 @@ describe("a real text as it ran", () => {
     expect(reply.id).toBe("ev1#E2");
     expect(p.cause.E2).toEqual(reply.steps.map((s) => s.id));
     // The turn's steps, and the text it covered; never the judging, which no entry ties to this turn.
-    expect(reply.steps.map((s) => s.node)).toEqual(expect.arrayContaining(["text", "door", "fd", "tools", "reviewer", "send"]));
+    expect(reply.steps.map((s) => s.node)).toEqual(expect.arrayContaining(["text", "doorStep", "fd", "tools", "answerCheck", "send"]));
     expect(reply.steps.map((s) => s.node)).not.toContain("decide");
     expect(reply.texts).toEqual([{ at: 8_100, rowId: "E2" }]);
   });
@@ -156,13 +159,13 @@ describe("the graph of the time", () => {
 
   test("a run is read against the graph that ran it and carries it for the canvas", async () => {
     const old = config();
-    // The graph of that day had no answer-review step.
-    old.nodes = old.nodes.filter((n) => n.id !== "reviewer");
-    old.edges = old.edges.filter((x) => x.from !== "reviewer" && x.to !== "reviewer");
+    // The graph of that day had no answer-check step.
+    old.nodes = old.nodes.filter((n) => n.id !== "answerCheck");
+    old.edges = old.edges.filter((x) => x.from !== "answerCheck" && x.to !== "answerCheck");
     const get = jest.fn(async () => ({ ok: true, json: async () => old }) as never);
     const p = (await prodPlayAtVersion(entries(), linesFor(entries()), { id: "E1" }, G(), get as never))!;
-    expect(p.run.graph?.nodes.some((n) => n.id === "reviewer")).toBe(false);
-    expect(p.run.steps.some((s) => s.node === "reviewer")).toBe(false);
+    expect(p.run.graph?.nodes.some((n) => n.id === "answerCheck")).toBe(false);
+    expect(p.run.steps.some((s) => s.node === "answerCheck")).toBe(false);
     expect(p.run.steps.some((s) => s.node === "fd")).toBe(true);
     expect(p.run.graphNote).toBeUndefined();
     // Played again: the same commit is not fetched twice.
@@ -176,7 +179,7 @@ describe("the graph of the time", () => {
     expect(p.run.graph).toBeUndefined();
     expect(p.run.graphNote).toBe(graphNoteFor(T0, CODE));
     expect(p.run.graphNote).toBe("graph of 2026-11-14 (abc1234) unavailable, showing today's");
-    expect(p.run.steps.some((s) => s.node === "reviewer")).toBe(true);
+    expect(p.run.steps.some((s) => s.node === "answerCheck")).toBe(true);
     await prodPlayAtVersion(entries(), linesFor(entries()), { id: "E1" }, G(), get as never);
     expect(get).toHaveBeenCalledTimes(2);
     // A network error is the same; so is a reply that is not a Tex config.

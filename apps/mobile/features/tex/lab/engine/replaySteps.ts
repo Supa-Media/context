@@ -6,6 +6,7 @@
  */
 import type { LedgerEntry } from "../../page/texPageTypes";
 import type { LabGraph } from "../types";
+import { unfoldGroups } from "./groups";
 import { momentTurnEntries, onlyWhatRan, realTimes, withReal } from "./realTimes";
 import type { Bar, Moment } from "./replay";
 import { fmtS, simulate } from "./sim";
@@ -13,7 +14,9 @@ import { G, node } from "./state";
 
 export type StepRow = { id: string; label: string; helper: boolean; bars: Bar[] };
 
-export function stepRows(m: Moment, entries: LedgerEntry[], g: LabGraph = G()): StepRow[] {
+export function stepRows(m: Moment, entries: LedgerEntry[], shown: LabGraph = G()): StepRow[] {
+  // A row per step that ran, never per folded group box.
+  const g = shown.folded ? unfoldGroups(shown) : shown;
   const rows = new Map<string, StepRow>();
   const firstAt = new Map<string, number>();
   const callerOf = (id: string) => g.edges.find((e) => e.mode === "uses" && e.to === id && rows.has(e.from))?.from ?? null;
