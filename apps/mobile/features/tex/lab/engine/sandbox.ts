@@ -314,6 +314,15 @@ export function sendAs(who: string) {
   emit();
 }
 
+/** Words for a failed test chat call: the gateway's message, never a bare code like "server_error" (Dev2, 2026-11-16). */
+export function failureWords(status: number, b: Record<string, unknown> | null): string {
+  const message = str(b?.message);
+  if (message) return message;
+  const error = str(b?.error);
+  if (error && /\s/.test(error)) return error;
+  return status === 403 ? "Only Tex developers can use the test chat" : status === 404 ? "The test chat isn't live yet" : "The test chat hit a problem on the server and couldn't finish. Try again, or pick another chat.";
+}
+
 /** The gateway's route as a `SandboxCall`: the person's own console grant, once more on a 401. */
 export function gatewaySandbox(endpoint: string, token: (refresh: boolean | { rejected: string }) => Promise<string>, doFetch: typeof fetch = (...a) => fetch(...a)): SandboxCall | null {
   let origin: string;
@@ -328,7 +337,7 @@ export function gatewaySandbox(endpoint: string, token: (refresh: boolean | { re
     let r = await go(t);
     if (r.status === 401) r = await go(await token({ rejected: t }));
     const b = (await r.json().catch(() => null)) as Record<string, unknown> | null;
-    if (r.status !== 200 || !b) throw new Error(str(b?.error) || (r.status === 403 ? "Only Tex developers can use the test chat" : r.status === 404 ? "The test chat isn't live yet" : "The test chat didn't answer"));
+    if (r.status !== 200 || !b) throw new Error(failureWords(r.status, b));
     return b;
   };
 }

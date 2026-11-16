@@ -102,6 +102,19 @@ async function realTexts(env, owner, chat, base) {
   return at < 0 ? entries : entries.slice(0, at);
 }
 
+/**
+ * One row per real text. A voice note is logged twice under one event id (the audio, then what was heard, `heard`),
+ * and the test chat keys its rows by that id, so the pair is one row: the one with words. Its history keeps both.
+ */
+export function oneRowPerText(entries) {
+  const byEid = new Map();
+  for (const entry of entries) {
+    const had = byEid.get(entry.eid);
+    if (!had || (String(had.text ?? "").trim() === "" && String(entry.text ?? "").trim() !== "")) byEid.set(entry.eid, entry);
+  }
+  return [...new Set(entries.map((entry) => entry.eid))].map((eid) => byEid.get(eid));
+}
+
 /** The Lab's row for a real text. */
 function realRow(entry, kind) {
   const who = entry.from?.kind === "tex" ? "Tex" : typeof entry.from?.name === "string" && entry.from.name !== "" ? entry.from.name : kind === "group" ? "Someone" : "You";
@@ -216,7 +229,7 @@ async function open(env, controlPlane, token, who, input) {
     people = group ? (conv.members ?? []).map((name) => ({ handle: handleOf(name), name: String(name) })) : [{ handle: "", name: "You" }];
   } else {
     const entries = await realTexts(env, owner, ledgerChat, input.base);
-    rows = entries.map((entry) => realRow(entry, kind));
+    rows = oneRowPerText(entries).map((entry) => realRow(entry, kind));
     history = entries.map(({ seq: _seq, ...entry }) => entry);
     people = (answer.people ?? []).filter((person) => person && typeof person.handle === "string");
   }
@@ -417,7 +430,17 @@ function testRow(state, msgId) {
 }
 
 /** One `/tex-lab/sandbox` call. */
-export async function handleLabSandbox(request, env, ctx, { origin = "https://context.lc", runTurn = runSandboxTurn } = {}) {
+export async function handleLabSandbox(request, env, ctx, options = {}) {
+  try {
+    return await serveLabSandbox(request, env, ctx, options);
+  } catch (error) {
+    // Said in words the Lab can show, never a bare "server_error"; the log keeps the cause, never a text's words.
+    console.log(JSON.stringify({ event: "lab_sandbox_failed", reason: String(error?.message ?? error).slice(0, 200) }));
+    return refused(500, "The test chat hit a problem on the server and couldn't finish. Try again, or pick another chat.");
+  }
+}
+
+async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc", runTurn = runSandboxTurn } = {}) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
   if (!env?.LAB_SANDBOX) return refused(501, "this deployment has no Lab test chats");
   const token = bearerToken(request);

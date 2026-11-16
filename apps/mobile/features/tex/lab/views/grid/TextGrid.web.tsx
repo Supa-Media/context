@@ -5,7 +5,7 @@
  * column per step with what that step gave and how long it took, columns resized and picked like Testing's. `slim`
  * is Speaker and Message only (Replay's left side, Dev2: "just keep it on the left only showing speaker and message").
  */
-import { useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { G } from "../../engine/state";
 import { ColButton, colW, HeadCell, shown, startResize, useGridCols, type GridCol } from "./GridParts.web";
 
@@ -52,6 +52,9 @@ const SLIM_STEPS: string[] = [];
 /** The row actions' column, right after the row's number (Dev2, 2026-11-16: "these buttons need to not be hidden all the way on the right"). */
 const ACT_W = 76;
 
+/** The # column fits the highest row number (Dev2, 2026-11-16: "more space is needed to see the # column for longer numbers"): 8 px a digit plus the cell's padding. */
+export const numColW = (count: number) => Math.max(32, 14 + 8 * String(Math.max(1, count)).length);
+
 /** A message: what it quotes, its text, edited, its tapbacks, its options button and its pictures. */
 function msgCell(r: TextRow, msgExtra?: (r: TextRow) => ReactNode) {
   return (
@@ -97,6 +100,8 @@ export function TextGrid(p: {
   folded?: boolean;
   empty?: ReactNode;
   id?: string;
+  /** When this changes, the grid scrolls to its last row (the test chat opens at its newest texts, Dev2 2026-11-16: "bottom panel should also start scrolled to the bottom"). */
+  bottomKey?: string;
 }) {
   const g = G();
   const nodes: GridCol[] = g.nodes.filter((n) => n.kind !== "input").map((n) => ({ id: n.id, name: n.label }));
@@ -104,9 +109,15 @@ export function TextGrid(p: {
   const [cols, save, reset] = useGridCols("texLab.grid." + p.gridKey, all.map((c) => c.id), ["who", "text", ...(p.slim ? SLIM_STEPS : FIRST_STEPS)]);
   const vc = shown(cols, all);
   const table = useRef<HTMLTableElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (p.bottomKey === undefined || !scroller.current) return;
+    scroller.current.scrollTop = scroller.current.scrollHeight;
+  }, [p.bottomKey]);
+  const numW = numColW(p.rows.filter((r) => !r.sep).length);
   const stepCols = vc.filter((c) => c.id !== "who" && c.id !== "text");
   const act = !!p.actions;
-  const tw = p.slim ? null : 32 + vc.reduce((a, c) => a + colW(cols, c.id), 0) + (act ? ACT_W : 0);
+  const tw = p.slim ? null : numW + vc.reduce((a, c) => a + colW(cols, c.id), 0) + (act ? ACT_W : 0);
   return (
     <div className="tst tgrid" id={p.id}>
       <div className="ph">
@@ -114,10 +125,10 @@ export function TextGrid(p: {
         {p.slim ? null : <ColButton cols={cols} all={all} save={save} reset={reset} id={p.id ? p.id + "ColBtn" : undefined} />}
         {p.headEnd}
       </div>
-      <div className="scroll" hidden={p.folded}>
+      <div className="scroll" ref={scroller} hidden={p.folded}>
         <table className="chatgrid" ref={table} style={{ width: tw === null ? "100%" : tw }}>
           <colgroup>
-            {p.slim ? null : <col style={{ width: 32 }} />}
+            {p.slim ? null : <col style={{ width: numW }} />}
             {act ? <col style={{ width: ACT_W }} /> : null}
             {vc.map((c) => (
               <col key={c.id} style={p.slim && c.id === "text" ? undefined : { width: colW(cols, c.id) }} />

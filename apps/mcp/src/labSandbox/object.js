@@ -60,7 +60,10 @@ export function sandboxStub(env, userId, sandboxId) {
 /** One call to the object: `op` and its JSON fields, its JSON answer back. Throws when the object refuses. */
 export async function callSandbox(stub, op, fields = {}) {
   const response = await stub.fetch(new Request(`${ORIGIN}/${op}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(fields) }));
-  if (!response.ok) throw new Error(`lab sandbox ${op} failed (${response.status})`);
+  if (!response.ok) {
+    const said = await response.json().catch(() => null);
+    throw new Error(`lab sandbox ${op} failed (${response.status})${typeof said?.message === "string" ? `: ${said.message}` : ""}`);
+  }
   return await response.json();
 }
 
