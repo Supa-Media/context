@@ -286,7 +286,8 @@ async function liveView(stub, state, after) {
     // Each step as it finished (`harness.js` `show`): the chat object's own (A text arrives, Old number?, Triage,
     // Decide, the queue) as it logged each, then the turn's nodes. Once the turn's nodes are written, what its ledger kept.
     const entries = await callSandbox(stub, "ledger.of", { by: seen.running.msgId }).then((read) => read.entries ?? []).catch(() => []);
-    const kept = chatStepsOf(entries);
+    const since = seen.rows.find((row) => row.id === seen.running.msgId)?.at ?? 0;
+    const kept = chatStepsOf(entries, { since });
     const live = Array.isArray(state.meta?.running?.steps) ? state.meta.running.steps : [];
     const steps = stepsOf(entries).length > 0 || live.length < kept.length ? kept : live;
     seen.rows = seen.rows.map((row) => (row.id === seen.running.msgId ? { ...row, steps } : row));
