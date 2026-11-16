@@ -32,6 +32,25 @@ export const MAX_JOBS = 6;
 const MAX_WAIT_MS = 60_000;
 /** The key the texting Worker keeps a job's run under (`apps/agent/src/jobs.ts` `RUN_KEY`). */
 const RUN_KEY = "jobrun";
+/** A job's text keeps its running mark fresh at least this often, so a long job is never taken for a dead turn. */
+export const BEAT_MS = 60_000;
+
+/**
+ * `sleep`, in pieces no longer than `everyMs` with `beat()` before each: a job's wait (and its whole run, up to 15
+ * minutes) outlasts `harness.js` `RUNNING_STALE_MS`, and a mark left unrefreshed that long would let a new text in.
+ */
+export function beatingSleep(sleep, beat, everyMs = BEAT_MS) {
+  return async (ms) => {
+    let left = Math.max(0, ms);
+    do {
+      beat();
+      const piece = Math.min(left, everyMs);
+      await sleep(piece);
+      left -= piece;
+    } while (left > 0);
+    beat();
+  };
+}
 const NAME_HEADER = "x-inbox-name";
 
 /** An object's name as the Worker's stubs carry it: its own name, never the place prefix. */
@@ -96,11 +115,17 @@ export async function runJobs({ registry, gate, book, config = null, drain = asy
   const deadline = now() + limitMs;
   const graphConfig = config ? withDraft(TEX_CONFIG, config) : TEX_CONFIG;
   const ran = [];
+  const wait = beatingSleep(sleep, () => gate.show?.());
   // Jobs a job's report turn starts are added as this runs, and are run in turn, up to `MAX_JOBS`.
   for (const job of registry.jobs.values()) {
     if (job.done) continue;
     job.done = true;
     const jobId = job.name.replace(/^job:/, "");
+    if (gate.cancelled) {
+      // Reset while this text ran: its jobs never start, as the test chat they would write to is gone.
+      ran.push({ jobId, passes: 0, outcome: "reset" });
+      continue;
+    }
     if (ran.length >= MAX_JOBS) {
       const refused = book.begin({ node: "job", parent: job.parent ?? book.tail, input: { jobId }, bg: true });
       book.end(refused, { out: { refused: `a test text runs at most ${MAX_JOBS} jobs` }, ms: 0, ok: false });
@@ -146,6 +171,11 @@ export async function runJobs({ registry, gate, book, config = null, drain = asy
         outcome = "refused";
       } else {
         while (passes < MAX_PASSES && now() < deadline) {
+          if (gate.cancelled) {
+            outcome = "reset";
+            break;
+          }
+          gate.show?.();
           passes += 1;
           const next = await pass("pass");
           await drain();
@@ -153,7 +183,7 @@ export async function runJobs({ registry, gate, book, config = null, drain = asy
             outcome = next.failed ? "failed" : next.off ? "off" : "done";
             break;
           }
-          if (next.kind === "after") await sleep(Math.max(0, Math.min(next.ms, MAX_WAIT_MS, deadline - now())));
+          if (next.kind === "after") await wait(Math.max(0, Math.min(next.ms, MAX_WAIT_MS, deadline - now())));
           if (passes >= MAX_PASSES || now() >= deadline) outcome = "cut";
         }
       }

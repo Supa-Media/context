@@ -71,6 +71,8 @@ test("a 1:1 test text runs from A text arrives through the chat object, and Tex'
   const { stub, call, ready } = sandbox(ONE, []);
   await ready;
   await call("row.add", { row });
+  // As the route does before a turn starts: the test chat claimed for this text (`object.js` `claim`).
+  await call("claim", { msgId: row.id, staleMs: 60_000 });
   const gw = fakeGateway("Nothing until 3pm.", call, row.id);
   // The turn's own route hop is faked here; the token the chat object carries to it is the one minted for this text.
   let token = null;
@@ -140,6 +142,8 @@ test("a turn's node lights its row even when the runner calls the watch on its o
   const { stub, call, ready } = sandbox(ONE, []);
   await ready;
   const { sandboxGate } = await import("../src/labSandbox/harness.js");
+  // The route claims the test chat for its text before the turn runs (`object.js` `claim`); the turn refreshes its mark.
+  await call("claim", { msgId: "t1", staleMs: 60_000 });
   const { onNode, worker, flush } = sandboxGate(stub, ONE, "t1");
   worker({ node: "triage", out: null, ms: 1, ok: true });
   onNode({ node: "readTheText", output: { ok: true }, ms: 2, ok: true });

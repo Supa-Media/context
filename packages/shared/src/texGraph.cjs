@@ -260,7 +260,8 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     runSeq = (runSeq + 1) % Number.MAX_SAFE_INTEGER;
     const self = `r${runSeq}`;
     const ids = { id: self, ...(typeof parent === "string" ? { parent } : {}) };
-    started({ node: id, ...ids, at, via, input: shaped(input) });
+    // Shaped only for a watcher: a real turn sets none, and shaping costs a serialisation of the whole input.
+    if (typeof onStart === "function") started({ node: id, ...ids, at, via, input: shaped(input) });
     if (typeof impl !== "function") {
       if (handOff) {
         const output = await handOff(id, input, ctx);
