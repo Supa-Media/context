@@ -34,7 +34,7 @@ import { openAskBefore } from "./openAsk.js";
 import { requestViaGateway } from "./aiGateway.js";
 import { isControlWord } from "./jobReport.js";
 import { withArchitecture } from "./texArchitecture.js";
-import { texEffort, texModel, texTimeoutMs } from "./texConfig.js";
+import { texEffort, texModel, texTimeoutMs, texPick } from "./texConfig.js";
 import { datedTurns, localStamp, nowLine, readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
 
 /** The reviewer's model, effort and limits. */
@@ -249,13 +249,13 @@ export function sendBackNotice(feedback, { advisor = false } = {}) {
 }
 
 /** One review: `{ kind, send, problems, feedback }`, or null when there is no verdict in time. */
-export async function reviewReply({ state, earlier = [], request = requestViaGateway, config, metadata, timeoutMs = texTimeoutMs("reviewer", config?.tex) }) {
+export async function reviewReply({ state, earlier = [], request = requestViaGateway, config, metadata, timeoutMs = texTimeoutMs(texPick(["answerCheck", "reviewer"], config?.tex), config?.tex) }) {
   const call = request(
     // `toldNow`: the state's first line is this reviewer's own now line
     // (`judgeState`), so the door does not write a second one. It is said here
     // because the line sits in their words, which the door never reads a
     // notice out of (`localNow.js` `noticesOf`).
-    { model: texModel("reviewer", config?.tex), system: withArchitecture(REVIEW_SYSTEM, "reviewer"), messages: [{ role: "user", text: reviewMessage(state, earlier) }], tools: [], maxTokens: REVIEW_MAX_TOKENS, ...texEffort("reviewer", config?.tex), toldNow: true },
+    { model: texModel(texPick(["answerCheck", "reviewer"], config?.tex), config?.tex), system: withArchitecture(REVIEW_SYSTEM, "reviewer"), messages: [{ role: "user", text: reviewMessage(state, earlier) }], tools: [], maxTokens: REVIEW_MAX_TOKENS, ...texEffort(texPick(["answerCheck", "reviewer"], config?.tex), config?.tex), toldNow: true },
     config,
     { metadata },
   );
@@ -283,9 +283,9 @@ export const takesBack = (answer) => typeof answer === "string" && TAKE_BACK.tes
  * all (Dev2, 2026-11-07: a routine texted "the say_nothing action isn't
  * available to me in this session").
  */
-export function replyJudge({ setting, question, history = [], inner = null, plain = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = texTimeoutMs("reviewer", config?.tex), clock = Date.now, log = console.log, advisor = false, byRunner = false }) {
+export function replyJudge({ setting, question, history = [], inner = null, plain = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = texTimeoutMs(texPick(["answerCheck", "reviewer"], config?.tex), config?.tex), clock = Date.now, log = console.log, advisor = false, byRunner = false }) {
   // The reviewer's model: main's, or a Lab test chat's draft's (`aiGateway.js` `aiGatewayConfig`).
-  const reviewModel = texModel("reviewer", config?.tex);
+  const reviewModel = texModel(texPick(["answerCheck", "reviewer"], config?.tex), config?.tex);
   const on = Boolean(setting) && (config !== null || request !== requestViaGateway);
   const verdicts = [];
   const feedbackSoFar = [];

@@ -22,7 +22,7 @@
  *
  * A node's `inSchema` and `outSchema` are its contract, checked strictly (Dev2, 2026-11-14: "fail"): every field named
  * must be there with its type unless marked `optional`, and no field may be there that is not named (but `when`, the
- * output's routing tags). A mismatch fails the node with a `GraphError` naming the field. Types: text, yesno, score
+ * output's routing tags, and `log`, the node's own detail for its row: both logged, neither carried on). A mismatch fails the node with a `GraphError` naming the field. Types: text, yesno, score
  * (a number, in its `options` range "a-b" when given), number, choice (a string; one of its `options` when they are a
  * list "a, b, c" of single words), ids (a list of strings), list, object, any.
  *
@@ -126,11 +126,12 @@ function typeProblem(v, field) {
 
 /**
  * What a wire hands on: the output without its `when`, which picked the wires and is not the next node's input (a node's
- * input schema never names it, so a tagged output fed on as it is would fail the node it feeds).
+ * input schema never names it, so a tagged output fed on as it is would fail the node it feeds), and without its `log`,
+ * the node's own detail, kept in its row only (the Door's parts handed to the Front door failed it, 2026-11-16).
  */
 function carried(output) {
-  if (!plain(output) || !("when" in output)) return output;
-  const { when, ...rest } = output;
+  if (!plain(output) || !("when" in output || "log" in output)) return output;
+  const { when, log, ...rest } = output;
   return rest;
 }
 
@@ -150,7 +151,7 @@ function checkShape(id, which, value, schema) {
     const why = typeProblem(value[f.name], f);
     if (why) throw new GraphError(`"${id}" ${which} "${f.name}" ${why}`);
   }
-  for (const k of Object.keys(value)) if (!named.has(k) && !(which === "output" && k === "when") && value[k] !== undefined) throw new GraphError(`"${id}" ${which} has "${k}", which its schema does not name`);
+  for (const k of Object.keys(value)) if (!named.has(k) && !(which === "output" && (k === "when" || k === "log")) && value[k] !== undefined) throw new GraphError(`"${id}" ${which} has "${k}", which its schema does not name`);
 }
 
 /**
@@ -410,7 +411,10 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     return (await runNode(to, input, ctx, `${from}:${wire.mode}`)).output;
   }
 
-  return { run, runNode, fire, order: (start) => orderFrom(config, start) };
+  /** Whether the config has a `from` -> `to` wire, so code that may fire either of two wires picks the one drawn. */
+  const wired = (from, to) => config.edges.some((e) => e.from === from && e.to === to);
+
+  return { run, runNode, fire, wired, order: (start) => orderFrom(config, start) };
 }
 
 /**

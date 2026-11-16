@@ -48,6 +48,7 @@ export function AccountSection({
   section,
   data,
   onSignOut,
+  onSignOutEverywhere,
   onOpenInvitation,
   onSelect,
 }: {
@@ -61,6 +62,8 @@ export function AccountSection({
    * out is the button `ClientRow`'s Revoke comment refuses to draw.
    */
   onSignOut?: () => void;
+  /** Signs every device out, this one included; absent where `onSignOut` is. */
+  onSignOutEverywhere?: (signOutEveryDevice: () => Promise<unknown>) => Promise<void>;
   /** Answering an invitation is a navigation to `inviteHref(token)`. */
   onOpenInvitation?: (token: string) => void;
 }) {
@@ -260,7 +263,7 @@ export function AccountSection({
       </View>
       {/* Who is signed in, and what "This wasn't me" left paused (Dev2, 2026-10-12). */}
       <View style={styles.spaced}>
-        <AccountSafetyCard />
+        <AccountSafetyCard onSignOutEverywhere={onSignOutEverywhere} />
       </View>
       {/*
         The Macs, at the foot of the person they belong to. Drawn only when

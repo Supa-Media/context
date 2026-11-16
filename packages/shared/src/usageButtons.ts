@@ -32,6 +32,7 @@ export const USAGE_BUTTONS = {
   download_everything: "Download everything",
   upgrade: "Upgrade",
   sign_out: "Sign out",
+  sign_out_everywhere: "Sign out everywhere",
 } as const;
 
 export type UsageButton = keyof typeof USAGE_BUTTONS;

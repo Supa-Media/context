@@ -592,6 +592,7 @@ test/texDevCases.test.mjs
 test/texDevSets.test.mjs
 test/texDevRuns.test.mjs
 test/texSetOps.test.mjs
+test/setsFd.test.mjs
 test/setsRun.test.mjs
 bench/test/nodeCases.test.mjs
 bench/test/nodeCases.test.mjs
@@ -602,3 +603,9 @@ test/labSandboxChat.test.mjs
 test/editNode.test.mjs
 test/labSandboxEvents.test.mjs
 test/labSandboxLive.test.mjs
+test/routineEngagement.test.mjs
+test/doorStep.test.mjs
+test/learnNode.test.mjs
+test/afterReplyStaff.test.mjs
+test/answerCheckNode.test.mjs
+test/routineAsRoutine.test.mjs

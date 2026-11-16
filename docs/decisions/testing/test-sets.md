@@ -80,9 +80,16 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
   each starred label through that node's code from `--tree`, put the way
   production puts it, scored by the caller's harness, rows only in `--out` and
   counts by node on standard output. Decide, the reply reviewer and the job
-  check run alone; the front door runs as one core-bench batch in the invented
-  Maya world once the texting setup is pulled; any other node says it can't
-  run alone yet rather than passing.
+  check run alone. The front door runs as one bench batch (`setsFd.mjs`): each
+  test is the person's one text in their invented bench world, the chat before
+  it posted to the chat's history first, answered by the tree's code and
+  config and judged on its must and never lines (decided by Dev2, 2026-11-16,
+  after its twenty Dev tests all read "can't run alone"; it had run only a
+  chat with no earlier texts, and only with the setup pulled from Context). A
+  tree with no pulled setup runs with the live note's settings minus its task
+  skills, since Tex's models and words come from the config. A group chat, a
+  picture or a tapback still says why it can't run; any other node says it
+  can't run alone yet rather than passing, and the Lab shows that reason.
 - **About ten long conversations, not one per case** (decided by the owner,
   2026-11-16: "only like around 10 conversations, but the conversations are much
   longer ... 100, 500 different turns ... Tex is trained on having a bunch of

@@ -142,7 +142,7 @@ export function ConsoleFrame({
     unsaved work is about to be discarded and two copies of that decision would
     be two answers to it.
   */
-  const { requestSignOut, dialog: signOutDialog } = useSignOutFlow(data);
+  const { requestSignOut, requestSignOutEverywhere, dialog: signOutDialog } = useSignOutFlow(data);
   const visitor = data.visitor;
   // Invite friends and Community: only for a signed-in person with a control
   // plane to ask — never the homepage visitor, the demo, or a fixture.
@@ -607,7 +607,7 @@ export function ConsoleFrame({
 
         {/* An account's own surfaces, and a visitor has no account. */}
         {visitor === undefined
-          ? consoleSettings({ openSettingsSection, data, checkoutReturn, router, requestSignOut })
+          ? consoleSettings({ openSettingsSection, data, checkoutReturn, router, requestSignOut, requestSignOutEverywhere })
           : null}
 
         {visitor === undefined ? consoleAgentSetup({ connectAgent, data, router }) : null}

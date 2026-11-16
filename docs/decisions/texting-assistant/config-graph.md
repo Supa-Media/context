@@ -282,6 +282,19 @@ replay gate like any rewiring. A draft can run on a pull request's code before
 step one merges ([lab-runs](../testing/lab-runs.md)), but the code merges first.
 A node with no code, on the shelf or in the config, cannot be promoted.
 
+**A draft runs its shelf nodes** (2026-11-16, the simpler graph). A Lab test
+chat or Lab run on a draft that draws a shelf node runs it: `withDraft`
+(`apps/mcp/src/agent/texConfig.js`) adds the draft's shelf nodes, and when every
+wire of the draft names a node that can run, takes the draft's wires and each
+node's input and output shapes. A main node the draft removes stays in the
+turn's config only for the settings code reads off it; no wire reaches it, so it
+never runs. Code that may meet either graph picks by the config's own wires
+(`graph.wired(from, to)`, `"id" in io.use`) or by `texPick` for a folded node's
+settings, so main's config always takes its existing path. What it costs to
+undo: a draft that merges or removes steps runs main's steps again, and the Lab
+cannot test it before Promote. `test/texDevDraftFit.test.mjs` fails if it is
+reversed.
+
 **Changing a node's code only.** The pull request changes the config too, or it
 says `Tex diagram: unchanged because <reason>`.
 
