@@ -1,34 +1,57 @@
 /**
- * The prototype's left column: the three sets, each with its chats, stars and note; drag a chat onto a set to move
- * it. The Test Set's chats stay hidden (counts only) until a person asks to see them, with the warning.
+ * The left column, simplified (Dev2, 2026-11-16, approved mockup https://claude.ai/artifact/PUjJ7Vd6tX6BJj7vkEir1T):
+ * the 60/20/20 split as one small chip, then each set as a heading over one line per chat. Drag a chat onto another
+ * set to move it ("just have it be able to be dragged on the left nav"). The Test Set's chats stay hidden (counts
+ * only) until a person clicks twice to see them.
  */
 import { useState } from "react";
-import { labelCount, SET_INFO, SETS, starsIn, type Conversation, type SetId } from "../../engine/sets";
+import { SET_INFO, SETS, setsRatio, starsIn, type Conversation, type SetId } from "../../engine/sets";
 import { change, createChat, fold, setUi, showTest, useSets } from "../../engine/setsStore";
-
-const kindName = (k: string) => (k === "one" ? "1:1" : "group");
+import { Chev, Plus } from "./Menu.web";
 
 export function newChat(): Conversation {
   return { id: "chat-" + Date.now().toString(36), title: "New chat", set: "dev", kind: "one", members: ["Jo"], msgs: [] };
 }
 
+/** The split of unit tests across the sets, against the 60/20/20 it should hold. */
+export function Ratio() {
+  const s = useSets();
+  const r = setsRatio(
+    s.convs.filter((c) => c.set !== "test"),
+    s.testStars,
+  );
+  const colors = { training: "var(--accent)", dev: "var(--ok)", test: "var(--team)" } as const;
+  return (
+    <span className={"ts-ratio" + (r.holds ? "" : " off")} id="ratio" title={`${r.total} unit tests: ${r.pct.training} / ${r.pct.dev} / ${r.pct.test} across Training, Dev and Test, target 60 / 20 / 20`}>
+      <span className="rb" aria-hidden="true">
+        {(["training", "dev", "test"] as const).map((k) => (
+          <i key={k} style={{ width: r.pct[k] + "%", background: colors[k] }} />
+        ))}
+      </span>
+      {r.pct.training}/{r.pct.dev}/{r.pct.test}
+    </span>
+  );
+}
+
 export function SetsList() {
   const s = useSets();
   const [drop, setDrop] = useState<SetId | null>(null);
+  const [sure, setSure] = useState(false);
   const open = (c: Conversation) => setUi({ chat: c.id, msg: null, col: null, editing: false, fresh: null });
   return (
-    <div className="panel" id="tstSets">
-      <div className="ph">
+    <aside className="ts-sets" id="tstSets" aria-label="Sets">
+      <div className="ts-sh">
         <b>Sets</b>
-        <span className="muted small">drag a chat to move it</span>
-        <button className="btn sm p" id="newChat" style={{ marginLeft: "auto" }} onClick={() => createChat(newChat())}>
-          + Chat
+        <Ratio />
+        <span className="sp" />
+        <button className="ib" id="newChat" title="New chat" aria-label="New chat" onClick={() => createChat(newChat())}>
+          <Plus />
         </button>
-        <button className="foldbtn" id="foldSets" title="Hide Sets" aria-label="Hide Sets" onClick={() => fold("sets", true)}>
-          «
+        <button className="ib" id="foldSets" title="Hide sets" aria-label="Hide sets" onClick={() => fold("sets", true)}>
+          <Chev left />
         </button>
       </div>
-      <div className="scroll" id="sets">
+      <div className="ts-list" id="sets">
         {SETS.map((id) => {
           const info = SET_INFO[id];
           const list = s.convs.filter((c) => c.set === id);
@@ -38,10 +61,10 @@ export function SetsList() {
           return (
             <div
               key={id}
-              className={"set" + (drop === id ? " drop" : "")}
+              className={"ts-set" + (drop === id ? " drop" : "")}
               data-set={id}
-              onDragOver={(e) => (e.preventDefault(), setDrop(id))}
-              onDragLeave={() => setDrop(null)}
+              onDragOver={(e) => (e.preventDefault(), drop !== id && setDrop(id))}
+              onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setDrop(null)}
               onDrop={(e) => {
                 e.preventDefault();
                 setDrop(null);
@@ -49,57 +72,38 @@ export function SetsList() {
                 if (c && c.set !== id) change(c.id, [{ op: "set", value: id }]);
               }}
             >
-              <div className="sethead">
-                <span>
-                  <span className="dot" style={{ background: info.color }} /> {info.name}
+              <div className="ts-grp">
+                <span className="ts-sw" style={{ background: info.color }} />
+                {info.name}
+                <span className="n">
+                  {count} · ★ {stars}
                 </span>
-                <span className="muted small">
-                  {count} chat{count === 1 ? "" : "s"} · ★ {stars}
-                </span>
-              </div>
-              <div className="muted small" style={{ padding: "0 4px 4px" }}>
-                {info.note}
               </div>
               {hidden ? (
-                <>
-                  {s.hiddenTest.map((h, i) => (
-                    <button key={i} className="chat" data-hidden={i}>
-                      <span className="t">
-                        Hidden chat {i + 1}
-                        <span className="muted small">★ {h.stars}</span>
-                      </span>
-                      <span className="muted small">
-                        {kindName(h.kind)} · {h.msgs} messages
-                      </span>
-                    </button>
-                  ))}
-                  <div className="lock">
-                    People only: write and read these by hand. An agent that sees them can overfit.
-                    <button className="btn sm" id="showTest" style={{ alignSelf: "flex-start", color: "var(--team)" }} onClick={() => void showTest(true)}>
-                      Show Test chats
-                    </button>
-                  </div>
-                </>
+                <button
+                  className="ts-ci locked"
+                  id="showTest"
+                  title="People only: an agent that sees these can overfit"
+                  onClick={() => {
+                    if (!sure) return setSure(true);
+                    setSure(false);
+                    void showTest(true);
+                  }}
+                  onBlur={() => setSure(false)}
+                >
+                  <span className="t">{sure ? "Click again: people only" : `${count} hidden chat${count === 1 ? "" : "s"}`}</span>
+                  <span className="st">people only</span>
+                </button>
               ) : (
                 <>
                   {list.map((c) => (
-                    <button key={c.id} className={"chat" + (c.id === s.chat ? " on" : "")} draggable data-chat={c.id} onClick={() => open(c)} onDragStart={(e) => e.dataTransfer.setData("text/plain", c.id)}>
-                      <span className="t">
-                        {c.title}
-                        <span className="muted small">★ {starsIn(c)}</span>
-                      </span>
-                      <span className="muted small">
-                        {kindName(c.kind)} · {c.msgs.length} messages · {c.msgs.reduce((a, m) => a + labelCount(m), 0)} labels
-                      </span>
+                    <button key={c.id} className="ts-ci" aria-current={c.id === s.chat} draggable data-chat={c.id} onClick={() => open(c)} onDragStart={(e) => (e.dataTransfer.setData("text/plain", c.id), (e.dataTransfer.effectAllowed = "move"))}>
+                      <span className="t">{c.title}</span>
+                      <span className="st">★ {starsIn(c)}</span>
                     </button>
                   ))}
-                  {!list.length && !(id === "test") ? (
-                    <div className="muted small" style={{ padding: 6 }}>
-                      Drop a chat here
-                    </div>
-                  ) : null}
                   {id === "test" ? (
-                    <button className="btn sm ghost" id="hideTest" onClick={() => void showTest(false)}>
+                    <button className="ts-showtest" id="hideTest" onClick={() => void showTest(false)}>
                       Hide Test chats
                     </button>
                   ) : null}
@@ -109,6 +113,6 @@ export function SetsList() {
           );
         })}
       </div>
-    </div>
+    </aside>
   );
 }

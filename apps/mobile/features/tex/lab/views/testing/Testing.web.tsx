@@ -1,7 +1,7 @@
 /**
- * The Lab's Testing tab, built exactly from the prototype (Dev2, 2026-11-15: "make sure to build this EXACTLY how it
- * is here", https://claude.ai/artifact/GAScQuRxZyASpH8xes4n9K): the sets on the left, the chat as a grid in the
- * middle, the selected cell on the right. Training and Dev are read and kept through Convex (`functions/texSets.ts`);
+ * The Lab's Testing tab, simplified (Dev2, 2026-11-16: "simplify this page, because right now it looks horrendous";
+ * built exactly from the approved mockup https://claude.ai/artifact/PUjJ7Vd6tX6BJj7vkEir1T): the sets on the left,
+ * the chat as a grid in the middle, and a step's details on the right only while one of its cells is picked. Training and Dev are read and kept through Convex (`functions/texSets.ts`);
  * the Test Set only through the eval service, by a person who asks to see it.
  */
 import { useEffect, useMemo, useRef } from "react";
@@ -12,12 +12,13 @@ import { useConsoleGrant } from "../../../../agent/useConsoleGrant";
 import { MCP_ENDPOINT } from "../../../../console/placeholderData";
 import * as LD from "../../labData.generated";
 import { lab, set } from "../../engine/state";
-import { setsRatio, type Conversation } from "../../engine/sets";
+import type { Conversation } from "../../engine/sets";
 import { mergeDrafts, testClient, type Draft } from "../../engine/setsData";
-import { fold, loadConvs, setSetsSink, setUi, sets, undo, useSets } from "../../engine/setsStore";
+import { loadConvs, setSetsSink, setUi, undo, useSets, type HiddenChat } from "../../engine/setsStore";
 import { Grid, gridKey } from "./Grid.web";
 import { Inspector } from "./Inspector.web";
 import { SetsList } from "./SetsList.web";
+import { TESTING_CSS } from "./testingCss";
 import { RunsPanel } from "../runs/Runs.web";
 import { TryPanel } from "./TryText.web";
 import { useRunsUi } from "../../engine/labRuns";
@@ -54,7 +55,7 @@ function useSetsSync() {
   const state = useRef(merged);
   state.current = merged;
 
-  const counts = useRef<{ hidden: typeof sets.hiddenTest; stars: number }>({ hidden: [], stars: 0 });
+  const counts = useRef<{ hidden: HiddenChat[]; stars: number }>({ hidden: [], stars: 0 });
   useEffect(() => {
     let on = true;
     void test
@@ -101,6 +102,13 @@ function useSetsSync() {
         await create({ conv: c, repoIds: [...state.current.repoIds] });
       },
       readTest: test ? () => test.list() : undefined,
+      async remove(c) {
+        if (c.set === "test") {
+          if (!test) throw new Error("The Test Set can't be reached");
+          return test.remove(c.id);
+        }
+        await remove({ id: c.id, base: base(c.id) });
+      },
       async restore(id, to) {
         const r = (await restoreTo({ id, to })) as unknown as { rev: number };
         mine.current[id] = r.rev;
@@ -116,37 +124,6 @@ function useSetsSync() {
     });
     return () => setSetsSink(null);
   }, [edit, create, remove, test, picUploadUrl, picUrl, restoreTo]);
-}
-
-export function Ratio() {
-  const s = useSets();
-  const r = setsRatio(s.convs.filter((c) => c.set !== "test"), s.testStars);
-  const colors = { training: "var(--accent)", dev: "var(--ok)", test: "var(--team)" } as const;
-  const all = r.total;
-  return (
-    <div className="ratio" id="ratio">
-      <span>{all} starred tests</span>
-      <div className="rbar">
-        {(["training", "dev", "test"] as const).map((k) => (
-          <i key={k} style={{ width: r.pct[k] + "%", background: colors[k] }} />
-        ))}
-      </div>
-      <span>
-        {r.pct.training} / {r.pct.dev} / {r.pct.test}
-      </span>
-      <span className={r.holds ? "ok" : "warn"}>{r.holds ? "holds 60/20/20" : "off 60/20/20"}</span>
-    </div>
-  );
-}
-
-/** A side panel folded to a strip: one button opens it again. */
-function Folded({ side, label }: { side: "sets" | "insp"; label: string }) {
-  return (
-    <button className="panel fold" id={side === "sets" ? "openSets" : "openInsp"} title={`Show ${label}`} aria-label={`Show ${label}`} onClick={() => fold(side, false)}>
-      <span aria-hidden="true">{side === "sets" ? "»" : "«"}</span>
-      <span className="foldname">{label}</span>
-    </button>
-  );
 }
 
 export function Testing() {
@@ -181,18 +158,22 @@ export function Testing() {
     return () => document.removeEventListener("keydown", k);
   }, []);
   const c = s.convs.find((x) => x.id === s.chat) ?? null;
+  // The right panel shows only while there is something to show: a run, a try, or a step's cell picked.
+  const step = !!c && !!s.msg && s.msg !== "try" && !!s.col && s.col !== "who" && s.col !== "text" && !c.msgs.find((m) => m.id === s.msg)?.tex;
+  const right = ui.open ? <RunsPanel /> : c && s.msg === "try" ? <TryPanel c={c} /> : step ? <Inspector c={c} /> : null;
   return (
-    <div className="tst" data-testid="tex-testing">
-      <div className="cols" style={{ gridTemplateColumns: `${s.fold.sets ? "36px" : "250px"} minmax(0,1fr) ${s.fold.insp ? "36px" : "340px"}` }}>
-        {s.fold.sets ? <Folded side="sets" label="Sets" /> : <SetsList />}
+    <div className="tst tsx" data-testid="tex-testing">
+      <style>{TESTING_CSS}</style>
+      <div className="ts-body" style={{ gridTemplateColumns: `${s.fold.sets ? "" : "232px "}minmax(0,1fr)${right ? " 320px" : ""}` }}>
+        {s.fold.sets ? null : <SetsList />}
         {c ? (
           <Grid key={c.id} c={c} />
         ) : (
-          <div className="panel" id="middle">
-            <div className="empty">{s.loaded ? "Pick a chat, or add one with + Chat." : "Reading the sets…"}</div>
+          <div className="ts-mid" id="middle">
+            <div className="empty">{s.loaded ? "Pick a chat, or add one with +." : "Reading the sets…"}</div>
           </div>
         )}
-        {s.fold.insp ? <Folded side="insp" label="Details" /> : ui.open ? <RunsPanel /> : c && s.msg === "try" ? <TryPanel c={c} /> : <Inspector c={c} />}
+        {right ? <div className="ts-det">{right}</div> : null}
       </div>
       {s.problem ? (
         <div className="toast" role="status" onClick={() => setUi({ problem: null })}>

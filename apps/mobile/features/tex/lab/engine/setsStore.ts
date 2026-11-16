@@ -120,6 +120,8 @@ export type SetsSink = {
   upload?: (file: File) => Promise<Pic>;
   /** Put a Training or Dev chat's revision `to` back (0: the repo's copy), as a new revision. */
   restore?: (id: string, to: number) => Promise<void>;
+  /** Delete a chat: a new one goes now, a repo one at the next Promote (`tex_dev` `set_delete`). */
+  remove?: (c: Conversation) => Promise<void>;
 };
 let sink: SetsSink | null = null;
 export const setSetsSink = (s: SetsSink | null) => {
@@ -200,6 +202,26 @@ export function createChat(c: Conversation) {
   sets.convs = [...sets.convs, c];
   setUi({ chat: c.id, msg: null, col: null, editing: false });
   void sink?.create(c).catch((e: unknown) => setUi({ problem: e instanceof Error ? e.message : "Couldn't add the chat" }));
+}
+
+/** Delete a chat from its set; the next chat in the list opens. Undo can't bring it back: History can, until a Promote. */
+export async function deleteChat(chatId: string) {
+  const c = sets.convs.find((x) => x.id === chatId);
+  if (!c) return;
+  if (!sink?.remove) return setUi({ problem: "Chats can't be deleted here" });
+  const rest = sets.convs.filter((x) => x.id !== chatId);
+  const steps = (s: Step[]) => s.splice(0, s.length, ...s.filter((x) => x.chat !== chatId));
+  steps(undone);
+  steps(redone);
+  counted();
+  sets.convs = rest;
+  setUi({ chat: rest.find((x) => x.set === c.set)?.id ?? rest.find((x) => x.set !== "test")?.id ?? null, msg: null, col: null, editing: false, history: false });
+  try {
+    await sink.remove(c);
+  } catch (e) {
+    sets.convs = [...sets.convs, c];
+    setUi({ problem: e instanceof Error ? e.message : "Couldn't delete that chat" });
+  }
 }
 
 /** The store's latest copy of the conversations; selection survives when its chat and message still exist. */
