@@ -99,7 +99,8 @@ function opusDecide() {
 
 test("sim times the draft against main: slower, dearer, step by step with what each reads", async () => {
   const dev = devWith({ get: draftRow(opusDecide()), cases: NO_CASES });
-  const key = labTests({ draft: { id: "main", name: "main" } }).find((t) => t.key.startsWith("core/")).key;
+  // A group text: Triage sends it to Decide (a lone 1:1 text goes straight to the Queue, and Decide never runs).
+  const key = labTests({ draft: { id: "main", name: "main" } }).find((t) => t.key === "pipeline/group-chatter-kept").key;
   const answer = jsonOf(await dev("sim", { draft: "vopus", test: key }));
   assert.equal(answer.version, "Opus door");
   assert.equal(answer.test.key, key);

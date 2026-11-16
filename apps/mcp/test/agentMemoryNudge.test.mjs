@@ -254,3 +254,32 @@ test("their answer to a question about them is kept at once, not ten texts later
   assert.equal(nudges().length, 2, "one nudge right away");
   assert.match(bucket.get(ABOUT_ME_PATH)?.body ?? "", /Queens Plaza/);
 });
+
+/* ---------------- a Lab test chat ---------------- */
+
+test("in a Lab test chat the nudge keeps its count in the test chat, never the workspace's bucket (whose key is blanked there)", async () => {
+  const { memoryNudge } = await import("../src/agent/memoryNudge.js");
+  const { LAB_SANDBOX_KEY } = await import("../src/labSandbox/policy.js");
+  const kv = new Map();
+  const gate = {
+    record() {},
+    async kvGet(obj, key) {
+      return kv.get(`${obj}|${key}`) ?? null;
+    },
+    async kvPut(obj, key, record) {
+      kv.set(`${obj}|${key}`, record);
+    },
+  };
+  const refused = () => {
+    throw Object.assign(new Error("403 SignatureDoesNotMatch"), { name: "StorageError" });
+  };
+  const store = { contexts: [], get: refused, put: refused, list: refused, head: refused };
+  const env = { [LAB_SANDBOX_KEY]: gate };
+  const session = { workspaceId: "ws_lab_nudge" };
+  const first = await memoryNudge({ env, controlPlane: null, store, session, offered: [], dispatch: async () => ok(), now: 1_000 });
+  assert.equal(first.outcome, "counting", JSON.stringify(first));
+  const kept = kv.get(`memory-nudge#ws_lab_nudge|${NUDGE_MARKER}`);
+  assert.equal(JSON.parse(atob(kept.body)).at, 1_000);
+  const second = await memoryNudge({ env, controlPlane: null, store, session, offered: [], dispatch: async () => ok(), now: 2_000 });
+  assert.equal(second.outcome, "not_yet", "the kept count is read back, not started again");
+});

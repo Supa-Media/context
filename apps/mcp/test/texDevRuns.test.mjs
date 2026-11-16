@@ -24,7 +24,7 @@ const tool = (answers) => {
 };
 
 test("the guide, the schema's description and its action list name run and runs", () => {
-  for (const action of ["run", "runs", "run_remove"]) {
+  for (const action of ["run", "runs", "run_remove", "code"]) {
     assert.match(guideText(), new RegExp(`- ${action} `));
     const def = texDevToolDefinitions()[0];
     assert.match(def.description, new RegExp(`\\b${action}\\b`));
@@ -93,4 +93,14 @@ test("run_remove sends the id and refuses none", async () => {
   assert.equal((await call("run_remove", {})).isError, true);
   assert.deepEqual(jsonOf(await call("run_remove", { id: "k1" })).removed, "k1");
   assert.deepEqual(calls, [{ action: "run_remove", args: { id: "k1" } }]);
+});
+
+test("code points a draft's runs at a pull request or branch; run passes its own code only when named", async () => {
+  const { calls, call } = tool({ code: (a) => ({ status: "ok", code: a.code === "main" ? null : "#3401" }), run: { status: "ok", id: "k2" } });
+  assert.equal((await call("code", { code: "#3401" })).isError, true, "a draft is named");
+  assert.equal((await call("code", { draft: "vabc" })).isError, true, "the code is named");
+  assert.equal(jsonOf(await call("code", { draft: "vabc", code: "3401" })).code, "#3401");
+  assert.equal(jsonOf(await call("code", { draft: "vabc", code: "main" })).code, "main");
+  await call("run", { draft: "vabc", code: "claude/x" });
+  assert.deepEqual(calls.map((c) => c.args), [{ draft: "vabc", code: "3401" }, { draft: "vabc", code: "main" }, { draft: "vabc", kind: "dev", conv: undefined, node: undefined, models: "gw", code: "claude/x" }]);
 });

@@ -201,6 +201,51 @@ describe("the workflow's reports", () => {
   });
 });
 
+describe("the code a run checks out (Dev2: \"it should run on the PRs code instead of main\")", () => {
+  test("a draft names a pull request or branch; its runs carry it to the workflow; a run may name its own; main is none", async () => {
+    const { door, t, lab } = await world();
+    const { id: draft } = await door("create", { name: "Simpler", graph: JSON.stringify({ nodes: [{ id: "text" }], edges: [] }) });
+    expect(await door("code", { draft, code: "https://github.com/Supa-Media/context/pull/3401" })).toEqual({ status: "ok", code: "#3401" });
+    expect((await door("get", { draft })).code).toBe("#3401");
+    expect((await door("list", {})).drafts[0].code).toBe("#3401");
+    expect(await lab.query(api.functions.texLabRuns.codeFor, { versionId: draft })).toBe("#3401");
+    const { id } = await door("run", { draft, kind: "dev" });
+    expect((await t.query(internal.functions.texLabRuns.job, { runId: id })) as Record<string, unknown>).toMatchObject({ code: "#3401" });
+    expect((await door("runs", { id })).run).toMatchObject({ code: "#3401", commit: null });
+    // A run's own code wins, main included; main's own runs can name a branch.
+    const own = await door("run", { draft, kind: "dev", code: "claude/some-branch" });
+    expect((await door("runs", { id: own.id })).run.code).toBe("claude/some-branch");
+    const onMain = await door("run", { draft, kind: "dev", code: "main" });
+    expect((await door("runs", { id: onMain.id })).run.code).toBeNull();
+    // The Lab's field: empty is main again.
+    expect(await lab.mutation(api.functions.texLabRuns.setCode, { versionId: draft, code: "" })).toEqual({ code: null });
+    expect(await lab.query(api.functions.texLabRuns.codeFor, { versionId: draft })).toBeNull();
+  });
+
+  test("never an option, a path climb, a fork's address or main itself; a stranger can't set it", async () => {
+    const w = await world();
+    const { id: draft } = await w.door("create", { name: "Simpler", graph: JSON.stringify({ nodes: [{ id: "text" }], edges: [] }) });
+    for (const code of ["--upload-pack=x", "a..b", "a//b", "x.lock", "has space", "$(id)", "#0", "a;b", "https://github.com/someone/fork/tree/x", "https://github.com/someone/fork/pull/5"]) {
+      expect(await w.door("code", { draft, code })).toMatchObject({ status: "bad_request" });
+      expect(await w.door("run", { draft, kind: "dev", code })).toMatchObject({ status: "bad_request" });
+    }
+    expect(await w.door("code", { draft: "main", code: "#3401" })).toMatchObject({ status: "bad_request" });
+    expect(await w.door("code", { draft: "vnothere1", code: "#3401" })).toMatchObject({ status: "not_found" });
+    expect(await w.door("code", { draft, code: "#3401" }, ACCESS_B)).toEqual({ status: "refused" });
+    const stranger = withSession(w.t, await createUser(w.t, "stranger@example.invalid"));
+    await expect(stranger.mutation(api.functions.texLabRuns.setCode, { versionId: draft, code: "#3401" })).rejects.toThrow();
+    await expect(stranger.query(api.functions.texLabRuns.codeFor, { versionId: draft })).rejects.toThrow();
+  });
+
+  test("the workflow reports the commit it checked out, and only a commit", async () => {
+    const { door, t } = await world();
+    const { id } = await door("run", { draft: "main", kind: "dev" });
+    await expect(t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "running", commit: "main" })).rejects.toThrow();
+    await t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "running", commit: SHA });
+    expect((await door("runs", { id })).run).toMatchObject({ stage: "running", commit: SHA, code: null });
+  });
+});
+
 describe("Promote", () => {
   test("Promote makes a gate run, starts the promote workflow at once, and the run follows its pull request's Test set status", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

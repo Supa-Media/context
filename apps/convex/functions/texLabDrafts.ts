@@ -297,6 +297,8 @@ const draftOf = async (ctx: QueryCtx, row: Row) => ({
   updatedAt: row.updatedAt,
   live: row.live && Date.now() - row.live.at < LIVE_MS ? { client: row.live.client, at: row.live.at } : null,
   promote: row.promote ? { state: row.promote.state, pr: row.promote.pr ?? null, why: row.promote.why ?? null } : null,
+  /** The pull request or branch whose code the draft's runs check out; null is main (`texLabRuns.ts`). */
+  code: row.code ?? null,
 });
 
 /**

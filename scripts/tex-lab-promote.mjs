@@ -9,7 +9,8 @@
  *
  * Refused, with the reason, rather than written: a graph whose steps or wires are malformed, a wire to a step that is
  * not there, a step on a model the config's table has no gateway id for (a model added in the Lab only), or a step
- * the gateway has no code for (a new id: build its code on a branch first, then promote), or an edit to a module whose
+ * the gateway has no code for (a new id: merge its code to main first, on the shelf, `texNodeShelf.json`; Dev2,
+ * 2026-11-16: "create the node inside the code first and merge it to main"), or an edit to a module whose
  * words are not a prompt module's (a code module, a chat view, a step's own instructions: those change in code).
  *
  * Prompt words are promoted too (Dev2, 2026-11-14: the words live "in the repo, beside the config"): a version's text
@@ -34,6 +35,8 @@ const MODES = new Set(["wait", "uses", "background", "job", "loop"]);
 const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
 const PROMPT_KEY = /^p-([a-z][a-z0-9-]{0,47})$/;
 const MAX_WORDS = 40_000;
+/** Nodes merged but not wired (Dev2, 2026-11-16). */
+export const SHELF = "packages/shared/src/texNodeShelf.json";
 
 /**
  * The prompt words a version's module edits make over the current words, `{ words }` (only the modules it changes),
@@ -57,19 +60,23 @@ export function wordsFrom(modules, currentWords) {
   return { words };
 }
 
-/** The config a graph makes over the current one, `{ config, words }`, or `{ refused }`. */
-export function configFrom(graph, current, currentWords = {}) {
+/**
+ * The config a graph makes over the current one, `{ config, words, unshelved }`, or `{ refused }`. A step on the shelf
+ * (`shelf`: ids whose code is merged but not wired) may join; `unshelved` names the ones that did, which come off it.
+ */
+export function configFrom(graph, current, currentWords = {}, shelf = []) {
   const refuse = (why) => ({ refused: why });
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return refuse("the version has no steps and wires");
   const madeWords = wordsFrom(graph.modules, currentWords);
   if (madeWords.refused) return madeWords;
   const known = new Set(current.nodes.map((n) => n.id));
+  const shelved = new Set(shelf);
   const ids = new Set();
   for (const n of graph.nodes) {
     if (!n || typeof n !== "object" || typeof n.id !== "string" || !ID.test(n.id)) return refuse(`a step has no usable id (${JSON.stringify(n?.id)})`);
     if (ids.has(n.id)) return refuse(`step "${n.id}" is there twice`);
     ids.add(n.id);
-    if (!known.has(n.id)) return refuse(`step "${n.id}" is new: the gateway has no code for it yet, so build it on a branch first`);
+    if (!known.has(n.id) && !shelved.has(n.id)) return refuse(`step "${n.id}" is new: the gateway has no code for it yet, so merge its code to main first, on the shelf (texNodeShelf.json)`);
     if (typeof n.model !== "string" || (n.model !== "code" && typeof current.models[n.model] !== "string")) return refuse(`step "${n.id}" runs on "${n.model}", which has no gateway model id in Tex's config`);
     if (n.effort !== undefined && !EFFORTS.has(n.effort)) return refuse(`step "${n.id}" has effort "${n.effort}"`);
     if (typeof n.on !== "boolean") return refuse(`step "${n.id}" is neither on nor off`);
@@ -84,7 +91,9 @@ export function configFrom(graph, current, currentWords = {}) {
   }
   // In the order main has them, so a promotion's diff shows only what changed.
   const order = new Map(current.nodes.map((n, i) => [n.id, i]));
-  const nodes = [...graph.nodes].sort((a, b) => order.get(a.id) - order.get(b.id));
+  // A step off the shelf goes after main's, in the version's order.
+  const at = (n) => order.get(n.id) ?? current.nodes.length + graph.nodes.indexOf(n);
+  const nodes = [...graph.nodes].sort((a, b) => at(a) - at(b));
   // Every prompt module a step reads must have words, here or in this version.
   for (const n of nodes) {
     for (const entry of n.ctx ?? []) {
@@ -107,7 +116,7 @@ export function configFrom(graph, current, currentWords = {}) {
     const named = new Set(nodes.map((n) => n.group).filter(Boolean));
     for (const id of Object.keys(groups)) if (!named.has(id) && !(current.groups ?? {})[id]) delete groups[id];
   }
-  return { config: { ...current, nodes, edges, ...(groups ? { groups } : {}) }, words: madeWords.words };
+  return { config: { ...current, nodes, edges, ...(groups ? { groups } : {}) }, words: madeWords.words, unshelved: nodes.map((n) => n.id).filter((id) => shelved.has(id)) };
 }
 
 /** The config file's text: the head as JSON, then one step and one wire per line. */
@@ -161,6 +170,13 @@ function selfTest() {
   g7.nodes.find((n) => n.id === "fd").ctx.push("p-brand-new");
   expect(/no words/.test(configFrom(g7, current, words).refused ?? ""), "a step reading a module with no words passed");
   expect(configFrom({ ...g7, modules: { "p-brand-new": { text: "New words." } } }, current, words).words?.["brand-new"] === "New words.", "a new module's words were lost");
+  // A shelf node (merged, not wired) may join; a new id with no code still may not.
+  const g9 = graph();
+  g9.nodes.push({ id: "shelved", label: "Shelved", model: "code", on: true });
+  g9.edges.push({ from: g9.nodes[0].id, to: "shelved", mode: "background", when: ["*"] });
+  expect(/new/.test(configFrom(g9, current, words).refused ?? ""), "a new step with no code passed");
+  const off = configFrom(g9, current, words, ["shelved"]);
+  expect(off.config?.nodes.at(-1)?.id === "shelved" && off.unshelved?.join() === "shelved", "a shelf node did not join the config last and come off the shelf");
   const g8 = graph();
   const bg = g8.edges.find((e) => e.mode === "background");
   bg.mode = "behind";
@@ -185,7 +201,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       process.exit(1);
     }
     const current = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
-    const made = configFrom(graph, current, wordsOf(ROOT));
+    const shelf = JSON.parse(readFileSync(join(ROOT, SHELF), "utf8"));
+    const made = configFrom(graph, current, wordsOf(ROOT), Object.keys(shelf.nodes ?? {}));
     if (made.refused) {
       console.error(`tex-lab-promote: refused: ${made.refused}`);
       process.exit(1);
@@ -197,6 +214,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       writeFileSync(join(ROOT, MAP_MODULE), mapModuleFor(made.config));
       for (const [name, text] of Object.entries(made.words)) writeFileSync(join(ROOT, PROMPT_FOLDER, `${name}.md`), `${text}\n`);
       writeFileSync(join(ROOT, PROMPT_MODULE), promptModuleFor(wordsOf(ROOT)));
+      // A shelf node now wired comes off the shelf in the same pull request.
+      if (made.unshelved.length > 0) {
+        for (const id of made.unshelved) delete shelf.nodes[id];
+        writeFileSync(join(ROOT, SHELF), `${JSON.stringify(shelf, null, 2)}\n`);
+      }
     }
     const changed = Object.keys(made.words);
     console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG}, ${PAGE}'s drawing and table and ${MAP_MODULE}${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}`);

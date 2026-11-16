@@ -20,6 +20,10 @@ export type LabRun = {
   stage: RunStage;
   ghRunUrl?: string;
   pr?: string;
+  /** The code asked for: `#<pull request>` or a branch; null is main. */
+  code?: string | null;
+  /** The commit the workflow checked out and ran, once it did. */
+  commit?: string | null;
   by?: string;
   startedAt: number;
   finishedAt?: number;
@@ -60,10 +64,17 @@ export const ago = (at: number, now = Date.now()) => {
 export const live = (r: LabRun) => r.stage === "queued" || r.stage === "running";
 /** A failure GitHub's refusal caused, fixed since: shown as fixed, never as a red current failure. */
 export const fixedWords = "Fixed since: later runs start";
+/** Which code a run asks for, in words. */
+export const codeWords = (code: string | null | undefined) => (!code ? "Runs on main's code" : code.startsWith("#") ? `Runs on pull request ${code}'s code` : `Runs on branch ${code}`);
+const REPO = "https://github.com/Supa-Media/context";
+/** Where the code a run asked for lives, and the commit that ran (only once the workflow reported it). */
+export const codeLink = (code: string | null | undefined) => (!code ? `${REPO}/tree/main` : code.startsWith("#") ? `${REPO}/pull/${code.slice(1)}` : `${REPO}/tree/${code.split("/").map(encodeURIComponent).join("/")}`);
+export const commitLink = (sha: string) => `${REPO}/commit/${sha}`;
 /** The same run from any MCP session (Lab = MCP parity). */
 export function mcpLines(r: LabRun) {
   const remove = live(r) ? "" : `\ntex_dev { action: "run_remove", id: "${r.id}" }`;
   if (r.kind === "gate") return `tex_dev { action: "test_set" }\ntex_dev { action: "runs", id: "${r.id}" }${remove}`;
   const extra = r.kind === "chat" ? `, conv: "${r.convId}"` : r.kind === "node" ? `, node: "${r.nodeId}"` : "";
-  return `tex_dev { action: "run", draft: "${r.versionId}", kind: "${r.kind}"${extra}, models: "${r.models}" }\ntex_dev { action: "runs", id: "${r.id}" }${remove}`;
+  const code = r.code ? `, code: "${r.code}"` : "";
+  return `tex_dev { action: "run", draft: "${r.versionId}", kind: "${r.kind}"${extra}, models: "${r.models}"${code} }\ntex_dev { action: "runs", id: "${r.id}" }${remove}`;
 }

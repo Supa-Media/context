@@ -33,6 +33,7 @@ import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { builtinMeter } from "./jobLog.js";
 import { readConversation } from "./conversation.js";
+import { sandboxGateOf } from "../labSandbox/policy.js";
 import { ABOUT_ME_PATH, MAX_ABOUT_ME_LINES } from "./aboutMe.js";
 
 /** Texts from the person between nudges. */
@@ -146,11 +147,38 @@ export function nudgeQuestion(shown) {
   ].join("\n\n");
 }
 
-async function readMarker(store) {
+/**
+ * Where the nudge keeps its count: the workspace's store, or in a Lab test chat the test chat's own copy
+ * (`labSandbox/harness.js` `sandboxGate` kv). A test turn's storage binding has its keys blanked (`policy.js`
+ * `withoutKeys`), so a bucket-homed workspace refused the marker with a 403 and every test-chat nudge failed
+ * (2026-11-16); the count is the test chat's to keep, never the person's real marker.
+ */
+export function nudgeMarker(env, store, session) {
+  const gate = sandboxGateOf(env);
+  if (gate === null) {
+    return {
+      get: async () => {
+        const object = await store.get(NUDGE_MARKER);
+        return object ? object.text() : null;
+      },
+      put: (text) => store.put(NUDGE_MARKER, text),
+    };
+  }
+  const obj = `memory-nudge#${session?.workspaceId ?? "workspace"}`;
+  return {
+    get: async () => {
+      const kept = await gate.kvGet(obj, NUDGE_MARKER);
+      return kept && !kept.gone && typeof kept.body === "string" ? atob(kept.body) : null;
+    },
+    put: (text) => gate.kvPut(obj, NUDGE_MARKER, { meta: { key: NUDGE_MARKER, size: text.length, uploaded: Date.now() }, body: btoa(text) }),
+  };
+}
+
+async function readMarker(marker) {
   try {
-    const object = await store.get(NUDGE_MARKER);
-    if (!object) return null;
-    const at = JSON.parse(await object.text())?.at;
+    const text = await marker.get();
+    if (text === null) return null;
+    const at = JSON.parse(text)?.at;
     return Number.isFinite(at) ? at : null;
   } catch {
     return null;
@@ -182,11 +210,12 @@ function log(session, fields) {
 export async function memoryNudge({ env, controlPlane, store, session, offered, dispatch, now = Date.now(), current = null }) {
   try {
     const history = await readConversation(store, "texts", { entries: READ_EXCHANGES });
-    const marker = await readMarker(store);
+    const kept = nudgeMarker(env, store, session);
+    const marker = await readMarker(kept);
     if (marker === null) {
       // Counting starts now, not over texts from before there was a nudge.
       const latest = history.reduce((most, turn) => (Number.isFinite(turn.at) ? Math.max(most, turn.at) : most), 0);
-      await store.put(NUDGE_MARKER, JSON.stringify({ at: latest || now }));
+      await kept.put(JSON.stringify({ at: latest || now }));
       return { outcome: "counting" };
     }
     const counted = textsSince(history, marker);
@@ -196,7 +225,7 @@ export async function memoryNudge({ env, controlPlane, store, session, offered, 
     if (counted.count < NUDGE_EVERY && !asked) return { outcome: "not_yet" };
     const since = asked ? textsSince(withCurrent, marker) : counted;
     // Counted whatever comes of it, so a failing nudge is not retried every text.
-    await store.put(NUDGE_MARKER, JSON.stringify({ at: since.newest }));
+    await kept.put(JSON.stringify({ at: since.newest }));
     if (since.shown.length === 0) {
       log(session, { outcome: "nothing_shown", texts: since.count });
       return { outcome: "nothing_shown" };

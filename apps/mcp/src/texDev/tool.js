@@ -238,8 +238,15 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const draft = args.draft ?? "main";
         if (draft !== "main" && needDraft({ draft })) return needDraft({ draft });
         const kind = args.kind ?? "dev";
-        const { answer, error } = await plane("run", { draft, kind, conv: args.conv, node: args.node, models: args.models ?? "gw" });
-        return error ?? json({ run: answer.id, stage: "queued", then: "A GitHub run starts within a minute and runs the Dev set's unit tests; runs { id } shows its stage and, when done, every test's verdict. The Lab's Runs panel shows the same run." });
+        const { answer, error } = await plane("run", { draft, kind, conv: args.conv, node: args.node, models: args.models ?? "gw", ...(args.code !== undefined ? { code: args.code } : {}) });
+        return error ?? json({ run: answer.id, stage: "queued", then: "A GitHub run starts within a minute and runs the Dev set's unit tests on the draft's code (main unless code names a pull request or branch); runs { id } shows its stage, the commit that ran and, when done, every test's verdict. The Lab's Runs panel shows the same run." });
+      }
+      // The code a draft runs on (Dev2, 2026-11-16: "when we run things it should run on the PRs code instead of main").
+      case "code": {
+        if (needDraft(args)) return needDraft(args);
+        if (args.code === undefined) return toolError('code takes { draft, code: "#<pull request>" | <branch> | "main" }.');
+        const { answer, error } = await plane("code", { draft: args.draft, code: args.code });
+        return error ?? json({ draft: args.draft, code: answer.code ?? "main", then: answer.code ? "Every run of this draft checks this code out instead of main; runs show the commit that ran. The Lab's Code field shows the same." : "Runs of this draft are back on main's code." });
       }
       case "run_remove": {
         if (typeof args.id !== "string") return toolError("run_remove takes { id } (runs lists them).");

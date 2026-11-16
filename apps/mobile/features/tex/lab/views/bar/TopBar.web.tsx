@@ -2,12 +2,14 @@
  * The decluttered top bar's menus (mockup https://claude.ai/artifact/W21NekNf2vtnFLXXzAmp7N, approved by Dev2
  * 2026-11-16: "much cleaner"): one version picker that holds the versions, a new version, rename, Promote and how a
  * draft's changes are drawn; the Dev set score and a split ▶ Run Dev set whose menu picks the models; and ⋯ for the
- * look and the sync state. Everything here is also a tex_dev action (list, create, rename, promote, run, runs).
+ * look and the sync state. Everything here is also a tex_dev action (list, create, rename, promote, run, runs, code).
  */
-import { emit, isMain, lab, newVersion, openVersion, PLAY_SPEEDS, set, setSpeed, type PlaySpeed } from "../../engine/state";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@context/convex/_generated/api";
+import { emit, isMain, lab, newVersion, openVersion, PLAY_SPEEDS, set, setSpeed, toast, type PlaySpeed } from "../../engine/state";
 import { isLive, live } from "../../engine/live";
 import { promoteVersion, useLab } from "../../store";
-import { scoreWords, setRunsUi, useRunsUi } from "../../engine/labRuns";
+import { codeWords, scoreWords, setRunsUi, useRunsUi } from "../../engine/labRuns";
 import { setLabTheme, THEMES, useLabTheme } from "../../theme.web";
 import { ChangeToggles, LiveChanges } from "../LiveChanges.web";
 import { StagePill, useRuns, useStartRun } from "../runs/Runs.web";
@@ -213,6 +215,8 @@ export function RunSplit() {
                 Claude Code token <span className="meta">GitHub</span>
               </button>
               <hr />
+              <CodeField />
+              <hr />
               <button className="mi" id="labAllRuns" onClick={() => (close(), openRuns())}>
                 All runs <span className="meta">{runs.length}</span>
               </button>
@@ -221,6 +225,55 @@ export function RunSplit() {
         </Pop>
       </span>
     </span>
+  );
+}
+
+/**
+ * The code a draft's runs check out (Dev2, 2026-11-16: "when we run things it should run on the PRs code instead of
+ * main"): a pull request (#3401 or its address) or a branch of this repository, or main when empty. Main itself always
+ * runs main's code. `tex_dev` `code` sets the same.
+ */
+export function CodeField() {
+  const id = lab.cur.id;
+  const main = id === "main";
+  const asked = useQuery(api.functions.texLabRuns.codeFor, main ? "skip" : { versionId: id }) as unknown;
+  const code = typeof asked === "string" ? asked : null;
+  const setCode = useMutation(api.functions.texLabRuns.setCode);
+  const save = async (raw: string) => {
+    if (raw.trim() === (code ?? "")) return;
+    try {
+      const out = await setCode({ versionId: id, code: raw.trim() });
+      toast(out.code ? `Runs of this draft now check out ${out.code}` : "Runs of this draft are back on main's code");
+    } catch (e) {
+      toast(e instanceof Error ? e.message.replace(/^.*Uncaught ConvexError: /, "").replace(/\n[\s\S]*$/, "") : "The code wasn't set");
+    }
+  };
+  return (
+    <>
+      <div className="mh">Code</div>
+      {main ? (
+        <div className="mnote" id="labCode">
+          main's code. A draft can run on a pull request's code.
+        </div>
+      ) : (
+        <label className="mnote" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <input
+            id="labCode"
+            className="vren"
+            aria-label="Pull request or branch to run on"
+            placeholder="main, #3401 or a branch"
+            spellCheck={false}
+            key={id + ":" + (code ?? "")}
+            defaultValue={code ?? ""}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void save((e.target as HTMLInputElement).value);
+            }}
+            onBlur={(e) => void save(e.target.value)}
+          />
+          <span id="labCodeNow">{codeWords(code ?? null)}</span>
+        </label>
+      )}
+    </>
   );
 }
 
