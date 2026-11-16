@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 
 import { LabSandboxObject, sandboxTables, serveSandbox } from "../src/labSandbox/object.js";
 import { sandboxNamespace } from "../src/labSandbox/wire.js";
-import { CONTROL_PLANE_READS, controlPlaneAnswer, LAB_SANDBOX_KEY, sandboxEnvOf, sandboxGateOf, toolAnswer, withoutKeys } from "../src/labSandbox/policy.js";
+import { CONTROL_PLANE_READS, controlPlaneAnswer, LAB_SANDBOX_KEY, sandboxedTool, sandboxEnvOf, sandboxGateOf, toolAnswer, withoutKeys } from "../src/labSandbox/policy.js";
 import { sandboxGate, stepsOf, turnBody } from "../src/labSandbox/harness.js";
 import { handleLabSandbox, MAYA_CONVO } from "../src/labSandbox/route.js";
 import { withDraft } from "../src/agent/graph/turnGraph.js";
@@ -160,6 +160,13 @@ test("a tool that changes or sends is answered as done and listed; a read runs",
   assert.equal(toolAnswer("search_email", {}, gate), null);
   assert.equal(writes[0].kind, "Email");
   assert.equal(toolAnswer("write_note", { path: "tex/routines/x.md" }, gate) && writes.at(-1).kind, "Reminder");
+});
+
+test("a real turn's tools run as they are: only a test turn's env carries the gate", () => {
+  const call = { name: "send_email", args: { to: "x@example.invalid" } };
+  assert.equal(sandboxedTool({ PLAIN: "x" }, call), null);
+  assert.equal(sandboxedTool({ [LAB_SANDBOX_KEY]: { notAGate: true } }, call), null, "a gate without record() is no gate");
+  assert.match(sandboxedTool({ [LAB_SANDBOX_KEY]: { record() {} } }, call).content[0].text, /nothing was changed or sent/);
 });
 
 test("a test turn's env has no texting Worker, jobs, browser, chats or sandboxes, and analytics keep nothing", () => {
