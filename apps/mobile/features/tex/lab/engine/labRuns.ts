@@ -25,6 +25,8 @@ export type LabRun = {
   finishedAt?: number;
   results: { pass: number; total: number; costUsd: number; ms: number; perConv?: Array<{ id: string; pass: number; total: number }>; perNode?: Array<{ node: string; pass: number; total: number }>; rows?: RunRow[] } | null;
   error?: string;
+  /** GitHub refused this run, and a later run has started since: the cause is fixed (`functions/texLabRuns.ts` `fixedSince`). */
+  fixedSince?: boolean;
 };
 
 export type RunsUi = { open: boolean; run: string | null; models: "gw" | "cc"; ver: string };
@@ -56,9 +58,12 @@ export const ago = (at: number, now = Date.now()) => {
   return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;
 };
 export const live = (r: LabRun) => r.stage === "queued" || r.stage === "running";
+/** A failure GitHub's refusal caused, fixed since: shown as fixed, never as a red current failure. */
+export const fixedWords = "Fixed since: later runs start";
 /** The same run from any MCP session (Lab = MCP parity). */
 export function mcpLines(r: LabRun) {
-  if (r.kind === "gate") return `tex_dev { action: "test_set" }\ntex_dev { action: "runs", id: "${r.id}" }`;
+  const remove = live(r) ? "" : `\ntex_dev { action: "run_remove", id: "${r.id}" }`;
+  if (r.kind === "gate") return `tex_dev { action: "test_set" }\ntex_dev { action: "runs", id: "${r.id}" }${remove}`;
   const extra = r.kind === "chat" ? `, conv: "${r.convId}"` : r.kind === "node" ? `, node: "${r.nodeId}"` : "";
-  return `tex_dev { action: "run", draft: "${r.versionId}", kind: "${r.kind}"${extra}, models: "${r.models}" }\ntex_dev { action: "runs", id: "${r.id}" }`;
+  return `tex_dev { action: "run", draft: "${r.versionId}", kind: "${r.kind}"${extra}, models: "${r.models}" }\ntex_dev { action: "runs", id: "${r.id}" }${remove}`;
 }
