@@ -222,6 +222,18 @@ label.num.chg{outline:2px solid var(--accent);border-radius:10px}
 @media(max-width:820px){.fflow{grid-template-columns:1fr}.farrow{transform:rotate(90deg)}}
 .body.props.wide{grid-template-columns:260px minmax(0,1fr) 420px}
 .fbar{left:12px;top:60px;padding:5px 6px 5px 12px;gap:8px;font-size:13px}.fbar b{font-weight:600}
+/* Step groups (mockup 5y8sZpxqRYNZEdqqXTjq6J v3): a flat card with a violet edge; an open group in a dashed frame with pills. */
+.nd.grp .gcard{stroke:color-mix(in srgb,var(--team) 55%,transparent);stroke-width:1.2}.nd.grp:hover .gcard{stroke:var(--team);stroke-width:1.6}.nd.grp.sel .gcard{stroke:var(--accent);stroke-width:2}.nd.grp.lit .gcard{stroke:var(--accent);stroke-width:3}.nd.grp.run .gcard{stroke:var(--ok-wash);stroke-width:3}
+.nd.grp .gib{fill:color-mix(in srgb,var(--team) 8%,transparent);stroke:color-mix(in srgb,var(--team) 35%,transparent)}.gico{color:var(--team)}
+.nd.grp .gch{font-size:11px;fill:var(--dim)}.nd.grp .gch .n{fill:var(--team);font-family:var(--mono,monospace);font-weight:500}
+.gopen{cursor:pointer}.gopen rect{fill:transparent}.gopen:hover rect{fill:var(--chip)}.gopen path{stroke:var(--team)}
+.gframe{fill:color-mix(in srgb,var(--team) 6%,transparent);stroke:color-mix(in srgb,var(--team) 45%,transparent);stroke-dasharray:6 5;pointer-events:none}
+.gft{font-size:13px;font-weight:600;fill:var(--team)}.gfg{font-size:12px;fill:var(--muted)}
+.gport{cursor:pointer}.gport rect{fill:var(--page);stroke:var(--line2);stroke-dasharray:3 3}.gport:hover rect{stroke:var(--accent);stroke-dasharray:none}.gport text{font-size:12px;font-weight:500;fill:var(--text2)}.gport text.k{font-size:10px;font-weight:400;fill:var(--dim)}
+.fpath{display:flex;align-items:center;gap:4px;position:relative}.fpath .crumb,.fpath .cur{font:inherit;color:var(--muted);background:none;border:0;border-radius:6px;padding:3px 8px;cursor:pointer;display:flex;gap:6px;align-items:center}.fpath button.cur{color:var(--text)}.fpath .crumb:hover,.fpath button.cur:hover{background:var(--chip)}.fpath b.cur{color:var(--text);cursor:default}.fpath .sep{color:var(--dim)}.fstep{display:flex;align-items:center;gap:4px}
+.fpick{position:relative}.fmenu{top:34px;bottom:auto;left:0;transform:none;min-width:220px}.fmenu button{justify-content:space-between}.fmenu button[aria-current="true"]{background:var(--chip)}
+.gcnt{font-family:var(--mono,monospace);font-size:11px;color:var(--team);background:color-mix(in srgb,var(--team) 8%,transparent);border:1px solid color-mix(in srgb,var(--team) 35%,transparent);border-radius:999px;padding:0 6px;line-height:18px}
+.ghint{position:absolute;right:12px;bottom:12px;z-index:2;color:var(--dim);font-size:12px;pointer-events:none}.ghint .kbd{font-family:var(--mono,monospace);font-size:11px;border:1px solid var(--line2);border-radius:4px;padding:0 4px}
 .fblk rect{fill:var(--chrome);stroke:var(--line)}.fblk.st rect{stroke:var(--accent)}.fblk.out rect{stroke:var(--m-api)}.fblk.fld rect{fill:var(--s3);stroke:none}.fblk text{font-size:12px;fill:var(--text)}.fblk .tk{fill:var(--muted);font-size:11px}.fblk[data-fmod]{cursor:pointer}.fblk[data-fmod]:hover rect{stroke:var(--accent)}
 .fcap{font-size:11px;fill:var(--muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase}
 .fgoal{font-size:12px;line-height:1.4;color:var(--text2);background:var(--chrome);border:1px solid var(--line);border-radius:10px;padding:8px 10px}.fgoal .lg{display:block;margin-top:6px;font-size:11px}

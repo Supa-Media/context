@@ -10,10 +10,15 @@
  * outside wire back on the step it came from (a wire from the box that came from `checkItMayRun` goes back there, not to
  * the chain's last step). A wire the user draws to or from the box with no such step behind it goes to the chain's first
  * or last step. The functions are pure: the graphs they are given are not changed.
+ *
+ * Groups nest: a group's `parent` names the group it sits in. A step folds into the outermost group around it that is
+ * not open, so on the whole graph a nested group's steps fold into its top group's box, and with that group open its
+ * child group is a box of its own inside it (`foldAround`).
  */
 import type { LabEdge, LabGraph, LabNode } from "../types";
 
-export type GroupInfo = { label: string; goal?: string; icon?: string; x?: number; y?: number };
+/** `parent`: the group this one sits inside (Dev2, 2026-11-16: "make sure that groups can be nested"). */
+export type GroupInfo = { label: string; goal?: string; icon?: string; x?: number; y?: number; parent?: string };
 export type GroupDefs = Record<string, GroupInfo>;
 /** `at`: where each step stood in the graph's order when folded, so a save puts it back there (the config's own order). */
 export type FoldedGroup = { nodes: LabNode[]; edges: LabEdge[]; at?: number[] };
@@ -47,21 +52,38 @@ function boxFor(id: string, members: LabNode[], info: GroupInfo | undefined): La
   };
 }
 
+/** The group `id` and every group around it, innermost first; a parent that loops back or is not defined ends it. */
+export function groupChain(groups: GroupDefs, id: string): string[] {
+  const out: string[] = [];
+  for (let at: string | undefined = id; at && !out.includes(at); at = groups[at]?.parent) out.push(at);
+  return out;
+}
+
 /**
  * The graph with each group's steps folded into one box, placed where its first step was. Wires from or to a step
- * point at the box instead; a wire inside the group is dropped, and duplicate wires collapse into one.
+ * point at the box instead; a wire inside the group is dropped, and duplicate wires collapse into one. A step folds
+ * into the outermost group around it that `open` leaves shut, so an open group draws its own steps and its child
+ * groups' boxes.
  */
-export function foldGroups(graph: LabGraph, groups: GroupDefs = {}): LabGraph {
+export function foldGroups(graph: LabGraph, groups: GroupDefs = {}, open: ReadonlySet<string> = new Set()): LabGraph {
   const owner = new Map<string, string>();
-  for (const n of graph.nodes) if (n.group) owner.set(n.id, n.group);
+  for (const n of graph.nodes) {
+    if (!n.group) continue;
+    const chain = groupChain(groups, n.group);
+    for (let i = chain.length - 1; i >= 0; i--)
+      if (!open.has(chain[i])) {
+        owner.set(n.id, chain[i]);
+        break;
+      }
+  }
   if (owner.size === 0) return graph;
 
   const folded: Record<string, FoldedGroup> = { ...(graph.folded ?? {}) };
   for (const id of new Set(owner.values())) {
     folded[id] = {
-      nodes: graph.nodes.filter((n) => n.group === id).map(copy),
+      nodes: graph.nodes.filter((n) => owner.get(n.id) === id).map(copy),
       edges: graph.edges.filter((e) => owner.get(e.from) === id || owner.get(e.to) === id).map(copy),
-      at: graph.nodes.flatMap((n, i) => (n.group === id ? [i] : [])),
+      at: graph.nodes.flatMap((n, i) => (owner.get(n.id) === id ? [i] : [])),
     };
   }
 
@@ -72,7 +94,7 @@ export function foldGroups(graph: LabGraph, groups: GroupDefs = {}): LabGraph {
     if (id === undefined) nodes.push(n);
     else if (!placed.has(id)) {
       placed.add(id);
-      nodes.push(boxFor(id, graph.nodes.filter((m) => m.group === id), groups[id]));
+      nodes.push(boxFor(id, graph.nodes.filter((m) => owner.get(m.id) === id), groups[id]));
     }
   }
 
@@ -194,9 +216,21 @@ export function drawnFor(graph: LabGraph, id: string): LabNode | undefined {
   return box ? graph.nodes.find((n) => n.id === box) : undefined;
 }
 
+/** True when `focusId` names a group drawn open (its steps and child boxes on the canvas), not a step or a shut box. */
+export function isGroupFocus(graph: LabGraph, focusId: string | null, groups: GroupDefs): boolean {
+  if (!focusId || graph.nodes.some((n) => n.id === focusId)) return false;
+  return !!groups[focusId] || stepsOfFold(graph).some((n) => n.group === focusId);
+}
+
+/** What an open group draws: its own steps and the boxes of the groups inside it; nothing when it is not open. */
+export function groupItems(graph: LabGraph, focusId: string | null, groups: GroupDefs): LabNode[] {
+  if (!isGroupFocus(graph, focusId, groups)) return [];
+  return graph.nodes.filter((n) => (graph.folded?.[n.id] ? groups[n.id]?.parent === focusId : n.group === focusId));
+}
+
 /** The steps a focused group draws: its members while it is open, and none while it is folded or the focus is not a group. */
 export function stepsShownFor(graph: LabGraph, focusId: string | null): LabNode[] {
-  return focusId ? graph.nodes.filter((n) => n.group === focusId) : [];
+  return focusId ? graph.nodes.filter((n) => n.group === focusId && !graph.folded?.[n.id]) : [];
 }
 
 /** The group a focus on this step opens: the step's own group, or the box of a folded group; undefined for other steps. */
@@ -206,14 +240,35 @@ export function groupToOpen(graph: LabGraph, id: string): string | undefined {
   return graph.folded?.[id] ? id : undefined;
 }
 
+const stepsOfFold = (g: LabGraph): LabNode[] => [...g.nodes, ...Object.values(g.folded ?? {}).flatMap((f) => f.nodes)];
+
+/** The groups a focus opens: a group and every group around it, or the groups around a step; none for the whole graph. */
+export function openFor(graph: LabGraph, focusId: string | null, groups: GroupDefs): string[] {
+  if (!focusId) return [];
+  const step = stepsOfFold(graph).find((n) => n.id === focusId && !graph.folded?.[n.id]);
+  if (step) return step.group ? groupChain(groups, step.group) : [];
+  return groups[focusId] || stepsOfFold(graph).some((n) => n.group === focusId) ? groupChain(groups, focusId) : [];
+}
+
 /**
- * The working graph as the Lab shows it: every group folded, except the one a focus on `focusId` opens. Each Lab action
- * that replaces the graph (focus, Whole graph, undo, opening a version) goes through here, so a graph is never half open.
+ * The working graph as the Lab shows it: every group folded, except the ones a focus on `focusId` opens (the group and
+ * the groups around it, or the groups around a step). Each Lab action that replaces the graph (focus, Whole graph,
+ * undo, opening a version) goes through here, so a graph is never half open. A box keeps the place it was drawn at.
  */
 export function foldAround(graph: LabGraph, focusId: string | null, groups: GroupDefs): LabGraph {
-  const keep = focusId ? groupToOpen(graph, focusId) : undefined;
-  const folded = foldGroups(graph, groups);
-  return keep && folded.folded?.[keep] ? unfoldGroups(folded, [keep]) : folded;
+  const open = new Set(openFor(graph, focusId, groups));
+  const full = graph.folded ? unfoldGroups(graph) : graph;
+  const out = foldGroups(full, groups, open);
+  // Already folded this way (an undo, a redraw): the graph as it is, so nothing moves and its order stays.
+  const drawn = (g: LabGraph) => g.nodes.map((n) => n.id).sort().join("|");
+  if (graph.folded && drawn(graph) === drawn(out)) return graph;
+  if (!graph.folded || !out.folded) return out;
+  const drawnAt = new Map(graph.nodes.filter((n) => graph.folded?.[n.id]).map((n) => [n.id, n] as const));
+  out.nodes = out.nodes.map((n) => {
+    const was = out.folded?.[n.id] ? drawnAt.get(n.id) : undefined;
+    return was ? { ...n, x: was.x, y: was.y } : n;
+  });
+  return out;
 }
 
 /** A version saved before the "behind" wire was renamed "background" (Dev2, 2026-11-14) reads with the new name. */

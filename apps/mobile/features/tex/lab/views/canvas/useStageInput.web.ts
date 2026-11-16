@@ -3,7 +3,9 @@
  * (its lines 702-738): a double tap focuses a step; a drag on empty canvas (or with the hand tool, or space held)
  * pans; a drag from a port, or from a step with the connect tool, draws a wire; a drag on a step moves it, snapped
  * to 10, copying main first; a click selects; the wheel pans and ctrl/⌘-wheel zooms; V, C and H pick the tool,
- * Delete removes the selection, Escape leaves focus or clears it, ctrl/⌘Z undoes. Ctrl/⌘S is the shell's.
+ * Delete removes the selection, Escape goes up one level of focus or clears it, ctrl/⌘Z undoes. Ctrl/⌘S is the shell's.
+ * An open group is a graph like the whole one (move, wire, delete, pick); its ⤢ cards open (`data-gopen`) and its pills
+ * go to the thing outside (`data-gport`): a group opens, a step is picked on the whole graph.
  * The test chat's line (`lineDecor.ts`, `data-line`, no `data-id`) is only ever picked: never moved, wired or focused.
  */
 import { useEffect, type RefObject } from "react";
@@ -23,10 +25,12 @@ import {
   set,
   toast,
   undo,
+  focusUp,
   unfocus,
 } from "../../engine/state";
 import { mods } from "../../engine/modules";
-import { stepsShownFor } from "../../engine/groups";
+import { isGroupFocus } from "../../engine/groups";
+import { groupsOf } from "../../data/graph";
 import { startNodeCase } from "../../engine/caseDraft";
 import { H, W, wheelCam, type Cam } from "./render";
 
@@ -45,6 +49,7 @@ type Act =
     }
   | { k: "edge"; i: number }
   | { k: "fblk"; mod?: string; go?: string }
+  | { k: "gport"; to: string }
   | { k: "fpick"; id: string }
   | { k: "line"; id: string };
 
@@ -116,7 +121,18 @@ export function useStageInput({
       } catch {
         /* a synthetic pointer has no capture */
       }
-      if (lab.cfocus) {
+      const gopen = t.closest("[data-gopen]") as HTMLElement | null;
+      if (gopen) {
+        act = { k: "fblk", go: gopen.dataset.gopen };
+        return;
+      }
+      const gport = t.closest("[data-gport]") as HTMLElement | null;
+      if (gport) {
+        act = { k: "gport", to: gport.dataset.gport! };
+        return;
+      }
+      // An open group is drawn and handled as a graph; only a step's own view picks and refocuses on a click.
+      if (lab.cfocus && !isGroupFocus(G(), lab.cfocus, groupsOf(G()))) {
         const fm = t.closest("[data-fmod],[data-fgo]") as HTMLElement | null;
         if (fm) {
           act = { k: "fblk", mod: fm.dataset.fmod, go: fm.dataset.fgo };
@@ -206,14 +222,21 @@ export function useStageInput({
         else if (a.go) focusOn(a.go);
         return;
       }
+      if (a.k === "gport") {
+        // A group opens; a step outside is picked on the whole graph.
+        if (G().folded?.[a.to] || groupsOf(G())[a.to]) focusOn(a.to);
+        else {
+          unfocus();
+          set({ sel: { t: "node", id: a.to }, pin: true });
+        }
+        return;
+      }
       if (a.k === "line") {
         set({ sel: { t: "node", id: a.id }, addCtxOpen: false, pin: true });
         return;
       }
       if (a.k === "fpick") {
-        // A step an open group draws is picked for its properties; it does not become a focus of its own.
-        const shown = stepsShownFor(G(), lab.cfocus).some((n) => n.id === a.id);
-        if (a.id !== lab.cfocus && !shown) focusOn(a.id);
+        if (a.id !== lab.cfocus) focusOn(a.id);
         else set({ sel: { t: "node", id: a.id }, pin: true });
         return;
       }
@@ -267,7 +290,7 @@ export function useStageInput({
         !typing &&
         !lab.viewer
       ) {
-        unfocus();
+        focusUp();
         return;
       }
       if (typing || lab.view !== "canvas" || readOnly) return;
@@ -285,7 +308,7 @@ export function useStageInput({
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
         lab.sel &&
-        !lab.cfocus
+        (!lab.cfocus || isGroupFocus(G(), lab.cfocus, groupsOf(G())))
       ) {
         e.preventDefault();
         delSel();

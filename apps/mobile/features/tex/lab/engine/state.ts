@@ -12,7 +12,8 @@
 import { groupsOf, mainGraph } from "../data/graph";
 import { BASE_MODELS } from "../data/models";
 import type { LabCase, LabGraph, LabModel, LabVersion, Selection, Tool, View } from "../types";
-import { foldAround, unfoldGroups } from "./groups";
+import { foldAround, isGroupFocus, unfoldGroups } from "./groups";
+import { laidOut } from "./groupLayout";
 import type { ChatLine, MyText, ReplayNow } from "./mine";
 import type { TurnPrompt } from "./promptAt";
 import type { IoLine, RealTimes } from "./realTimes";
@@ -314,20 +315,35 @@ export function go(v: View) {
 }
 
 /**
- * Focus on a step. On the folded "door" box this opens its eleven steps: the whole graph drawn with them in it (Dev2,
- * 2026-11-14: "Focus on it opens all eleven steps"). Any other focus folds the groups it is not inside.
+ * Focus on a step or a group. A group (its box, or a group named by id) opens on its own: only its steps and the boxes
+ * of the groups inside it, laid out along their wires when they need it (mockup 5y8sZpxqRYNZEdqqXTjq6J, Dev2
+ * 2026-11-16). A step opens its own view (comes in, reads, gives out, goes to), the groups around it open.
  */
 export function focusOn(id: string) {
-  if (!node(id)) return;
-  lab.cur.graph = shownGraph(G(), id);
+  const groups = groupsOf(G());
+  if (!node(id) && !groups[id]) return;
+  const shown = shownGraph(G(), id);
+  const group = isGroupFocus(shown, id, groups);
+  lab.cur.graph = group ? laidOut(shown, id, groups) : shown;
   lab.cfocus = id;
-  lab.sel = { t: "node", id };
+  // An open group has no box to show properties for; a step's view has the step picked.
+  lab.sel = group ? null : { t: "node", id };
   lab.fArea = null;
   if (lab.view !== "canvas") go("canvas");
   else {
     emit();
     requestAnimationFrame(() => fit());
   }
+}
+
+/** Esc: up one level, from a step or a group to the group around it, and from a top-level one to the whole graph. */
+export function focusUp() {
+  const id = lab.cfocus;
+  if (!id) return;
+  const groups = groupsOf(G());
+  const up = isGroupFocus(G(), id, groups) ? groups[id]?.parent : node(id)?.group;
+  if (up) focusOn(up);
+  else unfocus();
 }
 
 /** "Whole graph": the focus ends and every group folds again. */

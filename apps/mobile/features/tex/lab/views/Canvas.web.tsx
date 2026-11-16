@@ -13,10 +13,11 @@ import {
   set,
   setFitter,
   toast,
-  unfocus,
   undo,
 } from "../engine/state";
-import { stepsShownFor } from "../engine/groups";
+import { isGroupFocus } from "../engine/groups";
+import { FocusPath } from "./canvas/FocusPath.web";
+import { renderGroupFocusHtml } from "./canvas/groupView";
 import { groupsOf } from "../data/graph";
 import { labSim } from "../engine/realTimes";
 import { runTags } from "../engine/sim";
@@ -140,8 +141,10 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
   // A real text's run draws the graph Tex had then, read only (`ArchCanvas.web.tsx`); else the version open.
   const g = graph ?? G();
   setCanvasReadOnly(!!graph);
-  // A focus on an open group draws the whole graph with its steps in it (Dev2, 2026-11-14: "Focus on it opens all eleven steps").
-  const opened = stepsShownFor(g, lab.cfocus).length > 0;
+  // A focus on a group opens just that group: its steps and the cards of the groups inside it, nothing else (mockup
+  // 5y8sZpxqRYNZEdqqXTjq6J v3, Dev2 2026-11-16: "when I click focus on a group, I want it to open just that group").
+  const groups = groupsOf(g);
+  const opened = isGroupFocus(g, lab.cfocus, groups);
   if (s.cfocus && !node(s.cfocus, g) && !opened) lab.cfocus = null;
   const sim = labSim(g);
   // A draft's changes against main or its last revision (`engine/changeMarks.ts`), drawn on the whole graph only.
@@ -152,14 +155,20 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
     const f = renderFocusCanvasHtml(g, sim, lab.cfocus, s.sel);
     fBounds.current = f.fBounds;
     html = f.html;
+  } else if (lab.cfocus && opened) {
+    const f = renderGroupFocusHtml(g, sim, lab.cfocus, groups, { tags, sel: s.sel, lit: testLit, counts: stepCounts(g), marks });
+    fBounds.current = f.fBounds;
+    html = f.html;
   } else {
     fBounds.current = null;
     // The test chat's line: two view-only pseudo-steps beside the graph, never in it (`canvas/lineDecor.ts`).
     const line = lineDecorHtml(g, s.sel, testLit, lineTimes(panelRow(pick, play)?.steps));
-    html = line.under + renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(g), marks) + line.over;
+    html = line.under + renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(g), marks, { groups }) + line.over;
   }
-  // An open group has no box to name, so its focus bar takes the group's label (Dev2, 2026-11-14).
-  const focused = lab.cfocus ? node(lab.cfocus, g) ?? (opened ? { label: groupsOf(g)[lab.cfocus]?.label ?? lab.cfocus } : undefined) : undefined;
+  // The focus bar is the path to the focus: Whole graph / each group around it / it (mockup 5y8sZpxqRYNZEdqqXTjq6J v3).
+  const focused = lab.cfocus && (opened || node(lab.cfocus, g)) ? lab.cfocus : null;
+  // A step's own view hides the wires' key and the change legend, as it always has; an open group is a graph and keeps them.
+  const stepView = !!focused && !opened;
 
   useLayoutEffect(applyCam);
 
@@ -186,19 +195,18 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
       <ChangeTip marks={marks} stage={stage} />
       <div className="ctop">
       {lead}
-      {marks && !focused ? <ChangeLegend mode={marks.mode} vs={marks.vs} /> : null}
       <div className="float fbar" id="fbar" hidden={!focused}>
-        {focused ? (
-          <>
-            <span className="hint">Focus</span>
-            <b>{focused.label}</b>
-            <button className="ghost" id="fbOut" onClick={unfocus}>
-              Whole graph
-            </button>
-          </>
-        ) : null}
+        {focused ? <FocusPath g={g} id={focused} opened={opened} /> : null}
       </div>
+      {marks && !stepView ? <ChangeLegend mode={marks.mode} vs={marks.vs} /> : null}
       </div>
+      {focused ? (
+        <div className="ghint">
+          <span className="kbd">Esc</span> up one level
+        </div>
+      ) : g.folded && Object.keys(g.folded).length ? (
+        <div className="ghint">Double-click a group, or its ⤢, to open it</div>
+      ) : null}
       <>
       <div className="float tools" role="toolbar" aria-label="Tools">
         <button className="ib" id="tSel" aria-pressed={tool === "sel"} title="Select and move (V); hold space to move the canvas" aria-label="Select" onClick={() => setTool("sel")}>
@@ -233,7 +241,7 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
         <button className="ib" id="zIn" aria-label="Zoom in" title="Zoom in" onClick={() => zoomBy(1.2)}>
           <Svg d='<path d="M12 6v12M6 12h12"/>' />
         </button>
-        {focused ? null : (
+        {stepView ? null : (
           <>
             <span className="sep" />
             <button className="ib" id="keyBtn" aria-pressed={keyOpen} aria-expanded={keyOpen} title="Key: what the lines mean" aria-label="Key" onClick={() => setKeyOpen(!keyOpen)}>
@@ -242,7 +250,7 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
           </>
         )}
       </div>
-      <div className="float keyw keypop" id="keyw" hidden={!!focused || !keyOpen} dangerouslySetInnerHTML={{ __html: focused || !keyOpen ? "" : keywHtml() + caseKeyHtml() }} />
+      <div className="float keyw keypop" id="keyw" hidden={stepView || !keyOpen} dangerouslySetInnerHTML={{ __html: stepView || !keyOpen ? "" : keywHtml() + caseKeyHtml() }} />
       <div className="menu" id="addMenu" hidden={!addOpen}>
         <AddMenu
           onPick={(kind) => {

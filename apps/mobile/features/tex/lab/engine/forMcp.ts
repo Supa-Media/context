@@ -26,6 +26,7 @@ import { med, readToolLog, toolUsers } from "../views/toolStats";
 import { wsTree } from "../views/wsTree";
 import { allCases, config, cvDiff, diff, isPicked, runAreas, type Change } from "./diff";
 import { withCurrentModes } from "./groups";
+import { groupsReference } from "./forMcpGroups";
 import { cvOf, fp, moduleList, mods, wcount, wdiff } from "./modules";
 import { cacheShare, ctxTokens, deltaText, fmtS, fmtUsd, LANE_NAME, outTok, simulate, whereTimeGoes, type Sim } from "./sim";
 import { STEP_LOGS } from "./stepLogs";
@@ -316,10 +317,10 @@ export function labModules(input: LabIn, q: { key?: string | null; full?: boolea
   });
 }
 
-const TOPICS = ["tools", "steps", "ledger", "areas", "models", "wires", "sources", "convo"] as const;
+const TOPICS = ["tools", "steps", "groups", "ledger", "areas", "models", "wires", "sources", "convo"] as const;
 
-/** The Lab's catalogues: tools, what each step logs and writes, the ledger's kinds, the areas, models, wires, module sources, conversation settings. */
-export function labReference(input: LabIn, topic?: string | null, toolLog?: string | null) {
+/** The Lab's catalogues: tools, what each step logs and writes, the step groups, the ledger's kinds, the areas, models, wires, module sources, conversation settings. */
+export function labReference(input: LabIn, topic?: string | null, toolLog?: string | null, group?: string | null) {
   return withLab(input, () => {
     const g = G();
     switch (topic) {
@@ -340,6 +341,8 @@ export function labReference(input: LabIn, topic?: string | null, toolLog?: stri
       }
       case "steps":
         return g.nodes.map((n) => ({ step: n.id, label: n.label, writes: NODE_INFO[n.id]?.logs ?? "nothing", thisVersion: n.log ? "writes" : "writes nothing", ...(n.log !== !!node(n.id, MAIN.graph)?.log ? { changed: true } : {}), ...(STEP_LOGS[n.id] ? { logs: STEP_LOGS[n.id] } : {}), ...(n.group ? { group: n.group } : {}) }));
+      case "groups":
+        return groupsReference(g, group);
       case "ledger": {
         const c = cvOf(g);
         return CV_KINDS.map(([k, w, hh, sh]) => ({ entry: k, writtenBy: w, holds: hh, inThePrompt: inPrompt(k, sh, c.slim) }));
@@ -355,7 +358,7 @@ export function labReference(input: LabIn, topic?: string | null, toolLog?: stri
       case "convo":
         return { settings: cvOf(g), main: cvOf(MAIN.graph), tools: CV_TOOLS, changes: cvDiff().map(changeRow) };
       default:
-        return { topics: [...TOPICS], note: "reference { topic } answers one; tools takes log: a pasted chat record, counted as the Tools tab's Measure does." };
+        return { topics: [...TOPICS], note: "reference { topic } answers one; tools takes log: a pasted chat record, counted as the Tools tab's Measure does; groups takes group: one group's id." };
     }
   });
 }

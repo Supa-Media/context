@@ -25,6 +25,8 @@ const config = require("../../../packages/shared/src/texConfig.json");
 const main = () => ({ nodes: structuredClone(config.nodes), edges: structuredClone(config.edges) });
 /** The Lab draws a label at most 15 characters, cut with an ellipsis, and escapes it. */
 const drawn = (label) => (label.length > 15 ? label.slice(0, 14) + "…" : label).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+/** A group's card is wider than a step: its name keeps 16 characters (`groupCard.ts`). */
+const carded = (label) => (label.length > 16 ? label.slice(0, 15) + "…" : label).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const stepsDrawn = (html) => [...html.matchAll(/<g class="nd [^"]*" data-id="([^"]*)"/g)].map((m) => m[1]);
 
 test("the whole graph draws every top-level step, each group folded into its box", () => {
@@ -36,7 +38,7 @@ test("the whole graph draws every top-level step, each group folded into its box
   const used = new Set(g.nodes.map((n) => n.group).filter(Boolean));
   assert.ok(used.has("intake") && used.has("retired"));
   for (const [id, group] of Object.entries(config.groups).filter(([id]) => used.has(id))) {
-    assert.ok(html.includes(`>${drawn(group.label)}</text>`), `missing the box of ${id}`);
+    assert.ok(html.includes(`>${carded(group.label)}</text>`), `missing the card of ${id}`);
     assert.ok(stepsDrawn(html).includes(id));
   }
   for (const n of g.nodes.filter((n) => n.group)) assert.ok(!stepsDrawn(html).includes(n.id), `${n.id} should be folded away`);
@@ -46,16 +48,41 @@ test("the whole graph draws every top-level step, each group folded into its box
   assert.ok(!html.includes("<script"));
 });
 
-test("focus on a group opens its steps, and on a step of it does the same", () => {
+test("focus on a group draws just that group: its steps in a frame, the wires leaving it as pills (Dev2, 2026-11-16)", () => {
   const g = main();
   const members = g.nodes.filter((n) => n.group === "intake");
   assert.equal(members.length, 7);
-  for (const focus of ["intake", members.find((n) => n.id === "doorStep").id]) {
-    const html = graphSvg(g, { focus });
-    const shown = stepsDrawn(html);
-    for (const m of members) assert.ok(shown.includes(m.id), `${focus}: ${m.id} not opened`);
-    assert.ok(!shown.includes("intake"));
-  }
+  const html = graphSvg(g, { focus: "intake" });
+  const shown = stepsDrawn(html);
+  assert.deepEqual([...shown].sort(), members.map((m) => m.id).sort(), "only the group's own steps are drawn");
+  assert.ok(html.includes('class="gframe"'));
+  // The Door's two wires out: to the Front door on "next", to Confirmations & refusals on "answered".
+  assert.ok(html.includes('data-gport="fd"') && html.includes('data-gport="bypass"'));
+  assert.ok(!html.includes('data-gport="send"'), "a wire that never touches the group has no pill");
+});
+
+test("focus on a step inside a group draws the step's own view, as the Lab's double-click does", () => {
+  const html = graphSvg(main(), { focus: "decide" });
+  assert.ok(html.includes("Comes in") && html.includes("Gives out"));
+  assert.ok(!html.includes('class="gframe"'));
+  assert.ok(html.includes(">Intake / Decide</b>"), "the caption is the path to the step");
+});
+
+test("groups nest: the whole graph folds a nested group into its top group, which opens to show it as a card", () => {
+  const g = main();
+  g.groups = { checks2: { label: "Checks", parent: "tools-subagents" } };
+  for (const n of g.nodes) if (n.id === "mail" || n.id === "card") n.group = "checks2";
+  const whole = stepsDrawn(graphSvg(g));
+  assert.ok(whole.includes("tools-subagents") && !whole.includes("checks2") && !whole.includes("mail"));
+  const outer = graphSvg(g, { focus: "tools-subagents" });
+  assert.ok(stepsDrawn(outer).includes("checks2"), "the nested group is a card inside its parent");
+  assert.ok(!stepsDrawn(outer).includes("mail"));
+  assert.ok(outer.includes('data-gopen="checks2"'));
+  const inner = graphSvg(g, { focus: "checks2" });
+  assert.deepEqual([...stepsDrawn(inner)].sort(), ["card", "mail"]);
+  // Its wires come from the Tools step beside it in the parent, named as the parent draws it.
+  assert.ok(inner.includes('data-gport="tools"'));
+  assert.ok(inner.includes(">Tools &amp; subagents / Checks</b>"));
 });
 
 test("focus on one step draws it with what comes in, what it reads and what it gives out", () => {

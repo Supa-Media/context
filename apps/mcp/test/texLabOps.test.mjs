@@ -205,3 +205,17 @@ test("a group edit names a draft's own group box, conflicts only with itself, an
   assert.throws(() => applyOps(g0, [{ op: "group", id: "reply", value: { label: "X", colour: "red" } }]), /no field colour/);
   assert.throws(() => applyOps(g0, [{ op: "group", id: "bad id", value: { label: "X" } }]), /not a group id/);
 });
+
+test("groups nest: a group names the group it sits in, never itself, one inside it, or a step's id (Dev2, 2026-11-16)", () => {
+  const g0 = main();
+  const { graph: g1, said } = applyOps(g0, [
+    { op: "group", id: "outer", value: { label: "Outer" } },
+    { op: "group", id: "inner", value: { label: "Inner", parent: "outer" } },
+  ]);
+  assert.deepEqual(g1.groups.inner, { label: "Inner", parent: "outer" });
+  assert.match(said[1], /added group inner \(Inner\)/);
+  assert.throws(() => applyOps(g1, [{ op: "group", id: "outer", value: { label: "Outer", parent: "outer" } }]), /cannot sit inside itself/);
+  assert.throws(() => applyOps(g1, [{ op: "group", id: "outer", value: { label: "Outer", parent: "inner" } }]), /inner sits inside outer/);
+  assert.throws(() => applyOps(g1, [{ op: "group", id: "inner", value: { label: "Inner", parent: "bad id" } }]), /parent is not a group id/);
+  assert.throws(() => applyOps(g0, [{ op: "group", id: "fd", value: { label: "Front" } }]), /a step's id/);
+});

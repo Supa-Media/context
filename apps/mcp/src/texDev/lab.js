@@ -138,7 +138,7 @@ export async function labAction(action, args, plane) {
     case "reference": {
       const got = await labIn(plane, args, { cases: false });
       if (got.error) return got.error;
-      const r = run(() => labReference(got.input, str(args.topic), typeof args.log === "string" ? args.log.slice(0, 500_000) : null));
+      const r = run(() => labReference(got.input, str(args.topic), typeof args.log === "string" ? args.log.slice(0, 500_000) : null, str(args.group)));
       return r.error ?? json(r.value);
     }
     case "steps": {
