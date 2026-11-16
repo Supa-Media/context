@@ -133,7 +133,7 @@ async function mount(testing = true) {
   if (!testing) return;
   click("#modeTesting");
   await tick();
-  click('.chat[data-chat="picnic"]');
+  click('.ts-ci[data-chat="picnic"]');
 }
 const q = (s: string) => document.querySelector<HTMLElement>(s);
 const qa = (s: string) => [...document.querySelectorAll<HTMLElement>(s)];
@@ -171,26 +171,12 @@ describe("running from the Lab", () => {
     expect(q("#runsPanel")).not.toBeNull();
   });
 
-  test("▶ Run this chat and ▶ Run node send the chat and the node", async () => {
+  test("the chat and its steps have no run buttons of their own: the top bar runs the Dev set (Dev2: \"remove its confusing\")", async () => {
     await mount();
-    click("#runChat");
-    await tick();
+    expect(q("#runChat")).toBeNull();
     click('tr.mr[data-id="m1"] td[data-c="decide"]');
-    click("#closeRuns");
-    click('tr.mr[data-id="m1"] td[data-c="decide"]');
-    click("#runNode");
-    await tick();
-    expect(starts()).toEqual([
-      { versionId: "main", kind: "chat", models: "gw", convId: "picnic" },
-      { versionId: "main", kind: "node", models: "gw", nodeId: "decide" },
-    ]);
-  });
-
-  test("a Training chat can't be run: runs score the Dev set only", async () => {
-    await mount();
-    click('.chat[data-chat="errands"]');
-    expect((q("#runChat") as HTMLButtonElement).disabled).toBe(true);
-    expect(q("#runChat")?.title).toMatch(/Dev set/);
+    expect(q("#runNode")).toBeNull();
+    expect(q("#runBar")).toBeNull();
   });
 
   test("a refusal says why", async () => {
@@ -206,7 +192,6 @@ describe("running from the Lab", () => {
     mockAnswers.set("functions/texLabRuns:list", [GATE, DONE]);
     mockAnswers.set("functions/texLabRuns:get", DONE);
     await mount();
-    expect(q("#runBar")?.textContent).toContain("1/2 right");
     click("#runsBtn");
     expect(qa("#runsPanel .runrow").map((r) => r.dataset.run)).toEqual(["run2", "run1"]);
     act(() => setRunsUi({ run: "run1" }));
@@ -224,6 +209,13 @@ describe("running from the Lab", () => {
     act(() => setRunsUi({ open: true, run: "run2" }));
     expect(q("#runsPanel")?.textContent).toContain("Its pull request");
     expect(q("#runsPanel")?.textContent).not.toContain("right ·");
+    // A gate for a change that reaches no Test set area: done at 0 of 0, said as such, never as a pass rate.
+    const NONE: LabRun = { ...GATE, id: "run3", stage: "done", results: { pass: 0, total: 0, costUsd: 0, ms: 0 } };
+    mockAnswers.set("functions/texLabRuns:list", [NONE, DONE]);
+    mockAnswers.set("functions/texLabRuns:get", NONE);
+    act(() => setRunsUi({ open: true, run: "run3" }));
+    expect(q("#gateResult")?.textContent).toContain("No Test set needed");
+    expect(q("#runsPanel")?.textContent).not.toContain("0/0");
   });
 
   test("Try a text runs one turn in the test chat on the chat's history, and Keep adds both rows", async () => {

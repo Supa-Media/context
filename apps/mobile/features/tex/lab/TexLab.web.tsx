@@ -43,7 +43,7 @@ import { RunControls } from "./views/runs/Runs.web";
 import { openMoment, ReplaySide } from "./views/replay/ReplaySide";
 import { loggedMoments, momentsOf } from "./engine/replay";
 import { useLabTheme } from "./theme.web";
-import { Ratio, Testing } from "./views/testing/Testing.web";
+import { Testing } from "./views/testing/Testing.web";
 
 /** How often Replay looks for new texts and runs. */
 const REFRESH_MS = 10_000;
@@ -216,7 +216,6 @@ function Lab() {
           </div>
           {testing ? (
             <>
-              <Ratio />
               <RunControls />
               <span className="spacer" />
             </>

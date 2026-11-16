@@ -1,28 +1,30 @@
 /**
- * The prototype's right panel, on the selected cell only: a node's cell is its expected output on that message
- * (with exactly what the config gives the node there), a message's cell its speaker and words, a Tex row what Tex
- * should have said.
+ * The details panel, simplified (Dev2, 2026-11-16, approved mockup https://claude.ai/artifact/PUjJ7Vd6tX6BJj7vkEir1T):
+ * open only while a step's cell is picked. It shows the message, what the step should give there (should it run,
+ * its picks, its lines), the unit-test star, and, folded away, exactly what the config hands the step there.
  */
-import { useStartRun } from "../runs/Runs.web";
 import { useState } from "react";
 import { G, lab } from "../../engine/state";
-import { labelCount, labelFields, modValue, nodeStars, ranOn, starsIn, wiresIn, type Conversation, type Label, type Message } from "../../engine/sets";
-import { change, fold, useSets } from "../../engine/setsStore";
+import { labelFields, modValue, ranOn, wiresIn, type Conversation, type Label, type Message } from "../../engine/sets";
+import { change, setUi, useSets } from "../../engine/setsStore";
 import type { LabNode } from "../../types";
-import { MsgFields, SpeakerPick } from "./MsgFields.web";
+import { Close } from "./Menu.web";
 
 const NOTES: Record<string, string> = { reviewer: "Its output is the turn report; sentBack is how many times it sent the draft back.", fd: "Its output is the turn report; it is labelled by must and never lines about its draft." };
 
-function Input({ c, i, n }: { c: Conversation; i: number; n: LabNode }) {
+function Reads({ c, i, n }: { c: Conversation; i: number; n: LabNode }) {
   const s = useSets();
   const g = G();
   const m = c.msgs[i];
   const wires = wiresIn(n, m, g);
+  const l: Label = m.labels?.[n.id] || {};
+  const f = labelFields(n);
+  const rec = m.rec?.[n.id] as Record<string, unknown> | undefined;
   return (
-    <details className="inbox" open>
-      <summary>
-        <b>Input</b> <span className="muted small">from texConfig.json on {lab.cur.name}</span>
-      </summary>
+    <details className="inbox" id="reads">
+      <summary>What {n.label} reads here</summary>
+      <div className="in">
+      <div className="small muted">from texConfig.json on {lab.cur.name}</div>
       <div className="small">
         {n.model}
         {n.effort ? " · effort " + n.effort : ""} · {n.rounds} round{n.rounds === 1 ? "" : "s"}
@@ -76,6 +78,28 @@ function Input({ c, i, n }: { c: Conversation; i: number; n: LabNode }) {
       <div className="cap">Output shape</div>
       <div className="mono small">{(n.outSchema || []).map((f) => f.name).join(", ")}</div>
       {NOTES[n.id] ? <div className="small muted">{NOTES[n.id]}</div> : null}
+      <div className="cap">Main gave</div>
+      {rec ? (
+        <div className="small" id="recNode">
+          {Object.entries(rec).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(" · ")} <span className="muted">(recorded run)</span>{" "}
+          <button
+            className="btn sm ghost"
+            id="useIt"
+            onClick={() => {
+              const keep = Object.entries(rec).filter(([k, v]) => (f.picks[k]?.includes(String(v)) || f.texts.includes(k)) && typeof v !== "object" && l[k] !== String(v));
+              if (keep.length) change(c.id, keep.map(([k, v]) => ({ op: "field" as const, msg: m.id, node: n.id, field: k, value: String(v) })));
+            }}
+          >
+            Use as label
+          </button>
+        </div>
+      ) : (
+        <div className="small muted">No recorded run of {n.label} on this message yet.</div>
+      )}
+      <a href={`/lab?node=${encodeURIComponent(n.id)}`} target="_blank" rel="noopener" id="nodeLink">
+        Open {n.label} in the Lab ↗
+      </a>
+      </div>
     </details>
   );
 }
@@ -110,41 +134,38 @@ function Lines({ c, m, n, k, word, l }: { c: Conversation; m: Message; n: LabNod
 }
 
 function LabelForm({ c, m, n }: { c: Conversation; m: Message; n: LabNode }) {
-  const runIt = useStartRun("testing");
   const l: Label = m.labels?.[n.id] || {};
   const f = labelFields(n);
   const ran = ranOn(m, n.id);
-  const [shown, setShown] = useState<string | null>(null);
   const field = (k: string, v: unknown) => change(c.id, [{ op: "field", msg: m.id, node: n.id, field: k, value: v }]);
-  const rec = m.rec?.[n.id] as Record<string, unknown> | undefined;
   return (
     <>
-      <div className="cap">Expected output</div>
-      <div className="field">
-        <span className="small">Should it run here?</span>
-        <div className="seg" data-f="run">
+      <div className="ts-cap">Expected</div>
+      <div className="ts-row">
+        <label>Runs?</label>
+        <div className="seg2" data-f="run">
           {(
             [
-              ["as main", "Don't check"],
-              ["must", "Yes, must run"],
-              ["must not", "No, must not run"],
+              ["as main", "Any"],
+              ["must", "Must"],
+              ["must not", "Must not"],
             ] as const
           ).map(([v, t]) => (
-            <button key={v} className={(l.run || "as main") === v ? "on" : ""} data-v={v} onClick={() => field("run", v === "as main" || l.run === v ? null : v)}>
+            <button key={v} aria-pressed={(l.run || "as main") === v} data-v={v} title={v === "as main" ? "Don't check whether it runs" : v === "must" ? "It must run on this message" : "It must not run on this message"} onClick={() => field("run", v === "as main" || l.run === v ? null : v)}>
               {t}
             </button>
           ))}
         </div>
       </div>
-      {!ran && !l.run ? <div className="note">{n.label} didn't run on this message on main. Leave it, or pick "Yes, must run" if it should have.</div> : null}
+      {!ran && !l.run ? <div className="small muted">Didn't run here on main.</div> : null}
       {l.run === "must not" ? null : (
         <>
           {Object.entries(f.picks).map(([k, opts]) => (
-            <div className="field" key={k}>
-              <span className="mono">{k}</span>
-              <div className="seg" data-f={k}>
+            <div className="ts-row" key={k}>
+              <label title={k}>{k}</label>
+              <div className="seg2" data-f={k}>
                 {[...opts, "any"].map((v) => (
-                  <button key={v} className={l[k] === v ? "on" : ""} data-v={v} onClick={() => field(k, l[k] === v ? null : v)}>
+                  <button key={v} aria-pressed={l[k] === v} data-v={v} onClick={() => field(k, l[k] === v ? null : v)}>
                     {v}
                   </button>
                 ))}
@@ -152,9 +173,9 @@ function LabelForm({ c, m, n }: { c: Conversation; m: Message; n: LabNode }) {
             </div>
           ))}
           {f.texts.map((k) => (
-            <div className="field" key={k}>
-              <span className="mono">{k}</span>
-              <input className="txtf" data-f={k} key={m.id + k + String(l[k] ?? "")} defaultValue={(l[k] as string) || ""} placeholder="what it should say" onBlur={(e) => e.target.value.trim() !== ((l[k] as string) || "") && field(k, e.target.value.trim() || null)} />
+            <div className="ts-row" key={k}>
+              <label title={k}>{k}</label>
+              <input data-f={k} key={m.id + k + String(l[k] ?? "")} defaultValue={(l[k] as string) || ""} placeholder={k === "why" ? "optional" : "what it should say"} onBlur={(e) => e.target.value.trim() !== ((l[k] as string) || "") && field(k, e.target.value.trim() || null)} />
             </div>
           ))}
           {f.lines ? (
@@ -163,150 +184,40 @@ function LabelForm({ c, m, n }: { c: Conversation; m: Message; n: LabNode }) {
               <Lines c={c} m={m} n={n} k="never" word="Never" l={l} />
             </>
           ) : null}
-          <button className="btn sm" id="starNode" style={{ alignSelf: "flex-start", ...(l.star ? { color: "var(--star)", borderColor: "var(--star)" } : {}) }} onClick={() => field("star", l.star ? null : true)}>
-            {l.star ? "★ Unit test for " + n.label : "☆ Make this a unit test for " + n.label}
+          <button className={"ts-ghost" + (l.star ? " on" : "")} id="starNode" title={l.star ? "A unit test: runs on every change, given everything above this message" : "Kept as a label, checked in the nightly sweep"} onClick={() => field("star", l.star ? null : true)}>
+            {l.star ? "★ Unit test" : "☆ Make it a unit test"}
           </button>
-          <div className="muted small">{l.star ? "Runs on every change: this node, given everything above this message." : "Not a unit test: kept as a label, checked in the nightly sweep."}</div>
         </>
       )}
-      <div style={{ display: "flex", gap: 6 }}>
-        <button className="btn sm" id="runNode" disabled={!l.star || c.set === "test"} title={c.set === "test" ? "The Test set runs only in the locked eval service" : l.star ? `Runs ${n.label}'s unit tests across the Dev set on GitHub` : "Star it first: a run checks unit tests"} onClick={() => void runIt("node", { nodeId: n.id })}>
-          ▶ Run node
-        </button>
-        <button className="btn sm ghost" id="recNode" title="What main's recorded run of this step gave on this message" onClick={() => setShown(m.id + n.id)}>
-          Recorded on main
-        </button>
-        {Object.keys(l).length ? (
-          <button className="btn sm ghost" id="clearLabel" onClick={() => change(c.id, [{ op: "label", msg: m.id, node: n.id, value: null }])}>
-            Clear label
-          </button>
-        ) : null}
-      </div>
-      <div id="runOut">
-        {shown === m.id + n.id ? (
-          rec ? (
-            <div className="note" style={{ marginTop: 6 }}>
-              <b>Main says:</b> {Object.entries(rec).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(" · ")} <span className="muted">(recorded run)</span>{" "}
-              <button
-                className="btn sm ghost"
-                id="useIt"
-                onClick={() => {
-                  const keep = Object.entries(rec).filter(([k, v]) => (f.picks[k]?.includes(String(v)) || f.texts.includes(k)) && typeof v !== "object");
-                  if (keep.length) change(c.id, keep.map(([k, v]) => ({ op: "field" as const, msg: m.id, node: n.id, field: k, value: String(v) })));
-                }}
-              >
-                Use as label
-              </button>
-            </div>
-          ) : (
-            <div className="note" style={{ marginTop: 6 }}>
-              No recorded run of {n.label} on this message yet: the next recording on main fills it in.
-            </div>
-          )
-        ) : null}
-      </div>
     </>
   );
 }
 
-function TexReply({ c, m, i }: { c: Conversation; m: Message; i: number }) {
-  return (
-    <div className="insp">
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div className="cap">Tex reply · message {i + 1}</div>
-      </div>
-      <div className="muted small">
-        Input: the {i} message{i === 1 ? "" : "s"} before it, the members and the date.
-      </div>
-      <div className="cap">Expected reply</div>
-      <textarea id="gold" key={m.id + m.text} aria-label="Expected reply" defaultValue={m.text} onBlur={(e) => e.target.value.trim() !== m.text && change(c.id, [{ op: "edit", msg: m.id, field: "text", value: e.target.value.trim() }])} />
-      <div className="muted small">Edit it to what Tex should have said; later rows see it as history. If Tex should stay quiet here, delete this row: no Tex row after a message means quiet.</div>
-    </div>
-  );
-}
-
-export function Inspector({ c }: { c: Conversation | null }) {
+export function Inspector({ c }: { c: Conversation }) {
   const s = useSets();
-  const m = c?.msgs.find((x) => x.id === s.msg);
-  let body: React.ReactNode;
-  if (!c || !m) {
-    body = (
-      <div className="insp">
-        <div className="cap">Labels</div>
-        <div className="note">Click a cell. A node's cell on a person's message is that node's expected output there; star it to make that message × node a unit test. A Tex row is what Tex should have said, kept as history for later rows.</div>
-        {c ? (
-          <>
-            <div className="cap">This chat</div>
-            <div>
-              ★ {starsIn(c)} unit tests · {c.msgs.reduce((a, x) => a + labelCount(x), 0)} labels · {c.msgs.filter((x) => x.tex).length} Tex replies as context
-            </div>
-          </>
-        ) : null}
-        <div className="note">Tex replies are history, not tests. A nightly end-to-end sweep replays whole turns against them and lists misses, so you can find and label the node that caused each one.</div>
-      </div>
-    );
-  } else {
-    const i = c.msgs.indexOf(m);
-    const n = G().nodes.find((x) => x.id === s.col && s.col !== "who" && s.col !== "text");
-    if (m.tex) body = <TexReply c={c} m={m} i={i} />;
-    else if (n)
-      body = (
-        <div className="insp">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div className="cap">
-              {n.label} · message {i + 1}
-            </div>
-            <a className="btn sm" style={{ marginLeft: "auto" }} href={`/lab?node=${encodeURIComponent(n.id)}`} target="_blank" rel="noopener" title={`Opens ${n.label} in the Lab in a new tab: model, effort, prompt modules, input and output shapes`}>
-              Node settings ↗
-            </a>
-          </div>
-          <div className="quote">
-            <span className="muted small">
-              #{i + 1} · {m.who}
-            </span>
-            <div>{m.text}</div>
-          </div>
-          <Input c={c} i={i} n={n} />
-          <LabelForm c={c} m={m} n={n} />
-        </div>
-      );
-    else {
-      const nl = labelCount(m);
-      const ns = nodeStars(m);
-      body = (
-        <div className="insp">
-          <div className="cap">Message {i + 1}</div>
-          <div className="field">
-            <span className="small">Speaker</span>
-            <SpeakerPick key={m.id + m.who} c={c} m={m} cls="" id="inWho" />
-          </div>
-          <div className="field">
-            <span className="small">Message</span>
-            <div className="inmsg">
-              <MsgFields key={m.id + (m.kind || "") + m.text} c={c} m={m} cls="insf" />
-            </div>
-          </div>
-          <div className="muted small">
-            Input: the {i} message{i === 1 ? "" : "s"} before it, the members and the date.
-          </div>
-          <div className="muted small">
-            {nl} label{nl === 1 ? "" : "s"} · ★ {ns} unit test{ns === 1 ? "" : "s"} on this message. Click a node's cell to label it.
-          </div>
-        </div>
-      );
-    }
-  }
+  const m = c.msgs.find((x) => x.id === s.msg);
+  const n = G().nodes.find((x) => x.id === s.col && s.col !== "who" && s.col !== "text");
+  if (!m || !n || m.tex) return null;
+  const i = c.msgs.indexOf(m);
   return (
-    <div className="panel">
-      <div className="ph" style={{ padding: "6px 8px" }}>
-        <button className="foldbtn" id="foldInsp" title="Hide Details" aria-label="Hide Details" onClick={() => fold("insp", true)}>
-          »
+    <>
+      <div className="ts-dh">
+        <b id="inspTitle">
+          {n.label} · #{i + 1}
+        </b>
+        <span className="sp" />
+        <button className="ib" id="closeInsp" title="Close" aria-label="Close details" onClick={() => setUi({ msg: null, col: null, editing: false })}>
+          <Close />
         </button>
-        <span className="muted small">Details</span>
       </div>
-      <div className="scroll" id="insp">
-        {body}
+      <div className="ts-db" id="insp">
+        <div className="quote">
+          <small>{m.who}</small>
+          <div>{m.text || <span className="muted">(no words)</span>}</div>
+        </div>
+        <LabelForm c={c} m={m} n={n} />
+        <Reads c={c} i={i} n={n} />
       </div>
-    </div>
+    </>
   );
 }

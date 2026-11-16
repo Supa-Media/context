@@ -35,6 +35,9 @@ export function useStartRun(where: "testing" | "lab") {
   };
 }
 
+/** A gate run's outcome: counts only, and a change that reaches no Test set area needs none. */
+export const gateWords = (r: LabRun) => (!r.results ? "" : r.results.total === 0 ? "No Test set needed: the change reaches no area it covers." : `${r.results.pass}/${r.results.total} passed.`);
+
 export function StagePill({ r }: { r: LabRun }) {
   const [cls, words] = stageWords[r.stage];
   return (
@@ -163,6 +166,7 @@ export function RunsPanel() {
             {full.kind === "gate" ? (
               <div className="small">
                 The sealed Test set, run by the pull request's own check in the locked eval service. It reports pass or fail and counts by step only.
+                {full.stage === "done" && full.results ? <b id="gateResult"> {gateWords(full)}</b> : null}
                 {full.pr ? (
                   <>
                     {" "}

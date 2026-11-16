@@ -1,18 +1,20 @@
 /**
- * The prototype's middle panel: one row per message, one column per node, edited like a database. Click a cell to
- * select it, Enter or double-click to edit, arrows move, drag ⠿ or Alt+↑/↓ to reorder, Del clears a label, T makes
- * a cell a unit test; columns resize by their edge and are picked, hidden and ordered in the Columns menu.
+ * The middle panel, simplified (Dev2, 2026-11-16, approved mockup https://claude.ai/artifact/PUjJ7Vd6tX6BJj7vkEir1T):
+ * one row per message, one column per step, edited like a database. Click a cell to select it, Enter or double-click
+ * to edit, arrows move, drag the row number or Alt+↑/↓ to reorder, Del clears a label, T makes a cell a unit test.
+ * Step columns are added with + at the end of the header and hidden with × on theirs ("need to surface columns");
+ * the rest lives in ⋯ menus: the chat's (History, Key, Delete chat) and each row's.
  */
 import { useEffect, useRef, useState } from "react";
 import { G } from "../../engine/state";
-import { bodyOf, cellOf, colWidth, defaultCols, labelFields, newRowAt, freshId, SET_INFO, starsIn, stepNodes, type Conversation, type Message } from "../../engine/sets";
-import { change, colsFor, saveCols, setUi, sets, undo, useSets } from "../../engine/setsStore";
+import { bodyOf, cellOf, colWidth, labelFields, newRowAt, freshId, starsIn, stepNodes, type Conversation, type Message } from "../../engine/sets";
+import { change, colsFor, deleteChat, fold, saveCols, setUi, sets, undo, uploadPic, useSets } from "../../engine/setsStore";
 import { History } from "./History.web";
 import type { LabNode } from "../../types";
-import { ColMenu as SharedColMenu, HeadCell, startResize as resizeCol } from "../grid/GridParts.web";
+import { startResize as resizeCol } from "../grid/GridParts.web";
 import { MsgFields, SpeakerPick } from "./MsgFields.web";
-import { RunBar, useStartRun } from "../runs/Runs.web";
 import { TryCompose, TryRows } from "./TryText.web";
+import { Chev, Menu, More, Plus, UndoI, useMenu, type MenuItem } from "./Menu.web";
 
 type Col = { id: string; name: string; node?: LabNode };
 
@@ -139,34 +141,62 @@ function TextEd({ init, ph, keep, onKey }: { init: string; ph: string; keep: (v:
   return <input className="ed" data-ed="txt" autoFocus placeholder={ph} value={v} onChange={(e) => setV(e.target.value)} onBlur={() => sets.editing && commit()} onKeyDown={(e) => onKey(e, commit)} />;
 }
 
-function ColMenu() {
-  const cols = colsFor(G());
-  return <SharedColMenu id="colMenu" resetId="resetCols" cols={cols} all={colDefs()} save={saveCols} reset={() => saveCols(defaultCols(G()))} />;
+/** The chat's name, renamed in place (a Test chat's stays as the eval service has it). */
+function Title({ c }: { c: Conversation }) {
+  const keep = (v: string) => v.trim() && v.trim() !== c.title && change(c.id, [{ op: "title", value: v.trim() }]);
+  return (
+    <input
+      className="ts-ttl"
+      id="chatTitle"
+      aria-label="Chat title"
+      defaultValue={c.title}
+      readOnly={c.set === "test"}
+      onBlur={(e) => keep(e.target.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") e.currentTarget.blur();
+        else if (e.key === "Escape") {
+          e.currentTarget.value = c.title;
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
 }
 
-function Title({ c }: { c: Conversation }) {
-  const [on, setOn] = useState(false);
-  if (!on || c.set === "test")
-    return (
-      <b title={c.set === "test" ? undefined : "Double-click to rename"} onDoubleClick={() => setOn(true)}>
-        {c.title}
-      </b>
-    );
-  const keep = (v: string) => (v.trim() && v.trim() !== c.title && change(c.id, [{ op: "title", value: v.trim() }]), setOn(false));
-  return <input className="txtf" autoFocus aria-label="Chat title" defaultValue={c.title} onBlur={(e) => keep(e.target.value)} onKeyDown={(e) => (e.stopPropagation(), e.key === "Enter" ? keep(e.currentTarget.value) : e.key === "Escape" && setOn(false))} />;
+const KEY = (
+  <div className="key">
+    <span className="ok">✓</span>labelled<span>○</span>ran, no label<span>–</span>didn't run<span className="must">!</span>must run, didn't<span className="star">★</span>unit test
+  </div>
+);
+
+/** Pick a picture for a message and add it, as the message's editor does. */
+function addPic(c: Conversation, m: Message) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async () => {
+    const f = input.files?.[0];
+    if (!f) return;
+    const pic = await uploadPic(f);
+    const now = sets.convs.find((x) => x.id === c.id)?.msgs.find((x) => x.id === m.id);
+    if (pic && now) change(c.id, [{ op: "edit", msg: m.id, field: "pics", value: [...(now.pics ?? []), pic].slice(0, 6) }]);
+  };
+  input.click();
 }
 
 export function Grid({ c }: { c: Conversation }) {
   const s = useSets();
-  const runIt = useStartRun("testing");
   const g = G();
   const cols = colsFor(g);
   const vc = visibleCols();
-  const tw = 48 + vc.reduce((a, x) => a + colWidth(cols, x.id), 0) + 28;
-  const info = SET_INFO[c.set];
+  const steps = colDefs().filter((x) => x.node);
+  const menu = useMenu();
+  const [sure, setSure] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const table = useRef<HTMLTableElement>(null);
   const [dragging, setDragging] = useState<string | null>(null);
+  const test = c.set === "test";
 
   // The selected row stays in view; with nothing selected the chat opens at its end.
   useEffect(() => {
@@ -177,12 +207,18 @@ export function Grid({ c }: { c: Conversation }) {
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
-      if (sets.colMenu) setUi({ colMenu: false });
       if (sets.history && !(e.target as HTMLElement | null)?.closest?.(".hist")) setUi({ history: false });
     };
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
   }, []);
+
+  /** Show or hide a step's column; a shown one keeps the order the steps run in. */
+  const showCol = (id: string, on: boolean) => {
+    const hidden = on ? cols.hidden.filter((x) => x !== id) : [...cols.hidden.filter((x) => x !== id), id];
+    saveCols({ ...cols, hidden });
+    if (!on && sets.col === id) setUi({ col: "text", editing: false });
+  };
 
   const startDrag = (e: React.MouseEvent, id: string) => {
     if (e.button !== 0) return;
@@ -264,84 +300,105 @@ export function Grid({ c }: { c: Conversation }) {
     return col.node ? <NodeEditor c={c} m={m} n={col.node} /> : null;
   };
 
+  const chatMenu: MenuItem[] = [
+    {
+      label: "History…",
+      disabled: test,
+      run: () => setUi({ history: true, colMenu: false }),
+    },
+    "hr",
+    { head: "Key" },
+    { node: KEY },
+    "hr",
+    {
+      label: sure ? "Click again to delete" : "Delete chat",
+      bad: true,
+      keepOpen: !sure,
+      run: () => {
+        if (!sure) return setSure(true);
+        setSure(false);
+        void deleteChat(c.id);
+      },
+    },
+  ];
+  const rowMenu = (m: Message, i: number): MenuItem[] => [
+    { label: "Insert row below", run: () => addRow(c, m.id) },
+    { label: "Move up", key: "⌥↑", disabled: i === 0, run: () => change(c.id, [{ op: "move", msg: m.id, before: c.msgs[i - 1].id }]) },
+    { label: "Move down", key: "⌥↓", disabled: i === c.msgs.length - 1, run: () => change(c.id, [{ op: "move", msg: m.id, before: c.msgs[i + 2]?.id ?? null }]) },
+    ...(m.tex ? [] : [{ label: "Make it a reply / reaction…", run: () => selectCell(c, m.id, "text", true) }]),
+    "hr",
+    ...(m.tex ? [] : ([{ label: "Add a picture", disabled: (m.pics?.length ?? 0) >= 6, run: () => addPic(c, m) }, "hr"] as MenuItem[])),
+    {
+      label: "Delete row",
+      key: "⌫",
+      bad: true,
+      run: () => {
+        change(c.id, [{ op: "remove", msg: m.id }]);
+        if (s.msg === m.id) setUi({ msg: null });
+      },
+    },
+  ];
+  const colMenu: MenuItem[] = [{ head: "Step columns" }, ...steps.map((x) => ({ label: x.name, check: !cols.hidden.includes(x.id), keepOpen: true, run: () => showCol(x.id, cols.hidden.includes(x.id)) }))];
+  const nodeCols = vc.filter((x) => x.node).length;
+
   return (
-    <div className="panel" id="middle">
-      <div className="ph">
-        <Title key={c.id} c={c} />
-        <span className="small" style={{ color: info.color, fontWeight: 600 }}>
-          {info.name}
-        </span>
-        <span className="muted small">
-          {c.kind === "one" ? "1:1" : "group"} · ★ {starsIn(c)} unit tests
-        </span>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 6, position: "relative" }}>
-          <button className="btn sm" id="undoBtn" disabled={!s.undo} title="Undo (⌘Z)" aria-label="Undo" onClick={() => undo()}>
-            ↶ Undo
+    <main className="ts-mid" id="middle">
+      <div className="ts-mh">
+        {s.fold.sets ? (
+          <button className="ib" id="openSets" title="Show sets" aria-label="Show sets" onClick={() => fold("sets", false)}>
+            <Chev />
           </button>
-          <button className="btn sm" id="redoBtn" disabled={!s.redo} title="Redo (⇧⌘Z)" aria-label="Redo" onClick={() => undo(true)}>
-            ↷
-          </button>
-          <button
-            className="btn sm"
-            id="histBtn"
-            aria-expanded={s.history}
-            onClick={(e) => {
-              e.stopPropagation();
-              setUi({ history: !s.history, colMenu: false });
-            }}
-          >
-            History
-          </button>
-          {s.history ? <History c={c} /> : null}
+        ) : null}
+        <Title key={c.id + c.title} c={c} />
+        <span className={"ts-meta" + (test ? " test" : "")} id="chatMeta">
+          {c.kind === "one" ? "1:1" : "group"} · ★ {starsIn(c)}
+          {test ? " · people only" : ""}
         </span>
-        <span style={{ display: "flex", gap: 6, position: "relative" }}>
-          {c.set === "test" ? (
-            <button className="btn sm" id="runChat" disabled title="The Test set runs only in the locked eval service, when a pull request is gated">
-              ▶ Run this chat
-            </button>
-          ) : (
-            <button className="btn sm" id="runChat" disabled={!starsIn(c) || c.set !== "dev"} title={c.set !== "dev" ? "Runs score the Dev set: move this chat to Dev to run it" : starsIn(c) ? "Runs this chat's unit tests on GitHub" : "Star a cell first: a run checks unit tests"} onClick={() => void runIt("chat", { convId: c.id })}>
-              ▶ Run this chat
-            </button>
-          )}
-          <button
-            className="btn sm"
-            id="colBtn"
-            aria-expanded={s.colMenu}
-            onClick={(e) => {
-              e.stopPropagation();
-              setUi({ colMenu: !s.colMenu, history: false });
-            }}
-          >
-            Columns ▾
-          </button>
-          {s.colMenu ? <ColMenu /> : null}
-        </span>
+        <span className="sp" />
+        <button className="ib" id="undoBtn" disabled={!s.undo} title="Undo (⌘Z)" aria-label="Undo" onClick={() => undo()}>
+          <UndoI />
+        </button>
+        <button className="ib" id="redoBtn" disabled={!s.redo} title="Redo (⇧⌘Z)" aria-label="Redo" onClick={() => undo(true)}>
+          <UndoI redo />
+        </button>
+        <button className="ib" id="chatMore" title="More" aria-label="Chat options" aria-expanded={menu.openId === "chat"} onClick={(e) => (setSure(false), menu.toggle(e, "chat"))}>
+          <More />
+        </button>
+        {s.history ? <History c={c} /> : null}
       </div>
-      {c.set === "test" ? null : <RunBar convId={c.id} dev={c.set === "dev"} />}
-      {c.set === "test" ? <div className="banner">Test chat · people only. Keep agents away from these words.</div> : null}
-      <div className="scroll" id="gridScroll" ref={scroller}>
-        <table className="chatgrid" ref={table} style={{ width: tw }}>
+      <div className="ts-gw" id="gridScroll" ref={scroller}>
+        <table className="chatgrid" ref={table} style={{ minWidth: 44 + 36 + vc.reduce((a, x) => a + (x.id === "text" ? 240 : colWidth(cols, x.id)), 0) }}>
           <colgroup>
-            <col style={{ width: 48 }} />
+            <col style={{ width: 44 }} />
             {vc.map((x) => (
-              <col key={x.id} style={{ width: colWidth(cols, x.id) }} />
+              <col key={x.id} style={x.id === "text" ? undefined : { width: colWidth(cols, x.id) }} />
             ))}
-            <col style={{ width: 28 }} />
+            <col style={{ width: 36 }} />
           </colgroup>
           <thead>
             <tr>
               <th className="num">#</th>
               {vc.map((x, k) => (
-                <HeadCell key={x.id} col={x} onResize={(e) => startResize(e, x.id, k + 1)} />
+                <th key={x.id} data-col={x.id} title={x.name} style={{ position: "sticky" }}>
+                  {x.name}
+                  {x.node ? (
+                    <button className="x" data-hide={x.id} title="Hide column" aria-label={`Hide ${x.name}`} onClick={(e) => (e.stopPropagation(), showCol(x.id, false))}>
+                      ×
+                    </button>
+                  ) : null}
+                  {x.id === "text" ? null : <span className="rs" onMouseDown={(e) => startResize(e, x.id, k + 1)} />}
+                </th>
               ))}
-              <th />
+              <th className="ts-addc">
+                <button className="ib" id="addCol" title="Add a step column" aria-label="Add a step column" aria-expanded={menu.openId === "cols"} onClick={(e) => menu.toggle(e, "cols")}>
+                  <Plus />
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
             {c.msgs.map((m, i) => {
               const sel = m.id === s.msg;
-              const nodeCols = vc.filter((x) => x.node).length;
               return (
                 <tr
                   key={m.id}
@@ -352,64 +409,51 @@ export function Grid({ c }: { c: Conversation }) {
                     selectCell(c, m.id, s.col || "text");
                   }}
                 >
-                  <td className="num mono muted" data-drag={m.id} title="Drag to move this message earlier or later (or Alt+↑/↓)" onMouseDown={(e) => startDrag(e, m.id)}>
-                    <span className="grip" aria-hidden="true">
-                      ⠿
-                    </span>
+                  <td className="num" data-drag={m.id} title="Drag to move this message earlier or later (or Alt+↑/↓)" onMouseDown={(e) => startDrag(e, m.id)}>
                     <span className="n">{i + 1}</span>
                   </td>
                   {vc.map((col) => {
-                    if (col.id === "who") return td(m, col, m.tex ? <b className="texwho">Tex</b> : <b>{m.who}</b>);
+                    if (col.id === "who") return td(m, col, m.tex ? <b className="texwho">Tex</b> : <b>{m.who}</b>, "", " ts-who");
                     if (col.id === "text") return td(m, col, <Body c={c} m={m} />, "", " txt");
                     if (m.tex) return null;
                     const x = cellOf(m, col.node!);
                     return td(m, col, <CellSym m={m} n={col.node!} />, `${col.name}: ${x.title}`, " nc");
                   })}
                   {m.tex && nodeCols ? <td colSpan={nodeCols} className="texcell" /> : null}
-                  <td className="x">
-                    <button className="rowx" data-ins={m.id} title="Add a row below" aria-label={`Add a row below message ${i + 1}`} onClick={(e) => (e.stopPropagation(), addRow(c, m.id))}>
-                      +
-                    </button>
-                    <button
-                      className="rowx"
-                      data-del={m.id}
-                      title="Delete message"
-                      aria-label={`Delete message ${i + 1}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        change(c.id, [{ op: "remove", msg: m.id }]);
-                        if (s.msg === m.id) setUi({ msg: null });
-                      }}
-                    >
-                      ×
+                  <td className="act">
+                    <button className="ib" data-mm={m.id} title="Message options" aria-label={`Options for message ${i + 1}`} aria-expanded={menu.openId === "row:" + m.id} onClick={(e) => menu.toggle(e, "row:" + m.id)}>
+                      <More />
                     </button>
                   </td>
                 </tr>
               );
             })}
             <TryRows c={c} span={vc.filter((x) => x.id !== "who" && x.id !== "text").length} />
-            <tr className="addrow">
-              <td />
-              <td colSpan={vc.length + 1}>
-                <button className="btn sm ghost" id="addRow" onClick={() => addRow(c, null)}>
-                  + Add row
-                </button>
-              </td>
-            </tr>
           </tbody>
         </table>
+        <button className="ts-addrow" id="addRow" onClick={() => addRow(c, null)}>
+          + Add row
+        </button>
       </div>
-      {c.set === "test" ? null : <TryCompose c={c} />}
-      <div className="legend">
-        <span className="c-ok">✓ labelled</span>
-        <span className="c-open">○ ran, no label</span>
-        <span>– didn't run</span>
-        <span className="c-must">! must run, didn't</span>
-        <span>
-          <span className="starc">★</span> unit test
-        </span>
-      </div>
-    </div>
+      {test ? null : <TryCompose c={c} />}
+      {menu.anchor && menu.openId ? (
+        <Menu
+          anchor={menu.anchor}
+          id={menu.openId === "chat" ? "chatMenu" : menu.openId === "cols" ? "colMenu" : "rowMenu"}
+          onClose={() => (menu.close(), setSure(false))}
+          items={
+            menu.openId === "chat"
+              ? chatMenu
+              : menu.openId === "cols"
+                ? colMenu
+                : (() => {
+                    const i = c.msgs.findIndex((x) => "row:" + x.id === menu.openId);
+                    return i < 0 ? [] : rowMenu(c.msgs[i], i);
+                  })()
+          }
+        />
+      ) : null}
+    </main>
   );
 }
 

@@ -97,7 +97,7 @@ export function TryCompose({ c }: { c: Conversation }) {
           <option key={p}>{p}</option>
         ))}
       </select>
-      <input id="tryTxt" aria-label="Try a text" placeholder={`Try a text: what happens if ${who} sends… (on ${ui.ver === "main" ? "main" : "the draft picked to run"})`} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => (e.stopPropagation(), e.key === "Enter" && go())} />
+      <input id="tryTxt" aria-label="Try a text" placeholder={`Try a text as ${who}…`} title={`Runs one turn on ${ui.ver === "main" ? "main" : "the draft picked to run"}: what happens if ${who} sends it`} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => (e.stopPropagation(), e.key === "Enter" && go())} />
       <button className="btn p" id="trySend" disabled={!text.trim() || !!sb.running || sb.busy} onClick={go}>
         Send
       </button>
