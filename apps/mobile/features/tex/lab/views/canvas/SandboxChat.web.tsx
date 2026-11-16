@@ -7,10 +7,19 @@
  * or replies, edits or takes back (Delete, iMessage's Undo Send) a test text, and the composer takes pictures (picked,
  * pasted or dropped), each run as production runs it (`docs/decisions/texting-assistant/edits-and-unsends.md`). Nothing
  * reaches the real chat, the workspace or anyone's phone. Folds to its head with ▾.
+ *
+ * Lab live sandbox (approved by Dev2 2026-11-16, mockup https://claude.ai/artifact/XtEn67XPWMTFVUBYanYLG5): the head's
+ * Grid | Timeline switch shows the texts or the run playing (`SandboxTimeline.web.tsx`) in the same space, a text sent
+ * plays at once on the Timeline, ▶ on one of Tex's texts plays only the steps that led to it, and the grip on the top
+ * edge makes the dock taller or shorter.
  */
 import { useEffect, useRef, useState } from "react";
-import { backTo, dropText, editText, reactTo, unsendText, readSandboxChats, readSandboxSets, sandboxProblem, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow, type SandboxSource } from "../../engine/sandbox";
-import { isStale, noteRan, pickStep, playLit, playText, usePlay } from "../../engine/sandboxPlay";
+import { attachSandbox, readRecentSandboxes, takeUrlSandbox, backTo, dropText, editText, reactTo, unsendText, readSandboxChats, readSandboxSets, sandboxProblem, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow, type SandboxSource } from "../../engine/sandbox";
+import { isStale, noteRan, pickStep, playLit, playTexText, playText, setDockView, usePlay } from "../../engine/sandboxPlay";
+import { texCauseRun } from "../../engine/sandboxRun";
+import { sinceOf } from "../../engine/stepRunNow";
+import { DockSwitch, SandboxTimeline } from "./SandboxTimeline.web";
+import { useDockHeight } from "./useDockHeight.web";
 import { usePicUpload } from "./usePicUpload";
 import { useLab } from "../../store";
 import { useSandboxCall } from "./sandboxCall";
@@ -22,6 +31,12 @@ const MAX_PICS = 6;
 type Tab = "mine" | "test" | "sets";
 
 const srcKey = (s: SandboxSource) => (s.kind === "maya" ? "maya" : s.kind === "chat" ? "chat:" + s.chatId : "set:" + s.convId);
+
+/** Reads the recent test chats each time the picker opens. */
+function ReadRecent() {
+  useEffect(() => void readRecentSandboxes(), []);
+  return null;
+}
 
 /** The chat picker: your account's 1:1 and group chats, the test account, and the Training and Dev conversations. */
 function ChatPick({ versionId }: { versionId: string }) {
@@ -56,11 +71,13 @@ function ChatPick({ versionId }: { versionId: string }) {
           close();
           void openSandbox(s, versionId);
         };
+        const recent = (sb.recent ?? []).filter((c) => hit(c.name + " " + c.openedBy + " " + c.lastBy)).slice(0, 8);
         const one = sb.chats.filter((c) => (c.chatId === "me" || c.kind === "dm") && hit(c.chatId === "me" ? "Your 1:1 with Tex" : c.name));
         const groups = sb.chats.filter((c) => c.chatId !== "me" && c.kind !== "dm" && hit(c.name));
         const convs = sb.sets.filter((c) => hit(c.title));
         return (
           <div className="vmenu chatpick">
+            <ReadRecent />
             <div className="seg" role="tablist" id="sbPickTabs">
               {(
                 [
@@ -84,6 +101,28 @@ function ChatPick({ versionId }: { versionId: string }) {
                 </button>
               ))}
             </div>
+            {recent.length ? (
+              <div id="sbRecent">
+                <div className="mh">Recent test chats</div>
+                {recent.map((c) => (
+                  <button
+                    key={c.sandboxId}
+                    className="mi"
+                    data-sandbox={c.sandboxId}
+                    aria-current={sb.id === c.sandboxId}
+                    title={`Opened by ${c.openedBy}${c.lastBy !== c.openedBy ? `, last text by ${c.lastBy}` : ""}`}
+                    onClick={() => {
+                      close();
+                      void attachSandbox(c.sandboxId, versionId, c);
+                    }}
+                  >
+                    <span className="nm">{c.name}</span>
+                    {c.ai ? <span className="aib">AI</span> : null}
+                    <span className="meta">{c.running ? "running" : c.texts + " test text" + (c.texts === 1 ? "" : "s")}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <input type="search" id="sbChatQ" className="vren" placeholder="Find a chat" aria-label="Find a chat" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
             <div id="sbChatList">
               {tab === "mine" ? (
@@ -225,7 +264,8 @@ function MsgOptions({ r, onReply, onEdit }: { r: SandboxRow; onReply: () => void
 export function SandboxChat() {
   const sb = useSandbox();
   const s = useLab();
-  const { play, pick } = usePlay();
+  const { play, pick, view } = usePlay();
+  const dock = useDockHeight();
   const ready = useSandboxCall();
   const upload = usePicUpload();
   const [text, setText] = useState(() => takeDraft()?.text ?? "");
@@ -248,10 +288,17 @@ export function SandboxChat() {
       if (sb.busy) return;
       started.current = true;
       if (!sb.chats.length) void readSandboxChats();
+      // A link to a test chat (`/lab?sandbox=<id>`) opens that one, followed live, whoever texts in it.
+      const linked = takeUrlSandbox();
+      if (linked) {
+        void attachSandbox(linked, versionId);
+        return;
+      }
       if (sb.id === null || sb.versionId !== versionId) void openSandbox(sb.source, versionId);
       return;
     }
-    if (!sb.busy && sb.versionId !== versionId) void openSandbox(sb.source, versionId);
+    // A shared test chat stays open: someone else may be texting in it.
+    if (!sb.busy && !sb.shared && sb.versionId !== versionId) void openSandbox(sb.source, versionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, versionId, sb.busy]);
   // A reply to, or an edit of, a text that's gone (back, delete, another chat) is dropped.
@@ -280,7 +327,8 @@ export function SandboxChat() {
       quiet: r.quiet,
       prod: r.prod,
       test: !r.prod,
-      steps: r.steps,
+      // A step still running shows only that it runs and for how long: its output once it is logged.
+      steps: sb.running === r.id ? r.steps?.map((x) => (x.ms === null ? { ...x, runningFor: typeof x.at === "number" && typeof r.at === "number" ? Math.max(0, Date.now() - r.at - x.at) : sinceOf(`${r.id}:${x.node}`) } : x)) : r.steps,
       running: sb.running === r.id,
       hot: sb.running === r.id ? sb.hot : null,
       quote: quoteOf(r.replyTo ?? (r.kind === "edit" || r.kind === "unsend" ? r.on : undefined)),
@@ -321,29 +369,44 @@ export function SandboxChat() {
     setText("");
     setPics([]);
     setReplyTo(null);
+    // Once it shows, the Timeline plays it from its first step, trailing the live run (`onSandboxText`).
     void sendText(t, extra);
   };
   const reply = replyTo ? byId.get(replyTo) : undefined;
   const edited = editing ? byId.get(editing) : undefined;
-  const playing = (id: string) => play?.msgId === id;
+  const playing = (id: string) => play?.id === id && play.playing;
+  // T switches Grid and Timeline, as the mockup's; never while typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || (e.key !== "t" && e.key !== "T")) return;
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.("input, select, textarea, [contenteditable=true]")) return;
+      setDockView(view === "timeline" ? "grid" : "timeline");
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [view]);
 
   return (
     <section
-      className={"sbx" + (folded ? " min" : "")}
+      className={"sbx" + (folded ? " min" : "") + (dock.drag ? " drag" : "")}
       id="sandbox"
       aria-label="Test chat"
+      style={folded || dock.h === null ? undefined : { height: dock.h }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
         void addFiles(Array.from(e.dataTransfer.files));
       }}
     >
+      <div className="sbgrip" id="sbGrip" title="Drag to make it taller or shorter" aria-hidden="true" {...dock.grip} />
       <TextGrid
         gridKey="sandbox"
         id="sbGrid"
         rows={rows}
         folded={folded}
-        bottomKey={`${sb.id}|${folded}|${rows.length}|${rows[rows.length - 1]?.id ?? ""}`}
+        bottomKey={`${sb.id}|${folded}|${view}|${rows.length}|${rows[rows.length - 1]?.id ?? ""}`}
+        alt={view === "timeline" ? <SandboxTimeline /> : undefined}
         sel={pick?.msgId ?? null}
         selCol={pick?.upto ?? null}
         onRow={(r, col) => {
@@ -361,6 +424,7 @@ export function SandboxChat() {
               Sandbox
             </span>
             <ChatPick versionId={versionId} />
+            <DockSwitch view={view} onView={setDockView} />
             {sb.writes.length ? (
               <Pop id="sbChanges" className="ghost" button={<>{sb.writes.length} sandbox change{sb.writes.length > 1 ? "s" : ""} ▾</>}>
                 {() => (
@@ -391,6 +455,17 @@ export function SandboxChat() {
           const sum = src?.steps?.reduce((a, x) => a + (x.ms ?? 0), 0) ?? 0;
           return (
             <>
+              {r.tex
+                ? (() => {
+                    // Only the steps the gateway logged as leading to it; with no `cause`, no ▶ (never inferred).
+                    const cr = texCauseRun(r.id, sb.rows);
+                    return cr ? (
+                      <button className="play" data-play-tex={r.id} disabled={sb.busy} title={`Play the ${new Set(cr.steps.map((x) => x.node)).size} steps that led to this text`} onClick={() => void playTexText(cr.id)}>
+                        {playing(cr.id) ? "⏸" : "▶"}
+                      </button>
+                    ) : null;
+                  })()
+                : null}
               {!r.tex && r.steps?.length ? (
                 <button
                   className={"play" + (stale ? " stale" : "")}
@@ -542,14 +617,15 @@ export function SandboxChat() {
 export function useSandboxLit(): Lit | ReadonlySet<string> | null {
   const sb = useSandbox();
   usePlay();
+  // A playback first: what is playing, never ahead of it, even while the text runs.
+  const p = playLit();
+  if (p) return p;
   if (sb.running) {
     const r = sb.rows.find((x) => x.id === sb.running);
     const ids = new Set((r?.steps || []).map((x) => x.node));
     if (sb.hot) ids.add(sb.hot);
     return ids.size ? ids : null;
   }
-  const p = playLit();
-  if (p) return p;
   const r = [...sb.rows].reverse().find((x) => !x.prod && !x.tex && x.steps?.length);
   return r ? new Set((r.steps || []).map((x) => x.node)) : null;
 }

@@ -13,6 +13,9 @@ import type { StepCell } from "../views/grid/TextGrid.web";
 import { stepExtra, type StepExtra } from "./stepRun";
 import { lab, set as setLab } from "./state";
 
+/** A step as the grid shows it (`out` in words) with the contract's optional fields (`stepRun.ts`), as the gateway sent them. */
+export type SandboxStep = StepCell & StepExtra;
+
 export type SandboxSource = { kind: "maya" } | { kind: "chat"; chatId: string; name: string } | { kind: "set"; convId: string; name: string; chatId?: string };
 export type SandboxRow = {
   id: string;
@@ -22,7 +25,13 @@ export type SandboxRow = {
   prod?: boolean;
   quiet?: boolean;
   tex?: boolean;
-  steps?: Array<StepCell & StepExtra>;
+  steps?: SandboxStep[];
+  /** A reply row: the text it answers (its steps are shown on that text's row). */
+  reply?: string;
+  /** Tex's row: the ids of the steps that led to it, in run order, as the gateway logged them (never inferred). */
+  cause?: string[];
+  /** Tex's row: the step that sent it ("fd" the turn's answer, "job" a background job's text...). */
+  from?: string;
   /** Pictures sent with the text (https only), the text it replies to, whether it was edited, and taken back (unsent). */
   pics?: string[];
   replyTo?: string;
@@ -59,12 +68,23 @@ export type SandboxState = {
   sets: Array<{ id: string; title: string; set: "training" | "dev"; group: boolean; texts: number }>;
   /** A text waiting in the composer: Replay's "Try from here" puts the text it tries from there. */
   draft: { as: string; text: string } | null;
+  /**
+   * A test chat opened by its id (`/lab?sandbox=<id>`, or picked from Recent test chats), which an AI or another tab
+   * may be texting too (Dev2, 2026-11-16: AIs drive sandboxes and Dev2 co-works live): read again while idle, so a text
+   * anyone sends shows and plays, and never swapped for a fresh one when the Lab opens another version.
+   */
+  shared: boolean;
+  /** Recent test chats (the gateway's `list`), newest first; null until read, or when the gateway has no `list`. */
+  recent: SandboxRecent[] | null;
 };
 
-export type SandboxOp = "chats" | "sets" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get";
+/** One of the recent test chats, whoever opened it: the Lab or an AI through `tex_dev`. */
+export type SandboxRecent = { sandboxId: string; name: string; source: SandboxSource; versionId: string; openedBy: string; lastBy: string; at: number; ai: boolean; texts: number; running: boolean };
+
+export type SandboxOp = "chats" | "sets" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null };
+export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null, shared: false, recent: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -103,6 +123,9 @@ export function rowOf(r: Record<string, unknown>): SandboxRow {
     quiet: r.quiet === true,
     tex: who === "Tex" || r.tex === true,
     steps: arr<Record<string, unknown>>(r.steps).map((x) => ({ node: str(x.node), out: typeof x.out === "string" || x.out === undefined || x.out === null ? str(x.out) : JSON.stringify(x.out), ms: num(x.ms), ok: x.ok === false ? false : true, ...stepExtra(x) })),
+    ...(typeof r.reply === "string" && r.reply ? { reply: r.reply } : {}),
+    ...(Array.isArray(r.cause) ? { cause: arr<unknown>(r.cause).filter((x): x is string => typeof x === "string" && !!x) } : {}),
+    ...(typeof r.from === "string" && r.from ? { from: r.from } : {}),
     ...(Array.isArray(r.pics) ? { pics: arr<unknown>(r.pics).map((p) => (typeof p === "string" ? p : p && typeof p === "object" ? str((p as Record<string, unknown>).url) : "")).filter((u) => u.startsWith("https://")) } : {}),
     ...(typeof r.replyTo === "string" && r.replyTo ? { replyTo: r.replyTo } : {}),
     ...(r.edited === true ? { edited: true } : {}),
@@ -121,6 +144,17 @@ function lastRealId(): string | null {
   for (let i = rawRows.length - 1; i >= 0; i -= 1) if (rawRows[i].prod === true && typeof rawRows[i].id === "string") return rawRows[i].id as string;
   return null;
 }
+
+/**
+ * Each new text in the test chat, whoever sent it (you, an AI, another tab): the playback follows it
+ * (`sandboxPlay.ts`). Not the texts a chat opens with, and not tapbacks, edits or Tex's own.
+ */
+let onText: ((msgId: string) => void) | null = null;
+export function onSandboxText(f: ((msgId: string) => void) | null) {
+  onText = f;
+}
+let seenFor: string | null = null;
+let seen = new Set<string>();
 
 function take(b: Record<string, unknown>) {
   if (typeof b.sandboxId === "string") sandbox.id = b.sandboxId;
@@ -146,21 +180,29 @@ function take(b: Record<string, unknown>) {
     const nameOf = Object.fromEntries(Object.entries(sandbox.handles).filter(([, h]) => h).map(([n, h]) => [h, n]));
     rows.forEach((r) => (r.who = nameOf[r.who] ?? r.who));
     sandbox.rows = rows;
+    const fresh = sandbox.id && seenFor === sandbox.id ? rows.filter((r) => !seen.has(r.id) && !r.tex && !r.kind && !r.prod) : [];
+    seen = new Set(rows.map((r) => r.id));
+    seenFor = sandbox.id;
+    if (fresh.length) queueMicrotask(() => onText?.(fresh[fresh.length - 1].id));
   }
   if (Array.isArray(b.writes)) sandbox.writes = arr<Record<string, unknown>>(b.writes).map((w) => ({ kind: str(w.kind), summary: str(w.summary), by: str(w.by) || undefined }));
   sandbox.running = typeof b.running === "string" ? b.running : b.running && typeof b.running === "object" ? str((b.running as Record<string, unknown>).msgId) || null : null;
   sandbox.hot = b.running && typeof b.running === "object" ? str((b.running as Record<string, unknown>).node) || null : typeof b.hot === "string" ? b.hot : null;
+  // A chat opened by its id may not say who is in it: whoever has texted in it, by name.
+  if (!sandbox.people.length && sandbox.shared) for (const r of sandbox.rows) if (!r.tex && r.who && !sandbox.people.includes(r.who)) sandbox.people.push(r.who);
   if (!sandbox.as || !sandbox.people.includes(sandbox.as)) sandbox.as = sandbox.people[0] || "";
 }
 
 let polling: ReturnType<typeof setTimeout> | null = null;
 const POLL_MS = 700;
+/** A shared test chat is read this often while nothing runs, so a text an AI sends shows. */
+const IDLE_POLL_MS = 2500;
 function poll() {
   if (polling) clearTimeout(polling);
   polling = null;
-  if (!sandbox.running || !sandbox.id) return;
+  if (!sandbox.id || (!sandbox.running && !sandbox.shared)) return;
   const after = lastRealId();
-  polling = setTimeout(() => void run("get", after ? { after } : {}, false), POLL_MS);
+  polling = setTimeout(() => void run("get", after ? { after } : {}, false), sandbox.running ? POLL_MS : IDLE_POLL_MS);
 }
 
 async function run(op: SandboxOp, body: Record<string, unknown>, busy = true) {
@@ -182,7 +224,7 @@ async function run(op: SandboxOp, body: Record<string, unknown>, busy = true) {
     if (op === "reset") {
       // Reset deletes the test chat.
       rawRows = [];
-      Object.assign(sandbox, { id: null, rows: [], writes: [], running: null, hot: null });
+      Object.assign(sandbox, { id: null, rows: [], writes: [], running: null, hot: null, shared: false });
     } else if (Array.isArray(b.rows) || op === "open") take(b);
     // send and retry answer the new text's id: the rows, and its turn running, come from get.
     else if (sandbox.id) take(await call("get", { sandboxId: sandbox.id }));
@@ -234,6 +276,7 @@ export async function readSandboxSets() {
 
 /** Open a test chat over Maya or one of your chats, running the version open in the Lab. */
 export function openSandbox(source: SandboxSource, versionId: string, base?: string) {
+  sandbox.shared = false;
   sandbox.source = source;
   sandbox.versionId = versionId;
   sandbox.id = null;
@@ -243,6 +286,97 @@ export function openSandbox(source: SandboxSource, versionId: string, base?: str
   sandbox.hot = null;
   return run("open", { source: source.kind, ...(source.kind === "chat" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : {}), versionId, ...(base ? { base } : {}) });
 }
+/** What a `list` entry's source says, as a source the picker and Reset can open again. */
+function sourceOf(c: Record<string, unknown>): SandboxSource {
+  const chat = c.chat && typeof c.chat === "object" ? (c.chat as Record<string, unknown>) : {};
+  const name = str(chat.name) || str(chat.title) || (typeof c.chat === "string" ? c.chat : "") || "Test chat";
+  const kind = str(c.source) || str(c.kind);
+  if (kind === "maya") return { kind: "maya" };
+  const convId = str(chat.convId) || str(c.convId);
+  const chatId = str(chat.chatId) || str(c.chatId);
+  if (kind === "set" && convId) return { kind: "set", convId, name, ...(chatId ? { chatId } : {}) };
+  return { kind: "chat", chatId: chatId || "me", name };
+}
+const isAi = (by: string) => /^AI\b/i.test(by);
+const timeOf = (v: unknown) => (typeof v === "number" ? v : typeof v === "string" ? Date.parse(v) || 0 : 0);
+
+/** The recent test chats, newest first. A gateway without `list` hides the section (null), quietly. */
+export async function readRecentSandboxes() {
+  if (!call) return;
+  try {
+    const b = await call("list", {});
+    sandbox.recent = arr<Record<string, unknown>>(b.chats)
+      .filter((c) => typeof c.sandboxId === "string" && c.sandboxId)
+      .map((c) => {
+        const source = sourceOf(c);
+        const openedBy = str(c.openedBy) || "Lab";
+        const lastBy = str(c.lastBy) || openedBy;
+        return {
+          sandboxId: str(c.sandboxId),
+          name: source.kind === "maya" ? "Maya (test account)" : source.name,
+          source,
+          versionId: str(c.versionId) || "main",
+          openedBy,
+          lastBy,
+          at: Math.max(timeOf(c.lastAt), timeOf(c.openedAt)),
+          ai: isAi(openedBy) || isAi(lastBy),
+          texts: num(c.testRows) ?? num(c.rows) ?? 0,
+          running: !!c.running,
+        };
+      })
+      .sort((a, b) => b.at - a.at);
+  } catch {
+    sandbox.recent = null;
+  }
+  emit();
+}
+
+/**
+ * Open a test chat that already exists, by its id (`/lab?sandbox=<id>`, or Recent test chats): shown as it stands
+ * and followed live, whoever texts in it. `use` says who is in it where the gateway has it; `get` otherwise.
+ */
+export async function attachSandbox(sandboxId: string, versionId: string, recent?: SandboxRecent) {
+  if (polling) clearTimeout(polling);
+  polling = null;
+  rawRows = [];
+  Object.assign(sandbox, { id: sandboxId, shared: true, versionId: recent?.versionId ?? versionId, rows: [], writes: [], running: null, hot: null, people: [], handles: {}, as: "" });
+  if (recent) sandbox.source = recent.source;
+  seenFor = null;
+  if (!call) return run("get", {});
+  sandbox.busy = true;
+  emit();
+  let used = false;
+  try {
+    const b = await call("use", { sandboxId });
+    if (typeof b.sandboxId === "string" && b.sandboxId !== sandboxId) throw new Error("another chat");
+    if (b.source && typeof b.source === "object") sandbox.source = sourceOf(b.source as Record<string, unknown>);
+    if (typeof b.versionId === "string" && b.versionId) sandbox.versionId = b.versionId;
+    take(b);
+    used = Array.isArray(b.rows);
+  } catch {
+    /* a gateway without `use`: get reads it */
+  }
+  sandbox.busy = false;
+  return used ? (emit(), poll()) : run("get", {});
+}
+
+/** The test chat a link opens (`/lab?sandbox=<id>`), read once as the Lab loads, before it rewrites its address. */
+const fromUrl: string | null = (() => {
+  try {
+    const v = new URLSearchParams(window.location.search).get("sandbox");
+    return v && /^[\w.:-]{1,128}$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+})();
+let urlTaken = false;
+/** The link's test chat id, once: the dock opens it instead of a fresh one. */
+export function takeUrlSandbox(): string | null {
+  if (urlTaken) return null;
+  urlTaken = true;
+  return fromUrl;
+}
+
 /**
  * Replay's "Try from here": the Lab, a test chat over that chat with its real texts up to (not including) the one
  * picked, and that text waiting to be sent, as whoever sent it.
@@ -360,7 +494,9 @@ export function gatewaySandbox(endpoint: string, token: (refresh: boolean | { re
 
 /** For tests: back to an empty test chat. */
 export function resetSandboxState() {
-  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null });
+  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null, shared: false, recent: null });
+  seenFor = null;
+  seen = new Set();
   if (polling) clearTimeout(polling);
   polling = null;
   emit();

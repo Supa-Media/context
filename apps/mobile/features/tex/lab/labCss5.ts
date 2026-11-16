@@ -5,6 +5,7 @@
  * meta, 11px labels, 28px controls, 30px nav rows. `labCss4.ts` appends it.
  */
 import { LAB_CSS_6 } from "./labCss6";
+import { LAB_CSS_DOCK } from "./labCssDock";
 
 export const LAB_CSS_5 = String.raw`
 .tl .popw{position:relative;display:inline-flex}
@@ -117,4 +118,4 @@ export const LAB_CSS_5 = String.raw`
   .tl .score small{display:none}
 }
 @media (max-width:420px){.tl .hide-xs{display:none}.tl .bar .modes button{padding:3px 6px}}
-` + LAB_CSS_6;
+` + LAB_CSS_6 + LAB_CSS_DOCK;

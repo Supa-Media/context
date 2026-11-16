@@ -128,7 +128,7 @@ import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, lab, MAIN, set } from "../features/tex/lab/engine/state";
 import { numColW } from "../features/tex/lab/views/grid/TextGrid.web";
 import { gatewaySandbox, resetSandboxState, failureWords, sandbox, tryFromHere } from "../features/tex/lab/engine/sandbox";
-import { resetPlay } from "../features/tex/lab/engine/sandboxPlay";
+import { holdPlayClock, resetPlay } from "../features/tex/lab/engine/sandboxPlay";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -141,6 +141,8 @@ afterEach(() => {
   localStorage.clear();
 });
 beforeEach(() => {
+  // A text sent plays at once: its clock is held here and stepped where a test reads it.
+  holdPlayClock(true);
   mockAnswers.set("functions/admin:amIAdmin", true);
   mockAnswers.set("functions/texLab:list", { me: "u1", versions: [], caseEdits: [] });
   act(() => set({ cur: clone(MAIN), versions: [MAIN], sel: null, view: "canvas", viewer: null, mode: "lab" }));
@@ -333,15 +335,14 @@ describe("the test chat's ▶ and message options", () => {
     await mount();
     await type("one");
     const play = () => q<HTMLButtonElement>('#sbGrid [data-play="t1"]')!;
+    // A text sent plays at once: ⏸ on its row; ⏸ pauses it.
+    expect(play().textContent).toMatch(/^⏸ /);
+    await click(play());
     expect(play().textContent).toBe("▶");
     expect(play().classList.contains("stale")).toBe(false);
     const before = mockCalls.length;
-    // The playback's clock held still, so a slow runner can't finish it before the check.
-    const realInterval = globalThis.setInterval;
-    globalThis.setInterval = (() => 0) as unknown as typeof setInterval;
     await click(play());
-    globalThis.setInterval = realInterval;
-    // A playback: no call to the gateway, ⏸ and its time while it plays, ▶ again once stopped.
+    // A playback: no call to the gateway, ⏸ and its time while it plays, ▶ again once paused.
     expect(mockCalls.length).toBe(before);
     expect(play().textContent).toMatch(/^⏸ /);
     await click(play());

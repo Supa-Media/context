@@ -1,6 +1,6 @@
 /**
  * Replay's timeline under the canvas (`engine/replay.ts`): the moment's texts, the judge's calls, each turn (its wait
- * in the queue hatched) and each send, on one clock from its first text, with a head that plays at the speed picked or
+ * in the queue hatched) and each send, on one clock from its first text, with a head that plays at the Lab's speed or
  * is dragged by the scrubber. Wherever the head is, the turn under it plays on the canvas at its measured times: each
  * step running then is lit with a ring for how far through it is, and the newest is selected so the right panel shows
  * what it got and gave.
@@ -12,12 +12,11 @@ import { turnAt, type Bar, type Moment } from "../../engine/replay";
 import { turnShown } from "../../engine/turnShown";
 import { packTracks, stepRows } from "../../engine/replaySteps";
 import { emit, lab, node, set } from "../../engine/state";
+import { useLab } from "../../store";
 import { traceMine } from "../../engine/traces";
 import type { LedgerEntry } from "../../../page/texPageTypes";
 import type { Lit } from "../canvas/usePlayback";
 
-const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
-const speedLabel = (v: number) => (v === 1 ? "Real time" : v < 1 ? `${1 / v}× slower` : `${v}× faster`);
 /** A step too short to see stays lit for 150 ms of screen time, at most 0.4 s of the turn. */
 const minLit = (speed: number) => Math.min(150 * speed, 400);
 /** About how wide a bar's name is drawn, to tell whether it fits inside (10.5px text, 5px padding each side). */
@@ -48,8 +47,8 @@ function showTurn(m: Moment, entries: LedgerEntry[], turn: string) {
 export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: LedgerEntry[]; onLit: (lit: Lit | null) => void }) {
   const [at, setAt] = useState(0);
   const [playing, setPlaying] = useState(false);
-  // TODO(dock worker): the timeline dock reads lab.speed (the top bar's play speed); this own select goes with Replay mode.
-  const [speed, setSpeed] = useState(1);
+  // The Lab's one play speed, from the top bar (Lab live sandbox mockup, Dev2 2026-11-16).
+  const speed = useLab().speed;
   const raf = useRef<number | null>(null);
   const shown = useRef<string | null>(null);
   const last = useRef<string | null>(null);
@@ -135,7 +134,7 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
     const began = performance.now();
     setPlaying(true);
     const tick = () => {
-      const now = Math.min(of, from + (performance.now() - began) * speed);
+      const now = Math.min(of, from + (performance.now() - began) * lab.speed);
       setAt(Math.round(now / 20) * 20);
       if (now < of) raf.current = requestAnimationFrame(tick);
       else {
@@ -191,13 +190,6 @@ export function ReplayTimeline({ m, entries, onLit }: { m: Moment; entries: Ledg
         <button className="rmode" id="rCompact" aria-pressed={compact} title={compact ? "One row per step, each named" : "Fit everything into as few rows as possible"} onClick={toggleCompact}>
           {compact ? "Expand" : "Compact"}
         </button>
-        <select id="rSpeed" aria-label="Playback speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
-          {SPEEDS.map((v) => (
-            <option key={v} value={v}>
-              {speedLabel(v)}
-            </option>
-          ))}
-        </select>
       </div>
       <div
         className={compact ? "rlanes compact" : "rlanes"}
