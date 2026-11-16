@@ -39,7 +39,7 @@ flowchart LR
   n_daysum["Day summaries<br/>Haiku 5.5 · effort low<br/>daySummaries.js"]:::model
   n_housekeep["Housekeeping<br/>Haiku 5.5 · effort low<br/>housekeeping.js"]:::model
   n_learn["Learn<br/>Haiku 5.5 · effort low<br/>reflect.js · memoryNudge.js"]:::model
-  n_afterReply["After the reply<br/>Haiku 5.5 · effort low<br/>conversationThreads.js · selfReview.js"]:::model
+  n_afterReply["After the reply<br/>Haiku 5.5 · effort off<br/>conversationThreads.js · selfReview.js"]:::model
   n_answerCheck["Answer check<br/>Haiku 5.5 · effort low<br/>graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js"]:::model
   n_bypass["Confirmations & refusals<br/>code<br/>graph/nodes/bypass.js"]:::code
   subgraph n_group_intake["Intake"]
@@ -114,7 +114,7 @@ flowchart LR
   n_nightly -->|housekeeping| n_housekeep
   n_tools -.->|uses: ask_advisor| n_advisor
   n_job -.->|uses: job| n_jobadv
-  n_jobadv -.->|uses: job| n_tools
+  n_job -.->|uses: job| n_tools
   n_lanes --> n_doorStep
   n_text --> n_triage
   n_doorStep -->|next| n_fd
@@ -193,13 +193,13 @@ every wire, from the same config.
 | Housekeeping | housekeep |  | on | Haiku 5.5 | low |  |  | housekeeping.js |
 | Door | doorStep | intake | on | code |  |  |  | texEntryPoint/* |
 | Staff messages | staff | staff-messages | on | code |  |  |  | graph/nodes/moveChat.js · textsMove.js |
-| Job advisor | jobadv | jobs | on | Opus 5.5 | high |  | own, train:jobcheck, train:mailadv, brief, ask, ledger, out:job | graph/nodes/jobcheck.js · jobCheck.js · advisorRoles/jobMail.js |
+| Job advisor | jobadv | jobs | on | Opus 5.5 | high |  | own, brief, ask, ledger, out:job | graph/nodes/jobcheck.js · jobCheck.js · advisorRoles/jobMail.js |
 | Learn | learn |  | on | Haiku 5.5 | low |  |  | reflect.js · memoryNudge.js |
-| After the reply | afterReply |  | on | Haiku 5.5 | low | 4 s | own, train:classifier, train:selfreview, threads, recent, hist | conversationThreads.js · selfReview.js |
+| After the reply | afterReply |  | on | Haiku 5.5 | off | 4 s | own, train:classifier, train:selfreview, threads, recent, hist | conversationThreads.js · selfReview.js |
 | Answer check | answerCheck |  | on | Haiku 5.5 | low | 8 s | own, train:reviewer, ledger, ask, draft, hist, date | graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js |
 | Confirmations & refusals | bypass |  | on | code |  |  |  | graph/nodes/bypass.js |
 
-Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · jobadv → tools (uses, job) · lanes → doorStep (wait) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped)
+Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait) · triage → lanes (wait) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · lanes → doorStep (wait) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped)
 <!-- tex-config: steps end -->
 
 ## The rule
