@@ -358,3 +358,38 @@ Browserbase is retiring. Tests: `captchaSolver.test.ts`, `browse.test.ts`
 ("holds a press until the solve ends...", "presses nothing while a solve
 outlasts the call..."), `browserbase.test.ts` ("asks for proxies, Verified and
 the region first...").
+
+## A job waits for a slow page to load before it reads it (2026-11-16)
+
+A background job on an old ASP.NET vendor portal was handed "(no text)" and
+nothing to press for a page whose menus were all there when it read it again
+later, so it wandered the menus. Each step had waited only for the network to
+go quiet for 400 ms, at most 3 seconds. The owner: "We should just make sure
+that we are reading a sufficient amount, especially for old websites. Might
+need to wait, even minutes sometimes... it's not about speed for jobs."
+
+Now a call's reading is taken once the page has something on it
+(`infra/site-shots/src/patience.ts`): a page that reads blank (no words and
+nothing to press, its frames included) is read again about once a second
+until it fills or the call's wait runs out, and a page with words that is
+still `loading` gets up to 10 more seconds. A page drawn rather than written
+(a PDF shown whole, a canvas app, an embedded object) is not waited on, and
+its reading says to look at it or download it. The gateway names the wait in the
+request's `waitMs`: a background job's first run of each call asks for 75
+seconds (`browse.js` `JOB_PAGE_WAIT_MS`, sent from `openTheWeb.js` as
+`patient: job != null`), and everything else gets the Worker's 8. 75 seconds
+fits the gateway's 160 s for one browse call after the steps' own 17 s and a
+captcha solver's 30 s; the same call's captcha retries and a stumble's
+re-read keep the short wait. A page still blank after the wait is said to be
+still loading after so many seconds, with a wait step to try, and never as
+"(no text)" (`browseReading.js`). A `wait` step (`seconds`, 1 to 60) lets a
+job wait longer on a slow site; it comes out of the same `waitMs`, its time is
+not charged to the steps after it, and "out of time; run it again" still
+bounds the steps themselves.
+
+**What a simplification would cost:** reading at the first quiet moment has a
+job act on a page that has not arrived; waiting long in a chat turn has a
+person wait on a page that is truly blank. Tests: `patience.test.ts`,
+`browserbase.test.ts` ("waits for a blank page as long as the request's
+waitMs..."), `agentPatientBrowser.test.mjs`, and the `job-sees-chat` replay
+case.

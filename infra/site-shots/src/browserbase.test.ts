@@ -13,7 +13,7 @@ const OTHER = "b".repeat(64);
 const PROFILE = "0b6c0e3e-7a43-4b1e-9d0a-2f5a1c9e8d71";
 
 /** A CDP socket that answers just enough for one reading of one page. */
-const socketOptions = { failSetCookies: false, uploadedSize: 9, google: [] as unknown[] };
+const socketOptions = { failSetCookies: false, uploadedSize: 9, google: [] as unknown[], blank: false };
 
 function fakeSocket(log: string[]) {
   const listeners: Record<string, Array<(e: { data: string }) => void>> = {};
@@ -56,7 +56,7 @@ function fakeSocket(log: string[]) {
         else if (expr.includes("indexedDB.databases")) result = { result: { value: apart ? { origin: "https://shop.example.com", dbs: [SHOP_DB] } : { origin: "https://bank.example", dbs: [] } } };
         else if (expr.includes("location.hostname")) result = { result: { value: { href: "https://shop.example.com/", host: "shop.example.com", origin: "https://shop.example.com" } } };
         else if (expr.includes("data-tex-ref") && expr.includes("elements")) {
-          result = { result: { value: { url: "https://shop.example.com/", title: "Shop", text: "Hi", elements: [{ ref: 1, kind: "input text", label: "Search", filled: true }] } } };
+          result = { result: { value: { url: "https://shop.example.com/", title: "Shop", text: socketOptions.blank ? "" : "Hi", elements: socketOptions.blank ? [] : [{ ref: 1, kind: "input text", label: "Search", filled: true }] } } };
         } else if (expr.startsWith("!!document")) result = { result: { value: true } };
         else if (expr === "document.readyState") result = { result: { value: "complete" } };
         else if (expr.startsWith("document.querySelector(")) result = { result: { type: "object", subtype: "node", objectId: "box-1" } };
@@ -118,6 +118,21 @@ describe("browseOnBrowserbase", () => {
     expect(JSON.stringify(created?.body)).not.toContain("context");
     expect(result.body.page).toMatchObject({ url: "https://shop.example.com/" });
     expect(result.body.liveUrl).toBeUndefined();
+  });
+
+  // 2026-11-16: an old portal read blank, and its menus were there when read again later (./patience.ts).
+  it("waits for a blank page as long as the request's waitMs, and says it is still loading", async () => {
+    socketOptions.blank = true;
+    try {
+      const none = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], waitMs: 0 });
+      expect(none.body.page).not.toHaveProperty("loading");
+      const started = Date.now();
+      const waited = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], waitMs: 1_200 });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(1_100);
+      expect(waited.body.page).toMatchObject({ text: "", loading: 1 });
+    } finally {
+      socketOptions.blank = false;
+    }
   });
 
   it("carries on in the owner's running browser and never in someone else's", async () => {

@@ -56,7 +56,7 @@ export const FILL_LOGIN_DEFINITION = {
   description:
     "Sign in with a login the person saved: fills the username and password boxes on the page your browser is on. " +
     "First open the site's sign-in page with send action browse, then pass the login's id from fetch vault: and the numbers of the boxes. " +
-    "A page that asks for the email first, with no password box yet, takes username_ref alone: press its continue button, then fill again with password_ref on the next page. " +
+    "A page with both boxes takes username_ref and password_ref in one call. Only a page that asks for the email first, with no password box yet, takes username_ref alone: press its continue button, then fill again with password_ref on the next page. " +
     "Never type an email or username into a sign-in yourself: only the saved one goes in. " +
     "You never see the username or password; press the sign-in button with send action browse afterwards. " +
     "It only works on the login's own site; a Google login (site google.com) fills on Google's sign-in page, which a site's Continue with Google button opens. If there is no saved login, never ask for the password: ask whether they sign in with Gmail or another email and send manage action vault_add's link for it with its site; Context tells you when it's saved, and you sign in yourself then.",
@@ -134,11 +134,14 @@ export function fillLoginTool(browser, store) {
         const filled = await browser.fillSecret({ ref: args.username_ref, value: login.username, origin, field: "username" });
         if (!filled.ok) return text(`Couldn't fill the username for ${name}: ${filled.reason}. Read the page again.`, true);
       }
-      if (args.password_ref === undefined) {
-        return text(`Filled the saved email for ${name}. Press the page's continue button with send action browse, then fill_login again with password_ref on the next page.`);
+      // A username alone on a page that also has a password box fills both (a job's log, 2026-11-16): told to press
+      // "continue" on a one-page form, the job pressed a ref that had become "Forgot password".
+      const passwordRef = args.password_ref ?? (typeof browser.passwordBox === "function" ? browser.passwordBox() : null);
+      if (passwordRef === null || passwordRef === undefined) {
+        return text(`Filled the saved email for ${name}; this page shows no password box. Press the page's continue button with send action browse, read the next page, and fill_login again with password_ref there. If a page shows both boxes, fill them in one call with username_ref and password_ref.`);
       }
-      if (login.password === "") return text(`${name} has no password saved.`, true);
-      const filled = await browser.fillSecret({ ref: args.password_ref, value: login.password, origin, field: "password" });
+      if (login.password === "") return args.password_ref === undefined ? text(`Filled the saved email for ${name}; it has no password saved.`) : text(`${name} has no password saved.`, true);
+      const filled = await browser.fillSecret({ ref: passwordRef, value: login.password, origin, field: "password" });
       if (!filled.ok) return text(`Couldn't fill the password for ${name}: ${filled.reason}. Read the page again.`, true);
       return text(`Filled the login for ${name}. Press the page's sign-in button with send action browse.`);
     },

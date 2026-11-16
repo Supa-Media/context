@@ -39,11 +39,21 @@ export function logJobFlow(outcome: string, job: string, extra: { attempts?: num
   console.log(JSON.stringify({ event: "group_turn", outcome, kind: "job", job: jobTag(job), ...extra }));
 }
 
+/**
+ * Waits for a pass still running in the job's object (`runJob` `overlap`):
+ * spent on top of the passes, up to past a pass's own timeout (20 minutes),
+ * so a long pass whose step was retried never costs the job its parts.
+ */
+export const MAX_OVERLAP_WAITS = 50;
+
 export async function runJobFlow(step: Pick<WorkflowStep, "do" | "sleep">, call: JobCall, job: string): Promise<string> {
+  let overlaps = 0;
   for (let pass = 0; pass < MAX_JOB_PASSES; pass += 1) {
     let next: JobNext;
+    // Step names stay "pass N" unless a pass overlapped, so instances already running replay as before.
+    const named = (base: string) => (overlaps > 0 ? `${base} after overlap ${overlaps}` : base);
     try {
-      next = await step.do(`pass ${pass}`, { retries: ANSWER_RETRIES, timeout: ANSWER_TIMEOUT }, () => logged("job_pass", async () => {
+      next = await step.do(named(`pass ${pass}`), { retries: ANSWER_RETRIES, timeout: ANSWER_TIMEOUT }, () => logged("job_pass", async () => {
         const response = await call("/job-pass");
         if (!response.ok) throw new Error(`job-pass ${response.status}`);
         return ((await response.json()) as { next: JobNext }).next;
@@ -56,7 +66,14 @@ export async function runJobFlow(step: Pick<WorkflowStep, "do" | "sleep">, call:
       logJobFlow("workflow_answered", job, { attempts: pass + 1 });
       return "done";
     }
-    if (next.kind === "after") await step.sleep(`wait ${pass}`, next.ms);
+    if (next.kind === "after" && next.overlap === true && overlaps < MAX_OVERLAP_WAITS) {
+      // The same pass number again once the running one has had time to finish.
+      overlaps += 1;
+      await step.sleep(`overlap ${overlaps}`, next.ms);
+      pass -= 1;
+      continue;
+    }
+    if (next.kind === "after") await step.sleep(named(`wait ${pass}`), next.ms);
   }
   logJobFlow("workflow_gave_up", job, { reason: "passes" });
   return await tellFailed(step, call);
