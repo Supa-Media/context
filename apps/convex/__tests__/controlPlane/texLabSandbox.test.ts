@@ -77,6 +77,20 @@ describe("Lab test chats, control plane", () => {
     expect(await w.lab("session", { chat: "not-a-key" })).toMatchObject({ status: "bad_request" });
   });
 
+  test("sets hands the Training and Dev drafts for the picker, removed ones marked, and only to a Tex developer", async () => {
+    const w = await world();
+    await w.t.run(async (ctx) => {
+      const row = { isNew: true, rev: 1, by: w.alice, via: "lab", updatedAt: Date.now() };
+      await ctx.db.insert("texSetConvos", { ...row, convoId: "fresh-one", set: "dev", removed: false, data: JSON.stringify({ id: "fresh-one", set: "dev", msgs: [] }) });
+      await ctx.db.insert("texSetConvos", { ...row, convoId: "gone-one", set: "training", removed: true, data: JSON.stringify({ id: "gone-one", set: "training", msgs: [] }) });
+    });
+    const got = (await w.lab("sets")) as { status: string; drafts: { id: string; set: string; removed: boolean; conv: string }[] };
+    expect(got.status).toBe("ok");
+    expect(got.drafts.map((d) => [d.id, d.set, d.removed]).sort()).toEqual([["fresh-one", "dev", false], ["gone-one", "training", true]]);
+    expect(JSON.parse(got.drafts.find((d) => d.id === "fresh-one")!.conv)).toMatchObject({ id: "fresh-one" });
+    expect(await w.lab("sets", {}, ACCESS_B)).toEqual({ status: "refused" });
+  });
+
   test("a draft's graph is read by its id; main is no override", async () => {
     const w = await world();
     expect(await w.lab("draft", { draft: "main" })).toEqual({ status: "ok", graph: null });

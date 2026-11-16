@@ -6,6 +6,7 @@ export const useQuery = (ref, args) => {
   const name = String(ref?.[Symbol.for("functionName")] ?? ref ?? "");
   if (name.includes("texLabToolStats")) return globalThis.__labToolStats;
   if (name.includes("amIAdmin")) return true;
+  if (name.includes("texLabRuns")) return [];
   if (name.includes("texLab")) return SHARED;
   return undefined;
 };

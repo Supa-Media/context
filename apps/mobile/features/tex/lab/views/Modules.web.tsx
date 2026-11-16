@@ -9,6 +9,7 @@ import { SRC_KINDS } from "../data/modules";
 import { moduleList, newModule } from "../engine/modules";
 import { G, edit, go, set } from "../engine/state";
 import type { LabModule, LabNode } from "../types";
+import { Convo } from "./Convo.web";
 import { useLab } from "../store";
 import { Ic } from "./ic";
 import { onCommit } from "./props/change";
@@ -83,6 +84,7 @@ export function Modules() {
           </div>
         </section>
       ))}
+      <Convo />
     </>
   );
 }

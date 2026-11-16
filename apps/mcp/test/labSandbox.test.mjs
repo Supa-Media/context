@@ -304,7 +304,8 @@ test("a stranger is refused; the chats are the person's 1:1 and their groups", a
   const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" } });
   try {
     assert.equal((await w.call(BOB, { op: "chats" })).status, 403);
-    assert.deepEqual((await w.call(ALICE, { op: "chats" })).body.chats, [{ chatId: "me", name: "You and Tex" }, { chatId: KEY, name: "Team" }]);
+    // Each chat says what it is and how many people it holds (the Lab's picker; a count the control plane leaves out is 1).
+    assert.deepEqual((await w.call(ALICE, { op: "chats" })).body.chats, [{ chatId: "me", name: "You and Tex", kind: "1:1", people: 1 }, { chatId: KEY, name: "Team", kind: "group", people: 1 }]);
     assert.equal((await w.call(ALICE, { op: "open", source: "chat", chatId: OTHER_KEY })).status, 404, "a chat they are not in does not exist");
   } finally {
     w.restore();

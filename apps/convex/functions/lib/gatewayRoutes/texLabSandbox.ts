@@ -12,7 +12,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 
-const ACTIONS = new Set(["who", "session", "draft", "set"]);
+const ACTIONS = new Set(["who", "session", "draft", "set", "sets"]);
 
 /** `POST /gateway/tex/lab-sandbox` `{ accessToken, action, args }`. */
 export async function gatewayTexLabSandboxHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {

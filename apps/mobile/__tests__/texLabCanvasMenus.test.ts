@@ -3,9 +3,10 @@
  */
 
 /**
- * The canvas's two pop-ups, rendered and checked against the artifact's own markup
- * (`fixtures/texLabCanvasGolden.json`, the artifact's `#addMenu` and `#scnPop` innerHTML at the golden
- * state): the add-step menu (`views/canvas/AddMenu.tsx`) and the test picker (`views/canvas/ScnPop.tsx`).
+ * The canvas's add-step menu (`views/canvas/AddMenu.tsx`), rendered and checked against the artifact's own markup
+ * (`fixtures/texLabCanvasGolden.json`, the artifact's `#addMenu` innerHTML at the golden state). The test picker it
+ * once sat beside went with the decluttered Lab (mockup W21NekNf2vtnFLXXzAmp7N, 2026-11-16): the canvas shows the
+ * test chat's texts instead.
  *
  * The comparison normalises both sides the same way: attributes sorted by name, and `style` values with
  * spaces and trailing semicolons removed, and `:0px` read as `:0` (the CSSOM writes a zero length with its unit,
@@ -14,8 +15,6 @@
  * Every value here is fake. This repository is public.
  *
  * Sabotage record (temporary local edits, reverted, 2026-11-13):
- *   `ScnPop` ignoring the query                          "typing dentist" fails
- *   `ScnPop` trace not setting lab.ownText               "Trace with text" fails
  *   `AddMenu` dropping `onPick`'s kind                   "a click on an add-step kind" fails
  *
  * Known drift: the golden's test list is older than `labData.generated.ts`. Four rows exist only in the
@@ -40,11 +39,9 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import golden from "./fixtures/texLabCanvasGolden.json";
 import { AddMenu } from "../features/tex/lab/views/canvas/AddMenu";
-import { ScnPop } from "../features/tex/lab/views/canvas/ScnPop";
-import { TRACE_GROUPS } from "../features/tex/lab/data/areas";
 import { allCases } from "../features/tex/lab/engine/diff";
 import { lab } from "../features/tex/lab/engine/state";
-import { buildTraces, SCENARIOS } from "../features/tex/lab/engine/traces";
+import { buildTraces } from "../features/tex/lab/engine/traces";
 
 const desktop = golden.desktop;
 
@@ -91,18 +88,6 @@ function mount(element: ReturnType<typeof createElement>): HTMLElement {
   return container;
 }
 
-/** Set a controlled input's value the way a person typing does, so React sees the change. */
-function type(el: HTMLInputElement, value: string) {
-  const set = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value",
-  )!.set!;
-  act(() => {
-    set.call(el, value);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
-
 beforeEach(() => {
   lab.ownText = "";
   lab.scn = desktop.scn;
@@ -129,109 +114,3 @@ describe("the canvas's add-step menu", () => {
   });
 });
 
-describe("the canvas's test picker", () => {
-  test("renders the artifact's #scnPop children at the golden state", () => {
-    const container = mount(
-      createElement(ScnPop, { onClose: () => undefined }),
-    );
-    // The golden was taken from the artifact's shipped cases; labData.generated.ts (the bench's current cases)
-    // has more rows: core/q20 and the pipeline replays added since. Those rows are removed here, and only these.
-    const drift = [
-      "core/q20",
-      "pipeline/job-sees-chat",
-      "pipeline/pdf-of-pictures",
-      "pipeline/reads-back",
-      "pipeline/turn-steps-logged",
-      "pipeline/worker-steps-logged",
-      "pipeline/cache-miss-named",
-      "pipeline/door-settings-logged",
-      "pipeline/checks-step-logged",
-      "pipeline/hidden-steps-are-nodes",
-      "pipeline/provider-lag-logged",
-      "pipeline/told-its-mailboxes",
-      "pipeline/figures-read-whole",
-      "pipeline/playbook-after-mail",
-      "pipeline/reads-google-chat",
-    ];
-    const removed: string[] = [];
-    for (const b of Array.from(
-      container.querySelectorAll<HTMLElement>("[data-tr]"),
-    )) {
-      if (drift.includes(b.dataset.tr!)) {
-        removed.push(b.dataset.tr!);
-        b.remove();
-      }
-    }
-    expect(removed.sort()).toEqual([...drift].sort());
-    expect(normalise(container.innerHTML)).toBe(normalise(desktop.scnPop));
-    expect(container.querySelector<HTMLTextAreaElement>("#scnOwn")!.value).toBe(
-      "",
-    );
-    expect(container.querySelector<HTMLInputElement>("#scnQ")!.value).toBe("");
-  });
-
-  test("the search box has the focus on mount", () => {
-    mount(createElement(ScnPop, { onClose: () => undefined }));
-    expect(document.activeElement?.id).toBe("scnQ");
-  });
-
-  test("typing dentist filters to the tests the artifact's filter keeps", () => {
-    const container = mount(
-      createElement(ScnPop, { onClose: () => undefined }),
-    );
-    type(container.querySelector<HTMLInputElement>("#scnQ")!, "dentist");
-
-    const golden_ = document.createElement("template");
-    golden_.innerHTML = desktop.scnPop;
-    const expected = Array.from(
-      golden_.content.querySelectorAll<HTMLElement>("[data-tr]"),
-    )
-      .filter((b) => {
-        const k = b.dataset.tr!;
-        const group = k.split("/")[0];
-        const name = b.querySelector(".nm")!.textContent!;
-        const id = b.querySelector("small")!.textContent!;
-        return (name + " " + id + " " + TRACE_GROUPS[group])
-          .toLowerCase()
-          .includes("dentist");
-      })
-      .map((b) => b.dataset.tr);
-
-    const shown = Array.from(
-      container.querySelectorAll<HTMLElement>("[data-tr]"),
-    ).map((b) => b.dataset.tr);
-    expect(expected.length).toBeGreaterThan(0);
-    expect(shown).toEqual(expected);
-    expect(shown).toContain("core/q1");
-    expect(container.querySelector<HTMLInputElement>("#scnQ")!.value).toBe(
-      "dentist",
-    );
-  });
-
-  test("a click on a test sets lab.scn and closes the picker", () => {
-    const onClose = jest.fn();
-    const container = mount(createElement(ScnPop, { onClose }));
-    act(() =>
-      container
-        .querySelector<HTMLButtonElement>('[data-tr="core/q2"]')!
-        .click(),
-    );
-    expect(lab.scn).toBe("core/q2");
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  test("Trace with a typed message keeps it as the own scenario", () => {
-    const onClose = jest.fn();
-    const container = mount(createElement(ScnPop, { onClose }));
-    const text = "Where is the dentist?";
-    act(() => {
-      container.querySelector<HTMLTextAreaElement>("#scnOwn")!.value =
-        "  " + text + "  ";
-    });
-    act(() => container.querySelector<HTMLButtonElement>("#scnOwnGo")!.click());
-    expect(lab.ownText).toBe(text);
-    expect(lab.scn).toBe("own");
-    expect(SCENARIOS.own.name).toBe(text);
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-});

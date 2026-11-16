@@ -3,10 +3,12 @@
  */
 
 /**
- * /lab Architecture test chat (Dev2, 2026-11-16, mockup https://claude.ai/artifact/P2vQtigdvALrSWyb5CqQ3E): texts as
- * the shared grid under the canvas, a column per step with its output, send as anyone in the chat, Retry, go back to
- * a text, delete, and the sandbox's changes listed; every call goes to the gateway's `/tex-lab/sandbox` with the
- * version open in the Lab. The gateway here is a stand-in that keeps the chat in memory.
+ * /lab Architecture test chat (Dev2, 2026-11-16; decluttered, mockup https://claude.ai/artifact/W21NekNf2vtnFLXXzAmp7N):
+ * texts as the shared grid docked under the canvas, a column per step with its output, a chat picked from your
+ * account, the test account or the Training / Dev sets, send as anyone in the chat, one smart ▶ (plays back when
+ * nothing changed, runs fresh when the version did), go back to a text, delete, react, reply, edit, pictures, and the
+ * sandbox's changes listed; every call goes to the gateway's `/tex-lab/sandbox` with the version open in the Lab. The
+ * gateway here is a stand-in that keeps the chat in memory.
  *
  * Every name and message here is invented. This repository is public.
  *
@@ -16,6 +18,9 @@
  *  3. `gatewaySandbox` not retrying on 401 -> "a stale grant is minted again once" fails;
  *  4. `backTo` sending "back" for a real text -> "going back to a real text opens the chat again" fails;
  *  5. reply rows' steps left on the reply -> "each step's output fills its column" fails.
+ * (2026-11-16, decluttered Lab)
+ *  6. `isStale` always false -> "▶ plays back what ran while nothing changed, and runs fresh once the version did" fails;
+ *  7. `sendText` dropping `replyTo` -> "tapbacks, replies and pictures are each sent to Tex" fails.
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
@@ -25,6 +30,8 @@ jest.mock("convex/react", () => {
   return {
     useQuery: (reference: never, args: unknown) => (args === "skip" ? undefined : mockAnswers.get(getFunctionName(reference))),
     useMutation: () => async () => ({ status: "ok" }),
+    useAction: () => async () => null,
+    useConvex: () => ({ query: async () => null, mutation: async () => null, action: async () => null }),
   };
 });
 jest.mock("expo-router", () => {
@@ -32,6 +39,9 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
+jest.mock("../features/tex/lab/views/canvas/usePicUpload", () => ({
+  usePicUpload: () => async (f: File) => ({ url: "https://files.example.test/" + f.name }),
+}));
 
 type Row = { id: string; who: string; text: string; prod?: boolean; reply?: string; steps?: Array<{ node: string; out: string; ms: number }> };
 const mockCalls: Array<{ op: string; body: Record<string, unknown> }> = [];
@@ -97,8 +107,9 @@ Element.prototype.scrollIntoView = function () {};
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { TexLab } from "../features/tex/lab/TexLab.web";
-import { clone, MAIN, set } from "../features/tex/lab/engine/state";
-import { gatewaySandbox, resetSandboxState, sandbox } from "../features/tex/lab/engine/sandbox";
+import { clone, lab, MAIN, set } from "../features/tex/lab/engine/state";
+import { gatewaySandbox, resetSandboxState, sandbox, tryFromHere } from "../features/tex/lab/engine/sandbox";
+import { resetPlay } from "../features/tex/lab/engine/sandboxPlay";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -107,6 +118,7 @@ afterEach(() => {
   mockCalls.length = 0;
   mockSeq = 0;
   resetSandboxState();
+  resetPlay();
   localStorage.clear();
 });
 beforeEach(() => {
@@ -144,6 +156,12 @@ async function pick(sel: string, value: string) {
   });
   await tick();
 }
+/** The chat picker: a tab, then a chat in it. */
+async function pickChat(tab: string, sel: string) {
+  await click("#sbChat");
+  await click(`#sbPickTabs [data-tab="${tab}"]`);
+  await click(`#sbChatList ${sel}`);
+}
 async function type(text: string) {
   const el = q<HTMLInputElement>("#sbTxt")!;
   act(() => {
@@ -152,7 +170,13 @@ async function type(text: string) {
   });
   await click("#sbSend");
 }
-const texts = () => qa("#sbGrid tbody tr.mr").map((r) => r.querySelector('td[data-c="text"]')?.textContent);
+/** Each row's message, without its ⋯ button. */
+const texts = () =>
+  qa("#sbGrid tbody tr.mr").map((r) => {
+    const td = r.querySelector('td[data-c="text"]')!.cloneNode(true) as HTMLElement;
+    td.querySelectorAll(".popw").forEach((x) => x.remove());
+    return td.textContent;
+  });
 
 describe("the Architecture test chat", () => {
   test("it opens under the canvas on the version open in the Lab, with Maya and your chats to pick from", async () => {
@@ -160,13 +184,23 @@ describe("the Architecture test chat", () => {
     expect(q("#stage")).not.toBeNull();
     expect(q("#sandbox")).not.toBeNull();
     expect(mockCalls.find((c) => c.op === "open")?.body).toEqual({ source: "maya", versionId: "main" });
-    expect(qa("#sbSrc option").map((o) => o.textContent)).toEqual(["Maya (test user) · 1:1", "Your 1:1 with Tex", "Band"]);
+    expect(q("#sbChatName")?.textContent).toBe("Maya (test account)");
     expect(qa("#sbAs option").map((o) => o.textContent)).toEqual(["Maya"]);
+    // The picker: your account's chats, the test account, the Training / Dev sets; never the Test set.
+    await click("#sbChat");
+    expect(qa("#sbPickTabs button").map((b) => b.textContent)).toEqual(["Your account", "Test account", "Training / Dev"]);
+    expect(q('#sbPickTabs [data-tab="test"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(qa("#sbChatList .mi .nm").map((o) => o.textContent)).toEqual(["Maya (test account)"]);
+    await click('#sbPickTabs [data-tab="mine"]');
+    expect(qa("#sbChatList .mh").map((o) => o.textContent)).toEqual(["1:1", "Group chats"]);
+    expect(qa("#sbChatList .mi .nm").map((o) => o.textContent)).toEqual(["Your 1:1 with Tex", "Band"]);
+    await click('#sbPickTabs [data-tab="sets"]');
+    expect(q("#sbChatList")?.textContent).toMatch(/The Test set never shows here/);
   });
 
   test("each step's output fills its column, and the texts are the shared grid", async () => {
     await mount();
-    await pick("#sbSrc", "chat:band");
+    await pickChat("mine", '[data-chat="band"]');
     expect(mockCalls.at(-1)).toEqual({ op: "open", body: { source: "chat", chatId: "band", versionId: "main" } });
     await pick("#sbAs", "Sam");
     await type("Tex add the gig to the band calendar");
@@ -191,7 +225,7 @@ describe("the Architecture test chat", () => {
     expect(q(".sbwrites")?.textContent).toMatch(/Calendar.*held in the sandbox/);
   });
 
-  test("go back to a text keeps it and its reply; Retry and delete drop what came after", async () => {
+  test("go back to a text keeps it and its reply; delete drops what came after; Reset starts again", async () => {
     await mount();
     await type("one");
     await type("two");
@@ -201,11 +235,8 @@ describe("the Architecture test chat", () => {
     expect(mockCalls.at(-1)).toEqual({ op: "back", body: { sandboxId: "sb1", msgId: "t1" } });
     expect(texts()).toEqual(["one", "Added it to the calendar."]);
     await type("again");
-    await click('#sbGrid [data-retry="t4"]');
-    // Retry sends the text again as a new one; get shows it.
-    expect(mockCalls.slice(-2).map((c) => c.op)).toEqual(["retry", "get"]);
     expect(texts()).toEqual(["one", "Added it to the calendar.", "again", "Added it to the calendar."]);
-    await click('#sbGrid [data-drop="t5"]');
+    await click('#sbGrid [data-drop="t4"]');
     expect(texts()).toEqual(["one", "Added it to the calendar."]);
     await click("#sbReset");
     // Reset deletes the test chat, and a fresh one opens over the same chat.
@@ -213,9 +244,23 @@ describe("the Architecture test chat", () => {
     expect(sandbox.rows).toEqual([]);
   });
 
+  test("Try from here opens one chat, up to the picked text, even as the test chat mounts", async () => {
+    await mount();
+    // Off the canvas, with no test chat yet: Replay's "Try from here" is where it is pressed.
+    act(() => set({ view: "tools" }));
+    await tick();
+    expect(q("#sbTxt")).toBeNull();
+    resetSandboxState();
+    mockCalls.length = 0;
+    await act(async () => void (await tryFromHere("band", "Band", "h2", "priya", "hi")));
+    await tick();
+    expect(mockCalls.filter((c) => c.op === "open")).toEqual([{ op: "open", body: { source: "chat", chatId: "band", versionId: "main", base: "h2" } }]);
+    expect(texts()).toEqual(["practice thursday?"]);
+  });
+
   test("going back to a real text opens the chat again up to the text after it", async () => {
     await mount();
-    await pick("#sbSrc", "chat:band");
+    await pickChat("mine", '[data-chat="band"]');
     await type("one");
     expect(texts()).toEqual(["practice thursday?", "Yes, 7 pm.", "one", "Added it to the calendar."]);
     await click('#sbGrid [data-back="h1"]');
@@ -224,6 +269,80 @@ describe("the Architecture test chat", () => {
       { op: "open", body: { source: "chat", chatId: "band", versionId: "main", base: "h2" } },
     ]);
     expect(texts()).toEqual(["practice thursday?"]);
+  });
+});
+
+describe("the test chat's ▶ and message options", () => {
+  test("▶ plays back what ran while nothing changed, and runs fresh once the version did", async () => {
+    await mount();
+    await type("one");
+    const play = () => q<HTMLButtonElement>('#sbGrid [data-play="t1"]')!;
+    expect(play().textContent).toBe("▶");
+    expect(play().classList.contains("stale")).toBe(false);
+    const before = mockCalls.length;
+    // The playback's clock held still, so a slow runner can't finish it before the check.
+    const realInterval = globalThis.setInterval;
+    globalThis.setInterval = (() => 0) as unknown as typeof setInterval;
+    await click(play());
+    globalThis.setInterval = realInterval;
+    // A playback: no call to the gateway, ⏸ and its time while it plays, ▶ again once stopped.
+    expect(mockCalls.length).toBe(before);
+    expect(play().textContent).toMatch(/^⏸ /);
+    await click(play());
+    expect(play().textContent).toBe("▶");
+    // A step's cell lights the canvas up to it and picks its text.
+    await click(q('#sbGrid tr[data-id="t1"] td[data-c="decide"]'));
+    expect(q('#sbGrid tr[data-id="t1"]')?.classList.contains("sel")).toBe(true);
+    expect(q('#sbGrid tr[data-id="t1"] td[data-c="decide"]')?.classList.contains("on")).toBe(true);
+    // Only the canvas as drawn changes (a step moved): nothing a turn runs, so ▶ still plays back.
+    act(() => {
+      lab.cur.graph = { ...lab.cur.graph, nodes: lab.cur.graph.nodes.map((x) => (x.id === "decide" ? { ...x, x: x.x + 40 } : x)) };
+      set({ dirty: true });
+    });
+    expect(play().classList.contains("stale")).toBe(false);
+    // The version as saved changes: ▶ is marked stale and runs the text again on live models.
+    act(() => {
+      lab.cur.rev = (lab.cur.rev ?? 0) + 1;
+      set({ dirty: false });
+    });
+    expect(play().classList.contains("stale")).toBe(true);
+    await click(play());
+    expect(mockCalls.slice(-2)).toEqual([
+      { op: "retry", body: { sandboxId: "sb1", msgId: "t1" } },
+      { op: "get", body: { sandboxId: "sb1" } },
+    ]);
+    // The fresh run's text ran on this version: not stale.
+    expect(q('#sbGrid [data-play="t2"]')?.classList.contains("stale")).toBe(false);
+  });
+
+  test("tapbacks, replies and pictures are each sent to Tex; Edit is off", async () => {
+    await mount();
+    await type("one");
+    // ⋯ on the text: the tapbacks, Reply, Edit.
+    await click('#sbGrid tr[data-id="t1"] .mopt');
+    expect(qa("#sbOpt-t1Menu [data-tap]").map((b) => b.textContent)).toEqual(["❤️", "👍", "👎", "😂", "‼️", "❓"]);
+    await click('#sbOpt-t1Menu [data-tap="👍"]');
+    expect(mockCalls.find((c) => c.op === "react")?.body).toEqual({ sandboxId: "sb1", as: "", msgId: "t1", emoji: "👍" });
+    // Tex's own text has Reply but no Edit.
+    await click('#sbGrid tr[data-id="t1r"] .mopt');
+    expect(q("#sbOpt-t1rMenu [data-edit-open]")).toBeNull();
+    await click("#sbOpt-t1rMenu [data-reply]");
+    expect(q("#sbPend")?.textContent).toMatch(/Replying to Tex: Added it to the calendar\./);
+    // A picture, picked.
+    const file = new File(["x"], "p1.png", { type: "image/png" });
+    const input = q<HTMLInputElement>("#sbAttIn")!;
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    act(() => void input.dispatchEvent(new Event("change", { bubbles: true })));
+    await tick();
+    await tick();
+    expect(qa("#sbPend img").map((i) => i.getAttribute("src"))).toEqual(["https://files.example.test/p1.png"]);
+    await type("this one");
+    expect(mockCalls.find((c) => c.op === "send" && c.body.text === "this one")?.body).toEqual({ sandboxId: "sb1", as: "", text: "this one", pics: [{ url: "https://files.example.test/p1.png" }], replyTo: "t1r" });
+    expect(q("#sbPend")).toBeNull();
+    // Edit is there but off: production passes no edit on to Tex.
+    await click('#sbGrid tr[data-id="t1"] .mopt');
+    expect(q<HTMLButtonElement>('#sbOpt-t1Menu [data-edit-open="t1"]')?.disabled).toBe(true);
+    expect(mockCalls.some((c) => c.op === "edit")).toBe(false);
   });
 });
 

@@ -225,7 +225,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
             const other = out ? node(e.to) : node(e.from);
             return (
               <button key={i} className="wr" data-wire={i} onClick={() => set({ sel: { t: "edge", i } })}>
-                <span className="hint" style={{ width: 34, fontSize: 11.5 }}>
+                <span className="hint" style={{ width: 34, fontSize: 11 }}>
                   {out ? "to" : "from"}
                 </span>
                 <WireIcon mode={e.mode} />

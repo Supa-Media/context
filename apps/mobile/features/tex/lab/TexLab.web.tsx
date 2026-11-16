@@ -16,20 +16,18 @@ import { useQuery } from "convex/react";
 import { AdminChrome } from "../../admin/AdminPane";
 import { StaffFactorGate } from "../../admin/StaffFactorGate";
 import { api } from "@context/convex/_generated/api";
-import { GROUP_CHATS, PEOPLE } from "./data/areas";
 import { allCases, cvDiff, diff } from "./engine/diff";
-import { G, go, isMain, lab, newVersion, openVersion, set, fit, emit } from "./engine/state";
-import { buildTraces, traceMine } from "./engine/traces";
+import { G, go, isMain, lab, openVersion, set, fit, emit } from "./engine/state";
+import { buildTraces } from "./engine/traces";
 import { LAB_CSS } from "./labCss";
 import { ensureFontsLoaded } from "../../design/fonts.web";
-import { promoteVersion, useLab, useLabSync, useLiveFeed, useRevBase } from "./store";
-import { isLive, saveNow } from "./engine/live";
+import { useLab, useLabSync, useLiveFeed, useRevBase } from "./store";
+import { saveNow } from "./engine/live";
 import type { View } from "./types";
 import { Canvas } from "./views/Canvas.web";
 import { Compare } from "./views/Compare.web";
-import { Convo } from "./views/Convo.web";
-import { Ic } from "./views/ic";
-import { ChangeToggles, LiveChanges, LiveChips } from "./views/LiveChanges.web";
+import { LiveChips } from "./views/LiveChanges.web";
+import { MoreMenu, RunSplit, VersionMenu } from "./views/bar/TopBar.web";
 import { Modules } from "./views/Modules.web";
 import { Props } from "./views/Props.web";
 import { Run } from "./views/Run.web";
@@ -37,14 +35,14 @@ import { Sim } from "./views/Sim.web";
 import { Tests } from "./views/Tests.web";
 import { Tools } from "./views/Tools.web";
 import { Viewer } from "./views/Viewer.web";
-import { MineLoader, readMomentDetail, readTurnTimes, refreshChat, replayEntries } from "./views/mine/useMine";
+import { MineLoader, readMomentDetail, refreshChat, replayEntries } from "./views/mine/useMine";
 import { useLabUrl } from "./views/useLabUrl.web";
 import { ReplayPanel } from "./views/replay/ReplayPanel";
 import { ArchCanvas } from "./views/canvas/ArchCanvas.web";
-import { LabRunDev, RunControls } from "./views/runs/Runs.web";
+import { RunControls } from "./views/runs/Runs.web";
 import { openMoment, ReplaySide } from "./views/replay/ReplaySide";
 import { loggedMoments, momentsOf } from "./engine/replay";
-import { setLabTheme, THEMES, useLabTheme } from "./theme.web";
+import { useLabTheme } from "./theme.web";
 import { Testing } from "./views/testing/Testing.web";
 
 /** How often Replay looks for new texts and runs. */
@@ -54,10 +52,9 @@ export const TEX_LAB_TITLE = "Tex Architecture Lab";
 
 const phone = () => typeof window !== "undefined" && window.matchMedia("(max-width:820px)").matches;
 
-const NAV: Array<[View, string, string, "modTag" | "cvTag" | "toolTag" | "runTag" | null]> = [
+const NAV: Array<[View, string, string, "modTag" | "toolTag" | "runTag" | null]> = [
   ["canvas", "Architecture", '<circle cx="6" cy="7" r="2.2"/><circle cx="18" cy="7" r="2.2"/><circle cx="12" cy="17" r="2.2"/><path d="M8 8l3 7M16 8l-3 7M8.2 7h7.6"/>', null],
   ["modules", "Context modules", '<rect x="4" y="4" width="16" height="5" rx="1.5"/><rect x="4" y="11" width="16" height="4" rx="1.5"/><rect x="4" y="17" width="16" height="3" rx="1.5"/>', "modTag"],
-  ["convo", "Conversations", '<path d="M4 5h11v8H8l-4 3z"/><path d="M15 9h5v8l-3-2h-6v-2"/>', "cvTag"],
   ["tools", "Tools", '<path d="M14.5 6.5a3.5 3.5 0 0 0 4.6 4.6l-8 8a2 2 0 0 1-2.8-2.8l8-8a3.5 3.5 0 0 0-1.8-1.8z"/>', "toolTag"],
   ["sim", "Speed and cost", '<circle cx="12" cy="13" r="7"/><path d="M12 13l3-3M10 3h4"/>', null],
   ["compare", "Compare versions", '<path d="M5 20V10M12 20V4M19 20v-7"/>', null],
@@ -67,7 +64,6 @@ const NAV: Array<[View, string, string, "modTag" | "cvTag" | "toolTag" | "runTag
 const PAGES: Array<[View, string, React.CSSProperties | undefined, () => React.ReactNode]> = [
   ["modules", "modPg", undefined, () => <Modules />],
   ["tools", "toolPg", { maxWidth: 1180 }, () => <Tools />],
-  ["convo", "cvPg", { maxWidth: 1180 }, () => <Convo />],
   ["sim", "simPg", undefined, () => <Sim />],
   ["tests", "testsPg", { paddingTop: 16, maxWidth: 1180 }, () => <Tests />],
   ["run", "runPg", undefined, () => <Run />],
@@ -76,26 +72,6 @@ const PAGES: Array<[View, string, React.CSSProperties | undefined, () => React.R
 
 function Svg({ d, className = "i ic", style }: { d: string; className?: string; style?: React.CSSProperties }) {
   return <svg className={className} viewBox="0 0 24 24" style={style} dangerouslySetInnerHTML={{ __html: d }} />;
-}
-
-const THEME_ICON = {
-  auto: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>',
-  light: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>',
-  dark: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
-};
-
-/** Not in the artifact: light, dark or auto (follow the system), kept in this browser (`theme.web.ts`). */
-function ThemeToggle() {
-  const theme = useLabTheme();
-  return (
-    <div className="thm" id="themeToggle" role="radiogroup" aria-label="Look">
-      {THEMES.map((t) => (
-        <button key={t} data-theme-pick={t} role="radio" aria-checked={theme === t} title={t === "auto" ? "Auto (follow the system)" : t === "light" ? "Light" : "Dark"} onClick={() => setLabTheme(t)}>
-          <Svg d={THEME_ICON[t]} style={{ width: 15, height: 15 }} />
-        </button>
-      ))}
-    </div>
-  );
 }
 
 /**
@@ -159,7 +135,7 @@ function Lab() {
   const d = diff();
   const cvn = cvDiff().length;
   const nm = Object.keys(G().modules || {}).length;
-  const tags = { modTag: nm ? nm + " edited" : "", cvTag: cvn ? cvn + " changed" : "", toolTag: "", runTag: d.length ? d.length + " change" + (d.length > 1 ? "s" : "") : "" };
+  const tags = { modTag: nm + cvn ? nm + cvn + " edited" : "", toolTag: "", runTag: d.length ? d.length + " change" + (d.length > 1 ? "s" : "") : "" };
   useLabUrl();
   const replay = s.mode === "replay";
   const testing = s.mode === "testing";
@@ -185,29 +161,6 @@ function Lab() {
   const [panelHidden, setPanelHidden] = useState(false);
   const propsOn = s.view === "canvas" && (s.sel !== null || replay) && !(replay && panelHidden && !phone());
   const wide = propsOn && !!s.cfocus && s.sel?.t === "node" && s.sel.id === s.cfocus;
-  const unsaved = !isMain() && !s.versions.some((v) => v.id === s.cur.id);
-  const me = s.tester === "me";
-  // You or the bench's Maya; as You, Test cases opens on your own texts.
-  const swapTester = () => {
-    const toMe = s.tester !== "me";
-    // The canvas traces your newest text as You (once read, `useMine`), and a bench test again as Maya.
-    if (toMe && Array.isArray(lab.myTexts) && lab.myTexts[0]) {
-      traceMine(lab.myTexts[0].text);
-      void readTurnTimes(lab.myTexts[0]);
-    }
-    if (!toMe) {
-      if (lab.scn === "own") {
-        lab.scn = "";
-        lab.ownText = "";
-      }
-      lab.real = null;
-      buildTraces(allCases());
-    }
-    set({ tester: toMe ? "me" : "bench", tArea: toMe ? "mine" : "core", tQ: "" });
-    if (toMe) go("tests");
-    closeSide();
-  };
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
@@ -241,13 +194,6 @@ function Lab() {
     set({ sideHidden: !s.sideHidden });
     setTimeout(fit, 0);
   };
-  const showVersions = () => {
-    if (phone()) set({ sideOpen: true });
-    else {
-      set({ sideHidden: false });
-      document.getElementById("verList")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }
-  };
   const gridCols = s.sideHidden && !phone() ? (propsOn ? `minmax(0,1fr) ${wide ? 420 : 320}px` : "minmax(0,1fr)") : undefined;
 
   return (
@@ -269,67 +215,39 @@ function Lab() {
             </button>
           </div>
           {testing ? (
-            <RunControls />
-          ) : replay ? null : (
             <>
-          <button className="chipbtn" id="verBtn" onClick={showVersions}>
-            <Svg className="i" d='<path d="M6 4v10a4 4 0 0 0 4 4h8"/><circle cx="18" cy="18" r="1.6"/>' />
-            <span id="verName" hidden={!isMain()}>{s.cur.name}</span>
-          </button>
-          <input
-            id="verRename"
-            className="vren"
-            aria-label="Version name"
-            spellCheck={false}
-            hidden={isMain()}
-            key={s.cur.id}
-            defaultValue={s.cur.name}
-            onChange={(e) => {
-              s.cur.name = e.target.value.trim() || s.cur.name;
-              set({ dirty: true });
-            }}
-          />
-          <span className="dot" id="dirtyDot" title="Unsaved changes" hidden={!s.dirty} />
-          {/* A saved version is live: each edit is saved as it happens, so Save stays only for a rename (`engine/live.ts`). */}
-          <button className="primary" id="saveBtn" hidden={isLive() && !s.dirty} disabled={isMain() || !s.dirty} onClick={() => void saveNow()}>
-            Save
-          </button>
-          <LiveChips />
-          {s.view === "canvas" ? <ChangeToggles /> : null}
-          {/* Not in the artifact: a saved version becomes Tex's config through a pull request (texLabPromote.ts). */}
-          <button
-            id="promoteBtn"
-            hidden={isMain()}
-            disabled={s.dirty || s.cur.promote?.state === "asked"}
-            title={s.cur.promote?.state === "refused" ? "Refused: " + (s.cur.promote.why ?? "") : s.dirty ? "Save first" : "Open the pull request that makes this version Tex's config"}
-            onClick={() => void promoteVersion()}
-          >
-            {s.cur.promote?.state === "asked" ? "Promote asked" : "Promote"}
-          </button>
-          {s.cur.promote?.state === "opened" && s.cur.promote.pr ? (
-            <a id="promotePr" href={s.cur.promote.pr} target="_blank" rel="noreferrer">
-              Its pull request
-            </a>
-          ) : null}
-          <LabRunDev />
+              <RunControls />
+              <span className="spacer" />
+            </>
+          ) : replay ? (
+            <span className="spacer" />
+          ) : (
+            <>
+              <VersionMenu />
+              <span className="dot" id="dirtyDot" title="Unsaved changes" hidden={!s.dirty} />
+              {/* A saved version saves each edit as it happens, so Save shows only for what isn't saved yet (`engine/live.ts`). */}
+              {s.dirty && !isMain() ? (
+                <button className="primary" id="saveBtn" onClick={() => void saveNow()}>
+                  Save
+                </button>
+              ) : null}
+              <LiveChips />
+              <span className="spacer" />
+              <RunSplit />
             </>
           )}
-          <span className="spacer" />
-          <span className="sync" id="syncState">
-            {s.sync}
-          </span>
-          <ThemeToggle />
+          <MoreMenu />
         </div>
         {testing ? (
           <div className="body testing" id="body">
             <Testing />
           </div>
         ) : (
-        <div className={"body" + (propsOn ? " props" : "") + (wide ? " wide" : "")} id="body" style={gridCols ? { gridTemplateColumns: gridCols } : undefined}>
+        <div className={"body" + (replay ? "" : " labnav" + (s.navMin ? " navmin" : "")) + (propsOn ? " props" : "") + (wide ? " wide" : "")} id="body" style={gridCols ? { gridTemplateColumns: gridCols } : undefined}>
           <nav className="side" id="side" aria-label={replay ? "Your chats" : "Lab"} hidden={s.sideHidden && !phone()}>
             {replay ? <ReplaySide moments={moments} onHide={toggleSide} /> : <>
             {NAV.map(([v, name, icon, tag]) => (
-              <button key={v} className="rowi" data-view={v} aria-current={s.view === v} onClick={() => (closeSide(), go(v))}>
+              <button key={v} className="rowi" data-view={v} aria-current={s.view === v} title={name} onClick={() => (closeSide(), go(v))}>
                 <Svg d={icon} />
                 <span className="nm">{name}</span>
                 {tag ? (
@@ -339,74 +257,12 @@ function Lab() {
                 ) : null}
               </button>
             ))}
-            <div className="sec">
-              <span>Test user</span>
-              <button id="tuserSwap" aria-label={me ? "Run as Maya" : "Run as you"} onClick={swapTester}>
-                <Svg className="i" style={{ width: 16, height: 16 }} d='<path d="M7 7h11l-3-3M17 17H6l3 3"/>' />
+            <div className="sidefoot">
+              <button className="rowi" id="navMin" title={s.navMin ? "Show names" : "Fold the sidebar to icons"} onClick={() => set({ navMin: !s.navMin })}>
+                <Svg d={s.navMin ? '<path d="M9 6l6 6-6 6"/>' : '<path d="M15 6l-6 6 6 6"/>'} />
+                <span className="nm">Collapse</span>
               </button>
             </div>
-            <div className="tuser" id="tuser">
-              <span className="av">{me ? (s.me?.name || "Y").slice(0, 1).toUpperCase() : "M"}</span>
-              <div>
-                <b>{me ? s.me?.name || "You" : "Maya"}</b>
-                <div className="hint">{me ? "your texts replay read only" : "core and jobs run as her"}</div>
-              </div>
-            </div>
-            <div className="sub">Workspaces</div>
-            <div id="wsList">
-              {me
-                ? (s.me?.workspaces ?? []).map((w) => (
-                    <a key={w.n} className="rowi" data-myws={w.n} href={"/console/" + encodeURIComponent(w.n)} target="_blank" rel="noopener" title={"Open " + w.n + " in a new tab"}>
-                      <Ic k={w.kind === "personal" ? "door" : "thread"} style={{ color: "var(--muted)" }} />
-                      <span className="nm">{w.n}</span>
-                      <span className="meta">{w.role}</span>
-                    </a>
-                  ))
-                : PEOPLE.Maya.ws.map((w) => (
-                    <button key={w.n} className="rowi" data-sws={w.n} onClick={() => (closeSide(), set({ viewer: { kind: "ws", ws: w.n } }))}>
-                      <Ic k={w.kind === "personal" ? "door" : "thread"} style={{ color: "var(--muted)" }} />
-                      <span className="nm">{w.n}</span>
-                      <span className="meta">{w.role}</span>
-                    </button>
-                  ))}
-            </div>
-            {me ? null : (
-              <>
-                <div className="sub">Group chats</div>
-                <div id="gcList">
-                  {GROUP_CHATS.map((c) => (
-                    <button key={c.name} className="rowi" data-sws={c.ws} title={c.note} onClick={() => (closeSide(), set({ viewer: { kind: "ws", ws: c.ws } }))}>
-                      <Ic k="text" style={{ color: "var(--muted)" }} />
-                      <span className="nm">{c.name}</span>
-                      <span className="meta">{c.with}</span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-            <div className="sec">
-              <span>Versions</span>
-              <button id="sideNewVer" aria-label="New version from main" onClick={newVersion}>
-                <Svg className="i" style={{ width: 16, height: 16 }} d='<path d="M12 5v14M5 12h14"/>' />
-              </button>
-            </div>
-            <div id="verList">
-              {s.versions.map((v) => (
-                <button key={v.id} className="rowi" data-ver={v.id} aria-current={v.id === s.cur.id} onClick={() => (openVersion(v.id), closeSide())}>
-                  <Ic k={v.id === "main" ? "send" : "router"} style={{ color: "var(--accent)" }} />
-                  <span className="nm">{v.id === s.cur.id ? s.cur.name : v.name}</span>
-                  {v.id === "main" ? <span className="tag">live</span> : v.results?.length ? <span className="tag">{v.results.length + " run" + (v.results.length > 1 ? "s" : "")}</span> : null}
-                </button>
-              ))}
-              {unsaved ? (
-                <button className="rowi" aria-current="true">
-                  <Ic k="router" style={{ color: "var(--accent)" }} />
-                  <span className="nm">{s.cur.name}</span>
-                  <span className="tag">not saved</span>
-                </button>
-              ) : null}
-            </div>
-            <LiveChanges />
             </>}
           </nav>
           <div className="scrim" id="scrim" onClick={closeSide} />
@@ -444,7 +300,7 @@ function Lab() {
         </div>
         )}
       </div>
-      {me || replay ? <MineLoader /> : null}
+      {replay ? <MineLoader /> : null}
       <div className="toast" id="toast" hidden={!s.toastText}>
         {s.toastText}
       </div>

@@ -46,11 +46,11 @@ export function WirePanel({ extra }: { extra?: ReactNode }) {
         <div className="badge">
           <Ic k="wire" />
         </div>
-        <div style={{ fontSize: 17, fontWeight: 600, flex: 1 }}>Wire</div>
+        <div style={{ fontSize: 15, fontWeight: 600, flex: 1 }}>Wire</div>
         {extra}
       </div>
       <div className="grp">
-        <div className="flex" style={{ fontSize: 14 }}>
+        <div className="flex" style={{ fontSize: 13 }}>
           <Ic k={a.icon} />
           <b>{a.label}</b>
           <span className="hint">to</span>

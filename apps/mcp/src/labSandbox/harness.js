@@ -23,9 +23,9 @@ import { sessionFromPayload, storeForSession } from "../session.js";
 import { callSandbox } from "./object.js";
 import { sandboxEnvOf } from "./policy.js";
 import { sandboxNamespace } from "./wire.js";
+import { askOf, SANDBOX_EVENT_CHAT } from "./inbound.js";
 
-/** The chat key the turn's events are logged under: any key the log accepts (`loggedTurn.js` `isChatKey`). */
-export const SANDBOX_EVENT_CHAT = "labsandbox";
+export { SANDBOX_EVENT_CHAT };
 /** A turn that has not answered by then is stopped and said so on its row. */
 export const TURN_LIMIT_MS = 4 * 60_000;
 /** Work after the answer (the turn's own after-steps) is waited for this long before the row is closed. */
@@ -109,16 +109,23 @@ export function sandboxGate(stub, about, rowId, { config = null } = {}) {
   };
 }
 
-/** The `/agent` body a real text would send: a one-to-one text, or a group chat's with what it said. */
-export function turnBody({ about, text, as, eid, turn, rows }) {
-  const base = { question: text, covers: [eid], chat: SANDBOX_EVENT_CHAT, turn, arrivedAt: Date.now(), ...(about.timeZone ? { timeZone: about.timeZone } : {}) };
-  if (about.kind !== "group") return { ...base, conversation: "texts" };
+/**
+ * The `/agent` body a real text would send (`apps/agent/src/clients.ts` `askAgent` for a 1:1, `groupModelTurn.ts` for a
+ * group): the question, or `ask` (`inbound.js` `askOf`: a reply's `quoted`/`replied`, a tapback's `tapback`), the
+ * pictures as `attachments`, a 1:1's noted tapbacks as `reacted`, and a group's chat lines (`chat`, each `{ who, text }`;
+ * the rows' people when not given).
+ */
+export function turnBody({ about, text, ask = null, as, eid, turn, rows, chat = null, attachments = [], reacted = [] }) {
+  const asked = ask ?? { question: text };
+  const question = String(asked.question ?? "");
+  const reply = { ...(asked.quoted ? { quoted: asked.quoted } : asked.replied ? { replied: true } : {}), ...(asked.quoted && asked.tapback ? { tapback: asked.tapback } : {}) };
+  const files = attachments.length > 0 ? { attachments } : {};
+  const base = { question, covers: [eid], chat: SANDBOX_EVENT_CHAT, turn, arrivedAt: Date.now(), ...(about.timeZone ? { timeZone: about.timeZone } : {}) };
+  if (about.kind !== "group") return { ...base, conversation: "texts", ...files, ...reply, ...(reacted.length > 0 ? { reacted } : {}) };
   const handles = (about.people ?? []).map((person) => person.handle).filter((handle) => typeof handle === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(handle));
   const from = handles.includes(as) ? as : "";
-  const said = rows
-    .filter((row) => row.who !== "Tex")
-    .slice(-30)
-    .map((row) => ({ from: handles.includes(row.who) ? row.who : "", text: String(row.text ?? "") }));
+  const lines = chat ?? (rows ?? []).filter((row) => row.who !== "Tex").slice(-30).map((row) => ({ who: row.who, text: String(row.text ?? "") }));
+  const said = lines.map((line) => ({ from: handles.includes(line.who) ? line.who : "", text: line.text }));
   return {
     ...base,
     group: {
@@ -128,24 +135,29 @@ export function turnBody({ about, text, as, eid, turn, rows }) {
       people: handles,
       ...(from === "" ? { guests: [String(as).slice(0, 40)], asker: String(as).slice(0, 40) } : {}),
       chat: said,
-      tagged: /@tex\b/i.test(text),
+      tagged: /@tex\b/i.test(question),
     },
+    ...files,
+    ...reply,
   };
 }
 
-/** The person's text as the Worker logs it before the turn (`ledger.js` `eventEntry`): `as` named, unless it is the 1:1's own person. */
-export function textEvent({ eid, at, text, as, about }) {
-  const name = about.kind === "group" && typeof as === "string" && /^[\p{L}\p{N} ._\-'@]{1,64}$/u.test(as) && !["you", "context", "system", "tex", "them"].includes(as.toLowerCase()) ? as : null;
-  return eventEntry({ id: eid, at, chat: SANDBOX_EVENT_CHAT, kind: "text", from: { kind: "person", ...(name ? { name } : {}) }, text });
+/** One row's whole `/agent` body: what it asks (`askOf`, pictures downloaded with `fetch`) in the shape `turnBody` gives. */
+export async function turnRequestBody({ about, row, rows, turn, fetch, images }) {
+  const { ask, attachments, reacted, chat } = await askOf({ about, row, rows, ...(fetch ? { fetch } : {}), images });
+  return turnBody({ about, ask, as: row.who, eid: row.eid, turn, rows, chat: about.kind === "group" ? chat : null, attachments, reacted });
 }
 
-/** Tex's reply as the Worker logs it once sent. */
-export function replyEvent({ at, text, turn, covers }) {
-  return eventEntry({ id: eventId(at), at, chat: SANDBOX_EVENT_CHAT, kind: "text", from: { kind: "tex" }, text, turn, covers, delivered: true });
+/** Tex's reply as the Worker logs it once sent; `eid` its event id, which a later reply or tapback names. */
+export function replyEvent({ at, text, turn, covers, eid = eventId(at) }) {
+  return eventEntry({ id: eid, at, chat: SANDBOX_EVENT_CHAT, kind: "text", from: { kind: "tex" }, text, turn, covers, delivered: true });
 }
 
-/** A promise that gives up after `ms`, answering `fallback`. */
-const within = (work, ms, fallback) => Promise.race([work, new Promise((resolve) => setTimeout(() => resolve(fallback), ms))]);
+/** A promise that gives up after `ms`, answering `fallback`; its timer never outlives the work. */
+function within(work, ms, fallback) {
+  let timer;
+  return Promise.race([work, new Promise((resolve) => (timer = setTimeout(() => resolve(fallback), ms)))]).finally(() => clearTimeout(timer));
+}
 
 /**
  * Runs one test text's turn and writes what it gave into the test chat. `payload` is the control plane's session for
@@ -166,7 +178,8 @@ export async function runSandboxTurn({ env, stub, about, row, payload, token, co
     const session = sessionFromPayload(payload, null, token);
     Object.defineProperty(session, "labSandbox", { value: gate, enumerable: false });
     const state = await callSandbox(stub, "state", {});
-    const body = turnBody({ about, text: row.text, as: row.who, eid: row.eid, turn, rows: state.rows ?? [] });
+    // The pictures are downloaded now, at answer time, as the Worker does (`reply.ts`), with the deployment's `IMAGES`.
+    const body = await turnRequestBody({ about, row, rows: state.rows ?? [], turn, images: env.IMAGES });
     const request = new Request(`${origin}/agent`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const store = await storeForSession(session, sandboxEnv, controlPlane);
     decorateRequestStore(store, { session, env: sandboxEnv, controlPlane, ctx, request, origin });
@@ -181,9 +194,10 @@ export async function runSandboxTurn({ env, stub, about, row, payload, token, co
     const text = typeof answer?.answer === "string" ? answer.answer : "";
     const quiet = answer?.quiet === true || text === "";
     const at = Date.now();
-    if (!quiet) await callSandbox(stub, "ledger.append", { entries: [replyEvent({ at, text, turn, covers: [row.eid] })], by: row.id }).catch(() => {});
+    const eid = eventId(at);
+    if (!quiet) await callSandbox(stub, "ledger.append", { entries: [replyEvent({ at, text, turn, covers: [row.eid], eid })], by: row.id }).catch(() => {});
     const steps = stepsOf((await callSandbox(stub, "ledger.of", { by: row.id })).entries);
-    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text, at, prod: false, ...(quiet ? { quiet: true } : {}), ms: at - started, steps, ...(response.ok ? {} : { error: `the turn answered ${response.status}` }) } });
+    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text, at, prod: false, ...(quiet ? { quiet: true } : { eid }), ms: at - started, steps, ...(response.ok ? {} : { error: `the turn answered ${response.status}` }) } });
     console.log(JSON.stringify({ event: "lab_sandbox_turn", ok: response.ok, ms: at - started, steps: steps.length, quiet, ops: gate.ops.size }));
   } catch (error) {
     await gate.flush();
