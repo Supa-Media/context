@@ -170,3 +170,25 @@ a chat the caller is not in answers as one that does not exist.
 What a "simplification" would cost: running test texts on the real objects with a flag to skip writes puts every
 write path's honesty on one boolean and production's data one bug away; running them in the bench harness instead
 tests a turn that is not the one people text.
+
+## An AI's test chats (2026-11-16)
+
+Dev2, 2026-11-16: an AI through the MCP sends test texts, sees after the run which steps ran and which did not, what
+each got, gave and thought and how long it took, and tries a change against main, "running as me"; and "if I go into a
+session/draft an AI is updating / editing, we can co work, and when its playing something I can see it playing". Spec
+approved by Dev2: https://claude.ai/artifact/Uisi6KJQhizxCAos82TTKN.
+
+`tex_dev` `sandbox` (`apps/mcp/src/texDev/sandbox.js`) is the same route on the connection's own grant, only shaped for
+a model: `open` answers the last rows and a Lab link, never a whole chat; a send waits (at most 50 s) and answers a run
+card (Tex's texts, total and first-text time, every step that ran in order, the config's steps that did not run with
+the reason read from the wires and what their sources said, slowest, failures, writes); `step` reads one step whole
+with Replay's own reader over the test chat's history file (route op `read`, its own chat only), so prod and sandbox
+have one reader; `again`, `try` and `replay` set runs side by side with a diff. A production run's card never lists
+"did not run": its graph was its own version's, and guessing it from today's would show what did not happen.
+
+Co-working: the route's `list` names every test chat of the person's last day, who opened it and who used it last
+(the Lab, or `AI (<client>)` passed as `by`), and what runs now; the AI hands the person `/lab?sandbox=<id>` to follow
+it live. Both are the same person's grant, so nothing is shared beyond them.
+
+**Tests**: `apps/mcp/test/texDevSandbox.test.mjs` (sabotaged: the not-run reasons, the wait's deadline, open's last
+rows) and the route's `about`/`use`/`read`/`list` in `labSandbox.test.mjs` (another person's never answers).

@@ -10,13 +10,14 @@
  */
 
 import { appOriginOf } from "../agent/noteLinks.js";
-import { TEX_CONFIG } from "../agent/texConfig.js";
+import { TEX_CONFIG, withDraft } from "../agent/texConfig.js";
 import { toolError } from "../tools/results.js";
 import { draftProblems, draftVsMain } from "./check.js";
 import { ACTIONS, guideText } from "./guide.js";
 import { caseRoom, labAction, labWording, putBackOps, snapshotSim } from "./lab.js";
-import { chatsOf, entriesOf, turnsOf } from "./probe.js";
+import { chatsOf, entriesOf, openChat, turnsOf } from "./probe.js";
 import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
+import { createSandboxActions } from "./sandbox.js";
 import { createSetActions } from "./sets.js";
 import { snapshotGraph } from "./snapshot.js";
 import { createDraftWrites } from "./writes.js";
@@ -81,6 +82,39 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
   const writes = createDraftWrites({ plane, json, linkOf });
 
   const needDraft = (args) => (typeof args?.draft === "string" && DRAFT.test(args.draft) ? null : toolError("Name the draft: { draft: \"v…\" } (list shows them)."));
+
+  /** One call to the Lab's test-chat route, in this Worker, as the Lab makes it. */
+  async function sandboxRoute(body) {
+    const request = new Request(`${origin}/tex-lab/sandbox`, { method: "POST", headers: { authorization: `Bearer ${session.accessToken}`, "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+    // Read when asked: the route runs a whole turn, whose modules import this tool's own.
+    const { handleLabSandbox } = await import("../labSandbox/route.js");
+    const response = await handleLabSandbox(request, env, defer === null ? null : { waitUntil: (work) => defer(work) }, { origin });
+    return { ok: response.ok, status: response.status, answer: await response.json().catch(() => ({})) };
+  }
+
+  /** The config a test chat's turn runs on: main's, or a draft over it as the sandbox runs one (`withDraft`). */
+  async function sandboxGraph(versionId) {
+    if (!versionId || versionId === "main") return { graph: { nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges } };
+    const { graph, error } = await draftGraph(versionId);
+    if (error) return { error: "This test chat's draft could not be read." };
+    return { graph: withDraft(TEX_CONFIG, graph) };
+  }
+
+  /** A real chat's history file, for `sandbox replay`: the person's own 1:1 or a group they are in (`openChat`). */
+  async function realChat(key) {
+    const p = await page();
+    if (p.error) return { error: "Your Tex chats could not be read just now." };
+    try {
+      const { place, ledger } = openChat(env, p.page, key, ...(ledgerOf ? [ledgerOf] : []));
+      return ledger === null ? { error: "this chat has no history file yet" } : { ledger, name: place.name };
+    } catch {
+      return { error: "There is no such chat; chats lists yours." };
+    }
+  }
+
+  // Named in the person's list of test chats, so the Lab shows which an AI opened and is driving (`route.js` `list`).
+  const by = `AI (${String(session?.clientName ?? "MCP").replace(/[^\p{L}\p{N} ._-]/gu, "").slice(0, 50) || "MCP"})`;
+  const sandbox = createSandboxActions({ route: sandboxRoute, graphOf: sandboxGraph, page, env, origin, realChat, by, sleep, now });
 
   // The Testing tab's conversations (`sets.js`): Training and Dev, never the Test Set.
   const sets = createSetActions({ plane, json, page, env, ledgerOf });
@@ -294,14 +328,10 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
       case "marks":
         return labAction(action, args, plane);
       case "sandbox": {
-        // The Lab's test chats (`labSandbox/route.js`), the same route the Lab calls, on this connection's own grant.
-        const request = new Request(`${origin}/tex-lab/sandbox`, { method: "POST", headers: { authorization: `Bearer ${session.accessToken}`, "content-type": "application/json" }, body: JSON.stringify(args ?? {}) });
-        // Read when asked: the route runs a whole turn, whose modules import this tool's own.
-        const { handleLabSandbox } = await import("../labSandbox/route.js");
-        const response = await handleLabSandbox(request, env, defer === null ? null : { waitUntil: (work) => defer(work) }, { origin });
-        const answer = await response.json().catch(() => ({}));
-        if (!response.ok) return toolError(typeof answer.error === "string" ? answer.error : `The Lab's test chats answered ${response.status}.`);
-        return json(answer);
+        // The Lab's test chats (`labSandbox/route.js`), the same route the Lab calls, on this connection's own grant,
+        // shaped for an AI (`sandbox.js`): run cards, waits, a step whole, re-runs and drafts side by side.
+        const answer = await sandbox(args ?? {});
+        return answer?.error ? toolError(answer.error) : answer?.tool ? answer.tool : json(answer);
       }
       // The canvas's Put back on a changed step (`engine/changeMarks.ts`), landed as an edit with its conflict check.
       case "put_back": {
