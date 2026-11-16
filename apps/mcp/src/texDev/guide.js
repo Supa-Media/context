@@ -65,7 +65,18 @@ export const ACTIONS = [
   ["modules", "{ draft?, key?, full? }", "the Lab's Modules: every context module by where it comes from, edited or new, and the steps that read it; with `key`, its whole words, fingerprints and the word diff against main (`full` keeps unchanged runs whole)"],
   ["steps", "{ draft?, step? }", "the Tests page's steps: each step's cases out of 20 and its own, the steps no case tests yet; with step, its case form (the given and want boxes from its shapes, with choices), the key for a new case and its own cases"],
   ["marks", "{ draft, vs?: \"main\" | \"last\" }", "the canvas's change marks: steps changed (each field from → to, moved), added and removed, wires new and gone, against main or the draft before its last revision"],
-  ["sandbox", '{ op: "chats" } | { op: "open", source: "chat" | "set" | "maya", chatId?, convId?, versionId?, base? } | { op: "send", sandboxId, as?, text } | { op: "retry" | "back" | "drop", sandboxId, msgId } | { op: "reset" | "get", sandboxId }', "the Lab's test chats: a copy of your 1:1, a group chat you are in, a Training or Dev conversation or Maya, where a draft's Tex answers texts you send (as anyone in a group) and nothing reaches the real chat, its notes or anyone outside; send answers a msgId, then get shows the reply, each step's time and output, and every change or message the turn would have made (writes); retry, back and drop cut the test texts, reset deletes the test chat"],
+  [
+    "sandbox",
+    '{ op: "chats" | "sets" } | { op: "open", source: "chat" | "set" | "maya", chatId?, convId?, versionId?, base? } | ' +
+      '{ op: "send", sandboxId, as?, text, pics?: [{ url, type?, name? }], replyTo?: msgId } | { op: "react", sandboxId, msgId, emoji, as? } | ' +
+      '{ op: "edit", sandboxId, msgId, text, as? } | { op: "retry" | "back" | "drop", sandboxId, msgId } | { op: "reset" | "get", sandboxId }',
+    "the Lab's test chats: a copy of your 1:1, a group chat you are in, a Training or Dev conversation or Maya, where a draft's Tex answers texts you send (as anyone in a group) and nothing reaches the real chat, its notes or anyone outside; " +
+      "chats lists your chats with their kind (1:1 or group) and people, sets the Training and Dev conversations (never the Test Set) with their text counts; " +
+      "send answers a msgId, then get shows the reply, each step's time and output, and every change or message the turn would have made (writes); " +
+      "send takes up to 6 pictures (https, image types; text may then be empty) and replyTo, a row of the test chat it quotes, each reaching the turn as the texting Worker hands a real one to /agent; " +
+      'react is a tapback (emoji one of ❤️ 👍 👎 😂 ‼️ ❓) on any row with words, answered or only noted as production would (turn: false, a quiet noted reply), and get shows it as a kind "reaction" row and in the tapped row\'s reactions; ' +
+      "edit is refused with 501, Tex doesn't receive edits yet (production records none); retry (a tapback too), back and drop cut the test texts, reset deletes the test chat",
+  ],
   ["put_back", "{ draft, step, vs?: \"main\" | \"last\" }", "the change marks' Put back: one step back to main's (or the last revision's) version, its fields, place and wires; lands as an edit with the conflict check"],
   ["reference", "{ topic?, draft?, log? }", "the Lab's catalogues: tools (what each does, its actions and the steps that call it; `log` a pasted chat record, counted as the Tools tab does), steps (what each logs and writes), ledger, areas, models, wires, sources, convo"],
 ];

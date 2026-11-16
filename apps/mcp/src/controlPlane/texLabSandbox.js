@@ -9,7 +9,7 @@ const STATUSES = new Set(["ok", "refused", "not_found", "bad_request"]);
 
 export function createLabSandboxMethods({ post }) {
   return {
-    /** One read for a Lab test chat: `who`, `session { chat }`, `draft { draft }`, `set { id }`; null when unreachable. */
+    /** One read for a Lab test chat: `who`, `session { chat }`, `draft { draft }`, `set { id }`, `sets`; null when unreachable. */
     async labSandbox(accessToken, action, args = {}) {
       const parsed = await post("/gateway/tex/lab-sandbox", { accessToken, action, args });
       if (parsed && typeof parsed === "object" && parsed.status === undefined && action === "who") return { status: "ok", ...parsed };

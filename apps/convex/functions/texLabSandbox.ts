@@ -10,6 +10,8 @@
  *    its token, so the gateway's test turn is the same turn. Never a token: the gateway keeps the caller's.
  *  - `draft`: a Lab draft's graph, the config the test turn runs.
  *  - `set`: a Training or Dev conversation's Lab draft, a test chat's history when the Lab tries a text on one.
+ *  - `sets`: every Training and Dev draft (`texSets.ts` `listDrafts`), which the gateway lays over the repo's copy for
+ *    the Lab picker's Training / Dev tab. Never the Test Set: it is not kept here.
  */
 
 import { v } from "convex/values";
@@ -22,6 +24,7 @@ import { flagsFor } from "./lib/featureFlags";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { getMembership } from "./lib/workspaceAuth";
 import { pageForUser, handleFor } from "./texPage";
+import { listDrafts } from "./texSets";
 import { TEXTS_GROUP_CLIENT_ID } from "./textGroups";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 
@@ -142,6 +145,12 @@ export const forGateway = internalQuery({
         .unique();
       if (row === null || row.removed === true) return { status: "not_found" };
       return { status: "ok", conv: row.data };
+    }
+    if (action === "sets") {
+      // Every Training and Dev draft, for the Lab test chats' picker (the gateway lays them over the repo's copy). The
+      // Test Set is never in this table; a row that says otherwise is left out all the same.
+      const drafts = (await listDrafts(ctx)).filter((d) => d.set === "training" || d.set === "dev");
+      return { status: "ok", drafts: drafts.map(({ id, set, conv, removed }) => ({ id, set, conv, removed })) };
     }
     return { status: "bad_request" };
   },
