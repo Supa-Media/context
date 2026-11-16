@@ -7,6 +7,7 @@
  *   runDoor keeps going after a part answers         "a part that answers stops the door" fails
  *   runDoor stops handing prepareTheAnswer's finds    "the Front door is handed the last part's findings" fails
  *   the doorStep -> bypass wire dropped              "the Door hands a settled text to Confirmations & refusals" fails
+ *   the runner hands `log` on (carried keeps it)     "the Door's parts stay in its row" fails (the Dev set's 0/20, 2026-11-16)
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -20,6 +21,7 @@ import DRAFT from "./fixtures/simplerGraphDraft.json" with { type: "json" };
 const TEX_CONFIG = withDraft(MAIN, DRAFT);
 import { DOOR_PARTS, runDoor } from "../src/agent/graph/door.js";
 import { bypassNode } from "../src/agent/graph/nodes/bypass.js";
+import { doorOutput } from "../src/agent/graph/nodes/doorStep.js";
 
 const { createGraph } = graphLib;
 
@@ -96,4 +98,21 @@ test("on the runner, a settled text goes Door -> Confirmations & refusals -> Tex
   const texted = { doorStep: stub("doorStep", { when: ["next"], parts: [] }), fd: stub("fd", { when: [] }), answerCheck: stub("answerCheck", { when: [] }), bypass: stub("bypass", {}), send: stub("send", { when: [] }) };
   await createGraph(config, texted).run("doorStep", {}, {});
   assert.deepEqual(ran, ["doorStep", "fd", "answerCheck", "send"]);
+});
+
+test("the Door's parts stay in its row: the Front door, its real input shape checked, is handed only what the last part found", async () => {
+  const t = { question: "hi", session: {}, texted: true, forwarding: [1, 2] };
+  const door = await runDoor(t, {}, () => 0, standIns());
+  const got = [];
+  const impls = { doorStep: async () => doorOutput(door), fd: async (input) => (got.push(input), { when: [] }), answerCheck: async () => ({ when: [] }), send: async () => ({ when: [] }) };
+  // The Front door's real input shape; the stand-ins' outputs are not what is checked here.
+  const config = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.map((n) => ({ ...n, outSchema: undefined, ...(n.id === "fd" ? {} : { inSchema: undefined }) })) };
+  await createGraph(config, impls).run("doorStep", {}, {});
+  assert.ok(config.nodes.find((n) => n.id === "fd").inSchema?.length > 0, "the Front door's own input shape, not a cleared one");
+  assert.equal(got.length, 1);
+  assert.equal(got[0].texted, true);
+  assert.ok(!("log" in got[0]) && !("parts" in got[0]), "the parts are the Door's log, never the Front door's input");
+  assert.deepEqual(doorOutput(door).log.parts.map((p) => p.part), PARTS);
+  const settled = doorOutput({ answer: new Response("ok", { status: 200 }), answeredBy: "settleAYesOrNo", parts: [] });
+  assert.deepEqual(settled, { when: ["answered"], answeredBy: "settleAYesOrNo", status: 200, log: { parts: [] } });
 });
