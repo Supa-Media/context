@@ -16,6 +16,9 @@ function fakeStorage() {
     async put(key, value) {
       data.set(key, value);
     },
+    async delete(key) {
+      return data.delete(key);
+    },
     async deleteAll() {
       data.clear();
     },

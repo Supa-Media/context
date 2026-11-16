@@ -1,5 +1,8 @@
 /** MIME parsing for a Gmail message resource — pure, no I/O. */
 
+import htmlTextModule from "../../../../../packages/shared/src/htmlText.cjs";
+
+const { htmlToText, preferredBody } = htmlTextModule;
 
 /** Gmail's body encoding: base64url, no padding. */
 export function decodeBase64UrlToBytes(data) {
@@ -65,20 +68,19 @@ function* walkParts(payload) {
   for (const child of children) yield* walkParts(child);
 }
 
-/** Very small HTML→text fallback: drop tags, decode the handful of entities mail actually uses. */
-function stripHtml(html) {
-  return String(html ?? "")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+/** The most HTML one message's body is read from, and the most text it becomes. */
+const MAX_HTML_CHARS = 1_000_000;
+const MAX_HTML_TEXT = 200_000;
+
+/**
+ * An HTML body's words, each link's address kept after its words
+ * (`packages/shared/src/htmlText.cjs`, the converter every email path shares;
+ * the owner, 2026-11-16: a vendor's "Click here to view the report" reached
+ * Tex without the address behind it). The address is the sender's, as
+ * untrusted as the rest of the email.
+ */
+export function htmlText(html) {
+  return htmlToText(String(html ?? "").slice(0, MAX_HTML_CHARS), MAX_HTML_TEXT, undefined, { links: true });
 }
 
 /**
@@ -115,7 +117,8 @@ export function extractBody(payload) {
     if (mimeType === "text/plain" && !text) text = decodeBase64UrlToUtf8(data);
     else if (mimeType === "text/html" && !html) html = decodeBase64UrlToUtf8(data);
   }
-  return { text: text || (html ? stripHtml(html) : ""), attachments };
+  // The plain part, unless only the HTML shows a link's address (`preferredBody`).
+  return { text: preferredBody(text, html ? htmlText(html) : "").text, attachments };
 }
 
 /**

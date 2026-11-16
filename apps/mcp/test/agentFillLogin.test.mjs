@@ -50,7 +50,7 @@ async function vaultWith({ workspaceId = "ws_1", userId = "user_a", people = ["u
 }
 
 /** A browser whose box 1 is an email box and box 2 a password box, like the real one checks. */
-function fakeComputer() {
+function fakeComputer({ passwordBox = true } = {}) {
   const calls = [];
   const typed = {};
   let at = null;
@@ -89,8 +89,8 @@ function fakeComputer() {
           text: "Sign in",
           elements: [
             { ref: 1, kind: "input email", label: "Email", filled: Boolean(typed[1]) },
-            { ref: 2, kind: "input password", label: "Password", filled: Boolean(typed[2]) },
-            { ref: 3, kind: "button", label: "Sign in" },
+            ...(passwordBox ? [{ ref: 2, kind: "input password", label: "Password", filled: Boolean(typed[2]) }] : []),
+            { ref: 3, kind: "button", label: passwordBox ? "Sign in" : "Continue" },
           ],
         },
       };
@@ -105,8 +105,8 @@ const leaks = (result) => {
   return shown.includes(PASSWORD) || shown.includes(USERNAME);
 };
 
-async function signInPage(store, url = "https://www.netflix.com/login") {
-  const computer = fakeComputer();
+async function signInPage(store, url = "https://www.netflix.com/login", page = {}) {
+  const computer = fakeComputer(page);
   const web = webSession(computer, `sign in to ${url} and check my plan`, { store });
   const opened = await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url }] });
   assert.notEqual(opened.isError, true);
@@ -290,14 +290,33 @@ test("a Google login saved for google.com fills on Google's sign-in page, and no
 */
 test("an email-first page: fill_login fills the saved email alone, and says to press continue", async () => {
   const { store, id } = await vaultWith();
-  const { computer, web } = await signInPage(store);
+  const { computer, web } = await signInPage(store, undefined, { passwordBox: false });
   const result = await web.call(FILL_LOGIN_TOOL, { entry: id, username_ref: 1 });
   assert.notEqual(result.isError, true);
-  assert.match(result.content[0].text, /saved email for Netflix.*continue.*password_ref/s);
+  assert.match(result.content[0].text, /saved email for Netflix; this page shows no password box.*continue.*password_ref/s);
   assert.equal(leaks(result), false);
   assert.deepEqual(computer.typed, { 1: USERNAME });
   assert.deepEqual(FILL_LOGIN_DEFINITION.inputSchema.required, ["entry"]);
   assert.match(FILL_LOGIN_DEFINITION.description, /Never type an email or username into a sign-in yourself/);
+});
+
+/*
+  A ONE-PAGE FORM GIVEN THE USERNAME ALONE FILLS BOTH (a job's log, 2026-11-16). The job filled the username alone on a
+  page with both boxes, was told to press continue, and pressed a ref that had become "Forgot password"; one error
+  later it called the saved password wrong.
+
+  Sabotage record (2026-11-16): dropping the `browser.passwordBox()` fallback in fillLogin.js fails this test.
+*/
+test("a page with both boxes given username_ref alone: both are filled, and continue is never said", async () => {
+  const { store, id } = await vaultWith();
+  const { computer, web } = await signInPage(store);
+  const result = await web.call(FILL_LOGIN_TOOL, { entry: id, username_ref: 1 });
+  assert.notEqual(result.isError, true);
+  assert.match(result.content[0].text, /Filled the login for Netflix\. Press the page's sign-in button/);
+  assert.doesNotMatch(result.content[0].text, /continue/);
+  assert.equal(leaks(result), false);
+  assert.deepEqual(computer.typed, { 1: USERNAME, 2: PASSWORD });
+  assert.match(FILL_LOGIN_DEFINITION.description, /A page with both boxes takes username_ref and password_ref in one call/);
 });
 
 test("a found email is never typed on a site with a saved login; theirs, or one on another site, still is", async () => {

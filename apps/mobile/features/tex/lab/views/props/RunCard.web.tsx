@@ -9,7 +9,7 @@ import { fmtReal, fmtUsd } from "../../engine/sim";
 import { sandbox, useSandbox } from "../../engine/sandbox";
 import { usePlay } from "../../engine/sandboxPlay";
 import { callsHeading, summaryOf, type RunStep, type StepCall } from "../../engine/stepRun";
-import { panelRow, stepRunOf, type StepRunState } from "../../engine/stepRunNow";
+import { panelRow, playedStepRun, stepRunOf, type StepRunState } from "../../engine/stepRunNow";
 import { lab, MODELS, set } from "../../engine/state";
 import { useLab } from "../../store";
 import type { LabNode } from "../../types";
@@ -30,7 +30,7 @@ export function useStepRun(n: LabNode): { has: boolean; run: StepRunState } {
   useSandbox();
   const [, tick] = useState(0);
   const row = panelRow(pick, play);
-  const run = stepRunOf(row, n.id, play && row && play.msgId === row.id ? play.t : null);
+  const run = playedStepRun(play, n.id) ?? stepRunOf(row, n.id, play && row && play.msgId === row.id ? play.t : null);
   const running = run.state === "running";
   useEffect(() => {
     if (!running) return;

@@ -7,7 +7,7 @@
  * second copy: a page, a search or a note an earlier turn or job read, with
  * where it came from and how long ago, one line each. A turn is shown the
  * lines in its per-text block (`runTheModel.js` `turnNote`) and opens any of
- * them whole with `read_back`, so "I can't see it now" never reads as "it was
+ * them whole with `read_back` (`fetch read:<ref>` among the six, `sixTools.js`), so "I can't see it now" never reads as "it was
  * never there" (2026-11-12, the Katz's private room) once the hour's stretch
  * (`stretch.js`) has passed.
  *
@@ -40,7 +40,7 @@ export const MAX_INDEXED_READS = 20;
 export const INDEXED_READS = Object.freeze([...WEB_READS, ...NOTE_READS]);
 const MAX_SOURCE_CHARS = 160;
 
-export const READS_PREFACE = "Earlier reads in this chat, newest first (read_back opens one whole, as it was read):";
+export const READS_PREFACE = "Earlier reads in this chat, newest first (fetch read:<ref> opens one whole, as it was read):";
 
 const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 

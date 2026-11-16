@@ -133,7 +133,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "The web",
     actions: ["send.search_web", "send.open_page", "send.browse", "send.travel_time"],
-    texts: "search the web, read pages, drive a real browser (sign in, fill forms, book, buy on their yes), attach a file from their notes, a picture they texted or an email's attachment to a page, save a file a site offers into their notes, get travel times from Google Maps, and sign your browser out of every site when they ask (it forgets every sign-in it kept)",
+    texts: "search the web, read pages, drive a real browser (sign in, fill forms, book, buy on their yes; a background job waits out a slow page, up to a minute or more, before it reads it), attach a file from their notes, a picture they texted or an email's attachment to a page, save a file a site offers into their notes, get travel times from Google Maps, and sign your browser out of every site when they ask (it forgets every sign-in it kept)",
     group: "the same, with this chat's own browser: whatever is signed in to here stays signed in for the chat; signing out signs out only the chat's browser",
     cant: [{ where: "everywhere", what: "show them your browser inside a text", workaround: { kind: "link", text: "they watch or take over your browser live at context.lc/tex/@their-handle?view=computer&full=1 (a group chat's at context.lc/tex/group/<its words>/computer?full=1), or at the handoff link browse sends" } }],
   },
@@ -149,7 +149,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Reading email",
     actions: [],
-    texts: "search and read their Gmail live (search with args { email: true }), open one by its id, and read one of its attachments (PDF, Word, Excel, CSV or a picture) by its number",
+    texts: "search and read their Gmail live (search with args { email: true }), open one by its id (each link's address beside its words, so a \"click here\" can be opened), and read one of its attachments (PDF, Word, Excel, CSV or a picture) by its number",
     group: "only mail its own person shared with this chat (the next line); nobody else's",
     cant: [{ where: "group", what: "read someone's mail they haven't shared with this chat", workaround: { kind: "words", text: "the mailbox's own person types \"Tex, share my mail from <address> here\" in this chat, or texts you on their own to search it" } }],
   },

@@ -13,6 +13,7 @@
 import { describe, expect, test } from "@jest/globals";
 import { densityFor, litAt, packSteps, runById, runStart, sandboxRun, scaleOf, stepsAt, texCauseRun, trackOrder, type RunRowIn } from "../features/tex/lab/engine/sandboxRun";
 import { rowOf } from "../features/tex/lab/engine/sandbox";
+import { GAP_DRAWN_MS, timeMap } from "../features/tex/lab/engine/timeMap";
 
 const old: RunRowIn[] = [
   { id: "t1", text: "add the gig", at: 1_000, steps: [{ node: "triage", ms: 2 }, { node: "decide", ms: 400 }, { node: "fd", ms: null }, { node: "send", ms: 30 }] },
@@ -130,5 +131,41 @@ describe("sandboxRun", () => {
     expect(row.steps![0]).toMatchObject({ id: "a", at: 5, out: '{"reply":"hi"}', data: { reply: "hi" }, in: { text: "yo" }, think: "short", bg: true });
     expect(row.steps![0].calls).toEqual([{ tool: "notes.read", kind: "read", ms: 3, d: "ran" }]);
     expect(rowOf({ id: "x", who: "Sam", text: "a", steps: [{ node: "fd", out: "words", ms: 1 }] }).steps).toEqual([{ node: "fd", out: "words", ms: 1, ok: true }]);
+  });
+});
+
+describe("the timeline's time map", () => {
+  // Dev2, 2026-11-16: ▶ on Tex's text 136 drew a 301 s lane where its 9 steps filled the last 15%, and a real text
+  // played minutes of nothing between its steps.
+  const late = { id: "r#t", steps: [{ id: "a", node: "fd", at: 250_000, ms: 11_000, ok: true }, { id: "b", node: "send", at: 270_000, ms: 4_000, ok: true }], texts: [{ rowId: "t", at: 274_500 }], total: 274_500, running: false, of: "r" };
+  const sparse = { id: "r", steps: [{ id: "a", node: "text", at: 0, ms: 20, ok: true }, { id: "b", node: "fd", at: 100, ms: 9_000, ok: true }, { id: "c", node: "reflect", at: 300_000, ms: 1_500, ok: true }], texts: [{ rowId: "t", at: 9_200 }], total: 301_500, running: false };
+
+  test("a finished run is drawn from its first step, not from the person's text", () => {
+    const m = timeMap(late, 250_000, false);
+    expect(m.x(250_000)).toBeLessThan(0.05);
+    expect(m.x(274_500)).toBeGreaterThan(0.9);
+    expect(m.at(0)).toBeGreaterThan(249_000);
+  });
+
+  test("a long stretch where nothing ran is folded and marked, and playback crosses it in a moment", () => {
+    const m = timeMap(sparse, 0, false);
+    expect(m.gaps).toHaveLength(1);
+    expect(m.gaps[0]).toMatchObject({ from: 9_200, to: 300_000 });
+    // The folded 290 s takes less of the lane than the 9 s of work before it.
+    expect(m.gaps[0].x2 - m.gaps[0].x).toBeLessThan(m.x(9_100) - m.x(100));
+    expect(m.real(m.drawn(5_000))).toBeCloseTo(5_000, 3);
+    expect(m.drawn(300_000) - m.drawn(9_200)).toBeCloseTo(GAP_DRAWN_MS, 3);
+    expect(m.at(m.x(150_000))).toBeCloseTo(150_000, 0);
+  });
+
+  test("a short pause stays as it ran", () => {
+    expect(timeMap({ ...sparse, steps: sparse.steps.slice(0, 2), total: 9_200 }, 0, false).gaps).toEqual([]);
+  });
+
+  test("a text still running starts at its arrival, grows with the playback and folds nothing", () => {
+    const m = timeMap({ ...sparse, running: true }, 10_000, true);
+    expect(m.span).toBe(11_500);
+    expect(m.gaps).toEqual([]);
+    expect(m.x(0)).toBe(0);
   });
 });
