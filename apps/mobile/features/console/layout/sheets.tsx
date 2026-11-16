@@ -142,12 +142,14 @@ export function consoleSettings({
   checkoutReturn,
   router,
   requestSignOut,
+  requestSignOutEverywhere,
 }: {
   openSettingsSection: ReturnType<typeof settingsFromQuery>;
   data: ConsoleData;
   checkoutReturn: ReturnType<typeof checkoutOutcomeFrom>;
   router: ConsoleRouter;
   requestSignOut: () => void;
+  requestSignOutEverywhere?: (signOutEveryDevice: () => Promise<unknown>) => Promise<void>;
 }) {
   /*
     Settings, over whatever is behind it rather than instead of it.
@@ -186,6 +188,7 @@ export function consoleSettings({
         */
         onSwitchContext={(slug) => router.push(settingsHref(slug, openSettingsSection))}
         onSignOut={requestSignOut}
+        onSignOutEverywhere={requestSignOutEverywhere}
         onOpenInvitation={(token) => router.push(inviteHref(token))}
         /*
           Claude and ChatGPT open the full screen guide rather than their row's

@@ -17,7 +17,16 @@ import { recoveryDate, signedInWhen } from "../../../account/emailProofText";
  * phone sign-in back on and stopping the wait from here all need an emailed
  * code; the server asks, and `EmailProofHost` shows the box.
  */
-export function AccountSafetyCard() {
+export function AccountSafetyCard({
+  onSignOutEverywhere,
+}: {
+  /**
+   * Signs every device out, this one included (`useSignOutFlow`): it asks
+   * about unsent work, has the server end every session, then leaves. Absent
+   * where there is no session to end, and then the row is not drawn.
+   */
+  onSignOutEverywhere?: (signOutEveryDevice: () => Promise<unknown>) => Promise<void>;
+}) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { isAuthenticated } = useConvexAuth();
@@ -25,6 +34,7 @@ export function AccountSafetyCard() {
   const pause = useQuery(api.functions.signInAlerts.myPhonePause, isAuthenticated ? {} : "skip");
   const recovery = useQuery(api.functions.emailRecovery.myEmailRecovery, isAuthenticated ? {} : "skip");
   const signOutOthers = useMutation(api.functions.emailProof.signOutOthers);
+  const signOutEverywhere = useMutation(api.functions.emailProof.signOutEverywhere);
   const resume = useMutation(api.functions.signInAlerts.resumePhoneSignIn);
   const stopRecovery = useMutation(api.functions.emailRecovery.cancelMine);
 
@@ -52,7 +62,7 @@ export function AccountSafetyCard() {
         Signed in
       </Text>
       <Text variant="rowSub" style={styles.sub}>
-        Every device signed in to your account. Signing other devices out needs a code from your email.
+        Every device signed in to your account. Signing devices out needs a code from your email.
       </Text>
       <Card>
         {sessions === undefined ? (
@@ -87,6 +97,23 @@ export function AccountSafetyCard() {
               disabled={busy}
               onPress={() => void run(() => signOutOthers({}))}
               testID="account-sign-out-others"
+            />
+          </Row>
+        ) : null}
+        {/*
+          Every device, this one too (Dev2, 2026-11-16). Only once another
+          device is listed: with this one alone it is the plain Sign out below.
+        */}
+        {onSignOutEverywhere !== undefined && others.length > 0 ? (
+          <Row divided>
+            <Grow>
+              <Text variant="rowSub">Signs out every device, this one too.</Text>
+            </Grow>
+            <Button
+              label="Sign out everywhere"
+              disabled={busy}
+              onPress={() => void run(() => onSignOutEverywhere(() => signOutEverywhere({})))}
+              testID="account-sign-out-everywhere"
             />
           </Row>
         ) : null}

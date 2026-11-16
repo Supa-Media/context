@@ -221,6 +221,24 @@ export const signOutOthers = mutation({
   },
 });
 
+/**
+ * Sign out every device, this one included (Dev2, 2026-11-16: "sign out of all
+ * devices I'm currently signed into"). The same big change as signing the
+ * others out, with this session's own rows going in the same transaction, so
+ * a sign-out here that never reaches the server cannot leave this one behind.
+ * The app clears its own copy afterwards; that call's server half then finds
+ * nothing to delete, which the auth client swallows.
+ */
+export const signOutEverywhere = mutation({
+  args: {},
+  returns: v.object({ signedOut: v.number() }),
+  handler: async (ctx) => {
+    const userId = requireSignedIn(await getAuthUserId(ctx));
+    await requireEmailProof(ctx, userId);
+    return { signedOut: await signOutSessions(ctx, userId, null) };
+  },
+});
+
 // ── For actions ────────────────────────────────────────────────────────────
 
 /**

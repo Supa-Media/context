@@ -46,6 +46,7 @@ export function SettingsOverlay({
   onSelect,
   onSwitchContext,
   onSignOut,
+  onSignOutEverywhere,
   onOpenInvitation,
   onConnectAgent,
   onDismiss,
@@ -77,6 +78,8 @@ export function SettingsOverlay({
   onSwitchContext?: (slug: string) => void;
   /** Ends the session. Absent where there is none. */
   onSignOut?: () => void;
+  /** Signs every device out, this one included (`useSignOutFlow`). */
+  onSignOutEverywhere?: (signOutEveryDevice: () => Promise<unknown>) => Promise<void>;
   /** Answering an invitation is a navigation to `inviteHref(token)`. */
   onOpenInvitation?: (token: string) => void;
   /** Opens the full screen Claude/ChatGPT setup (`?connect=`) over settings. */
@@ -175,6 +178,7 @@ export function SettingsOverlay({
       section={active}
       data={data}
       onSignOut={onSignOut}
+      onSignOutEverywhere={onSignOutEverywhere}
       onOpenInvitation={onOpenInvitation}
       onSelect={(next) => {
         onSelect(next);

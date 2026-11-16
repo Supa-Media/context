@@ -18,8 +18,11 @@ the account's confirmed emails stands behind them:
   existing storage elsewhere (own bucket, Cloudflare, storage moves
   and the managed hand-off); disconnecting storage; exporting encryption keys;
   approving an AI connection, a machine or a plugin; deleting a workspace or
-  the account; signing other devices out; turning phone sign-in back on; and
-  stopping a waiting new email.
+  the account; signing other devices out, or every device at once, this one
+  included (`signOutEverywhere`, Dev2 2026-11-16: the server ends every
+  session in one transaction before the device clears its copy, so a refused
+  code leaves this device signed in and untouched); turning phone sign-in back
+  on; and stopping a waiting new email.
 - **What is not:** reading and editing notes, the first email and the first
   phone (nothing to protect yet), and **Download everything**. The export is
   the client reading notes it can already read, so gating it would mean gating
