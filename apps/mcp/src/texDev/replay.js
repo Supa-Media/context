@@ -251,7 +251,7 @@ export async function turnAnswer(env, page, args = {}, { ledgerOf, origin }) {
   const nodes = Object.entries(t.times?.ms ?? {})
     .map(([id, ms]) => ({ node: id, label: labelOfNode(id), ms, ...(t.times.calls[id] ? { calls: t.times.calls[id] } : {}) }))
     .sort((a, b) => b.ms - a.ms);
-  const base = turnFrom(t.mine, { timeZone: page.timeZone, full });
+  const base = turnFrom(t.mine, { timeZone: page.timeZone, full, ...(typeof args.detail === "string" ? { detail: args.detail } : {}) });
   const p = t.prompt;
   return {
     chat: t.chat.key,

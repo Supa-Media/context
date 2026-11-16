@@ -378,6 +378,11 @@ export function SandboxChat() {
               </Pop>
             ) : null}
             {sb.problem && sb.rows.length ? <span className="small c-bad">{sb.problem}</span> : null}
+            {sb.fit && !sb.fit.asDrawn ? (
+              <span className="small c-bad" id="sbNotAsDrawn" title={sb.fit.says}>
+                Not the draft as drawn: {sb.fit.says ?? "some of its steps run as main's"}
+              </span>
+            ) : null}
           </>
         }
         headEnd={

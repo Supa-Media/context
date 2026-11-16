@@ -5,7 +5,7 @@
  * and the canvas's change marks against main or the draft before its last revision, with Put back. Each answer is the
  * Lab's own function (`cases.ts`, `changeMarks.ts`) run on the version, through `withLab`; bundled with `forMcp.ts`.
  */
-import { GROUPS } from "../data/graph";
+import { groupsOf } from "../data/graph";
 import type { LabGraph, LabNode } from "../types";
 import { allSteps, areasOf, CASE_CAP, casesIn, choicesOf, emptySteps, fieldsOf, liveCases, modelLine, nextId, nodeArea, nodeCaseText, stepCount } from "./cases";
 import { computeMarks, fieldText, putBackIn } from "./changeMarks";
@@ -99,7 +99,7 @@ export function labMarks(input: LabIn, base: DraftIn, vs: string) {
  * `putBackIn`. A group's box is refused, as on the canvas: put back a step inside it.
  */
 export function labPutBack(draftGraph: LabGraph, base: DraftIn, id: string): LabGraph {
-  if (GROUPS[id]) throw new Error(`"${id}" is a group: put back a step inside it.`);
+  if (groupsOf(draftGraph)[id] || draftGraph.folded?.[id]) throw new Error(`"${id}" is a group: put back a step inside it.`);
   const g = unfoldGroups(clone(draftGraph));
   const b = unfoldGroups(asVersion(base).graph);
   if (!g.nodes.some((n) => n.id === id) && !b.nodes.some((n) => n.id === id)) throw new Error(`There is no step "${id}" in the draft or in what it is compared with.`);
