@@ -30,7 +30,8 @@
  *  - `back { sandboxId, msgId }`: that text and its reply kept, everything later dropped.
  *  - `drop { sandboxId, msgId }`: that text and everything after it dropped.
  *  - `reset { sandboxId }`: the whole test chat deleted.
- *  - `get { sandboxId }` → `{ rows, writes, running }`; a row has `pics`, `replyTo`, `reactions: [{ who, emoji }]`
+ *  - `get { sandboxId, after? }` → `{ rows, writes, running: { msgId, node, steps } | null, total? }`: while a text
+ *    runs, its row carries the steps its turn has finished so far; `after` (a row id) answers only the rows after it; a row has `pics`, `replyTo`, `reactions: [{ who, emoji }]`
  *    when tapped and `unsent: true` when taken back; a tapback's own row is `kind: "reaction"` with its `emoji` and the
  *    row it is `on`, an edit's `kind: "edit"` (`edited: true`) and an unsend's `kind: "unsend"`, each `on` its text.
  */
@@ -40,16 +41,17 @@ import { createControlPlane } from "../controlPlane.js";
 import { ledgerFor, ONE_TO_ONE_CHAT } from "../agent/ledger.js";
 import { bearerToken } from "../session.js";
 import { json } from "../http/responses.js";
-import { callSandbox, sandboxStub } from "./object.js";
-import { eventId, runSandboxTurn, TURN_LIMIT_MS } from "./harness.js";
+import { callSandbox, sandboxStub, SEED_CHUNK } from "./object.js";
+import { eventId, runSandboxTurn, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
 import { runEditNode, UNSENT_NOTE, wordsNow } from "./edits.js";
 
 export const LAB_SANDBOX_PATH = "/tex-lab/sandbox";
 /** A person's test texts a day, across all their test chats: each runs the real models. */
 export const DAILY_SENDS = 200;
-/** The real texts a test chat starts from. */
-export const START_TEXTS = 200;
+/** One read of a real chat's texts; a chat is read whole, page after page, up to `MAX_PAGES` (a million texts). */
+const PAGE_TEXTS = 5_000;
+const MAX_PAGES = 200;
 export const MAX_TEXT = 4_000;
 const SANDBOX_ID = /^[0-9a-f]{16}$/;
 const CHAT_KEY = /^[0-9a-f]{64}$/;
@@ -77,12 +79,24 @@ async function sha256Hex(text) {
 /** A row as the Lab reads it: the ledger's event id left out. */
 const shown = ({ eid: _eid, ...row }) => row;
 
-/** A real chat's texts before `base` (left out), oldest first, from the chat's ledger: read only. */
+/**
+ * A real chat's texts before `base` (left out), oldest first, from the chat's ledger: read only, and all of them,
+ * paged on with `after` (Dev2, 2026-11-16: "its not truly loading the entire converstation history ... thats not gonna
+ * do"). A read the ledger cannot answer leaves what was read so far.
+ */
 async function realTexts(env, owner, chat, base) {
   const ledger = ledgerFor(env, owner);
   if (ledger === null) return [];
-  const read = await ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["text"], limit: START_TEXTS, jobs: false }).catch(() => null);
-  const entries = (read?.entries ?? []).filter((entry) => entry?.kind === "text" && typeof entry.eid === "string" && typeof entry.text === "string").sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+  const entries = [];
+  let after = null;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const read = await ledger.read(chat, { ...(after === null ? {} : { after }), kinds: ["text"], limit: PAGE_TEXTS, jobs: false }).catch(() => null);
+    if (read === null) break;
+    for (const entry of read.entries ?? []) if (entry?.kind === "text" && typeof entry.eid === "string" && typeof entry.text === "string") entries.push(entry);
+    if (!Number.isSafeInteger(read.next)) break;
+    after = read.next;
+  }
+  entries.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
   if (typeof base !== "string" || base === "") return entries;
   const at = entries.findIndex((entry) => entry.eid === base);
   return at < 0 ? entries : entries.slice(0, at);
@@ -234,7 +248,11 @@ async function open(env, controlPlane, token, who, input) {
     ...(conv !== null ? { convId: conv.id } : {}),
     ...(typeof who.timeZone === "string" ? { timeZone: who.timeZone } : {}),
   };
-  await callSandbox(stub, "init", { about, rows, history });
+  // The whole chat, in pieces a Durable Object call carries (`object.js` `SEED_CHUNK`).
+  await callSandbox(stub, "init", { about, rows: rows.slice(0, SEED_CHUNK), history: history.slice(0, SEED_CHUNK) });
+  for (let at = SEED_CHUNK; at < Math.max(rows.length, history.length); at += SEED_CHUNK) {
+    await callSandbox(stub, "seed", { rows: rows.slice(at, at + SEED_CHUNK), history: history.slice(at, at + SEED_CHUNK) });
+  }
   console.log(JSON.stringify({ event: "lab_sandbox_open", source, kind, rows: rows.length, draft: about.versionId !== "main" }));
   return json({ sandboxId, people, rows: rows.map(shown) });
 }
@@ -250,6 +268,28 @@ function view(state) {
   const gone = new Set(list.filter((row) => row.kind === "unsend").map((row) => row.on));
   const rows = list.map((row) => ({ ...shown(row), ...(taps.has(row.id) ? { reactions: taps.get(row.id) } : {}), ...(gone.has(row.id) ? { unsent: true } : {}) }));
   return { rows, writes: state.writes ?? [], running: live ? { msgId: running.msgId, node: running.node ?? null } : null };
+}
+
+/**
+ * `get`: the view, with the running text's steps so far on its own row, from the node and step entries its turn has
+ * kept (never estimated), so the Lab lights each step as it finishes. `after` (a row id) answers only the rows after
+ * it, with `total`, so a long chat is not sent again on every look.
+ */
+async function liveView(stub, state, after) {
+  const seen = view(state);
+  if (seen.running !== null) {
+    // The nodes the turn reported as they finished (`harness.js` `onNode`), or, once written, what its ledger kept.
+    const kept = await callSandbox(stub, "ledger.of", { by: seen.running.msgId }).then((read) => stepsOf(read.entries)).catch(() => []);
+    const live = Array.isArray(state.meta?.running?.steps) ? state.meta.running.steps : [];
+    const steps = kept.length >= live.length ? kept : live;
+    seen.rows = seen.rows.map((row) => (row.id === seen.running.msgId ? { ...row, steps } : row));
+    seen.running = { ...seen.running, steps };
+  }
+  if (typeof after === "string" && after !== "") {
+    const at = seen.rows.findIndex((row) => row.id === after);
+    if (at >= 0) return { ...seen, rows: seen.rows.slice(at + 1), total: seen.rows.length };
+  }
+  return seen;
 }
 
 /** Who a test row is from: a person's handle or a name in a group, the person in a 1:1; `{ speaker }` or `{ error }`. */
@@ -429,7 +469,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   const deps = { env, ctx, controlPlane, token, who, stub, origin, runTurn };
   switch (input.op) {
     case "get":
-      return json(view(state));
+      return json(await liveView(stub, state, input.after));
     case "send":
       return await send(deps, state, input);
     case "react":

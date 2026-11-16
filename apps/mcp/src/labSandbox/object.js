@@ -22,8 +22,13 @@ import { texLedger } from "../texStore/ledger.js";
 import { objectByName } from "../objectPlace.js";
 
 export const SANDBOX_TTL_MS = 24 * 3_600_000;
-/** The most rows a test chat keeps: the real ones it started from and the test ones after them. */
+/**
+ * The most test rows (texts, tapbacks and Tex's replies) one test chat keeps. The real texts it started from are never
+ * capped: a test chat opens on the whole chat (Dev2, 2026-11-16: "its not truly loading the entire converstation history").
+ */
 export const MAX_ROWS = 600;
+/** The real history is kept, and sent here, in pieces this size: one Durable Object row holds 2 MB. */
+export const SEED_CHUNK = 200;
 /** The most writes kept, and the largest overlay body (a Durable Object row holds 2 MB). */
 export const MAX_WRITES = 500;
 export const MAX_KV_BYTES = 1_500_000;
@@ -118,17 +123,41 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
     setMeta,
     rows,
     writes,
-    /** A new test chat: what it is, the rows it starts from and the real history its ledger starts with. */
+    /** A new test chat: what it is, and the first piece of the rows it starts from and the real history (`seed` the rest). */
     init({ about, rows: start = [], history = [] }) {
+      ledger.wipe();
       for (const table of ["sb_meta", "sb_rows", "sb_writes", "sb_kv", "sb_ledger"]) sql.exec(`DELETE FROM ${table}`);
       setMeta("chat", about);
       setMeta("createdAt", now());
-      start.slice(-MAX_ROWS).forEach((row, i) => sql.exec("INSERT INTO sb_rows (seq, id, data) VALUES (?, ?, ?)", i + 1, row.id, JSON.stringify(row)));
-      if (history.length > 0) sql.exec("INSERT INTO sb_ledger (seq, by_row, entries) VALUES (1, NULL, ?)", JSON.stringify(history));
-      rebuildLedger();
+      this.seed({ rows: start, history });
+    },
+    /**
+     * More of the real chat a test chat starts from, oldest first after what is kept, before any test text: its rows,
+     * and its history into the ledger, kept in pieces of `SEED_CHUNK`. Never capped.
+     */
+    seed({ rows: more = [], history = [] }) {
+      if (all(sql.exec("SELECT COUNT(*) AS n FROM sb_rows WHERE data NOT LIKE '%\"prod\":true%'"))[0]?.n > 0) throw new Error("seeded after a test text");
+      let seq = nextSeq("sb_rows");
+      for (const row of more) {
+        sql.exec("INSERT OR IGNORE INTO sb_rows (seq, id, data) VALUES (?, ?, ?)", seq, row.id, JSON.stringify(row));
+        seq += 1;
+      }
+      const chat = meta().chat?.ledgerChat;
+      for (let at = 0; at < history.length; at += SEED_CHUNK) {
+        const piece = history.slice(at, at + SEED_CHUNK);
+        sql.exec("INSERT INTO sb_ledger (seq, by_row, entries) VALUES (?, NULL, ?)", nextSeq("sb_ledger"), JSON.stringify(piece));
+        if (typeof chat !== "string") continue;
+        for (let from = 0; from < piece.length; from += 100) {
+          try {
+            ledger.append(chat, piece.slice(from, from + 100));
+          } catch {
+            /* an entry the ledger refuses is left out, as the real ledger would */
+          }
+        }
+      }
     },
     addRow(row) {
-      if (all(sql.exec("SELECT COUNT(*) AS n FROM sb_rows"))[0]?.n >= MAX_ROWS) throw new Error("full");
+      if (all(sql.exec("SELECT COUNT(*) AS n FROM sb_rows WHERE data NOT LIKE '%\"prod\":true%'"))[0]?.n >= MAX_ROWS) throw new Error("full");
       sql.exec("INSERT INTO sb_rows (seq, id, data) VALUES (?, ?, ?)", nextSeq("sb_rows"), row.id, JSON.stringify(row));
     },
     patchRow(id, patch) {
@@ -194,6 +223,9 @@ export function serveSandbox(tables, op, body) {
   switch (op) {
     case "init":
       tables.init(body);
+      return { ok: true };
+    case "seed":
+      tables.seed(body);
       return { ok: true };
     case "state":
       return { meta: tables.meta(), rows: tables.rows(), writes: tables.writes() };

@@ -352,3 +352,41 @@ test("a computer list is read through; the binding cache and a turn's own run ma
   await gate.flush();
   assert.deepEqual((await state(stub)).writes, [], "nothing listed");
 });
+
+test("a test chat opens on the whole real chat, never a cutoff; get pages with after and shows a running text's steps", async () => {
+  const { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } = await import("../src/agent/ledger.js");
+  const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" } });
+  const real = texStoreNamespace();
+  w.env.TEX_STORE = real.namespace;
+  try {
+    const ledger = ledgerFor(w.env, { person: "ws_alice" });
+    const start = Date.now() - 10_000_000;
+    const TEXTS = 5_321; // over one ledger read (5,000) and over many seed pieces
+    for (let at = 0; at < TEXTS; at += 100) {
+      const entries = [];
+      for (let i = at; i < Math.min(TEXTS, at + 100); i += 1) entries.push(eventEntry({ id: `${String(start + i).padStart(13, "0")}-${String(i).padStart(6, "0")}`, at: start + i, chat: ONE_TO_ONE_CHAT, kind: "text", from: i % 2 ? { kind: "tex" } : { kind: "person" }, text: `text ${i}`, ...(i % 2 ? { delivered: true } : {}) }));
+      await ledger.append(ONE_TO_ONE_CHAT, entries);
+    }
+    const opened = await w.call(ALICE, { op: "open", source: "chat", chatId: "me" });
+    assert.equal(opened.status, 200, JSON.stringify(opened.body).slice(0, 200));
+    assert.equal(opened.body.rows.length, TEXTS, "every real text, none cut off");
+    assert.equal(opened.body.rows[0].text, "text 0");
+    assert.equal(opened.body.rows.at(-1).text, `text ${TEXTS - 1}`);
+    const id = opened.body.sandboxId;
+    const all = await w.call(ALICE, { op: "get", sandboxId: id });
+    assert.equal(all.body.rows.length, TEXTS);
+    const tail = await w.call(ALICE, { op: "get", sandboxId: id, after: opened.body.rows.at(-3).id });
+    assert.deepEqual(tail.body.rows.map((r) => r.text), [`text ${TEXTS - 2}`, `text ${TEXTS - 1}`]);
+    assert.equal(tail.body.total, TEXTS);
+    // A text running: its row carries the steps its turn reported so far.
+    const stub = w.ns.get(w.ns.idFromName(`labsandbox:u_alice:${id}`));
+    const call = async (op, fields) => (await stub.fetch(new Request(`https://lab-sandbox.internal/${op}`, { method: "POST", body: JSON.stringify(fields) }))).json();
+    await call("row.add", { row: { id: "t1", who: "You", text: "hi", prod: false, at: Date.now() } });
+    await call("meta", { key: "running", value: { msgId: "t1", node: "triage", at: Date.now(), steps: [{ node: "text", out: null, ms: 1, ok: true }, { node: "triage", out: null, ms: 2, ok: true }] } });
+    const live = await w.call(ALICE, { op: "get", sandboxId: id, after: opened.body.rows.at(-1).id });
+    assert.deepEqual(live.body.rows[0].steps.map((s) => s.node), ["text", "triage"]);
+    assert.deepEqual(live.body.running.steps.map((s) => s.node), ["text", "triage"]);
+  } finally {
+    w.restore();
+  }
+});
