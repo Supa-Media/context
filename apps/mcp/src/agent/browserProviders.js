@@ -23,6 +23,7 @@
 
 import { fileWords, typeOfFile, wordsWithoutPages } from "../tools/readFile.js";
 import { pdfLinks } from "../tools/pdfLinks.js";
+import { untilFree } from "./browserLease.js";
 
 /** Set once a Worker says it has no Browserbase key; a deploy starts a new isolate. */
 let browserbaseMissing = false;
@@ -97,36 +98,42 @@ async function browseResult(response, keep = null, profile = null) {
  * sealed in the person's vault as well (`browserJar.js`), the fallback and the
  * copy a new profile starts from. Without either, each browser starts signed out.
  */
-export function siteShotsComputer(env, { owner = null, viewer = null, jar = null, profile = null, now = Date.now } = {}) {
+export function siteShotsComputer(env, { owner = null, viewer = null, jar = null, profile = null, now = Date.now, sleep = undefined } = {}) {
   const binding = env?.SITE_SHOTS;
   if (typeof binding?.fetch !== "function") return null;
   // Which browser this question's `browse` ended up on.
   let onBrowserbase = false;
+  // Holders that asked the Browserbase browser for steps, each let go when its question ends.
+  const leased = new Set();
   const refused = () => browserbaseRefusedAt !== null && now() - browserbaseRefusedAt < BROWSERBASE_REFUSED_PAUSE_MS;
   const browserbaseWanted = () => typeof owner === "string" && owner.length > 0 && !browserbaseMissing && !refused();
 
-  async function browseOn(session, steps, handoff, fresh) {
+  async function browseOn(session, steps, { handoff = false, fresh = false, holder = null, patient = false } = {}) {
     if (browserbaseWanted()) {
       // `handoff` tells the screenshot Worker (and the bench's stand-in for it)
       // the person is being handed this browser; it asks Browserbase for nothing.
       const held = jar !== null ? await jar.load() : null;
       const saved = profile !== null ? await profile.load() : null;
-      const response = await post(binding, "/browse", {
+      // One question drives the browser at a time; a busy one is waited for (`browserLease.js`).
+      const response = await untilFree(() => post(binding, "/browse", {
         provider: "browserbase",
         owner,
         steps,
+        ...(typeof holder === "string" ? { holder } : {}),
         ...(handoff ? { handoff: true } : {}),
         // A new browser, a new address: the last try past a captcha (`captchaLadder.js`).
         ...(fresh ? { fresh: true } : {}),
         ...(jar !== null ? { keep: true, ...(held !== null ? { jar: held } : {}) } : {}),
         // A new profile is given the jar's cookies; one in use holds newer ones.
         ...(saved !== null ? { profile: saved.id, ...(saved.created ? { profileNew: true } : {}) } : {}),
-      });
+      }), { patient, now, ...(sleep ? { sleep } : {}) });
       // 402: Browserbase won't start a browser until its bill is paid.
       // Cloudflare's browser does this question; nothing can be handed over.
       if (response.status === 402) browserbaseRefusedAt = now();
       else if (response.status !== 501) {
         onBrowserbase = true;
+        // Browserbase took the call, so the lease may be this question's until it ends.
+        if (typeof holder === "string") leased.add(holder);
         const result = await browseResult(response, jar, profile);
         // The person's own page, never a link to the browser itself.
         return handoff && typeof viewer === "string" ? { ...result, handoffUrl: viewer } : result;
@@ -146,8 +153,14 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
       return body.page.file ? await pdfPage(env?.AI, body.page) : body.page;
     },
 
-    async browse(session, steps, { handoff = false, fresh = false } = {}) {
-      return await withFileWords(env?.AI, await browseOn(session, steps, handoff, fresh));
+    async browse(session, steps, options = {}) {
+      return await withFileWords(env?.AI, await browseOn(session, steps, options));
+    },
+
+    /** Lets go of this question's lease on the browser, so another can drive it now (`browserLease.js`). */
+    async releaseBrowser(holder) {
+      if (!leased.delete(holder)) return;
+      await post(binding, "/browse/release", { provider: "browserbase", owner, holder });
     },
 
     /** Whether a question may carry on in a browser an earlier one opened. */

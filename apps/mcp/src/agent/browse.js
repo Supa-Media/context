@@ -48,7 +48,8 @@ import { addressesIn, canonicalUrl } from "./computer.js";
 import { keptLine } from "./downloads.js";
 import { captchaLadder } from "./captchaLadder.js";
 import { NOT_THEIRS, handoffIsTheirs } from "./handoffGate.js";
-import { NO_HANDOFF_SENTENCE, NO_LINK_LINE, NO_LINK_RESULT } from "./handoffWords.js";
+import { NO_HANDOFF_SENTENCE, NO_LINK_LINE, NO_LINK_RESULT, REFUSED_HANDOFF, REFUSED_HANDOFF_SENTENCE } from "./handoffWords.js";
+import { BROWSER_BUSY, newHolder } from "./browserLease.js";
 import { silentSubmits } from "./silentSubmit.js";
 import { waitsOnThem } from "./browserHold.js";
 import { notAStep } from "./browseNotAStep.js";
@@ -142,7 +143,7 @@ export const BROWSE_TIMED_OUT =
   "Read the page (a read step) to see which steps took, then run the rest again in smaller calls. " +
   "Never tell the person the page won't open, or to do it themselves in the app, after one slow call.";
 
-export { NO_LINK_LINE, NO_LINK_RESULT } from "./handoffWords.js";
+export { NO_LINK_LINE, NO_LINK_RESULT, handoffRefusedIn } from "./handoffWords.js";
 
 /** What the description says about handing the browser over, when this browser can be. */
 const HANDOFF_SENTENCE =
@@ -150,32 +151,6 @@ const HANDOFF_SENTENCE =
   "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. " +
   "Hand over rarely: a sign-in is yours to do with a login saved in the vault, and a payment with fill_card when a card is saved, so ask for one to be saved before handing over. " +
   "A form, a picker or a button that didn't work is never a handoff: finish it yourself, and a handoff on a page with no sign-in, code, captcha or card box is refused. ";
-/*
-  A LINK THEY SAID NO TO IS NEVER SENT AGAIN (the owner's review, 2026-10-26).
-  "If you can't book this bus for me yourself, you are useless to me, im not
-  opening your browser": Tex had already texted its browser twice in that
-  booking, the second time after the first showed a blank screen. Once their
-  texts refuse the browser, the handoff step is gone for the conversation the
-  gateway sees (`handoffRefusedIn`), and the description says why.
-*/
-const REFUSED_HANDOFF_SENTENCE =
-  "The person said they won't take over your browser, so there is no handoff step: never offer or send them a link to it, and never ask them to finish on the site themselves. " +
-  "Do it yourself (close_popup for a popup in the way, a read with from for elements not listed, fill_card for a saved card); if something truly only they can give is missing, ask for that one thing. ";
-const REFUSED_HANDOFF =
-  "Not handed over: the person said they won't take over your browser. Carry on yourself; if one thing only they can give is missing (a code, a yes), ask for that alone.";
-
-/** "im not opening your browser", "I won't use your link", "stop sending me your browser". */
-const REFUSES_BROWSER = [
-  /\b(?:not|never|won'?t|wont|will not|don'?t|dont|do not|refuse to|am not|i'?m not|im not|stop)\s+(?:going to\s+|gonna\s+)?(?:open(?:ing)?|us(?:e|ing)|click(?:ing)?|tap(?:ping)?|tak(?:e|ing) over|touch(?:ing)?|send(?:ing)?(?: me)?)\s+(?:your|the|that|this|ur|tex'?s)\s+(?:\w+\s+)?(?:browser|link|computer|screen)\b/i,
-  /\b(?:i|you)\s+(?:do|book|finish|pay for|buy)\s+it\s+(?:your ?self|ur ?self)\b[^.?!\n]{0,40}\b(?:browser|link)\b/i,
-];
-
-/** Whether the person's own texts refuse Tex's browser. */
-export function handoffRefusedIn(theirWords) {
-  const said = String(theirWords ?? "").replace(/[‘’]/g, "'");
-  return REFUSES_BROWSER.some((pattern) => pattern.test(said));
-}
-
 /** What an upload step takes, said only when this question can read the person's files. */
 const UPLOAD_SENTENCE =
   "When a page asks for a file (a receipt, an ID, a photo), attach it yourself with an upload step, never their device's picker: " +
@@ -346,7 +321,9 @@ function readingText(reading, ran, { from = null } = {}) {
  * `addresses` is the person's own words this question (see `texEntryPoint.js` on why
  * a routine's are its body, not its prompt).
  */
-export function browserSession(computer, { allowed, addresses, takePages, say = null, files = null, keep = null, savedLogin = null, handoffRefused = false }) {
+export function browserSession(computer, { allowed, addresses, takePages, say = null, files = null, keep = null, savedLogin = null, handoffRefused = false, patient = false }) {
+  // This question's name for the browser's lease: one driver at a time, a job waiting longer (`browserLease.js`).
+  const lease = { holder: newHolder(), patient };
   const theirWords = new Set(wordsOf(addresses));
   // Exact values a skill read this question vouched for (`vouch` below).
   const vouchedValues = new Set();
@@ -393,7 +370,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
     `Open this to take over the browser${hostLabel()}, then text me when you're done: ${handoffLink}`;
 
   async function run(planned, { handoff = false, fresh = false } = {}) {
-    const result = await computer.browse(session, planned, handoff || fresh ? { ...(handoff ? { handoff: true } : {}), ...(fresh ? { fresh: true } : {}) } : undefined);
+    const result = await computer.browse(session, planned, { ...(handoff ? { handoff: true } : {}), ...(fresh ? { fresh: true } : {}), ...lease });
     if (typeof result?.handoffUrl === "string" && result.handoffUrl.startsWith("https://")) handoffLink = result.handoffUrl;
     if (result?.session) session = result.session;
     const reading = result?.page;
@@ -569,7 +546,9 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           notTheirs = true;
         }
         if (handoff && done !== null) done = await run([{ do: "read" }], { handoff: true });
-      } catch {
+      } catch (error) {
+        // Another question has this chat's browser: nothing ran, and that is all the model is told.
+        if (error?.busy === true) return textResult(BROWSER_BUSY, true);
         done = null;
       }
       // One stumble is not a failure: read where the browser got to, rather than say it couldn't.
@@ -678,9 +657,9 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       if (session === null) return { ok: false, reason: "no browser open" };
       let result;
       try {
-        result = await computer.browse(session, [{ do: "fill", ref, value, origin: entryOrigin, field }]);
-      } catch {
-        return { ok: false, reason: "the browser could not do that" };
+        result = await computer.browse(session, [{ do: "fill", ref, value, origin: entryOrigin, field }], lease);
+      } catch (error) {
+        return { ok: false, reason: error?.busy === true ? BROWSER_BUSY : "the browser could not do that" };
       }
       const step = Array.isArray(result?.ran) ? result.ran[0] : null;
       return step?.ok ? { ok: true } : { ok: false, reason: step?.reason ?? "the browser could not do that" };
@@ -688,10 +667,11 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
 
     /** With the turn's `answer`: one that waits on the person holds a browser that outlives it (`browserHold.js`). */
     async close({ answer = "", vaultLink = false } = {}) {
-      if (session === null) return;
       const ending = session;
       session = null;
-      await computer.closeBrowser?.(ending, { waiting: waitsOnThem(answer, { vaultLink }) }).catch(() => undefined);
+      if (ending !== null) await computer.closeBrowser?.(ending, { waiting: waitsOnThem(answer, { vaultLink }) }).catch(() => undefined);
+      // The lease goes with the question, held or not: the person's reply is a new question (`browserLease.js`).
+      await computer.releaseBrowser?.(lease.holder).catch(() => undefined);
     },
   };
 }

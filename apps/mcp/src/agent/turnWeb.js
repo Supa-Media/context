@@ -69,7 +69,7 @@ export function pagesOpenedBefore(history) {
  * `vouched` is the text whose addresses count as the person's own
  * (`texEntryPoint.js` says why a routine's is its body and never its prompt).
  */
-export async function openTurnWeb(env, { session, texting, group, question, vouched, history = [], channel, store, dispatch, ledger }) {
+export async function openTurnWeb(env, { session, texting, group, question, vouched, history = [], channel, store, dispatch, ledger, patient = false }) {
   // The person's browser tag lets a later text carry on in the same browser
   // (`browserProviders.js`); it is made from their id, never from the request.
   // A handoff texts their own `/tex/@<handle>` page, never the browser's link;
@@ -93,6 +93,8 @@ export async function openTurnWeb(env, { session, texting, group, question, vouc
           // A browser handed to the person is texted the moment it exists, unless their texts said no to it.
           say: channel !== null ? (text) => channel.say(text) : null,
           handoffRefused: handoffRefusedIn(`${theirEarlierWords(history)}\n\n${question ?? ""}`),
+          // A background job or a routine waits patiently for a browser another question holds (`browserLease.js`).
+          patient,
           // The vault this turn's grant opens, for `fill_login`: a group chat's is its
           // shared workspace's, narrowed to what the whole workspace was given.
           store,

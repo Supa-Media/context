@@ -335,7 +335,7 @@ function resultsText(query, results) {
  *
  * @returns {{tools: Array, call: (name: string, args: object) => Promise<object>, usage: {decision: number}}}
  */
-export function webSession(computer, question, { decide = null, search = null, addresses = question, opened: openedBefore = [], say = null, store = null, files = null, keep = null, asks = null, handoffRefused = false, pageOpenMs = PAGE_OPEN_MS } = {}) {
+export function webSession(computer, question, { decide = null, search = null, addresses = question, opened: openedBefore = [], say = null, store = null, files = null, keep = null, asks = null, handoffRefused = false, patient = false, pageOpenMs = PAGE_OPEN_MS } = {}) {
   // `addresses` is the text whose addresses count as vouched for, which is the
   // person's own words and NOT necessarily the prompt. They are the same thing
   // for a texted question and differ for a routine, whose prompt is framing
@@ -374,6 +374,8 @@ export function webSession(computer, question, { decide = null, search = null, a
           savedLogin: store ? savedLoginOn(store) : null,
           // Their texts said no to taking over the browser: it is never handed to them again (`browse.js`).
           handoffRefused,
+          // A job or a routine waits its turn for a busy browser; a chat turn only briefly (`browserLease.js`).
+          patient,
           takePages(n) {
             if (opened + n > pageCap()) return false;
             opened += n;
