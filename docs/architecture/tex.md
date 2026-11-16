@@ -177,7 +177,7 @@ every wire, from the same config.
 | Fallback | fallback |  | on | GLM-4.7 Flash |  |  |  | builtin.js |
 | Big-ask planner | planner |  | off | Opus 5.5 | high |  | own, train:planner, ask, caps | planBigAsk.js |
 | Tools | tools |  | on | code |  |  |  | callToolForSession |
-| Advisor | advisor |  | on | Opus 5.5 | high | 40 s | own, train:advisor, caps, about, ask, ledger, hist, date | advisor.js · advisorRoles/chat.js |
+| Advisor | advisor |  | on | Opus 5.5 | high | 40 s | own, train:advisor, caps, about, ask, ledger, hist, date, tools | advisor.js · advisorRoles/chat.js |
 | Answer checks | checks |  | on | code |  |  |  | graph/nodes/checks.js · doItChecks.js · untriedWeb.js · sourcedFigures.js seenFiguresNotice · replyJudge.js codeCheck |
 | Mail checker | mail |  | on | Haiku 5.5 | low |  | own, train:mail, draft, ask | mailChecker.js |
 | Card check | card |  | on | Haiku 5.5 | medium |  | own, train:card, draft | cardCheck.js |
@@ -187,7 +187,7 @@ every wire, from the same config.
 | Classifier | classifier |  | on | Haiku 5.5 | off | 4 s | own, train:classifier, threads, recent | conversationThreads.js |
 | Self-review | selfreview |  | on | Haiku 5.5 | low |  | own, train:selfreview, hist | selfReview.js |
 | Background job | job |  | on | Haiku 5.5 | medium |  | tools, map, p-about-tex, p-rules, p-tools, p-working, train:job, brief, ask, date | graph/nodes/job.js · texJob.js · apps/agent jobRun.ts |
-| Job check | jobcheck |  | on | Opus 5.5 | high |  | own, train:jobcheck, brief, ask, ledger, out:job | graph/nodes/jobcheck.js · jobCheck.js |
+| Job check | jobcheck |  | on | Opus 5.5 | high |  | own, train:jobcheck, brief, ask, ledger, out:job, tools | graph/nodes/jobcheck.js · jobCheck.js |
 | Advisor on job mail | mailadv |  | on | Opus 5.5 | high |  | own, train:mailadv, brief, ask | graph/nodes/mailadv.js · jobNote.js · advisorRoles/jobMail.js |
 | Hand-back judge | handback |  | on | Haiku 5.5 | low |  | own, train:handback, brief, draft | graph/nodes/handback.js · handbackJudge.js · claimCheck.js |
 | Egress judge | egress |  | on | Haiku 5.5 | low |  |  | privacy/judge.js |
