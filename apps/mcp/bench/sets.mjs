@@ -16,12 +16,22 @@ const textDecide = require("../../../packages/shared/src/textDecide.cjs");
 
 const { SETS, TARGET, DRIFT, check, ratio } = texSets;
 
+/** Invisible and direction characters as escapes: a literal one fails the identifiers guard and can't be seen in review. */
+const escapeInvisible = (text) => text.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0"));
+
+/** 2-space JSON with invisible characters escaped (`check-identifiers`). */
+export const jsonFile = (value) => escapeInvisible(JSON.stringify(value, null, 2)) + "\n";
+
 /**
- * A conversation file's text: 2-space JSON, with invisible and direction characters written as escapes, since a
- * literal one fails the repository's identifiers guard (`check-identifiers`) and can't be seen in review.
+ * A conversation file's text: one line per field and one line per message, so a long conversation (Dev2,
+ * 2026-11-16: "100, 500 different turns") stays a few hundred lines for the size check and reads as a chat in review.
  */
-export const jsonFile = (value) =>
-  JSON.stringify(value, null, 2).replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")) + "\n";
+export function conversationFile(c) {
+  const { msgs = [], ...rest } = c;
+  const head = Object.entries(rest).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`);
+  const body = msgs.map((m) => `    ${JSON.stringify(m)}`).join(",\n");
+  return escapeInvisible(`{\n${[...head, `  "msgs": [\n${body}\n  ]`].join(",\n")}\n}\n`);
+}
 
 export const SETS_DIR = fileURLToPath(new URL("./sets", import.meta.url));
 const CONFIG_PATH = fileURLToPath(new URL("../../../packages/shared/src/texConfig.json", import.meta.url));

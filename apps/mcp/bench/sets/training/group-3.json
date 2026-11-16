@@ -3,1392 +3,268 @@
   "title": "Community Event Committee",
   "set": "training",
   "kind": "group",
-  "members": [
-    "Dev",
-    "Omar",
-    "June",
-    "Raf",
-    "Lu",
-    "Pia",
-    "Atlas"
-  ],
+  "members": ["Dev","Omar","June","Raf","Lu","Pia","Atlas"],
+  "from": ["decide-21-still-typing","respond-g-approve","respond-g-bot-quiz-untagged","respond-g-bot-reply-under-person","respond-g-bot-reply-under-person-2","respond-g-closing","respond-g-comma","respond-g-go-ahead-to-bot","respond-g-reply-ask"],
   "msgs": [
-    {
-      "who": "Lu",
-      "text": "morning all. who's got the sign up sheet for the food table",
-      "id": "m1"
-    },
-    {
-      "who": "Pia",
-      "text": "me, i'll update it tonight",
-      "id": "m2"
-    },
-    {
-      "who": "June",
-      "text": "thank you pia you're a hero",
-      "id": "m3"
-    },
-    {
-      "who": "Omar",
-      "text": "did anyone see the weather for saturday, looks like rain again",
-      "id": "m4"
-    },
-    {
-      "who": "Raf",
-      "text": "it's been raining for a week straight lol",
-      "id": "m5"
-    },
-    {
-      "who": "Lu",
-      "text": "honestly i'd believe it",
-      "id": "m6"
-    },
-    {
-      "who": "Dev",
-      "text": "the storm drain by the parking lot is still backed up btw",
-      "id": "m7"
-    },
-    {
-      "who": "Omar",
-      "text": "ugh that's the third time",
-      "id": "m8"
-    },
-    {
-      "who": "Pia",
-      "text": "can someone tell the city or do we have to",
-      "id": "m9"
-    },
-    {
-      "who": "June",
-      "text": "i'll call tomorrow, i have their number from last year",
-      "id": "m10"
-    },
-    {
-      "who": "Raf",
-      "text": "legend",
-      "id": "m11"
-    },
-    {
-      "who": "Lu",
-      "text": "did anyone finish the banner design",
-      "id": "m12"
-    },
-    {
-      "who": "Dev",
-      "text": "almost, the colors are off on my screen though",
-      "id": "m13"
-    },
-    {
-      "who": "Omar",
-      "text": "mine look fine, maybe its the phone",
-      "id": "m14"
-    },
-    {
-      "who": "June",
-      "text": "check on the big screen before we print",
-      "id": "m15"
-    },
-    {
-      "who": "Dev",
-      "text": "yeah will do",
-      "id": "m16"
-    },
-    {
-      "who": "Pia",
-      "text": "lol the coffee urn is making that noise again",
-      "id": "m17"
-    },
-    {
-      "who": "Raf",
-      "text": "we should just buy a new one",
-      "id": "m18"
-    },
-    {
-      "who": "Lu",
-      "text": "we said that last year",
-      "id": "m19"
-    },
-    {
-      "who": "Omar",
-      "text": "a fundraiser for a coffee urn, nice",
-      "id": "m20"
-    },
-    {
-      "who": "June",
-      "text": "honestly the committee would do it",
-      "id": "m21"
-    },
-    {
-      "who": "Atlas",
-      "text": "I can keep a running list of the food sign ups if that helps.",
-      "id": "m22"
-    },
-    {
-      "who": "Pia",
-      "text": "thanks atlas that would be great",
-      "id": "m23"
-    },
-    {
-      "who": "Lu",
-      "text": "anyone want lunch, i'm walking to the deli",
-      "id": "m24"
-    },
-    {
-      "who": "Raf",
-      "text": "bring me something",
-      "id": "m25"
-    },
-    {
-      "who": "Omar",
-      "text": "same",
-      "id": "m26"
-    },
-    {
-      "who": "June",
-      "text": "the good sandwiches or the sad ones",
-      "id": "m27"
-    },
-    {
-      "who": "Lu",
-      "text": "sad ones are fine lol",
-      "id": "m28"
-    },
-    {
-      "who": "Pia",
-      "text": "i'll be here, my laptop is dying so i'm on my phone",
-      "id": "m29"
-    },
-    {
-      "who": "Lu",
-      "text": "charge it pia",
-      "id": "m30"
-    },
-    {
-      "who": "Dev",
-      "text": "Tex can you check this",
-      "id": "m31"
-    },
-    {
-      "who": "Dev",
-      "text": "sending the photo now",
-      "id": "m32"
-    },
-    {
-      "who": "Dev",
-      "text": "it's the one from",
-      "labels": {
-        "decide": {
-          "act": "wait",
-          "why": "still_typing",
-          "star": true
-        }
-      },
-      "id": "m33"
-    },
-    {
-      "who": "Tex",
-      "tex": true,
-      "text": "Still here. Send the rest whenever you're ready.",
-      "id": "m34"
-    },
-    {
-      "who": "Dev",
-      "text": "ok sorry, it's the one from the banner folder. the blue one",
-      "id": "m35"
-    },
-    {
-      "who": "Raf",
-      "text": "blue banner is the good one imo",
-      "id": "m36"
-    },
-    {
-      "who": "June",
-      "text": "agreed, the other one has the sponsor logos cut off",
-      "id": "m37"
-    },
-    {
-      "who": "Lu",
-      "text": "wait which sponsor logos",
-      "id": "m38"
-    },
-    {
-      "who": "June",
-      "text": "the bakery one, the logo got cropped at the bottom",
-      "id": "m39"
-    },
-    {
-      "who": "Lu",
-      "text": "oh yeah i saw that, nobody noticed",
-      "id": "m40"
-    },
-    {
-      "who": "Omar",
-      "text": "good catch june",
-      "id": "m41"
-    },
-    {
-      "who": "Pia",
-      "text": "can we fix that before the print run",
-      "id": "m42"
-    },
-    {
-      "who": "Dev",
-      "text": "i can crop it in like five minutes",
-      "id": "m43"
-    },
-    {
-      "who": "Omar",
-      "text": "you're fast dev",
-      "id": "m44"
-    },
-    {
-      "who": "Raf",
-      "text": "he's been doing this since college",
-      "id": "m45"
-    },
-    {
-      "who": "Dev",
-      "text": "that's not a compliment raf",
-      "id": "m46"
-    },
-    {
-      "who": "Lu",
-      "text": "it kind of is",
-      "id": "m47"
-    },
-    {
-      "who": "June",
-      "text": "ok shall we do the table count after this",
-      "id": "m48"
-    },
-    {
-      "who": "Pia",
-      "text": "yes but i need to eat first",
-      "id": "m49"
-    },
-    {
-      "who": "Omar",
-      "text": "pia is always hungry",
-      "id": "m50"
-    },
-    {
-      "who": "Pia",
-      "text": "it's a medical condition",
-      "id": "m51"
-    },
-    {
-      "who": "Atlas",
-      "text": "Cropping a logo is a two minute job if the original file is high res.",
-      "id": "m52"
-    },
-    {
-      "who": "Dev",
-      "text": "it is, i have the vector version",
-      "id": "m53"
-    },
-    {
-      "who": "Lu",
-      "text": "perfect",
-      "id": "m54"
-    },
-    {
-      "who": "June",
-      "text": "sounds good",
-      "id": "m55"
-    },
-    {
-      "who": "Raf",
-      "text": "anyone watch the thing last night",
-      "id": "m56"
-    },
-    {
-      "who": "Omar",
-      "text": "the baking one? yeah it was fine",
-      "id": "m57"
-    },
-    {
-      "who": "Pia",
-      "text": "i fell asleep halfway lol",
-      "id": "m58"
-    },
-    {
-      "who": "Tex",
-      "tex": true,
-      "text": "Send the RSVP reminder to everyone? Reply approve to send.   (your newest question)",
-      "id": "m59"
-    },
-    {
-      "who": "June",
-      "text": "approve",
-      "labels": {
-        "decide": {
-          "act": "respond",
-          "star": true
-        }
-      },
-      "id": "m60"
-    },
-    {
-      "who": "Tex",
-      "tex": true,
-      "text": "Approved. The RSVP reminder is on its way to the whole list.",
-      "id": "m61"
-    },
-    {
-      "who": "Omar",
-      "text": "nice one tex",
-      "id": "m62"
-    },
-    {
-      "who": "Pia",
-      "text": "i got mine already lol, so fast",
-      "id": "m63"
-    },
-    {
-      "who": "Lu",
-      "text": "i don't think i've RSVP'd to anything in my life",
-      "id": "m64"
-    },
-    {
-      "who": "Raf",
-      "text": "you came to the picnic lu",
-      "id": "m65"
-    },
-    {
-      "who": "Lu",
-      "text": "i was invited, i didn't say yes",
-      "id": "m66"
-    },
-    {
-      "who": "June",
-      "text": "lu come on",
-      "id": "m67"
-    },
-    {
-      "who": "Dev",
-      "text": "the picnic was fun though",
-      "id": "m68"
-    },
-    {
-      "who": "Omar",
-      "text": "we need to do that again",
-      "id": "m69"
-    },
-    {
-      "who": "Pia",
-      "text": "the lemonade was too sweet",
-      "id": "m70"
-    },
-    {
-      "who": "Raf",
-      "text": "i liked it",
-      "id": "m71"
-    },
-    {
-      "who": "June",
-      "text": "that's why you're dev's favorite",
-      "id": "m72"
-    },
-    {
-      "who": "Dev",
-      "text": "i don't have favorites",
-      "id": "m73"
-    },
-    {
-      "who": "Lu",
-      "text": "he has a favorite and it's raf",
-      "id": "m74"
-    },
-    {
-      "who": "Raf",
-      "text": "i'll take it",
-      "id": "m75"
-    },
-    {
-      "who": "Omar",
-      "text": "anyway the bakery one, did we ever get the flyer proof",
-      "id": "m76"
-    },
-    {
-      "who": "June",
-      "text": "i've got it open, looks ok",
-      "id": "m77"
-    },
-    {
-      "who": "Pia",
-      "text": "send it to the group before we print",
-      "id": "m78"
-    },
-    {
-      "who": "Dev",
-      "text": "uploading now",
-      "id": "m79"
-    },
-    {
-      "who": "Atlas",
-      "text": "The proof is in the folder. I'll tag whoever needs to sign off.",
-      "id": "m80"
-    },
-    {
-      "who": "Lu",
-      "text": "thanks",
-      "id": "m81"
-    },
-    {
-      "who": "Raf",
-      "text": "weather is supposed to clear up midweek",
-      "id": "m82"
-    },
-    {
-      "who": "Omar",
-      "text": "that would be a miracle",
-      "id": "m83"
-    },
-    {
-      "who": "June",
-      "text": "fingers crossed",
-      "id": "m84"
-    },
-    {
-      "who": "Raf",
-      "text": "Atlas, give Tex three quick riddles",
-      "id": "m85"
-    },
-    {
-      "who": "Atlas",
-      "text": "Here goes.",
-      "id": "m86"
-    },
-    {
-      "who": "Atlas",
-      "text": "What has keys but can't open locks?",
-      "labels": {
-        "decide": {
-          "act": "respond",
-          "star": true
-        }
-      },
-      "id": "m87"
-    },
-    {
-      "who": "Tex",
-      "tex": true,
-      "text": "A piano. Keys, no locks, and it's an old favourite.",
-      "id": "m88"
-    },
-    {
-      "who": "Raf",
-      "text": "ha. piano, of course",
-      "id": "m89"
-    },
-    {
-      "who": "Omar",
-      "text": "the second one is about a river right",
-      "id": "m90"
-    },
-    {
-      "who": "Atlas",
-      "text": "Close. It's about a river, but I won't spoil the third one.",
-      "id": "m91"
-    },
-    {
-      "who": "Lu",
-      "text": "atlas you're a tease",
-      "id": "m92"
-    },
-    {
-      "who": "June",
-      "text": "give us the easy one atlas",
-      "id": "m93"
-    },
-    {
-      "who": "Atlas",
-      "text": "Fine. What gets wetter the more it dries?",
-      "id": "m94"
-    },
-    {
-      "who": "Dev",
-      "text": "a towel",
-      "id": "m95"
-    },
-    {
-      "who": "Raf",
-      "text": "oh it's a towel, i was going to say a sponge",
-      "id": "m96"
-    },
-    {
-      "who": "Pia",
-      "text": "ok the towel is too obvious",
-      "id": "m97"
-    },
-    {
-      "who": "Atlas",
-      "text": "Dev got it, well done.",
-      "id": "m98"
-    },
-    {
-      "who": "Lu",
-      "text": "dev always wins the easy ones",
-      "id": "m99"
-    },
-    {
-      "who": "Dev",
-      "text": "i literally just guessed",
-      "id": "m100"
-    },
-    {
-      "who": "Omar",
-      "text": "the best kind of win",
-      "id": "m101"
-    },
-    {
-      "who": "June",
-      "text": "ok the list for the info table, who has the markers",
-      "id": "m102"
-    },
-    {
-      "who": "Pia",
-      "text": "i have like six in my bag",
-      "id": "m103"
-    },
-    {
-      "who": "Raf",
-      "text": "bring them whenever, i don't need them back",
-      "id": "m104"
-    },
-    {
-      "who": "Lu",
-      "text": "that's the generous spirit",
-      "id": "m105"
-    },
-    {
-      "who": "Omar",
-      "text": "i just found a stack of old name tags in my car",
-      "id": "m106"
-    },
-    {
-      "who": "June",
-      "text": "why are they in your car",
-      "id": "m107"
-    },
-    {
-      "who": "Omar",
-      "text": "i don't know, i don't ask questions about my car",
-      "id": "m108"
-    },
-    {
-      "who": "Dev",
-      "text": "the car is a mystery",
-      "id": "m109"
-    },
-    {
-      "who": "Pia",
-      "text": "someone bring coffee to the next one",
-      "id": "m110"
-    },
-    {
-      "who": "Raf",
-      "text": "i'll do it",
-      "id": "m111"
-    },
-    {
-      "who": "Raf",
-      "text": "Atlas basically reads our minds",
-      "id": "m112"
-    },
-    {
-      "who": "Atlas",
-      "text": "(replying to @raf) Mind reading is a stretch, I just pay attention.",
-      "labels": {
-        "decide": {
-          "act": "quiet",
-          "star": true,
-          "also_react": "any"
-        }
-      },
-      "id": "m113"
-    },
-    {
-      "who": "Omar",
-      "text": "lol atlas is good at guessing though",
-      "id": "m114"
-    },
-    {
-      "who": "Pia",
-      "text": "it's like it just knows who's talking",
-      "id": "m115"
-    },
-    {
-      "who": "June",
-      "text": "maybe it reads the room",
-      "id": "m116"
-    },
-    {
-      "who": "Raf",
-      "text": "it reads the group chat, it doesn't read minds",
-      "id": "m117"
-    },
-    {
-      "who": "Dev",
-      "text": "i'm sure someone told it",
-      "id": "m118"
-    },
-    {
-      "who": "Lu",
-      "text": "nobody told it, it's a bot",
-      "id": "m119"
-    },
-    {
-      "who": "Omar",
-      "text": "it's an assistant not a bot",
-      "id": "m120"
-    },
-    {
-      "who": "Lu",
-      "text": "same thing to me",
-      "id": "m121"
-    },
-    {
-      "who": "June",
-      "text": "rude",
-      "id": "m122"
-    },
-    {
-      "who": "Pia",
-      "text": "i think it's a robot with good manners",
-      "id": "m123"
-    },
-    {
-      "who": "Atlas",
-      "text": "Polite is the default setting, yes.",
-      "id": "m124"
-    },
-    {
-      "who": "Omar",
-      "text": "ok robot with manners then",
-      "id": "m125"
-    },
-    {
-      "who": "Dev",
-      "text": "sounds like a good sort of coworker",
-      "id": "m126"
-    },
-    {
-      "who": "Raf",
-      "text": "the best kind",
-      "id": "m127"
-    },
-    {
-      "who": "June",
-      "text": "did anyone ever return the folding tables",
-      "id": "m128"
-    },
-    {
-      "who": "Lu",
-      "text": "i think pia did",
-      "id": "m129"
-    },
-    {
-      "who": "Pia",
-      "text": "i did not, i have them in my hallway",
-      "id": "m130"
-    },
-    {
-      "who": "Omar",
-      "text": "pia the hallway is not storage",
-      "id": "m131"
-    },
-    {
-      "who": "Pia",
-      "text": "it's temporary storage, its been temporary for six months",
-      "id": "m132"
-    },
-    {
-      "who": "Raf",
-      "text": "relatable",
-      "id": "m133"
-    },
-    {
-      "who": "Dev",
-      "text": "send me a photo of the hallway",
-      "id": "m134"
-    },
-    {
-      "who": "Pia",
-      "text": "no",
-      "id": "m135"
-    },
-    {
-      "who": "Lu",
-      "text": "does Atlas keep track of threads?",
-      "id": "m136"
-    },
-    {
-      "who": "Atlas",
-      "text": "(replying to @lu) I follow who's talking to whom, yes.",
-      "labels": {
-        "decide": {
-          "act": "quiet",
-          "star": true,
-          "also_react": "any"
-        }
-      },
-      "id": "m137"
-    },
-    {
-      "who": "June",
-      "text": "atlas said it follows who's talking to who, that's creepy",
-      "id": "m138"
-    },
-    {
-      "who": "Omar",
-      "text": "it's just the thread view june",
-      "id": "m139"
-    },
-    {
-      "who": "June",
-      "text": "i know, i'm making it dramatic",
-      "id": "m140"
-    },
-    {
-      "who": "Pia",
-      "text": "the thread view is actually really handy though",
-      "id": "m141"
-    },
-    {
-      "who": "Raf",
-      "text": "i used it for the sponsor emails",
-      "id": "m142"
-    },
-    {
-      "who": "Lu",
-      "text": "which emails, the bakery ones?",
-      "id": "m143"
-    },
-    {
-      "who": "Raf",
-      "text": "yes, the bakery sent the logo file twice",
-      "id": "m144"
-    },
-    {
-      "who": "June",
-      "text": "they never send it right the first time",
-      "id": "m145"
-    },
-    {
-      "who": "Dev",
-      "text": "i'm going to make a template for them",
-      "id": "m146"
-    },
-    {
-      "who": "Omar",
-      "text": "you say that every time dev",
-      "id": "m147"
-    },
-    {
-      "who": "Dev",
-      "text": "this time i mean it",
-      "id": "m148"
-    },
-    {
-      "who": "Lu",
-      "text": "lol",
-      "id": "m149"
-    },
-    {
-      "who": "Pia",
-      "text": "the template idea is good though",
-      "id": "m150"
-    },
-    {
-      "who": "June",
-      "text": "can we keep the flyer thing separate from the bakery stuff",
-      "id": "m151"
-    },
-    {
-      "who": "Raf",
-      "text": "yeah they're two different things",
-      "id": "m152"
-    },
-    {
-      "who": "Omar",
-      "text": "i'll take the flyers, i have the printer contact",
-      "id": "m153"
-    },
-    {
-      "who": "June",
-      "text": "thanks omar",
-      "id": "m154"
-    },
-    {
-      "who": "Dev",
-      "text": "the printer is a nightmare, they lost my last order",
-      "id": "m155"
-    },
-    {
-      "who": "Omar",
-      "text": "they lost mine too",
-      "id": "m156"
-    },
-    {
-      "who": "Pia",
-      "text": "is there anyone who's easy to work with",
-      "id": "m157"
-    },
-    {
-      "who": "Lu",
-      "text": "the paper place is ok",
-      "id": "m158"
-    },
-    {
-      "who": "Raf",
-      "text": "the paper place is great, they answer the phone",
-      "id": "m159"
-    },
-    {
-      "who": "June",
-      "text": "a whole phone call, wow",
-      "id": "m160"
-    },
-    {
-      "who": "Omar",
-      "text": "we're living in the future",
-      "id": "m161"
-    },
-    {
-      "who": "Omar",
-      "text": "what's the address of the venue tex",
-      "labels": {
-        "decide": {
-          "act": "respond",
-          "star": true
-        }
-      },
-      "id": "m162"
-    },
-    {
-      "who": "Tex",
-      "tex": true,
-      "text": "I don't have the venue address in this chat, and I won't guess one. Can someone paste it here?",
-      "id": "m163"
-    },
-    {
-      "who": "Omar",
-      "text": "ah right, it's in the email from the booking",
-      "id": "m164"
-    },
-    {
-      "who": "Lu",
-      "text": "i'll dig it out later",
-      "id": "m165"
-    },
-    {
-      "who": "Pia",
-      "text": "i'd rather not wait for lu's inbox",
-      "id": "m166"
-    },
-    {
-      "who": "Lu",
-      "text": "rude, i'm very organized",
-      "id": "m167"
-    },
-    {
-      "who": "Raf",
-      "text": "lu's inbox has 4000 emails",
-      "id": "m168"
-    },
-    {
-      "who": "Lu",
-      "text": "2,000 max",
-      "id": "m169"
-    },
-    {
-      "who": "Dev",
-      "text": "ok so the flyers are the big thing this week",
-      "id": "m170"
-    },
-    {
-      "who": "June",
-      "text": "flyers and the sponsor logos, yes",
-      "id": "m171"
-    },
-    {
-      "who": "Omar",
-      "text": "the bakery says the logo is fixed",
-      "id": "m172"
-    },
-    {
-      "who": "Raf",
-      "text": "finally",
-      "id": "m173"
-    },
-    {
-      "who": "Atlas",
-      "text": "I'll keep the sponsor list updated as people send things.",
-      "id": "m174"
-    },
-    {
-      "who": "Pia",
-      "text": "good, one less thing",
-      "id": "m175"
-    },
-    {
-      "who": "Dev",
-      "text": "i'm going to eat something",
-      "id": "m176"
-    },
-    {
-      "who": "Lu",
-      "text": "go dev",
-      "id": "m177"
-    },
-    {
-      "who": "June",
-      "text": "has anyone seen the new sourdough place down by the station",
-      "id": "m178"
-    },
-    {
-      "who": "Raf",
-      "text": "the one with the bench out front",
-      "id": "m179"
-    },
-    {
-      "who": "June",
-      "text": "yes, i went there yesterday, it's really good",
-      "id": "m180"
-    },
-    {
-      "who": "Omar",
-      "text": "is it open late",
-      "id": "m181"
-    },
-    {
-      "who": "Pia",
-      "text": "i think so, the sign says till nine",
-      "id": "m182"
-    },
-    {
-      "who": "Raf",
-      "text": "nice, i'd go there",
-      "id": "m183"
-    },
-    {
-      "who": "Lu",
-      "text": "put the bread in the group chat june",
-      "id": "m184"
-    },
-    {
-      "who": "June",
-      "text": "Tex, put sunscreen on the beach list",
-      "labels": {
-        "decide": {
-          "act": "respond",
-          "star": true
-        }
-      },
-      "id": "m185"
-    },
-    {
-      "who": "Tex",
-      "tex": true,
-      "text": "Added sunscreen to the beach list.",
-      "id": "m186"
-    },
-    {
-      "who": "June",
-      "text": "thank you, you're the best",
-      "id": "m187"
-    },
-    {
-      "who": "Dev",
-      "text": "the beach list is getting long",
-      "id": "m188"
-    },
-    {
-      "who": "Omar",
-      "text": "what's on it now",
-      "id": "m189"
-    },
-    {
-      "who": "June",
-      "text": "sunscreen, towels, the cooler, and dev's sad sandwich",
-      "id": "m190"
-    },
-    {
-      "who": "Dev",
-      "text": "it's not sad, it's a good sandwich",
-      "id": "m191"
-    },
-    {
-      "who": "Raf",
-      "text": "nobody's told me about a beach list",
-      "id": "m192"
-    },
-    {
-      "who": "Lu",
-      "text": "it's a joke raf, we don't have a beach",
-      "id": "m193"
-    },
-    {
-      "who": "Pia",
-      "text": "we don't even have a day for a beach",
-      "id": "m194"
-    },
-    {
-      "who": "June",
-      "text": "it's for when we have a day",
-      "id": "m195"
-    },
-    {
-      "who": "Omar",
-      "text": "fair enough",
-      "id": "m196"
-    },
-    {
-      "who": "Lu",
-      "text": "honest question, does anyone know if the bakery does gluten free",
-      "id": "m197"
-    },
-    {
-      "who": "Raf",
-      "text": "i think they do one loaf",
-      "id": "m198"
-    },
-    {
-      "who": "Pia",
-      "text": "one loaf is not a menu",
-      "id": "m199"
-    },
-    {
-      "who": "Dev",
-      "text": "it's a start though",
-      "id": "m200"
-    },
-    {
-      "who": "June",
-      "text": "lu i'll check on it",
-      "id": "m201"
-    },
-    {
-      "who": "Lu",
-      "text": "thanks june",
-      "id": "m202"
-    },
-    {
-      "who": "Raf",
-      "text": "anyone up for a quiz night some time",
-      "id": "m203"
-    },
-    {
-      "who": "Omar",
-      "text": "i'm always up for a quiz night",
-      "id": "m204"
-    },
-    {
-      "who": "Pia",
-      "text": "you're terrible at quizzes omar",
-      "id": "m205"
-    },
-    {
-      "who": "Omar",
-      "text": "i'm great at the sports round",
-      "id": "m206"
-    },
-    {
-      "who": "Dev",
-      "text": "the sports round is the only round",
-      "id": "m207"
-    },
-    {
-      "who": "Lu",
-      "text": "lol",
-      "id": "m208"
-    },
-    {
-      "who": "June",
-      "text": "ok i need to go, i'm on the train",
-      "id": "m209"
-    },
-    {
-      "who": "Omar",
-      "text": "Atlas, could you text Nina's assistant about the tickets?",
-      "id": "m210"
-    },
-    {
-      "who": "Atlas",
-      "text": "I can, want me to?",
-      "id": "m211"
-    },
-    {
-      "who": "Omar",
-      "text": "yes please go for it",
-      "labels": {
-        "decide": {
-          "act": "quiet",
-          "star": true,
-          "also_react": "any"
-        }
-      },
-      "id": "m212"
-    },
-    {
-      "who": "Lu",
-      "text": "did atlas go and text them yet",
-      "id": "m213"
-    },
-    {
-      "who": "Omar",
-      "text": "it said it would, give it a minute",
-      "id": "m214"
-    },
-    {
-      "who": "June",
-      "text": "it's a bit slow today, the bakery",
-      "id": "m215"
-    },
-    {
-      "who": "Raf",
-      "text": "everything is slow today",
-      "id": "m216"
-    },
-    {
-      "who": "Dev",
-      "text": "i'm still on the sponsor page",
-      "id": "m217"
-    },
-    {
-      "who": "Pia",
-      "text": "the sponsor page is a disaster",
-      "id": "m218"
-    },
-    {
-      "who": "Dev",
-      "text": "it's a little disaster",
-      "id": "m219"
-    },
-    {
-      "who": "Lu",
-      "text": "can someone tag the flyers in the drive",
-      "id": "m220"
-    },
-    {
-      "who": "Omar",
-      "text": "i tagged them yesterday",
-      "id": "m221"
-    },
-    {
-      "who": "Lu",
-      "text": "thanks omar, i never see your tags",
-      "id": "m222"
-    },
-    {
-      "who": "Omar",
-      "text": "they're there lu",
-      "id": "m223"
-    },
-    {
-      "who": "June",
-      "text": "ok i found the old banner, the green one from two summers ago",
-      "id": "m224"
-    },
-    {
-      "who": "Raf",
-      "text": "that one was so bright",
-      "id": "m225"
-    },
-    {
-      "who": "Pia",
-      "text": "it was fine",
-      "id": "m226"
-    },
-    {
-      "who": "Dev",
-      "text": "it's in the shed",
-      "id": "m227"
-    },
-    {
-      "who": "Lu",
-      "text": "why is anything in the shed",
-      "id": "m228"
-    },
-    {
-      "who": "Dev",
-      "text": "i don't know, that's where stuff goes",
-      "id": "m229"
-    },
-    {
-      "who": "Raf",
-      "text": "the shed is a sad place",
-      "id": "m230"
-    },
-    {
-      "who": "Omar",
-      "text": "i think there's a fridge in there too",
-      "id": "m231"
-    },
-    {
-      "who": "June",
-      "text": "a fridge in the shed, of course",
-      "id": "m232"
-    },
-    {
-      "who": "Pia",
-      "text": "it's probably not plugged in",
-      "id": "m233"
-    },
-    {
-      "who": "Lu",
-      "text": "it's definitely not plugged in",
-      "id": "m234"
-    },
-    {
-      "who": "Tex",
-      "tex": true,
-      "text": "Practice moved to 5:30.",
-      "id": "m235"
-    },
-    {
-      "who": "Pia",
-      "text": "(replying to You) is that at the north field still",
-      "labels": {
-        "decide": {
-          "act": "respond",
-          "star": true
-        }
-      },
-      "id": "m236"
-    },
-    {
-      "who": "Tex",
-      "tex": true,
-      "text": "I only have the new time, 5:30. I don't have the field confirmed, so check with whoever booked it.",
-      "id": "m237"
-    },
-    {
-      "who": "Pia",
-      "text": "ok thanks. who booked it again",
-      "id": "m238"
-    },
-    {
-      "who": "Dev",
-      "text": "probably june",
-      "id": "m239"
-    },
-    {
-      "who": "June",
-      "text": "i think it was lu",
-      "id": "m240"
-    },
-    {
-      "who": "Lu",
-      "text": "no, it was you june, i remember the email",
-      "id": "m241"
-    },
-    {
-      "who": "June",
-      "text": "i really don't remember that",
-      "id": "m242"
-    },
-    {
-      "who": "Raf",
-      "text": "the booking was a long time ago",
-      "id": "m243"
-    },
-    {
-      "who": "Omar",
-      "text": "my memory of anything before tuesday is gone",
-      "id": "m244"
-    },
-    {
-      "who": "Pia",
-      "text": "lol omar",
-      "id": "m245"
-    },
-    {
-      "who": "Raf",
-      "text": "ok i'll ask the group that was there",
-      "id": "m246"
-    },
-    {
-      "who": "Dev",
-      "text": "the new time is fine for me",
-      "id": "m247"
-    },
-    {
-      "who": "Lu",
-      "text": "works for me too",
-      "id": "m248"
-    },
-    {
-      "who": "June",
-      "text": "same, i'll tell my kid to bring the bag",
-      "id": "m249"
-    },
-    {
-      "who": "Omar",
-      "text": "which bag",
-      "id": "m250"
-    },
-    {
-      "who": "June",
-      "text": "the soccer bag, it has the cones",
-      "id": "m251"
-    },
-    {
-      "who": "Pia",
-      "text": "why does the soccer bag have cones",
-      "id": "m252"
-    },
-    {
-      "who": "June",
-      "text": "long story, it was a bargain",
-      "id": "m253"
-    },
-    {
-      "who": "Raf",
-      "text": "ha",
-      "id": "m254"
-    },
-    {
-      "who": "Dev",
-      "text": "ok so are we done with the list",
-      "id": "m255"
-    },
-    {
-      "who": "Lu",
-      "text": "almost, the cupcakes are still open",
-      "id": "m256"
-    },
-    {
-      "who": "Omar",
-      "text": "someone has to do the cupcakes",
-      "id": "m257"
-    },
-    {
-      "who": "Pia",
-      "text": "i'll do the lemon ones",
-      "id": "m258"
-    },
-    {
-      "who": "Raf",
-      "text": "legend",
-      "id": "m259"
-    },
-    {
-      "who": "June",
-      "text": "thanks everyone, see you all then",
-      "id": "m260"
-    }
-  ],
-  "from": [
-    "decide-21-still-typing",
-    "respond-g-approve",
-    "respond-g-bot-quiz-untagged",
-    "respond-g-bot-reply-under-person",
-    "respond-g-bot-reply-under-person-2",
-    "respond-g-closing",
-    "respond-g-comma",
-    "respond-g-go-ahead-to-bot",
-    "respond-g-reply-ask"
+    {"id":"m1","who":"Lu","text":"morning all. who's got the sign up sheet for the food table"},
+    {"id":"m2","who":"Pia","text":"me, i'll update it tonight"},
+    {"id":"m3","who":"June","text":"thank you pia you're a hero"},
+    {"id":"m4","who":"Omar","text":"did anyone see the weather for saturday, looks like rain again"},
+    {"id":"m5","who":"Raf","text":"it's been raining for a week straight lol"},
+    {"id":"m6","who":"Lu","text":"honestly i'd believe it"},
+    {"id":"m7","who":"Dev","text":"the storm drain by the parking lot is still backed up btw"},
+    {"id":"m8","who":"Omar","text":"ugh that's the third time"},
+    {"id":"m9","who":"Pia","text":"can someone tell the city or do we have to"},
+    {"id":"m10","who":"June","text":"i'll call tomorrow, i have their number from last year"},
+    {"id":"m11","who":"Raf","text":"legend"},
+    {"id":"m12","who":"Lu","text":"did anyone finish the banner design"},
+    {"id":"m13","who":"Dev","text":"almost, the colors are off on my screen though"},
+    {"id":"m14","who":"Omar","text":"mine look fine, maybe its the phone"},
+    {"id":"m15","who":"June","text":"check on the big screen before we print"},
+    {"id":"m16","who":"Dev","text":"yeah will do"},
+    {"id":"m17","who":"Pia","text":"lol the coffee urn is making that noise again"},
+    {"id":"m18","who":"Raf","text":"we should just buy a new one"},
+    {"id":"m19","who":"Lu","text":"we said that last year"},
+    {"id":"m20","who":"Omar","text":"a fundraiser for a coffee urn, nice"},
+    {"id":"m21","who":"June","text":"honestly the committee would do it"},
+    {"id":"m22","who":"Atlas","text":"I can keep a running list of the food sign ups if that helps."},
+    {"id":"m23","who":"Pia","text":"thanks atlas that would be great"},
+    {"id":"m24","who":"Lu","text":"anyone want lunch, i'm walking to the deli"},
+    {"id":"m25","who":"Raf","text":"bring me something"},
+    {"id":"m26","who":"Omar","text":"same"},
+    {"id":"m27","who":"June","text":"the good sandwiches or the sad ones"},
+    {"id":"m28","who":"Lu","text":"sad ones are fine lol"},
+    {"id":"m29","who":"Pia","text":"i'll be here, my laptop is dying so i'm on my phone"},
+    {"id":"m30","who":"Lu","text":"charge it pia"},
+    {"id":"m31","who":"Dev","text":"Tex can you check this"},
+    {"id":"m32","who":"Dev","text":"sending the photo now"},
+    {"id":"m33","who":"Dev","text":"it's the one from","labels":{"decide":{"act":"wait","why":"still_typing","star":true}}},
+    {"id":"m34","who":"Tex","tex":true,"text":"Still here. Send the rest whenever you're ready."},
+    {"id":"m35","who":"Dev","text":"ok sorry, it's the one from the banner folder. the blue one"},
+    {"id":"m36","who":"Raf","text":"blue banner is the good one imo"},
+    {"id":"m37","who":"June","text":"agreed, the other one has the sponsor logos cut off"},
+    {"id":"m38","who":"Lu","text":"wait which sponsor logos"},
+    {"id":"m39","who":"June","text":"the bakery one, the logo got cropped at the bottom"},
+    {"id":"m40","who":"Lu","text":"oh yeah i saw that, nobody noticed"},
+    {"id":"m41","who":"Omar","text":"good catch june"},
+    {"id":"m42","who":"Pia","text":"can we fix that before the print run"},
+    {"id":"m43","who":"Dev","text":"i can crop it in like five minutes"},
+    {"id":"m44","who":"Omar","text":"you're fast dev"},
+    {"id":"m45","who":"Raf","text":"he's been doing this since college"},
+    {"id":"m46","who":"Dev","text":"that's not a compliment raf"},
+    {"id":"m47","who":"Lu","text":"it kind of is"},
+    {"id":"m48","who":"June","text":"ok shall we do the table count after this"},
+    {"id":"m49","who":"Pia","text":"yes but i need to eat first"},
+    {"id":"m50","who":"Omar","text":"pia is always hungry"},
+    {"id":"m51","who":"Pia","text":"it's a medical condition"},
+    {"id":"m52","who":"Atlas","text":"Cropping a logo is a two minute job if the original file is high res."},
+    {"id":"m53","who":"Dev","text":"it is, i have the vector version"},
+    {"id":"m54","who":"Lu","text":"perfect"},
+    {"id":"m55","who":"June","text":"sounds good"},
+    {"id":"m56","who":"Raf","text":"anyone watch the thing last night"},
+    {"id":"m57","who":"Omar","text":"the baking one? yeah it was fine"},
+    {"id":"m58","who":"Pia","text":"i fell asleep halfway lol"},
+    {"id":"m59","who":"Tex","tex":true,"text":"Send the RSVP reminder to everyone? Reply approve to send.   (your newest question)"},
+    {"id":"m60","who":"June","text":"approve","labels":{"decide":{"act":"respond","star":true}}},
+    {"id":"m61","who":"Tex","tex":true,"text":"Approved. The RSVP reminder is on its way to the whole list."},
+    {"id":"m62","who":"Omar","text":"nice one tex"},
+    {"id":"m63","who":"Pia","text":"i got mine already lol, so fast"},
+    {"id":"m64","who":"Lu","text":"i don't think i've RSVP'd to anything in my life"},
+    {"id":"m65","who":"Raf","text":"you came to the picnic lu"},
+    {"id":"m66","who":"Lu","text":"i was invited, i didn't say yes"},
+    {"id":"m67","who":"June","text":"lu come on"},
+    {"id":"m68","who":"Dev","text":"the picnic was fun though"},
+    {"id":"m69","who":"Omar","text":"we need to do that again"},
+    {"id":"m70","who":"Pia","text":"the lemonade was too sweet"},
+    {"id":"m71","who":"Raf","text":"i liked it"},
+    {"id":"m72","who":"June","text":"that's why you're dev's favorite"},
+    {"id":"m73","who":"Dev","text":"i don't have favorites"},
+    {"id":"m74","who":"Lu","text":"he has a favorite and it's raf"},
+    {"id":"m75","who":"Raf","text":"i'll take it"},
+    {"id":"m76","who":"Omar","text":"anyway the bakery one, did we ever get the flyer proof"},
+    {"id":"m77","who":"June","text":"i've got it open, looks ok"},
+    {"id":"m78","who":"Pia","text":"send it to the group before we print"},
+    {"id":"m79","who":"Dev","text":"uploading now"},
+    {"id":"m80","who":"Atlas","text":"The proof is in the folder. I'll tag whoever needs to sign off."},
+    {"id":"m81","who":"Lu","text":"thanks"},
+    {"id":"m82","who":"Raf","text":"weather is supposed to clear up midweek"},
+    {"id":"m83","who":"Omar","text":"that would be a miracle"},
+    {"id":"m84","who":"June","text":"fingers crossed"},
+    {"id":"m85","who":"Raf","text":"Atlas, give Tex three quick riddles"},
+    {"id":"m86","who":"Atlas","text":"Here goes."},
+    {"id":"m87","who":"Atlas","text":"What has keys but can't open locks?","labels":{"decide":{"act":"respond","star":true}}},
+    {"id":"m88","who":"Tex","tex":true,"text":"A piano. Keys, no locks, and it's an old favourite."},
+    {"id":"m89","who":"Raf","text":"ha. piano, of course"},
+    {"id":"m90","who":"Omar","text":"the second one is about a river right"},
+    {"id":"m91","who":"Atlas","text":"Close. It's about a river, but I won't spoil the third one."},
+    {"id":"m92","who":"Lu","text":"atlas you're a tease"},
+    {"id":"m93","who":"June","text":"give us the easy one atlas"},
+    {"id":"m94","who":"Atlas","text":"Fine. What gets wetter the more it dries?"},
+    {"id":"m95","who":"Dev","text":"a towel"},
+    {"id":"m96","who":"Raf","text":"oh it's a towel, i was going to say a sponge"},
+    {"id":"m97","who":"Pia","text":"ok the towel is too obvious"},
+    {"id":"m98","who":"Atlas","text":"Dev got it, well done."},
+    {"id":"m99","who":"Lu","text":"dev always wins the easy ones"},
+    {"id":"m100","who":"Dev","text":"i literally just guessed"},
+    {"id":"m101","who":"Omar","text":"the best kind of win"},
+    {"id":"m102","who":"June","text":"ok the list for the info table, who has the markers"},
+    {"id":"m103","who":"Pia","text":"i have like six in my bag"},
+    {"id":"m104","who":"Raf","text":"bring them whenever, i don't need them back"},
+    {"id":"m105","who":"Lu","text":"that's the generous spirit"},
+    {"id":"m106","who":"Omar","text":"i just found a stack of old name tags in my car"},
+    {"id":"m107","who":"June","text":"why are they in your car"},
+    {"id":"m108","who":"Omar","text":"i don't know, i don't ask questions about my car"},
+    {"id":"m109","who":"Dev","text":"the car is a mystery"},
+    {"id":"m110","who":"Pia","text":"someone bring coffee to the next one"},
+    {"id":"m111","who":"Raf","text":"i'll do it"},
+    {"id":"m112","who":"Raf","text":"Atlas basically reads our minds"},
+    {"id":"m113","who":"Atlas","text":"(replying to @raf) Mind reading is a stretch, I just pay attention.","labels":{"decide":{"act":"quiet","star":true,"also_react":"any"}}},
+    {"id":"m114","who":"Omar","text":"lol atlas is good at guessing though"},
+    {"id":"m115","who":"Pia","text":"it's like it just knows who's talking"},
+    {"id":"m116","who":"June","text":"maybe it reads the room"},
+    {"id":"m117","who":"Raf","text":"it reads the group chat, it doesn't read minds"},
+    {"id":"m118","who":"Dev","text":"i'm sure someone told it"},
+    {"id":"m119","who":"Lu","text":"nobody told it, it's a bot"},
+    {"id":"m120","who":"Omar","text":"it's an assistant not a bot"},
+    {"id":"m121","who":"Lu","text":"same thing to me"},
+    {"id":"m122","who":"June","text":"rude"},
+    {"id":"m123","who":"Pia","text":"i think it's a robot with good manners"},
+    {"id":"m124","who":"Atlas","text":"Polite is the default setting, yes."},
+    {"id":"m125","who":"Omar","text":"ok robot with manners then"},
+    {"id":"m126","who":"Dev","text":"sounds like a good sort of coworker"},
+    {"id":"m127","who":"Raf","text":"the best kind"},
+    {"id":"m128","who":"June","text":"did anyone ever return the folding tables"},
+    {"id":"m129","who":"Lu","text":"i think pia did"},
+    {"id":"m130","who":"Pia","text":"i did not, i have them in my hallway"},
+    {"id":"m131","who":"Omar","text":"pia the hallway is not storage"},
+    {"id":"m132","who":"Pia","text":"it's temporary storage, its been temporary for six months"},
+    {"id":"m133","who":"Raf","text":"relatable"},
+    {"id":"m134","who":"Dev","text":"send me a photo of the hallway"},
+    {"id":"m135","who":"Pia","text":"no"},
+    {"id":"m136","who":"Lu","text":"does Atlas keep track of threads?"},
+    {"id":"m137","who":"Atlas","text":"(replying to @lu) I follow who's talking to whom, yes.","labels":{"decide":{"act":"quiet","star":true,"also_react":"any"}}},
+    {"id":"m138","who":"June","text":"atlas said it follows who's talking to who, that's creepy"},
+    {"id":"m139","who":"Omar","text":"it's just the thread view june"},
+    {"id":"m140","who":"June","text":"i know, i'm making it dramatic"},
+    {"id":"m141","who":"Pia","text":"the thread view is actually really handy though"},
+    {"id":"m142","who":"Raf","text":"i used it for the sponsor emails"},
+    {"id":"m143","who":"Lu","text":"which emails, the bakery ones?"},
+    {"id":"m144","who":"Raf","text":"yes, the bakery sent the logo file twice"},
+    {"id":"m145","who":"June","text":"they never send it right the first time"},
+    {"id":"m146","who":"Dev","text":"i'm going to make a template for them"},
+    {"id":"m147","who":"Omar","text":"you say that every time dev"},
+    {"id":"m148","who":"Dev","text":"this time i mean it"},
+    {"id":"m149","who":"Lu","text":"lol"},
+    {"id":"m150","who":"Pia","text":"the template idea is good though"},
+    {"id":"m151","who":"June","text":"can we keep the flyer thing separate from the bakery stuff"},
+    {"id":"m152","who":"Raf","text":"yeah they're two different things"},
+    {"id":"m153","who":"Omar","text":"i'll take the flyers, i have the printer contact"},
+    {"id":"m154","who":"June","text":"thanks omar"},
+    {"id":"m155","who":"Dev","text":"the printer is a nightmare, they lost my last order"},
+    {"id":"m156","who":"Omar","text":"they lost mine too"},
+    {"id":"m157","who":"Pia","text":"is there anyone who's easy to work with"},
+    {"id":"m158","who":"Lu","text":"the paper place is ok"},
+    {"id":"m159","who":"Raf","text":"the paper place is great, they answer the phone"},
+    {"id":"m160","who":"June","text":"a whole phone call, wow"},
+    {"id":"m161","who":"Omar","text":"we're living in the future"},
+    {"id":"m162","who":"Omar","text":"what's the address of the venue tex","labels":{"decide":{"act":"respond","star":true}}},
+    {"id":"m163","who":"Tex","tex":true,"text":"I don't have the venue address in this chat, and I won't guess one. Can someone paste it here?"},
+    {"id":"m164","who":"Omar","text":"ah right, it's in the email from the booking"},
+    {"id":"m165","who":"Lu","text":"i'll dig it out later"},
+    {"id":"m166","who":"Pia","text":"i'd rather not wait for lu's inbox"},
+    {"id":"m167","who":"Lu","text":"rude, i'm very organized"},
+    {"id":"m168","who":"Raf","text":"lu's inbox has 4000 emails"},
+    {"id":"m169","who":"Lu","text":"2,000 max"},
+    {"id":"m170","who":"Dev","text":"ok so the flyers are the big thing this week"},
+    {"id":"m171","who":"June","text":"flyers and the sponsor logos, yes"},
+    {"id":"m172","who":"Omar","text":"the bakery says the logo is fixed"},
+    {"id":"m173","who":"Raf","text":"finally"},
+    {"id":"m174","who":"Atlas","text":"I'll keep the sponsor list updated as people send things."},
+    {"id":"m175","who":"Pia","text":"good, one less thing"},
+    {"id":"m176","who":"Dev","text":"i'm going to eat something"},
+    {"id":"m177","who":"Lu","text":"go dev"},
+    {"id":"m178","who":"June","text":"has anyone seen the new sourdough place down by the station"},
+    {"id":"m179","who":"Raf","text":"the one with the bench out front"},
+    {"id":"m180","who":"June","text":"yes, i went there yesterday, it's really good"},
+    {"id":"m181","who":"Omar","text":"is it open late"},
+    {"id":"m182","who":"Pia","text":"i think so, the sign says till nine"},
+    {"id":"m183","who":"Raf","text":"nice, i'd go there"},
+    {"id":"m184","who":"Lu","text":"put the bread in the group chat june"},
+    {"id":"m185","who":"June","text":"Tex, put sunscreen on the beach list","labels":{"decide":{"act":"respond","star":true}}},
+    {"id":"m186","who":"Tex","tex":true,"text":"Added sunscreen to the beach list."},
+    {"id":"m187","who":"June","text":"thank you, you're the best"},
+    {"id":"m188","who":"Dev","text":"the beach list is getting long"},
+    {"id":"m189","who":"Omar","text":"what's on it now"},
+    {"id":"m190","who":"June","text":"sunscreen, towels, the cooler, and dev's sad sandwich"},
+    {"id":"m191","who":"Dev","text":"it's not sad, it's a good sandwich"},
+    {"id":"m192","who":"Raf","text":"nobody's told me about a beach list"},
+    {"id":"m193","who":"Lu","text":"it's a joke raf, we don't have a beach"},
+    {"id":"m194","who":"Pia","text":"we don't even have a day for a beach"},
+    {"id":"m195","who":"June","text":"it's for when we have a day"},
+    {"id":"m196","who":"Omar","text":"fair enough"},
+    {"id":"m197","who":"Lu","text":"honest question, does anyone know if the bakery does gluten free"},
+    {"id":"m198","who":"Raf","text":"i think they do one loaf"},
+    {"id":"m199","who":"Pia","text":"one loaf is not a menu"},
+    {"id":"m200","who":"Dev","text":"it's a start though"},
+    {"id":"m201","who":"June","text":"lu i'll check on it"},
+    {"id":"m202","who":"Lu","text":"thanks june"},
+    {"id":"m203","who":"Raf","text":"anyone up for a quiz night some time"},
+    {"id":"m204","who":"Omar","text":"i'm always up for a quiz night"},
+    {"id":"m205","who":"Pia","text":"you're terrible at quizzes omar"},
+    {"id":"m206","who":"Omar","text":"i'm great at the sports round"},
+    {"id":"m207","who":"Dev","text":"the sports round is the only round"},
+    {"id":"m208","who":"Lu","text":"lol"},
+    {"id":"m209","who":"June","text":"ok i need to go, i'm on the train"},
+    {"id":"m210","who":"Omar","text":"Atlas, could you text Nina's assistant about the tickets?"},
+    {"id":"m211","who":"Atlas","text":"I can, want me to?"},
+    {"id":"m212","who":"Omar","text":"yes please go for it","labels":{"decide":{"act":"quiet","star":true,"also_react":"any"}}},
+    {"id":"m213","who":"Lu","text":"did atlas go and text them yet"},
+    {"id":"m214","who":"Omar","text":"it said it would, give it a minute"},
+    {"id":"m215","who":"June","text":"it's a bit slow today, the bakery"},
+    {"id":"m216","who":"Raf","text":"everything is slow today"},
+    {"id":"m217","who":"Dev","text":"i'm still on the sponsor page"},
+    {"id":"m218","who":"Pia","text":"the sponsor page is a disaster"},
+    {"id":"m219","who":"Dev","text":"it's a little disaster"},
+    {"id":"m220","who":"Lu","text":"can someone tag the flyers in the drive"},
+    {"id":"m221","who":"Omar","text":"i tagged them yesterday"},
+    {"id":"m222","who":"Lu","text":"thanks omar, i never see your tags"},
+    {"id":"m223","who":"Omar","text":"they're there lu"},
+    {"id":"m224","who":"June","text":"ok i found the old banner, the green one from two summers ago"},
+    {"id":"m225","who":"Raf","text":"that one was so bright"},
+    {"id":"m226","who":"Pia","text":"it was fine"},
+    {"id":"m227","who":"Dev","text":"it's in the shed"},
+    {"id":"m228","who":"Lu","text":"why is anything in the shed"},
+    {"id":"m229","who":"Dev","text":"i don't know, that's where stuff goes"},
+    {"id":"m230","who":"Raf","text":"the shed is a sad place"},
+    {"id":"m231","who":"Omar","text":"i think there's a fridge in there too"},
+    {"id":"m232","who":"June","text":"a fridge in the shed, of course"},
+    {"id":"m233","who":"Pia","text":"it's probably not plugged in"},
+    {"id":"m234","who":"Lu","text":"it's definitely not plugged in"},
+    {"id":"m235","who":"Tex","tex":true,"text":"Practice moved to 5:30."},
+    {"id":"m236","who":"Pia","text":"(replying to You) is that at the north field still","labels":{"decide":{"act":"respond","star":true}}},
+    {"id":"m237","who":"Tex","tex":true,"text":"I only have the new time, 5:30. I don't have the field confirmed, so check with whoever booked it."},
+    {"id":"m238","who":"Pia","text":"ok thanks. who booked it again"},
+    {"id":"m239","who":"Dev","text":"probably june"},
+    {"id":"m240","who":"June","text":"i think it was lu"},
+    {"id":"m241","who":"Lu","text":"no, it was you june, i remember the email"},
+    {"id":"m242","who":"June","text":"i really don't remember that"},
+    {"id":"m243","who":"Raf","text":"the booking was a long time ago"},
+    {"id":"m244","who":"Omar","text":"my memory of anything before tuesday is gone"},
+    {"id":"m245","who":"Pia","text":"lol omar"},
+    {"id":"m246","who":"Raf","text":"ok i'll ask the group that was there"},
+    {"id":"m247","who":"Dev","text":"the new time is fine for me"},
+    {"id":"m248","who":"Lu","text":"works for me too"},
+    {"id":"m249","who":"June","text":"same, i'll tell my kid to bring the bag"},
+    {"id":"m250","who":"Omar","text":"which bag"},
+    {"id":"m251","who":"June","text":"the soccer bag, it has the cones"},
+    {"id":"m252","who":"Pia","text":"why does the soccer bag have cones"},
+    {"id":"m253","who":"June","text":"long story, it was a bargain"},
+    {"id":"m254","who":"Raf","text":"ha"},
+    {"id":"m255","who":"Dev","text":"ok so are we done with the list"},
+    {"id":"m256","who":"Lu","text":"almost, the cupcakes are still open"},
+    {"id":"m257","who":"Omar","text":"someone has to do the cupcakes"},
+    {"id":"m258","who":"Pia","text":"i'll do the lemon ones"},
+    {"id":"m259","who":"Raf","text":"legend"},
+    {"id":"m260","who":"June","text":"thanks everyone, see you all then"}
   ]
 }
