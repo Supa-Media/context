@@ -69,7 +69,7 @@ describe("content that is not text is not emitted", () => {
     }
   });
 
-  it("drops link targets, keeping only the words", () => {
+  it("drops link targets by default, keeping only the words (ingestion asks for them: htmlLinks.test.ts)", () => {
     // A URL is the most useful thing to smuggle into someone's notes. It
     // renders as friendly text and points somewhere else.
     const text = htmlToText('<a href="https://evil.test/steal">click here</a>', CAP);

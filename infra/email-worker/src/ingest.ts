@@ -93,7 +93,7 @@ import { normalizeTargetFolder as controlPlaneFolderRules } from "../../../apps/
 // opinion about what a safe key prefix is. See apps/mcp/src/store/index.js.
 import { assertSafePrefix } from "../../../apps/mcp/src/store/index.js";
 import { describeArcShape, describeSender } from "./auth";
-import { htmlToText } from "./html";
+import { htmlToTextWithLinks } from "./html";
 import {
   DEFAULT_MIME_LIMITS,
   IMAGE_STORE_PREFIX,
@@ -452,7 +452,8 @@ export async function decideCapture(
   }
 
   const limits: MimeLimits = { ...DEFAULT_MIME_LIMITS, ...config.limits };
-  const parsed = parseEmail(input.raw, limits, htmlToText);
+  // Each link keeps its address after its words (./html.ts).
+  const parsed = parseEmail(input.raw, limits, htmlToTextWithLinks);
   if (parsed.problems.includes("parse_failed")) {
     return { kind: "refuse", reason: "unparseable_message" };
   }
