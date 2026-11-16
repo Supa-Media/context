@@ -27,6 +27,7 @@ import { createTranscriptionMethods } from "./transcription.js";
 import { createTexCommandMethods } from "./texCommands.js";
 import { createTexPageMethods } from "./texPage.js";
 import { createTexDevMethods } from "./texDev.js";
+import { createLabSandboxMethods } from "./texLabSandbox.js";
 import { createTexChatHomeMethods } from "./texChatHome.js";
 import { createTexMachineMethods } from "./texMachines.js";
 import { createTimeZoneMethods } from "./timeZone.js";
@@ -73,6 +74,7 @@ export function createControlPlane(env, options = {}) {
     ...createTexCommandMethods({ post }),
     ...createTexPageMethods({ post }),
     ...createTexDevMethods({ post }),
+    ...createLabSandboxMethods({ post }),
     ...createTexChatHomeMethods({ post }),
     ...createTexMachineMethods({ post }),
     ...createTimeZoneMethods({ post }),

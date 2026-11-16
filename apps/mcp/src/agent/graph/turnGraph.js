@@ -12,6 +12,7 @@ import { nodeEntry } from "../ledger.js";
 import { TEX_CONFIG } from "../texConfig.js";
 import { gatewayGraph } from "./gatewayGraph.js";
 import { startsAtRoutine } from "./nodes/routine.js";
+import { sandboxGateOf } from "../../labSandbox/policy.js";
 
 /** Where a turn's run starts: the first door step, or, for a routine's run, Routine runs, which is wired to it. */
 export const TURN_START = "readTheText";
@@ -25,8 +26,19 @@ export const ROUTINE_START = "routine";
  */
 function ledgerLog(t) {
   const kept = [];
+  // A Lab test chat's turn shows each node as it finishes (`labSandbox/harness.js`); never set on a real turn.
+  const watch = sandboxGateOf(t.env)?.onNode ?? null;
   return {
-    keep: (run) => void kept.push({ run, turn: t.ledgerTurn ?? null }),
+    keep: (run) => {
+      kept.push({ run, turn: t.ledgerTurn ?? null });
+      if (watch) {
+        try {
+          watch(run);
+        } catch {
+          /* the Lab's view never stops a turn */
+        }
+      }
+    },
     write: () => {
       if (!t.chatLog || kept.length === 0) return;
       const entries = kept.splice(0).map(({ run, turn }) => nodeEntry(run, { turn: turn ?? t.ledgerTurn ?? null })).filter(Boolean);
@@ -43,9 +55,25 @@ const SETUP_NODES = Object.freeze({
   fallback: (setup) => setup.fallback !== null && setup.fallback !== undefined,
 });
 
+/**
+ * A Lab draft's wiring over the config, for a Lab test chat's turn only (`labSandbox/policy.js` `sandboxGateOf`): each
+ * node's on/off as the draft has it, and the draft's wires when every one names a node this config has. A real turn's
+ * env carries no gate, so it never reaches here. Models, efforts and prompts are read where each node is built, so a
+ * draft's change to those does not apply yet (`docs/decisions/texting-assistant/lab-sandbox.md`).
+ */
+export function withDraft(config, draft) {
+  if (!draft || typeof draft !== "object" || !Array.isArray(draft.nodes)) return config;
+  const ids = new Set(config.nodes.map((node) => node.id));
+  const byId = new Map(draft.nodes.filter((node) => node && typeof node.id === "string").map((node) => [node.id, node]));
+  const nodes = config.nodes.map((node) => (typeof byId.get(node.id)?.on === "boolean" ? { ...node, on: byId.get(node.id).on } : node));
+  const wires = Array.isArray(draft.edges) && draft.edges.length > 0 && draft.edges.every((e) => e && ids.has(e.from) && ids.has(e.to) && typeof e.mode === "string") ? draft.edges : config.edges;
+  return { ...config, nodes, edges: wires };
+}
+
 /** This turn's copy of the config, and the switch a setup that differs from it flips: each node it changed, as "planner on". */
-function turnConfig() {
-  const config = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.map((node) => ({ ...node })), edges: TEX_CONFIG.edges };
+function turnConfig(t) {
+  const base = withDraft(TEX_CONFIG, sandboxGateOf(t?.env)?.config ?? null);
+  const config = { ...base, nodes: base.nodes.map((node) => ({ ...node })), edges: base.edges };
   const useSetup = (setup) => {
     if (!setup || typeof setup !== "object") return "";
     const changed = [];
@@ -64,7 +92,7 @@ function turnConfig() {
 
 /** Runs one turn on the graph; its answer is the `Response` the node that answered left in `t.response`. */
 export async function runTurnGraph(t) {
-  const { config, useSetup } = turnConfig();
+  const { config, useSetup } = turnConfig(t);
   const log = ledgerLog(t);
   const graph = gatewayGraph({
     config,

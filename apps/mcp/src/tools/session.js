@@ -4,6 +4,7 @@
  * toolArguments.test.mjs and crossContext.test.mjs (see test/gatewaySource.mjs).
  */
 
+import { sandboxGateOf, toolAnswer } from "../labSandbox/policy.js";
 import { withMailFooter } from "../mail/footer.js";
 import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity.js";
 import { activityHintOf } from "../live/activityHint.js";
@@ -261,6 +262,12 @@ function advertisesTeamConfirmation(name) {
 export async function callToolForSession(params, store, session, options = {}) {
   const { error, params: call, v2 } = options.legacy ? { params, v2: null } : translateV2Params(params, store); // v2 → the existing call, before any gate
   if (error) return toolError(error);
+  // A Lab test chat's turn (`labSandbox/policy.js`): a tool that is not a read is recorded there and never runs.
+  const sandbox = sandboxGateOf(store?.env) ?? session?.labSandbox ?? null;
+  if (sandbox !== null) {
+    const stubbed = toolAnswer(canonicalToolName(call?.name), call?.arguments, sandbox);
+    if (stubbed !== null) return stubbed;
+  }
   // A job part on the person's computer never reaches outside, by either the v2 name or the tool it translated to.
   if (machineRunRefuses(session, canonicalToolName(params?.name)) || machineRunRefuses(session, canonicalToolName(call?.name))) return toolError(MACHINE_RUN_REFUSAL);
   // A staff-only tool (`STAFF_ONLY_TOOLS`) is refused before it is routed anywhere: a cross-context call must not reach it either.

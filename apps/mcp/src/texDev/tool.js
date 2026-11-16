@@ -45,7 +45,7 @@ function parseGraph(text) {
  * The tool's work for one connection. `call(action, args)` answers an MCP result. `env` is the gateway's, `session`
  * the connection's (its token goes to the control plane, which decides who it is), `sleep` for tests.
  */
-export function createTexDev({ env, session, controlPlane, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, fetch: get = (...a) => globalThis.fetch(...a), ledgerOf = undefined }) {
+export function createTexDev({ env, session, controlPlane, defer = null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, fetch: get = (...a) => globalThis.fetch(...a), ledgerOf = undefined }) {
   const origin = appOriginOf(env) || "https://context.lc";
   const linkOf = (id) => `${origin}/lab?v=${id}`;
 
@@ -288,6 +288,16 @@ export function createTexDev({ env, session, controlPlane, sleep = (ms) => new P
       case "steps":
       case "marks":
         return labAction(action, args, plane);
+      case "sandbox": {
+        // The Lab's test chats (`labSandbox/route.js`), the same route the Lab calls, on this connection's own grant.
+        const request = new Request(`${origin}/tex-lab/sandbox`, { method: "POST", headers: { authorization: `Bearer ${session.accessToken}`, "content-type": "application/json" }, body: JSON.stringify(args ?? {}) });
+        // Read when asked: the route runs a whole turn, whose modules import this tool's own.
+        const { handleLabSandbox } = await import("../labSandbox/route.js");
+        const response = await handleLabSandbox(request, env, defer === null ? null : { waitUntil: (work) => defer(work) }, { origin });
+        const answer = await response.json().catch(() => ({}));
+        if (!response.ok) return toolError(typeof answer.error === "string" ? answer.error : `The Lab's test chats answered ${response.status}.`);
+        return json(answer);
+      }
       // The canvas's Put back on a changed step (`engine/changeMarks.ts`), landed as an edit with its conflict check.
       case "put_back": {
         const p = await putBackOps(plane, args);
