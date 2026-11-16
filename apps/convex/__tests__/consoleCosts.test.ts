@@ -199,7 +199,7 @@ describe("consoleCosts: configuration and the window", () => {
 });
 
 describe("consoleCosts: attribution", () => {
-  test("Tex steps map from the gateway labels and the model, and the Workers AI Clef and GLM are the decide and fallback steps", async () => {
+  test("Tex steps map from the gateway labels and the model, and the Workers AI Clef is Decide and GLM the Front door's fallback", async () => {
     const fixture = {
       w0: [],
       w1: [
@@ -219,7 +219,7 @@ describe("consoleCosts: attribution", () => {
       aw: [ai(CLEF_MODEL, 1000), ai(GLM_MODEL, 2000)],
     };
     const { result } = await run(7, fixture);
-    expect(step(result, "fd").usd).toBeCloseTo(1);
+    expect(step(result, "fd").usd).toBeCloseTo(1 + 2000 / 1000 * USD_PER_THOUSAND_NEURONS);
     expect(step(result, "advisor").usd).toBeCloseTo(2 + 4);
     expect(step(result, "jobcheck").usd).toBeCloseTo(8);
     expect(step(result, "mailadv").usd).toBeCloseTo(16);
@@ -230,7 +230,6 @@ describe("consoleCosts: attribution", () => {
     expect(step(result, "selfreview").usd).toBeCloseTo(0.0625);
     expect(step(result, "handback").usd).toBeCloseTo(0.03125);
     expect(step(result, "decide").usd).toBeCloseTo(1000 / 1000 * USD_PER_THOUSAND_NEURONS);
-    expect(step(result, "fallback").usd).toBeCloseTo(2000 / 1000 * USD_PER_THOUSAND_NEURONS);
     const tex = configured(result).texUsd;
     const sumSteps = configured(result).texSteps.reduce((sum, s) => sum + s.usd, 0);
     expect(sumSteps).toBeCloseTo(tex);

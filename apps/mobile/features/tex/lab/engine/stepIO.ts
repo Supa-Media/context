@@ -11,6 +11,19 @@ import type { LedgerEntry } from "../../page/texPageTypes";
 import { startOf } from "./mine";
 import { nodeOfStep } from "./stepLogs";
 
+/**
+ * The ids of the texts a turn answers, as its Door logged them: the Door step's run (`doorStep`, its `readTheText`
+ * part under `log.parts`, since 2026-11-16) or, for a turn from before, the old `door` step's input.
+ */
+export function doorCovers(mine: LedgerEntry[]): string[] {
+  const ids = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  const run = mine.find((e) => e.kind === "step" && e.step === "node" && e.name === "doorStep");
+  const parts = rec(rec(run?.output)?.log)?.parts;
+  const read = Array.isArray(parts) ? parts.map(rec).find((p) => p?.part === "readTheText") : null;
+  if (read) return ids(read.covers);
+  return ids(rec(mine.find((e) => e.kind === "step" && e.step === "door")?.input)?.covers);
+}
+
 export type IoLine = { k: string; v: string };
 
 const rec = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
@@ -87,7 +100,7 @@ export function stepIO(entries: LedgerEntry[], turn: string | null, text: string
 
   // The texts this turn answers, by the ids Door steps logged, in words from the chat.
   const doorStep = mine.find((e) => e.kind === "step" && e.step === "door");
-  const covers = Array.isArray(rec(doorStep?.input)?.covers) ? (rec(doorStep!.input)!.covers as unknown[]).filter((x): x is string => typeof x === "string") : [];
+  const covers = doorCovers(mine);
   const covered = covers.map((id) => textById(entries, id)).filter((x): x is string => !!x).join("\n");
   const sentTexts = mine.filter((e) => e.kind === "text" && rec(e.from)?.kind === "tex");
 
@@ -113,22 +126,22 @@ export function stepIO(entries: LedgerEntry[], turn: string | null, text: string
 
   // Door steps: what it gathered before any model ran, and what it handed the front door.
   const brief = mine.find((e) => e.kind === "brief");
-  push("door", "Got", text);
+  push("doorStep", "Got", text);
   const gathered = (Array.isArray(timing?.steps) ? (timing!.steps as unknown[]) : [])
     .map(rec)
     .filter((s): s is Record<string, unknown> => s !== null && num(s.at) !== null && num(rounds[0]?.at) !== null && num(s.at)! < num(rounds[0].at)! && !str(s.name).startsWith("wait:"))
     .map((s) => `${str(s.name).replace(/_/g, " ")} · ${secs(num(s.ms) ?? 0)}`);
-  if (gathered.length) push("door", "Gathered", gathered.join("\n"));
+  if (gathered.length) push("doorStep", "Gathered", gathered.join("\n"));
   if (brief) {
     const { v: _v, id: _id, at: _at, kind: _k, turn: _t, seq: _s, ...b } = brief;
-    push("door", "Gave the front door (its brief)", b);
+    push("doorStep", "Gave the front door (its brief)", b);
   }
   if (doorStep) {
-    push("door", "Turn", doorStep.input);
-    push("door", "Settings it set", doorStep.output);
+    push("doorStep", "Turn", doorStep.input);
+    push("doorStep", "Settings it set", doorStep.output);
   }
   const first = rounds.length ? roundLines(rounds[0], 0, null) : null;
-  if (first?.mods) push("door", "Context modules it built, in prompt order", first.mods);
+  if (first?.mods) push("doorStep", "Context modules it built, in prompt order", first.mods);
 
   // Front door: what it got, each round's prompt and tokens, what it thought and said.
   push("fd", "Got", text);

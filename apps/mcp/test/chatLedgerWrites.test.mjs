@@ -113,19 +113,26 @@ test("every step of a texted turn leaves its time and outcome in the ledger, und
     assert.equal(model.ok, true);
     assert.ok(Number.isFinite(model.ms));
     assert.ok(timed.length >= 5, `the front door's steps are there too (${timed.length})`);
-    // Each door step is a node of its own, logged by the runner: what kind of turn and which texts it covers; the front door's node, every setting it ran with (Dev2, 2026-11-14).
+    // The door is one node, logged by the runner, each of its parts in its own row under the step's log: what kind of
+    // turn and which texts it covers; the front door's node, every setting it ran with (Dev2, 2026-11-14; one Door step 2026-11-16).
     const nodes = entries.filter((entry) => entry.kind === "step" && entry.step === "node");
-    const door = nodes.find((entry) => entry.name === "readTheText");
-    assert.ok(door, "the first door step is logged as its node");
-    assert.equal(door.turn, "turn-ledger-0009");
-    assert.deepEqual(door.output.covers, [text.id]);
-    assert.equal(door.output.chat, "one");
+    const doorStep = nodes.find((entry) => entry.name === "doorStep");
+    assert.ok(doorStep, "the door is logged as its node");
+    assert.equal(doorStep.turn, "turn-ledger-0009");
+    assert.deepEqual(doorStep.output.when, ["next"], "the door hands the turn on to the Front door");
+    const parts = doorStep.output.log?.parts ?? [];
+    assert.ok(parts.length >= 11 && parts.every((part) => part.ok === true && Number.isFinite(part.ms)), JSON.stringify(parts));
+    const door = parts.find((part) => part.part === "readTheText");
+    assert.ok(door, "the first door part is logged in the door's row");
+    assert.equal(parts[0], door, "and it runs first");
+    assert.deepEqual(door.covers, [text.id]);
+    assert.equal(door.chat, "one");
     const fd = nodes.find((entry) => entry.name === "fd" && entry.via === "wait");
     assert.ok(fd && "model" in fd.output && "effort" in fd.output && "reviewer" in fd.output && "advisor" in fd.output, JSON.stringify(fd?.output));
-    // The turn's own nodes carry ids, lengths and settings; Reflect and the nudge take the question as their input by design (graph step 5).
-    const turnNodes = nodes.filter((entry) => !["reflect", "nudge"].includes(entry.name));
+    // The turn's own nodes carry ids, lengths and settings; Learn (Reflect and the nudge) takes the question as its input by design (graph step 5).
+    const turnNodes = nodes.filter((entry) => entry.name !== "learn");
     assert.ok(!JSON.stringify(turnNodes).includes("what's in my notes"), "the chat's words stay in its text entries");
-    assert.ok(!JSON.stringify(door).includes("what's in my notes"), "the chat's words stay in its text entries");
+    assert.ok(!JSON.stringify(doorStep).includes("what's in my notes"), "the chat's words stay in its text entries");
   } finally {
     world.restore();
   }

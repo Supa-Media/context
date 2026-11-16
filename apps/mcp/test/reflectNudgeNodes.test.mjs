@@ -1,7 +1,8 @@
 /**
  * The reflect and memory nudge steps after a texted turn are config nodes (Dev2, 2026-11-14: "no shadow code"): the
- * `send -> reflect` and `send -> nudge` wires of `texConfig.json` run them behind the reply, and nothing waits for them.
- * Their gate (texted, could write, personal workspace) is the one check that ends a non-texted turn before any work.
+ * `send -> reflect` and `send -> nudge` wires of `texConfig.json` ran them behind the reply, and nothing waits for them.
+ * Since the simpler graph (Dev2, 2026-11-16) both run inside Learn, over the one `send -> learn` background wire; the
+ * two nodes are kept turned off until the cleanup after Promote, and their code still runs as Learn's halves. Their gate (texted, could write, personal workspace) is the one check that ends a non-texted turn before any work.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -18,27 +19,24 @@ const wired = (from, to) => TEX_CONFIG.edges.some((edge) => edge.from === from &
 const webSession = { actorClientId: "web_app", workspaceId: "ws_test", grantId: "grant_test" };
 const personalStore = { contexts: [{ current: true, kind: "personal" }] };
 
-test("send's background wires run reflect and the nudge, behind the reply, and tools has no wire to reflect", () => {
+test("send's background wires run Learn and After the reply, behind the reply, and nothing wires reflect or the nudge", () => {
   const send = TEX_CONFIG.edges.filter((edge) => edge.from === "send");
-  assert.deepEqual(send.find((edge) => edge.to === "reflect")?.mode, "background");
-  assert.deepEqual(send.find((edge) => edge.to === "nudge")?.mode, "background");
-  assert.ok(wired("send", "reflect") && wired("send", "nudge"));
-  assert.ok(!wired("tools", "reflect"), "tools has no wire to reflect, so a fire from it is refused");
+  assert.deepEqual(send.map((edge) => [edge.to, edge.mode]).sort(), [["afterReply", "background"], ["learn", "background"]]);
+  assert.ok(!wired("send", "reflect") && !wired("send", "nudge"), "the halves run inside Learn, never as steps of their own");
+  for (const half of ["reflect", "nudge"]) assert.equal(TEX_CONFIG.nodes.find((node) => node.id === half)?.on, false, `${half} is off`);
+  assert.ok(!wired("tools", "learn") && !wired("tools", "reflect"), "tools has no wire to Learn, so a fire from it is refused");
 });
 
-test("send's reflect and nudge run through the runner and are logged by it", async () => {
+test("send's Learn, reflect and the nudge in it, runs through the runner and is logged by it", async () => {
   const logged = [];
   const impls = {
-    reflect: async (input, io) => ({ outcome: `stub-reflect ${input.question} ${io.ctx.tag}` }),
-    nudge: async (input) => ({ outcome: `stub-nudge ${input.answer}` }),
+    learn: async (input, io) => ({ reflect: { outcome: `stub-reflect ${input.question} ${io.ctx.tag}` }, nudge: { outcome: `stub-nudge ${input.answer}` } }),
   };
   const graph = createGraph(TEX_CONFIG, impls, { log: (entry) => logged.push(entry) });
   const ctx = { tag: "ctx-tag" };
-  const reflected = await graph.runNode("reflect", { question: "q1", tainted: false, ownText: true, canWrite: true }, ctx, "send:fire");
-  const nudged = await graph.runNode("nudge", { question: "q1", answer: "a1", tainted: false, canWrite: true }, ctx, "send:fire");
-  assert.deepEqual(reflected.output, { outcome: "stub-reflect q1 ctx-tag" });
-  assert.deepEqual(nudged.output, { outcome: "stub-nudge a1" });
-  assert.deepEqual(logged.map((entry) => [entry.node, entry.ok, entry.via]), [["reflect", true, "send:fire"], ["nudge", true, "send:fire"]]);
+  const learned = await graph.runNode("learn", { question: "q1", answer: "a1", tainted: false, ownText: true, canWrite: true }, ctx, "send:fire");
+  assert.deepEqual(learned.output, { reflect: { outcome: "stub-reflect q1 ctx-tag" }, nudge: { outcome: "stub-nudge a1" } });
+  assert.deepEqual(logged.map((entry) => [entry.node, entry.ok, entry.via]), [["learn", true, "send:fire"]]);
 });
 
 test("the gate skips a non-texted session for both steps, before any work", async () => {
@@ -63,13 +61,13 @@ test("the node files hand their input and the ctx to the gate", async () => {
   assert.deepEqual(await nudgeNode({ question: "q", answer: "a", tainted: false, canWrite: true }, io), { outcome: "skipped" });
 });
 
-test("a turn's run never fires reflect or the nudge with Text them's output: their wires fire only when send's code fires them", async () => {
+test("a turn's run never fires Learn, reflect or the nudge with Text them's output: Learn's wire fires only when send's code fires it", async () => {
   const ran = [];
   const stub = (id, output = {}) => async () => (ran.push(id), output);
-  const nodes = { send: stub("send", { when: ["sent", "threads"], texts: 3 }), classifier: stub("classifier", { filed: 1 }), selfreview: stub("selfreview", { filed: true }), reflect: stub("reflect", { outcome: "done" }), nudge: stub("nudge", { outcome: "done" }) };
+  const nodes = { send: stub("send", { when: ["sent", "threads"], texts: 3 }), afterReply: stub("afterReply", { filed: 1 }), classifier: stub("classifier", { filed: 1 }), selfreview: stub("selfreview", { filed: true }), learn: stub("learn", { nudge: {}, reflect: {} }), reflect: stub("reflect", { outcome: "done" }), nudge: stub("nudge", { outcome: "done" }) };
   const config = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.map((node) => ({ ...node, inSchema: undefined, outSchema: undefined })) };
   const pending = [];
   await createGraph(config, nodes, { background: (run) => pending.push(run) }).run("send", {}, {});
   await Promise.all(pending);
-  assert.deepEqual(ran.sort(), ["classifier", "selfreview", "send"]);
+  assert.deepEqual(ran.sort(), ["afterReply", "send"], "the Classifier and Self-review are off; After the reply runs in their place");
 });

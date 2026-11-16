@@ -143,12 +143,13 @@ test("one step is said once", () => {
 });
 
 test("a run's finished step is drawn done; the step running keeps its ring; without a run nothing is", () => {
-  const s = simulate(G(), "own", null, { reply: 13000, ms: { door: 700, fd: 9800, tools: 3200 }, calls: { fd: 3 } });
+  const s = simulate(G(), "own", null, { reply: 13000, ms: { doorStep: 700, fd: 9800, tools: 3200 }, calls: { fd: 3 } });
   const cls = (html: string, id: string) => /<g class="nd([^"]*)" data-id="/.exec(html.slice(html.lastIndexOf('<g class="nd', html.indexOf(`data-id="${id}"`))))![1];
   const html = renderGraphHtml(G(), s, [], null, new Map([["triage", 1], ["fd", 0.4]]));
-  expect(cls(html, "triage")).toMatch(/ lit done$/);
+  // Triage sits in the folded Intake box: its box is drawn done for it.
+  expect(cls(html, "intake")).toMatch(/ lit done$/);
   expect(cls(html, "fd")).toMatch(/ lit run$/);
   // Lit by a test case (a set, not a run's progress): as before, never done.
   const plain = renderGraphHtml(G(), s, [], null, new Set(["triage"]));
-  expect(cls(plain, "triage")).toMatch(/ lit$/);
+  expect(cls(plain, "intake")).toMatch(/ lit$/);
 });

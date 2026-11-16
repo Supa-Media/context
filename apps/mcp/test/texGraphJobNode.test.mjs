@@ -1,6 +1,6 @@
 /**
  * The background job's node (`graph/nodes/job.js`) on the gateway's runner, its lend handles (`graph/jobHandles.js`),
- * the borrowing bridges (`graph/bridges.js` `jobCheckFor`, `handbackFor`), and the job object that runs a pass through
+ * the borrowing bridges (`graph/bridges.js` `jobCheckFor`, over the Job advisor's `check` role, and `handbackFor`), and the job object that runs a pass through
  * the node (`src/texJob.js`, `src/texJobLog.js`).
  *
  * Sabotage record (run 2026-11-14, each break reverted before the next):
@@ -101,13 +101,14 @@ describe("the lend while a pass runs", () => {
 });
 
 describe("the borrowing bridges", () => {
-  // The check reaches the job node's own `jobcheck` wire (the job node's io is the lent one), not the bridge's.
-  it("jobCheckFor reaches Job check over the job node's own wire while a pass runs, and over the config's wire when none does", async () => {
+  // The check reaches the job node's own `jobadv` wire as the Job advisor's `check` role (the job node's io is the lent
+  // one), not the bridge's (Dev2, 2026-11-16: Job check and the Advisor on job mail are one Job advisor).
+  it("jobCheckFor reaches the Job advisor's check over the job node's own wire while a pass runs, and over the config's wire when none does", async () => {
     const seen = [];
     const graph = gatewayGraph({
       nodes: {
         job,
-        jobcheck: async (input, io) => (seen.push(io.ctx.job !== undefined ? "from-the-job-node" : "from-the-bridge"), { verdict: "done", advice: "", thinking: "" }),
+        jobadv: async (input, io) => (seen.push(`${input.role}:${io.ctx.job !== undefined ? "from-the-job-node" : "from-the-bridge"}`), { verdict: "done", advice: "", thinking: "" }),
       },
       config: TEX_CONFIG,
     });
@@ -123,11 +124,11 @@ describe("the borrowing bridges", () => {
       },
     });
     assert.deepEqual(checked, { verdict: "done" });
-    assert.deepEqual(seen, ["from-the-job-node"]);
+    assert.deepEqual(seen, ["check:from-the-job-node"]);
 
     const bridged = await jobCheckFor("no-pass-here-id", graph)(args);
     assert.deepEqual(bridged, { verdict: "done" });
-    assert.deepEqual(seen, ["from-the-job-node", "from-the-bridge"]);
+    assert.deepEqual(seen, ["check:from-the-job-node", "check:from-the-bridge"]);
   });
 
   it("handbackFor judges over the job node's handback wire while a pass runs, and is null with no model road", async () => {

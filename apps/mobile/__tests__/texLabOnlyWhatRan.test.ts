@@ -8,7 +8,7 @@ import { momentsOf } from "../features/tex/lab/engine/replay";
 import { stepRows } from "../features/tex/lab/engine/replaySteps";
 import { onlyWhatRan, realTimes, withReal } from "../features/tex/lab/engine/realTimes";
 import { simulate } from "../features/tex/lab/engine/sim";
-import { G } from "../features/tex/lab/engine/state";
+import { G, stepsOf } from "../features/tex/lab/engine/state";
 import { chatLines, myTexts } from "../features/tex/lab/engine/mine";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
@@ -16,9 +16,10 @@ const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry 
 const T = "turn-0001";
 const base: LedgerEntry[] = [
   e({ id: "ev1000000000001000001", eid: "1000000000001-000001", seq: 1, at: 1_000_000_000_001, kind: "text", from: { kind: "person" }, text: "whats on the cal tomorrow" }),
-  e({ id: "d1", seq: 2, at: 1_000_000_002_000, kind: "step", turn: T, step: "door", ok: true, input: { covers: ["1000000000001-000001"] }, output: { model: "haiku" } }),
+  // The graph runner logs each node it runs as a "node" step naming it (`apps/mcp/src/agent/ledger.js` `nodeEntry`).
+  e({ id: "d1", seq: 2, at: 1_000_000_002_000, kind: "step", turn: T, step: "node", name: "doorStep", ok: true, ms: 40, input: { chat: "one", kind: "text" }, output: { when: ["next"], log: { parts: [{ part: "readTheText", ok: true, ms: 1, chat: "one", covers: ["1000000000001-000001"] }] } } }),
   e({ id: "tl", seq: 3, at: 1_000_000_004_000, kind: "tool", turn: T, name: "read_calendar", ms: 700, args: {}, result: "3 events" }),
-  e({ id: "rv", seq: 4, at: 1_000_000_007_000, kind: "judge", turn: T, by: "review", round: 1, went: true, ms: 2_000, draft: "Three things." }),
+  e({ id: "rv", seq: 4, at: 1_000_000_007_000, kind: "step", turn: T, step: "node", name: "answerCheck", ok: true, ms: 2_000, input: { pending: true }, output: null }),
   e({
     id: "r1",
     seq: 5,
@@ -56,8 +57,8 @@ const rowsOf = (entries: LedgerEntry[]) => {
 describe("Replay draws only what ran", () => {
   test("a step the log does not show gets no row, however the Lab would estimate it", () => {
     const ids = rowsOf(base);
-    for (const ran of ["door", "fd", "tools", "reviewer", "send"]) expect(ids).toContain(ran);
-    for (const never of ["decide", "react", "checks", "router", "classifier", "planner"]) expect(ids).not.toContain(never);
+    for (const ran of ["doorStep", "fd", "tools", "answerCheck", "send"]) expect(ids).toContain(ran);
+    for (const never of ["decide", "react", "bypass", "learn", "afterReply", "job"]) expect(ids).not.toContain(never);
   });
 
   test("Triage gets its row when code sent the text straight to Tex, and Decide, which never ran, gets none", () => {
@@ -70,10 +71,10 @@ describe("Replay draws only what ran", () => {
   });
 
   test("on the canvas, the text reaches the queue through Triage's wires, never by a jump", () => {
-    const g = G();
-    // A text goes through the old-number step first (the Photon switch), which passes every text on the current line to Triage.
-    expect(g.edges.some((w) => w.from === "text" && w.to === "oldLine")).toBe(true);
-    expect(g.edges.some((w) => w.from === "oldLine" && w.to === "triage" && w.when.includes("pass"))).toBe(true);
+    const g = stepsOf(G());
+    // A text goes to Triage; the old-number step is a start of its own now, wired only to the text it sends.
+    expect(g.edges.some((w) => w.from === "text" && w.to === "triage")).toBe(true);
+    expect(g.edges.some((w) => w.from === "oldLine" && w.to === "send" && w.when.includes("redirect"))).toBe(true);
     expect(g.edges.some((w) => w.from === "triage" && w.to === "lanes")).toBe(true);
     expect(g.edges.some((w) => w.from === "text" && w.to === "decide")).toBe(false);
   });
@@ -81,9 +82,9 @@ describe("Replay draws only what ran", () => {
   test("the canvas's run keeps only measured steps and what started it", () => {
     const real = realTimes(base, T)!;
     const sim = withReal(simulate(G(), "own", null, real), real, G());
-    expect(Object.keys(sim.T)).toContain("checks"); // the Lab's estimate, as Lab mode draws it (a solo text skips Decide now: triage sends it straight to Tex)
+    expect(Object.keys(sim.T)).toContain("triage"); // the Lab's estimate, as Lab mode draws it: Triage, which this text's log never shows
     const ran = onlyWhatRan(sim, G());
-    expect(Object.keys(ran.T)).not.toContain("checks");
+    expect(Object.keys(ran.T)).not.toContain("triage");
     expect(Object.keys(ran.T)).not.toContain("decide");
     expect(Object.keys(ran.T)).not.toContain("react");
     expect(Object.keys(ran.T)).toContain("fd");

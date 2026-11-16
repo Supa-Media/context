@@ -6,13 +6,15 @@
  */
 import { EFFORT, FTYPES } from "../data/models";
 import type { LabEdge, LabGraph, LabNode } from "../types";
+import { unfoldGroups } from "./groups";
 import { isStable, mods } from "./modules";
 import { MODELS, node, type LabState } from "./state";
 import { SCENARIOS } from "./traces";
 import type { RealTimes } from "./realTimes";
 
 type Log = LabState["logRows"];
-export type StepTime = { start: number; end: number; ms: number; usd: number; calls: number; parts: Part[]; lane: string };
+/** `box`: a folded group's box on the canvas, its steps' times added up; never counted twice in a total. */
+export type StepTime = { start: number; end: number; ms: number; usd: number; calls: number; parts: Part[]; lane: string; box?: true };
 export type Part = { id: string; ms: number; own?: boolean; note?: string };
 export type Sim = { T: Record<string, StepTime>; reply: number; usd: number; replyCalls: number; jobEnd: number; reach: Map<string, { lane: string }>; inside: Set<string>; real?: Set<string> };
 
@@ -126,7 +128,7 @@ export function fold(n: LabNode, g: LabGraph, s: string, tags: string[], log: Lo
 }
 
 /** Steps whose every run leaves a ledger entry for its turn (`realTimes.ts`), so no entry means it did not run. */
-const LOGS_WHEN_RUN = new Set(["reviewer", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "tools", "egress", "picture", "nudge", "reflect", "nightly", "dream", "daysum", "housekeep"]);
+const LOGS_WHEN_RUN = new Set(["doorStep", "bypass", "staff", "answerCheck", "learn", "afterReply", "jobadv", "reviewer", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "tools", "egress", "picture", "nudge", "reflect", "nightly", "dream", "daysum", "housekeep"]);
 
 /** `from` names the start step outright, for a run not traced on the canvas (Replay's timeline rows). */
 /**
@@ -141,7 +143,10 @@ export function runTags(s: string): string[] {
   return [...own, "pass", "next", own.includes("group") ? "judge" : "tex"];
 }
 
-export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | null = null, from?: string): Sim {
+export function simulate(shown: LabGraph, s: string, log: Log, real: RealTimes | null = null, from?: string): Sim {
+  // The canvas folds groups into one code box; a run goes through their real steps (a group may hold the start step
+  // and model steps, as Intake holds Texts, Triage and Decide).
+  const g = shown.folded ? unfoldGroups(shown) : shown;
   const tags = runTags(s);
   // A real run goes where it was measured: a measured step ran, a step that always logs when it runs and logged
   // nothing did not, and the rest follow the guess from the text's words.
@@ -194,6 +199,14 @@ export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | nul
         grow = true;
       }
   }
+  // Each folded group's box on the canvas spans its steps that ran, so the canvas still shows its time.
+  for (const [box, side] of Object.entries(shown.folded ?? {})) {
+    const ran = side.nodes.map((m) => [m.id, T[m.id]] as const).filter((x): x is readonly [string, StepTime] => !!x[1]);
+    if (!ran.length) continue;
+    const ts = ran.map(([, t]) => t);
+    T[box] = { start: Math.min(...ts.map((t) => t.start)), end: Math.max(...ts.map((t) => t.end)), ms: ts.reduce((a, t) => a + t.ms, 0), usd: ts.reduce((a, t) => a + t.usd, 0), calls: ts.reduce((a, t) => a + t.calls, 0), parts: ran.map(([id, t]) => ({ id, ms: t.ms })), lane: ts[0].lane, box: true };
+    reach.set(box, { lane: ts[0].lane });
+  }
   return {
     T,
     reply,
@@ -211,7 +224,7 @@ export const LANE_NAME: Record<string, string> = { reply: "Before the reply", jo
 /** The Speed and cost view's "Where the time goes" rows: every step that takes time or runs off the reply, by lane, then by start. */
 export function whereTimeGoes(sim: Sim): Array<[string, StepTime]> {
   return Object.entries(sim.T)
-    .filter(([, t]) => t.ms > 0 || t.lane !== "reply")
+    .filter(([, t]) => !t.box && (t.ms > 0 || t.lane !== "reply"))
     .sort((x, y) => LANE_ORDER[x[1].lane] - LANE_ORDER[y[1].lane] || x[1].start - y[1].start);
 }
 

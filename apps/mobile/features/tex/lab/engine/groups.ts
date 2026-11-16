@@ -15,7 +15,8 @@ import type { LabEdge, LabGraph, LabNode } from "../types";
 
 export type GroupInfo = { label: string; goal?: string; icon?: string; x?: number; y?: number };
 export type GroupDefs = Record<string, GroupInfo>;
-export type FoldedGroup = { nodes: LabNode[]; edges: LabEdge[] };
+/** `at`: where each step stood in the graph's order when folded, so a save puts it back there (the config's own order). */
+export type FoldedGroup = { nodes: LabNode[]; edges: LabEdge[]; at?: number[] };
 
 const copy = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 const wireKey = (e: LabEdge) => [e.from, e.to, e.mode, e.when.join(",")].join("|");
@@ -60,6 +61,7 @@ export function foldGroups(graph: LabGraph, groups: GroupDefs = {}): LabGraph {
     folded[id] = {
       nodes: graph.nodes.filter((n) => n.group === id).map(copy),
       edges: graph.edges.filter((e) => owner.get(e.from) === id || owner.get(e.to) === id).map(copy),
+      at: graph.nodes.flatMap((n, i) => (n.group === id ? [i] : [])),
     };
   }
 
@@ -112,7 +114,9 @@ export function unfoldGroups(graph: LabGraph, ids?: string[]): LabGraph {
   const entry = (id: string) => sides[id].nodes[0].id;
   const exit = (id: string) => sides[id].nodes[sides[id].nodes.length - 1].id;
 
-  out.nodes = graph.nodes.flatMap((n) => (targets.includes(n.id) ? sides[n.id].nodes.map(copy) : [n]));
+  const opened = graph.nodes.flatMap((n) => (targets.includes(n.id) ? sides[n.id].nodes.map(copy) : [n]));
+  // Fully open (a save, Promote), the steps go back in the config's order; a focus that opens one group needs no order.
+  out.nodes = Object.keys(keep).length === 0 ? inOrder(opened, targets.map((id) => sides[id])) : opened;
 
   const seen = new Set<string>();
   const edges: LabEdge[] = [];
@@ -123,17 +127,21 @@ export function unfoldGroups(graph: LabGraph, ids?: string[]): LabGraph {
       edges.push(e);
     }
   };
-  const opened = new Set<string>();
+  const isOpen = new Set<string>();
   // A group's own wires go in once, where its first outside wire is, so the chain stays with the box it belongs to.
   const open = (id: string) => {
-    if (opened.has(id)) return;
-    opened.add(id);
+    if (isOpen.has(id)) return;
+    isOpen.add(id);
     for (const r of sides[id].edges) if (owner.get(r.from) === id && owner.get(r.to) === id) push(copy(r));
   };
   for (const e of graph.edges) {
     for (const id of targets) if (id === e.from || id === e.to) open(id);
     if (targets.includes(e.from) && targets.includes(e.to)) {
-      push({ ...copy(e), from: exit(e.from), to: entry(e.to) });
+      // A wire between two boxes goes back to the steps it joined (job -> tools stays job -> tools), from either side's record.
+      const joined = (r: LabEdge) => owner.get(r.from) === e.from && owner.get(r.to) === e.to && sameMode(r, e);
+      const back = [...sides[e.from].edges, ...sides[e.to].edges].filter(joined);
+      if (back.length > 0) back.forEach((r) => push(copy(r)));
+      else push({ ...copy(e), from: exit(e.from), to: entry(e.to) });
       continue;
     }
     if (targets.includes(e.to)) {
@@ -151,6 +159,39 @@ export function unfoldGroups(graph: LabGraph, ids?: string[]): LabGraph {
   for (const id of targets) open(id);
   out.edges = edges;
   return out;
+}
+
+/**
+ * The opened steps put back where they stood when folded, so a save keeps the config's order: a step with a recorded
+ * place sorts by it, and any other step (one drawn since) keeps its place after the step before it.
+ */
+function inOrder(nodes: LabNode[], groups: FoldedGroup[]): LabNode[] {
+  const place = new Map<string, number>();
+  for (const g of groups) g.nodes.forEach((m, i) => g.at?.[i] !== undefined && place.set(m.id, g.at[i]));
+  if (place.size === 0) return nodes;
+  // Opened steps go back in their recorded slots; every other step fills the free slots in the order it has now.
+  const slots: Array<LabNode | undefined> = new Array(nodes.length);
+  const rest: LabNode[] = [];
+  for (const n of nodes) {
+    const at = place.get(n.id);
+    if (at !== undefined && at < slots.length && !slots[at]) slots[at] = n;
+    else rest.push(n);
+  }
+  const out: LabNode[] = [];
+  let k = 0;
+  for (const n of slots) {
+    const next = n ?? rest[k++];
+    if (next) out.push(next);
+  }
+  return [...out, ...rest.slice(k)];
+}
+
+/** What the canvas draws for step `id`: the step itself, or the folded group's box that holds it. */
+export function drawnFor(graph: LabGraph, id: string): LabNode | undefined {
+  const own = graph.nodes.find((n) => n.id === id);
+  if (own) return own;
+  const box = Object.entries(graph.folded ?? {}).find(([, f]) => f.nodes.some((n) => n.id === id))?.[0];
+  return box ? graph.nodes.find((n) => n.id === box) : undefined;
 }
 
 /** The steps a focused group draws: its members while it is open, and none while it is folded or the focus is not a group. */

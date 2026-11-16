@@ -31,9 +31,11 @@ test("the whole graph draws every top-level step, each group folded into its box
   const g = main();
   const html = graphSvg(g);
   const top = g.nodes.filter((n) => !n.group);
-  assert.ok(top.length > 20);
+  assert.ok(top.length > 10);
   for (const n of top) assert.ok(html.includes(`>${drawn(n.label)}</text>`), `missing ${n.id}`);
-  for (const [id, group] of Object.entries(config.groups)) {
+  const used = new Set(g.nodes.map((n) => n.group).filter(Boolean));
+  assert.ok(used.has("intake") && used.has("retired"));
+  for (const [id, group] of Object.entries(config.groups).filter(([id]) => used.has(id))) {
     assert.ok(html.includes(`>${drawn(group.label)}</text>`), `missing the box of ${id}`);
     assert.ok(stepsDrawn(html).includes(id));
   }
@@ -46,13 +48,13 @@ test("the whole graph draws every top-level step, each group folded into its box
 
 test("focus on a group opens its steps, and on a step of it does the same", () => {
   const g = main();
-  const members = g.nodes.filter((n) => n.group === "door");
-  assert.equal(members.length, 11);
-  for (const focus of ["door", members[4].id]) {
+  const members = g.nodes.filter((n) => n.group === "intake");
+  assert.equal(members.length, 7);
+  for (const focus of ["intake", members.find((n) => n.id === "doorStep").id]) {
     const html = graphSvg(g, { focus });
     const shown = stepsDrawn(html);
     for (const m of members) assert.ok(shown.includes(m.id), `${focus}: ${m.id} not opened`);
-    assert.ok(!shown.includes("door"));
+    assert.ok(!shown.includes("intake"));
   }
 });
 
@@ -99,15 +101,16 @@ test("moving a step is not a change", () => {
 test("a step inside a folded group marks its box, and a removed step is named", () => {
   const base = main();
   const draft = main();
-  const inside = draft.nodes.find((n) => n.group === "door");
+  const inside = draft.nodes.find((n) => n.id === "doorStep");
+  assert.equal(inside.group, "intake");
   inside.ms += 100;
-  const gone = draft.nodes.findIndex((n) => n.id === "reflect");
+  const gone = draft.nodes.findIndex((n) => n.id === "learn");
   const name = draft.nodes[gone].label;
   draft.nodes.splice(gone, 1);
-  draft.edges = draft.edges.filter((e) => e.from !== "reflect" && e.to !== "reflect");
+  draft.edges = draft.edges.filter((e) => e.from !== "learn" && e.to !== "learn");
   const html = graphSvg(draft, { base });
   const box = html.match(/<g class="mark changed" transform="translate\(([-\d.]+),([-\d.]+)\)"/);
-  assert.ok(box, "the door's box is marked");
+  assert.ok(box, "the intake box is marked");
   assert.ok(html.includes(`removed: ${name}`));
 });
 

@@ -24,14 +24,14 @@ export default {
     const out = await graph.fire("tools", "picture", { tool: "draw_picture", args: { template: "" } }, { maker, callTool: async () => null, cardCheck: async () => ({ send: true, critique: "" }) });
     assert.deepEqual(out.result, drawn);
     assert.deepEqual(looked, [{ send: true, critique: "" }], "the card check ran inside the picture maker, through its wire");
-    // Reflect and the nudge after a reply: a turn that may not write skips both, and still logs that it ran.
+    // Reflect and the nudge after a reply, one Learn step since 2026-11-16: a turn that may not write skips both halves, and still logs that it ran.
     const ctx = { env: {}, controlPlane: null, store: { contexts: [{ current: true, kind: "personal" }] }, session: { actorClientId: "context_texts", workspaceId: "w-replay" }, offered: [], turn: { answer: "ok", steps: [] }, learned: null, timeZone: "America/New_York" };
-    assert.deepEqual(await graph.fire("send", "reflect", { question: "thanks", tainted: false, ownText: true, canWrite: false }, ctx), { outcome: "skipped" });
-    assert.deepEqual(await graph.fire("send", "nudge", { question: "thanks", answer: "ok", tainted: false, canWrite: false }, ctx), { outcome: "skipped" });
-    // A step with no wire from its caller is refused, so code cannot reach a node the config does not wire to it.
+    assert.deepEqual(await graph.fire("send", "learn", { question: "thanks", answer: "ok", tainted: false, ownText: true, canWrite: false }, ctx), { nudge: { outcome: "skipped" }, reflect: { outcome: "skipped" } });
+    // A step with no wire from its caller is refused, the old Reflect step among them, so code cannot reach a node the config does not wire to it.
     await assert.rejects(graph.fire("send", "egress", { words: "share it", action: "share" }, ctx), /no wire/);
+    await assert.rejects(graph.fire("send", "reflect", { question: "thanks", tainted: false, ownText: true, canWrite: false }, ctx), /no wire/);
     const nodes = written.filter((entry) => entry.kind === "step" && entry.step === "node");
-    assert.deepEqual(nodes.map((entry) => entry.name), ["card", "picture", "reflect", "nudge"], "every run is a node step in the chat's record");
+    assert.deepEqual(nodes.map((entry) => entry.name), ["card", "picture", "learn"], "every run is a node step in the chat's record");
     assert.ok(nodes.every((entry) => entry.turn === "turn-replay-0002" && entry.ok === true), "under the turn, each one ok");
     // 2026-11-16: the Door, one step on the simpler graph, handed its parts log on with what it found, and the Front
     // door's strict input shape refused it, so every Dev set text failed (0/20). A step's `log` stays in its own row.

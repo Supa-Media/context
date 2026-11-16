@@ -5,7 +5,7 @@
  * until kept as rows of the chat or discarded; the panel shows the steps that ran.
  */
 import { useRef, useState } from "react";
-import { G } from "../../engine/state";
+import { node } from "../../engine/state";
 import { runsUi, useRunsUi } from "../../engine/labRuns";
 import { discardSandbox, tryText, useSandbox } from "../../engine/sandbox";
 import { freshId, type Conversation } from "../../engine/sets";
@@ -32,7 +32,7 @@ export function TryRows({ c, span }: { c: Conversation; span: number }) {
   const s = useSets();
   if (!t?.person) return null;
   const sel = s.msg === "try";
-  const steps = (t.person.steps ?? []).map((x) => G().nodes.find((n) => n.id === x.node)?.label ?? x.node);
+  const steps = (t.person.steps ?? []).map((x) => node(x.node)?.label ?? x.node);
   const keep = () => {
     const at = c.msgs.length;
     const id = freshId(c);
@@ -200,7 +200,7 @@ export function TryPanel({ c }: { c: Conversation }) {
             <div className="step" key={k}>
               <span className="mono muted">{k + 1}</span>
               <div>
-                <b>{G().nodes.find((n) => n.id === x.node)?.label ?? x.node}</b>
+                <b>{node(x.node)?.label ?? x.node}</b>
                 <div className="muted">{x.out}</div>
               </div>
               <span className="tm">{msWords(x.ms)}</span>

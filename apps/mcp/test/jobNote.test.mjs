@@ -209,12 +209,14 @@ test("the job's mail advisor leaves its node run in the chat's ledger, tagged wi
   await ask(fake, "/agent/job/advise", { jobId: JOB, note: { path: "tex/jobs/a.md" }, advisor: "mb_00000009", from: "a", question: "it failed", title: "A" }, texting({ workspaceKind: "personal" }), { advise });
   const step = appended.find((entry) => entry.kind === "step");
   assert.ok(step, JSON.stringify(appended));
-  // The runner writes it now, as the node's run over the job -> mailadv wire (`graph/nodes/mailadv.js`).
+  // The runner writes it now, as the node's run over the job -> jobadv wire, in its `mail` role (`graph/nodes/jobadv.js`;
+  // the Job advisor took over the Advisor on job mail, 2026-11-16).
   assert.equal(step.step, "node");
-  assert.equal(step.name, "mailadv");
+  assert.equal(step.name, "jobadv");
   assert.equal(step.via, "job:uses");
   assert.equal(step.chat, "texts");
   assert.equal(step.jobId, JOB);
+  assert.equal(step.input.role, "mail");
   assert.equal(step.input.question, "it failed");
   assert.equal(step.input.from, "a");
   assert.equal(step.output.words, "Try the web login.");

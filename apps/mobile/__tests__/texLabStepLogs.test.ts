@@ -7,7 +7,7 @@
 import { describe, expect, test } from "@jest/globals";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { G } from "../features/tex/lab/engine/state";
+import { G, stepsOf } from "../features/tex/lab/engine/state";
 import { STEP_LOGS, nodeOfStep } from "../features/tex/lab/engine/stepLogs";
 import { momentAsSteps, stepIO } from "../features/tex/lab/engine/stepIO";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
@@ -15,6 +15,8 @@ import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 const T = "t1";
 let n = 0;
 const e = (x: Partial<LedgerEntry> & { kind: string }) => ({ id: `e${++n}`, at: 1_000 + n, seq: n, ...x }) as LedgerEntry;
+/** A run the config's graph runner logged (`ledger.js` `nodeEntry`): its input and output. */
+const run = (name: string, input: unknown, output: unknown) => e({ kind: "step", turn: T, step: "node", name, ok: true, ms: 80, own: 80, input, output });
 const step = (name: string, extra: Record<string, unknown> = {}) => e({ kind: "step", turn: T, step: name, ok: true, ms: 120, input: { got: name }, output: { gave: name }, ...extra });
 
 /** One turn that logged every record `STEP_LOGS` names. */
@@ -30,6 +32,13 @@ const entries: LedgerEntry[] = [
   step("triage", { input: { texts: ["1000-000001"] }, output: { to: "judge", why: "several texts waiting" } }),
   step("react", { input: { on: "1000-000001" }, output: { emoji: "👍" } }),
   step("lane", { name: "write_note", output: { before: "t0" } }),
+  run("doorStep", { chat: "group", kind: "text" }, { when: ["next"], log: { parts: [{ part: "readTheText", ok: true, ms: 1, chat: "group", covers: ["1000-000001"] }] } }),
+  run("bypass", { answeredBy: "settleAYesOrNo" }, { sent: true }),
+  run("staff", { kind: "person" }, { text: "We moved." }),
+  run("answerCheck", { draft: 8, reviewedAs: "report" }, { passed: true }),
+  run("afterReply", { texts: 1 }, { threads: ["trip"], score: 4 }),
+  run("jobadv", { role: "check" }, { state: "keep_going" }),
+  run("learn", { question: "plan the trip" }, { nudge: { outcome: "skipped" }, reflect: { outcome: "skipped" } }),
   step("door", { input: { chat: "group", kind: "text", covers: ["1000-000001"] }, output: { model: "anthropic/claude-haiku-5-5", effort: "medium", reviewer: "on", advisor: "on", planner: "off" } }),
   e({ kind: "brief", turn: T, asker: "seyi", ask: "plan the trip", tools: [], waiting: [] }),
   step("router", { input: "plan the trip", output: { tier: "fast" }, model: "@cf/cloudflare/clef" }),
@@ -62,12 +71,12 @@ const entries: LedgerEntry[] = [
 ];
 
 describe("every canvas step logs what went in and what came out", () => {
-  test("every step drawn has a logging contract, and every contract is a step drawn", () => {
-    const drawn = G()
-      .nodes.map((x) => x.id)
-      .filter((id) => !["lanes"].includes(id) || true)
-      .sort();
-    expect(Object.keys(STEP_LOGS).sort()).toEqual(drawn);
+  test("every step has a logging contract, and every contract is a step", () => {
+    // Steps, never the folded groups' boxes; a step turned off in the "retired" group may keep the row it had.
+    const steps = stepsOf(G()).nodes;
+    const live = steps.filter((x) => x.group !== "retired").map((x) => x.id);
+    expect(live.filter((id) => !(id in STEP_LOGS))).toEqual([]);
+    expect(Object.keys(STEP_LOGS).filter((id) => !steps.some((x) => x.id === id))).toEqual([]);
     for (const [id, c] of Object.entries(STEP_LOGS)) for (const side of ["got", "gave", "settings", "time"] as const) expect([id, side, c[side].length > 0]).toEqual([id, side, true]);
   });
 
@@ -81,6 +90,8 @@ describe("every canvas step logs what went in and what came out", () => {
     expect(nodeOfStep("lane")).toBe("lanes");
     expect(nodeOfStep("recheck")).toBe("decide");
     expect(nodeOfStep("timing")).toBeNull();
+    // A turn logged before the Door was one step lands on it.
+    expect(nodeOfStep("door")).toBe("doorStep");
     expect(nodeOfStep("checks")).toBe("checks");
   });
 
