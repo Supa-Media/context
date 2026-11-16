@@ -14,7 +14,9 @@
  *
  * Sabotage record (applied, run, observed failing, reverted, 2026-11-16):
  *  1. `tick` not capping at a running text's total -> "a running text" fails;
- *  2. `take` not reporting new texts -> "a link to a test chat" fails (the AI's text never plays).
+ *  2. `take` not reporting new texts -> "a link to a test chat" fails (the AI's text never plays);
+ *  3. the canvas ignoring a real run's `graph` -> "▶ on a real text" fails;
+ *  4. `stepRunOf` not reading a real run's steps -> "▶ on a real text" fails (Run details empty).
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
@@ -33,9 +35,15 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
+/** What production's log gives for a real text (`views/mine/playProd.ts`), set by the test that plays one. */
+const mockProd: { value: unknown } = { value: null };
+jest.mock("../features/tex/lab/views/mine/playProd", () => ({
+  chatKeyOf: (src: { kind: string }) => (src.kind === "chat" ? "me" : null),
+  playProd: async () => mockProd.value,
+}));
 
 type Step = { id: string; node: string; at: number; ms: number | null; out: string };
-type Row = { id: string; who: string; text: string; at: number; reply?: string; cause?: string[]; steps?: Step[] };
+type Row = { id: string; who: string; text: string; at: number; prod?: boolean; reply?: string; cause?: string[]; steps?: Step[] };
 const mockCalls: Array<{ op: string; body: Record<string, unknown> }> = [];
 const mock = { rows: [] as Row[], seq: 0, running: null as null | { msgId: string; node: string }, listFails: false, now: 0 };
 /** A turn as the gateway logs it: decide, then the front door with tools inside it, then send; Tex's text names its cause. */
@@ -68,7 +76,11 @@ jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
       };
     }
     if (op === "open") {
-      mock.rows = [];
+      // Over your 1:1: two real texts first, up to the one a "Sandbox from here" names.
+      const real: Row[] = body.source === "chat" ? [{ id: "h1", who: "Maya", text: "call at 8?", at: 1_000 }, { id: "h2", who: "Tex", text: "Yes, 8 pm.", at: 2_000 }].map((r) => ({ ...r, prod: true })) : [];
+      const until = real.findIndex((r) => r.id === body.base);
+      mock.rows = until < 0 ? real : real.slice(0, until);
+      if (body.source === "chat") return { sandboxId: "sb1", people: [{ handle: "maya", name: "Maya" }], rows: mock.rows };
       return { sandboxId: "sb1", people: [{ handle: "", name: "Maya" }], rows: [] };
     }
     if (op === "use") return { sandboxId: body.sandboxId, people: [{ handle: "", name: "Maya" }], rows: mock.rows, running: mock.running };
@@ -333,5 +345,45 @@ describe("the test chat dock", () => {
     } finally {
       mock.listFails = false;
     }
+  });
+
+  test("▶ on a real text plays what ran in prod on the graph of its time, read only; Sandbox from here drafts it", async () => {
+    await mount();
+    await click("#sbChat");
+    await click('#sbPickTabs [data-tab="mine"]');
+    await click('#sbChatList [data-chat="me"]');
+    const then = clone(MAIN).graph;
+    then.nodes = then.nodes.filter((n) => n.id !== "fd");
+    then.edges = then.edges.filter((e) => e.from !== "fd" && e.to !== "fd");
+    mockProd.value = {
+      run: { id: "h1", steps: [{ id: "p1", node: "decide", at: 0, ms: 400, ok: true, out: { when: "answer" } }], texts: [{ at: 500, rowId: "h2" }], total: 600, running: false, graph: then, graphNote: "The graph of that time", prod: { at: 1_000 } },
+      replies: {},
+      cause: {},
+      turns: [{ turn: "u1", version: null, prompt: null, steps: ["p1"] }],
+      jobs: [],
+      moment: {},
+    };
+    try {
+      await click('#sbView [data-v="grid"]');
+      await click('#sbGrid [data-play-prod="h1"]');
+      await tick();
+      expect(q<HTMLSelectElement>("#sbtlPick")?.value).toBe("h1");
+      expect(q("#sbtlKind")?.textContent).toMatch(/ran in prod/);
+      expect(q("#runNote")?.textContent).toBe("The graph of that time");
+      // The graph of its time: the front door wasn't there then.
+      expect(q('#svg .nd[data-id="fd"]')).toBeNull();
+      expect(q('#svg .nd[data-id="decide"]')).not.toBeNull();
+      await clockBy(300);
+      expect(lab.sel).toEqual({ t: "node", id: "decide" });
+      expect(q(".runbody")?.textContent).toContain("running");
+    } finally {
+      mockProd.value = null;
+    }
+    // Sandbox from here: the real texts before it, and it waiting in the composer.
+    await click('#sbView [data-v="grid"]');
+    await click('#sbGrid [data-fork="h1"]');
+    await tick();
+    expect(mockCalls.filter((c) => c.op === "open").at(-1)?.body).toEqual({ source: "chat", chatId: "me", versionId: "main", base: "h1" });
+    expect(q<HTMLInputElement>("#sbTxt")?.value).toBe("call at 8?");
   });
 });

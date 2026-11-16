@@ -16,6 +16,7 @@ import { lab, set as setLab } from "./state";
 import { isLive, live } from "./live";
 import { onSandboxText, retryText, sandbox, type SandboxRow } from "./sandbox";
 import type { PlayRun } from "./playRun";
+import type { ProdPlay } from "./prodRun";
 import { litAt, runById, runStart, stepsAt } from "./sandboxRun";
 import type { LabGraph } from "../types";
 import type { Lit } from "../views/canvas/usePlayback";
@@ -80,10 +81,28 @@ export function usePlay(): { play: Play; pick: Pick; view: DockView } {
 const TICK = 50;
 const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
-/** A run of the test chat by its id, as it stands now (a running text grows by the clock). */
+/**
+ * Runs played from outside the test chat's own rows: a real text as production logged it (`views/mine/playProd.ts`,
+ * on the graph Tex had then), with what the panel reads of it (the prompts and background jobs).
+ */
+const ext = new Map<string, { run: PlayRun; prod?: ProdPlay }>();
+
+/** A run by its id, as it stands now: a real text's as read, else a test text's (a running one grows by the clock). */
 export function runOf(id: string): PlayRun | null {
-  return runById(id, sandbox.rows, { running: sandbox.running, hot: sandbox.hot, now: Date.now() });
+  return ext.get(id)?.run ?? runById(id, sandbox.rows, { running: sandbox.running, hot: sandbox.hot, now: Date.now() });
 }
+
+/** ▶ on a real text: its run, read from production's log, played on the Timeline like any other. */
+export function playExternal(run: PlayRun, prod?: ProdPlay) {
+  ext.set(run.id, { run, ...(prod ? { prod } : {}) });
+  if (play?.id === run.id && play.playing) return togglePlay();
+  view = "timeline";
+  playRun(run.id);
+}
+/** The runs played from production's log, for the timeline's picker. */
+export const externalRuns = (): PlayRun[] => [...ext.values()].map((x) => x.run);
+/** What production logged around the run at the head, when it is a real text's: its prompts and background jobs. */
+export const playingProd = (): ProdPlay | null => (play ? (ext.get(play.id)?.prod ?? null) : null);
 
 /** The node panel follows the step running at the head, unless a step is pinned. */
 function follow(r: PlayRun, t: number) {
@@ -248,8 +267,8 @@ export function playHead(): { run: PlayRun; t: number; playing: boolean; steps: 
 /** The id of the run at the head, if any (the step panel reads which one it is). */
 export const playingId = () => play?.id ?? null;
 
-/** The run the canvas shows: the one playing, or the one on the timeline. */
-const shownRun = () => (play && (play.playing || view === "timeline") ? runOf(play.id) : null);
+/** The run the canvas shows: the one playing, or the one on the timeline (a real text's draws the graph of its time). */
+export const shownRun = () => (play && (play.playing || view === "timeline") ? runOf(play.id) : null);
 
 /** The steps a run plays when it is one of Tex's texts (the canvas dims the rest), else null. */
 export function playOnly(): ReadonlySet<string> | null {
@@ -282,5 +301,6 @@ export function resetPlay() {
   pick = null;
   view = "grid";
   ranOn.clear();
+  ext.clear();
   emit();
 }

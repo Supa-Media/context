@@ -14,8 +14,9 @@
  * edge makes the dock taller or shorter.
  */
 import { useEffect, useRef, useState } from "react";
-import { attachSandbox, readRecentSandboxes, takeUrlSandbox, backTo, dropText, editText, reactTo, unsendText, readSandboxChats, readSandboxSets, sandboxProblem, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow, type SandboxSource } from "../../engine/sandbox";
-import { isStale, noteRan, pickStep, playLit, playTexText, playText, setDockView, usePlay } from "../../engine/sandboxPlay";
+import { attachSandbox, readRecentSandboxes, takeUrlSandbox, tryFromHere, backTo, dropText, editText, reactTo, unsendText, readSandboxChats, readSandboxSets, sandboxProblem, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow, type SandboxSource } from "../../engine/sandbox";
+import { isStale, noteRan, pickStep, playExternal, playLit, playTexText, playText, setDockView, usePlay } from "../../engine/sandboxPlay";
+import { chatKeyOf, playProd } from "../mine/playProd";
 import { texCauseRun } from "../../engine/sandboxRun";
 import { sinceOf } from "../../engine/stepRunNow";
 import { DockSwitch, SandboxTimeline } from "./SandboxTimeline.web";
@@ -274,6 +275,8 @@ export function SandboxChat() {
   const [editing, setEditing] = useState<string | null>(null);
   const [pics, setPics] = useState<string[]>([]);
   const [uploading, setUploading] = useState(0);
+  // A real text's run being read from production's log.
+  const [reading, setReading] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement>(null);
   const txt = useRef<HTMLInputElement>(null);
   const versionId = s.cur.id;
@@ -301,6 +304,12 @@ export function SandboxChat() {
     if (!sb.busy && !sb.shared && sb.versionId !== versionId) void openSandbox(sb.source, versionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, versionId, sb.busy]);
+  // "Sandbox from here" on a real text puts it in the composer, as whoever sent it.
+  useEffect(() => {
+    if (!sb.draft) return;
+    const d = takeDraft();
+    if (d) setText(d.text);
+  }, [sb.draft]);
   // A reply to, or an edit of, a text that's gone (back, delete, another chat) is dropped.
   useEffect(() => {
     if (replyTo && !sb.rows.some((r) => r.id === replyTo)) setReplyTo(null);
@@ -375,6 +384,26 @@ export function SandboxChat() {
   const reply = replyTo ? byId.get(replyTo) : undefined;
   const edited = editing ? byId.get(editing) : undefined;
   const playing = (id: string) => play?.id === id && play.playing;
+  /**
+   * ▶ on a real text: what production logged of it, played on the graph Tex had then (`views/mine/playProd.ts`). On
+   * one of Tex's texts only the steps of the turn that sent it, when the log says which; never inferred.
+   */
+  const playReal = async (src: SandboxRow) => {
+    if (play && (play.id === src.id || play.id.endsWith("#" + src.id)) && play.playing) return playText(play.id);
+    if (typeof src.at !== "number") return;
+    setReading(src.id);
+    try {
+      const p = await playProd({ id: src.id, at: src.at });
+      const run = p ? (p.replies[src.id] ?? (src.tex || p.run.texts.some((t) => t.rowId === src.id) ? null : p.run)) : null;
+      if (run && p) playExternal(run, p);
+      else sandboxProblem(src.tex ? "The log doesn't say which steps sent this text" : "Nothing in the log says what this text ran");
+    } catch (e) {
+      sandboxProblem(e instanceof Error ? e.message : "Couldn't read what this text ran");
+    } finally {
+      setReading(null);
+    }
+  };
+  const realChat = chatKeyOf(sb.source, sb.chats) !== null;
   // T switches Grid and Timeline, as the mockup's; never while typing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -455,7 +484,31 @@ export function SandboxChat() {
           const sum = src?.steps?.reduce((a, x) => a + (x.ms ?? 0), 0) ?? 0;
           return (
             <>
-              {r.tex
+              {r.prod && realChat && src && typeof src.at === "number" ? (
+                <button
+                  className="play"
+                  data-play-prod={r.id}
+                  disabled={reading !== null}
+                  title={r.tex ? "Replay the steps that sent this text, as they ran in prod" : "Replay what ran in prod, on the graph Tex had then"}
+                  onClick={() => void playReal(src)}
+                >
+                  {reading === r.id ? "…" : play?.playing && (play.id === r.id || play.id.endsWith("#" + r.id)) ? "⏸" : "▶"}
+                </button>
+              ) : null}
+              {r.prod && !r.tex && src && sb.source.kind === "chat" ? (
+                <button
+                  data-fork={r.id}
+                  title="Sandbox from here: a test chat with the real texts before this one, and this text ready to send"
+                  disabled={!!sb.running || sb.busy}
+                  onClick={() => {
+                    const c = sb.source;
+                    if (c.kind === "chat") void tryFromHere(c.chatId, c.name, src.id, sb.handles[src.who] ?? src.who, src.text);
+                  }}
+                >
+                  ⑂
+                </button>
+              ) : null}
+              {!r.prod && r.tex
                 ? (() => {
                     // Only the steps the gateway logged as leading to it; with no `cause`, no ▶ (never inferred).
                     const cr = texCauseRun(r.id, sb.rows);

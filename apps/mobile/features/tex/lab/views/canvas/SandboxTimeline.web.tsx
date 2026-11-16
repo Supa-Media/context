@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, type MouseEvent as RMouseEvent } from "rea
 import { stepCount, type PlayRun, type PlayStep } from "../../engine/playRun";
 import { densityFor, packSteps, scaleOf, texCauseRun, trackOrder } from "../../engine/sandboxRun";
 import { useSandbox } from "../../engine/sandbox";
-import { playTexText, runOf, seek, showRun, togglePlay, usePlay, type DockView } from "../../engine/sandboxPlay";
+import { externalRuns, playTexText, runOf, seek, showRun, togglePlay, usePlay, type DockView } from "../../engine/sandboxPlay";
 import { node, set } from "../../engine/state";
 import { useLab } from "../../store";
 import { msWords } from "../grid/TextGrid.web";
@@ -38,9 +38,14 @@ export function DockSwitch({ view, onView }: { view: DockView; onView: (v: DockV
 function useRunTexts(): Array<{ value: string; label: string }> {
   const sb = useSandbox();
   const out: Array<{ value: string; label: string }> = [];
+  const real = externalRuns();
   sb.rows.forEach((r, i) => {
     const short = (r.text || (r.pics?.length ? "a picture" : "")).slice(0, 40);
-    if (!r.tex && (r.steps?.length || sb.running === r.id)) out.push({ value: r.id, label: `Text ${i + 1} · ${short}` });
+    // A real text played from production's log.
+    const prod = r.prod ? real.find((x) => x.id === r.id || x.id.endsWith("#" + r.id)) : undefined;
+    if (prod) out.push({ value: prod.id, label: `Text ${i + 1} · ${r.tex ? "Tex: " : ""}${short}` });
+    else if (r.prod) return;
+    else if (!r.tex && (r.steps?.length || sb.running === r.id)) out.push({ value: r.id, label: `Text ${i + 1} · ${short}` });
     else if (r.tex) {
       const run = texCauseRun(r.id, sb.rows);
       if (run) out.push({ value: run.id, label: `Text ${i + 1} · Tex: ${short}` });
@@ -50,7 +55,7 @@ function useRunTexts(): Array<{ value: string; label: string }> {
 }
 
 function kindOf(r: PlayRun) {
-  if (r.of) return <span className="k of"> · {stepCount(r)} steps that led to it</span>;
+  if (r.of) return <span className="k of"> · {stepCount(r)} steps that led to it{r.prod ? ", ran in prod" : ""}</span>;
   if (r.prod) return <span className="k prod"> · ran in prod, {new Date(r.prod.at).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}</span>;
   return <span className="k"> · sandbox</span>;
 }
@@ -108,7 +113,7 @@ export function SandboxTimeline() {
           value={run?.id ?? ""}
           onChange={(e) => {
             const v = e.target.value;
-            if (v.includes("#")) playTexText(v);
+            if (v.includes("#") || externalRuns().some((x) => x.id === v)) playTexText(v);
             else showRun(v);
           }}
         >

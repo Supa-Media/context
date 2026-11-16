@@ -13,6 +13,7 @@ import { panelRow, stepRunOf, type StepRunState } from "../../engine/stepRunNow"
 import { lab, MODELS, set } from "../../engine/state";
 import { useLab } from "../../store";
 import type { LabNode } from "../../types";
+import { ProdDetails } from "../canvas/ProdDetails.web";
 
 const TABS: Array<[typeof lab.runTab, string]> = [
   ["sum", "Summary"],
@@ -36,7 +37,8 @@ export function useStepRun(n: LabNode): { has: boolean; run: StepRunState } {
     const t = setInterval(() => tick((x) => x + 1), 250);
     return () => clearInterval(t);
   }, [running]);
-  return { has: !!row?.steps?.length || !!sandbox.running, run };
+  // A real text played from production's log has its steps on the run, not the row.
+  return { has: !!row?.steps?.length || !!sandbox.running || !!play, run };
 }
 
 const sum = (xs: Array<number | undefined>) => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
@@ -231,6 +233,7 @@ export function RunCard({ n, has, run }: { n: LabNode; has: boolean; run: StepRu
         ))}
       </div>
       <div className="runbody">{body}</div>
+      <ProdDetails node={n.id} />
     </>
   );
 }

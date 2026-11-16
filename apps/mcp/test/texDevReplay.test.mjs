@@ -138,7 +138,7 @@ test("moments are the Lab's moments: every one, check-ins and quiet looks too, n
   assert.equal(first.judge.length, 3, "two Worker decides and one group-style judging");
   assert.deepEqual(first.jobs, [{ id: "jb1", title: "Find a table" }]);
   assert.equal(first.turnRuns[0].waitedMs, 400);
-  assert.equal(first.link, `${ORIGIN}/lab?mode=replay&moment=a1`);
+  assert.equal(first.link, `${ORIGIN}/lab?moment=a1`);
   assert.equal(answer.moments.find((m) => m.moment === "ck1").from, "Check-in");
   const quiet = answer.moments.find((m) => m.moment === "ck:ck2");
   assert.equal(quiet.quiet, true);
@@ -263,17 +263,18 @@ test("mine is the Lab's Your texts, with the notes each turn read and a run conf
   assert.deepEqual((await mineAnswer({}, PAGE, { q: "thanks" }, deps(fakeLedger(entries), { session }))).texts.map((t) => t.id), ["a3"]);
 });
 
-test("link writes the Lab's own address: Replay at a chat and a moment, a page, a draft", async () => {
-  assert.equal((await linkAnswer(PAGE, { mode: "replay", moment: "a1" }, { origin: ORIGIN })).link, `${ORIGIN}/lab${R.searchOf({ mode: "replay", view: "canvas", chat: "me", moment: "a1" })}`);
-  assert.equal((await linkAnswer(PAGE, { chat: "g1", moment: "ck:ck2" }, { origin: ORIGIN })).link, `${ORIGIN}/lab?mode=replay&chat=g1&moment=ck%3Ack2`);
-  assert.deepEqual(R.placeOf("?mode=replay&chat=g1&moment=ck%3Ack2"), { mode: "replay", view: "canvas", chat: "g1", moment: "ck:ck2" });
+test("link writes the Lab's own address: a chat and a text, a page, a draft (Replay is not a mode: an old mode=replay address opens the Lab)", async () => {
+  assert.equal((await linkAnswer(PAGE, { mode: "replay", moment: "a1" }, { origin: ORIGIN })).link, `${ORIGIN}/lab${R.searchOf({ mode: "lab", view: "canvas", chat: "me", moment: "a1" })}`);
+  assert.equal((await linkAnswer(PAGE, { chat: "g1", moment: "ck:ck2" }, { origin: ORIGIN })).link, `${ORIGIN}/lab?chat=g1&moment=ck%3Ack2`);
+  assert.deepEqual(R.placeOf("?mode=replay&chat=g1&moment=ck%3Ack2"), { mode: "lab", view: "canvas", chat: "g1", moment: "ck:ck2" });
+  assert.deepEqual(R.placeOf("?chat=g1&moment=ck%3Ack2"), { mode: "lab", view: "canvas", chat: "g1", moment: "ck:ck2" });
   assert.equal((await linkAnswer(PAGE, { page: "sim" }, { origin: ORIGIN, draft: "vabc" })).link, `${ORIGIN}/lab?v=vabc&page=sim`);
   assert.match((await linkAnswer(PAGE, { chat: "nope" }, { origin: ORIGIN })).error, /no such chat/);
   assert.match((await linkAnswer(PAGE, { page: "nowhere" }, { origin: ORIGIN })).error, /page is one of/);
   const plane = { async texDev(_t, action) { return action === "page" ? PAGE : action === "get" ? { status: "ok", rev: 1, graph: "{}" } : null; } };
   const call = createTexDev({ env: { APP_ORIGIN: ORIGIN }, session: { accessToken: "tok" }, controlPlane: plane, ledgerOf: () => fakeLedger(chatEntries()) });
   const link = JSON.parse((await call("link", { mode: "replay", moment: "a1", draft: "vabc" })).content[0].text);
-  assert.equal(link.link, `${ORIGIN}/lab?v=vabc&mode=replay&moment=a1`);
+  assert.equal(link.link, `${ORIGIN}/lab?v=vabc&moment=a1`);
   const moments = JSON.parse((await call("moments", { limit: 1 })).content[0].text);
   assert.equal(moments.moments[0].moment, "a3");
 });

@@ -46,6 +46,12 @@ type Act =
   | { k: "fblk"; mod?: string; go?: string }
   | { k: "fpick"; id: string };
 
+/** The canvas draws another graph than the version open (a real text's, as it ran): nothing on it can be changed. */
+let readOnly = false;
+export function setCanvasReadOnly(v: boolean) {
+  readOnly = v;
+}
+
 export function useStageInput({
   stage,
   cam,
@@ -131,8 +137,8 @@ export function useStageInput({
         st.classList.add("pan");
         return;
       }
-      // Replay is read only: no wiring, moving or deleting, only picking a step to see what it did.
-      if (lab.mode !== "replay" && (port || (lab.tool === "con" && nd))) {
+      // A real text's run draws the graph Tex had then, read only: no wiring, moving or deleting, only picking a step.
+      if (!readOnly && (port || (lab.tool === "con" && nd))) {
         act = { k: "wire", from: port ? port.dataset.port! : nd!.dataset.id! };
         return;
       }
@@ -161,7 +167,7 @@ export function useStageInput({
         if (Math.abs(e.clientX - act.sx) + Math.abs(e.clientY - act.sy) > 3)
           act.moved = true;
         applyCam();
-      } else if (act.k === "move" && lab.mode !== "replay") {
+      } else if (act.k === "move" && !readOnly) {
         const n = node(act.id);
         if (!n) return;
         const nx = Math.round((p.x - act.dx) / 10) * 10;
@@ -211,7 +217,7 @@ export function useStageInput({
           markDirty();
         } else {
           set({ sel: { t: "node", id: a.id }, addCtxOpen: false, pin: true });
-          if (a.addCase && lab.mode !== "replay") startNodeCase(a.id);
+          if (a.addCase && !readOnly) startNodeCase(a.id);
         }
         return;
       }
@@ -253,7 +259,7 @@ export function useStageInput({
         unfocus();
         return;
       }
-      if (typing || lab.view !== "canvas" || lab.mode === "replay") return;
+      if (typing || lab.view !== "canvas" || readOnly) return;
       if (e.key === " ") {
         space = true;
         st.classList.add("pan");

@@ -5,13 +5,19 @@
 import { sandbox, type SandboxRow } from "./sandbox";
 import { lab } from "./state";
 import type { RunStep } from "./stepRun";
-import { runById, stepsAt } from "./sandboxRun";
-import { playingId } from "./sandboxPlay";
+import { stepsAt } from "./sandboxRun";
+import { playingId, runOf } from "./sandboxPlay";
+import type { PlayStep } from "./playRun";
 
 /** A playback as `sandboxPlay.ts` keeps it: the run's id (the steps behind one of Tex's texts: `<rowId>#<texRowId>`). */
 type PlayAt = { msgId: string; t: number; id?: string };
 /** The run a playback plays, on the times the gateway logged (`sandboxRun.ts`), as the timeline and canvas draw it. */
-const runAt = (play: PlayAt) => runById(play.id ?? play.msgId, sandbox.rows, { running: sandbox.running, hot: sandbox.hot, now: Date.now() });
+const runAt = (play: PlayAt) => runOf(play.id ?? play.msgId);
+/** A played step as the panel reads a logged one. */
+const asRunStep = (s: PlayStep): RunStep => {
+  const { out, ms, at: _at, ...rest } = s;
+  return { ...rest, ms: ms ?? null, out: typeof out === "string" ? out : out === undefined ? "" : JSON.stringify(out), ...(out !== undefined && typeof out !== "string" ? { data: out } : {}) } as RunStep;
+};
 
 /** The test text the panel reads: the one picked or playing, else the one running, else the newest that ran steps. */
 export function panelRow(pick: { msgId: string } | null, play: { msgId: string } | null): SandboxRow | null {
@@ -43,6 +49,16 @@ export type StepRunState =
  */
 export function stepRunOf(row: SandboxRow | null, node: string, played: number | null, now = Date.now(), play?: PlayAt | null): StepRunState {
   const all = (row?.steps ?? []) as RunStep[];
+  // A real text played from production's log has no steps on its row: the run holds them.
+  if (row && !all.length && played !== null) {
+    const r = runAt({ msgId: row.id, id: playingId() ?? row.id, t: played });
+    if (r) {
+      const at = stepsAt(r, played).filter((s) => s.node === node);
+      const going = at.find((s) => s.running);
+      if (going) return { state: "running", elapsed: going.elapsed, key: `play:${r.id}:${node}` };
+      return at.length ? { state: "ran", steps: at.map(asRunStep), times: at.length } : { state: "none" };
+    }
+  }
   if (!row || !all.length) return { state: "none" };
   const live = row.id === sandbox.running;
   const mine = all.filter((s) => s.node === node);

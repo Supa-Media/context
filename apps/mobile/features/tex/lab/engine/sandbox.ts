@@ -66,7 +66,7 @@ export type SandboxState = {
   chats: Array<{ chatId: string; name: string; kind?: "dm" | "group"; people?: number }>;
   /** The Training and Dev conversations a test chat may start from (the gateway's `sets`; never the Test set). */
   sets: Array<{ id: string; title: string; set: "training" | "dev"; group: boolean; texts: number }>;
-  /** A text waiting in the composer: Replay's "Try from here" puts the text it tries from there. */
+  /** A text waiting in the composer: `tryFromHere` puts the text it tries from there. */
   draft: { as: string; text: string } | null;
   /**
    * A test chat opened by its id (`/lab?sandbox=<id>`, or picked from Recent test chats), which an AI or another tab
@@ -379,8 +379,8 @@ export function takeUrlSandbox(): string | null {
 }
 
 /**
- * Replay's "Try from here": the Lab, a test chat over that chat with its real texts up to (not including) the one
- * picked, and that text waiting to be sent, as whoever sent it.
+ * "Try from here" (Replay's, before Replay joined the Lab): a test chat over that chat with its real texts up to (not
+ * including) the one picked, and that text waiting to be sent, as whoever sent it.
  */
 export function tryFromHere(chatId: string, name: string, msgId: string, as: string, text: string) {
   sandbox.draft = { as, text };

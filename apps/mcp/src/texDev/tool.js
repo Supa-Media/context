@@ -165,10 +165,10 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         return { content: [{ type: "image", data: shot.png, mimeType: "image/png" }, { type: "text", text: drafted ? `Draft ${args.draft} · live at ${linkOf(args.draft)}` : args.graph !== undefined ? "The graph you passed." : "Main as it runs today." }] };
       }
       case "link": {
-        // A place in the Lab or in Replay (`replay.js` `linkAnswer`): a page, or a chat and a moment, as the Lab's address holds it.
+        // A place in the Lab (`replay.js` `linkAnswer`): a page, or a chat and a text, as the Lab's address holds it.
         const place = args.mode !== undefined || args.page !== undefined || args.chat !== undefined || args.moment !== undefined;
         if (!place || args.draft !== undefined) {
-          if (needDraft(args)) return place ? needDraft(args) : toolError("link takes a draft, or a place: { mode: \"replay\", chat?, moment? } or { page }.");
+          if (needDraft(args)) return place ? needDraft(args) : toolError("link takes a draft, or a place: { chat?, moment? } or { page }.");
           const { error } = await plane("get", { draft: args.draft });
           if (error) return error;
           if (!place) return json({ link: linkOf(args.draft), note: "Opens in the Lab with this draft live; staff sign-in. Edits you make here show there within a second, and theirs reach you in every answer." });

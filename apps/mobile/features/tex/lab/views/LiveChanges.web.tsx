@@ -31,7 +31,7 @@ export function LiveChips() {
  * drawn on the graph (`engine/changeMarks.ts`). "last rev" steps back one revision a tap once it is on.
  */
 export function ChangeToggles() {
-  if (isMain() || lab.mode === "replay") return null;
+  if (isMain()) return null;
   const canRev = isLive() && live.rev > 1;
   const vsRev = typeof lab.chgVs === "number";
   return (

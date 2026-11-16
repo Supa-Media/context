@@ -63,16 +63,17 @@ export type LabState = {
   myChats: Array<{ key: string; name: string; people?: number }> | null;
   /** The chat whose texts are read: "me" or a group's key. */
   myChat: string;
-  /** That chat's whole conversation so far, oldest first, for Replay. */
+  /** That chat's whole conversation so far, oldest first. */
   myLines: ChatLine[];
   /**
-   * The Lab, where a version is changed; Replay, where a real chat is watched as it ran and nothing changes; or
-   * Testing, where the Training, Dev and Test conversations are curated and labelled (Dev2, 2026-11-15).
+   * The Lab, where a version is changed and a real or test chat is played (Replay is part of it since Lab live
+   * sandbox, Dev2 2026-11-16: `engine/prodRun.ts`); or Testing, where the Training, Dev and Test conversations are
+   * curated and labelled (Dev2, 2026-11-15).
    */
-  mode: "lab" | "replay" | "testing";
+  mode: "lab" | "testing";
   /** In Testing, the conversation open: its id, or null for the first one. */
   setChat: string | null;
-  /** The moment Replay shows: its first text's entry id. */
+  /** The real text an address points at: its entry id (an old Replay link's moment). */
   moment: string | null;
   /** Their texts read so far, newest first; null before the first read, "failed" when it could not be read. */
   myTexts: MyText[] | null | "failed";

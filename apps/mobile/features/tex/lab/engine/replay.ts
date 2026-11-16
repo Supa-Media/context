@@ -1,5 +1,5 @@
 /**
- * Replay, the Lab's read-only mode (Dev2, 2026-11-14: "there should be some type of toggle for replays versus the lab
+ * Replay's moments (Dev2, 2026-11-14: "there should be some type of toggle for replays versus the lab
  * ... the replay is just showing inputs and outputs and maybe showing some settings ... I want to sort of like click
  * through different chats and click through different conversations and see how that went through ... replay
  * sequences of text, like see how queuing works when like multiple texts are sent").
@@ -11,6 +11,9 @@
  *   one turn answers; while a turn ran, fold it in, queue it or restart);
  * - Turn: each turn, from its reply's timing: the wait in the queue, then the turn itself;
  * - Sent: each text Tex sent.
+ *
+ * Replay stopped being a mode of its own (Lab live sandbox, Dev2 2026-11-16): `prodRun.ts` plays a moment as the Lab's
+ * one run shape, and the gateway's `tex_dev` reads these same moments.
  */
 import type { LedgerEntry } from "../../page/texPageTypes";
 import { routineName, type ChatLine, type Start } from "./mine";

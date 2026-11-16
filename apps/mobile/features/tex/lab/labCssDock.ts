@@ -53,5 +53,8 @@ export const LAB_CSS_DOCK = String.raw`
 .tl .archcv .runpill .rp{color:var(--warn);font-weight:600}
 .tl .vmenu .mi .aib{font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--accent);background:var(--accent-dim);border-radius:5px;padding:1px 5px}
 .tl td.ac .play[data-play-tex]{color:var(--accent)}
+.tl td.ac .play[data-play-prod]{color:var(--warn)}
+.tl .archcv .runnote{top:12px;left:50%;transform:translateX(-50%);padding:4px 10px;font-size:12px;color:var(--warn);max-width:calc(100% - 24px);z-index:4}
+.tl .proddet{border-top:1px solid var(--line);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:8px}
 @media (max-width:760px){.tl .archcv .runpill{display:none}}
 `;
