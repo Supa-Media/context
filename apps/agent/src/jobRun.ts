@@ -115,7 +115,9 @@ type Outcome =
   | { kind: "rejected"; why: string };
 
 /** What a job's driver does after a pass: nothing more, the next pass now, or the next pass after `ms`. */
-export type JobNext = { kind: "done" } | { kind: "now" } | { kind: "after"; ms: number };
+export type JobNext = { kind: "done" } | { kind: "now" } | { kind: "after"; ms: number; overlap?: true };
+/** How long the workflow waits when it asked for a pass while one was still running (`overlap`). */
+export const OVERLAP_WAIT_MS = 30_000;
 
 /**
  * Store a job to run. `POST /job-start`, from the chat's inbox. `start` starts
@@ -242,6 +244,16 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     const ended = await storage.get<Ended>(ENDED_KEY);
     if (ended !== undefined && deps.now() > keptUntil(ended)) await storage.delete(ENDED_KEY);
     return { kind: "done" };
+  }
+  // A pass is already running in this object: its workflow step was retried
+  // while it ran (Dev2, 2026-11-16, two passes typing into one sign-in). No
+  // second turn starts; the workflow asks again later, by when the first has
+  // finished and stored what comes next. Before the lease below, so the
+  // running pass keeps it. A pass in an object that was reset is not in
+  // `live`; the lease (`PASS_KEY`) still silences the older one.
+  if (live.has(storage)) {
+    log("pass_overlap", run.id);
+    return { kind: "after", ms: OVERLAP_WAIT_MS, overlap: true };
   }
   let sent = run.sent ?? 0;
   // An owed update keeps the pass that wrote it, so the inbox takes it as that pass's word again.

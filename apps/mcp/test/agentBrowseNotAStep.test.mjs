@@ -41,13 +41,20 @@ async function ask(step) {
   return { result, computer };
 }
 
-test("a wait step is told every step already waits, with the real steps listed, and nothing runs", async () => {
-  const { result, computer } = await ask({ do: "wait", ms: 3000 });
+test("a made-up step is told the real steps, a sleep is pointed at wait, and nothing runs", async () => {
+  const { result, computer } = await ask({ do: "sleep", ms: 3000 });
   assert.equal(result.isError, true);
   const text = result.content[0].text;
-  assert.match(text, /There is no "wait" step: every step already waits/);
-  for (const real of ["goto", "click", "type", "press", "read", "look"]) assert.ok(text.includes(real), `lists ${real}`);
+  assert.match(text, /There is no "sleep" step: waiting is a wait step with seconds/);
+  for (const real of ["goto", "click", "type", "press", "read", "wait", "look"]) assert.ok(text.includes(real), `lists ${real}`);
   assert.deepEqual(computer.calls, [], "the browser was never driven");
+});
+
+// 2026-11-16: a wait step is a real one now (`infra/site-shots/src/patience.ts`); one written in ms is taken in seconds.
+test("a wait step written in milliseconds waits that many seconds", async () => {
+  const { result, computer } = await ask({ do: "wait", ms: 3000 });
+  assert.notEqual(result.isError, true);
+  assert.deepEqual(computer.calls, [["goto", "wait"]]);
 });
 
 test("a key step is pointed at press, and fill_login at its own tool", async () => {
@@ -61,5 +68,5 @@ test("a made-up step with no hint still lists the real steps, and odd names stay
   assert.equal(notAStep("x".repeat(50), steps), `There is no "${"x".repeat(20)}" step. The steps are goto, click.`);
   assert.equal(notAStep(undefined, steps), 'There is no "undefined" step. The steps are goto, click.');
   assert.equal(notAStep("constructor", steps), 'There is no "constructor" step. The steps are goto, click.');
-  assert.match(notAStep("WAIT", steps), /every step already waits/);
+  assert.match(notAStep("SLEEP", steps), /every step already waits/);
 });

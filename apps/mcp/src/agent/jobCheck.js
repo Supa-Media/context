@@ -32,6 +32,8 @@ import { adviseOnce, advisorThinking } from "./advisorRoles/core.js";
 import { JOB_CHECK_PROMPT } from "./advisorRoles/jobCheck.js";
 import { ADVISOR_KNOWS_MAIL } from "./advisorRoles/knowsMail.js";
 import { withoutTag } from "./promptFence.js";
+import { readsTools, toolList } from "./advisorToolList.js";
+import { TEX_CONFIG } from "./texConfig.js";
 
 // Its instructions live in `advisorRoles/jobCheck.js`, beside the other roles' (`advisorRoles/core.js`).
 export { ADVISOR_KNOWS_MAIL, JOB_CHECK_PROMPT };
@@ -40,7 +42,7 @@ export const VERDICTS = ["done", "keep_going", "waiting", "stuck"];
 const MAX_ADVICE = 600;
 const MAX_TRANSCRIPT_CHARS = 120_000;
 const MAX_RESULT_CHARS = 8_000;
-const TAGS = ["job", "tex_instructions", "transcript", "their_ask", "their_texts", "job_note_mail"];
+const TAGS = ["job", "tex_instructions", "tex_tools", "transcript", "their_ask", "their_texts", "job_note_mail"];
 
 
 
@@ -60,8 +62,10 @@ function line(message) {
   return [said ? `${message.role === "assistant" ? "Tex" : "Them"}: ${quoted(said)}` : "", calls].filter(Boolean).join("\n");
 }
 
-/** What the advisor reads: the job, their texts about it, and the whole part. */
-export function jobCheckBrief({ job, messages, answer, exhausted }) {
+/** What the advisor reads: the job, their texts about it, the tools the part had (when given), and the whole part. */
+export function jobCheckBrief({ job, messages, answer, exhausted, tools = null }) {
+  // What the part could call, with what each takes (`advisorToolList.js`), only when Job check's reads name "tools" (`checkJob`).
+  const offered = Array.isArray(tools) ? quoted(toolList(tools, { skip: ["ask_advisor"] })) : "";
   let body = (Array.isArray(messages) ? messages : []).map(line).filter(Boolean).join("\n\n");
   if (body.length > MAX_TRANSCRIPT_CHARS) body = `(earlier part left out)\n\n${body.slice(-MAX_TRANSCRIPT_CHARS)}`;
   const followUps = (job.followUps ?? []).map((text) => `- ${quoted(text)}`).join("\n");
@@ -74,6 +78,7 @@ export function jobCheckBrief({ job, messages, answer, exhausted }) {
     // Their own words that started it, so the check reads the whole ask, not the brief's paraphrase (`openAsk.js`; Nov Babies, 2026-11-11).
     (asked ? `<their_ask>\n${asked}\n</their_ask>\n\n` : "") +
     (followUps ? `<their_texts>\n${followUps}\n</their_texts>\n\n` : "") +
+    (offered ? `<tex_tools>\n${offered}\n</tex_tools>\n\n` : "") +
     `<transcript>\n${body || "(nothing)"}\n\nTex's last words: ${quoted(answer) || "(none)"}${exhausted ? "\n(It ran out of steps in this part.)" : ""}\n</transcript>\n\n` +
     "Is the job finished?"
   );
@@ -92,12 +97,12 @@ export function readVerdict(text) {
  * Ask the advisor about a job's part that just ended. Null when no model can
  * be asked, it fails, or its answer names no verdict: the caller keeps the old check.
  */
-export async function checkJob({ job, live, answer, exhausted = false, model, effort, request, meter = async () => {} }) {
+export async function checkJob({ job, live, answer, exhausted = false, model, effort, request, meter = async () => {}, config = TEX_CONFIG }) {
   if (job === null || typeof model !== "string" || typeof request !== "function") return null;
   let reply;
   try {
     // Its thinking comes back in words, for the chat's history only (`workEntries.js` `jobChecked`).
-    reply = await adviseOnce({ request, model, effort, prompt: JOB_CHECK_PROMPT, role: "jobCheck", brief: jobCheckBrief({ job, messages: live?.messages, answer, exhausted }) });
+    reply = await adviseOnce({ request, model, effort, prompt: JOB_CHECK_PROMPT, role: "jobCheck", brief: jobCheckBrief({ job, messages: live?.messages, answer, exhausted, tools: readsTools("jobcheck", config) ? (live?.tools ?? []) : null }) });
   } catch {
     await meter(null, true, model, false);
     return null;
@@ -135,10 +140,10 @@ export function jobFields(check, { exhausted, unfinished, untrusted = false }) {
  * `unfinished` as before. `check` is how the advisor is asked: Job check on the graph runner
  * (`graph/bridges.js` `jobCheckOnGraph`), `checkJob` itself in tests.
  */
-export async function jobTurnFields(job, turn, { unfinished, untrusted = false, model, efforts, request, meter, check: runCheck = checkJob }) {
+export async function jobTurnFields(job, turn, { unfinished, untrusted = false, model, efforts, request, meter, config = TEX_CONFIG, check: runCheck = checkJob }) {
   const exhausted = turn.exhausted === true;
   if (job === null) return exhausted ? { exhausted: true } : unfinished ? { unfinished: true } : {};
-  const check = await runCheck({ job, live: turn.live, answer: turn.answer, exhausted, model, effort: efforts?.[model], request, meter });
+  const check = await runCheck({ job, live: turn.live, answer: turn.answer, exhausted, model, effort: efforts?.[model], request, meter, config });
   // `idle`: this part called no tool at all. Two such parts in a row that still aren't done end the job stuck (`jobRun.ts`):
   // three restarted jobs answered "it's running again" eight times each on 2026-10-31.
   return { ...jobFields(check, { exhausted, unfinished, untrusted }), ...(!Array.isArray(turn.steps) || turn.steps.length === 0 ? { idle: true } : {}) };

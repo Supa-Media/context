@@ -31,15 +31,18 @@ import { publicHttpsUrl } from "./shoot";
 import { dropSource, fillMarkedSource, markedSelector, markedSizeSource, pickerHookSource, pickerResult, refSelector as selector, uploadSource, sizeOf, type UploadFile, type Uploads } from "./picker";
 import { DOWNLOAD_WAIT_MS, runDownload, type DownloadedFile, type Downloads } from "./download";
 import { FRAME_REF_BASE, docMarking, docWith, framesOf, type Doc, type FrameDoc } from "./frames";
-import { MAX_SCANNED, snapshot } from "./reading";
+import { BY_WORDS, MAX_CLICK_TEXT, wordsSource } from "./clickWords";
+import { readWhenLoaded, waitSeconds } from "./patience";
 import { isCheckoutPaymentFrame } from "./paymentFrames";
 import { pickExpirySource } from "./cardMenus";
 import { COVERED_PRESS, SET_DIRECTLY, closePopup, coveredSource, domClickSource, typedOrSet } from "./popups";
 export { dropSource, pickerHookSource, pickerResult, uploadSource, sizeOf, type UploadFile, type Uploads } from "./picker";
+export { wordsSource } from "./clickWords";
 
 /*
-  The gateway gives one tool call 20 seconds (`TOOL_TIMEOUT_MS`), and a call
-  that outlives it loses the browser's session id with its answer. So a step
+  A call that outlives the gateway's limit for it loses the browser's session
+  id with its answer, so its steps are bounded; the wait for a page to load
+  (./patience.ts) comes after them, from the gateway's own allowance. A step
   that opens a page (the slowest: open, then settle) starts only in the first
   5 seconds, and ends within 12 more, leaving room to connect. The time a page
   took to open does not count against the other steps (owner, 2026-11-05: an
@@ -80,6 +83,8 @@ export type Step =
   /** At a look's point (a frame's list), else the middle of the screen. */
   | { do: "scroll"; direction: "down" | "up"; x: number | null; y: number | null }
   | { do: "read" }
+  /** Wait on a slow site, from the call's own wait (./patience.ts). */
+  | { do: "wait"; seconds: number }
   | { do: "upload"; ref: number | null; file: UploadFile; onlyOn: string[] | null }
   /** Press the element (by number or words) that saves a file, or with neither take the file the page is (./download.ts). */
   | { do: "download"; ref: number | null; text: string | null };
@@ -108,6 +113,12 @@ export interface Reading {
   uploads?: number;
   /** Something like a popup covers the page (./popups.ts). */
   popup?: boolean;
+  /** Still blank after the call's wait: the seconds it waited (./patience.ts). */
+  loading?: number;
+  /** It was blank or loading and filled: the seconds that took. */
+  waited?: number;
+  /** No words because it is drawn: a file shown whole, a canvas, an embedded object. */
+  drawn?: boolean;
   /** After a `look`: what the page shows, a JPEG, and its size in its own pixels, the space a click's x and y are in. */
   shot?: { data: string; width: number; height: number };
 }
@@ -155,8 +166,6 @@ const SESSION_ID = /^[A-Za-z0-9-]{8,80}$/;
 export const KEYS = ["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"] as const;
 export type Key = (typeof KEYS)[number];
 const KEY_SET = new Set<string>(KEYS);
-/** The most words a click-by-words step may name: a button's or an option's, not a paragraph. */
-const MAX_CLICK_TEXT = 200;
 /** A point on a look's picture, in its pixels. */
 const MAX_POINT = 10_000;
 /** How a look's picture is taken: enough to read a form's words, small enough for a model's turn. */
@@ -230,6 +239,10 @@ function parseStep(item: unknown): Step | null {
     }
     case "read":
       return { do: "read" };
+    case "wait": {
+      const seconds = waitSeconds(s.seconds);
+      return seconds === null ? null : { do: "wait", seconds };
+    }
     case "look":
       return { do: "look" };
     case "close_popup":
@@ -286,47 +299,6 @@ function sitesOf(value: unknown): string[] | null {
 export function onSite(host: string, sites: string[]): boolean {
   const here = siteOf(host);
   return sites.some((site) => here === site || here.endsWith(`.${site}`));
-}
-
-
-const BY_WORDS = `[data-tex-words]`;
-
-/**
- * Mark the element that shows `words`, for a click: the smallest visible one
- * whose own text is exactly those words (any case and spacing), else the
- * smallest that starts with them. A picker's option or a box with only a
- * click handler has no number in a reading, and the words on it are what a
- * person would point at.
- */
-export function wordsSource(words: string): string {
-  return `(() => {
-  for (const el of document.querySelectorAll("${BY_WORDS}")) el.removeAttribute("data-tex-words");
-  const norm = (s) => (s || "").replace(/\\s+/g, " ").trim().toLowerCase();
-  const want = norm(${JSON.stringify(words)});
-  if (!want) return false;
-  const visible = (el) => {
-    const box = el.getBoundingClientRect();
-    if (box.width < 1 || box.height < 1) return false;
-    const style = getComputedStyle(el);
-    return style.visibility !== "hidden" && style.display !== "none";
-  };
-  let exact = null, starts = null;
-  const all = document.body ? document.body.querySelectorAll("*") : [];
-  for (let i = 0; i < all.length && i < ${MAX_SCANNED}; i++) {
-    const el = all[i];
-    const tag = el.tagName;
-    if (tag === "SCRIPT" || tag === "STYLE" || tag === "HTML" || tag === "BODY") continue;
-    const text = norm(el.innerText || el.getAttribute("aria-label") || el.value);
-    if (!text || text.length > ${MAX_CLICK_TEXT * 2}) continue;
-    const size = el.querySelectorAll("*").length;
-    if (text === want && (!exact || size <= exact.size) && visible(el)) exact = { el, size };
-    else if (!exact && text.startsWith(want) && (!starts || text.length < starts.length) && visible(el)) starts = { el, length: text.length };
-  }
-  const found = exact ? exact.el : starts ? starts.el : null;
-  if (!found) return false;
-  found.setAttribute("data-tex-words", "1");
-  return true;
-})()`;
 }
 
 /** Press with the stand-in picker in place, and answer what the page asked of it. */
@@ -418,14 +390,27 @@ async function where(page: Pick<Doc, "evaluate">): Promise<{ href: string; host:
 export async function runSteps(
   page: BrowsePage,
   steps: Step[],
-  { budgetMs = BROWSE_BUDGET_MS, now = Date.now, pause = nap, downloads = null, uploads = null }: { budgetMs?: number; now?: () => number; pause?: (ms: number) => Promise<unknown>; downloads?: Downloads | null; uploads?: Uploads | null } = {},
+  // `waitMs`: how long this call may wait for a page to load, wait steps included (./patience.ts); none unless asked.
+  { budgetMs = BROWSE_BUDGET_MS, now = Date.now, pause = nap, downloads = null, uploads = null, waitMs = 0 }: { budgetMs?: number; now?: () => number; pause?: (ms: number) => Promise<unknown>; downloads?: Downloads | null; uploads?: Uploads | null; waitMs?: number } = {},
 ): Promise<{ ran: StepResult[]; page: Reading; file?: DownloadedFile }> {
   const started = now();
   const ran: StepResult[] = [];
   let file: DownloadedFile | undefined;
-  // Time spent opening pages, which the steps after them do not pay for.
+  // Time spent opening pages, and waiting, which the steps after them do not pay for.
   let opening = 0;
-  const end = started + BROWSE_END_MS - BROWSE_BUDGET_MS + budgetMs;
+  let end = started + BROWSE_END_MS - BROWSE_BUDGET_MS + budgetMs;
+  let waited = 0;
+  // A wait step: as long as asked, or as the call's wait has left; the steps after it are not charged for it.
+  const waitFor = async (seconds: number): Promise<StepResult> => {
+    const ms = Math.min(seconds * 1_000, Math.max(0, waitMs - waited));
+    await pause(ms);
+    waited += ms;
+    opening += ms;
+    end += ms;
+    await settle(page);
+    if (ms >= seconds * 1_000) return { do: "wait", ok: true };
+    return { do: "wait", ok: true, reason: `waited ${Math.round(ms / 1_000)} seconds, the most this call allows; read again to wait more` };
+  };
   for (const step of steps) {
     const opens = step.do === "goto" || step.do === "back";
     const waits = step.do === "download" || step.do === "upload";
@@ -436,7 +421,7 @@ export async function runSteps(
       if (page.solving()) { ran.push({ do: step.do, ok: false, reason: STILL_SOLVING }); break; }
     }
     const elapsed = now() - started;
-    const late = opens || waits ? elapsed > budgetMs : elapsed - opening > budgetMs || now() + SHORT_STEP_MS > end;
+    const late = opens || waits ? elapsed - waited > budgetMs : elapsed - opening > budgetMs || now() + SHORT_STEP_MS > end;
     if (late && !marker) {
       ran.push({ do: step.do, ok: false, reason: "out of time; run it again" });
       break;
@@ -446,7 +431,9 @@ export async function runSteps(
     const begun = downloads?.began?.() ?? 0;
     const pressedAt = Date.now();
     const result =
-      step.do === "goto" && offLimits(step.url)
+      step.do === "wait"
+        ? await waitFor(step.seconds)
+        : step.do === "goto" && offLimits(step.url)
         ? ({ do: "goto", ok: false, reason: "that page is off limits" } as StepResult)
         : await runStep(page, step, downloads, uploads).catch(() => ({ do: step.do, ok: false, reason: "that did not work on this page" }) as StepResult);
     // However it got there (a click, a redirect), it does not stay.
@@ -487,7 +474,8 @@ export async function runSteps(
       break;
     }
   }
-  const reading = await snapshot(page);
+  // Read once the page has loaded, inside what is left of the call's wait (./patience.ts).
+  const reading = await readWhenLoaded(page, Math.max(0, waitMs - waited), { now, pause });
   if (ran.some((r) => r.do === "look" && r.ok)) {
     const shot = await look(page).catch(() => null);
     if (shot !== null) reading.shot = shot;
@@ -530,6 +518,7 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
       await settle(page);
       return ok;
     case "read":
+    case "wait": // run by runSteps, which holds the call's wait
     case "look":
       return ok;
     case "close_popup":

@@ -520,7 +520,7 @@ export async function runTurn(options) {
       const typed = typedCallOf(answer.text);
       if (typed === SAY_NOTHING_TOOL) {
         tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "say_nothing typed as text: nothing is texted" });
-        return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, live: liveTurn(prompt, messages) };
+        return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, live: liveTurn(prompt, messages, offered) };
       }
       if (typed !== null && round < rounds - 1) {
         tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, notice: typedCallNotice(typed) });
@@ -532,7 +532,7 @@ export async function runTurn(options) {
       // A scheduled run's last answer the reviewer sent back has no round left to be written again: nothing is texted (`lastRound.js`).
       if (lastRound && recheck !== null) {
         tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "sent back on a scheduled run's last step: nothing is texted" });
-        return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, live: liveTurn(prompt, messages) };
+        return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, live: liveTurn(prompt, messages, offered) };
       }
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
@@ -542,7 +542,7 @@ export async function runTurn(options) {
         tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
         continue;
       }
-      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: liveTurn(prompt, messages) }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
+      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: liveTurn(prompt, messages, offered) }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
       messages.push({ role: "user", text: held.sendBack(recheck, answer.text) }); // the draft quoted as NOT sent, never put in as said (`sendBack.js`)
       continue;
     }
@@ -675,7 +675,7 @@ export async function runTurn(options) {
     for (const call of settling) {
       const settled = settles(call.name, call.args);
       if (typeof settled === "string" && settled !== "") {
-        return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: liveTurn(prompt, messages) };
+        return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: liveTurn(prompt, messages, offered) };
       }
     }
     if (steer !== null && typeof steer.cancelled === "function" && steer.wrote !== true && (await steer.cancelled())) return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, cancelled: true }; // the Worker cancelled it (`steer.js`)
@@ -696,6 +696,6 @@ export async function runTurn(options) {
     usageByModel,
     timing: { ...timing, trace },
     exhausted: true,
-    live: liveTurn(prompt, messages),
+    live: liveTurn(prompt, messages, offered),
   };
 }

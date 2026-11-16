@@ -10,11 +10,11 @@ import { borrowJob } from "./jobHandles.js";
 
 /** `checkJob`'s drop-in: Job check over the job -> jobcheck wire; the same `null` or verdict `checkJob` returned. */
 export function jobCheckOnGraph(graph) {
-  return async ({ job, live, answer, exhausted = false, model, effort, request, meter }) => {
+  return async ({ job, live, answer, exhausted = false, model, effort, request, meter, config }) => {
     if (job === null || typeof model !== "string" || typeof request !== "function") return null;
     const input = { job, answer: typeof answer === "string" ? answer : "", exhausted: exhausted === true };
     // A draft that draws the Job advisor runs the check as its `check` role (`nodes/jobadv.js`); main's config, Job check.
-    const output = graph.wired?.("job", "jobadv") ? await graph.fire("job", "jobadv", { role: "check", ...input }, { jobCheck: { live, model, effort, request, meter } }) : await graph.fire("job", "jobcheck", input, { jobCheck: { live, model, effort, request, meter } });
+    const output = graph.wired?.("job", "jobadv") ? await graph.fire("job", "jobadv", { role: "check", ...input }, { jobCheck: { live, model, effort, request, meter, config } }) : await graph.fire("job", "jobcheck", input, { jobCheck: { live, model, effort, request, meter, config } });
     return checkOf(output);
   };
 }
@@ -44,10 +44,10 @@ export function handbackOnGraph(graph, { question, config, metadata, request, lo
 export function jobCheckFor(jobId, graph) {
   const io = borrowJob(jobId);
   if (io === null) return jobCheckOnGraph(graph);
-  return async ({ job, live, answer, exhausted = false, model, effort, request, meter }) => {
+  return async ({ job, live, answer, exhausted = false, model, effort, request, meter, config }) => {
     if (job === null || typeof model !== "string" || typeof request !== "function") return null;
     const input = { job, answer: typeof answer === "string" ? answer : "", exhausted: exhausted === true };
-    const lend = { jobCheck: { live, model, effort, request, meter } };
+    const lend = { jobCheck: { live, model, effort, request, meter, config } };
     const output = "jobadv" in io.use ? await io.use.jobadv({ role: "check", ...input }, lend) : await io.use.jobcheck(input, lend);
     return checkOf(output);
   };
