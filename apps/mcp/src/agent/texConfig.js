@@ -6,7 +6,8 @@
  * off, time limit and the context it reads, and every wire. The Lab opens it as main and promotes a version by
  * changing it in a pull request, so the replay gate stands between a Lab edit and a live turn. Each model-calling
  * file asks this module for its step's model, effort and time limit instead of keeping a constant of its own, and the
- * texting setup's models come from here, not from the setup note (`production.js`).
+ * texting setup's models come from here, not from the setup note (`production.js`). It asks with the turn's config
+ * (`texConfigOf`): main's, or in a Lab test chat the draft's over main's, so a draft runs whole there.
  *
  * Wires still run as code. A step the code has no way to run when on (the router, for now) is refused by
  * `test/texConfig.test.mjs`, so the file never says something the gateway does not do.
