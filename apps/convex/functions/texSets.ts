@@ -87,8 +87,8 @@ function sound(value: unknown, id?: string): { convo: Convo } | { error: string 
   return { convo: c };
 }
 
-/** Every draft, newest first. */
-async function listDrafts(ctx: QueryCtx) {
+/** Every draft, newest first; the Lab test chats' `sets` reads them too (`texLabSandbox.ts`). */
+export async function listDrafts(ctx: QueryCtx) {
   const rows = (await ctx.db.query("texSetConvos").collect()).sort((a, b) => b.updatedAt - a.updatedAt);
   const cache = new Map<string, string>();
   return await Promise.all(rows.map((r) => draftOf(ctx, r, cache)));

@@ -22,6 +22,8 @@ export const OPEN_SETS: readonly ("training" | "dev")[];
 export const MAX_OPS: number;
 export const MAX_PICS: number;
 export class OpError extends Error {}
+/** A message's pictures checked (at most `MAX_PICS`, https, picture types): the sound list, or a thrown `OpError`. */
+export function checkPics(value: unknown): { url: string; type?: string; name?: string }[];
 export function apply<C extends Conversation>(convo: C, op: SetOp): C;
 export function applyOps<C extends Conversation>(convo: C, ops: SetOp[]): { convo: C; keys: string[]; said: string[]; full: string[] };
 export function keysOf(op: SetOp): string[];
