@@ -77,6 +77,7 @@ function ChatPick({ versionId }: { versionId: string }) {
                   onClick={() => {
                     setTab(k);
                     if (k === "sets" && !sb.sets.length) void readSandboxSets();
+                    if (k === "mine" && !sb.chats.length) void readSandboxChats();
                   }}
                 >
                   {w}

@@ -118,7 +118,29 @@ export async function listRuns(ctx: QueryCtx, versionId: string | null) {
           .order("desc")
           .take(LIST_LIMIT);
   const names = new Map<string, string>();
-  return await Promise.all(rows.map((r) => shown(ctx, r, names)));
+  const fixedAfter = await dispatchWorkedSince(ctx);
+  return await Promise.all(rows.map(async (r) => ({ ...(await shown(ctx, r, names)), fixedSince: fixedSince(r, fixedAfter) })));
+}
+
+/** When a run last got as far as GitHub (it has a run address): GitHub accepted that dispatch. */
+async function dispatchWorkedSince(ctx: QueryCtx): Promise<number> {
+  const recent = await ctx.db.query("texLabRuns").withIndex("by_started").order("desc").take(LIST_LIMIT);
+  return recent.find((r) => r.ghRunUrl)?.startedAt ?? 0;
+}
+
+/**
+ * A run GitHub refused to start (a token without the permission, 2026-11-16) is history once a later run started:
+ * the Lab says so rather than showing it as a current failure.
+ */
+export const fixedSince = (r: Run, workedAt: number) => r.stage === "failed" && !r.ghRunUrl && (r.error ?? "").startsWith("GitHub refused to start the run") && workedAt > r.startedAt;
+
+/** Remove a finished run from the list (the Lab's Remove; `tex_dev` `run_remove`). A run still going stays. */
+export async function removeRun(ctx: MutationCtx, id: string): Promise<{ status: "ok" } | { status: "bad_request"; error: string }> {
+  const r = await runOf(ctx, id);
+  if (!r) return { status: "bad_request", error: `there is no run ${id}` };
+  if (r.stage === "queued" || r.stage === "running") return { status: "bad_request", error: "this run is still going: remove it once it has finished" };
+  await ctx.db.delete(r._id);
+  return { status: "ok" };
 }
 
 async function runOf(ctx: QueryCtx, id: string): Promise<Run | null> {
@@ -211,6 +233,17 @@ export const start = mutation({
   },
 });
 
+export const remove = mutation({
+  args: { id: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { id }) => {
+    await requireAdmin(ctx);
+    const answer = await removeRun(ctx, id);
+    if (answer.status !== "ok") throw new ConvexError(answer.error);
+    return null;
+  },
+});
+
 export const list = query({
   args: { versionId: v.optional(v.string()) },
   returns: v.array(v.any()),
@@ -226,7 +259,7 @@ export const get = query({
   handler: async (ctx, { id }) => {
     await requireAdmin(ctx);
     const r = await runOf(ctx, id);
-    return r ? await shown(ctx, r) : null;
+    return r ? { ...(await shown(ctx, r)), fixedSince: fixedSince(r, await dispatchWorkedSince(ctx)) } : null;
   },
 });
 
@@ -238,10 +271,11 @@ export async function runAction(ctx: MutationCtx, who: Who, action: string, a: R
     const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models }, now);
     return answer.status === "ok" ? { status: "ok", id: answer.runId } : answer.status === "not_found" ? { status: "not_found" } : { status: "bad_request", error: answer.error };
   }
+  if (action === "run_remove") return typeof a.id === "string" ? await removeRun(ctx, a.id) : { status: "bad_request", error: "run_remove takes the run's id" };
   if (action === "runs") {
     if (typeof a.id === "string") {
       const r = await runOf(ctx, a.id);
-      return r ? { status: "ok", run: await shown(ctx, r) } : { status: "bad_request", error: `there is no run ${a.id}` };
+      return r ? { status: "ok", run: { ...(await shown(ctx, r)), fixedSince: fixedSince(r, await dispatchWorkedSince(ctx)) } } : { status: "bad_request", error: `there is no run ${a.id}` };
     }
     const draft = typeof a.draft === "string" ? a.draft : null;
     // The list leaves out each run's rows; `runs { id }` gives one whole.

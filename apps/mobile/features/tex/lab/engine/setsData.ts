@@ -82,10 +82,12 @@ export function testClient(endpoint: string, token: (refresh: boolean | { reject
       const r = await doFetch(origin + "/tex-eval/counts");
       return hiddenOf(await r.json().catch(() => null));
     },
+    // The list names each chat with counts only (`msgs` is how many), so each one's words are read by its id.
     list: async () => {
       const b = await call("/tex-test-set");
-      const chats = Array.isArray(b.chats) ? (b.chats as Conversation[]) : [];
-      return chats.map((c) => ({ id: c.id, title: c.title, set: "test", kind: c.kind, members: c.members || [], msgs: c.msgs || [] }));
+      const ids = (Array.isArray(b.chats) ? b.chats : []).map((c) => (c && typeof c === "object" ? String((c as { id?: unknown }).id ?? "") : "")).filter(Boolean);
+      const read = await Promise.all(ids.map((id) => call("/tex-test-set?id=" + encodeURIComponent(id)).then((r) => r.conversation as Conversation | undefined)));
+      return read.flatMap((c) => (c && Array.isArray(c.msgs) ? [{ id: c.id, title: c.title || c.id, set: "test" as const, kind: c.kind, members: c.members || [], msgs: c.msgs }] : []));
     },
     put: async (c) => void (await call("/tex-test-set", { method: "POST", body: { put: { ...c, set: "test" } } })),
     remove: async (id) => void (await call("/tex-test-set", { method: "POST", body: { remove: id } })),

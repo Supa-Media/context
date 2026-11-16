@@ -50,8 +50,8 @@ export const LAB_CSS_4 = String.raw`
 .tl .pill.q{background:var(--s3);color:var(--muted)}.tl .pill.r{background:var(--accent-dim);color:var(--accent)}.tl .pill.d{background:color-mix(in srgb,var(--ok) 14%,var(--page));color:var(--ok)}.tl .pill.f{background:color-mix(in srgb,var(--bad) 14%,var(--page));color:var(--bad)}
 .tl .spin{width:9px;height:9px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:tlsp .8s linear infinite;display:inline-block}
 @keyframes tlsp{to{transform:rotate(360deg)}}
-.tl .tst .runbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:7px 12px;border-bottom:1px solid var(--line2);font-size:12px;background:var(--s3)}
-.tl .tst .runbar a{color:var(--accent)}
+
+
 .tl .tst tr.try td{background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in srgb,var(--warn) 10%,transparent) 6px 12px)}
 .tl .tst tr.try.sel td{box-shadow:inset 0 0 0 1px var(--warn)}
 .tl .tst .trytag{font-size:10px;font-weight:700;color:var(--warn);letter-spacing:.04em;text-transform:uppercase;margin-right:4px}

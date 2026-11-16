@@ -48,6 +48,7 @@ const mockCalls: Array<{ op: string; body: Record<string, unknown> }> = [];
 let mockRows: Row[] = [];
 let mockWrites: Array<{ kind: string; summary: string; by: string }> = [];
 let mockSeq = 0;
+let mockChatsFail = false;
 const answer = (text: string): Row[] => {
   const id = "t" + ++mockSeq;
   return [
@@ -61,6 +62,7 @@ jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
   setSandboxCall(async (op: string, body: Record<string, unknown>) => {
     mockCalls.push({ op, body });
     const at = (id: unknown) => mockRows.findIndex((r) => r.id === id);
+    if (op === "chats" && mockChatsFail) throw new Error("not_found");
     if (op === "chats") return { chats: [{ chatId: "me", name: "me" }, { chatId: "band", name: "Band" }] };
     if (op === "open") {
       const real: Row[] = body.source === "chat" ? [{ id: "h1", who: "Priya", text: "practice thursday?", prod: true }, { id: "h2", who: "Tex", text: "Yes, 7 pm.", prod: true }] : [];
@@ -271,6 +273,21 @@ describe("the Architecture test chat", () => {
     await tick();
     expect(mockCalls.filter((c) => c.op === "open")).toEqual([{ op: "open", body: { source: "chat", chatId: "band", versionId: "main", base: "h2" } }]);
     expect(texts()).toEqual(["practice thursday?"]);
+  });
+
+  test("chats that didn't load say so, and Your account reads them again", async () => {
+    mockChatsFail = true;
+    try {
+      await mount();
+      expect(document.body.textContent).toContain("Your chats didn't load: not_found");
+      mockChatsFail = false;
+      await click("#sbChat");
+      await click('#sbPickTabs [data-tab="test"]');
+      await click('#sbPickTabs [data-tab="mine"]');
+      expect(qa("#sbChatList [data-chat]").map((b) => b.getAttribute("data-chat"))).toEqual(["me", "band"]);
+    } finally {
+      mockChatsFail = false;
+    }
   });
 
   test("going back to a real text opens the chat again up to the text after it", async () => {

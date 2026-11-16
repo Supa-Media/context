@@ -188,8 +188,10 @@ export async function readSandboxChats() {
       .map((c) => ({ chatId: str(c.chatId), name: str(c.name), ...(c.kind === "1:1" || c.kind === "dm" ? { kind: "dm" as const } : c.kind === "group" ? { kind: "group" as const } : {}), ...(num(c.people) != null ? { people: num(c.people)! } : {}) }))
       .filter((c) => c.chatId);
     emit();
-  } catch {
-    /* Maya stays */
+  } catch (e) {
+    // Said, not swallowed: an empty list read as "no chats" hid a gateway route that answered 404 (2026-11-16).
+    sandbox.problem = "Your chats didn't load: " + (e instanceof Error ? e.message : "the test chat didn't answer");
+    emit();
   }
 }
 
@@ -251,7 +253,7 @@ export function takeDraft() {
  * The Testing tab's "Try a text": the chat so far as a test chat on the version picked to run, and one more text from
  * one of its people, run in Tex's gateway on live models. Read only, like every test chat.
  */
-export async function tryText(convId: string, name: string, versionId: string, who: string, text: string, group = false) {
+export async function tryText(convId: string, name: string, versionId: string, who: string, text: string, group = false, pics: string[] = []) {
   let chatId: string | undefined;
   if (group) {
     // A group conversation runs in one of your group chats: its Tex notes read, its history the conversation's.
@@ -267,7 +269,7 @@ export async function tryText(convId: string, name: string, versionId: string, w
   await openSandbox({ kind: "set", convId, name, ...(chatId ? { chatId } : {}) }, versionId);
   if (!sandbox.id) return;
   sandbox.as = sandbox.people.includes(who) ? who : (sandbox.people[0] ?? who);
-  await sendText(text);
+  await sendText(text, { pics });
 }
 
 const asHandle = () => sandbox.handles[sandbox.as] ?? sandbox.as;

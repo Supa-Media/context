@@ -24,7 +24,7 @@ const tool = (answers) => {
 };
 
 test("the guide, the schema's description and its action list name run and runs", () => {
-  for (const action of ["run", "runs"]) {
+  for (const action of ["run", "runs", "run_remove"]) {
     assert.match(guideText(), new RegExp(`- ${action} `));
     const def = texDevToolDefinitions()[0];
     assert.match(def.description, new RegExp(`\\b${action}\\b`));
@@ -86,4 +86,11 @@ test("decideSaid names every labelled field, so a miss on why shows where it dif
   assert.deepEqual(decideSaid({ act: "quiet", why: "thanks_or_ok", also_react: "any" }, verdict), { got: "quiet, why chatter", want: "quiet, why thanks_or_ok" });
   assert.deepEqual(decideSaid({ act: "respond" }, { ok: true, act: "answer" }), { got: "respond", want: "respond" });
   assert.deepEqual(decideSaid({ act: "respond" }, null), { got: "no verdict", want: "respond" });
+});
+
+test("run_remove sends the id and refuses none", async () => {
+  const { calls, call } = tool({ run_remove: { status: "ok" } });
+  assert.equal((await call("run_remove", {})).isError, true);
+  assert.deepEqual(jsonOf(await call("run_remove", { id: "k1" })).removed, "k1");
+  assert.deepEqual(calls, [{ action: "run_remove", args: { id: "k1" } }]);
 });

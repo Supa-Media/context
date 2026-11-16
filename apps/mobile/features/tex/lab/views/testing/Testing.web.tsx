@@ -21,7 +21,7 @@ import { SetsList } from "./SetsList.web";
 import { TESTING_CSS } from "./testingCss";
 import { RunsPanel } from "../runs/Runs.web";
 import { TryPanel } from "./TryText.web";
-import { useRunsUi } from "../../engine/labRuns";
+import { runsUi, setRunsUi, useRunsUi } from "../../engine/labRuns";
 import { useSandboxCall } from "../canvas/sandboxCall";
 
 /** The repo's Training and Dev conversations, as the build carries them. */
@@ -130,6 +130,11 @@ export function Testing() {
   const s = useSets();
   const ui = useRunsUi();
   useSetsSync();
+  // The version picked in the top bar is the one this tab runs and tries texts on.
+  const ver = lab.cur.id;
+  useEffect(() => {
+    if (runsUi.ver !== ver) setRunsUi({ ver });
+  }, [ver]);
   // Try a text runs in the test chat, so the tab reaches the gateway on its own when opened straight from its address.
   useSandboxCall();
   // The chat in the address (`?mode=testing&conv=<id>`) opens once the sets are read; then the address follows you.

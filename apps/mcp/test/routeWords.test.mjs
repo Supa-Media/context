@@ -35,6 +35,10 @@ import { THREADS_BACKFILL_PATH } from "../src/agent/threadsBackfillDoor.js";
 import { WORKSPACE_STORE_PATH } from "../src/workspaceStore/door.js";
 import { IMAGE_UPLOAD_PATH } from "../src/notes/imageUploads.js";
 import { TEX_EVAL_PREFIX } from "../src/http/texTestSet.js";
+import { LAB_SANDBOX_PATH } from "../src/labSandbox/route.js";
+import { MESSAGES_BACKUP_LOG_ROUTE } from "../src/communications/messagesBackupRead.js";
+import { MESSAGES_BACKUP_ROUTE } from "../../../packages/communications/src/backup.js";
+import { NOTE_READ_PATH } from "../src/live/noteReadRoute.js";
 
 /** Every route set `http/route.js` dispatches on by exact path, by name. */
 const ROUTE_SETS = {
@@ -57,6 +61,12 @@ const ROUTE_SETS = {
   WORKSPACE_STORE_PATH: [WORKSPACE_STORE_PATH],
   IMAGE_UPLOAD_PATH: [IMAGE_UPLOAD_PATH],
   TEX_EVAL: [`${TEX_EVAL_PREFIX}counts`],
+  // The Lab's test chats: missing here until 2026-11-16, so `/tex-lab/sandbox` read as a workspace called `tex-lab`
+  // and every call from the Lab answered 404 while tex_dev, which calls the handler directly, worked.
+  LAB_SANDBOX_PATH: [LAB_SANDBOX_PATH],
+  MESSAGES_BACKUP_LOG_ROUTE: [MESSAGES_BACKUP_LOG_ROUTE],
+  MESSAGES_BACKUP_ROUTE: [MESSAGES_BACKUP_ROUTE],
+  NOTE_READ_PATH: [NOTE_READ_PATH],
   // Exact paths `route.js` names inline.
   INLINE: ["/mcp", "/mcp/chatgpt", "/mcp/chatgpt/v2", "/inbox", "/agent", "/agent/try", "/agent/review", "/presence", "/collaboration", "/agent-activity", "/approvals"],
 };
@@ -85,4 +95,13 @@ test("every reserved route word is a name nobody can claim in the control plane"
     if (!listed.has(word)) missing.push(word);
   }
   assert.deepEqual(missing, [], "route words the control plane lets a person claim");
+});
+
+test("every route constant the front door dispatches on is in ROUTE_SETS", () => {
+  // The list above is only a guard if nobody can forget to add to it: each `path === NAME` and `NAME.has(path)` in
+  // `http/route.js` must name a set here (or one built from it).
+  const route = readFileSync(new URL("../src/http/route.js", import.meta.url), "utf8");
+  const named = new Set([...route.matchAll(/path === ([A-Z][A-Z0-9_]+)|([A-Z][A-Z0-9_]+)\.has\(path\)/g)].map((m) => m[1] ?? m[2]));
+  const covered = new Set([...Object.keys(ROUTE_SETS), "TREE_SOCKET_PATH", "ACCESS_SOCKET_PATH", "LIVE_TICKET_PATH"]);
+  assert.deepEqual([...named].filter((n) => !covered.has(n)), [], "route constants with no route set here");
 });
