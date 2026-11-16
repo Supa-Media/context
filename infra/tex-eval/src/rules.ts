@@ -4,8 +4,8 @@
  * tune against it by trying again; a run returns pass or fail and counts by node, never a word.
  */
 
-/** 1 run a commit, 3 a pull request, 10 a day (UTC), across every pull request. */
-export const CAPS = { commit: 1, pr: 3, day: 10 } as const;
+/** 1 run a commit, 3 a pull request, 20 a day (UTC), across every pull request. */
+export const CAPS = { commit: 1, pr: 3, day: 20 } as const;
 /** The largest conversation kept, in bytes of its JSON. */
 export const MAX_CHAT_BYTES = 200_000;
 export const ID = /^[a-z0-9][a-z0-9-]{0,79}$/;

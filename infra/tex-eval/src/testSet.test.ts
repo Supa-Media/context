@@ -35,13 +35,13 @@ describe("the rules", () => {
     expect(problemWith({ ...conv("x"), msgs: [{ id: "m", who: "Sam", text: "x".repeat(250_000) }] })).toMatch(/bytes/);
   });
 
-  it("caps runs at 1 a commit, 3 a pull request, 10 a day, unless a person allowed one more", () => {
-    expect(CAPS).toEqual({ commit: 1, pr: 3, day: 10 });
+  it("caps runs at 1 a commit, 3 a pull request, 20 a day, unless a person allowed one more", () => {
+    expect(CAPS).toEqual({ commit: 1, pr: 3, day: 20 });
     expect(mayRun({ commit: 0, pr: 2, day: 9, allowed: 0 })).toEqual({ ok: true, spendsAllowance: false });
     expect(mayRun({ commit: 1, pr: 1, day: 1, allowed: 0 })).toMatchObject({ ok: false, why: expect.stringMatching(/commit/) });
     expect(mayRun({ commit: 0, pr: 3, day: 1, allowed: 0 })).toMatchObject({ ok: false, why: expect.stringMatching(/pull request/) });
-    expect(mayRun({ commit: 0, pr: 0, day: 10, allowed: 0 })).toMatchObject({ ok: false, why: expect.stringMatching(/today/) });
-    expect(mayRun({ commit: 1, pr: 3, day: 10, allowed: 1 })).toEqual({ ok: true, spendsAllowance: true });
+    expect(mayRun({ commit: 0, pr: 0, day: 20, allowed: 0 })).toMatchObject({ ok: false, why: expect.stringMatching(/today/) });
+    expect(mayRun({ commit: 1, pr: 3, day: 20, allowed: 1 })).toEqual({ ok: true, spendsAllowance: true });
   });
 
   it("passes only when no node gets fewer right than on main, and counts a missing answer as wrong", () => {
@@ -88,7 +88,7 @@ describe("the Test Set object", () => {
     expect(text).not.toContain("Chat lease");
   });
 
-  it("hands a run every conversation once per commit, three per pull request and ten a day", () => {
+  it("hands a run every conversation once per commit, three per pull request and twenty a day", () => {
     const s = set();
     s.put(conv("lease"), "user_1");
     const now = Date.UTC(2026, 10, 15, 12);
@@ -104,9 +104,10 @@ describe("the Test Set object", () => {
     expect(s.allow(7, "user_1")).toEqual({ ok: true, pr: 7, left: 1 });
     expect(s.startRun({ pr: 7, sha: sha("d"), base: sha("f"), ghRun: "5" }, now).ok).toBe(true);
     expect(s.startRun({ pr: 7, sha: sha("e"), base: sha("f"), ghRun: "6" }, now).ok).toBe(false);
-    for (let pr = 8; pr < 14; pr += 1) expect(s.startRun({ pr, sha: (pr.toString(16) + "0".repeat(40)).slice(0, 40), base: sha("f"), ghRun: `p${pr}` }, now).ok).toBe(true);
-    expect(s.startRun({ pr: 20, sha: sha("9"), base: sha("f"), ghRun: "x" }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/today/) });
-    expect(s.startRun({ pr: 20, sha: sha("9"), base: sha("f"), ghRun: "y" }, now + 86_400_000).ok).toBe(true);
+    // PR 7 spent 4 of the day's runs; the rest of the day's cap goes to other pull requests.
+    for (let pr = 8; pr < 4 + CAPS.day; pr += 1) expect(s.startRun({ pr, sha: (pr.toString(16) + "0".repeat(40)).slice(0, 40), base: sha("f"), ghRun: `p${pr}` }, now).ok).toBe(true);
+    expect(s.startRun({ pr: 99, sha: sha("9"), base: sha("f"), ghRun: "x" }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/today/) });
+    expect(s.startRun({ pr: 99, sha: sha("9"), base: sha("f"), ghRun: "y" }, now + 86_400_000).ok).toBe(true);
   });
 
   it("scores a run once, only for the GitHub run that started it, against the tests it was handed", () => {

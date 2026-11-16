@@ -58,7 +58,7 @@ export function verdict(files, statuses, printed = []) {
   if (areas.length === 0) return null;
   const latest = statuses.find((status) => status.context === STATUS);
   if (latest?.state === "success") return null;
-  const how = `This check starts it on main for this pull request (Actions → "Tex test set", ref main, pr = this number); it re-runs this check when it ends. Runs are capped at 1 a commit, 3 a pull request and 10 a day; a person can allow one more in the Lab.`;
+  const how = `This check starts it on main for this pull request (Actions → "Tex test set", ref main, pr = this number); it re-runs this check when it ends. Runs are capped at 1 a commit, 3 a pull request and 20 a day; a person can allow one more in the Lab.`;
   if (!latest) return `This change reaches the model areas ${areas.join(", ")} and has no "${STATUS}" run on its head commit. ${how}`;
   return `"${STATUS}" ${latest.state} on this commit: ${latest.description ?? ""} Its summary says which step got fewer right than main, by count only: tune on the Dev Set (pnpm ai sets run --set dev), fix the cause, push. ${how}`;
 }
