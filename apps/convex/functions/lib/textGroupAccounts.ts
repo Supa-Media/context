@@ -1,24 +1,28 @@
 /**
- * Who a group chat's people are as accounts: a phone linked by code to an account, and that account's handle. Shared
+ * Who a group chat's people are as accounts: a number's account (linked by code or confirmed at sign-in), and its handle. Shared
  * by the chat's turn (`functions/textGroups.ts`) and its home-only grant (`lib/textGroupHomeOnly.ts`), so both read a
  * number the same way: a number whose account has texting paused is no account at all.
  */
 
 import type { Id } from "../../_generated/dataModel";
-import type { MutationCtx } from "../../_generated/server";
+import type { MutationCtx, QueryCtx } from "../../_generated/server";
+import { accountForPhone } from "./identities";
 import { phoneSignInPaused } from "./emailProof";
 import { isPhoneNumber, personalWorkspaceOf } from "../textLinks";
 
-/** The account a phone was linked to by code, unless that account has texting paused. */
-export async function linkedUser(ctx: MutationCtx, phone: string): Promise<Id<"users"> | null> {
+/**
+ * The account a number answers for, with texting not paused: the one lookup every group chat makes (Dev2, 2026-11-16:
+ * "there should only be 1 list, having an account gives you access to Tex"). A number linked by a texted code
+ * (`phoneLinks`) or confirmed at a phone sign-in (`users.phone`) is the same proof that the person holds it, so either
+ * makes them an account in the chat, never a guest (`lib/identities.ts` `accountForPhone`; before this a person who
+ * signed in to the app by phone but never texted Tex counted as a guest, and one guest emptied the chat's reach).
+ */
+export async function linkedUser(ctx: QueryCtx, phone: string): Promise<Id<"users"> | null> {
   if (!isPhoneNumber(phone)) return null;
-  const link = await ctx.db
-    .query("phoneLinks")
-    .withIndex("by_phone", (q) => q.eq("phone", phone))
-    .first();
-  if (link === null) return null;
-  if (await phoneSignInPaused(ctx, link.userId)) return null;
-  return link.userId;
+  const userId = await accountForPhone(ctx, phone);
+  if (userId === null) return null;
+  if (await phoneSignInPaused(ctx, userId)) return null;
+  return userId;
 }
 
 /** A person's handle: their personal workspace's slug, or "" when they have none. */
@@ -44,22 +48,6 @@ export async function nameOf(ctx: MutationCtx, userId: Id<"users">): Promise<str
 export async function chatPerson(ctx: MutationCtx, phone: string, userId: Id<"users">): Promise<{ phone: string; handle: string; name?: string }> {
   const name = await nameOf(ctx, userId);
   return { phone, handle: await handleOf(ctx, userId), ...(name ? { name } : {}) };
-}
-
-/**
- * The account a number holds by its own sign-in, with no Tex link: the light account a guest's texted code makes
- * (`functions/guestPass.ts`). Only one confirmed account carrying the number counts, and not one with texting paused.
- * It is named on a chat's home beside the linked accounts, so a guest who opened the note link keeps their way in.
- */
-export async function phoneAccountOf(ctx: MutationCtx, phone: string): Promise<Id<"users"> | null> {
-  if (!isPhoneNumber(phone)) return null;
-  const rows = await ctx.db
-    .query("users")
-    .withIndex("by_phone", (q) => q.eq("phone", phone))
-    .take(2);
-  if (rows.length !== 1 || rows[0].phoneVerificationTime === undefined) return null;
-  if (await phoneSignInPaused(ctx, rows[0]._id)) return null;
-  return rows[0]._id;
 }
 
 /** Most accounts one number is looked up for: a number is one person's, so more is a sign of something wrong. */

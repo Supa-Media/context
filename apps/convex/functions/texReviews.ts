@@ -20,6 +20,7 @@
  * person who has not said yes keeps the whole chat's words out.
  */
 
+import { accountForPhone } from "./lib/identities";
 import { v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
@@ -290,13 +291,9 @@ export const setTextsReviewSharing = internalMutation({
   },
 });
 
+/** The account a number answers for: one lookup, a texted link or a confirmed sign-in (`lib/identities.ts`). */
 async function linkedUser(ctx: Pick<QueryCtx, "db">, phone: string): Promise<Id<"users"> | null> {
-  if (!isPhoneNumber(phone)) return null;
-  const link = await ctx.db
-    .query("phoneLinks")
-    .withIndex("by_phone", (q) => q.eq("phone", phone))
-    .first();
-  return link?.userId ?? null;
+  return isPhoneNumber(phone) ? await accountForPhone(ctx, phone) : null;
 }
 
 /**

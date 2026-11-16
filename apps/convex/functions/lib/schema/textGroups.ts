@@ -27,10 +27,12 @@ export const textGroupTables = {
     workspaceId: v.optional(v.id("workspaces")),
     /**
      * The chat's reach as of its last turn (`lib/textGroupReach.ts`) and the accounts it was worked out for. A hint to
-     * re-check live, never trusted as it stands: every consumer re-reads each person's membership.
+     * re-check live, never trusted as it stands: every consumer re-reads each person's membership. `reachGuests` are
+     * the numbers in it with no account, each of which must still hold a phone invitation to a workspace in reach.
      */
     reach: v.optional(v.array(v.id("workspaces"))),
     reachPeople: v.optional(v.array(v.id("users"))),
+    reachGuests: v.optional(v.array(v.string())),
     boundBy: v.optional(v.id("users")),
     /**
      * The person who brought Tex into the chat (decided by the owner, 2026-10-31): set once, by the first account

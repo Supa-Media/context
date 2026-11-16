@@ -103,7 +103,7 @@ export async function resolveAddressedUser(
  * verified it at a phone sign-in. Two verified accounts on one number resolve
  * to `null`, like every other ambiguity here.
  */
-export async function accountForPhone(ctx: QueryCtx, phone: string): Promise<Id<"users"> | null> {
+export async function accountForPhone(ctx: Pick<QueryCtx, "db">, phone: string): Promise<Id<"users"> | null> {
   const link = await ctx.db
     .query("phoneLinks")
     .withIndex("by_phone", (q) => q.eq("phone", phone))

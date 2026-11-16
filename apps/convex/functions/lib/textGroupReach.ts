@@ -3,17 +3,20 @@
  * `docs/decisions/texting-assistant/groups.md`, `chat-homes.md`).
  *
  * A chat is not bound to one workspace. Its reach is every SHARED workspace that ALL of its people with accounts are
- * live members of, worked out on the fly, so the chat sees no more than its least-privileged person could. If anyone
- * in the chat has no account (a guest, or a number not linked by code) the reach is empty and the chat has only its
- * home (`lib/textGroupHomeOnly.ts`, `lib/textGroupHome.ts`).
+ * live members of, worked out on the fly, so the chat sees no more than its least-privileged person could. Someone
+ * with no account at all counts in a workspace that invited their number (a pending phone invitation, as "Tex, add
+ * everyone here to @slug" sends, `lib/textGroupInvited.ts`), at that invitation's role, and keeps the chat from every
+ * other one (Dev2, 2026-11-16: "some guests are added to workspaces so the entire premise is wrong"; before this any
+ * guest emptied the reach). Only someone who is neither a member nor invited by number keeps a workspace out. A chat
+ * that reaches none has only its home (`lib/textGroupHomeOnly.ts`, `lib/textGroupHome.ts`).
  *
  * Three rules are enforced here and nowhere else, so a second implementation cannot be laxer:
  *
  *  - A personal workspace is never in reach (it carries its owner's mail, calendar and vault), and neither is the
  *    pinned workspace: a chat's access to that is its home, by the home door, and never as a workspace of its own.
  *  - Reach is a hint taken at the turn (`texGroup.reach`, `textGroups.reach`); what a request is given is
- *    `liveReach`, which re-reads every person's membership of every workspace on every call. Someone removed from a
- *    workspace drops it from the chat's next call. The grant's sponsor (the account that acts, `grant.userId`) must be
+ *    `liveReach`, which re-reads every person's membership, and every guest's invitation, of every workspace on every
+ *    call. Someone removed from a workspace, or an invitation revoked, drops it from the chat's next call. The grant's sponsor (the account that acts, `grant.userId`) must be
  *    a member too, since writes are audited as them.
  *  - Each workspace in reach carries the LOWEST role among the chat's people there, so one member who can only read
  *    makes the whole chat read-only in that workspace. Tier is `team` with no granted names: the grant never holds
@@ -24,6 +27,7 @@ import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import { phoneSignInPaused } from "./emailProof";
 import { pinnedContextWorkspace } from "./pinnedContext";
+import { pendingPhoneInvitation } from "./textGroupInvited";
 import { getMembership, type WorkspaceRole } from "./workspaceAuth";
 
 /** Most workspaces read per person when intersecting; nobody is in this many. */
@@ -89,29 +93,54 @@ async function sharedByAll(ctx: QueryCtx, people: Id<"users">[]): Promise<ReachR
 }
 
 /**
- * A chat's reach at a turn: `people` are the chat's accounts, and `hasGuests` is true when anyone in it has no
- * account. The chat's own pinned workspace is never in it (`chat` is accepted so a caller states whose reach it asks
- * for, and for the audit trail a later change may add).
+ * `rows` kept only where every one of `guests` (numbers with no account) holds a pending phone invitation, each at the
+ * lower of its role and the invitation's: a guest invited as a member makes the chat a member's there.
+ */
+async function invitedByNumber(ctx: QueryCtx, rows: ReachRow[], guests: readonly string[], now: number): Promise<ReachRow[]> {
+  if (guests.length === 0) return rows;
+  const kept: ReachRow[] = [];
+  for (const row of rows) {
+    let role: WorkspaceRole | null = row.role;
+    for (const phone of new Set(guests)) {
+      const invitation = await pendingPhoneInvitation(ctx, row.workspace._id, phone, now);
+      if (invitation === null) {
+        role = null;
+        break;
+      }
+      role = lowest(role, invitation.role);
+    }
+    if (role !== null) kept.push({ workspace: row.workspace, role });
+  }
+  return kept;
+}
+
+/**
+ * A chat's reach at a turn: `people` are the chat's accounts (the sponsor too), and `guests` the numbers in it with no
+ * account, each of which must be invited by number to a workspace for the chat to reach it. The chat's own pinned
+ * workspace is never in it (`chat` is accepted so a caller states whose reach it asks for).
  */
 export async function reachOf(
   ctx: QueryCtx,
   _chat: Doc<"textGroups">,
   people: Id<"users">[],
-  hasGuests = false,
+  guests: readonly string[] = [],
+  now: number = Date.now(),
 ): Promise<ReachRow[]> {
-  if (hasGuests) return [];
-  return await sharedByAll(ctx, [...new Set(people)]);
+  return await invitedByNumber(ctx, await sharedByAll(ctx, [...new Set(people)]), guests, now);
 }
 
 /**
  * What a request is given of a stored reach: each workspace of `reach` that every one of `people` and `sponsor` is
- * still a live member of, at the lowest role among them. Re-read on every call, never frozen.
+ * still a live member of, and every one of `guests` still holds a pending phone invitation to, at the lowest role
+ * among them. Re-read on every call, never frozen.
  */
 export async function liveReach(
   ctx: QueryCtx,
   reach: Id<"workspaces">[] | undefined,
   people: Id<"users">[] | undefined,
   sponsor: Id<"users"> | null,
+  guests: readonly string[] = [],
+  now: number = Date.now(),
 ): Promise<ReachRow[]> {
   if (reach === undefined || reach.length === 0 || people === undefined || people.length === 0) return [];
   const who = [...new Set(sponsor === null ? people : [...people, sponsor])];
@@ -132,7 +161,7 @@ export async function liveReach(
     }
     if (role !== null) rows.push({ workspace, role });
   }
-  return rows.sort(bySlug);
+  return (await invitedByNumber(ctx, rows, guests, now)).sort(bySlug);
 }
 
 /**
@@ -143,7 +172,7 @@ export async function liveReach(
  */
 export async function chatWorkspace(ctx: QueryCtx, chat: Doc<"textGroups">): Promise<Doc<"workspaces"> | null> {
   if (chat.reach !== undefined) {
-    const live = await liveReach(ctx, chat.reach, chat.reachPeople, chat.sponsorId ?? null);
+    const live = await liveReach(ctx, chat.reach, chat.reachPeople, chat.sponsorId ?? null, chat.reachGuests ?? []);
     const bound = live.find((row) => row.workspace._id === chat.workspaceId);
     return (bound ?? live[0])?.workspace ?? null;
   }
@@ -155,7 +184,7 @@ export async function chatWorkspace(ctx: QueryCtx, chat: Doc<"textGroups">): Pro
 /** Whether `workspaceId` is one a chat reaches now (`chatWorkspace`'s rule, for a named workspace). */
 export async function chatReaches(ctx: QueryCtx, chat: Doc<"textGroups">, workspaceId: Id<"workspaces">): Promise<boolean> {
   if (chat.reach !== undefined) {
-    return (await liveReach(ctx, chat.reach, chat.reachPeople, chat.sponsorId ?? null)).some((row) => row.workspace._id === workspaceId);
+    return (await liveReach(ctx, chat.reach, chat.reachPeople, chat.sponsorId ?? null, chat.reachGuests ?? [])).some((row) => row.workspace._id === workspaceId);
   }
   return chat.workspaceId === workspaceId;
 }

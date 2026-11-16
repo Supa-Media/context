@@ -543,7 +543,7 @@ The person who brought Tex into a chat is its sponsor: the first account holder 
 
 Decided by the owner in the Tex Devs meeting of 2026-10-30 and the day after: a group chat is not tied to one workspace. Binding a chat to "the one workspace" (above) made it pick, made the pick stale the moment people joined or left, and left everything in the other workspaces its people share out of reach.
 
-- **Reach is worked out on the fly.** The chat reaches every *shared* workspace that all of its people with accounts are live members of (`lib/textGroupReach.ts`, `reachOf`). It is never a personal workspace, never the pinned workspace (`@context-lc`: a chat's access to that is its home), and **empty when anyone in the chat has no account** (a guest, a number not linked by code, or texting paused). A chat with no reach has its home alone, as in [chat-homes](./chat-homes.md#chats-with-people-who-arent-all-here-2026-10-31).
+- **Reach is worked out on the fly.** The chat reaches every *shared* workspace that all of its people with accounts are live members of (`lib/textGroupReach.ts`, `reachOf`). It is never a personal workspace, never the pinned workspace (`@context-lc`: a chat's access to that is its home), and **empty when anyone in the chat has no account** (a guest, a number not linked by code, or texting paused). *Superseded in part (Dev2, 2026-11-16, [below](#one-list-of-numbers-and-reach-by-membership-dev2-2026-11-16)): a number confirmed at the app's phone sign-in is an account too, and someone with no account keeps out only the workspaces their number isn't invited to.* A chat with no reach has its home alone, as in [chat-homes](./chat-homes.md#chats-with-people-who-arent-all-here-2026-10-31).
 - **The grant is the home's, with the reach beside it.** It is minted on the pinned workspace for the chat's sponsor (the E1 home-only grant) and carries `texGroup.reach` and `texGroup.reachPeople`, recomputed on every turn. `contextsForGrant` returns the home row, then one row per workspace in reach: `team` tier, no granted names, never `context:private`, held at the **lowest role among the chat's people there**, so one viewer in the chat makes the whole chat read-only in that workspace and no other.
 - **Re-checked on every request, per person, per workspace.** What a request is given is `liveReach`, not the stored list: each workspace in the list is kept only while every person in the chat, and the sponsor who acts (writes are audited as them), is still a member of it and has not paused texting. Someone removed from a workspace drops it from the chat's next call, mid-turn included; the grant itself lives on with the rest. A stored list that names a personal workspace, the pin, or a workspace nobody in the chat is in serves none of them.
 - **Tool calls name a workspace with `context: "@slug"`, as for any multi-workspace grant.** A call with none reaches the chat's home. The gateway adds no rule of its own: the session lists only the grant's rows, so a `context` naming anything else is refused as a workspace that does not exist is (`session.js` `sessionForContext`). The prompt names the reach from the session, never from the Worker's body (`agent/groupTurn.js` `reachOf`).
@@ -571,7 +571,7 @@ What a simplification would cost: gating on typed words alone drops every voice 
 
 ## A chat that misses a workspace is told who keeps it out (Dev2, 2026-11-16)
 
-A chat's reach stays exactly as decided on 2026-10-31: a shared workspace every person and the sponsor are members of,
+A chat's reach stayed as decided on 2026-10-31 (since changed: [one list of numbers](#one-list-of-numbers-and-reach-by-membership-dev2-2026-11-16)): a shared workspace every person and the sponsor are members of,
 and none when anyone has no linked account. What changed is that nobody could tell why a workspace had gone. A chat
 lost its shared workspace overnight when someone joined who wasn't a member, and Tex could only say "this chat can't
 see it" and send people to the app, then refused to invite the newcomer because its invite tool reads a workspace the
@@ -587,3 +587,32 @@ not in it yet (Dev2's pick over a single-person invite from a chat that reaches 
 Why it names no more: a workspace is named only when the asker is a member, so it is theirs to name, and a non-member
 learns a slug, which is how sharing is addressed anyway. A workspace only the sponsor is in is never named; a guest who
 asks names nothing. Tests: `apps/convex/__tests__/textGroupBlockers.test.ts`, `apps/mcp/test/chatBlockers.test.mjs`.
+
+## One list of numbers, and reach by membership (Dev2, 2026-11-16)
+
+Sayo's chat could not see @v2l though everyone in it was on @v2l's sharing page, and orient on @v2l failed for its turn.
+The cause: the group code looked a number up in `phoneLinks` only (a code texted to Tex), while the app's phone sign-in
+confirms the number on the account (`users.phone`). Someone who signed in to the app by phone and never texted Tex was
+a guest in every group chat, and one guest emptied the chat's reach. Dev2: "there should only be 1 list, having an
+account gives you access to Tex, there is no separation", and "some guests are added to workspaces so the entire premise
+is wrong".
+
+- **One lookup.** A group chat finds a number's account by `accountForPhone` (`lib/identities.ts`): its texted link, else
+  the one account that confirmed it at sign-in, and not one with texting paused (`lib/textGroupAccounts.ts`
+  `linkedUser`). Both are proof the person holds the number, so either makes them a person in the chat. The 1:1 style and
+  review lookups use the same one. A light account a guest's note link made (`guestPass.ts`) is a person too; one with no
+  handle yet is still told to the turn by its label.
+- **Reach by membership.** A chat reaches every shared workspace all its account holders and the sponsor are members of
+  **and every person with no account holds a pending phone invitation to** (`lib/textGroupReach.ts` `invitedByNumber`),
+  at the lowest of their roles and the invitations' roles. Only someone who is neither a member nor invited by number
+  keeps a workspace out, and only that one. The numbers are kept beside the reach (`textGroups.reachGuests`,
+  `texGroup.reachGuests`) so `liveReach` re-checks each invitation on every request: revoking one in Members drops the
+  workspace from the chat's next call.
+- **Blockers follow.** `reachBlockers` names a person with no account only for a workspace that hasn't invited their
+  number, and an account holder with no handle by their label.
+
+What a simplification would cost: going back to `phoneLinks` alone makes app sign-ins guests again; letting a guest count
+without an invitation hands a workspace to a stranger's number; storing the reach without the numbers keeps a revoked
+invitation's workspace open. Not done: the two tables are still two (`phoneLinks`, `users.phone`); every group reader goes
+through the one lookup, and the app's own sign-in keeps its order (`phoneSignIn.ts` `phoneHolder`). Tests:
+`apps/convex/__tests__/textGroupReachOneList.test.ts`, `textGroupReach.test.ts`, `textGroupBlockers.test.ts`.
