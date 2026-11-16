@@ -110,9 +110,10 @@ export function systemText(system) {
  * time, the model). The advisor reads the parts, so the person is never cut off behind the texting rules
  * (the context review, 2026-11-06: a 40,000-character cut ended inside the rules, before about.md).
  */
-export function liveTurn(prompt, messages) {
+export function liveTurn(prompt, messages, tools = []) {
   const about = typeof prompt?.system === "object" && typeof prompt.system?.context === "string" ? prompt.system.context : "";
-  return { system: systemText(prompt?.system), about, now: typeof prompt?.preamble === "string" ? prompt.preamble : "", messages };
+  // `tools`: what the model was offered, so a check advises only those (`advisorToolList.js`).
+  return { system: systemText(prompt?.system), about, now: typeof prompt?.preamble === "string" ? prompt.preamble : "", messages, tools };
 }
 
 /**

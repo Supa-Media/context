@@ -32,6 +32,7 @@ import { withoutTag } from "./promptFence.js";
 import { adviseOnce, advisorRequest, advisorThinking } from "./advisorRoles/core.js";
 import { ADVISOR_PROMPT } from "./advisorRoles/chat.js";
 import { TEX_CONFIG, texTimeoutMs } from "./texConfig.js";
+import { toolList } from "./advisorToolList.js";
 
 // Its instructions live in `advisorRoles/chat.js`, beside the other roles' (`advisorRoles/core.js`).
 export { ADVISOR_PROMPT, advisorRequest, advisorThinking };
@@ -134,7 +135,7 @@ export function advisorTools({ model, effort, history, question, request, meter 
 
 /**
  * The whole turn, as one text the advisor reads: Tex's instructions, its
- * tools by name, then every message in order, tool calls and results
+ * tools with what each takes, then every message in order, tool calls and results
  * included. A long turn keeps its newest part.
  */
 export function advisorBrief(live, transcript) {
@@ -154,13 +155,14 @@ export function advisorBrief(live, transcript) {
 }
 
 function briefOf(head, live, transcript) {
-  const tools = (Array.isArray(live?.tools) ? live.tools : []).map((tool) => tool?.name).filter((name) => typeof name === "string" && name !== ADVISOR_TOOL);
+  // Each tool with what it takes, never its name alone (`advisorToolList.js`): from names, it advised arguments no tool has (2026-11-16).
+  const tools = quoted(toolList(live?.tools, { skip: [ADVISOR_TOOL] }));
   const lines = transcript.map(messageLine).filter(Boolean);
   let body = lines.join("\n\n");
   if (body.length > MAX_TRANSCRIPT_CHARS) body = `(earlier part of the turn left out)\n\n${body.slice(-MAX_TRANSCRIPT_CHARS)}`;
   return (
     head +
-    (tools.length > 0 ? `<tex_tools>${tools.join(", ")}</tex_tools>\n\n` : "") +
+    (tools ? `<tex_tools>\n${tools}\n</tex_tools>\n\n` : "") +
     `<transcript>\n${body || "(nothing yet)"}\n</transcript>\n\nTex has paused here to ask your advice.`
   );
 }

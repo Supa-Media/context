@@ -66,11 +66,78 @@
       "id": "failed-booking-not-done",
       "about": "Name: Dele Adeyemi.",
       "tools": [
-        "search",
-        "fetch",
-        "write",
-        "send",
-        "browse"
+        {
+          "name": "search",
+          "description": "Search their notes; args { email: true } searches their email.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "args": {
+                "type": "object",
+                "description": "Optional. email: true searches their email."
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        },
+        {
+          "name": "fetch",
+          "description": "Fetch one note in full, by the id a search result returned.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "A note path or search result id."
+              },
+              "args": {
+                "type": "object",
+                "description": "Optional. e.g. mail, transcript, image, lists, limit."
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "name": "write",
+          "description": "Add to or change the person's notes.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "name": "send",
+          "description": "Do something outside Context: call send with an action and its args.\n\nYour actions:\n- browse: Drive a browser step by step. args: steps*: object[]\n- progress: Text the person a short line while you work. args: text*: string",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "args": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          }
+        }
       ],
       "q": "book Luca's for 4 on friday at 7",
       "did": [
@@ -94,7 +161,12 @@
         "(not (been )?booked|isn'?t booked|wasn'?t booked|didn'?t (go through|book)|unavailable|no longer available|not available|5:30|9:15)"
       ],
       "expect": "catch that the 7 pm table was not booked",
-      "fakeSays": "It was not booked: 7 pm is no longer available. Offer 5:30 or 9:15."
+      "fakeSays": "It was not booked: 7 pm is no longer available. Offer 5:30 or 9:15.",
+      "never": [
+        "read_back",
+        "\\bbook_table\\b"
+      ],
+      "fixed": "2026-11-16: the advisor is shown each tool with what it takes, and must name only those (it had advised a tool and an argument the turn lacked)"
     }
   ]
 }

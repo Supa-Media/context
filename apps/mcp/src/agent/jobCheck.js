@@ -32,6 +32,7 @@ import { adviseOnce, advisorThinking } from "./advisorRoles/core.js";
 import { JOB_CHECK_PROMPT } from "./advisorRoles/jobCheck.js";
 import { ADVISOR_KNOWS_MAIL } from "./advisorRoles/knowsMail.js";
 import { withoutTag } from "./promptFence.js";
+import { toolList } from "./advisorToolList.js";
 
 // Its instructions live in `advisorRoles/jobCheck.js`, beside the other roles' (`advisorRoles/core.js`).
 export { ADVISOR_KNOWS_MAIL, JOB_CHECK_PROMPT };
@@ -40,7 +41,7 @@ export const VERDICTS = ["done", "keep_going", "waiting", "stuck"];
 const MAX_ADVICE = 600;
 const MAX_TRANSCRIPT_CHARS = 120_000;
 const MAX_RESULT_CHARS = 8_000;
-const TAGS = ["job", "tex_instructions", "transcript", "their_ask", "their_texts", "job_note_mail"];
+const TAGS = ["job", "tex_instructions", "tex_tools", "transcript", "their_ask", "their_texts", "job_note_mail"];
 
 
 
@@ -60,8 +61,10 @@ function line(message) {
   return [said ? `${message.role === "assistant" ? "Tex" : "Them"}: ${quoted(said)}` : "", calls].filter(Boolean).join("\n");
 }
 
-/** What the advisor reads: the job, their texts about it, and the whole part. */
-export function jobCheckBrief({ job, messages, answer, exhausted }) {
+/** What the advisor reads: the job, their texts about it, the tools the part had, and the whole part. */
+export function jobCheckBrief({ job, messages, answer, exhausted, tools = [] }) {
+  // What the part could call, with what each takes (`advisorToolList.js`), so its advice names only those (2026-11-16).
+  const offered = quoted(toolList(tools, { skip: ["ask_advisor"] }));
   let body = (Array.isArray(messages) ? messages : []).map(line).filter(Boolean).join("\n\n");
   if (body.length > MAX_TRANSCRIPT_CHARS) body = `(earlier part left out)\n\n${body.slice(-MAX_TRANSCRIPT_CHARS)}`;
   const followUps = (job.followUps ?? []).map((text) => `- ${quoted(text)}`).join("\n");
@@ -74,6 +77,7 @@ export function jobCheckBrief({ job, messages, answer, exhausted }) {
     // Their own words that started it, so the check reads the whole ask, not the brief's paraphrase (`openAsk.js`; Nov Babies, 2026-11-11).
     (asked ? `<their_ask>\n${asked}\n</their_ask>\n\n` : "") +
     (followUps ? `<their_texts>\n${followUps}\n</their_texts>\n\n` : "") +
+    (offered ? `<tex_tools>\n${offered}\n</tex_tools>\n\n` : "") +
     `<transcript>\n${body || "(nothing)"}\n\nTex's last words: ${quoted(answer) || "(none)"}${exhausted ? "\n(It ran out of steps in this part.)" : ""}\n</transcript>\n\n` +
     "Is the job finished?"
   );
@@ -97,7 +101,7 @@ export async function checkJob({ job, live, answer, exhausted = false, model, ef
   let reply;
   try {
     // Its thinking comes back in words, for the chat's history only (`workEntries.js` `jobChecked`).
-    reply = await adviseOnce({ request, model, effort, prompt: JOB_CHECK_PROMPT, role: "jobCheck", brief: jobCheckBrief({ job, messages: live?.messages, answer, exhausted }) });
+    reply = await adviseOnce({ request, model, effort, prompt: JOB_CHECK_PROMPT, role: "jobCheck", brief: jobCheckBrief({ job, messages: live?.messages, answer, exhausted, tools: live?.tools }) });
   } catch {
     await meter(null, true, model, false);
     return null;
