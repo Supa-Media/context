@@ -311,7 +311,22 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     if (answer.error) return answer;
     // The test chat has no Lab Replay link of its own; its run is read here and in the Lab's sandbox dock.
     const { link: _link, ...rest } = answer;
-    return { sandboxId: args.sandboxId, msgId: args.msgId, ...rest };
+    if (typeof args.node !== "string") return { sandboxId: args.sandboxId, msgId: args.msgId, ...rest };
+    // One step asked for: its own entries, not the whole turn's (a model reading one step needs only that step).
+    const own = (e) => e.name === args.node || (args.node === "fd" && (e.kind === "thinking" || e.kind === "tool" || e.kind === "judge"));
+    const { timing: _t, ...summary } = rest.summary ?? {};
+    return {
+      sandboxId: args.sandboxId,
+      msgId: args.msgId,
+      turn: rest.turn,
+      node: args.node,
+      real: rest.real ? { waitedMs: rest.real.waitedMs, nodes: rest.real.nodes.filter((n) => n.node === args.node) } : null,
+      io: rest.io,
+      order: (rest.order ?? []).filter(own),
+      summary: { ms: summary.ms, model: summary.model, version: summary.version, failed: (summary.failed ?? []).filter((f) => String(f.what).includes(args.node)) },
+      ...(args.node === "fd" ? { prompt: rest.prompt } : {}),
+      more: "step without node gives the whole turn in order",
+    };
   }
 
   /** `open`: a test chat, answered with its last rows only. */

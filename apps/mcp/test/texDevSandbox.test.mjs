@@ -190,6 +190,9 @@ test("a step is read whole through the test chat's own history, with Replay's re
   assert.deepEqual(Object.keys(one.io), ["fd"]);
   assert.ok(one.order.some((e) => e.kind === "thinking" && /calendar/.test(e.text)), "its thinking is there");
   assert.equal(one.link, undefined, "no Replay link to a real chat for a test chat");
+  assert.ok(one.order.every((e) => e.name === "fd" || e.kind === "thinking" || e.kind === "tool" || e.kind === "judge"), "one step asked for answers only its own entries");
+  const whole = await sandbox({ op: "step", sandboxId: SB, msgId: "t1" });
+  assert.ok(whole.order.some((e) => e.kind === "reply"), "without node, the whole turn in order");
   assert.ok(r.calls.filter((c) => c.op === "read").length > 0 && !realLedgerRead, "read only through the test chat's own route");
 });
 
