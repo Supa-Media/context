@@ -62,7 +62,7 @@ export function AccountSafetyCard({
         Signed in
       </Text>
       <Text variant="rowSub" style={styles.sub}>
-        Every device signed in to your account. Signing other devices out needs a code from your email.
+        Every device signed in to your account. Signing devices out needs a code from your email.
       </Text>
       <Card>
         {sessions === undefined ? (
