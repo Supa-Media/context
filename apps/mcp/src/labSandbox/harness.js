@@ -74,6 +74,7 @@ export function sandboxGate(stub, about, rowId, { config = null } = {}) {
   const ours = (obj) => typeof obj === "string" && typeof about?.owner === "string" && obj.endsWith(`#${about.owner}`);
   const ops = new Set();
   let lastNode = null;
+  const done = [];
   return {
     config,
     ops,
@@ -100,10 +101,12 @@ export function sandboxGate(stub, about, rowId, { config = null } = {}) {
         append: (entries) => call("ledger.append", { entries, by: rowId }),
       };
     },
+    /** Each node as it finishes: the Lab's running row gets it at once, with what it gave, not when the turn ends. */
     onNode(run) {
-      if (typeof run?.node !== "string" || run.node === lastNode) return;
+      if (typeof run?.node !== "string") return;
+      done.push({ node: run.node, out: outOf(run.output), ms: Number.isFinite(run.ms) ? run.ms : 0, ok: run.ok !== false });
       lastNode = run.node;
-      later(call("meta", { key: "running", value: { msgId: rowId, node: run.node, at: Date.now() } }));
+      later(call("meta", { key: "running", value: { msgId: rowId, node: lastNode, at: Date.now(), steps: done.slice() } }));
     },
     flush: () => Promise.allSettled(pending.splice(0)),
   };
