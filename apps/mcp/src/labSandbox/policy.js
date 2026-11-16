@@ -165,6 +165,12 @@ export function toolAnswer(name, args, gate) {
   return { content: [{ type: "text", text: "Done. (A Lab test chat: this was recorded, and nothing was changed or sent.)" }] };
 }
 
+/** `toolAnswer` for a turn's env: null on every real turn, whose env carries no gate (`agent/turn.js`). */
+export function sandboxedTool(env, call) {
+  const gate = sandboxGateOf(env);
+  return gate === null ? null : toolAnswer(call?.name, call?.args, gate);
+}
+
 /** Bindings a test turn is given as they are: the model, pictures, the deploy's version. */
 const PASSED_BINDINGS = new Set(["AI", "IMAGES", "CF_VERSION_METADATA"]);
 /** Analytics datasets: given as writers that keep nothing, so a test turn never counts in production's numbers. */
