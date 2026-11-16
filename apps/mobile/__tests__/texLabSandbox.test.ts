@@ -71,6 +71,8 @@ jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
   return { useSandboxCall: () => true };
 });
 
+// Each step renders the whole Lab with its canvas: ~3 s here, past 5 s on a loaded CI runner.
+jest.setTimeout(20_000);
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
 (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = (f: () => void) => setTimeout(f, 0);
