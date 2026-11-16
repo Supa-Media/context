@@ -142,12 +142,39 @@ describe("PhotonEvents.event: outcomes", () => {
     expect(routed).toEqual([]);
   });
 
-  it("resolves 200 and routes nothing for a read receipt that names no message, or an edit or unsend", async () => {
+  it("resolves 200 and routes nothing for a read receipt that names no message", async () => {
     const { env: e, routed } = env();
     expect(await entrypoint(e).event(event({ type: "message.read", message: undefined }))).toEqual({ status: 200 });
-    expect(await entrypoint(e).event(event({ type: "message.unsent", unsent: { targetGuid: "m" } }))).toEqual({ status: 200 });
-    expect(await entrypoint(e).event(event({ type: "message.edited", message: { guid: "m", text: "new", service: "iMessage" }, edited: { targetGuid: "m" } }))).toEqual({ status: 200 });
     expect(routed).toEqual([]);
+  });
+
+  it("routes an unsend to the sender's chat's edit step, with no words", async () => {
+    const { env: e, routed } = env();
+    expect(await entrypoint(e).event(event({ eventId: "photon:message.unsent:m:9", type: "message.unsent", message: undefined, unsent: { targetGuid: "m" } }))).toEqual({ status: 200 });
+    expect(routed).toHaveLength(1);
+    expect(routed[0]).toMatchObject({ to: PHONE, path: "/edit", body: { kind: "unsent", messageId: "m", chatId: photonChatId(LINE, PHONE) } });
+    expect(routed[0].body).not.toHaveProperty("text");
+  });
+
+  it("routes an edit to the sender's chat's edit step, with its new words, its old ones and Apple's time", async () => {
+    const { env: e, routed } = env();
+    const edit = event({ eventId: "photon:message.edited:m:7", type: "message.edited", message: { guid: "m", text: "dinner at 7 not 6", service: "iMessage" }, edited: { targetGuid: "m", previousText: "dinner at 6" } });
+    expect(await entrypoint(e).event(edit)).toEqual({ status: 200 });
+    expect(routed).toHaveLength(1);
+    expect(routed[0]).toMatchObject({ to: PHONE, path: "/edit", body: { kind: "edited", chatId: photonChatId(LINE, PHONE), messageId: "m", text: "dinner at 7 not 6", previous: "dinner at 6", provider: { name: "photon" } } });
+  });
+
+  it("routes a group's edit to the group's own object, never a sender's", async () => {
+    const { env: e, routed } = env();
+    const edit = event({ eventId: "photon:message.edited:g-1:8", type: "message.edited", chat: { guid: GUID, kind: "group", participants: [PHONE, OTHER] }, from: OTHER, message: { guid: "g-1", text: "friday works", service: "iMessage" }, edited: { targetGuid: "g-1" } });
+    expect(await entrypoint(e).event(edit)).toEqual({ status: 200 });
+    expect(routed.map((r) => [r.to, r.path])).toEqual([[groupInboxName(photonGroupId(GUID)), "/edit"]]);
+    expect(routed[0].body).toMatchObject({ groupId: photonGroupId(GUID), from: OTHER, text: "friday works" });
+  });
+
+  it("asks the bridge to send an edit again when its chat could not take it", async () => {
+    const { env: e } = env({}, { status: 503 });
+    expect(await entrypoint(e).event(event({ type: "message.edited", message: { guid: "m", text: "new", service: "iMessage" }, edited: { targetGuid: "m" } }))).toEqual({ status: 503 });
   });
 
   it("routes a tapback to the sender's inbox, carrying Tex's words it was on", async () => {

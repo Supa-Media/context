@@ -24,7 +24,7 @@ import type { Decision, DecideAsk } from "./decide";
 import type { InboxStorage } from "./inbox";
 import type { ProviderArrival, ProviderSend } from "./providerTiming";
 
-export type StepName = "triage" | "decide" | "react" | "text" | "send" | "oldLine" | "moveChat";
+export type StepName = "triage" | "decide" | "react" | "text" | "send" | "oldLine" | "moveChat" | "edit";
 /** One step as the gateway takes it (`apps/mcp/src/agent/log.js` `checkStep`). */
 export type StepRecord = {
   name: StepName;
@@ -78,7 +78,7 @@ export function decideStep(ask: Pick<DecideAsk, "style" | "candidates" | "newest
  * came, the lag between, any status or error it gave, and what the chat's queue did with it (Dev2, 2026-11-14). `ms`
  * is the provider's lag, so a slow provider shows as a slow step.
  */
-export function textStep(ev: string | undefined, kind: "one" | "group" | "react", provider: ProviderArrival, outcome: string, queuedAt: number): StepRecord {
+export function textStep(ev: string | undefined, kind: "one" | "group" | "react" | "edit", provider: ProviderArrival, outcome: string, queuedAt: number): StepRecord {
   const ok = provider.error === undefined;
   return {
     name: "text",

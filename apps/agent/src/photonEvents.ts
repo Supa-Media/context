@@ -3,7 +3,7 @@
  * `PhotonEvent` per call. No URL reaches it and no secret is read here, so nothing on the public address can send an
  * event: the binding is the trust, as it is for `TexRoutines` (`texRoutineDue.ts`).
  *
- * Answers: 200 once the event is queued, a duplicate, ignored, or an edit or unsend (counted only); 400 for an event
+ * Answers: 200 once the event is queued (an edit or an unsend, to its chat's `edit` step), a duplicate, or ignored; 400 for an event
  * that cannot be read (the bridge drops it); 503 when the chat's queue could not take it (the bridge retries).
  *
  * A picture's address is signed under this Worker's own public origin, `AGENT_ORIGIN`, which the deploy works out
@@ -22,7 +22,7 @@ import { photonAttachmentUrl, photonGroupGuid } from "./photon";
 import { photonGroupMembers } from "./photonClient";
 import { arrivalOf } from "./providerTiming";
 import { photonSendStatusOf } from "./photonSendStatus";
-import { parsePhotonEvent, photonAttachmentGuids } from "./photonInbound";
+import { parsePhotonEvent, photonAttachmentGuids, type PhotonEdit } from "./photonInbound";
 import { sendGroupName } from "./sendblueGroups";
 import { workerOrigin } from "./media";
 
@@ -74,14 +74,12 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     log("ignored", parsed.reason);
     return 200;
   }
-  // An edit or an unsend is counted only: the ledger write waits for the integration phase (plan.md).
-  if (parsed.kind === "edited" || parsed.kind === "unsent") {
-    console.log(JSON.stringify({ event: "photon_side", kind: parsed.kind, outcome: "not_recorded" }));
-    return 200;
-  }
   const known = origin ?? undefined;
   // Apple's own time for the event (the bridge's `at`), for the chat's `text` step to show the provider's lag (`providerTiming.ts`).
   const provider = arrivalOf("photon", (body as { at?: unknown }).at, Date.now());
+  // An edit or an unsend goes to its chat's `edit` step (node "edit", `editStep.ts`): kept beside the text it changes; an
+  // edit that changed what they said takes a turn, and an unsent text still waiting is taken back out of the queue.
+  if (parsed.kind === "edited" || parsed.kind === "unsent") return await photonEdit(env, parsed, provider);
   if (parsed.kind === "group-message") {
     // A group staff moved here from the old number is still that group (`groupMoves.ts`): filed under its old id and line.
     const chat = photonGroupGuid(parsed.groupId);
@@ -113,6 +111,20 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
   const result =
     (await toChat(env, "one", parsed.from, brought, known)) ??
     (await inboxByName(env.SENDER_INBOX, parsed.from).fetch(`https://inbox/accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(brought) }));
+  return result.ok ? 200 : 503;
+}
+
+/** An edit or an unsend, to its chat's object: a group's, filed under its old id when staff moved it here (`groupMoves.ts`), or the sender's. */
+async function photonEdit(env: Env, edit: PhotonEdit, provider: unknown): Promise<number> {
+  let brought: PhotonEdit & { provider?: unknown } = { ...edit, provider };
+  let name = edit.from;
+  if (edit.groupId !== undefined) {
+    const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: edit.groupId, photonLine: edit.line, from: edit.from, participants: edit.participants ?? [edit.from] });
+    if (arrival.from !== null) brought = asOldGroup({ ...brought, groupId: edit.groupId, participants: edit.participants ?? [edit.from] }, arrival.from);
+    name = groupInboxName(brought.groupId ?? edit.groupId);
+  }
+  const result = (await toChat(env, "edit", name, brought)) ?? (await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/edit", { method: "POST", body: JSON.stringify(brought) }));
+  log("accepted", `${edit.groupId !== undefined ? "group_" : ""}${edit.kind === "unsent" ? "unsend" : "edit"}`);
   return result.ok ? 200 : 503;
 }
 

@@ -58,7 +58,7 @@ export function landings(events) {
     landed.set(id, row);
   };
   events.forEach((event, index) => {
-    if (typeof event.replyTo === "string" && event.kind !== "reaction") bump(event.replyTo, "replies");
+    if (typeof event.replyTo === "string" && event.kind !== "reaction" && event.edited !== true && event.unsent !== true) bump(event.replyTo, "replies");
     if (event.kind !== "reaction" || typeof event.text !== "string") return;
     const quoted = squash(event.text.match(QUOTED)?.[1] ?? "").replace(/[”"]$/, "").replace(/(…|\.\.\.)$/, "").trim();
     if (quoted.length < 3) return;

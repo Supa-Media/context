@@ -9,7 +9,11 @@ import { jobRoute } from "./jobRoutes";
 import { jobStub } from "./jobPlace";
 import { logged } from "./agentError";
 import { type Inbound } from "./inbound";
-import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
+import { accept, carryOnAfterSave, drain, keepEdit, react, type InboxDeps } from "./inbox";
+import { editChat, editedGroupMessage, editedText, editStep, type EditOutcome } from "./editStep";
+import { GROUP_QUEUE, TEXTS_QUEUE, withdrawItem, type ChatQueue } from "./chatQueue";
+import { runningTurn } from "./steer";
+import type { PhotonEdit } from "./photonInbound";
 import { oldLineStep } from "./oldLineStep";
 import { movePerson, noteMoved, type MoveBody } from "./moveChats";
 import { groupMovedTo, moveGroup, serveGroupMoves, type GroupMoveBody } from "./groupMoves";
@@ -28,7 +32,7 @@ import { sendblueKeys } from "./sendblue";
 import { noteSendStatus, resendPlain, type SendStatus } from "./sendblueStatus";
 import { type GroupMessage } from "./sendblueGroups";
 import { heardInGroup } from "./groupVoice";
-import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup } from "./groupInbox";
+import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, keepGroupEdit } from "./groupInbox";
 import { membersChanged } from "./groupMembers";
 import { flushWithReader } from "./chatRead";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
@@ -165,8 +169,8 @@ export class SenderInbox implements DurableObject {
     if (path === "/group-accept") {
       await this.keepOrigin(request);
       // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
-      // Nor its `heard`: only this object sets that, from the recording itself (`groupVoice.ts`).
-      const { routine: _routine, heard: _heard, provider: brought, ...sent } = (await request.json()) as GroupMessage & { provider?: unknown };
+      // Nor its `heard`: only this object sets that, from the recording itself (`groupVoice.ts`); nor `edited` (`editStep.ts`).
+      const { routine: _routine, heard: _heard, edited: _edited, provider: brought, ...sent } = (await request.json()) as GroupMessage & { provider?: unknown };
       await this.keepWhere(sent);
       const message = await heardInGroup(sent, { fetch: this.out, gateway: this.env.GATEWAY_TEXTS });
       const outcome = await acceptGroup(this.state.storage, message, Date.now());
@@ -228,6 +232,18 @@ export class SenderInbox implements DurableObject {
       // The Worker's line (`lineCalls.ts`) asks this object to host a picture its line sends; the same call `deps()` makes.
       return Response.json({ url: await this.hostPictureHere((await request.json()) as Picture) });
     }
+    // Node "edit": someone edited or unsent a text they sent (`editStep.ts`); kept beside it, a turn when an edit changed it.
+    if (path === "/edit") {
+      const { provider: brought, ...edit } = (await request.json()) as PhotonEdit & { provider?: unknown };
+      const words = edit.kind === "edited" ? typeof edit.text === "string" && edit.text !== "" : edit.kind === "unsent" && edit.text === undefined;
+      const one = typeof edit.chatId === "string" && edit.chatId !== "" && edit.groupId === undefined;
+      const group = typeof edit.groupId === "string" && edit.groupId !== "" && edit.chatId === undefined && typeof edit.line === "string";
+      if (!words || !(one || group) || typeof edit.messageId !== "string" || typeof edit.eventId !== "string" || typeof edit.from !== "string") return new Response(null, { status: 400 });
+      const step = await editStep(this.state.storage, edit, { texts: this.env.GATEWAY_TEXTS, now: () => Date.now() });
+      const outcome = await this.takeEdit(edit, step);
+      await this.logArrival(editChat(edit), "edit", brought, outcome);
+      return Response.json({ outcome });
+    }
     if (path === "/react") {
       const { provider: brought, ...inbound } = (await request.json()) as Extract<Inbound, { kind: "reaction" }> & { provider?: unknown };
       const outcome = await react(this.state.storage, inbound, Date.now());
@@ -243,7 +259,8 @@ export class SenderInbox implements DurableObject {
       return serveMedia(this.state.storage, path.slice("/media/".length), Date.now());
     }
     await this.keepOrigin(request);
-    const { provider: brought, ...message } = (await request.json()) as Message & { provider?: unknown };
+    // An edit is only ever this object's own (`/edit`): a text posted here never carries one.
+    const { provider: brought, edited: _edited, ...message } = (await request.json()) as Message & { provider?: unknown };
     // Node "oldLine": a text on Tex's old number gets the new one and takes no turn (`oldLineStep.ts`).
     if (message.channel !== "simulator" && !message.tapback) {
       const old = await oldLineStep(this.state.storage, message.chatId, { ...this.deps(), texts: this.env.GATEWAY_TEXTS });
@@ -261,11 +278,30 @@ export class SenderInbox implements DurableObject {
     return Response.json({ outcome });
   }
 
+  /** What the `edit` step's answer does: nothing, a kept line, or a text queued for its turn, in a 1:1 or a group. */
+  private async takeEdit(edit: PhotonEdit, { to, edited }: EditOutcome): Promise<string> {
+    if (to === "same") return "same";
+    const now = Date.now();
+    const storage = this.state.storage;
+    // An unsent text still waiting is taken back out of the queue, unless a turn running in the chat holds it already.
+    const withdraw = async (queue: ChatQueue, chat: string) => (runningTurn(storage, chat) === undefined ? await withdrawItem(storage, queue, edit.messageId) : 0);
+    if (edit.groupId !== undefined) {
+      const message = editedGroupMessage(edit, edited);
+      if (to === "withdraw") await withdraw(GROUP_QUEUE, message.groupId);
+      const outcome = to === "turn" ? await acceptGroup(storage, message, now) : await keepGroupEdit(storage, message, now);
+      if (outcome === "kept" || outcome === "queued") this.handOff(this.flushChatter(message));
+      return outcome;
+    }
+    const message = editedText(edit, edited);
+    if (to === "withdraw") await withdraw(TEXTS_QUEUE, message.chatId);
+    return to === "turn" ? await accept(storage, message, now) : await keepEdit(storage, message, now);
+  }
+
   /**
    * The chat's `text` step: the provider's times for what just came in, and what the queue did with it
    * (`providerTiming.ts`). The arrival is never stored with the message, which goes on to the gateway as it was.
    */
-  private async logArrival(chat: string, kind: "one" | "group" | "react", brought: unknown, outcome: string): Promise<void> {
+  private async logArrival(chat: string, kind: "one" | "group" | "react" | "edit", brought: unknown, outcome: string): Promise<void> {
     const provider = readArrival(brought);
     if (provider === undefined) return;
     const now = Date.now();

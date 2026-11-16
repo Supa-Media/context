@@ -7,9 +7,11 @@ const LINE = "sendblue:line:+15555550100";
 
 export default {
   id: "worker-steps-logged",
-  incident: "2026-11-13: after every gateway step was logged (#3265), a person's own chat's judging and every tapback Tex sent still left nothing in the chat's record, so a tapback where an answer was owed could not be traced from the chat.",
-  cause: "Both run in the texting Worker, which posted only the chat's lines to the ledger.",
+  incident: "2026-11-13: after every gateway step was logged (#3265), a person's own chat's judging and every tapback Tex sent still left nothing in the chat's record, so a tapback where an answer was owed could not be traced from the chat. 2026-11-14: a text took about two minutes from the phone to the provider's webhook, and the provider's own \"sent\" took 15 to 333 seconds, and no step showed either.",
+  cause: "Each runs in the texting Worker, which posted only the chat's lines to the ledger, and dropped the provider's own times for a text and a send.",
   path: "1:1 text",
+  // Sabotage (2026-11-14, the provider times, merged here from provider-lag-logged 2026-11-16): drop "text" and "send"
+  // from log.js WORKER_STEPS and this case fails.
   async run() {
     const chat = await oneToOne();
     try {
@@ -32,6 +34,21 @@ export default {
       assert.deepEqual(steps.map((entry) => [entry.step, entry.name, entry.ok]), [["decide", "waiting", true], ["react", "decide", true]], "both steps are in the chat's record");
       assert.equal(steps[0].output.act, "react", "with what the judge answered");
       assert.equal(steps[1].input.on, thanks.id, "and which text the tapback was on");
+      // The chat's text and send steps with the provider's own times, as the Worker posts them (`stepEvents.ts` textStep, sendStep).
+      const later = Math.max(...(await ledger.read(ONE_TO_ONE_CHAT, { kinds: ["text"] })).entries.map((entry) => entry.at)) + 10_000;
+      const provider = { name: "sendblue", providerAt: later - 120_000, receivedAt: later, lagMs: 120_000 };
+      const arrived = { id: `${later}-910001`, at: later, chat: LINE, from: { kind: "system" }, kind: "step", step: { name: "text", of: "one", ok: true, ms: 120_000, input: { provider }, output: { outcome: "queued", queuedAt: later, lagMs: 120_000 } } };
+      const sent = { id: `${later + 1}-910002`, at: later + 1, chat: LINE, from: { kind: "system" }, kind: "step", step: { name: "send", of: "failed", ok: false, ms: 333_000, input: { provider: "sendblue", handle: "mh-fake-1" }, output: { status: "failed", error: { code: "4001" } }, cause: "4001" } };
+      const timed = await request(chat.world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [arrived, sent] });
+      assert.equal(timed.status, 200, JSON.stringify(timed.body));
+      assert.deepEqual(timed.body.written, [arrived.id, sent.id], "both are taken, so the Worker forgets them");
+      chat.deploy();
+      const after = await chat.text("and the address?", "12 Main St.");
+      assert.doesNotMatch(after.shown, /lagMs|providerAt|4001/, "a provider's times never reach what a turn reads");
+      const timedSteps = (await ledger.read(ONE_TO_ONE_CHAT)).entries.filter((entry) => entry.kind === "step" && (entry.step === "text" || entry.step === "send"));
+      assert.deepEqual(timedSteps.map((entry) => [entry.step, entry.ok, entry.ms]), [["text", true, 120_000], ["send", false, 333_000]], "the lag on each is in the chat's record");
+      assert.equal(timedSteps[0].input.provider.lagMs, 120_000);
+      assert.equal(timedSteps[1].reason, "4001", "with the provider's error");
     } finally {
       chat.restore();
     }

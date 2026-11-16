@@ -35,6 +35,10 @@ export type TexEvent = {
   replyTo?: string;
   /** On a reply: the full words of the message it answers (`replyQuote.ts`). */
   quoted?: string;
+  /** A person's edit of an earlier text (`editStep.ts`): `replyTo` names that text and `quoted` holds its words. */
+  edited?: true;
+  /** A person's unsend of an earlier text (`editStep.ts`), with no words of its own: `replyTo` and `quoted` as an edit's. */
+  unsent?: true;
   delivered?: boolean;
   reason?: EventReason;
   turn?: string;

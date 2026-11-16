@@ -10,6 +10,7 @@
 import { checkin } from "./nodes/checkin.js";
 import { notify } from "./nodes/notify.js";
 import { oldLineNode } from "./nodes/oldLine.js";
+import { editNode } from "./nodes/edit.js";
 import { moveChatNode } from "./nodes/moveChat.js";
 import { jobcheck } from "./nodes/jobcheck.js";
 import { handback } from "./nodes/handback.js";
@@ -85,6 +86,8 @@ export const GATEWAY_NODES = {
   // A text on the old number, before Triage (the Photon switch).
   get oldLine() { return oldLineNode; },
   get moveChat() { return moveChatNode; },
+  // A person's edit of a text they sent: the chat's record, and a turn when it changed what they said.
+  get edit() { return editNode; },
   get jobcheck() { return jobcheck; },
   get handback() { return handback; },
   get mailadv() { return mailadv; },

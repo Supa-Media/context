@@ -319,6 +319,13 @@ export const CAPABILITIES = Object.freeze([
     group: "only the person you asked can answer your ask with a reaction; nobody else's counts",
   },
   {
+    name: "Edited and unsent texts",
+    actions: [],
+    texts: "on your iMessage line, an edited text reaches you marked as the edit of the one it changed: a fixed typo is only noted, any other change is answered like a new text; an unsent text is marked as taken back, and if you hadn't started on it you don't answer it",
+    group: "the same for anyone's edit or unsend in the chat",
+    cant: [{ where: "everywhere", what: "see an edit or unsend on the old Sendblue number or WhatsApp, which don't send them", workaround: { kind: "words", text: "ask them to send the corrected text again, or say which text to ignore" } }],
+  },
+  {
     name: "Texting while you work",
     actions: [],
     texts: "a text that lands while you're still answering is folded into the running answer, waits to be answered after, or stops it and starts one answer that covers both",

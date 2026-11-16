@@ -21,6 +21,7 @@
 import { chatEvents } from "./chatRead";
 import type { TexEvent } from "./events";
 import type { InboxStorage } from "./inbox";
+import type { Edited } from "./inbound";
 
 /** Provider handles of the chat's recent messages, theirs and Tex's, each with its event id: never words. */
 export const HANDLES_KEY = "evhandles";
@@ -73,4 +74,22 @@ export async function replyFields(storage: InboxStorage, chat: string, { handle,
     (quoted !== "" ? [...events].reverse().find((event) => typeof event.text === "string" && event.kind !== "reaction" && sameText(event.text, quoted)) : undefined);
   if (found !== undefined && typeof found.text === "string" && found.text !== "") return { replyTo: found.id, quoted: found.text };
   return { ...(byHandle !== undefined ? { replyTo: byHandle } : {}), ...(quoted !== "" ? { quoted } : {}) };
+}
+
+/**
+ * What an edited text replaced (`editStep.ts`): the earlier text's event, found by the handle it came with, and its
+ * words; else the line's own copy of its words (`previous`, Photon's `previousText`); else nothing.
+ */
+export async function editedOf(storage: InboxStorage, chat: string, handle: string, previous: string | undefined): Promise<Edited> {
+  const found = await replyFields(storage, chat, { handle });
+  const words = found.quoted ?? (typeof previous === "string" && previous.trim() !== "" ? previous.trim() : undefined);
+  return { ...(found.replyTo !== undefined ? { of: found.replyTo } : {}), ...(words !== undefined ? { words } : {}) };
+}
+
+/**
+ * An edit's event fields: marked `edited` (or `unsent`, for a text taken back), with the text it edits in `replyTo` and
+ * that text's words in `quoted`, as a reply's are.
+ */
+export function editedFields(edited: Edited): Pick<TexEvent, "edited" | "unsent" | "replyTo" | "quoted"> {
+  return { ...(edited.unsent ? { unsent: true as const } : { edited: true as const }), ...(edited.of !== undefined ? { replyTo: edited.of } : {}), ...(edited.words !== undefined ? { quoted: edited.words } : {}) };
 }

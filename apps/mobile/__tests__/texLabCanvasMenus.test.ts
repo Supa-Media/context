@@ -147,11 +147,11 @@ describe("the canvas's test picker", () => {
       "pipeline/door-settings-logged",
       "pipeline/checks-step-logged",
       "pipeline/hidden-steps-are-nodes",
-      "pipeline/provider-lag-logged",
       "pipeline/told-its-mailboxes",
       "pipeline/figures-read-whole",
       "pipeline/playbook-after-mail",
       "pipeline/reads-google-chat",
+      "pipeline/edit-and-unsend-shown",
     ];
     const removed: string[] = [];
     for (const b of Array.from(

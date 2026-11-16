@@ -18,7 +18,7 @@ import { MAX_REPLY_TEXT, post, ServiceError, type Fetch } from "./clients";
 import { cutText } from "./inbound";
 import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
 import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, MAX_QUOTED_TEXT, TAPBACK, type SendblueKeys } from "./sendblue";
-import type { InboundAttachment } from "./inbound";
+import type { Edited, InboundAttachment } from "./inbound";
 import type { JobReport } from "./jobs";
 
 /** Sendblue's group ids are uuids; anything much longer is not one. */
@@ -65,6 +65,8 @@ export type GroupMessage = {
    * A link's preview card is not one (`isLinkPreview`).
    */
   attachments?: InboundAttachment[];
+  /** An edit of an earlier message, queued by the chat's `edit` step (`editStep.ts`), never by a webhook: `text` is the new words. */
+  edited?: Edited;
   /** What a voice-only message says, heard before the chat decides whether it is for Tex (`groupVoice.ts`); never a webhook's. */
   heard?: string;
   /** A chat routine's run, queued by this Worker itself and never by a webhook (`groupRoutines.ts`). */
