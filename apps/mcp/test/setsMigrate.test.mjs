@@ -97,6 +97,14 @@ test("every migrated case sits whole inside one of the repo's long conversations
   const labelled = broken.flatMap((c) => c.msgs).find((m) => m.labels?.fd);
   labelled.labels.fd.must = ["something else"];
   assert.ok(placesOf(convs, broken).length > 0, "a changed label is found");
+  // The Lab writes a conversation back with its keys in its own order (2026-11-16); that is the same label.
+  const reordered = structuredClone(repoConvs);
+  for (const m of reordered.flatMap((c) => c.msgs)) {
+    for (const [node, label] of Object.entries(m.labels ?? {})) {
+      m.labels[node] = Object.fromEntries(Object.entries(label).reverse());
+    }
+  }
+  assert.deepEqual(placesOf(convs, reordered), []);
 });
 
 test("--check reports every case inside the repo's conversations", async () => {
