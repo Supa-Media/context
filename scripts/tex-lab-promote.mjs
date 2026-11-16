@@ -96,7 +96,18 @@ export function configFrom(graph, current, currentWords = {}) {
   const wireKey = (e) => `${e.from}>${e.to}>${e.mode}`;
   const wireOrder = new Map(current.edges.map((e, i) => [wireKey(e), i]));
   const edges = graph.edges.map(({ from, to, mode, when, rounds }) => ({ from, to, mode, when, ...(rounds !== undefined ? { rounds } : {}) })).map((e, i) => ({ e, at: wireOrder.get(wireKey(e)) ?? current.edges.length + i })).sort((a, b) => a.at - b.at).map(({ e }) => e);
-  return { config: { ...current, nodes, edges }, words: madeWords.words };
+  // The draft's own group boxes over main's (the `group` edit), only for groups some step names.
+  let groups = current.groups;
+  if (graph.groups && typeof graph.groups === "object") {
+    groups = { ...(current.groups ?? {}) };
+    for (const [id, info] of Object.entries(graph.groups)) {
+      if (!ID.test(id) || !info || typeof info !== "object" || typeof info.label !== "string") return refuse(`group "${id}" has no label`);
+      groups[id] = Object.fromEntries(["label", "goal", "icon", "x", "y"].filter((k) => info[k] !== undefined).map((k) => [k, info[k]]));
+    }
+    const named = new Set(nodes.map((n) => n.group).filter(Boolean));
+    for (const id of Object.keys(groups)) if (!named.has(id) && !(current.groups ?? {})[id]) delete groups[id];
+  }
+  return { config: { ...current, nodes, edges, ...(groups ? { groups } : {}) }, words: madeWords.words };
 }
 
 /** The config file's text: the head as JSON, then one step and one wire per line. */

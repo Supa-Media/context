@@ -174,6 +174,57 @@ export function withDraft(config, draft) {
   return { ...config, nodes, edges: wires, ...(Object.keys(own).length > 0 ? { words: own } : {}) };
 }
 
+/**
+ * What of a draft a Lab test chat can run as drawn, and what it runs instead (Dev2, 2026-11-14: only what ran is shown;
+ * a test chat on a draft that merged steps ran main's steps without saying so, 2026-11-16). `withDraft` runs only the
+ * steps this config has code for and main's wires when one of the draft's names a step it lacks, so:
+ *
+ *  - `noCode`: steps the draft adds that have no code here; they cannot run until a code change builds them;
+ *  - `removed`: main's steps the draft takes out; they still run as main's (each run says which did);
+ *  - `wires`: "draft" or "main", and `badWires` the draft's wires naming a step this config has no code for;
+ *  - `unapplied`: a step's setting the draft changes that the gateway could not take (a Lab-only model, a prompt module
+ *    with no words), run as main's.
+ *
+ * `asDrawn` is true only when none of these is so. Not a guess: the same rules `withDraft` applies.
+ */
+export function draftFit(config, draft) {
+  if (!draft || typeof draft !== "object" || !Array.isArray(draft.nodes)) return { asDrawn: true };
+  const ids = new Set(config.nodes.map((node) => node.id));
+  const label = (node) => (typeof node?.label === "string" && node.label !== node.id ? `${node.id} (${node.label})` : node.id);
+  const drawn = draft.nodes.filter((node) => node && typeof node.id === "string");
+  const drawnIds = new Set(drawn.map((node) => node.id));
+  const noCode = drawn.filter((node) => !ids.has(node.id)).map(label);
+  const removed = config.nodes.filter((node) => !drawnIds.has(node.id)).map(label);
+  const edges = Array.isArray(draft.edges) ? draft.edges : [];
+  const badWires = edges.filter((e) => !(e && ids.has(e.from) && ids.has(e.to) && typeof e.mode === "string")).map((e) => `${e?.from ?? "?"} → ${e?.to ?? "?"}`);
+  const wires = edges.length > 0 && badWires.length === 0 ? "draft" : "main";
+  const words = { ...TEX_PROMPT_WORDS, ...draftWords(draft.modules) };
+  const unapplied = [];
+  for (const node of config.nodes) {
+    const edit = drawn.find((d) => d.id === node.id);
+    if (!edit) continue;
+    const ran = draftStep(node, edit, config, words);
+    for (const key of ["model", "effort", "timeoutS"]) if (edit[key] !== undefined && edit[key] !== node[key] && ran[key] === node[key]) unapplied.push(`${node.id}.${key} ${JSON.stringify(edit[key])}`);
+    if (Array.isArray(edit.ctx) && JSON.stringify(edit.ctx) !== JSON.stringify(node.ctx ?? []) && ran.ctx === node.ctx) unapplied.push(`${node.id}.ctx (a prompt module it names has no words)`);
+  }
+  const asDrawn = noCode.length === 0 && removed.length === 0 && wires === "draft" && unapplied.length === 0;
+  if (asDrawn) return { asDrawn: true };
+  return {
+    asDrawn: false,
+    ...(noCode.length ? { noCode } : {}),
+    ...(removed.length ? { removed } : {}),
+    wires,
+    ...(badWires.length ? { badWires: badWires.slice(0, 20) } : {}),
+    ...(unapplied.length ? { unapplied } : {}),
+    says: [
+      noCode.length ? `${noCode.length} step${noCode.length === 1 ? "" : "s"} the draft adds ha${noCode.length === 1 ? "s" : "ve"} no code yet and cannot run` : null,
+      removed.length ? `${removed.length} step${removed.length === 1 ? "" : "s"} the draft removes still run${removed.length === 1 ? "s" : ""} as main's` : null,
+      wires === "main" && edges.length ? "its wires name steps with no code, so main's wires run" : null,
+      unapplied.length ? `${unapplied.length} setting${unapplied.length === 1 ? "" : "s"} could not be applied and run${unapplied.length === 1 ? "s" : ""} as main's` : null,
+    ].filter(Boolean).join("; ") + ". A test chat on it runs main's code for those, not the draft as drawn.",
+  };
+}
+
 /** Per gate: its draft over main's, made once. */
 const drafted = new WeakMap();
 

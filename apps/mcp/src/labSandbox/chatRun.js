@@ -175,7 +175,16 @@ export function chatStepsOf(entries, { own = null, since = 0 } = {}) {
   const logged = list.filter((entry) => entry?.kind === "step" && WORKER_STEPS.has(entry.step) && (entry.at ?? 0) >= since);
   const worker = Array.isArray(own) ? own : logged.map((entry) => ({ at: entry.at ?? 0, step: workerStep({ name: entry.step, output: entry.output, ms: entry.ms, ok: entry.ok }) }));
   const graph = list.filter((entry) => entry?.kind === "step" && entry.step === "node" && typeof entry.name === "string").map((entry, i) => ({ at: entry.at ?? 0, step: nodes[i] }));
-  return [...worker, ...graph].sort((a, b) => a.at - b.at).map(({ step }) => step);
+  // The Queue logs no step of its own: the turn's reply keeps the Worker's wait for it (`timing.waitMs`), the same
+  // number Replay draws as the Queue's time (`measured.ts` `realTimes`). Placed just before the turn's first step.
+  const queued = [];
+  if (!worker.some(({ step }) => step?.node === "lanes")) {
+    for (const reply of list.filter((entry) => entry?.kind === "reply" && Number.isFinite(entry.timing?.waitMs))) {
+      const first = Math.min(...graph.map((g) => g.at), reply.at ?? 0);
+      queued.push({ at: first - 0.5, step: { node: "lanes", out: outOf({ waitedMs: reply.timing.waitMs, from: "the turn's logged wait" }), ms: reply.timing.waitMs, ok: true } });
+    }
+  }
+  return [...worker, ...queued, ...graph].sort((a, b) => a.at - b.at).map(({ step }) => step);
 }
 
 /**

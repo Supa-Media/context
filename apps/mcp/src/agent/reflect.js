@@ -39,7 +39,7 @@ import { ProviderError } from "./providers.js";
 import { builtinMeter, dayOf } from "./jobLog.js";
 import { callToolForSession } from "../tools/session.js";
 import { newLedger } from "../privacy/egress.js";
-import { memoryNudge } from "./memoryNudge.js";
+import { failedAt, memoryNudge } from "./memoryNudge.js";
 import {
   LEARNED_SKILL_PATH,
   MAX_LEARNED_BODY_CHARS,
@@ -205,7 +205,7 @@ export async function reflectAfterTurn({ env, controlPlane, store, session, offe
     return await reflect({ env, controlPlane, session, offered, question, turn, tainted, ownText, learned, canWrite, texted, dispatch, used, today });
   } catch (error) {
     log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
-    return { outcome: "failed" };
+    return failedAt("outside the model call", error);
   }
 }
 
@@ -223,7 +223,7 @@ export async function nudgeAfterTurn({ env, controlPlane, store, session, offere
     return await memoryNudge({ env, controlPlane, store, session, offered, dispatch, now, current: { question, answer: turn?.answer, tainted } });
   } catch (error) {
     log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
-    return { outcome: "failed" };
+    return failedAt("outside the model call", error);
   }
 }
 
@@ -254,7 +254,7 @@ async function reflect({ env, controlPlane, session, offered, question, turn, ta
     } catch (error) {
       await meter(null, true, error instanceof ProviderError ? error.model : model);
       log(session, { outcome: "failed", reason, code: error instanceof ProviderError ? "provider" : "error" });
-      return { outcome: "failed", reason };
+      return { ...failedAt("model", error), reason };
     }
     await meter(ran.usage, false, ran.model);
     const outcome = callTool.wrote() ? "wrote" : ran.exhausted ? "exhausted" : "none";
@@ -262,6 +262,6 @@ async function reflect({ env, controlPlane, session, offered, question, turn, ta
     return { outcome, reason };
   } catch (error) {
     log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
-    return { outcome: "failed" };
+    return failedAt("outside the model call", error);
   }
 }

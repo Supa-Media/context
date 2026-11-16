@@ -184,3 +184,19 @@ test("every line has its whole form too, for tex_dev's changes", () => {
   assert.ok(r.said[0].length < 160);
   assert.ok(r.full[0].endsWith(long));
 });
+
+test("a group edit names a draft's own group box, conflicts only with itself, and round-trips through the diff", () => {
+  const g0 = main();
+  const box = { label: "Intake", goal: "Read who asks and what.", icon: "door", x: 400, y: 300 };
+  const { graph: g1, keys, said } = applyOps(g0, [{ op: "group", id: "intake", value: box }, { op: "set", node: "triage", field: "group", value: "intake" }]);
+  assert.deepEqual(g1.groups, { intake: box });
+  assert.deepEqual(keys, ["g:intake", "n:triage:group"]);
+  assert.match(said[0], /added group intake \(Intake\)/);
+  assert.deepEqual(diffGraphs(g0, g1), [{ op: "group", id: "intake", value: box }, { op: "set", node: "triage", field: "group", value: "intake" }], "its own edit, never a whole put");
+  const { graph: g2 } = applyOps(g1, [{ op: "group", id: "intake", value: null }]);
+  assert.equal(g2.groups, undefined, "the last group dropped leaves no empty map");
+  assert.ok(overlaps("g:intake", "g:intake") && !overlaps("g:intake", "g:door"));
+  assert.throws(() => applyOps(g0, [{ op: "group", id: "intake", value: { goal: "no label" } }]), /a group needs a label/);
+  assert.throws(() => applyOps(g0, [{ op: "group", id: "intake", value: { label: "X", colour: "red" } }]), /no field colour/);
+  assert.throws(() => applyOps(g0, [{ op: "group", id: "bad id", value: { label: "X" } }]), /not a group id/);
+});

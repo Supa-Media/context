@@ -583,6 +583,7 @@ test/moveChatNode.test.mjs
 test/texLabOps.test.mjs
 test/texDevSnapshot.test.mjs
 test/texDevSandbox.test.mjs
+test/texDevDraftFit.test.mjs
 test/texDev.test.mjs
 test/texDevReplay.test.mjs
 test/texDevWrites.test.mjs

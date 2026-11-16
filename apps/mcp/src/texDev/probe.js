@@ -106,43 +106,64 @@ export function labelOf(e) {
   return e.kind;
 }
 
+/** Characters kept of each text field in a brief turn (the default): enough to read, never a whole prompt or thinking. */
+export const BRIEF_CUT = 500;
+
 /** A reply's timing in brief: each round's prompt as its module count and size (`prompt` shows the modules). */
-function briefTiming(timing) {
-  if (!timing || typeof timing !== "object" || !Array.isArray(timing.rounds)) return timing;
-  const rounds = timing.rounds.map((r) => {
+function briefTiming(timing, steps = true) {
+  if (!timing || typeof timing !== "object") return timing;
+  const rounds = (Array.isArray(timing.rounds) ? timing.rounds : []).map((r) => {
     const modules = Array.isArray(r?.prompt?.modules) ? r.prompt.modules : null;
     if (!modules) return r;
     const { prompt: _p, ...rest } = r;
     return { ...rest, prompt: { modules: modules.length, chars: modules.reduce((a, m) => a + (Number.isFinite(m?.n) ? m.n : 0), 0) } };
   });
-  return { ...timing, rounds };
+  const out = { ...timing, ...(Array.isArray(timing.rounds) ? { rounds } : {}) };
+  // The gateway's own stage timings are also each a `step timing` entry; a brief turn names the slow ones in `slowest`.
+  if (!steps && Array.isArray(timing.steps)) out.steps = `${timing.steps.length} stage timings; detail: "all" lists them`;
+  return out;
 }
 
+/** The gateway's stage timings (`turnTiming.js`), each kept as an entry: a brief turn counts them instead of listing each. */
+const isStageTiming = (e) => e.kind === "step" && e.step === "timing";
+
 /**
- * One turn's entries (`mine`, in the order they ran) as `turn` answers them: every entry with its input and output
- * (cut to `CUT` characters unless `full`), and a summary of what took the time and what failed. The reply's timing is
- * in the summary once, in brief unless `full`; its entry in the order says so rather than repeating it.
+ * One turn's entries (`mine`, in the order they ran) as `turn` answers them, and a summary of what took the time and
+ * what failed. `detail`:
+ *
+ *  - "brief" (the default): every node, tool, judging, thinking and text in order, each string cut to `BRIEF_CUT`; the
+ *    gateway's stage timings counted, not listed (`summary.slowest` names the slow ones). A busy turn's whole answer
+ *    was 77,000 characters (2026-11-16), more than a model's tool answer holds; brief keeps it readable;
+ *  - "all": every entry, the stage timings too, cut to `CUT`; `full: true` cuts at `FULL_CUT` instead.
+ *
+ * The reply's timing is in the summary once; its entry in the order says so rather than repeating it.
  */
-export function turnFrom(mine, { timeZone, full = false } = {}) {
-  const max = full === true ? FULL_CUT : CUT;
+export function turnFrom(mine, { timeZone, full = false, detail } = {}) {
+  const all = full === true || detail === "all";
+  const max = full === true ? FULL_CUT : all ? CUT : BRIEF_CUT;
   const reply = mine.find((e) => e.kind === "reply") ?? null;
   const start = mine[0].at;
-  const order = mine.map((e, i) => {
-    const { v: _v, id: _id, turn: _turn, seq, ...rest } = e;
-    if (e.kind === "reply" && rest.timing) rest.timing = "in summary.timing";
-    return { n: i + 1, seq, label: labelOf(e), tPlusMs: e.at - start, ...(failedOf(e) ? { failed: true } : {}), ...cutDeep(rest, max) };
-  });
+  const numbered = mine.map((e, i) => ({ e, n: i + 1 }));
+  const order = numbered
+    .filter(({ e }) => all || !isStageTiming(e) || failedOf(e))
+    .map(({ e, n }) => {
+      const { v: _v, id: _id, turn: _turn, seq, ...rest } = e;
+      if (e.kind === "reply" && rest.timing) rest.timing = "in summary.timing";
+      return { n, seq, label: labelOf(e), tPlusMs: e.at - start, ...(failedOf(e) ? { failed: true } : {}), ...cutDeep(rest, max) };
+    });
   const timed = mine.filter((e) => Number.isFinite(e.ms) && e.kind !== "reply").map((e) => ({ what: labelOf(e), ms: e.ms }));
   timed.sort((a, b) => b.ms - a.ms);
   const failed = order.filter((e) => e.failed).map((e) => ({ n: e.n, what: e.label, why: e.reason ?? e.error ?? e.notice ?? (Array.isArray(e.failed) ? e.failed : null) ?? null }));
+  const hidden = mine.length - order.length;
   return {
     when: when(start, timeZone),
     summary: {
       entries: mine.length,
+      ...(hidden > 0 ? { detail: `brief: ${hidden} stage timing entries not listed and strings cut at ${BRIEF_CUT}; detail: "all" (or full: true) gives every entry` } : {}),
       ms: reply?.ms ?? null,
       ...(reply?.model ? { model: reply.model } : {}),
       ...(reply?.version ? { version: reply.version } : {}),
-      ...(reply?.timing ? { timing: full === true ? reply.timing : briefTiming(reply.timing) } : {}),
+      ...(reply?.timing ? { timing: full === true ? reply.timing : briefTiming(reply.timing, all) } : {}),
       slowest: timed.slice(0, 8),
       failed,
       tools: mine.filter((e) => e.kind === "tool").map((e) => ({ name: e.name, ok: e.ok !== false, ms: e.ms ?? null })),
