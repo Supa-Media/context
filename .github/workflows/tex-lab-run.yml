@@ -1,15 +1,22 @@
 # A Lab run on GitHub (Dev2, 2026-11-16: "Ok go ahead and build everything"; picked "Convex dispatches directly").
 #
 # Run Dev set, Run this chat and Run node in the Tex Lab (context.lc/lab), and tex_dev's `run`, record a run in
-# Convex (apps/convex/functions/texLabRuns.ts), which dispatches this workflow at once with GH_ADMIN_TOKEN. It reads
-# the run with the deploy key, writes the draft's graph into the config of this checkout of main (the promote
-# script's own check and write), and runs the Dev set's unit tests with the bench's node-alone runner
-# (`node apps/mcp/bench/run.mjs sets run`): never the Training set, never the Test set (people only, in the eval
-# service). Models "gw" asks the AI gateway as the bench always does; "cc" answers every Claude call with Claude Code
-# on CLAUDE_CODE_OAUTH_TOKEN (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job. Clef, the
-# judge, stays on Workers AI either way. The stage and the results go back to Convex; the Lab shows them live.
+# Convex (apps/convex/functions/texLabRuns.ts), which dispatches this workflow at once with GH_ADMIN_TOKEN. Three jobs:
 #
-# The log is public: it names the run's id, conversation ids and counts, never a conversation's words.
+#   prep    main's code, with the deploy key: says the run is running, reads it, and resolves the code it runs on
+#           (main, or the same-repository pull request or branch the draft names; Dev2, 2026-11-16: "when we run
+#           things it should run on the PRs code instead of main"), and reports the commit to Convex.
+#   run     that commit's code, WITHOUT the deploy key (a branch's code never sees it, and cannot touch the job that
+#           reports): writes the draft's graph into the config with that code's own promote check, and runs the Dev
+#           set's unit tests with the bench's node-alone runner (`node apps/mcp/bench/run.mjs sets run`): never the
+#           Training set, never the Test set (people only, in the eval service). Models "gw" asks the AI gateway as the
+#           bench always does; "cc" answers every Claude call with Claude Code on CLAUDE_CODE_OAUTH_TOKEN
+#           (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job. Clef stays on Workers AI.
+#   report  main's code, with the deploy key: the results (cleaned again by Convex) or why it failed.
+#
+# The run and its results pass between jobs as artifacts sealed with a key made for this run (a public repository's
+# artifacts can be downloaded by anyone; the key goes only through job outputs, which are not), kept one day. The log
+# is public: it names the run's id, conversation ids, the commit and counts, never a conversation's words.
 name: Tex Lab run
 
 on:
@@ -22,23 +29,24 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 run-name: Tex Lab run ${{ inputs.run_id }}
 
 jobs:
-  run:
+  prep:
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 90
+    timeout-minutes: 15
     env:
       RUN_ID: ${{ inputs.run_id }}
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
-      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
-      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
-      AI_GATEWAY_KEY_ALIASES: dev-claude-credits,dev2-claude-credits # aliases on the gateway's Provider Keys page, not secrets
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+    outputs:
+      models: ${{ steps.job.outputs.models }}
+      node: ${{ steps.job.outputs.node }}
+      key: ${{ steps.job.outputs.key }}
+      sha: ${{ steps.code.outputs.sha }}
+      why: ${{ steps.why.outputs.why }}
     steps:
       - name: The run id is a Convex id
         run: '[[ "$RUN_ID" =~ ^[a-z0-9]{16,40}$ ]] || { echo "::error::not a run id"; exit 1; }'
@@ -46,6 +54,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: main
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
 
@@ -71,16 +80,113 @@ jobs:
           node=$(jq -r '.nodeId // ""' "$RUNNER_TEMP/job.json")
           [[ "$models" =~ ^(gw|cc)$ ]] || { echo "::error::unknown models"; exit 1; }
           [[ -z "$node" || "$node" =~ ^[a-z][A-Za-z0-9_-]{0,30}$ ]] || { echo "::error::not a step id"; exit 1; }
+          # The run's own key, which seals what passes between the jobs. Never printed.
+          key=$(openssl rand -hex 32)
+          mkdir -p "$RUNNER_TEMP/sealed"
+          gzip -9c "$RUNNER_TEMP/job.json" | SEAL="$key" openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/sealed/job.bin"
           echo "models=$models" >> "$GITHUB_OUTPUT"
           echo "node=$node" >> "$GITHUB_OUTPUT"
-          echo "Run: $(jq -c '{versionId, kind, convId, nodeId, models}' "$RUNNER_TEMP/job.json")"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "Run: $(jq -c '{versionId, kind, convId, nodeId, models, code}' "$RUNNER_TEMP/job.json")"
+
+      # Main, a same-repository pull request's head, or a branch here. A fork's pull request is refused: only code
+      # someone with write access pushed to this repository runs with the run's model keys.
+      - name: Find the code it runs on
+        id: code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          code=$(jq -r '.code // ""' "$RUNNER_TEMP/job.json")
+          say() { echo "$1" > "$RUNNER_TEMP/why"; echo "::error::$1"; exit 1; }
+          if [ -z "$code" ]; then
+            sha=$(git rev-parse HEAD)
+            echo "Code: main at $sha"
+          elif [[ "$code" =~ ^#([1-9][0-9]{0,6})$ ]]; then
+            n="${BASH_REMATCH[1]}"
+            curl -fsS -H "authorization: Bearer $GH_TOKEN" -H "accept: application/vnd.github+json" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$n" > "$RUNNER_TEMP/pr.json" || say "there is no pull request #$n in this repository"
+            [ "$(jq -r '.head.repo.full_name // ""' "$RUNNER_TEMP/pr.json")" = "$GITHUB_REPOSITORY" ] || say "pull request #$n is from a fork: only this repository's branches run"
+            sha=$(jq -r .head.sha "$RUNNER_TEMP/pr.json")
+            echo "Code: pull request #$n ($(jq -r .head.ref "$RUNNER_TEMP/pr.json")) at $sha"
+          elif [[ "$code" =~ ^[A-Za-z0-9._/-]{1,120}$ && "$code" != -* && "$code" != *..* ]]; then
+            sha=$(git ls-remote origin "refs/heads/$code" | cut -f1)
+            [ -n "$sha" ] || say "there is no branch $code in this repository"
+            echo "Code: branch $code at $sha"
+          else
+            say "not a pull request or branch: $code"
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || say "the code's commit could not be read"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg sha "$sha" '{runId: $id, stage: "running", commit: $sha}')" > /dev/null 2>&1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: job
+          path: ${{ runner.temp }}/sealed/job.bin
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Why it stopped
+        id: why
+        if: failure()
+        run: |
+          why="the GitHub run failed before the tests: read its log"
+          [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
+          echo "why=$why" >> "$GITHUB_OUTPUT"
+
+  run:
+    needs: prep
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    env:
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      AI_GATEWAY_KEY_ALIASES: dev-claude-credits,dev2-claude-credits # aliases on the gateway's Provider Keys page, not secrets
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+    outputs:
+      why: ${{ steps.why.outputs.why }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prep.outputs.sha }}
+          persist-credentials: false
+
+      - name: This code can run Lab runs
+        run: |
+          [ -f scripts/tex-lab-run.mjs ] && [ -f apps/mcp/bench/setsRun.mjs ] && [ -f scripts/tex-lab-promote.mjs ] || {
+            echo "this code is older than Lab runs: merge main into its branch" > "$RUNNER_TEMP/why"; exit 1; }
+          echo "Commit: $(git rev-parse HEAD)"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: job
+          path: ${{ runner.temp }}/sealed
+
+      - name: The Dev conversations, and the draft's graph
+        env:
+          SEAL: ${{ needs.prep.outputs.key }}
+        run: |
+          set -euo pipefail
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass env:SEAL -in "$RUNNER_TEMP/sealed/job.bin" | gunzip > "$RUNNER_TEMP/job.json"
           node scripts/tex-lab-run.mjs prepare "$RUNNER_TEMP/job.json" "$RUNNER_TEMP/lab"
 
-      # The promote script's own check and write: a draft that could not become Tex's config fails here with why.
+      # This code's own promote check and write: a draft that could not become its config fails here with why.
       - name: Write the draft's graph into the config
         run: |
           set -euo pipefail
-          [ -f "$RUNNER_TEMP/lab/graph.json" ] || { echo "Main as it is"; exit 0; }
+          [ -f "$RUNNER_TEMP/lab/graph.json" ] || { echo "The code's own config as it is"; exit 0; }
           if ! why=$(node scripts/tex-lab-promote.mjs "$RUNNER_TEMP/lab/graph.json" 2>&1); then
             echo "${why#tex-lab-promote: refused: }" | head -c 280 > "$RUNNER_TEMP/why"
             echo "::error::the draft could not become a config"
@@ -89,7 +195,7 @@ jobs:
           git diff --stat
 
       - name: Claude Code has its token
-        if: steps.job.outputs.models == 'cc'
+        if: needs.prep.outputs.models == 'cc'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
@@ -100,14 +206,14 @@ jobs:
           esac
 
       - name: Install Claude Code
-        if: steps.job.outputs.models == 'cc'
+        if: needs.prep.outputs.models == 'cc'
         run: npm install -g @anthropic-ai/claude-code@2.1.325
 
       - name: Run the Dev set's unit tests
         env:
-          MODELS: ${{ steps.job.outputs.models }}
-          NODE_ID: ${{ steps.job.outputs.node }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ steps.job.outputs.models == 'cc' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          MODELS: ${{ needs.prep.outputs.models }}
+          NODE_ID: ${{ needs.prep.outputs.node }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ needs.prep.outputs.models == 'cc' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
         run: |
           set +e -uo pipefail
           answerer=""
@@ -130,16 +236,79 @@ jobs:
           fi
           exit "$code"
 
-      - name: Report the results
+      - name: The results
+        env:
+          SEAL: ${{ needs.prep.outputs.key }}
         run: |
           set -euo pipefail
           node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" > "$RUNNER_TEMP/results.json"
           echo "Results: $(jq -c '{pass, total, costUsd, ms, perNode}' "$RUNNER_TEMP/results.json")"
-          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null 2>&1
+          mkdir -p "$RUNNER_TEMP/out"
+          gzip -9c "$RUNNER_TEMP/results.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/out/results.bin"
 
-      - name: Say it failed
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: ${{ runner.temp }}/out/results.bin
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Why it stopped
+        id: why
         if: failure()
         run: |
           why="the GitHub run failed: read its log"
-          [ -s "$RUNNER_TEMP/why" ] && why="$(cat "$RUNNER_TEMP/why")"
-          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg why "$why" '{runId: $id, stage: "failed", error: $why}')" > /dev/null 2>&1 || true
+          [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
+          echo "why=$why" >> "$GITHUB_OUTPUT"
+
+  report:
+    needs: [prep, run]
+    if: always()
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      RUN_ID: ${{ inputs.run_id }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+    steps:
+      - name: The run id is a Convex id
+        run: '[[ "$RUN_ID" =~ ^[a-z0-9]{16,40}$ ]] || { echo "::error::not a run id"; exit 1; }'
+
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        if: needs.run.result == 'success'
+        with:
+          name: results
+          path: ${{ runner.temp }}/sealed
+
+      # What the run job hands back is that code's to write: Convex keeps only counts, ids and short verdicts.
+      - name: Report the results, or why it failed
+        env:
+          RAN: ${{ needs.run.result }}
+          SEAL: ${{ needs.prep.outputs.key }}
+          RUN_WHY: ${{ needs.run.outputs.why }}
+          PREP_WHY: ${{ needs.prep.outputs.why }}
+        run: |
+          set -euo pipefail
+          if [ "$RAN" = "success" ] && [ -s "$RUNNER_TEMP/sealed/results.bin" ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -pass env:SEAL -in "$RUNNER_TEMP/sealed/results.bin" | gunzip > "$RUNNER_TEMP/results.json"
+            jq -e 'type == "object"' "$RUNNER_TEMP/results.json" > /dev/null
+            npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null 2>&1
+            exit 0
+          fi
+          why="${RUN_WHY:-${PREP_WHY:-the GitHub run failed: read its log}}"
+          [ "$RAN" = "cancelled" ] && why="the GitHub run was cancelled"
+          npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg why "$why" '{runId: $id, stage: "failed", error: $why}')" > /dev/null 2>&1

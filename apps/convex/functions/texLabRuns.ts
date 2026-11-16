@@ -9,6 +9,11 @@
  * eval service) on the AI gateway or on Claude Code (`CLAUDE_CODE_OAUTH_TOKEN`, which never leaves GitHub Actions),
  * and reports its stage and results back through `report` with the deploy key. The Lab subscribes to `list`/`get`.
  *
+ * The code (Dev2, 2026-11-16: "when we run things it should run on the PRs code instead of main"): a draft may name a
+ * same-repository pull request or branch (`setCode`, `tex_dev` `code`), and a run may name its own; the workflow checks
+ * that code out instead of main, runs it without the deploy key, and reports the commit it ran. A pull request from a
+ * fork is refused in the workflow: only code someone with write access pushed here runs with the run's model keys.
+ *
  * A "gate" run is not started here: Promote makes one (`texLabPromote.ask`, `tex_dev` `promote`), the promote
  * workflow is dispatched at once, and once its pull request is open the run follows that pull request's
  * "Tex test set" commit status, counts only.
@@ -46,6 +51,28 @@ const NODE_ID = /^[a-z][A-Za-z0-9_-]{0,30}$/;
 const RUN_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d{1,14}(\/attempts\/\d{1,3})?$/;
 const PR_URL = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d{1,7})$/;
 const KINDS = ["dev", "chat", "node"] as const;
+/** A same-repository pull request (`#3401`) or a branch name git would take; never an option or a path climb. */
+export const CODE = /^(#[1-9]\d{0,6}|(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*\.lock$)[A-Za-z0-9._/-]{1,120})$/;
+const COMMIT = /^[0-9a-f]{40}$/;
+
+/**
+ * What someone typed for the code: main (or nothing) is none, a pull request's address or `#n` or a bare number is
+ * `#n`, anything else is a branch name. Undefined means it is not a name the workflow would take.
+ */
+export function codeOf(x: unknown): string | null | undefined {
+  if (x === null || x === undefined) return null;
+  if (typeof x === "number") return Number.isSafeInteger(x) && x > 0 && x < 1e7 ? `#${x}` : undefined;
+  if (typeof x !== "string") return undefined;
+  const t = x.trim();
+  if (t === "" || t === "main") return null;
+  // A pull request's address is this repository's only: another's (a fork's) is not ours to run.
+  const url = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/([1-9]\d{0,6})\/?$/i.exec(t);
+  if (url) return url[1].toLowerCase() === LAB_REPO.toLowerCase() ? `#${url[2]}` : undefined;
+  const pr = /^#?([1-9]\d{0,6})$/.exec(t);
+  const out = pr ? `#${pr[1]}` : t;
+  return CODE.test(out) ? out : undefined;
+}
+const CODE_WORDS = "code is a pull request (#3401 or its address) or a branch of this repository, or main";
 
 type Run = Doc<"texLabRuns">;
 type Who = { userId: Id<"users">; via: string };
@@ -99,6 +126,8 @@ const shown = async (ctx: QueryCtx, r: Run, names = new Map<string, string>()) =
     stage: r.stage,
     ghRunUrl: r.ghRunUrl ?? null,
     pr: r.pr ?? null,
+    code: r.code ?? null,
+    commit: r.commit ?? null,
     by,
     via: r.via,
     startedAt: r.startedAt,
@@ -163,12 +192,16 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
   const nodeId = kind === "node" ? a.nodeId : undefined;
   if (kind === "chat" && (typeof convId !== "string" || !CONVO_ID.test(convId))) return { status: "bad_request", error: "a chat run names the Dev conversation (convId)" };
   if (kind === "node" && (typeof nodeId !== "string" || !NODE_ID.test(nodeId))) return { status: "bad_request", error: "a node run names the step (nodeId)" };
+  let code = a.code === undefined ? null : codeOf(a.code);
+  if (code === undefined) return { status: "bad_request", error: CODE_WORDS };
   if (versionId !== "main") {
     const draft = await ctx.db
       .query("texLabVersions")
       .withIndex("by_version", (q) => q.eq("versionId", versionId))
       .unique();
     if (!draft) return { status: "not_found", error: `there is no draft ${versionId}` };
+    // The draft's own code unless the run names some (main included).
+    if (a.code === undefined) code = draft.code ?? null;
   }
   const mine = await ctx.db
     .query("texLabRuns")
@@ -183,6 +216,7 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
     ...(typeof convId === "string" ? { convId } : {}),
     ...(typeof nodeId === "string" ? { nodeId } : {}),
     models,
+    ...(code ? { code } : {}),
     stage: "queued",
     by: who.userId,
     via: who.via.slice(0, 60),
@@ -190,6 +224,20 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
   });
   await ctx.scheduler.runAfter(0, internal.functions.texLabRuns.dispatch, { runId });
   return { status: "ok", runId };
+}
+
+/** Point a draft at a pull request's or branch's code, or back at main (`setCode`; `tex_dev` `code`). */
+export async function setDraftCode(ctx: MutationCtx, versionId: unknown, raw: unknown, now: number): Promise<{ status: "ok"; code: string | null } | { status: "bad_request" | "not_found"; error: string }> {
+  if (typeof versionId !== "string" || !/^v[0-9a-z]{1,16}$/.test(versionId)) return { status: "bad_request", error: "code takes a draft (main always runs main's code)" };
+  const code = codeOf(raw);
+  if (code === undefined) return { status: "bad_request", error: CODE_WORDS };
+  const draft = await ctx.db
+    .query("texLabVersions")
+    .withIndex("by_version", (q) => q.eq("versionId", versionId))
+    .unique();
+  if (!draft) return { status: "not_found", error: `there is no draft ${versionId}` };
+  await ctx.db.patch(draft._id, { code: code ?? undefined, updatedAt: now });
+  return { status: "ok", code };
 }
 
 /** Promote's gate run, made with the ask: it follows the pull request once the promote workflow opens one. */
@@ -223,13 +271,40 @@ export async function promoteAnswered(ctx: MutationCtx, versionId: string, pr: s
 // ── The Lab's door ────────────────────────────────────────────────────────
 
 export const start = mutation({
-  args: { versionId: v.string(), kind: v.string(), convId: v.optional(v.string()), nodeId: v.optional(v.string()), models: v.optional(v.string()) },
+  args: { versionId: v.string(), kind: v.string(), convId: v.optional(v.string()), nodeId: v.optional(v.string()), models: v.optional(v.string()), code: v.optional(v.string()) },
   returns: v.object({ runId: v.id("texLabRuns") }),
   handler: async (ctx, a) => {
     const actor = await requireAdmin(ctx);
     const answer = await startRun(ctx, { userId: actor.userId, via: "lab" }, a, Date.now());
     if (answer.status !== "ok") throw new ConvexError(answer.error);
     return { runId: answer.runId };
+  },
+});
+
+/** The Lab's Code field on a draft: a pull request or branch, or main (empty). */
+export const setCode = mutation({
+  args: { versionId: v.string(), code: v.string() },
+  returns: v.object({ code: v.union(v.null(), v.string()) }),
+  handler: async (ctx, a) => {
+    await requireAdmin(ctx);
+    const answer = await setDraftCode(ctx, a.versionId, a.code, Date.now());
+    if (answer.status !== "ok") throw new ConvexError(answer.error);
+    return { code: answer.code };
+  },
+});
+
+/** The code a draft runs on (null: main). */
+export const codeFor = query({
+  args: { versionId: v.string() },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, { versionId }) => {
+    await requireAdmin(ctx);
+    if (versionId === "main") return null;
+    const draft = await ctx.db
+      .query("texLabVersions")
+      .withIndex("by_version", (q) => q.eq("versionId", versionId))
+      .unique();
+    return draft?.code ?? null;
   },
 });
 
@@ -268,9 +343,10 @@ export const get = query({
 /** `tex_dev` `run` and `runs`; null for any other action. */
 export async function runAction(ctx: MutationCtx, who: Who, action: string, a: Record<string, unknown>, now: number): Promise<Record<string, unknown> | null> {
   if (action === "run") {
-    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models }, now);
+    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, code: a.code }, now);
     return answer.status === "ok" ? { status: "ok", id: answer.runId } : answer.status === "not_found" ? { status: "not_found" } : { status: "bad_request", error: answer.error };
   }
+  if (action === "code") return await setDraftCode(ctx, a.draft, a.code, now);
   if (action === "run_remove") return typeof a.id === "string" ? await removeRun(ctx, a.id) : { status: "bad_request", error: "run_remove takes the run's id" };
   if (action === "runs") {
     if (typeof a.id === "string") {
@@ -304,25 +380,27 @@ export const job = internalQuery({
     // Every draft conversation: a Dev draft is run in place of its repo copy; a repo Dev conversation moved to
     // Training or removed in the Lab is left out. Training drafts carry only their id and set.
     const drafts = (await ctx.db.query("texSetConvos").collect()).map((d) => ({ id: d.convoId, set: d.set, removed: d.removed, ...(d.set === "dev" && !d.removed ? { conv: d.data } : {}) }));
-    return { id: r._id, versionId: r.versionId, kind: r.kind, convId: r.convId ?? null, nodeId: r.nodeId ?? null, models: r.models, graph: draft?.graph ?? null, drafts };
+    return { id: r._id, versionId: r.versionId, kind: r.kind, convId: r.convId ?? null, nodeId: r.nodeId ?? null, models: r.models, code: r.code ?? null, graph: draft?.graph ?? null, drafts };
   },
 });
 
 /** The workflow's stage and, at the end, its results or why it failed. A finished run stays finished. */
 export const report = internalMutation({
-  args: { runId: v.string(), stage: stageV, results: v.optional(v.any()), error: v.optional(v.string()), ghRunUrl: v.optional(v.string()) },
+  args: { runId: v.string(), stage: stageV, results: v.optional(v.any()), error: v.optional(v.string()), ghRunUrl: v.optional(v.string()), commit: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, a) => {
     const r = await runOf(ctx, a.runId);
     if (!r) throw new ConvexError("No such run");
     if (r.stage === "done" || r.stage === "failed") return null;
     if (a.ghRunUrl !== undefined && !RUN_URL.test(a.ghRunUrl)) throw new ConvexError("Not a GitHub run address");
+    if (a.commit !== undefined && !COMMIT.test(a.commit)) throw new ConvexError("Not a commit");
     const finished = a.stage === "done" || a.stage === "failed";
     // The dispatch's run address can land after the workflow said it is running: a stage never goes back.
     const stage = a.stage === "queued" && r.stage === "running" ? "running" : a.stage;
     await ctx.db.patch(r._id, {
       stage,
       ...(a.ghRunUrl !== undefined ? { ghRunUrl: a.ghRunUrl } : {}),
+      ...(a.commit !== undefined ? { commit: a.commit } : {}),
       ...(a.results !== undefined ? { results: cleanResults(a.results) } : {}),
       ...(a.error !== undefined ? { error: a.error.slice(0, 300) } : {}),
       ...(finished ? { finishedAt: Date.now() } : {}),
