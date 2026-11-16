@@ -142,6 +142,8 @@ function cardStep(step, n) {
   return {
     n,
     node: step.node,
+    ...(typeof step.id === "string" ? { id: step.id } : {}),
+    ...(typeof step.parent === "string" ? { parent: step.parent } : {}),
     ...(Number.isFinite(step.at) ? { atMs: step.at } : {}),
     ...(Number.isFinite(step.ms) ? { ms: step.ms } : { running: true }),
     ...(step.ok === false ? { ok: false } : {}),
@@ -175,6 +177,12 @@ export function runCard({ rows, msgId, writes = [], graph, running = null, draft
   const failed = fired.filter((s) => s.ok === false || s.failedInside).map((s) => ({ n: s.n, node: s.node, why: s.failedInside ?? "ok: false" }));
   const slowest = fired.filter((s) => Number.isFinite(s.ms) && s.ms > 0).sort((a, b) => b.ms - a.ms).slice(0, 3).map((s) => `${s.node} ${secs(s.ms)}`);
   const mine = writes.filter((w) => w && (w.by === undefined || w.by === msgId));
+  // Texts a background job sent later for this text (`from: "job"`): the Tex rows after it, before the next test text.
+  const at = rows.indexOf(row);
+  const nextOwn = rows.findIndex((r, i) => i > at && r.who !== "Tex" && !r.prod);
+  const later = rows.slice(at + 1, nextOwn < 0 ? rows.length : nextOwn).filter((r) => r.who === "Tex" && r.from === "job" && !replies.includes(r));
+  // Each Tex text with what sent it, the steps that led to it (`cause`, logged, never inferred) and the line's delay.
+  const sent = [...said, ...later].filter((r) => r.from || Array.isArray(r.cause) || Number.isFinite(r.line?.outMs));
   return {
     msgId,
     status: done ? "done" : "running",
@@ -183,6 +191,8 @@ export function runCard({ rows, msgId, writes = [], graph, running = null, draft
     ...(done && fit && fit.asDrawn === false ? { ranAs: ranAsOf(fit, fired) } : {}),
     sent: { who: row.who, text: short(row.text ?? "", TEXT_CUT), ...(row.kind ? { kind: row.kind, on: row.on } : {}) },
     tex: said.map((r) => short(r.text, 2_000)),
+    ...(later.length ? { jobTexts: later.map((r) => ({ id: r.id, text: short(r.text, 2_000), ...(Array.isArray(r.cause) ? { cause: r.cause } : {}) })) } : {}),
+    ...(sent.length ? { texSent: sent.map((r) => ({ id: r.id, from: r.from ?? "fd", ...(Array.isArray(r.cause) ? { cause: r.cause } : {}), ...(Number.isFinite(r.line?.outMs) ? { lineOutMs: r.line.outMs } : {}) })) } : {}),
     ...(reply?.quiet ? { quiet: short(reply.text || "Tex stayed quiet", 300) } : {}),
     ...(row.error || reply?.error ? { error: row.error ?? reply.error } : {}),
     time: {
@@ -194,7 +204,7 @@ export function runCard({ rows, msgId, writes = [], graph, running = null, draft
     failed,
     fired,
     notFired: done ? notFiredOf(graph, steps) : "after it finishes",
-    writes: mine.map((w) => (typeof w === "string" ? w : cutDeep(w, 300))),
+    writes: mine.map((w) => (typeof w === "string" ? w : { ...cutDeep(w, 300), ...(w.kind === "page" ? { read: `page { sandboxId, id: "${w.id}" }` } : {}) })),
     drill: `step { sandboxId, msgId: "${msgId}", node } for a step's input, output, thinking and calls; part: "prompt" for its prompt`,
   };
 }
