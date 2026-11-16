@@ -6,8 +6,8 @@
  * The chat object finds what it changed (`replyQuote.ts` `editedOf`: the earlier text's event, by the handle it came
  * with, else the line's own copy of its words) and asks the gateway's graph (`/texts/edit` on `TexTexts`), which says:
  * - "same": an edit that changed nothing; nothing is kept.
- * - "record": a typo's worth; the edit is kept in the chat's record, marked as the edit of that text, and takes no turn.
- * - "turn": the edit is kept the same way and queued like a text, so Triage, Decide and Tex take it as they take any.
+ * - "turn": the edit is kept in the chat's record, marked as the edit of that text, and queued like a text; Triage
+ *   sends it to Decide, which judges from its examples whether it needs an answer (`inboxTurn.ts` `chooseTurn`).
  * - "withdraw": an unsend; it is kept, marked as that text taken back, and the text is taken out of the queue if it is
  *   still waiting there (a turn already running keeps it). It takes no turn.
  * A failure of the step is a "turn" for an edit and a "withdraw" for an unsend: neither is dropped because this step
@@ -26,7 +26,7 @@ import type { GroupMessage } from "./sendblueGroups";
 import { editedOf } from "./replyQuote";
 import { logStep } from "./stepEvents";
 
-export type EditTo = "turn" | "record" | "same" | "withdraw";
+export type EditTo = "turn" | "same" | "withdraw";
 export type EditStepDeps = { texts?: TextsBinding; now: () => number };
 
 /** What the step found and the node said, for the chat object to act on. */
@@ -69,7 +69,7 @@ export async function editStep(storage: InboxStorage, edit: PhotonEdit, deps: Ed
   }
   const why = typeof output.why === "string" ? output.why.slice(0, 200) : undefined;
   // An unsend is only ever taken back, and an edit never is: an answer the other way is the node's mistake.
-  const fits = change === "unsend" ? output.to === "withdraw" : output.to === "same" || output.to === "record" || output.to === "turn";
+  const fits = change === "unsend" ? output.to === "withdraw" : output.to === "same" || output.to === "turn";
   if (fits) return await done(output.to as EditTo, why);
   return await done(fallback, why, "unknown_answer");
 }

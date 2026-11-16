@@ -4,34 +4,26 @@
  * the transcript shows it to the model.
  *
  * Sabotage (applied, run, observed failing, reverted, 2026-11-16):
- *  1. `typoFix` ignoring digits → "an edit that changed nothing is nothing, a typo's worth is only kept…".
+ *  1. `editNode` answering "turn" for unchanged words → "an edit that changed nothing is nothing…".
  *  2. `words` dropping the edit's mark → "the transcript marks an edit and names the text it changed".
  *  3. `checkEvent` taking `edited` from Tex → "only a person's own text is ever an edit".
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { distance, editNode } from "../src/agent/graph/nodes/edit.js";
+import { editNode } from "../src/agent/graph/nodes/edit.js";
 import { editForTexts } from "../src/agent/textsEdit.js";
 import { checkEvent, EventRefusal } from "../src/agent/log.js";
 import { renderEvents } from "../src/agent/logRender.js";
 
 const one = (over) => ({ kind: "one", change: "edit", ...over });
 
-test("an edit that changed nothing is nothing, a typo's worth is only kept, and any other change takes a turn", async () => {
+test("an edit that changed nothing is nothing, and any other goes on as a text: whether it is answered is Decide's", async () => {
   assert.equal((await editNode(one({ words: "Dinner at 6?", earlier: "dinner at 6? " }))).to, "same");
-  assert.equal((await editNode(one({ words: "dinner at 6 tonight?", earlier: "dinner at 6 tonigt?" }))).to, "record");
-  assert.equal((await editNode(one({ words: "dinner at 7 tonight?", earlier: "dinner at 6 tonight?" }))).to, "turn", "a changed number changes what they said");
-  assert.equal((await editNode(one({ words: "call me at 11:30", earlier: "call me at 10:30" }))).to, "turn", "a changed time, however long the word");
-  assert.equal((await editNode(one({ words: "meet on friday", earlier: "meet no friday" }))).to, "turn", "a short word is never a typo");
-  assert.equal((await editNode(one({ words: "please send the deck", earlier: "please send deck" }))).to, "turn", "an added word");
-  assert.equal((await editNode(one({ words: "definitely tomorrow", earlier: "definately tomorow" }))).to, "record", "two misspellings fixed");
-  assert.equal((await editNode(one({ words: "lunch on friday instead", earlier: "dinner at 6 tonight?" }))).to, "turn");
-  assert.equal((await editNode(one({ words: "no", earlier: "ok" }))).to, "turn", "a short text's change is not a typo");
-  assert.equal((await editNode(one({ words: "dinner at 7" }))).to, "turn", "words before nobody remembers take a turn");
-  assert.equal((await editNode(one({ words: "x".repeat(500), earlier: "y".repeat(500) }))).to, "turn");
-  assert.equal(distance("kitten", "sitting", 5), 3);
-  assert.equal(distance("abc", "abcdefgh", 2), 3, "stops once past its limit");
+  assert.deepEqual(await editNode(one({ words: "dinner at 6 tonight?", earlier: "dinner at 6 tonigt?" })), { to: "turn", why: "the words changed" }, "a fixed typo too: the judge's examples teach it to stay quiet");
+  assert.equal((await editNode(one({ words: "call me at 11:30", earlier: "call me at 10:30" }))).to, "turn");
+  assert.deepEqual(await editNode(one({ words: "dinner at 7" })), { to: "turn", why: "the words before are not known" });
+  assert.equal((await editNode(one({ words: "  " }))).to, "same");
 });
 
 test("an unsend is always taken back, in a 1:1 or a group", async () => {

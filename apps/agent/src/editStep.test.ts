@@ -53,18 +53,6 @@ describe("editStep", () => {
     expect((await storage.list({ prefix: TEXTS_QUEUE.prefix })).size).toBe(2);
   });
 
-  it("keeps a typo's worth in the chat's record with no turn, once", async () => {
-    const storage = new MemoryStorage();
-    const { deps } = gateway(() => Response.json({ to: "record", why: "a typo's worth: 1 character" }));
-    const { to, edited } = await editStep(storage, edit({ previous: "dinner at 7 tonigt?" }), deps);
-    expect(to).toBe("record");
-    expect(edited).toEqual({ words: "dinner at 7 tonigt?" });
-    expect(await keepEdit(storage, editedText(edit(), edited), NOW)).toBe("kept");
-    expect(await keepEdit(storage, editedText(edit(), edited), NOW)).toBe("duplicate");
-    expect((await storage.list({ prefix: TEXTS_QUEUE.prefix })).size).toBe(0);
-    expect((await unwritten(storage)).filter((event) => event.kind === "text")).toMatchObject([{ edited: true, quoted: "dinner at 7 tonigt?", text: "dinner at 7 tonight?" }]);
-  });
-
   it("takes an unsent text back out of the queue, and keeps the unsend as that text taken back", async () => {
     const storage = new MemoryStorage();
     await accept(storage, text(), NOW - 60_000);
@@ -95,5 +83,45 @@ describe("editStep", () => {
     const storage = new MemoryStorage();
     const { deps } = gateway(() => Response.json({ to: "withdraw", why: "?" }));
     expect((await editStep(storage, edit(), deps)).to).toBe("turn");
+  });
+});
+
+describe("Triage for an edit", () => {
+  it("sends a lone edit to the judge, never straight to Tex, and lets the judge leave it unanswered", async () => {
+    const { chooseTurn } = await import("./inboxTurn");
+    const storage = new MemoryStorage();
+    await accept(storage, editedText(edit(), { words: "dinner at 7 tonigt?" }), NOW);
+    const waiting = [...(await storage.list({ prefix: TEXTS_QUEUE.prefix }))] as never;
+    const asked: unknown[] = [];
+    const deps = {
+      now: () => NOW,
+      fetch: (async (url: string, init?: RequestInit) => {
+        asked.push(url);
+        void init;
+        return Response.json({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 });
+      }) as never,
+      controlPlaneOrigin: "https://cp.example",
+      workerSecret: "s",
+    };
+    const choice = await chooseTurn(storage, deps as never, waiting);
+    const triage = (await unwritten(storage)).find((event) => event.kind === "step" && event.step?.name === "triage");
+    expect(triage?.step?.output).toMatchObject({ to: "judge" });
+    expect(asked.length).toBeGreaterThan(0);
+    expect(choice.answer).toEqual([]);
+  });
+});
+
+describe("the judge's transcript", () => {
+  it("writes an edit and an unsend as the Training conversations do, and an unsend is never a to-do", async () => {
+    const { renderTranscript } = await import("./events");
+    const person = { kind: "person" as const, who: "a".repeat(64) };
+    const first = { id: `${NOW}-000001`, at: NOW, chat: CHAT, from: person, kind: "text" as const, text: "dinner at 6 tonight?" };
+    const edited = { id: `${NOW + 1}-000002`, at: NOW + 1, chat: CHAT, from: person, kind: "text" as const, text: "dinner at 7 tonight?", edited: true as const, replyTo: first.id };
+    const gone = { id: `${NOW + 2}-000003`, at: NOW + 2, chat: CHAT, from: person, kind: "text" as const, text: "", unsent: true as const, replyTo: first.id };
+    const shown = renderTranscript([first, edited, gone]);
+    expect(shown).toContain('(edits "dinner at 6 tonight?" to) dinner at 7 tonight?');
+    expect(shown).toContain('(deleted "dinner at 6 tonight?")');
+    expect(shown.split("\n").find((line) => line.includes("deleted"))).not.toContain("not answered");
+    expect(shown).not.toContain("replying to");
   });
 });

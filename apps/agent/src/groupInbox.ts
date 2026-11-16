@@ -144,8 +144,8 @@ export { groupCommand, peopleOf };
 export { ASK_KEY, type OpenAsk };
 
 /**
- * A group's edit the `edit` step says is a typo's worth (`editStep.ts`): kept as the edit of its message, so later turns
- * read the new words, and queued for no turn. Only in a chat Tex is set up in, as any line is (`acceptGroup`).
+ * A group's unsend (`editStep.ts`): kept as that message taken back, so later turns know, and queued for no turn. Only
+ * in a chat Tex is set up in, as any line is (`acceptGroup`).
  */
 export async function keepGroupEdit(storage: InboxStorage, message: GroupMessage, now: number): Promise<"kept" | "ignored" | "duplicate"> {
   if (message.sms === true || !(await isBound(storage, message))) return "ignored";

@@ -232,8 +232,8 @@ export async function accept(
 }
 
 /**
- * An edit the `edit` step says is a typo's worth (`editStep.ts`): kept in the chat's record as the edit of its text, so
- * later turns read the new words, and queued for no turn. Seen once, as a text is.
+ * An unsend (`editStep.ts`): kept in the chat's record as that text taken back, so later turns know, and queued for no
+ * turn. Seen once, as a text is.
  */
 export async function keepEdit(storage: InboxStorage, message: Message, now: number): Promise<"kept" | "duplicate"> {
   if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return "duplicate";

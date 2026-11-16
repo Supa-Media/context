@@ -1,4 +1,4 @@
-# An edited or unsent text is kept beside the one it changes, and an edit that changes it is answered (2026-11-16)
+# An edited or unsent text is kept beside the one it changes, and Decide judges an edit from examples (2026-11-16)
 
 Dev2, 2026-11-16, choosing "Build edit support in Tex" on the Lab declutter's card, then: "not just edits but deleted
 messages as well". Until then Photon's bridge heard iMessage's Edit and Undo Send and the texting Worker counted them
@@ -7,13 +7,16 @@ and dropped them, so Tex kept answering words a person had replaced or taken bac
 **One node, "A text is edited or unsent" (`edit`, `texConfig.json`), a start of its own wired to Triage.** The chat
 object's `/edit` (`apps/agent/src/editStep.ts`) finds the text the event changes, by the provider's handle the text
 came with (`replyQuote.ts` `noteHandle`, kept for 1:1 texts as for a group's) or else the line's own copy of its words
-(Photon's `previousText`), and asks the node on the gateway's graph (`/texts/edit`). The node is pure code:
+(Photon's `previousText`), and asks the node on the gateway's graph (`/texts/edit`). The node is pure code and says
+only what happened, never whether it deserves an answer:
 
 - an edit whose words did not change: nothing;
-- **only typos fixed** (the same words in order, each changed word at least four letters, no digit, at most two
-  characters different): kept, no turn. A changed number, a short word, an added or dropped word is a change;
-- any other edit: kept and queued like a text, so Triage, Decide and Tex take it as they take any text;
-- an unsend: kept as that text taken back, and the text leaves the chat's queue if no turn has started on it.
+- any other edit: kept and queued like a text. Triage sends a lone edit to Decide, never straight to Tex, and Decide's
+  verdict stands for it as for a bare thanks: whether a fixed typo goes quiet and a changed ask is answered is taught by
+  the Training conversations' labelled edits (`jo-and-tex`, `group-2`; Dev2's rule: judgment by examples, no fixed
+  behavior rules; a first draft that coded "typo fixes go quiet" was taken out);
+- an unsend: kept as that text taken back, and the text leaves the chat's queue if no turn has started on it, since
+  it is no longer there.
 
 A failure answers "turn" for an edit and "withdraw" for an unsend, so neither is dropped. The Worker logs the `edit`
 step (counts, where the words before came from, the node's answer and why; never words), the gateway's graph logs
@@ -29,6 +32,10 @@ joined. Neither is ever "(not answered)".
 **Where.** Photon's line, 1:1 and groups (a moved group's edits go to its old home, as its texts do). Sendblue sends
 no edits or unsends; WhatsApp's `messages.patch` is not read yet (the capability list's `cant`).
 
+The judge's transcript writes them as the Training conversations do (`events.ts` `renderTranscript`, `texTraining.cjs`
+`lineOf`): `(edits "…" to) …` and `(deleted "…")`.
+
 **What a simplification would cost.** Folding an edit into the earlier text in place rewrites the record a person
-owns and hides what Tex answered; answering every edit answers fixed typos. Tests: `apps/agent/src/editStep.test.ts`,
+owns and hides what Tex answered; sending an edit straight to Tex answers every fixed typo; a code rule for which
+edits matter is a fixed behavior rule the examples should teach. Tests: `apps/agent/src/editStep.test.ts`,
 `apps/mcp/test/editNode.test.mjs`, replay case `edit-and-unsend-shown`.

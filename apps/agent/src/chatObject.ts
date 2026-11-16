@@ -278,7 +278,7 @@ export class SenderInbox implements DurableObject {
     return Response.json({ outcome });
   }
 
-  /** What the `edit` step's answer does: nothing, a kept line, or a text queued for its turn, in a 1:1 or a group. */
+  /** What the `edit` step's answer does: nothing, an unsend kept as its line, or an edit queued as a text, in a 1:1 or a group. */
   private async takeEdit(edit: PhotonEdit, { to, edited }: EditOutcome): Promise<string> {
     if (to === "same") return "same";
     const now = Date.now();

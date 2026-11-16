@@ -321,7 +321,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Edited and unsent texts",
     actions: [],
-    texts: "on your iMessage line, an edited text reaches you marked as the edit of the one it changed: a fixed typo is only noted, any other change is answered like a new text; an unsent text is marked as taken back, and if you hadn't started on it you don't answer it",
+    texts: "on your iMessage line, an edited text reaches you marked as the edit of the one it changed, and is judged like any text (a fixed typo needs no answer, a changed ask does); an unsent text is marked as taken back, and if you hadn't started on it you don't answer it",
     group: "the same for anyone's edit or unsend in the chat",
     cant: [{ where: "everywhere", what: "see an edit or unsend on the old Sendblue number or WhatsApp, which don't send them", workaround: { kind: "words", text: "ask them to send the corrected text again, or say which text to ignore" } }],
   },

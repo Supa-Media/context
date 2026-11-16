@@ -13,7 +13,7 @@ export const TEXTS_EDIT_PATH = "/texts/edit";
 /** Two texts at the Worker's cap (`MAX_INBOUND_TEXT`, 20,000 characters, up to 4 bytes each) and the rest of the body. */
 const MAX_BYTES = 2 * 20_000 * 4 + 1024;
 
-/** Runs `edit` on the posted input and answers its output: `{ to: "turn" | "record" | "same" | "withdraw", why }`. */
+/** Runs `edit` on the posted input and answers its output: `{ to: "turn" | "same" | "withdraw", why }`. */
 export async function editForTexts(request, { graph = gatewayGraph() } = {}) {
   if (request.method !== "POST") return Response.json({ error: "bad_request" }, { status: 400 });
   const bytes = await request.arrayBuffer();
@@ -26,8 +26,8 @@ export async function editForTexts(request, { graph = gatewayGraph() } = {}) {
   }
   try {
     const run = await graph.runNode("edit", input, {}, "textsEdit");
-    // A node turned off in the config never runs: an edit is only kept and takes no turn, an unsend is taken back.
-    return Response.json(run.ran ? run.output : input?.change === "unsend" ? { to: "withdraw", why: "the edit step is off" } : { to: "record", why: "the edit step is off" });
+    // A node turned off in the config never runs: an edit goes on as a text, an unsend is taken back, as on a failure.
+    return Response.json(run.ran ? run.output : input?.change === "unsend" ? { to: "withdraw", why: "the edit step is off" } : { to: "turn", why: "the edit step is off" });
   } catch (error) {
     // A body the node's inSchema refuses, or a node that failed: the Worker takes an edit as a text, an unsend as taken back (`editStep.ts`).
     console.log(JSON.stringify({ event: "texts_edit", outcome: "failed", error: error instanceof Error ? error.name : "unknown" }));

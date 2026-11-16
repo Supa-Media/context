@@ -370,6 +370,12 @@ const TOLD_WORDS: Record<string, string> = {
  */
 const speaker = (name: string | undefined): string => `@${oneLine(name ?? "").replace(/^@+/, "").trim() || "someone"}`;
 
+/** The judge's short quote of an earlier text, as Training's (`texTraining.cjs` `quote`, 32 characters). */
+function shortQuote(text: string): string {
+  const chars = [...text];
+  return chars.length > 32 ? `${chars.slice(0, 32).join("")}…` : chars.join("");
+}
+
 /**
  * The transcript decide is shown (section 5), newest last, at most `limit`
  * characters: oldest lines go first. "You" is Tex, "Context" the system, and every person "@name" (`speaker`). A person's event
@@ -403,12 +409,17 @@ export function renderTranscript(events: readonly TexEvent[], options: { timeZon
     lastDay = today;
     const who = whoSaid(event);
     const said = event.told ? (TOLD_WORDS[event.told] ?? "") : oneLine(event.text ?? "").trim();
-    const words = said || (event.kind === "delivery" ? `(your message <${event.replyTo ?? "unknown"}> did not reach them)` : event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
-    const unanswered = event.from.kind === "person" && event.at >= newestAnswered && !answered.has(event.id) ? "   (not answered)" : "";
+    // An edit or an unsend (`editStep.ts`) reads as the Training conversations write one (`texTraining.cjs` `lineOf`):
+    // the earlier text quoted short, when it is in what the judge is shown.
+    const earlier = event.replyTo !== undefined ? byId.get(event.replyTo) : undefined;
+    const quote = earlier === undefined ? "" : shortQuote(oneLine(earlier.text ?? ""));
+    const changed = event.unsent ? (quote ? `(deleted "${quote}")` : "(deleted an earlier text)") : event.edited ? (quote ? `(edits "${quote}" to) ` : "(edits an earlier text to) ") : "";
+    const words = (event.unsent ? changed : changed + said) || (event.kind === "delivery" ? `(your message <${event.replyTo ?? "unknown"}> did not reach them)` : event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
+    const unanswered = event.from.kind === "person" && !event.unsent && event.at >= newestAnswered && !answered.has(event.id) ? "   (not answered)" : "";
     // A reply under an earlier message says whose it is: under one of Tex's own, the judge reads it as said to Tex;
     // under a person's, as said to that person (an assistant's reply under Seyi's text read as one to Tex, 2026-11-12).
     const target = event.replyTo !== undefined ? byId.get(event.replyTo) : undefined;
-    const under = event.from.kind === "person" && event.replyTo !== undefined ? (target === undefined ? ` (replying to <${event.replyTo}>)` : ` (replying to ${whoSaid(target)})`) : "";
+    const under = event.from.kind === "person" && event.replyTo !== undefined && !event.edited && !event.unsent ? (target === undefined ? ` (replying to <${event.replyTo}>)` : ` (replying to ${whoSaid(target)})`) : "";
     const asking = event.id === open ? "   (your newest question)" : "";
     // Each line carries its event id, so what decide is asked about by id is grounded in the line it reads.
     lines.push(`<${event.id}> [${time(event.at)}] ${who}:${under} ${words}${unanswered}${asking}`);
