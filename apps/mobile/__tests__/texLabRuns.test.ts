@@ -224,6 +224,13 @@ describe("running from the Lab", () => {
     act(() => setRunsUi({ open: true, run: "run2" }));
     expect(q("#runsPanel")?.textContent).toContain("Its pull request");
     expect(q("#runsPanel")?.textContent).not.toContain("right ·");
+    // A gate for a change that reaches no Test set area: done at 0 of 0, said as such, never as a pass rate.
+    const NONE: LabRun = { ...GATE, id: "run3", stage: "done", results: { pass: 0, total: 0, costUsd: 0, ms: 0 } };
+    mockAnswers.set("functions/texLabRuns:list", [NONE, DONE]);
+    mockAnswers.set("functions/texLabRuns:get", NONE);
+    act(() => setRunsUi({ open: true, run: "run3" }));
+    expect(q("#gateResult")?.textContent).toContain("No Test set needed");
+    expect(q("#runsPanel")?.textContent).not.toContain("0/0");
   });
 
   test("Try a text runs one turn in the test chat on the chat's history, and Keep adds both rows", async () => {
