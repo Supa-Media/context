@@ -1,0 +1,81 @@
+/**
+ * `tex_dev` `run` and `runs` (`src/texDev/tool.js`; Dev2, 2026-11-16: the Lab's Run Dev set, Run this chat, Run node
+ * and its Runs panel, as MCP actions: Lab = MCP parity), and the workflow's halves around the node-alone runner
+ * (`scripts/tex-lab-run.mjs`): which Dev conversations a run covers, and the results it reports.
+ *
+ * Sabotage record (temporary local edits, reverted, 2026-11-16):
+ *   tool.js run without the needDraft check         "run sends the draft ..." fails
+ *   devConversations keeping a draft moved to Training "the Dev set is the repo's ..." fails
+ */
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createTexDev } from "../src/texDev/tool.js";
+import { guideText } from "../src/texDev/guide.js";
+import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
+import { devConversations, resultsOf } from "../../../scripts/tex-lab-run.mjs";
+
+const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
+const jsonOf = (result) => JSON.parse(textOf(result));
+const tool = (answers) => {
+  const calls = [];
+  const controlPlane = { async texDev(token, action, args) { calls.push({ action, args }); const a = answers[action]; return typeof a === "function" ? a(args) : (a ?? null); } };
+  return { calls, call: createTexDev({ env: { APP_ORIGIN: "https://context.example" }, session: { accessToken: "tok" }, controlPlane }) };
+};
+
+test("the guide, the schema's description and its action list name run and runs", () => {
+  for (const action of ["run", "runs"]) {
+    assert.match(guideText(), new RegExp(`- ${action} `));
+    const def = texDevToolDefinitions()[0];
+    assert.match(def.description, new RegExp(`\\b${action}\\b`));
+    assert.match(def.inputSchema.properties.action.description, new RegExp(`\\b${action}\\b`));
+  }
+});
+
+test("run sends the draft, kind, chat, node and models, main by default, and refuses a malformed draft", async () => {
+  const { calls, call } = tool({ run: { status: "ok", id: "k1" } });
+  assert.equal(jsonOf(await call("run", {})).run, "k1");
+  assert.deepEqual(calls[0], { action: "run", args: { draft: "main", kind: "dev", conv: undefined, node: undefined, models: "gw" } });
+  await call("run", { draft: "vabc", kind: "chat", conv: "group-4", models: "cc" });
+  assert.deepEqual(calls[1].args, { draft: "vabc", kind: "chat", conv: "group-4", node: undefined, models: "cc" });
+  assert.equal((await call("run", { draft: "../x" })).isError, true);
+  assert.equal(calls.length, 2);
+});
+
+test("run says the control plane's refusal; runs lists, and runs { id } answers one run whole", async () => {
+  const { call } = tool({ run: { status: "bad_request", error: "you already have 3 runs waiting or running (at most 3)" }, runs: (a) => (a.id ? { status: "ok", run: { id: a.id, stage: "done", results: { rows: [] } } } : { status: "ok", runs: [{ id: "k1" }] }) });
+  const refused = await call("run", { kind: "dev" });
+  assert.equal(refused.isError, true);
+  assert.match(textOf(refused), /at most 3/);
+  assert.deepEqual(jsonOf(await call("runs", {})), { runs: [{ id: "k1" }] });
+  assert.deepEqual(jsonOf(await call("runs", { id: "k1" })), { id: "k1", stage: "done", results: { rows: [] } });
+});
+
+test("the Dev set is the repo's with the Lab's drafts over it; never Training", () => {
+  const conv = (id, set, text = "hi") => ({ id, set, kind: "one", msgs: [{ id: "m1", who: "Jo", text }] });
+  const repo = [conv("a", "dev"), conv("b", "dev"), conv("t", "training")];
+  const drafts = [
+    { id: "a", set: "dev", removed: false, conv: JSON.stringify(conv("a", "dev", "edited")) },
+    { id: "b", set: "training", removed: false },
+    { id: "n", set: "dev", removed: false, conv: JSON.stringify(conv("n", "dev")) },
+    { id: "t", set: "training", removed: false },
+  ];
+  const got = devConversations(repo, drafts);
+  assert.deepEqual(got.map((c) => c.id), ["a", "n"]);
+  assert.equal(got[0].msgs[0].text, "edited");
+  assert.deepEqual(devConversations(repo, [], "b").map((c) => c.id), ["b"]);
+  assert.deepEqual(devConversations(repo, [], "t"), [], "a Training chat is never run");
+});
+
+test("results count by chat and by step, with each test's verdict and no words", () => {
+  const rows = [
+    { chat: "g", msg: "m3", at: 2, node: "decide", right: true, ran: true, usd: 0.0004, got: "respond", want: "respond" },
+    { chat: "g", msg: "m9", at: 8, node: "decide", right: false, ran: true, usd: 0.0004, got: "quiet", want: "respond", why: "act quiet, wanted respond" },
+    { chat: "m", msg: "m2", at: 1, node: "fd", right: false, ran: false, usd: 0, why: "runs alone only on a one-ask chat" },
+  ];
+  const r = resultsOf(rows, "1200");
+  assert.deepEqual([r.pass, r.total, r.costUsd, r.ms], [1, 3, 0.0008, 1200]);
+  assert.deepEqual(r.perConv, [{ id: "g", pass: 1, total: 2 }, { id: "m", pass: 0, total: 1 }]);
+  assert.deepEqual(r.perNode, [{ node: "decide", pass: 1, total: 2 }, { node: "fd", pass: 0, total: 1 }]);
+  assert.deepEqual(r.rows[1], { convId: "g", msgIndex: 8, node: "decide", ok: false, got: "quiet", want: "respond" });
+  assert.deepEqual(r.rows[2], { convId: "m", msgIndex: 1, node: "fd", ok: false, got: "can't run alone", want: "", ran: false });
+});

@@ -62,6 +62,13 @@ export function decideCase(c, i) {
   };
 }
 
+/** What Decide said and what its label wants, short, for a Lab run's row (`scripts/tex-lab-run.mjs`). */
+export function decideSaid(label, verdict) {
+  if (!verdict || verdict.ok !== true) return { got: "no verdict", want: String(label.act ?? "any") };
+  const act = verdict.act === "answer" ? "respond" : verdict.act === "wait" ? "wait" : "quiet";
+  return { got: act + (verdict.act === "react" ? " + react" : ""), want: String(label.act ?? "any") + (label.also_react === "yes" ? " + react" : "") };
+}
+
 /** Whether Decide's verdict matches the label: each labelled field, "any" skipped. */
 export function decideRight(label, verdict) {
   if (!verdict || verdict.ok !== true) return { right: false, why: "no verdict" };
@@ -117,6 +124,11 @@ const fdAlone = (c, i) => c.world === "maya" && c.msgs.slice(0, i).every((m) => 
 /** Each node's way to run alone: how to ask it, given the tree's code, and how to score its answer. */
 export async function adaptersFor(tree, { fake = false, env = process.env } = {}) {
   const mod = (rel) => import(pathToFileURL(join(tree, rel)).href);
+  // Claude's calls through the model socket when one is set (`modelSocket.mjs`): the Lab's Claude Code runs
+  // (`tex-lab-run.yml`, models "cc") answer them with `socketAnswerer.mjs`; nothing is priced then.
+  const { modelSocket, socketRequest } = await import("./modelSocket.mjs");
+  const socket = fake ? null : modelSocket(env);
+  const socketed = Boolean(socket?.covers("claude"));
   return {
     // The front door runs its whole turn's tools, so its tests go as one batch through the core bench.
     fd: {
@@ -158,7 +170,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
           return { ...r, ran: true, usd: 0 };
         }
         const verdict = await judgeCase(item, engine);
-        return { ...decideRight(label, verdict), ran: true, usd: USD.decide };
+        return { ...decideRight(label, verdict), ...decideSaid(label, verdict), ran: true, usd: USD.decide };
       };
     },
     // The job check at a job's stop: the job from its recorded run (rec.job: title, brief, doneWhen, did), the
@@ -174,11 +186,11 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
         if (!rec) return { right: false, ran: false, usd: 0, why: "no job: record the job's run (rec.job) on this message" };
         const asked = c.msgs.slice(0, i + 1).filter((m) => !m.tex && !m.kind).map((m) => m.text);
         const item = { job: { title: rec.title, brief: rec.brief, doneWhen: rec.doneWhen, asked }, did: rec.did ?? [], want: label.verdict };
-        if (!fake && config === null) return { right: false, ran: false, usd: 0, why: "no AI gateway (AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, AI_GATEWAY_TOKEN)" };
-        const request = fake ? fakeRequest("advisor-job-check", item) : (params) => requestViaGateway(params, config, { metadata: { feature: "bench", client: "sets" } });
+        if (!fake && !socketed && config === null) return { right: false, ran: false, usd: 0, why: "no AI gateway (AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, AI_GATEWAY_TOKEN)" };
+        const request = fake ? fakeRequest("advisor-job-check", item) : socketed ? socketRequest(socket) : (params) => requestViaGateway(params, config, { metadata: { feature: "bench", client: "sets" } });
         const out = await role.ask(item, request);
         const right = label.verdict === undefined || label.verdict === "any" || out.got === label.verdict;
-        return { right, ran: true, usd: (priceUsd && priceUsd(ADVISOR_MODEL, out.usage)) || 0, ...(right ? {} : { why: `said ${out.got}, wanted ${label.verdict}` }) };
+        return { right, ran: true, usd: socketed ? 0 : (priceUsd && priceUsd(ADVISOR_MODEL, out.usage)) || 0, got: String(out.got ?? ""), want: String(label.verdict ?? "any"), ...(right ? {} : { why: `said ${out.got}, wanted ${label.verdict}` }) };
       };
     },
     reviewer: async () => {
@@ -190,9 +202,10 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
         const item = reviewerCase(c, i);
         if (!item.reply) return { right: false, ran: false, usd: 0, why: "no draft: label the front door or record its run on this message" };
         if (fake) return { ...reviewerRight(label, { send: label.sentBack === "0" }), ran: true, usd: 0 };
-        if (config === null) return { right: false, ran: false, usd: 0, why: "no AI gateway (AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, AI_GATEWAY_TOKEN)" };
-        const verdict = await reviewReply({ state: caseTurn(item), config, metadata: { feature: "bench", client: "sets" } }).catch(() => null);
-        return { ...reviewerRight(label, verdict), ran: true, usd: USD.reviewer };
+        if (config === null && !socketed) return { right: false, ran: false, usd: 0, why: "no AI gateway (AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, AI_GATEWAY_TOKEN)" };
+        const verdict = await reviewReply({ state: caseTurn(item), config, metadata: { feature: "bench", client: "sets" }, ...(socketed ? { request: socketRequest(socket) } : {}) }).catch(() => null);
+        const said = { got: !verdict ? "no verdict" : verdict.send === false ? "sent back" : "let go", want: label.sentBack === undefined || label.sentBack === "any" ? "any" : label.sentBack === "0" ? "let go" : "sent back" };
+        return { ...reviewerRight(label, verdict), ...said, ran: true, usd: socketed ? 0 : USD.reviewer };
       };
     },
   };
@@ -208,7 +221,7 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
     for (const t of unitTests(c)) {
       if (node && t.node !== node) continue;
       const label = c.msgs[t.at].labels[t.node];
-      const row = { chat: c.id, msg: t.msg, node: t.node };
+      const row = { chat: c.id, msg: t.msg, at: t.at, node: t.node };
       if (table[t.node]?.batch) {
         (batches[t.node] ??= []).push({ convo: c, at: t.at, label, row });
         continue;

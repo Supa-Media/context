@@ -31,6 +31,7 @@ import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { CASE_KEY, MAX_JSON } from "./texLab";
 import { pageForUser } from "./texPage";
 import { setAction } from "./texSets";
+import { runAction, startGateRun } from "./texLabRuns";
 import { clampDays } from "./texLabToolStats";
 import { toolStatsReport } from "./lib/adminFns/texToolStats";
 import { deleteDraftRows, describeChange, keepResults, renameDraft, revertDraft, savedState, setRunSetup as writeRunSetup, undoText } from "./lib/texLabDraftWrites";
@@ -349,6 +350,9 @@ export const forGateway = internalMutation({
     // The Testing tab's conversations (`texSets.ts`): the same door, the same caller.
     const set = await setAction(ctx, { userId: dev.userId, via: dev.client }, action, a, now);
     if (set !== null) return set;
+    // Runs on GitHub (`texLabRuns.ts`): the same door, the same caller.
+    const run = await runAction(ctx, { userId: dev.userId, via: dev.client }, action, a, now);
+    if (run !== null) return run;
     if (action === "page") return await pageForUser(ctx, dev.userId);
     if (action === "list") {
       const rows = (await ctx.db.query("texLabVersions").collect()).filter((r) => r.versionId !== "main").sort((x, y) => y.updatedAt - x.updatedAt);
@@ -430,6 +434,7 @@ export const forGateway = internalMutation({
       await ctx.db.patch(row._id, { promote: { state: "asked", by: dev.userId, at: now } });
       await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev: (row.rev ?? 0) + 1, by: dev.userId, via: dev.client, keys: [], said: ["asked to promote this draft"], at: now });
       await ctx.db.patch(row._id, { rev: (row.rev ?? 0) + 1 });
+      await startGateRun(ctx, { userId: dev.userId, via: dev.client }, row.versionId, now);
       return { status: "ok", promote: "asked" };
     }
     return { status: "bad_request", error: `no action "${action}"` };

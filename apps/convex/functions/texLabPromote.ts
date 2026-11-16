@@ -15,6 +15,7 @@ import { internalQuery } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
+import { promoteAnswered, startGateRun } from "./texLabRuns";
 
 const PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d{1,7}$/;
 
@@ -30,7 +31,10 @@ export const ask = mutation({
       .withIndex("by_version", (q) => q.eq("versionId", versionId))
       .unique();
     if (!row) throw new ConvexError("Save this version before promoting it");
-    await ctx.db.patch(row._id, { promote: { state: "asked", by: actor.userId, at: Date.now() } });
+    const now = Date.now();
+    await ctx.db.patch(row._id, { promote: { state: "asked", by: actor.userId, at: now } });
+    // Promote starts at once, and its gate run follows the pull request (`texLabRuns.ts`).
+    await startGateRun(ctx, { userId: actor.userId, via: "lab" }, versionId, now);
     return null;
   },
 });
@@ -64,6 +68,7 @@ export const answered = internalMutation({
     // A newer ask made while the workflow ran keeps waiting for its own pull request.
     if (!row?.promote || row.promote.state !== "asked" || row.promote.at !== at) return null;
     const state = pr !== undefined ? ("opened" as const) : ("refused" as const);
+    await promoteAnswered(ctx, versionId, pr, why, Date.now());
     await ctx.db.patch(row._id, { promote: { ...row.promote, state, ...(pr !== undefined ? { pr } : {}), ...(why !== undefined ? { why: why.slice(0, 300) } : {}) } });
     return null;
   },

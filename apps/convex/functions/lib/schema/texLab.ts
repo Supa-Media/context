@@ -99,6 +99,34 @@ export const texLabTables = {
     /** Promote: asked at a revision, then the pull request it went into (or why it was refused). */
     promote: v.optional(v.object({ state: v.union(v.literal("asked"), v.literal("opened"), v.literal("refused")), by: v.id("users"), at: v.number(), rev: v.number(), pr: v.optional(v.string()), why: v.optional(v.string()) })),
   }).index("by_convo", ["convoId"]),
+  /**
+   * Lab runs on GitHub (Dev2, 2026-11-16, "go ahead and build everything"; `functions/texLabRuns.ts`): a staff member
+   * in the Lab, or an AI over `tex_dev`, asked for a draft (or main) to run on the Dev set's unit tests, and the
+   * workflow `.github/workflows/tex-lab-run.yml` ran it and reported back. A "gate" run follows a Promote's pull
+   * request and its "Tex test set" status (counts only). Results are counts and ids, plus each unit test's
+   * verdict; never the Test set and never a real person's words.
+   */
+  texLabRuns: defineTable({
+    versionId: v.string(),
+    kind: v.union(v.literal("dev"), v.literal("chat"), v.literal("node"), v.literal("gate")),
+    convId: v.optional(v.string()),
+    nodeId: v.optional(v.string()),
+    models: v.union(v.literal("gw"), v.literal("cc")),
+    stage: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("failed")),
+    ghRunUrl: v.optional(v.string()),
+    /** A gate run's pull request. */
+    pr: v.optional(v.string()),
+    by: v.id("users"),
+    /** "lab" for the Lab page, or the AI client's name. */
+    via: v.string(),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    results: v.optional(v.any()),
+    error: v.optional(v.string()),
+  })
+    .index("by_started", ["startedAt"])
+    .index("by_version", ["versionId", "startedAt"])
+    .index("by_by", ["by", "startedAt"]),
   /** What each revision of a conversation draft changed (`texSetOps.cjs` keys and lines), for the conflict check. */
   texSetChanges: defineTable({
     convoId: v.string(),
